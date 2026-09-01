@@ -9,7 +9,9 @@
 
 use torajs_core::ssa::{Inst, Operand, Type};
 
-use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
+use super::operand::{
+    materialize_const_i64, materialize_operand_fpr, materialize_operand_gpr, operand_is_f64,
+};
 use super::{
     FP_SCRATCH_LHS, FP_SCRATCH_RESULT, OP_SCRATCH_LHS, OP_SCRATCH_RESULT_GPR, OP_SCRATCH_RHS,
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
@@ -36,6 +38,27 @@ pub fn emit_alloca(bytes: &mut Vec<u8>, inst: &Inst, alloc: &Assignment) {
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
+/// An offset past every immediate form — scaled imm12 (aligned,
+/// < 32760) and unscaled imm9 (unaligned, < 256) — rides the
+/// register-indexed form instead: the byte offset materializes into
+/// `OP_SCRATCH_TMP` (free here — the value takes LHS, the pointer
+/// RHS / LHS, the result its own home) and the access becomes
+/// `[Xn, Xm]`. 555-01: a 65k-element array literal stores its slots
+/// at offsets up to 524 KiB. Answers the index register, or `None`
+/// when an immediate form fits.
+fn wide_offset(bytes: &mut Vec<u8>, offset: u64) -> Option<Gpr> {
+    let fits = if offset % 8 == 0 {
+        offset < 32760
+    } else {
+        offset < 256
+    };
+    if fits {
+        return None;
+    }
+    materialize_const_i64(bytes, OP_SCRATCH_TMP, offset as i64);
+    Some(OP_SCRATCH_TMP)
+}
+
 /// Emit `LDR Xd/Dd, [Xn, #offset]` — load a 64-bit value from the
 /// pointer operand at the given byte offset.
 ///
@@ -52,14 +75,14 @@ pub fn emit_load(
     alloc: &Assignment,
 ) {
     let result_vid = inst.result.expect("Load must have result");
-    assert!(
-        offset < 32760,
-        "S3-A2 Load offset {offset} must fit imm12*8 (= 32760 max); larger offsets land in S3-B with scratch path"
-    );
     let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_LHS, alloc);
+    let wide = wide_offset(bytes, offset);
     if *ty == Type::F64 {
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
-        write_u32(bytes, ldr_d_imm12(dst, rn, offset as u32));
+        match wide {
+            Some(rm) => write_u32(bytes, ldr_d_reg(dst, rn, rm)),
+            None => write_u32(bytes, ldr_d_imm12(dst, rn, offset as u32)),
+        }
         write_def_spill_fpr(bytes, spill_off, dst);
     } else {
         let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
@@ -73,15 +96,13 @@ pub fn emit_load(
         // because the type_tag read at +4 collided with offset 0's
         // refcount slot). Use unscaled LDUR (signed imm9, ±256) for
         // unaligned offsets and the canonical LDR scaled imm12 form
-        // for aligned ones; offsets outside both ranges (≥4096 or
-        // ≥256 unaligned) still hit the existing 32760 assert.
-        if offset % 8 == 0 {
+        // for aligned ones; offsets outside both ranges take the
+        // register-indexed form (`wide_offset`).
+        if let Some(rm) = wide {
+            write_u32(bytes, ldr_x_reg(dst, rn, rm));
+        } else if offset % 8 == 0 {
             write_u32(bytes, ldr_x_imm12(dst, rn, offset as u32));
         } else {
-            assert!(
-                offset < 256,
-                "non-aligned Load offset {offset} must fit LDUR imm9 (= 255 max); larger needs scratch-reg path"
-            );
             write_u32(bytes, ldur_x_imm9(dst, rn, offset as i32));
         }
         write_def_spill_gpr(bytes, spill_off, dst);
@@ -111,19 +132,13 @@ pub fn emit_store(
     offset: u64,
     alloc: &Assignment,
 ) {
-    assert!(
-        offset < 32760,
-        "S3-A2 Store offset {offset} must fit imm12*8 (= 32760 max)"
-    );
     if store_val_is_zero(val) {
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        if offset % 8 == 0 {
+        if let Some(rm) = wide_offset(bytes, offset) {
+            write_u32(bytes, str_x_reg(Gpr::XZR, rn, rm));
+        } else if offset % 8 == 0 {
             write_u32(bytes, str_x_imm12(Gpr::XZR, rn, offset as u32));
         } else {
-            assert!(
-                offset < 256,
-                "non-aligned zero Store offset {offset} must fit STUR imm9"
-            );
             write_u32(bytes, stur_x_imm9(Gpr::XZR, rn, offset as i32));
         }
         return;
@@ -134,7 +149,10 @@ pub fn emit_store(
         // D-form scaled store: not yet ssa_lower-emitted at non-
         // aligned offsets; keep the aligned-only form until a real
         // need surfaces (mirror the LDR path's safety strategy).
-        write_u32(bytes, str_d_imm12(rs, rn, offset as u32));
+        match wide_offset(bytes, offset) {
+            Some(rm) => write_u32(bytes, str_d_reg(rs, rn, rm)),
+            None => write_u32(bytes, str_d_imm12(rs, rn, offset as u32)),
+        }
     } else {
         let rs = materialize_operand_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
@@ -142,13 +160,11 @@ pub fn emit_store(
         // route through STUR — pre-fix this branch went through
         // STR-scaled and silently floor-divided to the wrong slot,
         // breaking every heap-header field write (type_tag@+4 etc.).
-        if offset % 8 == 0 {
+        if let Some(rm) = wide_offset(bytes, offset) {
+            write_u32(bytes, str_x_reg(rs, rn, rm));
+        } else if offset % 8 == 0 {
             write_u32(bytes, str_x_imm12(rs, rn, offset as u32));
         } else {
-            assert!(
-                offset < 256,
-                "non-aligned Store offset {offset} must fit STUR imm9 (= 255 max)"
-            );
             write_u32(bytes, stur_x_imm9(rs, rn, offset as i32));
         }
     }
@@ -318,6 +334,79 @@ mod tests {
     /// no FMOV. Same fixture shape as `alloca_store_load_42` but the
     /// stored value is `ConstI64(0)` / `ConstF64(0.0)`; both must
     /// produce the identical XZR store word.
+    /// 555-01 — an offset past the scaled-imm12 range rides the
+    /// register-indexed form with the byte offset in X11.
+    #[test]
+    fn wide_offset_store_load_use_register_index() {
+        use torajs_core::ssa::{
+            Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId, ValueInfo,
+        };
+        let v0 = ValueId(0);
+        let v1 = ValueId(1);
+        let off: u64 = 40000;
+        let func = Function {
+            name: "wide".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values: vec![
+                ValueInfo {
+                    ty: Type::Ptr,
+                    name: None,
+                },
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                },
+            ],
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts: vec![
+                    Inst {
+                        result: Some(v0),
+                        kind: InstKind::AllocaBytes(8),
+                        origin: None,
+                    },
+                    Inst {
+                        result: None,
+                        kind: InstKind::Store(Operand::ConstI64(7), Operand::Value(v0), off),
+                        origin: None,
+                    },
+                    Inst {
+                        result: Some(v1),
+                        kind: InstKind::Load(Type::I64, Operand::Value(v0), off),
+                        origin: None,
+                    },
+                ],
+                term: Terminator::Ret(Some(Operand::Value(v1))),
+            }],
+            current_origin: None,
+        };
+        let compiled = compile_function(&func);
+        let words: Vec<u32> = compiled
+            .bytes
+            .chunks_exact(4)
+            .map(|c| u32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        let movz = enc::movz_imm(Gpr::X11, (off & 0xFFFF) as u16, 0);
+        assert!(words.contains(&movz), "offset materializes into X11");
+        assert!(
+            words.contains(&enc::str_x_reg(Gpr::X9, Gpr::X13, Gpr::X11)),
+            "STR rides [Xn, X11]"
+        );
+        // LDR Xt, [X13, X11] for whatever Rt the allocator picked.
+        let ldr_shape = enc::ldr_x_reg(Gpr::X0, Gpr::X13, Gpr::X11) & !0x1F;
+        assert!(
+            words.iter().any(|w| (w & !0x1F) == ldr_shape),
+            "LDR rides [Xn, X11]"
+        );
+        assert!(
+            !words
+                .iter()
+                .any(|w| (w >> 22) == (0xF900_0000u32 >> 22) && (w >> 10) & 0xFFF >= 4096),
+            "no overflowed scaled immediate"
+        );
+    }
+
     #[test]
     fn store_const_zero_uses_xzr() {
         use torajs_core::ssa::{
