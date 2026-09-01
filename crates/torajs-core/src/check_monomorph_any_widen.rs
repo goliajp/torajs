@@ -279,13 +279,29 @@ fn emit_widened_spec(
         // lower), never a silent wrong block.
         return;
     };
+    // 551-03 — a lifted closure body's `__env` head is not a user
+    // param: user index `i` is AST slot `i + 1` (the fn type in
+    // `globals` was built past the head, so the type-side rewrite
+    // below stays at `i`).
+    let lifted = params.first().is_some_and(|p| p.name == "__env");
+    let head = usize::from(lifted);
     let no_subst: Vec<(String, String)> = Vec::new();
     let (mut new_params, new_return_type, new_body, id_map) =
         clone_spec_body(owned_ast, &params, &return_type, &body, &no_subst);
     for &(i, target) in idxs {
-        if let Some(p) = new_params.get_mut(i) {
+        if let Some(p) = new_params.get_mut(i + head) {
             p.type_ann = Some(target.ann().to_string());
         }
+    }
+    if lifted {
+        // The clone is a lifted body in every name-keyed table the
+        // original is in, and the lowerer reads the original's env
+        // layout under the clone's name (no construction site of its
+        // own — the call retargets with the original cell's env).
+        c.closure_fn_names.insert(mono_name.to_string());
+        crate::check_monomorph_closures::mirror_name_keyed_tables(owned_ast, fn_name, mono_name);
+        c.widen_clone_origin
+            .insert(mono_name.to_string(), fn_name.to_string());
     }
     // Value-escape clone: a TypeVar return ANN (the AST-side `__T`)
     // erases to `any` too — the spec has no type params to bind it.
@@ -340,7 +356,11 @@ fn emit_widened_spec(
     let _closure_rename = crate::check_monomorph_closures::clone_spec_closures(
         c, owned_ast, suffix, &id_map, &no_subst,
     );
-    c.check_stmt(owned_ast, &spec_decl);
+    if lifted {
+        check_lifted_spec(c, owned_ast, fn_name, &spec_decl);
+    } else {
+        c.check_stmt(owned_ast, &spec_decl);
+    }
     c.errors.truncate(saved_error_count);
     let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
     let inner_pads = std::mem::replace(&mut c.arity_pad_count, saved_pads);
@@ -359,5 +379,37 @@ fn emit_widened_spec(
     );
     c.generic_call_sites.extend(inner_sites);
     c.arity_pad_count.extend(inner_pads);
-    mono_decls.push(spec_decl);
+    if !lifted {
+        mono_decls.push(spec_decl);
+    }
+}
+
+/// 551-03 — check a lifted body's clone the way its original was
+/// checked: at the construction site, with the captures bound
+/// (`check_closure`), not as a top-level FnDecl walk — that walk zips
+/// the `__env` head against the first user type and leaves the real
+/// params unbound. The clone joins `stmts` first (`closure_sig`
+/// resolves the body by name there); the captures are the original
+/// site's, which the admit gate proved resolve at this level.
+fn check_lifted_spec(c: &mut Checker, owned_ast: &mut Ast, fn_name: &str, spec_decl: &Stmt) {
+    let mono_name = match spec_decl {
+        Stmt::FnDecl { name, .. } => name.clone(),
+        _ => unreachable!("widened spec is a FnDecl"),
+    };
+    owned_ast.stmts.push(spec_decl.clone());
+    let (site, captures) = owned_ast
+        .exprs
+        .iter()
+        .enumerate()
+        .find_map(|(i, e)| match e {
+            crate::ast::Expr::Closure {
+                fn_name: f,
+                captures,
+            } if f == fn_name => Some((ExprId(i as u32), captures.clone())),
+            _ => None,
+        })
+        .unwrap_or_else(|| {
+            panic!("any-widen: lifted closure `{fn_name}` has no construction site")
+        });
+    let _ = crate::check_type_of_fn::check_closure(c, owned_ast, site, &mono_name, &captures);
 }

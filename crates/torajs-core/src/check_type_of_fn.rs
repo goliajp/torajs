@@ -36,6 +36,7 @@ pub(crate) fn check_arrow_fn(
     };
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
+    checker.toplevel_captures.push(Default::default());
     for (p, ty) in params.iter().zip(param_tys.iter()) {
         if let Err(e) = checker.declare(
             p.name.clone(),
@@ -56,6 +57,7 @@ pub(crate) fn check_arrow_fn(
     }
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
+    checker.toplevel_captures.pop();
     Ok(fn_ty)
 }
 
@@ -195,6 +197,28 @@ pub(crate) fn check_closure(
         body,
         value_ty,
     } = sig;
+    // 551-03 — which of these captures ARE the top-level binding of
+    // that name: resolved in main's own frame with no inner shadow,
+    // or carried in from an enclosing closure that resolved it so.
+    // The any-widen alias may retarget a call through such a capture
+    // to the top-level const's lifted body, and through nothing else.
+    let in_fn = checker.expected_return.is_some();
+    let top_caps: std::collections::HashSet<String> = cap_tys
+        .iter()
+        .filter(|(n, _)| {
+            if in_fn {
+                checker
+                    .toplevel_captures
+                    .last()
+                    .is_some_and(|s| s.contains(n))
+            } else {
+                checker.scopes.first().is_some_and(|s| s.contains_key(n))
+                    && checker.scopes.iter().filter(|s| s.contains_key(n)).count() == 1
+            }
+        })
+        .map(|(n, _)| n.clone())
+        .collect();
+    checker.toplevel_captures.push(top_caps);
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(ret_ty);
     // §15.5.5 (RFC 20260810) — the fn-expression's self-name binds
@@ -275,5 +299,6 @@ pub(crate) fn check_closure(
     checker.self_name_active = saved_self_name;
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
+    checker.toplevel_captures.pop();
     Ok(value_ty)
 }

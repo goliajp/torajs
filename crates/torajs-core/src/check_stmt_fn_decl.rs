@@ -33,6 +33,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     };
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
+    checker.toplevel_captures.push(Default::default());
     let saved_class = checker.current_class.take();
     let new_class: Option<String> = name
         .strip_prefix("__cm_")
@@ -111,5 +112,6 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     checker.hoisted_closure_lets = saved_hoists;
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
+    checker.toplevel_captures.pop();
     checker.current_class = saved_class;
 }

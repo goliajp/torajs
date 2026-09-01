@@ -139,13 +139,20 @@ pub(crate) fn run(
             // `neutralize_clone` — still lands here instead of
             // panicking on the env preamble. The pass-1 shell stays
             // an empty Function no call site can reach.
+            // 551-03 — an any-widened clone of a lifted body is never
+            // constructed; it is live through its retargeted call and
+            // its layout is the original's (`widen_clone_origin`).
+            let layout_of = ast
+                .widen_clone_origin
+                .get(name.as_str())
+                .map_or(name.as_str(), String::as_str);
             let dead_orphan = params.first().is_some_and(|p| {
                 p.name == "__env"
                     && p.type_ann
                         .as_deref()
                         .and_then(crate::ssa_lower_free_helpers::decode_env_ann)
                         .is_some_and(|caps| !caps.is_empty())
-            }) && !closure_captures.contains_key(name.as_str());
+            }) && !closure_captures.contains_key(layout_of);
             if dead_orphan {
                 // The definition must still exist — the boxed-entry
                 // adapter (synthesized for every lifted closure)

@@ -261,11 +261,19 @@ impl<'a> LowerCtx<'a> {
         // self-named zero-capture fn-expr panic when its body lowered
         // before its construction site (for-head destructuring
         // defaults order it that way).
+        // 551-03 — an any-widened clone of a lifted body has no
+        // construction site of its own; the call enters it with the
+        // ORIGINAL cell's env, so the original's layout is its layout.
+        let layout_of = self
+            .ast
+            .widen_clone_origin
+            .get(fn_name)
+            .map_or(fn_name, String::as_str);
         let cap_meta: Vec<(String, Type, bool)> = if cap_names.is_empty() {
             Vec::new()
         } else {
             self.closure_captures
-                .get(fn_name)
+                .get(layout_of)
                 .cloned()
                 .unwrap_or_else(|| {
                     panic!(

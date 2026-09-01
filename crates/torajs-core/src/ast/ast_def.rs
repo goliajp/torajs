@@ -178,6 +178,11 @@ pub struct Ast {
     /// Parked by `check_monomorph` on the owned post-check AST (same
     /// ride as `undeclared_reads`). Empty pre-check.
     pub self_name_writes: std::collections::HashSet<ExprId>,
+    /// 551-03 — any-widened clone of a lifted closure body → the
+    /// lifted name it was cloned from. Never constructed (the call
+    /// retargets to it with the ORIGINAL cell's env), so its env
+    /// layout is the original's. Parked by `check_monomorph`.
+    pub widen_clone_origin: std::collections::HashMap<String, String>,
     /// RFC 20260714-dstr-residual blade 4 — NamedEvaluation for
     /// anonymous class expressions: synth class name
     /// (`__ClassExpr_<id>`) → binding identifier, recorded by the

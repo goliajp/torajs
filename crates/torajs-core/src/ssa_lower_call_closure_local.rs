@@ -31,6 +31,7 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{CLOSURE_FN_ADDR_OFF, LowerCtx, intern_fn_sig};
 
 mod bindings;
+mod retarget;
 use bindings::{
     global_argv_face_binding, global_fnsig_mismatch_binding, global_variadic_value_binding,
     recv_gate_reachable,
@@ -42,6 +43,9 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
+    if let Some(op) = retarget::try_lower(ctx, eid, callee, args) {
+        return Some(op);
+    }
     try_lower_with_this(ctx, eid, callee, args, None)
 }
 

@@ -59,16 +59,10 @@ pub(super) fn any_into_heap_param(
     let crate::ast::Expr::Ident(n) = ast.get_expr(*callee) else {
         return false;
     };
-    if checker.closure_fn_names.contains(n)
-        || !checker
-            .generic_type_params
-            .get(n)
-            .is_none_or(|tp| tp.is_empty())
-        || !widenable_fn_decl(ast, n, i)
-    {
+    let Some(n) = clonable_callee(checker, ast, n, i) else {
         return false;
-    }
-    record_widen_site(checker, eid, n, i, WidenTarget::Scalar);
+    };
+    record_widen_site(checker, eid, &n, i, WidenTarget::Scalar);
     true
 }
 
@@ -97,16 +91,10 @@ pub(super) fn arr_any_into_typed_arr_param(
     let crate::ast::Expr::Ident(n) = ast.get_expr(*callee) else {
         return false;
     };
-    if checker.closure_fn_names.contains(n)
-        || !checker
-            .generic_type_params
-            .get(n)
-            .is_none_or(|tp| tp.is_empty())
-        || !widenable_fn_decl(ast, n, i)
-    {
+    let Some(n) = clonable_callee(checker, ast, n, i) else {
         return false;
-    }
-    record_widen_site(checker, eid, n, i, WidenTarget::Arr);
+    };
+    record_widen_site(checker, eid, &n, i, WidenTarget::Arr);
     true
 }
 
@@ -145,20 +133,104 @@ pub(super) fn record_widen_site(
     }
 }
 
+/// The FnDecl the any-widen lane would clone for a call through
+/// `callee`. `None` when the lane cannot serve the callee: a generic,
+/// a lifted body named directly, or a decl [`widenable_fn_decl`]
+/// rejects.
+///
+/// 551-03 — a call through a top-level `const f = (…) => …` binding
+/// names the BINDING, not the lifted decl behind it; the alias
+/// resolves it (`lifted_closure_alias`) and the clone then carries
+/// the `__env` head, which the clone lane serves through the same
+/// path the hand-spelled `(x: any) => …` closure takes today.
+fn clonable_callee(checker: &Checker, ast: &Ast, n: &str, i: usize) -> Option<String> {
+    let (name, lifted) = match lifted_closure_alias(checker, ast, n) {
+        Some(f) => (f, true),
+        None if checker.closure_fn_names.contains(n) => return None,
+        None => (n.to_string(), false),
+    };
+    let generic = !checker
+        .generic_type_params
+        .get(&name)
+        .is_none_or(|tp| tp.is_empty());
+    (!generic && widenable_fn_decl(ast, &name, i, lifted)).then_some(name)
+}
+
+/// 551-03 — the lifted decl behind a top-level `const` closure
+/// binding, when the clone lane can stand in for it at this call.
+/// The name must reach THAT binding: at top level, main's own frame
+/// with no inner shadow; inside a body, either no local of the name
+/// (the globals path) or a capture the checker marked as carrying
+/// the top-level binding (`toplevel_captures`). The closure's own
+/// captures must have resolved at its construction site (recorded
+/// there, a promoted global, or a class sentinel) — the clone is
+/// re-checked at that same level. And the body is a plain arrow: no
+/// receiver channel, no argv face, no self-name, not async.
+fn lifted_closure_alias(checker: &Checker, ast: &Ast, name: &str) -> Option<String> {
+    let (fn_name, captures) = ast.stmts.iter().find_map(|s| match s {
+        crate::ast::Stmt::LetDecl {
+            mutable: false,
+            is_var: false,
+            name: n,
+            init,
+            ..
+        } if n == name => match ast.get_expr(*init) {
+            crate::ast::Expr::Closure { fn_name, captures } => {
+                Some((fn_name.clone(), captures.clone()))
+            }
+            _ => None,
+        },
+        _ => None,
+    })?;
+    let in_fn = checker.expected_return.is_some();
+    let frames_with = checker
+        .scopes
+        .iter()
+        .filter(|s| s.contains_key(name))
+        .count();
+    let names_const = match (in_fn, frames_with) {
+        (false, 1) => checker.scopes.first().is_some_and(|s| s.contains_key(name)),
+        (true, 0) => true,
+        (true, 1) => checker
+            .toplevel_captures
+            .last()
+            .is_some_and(|s| s.contains(name)),
+        _ => false,
+    };
+    if !names_const {
+        return None;
+    }
+    let resolved = checker.closure_captures.get(&fn_name)?;
+    let resolvable = captures.iter().all(|c| {
+        resolved.iter().any(|(n, _)| n == c)
+            || checker.globals.contains_key(c)
+            || c.starts_with("__class_")
+            || c.starts_with("__proto_")
+    });
+    let plain = !ast.fnexpr_recv_fns.contains(&fn_name)
+        && !ast.closure_argv_fns.contains(&fn_name)
+        && !ast.async_fns.contains(&fn_name)
+        && !ast.async_generator_fns.contains(&fn_name)
+        && !ast.closure_self_names.contains_key(&fn_name);
+    (resolvable && plain).then_some(fn_name)
+}
+
 /// RFC 20260802 gate — can the any-widen lane clone this callee with
 /// param `i` widened? Requires a top-level non-generic non-generator
-/// FnDecl that is not a lifted closure (`__env` first param), has no
-/// rest param (the rest stretch remaps arg indexes past the real
-/// param list, so an override index would land on the wrong slot),
-/// and declares param `i` (T-28 pad / arity wedges can shift counts).
-pub(super) fn widenable_fn_decl(ast: &Ast, name: &str, i: usize) -> bool {
+/// FnDecl that declares param `i` (T-28 pad / arity wedges can shift
+/// counts) as a non-rest slot. `lifted` says the decl is a closure
+/// body: its `__env` head is not a user param, so user index `i` is
+/// AST slot `i + 1` (the head is what `check_pipeline` skips when it
+/// builds the closure's fn type). A plain decl must not carry the
+/// head, a lifted one must.
+pub(super) fn widenable_fn_decl(ast: &Ast, name: &str, i: usize, lifted: bool) -> bool {
+    let slot = i + usize::from(lifted);
     ast.stmts.iter().any(|s| {
         matches!(s, crate::ast::Stmt::FnDecl { name: n, type_params, is_generator, params, .. }
             if n == name
                 && type_params.is_empty()
                 && !*is_generator
-                && params.first().is_none_or(|p| p.name != "__env")
-                && i < params.len()
+                && params.first().is_some_and(|p| p.name == "__env") == lifted
                 // Only the slot being widened has to be non-rest: its
                 // annotation is rewritten to a scalar `any` / `any[]`,
                 // which is not what a rest slot means. The others ride
@@ -166,6 +238,6 @@ pub(super) fn widenable_fn_decl(ast: &Ast, name: &str, i: usize) -> bool {
                 // already serves — spelling the widened slot `any` by
                 // hand next to a `...rest` param works today, which is
                 // exactly what the clone produces.
-                && params.get(i).is_some_and(|p| !p.is_rest))
+                && params.get(slot).is_some_and(|p| !p.is_rest))
     })
 }

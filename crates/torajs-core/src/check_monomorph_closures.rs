@@ -228,7 +228,7 @@ fn find_lifted_decl(ast: &Ast, name: &str) -> Option<LiftedDecl> {
 /// in). These drive lower-side construction flags (`FLAG_FN_PROTO`,
 /// `FLAG_FN_ASYNC`, receiver-first), the pass-2B `.name` registry,
 /// and the checker's full-arguments value type.
-fn mirror_name_keyed_tables(ast: &mut Ast, orig: &str, clone: &str) {
+pub(crate) fn mirror_name_keyed_tables(ast: &mut Ast, orig: &str, clone: &str) {
     if let Some(v) = ast.closure_self_names.get(orig).cloned() {
         ast.closure_self_names.insert(clone.to_string(), v);
     }

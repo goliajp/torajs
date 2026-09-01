@@ -233,6 +233,8 @@ impl Checker {
             self_name_active: None,
             self_name_writes: std::collections::HashSet::new(),
             unresolved_captures: HashMap::new(),
+            widen_clone_origin: HashMap::new(),
+            toplevel_captures: Vec::new(),
             assign_narrows: HashMap::new(),
             member_narrows: HashMap::new(),
         }
@@ -456,6 +458,14 @@ pub(crate) struct Checker {
     /// them from the owned AST's capture lists so the lowerer's env
     /// materialization never sees them.
     pub(crate) unresolved_captures: HashMap<ExprId, Vec<String>>,
+    /// 551-03 — any-widened clone of a lifted body → its original
+    /// (`Ast::widen_clone_origin` doc); parked by `check_monomorph`.
+    pub(crate) widen_clone_origin: HashMap<String, String>,
+    /// 551-03 — per body frame being checked, the captures that ARE
+    /// the top-level binding of their name (`check_closure` pushes;
+    /// named-fn / legacy-arrow bodies push an empty set). Read by
+    /// the any-widen alias (`check_type_of_call/any_widen.rs`).
+    pub(crate) toplevel_captures: Vec<std::collections::HashSet<String>>,
     /// Straight-line assignment-narrowing ledger — `name → declared
     /// (pre-narrow) type` for bindings narrowed by a statement-level
     /// `b = <non-null>` assign (see check_assign_narrow.rs). Flushed

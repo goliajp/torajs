@@ -259,13 +259,45 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
 /// args' lowers; the caller's [`AnyArgv::release`] drops them after
 /// the call (rotation 550).
 pub(crate) fn pack_any_argv(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> AnyArgv {
+    pack_any_argv_padded(ctx, args, 0)
+}
+
+/// [`pack_any_argv`] with the buffer padded to at least `min_slots`
+/// slots, the extra ones holding `undefined` — the fixed-width argv a
+/// boxed dual entry reads its param count out of unconditionally.
+/// The runtime dispatcher supplies that padding itself; a direct
+/// entry call (551-03 closure retarget) has to bring it.
+pub(crate) fn pack_any_argv_padded(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+    min_slots: usize,
+) -> AnyArgv {
     let argc = args.len();
     let argv = ctx.f.append_inst(
         crate::ssa::BlockId(0),
-        InstKind::AllocaBytes((argc.max(1) * 8) as u64),
+        InstKind::AllocaBytes((argc.max(min_slots).max(1) * 8) as u64),
         Type::Ptr,
         Some("__amc_argv"),
     );
+    for i in argc..min_slots {
+        let undef_box = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(
+                Operand::Value(undef_box),
+                Operand::Value(argv),
+                (i * 8) as u64,
+            ),
+        );
+    }
     let mut packed = AnyArgv::new(argv, argc);
     for (i, &aid) in args.iter().enumerate() {
         // A regex literal is a BORROW, not a temp — `lower_expr`
