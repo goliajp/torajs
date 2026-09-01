@@ -220,8 +220,13 @@ fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
 fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
     let n = element_ids.len() as i64;
     let (anchor_ty, probed) = probe_anchor_ty(ctx, element_ids);
-    let (mut elem_vals, mut elem_inc_after) =
+    let (mut elem_vals, mut elem_inc_after, parked) =
         lower_no_spread_elements(ctx, element_ids, anchor_ty, probed);
+    // Every element is lowered; nothing below can throw before the
+    // stores transfer the owned ones into the array.
+    for t in parked {
+        ctx.pop_throw_temp(t);
+    }
     let elem_ty = compute_elem_ty(ctx, anchor_ty, &elem_vals, eid);
     if elem_ty == Type::F64 {
         coerce_elem_vals_to_f64(ctx, &mut elem_vals);
@@ -315,9 +320,15 @@ fn lower_no_spread_elements(
     element_ids: &[ExprId],
     anchor_ty: Option<Type>,
     probed: Option<(usize, Operand)>,
-) -> (Vec<Operand>, Vec<bool>) {
+) -> (Vec<Operand>, Vec<bool>, Vec<usize>) {
     let mut elem_vals: Vec<Operand> = Vec::with_capacity(element_ids.len());
     let mut elem_inc_after: Vec<bool> = Vec::with_capacity(element_ids.len());
+    // Rotation 549 — an owned element (fresh alloc, call product,
+    // nested literal) is alive across every later element's lower;
+    // park it so a throw there drops it (`[{} as any, boom()]`
+    // stranded the object per caught throw, 252MB over 600k). The
+    // caller unparks once every element is lowered.
+    let mut parked: Vec<usize> = Vec::new();
     for (idx, eid) in element_ids.iter().enumerate() {
         if matches!(ctx.ast.get_expr(*eid), Expr::Array(els) if els.is_empty())
             && let Some(Type::Arr(inner_id)) = anchor_ty
@@ -329,6 +340,7 @@ fn lower_no_spread_elements(
                 Type::Arr(inner_id),
                 None,
             );
+            parked.push(ctx.push_throw_temp(Operand::Value(v), Type::Arr(inner_id)));
             elem_vals.push(Operand::Value(v));
             elem_inc_after.push(false);
             continue;
@@ -337,6 +349,9 @@ fn lower_no_spread_elements(
             Some((p_idx, p_op)) if *p_idx == idx => p_op.clone(),
             _ => ctx.lower_expr(*eid),
         };
+        if let Some((op, ty)) = ctx.throw_temp_of(*eid, &v) {
+            parked.push(ctx.push_throw_temp(op, ty));
+        }
         let v_ty = ctx.operand_ty(&v);
         // Chunk 570 — a named-binding elem is always a SHARE: local
         // OR global (the old `locals`-only lookup answered false for
@@ -370,7 +385,7 @@ fn lower_no_spread_elements(
         elem_inc_after.push(needs_inc);
         elem_vals.push(v);
     }
-    (elem_vals, elem_inc_after)
+    (elem_vals, elem_inc_after, parked)
 }
 
 fn compute_elem_ty(

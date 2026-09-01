@@ -62,53 +62,65 @@ pub(crate) fn emit(
         .fn_sig_ids
         .get(&target)
         .map(|sid| ctx.fn_sigs[sid.0 as usize].0.clone());
+    // Rotation 549 — an owned-shape arg temp is alive across every
+    // later arg's lower and the callee itself (args are +0 shares,
+    // released after the call): park each one so a throw in between
+    // drops it (`f({} as any, boom())` stranded the object per caught
+    // throw, 175MB over 600k). Unparked after the post-call check.
+    let mut arg_toks: Vec<usize> = Vec::new();
     let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
         .map(|(i, a)| {
-            let expected = param_tys.as_ref().and_then(|ps| ps.get(i + hidden_off));
-            if let Some(op) = ctx.try_lower_empty_array_arg(*a, expected) {
-                return op;
+            let v = 'arg: {
+                let expected = param_tys.as_ref().and_then(|ps| ps.get(i + hidden_off));
+                if let Some(op) = ctx.try_lower_empty_array_arg(*a, expected) {
+                    break 'arg op;
+                }
+                // 2026-07-16 — mirror stmt_let_decl.rs:411 (`ty == Any &&
+                // ObjectLit → lower_dynobj_init`): a direct ObjectLit arg
+                // into an `any`-typed param goes straight through the
+                // dobj lane so `undefined` field values keep the
+                // `ANY_UNDEF` tag (`lower_dynobj_init`'s `Ident("undefined")`
+                // special case, ssa_lower_dynobj_init.rs:83). Without this,
+                // the arg lowered as a `Type::Struct` value and the
+                // subsequent `box_to_any_from_expr` at the coerce step
+                // collapsed the Type::Undefined slot to ptr-null → tag 0,
+                // so `verifyProperty(newObj, "prop", { value: undefined,
+                // ... })`'s `desc.value` read back as `null` (blocking the
+                // test262 "descriptor value should be null" 8-case cluster
+                // under `Object/create`).
+                if let Some(Type::Any) = expected
+                    && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
+                {
+                    // ANY_HEAP encode (mirrors the as-cast / let-decl
+                    // promotes). The raw Ptr face leaked every arg cell:
+                    // `release_owned_temp` keys the drop off the operand
+                    // type, and `is_copy(Ptr)` = no release site — 300k
+                    // `take({a:i})` churned 83.5MB vs 6.4MB flat. The
+                    // Any box gives the release a type it drops AND the
+                    // callee a face that passes the any-lane tag gates.
+                    let dynobj = ctx.lower_dynobj_init(*a);
+                    break 'arg ctx.box_to_any(dynobj);
+                }
+                // Chunk 784 — pin the param's declared struct layout for
+                // a direct ObjectLit arg (mirrors the chunk-780 let-decl
+                // site): without it resolve_objlit_layout first-matches a
+                // same-shaped layout registered under a different
+                // declared type and the slot reprs collide (silent-wrong
+                // reads through the declared layout).
+                if let Some(Type::Obj(sid)) = expected
+                    && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
+                {
+                    ctx.let_declared_obj_layout = Some(*sid);
+                }
+                let v = ctx.lower_expr(*a);
+                ctx.let_declared_obj_layout = None;
+                v
+            };
+            if let Some((op, ty)) = ctx.throw_temp_of(*a, &v) {
+                arg_toks.push(ctx.push_throw_temp(op, ty));
             }
-            // 2026-07-16 — mirror stmt_let_decl.rs:411 (`ty == Any &&
-            // ObjectLit → lower_dynobj_init`): a direct ObjectLit arg
-            // into an `any`-typed param goes straight through the
-            // dobj lane so `undefined` field values keep the
-            // `ANY_UNDEF` tag (`lower_dynobj_init`'s `Ident("undefined")`
-            // special case, ssa_lower_dynobj_init.rs:83). Without this,
-            // the arg lowered as a `Type::Struct` value and the
-            // subsequent `box_to_any_from_expr` at the coerce step
-            // collapsed the Type::Undefined slot to ptr-null → tag 0,
-            // so `verifyProperty(newObj, "prop", { value: undefined,
-            // ... })`'s `desc.value` read back as `null` (blocking the
-            // test262 "descriptor value should be null" 8-case cluster
-            // under `Object/create`).
-            if let Some(Type::Any) = expected
-                && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
-            {
-                // ANY_HEAP encode (mirrors the as-cast / let-decl
-                // promotes). The raw Ptr face leaked every arg cell:
-                // `release_owned_temp` keys the drop off the operand
-                // type, and `is_copy(Ptr)` = no release site — 300k
-                // `take({a:i})` churned 83.5MB vs 6.4MB flat. The
-                // Any box gives the release a type it drops AND the
-                // callee a face that passes the any-lane tag gates.
-                let dynobj = ctx.lower_dynobj_init(*a);
-                return ctx.box_to_any(dynobj);
-            }
-            // Chunk 784 — pin the param's declared struct layout for
-            // a direct ObjectLit arg (mirrors the chunk-780 let-decl
-            // site): without it resolve_objlit_layout first-matches a
-            // same-shaped layout registered under a different
-            // declared type and the slot reprs collide (silent-wrong
-            // reads through the declared layout).
-            if let Some(Type::Obj(sid)) = expected
-                && matches!(ctx.ast.get_expr(*a), crate::ast::Expr::ObjectLit { .. })
-            {
-                ctx.let_declared_obj_layout = Some(*sid);
-            }
-            let v = ctx.lower_expr(*a);
-            ctx.let_declared_obj_layout = None;
             v
         })
         .collect();
@@ -166,6 +178,11 @@ pub(crate) fn emit(
     target = maybe_swap_math_sum_precise(ctx, target, &argv);
     pad_trailing_undef(ctx, eid, &mut argv);
     let coerce_owned = coerce_args(ctx, target, hidden_off, args, &mut argv);
+    // The coerce-minted temps live across the callee too.
+    let coerce_toks: Vec<usize> = coerce_owned
+        .iter()
+        .map(|(op, ty)| ctx.push_throw_temp(op.clone(), ty.clone()))
+        .collect();
     // H1 — prepend the argc operand LAST, after every positional zip
     // above has run against the user-aligned argv. The count is the
     // call's argument-expression count (during the H1 double-feed
@@ -204,6 +221,10 @@ pub(crate) fn emit(
         Operand::Value(v)
     };
     ctx.emit_throw_check(Some(target));
+    // Unpark before the unconditional releases below.
+    for t in arg_toks.into_iter().chain(coerce_toks) {
+        ctx.pop_throw_temp(t);
+    }
     for (i, op) in owned_temps {
         ctx.release_owned_temp(args[i], &op);
     }

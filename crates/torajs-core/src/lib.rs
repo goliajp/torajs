@@ -295,6 +295,7 @@ pub(crate) mod ssa_lower_bounds_proven;
 pub(crate) mod ssa_lower_boxed_entry;
 pub(crate) mod ssa_lower_call;
 pub(crate) mod ssa_lower_call_arg_conv;
+pub(crate) mod ssa_lower_call_arg_temps;
 pub(crate) mod ssa_lower_call_arr_flat_map;
 pub(crate) mod ssa_lower_call_arr_ho;
 pub(crate) mod ssa_lower_call_arr_ho_loop;

@@ -134,8 +134,7 @@ pub(crate) fn try_lower_with_this(
     // S1 argc slot — the REAL user argument count (beyond-arity args
     // included; they're evaluated but never enter argv).
     argv.push(Operand::ConstI64(args.len() as i64));
-    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
+    let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     // An explicit `.call`/`.apply` thisArg evaluates unconditionally
     // (§20.2.3.3 step order) and boxes for the `__this` slot; the
     // callee's param is a +0 borrow, so a fresh-owned thisArg
@@ -143,8 +142,8 @@ pub(crate) fn try_lower_with_this(
     // contract).
     let this_box = this_arg.map(|t| {
         let raw = ctx.lower_expr(t);
-        owned_temps.push((t, raw));
-        crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, Type::Any, t, raw, &mut coerce_owned)
+        temps.push(ctx, t, raw);
+        crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, Type::Any, t, raw, &mut temps.coerce)
     });
     let mut gate_recv_box: Option<Operand> = None;
     if needs_this {
@@ -184,7 +183,7 @@ pub(crate) fn try_lower_with_this(
         // post-call release; borrow-shape args pass +0 and keep
         // their stake (no inc: the body never drops params, no
         // consume: TS args share).
-        owned_temps.push((*a, raw));
+        temps.push(ctx, *a, raw);
         if i >= user_params.len() {
             continue; // beyond-arity: evaluated, value unused
         }
@@ -201,7 +200,7 @@ pub(crate) fn try_lower_with_this(
         // twice, the callee reading integer bits out of an f64 slot.
         let converted = match user_params.get(i) {
             Some(&p) => {
-                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut coerce_owned)
+                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut temps.coerce)
             }
             None => raw,
         };
@@ -238,13 +237,7 @@ pub(crate) fn try_lower_with_this(
     };
     // bug-327 C2.5 — indirect targets are unknown statically;
     // propagate a pending throw the same way direct user-fn calls do.
-    ctx.emit_throw_check(None);
-    for (a, op) in owned_temps {
-        ctx.release_owned_temp(a, &op);
-    }
-    for (op, ty) in coerce_owned {
-        ctx.emit_drop_value(op, ty);
-    }
+    temps.check_and_release(ctx);
     Some(result.unwrap_or(Operand::ConstPtrNull))
 }
 

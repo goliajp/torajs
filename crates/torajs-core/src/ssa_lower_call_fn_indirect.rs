@@ -80,8 +80,7 @@ fn try_lower_local_fnsig(
     // drops its params — the historical rc_inc leaked one ref per
     // call, probe-proven), no consume; owned-shape temps release
     // after the call (call_terminal mirror).
-    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
+    let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
@@ -90,7 +89,7 @@ fn try_lower_local_fnsig(
             let raw = ctx
                 .try_lower_empty_array_arg(*a, target_params.get(i))
                 .unwrap_or_else(|| ctx.lower_expr(*a));
-            owned_temps.push((*a, raw));
+            temps.push(ctx, *a, raw);
             // RFC 20260707 chunk 626 — typed array into an Arr<Any>
             // param marks the block's elem kind (self-gating).
             if let Some(p) = target_params.get(i) {
@@ -102,7 +101,7 @@ fn try_lower_local_fnsig(
                     p,
                     *a,
                     raw,
-                    &mut coerce_owned,
+                    &mut temps.coerce,
                 ),
                 None => raw,
             }
@@ -122,13 +121,7 @@ fn try_lower_local_fnsig(
             ctx.cur_block,
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
-        ctx.emit_throw_check(None);
-        for (a, op) in owned_temps {
-            ctx.release_owned_temp(a, &op);
-        }
-        for (op, ty) in coerce_owned {
-            ctx.emit_drop_value(op, ty);
-        }
+        temps.check_and_release(ctx);
         return Some(Operand::ConstPtrNull);
     }
     let v = ctx.f.append_inst(
@@ -137,13 +130,7 @@ fn try_lower_local_fnsig(
         ret_ty,
         None,
     );
-    ctx.emit_throw_check(None);
-    for (a, op) in owned_temps {
-        ctx.release_owned_temp(a, &op);
-    }
-    for (op, ty) in coerce_owned {
-        ctx.emit_drop_value(op, ty);
-    }
+    temps.check_and_release(ctx);
     Some(Operand::Value(v))
 }
 
@@ -304,18 +291,17 @@ pub(crate) fn emit_closure_callee_with_this(
     argv.push(Operand::Value(env_ptr));
     // S1 argc slot — the real user argument count.
     argv.push(Operand::ConstI64(args.len() as i64));
-    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
+    let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     match this_arg {
         ClosureThis::Expr(t) => {
             let raw = ctx.lower_expr(t);
-            owned_temps.push((t, raw));
+            temps.push(ctx, t, raw);
             let boxed = crate::ssa_lower_call_arg_conv::emit_arg_conv(
                 ctx,
                 Type::Any,
                 t,
                 raw,
-                &mut coerce_owned,
+                &mut temps.coerce,
             );
             argv.push(boxed);
         }
@@ -340,7 +326,7 @@ pub(crate) fn emit_closure_callee_with_this(
         let raw = ctx
             .try_lower_empty_array_arg(*a, user_params.get(i))
             .unwrap_or_else(|| ctx.lower_expr(*a));
-        owned_temps.push((*a, raw));
+        temps.push(ctx, *a, raw);
         if i >= user_params.len() {
             continue; // beyond-arity: evaluated, value unused
         }
@@ -360,7 +346,7 @@ pub(crate) fn emit_closure_callee_with_this(
         // of the contract applies here for the same reasons.
         let converted = match user_params.get(i) {
             Some(&p) => {
-                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut coerce_owned)
+                crate::ssa_lower_call_arg_conv::emit_arg_conv(ctx, p, *a, raw, &mut temps.coerce)
             }
             None => raw,
         };
@@ -400,13 +386,7 @@ pub(crate) fn emit_closure_callee_with_this(
             ret_ty,
         )
     };
-    ctx.emit_throw_check(None);
-    for (a, op) in owned_temps {
-        ctx.release_owned_temp(a, &op);
-    }
-    for (op, ty) in coerce_owned {
-        ctx.emit_drop_value(op, ty);
-    }
+    temps.check_and_release(ctx);
     result.unwrap_or(Operand::ConstPtrNull)
 }
 
@@ -425,8 +405,7 @@ pub(crate) fn emit_fnsig_callee(
     let ret_ty = ctx.fn_sigs[sig_id.0 as usize].1;
     let target_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
     // Chunk 569 — args SHARE: no consume; owned temps release after.
-    let mut owned_temps: Vec<(ExprId, Operand)> = Vec::new();
-    let mut coerce_owned: Vec<(Operand, Type)> = Vec::new();
+    let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     // RC-4 F3 — Type::Any target param boxes a concrete arg (see
     // emit_closure_callee / arm-1 P0.5).
     let mut argv: Vec<Operand> = args
@@ -437,7 +416,7 @@ pub(crate) fn emit_fnsig_callee(
             let raw = ctx
                 .try_lower_empty_array_arg(*a, target_params.get(i))
                 .unwrap_or_else(|| ctx.lower_expr(*a));
-            owned_temps.push((*a, raw));
+            temps.push(ctx, *a, raw);
             // RFC 20260707 chunk 626 — typed array into an Arr<Any>
             // param marks the block's elem kind (self-gating).
             if let Some(p) = target_params.get(i) {
@@ -451,7 +430,7 @@ pub(crate) fn emit_fnsig_callee(
                     p,
                     *a,
                     raw,
-                    &mut coerce_owned,
+                    &mut temps.coerce,
                 ),
                 None => raw,
             }
@@ -465,13 +444,7 @@ pub(crate) fn emit_fnsig_callee(
             ctx.cur_block,
             InstKind::CallIndirect(sig_id, Operand::Value(fn_ptr), argv),
         );
-        ctx.emit_throw_check(None);
-        for (a, op) in owned_temps {
-            ctx.release_owned_temp(a, &op);
-        }
-        for (op, ty) in coerce_owned {
-            ctx.emit_drop_value(op, ty);
-        }
+        temps.check_and_release(ctx);
         return Operand::ConstPtrNull;
     }
     let v = ctx.f.append_inst(
@@ -480,12 +453,6 @@ pub(crate) fn emit_fnsig_callee(
         ret_ty,
         None,
     );
-    ctx.emit_throw_check(None);
-    for (a, op) in owned_temps {
-        ctx.release_owned_temp(a, &op);
-    }
-    for (op, ty) in coerce_owned {
-        ctx.emit_drop_value(op, ty);
-    }
+    temps.check_and_release(ctx);
     Operand::Value(v)
 }
