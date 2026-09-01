@@ -1670,7 +1670,53 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `7c2c8c0f3`** (2026-09-02, rotation 554 — the flat fn-type
+**Latest @ `51a569ec0`** (2026-09-02, rotation 555 — guarded-union
+activation asks for container evidence in canonical form, the
+`__nullable(` wrapper stops hiding fn-typed params from the
+closure-repr pass, and the any-widen lane stops refusing tag functions
+over a rest parameter it was not widening). Gate predicate: **143**
+clusters of ≥ 4 holding **1131** cases, register 2 · 251, residue
+465 · 624 (31.1%), core **2006** — every figure unchanged against
+rotation 554.
+
+Swept twice this rotation. The second sweep, on the final HEAD after
+the any-widen knife, has a verdict diff of **zero lines** against the
+first: that knife widens the accepted surface for a *typed* tag
+function, and test262 is pure-JS corpus whose tag functions carry no
+annotations, so the path it opens is not one this corpus walks. Worth
+stating plainly rather than leaving the second sweep unreported — a
+knife that moves a real gap and moves no test262 number is the normal
+shape here, not a disappointment.
+
+Figures below are from the first sweep (`7bedef183`) and hold for both.
+
+**Prior stamp this rotation @ `7bedef183`** — gate predicate: **143**
+clusters of ≥ 4 holding
+**1131** cases, register 2 · 251, residue 465 · 624 (31.1%), core
+**2006**. Against rotation 554: clusters 143 → **143 (=)**, cases
+1130 → **1131 (+1)**, core 2006 → **2006 (=)**.
+
+Sweep passTotal 35363 (=), pass 30190 (=), passNoOracle 1026 (=),
+passNegative 4147 (=), bug 12453 (=), incompatible 5358 (=),
+trAccepted 47816 (=); conservation exact (0 = 0 + 0). Verdict diff
+**1 changed, 0 backward**, and it is a sideways move inside
+`incompatible`: `staging/sm/String/string-upper-lower-mapping.js`
+went `not yet supported` → `tr-timeout`. Re-run alone at `--workers 1`
+reproduces the timeout (30.3s), so it is not sweep load — the case now
+gets past the checker and runs, and does not finish. Which of this
+rotation's knives widened the accepted surface for it is NOT
+attributed (that needs an A/B rebuild of the prior HEAD); what is
+established is the direction (a refusal became a run) and that the
+case exposes a real gap behind it — full-Unicode case mapping does not
+complete inside the runner's budget. Filed as its own backlog item
+rather than counted as progress.
+
+The single progress number did not move this rotation, as expected:
+all three knives are on the TS annotation and closure-repr faces,
+while test262 is pure-JS corpus. Coverage curve top-100 **56.6%**,
+top-200 **74.6%**, top-400 **88.7%**.
+
+**Prior @ `7c2c8c0f3`** (2026-09-02, rotation 554 — the flat fn-type
 annotation's return becomes self-delimiting, and the four width / ABI
 links that unlocks). Gate predicate: **143** clusters of ≥ 4 holding
 **1130** cases, register 2 · 251, residue 466 · 625 (31.2%), core

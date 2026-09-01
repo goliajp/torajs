@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T18:01:09.252Z",
+  "generatedAt": "2026-09-01T18:38:22.090Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T17:46:51Z",
-    "headSha": "7bedef183",
-    "elapsedSec": 870.39,
+    "ranAt": "2026-09-01T18:26:15Z",
+    "headSha": "51a569ec0",
+    "elapsedSec": 637.55,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.96
   },
   "torajs": {
-    "commit": "7bedef183",
-    "commitSubject": "chore: bench results for 299b347 (runs=3, full 4-runner matrix)",
+    "commit": "51a569ec0",
+    "commitSubject": "fix: the any-widen lane admits a tag function's template object",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,14 @@
   },
   "commits": [
     {
+      "hash": "51a569ec0",
+      "subject": "fix: the any-widen lane admits a tag function's template object"
+    },
+    {
+      "hash": "72dc32289",
+      "subject": "chore: rotation 555 test262 sweep ingest, P-SURF snapshot and dashboard"
+    },
+    {
       "hash": "7bedef183",
       "subject": "chore: bench results for 299b347 (runs=3, full 4-runner matrix)"
     },
@@ -759,17 +767,9 @@
     {
       "hash": "cf61e0df3",
       "subject": "fix: a fn type's return is bracketed in the flat annotation"
-    },
-    {
-      "hash": "0e22d18b2",
-      "subject": "chore: rotation 553 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "aa2db0002",
-      "subject": "refactor: parse_arrow_fn splits its param list and block body out"
     }
   ],
-  "headSha": "7bedef183",
+  "headSha": "51a569ec0",
   "autorun": {
     "total": 858,
     "baselineTarget": 10,
