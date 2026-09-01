@@ -230,6 +230,12 @@ fn emit_body_and_step(
             );
         } else {
             let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3);
+            // 550-01 — §23.1.3.{8-11,30} step 5.c ReturnIfAbrupt: a
+            // throwing predicate ends the walk. This lane had no check
+            // on its direct-call paths (`a(i).find(x => x > boom())`
+            // caught once in three; the argv face's variadic conv
+            // carries its own).
+            ctx.emit_throw_check(None);
         }
         Operand::ConstBool(false)
     } else {
@@ -238,7 +244,9 @@ fn emit_body_and_step(
                 ctx, &fn_val, fn_ty, pred_args, 3,
             )
         } else {
-            ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3)
+            let v = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3);
+            ctx.emit_throw_check(None);
+            v
         };
         // rotation 284 — the predicate return folds through ToBoolean
         // (ES §23.1.3.{8-11,30}): a non-Bool cb ret (1/0 counters,

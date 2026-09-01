@@ -24,7 +24,7 @@
 //! caller fall through to the next M2/M3/M4 arm below.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 mod walk;
@@ -61,7 +61,14 @@ pub(crate) fn try_lower(
         _ => unreachable!(),
     };
     let fn_val = ctx.lower_expr(args[0]);
+    // 550-01 — a minted callback env and an owned thisArg payload are
+    // ours until the post-loop release; a callback that throws
+    // mid-loop drops them.
+    let fn_tok = ctx.park_owned_temp(args[0], &fn_val);
     let (this_arg, this_temp) = lower_promoted_this(ctx, args);
+    let this_tok = this_temp
+        .as_ref()
+        .and_then(|(t, op)| ctx.park_owned_temp(*t, op));
     let fn_ty = ctx.operand_ty(&fn_val);
     // Rotation 364 — an argv-face callback (body reads `arguments`
     // values) must not take the direct call: its reshaped sig leads
@@ -87,65 +94,16 @@ pub(crate) fn try_lower(
     // store is layout-correct), but the block must self-describe as
     // Any for the kind-aware readers — the old typed alloc left an
     // unmarked block whose reads fell to the UNSET arm (undefined).
-    let dst_alloc_fn = if dst_elem_ty == Type::Any {
-        ctx.intrinsics.arr_alloc_any
-    } else {
-        ctx.intrinsics.arr_alloc
-    };
-    let dst_init = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(dst_alloc_fn, vec![Operand::ConstI64(0)]),
-        dst_arr_ty,
-        None,
-    );
-    let dst_slot = ctx.alloca(dst_arr_ty, Some("__fm_dst"));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(dst_init), Operand::Value(dst_slot), 0),
-    );
-
-    // Outer loop: i in 0..src.length.
-    let oh = ctx.f.add_block();
-    let ob = ctx.f.add_block();
-    let oa = ctx.f.add_block();
-    let i_slot = ctx.alloca(Type::I64, Some("__fm_i"));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
-    );
-    let src_len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(oh));
-
-    // oh: check i < src_len.
-    ctx.cur_block = oh;
-    let i_now = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
-        Type::I64,
-        None,
-    );
-    let cmp = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(src_len)),
-        Type::Bool,
-        None,
-    );
-    ctx.f.set_term(
-        ctx.cur_block,
-        Terminator::CondBr {
-            cond: Operand::Value(cmp),
-            then_blk: ob,
-            else_blk: oa,
-        },
-    );
+    let OuterLoop {
+        dst_slot,
+        dst_tok,
+        i_slot,
+        i_now,
+        oh,
+        oa,
+    } = open_outer_loop(ctx, dst_elem_ty, dst_arr_ty, src_arr);
 
     // ob: load src[i], call closure(elem) → inner_arr.
-    ctx.cur_block = ob;
     let src_elem_ty = ctx.arr_layouts[match arr_ty {
         Type::Arr(id) => id.0 as usize,
         _ => unreachable!(),
@@ -186,7 +144,14 @@ pub(crate) fn try_lower(
     let cb_ret = if argv_face {
         crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, &fn_val, fn_ty, call_args, 3)
     } else {
-        ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3)
+        let r = ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3);
+        // 550-01 — §23.1.3.13 step 6.d ReturnIfAbrupt: a throwing
+        // callback ends the iteration. This lane had no check at
+        // all, so it walked the callee's ret sentinel as an array
+        // (`a(i).flatMap(x => [x, boom()])` — exit 139). The argv
+        // face's variadic conv carries its own check.
+        ctx.emit_throw_check(None);
+        r
     };
 
     let final_dst = if scalar_ret && cb_ret_ty == Type::Any {
@@ -221,9 +186,12 @@ pub(crate) fn try_lower(
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver, the boxed thisArg's payload).
+    ctx.unpark_owned_temp(dst_tok);
+    ctx.unpark_owned_temp(fn_tok);
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
+    ctx.unpark_owned_temp(this_tok);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);
     }
@@ -244,6 +212,97 @@ pub(crate) fn try_lower(
 /// for a view answer an owned copy, the view released as the push used
 /// to consume it (rotation 468). Carved out of [`try_lower`] under the
 /// 200-line function limit.
+/// The outer frame `open_outer_loop` answers: the empty dst in its
+/// relocation slot (with its throw-live token), the cursor slot, the
+/// header's loaded cursor, and the header / after blocks the close
+/// branches through.
+struct OuterLoop {
+    dst_slot: ValueId,
+    dst_tok: Option<usize>,
+    i_slot: ValueId,
+    i_now: ValueId,
+    oh: BlockId,
+    oa: BlockId,
+}
+
+/// Allocate the dst (cap=0; arr_push grows on demand) into its slot,
+/// park it for the callback's throw path (550-01 — push relocates,
+/// so the pointer itself cannot be parked), and open the
+/// `i in 0..src.length` header. Leaves `cur_block` at the body block.
+fn open_outer_loop(
+    ctx: &mut LowerCtx<'_>,
+    dst_elem_ty: Type,
+    dst_arr_ty: Type,
+    src_arr: ValueId,
+) -> OuterLoop {
+    let dst_alloc_fn = if dst_elem_ty == Type::Any {
+        ctx.intrinsics.arr_alloc_any
+    } else {
+        ctx.intrinsics.arr_alloc
+    };
+    let dst_init = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(dst_alloc_fn, vec![Operand::ConstI64(0)]),
+        dst_arr_ty,
+        None,
+    );
+    let dst_slot = ctx.alloca(dst_arr_ty, Some("__fm_dst"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(dst_init), Operand::Value(dst_slot), 0),
+    );
+    let dst_tok = ctx.push_throw_typed_slot(dst_slot, dst_arr_ty);
+
+    // Outer loop: i in 0..src.length.
+    let oh = ctx.f.add_block();
+    let ob = ctx.f.add_block();
+    let oa = ctx.f.add_block();
+    let i_slot = ctx.alloca(Type::I64, Some("__fm_i"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
+    );
+    let src_len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(oh));
+
+    // oh: check i < src_len.
+    ctx.cur_block = oh;
+    let i_now = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(i_slot), 0),
+        Type::I64,
+        None,
+    );
+    let cmp = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Slt, Operand::Value(i_now), Operand::Value(src_len)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(cmp),
+            then_blk: ob,
+            else_blk: oa,
+        },
+    );
+    ctx.cur_block = ob;
+    OuterLoop {
+        dst_slot,
+        dst_tok,
+        i_slot,
+        i_now,
+        oh,
+        oa,
+    }
+}
+
 fn scalar_push_value(
     ctx: &mut LowerCtx<'_>,
     cb_ret: crate::ssa::ValueId,

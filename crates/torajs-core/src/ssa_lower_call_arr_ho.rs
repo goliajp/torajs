@@ -91,6 +91,9 @@ fn lower_higher_order(
         _ => None,
     };
     let fn_val = ctx.lower_expr(args[0]);
+    // 550-01 — a minted callback env (inline arrow) is ours until the
+    // post-loop release; a callback that throws mid-loop drops it.
+    let fn_tok = ctx.park_owned_temp(args[0], &fn_val);
     let fn_ty = ctx.operand_ty(&fn_val);
     // Knife 4 (RFC 20260717-fnexpr-this-channel) — a promoted fn-expr
     // callback takes the §23.1.3 thisArg (T) as its leading `__this`
@@ -107,6 +110,7 @@ fn lower_higher_order(
             Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
     let promoted = promoted && matches!(method.as_str(), "map" | "filter" | "forEach");
     let mut this_temp: Option<(ExprId, Operand)> = None;
+    let mut this_tok: Option<usize> = None;
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {
             let op = ctx.lower_expr(t);
@@ -117,6 +121,7 @@ fn lower_higher_order(
             // first iteration (`this.mul` read garbage); the release
             // rides the after-loop settlement below instead.
             let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            this_tok = ctx.park_owned_temp(t, &op);
             this_temp = Some((t, op));
             Some(boxed)
         } else {
@@ -162,6 +167,13 @@ fn lower_higher_order(
         reduce_no_init,
         reduce_init_op,
     );
+    // 550-01 — the running accumulator (reduce family) is ours until
+    // the exit loads it out (seed inc'd / init transferred / each step
+    // stores the new value before dropping the old); a callback that
+    // throws mid-loop releases it through the slot. Copy-typed
+    // accumulators answer no token. The dst parks after `begin_loop`
+    // below, once its pre-reserve shape is known.
+    let acc_tok = acc_slot.and_then(|s| ctx.push_throw_typed_slot(s, acc_ty));
     // Rotation 363 — an argv-face callback (the inline fn-expr
     // whose body reads `arguments` values; collector doc at
     // `arguments_object_collect::collect_hof_anon_argv`) must not
@@ -181,6 +193,18 @@ fn lower_higher_order(
         elem_ty,
         reduce_no_init,
     );
+    // 550-01 — the growing dst (map / filter) is ours until the exit
+    // loads it out; a callback that throws mid-loop releases it
+    // through the slot (push relocates, so the pointer itself cannot
+    // be parked). A deferred-length pre-reserve hands its running
+    // count along so the throw path settles the cell first.
+    let dst_tok = dst_slot.and_then(|s| {
+        let deferred = frame
+            .dst_fast
+            .filter(|st| st.defer_len)
+            .map(|st| st.len_slot);
+        ctx.push_throw_arr_slot(s, dst_arr_ty, deferred)
+    });
     emit_per_method_body(
         ctx,
         frame,
@@ -198,12 +222,16 @@ fn lower_higher_order(
         argv_face,
     );
     let out = end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty);
+    ctx.unpark_owned_temp(acc_tok);
+    ctx.unpark_owned_temp(dst_tok);
     // RFC 20260705 chunk 550 — release owned-shape temps after the
     // loop consumed them: an inline arrow's minted env in the cb
     // slot and a Call/New-shaped receiver.
+    ctx.unpark_owned_temp(fn_tok);
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
+    ctx.unpark_owned_temp(this_tok);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);
     }

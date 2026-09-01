@@ -21,7 +21,7 @@
 
 use crate::ast::ExprId;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 use crate::ssa_lower_temp_scratch::ThrowTemp;
 
 impl<'a> LowerCtx<'a> {
@@ -195,11 +195,67 @@ impl<'a> LowerCtx<'a> {
         self.temps.throw_live.len() - 1
     }
 
+    /// Park a typed alloca whose current pointee is the temp (see
+    /// `ThrowTemp::Slot`); no-op token for a Copy type.
+    pub(crate) fn push_throw_typed_slot(&mut self, slot: ValueId, ty: Type) -> Option<usize> {
+        if ty.is_copy() {
+            return None;
+        }
+        self.temps.throw_live.push(Some(ThrowTemp::Slot(slot, ty)));
+        Some(self.temps.throw_live.len() - 1)
+    }
+
+    /// Park a HOF dst slot; `deferred_len` is the pre-reserve state's
+    /// running-count alloca when the cell's own length word is stale
+    /// until the loop exit (see `ThrowTemp::ArrSlotDeferLen`).
+    pub(crate) fn push_throw_arr_slot(
+        &mut self,
+        slot: ValueId,
+        ty: Type,
+        deferred_len: Option<ValueId>,
+    ) -> Option<usize> {
+        let Some(len_slot) = deferred_len else {
+            return self.push_throw_typed_slot(slot, ty);
+        };
+        self.temps
+            .throw_live
+            .push(Some(ThrowTemp::ArrSlotDeferLen(slot, ty, len_slot)));
+        Some(self.temps.throw_live.len() - 1)
+    }
+
     /// Throw-path release of one parked temp — the value's typed drop,
     /// or the slot's live pointee through the tag-dispatched heap drop.
     fn emit_drop_throw_temp(&mut self, t: ThrowTemp) {
         match t {
             ThrowTemp::Value(op, ty) => self.emit_drop_value(op, ty),
+            ThrowTemp::Slot(slot, ty) => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(ty.clone(), Operand::Value(slot), 0),
+                    ty.clone(),
+                    None,
+                );
+                self.emit_drop_value(Operand::Value(v), ty);
+            }
+            ThrowTemp::ArrSlotDeferLen(slot, ty, len_slot) => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(ty.clone(), Operand::Value(slot), 0),
+                    ty.clone(),
+                    None,
+                );
+                let len = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::I64, Operand::Value(len_slot), 0),
+                    Type::I64,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(len), Operand::Value(v), ARR_LEN_OFF),
+                );
+                self.emit_drop_value(Operand::Value(v), ty);
+            }
             ThrowTemp::DynobjSlot(slot) => {
                 let p = self.f.append_inst(
                     self.cur_block,

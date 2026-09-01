@@ -60,6 +60,17 @@ pub fn compute_may_throw_fns(
 ) -> HashSet<String> {
     let mut may_throw: HashSet<String> = HashSet::new();
     let mut decl_throw_info: Vec<(String, bool, Vec<String>)> = Vec::new();
+    // Rotation 550 (550-01) — a call through a let-bound arrow
+    // (`const boom = () => { throw … }; boom()`) records the BINDING
+    // name, but the body lives in the lifted `__closure_N` FnDecl;
+    // resolving through the same alias table the param-tag / infer
+    // rounds use (549-02) lets the fixed point below reach it.
+    // Without it every callback whose only throw source was such a
+    // call was judged never-throwing, the HOF loop pruned its check,
+    // and the pending throw strayed into the NEXT checked call
+    // (`for … try { a(i).map(x => x + boom()) } catch` caught once
+    // in three).
+    let aliases = crate::ast_closure_param_tag_collect::closure_let_aliases(ast);
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name, params, body, ..
@@ -69,6 +80,11 @@ pub fn compute_may_throw_fns(
             if direct {
                 may_throw.insert(name.clone());
             }
+            let lifted: Vec<String> = called
+                .iter()
+                .filter_map(|c| aliases.get(c).map(|(f, _)| f.clone()))
+                .collect();
+            called.extend(lifted);
             // Rotation 507 — a `__dispatch_<M>` stub's AST body only
             // forwards to the base owner, but the slot it stands for
             // resolves to EVERY owner's body at runtime: a throwing

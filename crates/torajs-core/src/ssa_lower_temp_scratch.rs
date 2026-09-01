@@ -45,4 +45,14 @@ pub(crate) struct TempScratch {
 pub(crate) enum ThrowTemp {
     Value(Operand, Type),
     DynobjSlot(ValueId),
+    /// Rotation 550 — a typed alloca whose current pointee is the
+    /// temp (a HOF loop's growing dst array, a reduce accumulator):
+    /// the throw path loads it with its type and runs the typed drop.
+    Slot(ValueId, Type),
+    /// A pre-reserved HOF dst whose length word is deferred
+    /// (`PreReserveState::defer_len`): the running count lives in the
+    /// third field's alloca, so the throw path writes it back to the
+    /// cell before the typed drop — otherwise the drop walks a stale
+    /// (shorter) length and every element already pushed leaks.
+    ArrSlotDeferLen(ValueId, Type, ValueId),
 }

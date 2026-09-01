@@ -61,6 +61,9 @@ pub(crate) fn try_lower(
         _ => unreachable!(),
     };
     let fn_val = ctx.lower_expr(args[0]);
+    // 550-01 — a minted callback env is ours until the post-loop
+    // release; a predicate that throws mid-loop drops it.
+    let fn_tok = ctx.park_owned_temp(args[0], &fn_val);
     let fn_ty = ctx.operand_ty(&fn_val);
     // Rotation 261 — a promoted fn-expr predicate (inline Closure in
     // `fnexpr_recv_fns`, or a knife-2 variable-routed binding in
@@ -74,10 +77,12 @@ pub(crate) fn try_lower(
         || matches!(ctx.ast.get_expr(args[0]),
             Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
     let mut this_temp: Option<(ExprId, Operand)> = None;
+    let mut this_tok: Option<usize> = None;
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {
             let op = ctx.lower_expr(t);
             let boxed = ctx.box_to_any_from_expr(t, op.clone());
+            this_tok = ctx.park_owned_temp(t, &op);
             this_temp = Some((t, op));
             Some(boxed)
         } else {
@@ -122,9 +127,11 @@ pub(crate) fn try_lower(
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver, the boxed thisArg's payload).
+    ctx.unpark_owned_temp(fn_tok);
     ctx.release_owned_temp(args[0], &fn_val);
     ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
+    ctx.unpark_owned_temp(this_tok);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);
     }
