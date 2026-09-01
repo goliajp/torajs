@@ -129,6 +129,9 @@ pub use transform::{
 };
 pub use transform_splice::{__torajs_arr_splice, __torajs_arr_splice_items};
 
+#[cfg(test)]
+mod test_stubs;
+
 // `__torajs_str_alloc_pooled` is provided by `libtorajs_str.a` at
 // `tr build` link time. cargo unit tests don't link torajs-str's
 // staticlib — provide a panicking stub so the test binary still links.
