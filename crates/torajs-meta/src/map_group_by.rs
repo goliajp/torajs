@@ -57,6 +57,7 @@ unsafe extern "C" {
     fn __torajs_any_call(recv: u64, argv: *const u64, argc: i64) -> u64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_rc_inc(p: *mut c_void);
 }
 
 /// Route raw AnyValue bits to a live Array cell, or `None` (nullish
@@ -128,6 +129,16 @@ pub unsafe extern "C" fn __torajs_map_group_by(items: u64, cb: u64) -> u64 {
         // Object.groupBy's ToPropertyKey coercion).
         let key_tag = unsafe { __torajs_anyv_unbox_tag(key) };
         let key_val = unsafe { __torajs_anyv_unbox_value(key) };
+        // map_get borrows the key then RELEASES it per its contract
+        // ("callers pass keys with an rc_inc already applied") — hand
+        // it its own stake. Without this a RUNTIME heap key (the
+        // fixtures' static-literal keys are immortal and masked it)
+        // was freed right here: a ShortStr materialization at rc=1
+        // died inside map_get and the fresh-insert arm adopted the
+        // freed pointer.
+        if key_tag == ANY_HEAP && key_val != 0 {
+            unsafe { __torajs_rc_inc(key_val as *mut c_void) };
+        }
         let mut existing_tag: i64 = 0;
         let mut existing_val: i64 = 0;
         unsafe {
@@ -145,11 +156,24 @@ pub unsafe extern "C" fn __torajs_map_group_by(items: u64, cb: u64) -> u64 {
         let val = unsafe { __torajs_anyv_unbox_value_owned(item) };
         if existing_tag == ANY_HEAP && existing_val != 0 {
             // Bucket exists — push in place (cell doesn't move).
+            // map_get hands back an OWNED ref on the value ("caller
+            // becomes the new owner of the returned reference") — the
+            // map keeps its own share, so release ours after the
+            // push. Unreleased, every same-key hit stranded one
+            // bucket ref and the whole bucket (elements included)
+            // outlived the map: 150k-round numeric churn leaked one
+            // bucket per round, ~21MB per key against 1.7MB flat.
             let bucket = existing_val as *mut c_void;
             let _ = unsafe { __torajs_arr_push_any(bucket, t as u64, val as u64) };
+            unsafe { __torajs_value_drop_heap(bucket) };
             // Key is redundant — the map already owns its share via
-            // the earlier insert. Drop our owned key.
-            unsafe { drop_owned_any(key) };
+            // the earlier insert. Release the query pair we hold: for
+            // a ShortStr key, `key_val` IS the materialization the
+            // unbox above minted — `drop_owned_any(key)` would mint
+            // and free a FRESH one and leak this one.
+            if key_tag == ANY_HEAP && key_val != 0 {
+                unsafe { __torajs_value_drop_heap(key_val as *mut c_void) };
+            }
         } else {
             // Fresh key — mint a bucket and insert. map_set consumes
             // the key/value pair (owned); the key we hold IS owned,

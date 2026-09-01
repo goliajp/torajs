@@ -197,21 +197,16 @@ pub unsafe extern "C" fn __torajs_promise_alloc_rejected_heap(reason: i64) -> *m
 /// promise's own repr).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void {
-    unsafe extern "C" {
-        fn __torajs_anyv_unbox_tag(v: u64) -> i64;
-        fn __torajs_anyv_unbox_value(v: u64) -> i64;
-    }
-    // AnySlotTag heap index (`nanbox_encode` reports 4 for the
-    // heap-cell tag — the `then_box::box_settled` REPR_HEAP mirror).
-    const TAG_HEAP: i64 = 4;
     unsafe {
-        if __torajs_anyv_unbox_tag(bits as u64) == TAG_HEAP {
-            let raw = __torajs_anyv_unbox_value(bits as u64);
-            if crate::unhandled::reason_is_cell_like(raw)
-                && (*(raw as *const crate::layout::HeapHeader)).type_tag == TAG_PROMISE
-            {
-                return raw as *mut c_void;
-            }
+        // Cell-likeness first (rotation 546 form): a ShortStr reports
+        // tag Heap and `unbox_value` would leak one materialized Str
+        // per probe. A cell's box IS the raw pointer, so no unbox is
+        // needed at all — and a cell-like pattern is Heap-tagged by
+        // construction, so the tag probe folds away too.
+        if crate::unhandled::reason_is_cell_like(bits)
+            && (*(bits as *const crate::layout::HeapHeader)).type_tag == TAG_PROMISE
+        {
+            return bits as *mut c_void;
         }
         let p = __torajs_promise_alloc_fulfilled_heap(bits);
         (*as_promise(p)).value_repr = crate::layout::REPR_ANY;

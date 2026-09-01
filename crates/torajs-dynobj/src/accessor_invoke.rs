@@ -44,6 +44,19 @@ unsafe extern "C" {
     /// torajs-anyvalue — invoke a class-face adapter with the
     /// receiver in the env slot.
     fn __torajs_class_face_invoke(adapter: u64, recv: u64, argv: *const u64, argc: i64) -> u64;
+    /// torajs-value-drop — universal NaN-box-safe heap release.
+    fn __torajs_value_drop_heap(p: *mut c_void);
+}
+
+/// ShortStr marker probe (`top16 == 0x0001`, mirrors
+/// `torajs_anyvalue::nanbox::SHORT_STR_TAG` — local copy per the
+/// runtime-crate FFI-only convention). A ShortStr reports tag Heap
+/// from the unbox shims, and `unbox_value` on it mints an OWNED rc=1
+/// Str materialization the caller must reclaim; the PTR setter faces
+/// below only borrow their argument, so they free it after the call.
+#[inline]
+fn value_is_short_str(v: u64) -> bool {
+    (v >> 48) == 0x0001
 }
 
 /// `__torajs_accessor_invoke_getter(pair, recv_anyv)` — call the
@@ -251,8 +264,14 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
                     f(__torajs_anyv_unbox_value(value_anyv));
                 }
                 ACC_KIND_PTR => {
+                    let raw = __torajs_anyv_unbox_value(value_anyv) as *mut c_void;
                     let f: unsafe extern "C" fn(*mut c_void) = core::mem::transmute(fn_addr);
-                    f(__torajs_anyv_unbox_value(value_anyv) as *mut c_void);
+                    f(raw);
+                    // The setter borrowed; a ShortStr materialization
+                    // is ours to reclaim.
+                    if value_is_short_str(value_anyv) {
+                        __torajs_value_drop_heap(raw);
+                    }
                 }
                 _ => {
                     let f: unsafe extern "C" fn(u64) = core::mem::transmute(fn_addr);
@@ -294,6 +313,10 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
                 let f: unsafe extern "C" fn(*mut c_void, i64, *mut c_void) =
                     core::mem::transmute(fn_addr);
                 f(setter, 1, v);
+                // Same borrow contract as the naked face above.
+                if value_is_short_str(value_anyv) {
+                    __torajs_value_drop_heap(v);
+                }
             }
             // ACC_KIND_ANY (and any unknown): the setter takes an
             // AnyValue — pass the NaN-box through verbatim.

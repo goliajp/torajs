@@ -292,8 +292,15 @@ fn emit_one_pair(
     let fty = prop.ty();
     // An `Any` value is a NaN-box, but `push_any` takes a (tag, value)
     // pair — split it at runtime (a set-only property's `undefined`
-    // lands here, as does an `any`-typed data field).
+    // lands here, as does an `any`-typed data field). A BORROWED box
+    // needs the +1 the pair ABI transfers, exactly like the
+    // refcounted arm below (the early return here used to skip it —
+    // under-retain); the NaN-box-safe inc no-ops on immediates, and a
+    // ShortStr's unbox_value mints the fresh stake the push adopts.
     if fty == Type::Any {
+        if !owned {
+            ctx.emit_rc_inc(val_op.clone());
+        }
         let tag = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![val_op.clone()]),

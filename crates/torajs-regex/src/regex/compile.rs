@@ -333,17 +333,23 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
 }
 
-/// AnySlotTag mirrors (`__torajs_anyv_box_from_pair` contract).
-const ANYTAG_HEAP: i64 = 4;
+/// AnySlotTag mirror (`__torajs_anyv_box_from_pair` contract).
 const ANYTAG_UNDEF: i64 = 5;
 
 /// The argument's RegExp cell, or `None` for everything else.
+/// Cell-likeness answers first (rotation 546 form, mirroring
+/// `torajs_rc::nan_box_is_cell_like` — local copy per the
+/// runtime-crate FFI-only convention): a ShortStr reports tag Heap
+/// and `unbox_value` would leak one materialized Str per probe; a
+/// real cell's box IS the raw pointer, so no unbox is needed.
 unsafe fn anyv_regexp_cell(av: u64) -> Option<*const RegExp> {
-    if unsafe { __torajs_anyv_unbox_tag(av) } != ANYTAG_HEAP {
+    const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
+    const TAG_BIT_TYPE_OTHER: u64 = 0x02;
+    if av == 0 || (av & TOP_16_MASK) != 0 || (av & TAG_BIT_TYPE_OTHER) != 0 {
         return None;
     }
-    let p = unsafe { __torajs_anyv_unbox_value(av) } as *const RegExp;
-    if p.is_null() || unsafe { (*p).header.type_tag } != TAG_REGEX {
+    let p = av as *const RegExp;
+    if unsafe { (*p).header.type_tag } != TAG_REGEX {
         return None;
     }
     Some(p)

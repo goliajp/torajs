@@ -216,10 +216,12 @@ unsafe extern "C" fn keyed_finish(arg: i64) {
                 let bits = arr_slot_raw(arr, i) as u64;
                 let tag = __torajs_anyv_unbox_tag(bits);
                 let value = __torajs_anyv_unbox_value(bits);
-                // The entry's pair takes a stake; the result array
-                // keeps its own (ShortStr materializes owned from
-                // the unbox shim, so Heap covers it either way).
-                if tag == 4 && value != 0 {
+                // The entry's pair takes a stake. A REAL cell is
+                // borrowed from the result array, so it incs; a
+                // ShortStr materializes OWNED from the unbox shim —
+                // that fresh rc=1 stake is what the entry adopts, and
+                // inc'ing it double-staked and leaked (546-02).
+                if tag == 4 && crate::unhandled::reason_is_cell_like(bits as i64) {
                     __torajs_rc_inc(value as *mut c_void);
                 }
                 __torajs_dynobj_set(&mut obj, key, tag as u64, value as u64);

@@ -42,6 +42,7 @@ pub const PARAM_REPR_SHIFT: i64 = 16;
 const TAG_BOOL: i64 = 1;
 const TAG_I64: i64 = 2;
 const TAG_F64: i64 = 3;
+const TAG_HEAP: i64 = 4;
 
 unsafe extern "C" {
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
@@ -152,8 +153,28 @@ pub(crate) unsafe fn box_settled(repr: u8, value: i64) -> i64 {
 /// truthiness for the boolean one).
 pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
     unsafe {
+        // The target lane IS `any` — hand the box back whole, before
+        // any unbox can touch it. The callers all route any-parameters
+        // elsewhere, but a lane that unwraps what it was asked to
+        // preserve is the exact defect this function exists to fix.
+        if param_repr == REPR_ANY {
+            return av;
+        }
         let tag = __torajs_anyv_unbox_tag(av as u64);
-        let raw = __torajs_anyv_unbox_value(av as u64);
+        // A ShortStr reports tag Heap and `unbox_value` mints an owned
+        // materialization; the scalar lanes below never consume it
+        // (their Heap arms answer a constant), so they must not unbox
+        // one — same nearest answers the heap-Str arm gives (NaN / 0 /
+        // truthy). The STR/HEAP fallback lane DOES need the pointer:
+        // there the materialization is the value itself, the handler
+        // borrows it with no owner to reclaim it — the boxed-entry
+        // Class B leg (546-02) owns that story.
+        let heap_immediate = tag == TAG_HEAP && !crate::unhandled::reason_is_cell_like(av);
+        let raw = if heap_immediate && matches!(param_repr, REPR_F64 | REPR_I64 | REPR_BOOL) {
+            1
+        } else {
+            __torajs_anyv_unbox_value(av as u64)
+        };
         match param_repr {
             REPR_F64 => match tag {
                 TAG_F64 => raw,
@@ -170,13 +191,8 @@ pub(crate) unsafe fn unbox_settled(param_repr: u8, av: i64) -> i64 {
                 TAG_F64 => i64::from(f64::from_bits(raw as u64) != 0.0),
                 _ => i64::from(raw != 0),
             },
-            // The target lane IS `any` — hand the box back whole. The
-            // callers all route any-parameters elsewhere, but a lane
-            // that unwraps what it was asked to preserve is the exact
-            // defect this function exists to fix.
-            REPR_ANY => av,
             // A cell pointer is already the slot form both the STR and
-            // HEAP lanes move values in.
+            // HEAP lanes move values in (REPR_ANY returned early).
             _ => raw,
         }
     }
