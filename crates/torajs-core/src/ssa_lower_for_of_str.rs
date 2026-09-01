@@ -166,6 +166,7 @@ pub(crate) fn lower(
             cont: step_blk,
             brk: after,
             scope_depth: ctx.scope_stack.len() - 1,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();

@@ -172,6 +172,7 @@ pub(crate) fn lower(
             cont: header,
             brk: after,
             scope_depth: ctx.scope_stack.len(),
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.cur_block = body_blk;
     ctx.lower_stmt(body);

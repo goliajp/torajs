@@ -83,6 +83,12 @@ pub(crate) fn lower(
         InstKind::Store(Operand::ConstI64(0), Operand::Value(idx_slot), 0),
     );
     let iter_slot = emit_iter_slot(ctx, "__forof_any_iter");
+    // RFC 20260901-scope-exit-drops 刀 2 — the parked iterator is an
+    // owned local of the iter frame: the frame's close releases it on
+    // every way out (the exit block, a throw into an enclosing catch,
+    // a labeled jump, a `return`), and the teardown record below only
+    // ever owes it the §7.4.9 `return()` call.
+    bind_scoped_local(ctx, "__forof_any_iter", iter_slot, Type::Any, false, false);
     let out_slot = ctx.alloca(Type::Any, Some("__forof_any_out"));
 
     // ES §7.4.9 — the loop owes the iterator a `return()` only when it
@@ -168,6 +174,11 @@ pub(crate) fn lower(
         InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
     );
     bind_scoped_local(ctx, var_name, v_slot, Type::Any, false, false);
+    let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
+        src: src_op.clone(),
+        iter_slot,
+    };
+    ctx.for_of_teardown_stack.push(teardown.clone());
     // RFC 20260901-scope-exit-drops — body frame already pushed and
     // only closed on fall-through: a jump out owes it (depth = index).
     ctx.loop_stack
@@ -175,12 +186,8 @@ pub(crate) fn lower(
             cont: header,
             brk: after,
             scope_depth: ctx.scope_stack.len() - 1,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
-    let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
-        src: src_op.clone(),
-        iter_slot,
-    };
-    ctx.for_of_teardown_stack.push(teardown.clone());
     ctx.lower_stmt(body);
     ctx.for_of_teardown_stack.pop();
     let body_open = ctx.cur_open();
@@ -215,8 +222,7 @@ pub(crate) fn lower(
     crate::ssa_lower_for_of_teardown::emit_close(ctx, &teardown);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
 
+    // The iter frame's close releases the parked iterator.
     ctx.cur_block = release_blk;
-    emit_iter_slot_release(ctx, iter_slot);
-    let _ = ctx.scope_stack.pop().expect("for-of-any iter scope");
-    let _ = ctx.shadow_stack.pop().expect("shadow frame");
+    ctx.close_scope_frame();
 }

@@ -161,7 +161,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     if let Some(handler) = ctx.try_stack.last().copied() {
         // RFC 20260901-scope-exit-drops — the thrown value already
         // moved into the throw slot (its ident is marked moved); every
-        // other owner in the frames this jump leaves dies here.
+        // other owner in the frames this jump leaves dies here — the
+        // for-ofs among them IteratorClose first, under the suspended
+        // pending throw (刀 2).
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, handler.teardown_depth, true);
         ctx.emit_drops_for_scopes_from(handler.scope_depth);
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(handler.blk));

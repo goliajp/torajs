@@ -220,6 +220,7 @@ pub(crate) fn lower(
             cont: step_blk,
             brk: after,
             scope_depth: ctx.scope_stack.len() - 1,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();
@@ -363,37 +364,9 @@ pub(crate) fn close_body_scope(
     let body_frame = ctx.scope_stack.pop().expect("for-of body scope");
     let body_shadows = ctx.shadow_stack.pop().expect("shadow frame");
     if body_open_at_end {
-        for name in &body_frame {
-            let info = match ctx.locals.get(name) {
-                Some(i) => *i,
-                None => continue,
-            };
-            if info.ty.is_copy() {
-                // RFC 20260705 chunk 550 fix-up — escape-promoted
-                // Copy locals hold a capture-box stake (outer-stake
-                // protocol); release it at scope close.
-                if ctx.escape_captured_lets.contains(name) {
-                    ctx.f.append_void(
-                        ctx.cur_block,
-                        InstKind::Call(
-                            ctx.intrinsics.capture_box_drop,
-                            vec![Operand::Value(info.slot)],
-                        ),
-                    );
-                }
-                continue;
-            }
-            if info.moved || ctx.stack_alloced_locals.contains(name) {
-                continue;
-            }
-            let val = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                info.ty,
-                None,
-            );
-            ctx.emit_drop_value(Operand::Value(val), info.ty);
-        }
+        // RFC 20260901-scope-exit-drops — the block-close protocol,
+        // shared with every early exit out of this frame.
+        ctx.emit_frame_drops(&body_frame);
         ctx.f.set_term(ctx.cur_block, Terminator::Br(step_blk));
     }
     for n in &body_frame {

@@ -121,7 +121,8 @@ impl<'a> LowerCtx<'a> {
             // call are live and die here, in the same block-close
             // protocol the fall-through would have used.
             let scope_drops = self.scopes_have_drops_from(catch.scope_depth);
-            if owned.is_some() || !live.is_empty() || scope_drops {
+            let closes = catch.teardown_depth < self.for_of_teardown_stack.len();
+            if owned.is_some() || !live.is_empty() || scope_drops || closes {
                 self.cur_block = throw_blk;
                 if let Some((op, ty)) = owned {
                     self.emit_drop_value(op, ty);
@@ -129,6 +130,13 @@ impl<'a> LowerCtx<'a> {
                 for t in live.iter().rev() {
                     self.emit_drop_throw_temp(t.clone());
                 }
+                // 刀 2 — the for-ofs the jump leaves IteratorClose under
+                // the suspended pending throw, before their slots drop.
+                crate::ssa_lower_for_of_teardown::emit_closes_from(
+                    self,
+                    catch.teardown_depth,
+                    true,
+                );
                 self.emit_drops_for_scopes_from(catch.scope_depth);
                 let cb2 = self.cur_block;
                 self.f.set_term(cb2, Terminator::Br(catch.blk));

@@ -41,6 +41,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, body: &Stmt, cond: crate::ast::ExprId) {
             cont: cond_blk,
             brk: after,
             scope_depth: ctx.scope_stack.len(),
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.cur_block = body_blk;
     ctx.lower_stmt(body);

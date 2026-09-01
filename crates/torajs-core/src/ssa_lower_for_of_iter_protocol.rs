@@ -32,6 +32,7 @@ use crate::ast::{ExprId, Stmt};
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
 use crate::ssa_lower_for_of_iter_protocol_plan::{IterPlan, resolve_iter_plan};
+use crate::ssa_lower_stmt_for_of::{bind_scoped_local, close_body_scope};
 
 /// Resolve the iterator class behind `iter_sid`, its `next` method,
 /// and the field offsets of the IteratorResult struct `next` returns.
@@ -142,8 +143,8 @@ fn emit_loop_exit(
     crate::ssa_lower_for_of_teardown::emit_close(ctx, &teardown);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(release_blk));
 
+    // The caller closes the iter frame here, which releases the slot.
     ctx.cur_block = release_blk;
-    crate::ssa_lower_for_of_teardown::emit_release(ctx, &teardown);
 }
 
 pub(crate) fn lower_for_of_iter_protocol(
@@ -191,6 +192,12 @@ pub(crate) fn lower_for_of_iter_protocol(
         ctx.cur_block,
         InstKind::Store(Operand::Value(iter_val), Operand::Value(iter_slot), 0),
     );
+    // RFC 20260901-scope-exit-drops 刀 2 — the iterator is an owned
+    // local of the iter frame: the frame's close releases it on every
+    // way out (the exit block, a throw into an enclosing catch, a
+    // labeled jump, a `return`); the teardown record only owes it the
+    // §7.4.9 `return()` call.
+    bind_scoped_local(ctx, "__forof_it", iter_slot, iter_ret_ty, false, false);
 
     // ES §7.4.9 — a `return()` is owed only on an EARLY stop. Both
     // exits share `after`, so the natural one records itself and the
@@ -239,17 +246,29 @@ pub(crate) fn lower_for_of_iter_protocol(
         },
     );
 
-    // The iterator reported done — it closed itself.
+    // The iterator reported done — it closed itself. The final step
+    // struct is ours too; it never reaches the body frame that owns
+    // the others.
     ctx.cur_block = exhausted;
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(1), Operand::Value(done_slot), 0),
     );
+    ctx.emit_drop_value(Operand::Value(step_val), step_ret_ty);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
 
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
+    // 刀 2 — the step struct is an owned local of the body frame, so a
+    // `continue` / throw / labeled jump out of the body releases it
+    // with the frame; pre-RFC only the fall-through dropped it.
+    let step_slot = ctx.alloca(step_ret_ty, Some("__forof_step"));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(step_val), Operand::Value(step_slot), 0),
+    );
+    bind_scoped_local(ctx, "__forof_step", step_slot, step_ret_ty, false, false);
     let v_val = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(value_ty, Operand::Value(step_val), value_off),
@@ -286,6 +305,11 @@ pub(crate) fn lower_for_of_iter_protocol(
             .expect("scope frame")
             .push(var_name.to_string());
     }
+    ctx.for_of_teardown_stack
+        .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::Typed {
+            iter_slot,
+            iter_ret_ty,
+        });
     // RFC 20260901-scope-exit-drops — body frame already pushed and
     // only closed on fall-through: a jump out owes it (depth = index).
     ctx.loop_stack
@@ -293,46 +317,17 @@ pub(crate) fn lower_for_of_iter_protocol(
             cont: header,
             brk: after,
             scope_depth: ctx.scope_stack.len() - 1,
-        });
-    ctx.for_of_teardown_stack
-        .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::Typed {
-            iter_slot,
-            iter_ret_ty,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.lower_stmt(body);
     ctx.for_of_teardown_stack.pop();
     let body_open = ctx.cur_open();
     ctx.loop_stack.pop();
-    let step_frame = ctx.scope_stack.pop().expect("for-of-proto body scope");
-    let step_shadows = ctx.shadow_stack.pop().expect("shadow frame");
-    if body_open {
-        for name in &step_frame {
-            let info = match ctx.locals.get(name) {
-                Some(i) => *i,
-                None => continue,
-            };
-            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
-                continue;
-            }
-            let val = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                info.ty,
-                None,
-            );
-            ctx.emit_drop_value(Operand::Value(val), info.ty);
-        }
-        ctx.emit_drop_value(Operand::Value(step_val), step_ret_ty);
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
-    }
-    for n in &step_frame {
-        ctx.locals.remove(n);
-    }
-    for (n, prev) in step_shadows {
-        ctx.locals.insert(n, prev);
-    }
+    // The body frame's close releases this iteration's step struct
+    // along with the body's own locals (the loop variable borrows).
+    close_body_scope(ctx, header, body_open);
 
     emit_loop_exit(ctx, after, iter_slot, done_slot, iter_ret_ty);
-    let _ = ctx.scope_stack.pop().expect("for-of-proto iter scope");
-    let _ = ctx.shadow_stack.pop().expect("shadow frame");
+    // The iter frame's close releases the iterator.
+    ctx.close_scope_frame();
 }

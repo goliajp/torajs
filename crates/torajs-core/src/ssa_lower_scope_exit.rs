@@ -39,6 +39,10 @@ pub(crate) struct ExitTarget {
     /// frame's own index; for the catch → finally route it is the
     /// catch frame's (the same index — the body frame is gone).
     pub(crate) scope_depth: usize,
+    /// Index into `for_of_teardown_stack` of the first for-of the
+    /// jump leaves — those iterators owe a §7.4.9 IteratorClose before
+    /// the frames holding them drop (刀 2).
+    pub(crate) teardown_depth: usize,
 }
 
 /// One `loop_stack` entry: `continue` → `cont`, `break` → `brk`, and
@@ -53,6 +57,12 @@ pub(crate) struct LoopTargets {
     pub(crate) cont: BlockId,
     pub(crate) brk: BlockId,
     pub(crate) scope_depth: usize,
+    /// `for_of_teardown_stack.len()` at the loop's entry — a for-of
+    /// pushes its own teardown BEFORE this, so a plain `break` /
+    /// `continue` (whose exit block / header handles the loop's own
+    /// iterator) owes nothing here; a labeled jump over inner for-ofs
+    /// closes `[teardown_depth..]` (刀 2).
+    pub(crate) teardown_depth: usize,
 }
 
 impl LowerCtx<'_> {

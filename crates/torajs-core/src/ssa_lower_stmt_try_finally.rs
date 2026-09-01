@@ -205,6 +205,7 @@ fn emit_throw_propagate(ctx: &mut LowerCtx) {
     );
     ctx.cur_block = prop_blk;
     if let Some(handler) = ctx.try_stack.last().copied() {
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, handler.teardown_depth, true);
         ctx.emit_drops_for_scopes_from(handler.scope_depth);
         let cb2 = ctx.cur_block;
         ctx.f.set_term(cb2, Terminator::Br(handler.blk));
@@ -305,22 +306,32 @@ fn emit_pending_label_flags(ctx: &mut LowerCtx) {
             let still_intervening = ctx.try_finally_stack.len() > frame.finally_depth_at_push;
             if still_intervening {
                 let outer_fb = *ctx.try_finally_stack.last().expect("len checked");
+                crate::ssa_lower_for_of_teardown::emit_closes_from(
+                    ctx,
+                    outer_fb.teardown_depth,
+                    false,
+                );
                 ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
                 let cb2 = ctx.cur_block;
                 ctx.f.set_term(cb2, Terminator::Br(outer_fb.blk));
             } else {
                 use crate::ssa_lower_stmt_break_continue::LabelTarget;
-                let (target, depth) = match frame.target {
+                let (target, depth, td) = match frame.target {
                     LabelTarget::Loop(idx) => {
                         let lt = ctx.loop_stack[idx];
-                        (if take_break { lt.brk } else { lt.cont }, lt.scope_depth)
+                        (
+                            if take_break { lt.brk } else { lt.cont },
+                            lt.scope_depth,
+                            lt.teardown_depth,
+                        )
                     }
-                    LabelTarget::Block(blk) => (blk, frame.scope_depth),
+                    LabelTarget::Block(blk) => (blk, frame.scope_depth, frame.teardown_depth),
                 };
                 ctx.f.append_void(
                     ctx.cur_block,
                     InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
                 );
+                crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, td, false);
                 ctx.emit_drops_for_scopes_from(depth);
                 let cb2 = ctx.cur_block;
                 ctx.f.set_term(cb2, Terminator::Br(target));
@@ -356,6 +367,7 @@ fn emit_pending_loop_flag(ctx: &mut LowerCtx, flag: ValueId, take_break: bool, a
     let cur_loop_len = ctx.loop_stack.len();
     let outer_in_same_loop = ctx.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
     if outer_in_same_loop && let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, outer_fb.teardown_depth, false);
         ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(outer_fb.blk));
@@ -365,8 +377,10 @@ fn emit_pending_loop_flag(ctx: &mut LowerCtx, flag: ValueId, take_break: bool, a
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
         );
-        // The frames between the loop and the try die here — the
-        // break site only released the ones inside the try body.
+        // The for-ofs and frames between the loop and the try die
+        // here — the break site only released the ones inside the
+        // try body.
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, lt.teardown_depth, false);
         ctx.emit_drops_for_scopes_from(lt.scope_depth);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(target));

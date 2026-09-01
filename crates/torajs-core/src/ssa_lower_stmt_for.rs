@@ -144,6 +144,7 @@ pub(crate) fn lower(
             cont: step_blk,
             brk: after,
             scope_depth: ctx.scope_stack.len(),
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.cur_block = body_blk;
     mint_per_iter_boxes(ctx, &mut per_iter);

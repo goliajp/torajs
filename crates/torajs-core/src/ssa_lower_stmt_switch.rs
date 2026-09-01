@@ -80,6 +80,7 @@ pub(crate) fn lower(
             cont: after,
             brk: after,
             scope_depth: ctx.scope_stack.len(),
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
 
     let switch_entry = ctx.cur_block;

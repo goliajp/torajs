@@ -162,6 +162,16 @@ pub(crate) fn lower_for_of_map_like(
         ctx.cur_block,
         InstKind::Store(iter_op, Operand::Value(iter_slot), 0),
     );
+    // RFC 20260901-scope-exit-drops 刀 2 — a minted iterator is an
+    // owned local of the iter frame, so every way out of the loop
+    // releases it through the frame: the `after` close, a throw into
+    // an enclosing catch, a labeled jump, a `return`. The bare alloca
+    // it used to be was only dropped in `after`, and a body that threw
+    // stranded the MapIter and its +1 on the Map (fo4 / fo5: 445MB per
+    // 600k iterations).
+    if should_drop_iter {
+        bind_scoped_local(ctx, "__forof_map_it", iter_slot, iter_ty, false, false);
+    }
 
     let tag_slot = ctx.alloca(Type::I64, Some("__forof_map_tag"));
     let val_slot = ctx.alloca(Type::I64, Some("__forof_map_val"));
@@ -223,6 +233,7 @@ pub(crate) fn lower_for_of_map_like(
             cont: header,
             brk: after,
             scope_depth: ctx.scope_stack.len() - 1,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.lower_stmt(body);
     let body_open = ctx.cur_open();
@@ -230,15 +241,7 @@ pub(crate) fn lower_for_of_map_like(
     close_body_scope(ctx, header, body_open);
 
     ctx.cur_block = after;
-    if should_drop_iter {
-        let iter_load_drop = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(iter_ty, Operand::Value(iter_slot), 0),
-            iter_ty,
-            None,
-        );
-        ctx.emit_drop_value(Operand::Value(iter_load_drop), iter_ty);
-    }
-    let _ = ctx.scope_stack.pop().expect("for-of-map iter scope");
-    let _ = ctx.shadow_stack.pop().expect("shadow frame");
+    // The iter frame's close releases the minted iterator (a reused
+    // MapIter / ArrIter source was never bound, so nothing drops).
+    ctx.close_scope_frame();
 }

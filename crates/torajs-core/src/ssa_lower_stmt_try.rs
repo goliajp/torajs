@@ -105,10 +105,12 @@ pub(crate) fn lower(
     // catch / finally, return / break / continue through the finally)
     // releases the frames from here up before it branches.
     let body_depth = ctx.scope_stack.len();
+    let teardown_depth = ctx.for_of_teardown_stack.len();
     if let Some(fb) = finally_blk {
         ctx.try_finally_stack.push(ExitTarget {
             blk: fb,
             scope_depth: body_depth,
+            teardown_depth,
         });
         ctx.try_finally_loop_depth.push(ctx.loop_stack.len());
     }
@@ -119,6 +121,7 @@ pub(crate) fn lower(
         ctx.try_stack.push(ExitTarget {
             blk: t,
             scope_depth: body_depth,
+            teardown_depth,
         });
     }
     ctx.scope_stack.push(Vec::new());
@@ -304,6 +307,7 @@ fn lower_catch(
         ctx.try_stack.push(ExitTarget {
             blk: fb,
             scope_depth: ctx.scope_stack.len() - 1,
+            teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     }
     for s in catch_body {
