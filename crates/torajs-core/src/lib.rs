@@ -300,6 +300,7 @@ pub(crate) mod ssa_lower_call_arg_temps;
 pub(crate) mod ssa_lower_call_arr_flat_map;
 pub(crate) mod ssa_lower_call_arr_ho;
 pub(crate) mod ssa_lower_call_arr_ho_loop;
+pub(crate) mod ssa_lower_call_arr_ho_slots;
 pub(crate) mod ssa_lower_call_arr_iter_ctor;
 pub(crate) mod ssa_lower_call_arr_predicate;
 pub(crate) mod ssa_lower_call_arr_push;
