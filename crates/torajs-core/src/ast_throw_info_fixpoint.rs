@@ -28,12 +28,20 @@ pub fn compute_may_throw_fns(
     // (`for … try { a(i).map(x => x + boom()) } catch` caught once
     // in three).
     let aliases = crate::ast_closure_param_tag_collect::closure_let_aliases(ast);
+    let fn_lets = fn_typed_lets(ast, expr_types, &aliases);
     for stmt in &ast.stmts {
         if let Stmt::FnDecl {
             name, params, body, ..
         } = stmt
         {
-            let (direct, mut called) = fn_throw_info(ast, params, body, expr_types);
+            let (mut direct, mut called) = fn_throw_info(ast, params, body, expr_types);
+            // Rotation 552 (551-04) — a call through a fn-valued let
+            // the fixed point cannot resolve is a call to a statically
+            // unknown target: conservative may-throw, the same rule
+            // `scan_call` applies to a fn-typed param or body let.
+            if called.iter().any(|c| fn_lets.contains(c)) {
+                direct = true;
+            }
             if direct {
                 may_throw.insert(name.clone());
             }
@@ -82,4 +90,36 @@ pub fn compute_may_throw_fns(
         }
     }
     may_throw
+}
+
+/// Rotation 552 (551-04) — fn-typed `let`s whose init is NOT a closure
+/// literal (`let f = cond ? boom : mk0`, `let g = pick(1)`). A call
+/// through such a name reaches nothing the fixed point can follow: it
+/// is neither a FnDecl nor an alias of a lifted closure, and outside
+/// the declaring body it is not in that body's `fn_values` either —
+/// so a callback whose only throw source was `f()` was judged
+/// never-throwing, the HOF loop pruned its check, and the pending
+/// throw strayed into the next checked call (`for … try {
+/// a(i).map(x => f()) } catch` caught 300000 of 600000). Program-wide
+/// by name, the same grade as [`closure_let_aliases`]; a collision
+/// only errs toward one cold throw-check.
+///
+/// [`closure_let_aliases`]: crate::ast_closure_param_tag_collect::closure_let_aliases
+fn fn_typed_lets(
+    ast: &Ast,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+    aliases: &HashMap<String, (String, usize)>,
+) -> HashSet<String> {
+    let mut out: HashSet<String> = HashSet::new();
+    let mut stack: Vec<&Stmt> = ast.stmts.iter().collect();
+    while let Some(s) = stack.pop() {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && !aliases.contains_key(name)
+            && matches!(expr_types.get(init), Some(crate::check::Type::Function(..)))
+        {
+            out.insert(name.clone());
+        }
+        crate::ast_closure_param_tag::push_child_stmts(s, &mut stack);
+    }
+    out
 }
