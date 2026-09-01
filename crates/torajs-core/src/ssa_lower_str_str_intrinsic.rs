@@ -124,7 +124,7 @@ pub(crate) fn dispatch_intrinsic(
 /// index keeps a nested str-method lowering (an arg expression that
 /// is itself a str method call) from draining its caller's parks.
 fn drain_owned_temps(ctx: &mut LowerCtx<'_>, owned_base: usize) {
-    let temps: Vec<_> = ctx.argv_owned_temps.split_off(owned_base);
+    let temps: Vec<_> = ctx.temps.argv_owned.split_off(owned_base);
     for (op, ty) in temps {
         ctx.emit_drop_value(op, ty);
     }

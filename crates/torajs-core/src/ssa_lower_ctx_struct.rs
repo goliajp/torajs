@@ -452,13 +452,9 @@ pub(crate) struct LowerCtx<'a> {
     /// keeps unrelated lowerings untouched; unconsumed entries are
     /// dead values, never re-emitted.
     pub(crate) redispatch_lowered: Option<(ExprId, Operand)>,
-    /// RFC 20260712 chunk B — fresh-owned operands parked in a str
-    /// method's argv (ToString-coerced searchValue/replaceValue,
-    /// fresh temp args) that must drop AFTER the runtime helper
-    /// call consumes them. `populate_argv` pushes; `dispatch_
-    /// intrinsic` drains right after the emit. Pre-B these leaked
-    /// (300k `replace(n.slice(0,1), ..)` churned 16MB).
-    pub(crate) argv_owned_temps: Vec<(Operand, crate::ssa::Type)>,
+    /// Parked owned-temp scratch (str argv temps — see
+    /// `ssa_lower_temp_scratch.rs` for the per-family contracts).
+    pub(crate) temps: crate::ssa_lower_temp_scratch::TempScratch,
     /// Chunk 637 — Member-read ExprIds whose lowering answered an
     /// OWNED value: the receiver was itself an owned temp (Call /
     /// New / As-of-Call shape), so `ssa_lower_member::lower` inc'd

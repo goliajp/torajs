@@ -187,7 +187,7 @@ pub(crate) fn lower_fn(
         let_stack_alloc_hint: None,
         let_declared_obj_layout: None,
         redispatch_lowered: None,
-        argv_owned_temps: Vec::new(),
+        temps: Default::default(),
         owned_member_reads: std::collections::HashSet::new(),
         compound_key_memo: None,
     };

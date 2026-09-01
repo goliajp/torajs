@@ -77,7 +77,7 @@ pub(crate) fn try_dispatch(
         // RFC 20260712 chunk B — fresh-owned argv operands parked
         // past this watermark drop after the helper call (nested
         // str-method args keep their own window).
-        let owned_base = ctx.argv_owned_temps.len();
+        let owned_base = ctx.temps.argv_owned.len();
         // Per-arg lowering with the full spec-carve-out tower
         // (S140 drop_args / S207-S338 undef + Any substitutions /
         // trailing-arg ignore). Documented in
