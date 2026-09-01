@@ -367,9 +367,23 @@ pub(super) fn activate_guarded(a: &mut Analysis) {
     let mut nested: Vec<(SlotKey, SlotKey)> = std::mem::take(&mut a.nested_unions);
     loop {
         let mut changed = false;
+        // Evidence is filed under whatever spelling its marking site
+        // saw. A guarded edge can name the same slot along another
+        // path — `Field(Param("__closure", "f"), "__ret")` on the edge
+        // against `Field(Field(Global(via), "__p0"), "__ret")` for the
+        // evidence the argument site left. Those two agree only
+        // through congruence, which `canonicalize` runs after this
+        // pass, so ask in deep-canonical form rather than literally.
+        let evidence: HashSet<SlotKey> = a
+            .containerish
+            .iter()
+            .map(|k| canon_key_frozen(&a.uf, k))
+            .collect();
         let mut next_g: Vec<(SlotKey, SlotKey)> = Vec::new();
         for (x, y) in guarded {
-            if a.containerish.contains(&x) || a.containerish.contains(&y) {
+            let known = evidence.contains(&canon_key_frozen(&a.uf, &x))
+                || evidence.contains(&canon_key_frozen(&a.uf, &y));
+            if known {
                 a.containerish.insert(x.clone());
                 a.containerish.insert(y.clone());
                 a.uf.union(&x, &y);
@@ -381,7 +395,7 @@ pub(super) fn activate_guarded(a: &mut Analysis) {
         guarded = next_g;
         let mut next_n: Vec<(SlotKey, SlotKey)> = Vec::new();
         for (ek, cand) in nested {
-            if a.containerish.contains(&cand) {
+            if evidence.contains(&canon_key_frozen(&a.uf, &cand)) {
                 a.containerish.insert(ek.clone());
                 a.uf.union(&ek, &cand);
                 changed = true;
