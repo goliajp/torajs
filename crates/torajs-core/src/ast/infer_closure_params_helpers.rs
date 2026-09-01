@@ -346,6 +346,24 @@ pub(super) fn collect_fn_decl_metadata(
             fn_ret_anns.insert(name.clone(), ret);
         }
     }
+    // r549 — `const t = (f: () => unknown) => f()` is called as
+    // `t(() => 1)`: the user-fn callee hint keys on the callee ident,
+    // so the lifted decl's `__fn(` spellings never reached the
+    // callback (it stayed `-> i64` while the param's sig said
+    // `-> any`; the env-first call read the i64 as an AnyValue —
+    // EXIT 139). Mirror each closure-let alias's metadata under the
+    // ident, with the lifted `__env` / `__this` prefix shifted off so
+    // the positions line up with the call's args.
+    for (ident, (fname, shift)) in crate::ast_closure_param_tag_collect::closure_let_aliases(ast) {
+        if let Some(pos) = fn_param_pos_anns.get(&fname) {
+            let shifted: Vec<Option<String>> = pos.iter().skip(shift).cloned().collect();
+            fn_param_pos_anns.entry(ident.clone()).or_insert(shifted);
+        }
+        if let Some(tp) = fn_type_params.get(&fname) {
+            let tp = tp.clone();
+            fn_type_params.entry(ident).or_insert(tp);
+        }
+    }
     (
         fn_param_pos_anns,
         fn_type_params,

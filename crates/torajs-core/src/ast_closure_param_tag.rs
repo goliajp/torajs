@@ -75,6 +75,16 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // return-site ExprIds, for the return-lane marking round below.
     let mut fn_returns: HashMap<String, Vec<ExprId>> = HashMap::new();
     crate::ast_closure_param_tag_collect::collect_fn_returns(&ast.stmts, &mut fn_returns);
+    // r549 — `const t = <arrow>` is called as `t(...)`: mirror the
+    // lifted decl's fn-typed params / returns under the ident so the
+    // by-callee-name rounds below see those calls (see the collect
+    // sibling's `closure_let_aliases`).
+    let closure_aliases = crate::ast_closure_param_tag_collect::closure_let_aliases(ast);
+    crate::ast_closure_param_tag_collect::mirror_closure_aliases(
+        &closure_aliases,
+        &mut fn_params,
+        &mut fn_returns,
+    );
     if fn_params.is_empty() && fn_returns.is_empty() {
         return;
     }
@@ -95,6 +105,14 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // chunk 631 — usage-axis seed: replace-cb params need the
     // env-first shape (see ast_closure_param_tag_axes doc).
     marked.extend(replace_cb_param_seeds(ast, &fn_params));
+    // r549 — closure-let aliases: the binding's callers always hand
+    // closure repr (see the collect sibling's seed doc).
+    marked.extend(
+        crate::ast_closure_param_tag_collect::seed_closure_alias_marks(
+            &closure_aliases,
+            &fn_params,
+        ),
+    );
     let mut ret_marked: HashSet<String> = HashSet::new();
     loop {
         let mut changed = false;
@@ -197,7 +215,13 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         return;
     }
 
-    // ── Retag the marked params' / returns' annotations in place.
+    // ── Retag the marked params' / returns' annotations in place
+    // (alias marks folded back onto their lifted decls first).
+    crate::ast_closure_param_tag_collect::fold_closure_alias_marks(
+        &closure_aliases,
+        &mut marked,
+        &mut ret_marked,
+    );
     retag_fn_decls(&mut ast.stmts, &marked);
     retag_fn_return_types(&mut ast.stmts, &ret_marked);
 
@@ -431,6 +455,28 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn closure_let_alias_call_retags_lifted_param() {
+        // r549 — the arrow is called by its binding name; the lifted
+        // decl's user param sits behind the synthetic `__env`.
+        let ast = pass_output("const t = (f: () => number) => f();\nconsole.log(t(() => 1));\n");
+        let lifted = ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::FnDecl { name, params, .. }
+                    if name.starts_with("__closure_") && params.iter().any(|p| p.name == "f") =>
+                {
+                    Some(name.clone())
+                }
+                _ => None,
+            })
+            .expect("lifted decl for t");
+        let idx = 1;
+        let ann = fn_param_ann(&ast, &lifted, idx).unwrap();
+        assert!(ann.starts_with("__cls("), "expected __cls retag, got {ann}");
     }
 
     #[test]
