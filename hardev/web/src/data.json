@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T10:08:06.132Z",
+  "generatedAt": "2026-09-01T12:05:10.209Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T09:50:55Z",
-    "headSha": "885ab2ff5",
-    "elapsedSec": 349.16,
+    "ranAt": "2026-09-01T11:59:10Z",
+    "headSha": "054166169",
+    "elapsedSec": 675.99,
     "workers": 12,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.96
   },
   "torajs": {
-    "commit": "885ab2ff5",
-    "commitSubject": "fix: a for-of that leaves early closes its iterator on every exit and never strands it",
+    "commit": "054166169",
+    "commitSubject": "fix: a for-of over a generator call takes the iterator-protocol lane",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "054166169",
+      "subject": "fix: a for-of over a generator call takes the iterator-protocol lane"
+    },
+    {
+      "hash": "1e956f08b",
+      "subject": "fix: a call through a fn-valued let counts as may-throw"
+    },
+    {
+      "hash": "65525af04",
+      "subject": "fix: typed Array.concat builds its product in one allocation"
+    },
+    {
+      "hash": "2f57eba3b",
+      "subject": "fix: Map/Set forEach and Str.concat release the operands they only borrow"
+    },
+    {
+      "hash": "4dcfee646",
+      "subject": "refactor: move the array concat lanes out of ssa_lower_str_concat_dispatch"
+    },
+    {
+      "hash": "001cf9d36",
+      "subject": "chore: rotation 551 test262 sweep ingest, dashboard snapshot and P-SURF refresh"
+    },
+    {
       "hash": "885ab2ff5",
       "subject": "fix: a for-of that leaves early closes its iterator on every exit and never strands it"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "5ec68cc3c",
       "subject": "chore: rotation 550 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "dca439e68",
-      "subject": "refactor: move the may-throw fixed point out of ast_throw_info"
-    },
-    {
-      "hash": "5f86c9fcc",
-      "subject": "fix: a callback that throws mid-HOF-loop now ends the loop every time and releases the partial product"
-    },
-    {
-      "hash": "74bdec8b3",
-      "subject": "fix: typed-method receivers, the concat fold and str argv temps strand owned temps on a sibling's throw"
-    },
-    {
-      "hash": "80f880f46",
-      "subject": "refactor: move the array HOF dst/acc slot prep out of ssa_lower_call_arr_ho"
-    },
-    {
-      "hash": "2967235ac",
-      "subject": "fix: binop operands, any-lane receivers and argv boxes strand owned temps on a sibling's throw"
-    },
-    {
-      "hash": "2ed6409b7",
-      "subject": "chore: rotation 549 test262 sweep ingest and dashboard snapshot"
     }
   ],
-  "headSha": "885ab2ff5",
+  "headSha": "054166169",
   "autorun": {
-    "total": 854,
+    "total": 855,
     "baselineTarget": 10,
-    "bySelf": 849,
+    "bySelf": 850,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788250200-3489",
-      "at": "2026-09-01T08:10:00Z",
-      "ts": 1788250200,
+      "rotationId": "r-1788257355-25a5",
+      "at": "2026-09-01T10:09:15Z",
+      "ts": 1788257355,
       "trigger": "self",
-      "prevHead": "5ec68cc3c",
-      "handoffSha": "sha256:e6486fb237efe6669353d774dfafc7de6ef50790ccd35051c2883fd5e2381c1a",
-      "handoffAgeSec": 20,
+      "prevHead": "001cf9d36",
+      "handoffSha": "sha256:6b4465f7502240f6155df82764e0a45b3843ca8a2d0096ab23eee190f41dcff5",
+      "handoffAgeSec": 2,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788257355-25a5",
+        "at": "2026-09-01T10:09:15Z",
+        "ts": 1788257355,
+        "trigger": "self",
+        "prevHead": "001cf9d36",
+        "handoffSha": "sha256:6b4465f7502240f6155df82764e0a45b3843ca8a2d0096ab23eee190f41dcff5",
+        "handoffAgeSec": 2,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788250200-3489",
         "at": "2026-09-01T08:10:00Z",
@@ -884,17 +895,6 @@
         "prevHead": "738450054",
         "handoffSha": "sha256:1c58575a3c8897bb361cc1600f462e877ad828f4460559d35d2e946a1a4aeb11",
         "handoffAgeSec": 20,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788153921-5b25",
-        "at": "2026-08-31T05:25:21Z",
-        "ts": 1788153921,
-        "trigger": "self",
-        "prevHead": "26059ab2f",
-        "handoffSha": "sha256:34a5ba5563bc7db436009bde52b63686c1b150f9106770bfe8d61f9f3d1eda5f",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }

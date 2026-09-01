@@ -1670,6 +1670,27 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Latest @ `054166169`** (2026-09-01, rotation 552 — builtin lanes
+release the operands they only borrow: Map/Set forEach passed the
+receiver behind a per-iteration inc nothing released, Str.concat and
+the typed Array.concat fold never settled an owned argument, a call
+through a fn-valued `let` never counted as may-throw, and a for-of
+over a generator CALL bypassed the iterator-protocol lane — and its
+IteratorClose — through a parse-time desugar). Gate predicate: **143**
+clusters of ≥ 4 holding **1130** cases, register 2 · 251, residue
+467 · 626 (31.2%), core **2007**. Against rotation 551: clusters
+143 → **143 (=)**, cases 1129 → **1130 (+1)**, core 2007 → **2007
+(=)** — this rotation's yield is memory correctness (387-483MB churn
+shapes → 1MB) and close semantics, not surface.
+
+Sweep passTotal 35363 → **35363 (=)**, pass 30190 → **30190 (=)**,
+passNoOracle 1026 (=), passNegative 4147 (=), bug 12452 (=),
+incompatible 5359 (=), trAccepted 47815 (=); conservation trivial.
+Verdict diff 2 changed, both sideways inside `incompatible`
+(`staging/sm/{Array,TypedArray}/sort_small.js`: `not yet supported` →
+`type error`), **0 backward**. Coverage curve: top-100 **56.6%**,
+top-200 **74.5%**, top-400 **88.6%**.
+
 **Latest @ `885ab2ff5`** (2026-09-01, rotation 551 — scope exits
 release what they leave; for-of closes its iterator on every exit).
 Gate predicate: **143** clusters of ≥ 4 holding **1129** cases,
