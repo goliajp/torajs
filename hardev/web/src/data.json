@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T05:54:58.382Z",
+  "generatedAt": "2026-09-01T07:57:58.185Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T05:54:37Z",
-    "headSha": "264e9f61e",
-    "elapsedSec": 588.48,
-    "workers": 10,
+    "ranAt": "2026-09-01T07:55:51Z",
+    "headSha": "dca439e68",
+    "elapsedSec": 544.27,
+    "workers": 14,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30186,
+    "pass": 30184,
     "passNoOracle": 1026,
     "passNegative": 4147,
-    "passTotal": 35359,
+    "passTotal": 35357,
     "bug": 12456,
-    "incompatible": 5359,
+    "incompatible": 5361,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47815,
-    "passRateInScope": 66.5,
+    "trAccepted": 47813,
+    "passRateInScope": 66.49,
     "passRateTrAccepted": 73.95
   },
   "torajs": {
-    "commit": "264e9f61e",
-    "commitSubject": "fix: object literals strand the fresh object and lowered fields on a sibling field's throw",
+    "commit": "dca439e68",
+    "commitSubject": "refactor: move the may-throw fixed point out of ast_throw_info",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "dca439e68",
+      "subject": "refactor: move the may-throw fixed point out of ast_throw_info"
+    },
+    {
+      "hash": "5f86c9fcc",
+      "subject": "fix: a callback that throws mid-HOF-loop now ends the loop every time and releases the partial product"
+    },
+    {
+      "hash": "74bdec8b3",
+      "subject": "fix: typed-method receivers, the concat fold and str argv temps strand owned temps on a sibling's throw"
+    },
+    {
+      "hash": "80f880f46",
+      "subject": "refactor: move the array HOF dst/acc slot prep out of ssa_lower_call_arr_ho"
+    },
+    {
+      "hash": "2967235ac",
+      "subject": "fix: binop operands, any-lane receivers and argv boxes strand owned temps on a sibling's throw"
+    },
+    {
+      "hash": "2ed6409b7",
+      "subject": "chore: rotation 549 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "264e9f61e",
       "subject": "fix: object literals strand the fresh object and lowered fields on a sibling field's throw"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "68ba49f23",
       "subject": "chore: rotation 548 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "19904b729",
-      "subject": "fix: any-lane iterator steps double-stake every yielded heap value"
-    },
-    {
-      "hash": "92d031c4c",
-      "subject": "fix: Class B any-lane sites mishandle ShortStr boxes"
-    },
-    {
-      "hash": "9bc71981b",
-      "subject": "fix: emit-side any lanes abandon or double-stake ShortStr materializations"
-    },
-    {
-      "hash": "8c7cdb380",
-      "subject": "fix: misc any-lane probe/transfer leaks, Map.groupBy runtime keys broken"
-    },
-    {
-      "hash": "ec8ae46cf",
-      "subject": "fix: array any-lane mutators and iterators leak ShortStr materializations"
-    },
-    {
-      "hash": "009f7f157",
-      "subject": "chore: rotation 547 test262 sweep ingest and dashboard snapshot"
     }
   ],
-  "headSha": "264e9f61e",
+  "headSha": "dca439e68",
   "autorun": {
-    "total": 852,
+    "total": 853,
     "baselineTarget": 10,
-    "bySelf": 847,
+    "bySelf": 848,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788226765-33e9",
-      "at": "2026-09-01T01:39:25Z",
-      "ts": 1788226765,
+      "rotationId": "r-1788242817-0167",
+      "at": "2026-09-01T06:06:57Z",
+      "ts": 1788242817,
       "trigger": "self",
-      "prevHead": "68ba49f23",
-      "handoffSha": "sha256:c0dfe5977d5f175897ae306196fb67f7ed157fb38bc7cb24b7fff366d511ab24",
-      "handoffAgeSec": 5,
+      "prevHead": "2ed6409b7",
+      "handoffSha": "sha256:6c729b0a361c33844a2415cb103d063d70eca872f246e4031ed703e6d69a774b",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788242817-0167",
+        "at": "2026-09-01T06:06:57Z",
+        "ts": 1788242817,
+        "trigger": "self",
+        "prevHead": "2ed6409b7",
+        "handoffSha": "sha256:6c729b0a361c33844a2415cb103d063d70eca872f246e4031ed703e6d69a774b",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788226765-33e9",
         "at": "2026-09-01T01:39:25Z",
@@ -884,17 +895,6 @@
         "prevHead": "d466168d0",
         "handoffSha": "sha256:1922596ef8dfcf01c7c2c0ed4f3b663ff6420d7eff6cc4a9ef7652d47b32111a",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788131639-3d2b",
-        "at": "2026-08-30T23:13:59Z",
-        "ts": 1788131639,
-        "trigger": "self",
-        "prevHead": "1d4c5f441",
-        "handoffSha": "sha256:65d3441072674bcadbc0c27d87a0a0a353d603763a87209dcd34071d777978fb",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
