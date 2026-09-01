@@ -21,7 +21,7 @@
 //!   when the target is this-using, since its receiver is param 0
 //!   and binding it is just the first partial. Synthesizes a wrapper
 //!   `__bound_<id>(__env(captures), rem_params...) -> R` plus a
-//!   factory `__bind_create_<id>(captures...) -> __cls(rem_tys)->R`
+//!   factory `__bind_create_<id>(captures...) -> __cls(rem_tys)->(R)`
 //!   that returns a Closure capturing the partial args. The wrapper
 //!   forwards its `__env` captures + new args to the original fn.
 //!   Factory FnDecl pushed BEFORE the bound FnDecl so ssa_lower
@@ -253,7 +253,7 @@ pub(crate) fn run(ast: &mut Ast) {
             "bind" => {
                 // `f.bind()` / `f.bind(t)` bind no partial args; a
                 // partial list covering every param leaves a zero-param
-                // bound fn (`__cls()->R` interns an empty param list).
+                // bound fn (`__cls()->(R)` interns an empty param list).
                 // Only MORE partials than params keeps the reject —
                 // dropping surplus args would drop their evaluation.
                 let mut partial_args: Vec<ExprId> = args_clone.iter().skip(1).copied().collect();

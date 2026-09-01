@@ -204,14 +204,14 @@ pub(crate) fn parse_type(
     //   env, so the slot can never be a bare fn ptr. parse_cls skips
     //   the `__rest(` segment (the static sig is the fixed prefix;
     //   the call arm routes through `closure_call_variadic`).
-    // - P3.closure-in-struct-field `__cls(P)->R`, tagged by the
+    // - P3.closure-in-struct-field `__cls(P)->(R)`, tagged by the
     //   `tag_struct_field_closure_types` desugar pass: struct fields
     //   can store both FnSig (forwarder-wrapped at construction) and
     //   capturing Closure values, so the slot is Closure-typed.
-    //   Fn-typed param / return / let bindings keep `__fn(P)->R` →
+    //   Fn-typed param / return / let bindings keep `__fn(P)->(R)` →
     //   Type::FnSig via try_parse_fn_type below, preserving direct
     //   dispatch on the hot fn-as-callback path.
-    // - RFC 20260714-objlit-accessor `__mth(P)->R`: an object-literal
+    // - RFC 20260714-objlit-accessor `__mth(P)->(R)`: an object-literal
     //   method slot. Closure-repr like `__cls(`, and the params are
     //   the USER params only — `objlit_nominal` builds the ann by
     //   filtering `__env` / `__this` out, so `o.m(x)` types at the
@@ -239,7 +239,7 @@ pub(crate) fn parse_type(
             inst_memo,
         );
     }
-    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->R` decoder lives
+    // M2 Phase B Stage 2 — fn type `__fn(P1|P2|...)->(R)` decoder lives
     // in the sibling `ssa_lower_parse_fn_type` module.
     if let Some(ty) = crate::ssa_lower_parse_fn_type::try_parse_fn_type(
         s,

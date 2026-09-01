@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(named_ref("__nullable(Item)[]"), Some(("Item", 1)));
         assert_eq!(named_ref("A | B"), None);
         assert_eq!(named_ref("{ x: Item }"), None);
-        assert_eq!(named_ref("__fn(A)->B"), None);
+        assert_eq!(named_ref("__fn(A)->(B)"), None);
         assert_eq!(named_ref("number"), Some(("number", 0)));
     }
 }

@@ -104,7 +104,7 @@ fn resolve_type_ann_inner(
     if let Some(rest) = name.strip_prefix("__inlobj(") {
         return markers::resolve_inlobj(rest, aliases, type_params, generic_aliases, in_flight);
     }
-    // `__fn(P1|P2|...)->R` / `__cls(P1|...)->R` fn-type markers decoded
+    // `__fn(P1|P2|...)->(R)` / `__cls(P1|...)->(R)` fn-type markers decoded
     // in markers::resolve_fn_cls.
     if let Some(rest) = name
         .strip_prefix("__fn(")
@@ -112,7 +112,7 @@ fn resolve_type_ann_inner(
     {
         return markers::resolve_fn_cls(rest, aliases, type_params, generic_aliases, in_flight);
     }
-    // RFC 20260714-objlit-accessor blade 1 — `__mth(P1|...)->R`, an
+    // RFC 20260714-objlit-accessor blade 1 — `__mth(P1|...)->(R)`, an
     // object-literal METHOD slot. Types exactly like `__cls(`: the
     // receiver is not in the signature (it is the lifted fn's hidden
     // `__this`, reassembled at the field-call arm), so `o.m(x)` types at

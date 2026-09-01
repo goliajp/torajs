@@ -45,7 +45,7 @@
 //! Runs inside `desugar_implicit_generics` right after
 //! `objlit_nominal::run` — `lift_arrow_fns` has produced the
 //! `Expr::Closure` nodes and `preinfer_closure_sigs` has already
-//! published the user-facing `__fn(P)->R` anns (which deliberately
+//! published the user-facing `__fn(P)->(R)` anns (which deliberately
 //! stay `__this`-free, like `__mth(`'s receiver-less spelling).
 
 pub(super) use super::fnexpr_this_call_faces::is_hof_method;

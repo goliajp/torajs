@@ -246,7 +246,10 @@ pub(crate) fn preinfer_closure_sigs(
         // checker gives the closure VALUE, so consumers route the
         // variadic boxed lane.
         if argv_fns.contains(name) {
-            fn_sigs.insert(name.clone(), format!("__fn(__rest(any[]))->{ret}"));
+            fn_sigs.insert(
+                name.clone(),
+                crate::type_ann_fnsig::fn_type_ann("__fn", "__rest(any[])", &ret),
+            );
             continue;
         }
         let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
@@ -263,7 +266,7 @@ pub(crate) fn preinfer_closure_sigs(
         if complete {
             fn_sigs.insert(
                 name.clone(),
-                format!("__fn({})->{}", param_anns.join("|"), ret),
+                crate::type_ann_fnsig::fn_type_ann("__fn", &param_anns.join("|"), &ret),
             );
         }
     }

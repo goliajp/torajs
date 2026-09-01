@@ -108,7 +108,7 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
                 continue;
             };
             // Quick sniff: ret type looks like a fn type ann
-            // (`(args) => R` parser shape, or `__fn(...)->R` lifted
+            // (`(args) => R` parser shape, or `__fn(...)->(R)` lifted
             // shape).
             let looks_like_fn = rt.starts_with('(') || rt.contains("=>") || rt.starts_with("__fn(");
             if !looks_like_fn {

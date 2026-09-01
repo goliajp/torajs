@@ -1,7 +1,7 @@
 //! Function-type annotations — `(p: T) => R` and the method-signature
 //! spelling `m(p: T): R` that means the same thing.
 //!
-//! Both produce the `__fn(P|..)->R` encoding every downstream consumer
+//! Both produce the `__fn(P|..)->(R)` encoding every downstream consumer
 //! already reads, so a method signature in an inline object type is
 //! sugar and nothing below the parser learns a new shape. The two
 //! spellings differ only in their tail — `=>` versus `:` — which is why
@@ -28,7 +28,11 @@ impl Parser<'_> {
         } else {
             "void".to_string()
         };
-        Ok(format!("__fn({})->{}", params.join("|"), ret))
+        Ok(crate::type_ann_fnsig::fn_type_ann(
+            "__fn",
+            &params.join("|"),
+            &ret,
+        ))
     }
 
     pub(super) fn parse_fn_type_ann(&mut self) -> Result<String, String> {
@@ -77,7 +81,11 @@ impl Parser<'_> {
             }
         }
         let ret = self.parse_type_ann()?;
-        Ok(format!("__fn({})->{}", params.join("|"), ret))
+        Ok(crate::type_ann_fnsig::fn_type_ann(
+            "__fn",
+            &params.join("|"),
+            &ret,
+        ))
     }
 
     /// The parenthesised parameter list both spellings share. Enters on

@@ -176,10 +176,10 @@ fn objlit_ann(ast: &Ast, fields: &[(String, super::ExprId)], ctx: &LiftCtx) -> O
     Some(format!("__inlobj({})", parts.join("|")))
 }
 
-/// The `R` of a `__cls(P|..)->R` / `__fn(P|..)->R` annotation.
+/// The `R` of a `__cls(P|..)->(R)` / `__fn(P|..)->(R)` annotation.
 ///
 /// Depth-aware, because a parameter can itself be fn-shaped —
-/// `__cls(__fn(number)->number)->any` closes its own paren before the
+/// `__cls(__fn(number)->(number))->any` closes its own paren before the
 /// one that matters.
 fn fn_ann_return(ann: &str) -> Option<&str> {
     let rest = ann
@@ -192,7 +192,7 @@ fn fn_ann_return(ann: &str) -> Option<&str> {
             ')' => {
                 depth -= 1;
                 if depth == 0 {
-                    return rest[i + 1..].strip_prefix("->");
+                    return crate::type_ann_fnsig::ret_of_tail(&rest[i + 1..]);
                 }
             }
             _ => {}
@@ -359,7 +359,11 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         None => super::infer_return_ann_seeded(&ast.exprs, body, params, &ctx.binds, ctx.fn_sigs)
             .unwrap_or_else(|| "any".into()),
     };
-    Some(format!("__cls({})->{}", param_anns.join("|"), ret))
+    Some(crate::type_ann_fnsig::fn_type_ann(
+        "__cls",
+        &param_anns.join("|"),
+        &ret,
+    ))
 }
 
 /// Every top-level function's *declared* return type, keyed by name —

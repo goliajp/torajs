@@ -11,13 +11,13 @@
 
 use crate::check::Type;
 
-/// `<marker>(P1|...)->R` — the fn-type ann shape. `marker` picks the
+/// `<marker>(P1|...)->(R)` — the fn-type ann shape. `marker` picks the
 /// repr `parse_type` interns: `__fn` = `Type::FnSig` (bare ptr, direct
 /// dispatch) for param / return / let positions, `__cls` =
 /// `Type::Closure` (env-first) for struct-field slots.
 fn fn_ann(marker: &str, args: &[Type], ret: &Type) -> String {
     let parts: Vec<String> = args.iter().map(type_to_ann).collect();
-    format!("{marker}({})->{}", parts.join("|"), type_to_ann(ret))
+    crate::type_ann_fnsig::fn_type_ann(marker, &parts.join("|"), &type_to_ann(ret))
 }
 
 /// `parse_type` consumes. Used to translate inferred generic type args

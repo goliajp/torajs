@@ -42,9 +42,9 @@ pub(super) fn hof_result_ann(
 }
 
 /// The callback's return annotation, when the arg is a lifted closure
-/// (`fn_sigs` holds the full `__fn(P|..)->R` under its reserved
+/// (`fn_sigs` holds the full `__fn(P|..)->(R)` under its reserved
 /// name), a user fn ident (`fn_sigs` holds the bare return ann), or a
-/// binding whose ann spells `__fn(..)->R`.
+/// binding whose ann spells `__fn(..)->(R)`.
 pub(super) fn callback_ret_ann(
     exprs: &[Expr],
     arg: super::ExprId,
@@ -69,13 +69,12 @@ pub(super) fn callback_ret_ann(
     }
 }
 
-/// `__fn(P|..)->R` → `R`, for a simple `R` only — a nested arrow in
-/// the return position would make the tail split ambiguous, and a
-/// composite `R` has no `R[]` spelling this sniff can safely mint.
+/// `__fn(P|..)->(R)` → `R`, for a simple `R` only: a composite `R` has
+/// no `R[]` spelling this sniff can safely mint.
 fn fn_ann_ret(ann: &str) -> Option<String> {
     let rest = ann.strip_prefix("__fn(")?;
-    let (_, ret) = rest.rsplit_once("->")?;
-    simple_ann(ret)
+    let close = crate::type_ann_fnsig::close_paren(rest)?;
+    simple_ann(crate::type_ann_fnsig::ret_of_tail(&rest[close + 1..])?)
 }
 
 fn simple_ann(ret: &str) -> Option<String> {

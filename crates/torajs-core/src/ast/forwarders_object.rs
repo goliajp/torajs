@@ -3,7 +3,7 @@
 //!
 //! Two pub entry points:
 //! - `tag_struct_field_closure_types` — retags TypeDecl/ClassDecl
-//!   field types from `__fn(P)->R` to `__cls(P)->R` (Closure ABI
+//!   field types from `__fn(P)->(R)` to `__cls(P)->(R)` (Closure ABI
 //!   opt-in for struct-field slots only).
 //! - `synthesize_fn_to_closure_forwarders` — synths
 //!   `__forward_<name>` shims for the ObjectLit-field store-site
@@ -18,10 +18,10 @@ use super::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
 pub(super) use super::forwarders_object_synth::synthesize_forwarder_decls;
 
 /// P3.closure-in-struct-field — rewrites TypeDecl / ClassDecl field
-/// types from `__fn(P)->R` (parser's internal form of `(P)=>R`) to
-/// `__cls(P)->R`, so the SSA-layer `parse_type` maps the latter to
+/// types from `__fn(P)->(R)` (parser's internal form of `(P)=>R`) to
+/// `__cls(P)->(R)`, so the SSA-layer `parse_type` maps the latter to
 /// `Type::Closure` (env-first CallIndirect ABI) while leaving
-/// `__fn(P)->R` in param / return / let-binding annotations as
+/// `__fn(P)->(R)` in param / return / let-binding annotations as
 /// `Type::FnSig` (direct dispatch, no env overhead).
 ///
 /// This is the narrowest possible Closure-ABI surface that still
@@ -33,7 +33,7 @@ pub(super) use super::forwarders_object_synth::synthesize_forwarder_decls;
 /// trivial forwarder so both shapes reach the slot uniformly.
 ///
 /// Must run AFTER parser type-ann normalization (parser produces
-/// `__fn(...)->R`) and BEFORE `synthesize_fn_to_closure_forwarders`
+/// `__fn(...)->(R)`) and BEFORE `synthesize_fn_to_closure_forwarders`
 /// (which reads tagged field types to know which ObjectLit field
 /// position to rewrite). Per-pipeline ordering: after
 /// `desugar_classes` (so flattened class field types are visible)
@@ -66,7 +66,7 @@ pub fn tag_struct_field_closure_types(ast: &mut Ast) {
 /// P3.closure-in-struct-field — narrows the Closure-typed slot
 /// surface: only inline-struct field types tagged by
 /// `tag_struct_field_closure_types` (annotation rewritten from
-/// `(P)=>R` to `__cls(P)->R`) end up as Type::Closure at the SSA
+/// `(P)=>R` to `__cls(P)->(R)`) end up as Type::Closure at the SSA
 /// layer. Fn-typed params / returns / let bindings stay as
 /// Type::FnSig (direct call ABI; no env-first overhead).
 ///

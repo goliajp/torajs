@@ -15,7 +15,7 @@
 //!   with / slice / filter / concat) back to the root binding's
 //!   annotation instead of preinferring `(any, any)`.
 //! - **user-fn callee hints**: `apply((n) => n + 1, 41)` — a
-//!   `__fn(P|..)->R`-annotated param at a closure arg position
+//!   `__fn(P|..)->(R)`-annotated param at a closure arg position
 //!   projects its spellings onto the lifted closure's params/ret.
 
 use super::infer_closure_params_apply::apply_closure_ann_updates;
@@ -229,7 +229,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         if closure_args.is_empty() && !has_container_arg {
             continue;
         }
-        // User-fn callee: an `__fn(P|..)->R`-annotated param at a
+        // User-fn callee: an `__fn(P|..)->(R)`-annotated param at a
         // closure arg position hints the lifted closure's own
         // param/ret annotations (chunk 554 face ②).
         //

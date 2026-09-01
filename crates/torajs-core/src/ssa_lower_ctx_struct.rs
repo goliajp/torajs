@@ -89,7 +89,7 @@ pub(crate) struct LowerCtx<'a> {
     /// `__torajs_regex_compile`.
     pub(crate) baked_regex_buf: &'a mut Vec<BakedRegexEntry>,
     /// Mutable view of the lowering-phase fn-pointer signature interner.
-    /// `__fn(P1|P2)->R` annotations intern lazily; written into
+    /// `__fn(P1|P2)->(R)` annotations intern lazily; written into
     /// `module.signatures` at the end of `lower()`. M2 Phase B Stage 2.
     pub(crate) fn_sigs: &'a mut Vec<(Vec<Type>, Type)>,
     /// Mutable view of the struct-layouts interner. M3.4 lets parse_type

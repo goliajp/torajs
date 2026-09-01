@@ -113,7 +113,7 @@ pub(crate) fn run(ast: &mut Ast) {
     // return g`) was inferred BEFORE the closure's own return type
     // existed — the Ident lookup missed and the fn stayed Void.
     // Running the closure branches first (identical, idempotent
-    // logic) + publishing each closure's full `__fn(P|..)->R` ann
+    // logic) + publishing each closure's full `__fn(P|..)->(R)` ann
     // under its reserved `__closure_*` name lets
     // `infer_expr_ann_with`'s Expr::Closure arm answer fn-shaped
     // anns; `parse_type` maps `__fn` to FnSig and `effective_ret_ty`
@@ -382,7 +382,7 @@ pub(crate) fn is_synth_closure_name(name: &str) -> bool {
     // `lift_arrow_fns`' lifted arrows and
     // `synthesize_fn_to_closure_forwarders`' `__forward_<fn>` shims
     // (both closure-shaped, `__env`-first). `infer_expr_ann_with`'s
-    // `Expr::Closure` arm reads their FULL `__fn(P|..)->R` ann out of
+    // `Expr::Closure` arm reads their FULL `__fn(P|..)->(R)` ann out of
     // `fn_sigs`, whereas the same map holds a BARE return ann for user
     // fns — so a name that reaches that arm without being published
     // here silently reads back the return type as if it were the fn

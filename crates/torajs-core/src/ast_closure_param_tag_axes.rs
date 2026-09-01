@@ -387,7 +387,7 @@ fn fn_return_ann_of(ast: &Ast, fname: &str) -> Option<String> {
     None
 }
 
-/// Split `__fn(P1|P2)->R` (or its retagged `__cls(` twin) into the
+/// Split `__fn(P1|P2)->(R)` (or its retagged `__cls(` twin) into the
 /// param ann strings and the return ann — the string-level twin of
 /// `ssa_lower_parse_fn_type::try_parse_fn_type`'s depth-aware walk.
 fn split_sig_ann(ann: &str) -> Option<(Vec<String>, String)> {
@@ -413,7 +413,7 @@ fn split_sig_ann(ann: &str) -> Option<(Vec<String>, String)> {
     }
     let close = close?;
     let params_str = &rest[..close];
-    let ret = rest[close + 1..].strip_prefix("->")?.to_string();
+    let ret = crate::type_ann_fnsig::ret_of_tail(&rest[close + 1..])?.to_string();
     let mut params: Vec<String> = Vec::new();
     if !params_str.is_empty() {
         let mut d: i32 = 0;

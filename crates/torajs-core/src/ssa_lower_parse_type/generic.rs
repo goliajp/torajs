@@ -33,7 +33,7 @@ pub(super) fn parse_generic(
             match b {
                 b'<' | b'(' => depth += 1,
                 // Chunk 795 — the `>` of a fn-type return arrow
-                // (`Pair<__fn()->number|string>`) is not a generic
+                // (`Pair<__fn()->(number)|string>`) is not a generic
                 // closer; counting it dropped the depth below zero
                 // and the depth-0 `|` between the type args went
                 // unseen (chunk-794 splitter-family mirror).

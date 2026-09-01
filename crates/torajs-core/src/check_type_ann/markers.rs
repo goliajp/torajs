@@ -1,5 +1,5 @@
 //! Internal marker-annotation decoders (`__inlobj(...)` /
-//! `__fn(...)->R` / `__cls(...)->R`) plus the shared depth-aware
+//! `__fn(...)->(R)` / `__cls(...)->(R)`) plus the shared depth-aware
 //! string scanners, split out of `resolve_type_ann_inner`
 //! (2026-07-03, fn-debt decomp). Bodies verbatim; the four inline
 //! copies of the depth-0 `|` splitter and the two copies of the
@@ -12,7 +12,7 @@ use crate::check::{GenericAliasMap, Type};
 
 /// Split `s` at every depth-0 `|`, with both `(`/`)` and `<`/`>`
 /// nesting. The `>` of a fn-type return arrow
-/// (`Pair<__fn()->number|string>`) is not a generic closer: counting
+/// (`Pair<__fn()->(number)|string>`) is not a generic closer: counting
 /// it dropped the depth below zero and the depth-0 `|` between the
 /// type args went unseen (`-` only precedes `>` in the return-arrow
 /// spelling).
@@ -21,7 +21,7 @@ use crate::check::{GenericAliasMap, Type};
 /// `__fn(` decoders opted out. That was never a real distinction:
 /// a `|` inside `<..>` separates GENERIC ARGUMENTS in every one of
 /// these spellings, never the marker's own fields or params. Opting
-/// out cut `__fn(Map<string|number>)->void` into `Map<string` and
+/// out cut `__fn(Map<string|number>)->(void)` into `Map<string` and
 /// `number>`, so any multi-argument generic in a fn-type or inline
 /// object type was a loud "unknown type" (single-argument ones
 /// carry no `|` and survived, which is why it stayed hidden).
@@ -101,8 +101,8 @@ pub(super) fn resolve_inlobj(
     Some(Type::Struct(fields_out))
 }
 
-/// `__fn(P1|P2|...)->R` (user-source fn type) and its
-/// `tag_struct_field_closure_types`-tagged sibling `__cls(P1|...)->R`
+/// `__fn(P1|P2|...)->(R)` (user-source fn type) and its
+/// `tag_struct_field_closure_types`-tagged sibling `__cls(P1|...)->(R)`
 /// (struct-field closure slot) share the same parse shape and both
 /// resolve to `Type::Function(params, ret)` at the typecheck layer.
 /// SSA `parse_type` is what actually distinguishes them: `__fn` →
@@ -118,7 +118,7 @@ pub(super) fn resolve_fn_cls(
     let close = find_close_paren(rest)?;
     let params_str = &rest[..close];
     let after = &rest[close + 1..];
-    let ret_str = after.strip_prefix("->")?;
+    let ret_str = crate::type_ann_fnsig::ret_of_tail(after)?;
     let params = split_top_pipe(params_str);
     let mut param_tys = Vec::with_capacity(params.len());
     for p in params {

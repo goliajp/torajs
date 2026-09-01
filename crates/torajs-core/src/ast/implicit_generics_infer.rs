@@ -342,7 +342,7 @@ pub(crate) fn infer_expr_ann_with(
         // RFC 20260704 C4+ (chunk 522) — a lifted closure value
         // carries the fn-shaped ann `preinfer_closure_sigs`
         // published under its reserved `__closure_*` name (a full
-        // `__fn(P|..)->R`, unlike the bare return anns the map
+        // `__fn(P|..)->(R)`, unlike the bare return anns the map
         // holds for user fns; the namespaces are disjoint — user
         // code never references a `__closure_*` ident directly).
         Expr::Closure { fn_name, .. } => fn_sigs.get(fn_name).cloned(),
@@ -385,7 +385,7 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Index { obj, .. } => recur(*obj)?.strip_suffix("[]").map(str::to_string),
         // The second site that mints `__inlobj(` (the parser's syntax
         // lane is the other). A fn-valued field arrives here as
-        // `__fn(P)->R` (the `Expr::Closure` arm above hands back the
+        // `__fn(P)->(R)` (the `Expr::Closure` arm above hands back the
         // lifted closure's published sig), so it needs the same
         // field-position retag the parser does — `function make() {
         // return { f: () => 7 } }` interned a bare-fn-ptr slot while

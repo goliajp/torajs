@@ -26,7 +26,7 @@
 //! } } }`), so the lifted FnDecl keeps its `__env` and takes `__this` as
 //! a second param: `(__env, __this, ...user)`.
 //!
-//! The field annotation is minted as `__mth(<recv>|<user params>)->R`.
+//! The field annotation is minted as `__mth(<recv>|<user params>)->(R)`.
 //! The marker rides the prefix (the `__cls(`-marker idiom from RFC
 //! 20260708): `parse_type` decodes it exactly like `__cls(` so the SSA
 //! sig carries the receiver and `CallIndirect`'s argv lines up, while
@@ -369,7 +369,7 @@ pub(super) fn apply_patches(
                 .filter(|q| q.name != "__env" && q.name != "__this")
                 .map(|q| q.type_ann.clone().unwrap_or_else(|| "any".to_string()))
                 .collect();
-            let ann = format!("__mth({})->{}", param_anns.join("|"), ret);
+            let ann = crate::type_ann_fnsig::fn_type_ann("__mth", &param_anns.join("|"), &ret);
             fn_sigs.insert(p.fn_name.clone(), ann.clone());
             mth_ann = Some(ann);
             // The receiver is this body's first declared param, which

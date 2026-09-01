@@ -163,6 +163,7 @@ pub(crate) fn run(
                                 ty,
                                 &fkey,
                                 num_f64_slots,
+                                &mut arr_layouts,
                                 &mut fn_sigs,
                             )
                         }

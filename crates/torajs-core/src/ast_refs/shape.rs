@@ -131,7 +131,7 @@ pub(super) fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<Gl
     }
 }
 
-/// RFC 20260709-closure-global chunk 2 — the canonical `__fn(P|..)->R`
+/// RFC 20260709-closure-global chunk 2 — the canonical `__fn(P|..)->(R)`
 /// spelling for a lifted closure's FnDecl, read off its param /
 /// return anns. By the time the checker / lowerer consult this,
 /// `preinfer_closure_sigs` has backfilled missing param anns with
@@ -156,7 +156,11 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
                 Some(rt) => rt.clone(),
                 None => "void".to_string(),
             };
-            Some(format!("__fn({})->{}", anns.join("|"), ret))
+            Some(crate::type_ann_fnsig::fn_type_ann(
+                "__fn",
+                &anns.join("|"),
+                &ret,
+            ))
         }
         _ => None,
     })
@@ -274,7 +278,7 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
     Some(format!("__inlobj({})", parts.join("|")))
 }
 
-/// The receiver-less `__mth(P|..)->R` spelling of a METHOD's lifted
+/// The receiver-less `__mth(P|..)->(R)` spelling of a METHOD's lifted
 /// FnDecl — the same string `objlit_nominal::apply_patches`
 /// publishes into `fn_sigs`, reassembled from the decl (this module
 /// only holds `&Ast`). Mirrors that fn's filter exactly: `__env` and
@@ -298,7 +302,11 @@ fn mth_field_ann(ast: &Ast, fn_name: &str) -> Option<String> {
                 return None;
             }
             let ret = return_type.clone().unwrap_or_else(|| "void".to_string());
-            Some(format!("__mth({})->{}", anns.join("|"), ret))
+            Some(crate::type_ann_fnsig::fn_type_ann(
+                "__mth",
+                &anns.join("|"),
+                &ret,
+            ))
         }
         _ => None,
     })

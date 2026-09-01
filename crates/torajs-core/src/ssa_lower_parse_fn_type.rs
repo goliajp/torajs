@@ -1,4 +1,4 @@
-//! `__fn(P1|P2|...)->R` annotation decoder — extracted from
+//! `__fn(P1|P2|...)->(R)` annotation decoder — extracted from
 //! `ssa_lower_parse_type.rs` so that file fits under the 500-prod-LOC
 //! file-size hard limit (`rules/common/file-size.md`). Pure mechanical
 //! pull, no semantic change.
@@ -13,7 +13,7 @@ use crate::ssa::{self, Type};
 use crate::ssa_lower::intern_fn_sig;
 use crate::ssa_lower_parse_type::parse_type;
 
-/// Decode `__fn(P1|P2|...)->R` into `Type::FnSig(id)` if `s` starts
+/// Decode `__fn(P1|P2|...)->(R)` into `Type::FnSig(id)` if `s` starts
 /// with `__fn(`; returns `None` otherwise so `parse_type` can fall
 /// through to the next annotation form.
 ///
@@ -51,8 +51,7 @@ pub(crate) fn try_parse_fn_type(
     let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed fn-type `{s}`"));
     let params_str = &rest[..close];
     let after = &rest[close + 1..];
-    let ret_str = after
-        .strip_prefix("->")
+    let ret_str = crate::type_ann_fnsig::ret_of_tail(after)
         .unwrap_or_else(|| panic!("ssa-lower: malformed fn-type ret `{s}`"));
 
     // Split params at depth-0 `|` on the checker's own splitter, so

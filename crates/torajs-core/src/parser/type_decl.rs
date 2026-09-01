@@ -326,7 +326,8 @@ impl<'a> Parser<'a> {
                 }
                 _ => "void".to_string(),
             };
-            let fn_ann = format!("__fn({})->{}", param_anns.join("|"), ret_ann);
+            let fn_ann =
+                crate::type_ann_fnsig::fn_type_ann("__fn", &param_anns.join("|"), &ret_ann);
             return Ok((name, fn_ann));
         }
         // V3-18 wedge — optional field `field?: T` in a `type X = {...}`

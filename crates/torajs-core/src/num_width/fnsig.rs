@@ -1,7 +1,7 @@
 //! F1 (ann-width RFC §5.6) — fn-type annotation nominal hookups.
 //!
 //! A fn-type annotation (`(x: number) => number`, parser normal form
-//! `__fn(number)->number`) is a named aggregation point exactly like
+//! `__fn(number)->(number)`) is a named aggregation point exactly like
 //! a class: every slot spelled with it interns one signature at
 //! lowering, and every function flowing through any of those slots
 //! must agree with that signature's widths. The canonical spelling
@@ -37,8 +37,8 @@ use crate::ast::{Expr, ExprId, Stmt};
 /// skipped and the inner signature keeps its parse width (loud at
 /// the call site, never silent-wrong).
 ///
-/// `__cls(P)->R` (the bug-327 C2 / chunk 553 env-first retag of an
-/// `__fn(P)->R` slot, and struct-field closure spellings) is the
+/// `__cls(P)->(R)` (the bug-327 C2 / chunk 553 env-first retag of an
+/// `__fn(P)->(R)` slot, and struct-field closure spellings) is the
 /// SAME nominal signature — it normalizes to the `__fn(` spelling so
 /// retagged slots and their residents keep unioning onto one class.
 /// Pre-553 `__cls(` fell out of the F1 aggregation entirely: a
@@ -62,11 +62,11 @@ pub(crate) fn fn_type_canon(ann: &str) -> Option<String> {
 }
 
 /// Split a fn-type canonical spelling into its param spellings and
-/// ret spelling: `__fn(P1|P2)->R` → (["P1","P2"], "R"). Returns None
+/// ret spelling: `__fn(P1|P2)->(R)` → (["P1","P2"], "R"). Returns None
 /// on malformed spellings (the consumer keeps parse widths).
 ///
 /// The param split runs on the shared `check_type_ann::split_top_pipe`
-/// so a multi-argument generic param (`__fn(Map<string|number>)->void`)
+/// so a multi-argument generic param (`__fn(Map<string|number>)->(void)`)
 /// nests instead of splitting — see that function's r381 note. The
 /// close-paren scan below stays paren-only on purpose: it is looking
 /// for the `)` that closes `__fn(`, and no generic argument can hide
@@ -91,7 +91,7 @@ pub(crate) fn split_fn_type(canon: &str) -> Option<(Vec<&str>, &str)> {
     }
     let close = close?;
     let params_str = &rest[..close];
-    let ret = rest[close + 1..].strip_prefix("->")?;
+    let ret = crate::type_ann_fnsig::ret_of_tail(&rest[close + 1..])?;
     let params: Vec<&str> = crate::check_type_ann::split_top_pipe(params_str)
         .into_iter()
         .map(str::trim)
@@ -209,17 +209,17 @@ mod tests {
     #[test]
     fn canon_spellings() {
         assert_eq!(
-            fn_type_canon("__fn(number)->number").as_deref(),
-            Some("__fn(number)->number")
+            fn_type_canon("__fn(number)->(number)").as_deref(),
+            Some("__fn(number)->(number)")
         );
         assert_eq!(
-            fn_type_canon("__nullable(__fn(number|number)->number)").as_deref(),
-            Some("__fn(number|number)->number")
+            fn_type_canon("__nullable(__fn(number|number)->(number))").as_deref(),
+            Some("__fn(number|number)->(number)")
         );
         // env-first retag spelling normalizes onto the same class
         assert_eq!(
-            fn_type_canon("__cls(number)->number").as_deref(),
-            Some("__fn(number)->number")
+            fn_type_canon("__cls(number)->(number)").as_deref(),
+            Some("__fn(number)->(number)")
         );
         assert_eq!(fn_type_canon("number"), None);
         assert_eq!(fn_type_canon("Item | null"), None);
@@ -228,14 +228,17 @@ mod tests {
     #[test]
     fn split_spellings() {
         assert_eq!(
-            split_fn_type("__fn(number|number)->number"),
+            split_fn_type("__fn(number|number)->(number)"),
             Some((vec!["number", "number"], "number"))
         );
-        assert_eq!(split_fn_type("__fn()->void"), Some((vec![], "void")));
+        assert_eq!(split_fn_type("__fn()->(void)"), Some((vec![], "void")));
+        // An array OF fns is not a fn type — the outer `[]` sits
+        // outside the bracketed return, so the split declines.
+        assert_eq!(split_fn_type("__fn()->(void)[]"), None);
         // nested fn-type param does not split at its inner `|`
         assert_eq!(
-            split_fn_type("__fn(__fn(number|number)->number|number)->number"),
-            Some((vec!["__fn(number|number)->number", "number"], "number"))
+            split_fn_type("__fn(__fn(number|number)->(number)|number)->(number)"),
+            Some((vec!["__fn(number|number)->(number)", "number"], "number"))
         );
     }
 }

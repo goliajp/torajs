@@ -705,7 +705,7 @@ mod tests {
         let s = slots(
             "function add(x: number, y: number): number { return x + y; }\nfunction half(x: number, y: number): number { return x / y; }\nfunction pickOp(op: boolean): (x: number, y: number) => number {\n  if (op) { return add; }\n  return half;\n}\nconsole.log(pickOp(true)(3, 4));\nconsole.log(pickOp(false)(3, 4));",
         );
-        let ck = SlotKey::Class("__fn(number|number)->number".into());
+        let ck = SlotKey::Class("__fn(number|number)->(number)".into());
         assert!(s.0.field_is_f64(&ck, "__ret"));
         assert!(s.contains(&ret("add")));
         assert!(s.contains(&ret("half")));
@@ -717,7 +717,7 @@ mod tests {
         let s = slots(
             "function add(x: number, y: number): number { return x + y; }\nfunction sub(x: number, y: number): number { return x - y; }\nfunction pick(op: boolean): (x: number, y: number) => number {\n  if (op) { return add; }\n  return sub;\n}\nconsole.log(pick(true)(3, 4));",
         );
-        let ck = SlotKey::Class("__fn(number|number)->number".into());
+        let ck = SlotKey::Class("__fn(number|number)->(number)".into());
         assert!(!s.0.field_is_f64(&ck, "__ret"));
         assert!(!s.contains(&ret("add")));
     }

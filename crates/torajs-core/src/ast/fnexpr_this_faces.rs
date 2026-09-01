@@ -416,7 +416,7 @@ pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet
             // promoted closure read back out of the slot shifts argv
             // on every path, same as the any lane always did. A class
             // field spells its signature with the closure-repr marker
-            // (`__cls(P)->R`); a rest-tail signature and the
+            // (`__cls(P)->(R)`); a rest-tail signature and the
             // argc-carrying repr (`__clsargc`) stay out — their calls
             // dispatch through the boxed variadic adapter, a path
             // this bar has not audited.

@@ -116,6 +116,7 @@ pub(super) fn inferred_slot_ty(
             Type::Closure(sig),
             &SlotKey::Global(name.to_string()),
             num_f64_slots,
+            arr_layouts,
             fn_sigs,
         ));
     }

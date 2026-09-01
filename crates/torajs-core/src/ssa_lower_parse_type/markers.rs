@@ -1,4 +1,4 @@
-//! `__struct(...)` / `__cls(...)->R` marker decoders of
+//! `__struct(...)` / `__cls(...)->(R)` marker decoders of
 //! [`super::parse_type`], split out 2026-07-03 (fn-debt decomp).
 //! Bodies verbatim; recursion goes back through `super::parse_type`.
 
@@ -52,7 +52,7 @@ pub(super) fn parse_struct(
     Type::Obj(id)
 }
 
-/// `__cls(P1|...)->R` — struct-field closure slot; same parse shape
+/// `__cls(P1|...)->(R)` — struct-field closure slot; same parse shape
 /// as `__fn` but interns as `Type::Closure` (env-first dispatch).
 /// `rest` is the annotation past the `__cls(` prefix; `s` feeds panics.
 #[allow(clippy::too_many_arguments)]
@@ -85,8 +85,7 @@ pub(super) fn parse_cls(
     let close = close_idx.unwrap_or_else(|| panic!("ssa-lower: malformed cls-type `{s}`"));
     let params_str = &rest[..close];
     let after = &rest[close + 1..];
-    let ret_str = after
-        .strip_prefix("->")
+    let ret_str = crate::type_ann_fnsig::ret_of_tail(after)
         .unwrap_or_else(|| panic!("ssa-lower: malformed cls-type ret `{s}`"));
     // RFC 20260708-variadic — a `__rest(E[])` segment (rest-tail
     // fn type) gets no static param slot: the fixed prefix is the

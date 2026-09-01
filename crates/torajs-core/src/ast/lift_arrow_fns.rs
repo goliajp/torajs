@@ -375,9 +375,9 @@ pub fn lift_arrow_fns(ast: &mut Ast) {
 }
 
 /// Closure ABI slot detector. After `tag_struct_field_closure_types`
-/// rewrites TypeDecl fn-like fields to `__cls(P)->R`, this returns
+/// rewrites TypeDecl fn-like fields to `__cls(P)->(R)`, this returns
 /// true exactly when a field's annotation indicates the SSA slot will
-/// be Type::Closure. User-source `(P)=>R` / `__fn(P)->R` also pass
+/// be Type::Closure. User-source `(P)=>R` / `__fn(P)->(R)` also pass
 /// this test for resilience (the desugar passes run before
 /// type-checking, so a TypeDecl field that escaped tagging would still
 /// trigger an ObjectLit rewrite if needed — defensive).
@@ -387,8 +387,8 @@ pub(crate) fn is_fn_like_ann(s: &str) -> bool {
 }
 
 /// Retag a fn-typed ann sitting in a **struct-field position** from
-/// the bare-fn-ptr repr (`__fn(P)->R` → `Type::FnSig`) to the closure
-/// repr (`__cls(P)->R` → `Type::Closure`, env-first CallIndirect).
+/// the bare-fn-ptr repr (`__fn(P)->(R)` → `Type::FnSig`) to the closure
+/// repr (`__cls(P)->(R)` → `Type::Closure`, env-first CallIndirect).
 /// Non-fn anns pass through untouched.
 ///
 /// A field slot is mutable and can receive a capturing closure, so it
@@ -414,8 +414,8 @@ pub(crate) fn retag_field_fn_ann(ann: &str) -> String {
 }
 
 /// Chunk 733 — fn-typed ARRAY annotation detector (`((n)=>n)[]` /
-/// `Array<(n)=>n>` spellings, parser-internal `__fn(...)->R[]` /
-/// `Array<__fn(...)->R>`). The SSA `parse_type` re-reprs such an
+/// `Array<(n)=>n>` spellings, parser-internal `__fn(...)->(R)[]` /
+/// `Array<__fn(...)->(R)>`). The SSA `parse_type` re-reprs such an
 /// element slot as Closure (mutable position, can hold capturing
 /// closures), so a bare top-FnDecl Ident stored into one needs the
 /// `__forward_<name>` wrap — the fn-arr axes in

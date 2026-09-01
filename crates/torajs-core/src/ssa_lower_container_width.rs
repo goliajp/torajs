@@ -59,8 +59,26 @@ pub(crate) fn widen_container_ty(
         Type::Obj(_) => {
             widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts, fn_sigs)
         }
-        Type::Closure(_) | Type::FnSig(_) => widen_fn_sig(parsed, ann, table, fn_sigs),
+        Type::Closure(_) | Type::FnSig(_) => widen_fn_sig(parsed, ann, table, arr_layouts, fn_sigs),
         _ => parsed,
+    }
+}
+
+/// The container half of a signature face: an `Arr` param / return
+/// widens its element through the face's own projection key, anything
+/// else is already answered by the scalar test at the call site.
+/// Array nesting is the only recursion, and it terminates because an
+/// interned array layout cannot contain itself.
+fn widen_arr_face(
+    ty: Type,
+    ann: Option<&str>,
+    key: &SlotKey,
+    table: &WidthTable,
+    arr_layouts: &mut Vec<Type>,
+) -> Type {
+    match ty {
+        Type::Arr(_) => widen_arr_elem(ty, ann, key, table, arr_layouts),
+        _ => ty,
     }
 }
 
@@ -70,10 +88,21 @@ pub(crate) fn widen_container_ty(
 /// flowing through those slots (`num_width/fnsig.rs`); its `__ret` /
 /// `__p{i}` projections answer whether any resident's face is
 /// f64-possible. All-integral residents keep the narrow signature.
+///
+/// A face is not always a scalar. An array-returning signature (`(n:
+/// number) => number[]`) has its number domain one level down, in the
+/// ELEMENT of the `__ret` projection, and asking only the scalar
+/// question left the slot's signature narrow while the resident's own
+/// `Ret` widened — the call then read an `Arr(F64)` through an
+/// `Arr(I64)` slot and handed back the f64 bit pattern as an integer
+/// (rotation 554: the shape only became reachable once `__fn(P)->(R)`
+/// stopped decoding as an array of fns). Container faces therefore
+/// recurse through `widen_arr_face` on the same projection key.
 pub(crate) fn widen_fn_sig(
     parsed: Type,
     ann: Option<&str>,
     table: &WidthTable,
+    arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let (sid, is_closure) = match parsed {
@@ -91,17 +120,23 @@ pub(crate) fn widen_fn_sig(
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
     let mut new_params = param_tys.clone();
     for (i, pt) in new_params.iter_mut().enumerate() {
+        let pk = SlotKey::Field(Box::new(ck.clone()), format!("__p{i}"));
         if *pt == Type::I64
             && param_anns.get(i).copied() == Some("number")
             && table.field_is_f64(&ck, &format!("__p{i}"))
         {
             *pt = Type::F64;
+        } else {
+            *pt = widen_arr_face(*pt, param_anns.get(i).copied(), &pk, table, arr_layouts);
         }
     }
-    let mut new_ret = ret_ty;
-    if ret_ty == Type::I64 && ret_ann == "number" && table.field_is_f64(&ck, "__ret") {
-        new_ret = Type::F64;
-    }
+    let new_ret = if ret_ty == Type::I64 && ret_ann == "number" && table.field_is_f64(&ck, "__ret")
+    {
+        Type::F64
+    } else {
+        let rk = SlotKey::Field(Box::new(ck.clone()), "__ret".to_string());
+        widen_arr_face(ret_ty, Some(ret_ann), &rk, table, arr_layouts)
+    };
     if new_params == param_tys && new_ret == ret_ty {
         return parsed;
     }
@@ -117,12 +152,15 @@ pub(crate) fn widen_fn_sig(
 /// by the field's own slot key: the fill site's `fn_value_flow` glued
 /// the key's `__ret` / `__p{i}` projections onto the resident
 /// function's Ret / Param classes, so the query needs no canonical
-/// spelling (struct layouts carry no annotation strings). I64 faces
-/// only — the parse default is the sole widenable spelling.
+/// spelling (struct layouts carry no annotation strings). Scalar faces
+/// widen on the I64 parse default (the sole widenable spelling);
+/// container faces recurse through `widen_arr_face`, per the note on
+/// [`widen_fn_sig`].
 pub(crate) fn widen_fn_sig_by_key(
     parsed: Type,
     key: &SlotKey,
     table: &WidthTable,
+    arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let (sid, is_closure) = match parsed {
@@ -133,14 +171,19 @@ pub(crate) fn widen_fn_sig_by_key(
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
     let mut new_params = param_tys.clone();
     for (i, pt) in new_params.iter_mut().enumerate() {
+        let pk = SlotKey::Field(Box::new(key.clone()), format!("__p{i}"));
         if *pt == Type::I64 && table.field_is_f64(key, &format!("__p{i}")) {
             *pt = Type::F64;
+        } else {
+            *pt = widen_arr_face(*pt, None, &pk, table, arr_layouts);
         }
     }
-    let mut new_ret = ret_ty;
-    if ret_ty == Type::I64 && table.field_is_f64(key, "__ret") {
-        new_ret = Type::F64;
-    }
+    let new_ret = if ret_ty == Type::I64 && table.field_is_f64(key, "__ret") {
+        Type::F64
+    } else {
+        let rk = SlotKey::Field(Box::new(key.clone()), "__ret".to_string());
+        widen_arr_face(ret_ty, None, &rk, table, arr_layouts)
+    };
     if new_params == param_tys && new_ret == ret_ty {
         return parsed;
     }
@@ -248,7 +291,9 @@ pub(crate) fn widen_struct_fields(
             }
             // F5 — fn-typed fields widen by the field's own key
             // projections (the dispatch face reads this signature).
-            Type::FnSig(_) | Type::Closure(_) => widen_fn_sig_by_key(*fty, &fkey, table, fn_sigs),
+            Type::FnSig(_) | Type::Closure(_) => {
+                widen_fn_sig_by_key(*fty, &fkey, table, arr_layouts, fn_sigs)
+            }
             _ => *fty,
         };
         if new_fty != *fty {
@@ -317,7 +362,7 @@ fn widen_struct_fields_in_place(
                 }
             }
             Type::FnSig(_) | Type::Closure(_) => {
-                *fty = widen_fn_sig_by_key(*fty, &fkey, table, fn_sigs)
+                *fty = widen_fn_sig_by_key(*fty, &fkey, table, arr_layouts, fn_sigs)
             }
             _ => {}
         }

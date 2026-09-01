@@ -372,7 +372,7 @@ pub(super) fn collect_fn_decl_metadata(
     )
 }
 
-/// User-fn callee arm — an `__fn(P|..)->R`-annotated param at a closure
+/// User-fn callee arm — an `__fn(P|..)->(R)`-annotated param at a closure
 /// arg position hints the lifted closure's own param/ret annotations
 /// (chunk 554 face ②).
 ///

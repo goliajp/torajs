@@ -26,7 +26,7 @@ use crate::check::{self as check_mod, type_to_ann};
 
 /// Encode an annotation string into a name-safe form for use inside a
 /// monomorphized fn name. `number` → `number`; `number[]` → `number_arr`;
-/// `__fn(number)->number` → `fn_number_to_number`. Distinct user types
+/// `__fn(number)->(number)` → `fn_number_to_number`. Distinct user types
 /// produce distinct strings so the cache key `(name, type_args)` resolves
 /// to a unique mono fn.
 pub(crate) fn name_safe(s: &str) -> String {
@@ -42,7 +42,7 @@ pub(crate) fn name_safe(s: &str) -> String {
 /// annotation string. Word boundary = anything that isn't an alphanumeric
 /// or `_`. Used by `monomorphize_generics` to rewrite a generic FnDecl's
 /// type annotations into a concrete specialization (e.g. `T` → `number`,
-/// `T[]` → `number[]`, `__fn(T)->T` → `__fn(number)->number`).
+/// `T[]` → `number[]`, `__fn(T)->T` → `__fn(number)->(number)`).
 pub(crate) fn substitute_in_ann(ann: &str, subst: &[(String, String)]) -> String {
     let mut out = String::with_capacity(ann.len());
     let bytes = ann.as_bytes();

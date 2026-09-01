@@ -91,7 +91,7 @@ pub(crate) fn synth_bind(
         // Mirrors the factory's `->R` (any when the source
         // is unannotated) so the wrapper's own return
         // boundary boxes the forwarded value — an inferred
-        // Number returned raw through a `__cls(..)->any`
+        // Number returned raw through a `__cls(..)->(any)`
         // slot reads back as a garbage tag.
         return_type: Some(ret_type_str.clone()),
         body: bound_body,
@@ -107,7 +107,11 @@ pub(crate) fn synth_bind(
             .collect();
         factory_params.push(Param {
             name: tc.clone(),
-            type_ann: Some(format!("__cls({})->{}", all_tys.join("|"), ret_type_str)),
+            type_ann: Some(crate::type_ann_fnsig::fn_type_ann(
+                "__cls",
+                &all_tys.join("|"),
+                &ret_type_str,
+            )),
             default: None,
             is_rest: false,
         });
@@ -129,7 +133,8 @@ pub(crate) fn synth_bind(
                 .unwrap_or_else(|| "any".to_string())
         })
         .collect();
-    let factory_ret = format!("__cls({})->{}", rem_tys.join("|"), ret_type_str);
+    let factory_ret =
+        crate::type_ann_fnsig::fn_type_ann("__cls", &rem_tys.join("|"), &ret_type_str);
     let closure_expr_id = ast.add_expr(Expr::Closure {
         fn_name: bound_name,
         captures: env_names.clone(),

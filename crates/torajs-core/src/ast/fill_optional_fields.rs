@@ -275,7 +275,7 @@ fn sentinel_capable(inner: &str, env: &AliasEnv, depth: u32) -> bool {
 // depth below zero right after the fn's `)` closed, so every later
 // depth-0 separator went unseen — an inline object ann with a
 // fn-typed field before any other field never split
-// (`__inlobj(cb:__nullable(__cls()->number)|n:number)` resolved to
+// (`__inlobj(cb:__nullable(__cls()->(number))|n:number)` resolved to
 // one bogus field and the fill stayed a loud checker reject). `-`
 // only precedes `>` in the return-arrow spelling of these
 // encodings, so skip exactly that pair.
