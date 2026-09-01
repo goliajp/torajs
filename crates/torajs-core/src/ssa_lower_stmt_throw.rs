@@ -159,8 +159,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
         InstKind::Call(ctx.intrinsics.throw_set, vec![tag_op, val_op]),
     );
     if let Some(handler) = ctx.try_stack.last().copied() {
+        // RFC 20260901-scope-exit-drops — the thrown value already
+        // moved into the throw slot (its ident is marked moved); every
+        // other owner in the frames this jump leaves dies here.
+        ctx.emit_drops_for_scopes_from(handler.scope_depth);
         let cb = ctx.cur_block;
-        ctx.f.set_term(cb, Terminator::Br(handler));
+        ctx.f.set_term(cb, Terminator::Br(handler.blk));
     } else if ctx.is_main_fn {
         ctx.emit_drops_for_owned_locals();
         let uncaught_fid = *ctx

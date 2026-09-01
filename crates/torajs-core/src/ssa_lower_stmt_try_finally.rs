@@ -36,6 +36,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
             break;
         }
     }
+    // RFC 20260901-scope-exit-drops — the finally body's own frame
+    // closes BEFORE the tail dispatch: its locals are dead on every
+    // one of the four ways out, and the dispatch's depth-based drops
+    // (chain to an outer finally / handler, jump to a loop or label
+    // target) must see the scope stack as it stands outside this
+    // statement. Pre-RFC the frame was popped without a drop walk.
+    ctx.close_scope_frame();
     if ctx.cur_open() {
         emit_o5_restore(ctx, saved_active_slot, saved_tag_slot, saved_value_slot);
         emit_throw_propagate(ctx);
@@ -49,11 +56,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
         emit_pending_label_flags(ctx);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(after_blk));
-    }
-    ctx.scope_stack.pop();
-    let finally_shadows = ctx.shadow_stack.pop().unwrap_or_default();
-    for (name, prev) in finally_shadows {
-        ctx.locals.insert(name, prev);
     }
 }
 
@@ -203,8 +205,9 @@ fn emit_throw_propagate(ctx: &mut LowerCtx) {
     );
     ctx.cur_block = prop_blk;
     if let Some(handler) = ctx.try_stack.last().copied() {
+        ctx.emit_drops_for_scopes_from(handler.scope_depth);
         let cb2 = ctx.cur_block;
-        ctx.f.set_term(cb2, Terminator::Br(handler));
+        ctx.f.set_term(cb2, Terminator::Br(handler.blk));
     } else {
         ctx.emit_drops_for_owned_locals();
         let cb2 = ctx.cur_block;
@@ -246,8 +249,11 @@ fn emit_pending_return(ctx: &mut LowerCtx) {
     );
     ctx.cur_block = ret_blk;
     if let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
+        // Chaining to the outer finally leaves the outer try body's
+        // frames (this statement sat inside them).
+        ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
         let cb4 = ctx.cur_block;
-        ctx.f.set_term(cb4, Terminator::Br(outer_fb));
+        ctx.f.set_term(cb4, Terminator::Br(outer_fb.blk));
     } else {
         let fn_ret_ty = ctx.f.ret;
         let v = ctx.f.append_inst(
@@ -299,21 +305,23 @@ fn emit_pending_label_flags(ctx: &mut LowerCtx) {
             let still_intervening = ctx.try_finally_stack.len() > frame.finally_depth_at_push;
             if still_intervening {
                 let outer_fb = *ctx.try_finally_stack.last().expect("len checked");
+                ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
                 let cb2 = ctx.cur_block;
-                ctx.f.set_term(cb2, Terminator::Br(outer_fb));
+                ctx.f.set_term(cb2, Terminator::Br(outer_fb.blk));
             } else {
                 use crate::ssa_lower_stmt_break_continue::LabelTarget;
-                let target = match frame.target {
+                let (target, depth) = match frame.target {
                     LabelTarget::Loop(idx) => {
-                        let (cont, brk) = ctx.loop_stack[idx];
-                        if take_break { brk } else { cont }
+                        let lt = ctx.loop_stack[idx];
+                        (if take_break { lt.brk } else { lt.cont }, lt.scope_depth)
                     }
-                    LabelTarget::Block(blk) => blk,
+                    LabelTarget::Block(blk) => (blk, frame.scope_depth),
                 };
                 ctx.f.append_void(
                     ctx.cur_block,
                     InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
                 );
+                ctx.emit_drops_for_scopes_from(depth);
                 let cb2 = ctx.cur_block;
                 ctx.f.set_term(cb2, Terminator::Br(target));
             }
@@ -348,14 +356,18 @@ fn emit_pending_loop_flag(ctx: &mut LowerCtx, flag: ValueId, take_break: bool, a
     let cur_loop_len = ctx.loop_stack.len();
     let outer_in_same_loop = ctx.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
     if outer_in_same_loop && let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
+        ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
         let cb4 = ctx.cur_block;
-        ctx.f.set_term(cb4, Terminator::Br(outer_fb));
-    } else if let Some((cont_target, brk_target)) = ctx.loop_stack.last().copied() {
-        let target = if take_break { brk_target } else { cont_target };
+        ctx.f.set_term(cb4, Terminator::Br(outer_fb.blk));
+    } else if let Some(lt) = ctx.loop_stack.last().copied() {
+        let target = if take_break { lt.brk } else { lt.cont };
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),
         );
+        // The frames between the loop and the try die here — the
+        // break site only released the ones inside the try body.
+        ctx.emit_drops_for_scopes_from(lt.scope_depth);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(target));
     } else {

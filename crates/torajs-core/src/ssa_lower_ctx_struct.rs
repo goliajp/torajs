@@ -128,8 +128,9 @@ pub(crate) struct LowerCtx<'a> {
     /// `Stmt::Try` lowering pushes the catch BlockId before lowering its
     /// body and pops after; user-fn calls in scope insert a cond_br on
     /// `__torajs_throw_check()` that targets `*top` (or the fn's
-    /// propagate-out path if empty).
-    pub(crate) try_stack: Vec<BlockId>,
+    /// propagate-out path if empty). Each entry carries the scope
+    /// depth the jump leaves (RFC 20260901-scope-exit-drops).
+    pub(crate) try_stack: Vec<crate::ssa_lower_scope_exit::ExitTarget>,
     /// M4.3.b — fn names that may throw (directly or transitively).
     /// `emit_throw_check` skips the check after a call to a callee
     /// whose name isn't in this set; intrinsics + verified-pure
@@ -141,8 +142,10 @@ pub(crate) struct LowerCtx<'a> {
     /// `pending_return_slot` (fn-wide), sets `pending_return_flag`, and
     /// branches to the top of this stack. The finally tail dispatches:
     /// pending_return AND we're outermost → `load + ret`; otherwise →
-    /// `br` to the next outer finally to keep unwinding.
-    pub(crate) try_finally_stack: Vec<BlockId>,
+    /// `br` to the next outer finally to keep unwinding. Each entry
+    /// carries the try body's scope depth — the frames a `return` /
+    /// `break` / `continue` routing into the finally leaves behind.
+    pub(crate) try_finally_stack: Vec<crate::ssa_lower_scope_exit::ExitTarget>,
     /// Every for-of whose body is being lowered right now, outermost
     /// first. `break` reaches its loop's exit block and closes the
     /// iterator there; `return` leaves for the epilogue instead, so it
@@ -233,8 +236,10 @@ pub(crate) struct LowerCtx<'a> {
     /// body branches to break_target; a `continue` branches to
     /// continue_target. For while-loops, continue_target = loop header
     /// (re-evaluates cond). For for-loops, continue_target = step block
-    /// (so the step still runs on continue, then back to header).
-    pub(crate) loop_stack: Vec<(BlockId, BlockId)>,
+    /// (so the step still runs on continue, then back to header). The
+    /// entry also records the scope depth either jump leaves (RFC
+    /// 20260901-scope-exit-drops).
+    pub(crate) loop_stack: Vec<crate::ssa_lower_scope_exit::LoopTargets>,
     /// Active labeled statements — innermost on top (ES §13.13). A
     /// `break label` / `continue label` inside the labeled statement's
     /// body resolves its target through this stack. See

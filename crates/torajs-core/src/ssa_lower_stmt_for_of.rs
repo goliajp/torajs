@@ -212,7 +212,14 @@ pub(crate) fn lower(
         InstKind::Store(v_val, Operand::Value(v_slot), 0),
     );
     bind_scoped_local(ctx, var_name, v_slot, v_ty, true, true);
-    ctx.loop_stack.push((step_blk, after));
+    // RFC 20260901-scope-exit-drops — the body frame (already pushed,
+    // holding the loop variable) is only closed by `close_body_scope`
+    // on fall-through, so a jump out owes it too: depth = its index.
+    ctx.loop_stack.push(crate::ssa_lower_scope_exit::LoopTargets {
+        cont: step_blk,
+        brk: after,
+        scope_depth: ctx.scope_stack.len() - 1,
+    });
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();
     ctx.loop_stack.pop();

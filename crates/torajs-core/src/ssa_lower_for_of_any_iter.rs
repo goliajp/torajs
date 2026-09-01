@@ -168,7 +168,14 @@ pub(crate) fn lower(
         InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
     );
     bind_scoped_local(ctx, var_name, v_slot, Type::Any, false, false);
-    ctx.loop_stack.push((header, after));
+    // RFC 20260901-scope-exit-drops — body frame already pushed and
+    // only closed on fall-through: a jump out owes it (depth = index).
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: header,
+            brk: after,
+            scope_depth: ctx.scope_stack.len() - 1,
+        });
     let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
         src: src_op.clone(),
         iter_slot,

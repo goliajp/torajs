@@ -449,7 +449,14 @@ pub(crate) fn lower_for_of_iter_protocol(
             .expect("scope frame")
             .push(var_name.to_string());
     }
-    ctx.loop_stack.push((header, after));
+    // RFC 20260901-scope-exit-drops — body frame already pushed and
+    // only closed on fall-through: a jump out owes it (depth = index).
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: header,
+            brk: after,
+            scope_depth: ctx.scope_stack.len() - 1,
+        });
     ctx.for_of_teardown_stack
         .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::Typed {
             iter_slot,

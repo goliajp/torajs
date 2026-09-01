@@ -283,8 +283,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
         );
+        // RFC 20260901-scope-exit-drops — the value is parked, so the
+        // frames inside the try body (or catch) die now; the frames
+        // between the finally and the fn boundary are the finally
+        // tail's to release when it completes the return.
+        ctx.emit_drops_for_scopes_from(target.scope_depth);
         let cb = ctx.cur_block;
-        ctx.f.set_term(cb, Terminator::Br(target));
+        ctx.f.set_term(cb, Terminator::Br(target.blk));
         return;
     }
     ctx.emit_drops_for_owned_locals();

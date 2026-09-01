@@ -72,7 +72,15 @@ pub(crate) fn lower(
         }
     }
     let after = ctx.f.add_block();
-    ctx.loop_stack.push((after, after));
+    // RFC 20260901-scope-exit-drops — case bodies lower into the
+    // enclosing frame (no switch frame); a `break` owes only the
+    // block frames a case body opened: depth = `len()`.
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: after,
+            brk: after,
+            scope_depth: ctx.scope_stack.len(),
+        });
 
     let switch_entry = ctx.cur_block;
 
@@ -86,85 +94,7 @@ pub(crate) fn lower(
     for (i, c) in cases.iter().enumerate() {
         let cmp_blk = ctx.cur_block;
         let _ = i;
-        let v = ctx.lower_expr(c.value);
-        let eq = match scrut_ty {
-            Type::F64 => ctx.f.append_inst(
-                cmp_blk,
-                InstKind::FCmp(FPred::Oeq, scrut_val, v),
-                Type::Bool,
-                None,
-            ),
-            Type::Str | Type::Substr => {
-                if let Expr::String(s) = ctx.ast.get_expr(c.value).clone() {
-                    let bytes = s.into_bytes();
-                    // RFC 20260707-undefined-sentinel-repr chunk 1 —
-                    // a nullable-str scrutinee (missed exec/match
-                    // capture may be NULL) declines the inline byte
-                    // walk; the runtime `str_eq` has the null guard.
-                    let inline_eligible = bytes.len() <= 16
-                        && bytes.iter().all(|&b| b <= 0x7F)
-                        && !crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, scrutinee);
-                    if inline_eligible {
-                        let r = ctx.emit_inline_str_eq_bytes(scrut_val, &bytes);
-                        if let Operand::Value(vid) = r {
-                            vid
-                        } else {
-                            unreachable!("emit_inline_str_eq_bytes returns Value")
-                        }
-                    } else {
-                        let intrinsic = if scrut_ty == Type::Substr {
-                            ctx.intrinsics.substr_eq_str
-                        } else {
-                            ctx.intrinsics.str_eq
-                        };
-                        ctx.f.append_inst(
-                            cmp_blk,
-                            InstKind::Call(intrinsic, vec![scrut_val, v]),
-                            Type::Bool,
-                            None,
-                        )
-                    }
-                } else {
-                    let intrinsic = if scrut_ty == Type::Substr {
-                        ctx.intrinsics.substr_eq_str
-                    } else {
-                        ctx.intrinsics.str_eq
-                    };
-                    ctx.f.append_inst(
-                        cmp_blk,
-                        InstKind::Call(intrinsic, vec![scrut_val, v]),
-                        Type::Bool,
-                        None,
-                    )
-                }
-            }
-            // §14.12.4 selects a clause with IsStrictlyEqual, which is
-            // what `===` means — so an `any` on either side has to take
-            // the same runtime path `===` takes. A raw `ICmp` compares
-            // a boxed word against a bare one and is never equal, so
-            // every case fell through to `default`: a wrong answer
-            // where the checker used to raise a loud one.
-            _ if scrut_ty == Type::Any || ctx.operand_ty(&v) == Type::Any => {
-                match crate::ssa_lower_binop_inner_strict_eq::try_lower(
-                    ctx,
-                    crate::ast::BinOp::Eq,
-                    scrut_val.clone(),
-                    v.clone(),
-                ) {
-                    Some(Operand::Value(vid)) => vid,
-                    // That helper folds to a constant only when BOTH
-                    // sides are concrete, which this guard has already
-                    // ruled out; the Any path always emits a call.
-                    _ => unreachable!("strict-eq Any path returns a value"),
-                }
-            }
-            _ => ctx.f.append_inst(
-                cmp_blk,
-                InstKind::ICmp(IPred::Eq, scrut_val, v),
-                Type::Bool,
-                None,
-            ),
-        };
+        let eq = emit_case_compare(ctx, scrutinee, scrut_val, scrut_ty, c.value, cmp_blk);
         let next_cmp_or_default = if i + 1 < cases.len() {
             ctx.f.add_block()
         } else {
@@ -218,4 +148,96 @@ pub(crate) fn lower(
 
     ctx.loop_stack.pop();
     ctx.cur_block = after;
+}
+
+/// One clause's IsStrictlyEqual compare against the scrutinee
+/// (§14.12.4), specialized on the scrutinee's static type — see the
+/// module doc for the per-type shapes.
+fn emit_case_compare(
+    ctx: &mut LowerCtx,
+    scrutinee: crate::ast::ExprId,
+    scrut_val: Operand,
+    scrut_ty: Type,
+    value: crate::ast::ExprId,
+    cmp_blk: BlockId,
+) -> crate::ssa::ValueId {
+    let v = ctx.lower_expr(value);
+    match scrut_ty {
+        Type::F64 => ctx.f.append_inst(
+            cmp_blk,
+            InstKind::FCmp(FPred::Oeq, scrut_val, v),
+            Type::Bool,
+            None,
+        ),
+        Type::Str | Type::Substr => {
+            if let Expr::String(s) = ctx.ast.get_expr(value).clone() {
+                let bytes = s.into_bytes();
+                // RFC 20260707-undefined-sentinel-repr chunk 1 —
+                // a nullable-str scrutinee (missed exec/match
+                // capture may be NULL) declines the inline byte
+                // walk; the runtime `str_eq` has the null guard.
+                let inline_eligible = bytes.len() <= 16
+                    && bytes.iter().all(|&b| b <= 0x7F)
+                    && !crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, scrutinee);
+                if inline_eligible {
+                    let r = ctx.emit_inline_str_eq_bytes(scrut_val, &bytes);
+                    if let Operand::Value(vid) = r {
+                        vid
+                    } else {
+                        unreachable!("emit_inline_str_eq_bytes returns Value")
+                    }
+                } else {
+                    let intrinsic = if scrut_ty == Type::Substr {
+                        ctx.intrinsics.substr_eq_str
+                    } else {
+                        ctx.intrinsics.str_eq
+                    };
+                    ctx.f.append_inst(
+                        cmp_blk,
+                        InstKind::Call(intrinsic, vec![scrut_val, v]),
+                        Type::Bool,
+                        None,
+                    )
+                }
+            } else {
+                let intrinsic = if scrut_ty == Type::Substr {
+                    ctx.intrinsics.substr_eq_str
+                } else {
+                    ctx.intrinsics.str_eq
+                };
+                ctx.f.append_inst(
+                    cmp_blk,
+                    InstKind::Call(intrinsic, vec![scrut_val, v]),
+                    Type::Bool,
+                    None,
+                )
+            }
+        }
+        // §14.12.4 selects a clause with IsStrictlyEqual, which is
+        // what `===` means — so an `any` on either side has to take
+        // the same runtime path `===` takes. A raw `ICmp` compares
+        // a boxed word against a bare one and is never equal, so
+        // every case fell through to `default`: a wrong answer
+        // where the checker used to raise a loud one.
+        _ if scrut_ty == Type::Any || ctx.operand_ty(&v) == Type::Any => {
+            match crate::ssa_lower_binop_inner_strict_eq::try_lower(
+                ctx,
+                crate::ast::BinOp::Eq,
+                scrut_val.clone(),
+                v.clone(),
+            ) {
+                Some(Operand::Value(vid)) => vid,
+                // That helper folds to a constant only when BOTH
+                // sides are concrete, which this guard has already
+                // ruled out; the Any path always emits a call.
+                _ => unreachable!("strict-eq Any path returns a value"),
+            }
+        }
+        _ => ctx.f.append_inst(
+            cmp_blk,
+            InstKind::ICmp(IPred::Eq, scrut_val, v),
+            Type::Bool,
+            None,
+        ),
+    }
 }

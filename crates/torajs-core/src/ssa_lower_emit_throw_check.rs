@@ -115,7 +115,13 @@ impl<'a> LowerCtx<'a> {
         // them first (result, then parked temps newest-first).
         let live: Vec<ThrowTemp> = self.temps.throw_live.iter().flatten().cloned().collect();
         if let Some(catch) = self.try_stack.last().copied() {
-            if owned.is_some() || !live.is_empty() {
+            // RFC 20260901-scope-exit-drops — the jump into the catch
+            // also leaves every frame opened since the try body began
+            // (`catch.scope_depth`); their owners declared before this
+            // call are live and die here, in the same block-close
+            // protocol the fall-through would have used.
+            let scope_drops = self.scopes_have_drops_from(catch.scope_depth);
+            if owned.is_some() || !live.is_empty() || scope_drops {
                 self.cur_block = throw_blk;
                 if let Some((op, ty)) = owned {
                     self.emit_drop_value(op, ty);
@@ -123,10 +129,11 @@ impl<'a> LowerCtx<'a> {
                 for t in live.iter().rev() {
                     self.emit_drop_throw_temp(t.clone());
                 }
+                self.emit_drops_for_scopes_from(catch.scope_depth);
                 let cb2 = self.cur_block;
-                self.f.set_term(cb2, Terminator::Br(catch));
+                self.f.set_term(cb2, Terminator::Br(catch.blk));
             } else {
-                self.f.set_term(throw_blk, Terminator::Br(catch));
+                self.f.set_term(throw_blk, Terminator::Br(catch.blk));
             }
         } else if self.is_main_fn {
             // bug-327 C2.5 — the throw escaped every user frame: this

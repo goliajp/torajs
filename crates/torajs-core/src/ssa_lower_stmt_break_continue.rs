@@ -54,6 +54,10 @@ pub(crate) struct LabelFrame {
     /// the jump routes through the innermost finally instead, via a
     /// lazily-allocated pending flag below.
     pub(crate) finally_depth_at_push: usize,
+    /// `scope_stack.len()` when the label was pushed — the first frame
+    /// a `break label` leaves behind (RFC 20260901-scope-exit-drops).
+    /// A loop-like target reads the loop's own depth instead.
+    pub(crate) scope_depth: usize,
     /// Pending-jump flags `[continue, break]` for jumps to this label
     /// that cross an intervening try-finally: the jump site sets the
     /// flag and branches to the innermost finally; each finally tail
@@ -74,6 +78,7 @@ pub(crate) struct LabelFrame {
 /// [`LabelTarget::Block`] whose after-block a `break label` exits to.
 pub(crate) fn lower_labeled(ctx: &mut LowerCtx, label: &str, body: &Stmt) {
     let finally_depth = ctx.try_finally_stack.len();
+    let scope_depth = ctx.scope_stack.len();
     if stmt_is_loop_like(body) {
         // The loop lowering pushes onto loop_stack next; reference the
         // slot it will occupy during body lowering.
@@ -83,6 +88,7 @@ pub(crate) fn lower_labeled(ctx: &mut LowerCtx, label: &str, body: &Stmt) {
             LabelFrame {
                 target: LabelTarget::Loop(idx),
                 finally_depth_at_push: finally_depth,
+                scope_depth,
                 pending_flags: [None, None],
             },
         ));
@@ -95,6 +101,7 @@ pub(crate) fn lower_labeled(ctx: &mut LowerCtx, label: &str, body: &Stmt) {
             LabelFrame {
                 target: LabelTarget::Block(after),
                 finally_depth_at_push: finally_depth,
+                scope_depth,
                 pending_flags: [None, None],
             },
         ));
@@ -163,9 +170,27 @@ fn route_labeled_through_finally(ctx: &mut LowerCtx, frame_idx: usize, want_brea
         InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
     );
     let fb = *ctx.try_finally_stack.last().expect("depth checked above");
+    // RFC 20260901-scope-exit-drops — the frames inside the try body
+    // die now; the finally tail releases the rest when it dispatches
+    // the pending jump onward.
+    ctx.emit_drops_for_scopes_from(fb.scope_depth);
     let cb = ctx.cur_block;
-    ctx.f.set_term(cb, Terminator::Br(fb));
+    ctx.f.set_term(cb, Terminator::Br(fb.blk));
     true
+}
+
+/// Resolve a labeled jump's direct target and the scope depth it
+/// leaves (RFC 20260901-scope-exit-drops): a loop-like label defers
+/// to the loop's own entry, a plain labeled block to the depth the
+/// label was pushed at.
+fn labeled_target(ctx: &LowerCtx, idx: usize, want_break: bool) -> (BlockId, usize) {
+    match ctx.label_stack[idx].1.target {
+        LabelTarget::Loop(li) => {
+            let lt = ctx.loop_stack[li];
+            (if want_break { lt.brk } else { lt.cont }, lt.scope_depth)
+        }
+        LabelTarget::Block(blk) => (blk, ctx.label_stack[idx].1.scope_depth),
+    }
 }
 
 pub(crate) fn lower_break(ctx: &mut LowerCtx, label: Option<&str>) {
@@ -174,15 +199,13 @@ pub(crate) fn lower_break(ctx: &mut LowerCtx, label: Option<&str>) {
         if route_labeled_through_finally(ctx, idx, true) {
             return;
         }
-        let after = match ctx.label_stack[idx].1.target {
-            LabelTarget::Loop(idx) => ctx.loop_stack[idx].1,
-            LabelTarget::Block(blk) => blk,
-        };
+        let (after, depth) = labeled_target(ctx, idx, true);
+        ctx.emit_drops_for_scopes_from(depth);
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(after));
         return;
     }
-    let (_, after) = *ctx
+    let lt = *ctx
         .loop_stack
         .last()
         .expect("ssa-lower: `break` outside of any loop");
@@ -201,10 +224,17 @@ pub(crate) fn lower_break(ctx: &mut LowerCtx, label: Option<&str>) {
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
         );
+        // RFC 20260901-scope-exit-drops — frames inside the try body
+        // die here; the finally tail releases the ones between the
+        // try and the loop.
+        ctx.emit_drops_for_scopes_from(fb.scope_depth);
         let cb = ctx.cur_block;
-        ctx.f.set_term(cb, Terminator::Br(fb));
+        ctx.f.set_term(cb, Terminator::Br(fb.blk));
     } else {
-        ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+        // RFC 20260901-scope-exit-drops — a direct `break` leaves
+        // every frame from the loop body up, skipping their closes.
+        ctx.emit_drops_for_scopes_from(lt.scope_depth);
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(lt.brk));
     }
 }
 
@@ -214,19 +244,18 @@ pub(crate) fn lower_continue(ctx: &mut LowerCtx, label: Option<&str>) {
         if route_labeled_through_finally(ctx, idx, false) {
             return;
         }
-        let cont = match ctx.label_stack[idx].1.target {
-            LabelTarget::Loop(idx) => ctx.loop_stack[idx].0,
-            // `continue` requires an iteration statement (ES §14.8);
-            // a labeled non-loop target is a syntax error upstream.
-            LabelTarget::Block(_) => {
-                panic!("ssa-lower: `continue {label}` targets a non-loop label")
-            }
-        };
+        // `continue` requires an iteration statement (ES §14.8); a
+        // labeled non-loop target is a syntax error upstream.
+        if matches!(ctx.label_stack[idx].1.target, LabelTarget::Block(_)) {
+            panic!("ssa-lower: `continue {label}` targets a non-loop label")
+        }
+        let (cont, depth) = labeled_target(ctx, idx, false);
+        ctx.emit_drops_for_scopes_from(depth);
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(cont));
         return;
     }
-    let (cont_target, _) = *ctx
+    let lt = *ctx
         .loop_stack
         .last()
         .expect("ssa-lower: `continue` outside of any loop");
@@ -245,9 +274,11 @@ pub(crate) fn lower_continue(ctx: &mut LowerCtx, label: Option<&str>) {
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
         );
+        ctx.emit_drops_for_scopes_from(fb.scope_depth);
         let cb = ctx.cur_block;
-        ctx.f.set_term(cb, Terminator::Br(fb));
+        ctx.f.set_term(cb, Terminator::Br(fb.blk));
         return;
     }
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(cont_target));
+    ctx.emit_drops_for_scopes_from(lt.scope_depth);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(lt.cont));
 }

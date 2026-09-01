@@ -216,7 +216,13 @@ pub(crate) fn lower_for_of_map_like(
         InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
     );
     bind_scoped_local(ctx, var_name, v_slot, var_ty, false, false);
-    ctx.loop_stack.push((header, after));
+    // RFC 20260901-scope-exit-drops — body frame already pushed and
+    // only closed on fall-through: a jump out owes it (depth = index).
+    ctx.loop_stack.push(crate::ssa_lower_scope_exit::LoopTargets {
+        cont: header,
+        brk: after,
+        scope_depth: ctx.scope_stack.len() - 1,
+    });
     ctx.lower_stmt(body);
     let body_open = ctx.cur_open();
     ctx.loop_stack.pop();

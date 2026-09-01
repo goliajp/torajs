@@ -72,6 +72,7 @@ use crate::ast::Stmt;
 use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LocalInfo, LowerCtx};
 use crate::ssa_lower_parse_type::parse_type;
+use crate::ssa_lower_scope_exit::ExitTarget;
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn lower(
@@ -99,15 +100,26 @@ pub(crate) fn lower(
         None
     };
 
+    // RFC 20260901-scope-exit-drops — the body frame is about to be
+    // pushed at this index; every route out of the body (throw to
+    // catch / finally, return / break / continue through the finally)
+    // releases the frames from here up before it branches.
+    let body_depth = ctx.scope_stack.len();
     if let Some(fb) = finally_blk {
-        ctx.try_finally_stack.push(fb);
+        ctx.try_finally_stack.push(ExitTarget {
+            blk: fb,
+            scope_depth: body_depth,
+        });
         ctx.try_finally_loop_depth.push(ctx.loop_stack.len());
     }
 
     ctx.cur_block = body_blk;
     let body_throw_target = catch_blk.or(finally_blk);
     if let Some(t) = body_throw_target {
-        ctx.try_stack.push(t);
+        ctx.try_stack.push(ExitTarget {
+            blk: t,
+            scope_depth: body_depth,
+        });
     }
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
@@ -117,14 +129,16 @@ pub(crate) fn lower(
             break;
         }
     }
+    // Fall-through closes the body frame like any block: drop its
+    // owners, remove them from `locals` (the fn-exit / finally-tail
+    // walks must not see them again), restore shadows. Pre-RFC the
+    // names stayed in `locals` and only the fn-exit walk released
+    // them — once per fn activation, so a `try` in a main loop
+    // stranded every iteration but the last.
+    ctx.close_scope_frame();
     if ctx.cur_open() {
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(post_target));
-    }
-    ctx.scope_stack.pop();
-    let body_shadows = ctx.shadow_stack.pop().unwrap_or_default();
-    for (name, prev) in body_shadows {
-        ctx.locals.insert(name, prev);
     }
     if body_throw_target.is_some() {
         ctx.try_stack.pop();
@@ -284,7 +298,13 @@ fn lower_catch(
         ctx.emit_drop_value(Operand::Value(boxed), Type::Any);
     }
     if let Some(fb) = finally_blk {
-        ctx.try_stack.push(fb);
+        // A throw out of the catch body routes to the finally and
+        // leaves the catch frame (pushed above, so its index is
+        // `len() - 1`) — the same index the body frame had.
+        ctx.try_stack.push(ExitTarget {
+            blk: fb,
+            scope_depth: ctx.scope_stack.len() - 1,
+        });
     }
     for s in catch_body {
         ctx.lower_stmt(s);
@@ -295,37 +315,12 @@ fn lower_catch(
     if finally_blk.is_some() {
         ctx.try_stack.pop();
     }
+    // Block-close protocol (RFC 20260901-scope-exit-drops): the catch
+    // param and any catch-body local drop on fall-through, the frame's
+    // names leave `locals`, shadows come back.
+    ctx.close_scope_frame();
     if ctx.cur_open() {
-        let frame_names: Vec<String> = ctx
-            .scope_stack
-            .last()
-            .map(|f| f.clone())
-            .unwrap_or_default();
-        for name in &frame_names {
-            let info = match ctx.locals.get(name) {
-                Some(i) => *i,
-                None => continue,
-            };
-            if info.moved || info.ty.is_copy() || ctx.stack_alloced_locals.contains(name) {
-                continue;
-            }
-            let val = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(info.ty, Operand::Value(info.slot), 0),
-                info.ty,
-                None,
-            );
-            ctx.emit_drop_value(Operand::Value(val), info.ty);
-        }
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(post_target));
-    }
-    let catch_frame = ctx.scope_stack.pop().unwrap_or_default();
-    let catch_shadows = ctx.shadow_stack.pop().unwrap_or_default();
-    for name in catch_frame {
-        ctx.locals.remove(&name);
-    }
-    for (name, prev) in catch_shadows {
-        ctx.locals.insert(name, prev);
     }
 }

@@ -136,7 +136,14 @@ pub(crate) fn lower(
         },
     );
 
-    ctx.loop_stack.push((step_blk, after));
+    // RFC 20260901-scope-exit-drops — the for-init frame is closed by
+    // the `after` block on every path, so a jump only owes the body's
+    // frames (pushed by `lower_stmt(body)` below): depth = `len()`.
+    ctx.loop_stack.push(crate::ssa_lower_scope_exit::LoopTargets {
+        cont: step_blk,
+        brk: after,
+        scope_depth: ctx.scope_stack.len(),
+    });
     ctx.cur_block = body_blk;
     mint_per_iter_boxes(ctx, &mut per_iter);
     ctx.lower_stmt(body);
