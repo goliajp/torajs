@@ -1670,7 +1670,36 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `054166169`** (2026-09-01, rotation 552 — builtin lanes
+**Latest @ `7c2c8c0f3`** (2026-09-02, rotation 554 — the flat fn-type
+annotation's return becomes self-delimiting, and the four width / ABI
+links that unlocks). Gate predicate: **143** clusters of ≥ 4 holding
+**1130** cases, register 2 · 251, residue 466 · 625 (31.2%), core
+**2006**. Against rotation 552 (553 moved nothing): clusters 143 →
+**143 (=)**, cases 1130 → **1130 (=)**, core 2007 → **2006 (−1)**.
+
+Sweep passTotal 35363 → **35363 (=)**, pass 30190 → **30190 (=)**,
+passNoOracle 1026 (=), passNegative 4147 (=), bug 12452 → **12453
+(+1)**, incompatible 5359 → **5358 (−1)**, trAccepted 47815 →
+**47816 (+1)**; conservation exact (+1 = 0 + +1). Verdict diff **1
+changed, 0 backward**: `Object/defineProperties/15.2.3.7-2-16.js`
+`incompatible:type error` → `bug:exit 1`, and its prior incompat
+message was literally `not callable: type Array(Function([], Any))` —
+the 553-02 mis-decode itself. The case now runs and fails a real
+assertion (`Object.prototype.toString.call(this)` does not answer
+`[object Arguments]` for an arguments-object receiver), so a genuine
+gap that the mis-decode had been masking is now visible in the bug
+bucket. Coverage curve unchanged: top-100 **56.6%**, top-200
+**74.5%**, top-400 **88.6%**.
+
+Note on comparability: this sweep ran `--workers 10` (the protocol's
+documented command) against rotation 552's `--workers 12`, so the
+878.68s wall is not comparable with that 555.56s — per-worker rates
+are 6.05/s vs 7.97/s, and the in-run rate swung 130 → 59 → 83 across
+corpus sections, which is the shape of a corpus effect, not a
+regression. Fix the worker count before reading any elapsed-time
+trend off these.
+
+**Prior @ `054166169`** (2026-09-01, rotation 552 — builtin lanes
 release the operands they only borrow: Map/Set forEach passed the
 receiver behind a per-iteration inc nothing released, Str.concat and
 the typed Array.concat fold never settled an owned argument, a call

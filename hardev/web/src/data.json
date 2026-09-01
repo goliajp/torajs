@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T14:25:49.405Z",
+  "generatedAt": "2026-09-01T16:37:39.979Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,10 +9,10 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T14:13:16Z",
-    "headSha": "aa2db0002",
-    "elapsedSec": 555.56,
-    "workers": 12,
+    "ranAt": "2026-09-01T16:25:04Z",
+    "headSha": "7c2c8c0f3",
+    "elapsedSec": 878.68,
+    "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 1026,
     "passNegative": 4147,
     "passTotal": 35363,
-    "bug": 12452,
-    "incompatible": 5359,
+    "bug": 12453,
+    "incompatible": 5358,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47815,
+    "trAccepted": 47816,
     "passRateInScope": 66.5,
     "passRateTrAccepted": 73.96
   },
   "torajs": {
-    "commit": "aa2db0002",
-    "commitSubject": "refactor: parse_arrow_fn splits its param list and block body out",
+    "commit": "7c2c8c0f3",
+    "commitSubject": "fix: a generator's element class joins its step's value class",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "7c2c8c0f3",
+      "subject": "fix: a generator's element class joins its step's value class"
+    },
+    {
+      "hash": "70eef379b",
+      "subject": "fix: the closure-repr marking follows a value through the passthrough operators"
+    },
+    {
+      "hash": "da0f02a2c",
+      "subject": "fix: an async generator's step struct widens on the read side too"
+    },
+    {
+      "hash": "df3d74a3a",
+      "subject": "fix: a fn-typed param's signature widens by its own key when its spelling has no class"
+    },
+    {
+      "hash": "cf61e0df3",
+      "subject": "fix: a fn type's return is bracketed in the flat annotation"
+    },
+    {
+      "hash": "0e22d18b2",
+      "subject": "chore: rotation 553 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "aa2db0002",
       "subject": "refactor: parse_arrow_fn splits its param list and block body out"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "bc1221b41",
       "subject": "fix: a call through an fn-valued binding answers a container key"
-    },
-    {
-      "hash": "d0844fd25",
-      "subject": "chore: rotation 552 test262 sweep ingest, dashboard snapshot and P-SURF refresh"
-    },
-    {
-      "hash": "054166169",
-      "subject": "fix: a for-of over a generator call takes the iterator-protocol lane"
-    },
-    {
-      "hash": "1e956f08b",
-      "subject": "fix: a call through a fn-valued let counts as may-throw"
-    },
-    {
-      "hash": "65525af04",
-      "subject": "fix: typed Array.concat builds its product in one allocation"
-    },
-    {
-      "hash": "2f57eba3b",
-      "subject": "fix: Map/Set forEach and Str.concat release the operands they only borrow"
-    },
-    {
-      "hash": "4dcfee646",
-      "subject": "refactor: move the array concat lanes out of ssa_lower_str_concat_dispatch"
     }
   ],
-  "headSha": "aa2db0002",
+  "headSha": "7c2c8c0f3",
   "autorun": {
-    "total": 856,
+    "total": 857,
     "baselineTarget": 10,
-    "bySelf": 851,
+    "bySelf": 852,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788265372-33ba",
-      "at": "2026-09-01T12:22:52Z",
-      "ts": 1788265372,
+      "rotationId": "r-1788272828-0459",
+      "at": "2026-09-01T14:27:08Z",
+      "ts": 1788272828,
       "trigger": "self",
-      "prevHead": "d0844fd25",
-      "handoffSha": "sha256:2f656e9bb06501ab0ff640b58e39b596c472c1b0255471e510d1c3a95bd3a10e",
-      "handoffAgeSec": 6,
+      "prevHead": "0e22d18b2",
+      "handoffSha": "sha256:345da93c65ab4cfa3b55043cac99fad6b03dc1317ed68950b428e517f931409b",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788272828-0459",
+        "at": "2026-09-01T14:27:08Z",
+        "ts": 1788272828,
+        "trigger": "self",
+        "prevHead": "0e22d18b2",
+        "handoffSha": "sha256:345da93c65ab4cfa3b55043cac99fad6b03dc1317ed68950b428e517f931409b",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788265372-33ba",
         "at": "2026-09-01T12:22:52Z",
@@ -884,17 +895,6 @@
         "prevHead": "f92cd20d2",
         "handoffSha": "sha256:d891ed49b145248a4dd09c11ebbea7a3bb211e0d2974e24ed488377f4c2be86a",
         "handoffAgeSec": 57,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788178745-3d59",
-        "at": "2026-08-31T12:19:05Z",
-        "ts": 1788178745,
-        "trigger": "self",
-        "prevHead": "6ec8a9583",
-        "handoffSha": "sha256:0fe398683428a4b23a81e2ea345134c7bdf5c1063ae78b871070a3bcde06c57c",
-        "handoffAgeSec": 23,
         "conformanceBefore": null,
         "commitsInSession": null
       }
