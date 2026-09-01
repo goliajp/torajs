@@ -237,8 +237,13 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     let (anchor_ty, mut probed) = probe_anchor_ty(ctx, element_ids);
     // Nothing anchors (empty literals / nullish constants only): the
     // first element's own lowering decides the slot type, as
-    // `compute_elem_ty` always read it off the first value.
-    let anchor_ty = match anchor_ty {
+    // `compute_elem_ty` always read it off the first value. The
+    // element lowering still sees NO anchor — an all-empty literal's
+    // inner `[]`s keep their `lower_empty` (any-flavored) blocks, not
+    // the anchored `arr_alloc(0)` mint, exactly as before
+    // (`check-arr-nested-empty-literal-001`: a push through the
+    // `any[]` view of an anchored mint changed the element kind).
+    let slot_anchor = match anchor_ty {
         Some(t) => t,
         None => {
             let (v, _) = lower_no_spread_element(ctx, element_ids[0], None);
@@ -247,7 +252,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
             t
         }
     };
-    let elem_ty = compute_elem_ty(ctx, anchor_ty, eid);
+    let elem_ty = compute_elem_ty(ctx, slot_anchor, eid);
     let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
     let n = element_ids.len() as i64;
     let on_stack = ctx.ast.stack_array_literals.contains(&eid) && !elem_ty.is_refcounted();
@@ -272,7 +277,7 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
                 let inc = elem_needs_inc(ctx, elem_eid, &op);
                 (op, inc)
             }
-            _ => lower_no_spread_element(ctx, elem_eid, Some(anchor_ty)),
+            _ => lower_no_spread_element(ctx, elem_eid, anchor_ty),
         };
         if elem_ty == Type::F64 && ctx.operand_ty(&val) == Type::I64 {
             val = ctx.coerce_to_f64(val);
