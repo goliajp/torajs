@@ -135,7 +135,7 @@ fn lower_spread_elements(
             let v_ty = ctx.operand_ty(&v);
             // A substring VIEW element (`[...a, s[1]]`) is stored as an
             // owned copy — the same rule the plain literal lane applies
-            // (`coerce_elem_vals_substr_to_str`): the fresh copy is the
+            // (`materialize_substr_elem`): the fresh copy is the
             // element, a fresh-mint view is released here, a borrow
             // stays with its owner (rotation 468).
             let (v, v_ty) = if v_ty == Type::Substr {

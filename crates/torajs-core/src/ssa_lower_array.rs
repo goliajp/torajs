@@ -217,24 +217,39 @@ fn lower_empty(ctx: &mut LowerCtx<'_>) -> Operand {
     Operand::Value(alloc_call)
 }
 
+/// The typed no-spread literal, built in place: the block is allocated
+/// as soon as the slot type is known (the anchor probe, or the first
+/// element when nothing anchors) and every element is stored the
+/// moment it is lowered, `len` advancing one slot at a time. The block
+/// itself is the one parked temp — a throw between two elements drops
+/// it, and its drop walks exactly the stored prefix, so an owned
+/// element is released once whichever side of the store the throw
+/// falls on (the rotation-549 shape, with the block standing in for
+/// the per-element parks).
+///
+/// 555-01 — the old shape lowered EVERY element first and stored them
+/// at the end, so all n values were live across the whole literal:
+/// a 65k-pair Unicode table spilled every one of them (frame 524 KiB,
+/// past the 32 KiB addressing cap) and the allocator's active set
+/// grew with n. Storing as we go bounds the live set by the element
+/// being built.
 fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) -> Operand {
-    let n = element_ids.len() as i64;
-    let (anchor_ty, probed) = probe_anchor_ty(ctx, element_ids);
-    let (mut elem_vals, mut elem_inc_after, parked) =
-        lower_no_spread_elements(ctx, element_ids, anchor_ty, probed);
-    // Every element is lowered; nothing below can throw before the
-    // stores transfer the owned ones into the array.
-    for t in parked {
-        ctx.pop_throw_temp(t);
-    }
-    let elem_ty = compute_elem_ty(ctx, anchor_ty, &elem_vals, eid);
-    if elem_ty == Type::F64 {
-        coerce_elem_vals_to_f64(ctx, &mut elem_vals);
-    }
-    if elem_ty == Type::Str {
-        coerce_elem_vals_substr_to_str(ctx, &mut elem_vals, &mut elem_inc_after, element_ids);
-    }
+    let (anchor_ty, mut probed) = probe_anchor_ty(ctx, element_ids);
+    // Nothing anchors (empty literals / nullish constants only): the
+    // first element's own lowering decides the slot type, as
+    // `compute_elem_ty` always read it off the first value.
+    let anchor_ty = match anchor_ty {
+        Some(t) => t,
+        None => {
+            let (v, _) = lower_no_spread_element(ctx, element_ids[0], None);
+            let t = ctx.operand_ty(&v);
+            probed = Some((0, v));
+            t
+        }
+    };
+    let elem_ty = compute_elem_ty(ctx, anchor_ty, eid);
     let arr_id = intern_arr_layout(ctx.arr_layouts, elem_ty);
+    let n = element_ids.len() as i64;
     let on_stack = ctx.ast.stack_array_literals.contains(&eid) && !elem_ty.is_refcounted();
     let arr_ptr = if on_stack {
         alloc_stack_arr(ctx, arr_id, n)
@@ -244,21 +259,39 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,
-        InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
+        InstKind::Store(Operand::ConstI64(0), Operand::Value(arr_ptr), ARR_LEN_OFF),
     );
     let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
-    for (i, val) in elem_vals.iter().enumerate() {
-        let off = (i as u64) * 8;
+    // A stack block is not a heap cell — nothing to drop on a throw.
+    let arr_tok =
+        (!on_stack).then(|| ctx.push_throw_temp(Operand::Value(arr_ptr), Type::Arr(arr_id)));
+    for (i, &elem_eid) in element_ids.iter().enumerate() {
+        let (mut val, mut inc_after) = match &probed {
+            Some((p_idx, p_op)) if *p_idx == i => {
+                let op = p_op.clone();
+                let inc = elem_needs_inc(ctx, elem_eid, &op);
+                (op, inc)
+            }
+            _ => lower_no_spread_element(ctx, elem_eid, Some(anchor_ty)),
+        };
+        if elem_ty == Type::F64 && ctx.operand_ty(&val) == Type::I64 {
+            val = ctx.coerce_to_f64(val);
+        }
+        if elem_ty == Type::Str && ctx.operand_ty(&val) == Type::Substr {
+            val = materialize_substr_elem(ctx, val, elem_eid);
+            inc_after = false;
+        }
         // RFC 20260707 chunk 2 — an `undefined` element in a
         // Str-typed array literal (`["a", undefined]`) stores the
         // undefined sentinel cell, not NULL, so eq/print/JSON agree
         // with the flipped exec/match miss-capture slots.
-        let val = if elem_ty == Type::Str
+        if elem_ty == Type::Str
             && matches!(val, Operand::ConstPtrNull)
             && matches!(
-                ctx.expr_types.get(&element_ids[i]),
+                ctx.expr_types.get(&elem_eid),
                 Some(crate::check::Type::Undefined)
-            ) {
+            )
+        {
             let cur_block = ctx.cur_block;
             let u = ctx.f.append_inst(
                 cur_block,
@@ -266,16 +299,27 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
                 Type::Str,
                 None,
             );
-            Operand::Value(u)
-        } else {
-            *val
-        };
+            val = Operand::Value(u);
+        }
         let cur_block = ctx.cur_block;
-        ctx.f
-            .append_void(cur_block, InstKind::Store(val, data.clone(), off));
-        if elem_inc_after[i] {
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Store(val, data.clone(), (i as u64) * 8),
+        );
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Store(
+                Operand::ConstI64(i as i64 + 1),
+                Operand::Value(arr_ptr),
+                ARR_LEN_OFF,
+            ),
+        );
+        if inc_after {
             ctx.emit_rc_inc(val);
         }
+    }
+    if let Some(t) = arr_tok {
+        ctx.pop_throw_temp(t);
     }
     Operand::Value(arr_ptr)
 }
@@ -315,86 +359,62 @@ fn probe_anchor_ty(
     (None, None)
 }
 
-fn lower_no_spread_elements(
+/// One element of the typed no-spread literal: the value and whether
+/// the slot owes it a share (`inc_after`). An empty nested literal
+/// under an Arr anchor mints its block at the anchor's layout.
+fn lower_no_spread_element(
     ctx: &mut LowerCtx<'_>,
-    element_ids: &[ExprId],
+    eid: ExprId,
     anchor_ty: Option<Type>,
-    probed: Option<(usize, Operand)>,
-) -> (Vec<Operand>, Vec<bool>, Vec<usize>) {
-    let mut elem_vals: Vec<Operand> = Vec::with_capacity(element_ids.len());
-    let mut elem_inc_after: Vec<bool> = Vec::with_capacity(element_ids.len());
-    // Rotation 549 — an owned element (fresh alloc, call product,
-    // nested literal) is alive across every later element's lower;
-    // park it so a throw there drops it (`[{} as any, boom()]`
-    // stranded the object per caught throw, 252MB over 600k). The
-    // caller unparks once every element is lowered.
-    let mut parked: Vec<usize> = Vec::new();
-    for (idx, eid) in element_ids.iter().enumerate() {
-        if matches!(ctx.ast.get_expr(*eid), Expr::Array(els) if els.is_empty())
-            && let Some(Type::Arr(inner_id)) = anchor_ty
-        {
-            let cur_block = ctx.cur_block;
-            let v = ctx.f.append_inst(
-                cur_block,
-                InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
-                Type::Arr(inner_id),
-                None,
-            );
-            parked.push(ctx.push_throw_temp(Operand::Value(v), Type::Arr(inner_id)));
-            elem_vals.push(Operand::Value(v));
-            elem_inc_after.push(false);
-            continue;
-        }
-        let v = match &probed {
-            Some((p_idx, p_op)) if *p_idx == idx => p_op.clone(),
-            _ => ctx.lower_expr(*eid),
-        };
-        if let Some((op, ty)) = ctx.throw_temp_of(*eid, &v) {
-            parked.push(ctx.push_throw_temp(op, ty));
-        }
-        let v_ty = ctx.operand_ty(&v);
-        // Chunk 570 — a named-binding elem is always a SHARE: local
-        // OR global (the old `locals`-only lookup answered false for
-        // a top-level source, so the slot stole the global's only
-        // ref and the array's death freed it — UAF, probe-proven;
-        // 564 apply_borrow_rc_inc mirror), moved bindings included
-        // (their cell is alive under the canonical owner).
-        // Peel value-transparent `As` wrappers first, for the reason
-        // the objlit field / assign-target / return siblings all peel:
-        // `lower_as_cast` answers the inner operand untouched for a
-        // heap source, so the inner read decides whether the slot owes
-        // a share. Unpeeled, `[src as string]` stored the binding's
-        // pointer bare and the array outlived the source's scope drop
-        // (`return [src as string]` read back the churn string;
-        // `[src]` is correct).
-        let mut src_eid = *eid;
-        while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
-            src_eid = *expr;
-        }
-        let needs_inc = v_ty.is_refcounted()
-            && match ctx.ast.get_expr(src_eid) {
-                Expr::Ident(name) => {
-                    ctx.locals.contains_key(name) || ctx.globals.contains_key(name)
-                }
-                Expr::Member { .. } | Expr::Index { .. } => true,
-                // Hoisted regex-literal singleton (fn-scope LICM) —
-                // the slot takes a share; see apply_borrow_rc_inc.
-                Expr::Regex { .. } => true,
-                _ => false,
-            };
-        elem_inc_after.push(needs_inc);
-        elem_vals.push(v);
+) -> (Operand, bool) {
+    if matches!(ctx.ast.get_expr(eid), Expr::Array(els) if els.is_empty())
+        && let Some(Type::Arr(inner_id)) = anchor_ty
+    {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            Type::Arr(inner_id),
+            None,
+        );
+        return (Operand::Value(v), false);
     }
-    (elem_vals, elem_inc_after, parked)
+    let v = ctx.lower_expr(eid);
+    let inc = elem_needs_inc(ctx, eid, &v);
+    (v, inc)
 }
 
-fn compute_elem_ty(
-    ctx: &LowerCtx<'_>,
-    anchor_ty: Option<Type>,
-    elem_vals: &[Operand],
-    eid: ExprId,
-) -> Type {
-    let mut elem_ty = anchor_ty.unwrap_or_else(|| ctx.operand_ty(&elem_vals[0]));
+/// Chunk 570 — a named-binding elem is always a SHARE: local OR
+/// global (the old `locals`-only lookup answered false for a
+/// top-level source, so the slot stole the global's only ref and the
+/// array's death freed it — UAF, probe-proven; 564 apply_borrow_rc_inc
+/// mirror), moved bindings included (their cell is alive under the
+/// canonical owner). Peel value-transparent `As` wrappers first, for
+/// the reason the objlit field / assign-target / return siblings all
+/// peel: `lower_as_cast` answers the inner operand untouched for a
+/// heap source, so the inner read decides whether the slot owes a
+/// share. Unpeeled, `[src as string]` stored the binding's pointer
+/// bare and the array outlived the source's scope drop.
+fn elem_needs_inc(ctx: &LowerCtx<'_>, eid: ExprId, v: &Operand) -> bool {
+    if !ctx.operand_ty(v).is_refcounted() {
+        return false;
+    }
+    let mut src_eid = eid;
+    while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
+        src_eid = *expr;
+    }
+    match ctx.ast.get_expr(src_eid) {
+        Expr::Ident(name) => ctx.locals.contains_key(name) || ctx.globals.contains_key(name),
+        Expr::Member { .. } | Expr::Index { .. } => true,
+        // Hoisted regex-literal singleton (fn-scope LICM) — the slot
+        // takes a share; see apply_borrow_rc_inc.
+        Expr::Regex { .. } => true,
+        _ => false,
+    }
+}
+
+fn compute_elem_ty(ctx: &LowerCtx<'_>, anchor_ty: Type, eid: ExprId) -> Type {
+    let mut elem_ty = anchor_ty;
     if elem_ty == Type::I64
         && ctx
             .num_f64_slots
@@ -404,56 +424,33 @@ fn compute_elem_ty(
     }
     // A Substr anchor (`[s[1], ...]`) never mints an Arr<Substr> —
     // array slots hold owned Str; the element loop materializes
-    // every view (`coerce_elem_vals_substr_to_str`).
+    // every view (`materialize_substr_elem`).
     if elem_ty == Type::Substr {
         elem_ty = Type::Str;
     }
     elem_ty
 }
 
-fn coerce_elem_vals_to_f64(ctx: &mut LowerCtx<'_>, elem_vals: &mut [Operand]) {
-    for v in elem_vals.iter_mut() {
-        if ctx.operand_ty(v) == Type::I64 {
-            *v = ctx.coerce_to_f64(v.clone());
-        }
-    }
-}
-
 /// A Substr element (`["z", s[1]]`) must not store its view pointer
 /// into a Str slot — the two block layouts diverge past the header,
 /// so every downstream Str-layout read (join / print / sort) walks
-/// garbage. Materialize each view to an owned Str
-/// (`substr_to_owned`; the undefined sentinel propagates identity).
-/// The owned block transfers into the slot, so `inc_after` flips
-/// off; fresh-view producers (index mint / method call) hand us the
-/// view's only ref — drop it — while borrowed views (ident / member
-/// reads off a live binding) stay with their owner.
-fn coerce_elem_vals_substr_to_str(
-    ctx: &mut LowerCtx<'_>,
-    elem_vals: &mut [Operand],
-    elem_inc_after: &mut [bool],
-    element_ids: &[ExprId],
-) {
-    for (i, v) in elem_vals.iter_mut().enumerate() {
-        if ctx.operand_ty(v) != Type::Substr {
-            continue;
-        }
-        let view = v.clone();
-        let cur_block = ctx.cur_block;
-        let owned = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view.clone()]),
-            Type::Str,
-            None,
-        );
-        let borrowed = matches!(
-            ctx.ast.get_expr(element_ids[i]),
-            Expr::Ident(_) | Expr::Member { .. }
-        );
-        if !borrowed {
-            ctx.emit_drop_value(view, Type::Substr);
-        }
-        *v = Operand::Value(owned);
-        elem_inc_after[i] = false;
+/// garbage. Materialize the view to an owned Str (`substr_to_owned`;
+/// the undefined sentinel propagates identity). The owned block
+/// transfers into the slot, so the caller flips `inc_after` off;
+/// fresh-view producers (index mint / method call) hand us the view's
+/// only ref — drop it — while borrowed views (ident / member reads
+/// off a live binding) stay with their owner.
+fn materialize_substr_elem(ctx: &mut LowerCtx<'_>, view: Operand, eid: ExprId) -> Operand {
+    let cur_block = ctx.cur_block;
+    let owned = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view.clone()]),
+        Type::Str,
+        None,
+    );
+    let borrowed = matches!(ctx.ast.get_expr(eid), Expr::Ident(_) | Expr::Member { .. });
+    if !borrowed {
+        ctx.emit_drop_value(view, Type::Substr);
     }
+    Operand::Value(owned)
 }
