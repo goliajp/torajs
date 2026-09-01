@@ -259,6 +259,51 @@ pub(super) fn nominal_unions(a: &mut Analysis) {
     }
 }
 
+/// Generator step hookup: `for (const v of h(3))` binds `v` to the
+/// ELEMENT of the generator object, and the parser's pre-built
+/// `src[i]` element read spells that as `Elem(Ret(h))`. The value
+/// actually delivered is the `value` field of what `h`'s desugared
+/// class answers from `next()`, and nothing joined the two — so a
+/// widened step value met a narrow `nums` at `nums.push(v)` and the
+/// write refused loudly ("container width analysis missed this
+/// write", 553-04).
+///
+/// `generator_factory_classes` is the factory-fn → `__Gen_<name>` map
+/// `desugar_generators` leaves behind; the step methods are found the
+/// same way `nominal_unions` finds a class's methods, by prefix over
+/// the analyzed fn names, so both the direct and the any-lane copy
+/// join.
+pub(super) fn generator_step_unions(a: &mut Analysis) {
+    if a.ast.generator_factory_classes.is_empty() {
+        return;
+    }
+    let mut fn_names: Vec<String> = a.fn_params.keys().cloned().collect();
+    fn_names.sort();
+    let mut unions: Vec<(SlotKey, SlotKey)> = Vec::new();
+    let factories: Vec<(String, String)> = a
+        .ast
+        .generator_factory_classes
+        .iter()
+        .map(|(f, c)| (f.clone(), c.clone()))
+        .collect();
+    for (factory, class) in factories {
+        let elem = SlotKey::Elem(Box::new(SlotKey::Ret(factory)));
+        for m in &fn_names {
+            if *m == format!("__cm_{class}__next") || *m == format!("__cmany_{class}__next") {
+                unions.push((
+                    elem.clone(),
+                    SlotKey::Field(Box::new(SlotKey::Ret(m.clone())), "value".to_string()),
+                ));
+            }
+        }
+    }
+    for (x, y) in unions {
+        a.mark_containerish(&x);
+        a.mark_containerish(&y);
+        a.uf.union(&x, &y);
+    }
+}
+
 /// Objlit-nominal constructor hookup: a method-bearing object literal
 /// IS the single constructor of its synthetic `__ObjLit_<n>` type
 /// (ast/objlit_nominal.rs), so its literal-origin Anon key joins the
