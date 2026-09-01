@@ -52,8 +52,17 @@ use crate::ast_closure_param_tag_axes::{backward_param_marks, replace_cb_param_s
 use std::collections::{HashMap, HashSet};
 
 /// Does this annotation parse to `Type::FnSig` at the SSA layer?
+/// `(() => number) | null` is spelled `__nullable(__fn()->(number))`
+/// and lowers to that same FnSig (see the retag sibling's
+/// `retag_to_cls` for why the wrapper is transparent here), so it has
+/// to come off before the test — otherwise the param is invisible to
+/// the marking below and takes a closure cell down the bare-pointer
+/// lane.
 pub(crate) fn is_fnsig_ann(ann: &Option<String>) -> bool {
-    matches!(ann, Some(s) if s.trim_start().starts_with("__fn("))
+    matches!(ann, Some(s) if {
+        let t = s.trim_start();
+        t.strip_prefix("__nullable(").unwrap_or(t).starts_with("__fn(")
+    })
 }
 
 pub fn tag_closure_arg_params(ast: &mut Ast) {

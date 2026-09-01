@@ -6,7 +6,22 @@
 use crate::ast::Stmt;
 use std::collections::HashSet;
 
-/// Apply `__fn(` → `__cls(` on every ret-marked FnDecl's return type.
+/// `__fn(` → `__cls(` on one annotation, reaching through a
+/// `__nullable(` wrapper when there is one. `T | null` for a
+/// pointer-shaped T IS that T once lowered — only `number` and
+/// `boolean` box (`ssa_lower_parse_type::nullable_inner_boxes`),
+/// everything else keeps its own repr with null as the in-band 0 — so
+/// the payload is what carries the repr tag, and the wrapper has to
+/// survive the rewrite rather than be replaced by it.
+fn retag_to_cls(ann: &mut String) {
+    if let Some(rest) = ann.strip_prefix("__fn(") {
+        *ann = format!("__cls({rest}");
+    } else if let Some(rest) = ann.strip_prefix("__nullable(__fn(") {
+        *ann = format!("__nullable(__cls({rest}");
+    }
+}
+
+/// Apply the retag on every ret-marked FnDecl's return type.
 pub(crate) fn retag_fn_return_types(stmts: &mut [Stmt], ret_marked: &HashSet<String>) {
     let mut stack: Vec<&mut Stmt> = stmts.iter_mut().collect();
     while let Some(s) = stack.pop() {
@@ -15,15 +30,14 @@ pub(crate) fn retag_fn_return_types(stmts: &mut [Stmt], ret_marked: &HashSet<Str
         } = s
             && ret_marked.contains(name)
             && let Some(ann) = return_type
-            && let Some(rest) = ann.strip_prefix("__fn(")
         {
-            *ann = format!("__cls({rest}");
+            retag_to_cls(ann);
         }
         push_child_stmts_mut(s, &mut stack);
     }
 }
 
-/// Apply `__fn(` → `__cls(` on every marked (fn, param idx).
+/// Apply the retag on every marked (fn, param idx).
 pub(crate) fn retag_fn_decls(stmts: &mut [Stmt], marked: &HashSet<(String, usize)>) {
     let mut stack: Vec<&mut Stmt> = stmts.iter_mut().collect();
     while let Some(s) = stack.pop() {
@@ -31,9 +45,8 @@ pub(crate) fn retag_fn_decls(stmts: &mut [Stmt], marked: &HashSet<(String, usize
             for (i, p) in params.iter_mut().enumerate() {
                 if marked.contains(&(name.clone(), i))
                     && let Some(ann) = &mut p.type_ann
-                    && let Some(rest) = ann.strip_prefix("__fn(")
                 {
-                    *ann = format!("__cls({rest}");
+                    retag_to_cls(ann);
                 }
             }
         }
