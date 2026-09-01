@@ -251,44 +251,19 @@ impl<'a> Parser<'a> {
             )));
         }
 
-        // I.2 — for-of over a user iterable. Triggered when `kind == "of"`
-        // and the source is a direct call to a known generator factory
-        // (parser-tracked `function*` declarations). Desugars to a
-        // next-loop using the iterator-protocol shape:
-        //   { let __it = <gen-call>;
-        //     while (true) {
-        //       let __step = __it.next();
-        //       if (__step.done) { break; }
-        //       let v = __step.value;
-        //       <body>
-        //     } }
-        // Handles `for (let v of gen())` directly. Limitation: a
-        // captured iterator (`let g = gen(); for (let v of g)`) hits
-        // the array branch — fix needs type info to dispatch.
-        if kind == "of"
-            && let Expr::Call { callee, .. } = self.ast.get_expr(src)
-            && let Expr::Ident(callee_name) = self.ast.get_expr(*callee)
-            && let Some(yield_ty) = self.generator_fns.get(callee_name).cloned()
-        {
-            let callee_name = callee_name.clone();
-            // RFC 20260713 blade 4 step 2 — `for await (... of ag(...))`
-            // over an async generator awaits each next() step (the
-            // step methods return Promises per §27.6): the desugar
-            // wraps `__it.next()` in the same `.value` Member the
-            // `await e` parse fold uses. A sync generator under
-            // `for await` keeps the sync next-loop (per-value await
-            // is a recorded boundary).
-            let await_next = is_async && self.ast.async_generator_fns.contains(&callee_name);
-            let gen_stmt = self.desugar_forof_generator(
-                &callee_name,
-                yield_ty,
-                src,
-                var_name,
-                body,
-                await_next,
-            );
-            return Ok(Some(wrap_prelude(prelude, gen_stmt)));
-        }
+        // Rotation 552 (551-06) — a call to a known generator factory
+        // (`for (const v of gen())`) takes the default lane below like
+        // every other source. The parse-time I.2 desugar that stood
+        // here (`let __it = gen(); while (true) { let __step =
+        // __it.next(); if (__step.done) break; … }`) predates typed
+        // for-of over a class iterator and had no IteratorClose: a
+        // `break` / `return` / throw out of the loop never ran the
+        // generator's `return()`, so its `finally` never ran — while
+        // the same loop over `const it = gen()` (an Ident source, the
+        // iter_protocol lane) closed correctly. The desugar's own
+        // comment recorded the Ident case as its limitation; the lane
+        // it deferred to now handles both, with §7.4.9 on every exit
+        // (RFC 20260901-scope-exit-drops 刀 2).
 
         // P5.3 — default for-of emits Stmt::ForOf wrapped in a
         // Stmt::Block that hoists src to a fresh Ident binding (or
@@ -300,102 +275,6 @@ impl<'a> Parser<'a> {
         let default_stmt =
             self.emit_forof_default(var_name, var_type_ann, src, body, is_async, forin_obj);
         Ok(Some(wrap_prelude(prelude, default_stmt)))
-    }
-
-    /// Generator-factory for-of desugar (I.2) — split from
-    /// `try_parse_for_of` (2026-07-03, fn-debt decomp). Builds the
-    /// iterator-protocol next-loop; body verbatim, dedented one
-    /// level; tail `return Ok(Some(Stmt::Block(..)))` becomes the
-    /// plain `Stmt::Block` return value.
-    fn desugar_forof_generator(
-        &mut self,
-        callee_name: &str,
-        yield_ty: String,
-        src: ExprId,
-        var_name: String,
-        body: Stmt,
-        await_next: bool,
-    ) -> Stmt {
-        let gen_class = format!("__Gen_{callee_name}");
-        let step_ty = format!("__step_{callee_name}");
-        let id = self.mint_desugar_id();
-        let it_name = format!("__forof_it_{id}");
-        let step_name = format!("__forof_step_{id}");
-
-        let mut stmts: Vec<Stmt> = Vec::new();
-        // let __it: __Gen_<callee> = <gen-call>
-        stmts.push(Stmt::LetDecl {
-            mutable: false,
-            name: it_name.clone(),
-            type_ann: Some(gen_class),
-            init: src,
-            is_var: false,
-        });
-
-        // Inside while(true):
-        //   let __step: __step_<callee> = __it.next();
-        //   if (__step.done) { break; }
-        //   let v: <yield_ty> = __step.value;
-        //   <body>
-        let it_ref = self.ast.add_expr(Expr::Ident(it_name.clone()));
-        let next_member = self.ast.add_expr(Expr::Member {
-            obj: it_ref,
-            name: "next".into(),
-        });
-        let next_call = self.ast.add_expr(Expr::Call {
-            callee: next_member,
-            args: Vec::new(),
-        });
-        // Async-generator steps come back as Promise<__step_*> — the
-        // `.value` wrap is the `await e` parse fold (for-await form).
-        let step_init = if await_next {
-            self.ast.add_expr(Expr::Member {
-                obj: next_call,
-                name: "value".into(),
-            })
-        } else {
-            next_call
-        };
-        let step_decl = Stmt::LetDecl {
-            mutable: false,
-            name: step_name.clone(),
-            type_ann: Some(step_ty),
-            init: step_init,
-            is_var: false,
-        };
-
-        let step_ref_done = self.ast.add_expr(Expr::Ident(step_name.clone()));
-        let done_member = self.ast.add_expr(Expr::Member {
-            obj: step_ref_done,
-            name: "done".into(),
-        });
-        let done_check = Stmt::If {
-            cond: done_member,
-            then_branch: Box::new(Stmt::Break(None)),
-            else_branch: None,
-        };
-
-        let step_ref_value = self.ast.add_expr(Expr::Ident(step_name.clone()));
-        let value_member = self.ast.add_expr(Expr::Member {
-            obj: step_ref_value,
-            name: "value".into(),
-        });
-        let var_decl = Stmt::LetDecl {
-            mutable: false,
-            name: var_name,
-            type_ann: Some(yield_ty),
-            init: value_member,
-            is_var: false,
-        };
-
-        let loop_body = Stmt::Block(vec![step_decl, done_check, var_decl, body]);
-        let true_lit = self.ast.add_expr(Expr::Bool(true));
-        let while_loop = Stmt::While {
-            cond: true_lit,
-            body: Box::new(loop_body),
-        };
-        stmts.push(while_loop);
-        Stmt::Block(stmts)
     }
 
     /// Default for-of tail (P5.3 `Stmt::ForOf` emission; `for await`
