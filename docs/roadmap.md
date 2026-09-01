@@ -1670,7 +1670,27 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `a33f6cb50`** (2026-08-29, rotation 528 — the property face
+**Latest @ `885ab2ff5`** (2026-09-01, rotation 551 — scope exits
+release what they leave; for-of closes its iterator on every exit).
+Gate predicate: **143** clusters of ≥ 4 holding **1129** cases,
+register 2 · 251, residue 467 · 627 (31.2%), core **2007**. Against
+rotation 550: clusters 144 → **143 (−1)**, cases 1134 → **1129 (−5)**,
+core 2009 → **2007 (−2)** — both numbers down together. The move is
+the IteratorClose-on-abrupt-exit work (RFC 20260901-scope-exit-drops
+刀 2): `for-of/{generator,iterator}-close-via-{continue,throw}.js` go
+`bug:exit 1` → `pass`; the other two are the regex timeouts the
+14-worker sweep of rotation 550 produced, back to `pass` at 12 workers.
+
+Sweep passTotal 35357 → **35363 (+6)**, pass 30184 → **30190 (+6)**,
+passNoOracle 1026 → **1026 (=)**, passNegative 4147 → **4147 (=)**,
+bug 12456 → **12452 (−4)**, incompatible 5361 → **5359 (−2)**,
+trAccepted 47813 → **47815 (+2)**; conservation exact (+2 = +6 + −4).
+Verdict diff 6 changed, all forward, **0 backward**. Coverage curve:
+top-100 **56.6%**, top-200 **74.4%**, top-400 **88.6%**. Rotations
+529–550 did not refresh this block; their per-rotation numbers are in
+`plan-state.md`.
+
+**Prior @ `a33f6cb50`** (2026-08-29, rotation 528 — the property face
 528 found nobody reading). Gate predicate: **151** clusters of ≥ 4
 holding **1165** cases, register 2 · 251, residue 577 · 736 (34.2%),
 core **2152**. Against rotation 527: clusters 156 → **151 (−5)**,

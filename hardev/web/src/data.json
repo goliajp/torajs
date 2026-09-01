@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T07:57:58.185Z",
+  "generatedAt": "2026-09-01T10:08:06.132Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T07:55:51Z",
-    "headSha": "dca439e68",
-    "elapsedSec": 544.27,
-    "workers": 14,
+    "ranAt": "2026-09-01T09:50:55Z",
+    "headSha": "885ab2ff5",
+    "elapsedSec": 349.16,
+    "workers": 12,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30184,
+    "pass": 30190,
     "passNoOracle": 1026,
     "passNegative": 4147,
-    "passTotal": 35357,
-    "bug": 12456,
-    "incompatible": 5361,
+    "passTotal": 35363,
+    "bug": 12452,
+    "incompatible": 5359,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47813,
-    "passRateInScope": 66.49,
-    "passRateTrAccepted": 73.95
+    "trAccepted": 47815,
+    "passRateInScope": 66.5,
+    "passRateTrAccepted": 73.96
   },
   "torajs": {
-    "commit": "dca439e68",
-    "commitSubject": "refactor: move the may-throw fixed point out of ast_throw_info",
+    "commit": "885ab2ff5",
+    "commitSubject": "fix: a for-of that leaves early closes its iterator on every exit and never strands it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "885ab2ff5",
+      "subject": "fix: a for-of that leaves early closes its iterator on every exit and never strands it"
+    },
+    {
+      "hash": "fa8bfb8ba",
+      "subject": "refactor: move the for-of iterator plan out of ssa_lower_for_of_iter_protocol"
+    },
+    {
+      "hash": "9c6d6f0dd",
+      "subject": "style: rustfmt the loop_stack pushes of the scope-exit commit"
+    },
+    {
+      "hash": "1c9d6de52",
+      "subject": "fix: switch clause values compare at the scrutinee's width"
+    },
+    {
+      "hash": "cb1b1b315",
+      "subject": "fix: leaving a scope early now releases the frames it leaves"
+    },
+    {
+      "hash": "5ec68cc3c",
+      "subject": "chore: rotation 550 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "dca439e68",
       "subject": "refactor: move the may-throw fixed point out of ast_throw_info"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "2ed6409b7",
       "subject": "chore: rotation 549 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "264e9f61e",
-      "subject": "fix: object literals strand the fresh object and lowered fields on a sibling field's throw"
-    },
-    {
-      "hash": "b120606bc",
-      "subject": "fix: call arguments and array-literal elements strand owned temps on a sibling's throw"
-    },
-    {
-      "hash": "ec90162cf",
-      "subject": "fix: const-bound arrow taking a fn-typed param dispatched the closure cell as code"
-    },
-    {
-      "hash": "7ef5c9930",
-      "subject": "fix: define-family throw paths strand every owned temp alive at the throw"
-    },
-    {
-      "hash": "1605f536e",
-      "subject": "refactor: move argv owned-temp parking into TempScratch sibling struct"
-    },
-    {
-      "hash": "68ba49f23",
-      "subject": "chore: rotation 548 test262 sweep ingest and dashboard snapshot"
     }
   ],
-  "headSha": "dca439e68",
+  "headSha": "885ab2ff5",
   "autorun": {
-    "total": 853,
+    "total": 854,
     "baselineTarget": 10,
-    "bySelf": 848,
+    "bySelf": 849,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788242817-0167",
-      "at": "2026-09-01T06:06:57Z",
-      "ts": 1788242817,
+      "rotationId": "r-1788250200-3489",
+      "at": "2026-09-01T08:10:00Z",
+      "ts": 1788250200,
       "trigger": "self",
-      "prevHead": "2ed6409b7",
-      "handoffSha": "sha256:6c729b0a361c33844a2415cb103d063d70eca872f246e4031ed703e6d69a774b",
-      "handoffAgeSec": 12,
+      "prevHead": "5ec68cc3c",
+      "handoffSha": "sha256:e6486fb237efe6669353d774dfafc7de6ef50790ccd35051c2883fd5e2381c1a",
+      "handoffAgeSec": 20,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788250200-3489",
+        "at": "2026-09-01T08:10:00Z",
+        "ts": 1788250200,
+        "trigger": "self",
+        "prevHead": "5ec68cc3c",
+        "handoffSha": "sha256:e6486fb237efe6669353d774dfafc7de6ef50790ccd35051c2883fd5e2381c1a",
+        "handoffAgeSec": 20,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788242817-0167",
         "at": "2026-09-01T06:06:57Z",
@@ -884,17 +895,6 @@
         "prevHead": "26059ab2f",
         "handoffSha": "sha256:34a5ba5563bc7db436009bde52b63686c1b150f9106770bfe8d61f9f3d1eda5f",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788137722-4e6e",
-        "at": "2026-08-31T00:55:22Z",
-        "ts": 1788137722,
-        "trigger": "self",
-        "prevHead": "d466168d0",
-        "handoffSha": "sha256:1922596ef8dfcf01c7c2c0ed4f3b663ff6420d7eff6cc4a9ef7652d47b32111a",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
