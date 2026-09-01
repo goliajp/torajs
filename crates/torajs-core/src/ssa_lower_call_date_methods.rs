@@ -105,6 +105,9 @@ pub(crate) fn try_lower(
         ctx.redispatch_lowered = Some((recv_id, recv_op));
         return None;
     }
+    // Rotation 550 — an owned receiver is live across the guard, the
+    // arguments' lowers and the kernel's check; park it.
+    let recv_tok = ctx.park_owned_temp(recv_id, &recv_op);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
 
     // Rotation 543 — every kernel below READS [[DateValue]] off the
@@ -128,6 +131,7 @@ pub(crate) fn try_lower(
         // non-finite time value (the kernel returns Str-slot NULL).
         ctx.emit_throw_check(None);
     }
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(recv_id, &recv_raw);
     Some(Operand::Value(v))
 }

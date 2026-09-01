@@ -125,7 +125,8 @@ pub(crate) fn dispatch_intrinsic(
 /// is itself a str method call) from draining its caller's parks.
 fn drain_owned_temps(ctx: &mut LowerCtx<'_>, owned_base: usize) {
     let temps: Vec<_> = ctx.temps.argv_owned.split_off(owned_base);
-    for (op, ty) in temps {
+    for (op, ty, tok) in temps {
+        ctx.pop_throw_temp(tok);
         ctx.emit_drop_value(op, ty);
     }
 }

@@ -59,11 +59,17 @@ pub(crate) fn try_lower(
         return None;
     }
     let recv_op = ctx.lower_expr(obj);
+    // Rotation 550 — an owned receiver (`mkMap(i).set(1, boom())`) is
+    // live across the guard, every argument's lower and the kernel;
+    // park it for their throw paths (387MB / 600k caught throws
+    // before).
+    let recv_tok = ctx.park_owned_temp(obj, &recv_op);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &recv_op);
     let out = dispatch_map_method(ctx, m_name.as_str(), recv_op, args);
     // RFC 20260705 chunk 548 — a Call-shaped receiver (chained
     // `m.set(a).set(b)`) is an owned temp; `set` answers the
     // receiver with its own +1, so the inner ref is released here.
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
     Some(out)
 }

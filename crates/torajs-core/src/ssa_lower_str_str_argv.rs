@@ -200,16 +200,23 @@ pub(crate) fn populate_argv(
             let raw_ty = ctx.operand_ty(&raw);
             if matches!(raw_ty, Type::Str | Type::Substr) {
                 if ctx.expr_is_fresh_owned(a) {
-                    ctx.temps.argv_owned.push((raw.clone(), raw_ty));
+                    ctx.park_argv_owned(raw.clone(), raw_ty);
                 }
                 argv.push(raw);
             } else {
+                // Rotation 550 — the coerced Str is ours whether or
+                // not the toString threw (kernel placeholder
+                // contract), and the raw operand is still live across
+                // the check: park both so the throw path drops them.
                 let s = ctx.coerce_to_str(raw.clone(), raw_ty);
+                let raw_owned = raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(a);
+                let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw.clone(), raw_ty));
+                ctx.park_argv_owned(s.clone(), Type::Str);
                 ctx.emit_throw_check(None);
-                if raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(a) {
+                ctx.unpark_owned_temp(raw_tok);
+                if raw_owned {
                     ctx.emit_drop_value(raw, raw_ty);
                 }
-                ctx.temps.argv_owned.push((s.clone(), Type::Str));
                 argv.push(s);
             }
         } else {
@@ -219,7 +226,7 @@ pub(crate) fn populate_argv(
             let v = ctx.lower_expr(a);
             let v_ty = ctx.operand_ty(&v);
             if matches!(v_ty, Type::Str | Type::Substr) && ctx.expr_is_fresh_owned(a) {
-                ctx.temps.argv_owned.push((v.clone(), v_ty));
+                ctx.park_argv_owned(v.clone(), v_ty);
             }
             argv.push(v);
         }

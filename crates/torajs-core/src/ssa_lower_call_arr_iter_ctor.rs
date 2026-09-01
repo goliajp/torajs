@@ -47,6 +47,9 @@ pub(crate) fn try_lower(
         // load is idempotent (no side-effect duplication).
         return None;
     }
+    // Rotation 550 — an owned receiver is live across the trailing
+    // operands' lowers; park it for their throw paths.
+    let recv_tok = ctx.park_owned_temp(recv_id, &recv_op);
     // S292 — trailing operands lower-and-drop per ES trailing-arg
     // ignore. spec arity is 0; we lower them for the side effect.
     for &a in args.iter() {
@@ -92,6 +95,7 @@ pub(crate) fn try_lower(
     // rc parked at 1, scan_black'd out of the cycle buffer, 32.2MB
     // vs 6.4MB flat). Ident-read receivers are borrows — no-op
     // through the predicate.
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(recv_id, &recv_op);
     Some(Operand::Value(v))
 }

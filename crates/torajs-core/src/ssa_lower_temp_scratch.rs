@@ -12,8 +12,12 @@ pub(crate) struct TempScratch {
     /// fresh temp args) that must drop AFTER the runtime helper
     /// call consumes them. `populate_argv` pushes; `dispatch_
     /// intrinsic` drains right after the emit. Pre-B these leaked
-    /// (300k `replace(n.slice(0,1), ..)` churned 16MB).
-    pub(crate) argv_owned: Vec<(Operand, Type)>,
+    /// (300k `replace(n.slice(0,1), ..)` churned 16MB). Rotation
+    /// 550 — each entry also carries its `throw_live` token
+    /// (`LowerCtx::park_argv_owned`): a later argument's lower or the
+    /// kernel's own check can raise while the temp is parked here,
+    /// and the drain unparks before it drops.
+    pub(crate) argv_owned: Vec<(Operand, Type, usize)>,
     /// Rotation 549 — owned temps alive across a may-throw region.
     /// A consumer holding an owned temp while it emits anything
     /// that can raise parks it (`LowerCtx::push_throw_temp`) and

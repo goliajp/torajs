@@ -168,7 +168,13 @@ fn extend_any_acc_with_args(
     args: &[ExprId],
 ) -> Operand {
     for &a in args {
+        // Rotation 550 — the running product is a fresh array this
+        // fold owns; a later argument's lower can raise
+        // (`a(i).concat(boom())` stranded the seed per caught throw,
+        // 79MB / 600k), so it parks across the lower.
+        let acc_tok = ctx.push_throw_temp(acc.clone(), Type::Arr(arr_id));
         let other = ctx.lower_expr(a);
+        ctx.pop_throw_temp(acc_tok);
         let other_ty = ctx.operand_ty(&other);
         let transfers = ctx.expr_transfers_ownership(a);
         let v = match other_ty {
@@ -367,7 +373,12 @@ fn lower_arr_concat(
     // first scalar push to preserve spec semantics.
     let mut acc_is_fresh = args.is_empty();
     for a in args {
+        // Rotation 550 — a fresh running product parks across the
+        // next argument's lower (the receiver-aliased acc is the
+        // caller's account); see `extend_any_acc_with_args`.
+        let acc_tok = acc_is_fresh.then(|| ctx.push_throw_temp(acc.clone(), Type::Arr(out_id)));
         let other = ctx.lower_expr(*a);
+        ctx.unpark_owned_temp(acc_tok);
         let other_ty = ctx.operand_ty(&other);
         // A lone view argument is appended as an owned copy; a
         // fresh mint (index / method) hands this lane its only

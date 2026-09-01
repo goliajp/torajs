@@ -254,4 +254,12 @@ impl<'a> LowerCtx<'a> {
             self.pop_throw_temp(t);
         }
     }
+
+    /// Park a fresh-owned str-method argv operand for the post-call
+    /// drain (`TempScratch::argv_owned`) AND for every throw edge
+    /// between here and that drain.
+    pub(crate) fn park_argv_owned(&mut self, op: Operand, ty: Type) {
+        let tok = self.push_throw_temp(op.clone(), ty.clone());
+        self.temps.argv_owned.push((op, ty, tok));
+    }
 }

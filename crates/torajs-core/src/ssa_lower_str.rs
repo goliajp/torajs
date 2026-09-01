@@ -210,7 +210,12 @@ pub(crate) fn try_lower_method_call(
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
     let method = name.clone();
+    // Rotation 550 — an owned receiver (`s(i).padStart(boom())`,
+    // `a(i).indexOf(boom())`) is live across every argument's lower
+    // and the kernel's own check; park it for their throw paths.
+    let recv_tok = ctx.park_owned_temp(obj_eid, &recv_op);
     let Some(result) = dispatch_method(ctx, call_eid, &method, args, recv_op, recv_ty) else {
+        ctx.unpark_owned_temp(recv_tok);
         // RFC 20260705 chunk 555 — the receiver is already lowered;
         // park the operand so the next cascade arm's `lower_expr` of
         // the same eid reuses it instead of re-emitting (a
@@ -224,6 +229,7 @@ pub(crate) fn try_lower_method_call(
     // an owned temp; every dispatch arm answers an owned result
     // (chunk 545 invariant, incl. `at`'s element inc), so the
     // receiver's own ref is released after the dispatch.
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj_eid, &recv_op);
     Some(result)
 }

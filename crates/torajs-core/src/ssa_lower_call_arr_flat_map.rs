@@ -52,6 +52,9 @@ pub(crate) fn try_lower(
     let Type::Arr(_) = recv_ty else {
         panic!("ssa-lower: flatMap on non-array receiver {recv_ty:?}");
     };
+    // Rotation 550 — an owned receiver is live across the callback /
+    // thisArg lowers and the loop's throw edges; park it.
+    let recv_tok = ctx.park_owned_temp(obj, &recv_op);
     let arr_ty = recv_ty;
     let src_arr = match recv_op {
         Operand::Value(v) => v,
@@ -219,6 +222,7 @@ pub(crate) fn try_lower(
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver, the boxed thisArg's payload).
     ctx.release_owned_temp(args[0], &fn_val);
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);

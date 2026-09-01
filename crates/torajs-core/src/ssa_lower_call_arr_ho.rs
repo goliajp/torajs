@@ -53,6 +53,9 @@ fn lower_higher_order(
     if !matches!(recv_ty, Type::Arr(_)) {
         panic!("ssa-lower: `.{method}(...)` on non-array receiver type {recv_ty:?}");
     }
+    // Rotation 550 — an owned receiver is live across the callback /
+    // init lowers and the loop's throw edges; park it.
+    let recv_tok = ctx.park_owned_temp(obj, &recv_op);
     let arr_ty = recv_ty;
     let elem_ty = ctx.arr_layouts[match arr_ty {
         Type::Arr(id) => id.0 as usize,
@@ -199,6 +202,7 @@ fn lower_higher_order(
     // loop consumed them: an inline arrow's minted env in the cb
     // slot and a Call/New-shaped receiver.
     ctx.release_owned_temp(args[0], &fn_val);
+    ctx.unpark_owned_temp(recv_tok);
     ctx.release_owned_temp(obj, &recv_op);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);
