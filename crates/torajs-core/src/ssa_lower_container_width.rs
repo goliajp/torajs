@@ -59,25 +59,45 @@ pub(crate) fn widen_container_ty(
         Type::Obj(_) => {
             widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts, fn_sigs)
         }
-        Type::Closure(_) | Type::FnSig(_) => widen_fn_sig(parsed, ann, table, arr_layouts, fn_sigs),
+        Type::Closure(_) | Type::FnSig(_) => {
+            widen_fn_sig(parsed, ann, key, table, arr_layouts, fn_sigs)
+        }
         _ => parsed,
     }
 }
 
-/// The container half of a signature face: an `Arr` param / return
-/// widens its element through the face's own projection key, anything
+/// The container half of a signature face: an `Arr` or fn-typed param
+/// / return widens through the face's own projection key. Anything
 /// else is already answered by the scalar test at the call site.
-/// Array nesting is the only recursion, and it terminates because an
-/// interned array layout cannot contain itself.
-fn widen_arr_face(
+///
+/// The recursion terminates on the interner: `parse_type` builds a
+/// composite's parts before it interns the composite, and interning
+/// either reuses an existing id or appends, so a part's id is always
+/// smaller than its container's. A face therefore descends through a
+/// strictly decreasing id and cannot cycle. (A self-referential
+/// spelling never reaches here — `parse_type` recurses on the alias
+/// first. `Obj` faces are deliberately not walked: struct layouts are
+/// the one shape that IS interned reserve-first, for the recursive
+/// generic alias, so the argument above does not hold for them.)
+fn widen_face(
     ty: Type,
     ann: Option<&str>,
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match ty {
         Type::Arr(_) => widen_arr_elem(ty, ann, key, table, arr_layouts),
+        // A fn-typed param is itself a signature whose faces live on
+        // the projections of THIS key — the flow site glued them onto
+        // the resident's Ret / Param classes the same way. Without
+        // this, `via = (f: NumsFn): number[] => f(7)` read `f`'s
+        // result off the annotation's narrow SigId while the argument
+        // actually passed had already widened (553-01).
+        Type::Closure(_) | Type::FnSig(_) => {
+            widen_fn_sig_by_key(ty, key, table, arr_layouts, fn_sigs)
+        }
         _ => ty,
     }
 }
@@ -97,10 +117,11 @@ fn widen_arr_face(
 /// `Arr(I64)` slot and handed back the f64 bit pattern as an integer
 /// (rotation 554: the shape only became reachable once `__fn(P)->(R)`
 /// stopped decoding as an array of fns). Container faces therefore
-/// recurse through `widen_arr_face` on the same projection key.
+/// recurse through `widen_face` on the same projection key.
 pub(crate) fn widen_fn_sig(
     parsed: Type,
     ann: Option<&str>,
+    key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -110,11 +131,21 @@ pub(crate) fn widen_fn_sig(
         Type::FnSig(s) => (s, false),
         _ => return parsed,
     };
+    // Only a slot SPELLED with the canonical fn shape has a nominal
+    // class to ask. An alias (`type NumsFn = (n: number) => Nums`)
+    // reaches `fn_type_canon` as the bare alias name and answers None
+    // — and for the same reason the analysis never unioned the slot
+    // onto any class, so its widths live on its own key's projections.
+    // Falling through to F5 is what the un-annotated global binding
+    // already does (`ssa_lower_toplevel_globals::infer`); returning
+    // the parse width instead left `via = (f: NumsFn): number[] =>
+    // f(7)` reading `f`'s result through the narrow annotation SigId
+    // while the argument actually passed had widened (553-01).
     let Some(canon) = ann.and_then(fn_type_canon) else {
-        return parsed;
+        return widen_fn_sig_by_key(parsed, key, table, arr_layouts, fn_sigs);
     };
     let Some((param_anns, ret_ann)) = split_fn_type(&canon) else {
-        return parsed;
+        return widen_fn_sig_by_key(parsed, key, table, arr_layouts, fn_sigs);
     };
     let ck = SlotKey::Class(canon.clone());
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
@@ -127,7 +158,14 @@ pub(crate) fn widen_fn_sig(
         {
             *pt = Type::F64;
         } else {
-            *pt = widen_arr_face(*pt, param_anns.get(i).copied(), &pk, table, arr_layouts);
+            *pt = widen_face(
+                *pt,
+                param_anns.get(i).copied(),
+                &pk,
+                table,
+                arr_layouts,
+                fn_sigs,
+            );
         }
     }
     let new_ret = if ret_ty == Type::I64 && ret_ann == "number" && table.field_is_f64(&ck, "__ret")
@@ -135,7 +173,7 @@ pub(crate) fn widen_fn_sig(
         Type::F64
     } else {
         let rk = SlotKey::Field(Box::new(ck.clone()), "__ret".to_string());
-        widen_arr_face(ret_ty, Some(ret_ann), &rk, table, arr_layouts)
+        widen_face(ret_ty, Some(ret_ann), &rk, table, arr_layouts, fn_sigs)
     };
     if new_params == param_tys && new_ret == ret_ty {
         return parsed;
@@ -154,7 +192,7 @@ pub(crate) fn widen_fn_sig(
 /// function's Ret / Param classes, so the query needs no canonical
 /// spelling (struct layouts carry no annotation strings). Scalar faces
 /// widen on the I64 parse default (the sole widenable spelling);
-/// container faces recurse through `widen_arr_face`, per the note on
+/// container faces recurse through `widen_face`, per the note on
 /// [`widen_fn_sig`].
 pub(crate) fn widen_fn_sig_by_key(
     parsed: Type,
@@ -175,14 +213,14 @@ pub(crate) fn widen_fn_sig_by_key(
         if *pt == Type::I64 && table.field_is_f64(key, &format!("__p{i}")) {
             *pt = Type::F64;
         } else {
-            *pt = widen_arr_face(*pt, None, &pk, table, arr_layouts);
+            *pt = widen_face(*pt, None, &pk, table, arr_layouts, fn_sigs);
         }
     }
     let new_ret = if ret_ty == Type::I64 && table.field_is_f64(key, "__ret") {
         Type::F64
     } else {
         let rk = SlotKey::Field(Box::new(key.clone()), "__ret".to_string());
-        widen_arr_face(ret_ty, None, &rk, table, arr_layouts)
+        widen_face(ret_ty, None, &rk, table, arr_layouts, fn_sigs)
     };
     if new_params == param_tys && new_ret == ret_ty {
         return parsed;
