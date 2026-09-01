@@ -188,7 +188,7 @@ pub(super) fn is_derived(ast: &Ast, cname: &str) -> bool {
 pub(super) fn carry_call(ast: &mut Ast, target: ExprId, field: &str) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_carry".into()));
     let minted = ast.add_expr(Expr::Ident("__this_in".into()));
-    let name = ast.add_expr(Expr::String(field.to_string()));
+    let name = ast.add_expr(Expr::String(field.to_string().into()));
     ast.add_expr(Expr::Call {
         callee,
         args: vec![minted, target, name],

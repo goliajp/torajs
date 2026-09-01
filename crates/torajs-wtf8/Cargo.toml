@@ -1,0 +1,18 @@
+[package]
+name = "torajs-wtf8"
+description = "WTF-8 string buffer — UTF-8 generalized to encode surrogate code points, so every ECMAScript String value (a sequence of UTF-16 code units, lone surrogates included) has one canonical byte form. Compile-time literal representation for torajs; `no_std` + `alloc`, zero dependencies."
+keywords = ["wtf-8", "utf-16", "surrogate", "torajs", "ecmascript"]
+categories = ["text-processing", "no-std", "encoding"]
+readme = "README.md"
+documentation = "https://docs.rs/torajs-wtf8"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]

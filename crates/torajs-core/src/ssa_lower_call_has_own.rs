@@ -57,7 +57,7 @@ pub(crate) fn try_lower(
         return None;
     }
     let key_lit: Option<String> = match ctx.ast.get_expr(args[1]) {
-        Expr::String(k) => Some(k.clone()),
+        Expr::String(k) => Some(k.to_string_lossy_owned()),
         _ => None,
     };
     // Borrow-only read of the obj — lower_expr loads the local slot

@@ -68,7 +68,7 @@ impl ExpandoRecvs {
             Expr::Index { obj, index } => {
                 self.declared(exprs, *obj)
                     .is_some_and(|decl| match &exprs[index.0 as usize] {
-                        Expr::String(k) => !decl.contains(k.as_str()),
+                        Expr::String(k) => k.as_str().is_none_or(|k| !decl.contains(k)),
                         _ => true,
                     })
             }

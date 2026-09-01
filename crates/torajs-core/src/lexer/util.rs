@@ -95,16 +95,15 @@ pub(super) fn emit(out: &mut Vec<Spanned>, token: Token, start: u32, end: u32) {
     });
 }
 
-/// Encode a Unicode code point as UTF-8 into `buf`. Used by string-
-/// literal escape decoding (`\xNN`, `\uNNNN`, `\u{N...N}`). Codepoints
-/// past U+10FFFF or in the surrogate range fall back to U+FFFD
-/// REPLACEMENT CHARACTER — matches V8's recovery behavior on malformed
-/// escapes.
+/// Encode a code point as WTF-8 into `buf`. Used by string-literal
+/// escape decoding (`\xNN`, `\uNNNN`, `\u{N...N}`). A lone surrogate
+/// keeps its own 3-byte spelling — the string value is a sequence of
+/// UTF-16 code units (§6.1.4), not of scalar values — and a high
+/// surrogate escape followed by a low one joins into one code point
+/// (§12.9.4.2 SV). Code points past U+10FFFF cannot reach here: the
+/// `\u{…}` scanner rejects them.
 pub(super) fn push_codepoint(buf: &mut Vec<u8>, cp: u32) {
-    let c = char::from_u32(cp).unwrap_or('\u{FFFD}');
-    let mut tmp = [0u8; 4];
-    let s = c.encode_utf8(&mut tmp);
-    buf.extend_from_slice(s.as_bytes());
+    torajs_wtf8::push_code_point(buf, cp);
 }
 
 pub(super) fn is_ident_start(b: u8) -> bool {

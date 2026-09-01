@@ -145,7 +145,7 @@ pub(crate) fn default_init_for_type(ann: &str) -> Expr {
     fn ctor(name: &str) -> Expr { Expr::New { class_name: name.into(), args: vec![], type_args: vec![] } }
     match ann {
         "number" => Expr::Number(0.0),
-        "string" => Expr::String(String::new()),
+        "string" => Expr::String(String::new().into()),
         "boolean" => Expr::Bool(false),
         // JS's zero value for an untyped slot IS undefined — the old
         // Number(0.0) catch-all leaked `0` where bun answers

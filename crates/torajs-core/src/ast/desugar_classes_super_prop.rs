@@ -170,7 +170,7 @@ fn rewrite_sites(
                     // See `delete_operands`: a delete operand must stay
                     // a property reference, so it keeps the plain read.
                     let base = mint_base(ast, parent_name, cname, is_static, dynamic);
-                    let key = ast.add_expr(Expr::String(name));
+                    let key = ast.add_expr(Expr::String(name.into()));
                     let recv = mint_receiver(ast, cname, is_static);
                     let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_get".to_string()));
                     ast.exprs[member.0 as usize] = Expr::Call {

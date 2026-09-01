@@ -98,7 +98,7 @@ pub(crate) fn emit_obj_has_own_property(
     if let Expr::String(key) = ctx.ast.get_expr(arg_eid) {
         // Literal key — compile-time fold. The lowered literal is a
         // static cell (rc no-op); nothing to release.
-        let key = key.clone();
+        let key = key.to_string_lossy_owned();
         let layout = &ctx.struct_layouts[sid.0 as usize];
         // An accessor member rides the layout under its synthetic
         // `__getter_<k>` / `__setter_<k>` name — it IS the own

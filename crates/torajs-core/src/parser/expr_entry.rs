@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
         parts: &[lexer::TemplatePart],
     ) -> Result<ExprId, String> {
         if parts.is_empty() {
-            return Ok(self.ast.add_expr(Expr::String(String::new())));
+            return Ok(self.ast.add_expr(Expr::String(String::new().into())));
         }
         // Special-case all-literal templates → emit a single
         // Expr::String. Common case `\`hello\`` skips the chain entirely.
@@ -99,7 +99,7 @@ impl<'a> Parser<'a> {
             });
         }
         // If acc is still None (everything was empty Lit), produce "".
-        Ok(acc.unwrap_or_else(|| self.ast.add_expr(Expr::String(String::new()))))
+        Ok(acc.unwrap_or_else(|| self.ast.add_expr(Expr::String(String::new().into()))))
     }
 
     /// Parse one `${…}` interpolation's pre-lexed token stream with a

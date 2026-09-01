@@ -85,7 +85,7 @@ pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
     });
 
     // "cause" in options
-    let key = ast.add_expr(Expr::String("cause".to_string()));
+    let key = ast.add_expr(Expr::String("cause".to_string().into()));
     let opts_in = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let in_callee = ast.add_expr(Expr::Ident("__torajs_in_op".to_string()));
     let has_cause = ast.add_expr(Expr::Call {
@@ -129,7 +129,7 @@ pub(super) fn build_install_cause(ast: &mut Ast) -> Stmt {
 fn build_typeof_eq(ast: &mut Ast, want: &str) -> ExprId {
     let opts = ast.add_expr(Expr::Ident("__bi_options".to_string()));
     let t = ast.add_expr(Expr::TypeOf { expr: opts });
-    let lit = ast.add_expr(Expr::String(want.to_string()));
+    let lit = ast.add_expr(Expr::String(want.to_string().into()));
     ast.add_expr(Expr::BinOp {
         op: BinOp::Eq,
         left: t,

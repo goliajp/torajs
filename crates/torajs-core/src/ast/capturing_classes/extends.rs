@@ -331,7 +331,7 @@ pub(super) fn proto_chain_stmts(
         obj: d,
         name: "prototype".to_string(),
     });
-    let key = ast.add_expr(Expr::String("constructor".to_string()));
+    let key = ast.add_expr(Expr::String("constructor".to_string().into()));
     let value = ast.add_expr(Expr::Ident(class_binding.to_string()));
     let writable = ast.add_expr(Expr::Bool(true));
     let configurable = ast.add_expr(Expr::Bool(true));

@@ -64,12 +64,15 @@ impl<'a> LowerCtx<'a> {
     /// one alloc — caller is responsible for emitting Drop at scope end
     /// (P2.2.b.2 wires that up; this sub-step intentionally leaks one
     /// alloc per literal use, which is fine for one-shot bench programs).
-    pub(crate) fn intern_string_literal(&mut self, s: &str) -> ValueId {
+    pub(crate) fn intern_string_literal<S: AsRef<torajs_wtf8::Wtf8> + ?Sized>(
+        &mut self,
+        s: &S,
+    ) -> ValueId {
         // Phase P-rpn — every string-literal expression resolves to a
         // Str-shaped `StaticStrRef` global (rc_inc / rc_dec / free
         // all no-op via the STATIC_LITERAL flag). Encoding decision
         // happens in `StringLiteral::encode_from_str` (P11.1-S2-a).
-        let lit = ssa::StringLiteral::encode_from_str(s);
+        let lit = ssa::StringLiteral::encode_from_wtf8(s.as_ref());
         let sid = ssa::StringId((self.string_id_base + self.new_strings.len()) as u32);
         self.new_strings.push(lit);
         self.f

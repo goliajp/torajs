@@ -77,9 +77,9 @@ impl Parser<'_> {
     /// (resolves at check time; `inject_builtin_classes` provides it
     /// for every program).
     fn tdz_reference_error(&mut self, name: &str) -> ExprId {
-        let msg = self.ast.add_expr(Expr::String(format!(
-            "Cannot access '{name}' before initialization"
-        )));
+        let msg = self.ast.add_expr(Expr::String(
+            format!("Cannot access '{name}' before initialization").into(),
+        ));
         let factory = self
             .ast
             .add_expr(Expr::Ident("__new_ReferenceError".to_string()));

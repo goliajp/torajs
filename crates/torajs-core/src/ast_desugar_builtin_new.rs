@@ -219,7 +219,7 @@ fn rewrite_regexp_new(ast: &mut Ast) {
                 0 => Some(("(?:)".to_string(), String::new())),
                 1 => {
                     if let Expr::String(s) = &ast.exprs[args[0].0 as usize] {
-                        Some((s.clone(), String::new()))
+                        Some((s.to_string_lossy_owned(), String::new()))
                     } else {
                         None
                     }
@@ -228,7 +228,7 @@ fn rewrite_regexp_new(ast: &mut Ast) {
                     let pat = &ast.exprs[args[0].0 as usize];
                     let flags = &ast.exprs[args[1].0 as usize];
                     if let (Expr::String(p), Expr::String(f)) = (pat, flags) {
-                        Some((p.clone(), f.clone()))
+                        Some((p.to_string_lossy_owned(), f.to_string_lossy_owned()))
                     } else {
                         None
                     }
@@ -316,7 +316,7 @@ fn rewrite_zero_arg_wrapper_new(ast: &mut Ast) {
                 args.push(default_arg);
             }
         } else if is_string_zero {
-            let default_arg = ast.add_expr(Expr::String(String::new()));
+            let default_arg = ast.add_expr(Expr::String(String::new().into()));
             if let Expr::New { args, .. } = &mut ast.exprs[i] {
                 args.push(default_arg);
             }

@@ -52,7 +52,7 @@ pub(super) fn literal_eval_call(eid: ExprId, ast: &Ast) -> Option<(String, CallF
 /// coercion rules are the runtime's business, not this pass's.
 pub(super) fn const_string(eid: ExprId, ast: &Ast) -> Option<String> {
     match ast.exprs.get(eid.0 as usize)? {
-        Expr::String(s) => Some(s.clone()),
+        Expr::String(s) => Some(s.to_string_lossy_owned()),
         Expr::BinOp {
             op: BinOp::Add,
             left,
@@ -422,7 +422,7 @@ pub(super) fn first_line(src: &str) -> String {
 /// with a throw keeps that: unreachable code raises nothing, and a
 /// reached one raises at the right moment with the right error type.
 pub(super) fn syntax_error_throw(msg: String, ast: &mut Ast) -> Stmt {
-    let msg_id = ast.add_expr(Expr::String(msg));
+    let msg_id = ast.add_expr(Expr::String(msg.into()));
     let exc = ast.add_expr(Expr::New {
         class_name: "SyntaxError".to_string(),
         args: vec![msg_id],

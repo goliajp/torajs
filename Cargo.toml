@@ -9,6 +9,7 @@ members = [
     "crates/torajs-mutex",
     "crates/torajs-pool",
     "crates/torajs-ucd",
+    "crates/torajs-wtf8",
     "crates/torajs-rc",
     "crates/torajs-anyvalue",
     "crates/torajs-dispatch",

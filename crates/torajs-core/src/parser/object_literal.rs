@@ -117,7 +117,7 @@ impl<'a> Parser<'a> {
             // StringLiteral. Used pervasively in test262 (~10+ cases
             // directly + many transitively for object-with-string-
             // keys patterns).
-            Token::String(s) => s.clone(),
+            Token::String(s) => s.to_string_lossy_owned(),
             // P0.10 — numeric-literal property name `{ 0: ... }` /
             // `{ 99: ... }` per ES spec §12.7.6 PropertyName ::
             // NumericLiteral. Massive yield — 600+ test262 cases use
@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
         // §12.7.6 PropertyName. Pre-fix only Ident was accepted.
         let prop_name = match self.peek() {
             Token::Ident(n) => n.clone(),
-            Token::String(s) => s.clone(),
+            Token::String(s) => s.to_string_lossy_owned(),
             Token::Number(n) => crate::ast::number_prop_key(*n),
             // §12.7.6 — the full reserved-word set is legal in
             // property-name positions (`{ get yield() {} }`); the

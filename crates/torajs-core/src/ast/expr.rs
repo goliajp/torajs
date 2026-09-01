@@ -65,7 +65,7 @@ pub enum UnaryOp {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Ident(String),
-    String(String),
+    String(torajs_wtf8::Wtf8Buf),
     Number(f64),
     /// T-25 — BigInt literal. Carries the digits + radix exactly
     /// as the lexer parsed them (e.g. `123n` → digits="123" radix=10;

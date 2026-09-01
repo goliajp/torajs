@@ -158,6 +158,9 @@ torajs-capture-box = { path = "../torajs-capture-box" }
 # ID_CONTINUE to admit non-ASCII identifiers per ES §12.7.1. Nothing
 # from this crate reaches the user binary.
 torajs-ucd = { path = "../torajs-ucd" }
+# Host-side only: WTF-8 is the compile-time spelling of a string
+# literal's value (UTF-16 code units, lone surrogates included).
+torajs-wtf8 = { path = "../torajs-wtf8" }
 # NOT depended on here: torajs-panic-runtime. It is `#![panic_runtime]`
 # when `--cfg torajs_panic_runtime_active` is set (release-build.sh),
 # and a panic-runtime crate inside this crate graph would collide with

@@ -378,7 +378,7 @@ fn builtin_named_by(ast: &Ast, obj: ExprId) -> Option<Family> {
 /// The string a literal key spells, for `p["join"]` shapes.
 fn str_literal(ast: &Ast, e: ExprId) -> Option<String> {
     match ast.get_expr(e) {
-        Expr::String(s) => Some(s.clone()),
+        Expr::String(s) => Some(s.to_string_lossy_owned()),
         _ => None,
     }
 }

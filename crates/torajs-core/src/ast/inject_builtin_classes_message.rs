@@ -60,7 +60,7 @@ pub(super) fn build_message_install(ast: &mut Ast) -> Stmt {
 
     let msg0 = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let type_of = ast.add_expr(Expr::TypeOf { expr: msg0 });
-    let str_lit = ast.add_expr(Expr::String("string".to_string()));
+    let str_lit = ast.add_expr(Expr::String("string".to_string().into()));
     let is_str = ast.add_expr(Expr::BinOp {
         op: BinOp::Eq,
         left: type_of,
@@ -69,7 +69,7 @@ pub(super) fn build_message_install(ast: &mut Ast) -> Stmt {
     let msg_then = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let verbatim_arm = assign_to_message(ast, msg_then);
 
-    let empty = ast.add_expr(Expr::String(String::new()));
+    let empty = ast.add_expr(Expr::String(String::new().into()));
     let msg_else = ast.add_expr(Expr::Ident("__bi_message".to_string()));
     let concat = ast.add_expr(Expr::BinOp {
         op: BinOp::Add,

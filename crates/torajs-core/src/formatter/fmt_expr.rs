@@ -199,16 +199,18 @@ impl<'a> Formatter<'a> {
     }
 
     /// Single-quoted string literal with escape folding.
-    fn fmt_string_lit(&mut self, s: &str) {
+    fn fmt_string_lit(&mut self, s: &torajs_wtf8::Wtf8) {
         self.write("'");
-        for c in s.chars() {
-            match c {
-                '\\' => self.write("\\\\"),
-                '\'' => self.write("\\'"),
-                '\n' => self.write("\\n"),
-                '\t' => self.write("\\t"),
-                '\r' => self.write("\\r"),
-                c => self.out.push(c),
+        for cp in s.code_points() {
+            match char::from_u32(cp) {
+                Some('\\') => self.write("\\\\"),
+                Some('\'') => self.write("\\'"),
+                Some('\n') => self.write("\\n"),
+                Some('\t') => self.write("\\t"),
+                Some('\r') => self.write("\\r"),
+                Some(c) => self.out.push(c),
+                // lone surrogate: only an escape can spell it
+                None => self.write(&format!("\\u{cp:04x}")),
             }
         }
         self.write("'");

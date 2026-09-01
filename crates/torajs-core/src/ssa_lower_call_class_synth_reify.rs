@@ -28,6 +28,7 @@ pub(super) fn try_lower_static_method_reify(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let Expr::String(mname) = ctx.ast.get_expr(args[1]) else {
         return None;
     };
@@ -117,6 +118,7 @@ pub(super) fn try_lower_static_field_reify(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let cname = cname.clone();
     let Some(tag) = ctx.class_name_to_tag.get(cname.as_str()).copied() else {
         return Some(Operand::ConstI64(0));
@@ -206,6 +208,7 @@ pub(super) fn try_lower_class_computed_reify(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let Expr::String(sentinel) = ctx.ast.get_expr(args[1]) else {
         return None;
     };
@@ -368,6 +371,7 @@ pub(super) fn try_lower_class_accessor_reify(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let Expr::String(pname) = ctx.ast.get_expr(args[1]) else {
         return None;
     };

@@ -101,7 +101,7 @@ impl<'a> Parser<'a> {
                     Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
                         ((*n as u64).to_string(), true)
                     }
-                    Token::String(s) => (s.clone(), true),
+                    Token::String(s) => (s.to_string_lossy_owned(), true),
                     t => {
                         return Err(format!(
                             "expected identifier in object param destructuring, got {t:?} at {}",

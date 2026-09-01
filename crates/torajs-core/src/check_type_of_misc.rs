@@ -196,7 +196,7 @@ pub(crate) fn check_delete(
             // run time) keeps the element refusal.
             let named_literal_key = matches!(&obj_ty, Type::Array(_))
                 && matches!(ast.get_expr(*index), crate::ast::Expr::String(s)
-                    if !s.bytes().all(|b| b.is_ascii_digit()) || s.is_empty());
+                    if !s.as_bytes().iter().all(|b| b.is_ascii_digit()) || s.is_empty());
             if !receiver_admits_delete(&obj_ty) && !named_literal_key {
                 return Err(delete_receiver_error(&obj_ty));
             }

@@ -118,7 +118,7 @@ pub(crate) fn reject_globalthis_mutation(
 /// the Member form and takes the same builtin-name gate above.
 pub(crate) fn literal_index_key(ast: &Ast, index: ExprId) -> Option<&str> {
     match ast.get_expr(index) {
-        Expr::String(s) => Some(s),
+        Expr::String(s) => s.as_str(),
         _ => None,
     }
 }

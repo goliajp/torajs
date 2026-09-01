@@ -34,7 +34,7 @@ pub(super) fn program_mutates_prototypes(ast: &Ast) -> bool {
     ast.exprs.iter().any(|e| match e {
         Expr::Member { name, .. } => is_proto_mutator(name),
         Expr::Index { index, .. } => {
-            matches!(ast.get_expr(*index), Expr::String(s) if is_proto_mutator(s))
+            matches!(ast.get_expr(*index), Expr::String(s) if s.as_str().is_some_and(is_proto_mutator))
         }
         Expr::ObjectLit { fields } => fields.iter().any(|(n, _)| is_proto_mutator(n)),
         _ => false,

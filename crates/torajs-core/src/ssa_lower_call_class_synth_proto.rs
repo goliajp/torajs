@@ -42,6 +42,7 @@ pub(crate) fn try_lower_proto_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) 
     let Expr::String(cname) = ctx.ast.get_expr(args[1]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let cname = cname.clone();
     let proto_op = ctx.lower_expr(args[0]);
     let cur_block = ctx.cur_block;

@@ -92,9 +92,9 @@ fn collect_param_hits(ast: &Ast, params: &[Param], hits: &mut Vec<(ExprId, Strin
 /// pass runs after the `Expr::New`-rewriting passes, so a fresh `New`
 /// node would reach the checker unresolved.
 fn rewrite_to_throw_iife(ast: &mut Ast, eid: ExprId, name: &str) {
-    let msg = ast.add_expr(Expr::String(format!(
-        "Cannot access '{name}' before initialization"
-    )));
+    let msg = ast.add_expr(Expr::String(
+        format!("Cannot access '{name}' before initialization").into(),
+    ));
     let factory = ast.add_expr(Expr::Ident("__new_ReferenceError".to_string()));
     let err = ast.add_expr(Expr::Call {
         callee: factory,

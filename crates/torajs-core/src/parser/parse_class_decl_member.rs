@@ -128,7 +128,7 @@ impl<'a> Parser<'a> {
                         Some(Token::RBracket)
                     ) =>
                 {
-                    let k = s.clone();
+                    let k = s.to_string_lossy_owned();
                     self.pos += 1;
                     k
                 }
@@ -237,7 +237,7 @@ impl<'a> Parser<'a> {
                 // §6.1.6.1.20 canonical string ("16" / "1"), the same
                 // fold object literals use. Single tokens, so the
                 // shared "name still unconsumed" protocol holds.
-                Token::String(s) => s.clone(),
+                Token::String(s) => s.to_string_lossy_owned(),
                 Token::Number(n) => crate::ast::number_prop_key(*n),
                 t => {
                     return Err(format!(

@@ -25,7 +25,7 @@ pub enum Token {
     /// `this.#x` accesses through a name-mangling step (encoding
     /// the class binding) without disturbing the public-name path.
     PrivateIdent(String),
-    String(String),
+    String(torajs_wtf8::Wtf8Buf),
     Number(f64),
     /// T-25 — `BigInt` literal. Holds the lexeme's digit body
     /// (without the trailing `n` and without `0x`/`0b`/`0o` radix
@@ -229,7 +229,10 @@ pub enum Token {
 /// the template object's `.raw`).
 #[derive(Debug, Clone, PartialEq)]
 pub enum TemplatePart {
-    Lit { cooked: String, raw: String },
+    Lit {
+        cooked: torajs_wtf8::Wtf8Buf,
+        raw: String,
+    },
     Expr(Vec<Spanned>),
 }
 

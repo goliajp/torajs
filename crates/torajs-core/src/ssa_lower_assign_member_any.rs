@@ -181,17 +181,21 @@ pub(crate) fn lower_dynobj_assign(
 pub(crate) fn emit_any_member_set(
     ctx: &mut LowerCtx<'_>,
     obj_val: Operand,
-    field: &str,
+    field: &(impl AsRef<torajs_wtf8::Wtf8> + ?Sized),
     tag_op: Operand,
     val_op: Operand,
     obj_ident: &Option<String>,
     recv_owned: bool,
 ) {
+    let field: &torajs_wtf8::Wtf8 = field.as_ref();
     let key_str = ctx.intern_string_literal(field);
     let hint = if field == "length" {
         torajs_rc::ANY_WPROP_ARR_LENGTH
     } else {
-        torajs_rc::any_regexp_prop_id(field).unwrap_or(-1)
+        field
+            .as_str()
+            .and_then(torajs_rc::any_regexp_prop_id)
+            .unwrap_or(-1)
     };
     // §7.3.32 PrivateSet — a `__priv_`-mangled name selects the
     // brand-gated write channel (read twin: `emit_member_fallback`):

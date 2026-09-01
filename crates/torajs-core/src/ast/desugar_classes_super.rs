@@ -242,7 +242,7 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
                 owner.is_none() && builtin_heritage_root(ast, class_index, parent_name);
             if dynamic && !builtin_route {
                 let base = super::super_home_dynamic::mint_home_proto(ast, cname, false);
-                let key = ast.add_expr(Expr::String(m_name));
+                let key = ast.add_expr(Expr::String(m_name.into()));
                 let recv = ast.add_expr(Expr::This);
                 let pack = ast.add_expr(Expr::Array(args));
                 let kernel = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
@@ -309,7 +309,7 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
             // CLASS, whose link is `Object.getPrototypeOf(C)`.
             if dynamic {
                 let base = super::super_home_dynamic::mint_home_proto(ast, cname, true);
-                let key = ast.add_expr(Expr::String(m_name));
+                let key = ast.add_expr(Expr::String(m_name.into()));
                 let recv = ast.add_expr(Expr::Ident(cname.clone()));
                 let pack = ast.add_expr(Expr::Array(args));
                 let kernel = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));

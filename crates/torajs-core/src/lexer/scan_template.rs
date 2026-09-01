@@ -38,9 +38,8 @@ pub(super) fn scan_template(
         let b = bytes[*i as usize];
         if b == b'`' {
             if !buf.is_empty() || !raw.is_empty() || parts.is_empty() {
-                let s = std::str::from_utf8(&buf)
-                    .map_err(|_| format!("invalid utf-8 in template at {start}"))?
-                    .to_string();
+                let s = torajs_wtf8::Wtf8Buf::from_bytes(std::mem::take(&mut buf))
+                    .map_err(|_| format!("invalid utf-8 in template at {start}"))?;
                 let r = std::str::from_utf8(&raw)
                     .map_err(|_| format!("invalid utf-8 in template at {start}"))?
                     .to_string();
@@ -111,9 +110,8 @@ pub(super) fn scan_template(
         if b == b'$' && peek(bytes, *i + 1) == Some(b'{') {
             // Flush literal segment (even if empty — we
             // need the alternation).
-            let s = std::str::from_utf8(&buf)
-                .map_err(|_| format!("invalid utf-8 in template at {start}"))?
-                .to_string();
+            let s = torajs_wtf8::Wtf8Buf::from_bytes(std::mem::take(&mut buf))
+                .map_err(|_| format!("invalid utf-8 in template at {start}"))?;
             let r = std::str::from_utf8(&raw)
                 .map_err(|_| format!("invalid utf-8 in template at {start}"))?
                 .to_string();

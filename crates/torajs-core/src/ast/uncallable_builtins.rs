@@ -116,7 +116,7 @@ pub fn resolve_uncallable_builtin_calls(ast: &mut Ast) {
         // orphaned (nothing references it).
         let payload = match kind {
             SiteKind::Throw(msg) => {
-                let msg_e = ast.add_expr(Expr::String(msg));
+                let msg_e = ast.add_expr(Expr::String(msg.into()));
                 let exc = ast.add_expr(Expr::New {
                     class_name: "TypeError".to_string(),
                     args: vec![msg_e],

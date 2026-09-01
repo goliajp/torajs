@@ -43,7 +43,7 @@ impl<'a> Parser<'a> {
         // segment before every interpolation, but elides an empty
         // TAIL segment — normalize both ends here so the pair count
         // is always subs + 1 (what the spec's TemplateStrings gives).
-        let mut lits: Vec<(String, String)> = Vec::new();
+        let mut lits: Vec<(torajs_wtf8::Wtf8Buf, String)> = Vec::new();
         let mut subs: Vec<ExprId> = Vec::new();
         for p in parts {
             match p {
@@ -55,14 +55,14 @@ impl<'a> Parser<'a> {
                         // Leading interpolation with no flushed
                         // empty head (defensive — the lexer does
                         // flush it today).
-                        lits.push((String::new(), String::new()));
+                        lits.push((torajs_wtf8::Wtf8Buf::new(), String::new()));
                     }
                     subs.push(self.parse_template_interpolation(tokens)?);
                 }
             }
         }
         if lits.len() == subs.len() {
-            lits.push((String::new(), String::new()));
+            lits.push((torajs_wtf8::Wtf8Buf::new(), String::new()));
         }
         // `__torajs_template_object(-1, c0, r0, …)` — site renumbered
         // by `ast::number_template_sites`.
@@ -70,7 +70,7 @@ impl<'a> Parser<'a> {
         tmpl_args.push(self.ast.add_expr(Expr::Number(-1.0)));
         for (c, r) in lits {
             tmpl_args.push(self.ast.add_expr(Expr::String(c)));
-            tmpl_args.push(self.ast.add_expr(Expr::String(r)));
+            tmpl_args.push(self.ast.add_expr(Expr::String(r.into())));
         }
         let tmpl_callee = self
             .ast

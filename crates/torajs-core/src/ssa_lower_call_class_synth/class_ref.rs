@@ -16,6 +16,7 @@ pub(super) fn try_lower_my_class_ref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) ->
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let cname = cname.clone();
     let cur_block = ctx.cur_block;
     // `__new_target` exists for `new.target` reads — the only reader

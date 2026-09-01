@@ -34,7 +34,7 @@ impl<'a> Parser<'a> {
             right: null_e,
         });
         let msg = self.ast.add_expr(Expr::String(
-            "cannot destructure null or undefined".to_string(),
+            "cannot destructure null or undefined".to_string().into(),
         ));
         let err = self.ast.add_expr(Expr::New {
             class_name: "TypeError".to_string(),

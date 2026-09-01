@@ -24,7 +24,7 @@ pub fn number_prop_key(n: f64) -> String {
 pub fn literal_prop_key(ast: &Ast, index: ExprId) -> Option<String> {
     match ast.get_expr(index) {
         Expr::Number(n) => Some(number_prop_key(*n)),
-        Expr::String(s) => Some(s.clone()),
+        Expr::String(s) => Some(s.to_string_lossy_owned()),
         _ => None,
     }
 }

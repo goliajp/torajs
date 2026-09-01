@@ -19,87 +19,6 @@
 use super::*;
 use crate::ast::ExportStar;
 
-/// §16.2.3.1 IsStringWellFormedUnicode over the RAW spelling of a
-/// string literal: every surrogate ESCAPE has to pair high-then-low
-/// with nothing between the halves. Raw source is UTF-8, so a
-/// surrogate can only enter through an escape — ordinary characters
-/// never need checking, they only matter as "something interrupted
-/// the pair". Both `\uXXXX` and `\u{...}` contribute code units to
-/// the same sequence (a braced high followed by a braced low pairs
-/// up, exactly as the UTF-16 string value does).
-fn surrogate_escapes_well_formed(raw: &str) -> bool {
-    let b = raw.as_bytes();
-    let mut i = 0usize;
-    let mut pending_high = false;
-    while i < b.len() {
-        if b[i] != b'\\' || i + 1 >= b.len() {
-            if pending_high {
-                return false;
-            }
-            i += 1;
-            continue;
-        }
-        if b[i + 1] != b'u' {
-            if pending_high {
-                return false;
-            }
-            i += 2;
-            continue;
-        }
-        let (cp, consumed) = match decode_unicode_escape(&b[i..]) {
-            Some(x) => x,
-            None => {
-                if pending_high {
-                    return false;
-                }
-                i += 2;
-                continue;
-            }
-        };
-        if (0xD800..=0xDBFF).contains(&cp) {
-            if pending_high {
-                return false;
-            }
-            pending_high = true;
-        } else if (0xDC00..=0xDFFF).contains(&cp) {
-            if !pending_high {
-                return false;
-            }
-            pending_high = false;
-        } else if pending_high {
-            return false;
-        }
-        i += consumed;
-    }
-    !pending_high
-}
-
-/// One `\uXXXX` / `\u{...}` escape starting at `b[0] == '\\'`:
-/// `(code point, bytes consumed)`, or `None` when the hex is
-/// malformed (the lexer already dealt with it however it deals).
-fn decode_unicode_escape(b: &[u8]) -> Option<(u32, usize)> {
-    if b.len() >= 4 && b[2] == b'{' {
-        let mut cp = 0u32;
-        let mut j = 3;
-        while j < b.len() && b[j] != b'}' {
-            cp = cp.checked_mul(16)? + (b[j] as char).to_digit(16)?;
-            j += 1;
-        }
-        if j >= b.len() || j == 3 {
-            return None;
-        }
-        return Some((cp, j + 1));
-    }
-    if b.len() < 6 {
-        return None;
-    }
-    let mut cp = 0u32;
-    for &d in &b[2..6] {
-        cp = cp * 16 + (d as char).to_digit(16)?;
-    }
-    Some((cp, 6))
-}
-
 impl<'a> Parser<'a> {
     /// Phase K.1 — `import` declaration parser. Single-file mode: builds
     /// the AST node so the syntax is accepted; the lowerer treats it as
@@ -118,7 +37,7 @@ impl<'a> Parser<'a> {
         // Bare `import "./x"` — no clause, just the source.
         if let Token::String(_) = self.peek() {
             let source = match self.peek() {
-                Token::String(s) => s.clone(),
+                Token::String(s) => s.to_string_lossy_owned(),
                 _ => unreachable!(),
             };
             self.pos += 1;
@@ -254,7 +173,7 @@ impl<'a> Parser<'a> {
         // `from "./x"` tail.
         self.expect_ident_keyword("from")?;
         let source = match self.peek() {
-            Token::String(s) => s.clone(),
+            Token::String(s) => s.to_string_lossy_owned(),
             t => {
                 return Err(format!(
                     "expected string source after `from`, got {t:?} at {}",
@@ -414,7 +333,7 @@ impl<'a> Parser<'a> {
         while !matches!(self.peek(), Token::RBrace) {
             let key = match self.peek() {
                 Token::Ident(n) => n.clone(),
-                Token::String(s) => s.clone(),
+                Token::String(s) => s.to_string_lossy_owned(),
                 t => {
                     return Err(format!(
                         "expected an import-attribute key, got {t:?} at {}",
@@ -474,21 +393,16 @@ impl<'a> Parser<'a> {
             Token::Default => ("default".to_string(), false),
             Token::String(s) => {
                 // §16.2.3.1 — a string-spelled export name must be
-                // well-formed Unicode. The lexer folds a lone
-                // surrogate to U+FFFD, so after decoding it is
-                // indistinguishable from a literal replacement
-                // character; the RAW source slice still shows the
-                // escape and is what gets checked.
-                let span = self.tokens[self.pos].span;
-                let raw = &self.source[span.start as usize..span.end as usize];
-                if !surrogate_escapes_well_formed(raw) {
+                // well-formed Unicode; the WTF-8 value keeps a lone
+                // surrogate as itself, so the check is direct.
+                if s.has_lone_surrogates() {
                     return Err(format!(
                         "a string export name must be well-formed Unicode \
                          (lone surrogate escape) at {}",
                         self.at()
                     ));
                 }
-                (s.clone(), false)
+                (s.to_string_lossy_owned(), false)
             }
             t => {
                 return Err(format!(
@@ -505,7 +419,7 @@ impl<'a> Parser<'a> {
     fn expect_module_source(&mut self) -> Result<String, String> {
         match self.peek() {
             Token::String(s) => {
-                let s = s.clone();
+                let s = s.to_string_lossy_owned();
                 self.pos += 1;
                 Ok(s)
             }

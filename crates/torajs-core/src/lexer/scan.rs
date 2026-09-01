@@ -120,34 +120,6 @@ pub(super) fn scan_string(
                     for k in 2..=5 {
                         cp = cp * 16 + (bytes[*i as usize + k] as char).to_digit(16).unwrap();
                     }
-                    // §12.9.4.2 SV — a high-surrogate escape directly
-                    // followed by a low-surrogate escape is ONE
-                    // supplementary code point (UTF-16 string value
-                    // semantics; the internal UTF-8 buffer can't hold
-                    // the halves separately — each alone became U+FFFD
-                    // and every `"𝒢"`-spelled literal was
-                    // destroyed). Lone surrogates still fall back to
-                    // U+FFFD in push_codepoint (WTF-8 residual).
-                    if (0xD800..=0xDBFF).contains(&cp)
-                        && *i + 11 < len
-                        && bytes[*i as usize + 6] == b'\\'
-                        && bytes[*i as usize + 7] == b'u'
-                        && bytes[*i as usize + 8].is_ascii_hexdigit()
-                        && bytes[*i as usize + 9].is_ascii_hexdigit()
-                        && bytes[*i as usize + 10].is_ascii_hexdigit()
-                        && bytes[*i as usize + 11].is_ascii_hexdigit()
-                    {
-                        let mut lo: u32 = 0;
-                        for k in 8..=11 {
-                            lo = lo * 16 + (bytes[*i as usize + k] as char).to_digit(16).unwrap();
-                        }
-                        if (0xDC00..=0xDFFF).contains(&lo) {
-                            let combined = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                            push_codepoint(&mut buf, combined);
-                            *i += 12;
-                            continue;
-                        }
-                    }
                     push_codepoint(&mut buf, cp);
                     *i += 6;
                     continue;
@@ -210,8 +182,8 @@ pub(super) fn scan_string(
     if *i >= len {
         return Err(format!("unterminated string starting at {start}"));
     }
-    let value =
-        String::from_utf8(buf).map_err(|_| format!("invalid utf-8 in string at {start}"))?;
+    let value = torajs_wtf8::Wtf8Buf::from_bytes(buf)
+        .map_err(|_| format!("invalid utf-8 in string at {start}"))?;
     *i += 1; // consume closing quote
     emit(out, Token::String(value), start, *i);
     Ok(())

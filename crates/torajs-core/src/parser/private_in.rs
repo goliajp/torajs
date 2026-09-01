@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
         }
         let key = self
             .ast
-            .add_expr(Expr::String(format!("__privu_{site}__{n}")));
+            .add_expr(Expr::String(format!("__privu_{site}__{n}").into()));
         let callee = self
             .ast
             .add_expr(Expr::Ident("__torajs_priv_in_op".to_string()));

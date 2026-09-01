@@ -388,8 +388,8 @@ fn emit_computed_member_reifies(
             }
             continue;
         }
-        let cname_str = ast.add_expr(Expr::String(cname.to_string()));
-        let sent_str = ast.add_expr(Expr::String(sentinel));
+        let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
+        let sent_str = ast.add_expr(Expr::String(sentinel.into()));
         let kind_e = ast.add_expr(Expr::Number(kind as f64));
         let stat_e = ast.add_expr(Expr::Number(is_static as f64));
         let callee = ast.add_expr(Expr::Ident("__torajs_class_computed_reify".to_string()));

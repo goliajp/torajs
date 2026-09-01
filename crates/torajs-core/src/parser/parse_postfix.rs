@@ -370,8 +370,8 @@ impl<'a> Parser<'a> {
             t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
         }
         let folded = if let Expr::String(name) = self.ast.get_expr(index) {
-            if is_identifier_name(name) {
-                Some(name.clone())
+            if let Some(name) = name.as_str().filter(|n| is_identifier_name(n)) {
+                Some(name.to_string())
             } else {
                 None
             }
@@ -402,8 +402,8 @@ impl<'a> Parser<'a> {
             t => return Err(format!("expected `]`, got {t:?} at {}", self.at())),
         }
         let folded = if let Expr::String(name) = self.ast.get_expr(index) {
-            if is_identifier_name(name) {
-                Some(name.clone())
+            if let Some(name) = name.as_str().filter(|n| is_identifier_name(n)) {
+                Some(name.to_string())
             } else {
                 None
             }

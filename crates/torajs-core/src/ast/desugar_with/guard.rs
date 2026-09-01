@@ -333,7 +333,7 @@ fn migrate_side_tables(cloner: &mut super::super::clone_body::BodyCloner<'_>) {
 fn has_call(ast: &mut Ast, w: &str, n: &str) -> ExprId {
     let f = ast.add_expr(Expr::Ident(WITH_HAS_FN.to_string()));
     let obj = ast.add_expr(Expr::Ident(w.to_string()));
-    let key = ast.add_expr(Expr::String(n.to_string()));
+    let key = ast.add_expr(Expr::String(n.to_string().into()));
     ast.add_expr(Expr::Call {
         callee: f,
         args: vec![obj, key],

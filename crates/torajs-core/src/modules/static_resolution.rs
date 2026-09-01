@@ -193,9 +193,9 @@ fn reject_import_binding_writes(ast: &mut Ast, bindings: &HashSet<String>, entry
             continue;
         }
         let name = name.clone();
-        let msg = ast.add_expr(Expr::String(format!(
-            "Assignment to import binding '{name}'."
-        )));
+        let msg = ast.add_expr(Expr::String(
+            format!("Assignment to import binding '{name}'.").into(),
+        ));
         let exc = ast.add_expr(Expr::New {
             class_name: "TypeError".to_string(),
             args: vec![msg],

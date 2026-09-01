@@ -262,7 +262,7 @@ impl<'a> Parser<'a> {
                 }
                 // PropertyName : StringLiteral — `{ "a b": v }`; the
                 // field is the cooked string, rename mandatory.
-                Token::String(s) => (s.clone(), true),
+                Token::String(s) => (s.to_string_lossy_owned(), true),
                 t => {
                     return Err(format!(
                         "expected identifier in object destructuring, got {t:?} at {}",

@@ -57,7 +57,7 @@ pub(super) fn propagate_eval_const_args(ast: &mut Ast) {
             continue;
         };
         let Some(val) = cands.get(n) else { continue };
-        let lit = ast.add_expr(Expr::String(val.clone()));
+        let lit = ast.add_expr(Expr::String(val.clone().into()));
         let Expr::Call { args, .. } = &mut ast.exprs[i] else {
             continue;
         };

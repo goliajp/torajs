@@ -301,9 +301,10 @@ fn rewrite_arena_bakes(ast: &mut Ast, lib_expr_offset: usize, old: &str, new: &s
     }
     for i in in_op_keys {
         if let Expr::String(s) = &mut ast.exprs[i]
-            && let Some(nn) = swap_prefix(s, &pre_old, &pre_new)
+            && let Some(st) = s.as_str()
+            && let Some(nn) = swap_prefix(st, &pre_old, &pre_new)
         {
-            *s = nn;
+            *s = nn.into();
         }
     }
 }

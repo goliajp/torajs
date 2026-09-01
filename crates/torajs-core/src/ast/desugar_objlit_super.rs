@@ -215,7 +215,7 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
             ast.exprs[site.0 as usize] = match ast.get_expr(key) {
                 Expr::String(n) => Expr::Member {
                     obj: base,
-                    name: n.clone(),
+                    name: n.to_string_lossy_owned(),
                 },
                 _ => Expr::Index {
                     obj: base,
@@ -305,7 +305,7 @@ impl KeyPlan {
     fn mint(self, ast: &mut Ast) -> ExprId {
         match self {
             KeyPlan::Computed(k) => k,
-            KeyPlan::Name(n) => ast.add_expr(Expr::String(n)),
+            KeyPlan::Name(n) => ast.add_expr(Expr::String(n.into())),
         }
     }
 }

@@ -1530,6 +1530,7 @@ dependencies = [
  "torajs-ucd",
  "torajs-value-drop",
  "torajs-weak",
+ "torajs-wtf8",
 ]
 
 [[package]]
@@ -1805,6 +1806,10 @@ dependencies = [
  "torajs-mmalloc",
  "torajs-rc",
 ]
+
+[[package]]
+name = "torajs-wtf8"
+version = "0.1.0"
 
 [[package]]
 name = "tower"

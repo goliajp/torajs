@@ -289,6 +289,7 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
     let Expr::String(cname) = ctx.ast.get_expr(args[1]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     // Compile-time constant flagging a desugar-synthesized generator
     // class — the runtime skips the first-class MakeConstructor
     // wiring for those (§27.3.3.2: a generator fn's `.prototype`

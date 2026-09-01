@@ -116,7 +116,7 @@ fn rewrite_tvdefault_in_expr(ast: &mut Ast, eid: ExprId, subst: &[(String, Strin
                         "number" | "i64" => Expr::Number(0.0),
                         "f64" => Expr::Number(0.5), // forces fract() != 0 → ConstF64
                         "boolean" => Expr::Bool(false),
-                        "string" => Expr::String(String::new()),
+                        "string" => Expr::String(String::new().into()),
                         _ => Expr::Number(0.0),
                     };
                     ast.exprs[eid.0 as usize] = new_expr;

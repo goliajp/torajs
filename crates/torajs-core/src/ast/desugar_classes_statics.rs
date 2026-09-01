@@ -261,8 +261,8 @@ pub(super) fn emit_static_inits(
                 // stmts prepend runs ahead of any class patch). The
                 // value rides as the `__sf_` Ident so lowering reuses
                 // the plain global-read path.
-                let cname_str = ast.add_expr(Expr::String(cname.to_string()));
-                let fname_str = ast.add_expr(Expr::String(sf.name.clone()));
+                let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
+                let fname_str = ast.add_expr(Expr::String(sf.name.clone().into()));
                 let val_ident = ast.add_expr(Expr::Ident(format!("__sf_{cname}__{}", sf.name)));
                 let callee = ast.add_expr(Expr::Ident("__torajs_static_field_reify".to_string()));
                 let call = ast.add_expr(Expr::Call {

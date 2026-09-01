@@ -26,7 +26,7 @@ pub(crate) enum DfltLit {
     /// interns through LowerCtx; the adapter's unbox pushes
     /// `module.strings` directly (synthesis precedes every per-fn
     /// body lower, so the StringId is final at mint time).
-    StrLong(String),
+    StrLong(torajs_wtf8::Wtf8Buf),
 }
 
 /// S3.8 — the Pass-1 per-fn literal-default map threaded to the

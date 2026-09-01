@@ -67,7 +67,7 @@ pub(super) fn unbox_args(
             let (box_tag, box_bits) = match lit {
                 super::DfltLit::StrLong(s) => {
                     let sid = ssa::StringId(module.strings.len() as u32);
-                    module.strings.push(ssa::StringLiteral::encode_from_str(s));
+                    module.strings.push(ssa::StringLiteral::encode_from_wtf8(s));
                     let ptr = f.append_inst(entry, InstKind::StaticStrRef(sid), Type::Str, None);
                     let p = f.append_inst(
                         entry,

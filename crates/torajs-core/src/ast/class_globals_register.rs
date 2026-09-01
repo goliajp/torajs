@@ -55,7 +55,7 @@ pub(super) fn emit_proto_chain_and_register(
     // pick the right tag without re-deriving it from sid.
     for cname in &meta.class_names {
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
-        let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let name_str = ast.add_expr(Expr::String(cname.clone().into()));
         let callee = ast.add_expr(Expr::Ident("__torajs_proto_register".to_string()));
         let call = ast.add_expr(Expr::Call {
             callee,
@@ -143,7 +143,7 @@ pub(super) fn emit_class_object_register(
     // fix-up).
     for cname in &meta.class_names {
         let class_ident = ast.add_expr(Expr::Ident(format!("__class_{cname}")));
-        let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let name_str = ast.add_expr(Expr::String(cname.clone().into()));
         let is_gen = ast.add_expr(Expr::Number(f64::from(u8::from(
             gen_class_set.contains(cname),
         ))));
@@ -167,7 +167,7 @@ pub(super) fn emit_class_object_register(
         if !ast.injected_error_classes.contains(cname) {
             continue;
         }
-        let name_str = ast.add_expr(Expr::String(cname.clone()));
+        let name_str = ast.add_expr(Expr::String(cname.clone().into()));
         let callee = ast.add_expr(Expr::Ident("__torajs_error_proto_install".to_string()));
         let call = ast.add_expr(Expr::Call {
             callee,
@@ -224,8 +224,8 @@ pub(super) fn emit_reify_stmts(
             .filter(|m| !m.starts_with("__ccm_"))
             .collect();
         for m in mnames {
-            let cname_str = ast.add_expr(Expr::String(cname.clone()));
-            let mname_str = ast.add_expr(Expr::String(m));
+            let cname_str = ast.add_expr(Expr::String(cname.clone().into()));
+            let mname_str = ast.add_expr(Expr::String(m.into()));
             let callee = ast.add_expr(Expr::Ident("__torajs_static_method_reify".to_string()));
             let call = ast.add_expr(Expr::Call {
                 callee,
@@ -252,8 +252,8 @@ pub(super) fn emit_reify_stmts(
             if gen_class_set.contains(&cname) || prop.starts_with("__ccm_") {
                 continue;
             }
-            let cname_str = ast.add_expr(Expr::String(cname));
-            let pname_str = ast.add_expr(Expr::String(prop));
+            let cname_str = ast.add_expr(Expr::String(cname.into()));
+            let pname_str = ast.add_expr(Expr::String(prop.into()));
             let callee = ast.add_expr(Expr::Ident(
                 "__torajs_class_static_accessor_reify".to_string(),
             ));
@@ -289,8 +289,8 @@ pub(super) fn emit_reify_stmts(
             if gen_class_set.contains(&cname) || prop.starts_with("__ccm_") {
                 continue;
             }
-            let cname_str = ast.add_expr(Expr::String(cname));
-            let pname_str = ast.add_expr(Expr::String(prop));
+            let cname_str = ast.add_expr(Expr::String(cname.into()));
+            let pname_str = ast.add_expr(Expr::String(prop.into()));
             let callee = ast.add_expr(Expr::Ident("__torajs_class_accessor_reify".to_string()));
             let call = ast.add_expr(Expr::Call {
                 callee,
@@ -328,7 +328,7 @@ pub(super) fn emit_native_error_register(ast: &mut Ast, meta: &ClassMetadata, ou
                 // §19.2.6 — the URI kernels' malformed-input raise.
                 | "URIError"
         ) {
-            let name_str = ast.add_expr(Expr::String(cname.clone()));
+            let name_str = ast.add_expr(Expr::String(cname.clone().into()));
             let callee = ast.add_expr(Expr::Ident("__torajs_register_native_error".to_string()));
             let call = ast.add_expr(Expr::Call {
                 callee,

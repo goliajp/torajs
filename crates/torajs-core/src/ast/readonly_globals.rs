@@ -156,7 +156,9 @@ pub fn resolve_readonly_ns_prop_writes(ast: &mut Ast) {
 /// `(() => { throw new TypeError(...) })()` carrier.
 fn rewrite_to_throw_iife(ast: &mut Ast, i: usize) {
     let msg = ast.add_expr(Expr::String(
-        "Attempted to assign to readonly property.".to_string(),
+        "Attempted to assign to readonly property."
+            .to_string()
+            .into(),
     ));
     let exc = ast.add_expr(Expr::New {
         class_name: "TypeError".to_string(),

@@ -121,6 +121,7 @@ pub(crate) fn try_lower(
     if !is_reflect
         && matches!(obj_ty, Type::Str)
         && let Expr::String(k) = key_expr
+        && let Some(k) = k.as_str()
         && is_canonical_index_key(k)
         && let Ok(idx) = k.parse::<i64>()
     {

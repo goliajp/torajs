@@ -50,8 +50,12 @@ pub(crate) fn lower_any_member_read(
     ctx: &mut LowerCtx,
     eid: ExprId,
     obj_val: Operand,
-    name: &str,
+    name: &(impl AsRef<torajs_wtf8::Wtf8> + ?Sized),
 ) -> Operand {
+    // WTF-8 so a key spelled with a lone surrogate (`o["\uD800"]`)
+    // reaches the runtime as that code unit; the `&str`-only checks
+    // below simply do not apply to such a name.
+    let name: &torajs_wtf8::Wtf8 = name.as_ref();
     ctx.owned_member_reads.insert(eid);
     // RFC 20260714-objlit-accessor blade 5 — an accessor SLOT name is
     // not a property. The IC below enumerates candidates by LAYOUT
@@ -60,11 +64,16 @@ pub(crate) fn lower_any_member_read(
     // (`(o as any).__getter_v` → `[Function: __getter_v]`; bun:
     // undefined). The runtime probe rejects it too — this closes the
     // compile-time half.
-    if crate::check_type_of_object_lit::accessor_slot(name).is_some() {
+    if name
+        .as_str()
+        .is_some_and(|n| crate::check_type_of_object_lit::accessor_slot(n).is_some())
+    {
         let key_str = ctx.intern_string_literal(name);
         return emit_member_fallback(ctx, &obj_val, key_str, name);
     }
-    let mut candidates = collect_class_field_candidates(ctx, name);
+    let mut candidates = name
+        .as_str()
+        .map_or_else(Vec::new, |n| collect_class_field_candidates(ctx, n));
 
     let key_str = ctx.intern_string_literal(name);
 
@@ -336,7 +345,7 @@ fn emit_member_fallback(
     ctx: &mut LowerCtx,
     obj_val: &Operand,
     key_str: crate::ssa::ValueId,
-    name: &str,
+    name: &torajs_wtf8::Wtf8,
 ) -> Operand {
     if name.starts_with("__priv_") {
         // §7.3.31 PrivateGet / PrivateBrandCheck — reading a private
@@ -421,7 +430,7 @@ fn emit_member_fallback(
         ctx.emit_throw_check(None);
         return Operand::Value(v);
     }
-    if let Some(prop) = torajs_rc::any_regexp_prop_id(name) {
+    if let Some(prop) = name.as_str().and_then(torajs_rc::any_regexp_prop_id) {
         // RFC 20260704 C4-3c-2 — the RegExp accessor surface
         // (source / flags / lastIndex / six flag booleans). The
         // interned key rides along so a DynObj receiver keeps

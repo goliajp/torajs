@@ -87,7 +87,7 @@ pub(crate) fn build_factory_body(
         let callee = ast.add_expr(Expr::Ident(format!("__cm_{cname}__ctor")));
         let this_id = ast.add_expr(Expr::Ident("__this".into()));
         let class_ref_callee = ast.add_expr(Expr::Ident("__torajs_my_class_ref".to_string()));
-        let cname_str = ast.add_expr(Expr::String(cname.to_string()));
+        let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
         let new_target_id = ast.add_expr(Expr::Call {
             callee: class_ref_callee,
             args: vec![cname_str],

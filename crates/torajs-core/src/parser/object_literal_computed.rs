@@ -47,7 +47,7 @@ impl<'a> Parser<'a> {
             // whole key (`["k"]`); a composite expression starting
             // with a string (`["a" + b]`) is a runtime computed key.
             Token::String(s) if matches!(self.tokens[self.pos + 1].token, Token::RBracket) => {
-                let key = s.clone();
+                let key = s.to_string_lossy_owned();
                 self.pos += 1;
                 key
             }
@@ -229,7 +229,7 @@ impl<'a> Parser<'a> {
         if let Token::String(s) = self.peek()
             && matches!(self.tokens[self.pos + 1].token, Token::RBracket)
         {
-            let prop = s.clone();
+            let prop = s.to_string_lossy_owned();
             self.pos += 2;
             let value = self.parse_method_like_value(
                 member_start_pos,

@@ -105,7 +105,7 @@ pub(crate) fn try_lower(
             // layout under a synthetic slot name, so the plain-name
             // scan alone would deny it (RFC 20260714-objlit-accessor).
             let present = layout.iter().any(|(n, _)| {
-                n == s
+                s == n
                     || crate::check_type_of_object_lit::accessor_slot(n)
                         .is_some_and(|(_, prop)| prop == s)
             });

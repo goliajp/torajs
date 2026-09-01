@@ -126,8 +126,8 @@ pub(crate) fn lower(
     // payload is NOT at +16 — its slots 16/24 are parent-ptr /
     // offset, so the inline scan must never fire on it).
     let fast_sep_byte: Option<u8> = match ctx.ast.get_expr(sep) {
-        Expr::String(s) if s.chars().count() == 1 => {
-            let c = s.chars().next().expect("1-char literal") as u32;
+        Expr::String(s) if s.code_points().count() == 1 => {
+            let c = s.code_points().next().expect("1-char literal");
             u8::try_from(c).ok()
         }
         _ => None,

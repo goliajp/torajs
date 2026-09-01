@@ -58,6 +58,7 @@ pub(crate) fn try_lower_error_proto_install(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let cname = cname.clone();
     let Some(tag) = ctx.class_name_to_tag.get(&cname).copied() else {
         return Some(Operand::ConstI64(0));
@@ -113,6 +114,7 @@ pub(crate) fn try_lower_register_native_error(
     let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
         return None;
     };
+    let cname = cname.to_string_lossy_owned();
     let cname = cname.clone();
     let slot: i64 = match cname.as_str() {
         "Error" => 0,

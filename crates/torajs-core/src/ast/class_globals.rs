@@ -215,7 +215,7 @@ fn emit_prototype_and_class_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut
         let name_expr = if meta.static_shadow.contains(&format!("__sm_{cname}__name")) {
             ast.add_expr(Expr::Ident(format!("__sm_{cname}__name")))
         } else {
-            ast.add_expr(Expr::String(display))
+            ast.add_expr(Expr::String(display.into()))
         };
         let proto_ident = ast.add_expr(Expr::Ident(format!("__proto_{cname}")));
         let length_expr = if meta

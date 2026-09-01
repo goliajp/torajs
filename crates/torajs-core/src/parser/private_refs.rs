@@ -39,9 +39,9 @@ impl Parser<'_> {
             // is only rewritten when it round-trips against a parked
             // site (index in range AND the raw name matches), so an
             // ordinary user string can't be caught by accident.
-            let (name, is_in_key) = match &mut self.ast.exprs[i] {
-                Expr::Member { name, .. } | Expr::OptChain { name, .. } => (name, false),
-                Expr::String(s) if s.starts_with("__privu_") => (s, true),
+            let (name, is_in_key) = match &self.ast.exprs[i] {
+                Expr::Member { name, .. } | Expr::OptChain { name, .. } => (name.clone(), false),
+                Expr::String(s) if s.starts_with("__privu_") => (s.to_string_lossy_owned(), true),
                 _ => continue,
             };
             let Some(rest) = name.strip_prefix("__privu_") else {
@@ -66,7 +66,12 @@ impl Parser<'_> {
             match declaring {
                 Some(sid) => {
                     let cls = &self.ast.class_private_scopes[sid as usize].0;
-                    *name = format!("__priv_{cls}__{raw}");
+                    let resolved = format!("__priv_{cls}__{raw}");
+                    match &mut self.ast.exprs[i] {
+                        Expr::Member { name, .. } | Expr::OptChain { name, .. } => *name = resolved,
+                        Expr::String(s) => *s = resolved.into(),
+                        _ => unreachable!(),
+                    }
                 }
                 // §13.10 / §13.1 early error — an in-key with no
                 // declaring scope has nothing to brand-check against

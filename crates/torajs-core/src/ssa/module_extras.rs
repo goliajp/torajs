@@ -43,13 +43,17 @@ impl StringLiteral {
     /// startup atomization pass needed (the literal table is
     /// materialized directly into `.rodata`).
     pub fn encode_from_str(s: &str) -> Self {
+        Self::encode_from_wtf8(torajs_wtf8::Wtf8::new(s))
+    }
+
+    /// Same, from the WTF-8 spelling a literal carries out of the
+    /// lexer: a lone surrogate is one BMP code unit and lands in the
+    /// UTF-16 payload as itself.
+    pub fn encode_from_wtf8(s: &torajs_wtf8::Wtf8) -> Self {
         // Single pass: track max codepoint to pick encoding
-        // without a second walk. `chars()` already decodes UTF-8
-        // → Unicode scalar values so codepoints stay well-formed
-        // up front.
+        // without a second walk.
         let mut max_cp: u32 = 0;
-        for c in s.chars() {
-            let cp = c as u32;
+        for cp in s.code_points() {
             if cp > max_cp {
                 max_cp = cp;
             }
@@ -62,7 +66,7 @@ impl StringLiteral {
             // this is also identical to the source UTF-8 bytes —
             // every existing fixture lands here and stays
             // byte-identical.
-            let bytes: Vec<u8> = s.chars().map(|c| c as u8).collect();
+            let bytes: Vec<u8> = s.code_points().map(|cp| cp as u8).collect();
             let length = bytes.len() as u32;
             Self {
                 bytes,
@@ -72,8 +76,7 @@ impl StringLiteral {
         } else {
             let mut bytes: Vec<u8> = Vec::with_capacity(s.len() * 2);
             let mut length: u32 = 0;
-            for c in s.chars() {
-                let cp = c as u32;
+            for cp in s.code_points() {
                 if cp <= 0xFFFF {
                     // BMP — single u16 code unit, little-endian.
                     bytes.extend_from_slice(&(cp as u16).to_le_bytes());

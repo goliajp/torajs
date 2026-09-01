@@ -458,7 +458,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         // an assignment can even spell — was declined outright.
         let key = match sentinel_index(&m.name) {
             Some(n) => ast.add_expr(Expr::Ident(key_binding(src_name, n))),
-            None => ast.add_expr(Expr::String(m.name.clone())),
+            None => ast.add_expr(Expr::String(m.name.clone().into())),
         };
         let fields = descriptor_fields(ast, m.accessor_kind, eid);
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));

@@ -63,7 +63,7 @@ pub(crate) fn lower_number(n: f64) -> Operand {
     }
 }
 
-pub(crate) fn lower_string(ctx: &mut LowerCtx<'_>, s: &str) -> Operand {
+pub(crate) fn lower_string(ctx: &mut LowerCtx<'_>, s: &torajs_wtf8::Wtf8) -> Operand {
     Operand::Value(ctx.intern_string_literal(s))
 }
 

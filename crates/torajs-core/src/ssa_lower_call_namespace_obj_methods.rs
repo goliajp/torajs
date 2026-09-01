@@ -71,7 +71,7 @@ pub(crate) fn try_lower(
             let result = if let Some(arg_eid) = args.first()
                 && let Expr::String(key) = ctx.ast.get_expr(*arg_eid)
             {
-                let is_own = ns_has_own_property(&ns, key);
+                let is_own = ns_has_own_property(&ns, &key.to_string_lossy());
                 method == "hasOwnProperty" && is_own
             } else {
                 false

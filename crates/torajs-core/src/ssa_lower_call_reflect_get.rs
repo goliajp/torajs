@@ -59,7 +59,7 @@ pub(crate) fn try_lower(
         return None;
     }
     let literal_key: Option<String> = match ctx.ast.get_expr(args[1]) {
-        Expr::String(k) => Some(k.clone()),
+        Expr::String(k) => Some(k.to_string_lossy_owned()),
         _ => None,
     };
     let obj_op = ctx.lower_expr(args[0]);

@@ -97,10 +97,12 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
     let mut out: Vec<(String, PathBuf)> = Vec::new();
     for e in &ast.exprs {
         let Expr::String(lit) = e else { continue };
+        // A specifier with a lone surrogate names no file.
+        let Some(lit) = lit.as_str() else { continue };
         if !(lit.starts_with("./") || lit.starts_with("../")) {
             continue;
         }
-        if !seen_lits.insert(lit.as_str()) {
+        if !seen_lits.insert(lit) {
             continue;
         }
         let Ok(path) = resolve_path(base_dir, lit) else {
@@ -141,7 +143,7 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
             reserved.hard.insert(n);
         }
         seen_paths.insert(path.clone());
-        out.push((lit.clone(), path));
+        out.push((lit.to_string(), path));
     }
     out
 }
@@ -378,7 +380,7 @@ pub(super) fn synth_dispatcher(
     // Per candidate: if (__s === "<lit>") return Promise.resolve(<ns>);
     for (lit, ns_name) in table {
         let s_ref = ast.add_expr(Expr::Ident("__s".to_string()));
-        let lit_expr = ast.add_expr(Expr::String(lit.clone()));
+        let lit_expr = ast.add_expr(Expr::String(lit.clone().into()));
         let cond = ast.add_expr(Expr::BinOp {
             op: BinOp::Eq,
             left: s_ref,
@@ -389,7 +391,7 @@ pub(super) fn synth_dispatcher(
             // catch below turns it into the §16.2.1.5 promise reject.
             let msg = ast.add_expr(Expr::String(format!(
                 "indirect exports of module '{lit}' do not resolve (circular, missing, or ambiguous)"
-            )));
+            ).into()));
             let err = ast.add_expr(Expr::New {
                 class_name: "SyntaxError".to_string(),
                 args: vec![msg],
@@ -421,7 +423,7 @@ pub(super) fn synth_dispatcher(
     }
     // throw new TypeError("Failed to resolve module specifier '" + __s + "'");
     let msg_head = ast.add_expr(Expr::String(
-        "Failed to resolve module specifier '".to_string(),
+        "Failed to resolve module specifier '".to_string().into(),
     ));
     let s_ref = ast.add_expr(Expr::Ident("__s".to_string()));
     let head_concat = ast.add_expr(Expr::BinOp {
@@ -429,7 +431,7 @@ pub(super) fn synth_dispatcher(
         left: msg_head,
         right: s_ref,
     });
-    let msg_tail = ast.add_expr(Expr::String("'".to_string()));
+    let msg_tail = ast.add_expr(Expr::String("'".to_string().into()));
     let msg = ast.add_expr(Expr::BinOp {
         op: BinOp::Add,
         left: head_concat,

@@ -293,7 +293,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
                 };
             if tail_dead || tail_empty || tail_dead_sloppy {
                 ast.exprs[i] = if prologue {
-                    Expr::String("use strict".to_string())
+                    Expr::String("use strict".to_string().into())
                 } else {
                     Expr::Ident("undefined".to_string())
                 };

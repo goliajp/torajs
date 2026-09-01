@@ -200,7 +200,7 @@ impl Parser<'_> {
     fn directive_value(&self, s: &Stmt) -> Option<&str> {
         let Stmt::Expr(id) = s else { return None };
         match self.ast.exprs.get(id.0 as usize) {
-            Some(Expr::String(v)) => Some(v.as_str()),
+            Some(Expr::String(v)) => v.as_str(),
             _ => None,
         }
     }
@@ -295,7 +295,9 @@ impl Parser<'_> {
         if !simple {
             return Ok(());
         }
-        let e = self.ast.add_expr(Expr::String("use strict".to_string()));
+        let e = self
+            .ast
+            .add_expr(Expr::String("use strict".to_string().into()));
         self.ast.synth_strict_directives.insert(e);
         body.insert(0, Stmt::Expr(e));
         Ok(())

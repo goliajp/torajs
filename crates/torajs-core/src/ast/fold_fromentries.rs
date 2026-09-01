@@ -63,10 +63,10 @@ fn try_fold(ast: &Ast, i: usize) -> Option<Vec<(String, ExprId)>> {
         let Expr::String(key) = ast.get_expr(*k) else {
             return None;
         };
-        if fields.iter().any(|(f, _)| f == key) {
+        if fields.iter().any(|(f, _)| key == f) {
             return None;
         }
-        fields.push((key.clone(), *v));
+        fields.push((key.to_string_lossy_owned(), *v));
     }
     Some(fields)
 }
