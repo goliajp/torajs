@@ -227,8 +227,8 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
         &mut marked,
         &mut ret_marked,
     );
-    retag_fn_decls(&mut ast.stmts, &marked);
-    retag_fn_return_types(&mut ast.stmts, &ret_marked);
+    crate::ast_closure_param_tag_retag::retag_fn_decls(&mut ast.stmts, &marked);
+    crate::ast_closure_param_tag_retag::retag_fn_return_types(&mut ast.stmts, &ret_marked);
 
     // Alias-let init sites the fixpoint elected for the wrap — their
     // rewrite rides the same forwarder machinery as direct named-fn
@@ -328,41 +328,6 @@ fn is_closure_shaped(
     }
 }
 
-/// Apply `__fn(` → `__cls(` on every ret-marked FnDecl's return type.
-fn retag_fn_return_types(stmts: &mut [Stmt], ret_marked: &HashSet<String>) {
-    let mut stack: Vec<&mut Stmt> = stmts.iter_mut().collect();
-    while let Some(s) = stack.pop() {
-        if let Stmt::FnDecl {
-            name, return_type, ..
-        } = s
-            && ret_marked.contains(name)
-            && let Some(ann) = return_type
-            && let Some(rest) = ann.strip_prefix("__fn(")
-        {
-            *ann = format!("__cls({rest}");
-        }
-        push_child_stmts_mut(s, &mut stack);
-    }
-}
-
-/// Apply `__fn(` → `__cls(` on every marked (fn, param idx).
-fn retag_fn_decls(stmts: &mut [Stmt], marked: &HashSet<(String, usize)>) {
-    let mut stack: Vec<&mut Stmt> = stmts.iter_mut().collect();
-    while let Some(s) = stack.pop() {
-        if let Stmt::FnDecl { name, params, .. } = s {
-            for (i, p) in params.iter_mut().enumerate() {
-                if marked.contains(&(name.clone(), i))
-                    && let Some(ann) = &mut p.type_ann
-                    && let Some(rest) = ann.strip_prefix("__fn(")
-                {
-                    *ann = format!("__cls({rest}");
-                }
-            }
-        }
-        push_child_stmts_mut(s, &mut stack);
-    }
-}
-
 /// Push every Stmt nested inside `s` (one level) onto the walk stack.
 pub(crate) fn push_child_stmts<'a>(s: &'a Stmt, stack: &mut Vec<&'a Stmt>) {
     match s {
@@ -407,59 +372,6 @@ pub(crate) fn push_child_stmts<'a>(s: &'a Stmt, stack: &mut Vec<&'a Stmt>) {
         }
         Stmt::Block(inner) | Stmt::Multi(inner) => stack.extend(inner.iter()),
         Stmt::FnDecl { body, .. } => stack.extend(body.iter()),
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                stack.push(i);
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Mutable twin of [`push_child_stmts`].
-fn push_child_stmts_mut<'a>(s: &'a mut Stmt, stack: &mut Vec<&'a mut Stmt>) {
-    match s {
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            stack.push(then_branch);
-            if let Some(e) = else_branch {
-                stack.push(e);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => stack.push(body),
-        Stmt::Labeled { body, .. } => stack.push(body),
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init {
-                stack.push(i);
-            }
-            stack.push(body);
-        }
-        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => stack.push(body),
-        Stmt::Switch { cases, default, .. } => {
-            for c in cases {
-                stack.extend(c.body.iter_mut());
-            }
-            if let Some(d) = default {
-                stack.extend(d.iter_mut());
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            stack.extend(body.iter_mut());
-            stack.extend(catch_body.iter_mut());
-            if let Some(f) = finally_body {
-                stack.extend(f.iter_mut());
-            }
-        }
-        Stmt::Block(inner) | Stmt::Multi(inner) => stack.extend(inner.iter_mut()),
-        Stmt::FnDecl { body, .. } => stack.extend(body.iter_mut()),
         Stmt::ExportDecl { inner, .. } => {
             if let Some(i) = inner {
                 stack.push(i);
