@@ -251,12 +251,36 @@ fn unbox_lhs_to_rhs_ty(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs_ty: Type) ->
         ctx.emit_rc_inc(lhs_op.clone());
         return lhs_op;
     }
+    if rhs_ty.is_refcounted() {
+        // Owned unbox: a cell gains the consumer's +1 inside the
+        // kernel, and a ShortStr materialization arrives rc=1 as the
+        // stake itself — the old `unbox_value` + `rc_inc` pair
+        // double-staked the materialization (546-02 M2 shape).
+        let cur_block = ctx.cur_block;
+        let val = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.any_unbox_value_owned, vec![lhs_op]),
+            Type::I64,
+            None,
+        );
+        return Operand::Value(val);
+    }
     let cur_block = ctx.cur_block;
     let val = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![lhs_op]),
+        InstKind::Call(ctx.intrinsics.any_unbox_value, vec![lhs_op.clone()]),
         Type::I64,
         None,
+    );
+    // The scalar arms below never consume a Heap payload — reclaim a
+    // ShortStr-materialized temp before the raw bits are reshaped
+    // (no-op otherwise; `val` is an SSA value, not a memory read).
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_unbox_settle,
+            vec![lhs_op, Operand::Value(val)],
+        ),
     );
     match rhs_ty {
         Type::I64 | Type::I32 => Operand::Value(val),
@@ -279,10 +303,6 @@ fn unbox_lhs_to_rhs_ty(ctx: &mut LowerCtx<'_>, lhs_op: Operand, rhs_ty: Type) ->
                 None,
             );
             Operand::Value(b)
-        }
-        _ if rhs_ty.is_refcounted() => {
-            ctx.emit_rc_inc(Operand::Value(val));
-            Operand::Value(val)
         }
         _ => Operand::Value(val),
     }

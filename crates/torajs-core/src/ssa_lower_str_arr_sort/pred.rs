@@ -99,18 +99,26 @@ pub(super) fn emit_sort_pred(
                         Type::I64,
                         None,
                     );
-                    Some((
-                        ctx.f.append_inst(
-                            ctx.cur_block,
-                            InstKind::Call(
-                                ctx.intrinsics.any_to_str,
-                                vec![Operand::Value(tag), Operand::Value(raw)],
-                            ),
-                            Type::Str,
-                            None,
+                    let s = ctx.f.append_inst(
+                        ctx.cur_block,
+                        InstKind::Call(
+                            ctx.intrinsics.any_to_str,
+                            vec![Operand::Value(tag), Operand::Value(raw)],
                         ),
-                        true,
-                    ))
+                        Type::Str,
+                        None,
+                    );
+                    // any_to_str only borrowed the pair — reclaim a
+                    // ShortStr-materialized temp (no-op otherwise);
+                    // the coerce_to_str Any arm's settle idiom.
+                    ctx.f.append_void(
+                        ctx.cur_block,
+                        InstKind::Call(
+                            ctx.intrinsics.any_unbox_settle,
+                            vec![Operand::Value(v), Operand::Value(raw)],
+                        ),
+                    );
+                    Some((s, true))
                 }
                 // Obj / Arr elements (typed `Array<Struct>` default
                 // sort — 刀 7 G8b): tag-4 box the cell and route the
