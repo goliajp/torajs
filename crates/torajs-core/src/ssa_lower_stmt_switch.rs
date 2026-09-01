@@ -163,12 +163,20 @@ fn emit_case_compare(
 ) -> crate::ssa::ValueId {
     let v = ctx.lower_expr(value);
     match scrut_ty {
-        Type::F64 => ctx.f.append_inst(
-            cmp_blk,
-            InstKind::FCmp(FPred::Oeq, scrut_val, v),
-            Type::Bool,
-            None,
-        ),
+        // The clause value takes the scrutinee's width: a widened
+        // scrutinee (`i % 2` under the f64 class) against a literal
+        // `0` handed `FCmp` a `ConstI64` operand, which the FPR
+        // materializer cannot hold ("FPR materialization can't
+        // hold ConstI64(0)" at build).
+        Type::F64 => {
+            let v = ctx.coerce_to_f64(v);
+            ctx.f.append_inst(
+                cmp_blk,
+                InstKind::FCmp(FPred::Oeq, scrut_val, v),
+                Type::Bool,
+                None,
+            )
+        }
         Type::Str | Type::Substr => {
             if let Expr::String(s) = ctx.ast.get_expr(value).clone() {
                 let bytes = s.into_bytes();
@@ -232,6 +240,15 @@ fn emit_case_compare(
                 // ruled out; the Any path always emits a call.
                 _ => unreachable!("strict-eq Any path returns a value"),
             }
+        }
+        // The mirror: an integer scrutinee against a fractional
+        // clause value (`case 1.5`) compares in f64 — IsStrictlyEqual
+        // on Numbers is numeric, and `ICmp` would hand the GPR
+        // materializer an f64 constant.
+        _ if scrut_ty == Type::I64 && ctx.operand_ty(&v) == Type::F64 => {
+            let l = ctx.coerce_to_f64(scrut_val);
+            ctx.f
+                .append_inst(cmp_blk, InstKind::FCmp(FPred::Oeq, l, v), Type::Bool, None)
         }
         _ => ctx.f.append_inst(
             cmp_blk,
