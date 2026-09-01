@@ -105,6 +105,11 @@ pub fn tag_closure_arg_params(ast: &mut Ast) {
     // chunk 631 — usage-axis seed: replace-cb params need the
     // env-first shape (see ast_closure_param_tag_axes doc).
     marked.extend(replace_cb_param_seeds(ast, &fn_params));
+    // 551-01 — HOF-elem axis: builtin HOF callbacks receive Closure-
+    // repr elements in their element-position params (see hof sibling).
+    marked.extend(crate::ast_closure_param_tag_hof::hof_elem_cb_param_seeds(
+        ast, &fn_params,
+    ));
     // r549 — closure-let aliases: the binding's callers always hand
     // closure repr (see the collect sibling's seed doc).
     marked.extend(
