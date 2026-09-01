@@ -291,6 +291,39 @@ fn is_closure_shaped(
         // the shapes uniform — a fn-typed param's argument is a fn
         // value either way, so the retag stays sound.
         Expr::Member { .. } | Expr::Index { .. } => true,
+        // The value-passthrough operators hand one of their operands
+        // straight through, so the shape question is the operands'.
+        // Without this a `__fn(`-annotated return whose value was
+        // `k > 0 ? f1 : f2` never got ret-marked: the annotation kept
+        // the bare-fn-pointer lane while the value arrived as a
+        // closure cell, and calling the result `blr`'d the cell's heap
+        // header — EXIT=138, the same bug-327 SIGBUS family the rest
+        // of this pass exists for (553-03; the alias spelling `type
+        // Thunk = () => number` was right all along because it never
+        // enters this lane at all).
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            is_closure_shaped(ast, *then_branch, closure_idents, ret_marked)
+                || is_closure_shaped(ast, *else_branch, closure_idents, ret_marked)
+        }
+        Expr::Nullish { lhs, rhs } => {
+            is_closure_shaped(ast, *lhs, closure_idents, ret_marked)
+                || is_closure_shaped(ast, *rhs, closure_idents, ret_marked)
+        }
+        Expr::BinOp {
+            op: crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr,
+            left,
+            right,
+        } => {
+            is_closure_shaped(ast, *left, closure_idents, ret_marked)
+                || is_closure_shaped(ast, *right, closure_idents, ret_marked)
+        }
+        Expr::Sequence { right, .. } => is_closure_shaped(ast, *right, closure_idents, ret_marked),
+        Expr::As { expr, .. } => is_closure_shaped(ast, *expr, closure_idents, ret_marked),
+        Expr::Assign { value, .. } => is_closure_shaped(ast, *value, closure_idents, ret_marked),
         _ => false,
     }
 }
