@@ -436,6 +436,7 @@ pub(crate) mod ssa_lower_fn_meta;
 pub(crate) mod ssa_lower_for_of_any_iter;
 pub(crate) mod ssa_lower_for_of_iter_protocol;
 pub(crate) mod ssa_lower_for_of_iter_protocol_await;
+pub(crate) mod ssa_lower_for_of_iter_protocol_plan;
 pub(crate) mod ssa_lower_for_of_map_like;
 pub(crate) mod ssa_lower_for_of_str;
 pub(crate) mod ssa_lower_for_of_teardown;
