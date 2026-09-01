@@ -43,7 +43,12 @@ impl<'a> Analysis<'a> {
                     if self.fn_params.contains_key(&f) {
                         return Some(SlotKey::Ret(f));
                     }
-                    return None;
+                    // Fn-valued binding or unknown global — fall
+                    // through to the indirect projection below
+                    // (mirror of the walk side).
+                    return self
+                        .container_key_lookup(*callee, scope)
+                        .map(|k| SlotKey::Field(Box::new(k), "__ret".to_string()));
                 }
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
                     // ②.6b — mirror of the walk's promise_static_key.
@@ -68,7 +73,11 @@ impl<'a> Analysis<'a> {
                     let recv = self.container_key_lookup(*obj, scope)?;
                     return self.method_result_key_pure(eid, recv, name, args);
                 }
-                None
+                // F1 mirror — indirect call through a non-ident fn
+                // value (`fs[0]()`): same `__ret` projection as the
+                // walk side.
+                self.container_key_lookup(*callee, scope)
+                    .map(|k| SlotKey::Field(Box::new(k), "__ret".to_string()))
             }
             Expr::Array(_)
             | Expr::ObjectLit { .. }

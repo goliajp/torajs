@@ -95,12 +95,27 @@ impl<'a> Analysis<'a> {
                     if self.fn_params.contains_key(&f) {
                         return Some(SlotKey::Ret(f));
                     }
-                    return None;
-                }
-                if let Expr::Member { obj, name } = self.ast.get_expr(*callee).clone() {
+                    // Not a lifted fn's own name — an fn-valued
+                    // binding (`const a = (n) => …; a(1)`) or an
+                    // unknown global; fall through to the indirect
+                    // projection below.
+                } else if let Expr::Member { obj, name } = self.ast.get_expr(*callee).clone() {
                     return self.method_result_key(eid, obj, &name, args, scope);
                 }
-                None
+                // F1 mirror — indirect call through an fn value: the
+                // result reads the value's `__ret` projection, the
+                // same spelling `width_of_call`'s `_` arm and the
+                // walk's `__p{i}` arg edges already use.
+                // `fn_value_flow` at the binding's init glued that
+                // projection onto the lifted fn's Ret key, so one
+                // union reaches it. Without this the result had NO
+                // container key: `let r: number[] = a(1)` never
+                // joined `a`'s ret class, `a(boom())` widened the
+                // callee's elements to f64, and `r` stayed narrow —
+                // a reassignment died on the slot-fit mismatch while
+                // the init form bit-punned f64 slots as integers.
+                self.container_key_of(*callee, scope)
+                    .map(|k| SlotKey::Field(Box::new(k), "__ret".to_string()))
             }
             Expr::Array(els) => {
                 let anon = SlotKey::Anon(eid.0);
