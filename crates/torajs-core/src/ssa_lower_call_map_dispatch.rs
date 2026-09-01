@@ -344,6 +344,14 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     for &a in args.iter().skip(if promoted { 2 } else { 1 }) {
         let _ = ctx.lower_expr(a);
     }
+    // Rotation 552 — the minted callback env and an owned thisArg are
+    // live for the whole walk; a throwing callback leaves the loop
+    // through `emit_throw_check` without reaching the releases after
+    // it, so both park for that path.
+    let env_tok = ctx.park_owned_temp(args[0], &fn_val);
+    let this_tok = this_temp
+        .as_ref()
+        .and_then(|(t, op)| ctx.park_owned_temp(*t, op));
 
     let i_slot = ctx.alloca(Type::I64, Some("__map_iter_i"));
     // Sentinel: cursor == -1 (i64) tells runtime to start from entries[0]
@@ -427,9 +435,13 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
         );
     } else {
         // The Map receiver is passed as the 3rd callback arg per
-        // spec. rc_inc since each iteration transfers a fresh ref
-        // into the closure.
-        ctx.emit_rc_inc(recv_op);
+        // spec — a borrow, like the array HOF lanes pass `O`
+        // (`cb_args`): a callback parameter takes no stake, and a
+        // body that keeps the value incs on its own store. Rotation
+        // 552 — the per-iteration "transfer" inc that stood here had
+        // no matching release anywhere, so every walk that reached
+        // its callback once leaked the whole receiver (387MB / 600k
+        // single-entry maps, throw or no throw).
         let mut cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
         if let Some(t) = &this_arg {
             cb_args.insert(0, t.clone());
@@ -448,6 +460,8 @@ fn emit_map_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     ctx.cur_block = after_blk;
     // RFC 20260705 chunk 552 — release an inline arrow's minted env
     // after the loop consumed it.
+    ctx.unpark_owned_temp(this_tok);
+    ctx.unpark_owned_temp(env_tok);
     ctx.release_owned_temp(args[0], &fn_val);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);

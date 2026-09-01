@@ -43,6 +43,12 @@ pub(crate) fn try_dispatch(
         // caller-owned receiver — untouched).
         let mut acc_fresh = false;
         for &a in args {
+            // Rotation 552 — a fresh running product is live across
+            // the next argument's lower and its ToString edge; park
+            // it for their throw paths (`s(i).concat("a",
+            // String(boom()))` stranded one per caught throw, 20MB /
+            // 600k).
+            let acc_tok = acc_fresh.then(|| ctx.push_throw_temp(acc.clone(), Type::Str));
             // S212 — explicit `undefined` arg per ES §22.1.3.4
             // step 3.a: each arg is ToString'd, undefined →
             // "undefined". Inline-substitute the interned
@@ -61,24 +67,40 @@ pub(crate) fn try_dispatch(
                 // NaN-box the raw str_concat kernel would deref as a
                 // Str pointer (SIGSEGV on `'a'.concat(Object('b'))`)
                 // — route it through the ToString kernel, which
-                // answers an owned Str (html-wrap lane idiom).
+                // answers an owned Str (html-wrap lane idiom). An
+                // owned box is live across the kernel's throw edge
+                // and its stake is settled once the Str exists.
                 if ctx.operand_ty(&v) == Type::Any {
+                    let v_tok = ctx.park_owned_temp(a, &v);
                     let s = ctx.f.append_inst(
                         ctx.cur_block,
-                        InstKind::Call(ctx.intrinsics.any_to_str_box, vec![v]),
+                        InstKind::Call(ctx.intrinsics.any_to_str_box, vec![v.clone()]),
                         Type::Str,
                         None,
                     );
                     ctx.emit_throw_check(None);
+                    ctx.unpark_owned_temp(v_tok);
+                    ctx.release_owned_temp(a, &v);
                     other_fresh = true;
                     Operand::Value(s)
                 } else {
                     v
                 }
             };
+            ctx.unpark_owned_temp(acc_tok);
+            // A view argument (`s[0]`, a split product) takes the
+            // view-aware kernel; the raw `str_concat` read a Substr
+            // header as a Str and spliced pointer bytes into the
+            // product (rotation 552 — `"q".concat(w[1])` printed
+            // `q먈`, an existing silent wrong on every view argument).
+            let kernel = if ctx.operand_ty(&other) == Type::Substr {
+                ctx.intrinsics.substr_concat_str_substr
+            } else {
+                ctx.intrinsics.str_concat
+            };
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.str_concat, vec![acc.clone(), other.clone()]),
+                InstKind::Call(kernel, vec![acc.clone(), other.clone()]),
                 Type::Str,
                 None,
             );
@@ -87,27 +109,27 @@ pub(crate) fn try_dispatch(
             }
             if other_fresh {
                 ctx.emit_drop_value(other, Type::Str);
+            } else {
+                // The kernel only borrows its right operand: an
+                // owned-temp argument (`s(i)`, a fresh view) keeps
+                // its own stake and nothing released it (rotation
+                // 552 — `s(i).concat(s(i), s(i))` churned 38MB / 600k
+                // with no throw in sight). Interned literals are
+                // static cells; their drop is a no-op.
+                let other_ty = ctx.operand_ty(&other);
+                if ctx.expr_transfers_ownership(a) && other_ty.is_refcounted() {
+                    ctx.emit_drop_value(other, other_ty);
+                }
             }
             acc = Operand::Value(v);
             acc_fresh = true;
         }
         return Some(acc);
     }
-    // `arr.concat(other)` — fresh array, single malloc +
-    // two memcpys via the C runtime. Element type carried.
-    // Phase B refcount: derived array's slots alias both
-    // sources; inc each slot for non-Copy elements.
-    //
-    // V3-18 wedge — multi-arg form `xs.concat(a, b, ..., z)`
-    // per JS spec §22.1.3.2 is supported by folding the
-    // single-arg intrinsic left-to-right: each step's
-    // result becomes the next step's receiver. Refcount
-    // inc runs once at the end over the final array's
-    // full length. Each intermediate also leaks otherwise;
-    // those temporaries are drop-balanced by the rc-inc
-    // window on the final result (intermediates aren't
-    // bound to a name so the surrounding scope-end drop
-    // doesn't see them).
+    // `xs.concat(a, b, ..., z)` per ES §23.1.3.2 — a fresh array
+    // holding the receiver's slots, then each argument's (an array
+    // spreads, anything else appends as one element). Three lanes
+    // by product element type; see `lower_arr_concat`.
     if let Type::Arr(arr_id) = recv_ty
         && method == "concat"
     {

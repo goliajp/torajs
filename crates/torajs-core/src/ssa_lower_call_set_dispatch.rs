@@ -303,6 +303,12 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     for &a in args.iter().skip(if promoted { 2 } else { 1 }) {
         let _ = ctx.lower_expr(a);
     }
+    // Rotation 552 — env and owned thisArg park for the callback's
+    // throw path (Map.forEach mirror).
+    let env_tok = ctx.park_owned_temp(args[0], &fn_val);
+    let this_tok = this_temp
+        .as_ref()
+        .and_then(|(t, op)| ctx.park_owned_temp(*t, op));
 
     let i_slot = ctx.alloca(Type::I64, Some("__set_iter_i"));
     // Sentinel for runtime-side iterator (see Map.forEach above).
@@ -375,7 +381,9 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
             3,
         );
     } else {
-        ctx.emit_rc_inc(recv_op);
+        // The Set rides as the 3rd callback arg by borrow (Map.forEach
+        // mirror, rotation 552 — the transfer inc here leaked the
+        // receiver per walk).
         let mut cb_args = vec![Operand::Value(v_box1), Operand::Value(v_box2), recv_op];
         if let Some(t) = &this_arg {
             cb_args.insert(0, t.clone());
@@ -394,6 +402,8 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     ctx.cur_block = after_blk;
     // RFC 20260705 chunk 552 — release an inline arrow's minted env
     // after the loop consumed it.
+    ctx.unpark_owned_temp(this_tok);
+    ctx.unpark_owned_temp(env_tok);
     ctx.release_owned_temp(args[0], &fn_val);
     if let Some((t, op)) = this_temp {
         ctx.release_owned_temp(t, &op);
