@@ -148,7 +148,14 @@ pub(crate) fn lower_key(ctx: &mut LowerCtx, key: &DefineKey) -> (Operand, bool) 
                     // released here rather than after the throw check,
                     // which is a path that never comes back.
                     ctx.release_owned_temp(*eid, &raw);
-                    ctx.emit_throw_check(None);
+                    // Rotation 549 — on the throw path the kernel's
+                    // answer is its owned empty-Str placeholder (the
+                    // Str/Symbol arms never throw; only the ToString
+                    // coerce does, and it answers `str_alloc_pooled
+                    // (0)` with the TypeError pending), so the check
+                    // drops it as a Str. Pre-549 it leaked per caught
+                    // throw (t3 probe: 32B/iter residue).
+                    ctx.emit_throw_check_owned(None, Operand::Value(k), Type::Str);
                     (Operand::Value(k), true)
                 }
                 // RFC 20260716 刀 18 — ES §20.1.2.6 step 1 / §20.1.2.10
@@ -226,15 +233,27 @@ pub(crate) fn emit_define_one(
     let obj_op = lower_define_receiver(ctx, obj_eid);
     let obj_ty = ctx.operand_ty(&obj_op);
 
+    // Rotation 549 — an owned-temp receiver ({} literal promote,
+    // fresh Call result) stays alive across every may-throw point
+    // below (receiver gate, key coerce, desc lower, define kernel);
+    // park it so each throw path drops it. The caller's
+    // release_owned_temp keeps the normal-path release.
+    let recv_tok = ctx
+        .throw_temp_of(obj_eid, &obj_op)
+        .map(|(op, ty)| ctx.push_throw_temp(op, ty));
     emit_receiver_typecheck(ctx, obj_eid, &obj_op, obj_ty.clone());
-    if emit_define_one_core(
+    let handled = emit_define_one_core(
         ctx,
         obj_op.clone(),
         obj_ty.clone(),
         &receiver_ident,
         key,
         desc_eid,
-    ) {
+    );
+    if let Some(t) = recv_tok {
+        ctx.pop_throw_temp(t);
+    }
+    if handled {
         Some((obj_op, obj_ty))
     } else {
         None

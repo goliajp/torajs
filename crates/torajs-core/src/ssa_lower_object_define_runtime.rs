@@ -20,8 +20,29 @@ pub(crate) fn emit_define_runtime_desc(
     desc_eid: ExprId,
 ) -> bool {
     let (key_op, key_owned) = lower_key(ctx, key);
+    // Rotation 549 — the coerced key and an owned-temp descriptor
+    // both stay alive across the may-throw points below (desc gate,
+    // define kernel); park them so each throw path drops them. Pops
+    // pair with every exit, LIFO with the receiver parked by
+    // `emit_define_one`.
+    let key_tok = if key_owned {
+        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+    } else {
+        None
+    };
     let desc_op = ctx.lower_expr(desc_eid);
     let desc_ty = ctx.operand_ty(&desc_op);
+    let desc_tok = ctx
+        .throw_temp_of(desc_eid, &desc_op)
+        .map(|(op, ty)| ctx.push_throw_temp(op, ty));
+    let pop_parked = |ctx: &mut LowerCtx| {
+        if let Some(t) = desc_tok {
+            ctx.pop_throw_temp(t);
+        }
+        if let Some(t) = key_tok {
+            ctx.pop_throw_temp(t);
+        }
+    };
     let desc_ptr: Operand = match desc_ty {
         // §6.2.6.5 step 1 gate BEFORE the unbox — an imm AnyValue's
         // payload is not a cell (the old path handed a number's bits
@@ -43,7 +64,10 @@ pub(crate) fn emit_define_runtime_desc(
         // reads through the kernel's `DescStore::Struct` layout walk
         // — RFC 20260721 刀 2 closed the old declined divergence).
         Type::Closure(_) | Type::Arr(_) | Type::Obj(_) => desc_op.clone(),
-        _ if is_typed_object(desc_ty) => return false,
+        _ if is_typed_object(desc_ty) => {
+            pop_parked(ctx);
+            return false;
+        }
         // Statically-known primitive descriptor (`defineProperty(o,
         // "k", 5)` / `null` literal) — box once and let the helper
         // throw the §6.2.6.5 step 1 TypeError (same shape as
@@ -62,6 +86,7 @@ pub(crate) fn emit_define_runtime_desc(
                 ),
             );
             ctx.emit_throw_check(None);
+            pop_parked(ctx);
             return true;
         }
     };
@@ -73,6 +98,7 @@ pub(crate) fn emit_define_runtime_desc(
         obj_ty,
         Type::Any | Type::Arr(_) | Type::Closure(_) | Type::FnSig(_) | Type::Obj(_)
     ) {
+        pop_parked(ctx);
         return false;
     }
     let obj_ptr: Operand = match &obj_ty {
@@ -104,7 +130,10 @@ pub(crate) fn emit_define_runtime_desc(
     // new product) still holds its own stake — release it here,
     // mirroring defineProperties' props release and the objlit
     // runtime arm's descriptor drop (pre-fix `defineProperty(o, k,
-    // mkDesc())` leaked the descriptor cell per call).
+    // mkDesc())` leaked the descriptor cell per call). Unpark first:
+    // the releases below run on the normal path unconditionally, so
+    // the kernel throw-check after them must not drop them again.
+    pop_parked(ctx);
     ctx.release_owned_temp(desc_eid, &desc_op);
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
     emit_key_release(ctx, key_op, key_owned);

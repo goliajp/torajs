@@ -337,6 +337,13 @@ fn emit_define_arr_prop(
     // it here (defineProperty is a reflection boundary like boxing).
     ctx.emit_arr_mark_kind(&obj_op);
     let (key_op, key_owned) = lower_key(ctx, key);
+    // Rotation 549 — a coerced key is alive across the value lower
+    // (which may throw); park it for those throw paths.
+    let key_tok = if key_owned {
+        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+    } else {
+        None
+    };
     let mut owned_val: Option<(ExprId, Operand)> = None;
     let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
@@ -362,6 +369,9 @@ fn emit_define_arr_prop(
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if let Some(t) = key_tok {
+        ctx.pop_throw_temp(t);
+    }
     super::emit_key_release(ctx, key_op, key_owned);
     // pack_tagged_value's +1 fed the kernel's transfer contract; an
     // owned-shape value temp (concat / call result) still holds its
@@ -386,6 +396,13 @@ fn emit_define_dynobj(
     flags_byte: i64,
 ) {
     let (key_op, key_owned) = lower_key(ctx, key);
+    // Rotation 549 — a coerced key is alive across the value lower
+    // (which may throw); park it for those throw paths.
+    let key_tok = if key_owned {
+        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+    } else {
+        None
+    };
     let mut owned_val: Option<(ExprId, Operand)> = None;
     let (tag, val_op) = if let Some(val_eid) = value_eid {
         let v_raw = ctx.lower_expr(val_eid);
@@ -425,6 +442,9 @@ fn emit_define_dynobj(
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if let Some(t) = key_tok {
+        ctx.pop_throw_temp(t);
+    }
     super::emit_key_release(ctx, key_op, key_owned);
     // pack_tagged_value's +1 fed the kernel's transfer contract; an
     // owned-shape value temp (concat / call result) still holds its

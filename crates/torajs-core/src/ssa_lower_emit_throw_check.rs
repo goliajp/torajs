@@ -19,6 +19,7 @@
 //! numerous per-call-site invocations from the various lower_expr call
 //! arms need zero edits.
 
+use crate::ast::ExprId;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -108,11 +109,19 @@ impl<'a> LowerCtx<'a> {
         );
         // throw_blk: route to innermost active try's catch, or
         // propagate (drop owned locals + ret sentinel). Either way
-        // an owned call result dies here — release it first.
+        // an owned call result dies here, and so does every temp
+        // parked on `temps.throw_live` (rotation 549) — release
+        // them first (result, then parked temps newest-first).
+        let live: Vec<(Operand, Type)> = self.temps.throw_live.iter().flatten().cloned().collect();
         if let Some(catch) = self.try_stack.last().copied() {
-            if let Some((op, ty)) = owned {
+            if owned.is_some() || !live.is_empty() {
                 self.cur_block = throw_blk;
-                self.emit_drop_value(op, ty);
+                if let Some((op, ty)) = owned {
+                    self.emit_drop_value(op, ty);
+                }
+                for (op, ty) in live.iter().rev() {
+                    self.emit_drop_value(op.clone(), ty.clone());
+                }
                 let cb2 = self.cur_block;
                 self.f.set_term(cb2, Terminator::Br(catch));
             } else {
@@ -127,6 +136,9 @@ impl<'a> LowerCtx<'a> {
             self.cur_block = throw_blk;
             if let Some((op, ty)) = owned {
                 self.emit_drop_value(op, ty);
+            }
+            for (op, ty) in live.iter().rev() {
+                self.emit_drop_value(op.clone(), ty.clone());
             }
             self.emit_drops_for_owned_locals();
             let uncaught_fid = *self
@@ -147,6 +159,9 @@ impl<'a> LowerCtx<'a> {
             if let Some((op, ty)) = owned {
                 self.emit_drop_value(op, ty);
             }
+            for (op, ty) in live.iter().rev() {
+                self.emit_drop_value(op.clone(), ty.clone());
+            }
             self.emit_drops_for_owned_locals();
             let cb2 = self.cur_block;
             let ret_ty = self.f.ret;
@@ -160,5 +175,38 @@ impl<'a> LowerCtx<'a> {
             self.f.set_term(cb2, term);
         }
         self.cur_block = normal_blk;
+    }
+
+    /// Park an owned temp for the duration of a may-throw region —
+    /// see `TempScratch::throw_live`. Returns the slot token for the
+    /// matching [`Self::pop_throw_temp`].
+    pub(crate) fn push_throw_temp(&mut self, op: Operand, ty: Type) -> usize {
+        self.temps.throw_live.push(Some((op, ty)));
+        self.temps.throw_live.len() - 1
+    }
+
+    /// Unpark — the temp's normal-path release site takes over from
+    /// here. Unpark order may differ from park order (dead slots
+    /// stay as `None` holes until the tail shrinks past them).
+    pub(crate) fn pop_throw_temp(&mut self, token: usize) {
+        debug_assert!(self.temps.throw_live[token].is_some());
+        self.temps.throw_live[token] = None;
+        while matches!(self.temps.throw_live.last(), Some(None)) {
+            self.temps.throw_live.pop();
+        }
+    }
+
+    /// The `(operand, type)` to park iff `eid`'s lowered value is an
+    /// owned temp — same predicate family `release_owned_temp` uses
+    /// on the normal path, so park and release stay in agreement.
+    pub(crate) fn throw_temp_of(&self, eid: ExprId, op: &Operand) -> Option<(Operand, Type)> {
+        if !self.expr_owned_shape(eid) && !self.expr_minted_closure(eid, op) {
+            return None;
+        }
+        let ty = self.operand_ty(op);
+        if ty.is_copy() {
+            return None;
+        }
+        Some((op.clone(), ty))
     }
 }

@@ -201,6 +201,13 @@ pub(crate) fn emit_accessor_define_into(
     configurable: Option<bool>,
 ) -> bool {
     let (key_op, key_owned) = lower_key(ctx, key);
+    // Rotation 549 — a coerced key is alive across the face lowers;
+    // park it for any throw path in between.
+    let key_tok = if key_owned {
+        Some(ctx.push_throw_temp(key_op.clone(), crate::ssa::Type::Str))
+    } else {
+        None
+    };
     let (get_op, get_kind) = match get_eid {
         Some(e) => lower_accessor_face(ctx, e, true),
         None => (Operand::ConstPtrNull, 0),
@@ -259,6 +266,9 @@ pub(crate) fn emit_accessor_define_into(
         ),
     );
     // 刀 18 — coerced key was owned Str; drop after helper borrowed it.
+    if let Some(t) = key_tok {
+        ctx.pop_throw_temp(t);
+    }
     crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
     ctx.emit_throw_check(None);
     true

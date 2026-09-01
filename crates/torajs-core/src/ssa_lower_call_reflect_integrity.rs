@@ -233,6 +233,12 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     };
     let obj_op = crate::ssa_lower_object_define::lower_define_receiver(ctx, args[0]);
     let obj_ty = ctx.operand_ty(&obj_op);
+    // Rotation 549 — an owned-temp receiver stays alive across every
+    // may-throw point below (receiver gate, key coerce, desc gate,
+    // define kernel); park it for the throw paths.
+    let recv_tok = ctx
+        .throw_temp_of(args[0], &obj_op)
+        .map(|(op, ty)| ctx.push_throw_temp(op, ty));
     crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
     let obj_ptr: Operand = match &obj_ty {
         Type::Any => Operand::Value(ctx.any_unbox_value_as_ptr(obj_op.clone())),
@@ -255,6 +261,9 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
             for a in args.iter().skip(1) {
                 let _ = ctx.lower_expr(*a);
             }
+            if let Some(t) = recv_tok {
+                ctx.pop_throw_temp(t);
+            }
             return Operand::ConstBool(false);
         }
     };
@@ -262,6 +271,11 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         ctx,
         &crate::ssa_lower_object_define::DefineKey::Expr(args[1]),
     );
+    let key_tok = if key_owned {
+        Some(ctx.push_throw_temp(key_op.clone(), Type::Str))
+    } else {
+        None
+    };
     // Descriptor — an inline ObjectLit materializes as a fresh dynobj
     // (owned, released after the call); everything else takes the
     // §6.2.6.5 step-1 object gate, then hands its cell to the kernel
@@ -271,28 +285,47 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     // stake drops after the call); `desc_temp` carries a lowered
     // non-literal operand whose owned-temp stake (call / new product)
     // releases after the kernel borrow — never before.
-    let (desc_ptr, desc_objlit, desc_temp): (Operand, bool, Option<Operand>) =
-        if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
-            (ctx.lower_dynobj_init(desc_eid), true, None)
+    // `desc_tok` parks the descriptor (rotation 549): a mint (objlit
+    // dynobj, as its Any bit pattern) or an owned temp, parked before
+    // its own §6.2.6.5 gate and staying live across the extra-arg
+    // lowers until the post-kernel drop.
+    let (desc_ptr, desc_objlit, desc_temp, desc_tok): (
+        Operand,
+        bool,
+        Option<Operand>,
+        Option<usize>,
+    ) = if matches!(ctx.ast.get_expr(desc_eid), Expr::ObjectLit { .. }) {
+        let minted = ctx.lower_dynobj_init(desc_eid);
+        let as_any = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::PtrToInt(minted.clone()),
+            Type::Any,
+            None,
+        );
+        let tok = Some(ctx.push_throw_temp(Operand::Value(as_any), Type::Any));
+        (minted, true, None, tok)
+    } else {
+        let desc_op = ctx.lower_expr(desc_eid);
+        let desc_ty = ctx.operand_ty(&desc_op);
+        let tok = ctx
+            .throw_temp_of(desc_eid, &desc_op)
+            .map(|(o, ty)| ctx.push_throw_temp(o, ty));
+        let desc_any = if matches!(desc_ty, Type::Any) {
+            desc_op.clone()
         } else {
-            let desc_op = ctx.lower_expr(desc_eid);
-            let desc_ty = ctx.operand_ty(&desc_op);
-            let desc_any = if matches!(desc_ty, Type::Any) {
-                desc_op.clone()
-            } else {
-                ctx.box_to_any_from_expr(desc_eid, desc_op.clone())
-            };
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.throw_typeerror_if_not_desc_object,
-                    vec![desc_any.clone()],
-                ),
-            );
-            ctx.emit_throw_check(None);
-            let ptr = Operand::Value(ctx.any_unbox_value_as_ptr(desc_any));
-            (ptr, false, Some(desc_op))
+            ctx.box_to_any_from_expr(desc_eid, desc_op.clone())
         };
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.throw_typeerror_if_not_desc_object,
+                vec![desc_any.clone()],
+            ),
+        );
+        ctx.emit_throw_check(None);
+        let ptr = Operand::Value(ctx.any_unbox_value_as_ptr(desc_any));
+        (ptr, false, Some(desc_op), tok)
+    };
     for a in args.iter().skip(3) {
         let _ = ctx.lower_expr(*a);
     }
@@ -311,6 +344,11 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         Type::I64,
         None,
     );
+    // Unpark before the unconditional releases below — the kernel
+    // throw-check after them must not drop these again.
+    if let Some(t) = desc_tok {
+        ctx.pop_throw_temp(t);
+    }
     if desc_objlit {
         ctx.f.append_void(
             ctx.cur_block,
@@ -320,8 +358,17 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     if let Some(op) = desc_temp {
         ctx.release_owned_temp(desc_eid, &op);
     }
+    if let Some(t) = key_tok {
+        ctx.pop_throw_temp(t);
+    }
     crate::ssa_lower_object_define::emit_key_release(ctx, key_op, key_owned);
+    // The receiver stays parked through the kernel check (a desc-read
+    // throw fires before any resize, so the parked pointer is live);
+    // its normal-path stake keeps the pre-existing accounting.
     ctx.emit_throw_check(None);
+    if let Some(t) = recv_tok {
+        ctx.pop_throw_temp(t);
+    }
     if matches!(obj_ty, Type::Any) {
         ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
     }

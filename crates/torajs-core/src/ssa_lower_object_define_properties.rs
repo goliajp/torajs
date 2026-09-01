@@ -44,6 +44,12 @@ pub(crate) fn try_lower_define_properties(
         // would have silently eval-dropped the args.
         let obj_raw = crate::ssa_lower_object_define::lower_define_receiver(ctx, args[0]);
         let obj_ty = ctx.operand_ty(&obj_raw);
+        // Rotation 549 — an owned-temp receiver stays alive across
+        // every may-throw point below (receiver gate, per-field
+        // defines, props walk); park it so each throw path drops it.
+        let recv_tok = ctx
+            .throw_temp_of(args[0], &obj_raw)
+            .map(|(op, ty)| ctx.push_throw_temp(op, ty));
         emit_receiver_typecheck(ctx, args[0], &obj_raw, obj_ty);
 
         // Compile-time unfold on an ObjectLit props. An Ident receiver
@@ -74,132 +80,15 @@ pub(crate) fn try_lower_define_properties(
                 }
             }
         } else {
-            // RFC 20260712 chunk 2 — runtime props walk: both shapes
-            // Any (dynobj-backed) route through the two-phase
-            // §20.1.2.3.1 helper; anything else keeps the prior
-            // eval-drop (typed receivers are the RFC backlog).
-            let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
-                Some(n.clone())
-            } else {
-                None
-            };
-            let props_op = ctx.lower_expr(args[1]);
-            let props_ty = ctx.operand_ty(&props_op);
-            // §20.1.2.3.1 step 2 — ToObject(Properties) throws only
-            // on null / undefined (other primitives wrap to key-less
-            // objects; the walk no-ops). Statically-typed non-object
-            // props box once so the helper can throw; a runtime Any
-            // gates before the walk (RFC 20260713 chunk B).
-            if !matches!(props_ty, Type::Any) && !is_typed_object(props_ty.clone()) {
-                let boxed = ctx.box_to_any_from_expr(args[1], props_op.clone());
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.throw_typeerror_if_props_nullish,
-                        vec![boxed.clone()],
-                    ),
-                );
-                ctx.emit_throw_check(None);
-                // §20.1.2.3.1 step 1 ToObject — the nullish gate alone
-                // let a typed non-empty string (`"xy" as any` keeps
-                // Type::Str through the As pass-through) fall through
-                // to the eval-drop below; the source gate's non-empty-
-                // string face throws, every other primitive answers
-                // NULL (walk no-op, so none is emitted).
-                ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![boxed]),
-                    Type::Ptr,
-                    None,
-                );
-                ctx.emit_throw_check(None);
-            } else if matches!(props_ty, Type::Any) {
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.throw_typeerror_if_props_nullish,
-                        vec![props_op.clone()],
-                    ),
-                );
-                ctx.emit_throw_check(None);
-            }
-            // An `as any` props cast is an SSA pass-through for heap
-            // values — the operand keeps its Obj(struct) type, so the
-            // Any/Any gate alone missed it and the walk eval-dropped
-            // (`defineProperties(o, {bad: 5} as any)` never reached
-            // the non-object-desc TypeError). A typed heap props
-            // operand IS the cell ptr — struct layout / Closure-Arr
-            // descriptor expandos all resolve at the kernel's
-            // walkable-source dispatch (RFC 20260721 刀 2 widened the
-            // struct-only gate).
-            let props_is_typed_cell = matches!(
-                props_ty,
-                Type::Obj(_) | Type::Closure(_) | Type::FnSig(_) | Type::Arr(_)
-            );
-            // A typed Closure receiver defines onto its +24 expando
-            // via the kernel's closure arm (RFC 20260721 刀 2); the
-            // cell never relocates, so the Any writeback is gated.
-            let recv_is_closure = matches!(obj_ty, Type::Closure(_) | Type::FnSig(_));
-            if (matches!(obj_ty, Type::Any) || recv_is_closure)
-                && (matches!(props_ty, Type::Any) || props_is_typed_cell)
-            {
-                let props_ptr = if props_is_typed_cell {
-                    match props_op.clone() {
-                        Operand::Value(v) => v,
-                        _ => ctx.any_unbox_value_as_ptr(props_op.clone()),
-                    }
-                } else {
-                    // §20.1.2.3.1 step 1 ToObject — the gate answers
-                    // the walkable cell, or NULL for the primitive
-                    // no-op faces (kernel no-ops on NULL; non-empty
-                    // strings record the TypeError inside). Pre-fix
-                    // the raw unbox handed immediate bits to the
-                    // kernel as a pointer (SIGSEGV on numbers).
-                    let gated = ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Call(
-                            ctx.intrinsics.define_props_source_gate,
-                            vec![props_op.clone()],
-                        ),
-                        Type::Ptr,
-                        None,
-                    );
-                    ctx.emit_throw_check(None);
-                    gated
-                };
-                let dynobj = if recv_is_closure {
-                    match obj_raw.clone() {
-                        Operand::Value(v) => v,
-                        _ => ctx.any_unbox_value_as_ptr(obj_raw.clone()),
-                    }
-                } else {
-                    ctx.any_unbox_value_as_ptr(obj_raw.clone())
-                };
-                let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
-                );
-                ctx.f.append_void(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.dynobj_define_properties_from,
-                        vec![Operand::Value(slot), Operand::Value(props_ptr)],
-                    ),
-                );
-                ctx.release_owned_temp(args[1], &props_op);
-                ctx.emit_throw_check(None);
-                if !recv_is_closure {
-                    ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
-                }
-            } else {
-                ctx.release_owned_temp(args[1], &props_op);
-            }
+            lower_props_runtime_walk(ctx, args, &obj_raw, obj_ty);
         }
         // RFC 20260705 owned-result invariant: ES answers the receiver;
         // the pass-through result carries its own ref (this dedicated
         // path bypasses integrity's lower_noop — the 545 gate caught
         // the blanket discard over-releasing the un-inc'd receiver).
+        if let Some(t) = recv_tok {
+            ctx.pop_throw_temp(t);
+        }
         ctx.emit_owned_result_inc(obj_raw.clone(), obj_ty);
         // An owned-temp receiver (`{} as any` dynobj promote / plain
         // ObjectLit) hands its mint stake off here — the result inc
@@ -210,4 +99,147 @@ pub(crate) fn try_lower_define_properties(
         return Some(obj_raw);
     }
     None
+}
+
+/// The runtime-props arm of [`try_lower_define_properties`] — `props`
+/// is not an ObjectLit, so the §20.1.2.3.1 walk runs in the kernel:
+/// gate the source (nullish / primitive faces), then hand the
+/// receiver's dynobj slot and the walkable props cell to the
+/// two-phase define kernel. The receiver is already lowered,
+/// typechecked and parked by the caller.
+fn lower_props_runtime_walk(ctx: &mut LowerCtx, args: &[ExprId], obj_raw: &Operand, obj_ty: Type) {
+    // RFC 20260712 chunk 2 — runtime props walk: both shapes
+    // Any (dynobj-backed) route through the two-phase
+    // §20.1.2.3.1 helper; anything else keeps the prior
+    // eval-drop (typed receivers are the RFC backlog).
+    let receiver_ident: Option<String> = if let Expr::Ident(n) = ctx.ast.get_expr(args[0]) {
+        Some(n.clone())
+    } else {
+        None
+    };
+    let props_op = ctx.lower_expr(args[1]);
+    let props_ty = ctx.operand_ty(&props_op);
+    // Rotation 549 — an owned-temp props stays alive across
+    // the gates and the walk kernel; park for the throw paths.
+    let props_tok = ctx
+        .throw_temp_of(args[1], &props_op)
+        .map(|(op, ty)| ctx.push_throw_temp(op, ty));
+    // §20.1.2.3.1 step 2 — ToObject(Properties) throws only
+    // on null / undefined (other primitives wrap to key-less
+    // objects; the walk no-ops). Statically-typed non-object
+    // props box once so the helper can throw; a runtime Any
+    // gates before the walk (RFC 20260713 chunk B).
+    if !matches!(props_ty, Type::Any) && !is_typed_object(props_ty.clone()) {
+        let boxed = ctx.box_to_any_from_expr(args[1], props_op.clone());
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.throw_typeerror_if_props_nullish,
+                vec![boxed.clone()],
+            ),
+        );
+        ctx.emit_throw_check(None);
+        // §20.1.2.3.1 step 1 ToObject — the nullish gate alone
+        // let a typed non-empty string (`"xy" as any` keeps
+        // Type::Str through the As pass-through) fall through
+        // to the eval-drop below; the source gate's non-empty-
+        // string face throws, every other primitive answers
+        // NULL (walk no-op, so none is emitted).
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.define_props_source_gate, vec![boxed]),
+            Type::Ptr,
+            None,
+        );
+        ctx.emit_throw_check(None);
+    } else if matches!(props_ty, Type::Any) {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.throw_typeerror_if_props_nullish,
+                vec![props_op.clone()],
+            ),
+        );
+        ctx.emit_throw_check(None);
+    }
+    // An `as any` props cast is an SSA pass-through for heap
+    // values — the operand keeps its Obj(struct) type, so the
+    // Any/Any gate alone missed it and the walk eval-dropped
+    // (`defineProperties(o, {bad: 5} as any)` never reached
+    // the non-object-desc TypeError). A typed heap props
+    // operand IS the cell ptr — struct layout / Closure-Arr
+    // descriptor expandos all resolve at the kernel's
+    // walkable-source dispatch (RFC 20260721 刀 2 widened the
+    // struct-only gate).
+    let props_is_typed_cell = matches!(
+        props_ty,
+        Type::Obj(_) | Type::Closure(_) | Type::FnSig(_) | Type::Arr(_)
+    );
+    // A typed Closure receiver defines onto its +24 expando
+    // via the kernel's closure arm (RFC 20260721 刀 2); the
+    // cell never relocates, so the Any writeback is gated.
+    let recv_is_closure = matches!(obj_ty, Type::Closure(_) | Type::FnSig(_));
+    if (matches!(obj_ty, Type::Any) || recv_is_closure)
+        && (matches!(props_ty, Type::Any) || props_is_typed_cell)
+    {
+        let props_ptr = if props_is_typed_cell {
+            match props_op.clone() {
+                Operand::Value(v) => v,
+                _ => ctx.any_unbox_value_as_ptr(props_op.clone()),
+            }
+        } else {
+            // §20.1.2.3.1 step 1 ToObject — the gate answers
+            // the walkable cell, or NULL for the primitive
+            // no-op faces (kernel no-ops on NULL; non-empty
+            // strings record the TypeError inside). Pre-fix
+            // the raw unbox handed immediate bits to the
+            // kernel as a pointer (SIGSEGV on numbers).
+            let gated = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.define_props_source_gate,
+                    vec![props_op.clone()],
+                ),
+                Type::Ptr,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            gated
+        };
+        let dynobj = if recv_is_closure {
+            match obj_raw.clone() {
+                Operand::Value(v) => v,
+                _ => ctx.any_unbox_value_as_ptr(obj_raw.clone()),
+            }
+        } else {
+            ctx.any_unbox_value_as_ptr(obj_raw.clone())
+        };
+        let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
+        );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.dynobj_define_properties_from,
+                vec![Operand::Value(slot), Operand::Value(props_ptr)],
+            ),
+        );
+        // Unpark before the unconditional release below — the
+        // kernel throw-check after it must not drop again.
+        if let Some(t) = props_tok {
+            ctx.pop_throw_temp(t);
+        }
+        ctx.release_owned_temp(args[1], &props_op);
+        ctx.emit_throw_check(None);
+        if !recv_is_closure {
+            ctx.emit_any_dynobj_writeback(&receiver_ident, slot);
+        }
+    } else {
+        if let Some(t) = props_tok {
+            ctx.pop_throw_temp(t);
+        }
+        ctx.release_owned_temp(args[1], &props_op);
+    }
 }

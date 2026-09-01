@@ -14,4 +14,19 @@ pub(crate) struct TempScratch {
     /// intrinsic` drains right after the emit. Pre-B these leaked
     /// (300k `replace(n.slice(0,1), ..)` churned 16MB).
     pub(crate) argv_owned: Vec<(Operand, Type)>,
+    /// Rotation 549 — owned temps alive across a may-throw region.
+    /// A consumer holding an owned temp while it emits anything
+    /// that can raise parks it (`LowerCtx::push_throw_temp`) and
+    /// unparks (`pop_throw_temp`) at its normal-path release site;
+    /// every `emit_throw_check`'s throw path drops the live slots
+    /// (newest first) before branching to the catch / propagate
+    /// destination — neither destination can know about a value
+    /// that never reached a local. Slots are `Option` so unpark
+    /// order need not mirror park order (Object.create releases its
+    /// proto temp while the fresh dynobj parked after it is still
+    /// live). Pre-549 every such temp leaked on the throw path:
+    /// 600k of `try { Object.defineProperty({} as any, "p",
+    /// badDesc) } catch {}` churned 175MB against a 1.9MB flat
+    /// baseline.
+    pub(crate) throw_live: Vec<Option<(Operand, Type)>>,
 }

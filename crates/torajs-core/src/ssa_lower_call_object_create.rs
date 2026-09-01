@@ -55,16 +55,12 @@ fn resolve_proto_link(
 /// §20.1.2.2 step 3 — evaluate the props argument. `None` skips
 /// ObjectDefineProperties entirely.
 ///
-/// Takes `proto_link` because the always-throwing props path has to
-/// drop an owned proto temp that is still live there: the proto link
-/// happens after the alloc below, so this runs while the temp has no
-/// other owner. That ordering makes the two resolve steps
-/// non-commutable.
-fn resolve_props(
-    ctx: &mut LowerCtx<'_>,
-    args: &[ExprId],
-    proto_link: &Option<(ExprId, Operand, Operand, bool)>,
-) -> Option<(ExprId, Operand, bool)> {
+/// An owned proto temp is still live throughout (its link — and
+/// release — happen only after the alloc below); the caller parks it
+/// on `temps.throw_live` before calling, so every throw path in here
+/// drops it without per-site plumbing (rotation 549 — this replaced
+/// the hand-carried `proto_link` owned-drop on the static-null path).
+fn resolve_props(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<(ExprId, Operand, bool)> {
     // §20.1.2.2 step 3 — evaluate the props arg. A literal ObjectLit
     // forces the dynobj lane (the desc-of-descs tree must be
     // dynobj-backed for the runtime walk; the fresh tree is an owned
@@ -105,16 +101,10 @@ fn resolve_props(
                     vec![Operand::Value(null_any)],
                 ),
             );
-            // The deferred proto release (link happens after the
-            // alloc below) means an owned proto temp is still live on
-            // this always-throwing path — drop it in the throw block.
-            if let Some((_, ref p_raw, _, true)) = *proto_link {
-                let p_ty = ctx.operand_ty(p_raw);
-                let p_raw = p_raw.clone();
-                ctx.emit_throw_check_owned(None, p_raw, p_ty);
-            } else {
-                ctx.emit_throw_check(None);
-            }
+            // An owned proto temp still live on this always-throwing
+            // path is parked on `temps.throw_live` by the caller —
+            // the plain check drops it in the throw block.
+            ctx.emit_throw_check(None);
             None
         }
         Some(&p_eid) if matches!(ctx.ast.get_expr(p_eid), Expr::ObjectLit { .. }) => {
@@ -133,6 +123,28 @@ fn resolve_props(
         Some(&p_eid) => Some((p_eid, ctx.lower_expr(p_eid), false)),
         None => None,
     }
+}
+
+/// [`emit_props_walk`] with the fresh dynobj's throw-path parking
+/// carried across it (rotation 549): the walk can relocate the block,
+/// so the pre-walk parked pointer is unparked first and the post-walk
+/// reload is parked in its place before the caller's throw check.
+fn walk_reparked(
+    ctx: &mut LowerCtx<'_>,
+    dynobj: crate::ssa::ValueId,
+    dynobj_tok: usize,
+    props_ptr: crate::ssa::ValueId,
+) -> (crate::ssa::ValueId, usize) {
+    ctx.pop_throw_temp(dynobj_tok);
+    let dynobj = emit_props_walk(ctx, dynobj, props_ptr);
+    let reparked = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::PtrToInt(Operand::Value(dynobj)),
+        Type::Any,
+        None,
+    );
+    let tok = ctx.push_throw_temp(Operand::Value(reparked), Type::Any);
+    (dynobj, tok)
 }
 
 /// §20.1.2.2 step 3 — ObjectDefineProperties(obj, props) via the
@@ -180,7 +192,28 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // carry the owned temp through `emit_throw_check_owned` so the
     // deferred release cannot strand a reference.
     let mut proto_link = resolve_proto_link(ctx, args);
-    let props = resolve_props(ctx, args, &proto_link);
+    // Rotation 549 — the owned proto temp lives until the link call
+    // far below; park it so every throw path in between (props
+    // gates, props walk, extra-arg lowers) drops it.
+    let proto_tok = if let Some((_, ref p_op, _, true)) = proto_link {
+        let p_ty = ctx.operand_ty(p_op);
+        let p = p_op.clone();
+        Some(ctx.push_throw_temp(p, p_ty))
+    } else {
+        None
+    };
+    let props = resolve_props(ctx, args);
+    // An owned props temp (literal desc-of-descs tree, fresh call
+    // product) lives across the gates and the walk — park it too.
+    let props_tok = props.as_ref().and_then(|(p_eid, p_op, is_literal)| {
+        if *is_literal {
+            let p = p_op.clone();
+            Some(ctx.push_throw_temp(p, Type::Any))
+        } else {
+            ctx.throw_temp_of(*p_eid, p_op)
+                .map(|(op, ty)| ctx.push_throw_temp(op, ty))
+        }
+    });
     for &a in args.iter().skip(2) {
         let op = ctx.lower_expr(a);
         ctx.release_owned_temp(a, &op);
@@ -192,6 +225,18 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         Type::Ptr,
         None,
     );
+    // The fresh dynobj is owned by nobody until the final Any box —
+    // park it (as its Any bit pattern; a cell encodes as its pointer)
+    // so a props-walk throw drops it instead of stranding it. The
+    // walk can relocate the block, so the parked value is re-parked
+    // from the post-walk reload before the walk's throw check runs.
+    let dynobj_any = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::PtrToInt(Operand::Value(dynobj)),
+        Type::Any,
+        None,
+    );
+    let mut dynobj_tok = ctx.push_throw_temp(Operand::Value(dynobj_any), Type::Any);
     // §20.1.2.2 step 2 — OrdinaryObjectCreate(proto): wire the
     // validated proto onto the fresh dict (a heap cell lands in the
     // own `__proto__` simulation slot with its own +1; null — static
@@ -207,6 +252,11 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 vec![Operand::Value(dynobj), boxed],
             ),
         );
+        // Unpark before the unconditional release — later throw
+        // checks (props walk) must not drop the proto again.
+        if let Some(t) = proto_tok {
+            ctx.pop_throw_temp(t);
+        }
         ctx.release_owned_temp(proto_eid, &proto_op);
     }
     // §20.1.2.2 step 3 — ObjectDefineProperties(obj, props) on the
@@ -230,7 +280,10 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 Operand::Value(v) => v,
                 _ => ctx.any_unbox_value_as_ptr(p_op.clone()),
             };
-            dynobj = emit_props_walk(ctx, dynobj, props_ptr);
+            (dynobj, dynobj_tok) = walk_reparked(ctx, dynobj, dynobj_tok, props_ptr);
+            if let Some(t) = props_tok {
+                ctx.pop_throw_temp(t);
+            }
             ctx.release_owned_temp(p_eid, &p_op);
             ctx.emit_throw_check(None);
         } else if matches!(p_ty, Type::Any) {
@@ -266,7 +319,10 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 None,
             );
             ctx.emit_throw_check(None);
-            dynobj = emit_props_walk(ctx, dynobj, props_ptr);
+            (dynobj, dynobj_tok) = walk_reparked(ctx, dynobj, dynobj_tok, props_ptr);
+            if let Some(t) = props_tok {
+                ctx.pop_throw_temp(t);
+            }
             if is_literal {
                 ctx.emit_drop_value(p_op, Type::Any);
             } else {
@@ -293,9 +349,14 @@ pub(crate) fn lower_create(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 );
                 ctx.emit_throw_check(None);
             }
+            if let Some(t) = props_tok {
+                ctx.pop_throw_temp(t);
+            }
             ctx.release_owned_temp(p_eid, &p_op);
         }
     }
+    // The Any box below is the dynobj's owner from here on.
+    ctx.pop_throw_temp(dynobj_tok);
     let cur_block = ctx.cur_block;
     let box_v = ctx.f.append_inst(
         cur_block,
