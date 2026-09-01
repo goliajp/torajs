@@ -164,11 +164,12 @@ pub(crate) fn lower_while_inner(
      * body so nested break/continue resolve correctly. */
     // RFC 20260901-scope-exit-drops — no loop-owned frame; a jump
     // owes the body's frames pushed by `lower_stmt(body)`.
-    ctx.loop_stack.push(crate::ssa_lower_scope_exit::LoopTargets {
-        cont: header,
-        brk: after,
-        scope_depth: ctx.scope_stack.len(),
-    });
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: header,
+            brk: after,
+            scope_depth: ctx.scope_stack.len(),
+        });
     ctx.cur_block = body_blk;
     ctx.lower_stmt(body);
     if ctx.cur_open() {

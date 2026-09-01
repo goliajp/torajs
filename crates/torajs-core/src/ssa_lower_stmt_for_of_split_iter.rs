@@ -167,11 +167,12 @@ pub(crate) fn lower(
     // RFC 20260901-scope-exit-drops — the split-iter frame above is
     // popped without a drop walk (its binding borrows), so a jump
     // owes only the body's own frames: depth = `len()`.
-    ctx.loop_stack.push(crate::ssa_lower_scope_exit::LoopTargets {
-        cont: header,
-        brk: after,
-        scope_depth: ctx.scope_stack.len(),
-    });
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: header,
+            brk: after,
+            scope_depth: ctx.scope_stack.len(),
+        });
     ctx.cur_block = body_blk;
     ctx.lower_stmt(body);
     if ctx.cur_open() {

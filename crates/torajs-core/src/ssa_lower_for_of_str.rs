@@ -161,11 +161,12 @@ pub(crate) fn lower(
 
     // RFC 20260901-scope-exit-drops — body frame already pushed and
     // only closed on fall-through: a jump out owes it (depth = index).
-    ctx.loop_stack.push(crate::ssa_lower_scope_exit::LoopTargets {
-        cont: step_blk,
-        brk: after,
-        scope_depth: ctx.scope_stack.len() - 1,
-    });
+    ctx.loop_stack
+        .push(crate::ssa_lower_scope_exit::LoopTargets {
+            cont: step_blk,
+            brk: after,
+            scope_depth: ctx.scope_stack.len() - 1,
+        });
     ctx.lower_stmt(body);
     let body_open_at_end = ctx.cur_open();
     ctx.loop_stack.pop();
