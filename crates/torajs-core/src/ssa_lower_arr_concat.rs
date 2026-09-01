@@ -5,7 +5,7 @@
 //! stay in the parent.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// `<Arr<Any>>.concat(...)` — dedicated lane over the
@@ -222,134 +222,204 @@ pub(crate) fn lower_arr_concat(
         let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
         return lower_concat_mixed(ctx, recv_op, recv_elem, args);
     }
-    // 0-arg form ≡ shallow copy. Lower as
-    // `arr_slice(recv, 0, len)` — the refcount-inc
-    // walk below handles non-Copy elements the
-    // same way as for slice / concat results.
-    // A view does not leave its split block (rotation 468): a
-    // concat that copies out of an `Arr<Substr>` — the receiver,
-    // an array argument, or a lone view argument — answers
-    // `Arr<Str>`, and the ownership walk at the end materializes
-    // every view it copied. `saw_views` remembers whether any
-    // source was view-typed; `out_elem` is the product's element
-    // type (the receiver's, unless that is Substr).
+    lower_concat_typed(ctx, recv_op, arr_id, args)
+}
+
+/// One argument of a typed concat after its lower: the operand this
+/// lane will copy from, the throw-path park it holds until it is
+/// consumed, and whether the operand is a copy this lane minted (a
+/// lone view materialized to an owned Str — no other owner exists,
+/// so its stake moves into the product's slot unconditionally).
+struct TypedSrc {
+    op: Operand,
+    ty: Type,
+    eid: ExprId,
+    tok: Option<usize>,
+    minted: bool,
+}
+
+/// `<Arr<T>>.concat(...)` with a typed product — the one-alloc shape
+/// the array-literal spread lane uses (`ssa_lower_array_spread`):
+/// every argument lowers first (owned temps park across the later
+/// lowers and their throw edges), the total length is summed, one cell
+/// is allocated, and each source is copied in behind
+/// `arr_extend_unchecked` / `arr_push_unchecked` and adopted right
+/// behind its copy, so the product owns every slot it holds at every
+/// point where anything can look at it.
+///
+/// Rotation 552 — the pairwise `arr_concat` fold this replaces minted
+/// one intermediate per extra argument and released none of them, nor
+/// any owned-temp argument (`a(i).concat(a(i), a(i))` churned 222MB /
+/// 600k against 1.8MB flat), and the rotation-550 park of such an
+/// intermediate — whose slots owned nothing until the fold's final
+/// walk — had the throw path dec stakes the cell did not hold.
+///
+/// A view does not leave its split block (rotation 468): copying out
+/// of an `Arr<Substr>` — receiver, array argument or lone view
+/// argument — answers `Arr<Str>`, and each copied range is adopted by
+/// ITS source's element type, so the materializing walk runs only
+/// over the slots that came from views.
+fn lower_concat_typed(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    arr_id: crate::ssa::ArrId,
+    args: &[ExprId],
+) -> Operand {
     let recv_elem = ctx.arr_layouts[arr_id.0 as usize];
-    let mut saw_views = recv_elem == Type::Substr;
     let out_id = ctx.copied_arr_layout(arr_id);
     let out_elem = ctx.arr_layouts[out_id.0 as usize];
-    let mut acc = if args.is_empty() {
-        let len = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-            Type::I64,
-            None,
-        );
+    let recv_len = load_len(ctx, recv_op.clone());
+    if args.is_empty() {
+        // 0-arg form ≡ shallow copy; the copied slots own nothing yet.
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
                 ctx.intrinsics.arr_slice,
-                vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+                vec![recv_op, Operand::ConstI64(0), Operand::Value(recv_len)],
             ),
             Type::Arr(out_id),
             None,
         );
-        Operand::Value(v)
-    } else {
-        recv_op
-    };
-    // ES §23.1.3.2 — concat returns a fresh array; receiver must
-    // not be mutated. `arr_concat` always allocates a new buffer,
-    // but `arr_push` (used below for scalar args) may mutate
-    // in-place when capacity allows. Track when `acc` is still
-    // aliased to the receiver and force a shallow copy before the
-    // first scalar push to preserve spec semantics.
-    let mut acc_is_fresh = args.is_empty();
-    for a in args {
-        // Rotation 550 — a fresh running product parks across the
-        // next argument's lower (the receiver-aliased acc is the
-        // caller's account); see `extend_any_acc_with_args`.
-        let acc_tok = acc_is_fresh.then(|| ctx.push_throw_temp(acc.clone(), Type::Arr(out_id)));
-        let other = ctx.lower_expr(*a);
-        ctx.unpark_owned_temp(acc_tok);
+        if out_elem.is_refcounted() {
+            ctx.emit_adopt_copied_range(
+                Operand::Value(v),
+                recv_elem,
+                Operand::ConstI64(0),
+                Operand::Value(recv_len),
+            );
+        }
+        return Operand::Value(v);
+    }
+    let mut srcs: Vec<TypedSrc> = Vec::with_capacity(args.len());
+    for &a in args {
+        let other = ctx.lower_expr(a);
         let other_ty = ctx.operand_ty(&other);
-        // A lone view argument is appended as an owned copy; a
-        // fresh mint (index / method) hands this lane its only
-        // ref, a borrow stays with its owner (the push arm's rule).
-        let (other, other_ty) = if other_ty == Type::Substr && out_elem == Type::Str {
+        // A lone view argument is appended as an owned copy; a fresh
+        // mint (index / method) hands this lane its only ref, a
+        // borrow stays with its owner (the literal lane's rule).
+        let (op, ty, minted) = if other_ty == Type::Substr && out_elem == Type::Str {
             let owned = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.substr_to_owned, vec![other.clone()]),
                 Type::Str,
                 None,
             );
-            if ctx.expr_transfers_ownership(*a) {
+            if ctx.expr_transfers_ownership(a) {
                 ctx.emit_drop_value(other, Type::Substr);
             }
-            (Operand::Value(owned), Type::Str)
+            (Operand::Value(owned), Type::Str, true)
+        } else if other_ty == Type::I64 && out_elem == Type::F64 {
+            (ctx.coerce_to_f64(other), Type::F64, false)
         } else {
-            (other, other_ty)
+            (other, other_ty, false)
         };
-        if let Type::Arr(oid) = other_ty
-            && ctx.arr_layouts[oid.0 as usize] == Type::Substr
-        {
-            saw_views = true;
-        }
-        // ES §23.1.3.2 — scalar arg (same type as receiver elem)
-        // is appended as a single element instead of spread.
-        if other_ty == out_elem && !matches!(other_ty, Type::Arr(_)) {
-            if !acc_is_fresh {
-                let len = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_slice,
-                        vec![acc, Operand::ConstI64(0), Operand::Value(len)],
-                    ),
-                    Type::Arr(out_id),
-                    None,
-                );
-                acc = Operand::Value(v);
-                acc_is_fresh = true;
-            }
-            let push_arg = ctx.raw_slot_arg(other);
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.arr_push, vec![acc, push_arg]),
-                Type::Arr(out_id),
-                None,
-            );
-            acc = Operand::Value(v);
-            continue;
-        }
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_concat, vec![acc, other]),
-            Type::Arr(out_id),
-            None,
-        );
-        acc = Operand::Value(v);
-        // arr_concat returns a new ptr — acc is now detached
-        // from the receiver buffer.
-        acc_is_fresh = true;
+        let tok = if minted {
+            Some(ctx.push_throw_temp(op.clone(), ty))
+        } else {
+            ctx.park_owned_temp(a, &op)
+        };
+        srcs.push(TypedSrc {
+            op,
+            ty,
+            eid: a,
+            tok,
+            minted,
+        });
     }
-    if out_elem.is_refcounted() {
-        let len = ctx.f.append_inst(
+    // Total length: the receiver's, every array argument's, one per
+    // scalar (ES §23.1.3.2 appends a non-array argument as one element).
+    let mut total = Operand::Value(recv_len);
+    for s in &srcs {
+        let add = match s.ty {
+            Type::Arr(_) => Operand::Value(load_len(ctx, s.op.clone())),
+            _ => Operand::ConstI64(1),
+        };
+        let summed = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Load(Type::I64, acc, ARR_LEN_OFF),
+            InstKind::BinOp(SsaBinOp::Add, total, add),
             Type::I64,
             None,
         );
-        // Every slot of the product was memcpy'd from a source and
-        // owns nothing yet. With a view-typed source anywhere, the
-        // adopt kernel materializes each view and shares each
-        // owned string; otherwise the plain rc-inc walk.
-        let copied_from = if saw_views { Type::Substr } else { out_elem };
-        ctx.emit_adopt_copied_range(acc, copied_from, Operand::ConstI64(0), Operand::Value(len));
+        total = Operand::Value(summed);
     }
-    acc
+    let arr_ptr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_alloc, vec![total]),
+        Type::Arr(out_id),
+        None,
+    );
+    let dst = Operand::Value(arr_ptr);
+    // The kind bits a pairwise kernel used to copy from its sources
+    // derive from the static element type; mark them once (self-gates
+    // to nothing for scalar elements).
+    ctx.emit_arr_mark_kind(&dst);
+    let owned_slots = out_elem.is_refcounted();
+    copy_arr_range(ctx, &dst, recv_op, recv_elem, owned_slots);
+    for s in srcs {
+        match s.ty {
+            Type::Arr(sid) => {
+                let src_elem = ctx.arr_layouts[sid.0 as usize];
+                copy_arr_range(ctx, &dst, s.op.clone(), src_elem, owned_slots);
+            }
+            _ => {
+                let push_arg = ctx.raw_slot_arg(s.op.clone());
+                ctx.f.append_void(
+                    ctx.cur_block,
+                    InstKind::Call(
+                        ctx.intrinsics.arr_push_unchecked,
+                        vec![dst.clone(), push_arg],
+                    ),
+                );
+                // The slot needs a stake: an owned temp's (or a minted
+                // copy's) moves in, a borrow's owner keeps its own so
+                // the slot incs.
+                if owned_slots && !s.minted && !ctx.expr_transfers_ownership(s.eid) {
+                    ctx.emit_owned_result_inc(s.op.clone(), out_elem);
+                }
+            }
+        }
+        ctx.unpark_owned_temp(s.tok);
+        // An array source was only read from; its stake is settled
+        // here iff the argument was an owned temp. A scalar's moved
+        // into the slot above.
+        if matches!(s.ty, Type::Arr(_)) {
+            ctx.release_owned_temp(s.eid, &s.op);
+        }
+    }
+    dst
+}
+
+fn load_len(ctx: &mut LowerCtx<'_>, arr: Operand) -> crate::ssa::ValueId {
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, arr, ARR_LEN_OFF),
+        Type::I64,
+        None,
+    )
+}
+
+/// Append every slot of `src` to `dst` (capacity pre-summed) and, for
+/// a refcounted product, adopt the copied range by the SOURCE's
+/// element type — a view source materializes, an owned source incs.
+fn copy_arr_range(
+    ctx: &mut LowerCtx<'_>,
+    dst: &Operand,
+    src: Operand,
+    src_elem: Type,
+    owned_slots: bool,
+) {
+    let old_len = owned_slots.then(|| load_len(ctx, dst.clone()));
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_extend_unchecked, vec![dst.clone(), src]),
+    );
+    if let Some(old) = old_len {
+        let new_len = load_len(ctx, dst.clone());
+        ctx.emit_adopt_copied_range(
+            dst.clone(),
+            src_elem,
+            Operand::Value(old),
+            Operand::Value(new_len),
+        );
+    }
 }
