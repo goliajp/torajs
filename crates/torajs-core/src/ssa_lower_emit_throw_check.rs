@@ -22,6 +22,7 @@
 use crate::ast::ExprId;
 use crate::ssa::{FuncId, IPred, InstKind, Operand, THROW_ACTIVE_SYM, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_temp_scratch::ThrowTemp;
 
 impl<'a> LowerCtx<'a> {
     /// Inline read of the in-flight-throw flag — `GlobalRef` to the
@@ -112,15 +113,15 @@ impl<'a> LowerCtx<'a> {
         // an owned call result dies here, and so does every temp
         // parked on `temps.throw_live` (rotation 549) — release
         // them first (result, then parked temps newest-first).
-        let live: Vec<(Operand, Type)> = self.temps.throw_live.iter().flatten().cloned().collect();
+        let live: Vec<ThrowTemp> = self.temps.throw_live.iter().flatten().cloned().collect();
         if let Some(catch) = self.try_stack.last().copied() {
             if owned.is_some() || !live.is_empty() {
                 self.cur_block = throw_blk;
                 if let Some((op, ty)) = owned {
                     self.emit_drop_value(op, ty);
                 }
-                for (op, ty) in live.iter().rev() {
-                    self.emit_drop_value(op.clone(), ty.clone());
+                for t in live.iter().rev() {
+                    self.emit_drop_throw_temp(t.clone());
                 }
                 let cb2 = self.cur_block;
                 self.f.set_term(cb2, Terminator::Br(catch));
@@ -137,8 +138,8 @@ impl<'a> LowerCtx<'a> {
             if let Some((op, ty)) = owned {
                 self.emit_drop_value(op, ty);
             }
-            for (op, ty) in live.iter().rev() {
-                self.emit_drop_value(op.clone(), ty.clone());
+            for t in live.iter().rev() {
+                self.emit_drop_throw_temp(t.clone());
             }
             self.emit_drops_for_owned_locals();
             let uncaught_fid = *self
@@ -159,8 +160,8 @@ impl<'a> LowerCtx<'a> {
             if let Some((op, ty)) = owned {
                 self.emit_drop_value(op, ty);
             }
-            for (op, ty) in live.iter().rev() {
-                self.emit_drop_value(op.clone(), ty.clone());
+            for t in live.iter().rev() {
+                self.emit_drop_throw_temp(t.clone());
             }
             self.emit_drops_for_owned_locals();
             let cb2 = self.cur_block;
@@ -181,8 +182,37 @@ impl<'a> LowerCtx<'a> {
     /// see `TempScratch::throw_live`. Returns the slot token for the
     /// matching [`Self::pop_throw_temp`].
     pub(crate) fn push_throw_temp(&mut self, op: Operand, ty: Type) -> usize {
-        self.temps.throw_live.push(Some((op, ty)));
+        self.temps.throw_live.push(Some(ThrowTemp::Value(op, ty)));
         self.temps.throw_live.len() - 1
+    }
+
+    /// Park a relocation slot — its current pointee is the temp (see
+    /// `ThrowTemp::DynobjSlot`).
+    pub(crate) fn push_throw_slot(&mut self, slot: ValueId) -> usize {
+        self.temps
+            .throw_live
+            .push(Some(ThrowTemp::DynobjSlot(slot)));
+        self.temps.throw_live.len() - 1
+    }
+
+    /// Throw-path release of one parked temp — the value's typed drop,
+    /// or the slot's live pointee through the tag-dispatched heap drop.
+    fn emit_drop_throw_temp(&mut self, t: ThrowTemp) {
+        match t {
+            ThrowTemp::Value(op, ty) => self.emit_drop_value(op, ty),
+            ThrowTemp::DynobjSlot(slot) => {
+                let p = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+                    Type::Ptr,
+                    None,
+                );
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.value_drop_heap, vec![Operand::Value(p)]),
+                );
+            }
+        }
     }
 
     /// Unpark — the temp's normal-path release site takes over from

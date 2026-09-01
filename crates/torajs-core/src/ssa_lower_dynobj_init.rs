@@ -215,6 +215,12 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Store(Operand::Value(dynobj), Operand::Value(slot), 0),
         );
+        // Rotation 549 — the fresh dynobj owns every field set so far
+        // and nothing owns IT until the literal answers: park the
+        // relocation slot so a throw inside a later field's lower
+        // drops the live block (`{ a: mk(i), b: boom() }` stranded the
+        // object and its fields per caught throw, 214MB over 600k).
+        let park = self.push_throw_slot(slot);
         // For each (name, value), set into the dynobj. Box value
         // first using the same scheme as box_to_any but inlined.
         for ((fname, fval_eid), fresh) in fields.into_iter().zip(lanes) {
@@ -364,6 +370,7 @@ impl<'a> LowerCtx<'a> {
             }
             self.emit_dynobj_field_value(slot, &fname, fval_eid, None, fresh);
         }
+        self.pop_throw_temp(park);
         // The live pointer — a set may have relocated the block.
         let out = self.load_dynobj(slot);
         Operand::Value(out)

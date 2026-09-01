@@ -3,7 +3,7 @@
 //! helper call, a may-throw lower of a sibling subexpression), moved
 //! out of `ssa_lower_ctx_struct.rs` as their own state family.
 
-use crate::ssa::{Operand, Type};
+use crate::ssa::{Operand, Type, ValueId};
 
 #[derive(Default)]
 pub(crate) struct TempScratch {
@@ -28,5 +28,17 @@ pub(crate) struct TempScratch {
     /// 600k of `try { Object.defineProperty({} as any, "p",
     /// badDesc) } catch {}` churned 175MB against a 1.9MB flat
     /// baseline.
-    pub(crate) throw_live: Vec<Option<(Operand, Type)>>,
+    pub(crate) throw_live: Vec<Option<ThrowTemp>>,
+}
+
+/// One parked temp: a value with its drop type, or a relocation slot
+/// whose CURRENT pointee is the temp — an object literal's dynobj
+/// resizes under its own per-field sets, so a parked pointer would go
+/// stale; the slot always holds the live block and the throw path
+/// loads it there (no hot-path cost: nothing is read on the normal
+/// path).
+#[derive(Clone)]
+pub(crate) enum ThrowTemp {
+    Value(Operand, Type),
+    DynobjSlot(ValueId),
 }

@@ -96,7 +96,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
         })
         .map(|(n, _)| n.clone())
         .collect();
-    let (mut field_tys, mut field_vals) = lower_field_entries(ctx, &fields, declared_hint);
+    let (mut field_tys, mut field_vals, parked) = lower_field_entries(ctx, &fields, declared_hint);
+    // Every field is lowered; nothing below can throw before the
+    // stores transfer the owned values into the object.
+    for t in parked {
+        ctx.pop_throw_temp(t);
+    }
     apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid);
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
         &mut ctx.struct_layouts,
@@ -197,7 +202,7 @@ fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
     entries: &[(String, ExprId)],
     declared_hint: Option<StructId>,
-) -> (Vec<(String, Type)>, Vec<Operand>) {
+) -> (Vec<(String, Type)>, Vec<Operand>, Vec<usize>) {
     // Chunk 785 — the outer declared layout also pins NESTED object
     // literals: a field whose declared type is a struct passes its
     // StructId down through the same take-once hint channel, so
@@ -210,6 +215,11 @@ fn lower_field_entries(
         declared_hint.map(|sid| ctx.struct_layouts[sid.0 as usize].clone());
     let mut field_tys: Vec<(String, Type)> = Vec::new();
     let mut field_vals: Vec<Operand> = Vec::new();
+    // Rotation 549 — an owned field value (call product, nested
+    // literal) is alive across every later field's lower; park it so
+    // a throw there drops it (`{ a: mk(i), b: boom() }` on the struct
+    // lane stranded the value per caught throw, 40MB over 600k).
+    let mut parked: Vec<usize> = Vec::new();
     for (n, eid) in entries {
         // RFC 20260725-objlit-computed-key 刀 1 — a computed key has
         // no static field name, so the struct lane cannot place it;
@@ -239,9 +249,10 @@ fn lower_field_entries(
             declared_field_ty,
             &mut field_tys,
             &mut field_vals,
+            &mut parked,
         );
     }
-    (field_tys, field_vals)
+    (field_tys, field_vals, parked)
 }
 
 /// `omit` — the destructuring-rest desugar's excluded keys
@@ -322,6 +333,7 @@ fn lower_regular_field(
     declared_field_ty: Option<Type>,
     field_tys: &mut Vec<(String, Type)>,
     field_vals: &mut Vec<Operand>,
+    parked: &mut Vec<usize>,
 ) {
     // Chunk 785 — forward the declared struct layout to a nested
     // ObjectLit field value (see `lower_field_entries`).
@@ -332,6 +344,9 @@ fn lower_regular_field(
     }
     let v = ctx.lower_expr(eid);
     ctx.let_declared_obj_layout = None;
+    if let Some((op, ty)) = ctx.throw_temp_of(eid, &v) {
+        parked.push(ctx.push_throw_temp(op, ty));
+    }
     let ty = ctx.operand_ty(&v);
     // Peel value-transparent `As` wrappers before judging borrow-ness:
     // `lower_as_cast` is IDENTITY for an Any-typed source (the borrow
