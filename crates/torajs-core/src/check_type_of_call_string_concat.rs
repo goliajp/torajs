@@ -53,7 +53,14 @@ pub(crate) fn try_match(
                 Ok(t) => t,
                 Err(e) => return Some(Err(e)),
             };
-            if matches!(aty, Type::Undefined) {
+            // §22.1.3.5 step 3.b ToString's every argument — an Any
+            // actual (a String wrapper object, a boxed primitive) is
+            // admitted here exactly as the arity-1 general-table path
+            // admits it; the lower dispatch routes it through
+            // `any_to_str_box`. Rejecting it only on the variadic
+            // spelling made `s.concat(Object(5), "z")` a type error
+            // while `s.concat(Object(5))` compiled (552-02).
+            if matches!(aty, Type::Undefined | Type::Any) {
                 continue;
             }
             if aty != Type::String {
