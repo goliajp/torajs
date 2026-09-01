@@ -22,9 +22,8 @@
 //!   into `iter_slot` and step it through the MapIter lane below.
 //! - **`Tag::MapIter` / `Tag::ArrIter`** — the cell carries its own
 //!   cursor; route through the `*_iter_step` kernels. Step payloads
-//!   come out borrowed (ENTRIES pair arrays pre-decremented to 0),
-//!   so `payload_rc_inc` converts to owned before boxing — the same
-//!   ledger the C4+ `next()` arm uses.
+//!   arrive OWNED (each kernel says so per arm) — the box adopts
+//!   them, no inc (rotation 543's `next()`-twin ledger; 548-01).
 //! - **`Tag::Obj`** — a class instance (a generator object, or any
 //!   user class declaring `[Symbol.iterator]()`). ES §7.4.3
 //!   GetIterator: call the receiver's `[Symbol.iterator]()` once,
@@ -52,14 +51,13 @@ use crate::iter_any_step::step_derived_iterator;
 use crate::method_call::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_int32, is_short_str};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
-use crate::payload_rc_inc;
 use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {
-    /// torajs-collections — MapIter cursor advance (out pair is a
-    /// borrow; ENTRIES pair arrays come back pre-decremented to 0).
+    /// torajs-collections — MapIter cursor advance. The out pair is
+    /// OWNED (cells +1'd by the kernel, ENTRIES pairs fresh at rc 1).
     fn __torajs_map_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
-    /// torajs-arr — ArrIter cursor advance (same out-pair contract).
+    /// torajs-arr — ArrIter cursor advance (same OWNED out contract).
     fn __torajs_arr_iter_step(p: *mut c_void, out_tag: *mut i64, out_payload: *mut i64) -> i64;
     /// torajs-collections — mint an ENTRIES-kind MapIter (a Map's
     /// default iterator). Answers a fresh cell at rc 1 and rc_inc's
@@ -462,9 +460,11 @@ pub(crate) unsafe fn iter_next_inner(
                 *out = VALUE_UNDEFINED;
                 return 0;
             }
-            // Step payloads are borrows — convert to owned before
-            // boxing (ENTRIES pre-decrement lands the pair at 1).
-            payload_rc_inc(tag, payload);
+            // Step payloads arrive OWNED (each kernel's arms say
+            // so); rotation 543 deleted this same surplus inc from
+            // the `next()` twins in method_call_mapset — this third
+            // consumer kept it and double-staked every yielded heap
+            // value (548-01: one pair array leaked per entries step).
             *out = __torajs_anyv_box_from_pair(tag, payload);
             // Sync lane under `for await` — same §27.1.4.4 value
             // await as the indexed lane above.
