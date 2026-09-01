@@ -158,7 +158,14 @@ pub(super) fn widenable_fn_decl(ast: &Ast, name: &str, i: usize) -> bool {
                 && type_params.is_empty()
                 && !*is_generator
                 && params.first().is_none_or(|p| p.name != "__env")
-                && params.iter().all(|p| !p.is_rest)
-                && i < params.len())
+                && i < params.len()
+                // Only the slot being widened has to be non-rest: its
+                // annotation is rewritten to a scalar `any` / `any[]`,
+                // which is not what a rest slot means. The others ride
+                // the clone unchanged, and that shape is one the lane
+                // already serves — spelling the widened slot `any` by
+                // hand next to a `...rest` param works today, which is
+                // exactly what the clone produces.
+                && params.get(i).is_some_and(|p| !p.is_rest))
     })
 }
