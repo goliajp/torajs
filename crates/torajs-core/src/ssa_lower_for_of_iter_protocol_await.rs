@@ -33,7 +33,7 @@ pub(crate) fn awaited_step_ty(ctx: &mut LowerCtx<'_>, next_fn: &str) -> Option<T
         _ => None,
     })?;
     let inner = declared.strip_prefix("Promise<")?.strip_suffix('>')?;
-    Some(parse_type(
+    let parsed = parse_type(
         Some(inner),
         ctx.aliases,
         ctx.arr_layouts,
@@ -41,6 +41,25 @@ pub(crate) fn awaited_step_ty(ctx: &mut LowerCtx<'_>, next_fn: &str) -> Option<T
         ctx.generic_struct_decls,
         ctx.struct_layouts,
         ctx.inst_memo,
+    );
+    // The sync lane reaches its step struct as the step method's
+    // declared return type, so it takes the width injection every
+    // annotation-consuming site takes. This one arrives wrapped in
+    // `Promise<...>`, which is type-erased, so `widen_container_ty`
+    // saw a `Type::Promise` and passed it through — the read came back
+    // as the parse-default `value: I64` while the literal that built
+    // the step had widened, and an integer yield read back as its own
+    // f64 bit pattern (552-04: a `try`/`finally` generator ANYWHERE in
+    // the program floats the shared `{value, done}` class). The key is
+    // the step method's own `Ret`, the same one the sync lane uses.
+    Some(crate::ssa_lower_container_width::widen_container_ty(
+        parsed,
+        Some(inner),
+        &crate::num_width::SlotKey::Ret(next_fn.to_string()),
+        ctx.num_f64_slots,
+        ctx.arr_layouts,
+        ctx.struct_layouts,
+        ctx.fn_sigs,
     ))
 }
 

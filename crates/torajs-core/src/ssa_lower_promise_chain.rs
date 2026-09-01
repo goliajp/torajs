@@ -90,6 +90,27 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 }
                 Some(t)
             }
+            // A struct payload's faces are the struct's own fields.
+            // Without this arm an async generator's `{value, done}`
+            // step read back at the parse default while the literal
+            // that built it had widened, so an integer yield came out
+            // as its own f64 bit pattern (552-04). The sync lane never
+            // showed it: its step struct arrives as a plain declared
+            // return type and takes the ordinary width injection.
+            Some(t @ Type::Obj(_)) => {
+                let mut t = t;
+                for k in self.promise_obj_keys(obj) {
+                    t = crate::ssa_lower_container_width::widen_struct_fields(
+                        t,
+                        &k,
+                        self.num_f64_slots,
+                        self.arr_layouts,
+                        self.struct_layouts,
+                        self.fn_sigs,
+                    );
+                }
+                Some(t)
+            }
             other => other,
         }
     }
