@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T01:37:58.068Z",
+  "generatedAt": "2026-09-01T05:54:58.382Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T01:25:57Z",
-    "headSha": "19904b729",
-    "elapsedSec": 645.57,
+    "ranAt": "2026-09-01T05:54:37Z",
+    "headSha": "264e9f61e",
+    "elapsedSec": 588.48,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 73.95
   },
   "torajs": {
-    "commit": "19904b729",
-    "commitSubject": "fix: any-lane iterator steps double-stake every yielded heap value",
+    "commit": "264e9f61e",
+    "commitSubject": "fix: object literals strand the fresh object and lowered fields on a sibling field's throw",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,30 @@
   },
   "commits": [
     {
+      "hash": "264e9f61e",
+      "subject": "fix: object literals strand the fresh object and lowered fields on a sibling field's throw"
+    },
+    {
+      "hash": "b120606bc",
+      "subject": "fix: call arguments and array-literal elements strand owned temps on a sibling's throw"
+    },
+    {
+      "hash": "ec90162cf",
+      "subject": "fix: const-bound arrow taking a fn-typed param dispatched the closure cell as code"
+    },
+    {
+      "hash": "7ef5c9930",
+      "subject": "fix: define-family throw paths strand every owned temp alive at the throw"
+    },
+    {
+      "hash": "1605f536e",
+      "subject": "refactor: move argv owned-temp parking into TempScratch sibling struct"
+    },
+    {
+      "hash": "68ba49f23",
+      "subject": "chore: rotation 548 test262 sweep ingest and dashboard snapshot"
+    },
+    {
       "hash": "19904b729",
       "subject": "fix: any-lane iterator steps double-stake every yielded heap value"
     },
@@ -743,51 +767,38 @@
     {
       "hash": "009f7f157",
       "subject": "chore: rotation 547 test262 sweep ingest and dashboard snapshot"
-    },
-    {
-      "hash": "886522cba",
-      "subject": "fix: any-lane object probes in torajs-rc leak ShortStr materializations, isFrozen answers primitives wrong"
-    },
-    {
-      "hash": "cd17b966e",
-      "subject": "fix: probe and borrow paths abandoning ShortStr materializations"
-    },
-    {
-      "hash": "af9dac28b",
-      "subject": "fix: pair-shaped payload_rc_inc double-staked ShortStr materializations"
-    },
-    {
-      "hash": "a99b9de6b",
-      "subject": "refactor: move preinfer_closure_sigs to the closure sibling, extract backfill helper"
-    },
-    {
-      "hash": "8381e035f",
-      "subject": "feat: promoted method-bearing literals take the anylane receiver stamp"
-    },
-    {
-      "hash": "f28bf36d6",
-      "subject": "chore: rotation 546 test262 sweep ingest and dashboard snapshot"
     }
   ],
-  "headSha": "19904b729",
+  "headSha": "264e9f61e",
   "autorun": {
-    "total": 851,
+    "total": 852,
     "baselineTarget": 10,
-    "bySelf": 846,
+    "bySelf": 847,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788213205-19e0",
-      "at": "2026-08-31T21:53:25Z",
-      "ts": 1788213205,
+      "rotationId": "r-1788226765-33e9",
+      "at": "2026-09-01T01:39:25Z",
+      "ts": 1788226765,
       "trigger": "self",
-      "prevHead": "009f7f157",
-      "handoffSha": "sha256:fcef45bf6a6387c9b6b7deedb429889e182fb08b9df38a75b3c574e1bd6f7daf",
+      "prevHead": "68ba49f23",
+      "handoffSha": "sha256:c0dfe5977d5f175897ae306196fb67f7ed157fb38bc7cb24b7fff366d511ab24",
       "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788226765-33e9",
+        "at": "2026-09-01T01:39:25Z",
+        "ts": 1788226765,
+        "trigger": "self",
+        "prevHead": "68ba49f23",
+        "handoffSha": "sha256:c0dfe5977d5f175897ae306196fb67f7ed157fb38bc7cb24b7fff366d511ab24",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788213205-19e0",
         "at": "2026-08-31T21:53:25Z",
@@ -884,17 +895,6 @@
         "prevHead": "1d4c5f441",
         "handoffSha": "sha256:65d3441072674bcadbc0c27d87a0a0a353d603763a87209dcd34071d777978fb",
         "handoffAgeSec": 11,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788123384-4992",
-        "at": "2026-08-30T20:56:24Z",
-        "ts": 1788123384,
-        "trigger": "self",
-        "prevHead": "9a28b403f",
-        "handoffSha": "sha256:ab558b299115f3f43e2bbdb2ea5dfa9a7dfd8d22712f189ccbf86b1e5448d3d5",
-        "handoffAgeSec": 36,
         "conformanceBefore": null,
         "commitsInSession": null
       }
