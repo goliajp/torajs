@@ -119,10 +119,25 @@ fn collect_unbounded_values(func: &Function) -> HashSet<u32> {
         .collect()
 }
 
+/// `call_sites` ascends (pushed in inst-slot order), so the first site
+/// past `start` is the only candidate for `(start, end)`. A linear
+/// `any` here cost O(calls) per interval — one call and one interval
+/// per element of a 65k-element array literal made that a 72s compile
+/// (555-01); the sweep is O(n log n) with the bisect.
 fn crosses_call(interval: Interval, call_sites: &[u32]) -> bool {
-    call_sites
-        .iter()
-        .any(|&p| interval.start < p && p < interval.end)
+    debug_assert!(call_sites.is_sorted());
+    let i = call_sites.partition_point(|&p| p <= interval.start);
+    call_sites.get(i).is_some_and(|&p| p < interval.end)
+}
+
+/// The param variant of [`crosses_call`]: a param defs at function
+/// ENTRY, before inst slot 0, so a call AT `start` clobbers its arg
+/// register too (the `p == start` exemption is sound only for a
+/// call's own result).
+fn crosses_call_from_entry(interval: Interval, call_sites: &[u32]) -> bool {
+    debug_assert!(call_sites.is_sorted());
+    let i = call_sites.partition_point(|&p| p < interval.start);
+    call_sites.get(i).is_some_and(|&p| p < interval.end)
 }
 
 /// Outgoing stack-arg area size — when any call site passes more than
@@ -206,9 +221,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // inline/slot-forward SSA exposed this: a param consumed
         // after a leading call read garbage from x1).
         let crossing = if param_arg_reg.contains_key(&vid) || stack_params.contains_key(&vid) {
-            call_sites
-                .iter()
-                .any(|&p| interval.start <= p && p < interval.end)
+            crosses_call_from_entry(interval, &call_sites)
         } else if unbounded.contains(&vid) {
             // See `collect_unbounded_values`: the interval does not
             // bound this value's life, so treat it as crossing
@@ -229,7 +242,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
                 sweep.alloc_noncrossing(vid, interval, is_fp)
             };
             sweep.by_value.insert(vid, dst);
-            sweep.active.push((vid, interval, dst));
+            sweep.activate(vid, interval, dst);
             continue;
         }
 
@@ -249,7 +262,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             // sweep so a later `spill_at_active` eviction stays sound.
             let dst = sweep.alloc_crossing(vid, interval, is_fp);
             sweep.by_value.insert(vid, dst);
-            sweep.active.push((vid, interval, dst));
+            sweep.activate(vid, interval, dst);
             continue;
         }
 
@@ -269,7 +282,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             if crossing {
                 let dst = sweep.alloc_crossing(vid, interval, is_fp);
                 sweep.by_value.insert(vid, dst);
-                sweep.active.push((vid, interval, dst));
+                sweep.activate(vid, interval, dst);
                 continue;
             }
             let reg = if is_fp {
@@ -291,7 +304,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             sweep.alloc_noncrossing(vid, interval, is_fp)
         };
         sweep.by_value.insert(vid, reg);
-        sweep.active.push((vid, interval, reg));
+        sweep.activate(vid, interval, reg);
     }
 
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;

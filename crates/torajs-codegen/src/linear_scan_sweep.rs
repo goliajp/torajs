@@ -17,8 +17,14 @@ use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 pub(crate) struct Sweep {
     /// Final ValueId → register map being built.
     pub(crate) by_value: HashMap<u32, Reg>,
-    /// (ValueId, interval, reg) of every pool-backed live value.
-    /// Vec — N ≤ pool size, linear scan beats tree maintenance.
+    /// (ValueId, interval, reg) of every live value that HOLDS a pool
+    /// register. Vec — N ≤ pool size, linear scan beats tree
+    /// maintenance. A spilled value never enters (`activate`) and a
+    /// victim leaves as it spills: it holds no register, so `expire`
+    /// releases nothing for it and the victim scan skips it — keeping
+    /// it only made both scans O(live values), which a 65k-element
+    /// array literal (every element live to the final stores) turned
+    /// into a quadratic sweep (555-01).
     pub(crate) active: Vec<(u32, Interval, Reg)>,
     pub(crate) free_caller_gpr: VecDeque<Gpr>,
     pub(crate) free_callee_gpr: VecDeque<Gpr>,
@@ -52,6 +58,14 @@ impl Sweep {
             used_callee_gpr_mask: 0,
             used_callee_fpr_mask: 0,
             weights,
+        }
+    }
+
+    /// Record a live value's home; only a pool register joins the
+    /// active set (doc on `active`).
+    pub(crate) fn activate(&mut self, vid: u32, interval: Interval, reg: Reg) {
+        if !matches!(reg, Reg::SpillGpr(_) | Reg::SpillFpr(_)) {
+            self.active.push((vid, interval, reg));
         }
     }
 
@@ -212,7 +226,7 @@ impl Sweep {
                     Reg::SpillGpr(spill_off)
                 };
                 self.by_value.insert(victim_vid, spilled);
-                self.active[i].2 = spilled;
+                self.active.swap_remove(i);
                 victim_reg
             }
             _ => {
