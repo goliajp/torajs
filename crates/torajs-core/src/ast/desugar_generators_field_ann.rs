@@ -414,6 +414,23 @@ pub(super) fn collect_declared_fn_return_types(
             // stored through a number slot and surfaced as a raw
             // pointer error.
             Stmt::FnDecl { name, .. } => Some((name.clone(), "any".to_string())),
+            // 551-02 — a top-level `const s = (n): T => …` binding is
+            // called exactly like a declared fn, and its arrow's
+            // DECLARED return type answers the same question (this
+            // pass runs before lift_arrow_fns, so the init is still
+            // `Expr::ArrowFn`). Same declared-not-inferred rule: an
+            // unannotated arrow answers `any`. Absent from the map,
+            // the call declined and `const t = s(k)` across a yield
+            // took the `number` fallback — a String value through a
+            // Number field.
+            Stmt::LetDecl { name, init, .. } => match ast.get_expr(*init) {
+                Expr::ArrowFn {
+                    return_type: Some(rt),
+                    ..
+                } => Some((name.clone(), normalize_void(rt))),
+                Expr::ArrowFn { .. } => Some((name.clone(), "any".to_string())),
+                _ => None,
+            },
             _ => None,
         })
         .collect()
