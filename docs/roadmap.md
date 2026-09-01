@@ -1670,7 +1670,38 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `51a569ec0`** (2026-09-02, rotation 555 — guarded-union
+**Latest @ `7cf52c2f6`** (2026-09-02, rotation 556 — the any-widen lane
+serves a call through a top-level `const` closure binding, the
+template object is a site-cache borrow in every owned-temp predicate,
+and the 65k-pair Unicode case-mapping table compiles: two quadratic
+scans in the linear-scan sweep, the typed array literal built in
+place, loads and stores past the scaled-imm12 range on a register
+index). Gate predicate: **143** clusters of ≥ 4 holding **1130**
+cases, register 2 · 251, residue 465 · 624 (31.1%), core **2005**.
+Against rotation 555: clusters 143 → **143 (=)**, cases 1131 →
+**1130 (−1)**, core 2006 → **2005 (−1)**.
+
+Sweep passTotal 35363 → **35363 (=)**, pass 30190 (=), passNoOracle
+1026 (=), passNegative 4147 (=), bug 12453 → **12454 (+1)**,
+incompatible 5358 → **5357 (−1)**, trAccepted 47816 → **47817 (+1)**;
+conservation exact (+1 = 0 + +1). Verdict diff **1 changed, 0
+backward**: `staging/sm/String/string-upper-lower-mapping.js`
+`incompatible:tr-timeout` → `bug:exit 1` — the case that timed out at
+30s of compile now compiles and runs in 3.9s and reaches its
+assertion, where 2,054 code points mis-map (lone surrogates through
+`toUpperCase` / `toLowerCase`, and six Unicode 16/17 Latin letters
+the case table lacks — plan-state 556-05 / 556-06). Every other
+knife this rotation moved the TS-annotated surface (tag functions
+written as `const` arrows) or a runtime UAF the corpus never
+exercises twice at one site; zero test262 movement from them is the
+expected shape.
+
+Unattributed head by directory: `built-ins/Promise` 25,
+`built-ins/Uint8Array` 20, `built-ins/BigInt` 18, `built-ins/Date`
+16, `language/identifiers` 16. Coverage curve: top-100 **56.6%**,
+top-200 **74.6%**, top-400 **88.7%**.
+
+**Prior @ `51a569ec0`** (2026-09-02, rotation 555 — guarded-union
 activation asks for container evidence in canonical form, the
 `__nullable(` wrapper stops hiding fn-typed params from the
 closure-repr pass, and the any-widen lane stops refusing tag functions

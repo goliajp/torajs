@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T18:38:22.090Z",
+  "generatedAt": "2026-09-01T20:58:32.529Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T18:26:15Z",
-    "headSha": "51a569ec0",
-    "elapsedSec": 637.55,
+    "ranAt": "2026-09-01T20:56:56Z",
+    "headSha": "7cf52c2f6",
+    "elapsedSec": 874.62,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 1026,
     "passNegative": 4147,
     "passTotal": 35363,
-    "bug": 12453,
-    "incompatible": 5358,
+    "bug": 12454,
+    "incompatible": 5357,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47816,
+    "trAccepted": 47817,
     "passRateInScope": 66.5,
-    "passRateTrAccepted": 73.96
+    "passRateTrAccepted": 73.95
   },
   "torajs": {
-    "commit": "51a569ec0",
-    "commitSubject": "fix: the any-widen lane admits a tag function's template object",
+    "commit": "7cf52c2f6",
+    "commitSubject": "fix: loads and stores past the scaled-imm12 range ride a register index",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,34 @@
   },
   "commits": [
     {
+      "hash": "7cf52c2f6",
+      "subject": "fix: loads and stores past the scaled-imm12 range ride a register index"
+    },
+    {
+      "hash": "dcc87d8c7",
+      "subject": "fix: an all-empty nested literal keeps its any-flavored inner blocks"
+    },
+    {
+      "hash": "c0e8131f2",
+      "subject": "fix: a typed array literal is built in place, one element at a time"
+    },
+    {
+      "hash": "402e76abc",
+      "subject": "perf: the linear-scan sweep stops scanning what it cannot free"
+    },
+    {
+      "hash": "cf6934dd4",
+      "subject": "fix: the any-widen lane admits a call through a top-level const closure"
+    },
+    {
+      "hash": "23af729e1",
+      "subject": "fix: the template object is a site-cache borrow, not a fresh call result"
+    },
+    {
+      "hash": "9752eed78",
+      "subject": "chore: rotation 555 final sweep on 51a569ec0, zero verdict movement"
+    },
+    {
       "hash": "51a569ec0",
       "subject": "fix: the any-widen lane admits a tag function's template object"
     },
@@ -739,55 +767,38 @@
     {
       "hash": "41b25adb3",
       "subject": "refactor: the closure-repr retag moves to its own sibling"
-    },
-    {
-      "hash": "b4bea1df5",
-      "subject": "fix: guarded-union activation asks for container evidence in canonical form"
-    },
-    {
-      "hash": "299b34700",
-      "subject": "chore: rotation 554 test262 sweep ingest, P-SURF snapshot and dashboard"
-    },
-    {
-      "hash": "7c2c8c0f3",
-      "subject": "fix: a generator's element class joins its step's value class"
-    },
-    {
-      "hash": "70eef379b",
-      "subject": "fix: the closure-repr marking follows a value through the passthrough operators"
-    },
-    {
-      "hash": "da0f02a2c",
-      "subject": "fix: an async generator's step struct widens on the read side too"
-    },
-    {
-      "hash": "df3d74a3a",
-      "subject": "fix: a fn-typed param's signature widens by its own key when its spelling has no class"
-    },
-    {
-      "hash": "cf61e0df3",
-      "subject": "fix: a fn type's return is bracketed in the flat annotation"
     }
   ],
-  "headSha": "51a569ec0",
+  "headSha": "7cf52c2f6",
   "autorun": {
-    "total": 858,
+    "total": 859,
     "baselineTarget": 10,
-    "bySelf": 853,
+    "bySelf": 854,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788280695-46cd",
-      "at": "2026-09-01T16:38:15Z",
-      "ts": 1788280695,
+      "rotationId": "r-1788287993-6526",
+      "at": "2026-09-01T18:39:53Z",
+      "ts": 1788287993,
       "trigger": "self",
-      "prevHead": "299b34700",
-      "handoffSha": "sha256:141c3097384a501beb8f7a8efd11b4e7e1dc319203d7069ce44fcd40efde03cf",
-      "handoffAgeSec": 13,
+      "prevHead": "9752eed78",
+      "handoffSha": "sha256:9df53432c4cee86f0c1f56eb45e9dabccaec51a48b6980c9e9c7417f5e381dfb",
+      "handoffAgeSec": 3,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788287993-6526",
+        "at": "2026-09-01T18:39:53Z",
+        "ts": 1788287993,
+        "trigger": "self",
+        "prevHead": "9752eed78",
+        "handoffSha": "sha256:9df53432c4cee86f0c1f56eb45e9dabccaec51a48b6980c9e9c7417f5e381dfb",
+        "handoffAgeSec": 3,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788280695-46cd",
         "at": "2026-09-01T16:38:15Z",
@@ -884,17 +895,6 @@
         "prevHead": "f28bf36d6",
         "handoffSha": "sha256:270c65145174d2e1bcd7e8e56cc0a2bdebc898f13e97bb384cbd73ee72e5e413",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788196869-7c10",
-        "at": "2026-08-31T17:21:09Z",
-        "ts": 1788196869,
-        "trigger": "self",
-        "prevHead": "79a123eaa",
-        "handoffSha": "sha256:6272ea92d44c3f5e8e6ae53d06de23163a741ca0729c9e7d6b4e815646ad413a",
-        "handoffAgeSec": 21,
         "conformanceBefore": null,
         "commitsInSession": null
       }
