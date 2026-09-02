@@ -363,6 +363,14 @@ impl<'a> Parser<'a> {
             });
             return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
         }
+        // 564-02 — §8.4 NamedEvaluation: `D = class {}` names the
+        // anonymous class "D". Simple assignment to an Identifier
+        // only — a compound assign took the branch above, and a
+        // member / index target names nothing.
+        if let Expr::Ident(n) = self.ast.get_expr(target) {
+            let n = n.clone();
+            self.name_anonymous_class_expr(&n, value);
+        }
         Ok(self.ast.add_expr(Expr::Assign { target, value }))
     }
 

@@ -122,6 +122,12 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
             if let Some(init_expr) = init {
+                // 564-02 — §8.4 NamedEvaluation, the annotated-field
+                // twin of the untyped arm.
+                if let Some(key) = member_name.as_str() {
+                    let key = key.to_string();
+                    self.name_anonymous_class_expr(&key, init_expr);
+                }
                 field_inits.push((member_name.clone(), init_expr));
             }
             fields.push((member_name, ty));

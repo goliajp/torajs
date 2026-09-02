@@ -288,22 +288,40 @@ impl<'a> Parser<'a> {
     /// rebinding or reassignment of the name drops the alias and falls
     /// back to the dynamic path instead of silently binding the old
     /// class.
+    /// ES §8.4 NamedEvaluation — an anonymous class expression takes
+    /// the name of the binding it is assigned to. The parser has
+    /// already replaced the expression with its `__ClassExpr_<id>`
+    /// synth Ident, so a naming position records the user spelling
+    /// against that synth and `class_display_name` reads it back for
+    /// `.name`, the class-object print and the instance prefix.
+    /// First naming wins — a later alias of the same class does not
+    /// rename it. A class expression with its OWN BindingIdentifier
+    /// (`class Named {}`) never reaches here: the parser keeps that
+    /// name, and there is no synth to override.
+    pub(super) fn name_anonymous_class_expr(&mut self, name: &str, value: ExprId) {
+        let Expr::Ident(synth) = self.ast.get_expr(value) else {
+            return;
+        };
+        if !synth.starts_with("__ClassExpr_") {
+            return;
+        }
+        let synth = synth.clone();
+        self.ast
+            .class_expr_display_names
+            .entry(synth)
+            .or_insert_with(|| name.to_string());
+    }
+
     fn register_class_value_alias(&mut self, name: &str, init: ExprId) {
         let mut aliased = false;
         if let Expr::Ident(init_name) = self.ast.get_expr(init) {
             if init_name.starts_with("__ClassExpr_") {
                 self.class_value_aliases
                     .insert(name.to_string(), init_name.clone());
-                // RFC 20260714-dstr-residual blade 4 — ES §8.4.5
+                // RFC 20260714-dstr-residual blade 4 — ES §8.4
                 // NamedEvaluation: `let D = class {}` names the
-                // anonymous class expression by its binding (first
-                // binding wins; a later alias of the same synth class
-                // doesn't rename it).
-                let init_name = init_name.clone();
-                self.ast
-                    .class_expr_display_names
-                    .entry(init_name)
-                    .or_insert_with(|| name.to_string());
+                // anonymous class expression by its binding.
+                self.name_anonymous_class_expr(name, init);
                 aliased = true;
             } else if let Some(target) = self.class_value_aliases.get(init_name) {
                 let target = target.clone();

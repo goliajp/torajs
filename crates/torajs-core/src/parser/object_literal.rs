@@ -245,6 +245,13 @@ impl<'a> Parser<'a> {
             }
         }
         let value = self.parse_expr()?;
+        // 564-02 — §8.4 NamedEvaluation: `{ m: class {} }` names the
+        // anonymous class "m". A key that is not a plain string
+        // (a lone surrogate) names nothing.
+        if let Some(key) = name.as_str() {
+            let key = key.to_string();
+            self.name_anonymous_class_expr(&key, value);
+        }
         // RFC 20260725 (fn-expr field this) — a plain `function`
         // expression in a field position binds `this` to the
         // call-site receiver exactly like the method shorthand (the

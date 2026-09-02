@@ -458,6 +458,12 @@ impl<'a> Parser<'a> {
                 .readonly_fields
                 .insert((name.to_string(), member_name.clone()));
         }
+        // 564-02 — §8.4 NamedEvaluation: `class { inner = class {} }`
+        // names the anonymous class "inner".
+        if let Some(key) = member_name.as_str() {
+            let key = key.to_string();
+            self.name_anonymous_class_expr(&key, init);
+        }
         if is_static {
             static_init.push(StaticInit::Field(ast::StaticField {
                 name: member_name,

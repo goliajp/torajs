@@ -32,12 +32,28 @@ console.log(JSON.stringify(held[0].name), held[0], new held[0]());
 const D = class { inner = class Inner {} };
 console.log(JSON.stringify(new D().inner.name), new D().inner);
 
-// Still open, all measured here and none of them about the synth:
-//   564-02 — §8.4 NamedEvaluation at an ASSIGNMENT (`D = class {}` →
-//     "D"), at an object-literal PROPERTY (`{ m: class {} }` → "m")
-//     and at a class FIELD initializer (`{ inner = class {} }` →
-//     "inner"). tr answers "" for all three, which is the anonymous
-//     answer, not the synth.
+// 564-02 — the other §8.4 NamedEvaluation positions: an assignment,
+// an object-literal property, and a class field initializer. Each
+// names the anonymous class after the binding it lands in.
+let E: any;
+E = class { v = 5 };
+console.log(JSON.stringify(E.name), E, new E());
+
+const obj = { m: class { v = 6 }, n: class Q {} };
+console.log(JSON.stringify(obj.m.name), obj.m, new obj.m());
+console.log(JSON.stringify(obj.n.name));
+
+class Holder { inner = class {}; static outer = class {} }
+console.log(JSON.stringify(new Holder().inner.name), new Holder().inner);
+console.log(JSON.stringify(Holder.outer.name));
+
+// A member / index assignment target names nothing (§8.4 applies to
+// an IdentifierReference), and neither does a compound assign.
+const box: any = {};
+box.k = class { v = 7 };
+console.log(JSON.stringify(box.k.name), box.k);
+
+// Still open, measured here and not about the synth:
 //   564-03 — `console.log(class extends Object {})` prints
 //     `[class (anonymous)]` where bun prints
 //     `[class (anonymous) extends Object]`: the `extends` face names
