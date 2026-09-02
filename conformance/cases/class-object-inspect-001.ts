@@ -35,12 +35,15 @@ console.log(Z.prototype.constructor);
 // The prototype object itself still prints as an object.
 console.log(Z.prototype);
 
-// Two forms deliberately left out, both open:
-//   console.log(class {});      tr `[class __ClassExpr_<n>]`, bun
-//     `[class (anonymous)]` — 563-05: the desugar's synthetic name
-//     leaks into `.name` itself ((class {}).name is
-//     "__ClassExpr_0" where bun answers ""), so the printer is
-//     honest and the bug is upstream of it.
+// An anonymous class expression prints `[class (anonymous)]` — see
+// anonymous-class-name-001 (563-05, closed: the synthetic name no
+// longer reaches `.name`, this printer, or an instance's prefix).
+console.log(class {});
+
+// One form deliberately left out, still open:
 //   console.log(Array);         tr `[Function: Array]`, bun
 //     `[class Array]` — 563-06: a builtin constructor is not in the
-//     class registry this reads.
+//     class registry this reads. bun prints `[class X]` for nearly
+//     every builtin (`[class TypeError extends Error]`,
+//     `[class Uint8Array extends TypedArray]`) and
+//     `[Function: Promise]` for exactly one.
