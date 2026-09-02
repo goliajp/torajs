@@ -28,15 +28,14 @@
 //!
 //! v2 input is a **cp range list**, not individual cp. The expansion
 //! visits at most O(R · L) recursion frames where R is the post-split
-//! range count (a few × the length-plane / surrogate split count, ≤
-//! ~10 for `[^a]`) and L ≤ 4 is the UTF-8 length. Each frame emits at
+//! range count (a few × the length-plane split count, ≤ ~10 for
+//! `[^a]`) and L ≤ 4 is the UTF-8 length. Each frame emits at
 //! most three sub-Concats (head / middle / tail).
 //!
 //! ```text
 //! 1. cp_ranges_of(cc)             — walk cc.test_cp, emit sorted disjoint ranges
 //! 2. split_at_length_planes       — break each range at 0x80 / 0x800 / 0x10000
-//! 3. split_at_surrogates (len=3)  — pull out 0xD800..0xDFFF
-//! 4. emit_range_of_length(lo,hi,len)
+//! 3. emit_range_of_length(lo,hi,len)
 //!      lo_bytes = utf8_encode_cp(lo)
 //!      hi_bytes = utf8_encode_cp(hi)
 //!      emit_byte_recurse(lo_bytes, hi_bytes, prefix=[], out)
@@ -57,11 +56,18 @@
 //!
 //! ## Boundary correctness (overlong / surrogate)
 //!
-//! Four leading bytes have constrained second-byte ranges:
+//! Three leading bytes have constrained second-byte ranges:
 //! `0xE0 → 0xA0..0xBF` (else overlong < U+0800),
-//! `0xED → 0x80..0x9F` (else surrogate),
 //! `0xF0 → 0x90..0xBF` (else overlong < U+10000),
 //! `0xF4 → 0x80..0x8F` (else > U+10FFFF).
+//!
+//! `0xED → 0xA0..0xBF` is deliberately NOT excluded. A JS string is a
+//! sequence of UTF-16 code units (§6.1.4), so a lone surrogate is a
+//! value, and the haystack transcoder (`str_helpers::str_slice`)
+//! spells it as the generalized three-byte form — WTF-8. A negated
+//! class must accept it the way `/./u` and a literal `/\uD83D/u`
+//! already do: `/[^]/u.exec("\uD83D")` is `["\ud83d"]`, and `/\S/u`
+//! matches it too.
 //!
 //! The recursion handles these *implicitly* because the cp range
 //! splits put each constrained lead at the head / tail of a sub-range
@@ -189,24 +195,16 @@ fn byte_steppable(cc: &CharClass, uflag: bool) -> bool {
 /// `test_fold` had nothing left to reject. Folding first also leaves
 /// the set closed under the ASCII case pair, so that later
 /// `test_fold` is a no-op rather than a second, wrong fold.
-/// Surrogate cp (`U+D800..U+DFFF`) are
-/// skipped — UCD tables don't list them and `bits` only reaches the
-/// first 256 cp, but `cc.negate` could synthesise them via inversion.
-/// Encoding surrogate cp via [`utf8_encode_cp`] produces invalid
-/// UTF-8 that never appears in well-formed haystacks, so dropping
-/// them costs nothing.
+/// Surrogate cp (`U+D800..U+DFFF`) are walked like any other: no
+/// UCD table lists them and `bits` only reaches the first 256 cp, so
+/// only `cc.negate` (`[^…]`, `\S`, `\W`, `\D`) admits them — and it
+/// must, because the haystack carries a lone surrogate as its WTF-8
+/// three-byte form (see the module doc).
 fn cp_ranges_of(cc: &CharClass, ci: bool) -> Vec<(u32, u32)> {
     let mut out: Vec<(u32, u32)> = Vec::new();
     let mut start: Option<u32> = None;
     let mut cp: u32 = 0;
     while cp <= 0x10_FFFF {
-        if cp == 0xD800 {
-            if let Some(s) = start.take() {
-                out.push((s, 0xD7FF));
-            }
-            cp = 0xE000;
-            continue;
-        }
         if cc.test_cp_fold(cp as i32, ci) {
             if start.is_none() {
                 start = Some(cp);
@@ -230,9 +228,9 @@ const LEN_BOUNDS: [(u32, u32); 4] = [
 ];
 
 /// Sub-ranges of `ranges` that encode in `len` UTF-8 bytes, clipped
-/// to the length window. For `len == 3`, the surrogate gap is split
-/// out so the per-range recursion never sees surrogate-encoding
-/// byte sequences (`0xED 0xA0..0xBF`).
+/// to the length window. The surrogate gap is NOT split out of the
+/// three-byte window: `0xED 0xA0..0xBF` is how the haystack spells a
+/// lone surrogate (WTF-8), so a range that spans the gap must emit it.
 fn ranges_in_len(ranges: &[(u32, u32)], len: u8) -> Vec<(u32, u32)> {
     let (wlo, whi) = LEN_BOUNDS[(len - 1) as usize];
     let mut out: Vec<(u32, u32)> = Vec::new();
@@ -242,18 +240,7 @@ fn ranges_in_len(ranges: &[(u32, u32)], len: u8) -> Vec<(u32, u32)> {
         if lo > hi {
             continue;
         }
-        if len == 3 && lo <= 0xD7FF && hi >= 0xD800 {
-            // Split across the surrogate gap; the right half starts at
-            // 0xE000 (cp_ranges_of already drops surrogates, but if a
-            // future caller passes raw ranges that include the gap,
-            // this keeps the recursion safe).
-            out.push((lo, 0xD7FF));
-            if hi >= 0xE000 {
-                out.push((0xE000.max(lo), hi));
-            }
-        } else {
-            out.push((lo, hi));
-        }
+        out.push((lo, hi));
     }
     out
 }
@@ -490,7 +477,8 @@ mod tests {
 
     #[test]
     fn negate_single_cp_accepts_full_minus_one() {
-        // `[^a]u` — accept set = all cp except `a` (and surrogates).
+        // `[^a]u` — accept set = all cp except `a`, lone surrogates
+        // included (the haystack spells them as WTF-8).
         let mut cc = CharClass::new();
         cc.add(b'a');
         cc.negate = true;
@@ -504,9 +492,14 @@ mod tests {
         for cp in [0x00A9u32, 0x4E2D, 0x10000, 0x1F600] {
             assert!(accept_cp(&node, cp), "cp 0x{cp:X} should accept");
         }
-        // Surrogate cp produces invalid UTF-8 — naturally rejected
-        // (the haystack never carries those bytes, so this is sound).
-        // The expansion's accept set has no surrogate representation.
+        // A lone surrogate is a code unit the haystack can carry, so
+        // the negated class accepts its WTF-8 spelling.
+        for cp in [0xD800u32, 0xD83D, 0xDC38, 0xDFFF] {
+            assert!(
+                accept_cp(&node, cp),
+                "lone surrogate 0x{cp:X} should accept"
+            );
+        }
         // Concat count stays bounded — `[^a]u` expands to ~70 Concats
         // across the four length planes (1-byte split into two sub-
         // ranges, 2-byte / 3-byte / 4-byte each emit head + middle +
@@ -566,17 +559,13 @@ mod tests {
         assert!(expand_unsafe_class(&small_neg, true, false).is_some());
     }
 
+    /// `[^]` is every code unit — the surrogate gap included, since
+    /// a lone surrogate is a value the haystack can carry.
     #[test]
-    fn cp_ranges_skip_surrogate_gap() {
+    fn cp_ranges_of_empty_negated_class_is_the_whole_cp_space() {
         let mut cc = CharClass::new();
         cc.negate = true;
-        let ranges = cp_ranges_of(&cc, false);
-        for &(lo, hi) in &ranges {
-            assert!(
-                hi < 0xD800 || lo > 0xDFFF,
-                "range ({lo:#x}, {hi:#x}) intrudes into surrogate gap"
-            );
-        }
+        assert_eq!(cp_ranges_of(&cc, false), vec![(0u32, 0x10_FFFF)]);
     }
 
     #[test]
@@ -587,8 +576,8 @@ mod tests {
         let two_byte = ranges_in_len(&ranges, 2);
         assert_eq!(two_byte, vec![(0x80u32, 0x7FF)]);
         let three_byte = ranges_in_len(&ranges, 3);
-        // Split at surrogate gap
-        assert_eq!(three_byte, vec![(0x800u32, 0xD7FF), (0xE000u32, 0xFFFF)]);
+        // The surrogate gap stays inside the window (WTF-8 haystack)
+        assert_eq!(three_byte, vec![(0x800u32, 0xFFFF)]);
         let four_byte = ranges_in_len(&ranges, 4);
         assert_eq!(four_byte, vec![(0x1_0000u32, 0x10_FFFF)]);
     }
