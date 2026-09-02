@@ -11,8 +11,11 @@
 //!   class, appended to the strings vec under
 //!   `__torajs_class_name_str_<tag>`.
 //! - `build_fn_name_globals`: `ssa::Module.fn_name_globals` →
-//!   `UserFnNameEntry` Vec keyed on existing `__torajs_str_dyn_<sid>`
-//!   alias from the strings table.
+//!   `UserFnNameEntry` Vec keyed on the existing `__torajs_str_lit_<sid>`
+//!   Str CELL from the strings table (rotation 560: the row points at
+//!   the cell, not its payload, so the runtime reads the name's
+//!   encoding off the header — a UTF-16 name printed as half its
+//!   bytes under the payload alias).
 
 use torajs_core::ssa::{FuncId, Module, Type};
 use torajs_link::exec::{
@@ -88,7 +91,7 @@ pub fn build_class_names(
 }
 
 /// Pair each `fn_name_globals` entry with its existing
-/// `__torajs_str_dyn_<sid>` alias from the strings table (interned
+/// `__torajs_str_lit_<sid>` Str cell from the strings table (interned
 /// upstream at SSA-lower time).
 pub fn build_fn_name_globals(ssa_module: &Module) -> Vec<UserFnNameEntry> {
     ssa_module
@@ -96,10 +99,10 @@ pub fn build_fn_name_globals(ssa_module: &Module) -> Vec<UserFnNameEntry> {
         .iter()
         .map(|e| UserFnNameEntry {
             fn_addr_sym: format!("__torajs_fn_{}", e.fn_id.0),
-            name_ptr_sym: format!("__torajs_str_dyn_{}", e.name_sid.0),
+            name_ptr_sym: format!("__torajs_str_lit_{}", e.name_sid.0),
             name_len: e.name.chars().count() as u32,
             arity: e.arity,
-            src_ptr_sym: e.src_sid.map(|sid| format!("__torajs_str_dyn_{}", sid.0)),
+            src_ptr_sym: e.src_sid.map(|sid| format!("__torajs_str_lit_{}", sid.0)),
             src_len: e.src_len,
         })
         .collect()

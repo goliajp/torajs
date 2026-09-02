@@ -12,7 +12,8 @@
 //!     ```text
 //!       +0..7   : fn_addr   u64 (link-time chain-fixup target)
 //!       +8..15  : name_ptr  *const u8 (link-time chain-fixup target
-//!                                       to __TEXT,__cstring entry)
+//!                                       to the name's static Str
+//!                                       cell, header at +0)
 //!       +16..19 : name_len  u32
 //!       +20..23 : arity     u32 (ES-spec Function.length, chunk 716)
 //!       +24..31 : src_ptr   *const u8 (chain-fixup target to the
@@ -47,23 +48,25 @@ pub struct FnNameTableEntryLayout {
     /// `__torajs_fn_<fid>` alias sym (resolves to the user fn's
     /// vaddr after `register_fn_addr_syms`).
     pub fn_addr_sym: String,
-    /// `__torajs_str_dyn_<sid>` alias sym (RawBytes flavour
-    /// registered by `apply_user_string_overrides`). Resolves
-    /// to the raw char payload's vaddr — no 16-byte Str header
-    /// in front, so the runtime helper can `putc` each byte
-    /// directly. The user_strings_layout substrate places the
-    /// actual bytes; we just need the sym for the chain-fixup.
+    /// `__torajs_str_lit_<sid>` sym — the name's static Str CELL
+    /// (header at +0, `len` at +8, payload at +16), registered by
+    /// `apply_user_string_overrides`. The runtime reads the
+    /// encoding and length off the cell and hands the cell itself
+    /// out as the immortal `.name` answer (rotation 560; the
+    /// pre-560 row pointed at the payload alias, whose bytes carry
+    /// no encoding).
     pub name_ptr_sym: String,
-    /// Code-unit count per ES `String.length`. Lives in the
-    /// `name_len: u32` field (NOT a chain-fixup target).
+    /// Code-point count of the name — informational; the runtime
+    /// takes the length off the cell. Lives in the `name_len: u32`
+    /// field (NOT a chain-fixup target).
     pub name_len: u32,
     /// ES-spec `Function.length` (chunk 716) — written into the
     /// entry's former `_pad: u32` slot (literal value, no chain
     /// fixup).
     pub arity: u32,
-    /// RFC 20260719-fn-tostring-source B3b — `__torajs_str_dyn_<sid>`
-    /// alias for the type-erased source text (RawBytes flavour, same
-    /// substrate as `name_ptr_sym`). `None` writes a literal NULL
+    /// RFC 20260719-fn-tostring-source B3b — `__torajs_str_lit_<sid>`
+    /// cell of the type-erased source text (same shape as
+    /// `name_ptr_sym`). `None` writes a literal NULL
     /// `src_ptr` slot with NO chain-fixup link value consumed and no
     /// rebase target emitted.
     pub src_ptr_sym: Option<String>,

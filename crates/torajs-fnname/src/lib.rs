@@ -101,6 +101,11 @@ unsafe extern "C" {
     // [Function].
     fn __torajs_str_is_undef(p: *const u8) -> i64;
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    /// torajs-str — fresh Str decoded from WTF-8 bytes.
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    /// torajs-str — a Str cell's WTF-8 spelling into `buf[..cap]`,
+    /// answering the full length (NULL / 0 just measures).
+    fn __torajs_str_wtf8_into(s: *const u8, buf: *mut u8, cap: u32) -> u32;
     fn __torajs_str_undef() -> *mut u8;
 }
 
@@ -119,32 +124,23 @@ const ANON: &[u8] = b"[Function]";
 // is unambiguous (registry-synthesized only).
 const BOUND_MARK: &[u8] = b"bound ";
 
-/// Strip the `bound ` SetFunctionName marker for the print faces.
+/// A registry Str cell's WTF-8 spelling — the row points at the
+/// literal's cell, so the encoding travels with the name (rotation
+/// 560; the pre-560 payload pointer read a UTF-16 name as half its
+/// bytes).
 ///
 /// # Safety
-/// `name_ptr` points at `name_len` readable bytes.
-unsafe fn print_face_name(name_ptr: *const u8, name_len: u32) -> (*const u8, u32) {
-    if (name_len as usize) > BOUND_MARK.len() {
-        let mut is_bound = true;
-        for (j, &b) in BOUND_MARK.iter().enumerate() {
-            // Safety: j < BOUND_MARK.len() < name_len.
-            if unsafe { *name_ptr.add(j) } != b {
-                is_bound = false;
-                break;
-            }
-        }
-        if is_bound {
-            // Safety: BOUND_MARK.len() < name_len keeps the tail
-            // pointer in-bounds with a nonzero remaining length.
-            return unsafe {
-                (
-                    name_ptr.add(BOUND_MARK.len()),
-                    name_len - BOUND_MARK.len() as u32,
-                )
-            };
-        }
-    }
-    (name_ptr, name_len)
+/// `cell` is a live static Str cell.
+unsafe fn spelling(cell: *const u8) -> Vec<u8> {
+    let n = unsafe { __torajs_str_wtf8_into(cell, core::ptr::null_mut(), 0) };
+    let mut buf = vec![0u8; n as usize];
+    unsafe { __torajs_str_wtf8_into(cell, buf.as_mut_ptr(), n) };
+    buf
+}
+
+/// Strip the `bound ` SetFunctionName marker for the print faces.
+fn print_face_name(name: &[u8]) -> &[u8] {
+    name.strip_prefix(BOUND_MARK).unwrap_or(name)
 }
 
 /// Look up `fn_addr` in `__torajs_fn_name_table[]` and emit either
@@ -164,9 +160,11 @@ unsafe fn print_face_name(name_ptr: *const u8, name_len: u32) -> (*const u8, u32
 /// only.
 /// Look up `fn_addr` in `__torajs_fn_name_table[]` — the shared
 /// walk behind the print helper and the `.name` / `.length`
-/// reflection reads (chunk 716). Hit: returns the raw name bytes
-/// pointer and stores the code-unit length / ES-spec arity through
-/// the out params. Miss: returns NULL (out params untouched).
+/// reflection reads (chunk 716). Hit: returns the name's static
+/// Str CELL (immortal — a caller may hand it out as an owned Str,
+/// its drop is a no-op) and stores the row's code-point count /
+/// ES-spec arity through the out params. Miss: returns NULL (out
+/// params untouched).
 ///
 /// # Safety
 /// `fn_addr` is compared, never dereferenced; `out_len` / `out_arity`
@@ -212,33 +210,17 @@ pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
     }
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
-    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    let cell = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
     // B3c — anonymous rows (empty name, registered so `src_ptr` /
     // arity can answer) print the same `[Function]` form as a miss.
-    let hit = if name_ptr.is_null() || name_len == 0 {
-        None
-    } else {
-        Some((name_ptr, name_len))
-    };
-    match hit {
-        Some((name_ptr, name_len)) => {
-            let (name_ptr, name_len) = unsafe { print_face_name(name_ptr, name_len) };
-            emit_bytes(PREFIX);
-            // Safety: `name_ptr` resolves to `__torajs_str_dyn_<sid>`'s
-            // payload byte range; `name_len` is the ECMA String.length
-            // (Latin-1 = byte count; UTF-16 = code units = name_len * 2
-            // payload bytes — TODO when test262 first lands a non-ASCII
-            // fn name; for ASCII it's a byte count and works directly).
-            for j in 0..name_len {
-                let b = unsafe { *name_ptr.add(j as usize) };
-                emit_byte(b);
-            }
-            emit_bytes(SUFFIX);
-        }
-        None => {
-            emit_bytes(ANON);
-        }
+    if cell.is_null() || name_len == 0 {
+        emit_bytes(ANON);
+        return;
     }
+    let name = unsafe { spelling(cell) };
+    emit_bytes(PREFIX);
+    emit_bytes(print_face_name(&name));
+    emit_bytes(SUFFIX);
 }
 
 /// ToString for a fn-typed slot value (RFC 20260710 C2a — the
@@ -264,43 +246,22 @@ pub unsafe extern "C" fn __torajs_fnsig_to_str(fn_addr: u64) -> *mut u8 {
     }
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
-    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    let cell = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
     // B3c — empty-name rows keep the anonymous ToString form.
-    if name_ptr.is_null() || name_len == 0 {
+    if cell.is_null() || name_len == 0 {
         return unsafe { alloc_str(ANON) };
     }
-    let (name_ptr, name_len) = unsafe { print_face_name(name_ptr, name_len) };
-    let total = PREFIX.len() + name_len as usize + SUFFIX.len();
-    let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
-    let mut dst = unsafe { s.add(STR_DATA_OFF) };
-    for &b in PREFIX {
-        unsafe {
-            *dst = b;
-            dst = dst.add(1);
-        }
-    }
-    for j in 0..name_len {
-        unsafe {
-            *dst = *name_ptr.add(j as usize);
-            dst = dst.add(1);
-        }
-    }
-    for &b in SUFFIX {
-        unsafe {
-            *dst = b;
-            dst = dst.add(1);
-        }
-    }
-    s
+    let name = unsafe { spelling(cell) };
+    unsafe { alloc_str_framed(PREFIX, print_face_name(&name), SUFFIX) }
 }
 
 /// `.name` read on a `Type::FnSig` receiver (chunk 798 — the
 /// typed-tier registry rewire). The receiver is a raw fn body vaddr
 /// (no closure cell to consult), so the answer is exactly the
-/// registry row: hit mints a fresh owned Str with the name bytes,
-/// miss answers the ES anonymous-function name `""`. `0` / the
-/// undefined sentinel never match a table row and fall to the same
-/// empty-Str miss path.
+/// registry row: hit answers the name's immortal static Str cell
+/// (its drop is a no-op under the owned protocol), miss answers the
+/// ES anonymous-function name `""`. `0` / the undefined sentinel
+/// never match a table row and fall to the same empty-Str miss path.
 ///
 /// # Safety
 /// `fn_addr` is compared, never dereferenced.
@@ -308,14 +269,11 @@ pub unsafe extern "C" fn __torajs_fnsig_to_str(fn_addr: u64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_fn_name_str(fn_addr: u64) -> *mut u8 {
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
-    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
-    if name_ptr.is_null() {
+    let cell = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    if cell.is_null() {
         return unsafe { alloc_str(b"") };
     }
-    // Safety: hit rows point at `name_len` readable rodata bytes
-    // (ASCII byte count; the non-ASCII UTF-16 payload face shares
-    // the fn-print helper's recorded TODO).
-    unsafe { alloc_str(core::slice::from_raw_parts(name_ptr, name_len as usize)) }
+    cell as *mut u8
 }
 
 // RFC 20260719-fn-tostring-source B4 — the native-form fallback for
@@ -373,12 +331,11 @@ pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
         return unsafe { __torajs_str_undef() };
     }
     let mut src_len: u32 = 0;
-    let src_ptr = unsafe { __torajs_fn_source_lookup(fn_addr, &mut src_len) };
-    if !src_ptr.is_null() {
-        // Safety: hit rows point at `src_len` readable rodata bytes
-        // (ASCII byte count; non-ASCII UTF-16 sources share the
-        // fn-print helper's recorded TODO).
-        return unsafe { alloc_str(core::slice::from_raw_parts(src_ptr, src_len as usize)) };
+    let src_cell = unsafe { __torajs_fn_source_lookup(fn_addr, &mut src_len) };
+    if !src_cell.is_null() {
+        // The erased source's immortal static Str cell — owned out,
+        // its drop is a no-op.
+        return src_cell as *mut u8;
     }
     // Native form — pull the name from the name face, stripping the
     // `bound ` SetFunctionName marker like the print faces: bun
@@ -386,13 +343,14 @@ pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
     // (`function add() {\n    [native code]\n}` — probe 2026-07-19).
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
-    let name_ptr = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
-    let (name_ptr, name_len) = if name_ptr.is_null() {
-        (core::ptr::null(), 0)
+    let cell = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
+    let name = if cell.is_null() {
+        Vec::new()
     } else {
-        unsafe { print_face_name(name_ptr, name_len) }
+        unsafe { spelling(cell) }
     };
-    unsafe { __torajs_fn_native_form_str(name_ptr, name_len) }
+    let face = print_face_name(&name);
+    unsafe { __torajs_fn_native_form_str(face.as_ptr(), face.len() as u32) }
 }
 
 /// Mint the JSC native ToString form
@@ -402,33 +360,40 @@ pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
 /// toString arm, which carries its own interned name.
 ///
 /// # Safety
-/// `name_ptr` is NULL or points at `name_len` readable ASCII bytes.
+/// `name_ptr` is NULL or points at `name_len` readable WTF-8 bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fn_native_form_str(
     name_ptr: *const u8,
     name_len: u32,
 ) -> *mut u8 {
-    let name_len = if name_ptr.is_null() { 0 } else { name_len };
-    let total = NATIVE_PREFIX.len() + name_len as usize + NATIVE_SUFFIX.len();
-    let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
-    let mut dst = unsafe { s.add(STR_DATA_OFF) };
-    unsafe {
-        core::ptr::copy_nonoverlapping(NATIVE_PREFIX.as_ptr(), dst, NATIVE_PREFIX.len());
-        dst = dst.add(NATIVE_PREFIX.len());
-        if name_len > 0 {
-            core::ptr::copy_nonoverlapping(name_ptr, dst, name_len as usize);
-            dst = dst.add(name_len as usize);
-        }
-        core::ptr::copy_nonoverlapping(NATIVE_SUFFIX.as_ptr(), dst, NATIVE_SUFFIX.len());
-    }
-    s
+    let name = if name_ptr.is_null() {
+        &[][..]
+    } else {
+        unsafe { core::slice::from_raw_parts(name_ptr, name_len as usize) }
+    };
+    unsafe { alloc_str_framed(NATIVE_PREFIX, name, NATIVE_SUFFIX) }
 }
 
-/// Fresh pooled Str holding `bytes` (Latin-1/ASCII payloads only).
+/// Fresh Str holding `bytes` (WTF-8). ASCII copies into a pooled
+/// Latin-1 block verbatim — its bytes are its code units; anything
+/// above ASCII is decoded into the cell's own encoding by torajs-str.
 unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
+    if bytes.iter().any(|b| *b >= 0x80) {
+        return unsafe { __torajs_str_alloc(bytes.as_ptr(), bytes.len() as i64) };
+    }
     let s = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
     unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), s.add(STR_DATA_OFF), bytes.len()) };
     s
+}
+
+/// [`alloc_str`] of `prefix ++ name ++ suffix` — the framed ToString
+/// faces (`[Function: f]`, `function f() {…}`) built around a name.
+unsafe fn alloc_str_framed(prefix: &[u8], name: &[u8], suffix: &[u8]) -> *mut u8 {
+    let mut bytes = Vec::with_capacity(prefix.len() + name.len() + suffix.len());
+    bytes.extend_from_slice(prefix);
+    bytes.extend_from_slice(name);
+    bytes.extend_from_slice(suffix);
+    unsafe { alloc_str(&bytes) }
 }
 
 #[inline(always)]

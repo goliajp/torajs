@@ -14,8 +14,8 @@
 //!   expando shadow wins); a reified builtin method cell answers
 //!   its interned immortal name Str (chunk 715 metadata, rc no-op
 //!   under the owned protocol); an ordinary closure walks the
-//!   fn-addr registry — hit mints a fresh owned Str, miss answers
-//!   the ES anonymous-function name `""` (arrow / anon closures
+//!   fn-addr registry — hit answers the row's immortal name cell,
+//!   miss answers the ES anonymous-function name `""` (arrow / anon closures
 //!   skip the registry; the binding-name NamedEvaluation face is a
 //!   recorded follow-up).
 //! - `Tag::DynObj` → own-property probe for the literal key
@@ -24,7 +24,7 @@
 //! - everything else (primitives, other heap tags) → `undefined`.
 
 use core::ffi::c_void;
-use core::sync::atomic::{AtomicPtr, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use torajs_rc::Tag;
 
@@ -40,7 +40,8 @@ unsafe extern "C" {
     /// torajs-dynobj — key-presence probe (disambiguates a stored
     /// undefined from an absent entry).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
-    /// torajs-fnname — registry walk (chunk 716); NULL = miss.
+    /// torajs-fnname — registry walk (chunk 716); the name's static Str
+    /// cell, NULL = miss.
     fn __torajs_fn_name_lookup(fn_addr: u64, out_len: *mut u32, out_arity: *mut u32) -> *const u8;
     /// torajs-fnname — toString kernels (RFC 20260719 B5).
     fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8;
@@ -53,56 +54,9 @@ unsafe extern "C" {
 /// `ssa_lower.rs` constants).
 const CLOSURE_PROPS_OFF: usize = 24;
 
-/// Per-fn-addr interned immortal name cells (chunk D, RFC
-/// 20260711-closure-reflection). The dynamic-key member probe
-/// (`f[k]`, k == "name") is borrow-shaped — the answer must be
-/// immortal, so registry names intern one Str cell per fn_addr in a
-/// lock-free append-only list. Cold path (dynamic-key fn-name
-/// reads), linear scan is fine; a CAS-race double-mint leaks one
-/// immortal cell, benign. AtomicPtr-static, NOT `thread_local!` —
-/// std's lazy TLS machinery is unavailable inside the baked
-/// staticlib runtime (`method_value.rs` precedent).
-struct FnNameNode {
-    fn_addr: u64,
-    cell: *mut u8,
-    next: *mut FnNameNode,
-}
-static FN_NAME_INTERN_HEAD: AtomicPtr<FnNameNode> = AtomicPtr::new(core::ptr::null_mut());
 /// Shared `""` cell — the ES anonymous-function name for registry
 /// misses.
 static EMPTY_NAME_CELL: AtomicU64 = AtomicU64::new(0);
-
-/// Interned immortal cell for a registry fn name.
-unsafe fn interned_registry_name_cell(fn_addr: u64, bytes: *const u8, len: u32) -> *mut u8 {
-    let mut cur = FN_NAME_INTERN_HEAD.load(Ordering::Acquire);
-    while !cur.is_null() {
-        // SAFETY: nodes are leaked Boxes — live for the process.
-        let n = unsafe { &*cur };
-        if n.fn_addr == fn_addr {
-            return n.cell;
-        }
-        cur = n.next;
-    }
-    // SAFETY: registry bytes are live rodata for the process.
-    let name = unsafe { core::slice::from_raw_parts(bytes, len as usize) };
-    let cell = crate::method_value::mint_immortal_str(name);
-    let node = Box::into_raw(Box::new(FnNameNode {
-        fn_addr,
-        cell,
-        next: core::ptr::null_mut(),
-    }));
-    loop {
-        let head = FN_NAME_INTERN_HEAD.load(Ordering::Acquire);
-        // SAFETY: node is a fresh leaked Box owned by this loop.
-        unsafe { (*node).next = head };
-        if FN_NAME_INTERN_HEAD
-            .compare_exchange(head, node, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-        {
-            return cell;
-        }
-    }
-}
 
 /// The IMMORTAL name cell of a closure for the borrow-shaped
 /// dynamic-key probe (`member_get`'s virtual pair, chunk D):
@@ -143,7 +97,9 @@ pub(crate) unsafe fn closure_virtual_name_cell(ptr: *mut c_void) -> Option<*mut 
             EMPTY_NAME_CELL.store(cell as u64, Ordering::Relaxed);
             return Some(cell);
         }
-        Some(interned_registry_name_cell(fn_addr, name_ptr, name_len))
+        // The registry row points at the name's immortal static Str
+        // cell — the borrow-shaped answer itself, no interning needed.
+        Some(name_ptr as *mut u8)
     }
 }
 
@@ -340,9 +296,8 @@ unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
             // follow-up).
             return __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
         }
-        // Raw rodata bytes → fresh owned Str. ASCII names byte-copy
-        // exactly; the non-ASCII UTF-16 payload face shares the
-        // fn-print helper's recorded TODO.
-        __torajs_str_alloc(name_ptr, i64::from(name_len))
+        // The name's immortal static Str cell, owned out (its drop is
+        // a no-op under the static flag).
+        name_ptr as *mut u8
     }
 }
