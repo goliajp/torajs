@@ -131,6 +131,8 @@ pub(crate) fn lower_inner(
     // before its lifted body in ast.stmts ordering: user FnDecls come
     // first, lifted `__closure_N` decls are appended to the end.
     let mut closure_captures: HashMap<String, Vec<(String, Type, bool)>> = HashMap::new();
+    // 556-02 — the variadic-capture record alongside (see `LowerCtx`).
+    let mut closure_variadic_captures: HashMap<String, Vec<String>> = HashMap::new();
 
     let globals = register_toplevel_globals(
         ast,
@@ -191,6 +193,7 @@ pub(crate) fn lower_inner(
         &mut inst_memo,
         &generic_struct_decls,
         &mut closure_captures,
+        &mut closure_variadic_captures,
         call_retargets,
         &may_throw,
         &class_name_to_tag,

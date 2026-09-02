@@ -282,6 +282,13 @@ impl<'a> LowerCtx<'a> {
                     )
                 })
         };
+        // 556-02 — captures that were variadic bindings at the
+        // construction site route their calls boxed here too.
+        let variadic_caps: Vec<String> = self
+            .closure_variadic_captures
+            .get(layout_of)
+            .cloned()
+            .unwrap_or_default();
         let env_slot = self
             .locals
             .get("__env")
@@ -338,6 +345,9 @@ impl<'a> LowerCtx<'a> {
                     scope_depth: 0,
                 },
             );
+            if variadic_caps.contains(cap_name) {
+                self.variadic_locals.insert(cap_name.clone());
+            }
             self.scope_stack[0].push(cap_name.clone());
         }
         // Self-name binding — the trailing slot after the captures

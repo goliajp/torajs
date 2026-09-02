@@ -256,6 +256,13 @@ pub(crate) struct LowerCtx<'a> {
     /// lifted FnDecl name; the lifted body's `lower_fn` reads it to emit
     /// env-load preambles. Outliving any individual lower_fn call.
     pub(crate) closure_captures: &'a mut HashMap<String, Vec<(String, Type, bool)>>,
+    /// 556-02 — which of a lifted fn's captures were VARIADIC bindings
+    /// in the constructing frame (`variadic_locals` there), lifted fn
+    /// name → capture names. The body preamble re-registers them so a
+    /// call through the captured binding takes the boxed dual entry —
+    /// the fixed-prefix CallIndirect fed a rest body its argv slots as
+    /// plain params (exit 139).
+    pub(crate) closure_variadic_captures: &'a mut HashMap<String, Vec<String>>,
     /// M3 — per-call-site `ExprId → mono_name` retarget map. The
     /// monomorphization pre-pass produced one specialized FnDecl per
     /// `(generic_name, type_args)`; at each generic call site, the

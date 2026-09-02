@@ -160,6 +160,13 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         }
     }
     ctx.closure_captures.insert(fn_name.clone(), cap_meta);
+    // 556-02 — a variadic binding captured HERE stays one in the body.
+    let variadic: Vec<String> = eff_captures
+        .iter()
+        .filter_map(|(n, _)| ctx.variadic_locals.contains(n).then(|| n.clone()))
+        .collect();
+    ctx.closure_variadic_captures
+        .insert(fn_name.clone(), variadic);
 
     // Canonical `__fncell_*` singleton arm — carved out to
     // `ssa_lower_closure_canonical.rs` (file-size cap); plain arrow /
