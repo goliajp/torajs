@@ -43,6 +43,7 @@ use crate::iter::{
 use crate::iter_print_order::__torajs_dynobj_iter_print_order;
 use crate::iter_slow_mode::__torajs_dynobj_iter_slow_mode;
 use crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO;
+use crate::proto_chain::{__torajs_dynobj_proto_next, MAX_PROTO_HOPS};
 
 /// Universal heap-header `flags u16 @6`.
 const HDR_FLAGS_OFF: usize = 6;
@@ -77,6 +78,8 @@ unsafe extern "C" {
     /// rule). Inspect escape trunk helper in
     /// `torajs-anyvalue::inspect`.
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
+    /// Own-entry probe — the shadow rule of the prototype walk.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
 }
 
 #[inline]
@@ -137,68 +140,21 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
         {
             put_bytes(b"[Object: null prototype] ");
         }
-        let len = __torajs_dynobj_iter_len(obj);
-        // bun's print order (see `iter_print_order`) — index keys
-        // ascending first, then insertion order, symbol keys in
-        // place unless an index key pushed them last; holes
-        // pre-excluded so no NULL-key check in the loop.
-        let order = if len > 0 {
-            calloc(len as usize * 8) as *mut u64
-        } else {
-            core::ptr::null_mut()
-        };
-        let n = __torajs_dynobj_iter_print_order(obj, order, len);
-        // bun's fast / slow walk (`key_hidden` module doc): the slow
-        // walk when the shape rules the fast one out, or when the
-        // fast walk would print nothing (bun's `anyHits` restart).
-        let mut slow = __torajs_dynobj_iter_slow_mode(obj);
-        if slow == 0 {
-            let fast_hit = (0..n).any(|j| {
-                let i = *order.add(j as usize);
-                let key = __torajs_dynobj_iter_key(obj, i);
-                __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(obj, i), 0) == 0
-            });
-            if !fast_hit && n > 0 {
-                slow = 1;
-            }
-        }
         let mut any_emitted = false;
-        for j in 0..n {
-            let i = *order.add(j as usize);
-            let key = __torajs_dynobj_iter_key(obj, i);
-            if __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(obj, i), slow) != 0
-            {
-                continue;
-            }
-            if !any_emitted {
-                put_bytes(b"{\n");
-                // bun handleFirstProperty (ConsoleObject.zig:1893):
-                // the estimate is OVERWRITTEN to parent-indent + 1 on
-                // the first property; later property rows do NOT
-                // reset (bun's deliberate accumulation — the estimate
-                // only gates nested array wrap decisions).
-                __torajs_inspect_line_reset(indent + 1);
-                any_emitted = true;
-            } else {
-                put_bytes(b",\n");
-                __torajs_inspect_line_add(1);
-            }
-            put_indent(indent + 2);
-            // Key — borrowed Str or Symbol cell ptr. A Str is bare
-            // when it's an ASCII identifier, JSON-quoted otherwise
-            // (bun's isLatin1Identifier rule); a Symbol prints as
-            // `[Symbol(desc)]`.
-            __torajs_print_str_cell_as_key(key);
-            put_bytes(b": ");
-            __torajs_inspect_line_add(2);
-            // Value — already a NaN-box AnyValue per iter_value's
-            // u64 return contract. Its own indent is this field
-            // row's column (indent + 2).
-            let v = __torajs_dynobj_iter_value(obj, i);
-            __torajs_print_anyv_inline_at(v, indent + 2);
-        }
-        if !order.is_null() {
-            free(order as *mut c_void, len as usize * 8);
+        put_own_rows(obj, &[], indent, &mut any_emitted);
+        // The prototypes above it — bun walks up to five and prints
+        // what it finds (`Object.create(base)` shows `base`'s
+        // properties), a key a nearer object carries belonging to
+        // that object.
+        let mut nearer: [*const c_void; MAX_PROTO_HOPS + 1] = [core::ptr::null(); 6];
+        nearer[0] = obj;
+        let mut n_nearer = 1usize;
+        let mut cur = __torajs_dynobj_proto_next(obj);
+        while !cur.is_null() && n_nearer <= MAX_PROTO_HOPS {
+            put_own_rows(cur, &nearer[..n_nearer], indent, &mut any_emitted);
+            nearer[n_nearer] = cur;
+            n_nearer += 1;
+            cur = __torajs_dynobj_proto_next(cur);
         }
         if !any_emitted {
             put_bytes(b"{}");
@@ -215,5 +171,83 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
 unsafe fn put_indent(n: u32) {
     for _ in 0..n {
         unsafe { put_byte(b' ') };
+    }
+}
+
+/// Emit the visible own rows of `src` at `indent`, skipping any key
+/// one of `nearer` (the objects already walked, own object first)
+/// carries — bun's `visitedProperties`. `any_emitted` carries the
+/// caller's `{`-and-separator protocol across the chain.
+///
+/// # Safety
+/// `src` is a live dynobj; `nearer` holds live cells.
+unsafe fn put_own_rows(
+    src: *const c_void,
+    nearer: &[*const c_void],
+    indent: u32,
+    any_emitted: &mut bool,
+) {
+    unsafe {
+        let len = __torajs_dynobj_iter_len(src);
+        if len == 0 {
+            return;
+        }
+        // bun's print order (see `iter_print_order`) — index keys
+        // ascending first, then insertion order, symbol keys in
+        // place unless an index key pushed them last; holes
+        // pre-excluded so no NULL-key check in the loop.
+        let order = calloc(len as usize * 8) as *mut u64;
+        let n = __torajs_dynobj_iter_print_order(src, order, len);
+        // bun's fast / slow walk (`key_hidden` module doc): the slow
+        // walk when the shape rules the fast one out, or when the
+        // fast walk would print nothing (bun's `anyHits` restart).
+        let mut slow = __torajs_dynobj_iter_slow_mode(src);
+        if slow == 0 {
+            let fast_hit = (0..n).any(|j| {
+                let i = *order.add(j as usize);
+                let key = __torajs_dynobj_iter_key(src, i);
+                __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(src, i), 0) == 0
+            });
+            if !fast_hit && n > 0 {
+                slow = 1;
+            }
+        }
+        for j in 0..n {
+            let i = *order.add(j as usize);
+            let key = __torajs_dynobj_iter_key(src, i);
+            if __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(src, i), slow) != 0
+            {
+                continue;
+            }
+            if nearer.iter().any(|&o| __torajs_dynobj_has(o, key) != 0) {
+                continue;
+            }
+            if !*any_emitted {
+                put_bytes(b"{\n");
+                // bun handleFirstProperty (ConsoleObject.zig:1893):
+                // the estimate is OVERWRITTEN to parent-indent + 1 on
+                // the first property; later property rows do NOT
+                // reset (bun's deliberate accumulation — the estimate
+                // only gates nested array wrap decisions).
+                __torajs_inspect_line_reset(indent + 1);
+                *any_emitted = true;
+            } else {
+                put_bytes(b",\n");
+                __torajs_inspect_line_add(1);
+            }
+            put_indent(indent + 2);
+            // Key — borrowed Str or Symbol cell ptr. A Str is bare
+            // when it's an ASCII identifier, JSON-quoted otherwise
+            // (bun's isLatin1Identifier rule); a Symbol prints as
+            // `[Symbol(desc)]`.
+            __torajs_print_str_cell_as_key(key);
+            put_bytes(b": ");
+            __torajs_inspect_line_add(2);
+            // Value — already a NaN-box AnyValue per iter_value's
+            // u64 return contract. Its own indent is this field
+            // row's column (indent + 2).
+            __torajs_print_anyv_inline_at(__torajs_dynobj_iter_value(src, i), indent + 2);
+        }
+        free(order as *mut c_void, len as usize * 8);
     }
 }

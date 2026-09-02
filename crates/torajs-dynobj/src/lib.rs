@@ -49,6 +49,7 @@ pub mod layout;
 pub mod pool;
 pub mod print_any;
 pub mod probe;
+pub mod proto_chain;
 pub mod resize;
 pub mod seal;
 pub mod set;
