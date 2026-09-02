@@ -90,7 +90,11 @@ pub(crate) unsafe fn str_to_utf8_bytes(s: *const u8) -> Vec<u8> {
         };
         // A lone surrogate has no UTF-8 spelling; the file gets
         // U+FFFD, as bun (TextEncoder semantics) writes it (558-05).
-        let cp = if (0xD800..=0xDFFF).contains(&cp) { 0xFFFD } else { cp };
+        let cp = if (0xD800..=0xDFFF).contains(&cp) {
+            0xFFFD
+        } else {
+            cp
+        };
         if cp <= 0x7F {
             out.push(cp as u8);
         } else if cp <= 0x7FF {
