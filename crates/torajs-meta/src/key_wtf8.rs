@@ -21,7 +21,10 @@ unsafe extern "C" {
 
 const STR_LEN_OFF: usize = 8;
 const STR_DATA_OFF: usize = 16;
+const HDR_TYPE_TAG_OFF: usize = 4;
 const HDR_FLAGS_OFF: usize = 6;
+/// torajs-rc `Tag::Symbol` mirror.
+const TAG_SYMBOL: u16 = 7;
 /// torajs-str `STR_FLAG_IS_LATIN1` mirror.
 const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 /// torajs-str `FLAG_SUBSTR_INLINE | FLAG_SUBSTR_VIEW` mirror — a
@@ -37,10 +40,20 @@ pub(crate) enum KeyWtf8 {
 }
 
 impl KeyWtf8 {
+    /// A Symbol key (§6.1.7's other kind) names no baked field,
+    /// accessor or method, and its cell keeps a pointer where a Str
+    /// keeps `len`: it answers a spelling no WTF-8 name can equal (a
+    /// lone `0xFF` byte) instead of being read as a Str.
+    ///
     /// # Safety
-    /// `key` is a live Str (or Substr) cell.
+    /// `key` is a live Str, Substr or Symbol cell.
     pub(crate) unsafe fn of(key: *const c_void) -> KeyWtf8 {
         let p = key.cast::<u8>();
+        if unsafe { p.add(HDR_TYPE_TAG_OFF).cast::<u16>().read() } == TAG_SYMBOL {
+            let mut never = [0u8; INLINE_CAP];
+            never[0] = 0xFF;
+            return KeyWtf8::Inline(never, 1);
+        }
         let flags = unsafe { p.add(HDR_FLAGS_OFF).cast::<u16>().read() };
         if flags & STR_FLAGS_SUBSTR == 0 && flags & STR_FLAG_IS_LATIN1 != 0 {
             let len = unsafe { p.add(STR_LEN_OFF).cast::<u32>().read() };
