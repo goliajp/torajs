@@ -251,11 +251,7 @@ impl LowerCtx<'_> {
     /// Which cell §10.2.9 names for one computed field's value, or
     /// `None` when that value is not an anonymous function
     /// definition and so keeps whatever name it came with.
-    fn computed_field_name_target(
-        &self,
-        fval_eid: ExprId,
-        v_raw: &Operand,
-    ) -> Option<NameTarget> {
+    fn computed_field_name_target(&self, fval_eid: ExprId, v_raw: &Operand) -> Option<NameTarget> {
         match self.ast.get_expr(fval_eid) {
             crate::ast::Expr::Closure { fn_name, .. } => {
                 if !matches!(self.operand_ty(v_raw), Type::Closure(_)) {
