@@ -13,9 +13,18 @@ use super::*;
 /// reified function object per method onto `__proto_<C>`, with the
 /// §10.2.10 method attribute set `{writable: true, enumerable:
 /// false, configurable: true}` — the same flags_byte the
-/// `constructor` link uses. Accessor slots (`__getter_<p>` /
-/// `__setter_<p>` synthetic names) are skipped — their surface is
-/// the AccessorPair face, not an own method entry.
+/// `constructor` link uses.
+///
+/// Rotation 562 — an accessor slot (`__getter_<p>` / `__setter_<p>`)
+/// defines its AccessorPair HERE too, from the same table rows, so
+/// the property lands at its DECLARATION position. The emitted
+/// `__torajs_class_accessor_reify` statement still runs afterwards
+/// and redefines the same key, which keeps the position and the
+/// value; before this, a prototype's own entries came out
+/// methods-then-accessors, and `class Y { get g() {} m() {} }`
+/// answered `["constructor", "m", "g"]` where bun answers
+/// declaration order (`console.log(new Y())` printed the two rows
+/// in that same wrong order).
 ///
 /// The table merges parent chains — it is the dispatch resolution,
 /// answering "which body does `c.m()` reach" in one lookup — so only
@@ -45,7 +54,40 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
                 continue;
             }
             let name = core::slice::from_raw_parts(name_ptr, name_len as usize);
-            if name.starts_with(b"__getter_") || name.starts_with(b"__setter_") {
+            // 508-03 — bit 2 marks a row this class DECLARES. An
+            // inherited row is already reachable one hop up the
+            // prototype chain, so copying it here would only add a
+            // name `hasOwnProperty` / `getOwnPropertyNames` must not
+            // see, and a shadow that outlives re-linking the chain
+            // (`setPrototypeOf(D.prototype, standin)` left the copy in
+            // front of `standin`'s method). Read before the accessor
+            // arm: an inherited accessor is an inherited row too.
+            let flags = __torajs_struct_method_flags_at(layout, i);
+            if flags & 4 == 0 {
+                continue;
+            }
+            if let Some(prop) = accessor_slot_prop(name) {
+                // A computed accessor's slot names a `__ccm_`
+                // sentinel, not a property; its own entry lands under
+                // the runtime key via the class-decl-position computed
+                // define — the carve-out the plain-method arm below
+                // makes too. Otherwise the pair defines once, at the
+                // FIRST of its two rows: that row's index IS the
+                // declaration position, and both halves come off the
+                // table.
+                if !prop.starts_with(b"__ccm_") && !accessor_row_before(layout, i, prop) {
+                    let (get_adapter, set_adapter) = accessor_adapters(layout, n, prop);
+                    let key = alloc_str_key(prop);
+                    super::define::define_accessor_pair(
+                        &mut slot,
+                        key,
+                        prop,
+                        get_adapter,
+                        set_adapter,
+                        DEFINE_ACCESSOR_FLAGS,
+                    );
+                    __torajs_str_drop(key);
+                }
                 continue;
             }
             // RFC 20260802 刀 2 — a runtime computed member's `__ccm_`
@@ -57,17 +99,6 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             // S2.38 — bit 0 of the MethodMeta flags word marks a
             // receiver-free body; the face runs bare calls with a
             // null receiver instead of the this-undefined TypeError.
-            let flags = __torajs_struct_method_flags_at(layout, i);
-            // 508-03 — bit 2 marks a row this class DECLARES. An
-            // inherited row is already reachable one hop up the
-            // prototype chain, so copying it here would only add a
-            // name `hasOwnProperty` / `getOwnPropertyNames` must not
-            // see, and a shadow that outlives re-linking the chain
-            // (`setPrototypeOf(D.prototype, standin)` left the copy in
-            // front of `standin`'s method).
-            if flags & 4 == 0 {
-                continue;
-            }
             let this_free = u64::from(flags & 1);
             // Blade 3 — the face carries its owning class tag + the
             // `__cmany_` twin adapter so a re-bound receiver routes
@@ -104,4 +135,58 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
         }
         PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
+}
+
+/// The property an accessor slot names (`__getter_x` / `__setter_x`
+/// → `x`), or `None` for a plain method row.
+unsafe fn accessor_slot_prop(name: &[u8]) -> Option<&[u8]> {
+    name.strip_prefix(b"__getter_".as_slice())
+        .or_else(|| name.strip_prefix(b"__setter_".as_slice()))
+}
+
+/// The get / set boxed adapters the table holds for property `prop`
+/// (0 for a half the class does not declare).
+unsafe fn accessor_adapters(layout: *const c_void, n: u32, prop: &[u8]) -> (u64, u64) {
+    let (mut get, mut set) = (0u64, 0u64);
+    for j in 0..n {
+        let mut np: *const u8 = core::ptr::null();
+        let mut nl: u32 = 0;
+        let adapter = unsafe { __torajs_struct_method_at(layout, j, &mut np, &mut nl) };
+        if adapter.is_null() || np.is_null() || nl == 0 {
+            continue;
+        }
+        // Only a row this class DECLARES becomes an own entry (508-03).
+        if unsafe { __torajs_struct_method_flags_at(layout, j) } & 4 == 0 {
+            continue;
+        }
+        let name = unsafe { core::slice::from_raw_parts(np, nl as usize) };
+        if let Some(rest) = name.strip_prefix(b"__getter_".as_slice())
+            && rest == prop
+        {
+            get = adapter as u64;
+        } else if let Some(rest) = name.strip_prefix(b"__setter_".as_slice())
+            && rest == prop
+        {
+            set = adapter as u64;
+        }
+    }
+    (get, set)
+}
+
+/// Whether an accessor row for `prop` appears in rows `[0, upto)` —
+/// the two halves of a get/set pair define once, at the first.
+unsafe fn accessor_row_before(layout: *const c_void, upto: u32, prop: &[u8]) -> bool {
+    for j in 0..upto {
+        let mut np: *const u8 = core::ptr::null();
+        let mut nl: u32 = 0;
+        let adapter = unsafe { __torajs_struct_method_at(layout, j, &mut np, &mut nl) };
+        if adapter.is_null() || np.is_null() || nl == 0 {
+            continue;
+        }
+        let name = unsafe { core::slice::from_raw_parts(np, nl as usize) };
+        if unsafe { accessor_slot_prop(name) } == Some(prop) {
+            return true;
+        }
+    }
+    false
 }

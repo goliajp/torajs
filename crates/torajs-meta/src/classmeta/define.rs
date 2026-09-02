@@ -149,7 +149,37 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
     }
     unsafe {
         let spelling = crate::str_wtf8::StrWtf8::of(name_str.cast());
-        let prop = spelling.as_bytes();
+        let mut slot = proto_anyv as *mut c_void;
+        define_accessor_pair(
+            &mut slot,
+            name_str,
+            spelling.as_bytes(),
+            get_adapter,
+            set_adapter,
+            DEFINE_ACCESSOR_FLAGS,
+        );
+        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+    }
+}
+
+/// Mint the §17-named `get <p>` / `set <p>` faces for `prop` and
+/// define the pair onto `slot` under `key`. The one mint shared by
+/// the instance / computed / static accessor defines and by the
+/// prototype walk that places an accessor at its DECLARATION
+/// position (`reify.rs`) — a face's spec length is 0 for a getter
+/// and 1 for a setter, and an absent half mints nothing.
+///
+/// # Safety
+/// `slot` holds a live dynobj; `key` is a live Str / Symbol cell.
+pub(super) unsafe fn define_accessor_pair(
+    slot: &mut *mut c_void,
+    key: *const u8,
+    prop: &[u8],
+    get_adapter: u64,
+    set_adapter: u64,
+    flags: u64,
+) {
+    unsafe {
         let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
             if adapter == 0 {
                 return core::ptr::null_mut();
@@ -163,10 +193,7 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
         let get_cell = mint_face(get_adapter, b"get ", 0);
         let set_cell = mint_face(set_adapter, b"set ", 1);
         let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
-        let flags = DEFINE_ACCESSOR_FLAGS;
-        let mut slot = proto_anyv as *mut c_void;
-        __torajs_dynobj_define_plain(&mut slot, name_str, ANY_HEAP as u64, pair as u64, flags);
-        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+        __torajs_dynobj_define_plain(slot, key, ANY_HEAP as u64, pair as u64, flags);
     }
 }
 
@@ -279,20 +306,9 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
         // Face name from a Str key only — a Symbol key's heap tag
         // distinguishes it (reflect.rs TAG_STR = 0 vs TAG_SYMBOL).
         let key_is_str = heap_type_tag(key as *const c_void) == crate::reflect::TAG_STR;
-        let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
-            if adapter == 0 {
-                return core::ptr::null_mut();
-            }
-            let mut full = prefix.to_vec();
-            if key_is_str {
-                full.extend_from_slice(crate::str_wtf8::StrWtf8::of(key.cast()).as_bytes());
-            }
-            let face_name = alloc_str_key(&full);
-            __torajs_class_accessor_cell_new(adapter, face_name, length) as *mut c_void
-        };
-        let get_cell = mint_face(get_adapter, b"get ", 0);
-        let set_cell = mint_face(set_adapter, b"set ", 1);
-        let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
+        let spelling = crate::str_wtf8::StrWtf8::of(key.cast());
+        // A Symbol key names no face spelling — the prefix alone.
+        let prop: &[u8] = if key_is_str { spelling.as_bytes() } else { b"" };
         // Base accessor flags minus the both-faces-present bits; only
         // the face this call carries is marked present, so the define
         // kernel's redefine merge keeps the other face.
@@ -304,7 +320,7 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
             flags |= 1 << 8;
         }
         let mut slot = target_anyv as *mut c_void;
-        __torajs_dynobj_define_plain(&mut slot, key, ANY_HEAP as u64, pair as u64, flags);
+        define_accessor_pair(&mut slot, key, prop, get_adapter, set_adapter, flags);
         if is_static != 0 {
             CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
         } else {
@@ -338,26 +354,13 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
     }
     unsafe {
         let spelling = crate::str_wtf8::StrWtf8::of(name_str.cast());
-        let prop = spelling.as_bytes();
-        let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
-            if adapter == 0 {
-                return core::ptr::null_mut();
-            }
-            let mut full = Vec::with_capacity(prefix.len() + prop.len());
-            full.extend_from_slice(prefix);
-            full.extend_from_slice(prop);
-            let face_name = alloc_str_key(&full);
-            __torajs_class_accessor_cell_new(adapter, face_name, length) as *mut c_void
-        };
-        let get_cell = mint_face(get_adapter, b"get ", 0);
-        let set_cell = mint_face(set_adapter, b"set ", 1);
-        let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
         let mut slot = class_anyv as *mut c_void;
-        __torajs_dynobj_define_plain(
+        define_accessor_pair(
             &mut slot,
             name_str,
-            ANY_HEAP as u64,
-            pair as u64,
+            spelling.as_bytes(),
+            get_adapter,
+            set_adapter,
             DEFINE_ACCESSOR_FLAGS,
         );
         CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
