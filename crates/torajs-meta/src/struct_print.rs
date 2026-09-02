@@ -135,6 +135,46 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     unsafe { crate::struct_print_rows::put_body(cell, class_tag, indent) };
 }
 
+/// 562-10 — the rows this struct cell contributes to a block
+/// somebody else opened: the dynobj prototype walk (`torajs-dynobj`
+/// `print_any`) reaches a typed object literal, whose rows live
+/// here. The block is opened by the first row that prints, so
+/// `any_emitted` carries the caller's `{`-and-separator protocol in
+/// and out (non-zero once a row has printed).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell; `nearer` is NULL or `nearer_len`
+/// live dynobj cells already walked, nearest first; `any_emitted`
+/// points at a writable `i32`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_put_own_rows_at(
+    cell: *const c_void,
+    indent: u32,
+    nearer: *const *const c_void,
+    nearer_len: usize,
+    any_emitted: *mut i32,
+) {
+    if cell.is_null() || any_emitted.is_null() {
+        return;
+    }
+    // SAFETY: caller asserted Tag::Obj cell — class_tag@+8 layout
+    // holds by torajs-rc Tag::Obj invariant.
+    let class_tag = unsafe {
+        cell.cast::<u8>()
+            .add(OBJ_CLASS_TAG_OFF)
+            .cast::<u32>()
+            .read()
+    };
+    let list = if nearer.is_null() || nearer_len == 0 {
+        &[][..]
+    } else {
+        unsafe { core::slice::from_raw_parts(nearer, nearer_len) }
+    };
+    let mut any = unsafe { *any_emitted } != 0;
+    unsafe { crate::struct_print_rows::put_rows(cell, class_tag, list, indent, &mut any) };
+    unsafe { *any_emitted = i32::from(any) };
+}
+
 /// Top-level entry — emits the nested-form walker output plus a
 /// trailing '\n' so the SSA dispatcher's `console.log(<struct>)`
 /// path can wire it identically to other typed-receiver printers

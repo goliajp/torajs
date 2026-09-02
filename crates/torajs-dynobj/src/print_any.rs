@@ -42,10 +42,11 @@ use crate::iter::{
 };
 use crate::iter_print_order::__torajs_dynobj_iter_print_order;
 use crate::iter_slow_mode::__torajs_dynobj_iter_slow_mode;
-use crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO;
+use crate::layout::{DYNOBJ_HDR_FLAG_NULL_PROTO, TAG_DYNOBJ, TAG_OBJ};
 use crate::proto_chain::{__torajs_dynobj_proto_next, MAX_PROTO_HOPS};
 
-/// Universal heap-header `flags u16 @6`.
+/// Universal heap-header `type_tag u16 @4` / `flags u16 @6`.
+const HDR_TYPE_OFF: usize = 4;
 const HDR_FLAGS_OFF: usize = 6;
 
 unsafe extern "C" {
@@ -80,6 +81,17 @@ unsafe extern "C" {
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
     /// Own-entry probe — the shadow rule of the prototype walk.
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-meta — the rows a `Tag::Obj` struct cell (a typed
+    /// object literal, a class instance) contributes to this block
+    /// (562-10). `any_emitted` carries the `{`-and-separator
+    /// protocol across the crate seam.
+    fn __torajs_struct_put_own_rows_at(
+        cell: *const c_void,
+        indent: u32,
+        nearer: *const *const c_void,
+        nearer_len: usize,
+        any_emitted: *mut i32,
+    );
 }
 
 #[inline]
@@ -151,7 +163,7 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
         let mut n_nearer = 1usize;
         let mut cur = __torajs_dynobj_proto_next(obj);
         while !cur.is_null() && n_nearer <= MAX_PROTO_HOPS {
-            put_own_rows(cur, &nearer[..n_nearer], indent, &mut any_emitted);
+            put_proto_rows(cur, &nearer[..n_nearer], indent, &mut any_emitted);
             nearer[n_nearer] = cur;
             n_nearer += 1;
             cur = __torajs_dynobj_proto_next(cur);
@@ -163,6 +175,39 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             __torajs_inspect_line_add(1);
             put_indent(indent);
             put_byte(b'}');
+        }
+    }
+}
+
+/// The rows one prototype contributes, by the cell shape that holds
+/// them: a dynobj's are here, a typed object literal's (a `Tag::Obj`
+/// struct cell) live in `torajs-meta` behind the 562-10 seam. Any
+/// other tag contributes nothing — `proto_next` returns only these
+/// two.
+///
+/// # Safety
+/// `src` is a live heap cell; `nearer` holds live dynobj cells.
+unsafe fn put_proto_rows(
+    src: *const c_void,
+    nearer: &[*const c_void],
+    indent: u32,
+    any_emitted: &mut bool,
+) {
+    unsafe {
+        match *((src as *const u8).add(HDR_TYPE_OFF) as *const u16) {
+            TAG_DYNOBJ => put_own_rows(src, nearer, indent, any_emitted),
+            TAG_OBJ => {
+                let mut any = i32::from(*any_emitted);
+                __torajs_struct_put_own_rows_at(
+                    src,
+                    indent,
+                    nearer.as_ptr(),
+                    nearer.len(),
+                    &mut any,
+                );
+                *any_emitted = any != 0;
+            }
+            _ => {}
         }
     }
 }

@@ -49,7 +49,7 @@ const FAMILY_ARMS: [&str; 15] = [
 /// strips. Reaching a stub at runtime is impossible in a correctly
 /// judged program: a family that is stubbed has no values of that
 /// tag to print.
-const FAMILY_PRINTERS: [&str; 19] = [
+const FAMILY_PRINTERS: [&str; 20] = [
     "___torajs_regex_print_inline",
     "___torajs_map_print",
     "___torajs_set_print",
@@ -65,6 +65,7 @@ const FAMILY_PRINTERS: [&str; 19] = [
     "___torajs_fn_print_inline",
     "___torajs_anyv_struct_print_inline",
     "___torajs_anyv_struct_print_inline_at",
+    "___torajs_struct_put_own_rows_at",
     "___torajs_arr_print_any",
     "___torajs_arr_print_any_at",
     "___torajs_obj_print_any",

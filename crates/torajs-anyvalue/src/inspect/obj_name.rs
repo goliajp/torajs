@@ -24,6 +24,7 @@ use super::any::__torajs_print_str_cell_unquoted;
 use super::formatters::{heap_type_tag, put_bytes};
 use crate::member_get_own::dynobj_proto_pair;
 use crate::method_call_object_proto_tag::to_string_tag_cell;
+use crate::nanbox::{as_void_ptr, is_cell};
 
 unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
@@ -33,6 +34,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// This crate's `name_get` — a closure's name Str, owned out.
     fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8;
+    /// torajs-meta — a class's reified prototype, BORROWED (printing
+    /// is not a refcount event). 0 when the tag names no class.
+    fn __torajs_anyv_proto_borrowed(tag: i64) -> u64;
 }
 
 /// How many [[Prototype]] hops the `constructor` search takes at
@@ -63,6 +67,16 @@ unsafe fn constructor_name(obj: *const c_void) -> Option<Name> {
         let mut cur = obj;
         let mut name: Option<Name> = None;
         for _ in 0..MAX_HOPS {
+            // A struct cell on the chain (a typed object literal, a
+            // class instance) has no own `constructor` and no
+            // `\0proto` entry to read: its [[Prototype]] is its
+            // class's reified prototype, which is where the
+            // `constructor` lives.
+            if heap_type_tag(cur) == Tag::Obj as u16 {
+                let Some(p) = struct_proto(cur) else { break };
+                cur = p;
+                continue;
+            }
             let tag = __torajs_dynobj_get_tag(cur, key as *const c_void);
             if tag == AnySlotTag::Heap as u64 {
                 let v = __torajs_dynobj_get_value(cur, key as *const c_void) as *mut c_void;
@@ -82,16 +96,39 @@ unsafe fn constructor_name(obj: *const c_void) -> Option<Name> {
                 break;
             }
             let (ptag, pp) = dynobj_proto_pair(cur);
-            if ptag != AnySlotTag::Heap as u64
-                || pp == 0
-                || heap_type_tag(pp as *const c_void) != Tag::DynObj as u16
-            {
+            if ptag != AnySlotTag::Heap as u64 || pp == 0 {
+                break;
+            }
+            let ptag = heap_type_tag(pp as *const c_void);
+            if ptag != Tag::DynObj as u16 && ptag != Tag::Obj as u16 {
                 break;
             }
             cur = pp as *const c_void;
         }
         __torajs_str_drop(key as *mut c_void);
         name
+    }
+}
+
+/// The [[Prototype]] of a `Tag::Obj` struct cell — its class's
+/// reified prototype, as a dynobj. None when the class registers
+/// none (an anonymous layout, a tag past the table).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell.
+unsafe fn struct_proto(cell: *const c_void) -> Option<*const c_void> {
+    unsafe {
+        // class_tag u32 @+8 — the torajs-rc Tag::Obj invariant.
+        let class_tag = cell.cast::<u8>().add(8).cast::<u32>().read();
+        let v = __torajs_anyv_proto_borrowed(class_tag as i64);
+        if v == 0 {
+            return None;
+        }
+        if !is_cell(v) {
+            return None;
+        }
+        let p = as_void_ptr(v) as *const c_void;
+        (!p.is_null() && heap_type_tag(p) == Tag::DynObj as u16).then_some(p)
     }
 }
 

@@ -166,15 +166,23 @@ pub(crate) unsafe fn has_visible_methods(class_tag: u32) -> bool {
     any
 }
 
-/// Emit the prototype entries at `indent + 2`, continuing the
-/// caller's separator protocol (`emitted > 0` → leading `,\n`).
-pub(crate) unsafe fn print_proto_methods(class_tag: u32, indent: u32, emitted: &mut u32) {
+/// Emit the prototype entries at `indent + 2` under the caller's
+/// block protocol (`open_row` opens the block on the first row).
+/// `nearer` is the walk's already-visited objects when this class
+/// instance is somebody else's prototype (562-10) — a key one of
+/// them carries belongs to it, not here.
+pub(crate) unsafe fn print_proto_methods(
+    class_tag: u32,
+    nearer: &[*const c_void],
+    indent: u32,
+    any_emitted: &mut bool,
+) {
     unsafe {
         for_each_proto_entry(class_tag, |key, anyv| {
-            if *emitted > 0 {
-                put_bytes(b",\n");
-                __torajs_inspect_line_add(1);
+            if !nearer.is_empty() && nearer.iter().any(|&o| __torajs_dynobj_has(o, key.cast())) {
+                return;
             }
+            crate::struct_print_rows::open_row(indent, any_emitted);
             let klen = __torajs_key_cell_print_len(key);
             for _ in 0..indent + 2 {
                 __torajs_io_putc_out(b' ' as i32);
@@ -183,7 +191,6 @@ pub(crate) unsafe fn print_proto_methods(class_tag: u32, indent: u32, emitted: &
             put_bytes(b": ");
             __torajs_inspect_line_add(klen + 2);
             __torajs_print_anyv_inline_at(anyv, indent + 2);
-            *emitted += 1;
         })
     };
 }

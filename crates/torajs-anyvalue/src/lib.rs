@@ -1107,6 +1107,10 @@ mod tests {
         0
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_proto_borrowed(_tag: i64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_substr_to_owned(_s: *const u8) -> *mut c_void {
         core::ptr::null_mut()
     }

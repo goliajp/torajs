@@ -416,6 +416,16 @@ pub(crate) fn proto_anyv_borrowed(tag: i64) -> u64 {
     }
 }
 
+/// The class's registered prototype as a BORROWED AnyValue (0 when
+/// the tag names no registered class) — the inspect faces read it
+/// across the crate seam without taking a share, because printing an
+/// object is not a refcount event (562-04). The reflect face takes
+/// [`__torajs_anyv_proto_get`] instead.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_proto_borrowed(tag: i64) -> u64 {
+    proto_anyv_borrowed(tag)
+}
+
 /// `Object.getPrototypeOf(instance)` → owned AnyValue immediate.
 /// Returns `VALUE_NULL_IMM` (the NaN-box `null` sentinel) on
 /// out-of-range tag or unregistered class. rc_inc's the heap

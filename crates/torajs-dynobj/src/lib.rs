@@ -263,3 +263,15 @@ pub unsafe extern "C" fn __torajs_class_face_invoke(
 ) -> u64 {
     panic!("torajs-dynobj unit-test stub: class-face invoke should not run under cargo test")
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_put_own_rows_at(
+    _cell: *const core::ffi::c_void,
+    _indent: u32,
+    _nearer: *const *const core::ffi::c_void,
+    _nearer_len: usize,
+    _any_emitted: *mut i32,
+) {
+    panic!("torajs-dynobj unit-test stub: struct rows should not print under cargo test")
+}

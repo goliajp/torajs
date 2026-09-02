@@ -8,6 +8,7 @@
 
 use core::ffi::c_void;
 
+use crate::reflect::{__torajs_dynobj_has, __torajs_str_drop, alloc_str_key};
 use crate::struct_print::{__torajs_inspect_line_reset, StrSlice, put_byte, put_bytes};
 
 unsafe extern "C" {
@@ -126,28 +127,88 @@ unsafe fn accessor_tag(layout: *const c_void, key: *const u8, key_len: usize) ->
     }
 }
 
-/// Emit a layout field name as an object key — bare when it is an
-/// ASCII identifier, JSON-quoted otherwise, the same rule a dynobj
-/// key takes. The name is rodata bytes, not a cell, so it is minted
-/// into a Str for the shared writer and released at once.
-unsafe fn put_key_bytes(ptr: *const u8, len: usize) {
+/// Mint a layout field name into a Str cell. The name is rodata
+/// bytes, but both the shared key writer and the shadow probe key by
+/// a live cell.
+unsafe fn mint_key(ptr: *const u8, len: usize) -> *mut u8 {
     let bytes = if ptr.is_null() {
         &[][..]
     } else {
         unsafe { core::slice::from_raw_parts(ptr, len) }
     };
-    let cell = unsafe { crate::reflect::alloc_str_key(bytes) };
-    unsafe { __torajs_print_str_cell_as_key(cell.cast()) };
-    unsafe { crate::reflect::__torajs_str_drop(cell) };
+    unsafe { alloc_str_key(bytes) }
 }
 
-/// The block body of a struct cell — every row plus the `{`
-/// that opens it and the `}` that closes it. `class_tag` is the
-/// cell's, already read by the caller for the name prefix.
+/// bun's `visitedProperties`: a key one of the already-walked
+/// objects carries belongs to that object, not to this one. `nearer`
+/// is empty for the object being printed and holds the hops between
+/// it and this cell when this cell is somebody's prototype.
+///
+/// # Safety
+/// `nearer` holds live dynobj cells; `key` is a live Str cell.
+unsafe fn shadowed(nearer: &[*const c_void], key: *const c_void) -> bool {
+    nearer
+        .iter()
+        .any(|&o| unsafe { __torajs_dynobj_has(o, key.cast::<u8>()) })
+}
+
+/// The `{`-and-separator protocol the dynobj walker uses (its
+/// `put_own_rows`): the block opens on the first row that actually
+/// prints, so a cell whose every row is hidden or shadowed adds
+/// nothing and an all-empty chain still closes as `{}`.
+pub(crate) unsafe fn open_row(indent: u32, any_emitted: &mut bool) {
+    unsafe {
+        if *any_emitted {
+            put_bytes(b",\n");
+            __torajs_inspect_line_add(1);
+        } else {
+            put_bytes(b"{\n");
+            // bun handleFirstProperty estimate seed — see
+            // torajs-dynobj::print_any for the accumulation rationale.
+            __torajs_inspect_line_reset(indent + 1);
+            *any_emitted = true;
+        }
+    }
+}
+
+/// The block body of a struct cell printed for itself — its rows
+/// plus the `{` that opens them and the `}` that closes them.
+/// `class_tag` is the cell's, already read by the caller for the
+/// name prefix.
 ///
 /// # Safety
 /// `cell` is a live `Tag::Obj` cell.
 pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) {
+    let mut any_emitted = false;
+    unsafe { put_rows(cell, class_tag, &[], indent, &mut any_emitted) };
+    unsafe {
+        if any_emitted {
+            put_bytes(b",\n");
+            __torajs_inspect_line_add(1);
+            put_indent(indent);
+            put_byte(b'}');
+        } else {
+            put_bytes(b"{}");
+        }
+    }
+}
+
+/// The rows this struct cell contributes to a block — its layout
+/// fields, its expando entries and its class prototype's methods.
+/// The block is opened by the first row that prints (`open_row`), so
+/// the same rows serve `console.log(cell)` and the walk that finds
+/// this cell on somebody else's [[Prototype]] chain (562-10).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell; `nearer` holds live dynobj
+/// cells already walked, nearest first.
+pub(crate) unsafe fn put_rows(
+    cell: *const c_void,
+    class_tag: u32,
+    nearer: &[*const c_void],
+    indent: u32,
+    any_emitted: &mut bool,
+) {
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     let n = unsafe { __torajs_struct_field_count(layout) };
     // Blade 3 (RFC 20260714-struct-dynamic-props) — expando entries
@@ -164,14 +225,9 @@ pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) 
     // even with zero own properties (`M { m: [Function: m] }`).
     let has_methods = unsafe { crate::struct_print_methods::has_visible_methods(class_tag) };
     if n == 0 && n_props == 0 && !has_methods {
-        unsafe { put_bytes(b"{}") };
         return;
     }
 
-    unsafe { put_bytes(b"{\n") };
-    // bun handleFirstProperty estimate seed — see
-    // torajs-dynobj::print_any for the accumulation rationale.
-    unsafe { __torajs_inspect_line_reset(indent + 1) };
     // Expando entries in bun's print order (see dynobj
     // `iter_print_order`); the leading `n_idx` are array-index keys,
     // which bun prints before the layout fields (the butterfly comes
@@ -210,9 +266,8 @@ pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) 
     }
     // Accessor slots collapse a get/set pair into one entry, so the
     // separator keys off what was actually emitted, not off `i`.
-    let mut emitted: u32 = 0;
     for &pi in &order[..n_idx] {
-        unsafe { put_expando_row(props, pi, indent, &mut emitted, slow) };
+        unsafe { put_expando_row(props, pi, nearer, indent, any_emitted, slow) };
     }
     let mut i: u32 = 0;
     while i < n {
@@ -232,12 +287,16 @@ pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) 
             i += 1;
             continue;
         }
-        if emitted > 0 {
-            unsafe { put_bytes(b",\n") };
-            unsafe { __torajs_inspect_line_add(1) };
+        let key_cell = unsafe { mint_key(kp, klen) };
+        if !nearer.is_empty() && unsafe { shadowed(nearer, key_cell.cast()) } {
+            unsafe { __torajs_str_drop(key_cell) };
+            i += 1;
+            continue;
         }
+        unsafe { open_row(indent, any_emitted) };
         unsafe { put_indent(indent + 2) };
-        unsafe { put_key_bytes(kp, klen) };
+        unsafe { __torajs_print_str_cell_as_key(key_cell.cast()) };
+        unsafe { __torajs_str_drop(key_cell) };
         unsafe { put_bytes(b": ") };
         unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
         if kind.is_some() {
@@ -246,7 +305,6 @@ pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) 
             let tag = unsafe { accessor_tag(layout, kp, klen) };
             unsafe { put_bytes(tag) };
             unsafe { __torajs_inspect_line_add(tag.len() as u32) };
-            emitted += 1;
             i += 1;
             continue;
         }
@@ -266,31 +324,26 @@ pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) 
         // an owned Str this print walk never dropped.
         let anyv = unsafe { field_slot_to_anyv_borrowed(info.type_tag, raw) };
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
-        emitted += 1;
         i += 1;
     }
     // Blade 3 — the string- and Symbol-keyed expando entries render
     // after the layout fields.
     for &pi in &order[n_idx..] {
-        unsafe { put_expando_row(props, pi, indent, &mut emitted, slow) };
+        unsafe { put_expando_row(props, pi, nearer, indent, any_emitted, slow) };
     }
     // 405-05 — prototype methods and accessors render after the own
     // properties, matching bun's inspect order (own first, proto
     // entries last; see struct_print_methods.rs).
     if has_methods {
         unsafe {
-            crate::struct_print_methods::print_proto_methods(class_tag, indent, &mut emitted)
+            crate::struct_print_methods::print_proto_methods(class_tag, nearer, indent, any_emitted)
         };
     }
-    unsafe { put_bytes(b",\n") };
-    unsafe { __torajs_inspect_line_add(1) };
-    unsafe { put_indent(indent) };
-    unsafe { put_byte(b'}') };
 }
 
 /// One expando entry row — `key: value`, enumerable or not; the pair
 /// read is a borrow, boxed for the inline printer with zero rc
-/// traffic. `emitted` drives the separator like the field rows.
+/// traffic. The row opens the block if nothing printed yet.
 ///
 /// # Safety
 /// `props` is the live expando dynobj of the struct being printed
@@ -298,8 +351,9 @@ pub(crate) unsafe fn put_body(cell: *const c_void, class_tag: u32, indent: u32) 
 unsafe fn put_expando_row(
     props: *const c_void,
     pi: u64,
+    nearer: &[*const c_void],
     indent: u32,
-    emitted: &mut u32,
+    any_emitted: &mut bool,
     slow: i32,
 ) {
     let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
@@ -310,10 +364,10 @@ unsafe fn put_expando_row(
     if unsafe { __torajs_key_cell_inspect_hidden(key, flags, slow) } != 0 {
         return;
     }
-    if *emitted > 0 {
-        unsafe { put_bytes(b",\n") };
-        unsafe { __torajs_inspect_line_add(1) };
+    if !nearer.is_empty() && unsafe { shadowed(nearer, key.cast()) } {
+        return;
     }
+    unsafe { open_row(indent, any_emitted) };
     // Line accounting counts the key's code units (bun adds
     // str.length); the key itself goes through the shared key
     // writer, like a dynobj key (a Symbol expando prints as
@@ -329,5 +383,4 @@ unsafe fn put_expando_row(
     let eval = unsafe { __torajs_dynobj_get_value(props, key.cast::<u8>()) };
     let anyv = unsafe { __torajs_anyv_box_from_pair(etag as i64, eval as i64) };
     unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
-    *emitted += 1;
 }
