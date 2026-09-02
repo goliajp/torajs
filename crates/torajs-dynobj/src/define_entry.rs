@@ -51,7 +51,7 @@ pub(crate) unsafe fn seed_virtual_fn_prop(
     key: *mut c_void,
 ) {
     unsafe {
-        let Some((data, len)) = key_str_bytes(key as *const c_void) else {
+        let Some((data, len, true)) = key_str_bytes(key as *const c_void) else {
             return;
         };
         let name = core::slice::from_raw_parts(data, len as usize);
@@ -232,7 +232,7 @@ unsafe fn define_plain_apply(
         // Same monkey-patch note the front door records — a define
         // landing on a builtin `<Ctor>.prototype` singleton flips
         // the fast-arm pre-gate bit (no-op for every other dynobj).
-        if let Some((data, len)) = key_str_bytes(key) {
+        if let Some((data, len, true)) = key_str_bytes(key) {
             __torajs_builtin_proto_note_own_write(obj, data, len as i64);
         }
         if entries_len(obj) == crate::probe::entries_cap(obj) {

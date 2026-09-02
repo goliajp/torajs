@@ -91,11 +91,6 @@ const VALUE_UNDEFINED_IMM: u64 = 0x0A;
 /// torajs-cycle::layout::OBJ_CLASS_TAG_OFF).
 const OBJ_CLASS_TAG_OFF: usize = 8;
 
-/// `Str` layout: `[header:8][length u32 @8][_pad:4][bytes @16]`
-/// (mirror torajs-str::layout STR_LEN_OFF / STR_DATA_OFF).
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-
 /// Map a struct field's coarse `type_tag` (see
 /// `ssa::field_type_tag_of`) + its raw 8-byte slot to a BORROWED
 /// NaN-box AnyValue (the struct keeps every heap stake; an Any slot
@@ -354,9 +349,8 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     }
 
     // Resolve the key to a field index.
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let key_bytes = unsafe { k.add(STR_DATA_OFF) };
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let (key_bytes, key_len) = (k.as_ptr(), k.len());
     let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
     if idx == u32::MAX {
         // RFC 20260714-objlit-accessor — the plain name never matches

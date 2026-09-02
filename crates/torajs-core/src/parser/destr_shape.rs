@@ -65,7 +65,7 @@ pub(super) struct ObjField {
 /// the emitter evaluates it in field order (§14.3.3.3 binds each
 /// field's key before its load, after the previous field's bind).
 pub(super) enum FieldKey {
-    Named(String),
+    Named(PropKey),
     Computed(ExprId),
 }
 
@@ -243,13 +243,13 @@ impl<'a> Parser<'a> {
             // can't be a reserved word) — same rule as the object
             // literal wedge.
             let (field, field_is_kw) = match self.peek() {
-                Token::Ident(n) => (n.clone(), false),
+                Token::Ident(n) => (PropKey::from(n), false),
                 // ES §12.7.2 — an escaped ReservedWord names the
                 // FIELD; like a bare keyword it still needs the
                 // explicit rename, since the BINDING cannot be one.
-                Token::EscapedIdent(n) => (n.clone(), true),
+                Token::EscapedIdent(n) => (PropKey::from(n), true),
                 t if Self::keyword_property_name(t).is_some() => {
-                    (Self::keyword_property_name(t).unwrap().to_string(), true)
+                    (PropKey::from(Self::keyword_property_name(t).unwrap()), true)
                 }
                 // §13.3.3 PropertyName : NumericLiteral — `{ 0: v,
                 // length: z }` (the array-as-object pattern family).
@@ -258,11 +258,11 @@ impl<'a> Parser<'a> {
                 // load recipe turns an all-digit field into an index
                 // read. Non-integer numerics keep the loud reject.
                 Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
-                    ((*n as u64).to_string(), true)
+                    (PropKey::from((*n as u64).to_string()), true)
                 }
                 // PropertyName : StringLiteral — `{ "a b": v }`; the
                 // field is the cooked string, rename mandatory.
-                Token::String(s) => (s.to_string_lossy_owned(), true),
+                Token::String(s) => (PropKey::from(s.clone()), true),
                 t => {
                     return Err(format!(
                         "expected identifier in object destructuring, got {t:?} at {}",
@@ -282,8 +282,9 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 let default = self.read_pattern_default()?;
+                // Shorthand binds the Ident arm's own spelling.
                 ObjBinding::Bind {
-                    name: field.clone(),
+                    name: field.to_string(),
                     default,
                 }
             };

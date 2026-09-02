@@ -55,14 +55,17 @@ pub(crate) unsafe fn typedarray_len(recv: AnyValue) -> i64 {
 /// # Safety
 /// `key` is NULL or a live Str cell.
 pub(crate) unsafe fn canonical_numeric_key(key: *const c_void) -> Option<f64> {
-    let (bytes, len) = unsafe { crate::prop_has::key_bytes(key) };
-    if len == 0 || len > 32 {
+    if key.is_null() {
         return None;
     }
-    let s = unsafe { core::slice::from_raw_parts(bytes, len as usize) };
+    let k = unsafe { crate::prop_has::key_bytes(key) };
+    let s = k.as_bytes();
+    if s.is_empty() || s.len() > 32 {
+        return None;
+    }
     // Integer fast path — the overwhelmingly common spelling, no
     // allocation. Leading zeros are non-canonical ("01" != "1").
-    if s.iter().all(u8::is_ascii_digit) && !(len > 1 && s[0] == b'0') {
+    if s.iter().all(u8::is_ascii_digit) && !(s.len() > 1 && s[0] == b'0') {
         let mut v: u64 = 0;
         for &b in s {
             v = v.checked_mul(10)?.checked_add((b - b'0') as u64)?;
@@ -265,13 +268,11 @@ pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
     }
     // Interned prototype methods — the same per-tag support tables
     // the method dispatch resolves with.
-    let (bytes, len) = unsafe { crate::prop_has::key_bytes(key) };
-    if bytes.is_null() {
+    if key.is_null() {
         return false;
     }
-    let Ok(name) =
-        core::str::from_utf8(unsafe { core::slice::from_raw_parts(bytes, len as usize) })
-    else {
+    let k = unsafe { crate::prop_has::key_bytes(key) };
+    let Ok(name) = core::str::from_utf8(k.as_bytes()) else {
         return false;
     };
     let mid = torajs_rc::any_method_intern::any_method_id(name);

@@ -57,7 +57,8 @@ pub unsafe extern "C" fn __torajs_struct_proto_member_has(
     if layout.is_null() {
         return 0;
     }
-    let (name, len) = unsafe { key_bytes(key) };
+    let k = unsafe { key_bytes(key) };
+    let (name, len) = (k.as_ptr(), k.len());
     if !unsafe { __torajs_struct_method_find(layout, name, len) }.is_null() {
         return 1;
     }

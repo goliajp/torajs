@@ -42,6 +42,7 @@ pub mod drop;
 pub mod get;
 pub mod has;
 pub mod iter;
+mod key_wtf8;
 pub mod layout;
 pub mod pool;
 pub mod print_any;
@@ -173,6 +174,14 @@ pub unsafe extern "C" fn __torajs_rc_dec(p: *mut core::ffi::c_void) -> i32 {
         *rc -= 1;
         i32::from(*rc == 0)
     }
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_wtf8_into(_s: *const u8, _buf: *mut u8, _cap: u32) -> u32 {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_str_wtf8_into should not be called from cargo test paths"
+    );
 }
 
 #[cfg(test)]

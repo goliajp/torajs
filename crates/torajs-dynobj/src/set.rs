@@ -118,7 +118,7 @@ unsafe fn dynobj_set_impl(
     // keys off the method NAME, so a symbol key has nothing to report
     // and must not have the Str payload offsets read off its 16-byte
     // cell.
-    if let Some((data, len)) = unsafe { key_str_bytes(key) } {
+    if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
         unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
     }
     // Dense-array-full guard: compact (and grow if genuinely full)

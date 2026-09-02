@@ -24,10 +24,8 @@ use super::*;
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let key_bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
-    unsafe { struct_field_pair_bytes(ptr, key_bytes) }
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    unsafe { struct_field_pair_bytes(ptr, k.as_bytes()) }
 }
 
 /// [`struct_field_pair`] keyed by raw name bytes — the shape the

@@ -95,11 +95,7 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
         if key.is_null() {
             continue;
         }
-        let klen = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
-        let kbytes = unsafe {
-            core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), klen as usize)
-        };
-        if kbytes == want {
+        if unsafe { crate::key_wtf8::KeyWtf8::of(key) }.as_bytes() == want {
             return i64::from(
                 unsafe { __torajs_dynobj_iter_flags(props, i) } & BUCKET_FLAG_ENUMERABLE == 0,
             );
@@ -124,9 +120,8 @@ pub unsafe extern "C" fn __torajs_obj_key_is_nonenumerable(
     cell: *const c_void,
     key: *const c_void,
 ) -> i64 {
-    let k = key.cast::<u8>();
-    let len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    unsafe { __torajs_obj_field_is_nonenumerable(cell, k.add(STR_DATA_OFF), len) }
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    unsafe { __torajs_obj_field_is_nonenumerable(cell, k.as_ptr(), k.len()) }
 }
 
 /// `torajs_rc::FLAG_FROZEN` / `FLAG_OBJ_EXOTIC_FIELD` mirrors — the
@@ -190,9 +185,6 @@ pub(crate) const BUCKET_FLAG_CONFIGURABLE: u64 = 1 << 2;
 
 /// `class_tag: u32` at `+8` of a `Tag::Obj` cell.
 const OBJ_CLASS_TAG_OFF: usize = 8;
-/// `Str` payload offsets (torajs-str mirror).
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
 
 /// Does `cell`'s class layout declare `key` — as a data field or as an
 /// accessor member?
@@ -216,9 +208,8 @@ pub(crate) unsafe fn layout_declares(cell: *const c_void, key: *const c_void) ->
     if layout.is_null() {
         return false;
     }
-    let k = key as *const u8;
-    let len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let bytes = unsafe { k.add(STR_DATA_OFF) };
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let (bytes, len) = (k.as_ptr(), k.len());
     unsafe {
         __torajs_struct_field_find(layout, bytes, len) != u32::MAX
             || __torajs_struct_accessor_find(layout, bytes, len, 0) != u32::MAX

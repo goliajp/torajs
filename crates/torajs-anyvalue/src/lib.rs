@@ -135,6 +135,7 @@ mod iter_helper_next;
 mod iter_zip;
 mod iter_zip_keyed;
 mod iter_zip_shared;
+mod key_wtf8;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;
@@ -862,6 +863,14 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_alloc(_src: *const u8, _len: i64) -> *mut u8 {
         core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_wtf8_into(
+        _s: *const u8,
+        _buf: *mut u8,
+        _cap: u32,
+    ) -> u32 {
+        0
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_str_concat(_a: *const u8, _b: *const u8) -> *mut c_void {

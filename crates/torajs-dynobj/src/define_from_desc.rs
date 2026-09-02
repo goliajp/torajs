@@ -83,14 +83,16 @@ enum DescStore {
 }
 
 /// Stack-allocated Str-shaped probe key. [`probe`] / `hash_str` /
-/// `str_eq` only read `len` (offset 8) and the inline payload (offset
-/// 16) — never the heap header — so a non-heap buffer with those two
-/// fields suffices to look a property name up in a dynobj without
-/// allocating (or interning) a real Str. Field names are short; a
-/// 16-byte inline payload covers every descriptor key.
+/// `str_eq` read `len` (offset 8), the inline payload (offset 16)
+/// and the header's `IS_LATIN1` bit (flags u16 at offset 6), so a
+/// non-heap buffer with those fields suffices to look a property
+/// name up in a dynobj without allocating (or interning) a real
+/// Str. Field names are short; a 16-byte inline payload covers
+/// every descriptor key.
 #[repr(C, align(8))]
 struct FakeStrKey {
-    _header: u64,
+    /// `flags u16 @6` = `IS_LATIN1`, the rest zero.
+    header: u64,
     len: u64,
     data: [u8; 16],
 }
@@ -99,7 +101,7 @@ impl FakeStrKey {
     #[inline]
     fn new(name: &str) -> FakeStrKey {
         let mut k = FakeStrKey {
-            _header: 0,
+            header: (crate::probe::KEY_STR_FLAG_IS_LATIN1 as u64) << 48,
             len: name.len() as u64,
             data: [0u8; 16],
         };

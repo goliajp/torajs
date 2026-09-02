@@ -391,7 +391,7 @@ pub(crate) unsafe fn define_apply(
     // The gate keys off the method NAME, so a symbol key has nothing
     // to report — and must not have the Str payload offsets read off
     // its cell, which is why the name comes from `key_str_bytes`.
-    if let Some((data, len)) = unsafe { key_str_bytes(key) } {
+    if let Some((data, len, true)) = unsafe { key_str_bytes(key) } {
         unsafe { __torajs_builtin_proto_note_own_write(obj, data, len as i64) };
     }
     // Dense-array-full guard — same shape as set.rs. Resize swaps the

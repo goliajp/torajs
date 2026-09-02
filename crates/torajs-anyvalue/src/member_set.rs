@@ -115,11 +115,9 @@ unsafe fn set_obj_member(
     throw_on_refusal: bool,
 ) -> Option<i64> {
     unsafe {
-        let name_len = (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read();
-        let name_bytes = key.cast::<u8>().add(STR_DATA_OFF);
+        let k = crate::key_wtf8::KeyWtf8::of(key);
         let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
-        if crate::struct_probe::__torajs_struct_accessor_set(ptr, name_bytes, name_len, value_anyv)
-        {
+        if crate::struct_probe::__torajs_struct_accessor_set(ptr, k.as_ptr(), k.len(), value_anyv) {
             // The setter borrowed the value out of argv; the write
             // path owns the payload it was handed.
             drop_payload(tag, value);

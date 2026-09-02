@@ -57,8 +57,6 @@ struct FieldInfo {
 
 /// Layout mirrors (`struct_probe.rs` twins).
 const OBJ_CLASS_TAG_OFF: usize = 8;
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
 
 /// The two injected-layout slots that carry own-ABSENCE through the
 /// sentinel rather than through the field list. `message` is absent
@@ -363,10 +361,8 @@ pub(crate) unsafe fn struct_data_field_set(
     if layout.is_null() {
         return false;
     }
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let key_bytes = unsafe { k.add(STR_DATA_OFF) };
-    let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let idx = unsafe { __torajs_struct_field_find(layout, k.as_ptr(), k.len()) };
     if idx == u32::MAX {
         return false;
     }

@@ -25,7 +25,8 @@ use core::ffi::c_void;
 use crate::get::type_tag;
 use crate::layout::{DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
 use crate::probe::{
-    bucket_flags, bucket_key_ptr, entries, entries_len, key_is_symbol, key_str_bytes,
+    KEY_HDR_FLAGS_OFF, KEY_STR_FLAG_IS_LATIN1, bucket_flags, bucket_key_ptr, entries, entries_len,
+    key_is_symbol, key_str_bytes,
 };
 
 /// `__torajs_dynobj_iter_len(obj)` — dense-array iteration upper bound
@@ -96,8 +97,6 @@ pub unsafe extern "C" fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) 
 /// constants layout.rs asserts for key hashing).
 const KEY_STR_LEN_OFF: usize = 8;
 const KEY_STR_DATA_OFF: usize = 16;
-const KEY_STR_FLAG_IS_LATIN1: u16 = 0x0002;
-const KEY_HDR_FLAGS_OFF: usize = 6;
 
 /// ES array-index upper bound — §6.1.7: an array index is a
 /// canonical numeric string in `[0, 2^32 - 2]`.

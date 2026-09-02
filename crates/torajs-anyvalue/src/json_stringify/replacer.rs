@@ -180,13 +180,7 @@ unsafe fn property_name(elem: AnyValue) -> Option<*mut c_void> {
 
 /// Byte equality of two Str cells — the list's dedup test.
 unsafe fn same_key(a: *mut c_void, b: *mut c_void) -> bool {
-    unsafe {
-        let (ap, alen) = crate::prop_has::key_bytes(a);
-        let (bp, blen) = crate::prop_has::key_bytes(b);
-        alen == blen
-            && core::slice::from_raw_parts(ap, alen as usize)
-                == core::slice::from_raw_parts(bp, blen as usize)
-    }
+    unsafe { crate::prop_has::key_bytes(a).as_bytes() == crate::prop_has::key_bytes(b).as_bytes() }
 }
 
 /// §25.5.2.4 SerializeJSONObject step 5 under a PropertyList — the

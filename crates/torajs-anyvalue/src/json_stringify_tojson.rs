@@ -110,8 +110,7 @@ unsafe fn find_tojson_entry(obj: *const c_void) -> Option<AnyValue> {
             if key.is_null() {
                 continue;
             }
-            let (bytes, klen) = key_bytes(key);
-            if klen == 6 && core::slice::from_raw_parts(bytes, 6) == b"toJSON" {
+            if key_bytes(key).as_bytes() == b"toJSON" {
                 found = Some(__torajs_dynobj_iter_value(obj, i));
                 break;
             }

@@ -20,7 +20,7 @@ impl<'a> Parser<'a> {
         lets.push(guard);
         // Keys the pattern names, in source order — the omit set for a
         // trailing `...rest`.
-        let mut seen_fields: Vec<String> = Vec::new();
+        let mut seen_fields: Vec<PropKey> = Vec::new();
         let mut saw_computed = false;
         if !matches!(self.peek(), Token::RBrace) {
             loop {
@@ -47,7 +47,7 @@ impl<'a> Parser<'a> {
                         }
                     };
                     self.pos += 1;
-                    let omit: Vec<&str> = seen_fields.iter().map(String::as_str).collect();
+                    let omit: Vec<&str> = seen_fields.iter().filter_map(|f| f.as_str()).collect();
                     let bind = self.emit_obj_rest_let(&src_name, &omit, &rest_name, false, false);
                     lets.push(bind);
                     // §14.3.3.1 — a rest element is always last; the
@@ -86,12 +86,12 @@ impl<'a> Parser<'a> {
                     continue;
                 }
                 let (field, field_is_kw) = match self.peek() {
-                    Token::Ident(n) => (n.clone(), false),
+                    Token::Ident(n) => (PropKey::from(n), false),
                     // ES §12.7.2 — escaped ReservedWord names the
                     // FIELD; needs the rename like a bare keyword.
-                    Token::EscapedIdent(n) => (n.clone(), true),
+                    Token::EscapedIdent(n) => (PropKey::from(n), true),
                     t if Self::keyword_property_name(t).is_some() => {
-                        (Self::keyword_property_name(t).unwrap().to_string(), true)
+                        (PropKey::from(Self::keyword_property_name(t).unwrap()), true)
                     }
                     // §13.3.3 PropertyName : NumericLiteral /
                     // StringLiteral (`{ 0: v }` / `{ "a b": v }`) —
@@ -99,9 +99,9 @@ impl<'a> Parser<'a> {
                     // load recipe turns all-digit fields into
                     // length-guarded index reads.
                     Token::Number(n) if n.fract() == 0.0 && *n >= 0.0 => {
-                        ((*n as u64).to_string(), true)
+                        (PropKey::from((*n as u64).to_string()), true)
                     }
-                    Token::String(s) => (s.to_string_lossy_owned(), true),
+                    Token::String(s) => (PropKey::from(s.clone()), true),
                     t => {
                         return Err(format!(
                             "expected identifier in object param destructuring, got {t:?} at {}",
@@ -114,16 +114,7 @@ impl<'a> Parser<'a> {
                 // All-digit fields read as length-guarded index loads
                 // (OOB answers undefined so a `= default` wrapper can
                 // fire), everything else as a member read.
-                let mem = if !field.is_empty() && field.bytes().all(|b| b.is_ascii_digit()) {
-                    let idx = field.parse::<usize>().unwrap_or(0);
-                    self.dstra_elem_load(&src_name, idx, None)
-                } else {
-                    let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
-                    self.ast.add_expr(Expr::Member {
-                        obj: src_ref,
-                        name: field.clone(),
-                    })
-                };
+                let mem = self.dstra_param_field_load(&src_name, &field);
                 if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
                     match self.peek() {
@@ -175,10 +166,12 @@ impl<'a> Parser<'a> {
                             self.at()
                         ));
                     }
-                    let init_expr = self.maybe_parse_object_destr_default(mem, Some(&field))?;
+                    // Shorthand binds the Ident arm's own spelling.
+                    let name = field.to_string();
+                    let init_expr = self.maybe_parse_object_destr_default(mem, Some(&name))?;
                     lets.push(Stmt::LetDecl {
                         mutable: false,
-                        name: field,
+                        name,
                         type_ann: None,
                         init: init_expr,
                         is_var: false,
@@ -212,6 +205,31 @@ impl<'a> Parser<'a> {
     /// `dstra_computed_load` recipe, and the `:` is mandatory — a
     /// computed key has no shorthand form. Caller sits on the `[`;
     /// returns with the binding consumed, the comma tail untouched.
+    /// `__src.f` for a param pattern field: an all-digit field is a
+    /// length-guarded index load (OOB answers undefined so a
+    /// `= default` wrapper can fire), an identifier string a member
+    /// read, and a key that is not a `&str` (lone surrogate) an
+    /// index read of the literal, the same routing as `dstra_field_load`.
+    fn dstra_param_field_load(&mut self, src_name: &str, field: &PropKey) -> ExprId {
+        if let Some(name) = field.as_str() {
+            if !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit()) {
+                let idx = name.parse::<usize>().unwrap_or(0);
+                return self.dstra_elem_load(src_name, idx, None);
+            }
+            let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+            return self.ast.add_expr(Expr::Member {
+                obj: src_ref,
+                name: name.to_string(),
+            });
+        }
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let key = self.ast.add_expr(Expr::String(field.as_wtf8().to_owned()));
+        self.ast.add_expr(Expr::Index {
+            obj: src_ref,
+            index: key,
+        })
+    }
+
     fn parse_destr_computed_field(
         &mut self,
         src_name: &str,

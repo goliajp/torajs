@@ -33,6 +33,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
+use crate::key_wtf8::KeyWtf8;
 use crate::member_get::{closure_props, header_flag, recv_cell};
 use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
 
@@ -75,28 +76,28 @@ unsafe extern "C" {
 /// Closure props-dynobj slot at +24.
 const OBJ_CLASS_TAG_OFF: usize = 8;
 pub(crate) const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
 pub(crate) const ARR_LEN_OFF: usize = 8;
 pub(crate) const ARR_PROPS_OFF: usize = 24;
 /// `arr_index_flags` result bit 3 — the index was deleted (hole;
 /// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
 pub(crate) const ARR_F_HOLE: u64 = 1 << 3;
 
-/// Decode the key Str cell to `(bytes, len)`.
+/// The key Str cell's name spelling — WTF-8, the form every layout
+/// / accessor / method name lookup compares against.
 #[inline]
-pub(crate) unsafe fn key_bytes(key: *const c_void) -> (*const u8, u32) {
-    let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
-    (unsafe { key.cast::<u8>().add(STR_DATA_OFF) }, len)
+pub(crate) unsafe fn key_bytes(key: *const c_void) -> KeyWtf8 {
+    unsafe { KeyWtf8::of(key) }
 }
 
 /// Parse a canonical array-index key (`"0"`, `"12"` — all digits, no
 /// leading zero except `"0"` itself). `None` for anything else.
 pub(crate) unsafe fn canonical_index(key: *const c_void) -> Option<u64> {
-    let (bytes, len) = unsafe { key_bytes(key) };
+    let k = unsafe { key_bytes(key) };
+    let s = k.as_bytes();
+    let len = s.len();
     if len == 0 || len > 20 {
         return None;
     }
-    let s = unsafe { core::slice::from_raw_parts(bytes, len as usize) };
     if !s.iter().all(u8::is_ascii_digit) || (len > 1 && s[0] == b'0') {
         return None;
     }
@@ -109,9 +110,7 @@ pub(crate) unsafe fn canonical_index(key: *const c_void) -> Option<u64> {
 
 /// `true` iff the key spells exactly `name`.
 pub(crate) unsafe fn key_is(key: *const c_void, name: &[u8]) -> bool {
-    let (bytes, len) = unsafe { key_bytes(key) };
-    len as usize == name.len()
-        && unsafe { core::slice::from_raw_parts(bytes, len as usize) } == name
+    unsafe { key_bytes(key) }.as_bytes() == name
 }
 
 /// Whether a `Tag::Obj` struct carries `key` as an own property. A
@@ -136,7 +135,8 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
     if layout.is_null() {
         return 0;
     }
-    let (name_bytes, name_len) = unsafe { key_bytes(key) };
+    let k = unsafe { key_bytes(key) };
+    let (name_bytes, name_len) = (k.as_ptr(), k.len());
     if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
         // A `message` / `name` slot holding the own-absence sentinel
         // means the property does not exist (§20.5.6.1.1: an undefined

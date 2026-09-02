@@ -8,7 +8,7 @@
 //! instance can carry expando entries the layout never mentions. The
 //! fold stays for layout hits; everything else defers to a kernel.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Expr, ExprId, PropKey};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use torajs_wtf8::Wtf8;
@@ -99,17 +99,16 @@ pub(crate) fn emit_obj_has_own_property(
     if let Expr::String(key) = ctx.ast.get_expr(arg_eid) {
         // Literal key — compile-time fold. The lowered literal is a
         // static cell (rc no-op); nothing to release.
-        let key = key.to_string_lossy_owned();
         let layout = &ctx.struct_layouts[sid.0 as usize];
         // An accessor member rides the layout under its synthetic
         // `__getter_<k>` / `__setter_<k>` name — it IS the own
         // property `<k>` (test262 8.12.1-1_20: `{get foo(){}}`
         // hasOwnProperty("foo") is true).
-        let getter = format!("__getter_{key}");
-        let setter = format!("__setter_{key}");
+        let getter = PropKey::prefixed("__getter_", key);
+        let setter = PropKey::prefixed("__setter_", key);
         let result = layout
             .iter()
-            .any(|(fname, _)| *fname == key || *fname == getter || *fname == setter);
+            .any(|(fname, _)| fname == key || *fname == getter || *fname == setter);
         let arg_val = ctx.lower_expr(arg_eid);
         ctx.release_owned_temp(arg_eid, &arg_val);
         // S304 — lower-and-drop trailing args per S272 idiom
@@ -139,7 +138,7 @@ pub(crate) fn emit_obj_has_own_property(
         if result {
             return Operand::ConstBool(true);
         }
-        let lit = ctx.intern_string_literal(&key);
+        let lit = ctx.intern_string_literal(key);
         return emit_expando_probe(ctx, recv_op, Operand::Value(lit), is_enumerable_probe);
     }
     // Runtime key — emit inline str_eq chain.

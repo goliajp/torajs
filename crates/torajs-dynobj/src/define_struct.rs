@@ -115,16 +115,17 @@ pub(crate) enum Declared {
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
 pub(crate) unsafe fn struct_declares(obj: *const c_void, key: *const c_void) -> Declared {
-    let Some((data, len)) = (unsafe { key_str_bytes(key) }) else {
+    if unsafe { key_str_bytes(key) }.is_none() {
         // A symbol key names no declared field by construction.
         return Declared::No;
-    };
+    }
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let (data, len) = (k.as_ptr(), k.len());
     let class_tag = unsafe { (obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {
         return Declared::No;
     }
-    let len = len as u32;
     unsafe {
         if __torajs_struct_field_find(layout, data, len) != u32::MAX {
             return Declared::Field;
@@ -213,11 +214,11 @@ unsafe fn current_field_attrs(obj: *mut c_void, key: *mut c_void) -> u64 {
     let hdr_flags = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
     let nonenum = hdr_flags & OBJ_HDR_FLAG_ERROR != 0
         && match unsafe { key_str_bytes(key) } {
-            Some((data, len)) => {
+            Some((data, len, true)) => {
                 let name = unsafe { core::slice::from_raw_parts(data, len as usize) };
                 name == b"message" || name == b"stack"
             }
-            None => false,
+            _ => false,
         };
     let mut flags = 0;
     if !frozen {

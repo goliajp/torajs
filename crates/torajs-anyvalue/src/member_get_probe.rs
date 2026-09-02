@@ -7,9 +7,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::member_get::{
-    STR_DATA_OFF, STR_LEN_OFF, closure_props, is_wrapper_tag, recv_cell, wrapper_props,
-};
+use crate::member_get::{closure_props, is_wrapper_tag, recv_cell, wrapper_props};
 use crate::nanbox::{AnyValue, is_null, is_undefined};
 
 unsafe extern "C" {
@@ -134,9 +132,8 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
                 unsafe { (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
             let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
             if !layout.is_null() {
-                let name_len = unsafe { (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() };
-                let name_bytes = unsafe { key.cast::<u8>().add(STR_DATA_OFF) };
-                if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
+                let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+                if unsafe { __torajs_struct_field_find(layout, k.as_ptr(), k.len()) } != u32::MAX {
                     return 1;
                 }
             }

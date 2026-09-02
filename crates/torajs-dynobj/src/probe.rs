@@ -172,13 +172,46 @@ unsafe fn str_len(key: *const c_void) -> u64 {
     unsafe { *((key as *const u8).add(STR_LEN_OFF) as *const u32) as u64 }
 }
 
-/// Pointer to a Str's inline UTF-8 payload (offset 16).
+/// Pointer to a Str's inline payload (offset 16) — Latin-1 bytes or
+/// UTF-16 LE code units, per [`str_is_latin1`].
 ///
 /// # Safety
 /// `key` must point at a live Str heap block.
 #[inline]
 unsafe fn str_data(key: *const c_void) -> *const u8 {
     unsafe { (key as *const u8).add(STR_DATA_OFF) }
+}
+
+/// Universal heap-header `flags u16 @6` and the torajs-str
+/// `IS_LATIN1` bit in it (1 = one byte per code unit, 0 = UTF-16).
+pub(crate) const KEY_HDR_FLAGS_OFF: usize = 6;
+pub(crate) const KEY_STR_FLAG_IS_LATIN1: u16 = 0x0002;
+
+/// The key's payload encoding.
+///
+/// # Safety
+/// `key` must point at a live Str heap block.
+#[inline]
+pub(crate) unsafe fn str_is_latin1(key: *const c_void) -> bool {
+    let flags = unsafe { *((key as *const u8).add(KEY_HDR_FLAGS_OFF) as *const u16) };
+    flags & KEY_STR_FLAG_IS_LATIN1 != 0
+}
+
+/// The key's payload as bytes — `length` bytes when Latin-1, twice
+/// that when UTF-16. Every walk over a key's content goes through
+/// here: `length` counts code units, not bytes.
+///
+/// # Safety
+/// `key` must point at a live Str heap block.
+#[inline]
+unsafe fn str_payload<'a>(key: *const c_void) -> &'a [u8] {
+    let len = unsafe { str_len(key) } as usize;
+    let n = if unsafe { str_is_latin1(key) } {
+        len
+    } else {
+        len * 2
+    };
+    unsafe { core::slice::from_raw_parts(str_data(key), n) }
 }
 
 /// True when a key cell is a Symbol rather than a Str — the §6.1.7
@@ -192,9 +225,12 @@ pub(crate) unsafe fn key_is_symbol(key: *const c_void) -> bool {
     unsafe { *((key as *const u8).add(4) as *const u16) == TAG_SYMBOL_KEY }
 }
 
-/// A key's Str payload as `(data, len)`, or `None` when the key is a
-/// Symbol — the §6.1.7 domain split applied at the one place the
-/// payload is reachable.
+/// A key's Str payload as `(data, byte_len, is_latin1)`, or `None`
+/// when the key is a Symbol — the §6.1.7 domain split applied at the
+/// one place the payload is reachable. `byte_len` already carries the
+/// encoding stride; a consumer comparing against an ASCII spelling
+/// must also require `is_latin1` (a UTF-16 payload can spell the
+/// same bytes with different units).
 ///
 /// The two cells overlap where it hurts: a Str keeps its `len: u64`
 /// at offset 8, a Symbol keeps its *description pointer* there. Read
@@ -207,11 +243,14 @@ pub(crate) unsafe fn key_is_symbol(key: *const c_void) -> bool {
 /// # Safety
 /// `key` must point at a live Str or Symbol heap block.
 #[inline]
-pub(crate) unsafe fn key_str_bytes(key: *const c_void) -> Option<(*const u8, u64)> {
+pub(crate) unsafe fn key_str_bytes(key: *const c_void) -> Option<(*const u8, u64, bool)> {
     if unsafe { key_is_symbol(key) } {
         return None;
     }
-    Some((unsafe { str_data(key) }, unsafe { str_len(key) }))
+    let payload = unsafe { str_payload(key) };
+    Some((payload.as_ptr(), payload.len() as u64, unsafe {
+        str_is_latin1(key)
+    }))
 }
 
 /// Release an entry's owning key share, dispatching on the §6.1.7 key
@@ -230,18 +269,22 @@ pub(crate) unsafe fn drop_key(key: *mut c_void) {
     }
 }
 
-/// FNV-1a hash over the Str's UTF-8 payload (64-bit constants,
-/// byte-order over the raw payload).
+/// FNV-1a hash over the Str's payload bytes (64-bit constants). The
+/// walk covers the whole payload — `length` code units, one byte
+/// each for Latin-1 and two for UTF-16 — so two UTF-16 keys that
+/// agree on their low bytes (`"\uD800"` / `"\uDC00"`) hash apart.
+/// Under torajs-str's canonical-encoding invariant equal content
+/// means equal encoding, so the byte walk is a content hash; an
+/// ASCII key's hash is the FNV-1a of its ASCII bytes
+/// (`attach_exec.rs` bakes those at compile time).
 ///
 /// # Safety
 /// `key` must point at a live Str heap block.
 #[inline]
 pub(crate) unsafe fn hash_str(key: *const c_void) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
-    let len = unsafe { str_len(key) };
-    let data = unsafe { str_data(key) };
-    for i in 0..len as usize {
-        h ^= unsafe { *data.add(i) } as u64;
+    for &b in unsafe { str_payload(key) } {
+        h ^= b as u64;
         h = h.wrapping_mul(0x100000001b3);
     }
     h
@@ -299,9 +342,12 @@ pub(crate) unsafe fn key_eq(a: *const c_void, b: *const c_void) -> bool {
     unsafe { str_eq(a, b) }
 }
 
-/// Compare two Str values for equality (length + byte content). Used
-/// by [`key_eq`] for string-key equality. Pointer-identity short-
-/// circuit for interned literals.
+/// Compare two Str values for equality: same encoding, same payload
+/// bytes (the whole payload, see [`hash_str`]). Equal content under
+/// the canonical-encoding invariant is exactly that; the encoding
+/// test keeps a Latin-1 `"AB"` apart from a UTF-16 `"\u4241"`, whose
+/// payload bytes coincide. Pointer-identity short-circuit for
+/// interned literals.
 ///
 /// # Safety
 /// `a` and `b` must each point at a live Str heap block.
@@ -310,16 +356,7 @@ pub(crate) unsafe fn str_eq(a: *const c_void, b: *const c_void) -> bool {
     if a == b {
         return true;
     }
-    let la = unsafe { str_len(a) };
-    let lb = unsafe { str_len(b) };
-    if la != lb {
-        return false;
-    }
-    let ap = unsafe { str_data(a) };
-    let bp = unsafe { str_data(b) };
-    let slice_a = unsafe { core::slice::from_raw_parts(ap, la as usize) };
-    let slice_b = unsafe { core::slice::from_raw_parts(bp, la as usize) };
-    slice_a == slice_b
+    unsafe { str_is_latin1(a) == str_is_latin1(b) && str_payload(a) == str_payload(b) }
 }
 
 /// Verdict from a [`probe`] walk.
@@ -421,16 +458,33 @@ mod tests {
         assert!(entries_cap_for(1 << 30) < IDX_TOMBSTONE);
     }
 
+    /// A Str-shaped block on the heap so the layout reads land in
+    /// valid memory: [hdr:8][len:8][payload]. `units` counts code
+    /// units; the header carries the `IS_LATIN1` bit when asked.
+    fn make_key(payload: &[u8], units: u64, latin1: bool) -> Vec<u8> {
+        let mut v = vec![0u8; STR_DATA_OFF + payload.len()];
+        if latin1 {
+            v[KEY_HDR_FLAGS_OFF..KEY_HDR_FLAGS_OFF + 2]
+                .copy_from_slice(&KEY_STR_FLAG_IS_LATIN1.to_le_bytes());
+        }
+        v[STR_LEN_OFF..STR_LEN_OFF + 8].copy_from_slice(&units.to_le_bytes());
+        v[STR_DATA_OFF..].copy_from_slice(payload);
+        v
+    }
+
+    fn latin1(s: &str) -> Vec<u8> {
+        make_key(s.as_bytes(), s.len() as u64, true)
+    }
+
+    fn utf16(units: &[u16]) -> Vec<u8> {
+        let bytes: Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
+        make_key(&bytes, units.len() as u64, false)
+    }
+
     /// FNV-1a known-answer: hash of empty string = offset basis.
     #[test]
     fn hash_str_empty_is_fnv_offset_basis() {
-        // Synthesize a Str-shaped block on the heap so the layout
-        // reads land in valid memory: [hdr:8][len:8][data:0]. We
-        // don't care about hdr contents; hash_str only reads len + data.
-        let mut buf = vec![0u8; STR_DATA_OFF];
-        unsafe {
-            *(buf.as_mut_ptr().add(STR_LEN_OFF) as *mut u64) = 0;
-        }
+        let buf = latin1("");
         let p = buf.as_ptr() as *const c_void;
         assert_eq!(unsafe { hash_str(p) }, 0xcbf29ce484222325);
     }
@@ -438,44 +492,58 @@ mod tests {
     /// FNV-1a known-answer: hash of `"a"` (single byte 0x61).
     #[test]
     fn hash_str_single_byte_a() {
-        let mut buf = vec![0u8; STR_DATA_OFF + 1];
-        unsafe {
-            *(buf.as_mut_ptr().add(STR_LEN_OFF) as *mut u64) = 1;
-            *buf.as_mut_ptr().add(STR_DATA_OFF) = b'a';
-        }
+        let buf = latin1("a");
         let p = buf.as_ptr() as *const c_void;
         // 0xcbf29ce484222325 ^ 0x61 = 0xcbf29ce484222344, then * 0x100000001b3
         let expected = (0xcbf29ce484222325u64 ^ 0x61u64).wrapping_mul(0x100000001b3);
         assert_eq!(unsafe { hash_str(p) }, expected);
     }
 
+    /// The hash walks the whole UTF-16 payload: two lone surrogates
+    /// that share a low byte hash apart, and so do `"\u0100"` /
+    /// `"\u0200"`.
+    #[test]
+    fn hash_str_covers_both_bytes_of_a_utf16_unit() {
+        let hi = utf16(&[0xD800]);
+        let lo = utf16(&[0xDC00]);
+        let a = utf16(&[0x0100]);
+        let b = utf16(&[0x0200]);
+        let h = |v: &Vec<u8>| unsafe { hash_str(v.as_ptr() as *const c_void) };
+        assert_ne!(h(&hi), h(&lo));
+        assert_ne!(h(&a), h(&b));
+    }
+
     /// str_eq: identical pointer short-circuit; equal-bytes match;
-    /// different-len reject; equal-len different-bytes reject.
+    /// different-len reject; equal-len different-bytes reject; a
+    /// UTF-16 pair is compared over both bytes of every unit; equal
+    /// payload bytes under different encodings are different keys.
     #[test]
     fn str_eq_cases() {
-        let make = |s: &str| -> Vec<u8> {
-            let mut v = vec![0u8; STR_DATA_OFF + s.len()];
-            unsafe {
-                *(v.as_mut_ptr().add(STR_LEN_OFF) as *mut u64) = s.len() as u64;
-                core::ptr::copy_nonoverlapping(
-                    s.as_ptr(),
-                    v.as_mut_ptr().add(STR_DATA_OFF),
-                    s.len(),
-                );
-            }
-            v
-        };
-        let a = make("hello");
-        let b = make("hello");
-        let c = make("world");
-        let d = make("hi");
-        let ap = a.as_ptr() as *const c_void;
-        let bp = b.as_ptr() as *const c_void;
-        let cp = c.as_ptr() as *const c_void;
-        let dp = d.as_ptr() as *const c_void;
-        assert!(unsafe { str_eq(ap, ap) }, "identity");
-        assert!(unsafe { str_eq(ap, bp) }, "equal bytes");
-        assert!(!unsafe { str_eq(ap, cp) }, "different bytes, same len");
-        assert!(!unsafe { str_eq(ap, dp) }, "different lens");
+        let a = latin1("hello");
+        let b = latin1("hello");
+        let c = latin1("world");
+        let d = latin1("hi");
+        let p = |v: &Vec<u8>| v.as_ptr() as *const c_void;
+        assert!(unsafe { str_eq(p(&a), p(&a)) }, "identity");
+        assert!(unsafe { str_eq(p(&a), p(&b)) }, "equal bytes");
+        assert!(
+            !unsafe { str_eq(p(&a), p(&c)) },
+            "different bytes, same len"
+        );
+        assert!(!unsafe { str_eq(p(&a), p(&d)) }, "different lens");
+        let hi = utf16(&[0xD800]);
+        let hi2 = utf16(&[0xD800]);
+        let lo = utf16(&[0xDC00]);
+        assert!(unsafe { str_eq(p(&hi), p(&hi2)) }, "same UTF-16 unit");
+        assert!(
+            !unsafe { str_eq(p(&hi), p(&lo)) },
+            "units differ in the high byte"
+        );
+        let ab = latin1("AB");
+        let wide = utf16(&[0x4241]);
+        assert!(
+            !unsafe { str_eq(p(&ab), p(&wide)) },
+            "same bytes, different encoding"
+        );
     }
 }

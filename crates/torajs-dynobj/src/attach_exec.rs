@@ -147,8 +147,9 @@ mod tests {
         let total = 16 + bytes.len();
         let mut buf: Vec<u8> = vec![0u8; total];
         buf[0..4].copy_from_slice(&1u32.to_le_bytes());
-        // type_tag = TAG_STR = 1 (torajs-rc HeapTag); flags 0.
+        // type_tag = TAG_STR = 1 (torajs-rc HeapTag); flags = IS_LATIN1.
         buf[4..6].copy_from_slice(&1u16.to_le_bytes());
+        buf[6..8].copy_from_slice(&crate::probe::KEY_STR_FLAG_IS_LATIN1.to_le_bytes());
         buf[8..16].copy_from_slice(&(bytes.len() as u64).to_le_bytes());
         buf[16..].copy_from_slice(bytes);
         let p = buf.as_mut_ptr() as *mut c_void;

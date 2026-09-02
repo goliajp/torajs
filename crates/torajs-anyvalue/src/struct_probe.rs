@@ -90,9 +90,6 @@ struct FieldInfo {
 
 /// `class_tag` u32 offset inside a `Tag::Obj` instance.
 const OBJ_CLASS_TAG_OFF: usize = 8;
-/// Str-cell payload offsets — mirror of `member_get.rs`.
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
 
 /// `kind` bytes of `__torajs_struct_accessor_find` (torajs-structmeta
 /// `AccessorKind::from_raw`).
@@ -365,10 +362,9 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
         if cell_tag != Tag::Obj as u16 {
             return VALUE_UNDEFINED;
         }
-        let k = key as *const u8;
-        let key_len = k.add(STR_LEN_OFF).cast::<u32>().read();
+        let k = crate::key_wtf8::KeyWtf8::of(key);
         // Set-only property: present, but its [[Get]] is undefined.
-        __torajs_struct_accessor_get(ptr, k.add(STR_DATA_OFF), key_len)
+        __torajs_struct_accessor_get(ptr, k.as_ptr(), k.len())
     }
 }
 
@@ -379,10 +375,6 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
 /// # Safety
 /// `ptr` is a live `Tag::Obj` cell; `key` a live Str cell.
 pub(crate) unsafe fn struct_accessor_key(ptr: *mut c_void, key: *const c_void) -> bool {
-    unsafe {
-        let k = key as *const u8;
-        let key_len = k.add(STR_LEN_OFF).cast::<u32>().read();
-        let bytes = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
-        struct_accessor_present(ptr, bytes)
-    }
+    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    unsafe { struct_accessor_present(ptr, k.as_bytes()) }
 }

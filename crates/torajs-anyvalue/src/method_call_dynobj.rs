@@ -108,11 +108,6 @@ const ANY_ACCESSOR_TAG: u64 = 6;
 /// mirror of torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF`.
 const OBJ_CLASS_TAG_OFF: usize = 8;
 
-/// Interned name Str layout — mirror of torajs-str
-/// `layout::{STR_LEN_OFF, STR_DATA_OFF}`.
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-
 /// Field type_tags whose slot can hold a callee — mirror of
 /// torajs-core `ssa::module_methods::field_type_tag_of` (0 = Any,
 /// 8 = Closure).

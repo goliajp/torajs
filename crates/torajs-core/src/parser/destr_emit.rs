@@ -185,7 +185,7 @@ impl Parser<'_> {
             let omit: Vec<&str> = fields
                 .iter()
                 .filter_map(|f| match &f.key {
-                    FieldKey::Named(n) => Some(n.as_str()),
+                    FieldKey::Named(n) => n.as_str(),
                     FieldKey::Computed(_) => None,
                 })
                 .collect();
@@ -208,7 +208,7 @@ impl Parser<'_> {
         out: &mut Vec<Stmt>,
     ) -> ExprId {
         match key {
-            FieldKey::Named(field) => self.dstra_field_load(src_name, Wtf8::new(field), default),
+            FieldKey::Named(field) => self.dstra_field_load(src_name, field, default),
             FieldKey::Computed(key_expr) => {
                 let id = self.mint_desugar_id();
                 let kname = format!("__ck_{id}");

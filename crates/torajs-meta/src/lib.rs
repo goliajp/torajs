@@ -34,6 +34,7 @@ pub mod from_entries;
 pub mod genfn;
 pub mod instanceof_generic;
 pub mod iterator_proto;
+pub(crate) mod key_wtf8;
 pub mod map_group_by;
 pub mod module_ns;
 pub mod obj_assign;
@@ -102,6 +103,12 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut u8) {
     panic!("torajs-meta test stub: __torajs_str_drop should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_wtf8_into(_s: *const u8, _buf: *mut u8, _cap: u32) -> u32 {
+    panic!("torajs-meta test stub: __torajs_str_wtf8_into should not be called from cargo test");
 }
 
 #[cfg(test)]

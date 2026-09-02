@@ -29,7 +29,7 @@
 //! them). `args[1]` is a String literal (no side effect) and is not
 //! re-lowered.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Expr, ExprId, PropKey};
 use crate::ssa::{IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -56,8 +56,8 @@ pub(crate) fn try_lower(
     if args.len() < 2 {
         return None;
     }
-    let key_lit: Option<String> = match ctx.ast.get_expr(args[1]) {
-        Expr::String(k) => Some(k.to_string_lossy_owned()),
+    let key_lit: Option<PropKey> = match ctx.ast.get_expr(args[1]) {
+        Expr::String(k) => Some(PropKey::from(k.clone())),
         _ => None,
     };
     // Borrow-only read of the obj — lower_expr loads the local slot
@@ -174,9 +174,9 @@ pub(crate) fn try_lower(
         && ctx.struct_layouts[sid.0 as usize].iter().any(|(n, _)| {
             n == &key
                 || n.strip_prefix("__getter_")
-                    .is_some_and(|p| p == key.as_str())
+                    .is_some_and(|p| p == key.as_wtf8())
                 || n.strip_prefix("__setter_")
-                    .is_some_and(|p| p == key.as_str())
+                    .is_some_and(|p| p == key.as_wtf8())
         });
     Some(Operand::ConstBool(has))
 }

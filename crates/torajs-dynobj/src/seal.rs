@@ -154,7 +154,10 @@ enum KeyKind {
 /// answers `None` before its cell is walked as a Str.
 fn key_kind(key: *const c_void) -> Option<KeyKind> {
     unsafe {
-        let (data, len) = key_str_bytes(key)?;
+        let (data, len, latin1) = key_str_bytes(key)?;
+        if !latin1 {
+            return None;
+        }
         let slice = core::slice::from_raw_parts(data, len as usize);
         match slice {
             b"name" | b"length" => Some(KeyKind::NameOrLength),
