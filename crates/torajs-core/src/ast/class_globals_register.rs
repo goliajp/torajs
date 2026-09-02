@@ -194,75 +194,75 @@ pub(super) fn emit_reify_stmts(
     // adapter and hands runtime the (tag, name, adapter) triple.
     // Call-site dispatch is untouched (static calls were already
     // desugared to bare `__sm_` idents).
-    // RFC 20260718-accessor-reify 刀 3 — the accessor FACE FnDecls
-    // (`__sm_<C>__<p>_get` / `_set`) stay out of the static-METHOD
-    // sweep; they reify as an AccessorPair below. Exact-name set (a
-    // user method legitimately named `p_get` keeps its method reify).
-    let static_accessor_fns: std::collections::HashSet<String> = ast
+    //
+    // 563-03 — a static ACCESSOR (RFC 20260718-accessor-reify 刀 3,
+    // `__torajs_class_static_accessor_reify`) reifies in the SAME
+    // walk: §15.7.14 defines every static element in one ordered
+    // pass, so a `static get t()` declared before `static u()` is an
+    // own key before it. The predecessor ran two passes — all
+    // methods, then all accessor pairs SORTED BY NAME — and answered
+    // ["u","t"] for exactly that class. Declaration order is the
+    // order of the `__sm_<C>__` FnDecls in `ast.stmts`
+    // (`emit_class_static_methods` walks the class's element list),
+    // so one walk over them carries both families; a pair's two faces
+    // reify once, at whichever face is declared first.
+    let static_acc_face: std::collections::HashMap<String, PropKey> = ast
         .static_accessor_getters
-        .values()
-        .chain(ast.static_accessor_setters.values())
-        .cloned()
+        .iter()
+        .chain(ast.static_accessor_setters.iter())
+        .map(|((_, prop), face)| (face.clone(), prop.clone()))
         .collect();
+    // (class, member, is_accessor) in declaration order, collected
+    // before the emit loop — `ast.add_expr` borrows `ast` mutably.
+    let mut reifies: Vec<(String, PropKey, bool)> = Vec::new();
     for cname in &meta.class_names {
         if gen_class_set.contains(cname) {
             continue;
         }
         let prefix = format!("__sm_{cname}__");
-        let mnames: Vec<PropKey> = ast
-            .stmts
-            .iter()
-            .filter_map(|s| match s {
-                Stmt::FnDecl { name, .. } if !static_accessor_fns.contains(name) => {
-                    name.strip_prefix(&prefix).map(unmangle_key)
+        let mut pairs_seen: HashSet<PropKey> = HashSet::new();
+        for s in &ast.stmts {
+            let Stmt::FnDecl { name, .. } = s else {
+                continue;
+            };
+            if !name.starts_with(&prefix) {
+                continue;
+            }
+            // Exact-name lookup (a user method legitimately named
+            // `p_get` keeps its method reify).
+            if let Some(prop) = static_acc_face.get(name.as_str()) {
+                if prop.starts_with("__ccm_") || !pairs_seen.insert(prop.clone()) {
+                    continue;
                 }
-                _ => None,
-            })
+                reifies.push((cname.clone(), prop.clone(), true));
+                continue;
+            }
+            let Some(member) = name.strip_prefix(&prefix).map(unmangle_key) else {
+                continue;
+            };
             // RFC 20260802 刀 2 — a runtime computed member's `__ccm_`
             // sentinel is not a property name; the class-decl-position
             // computed define installs it under its runtime key.
-            .filter(|m| !m.starts_with("__ccm_"))
-            .collect();
-        for m in mnames {
-            let cname_str = ast.add_expr(Expr::String(cname.clone().into()));
-            let mname_str = ast.add_expr(Expr::String(m.into()));
-            let callee = ast.add_expr(Expr::Ident("__torajs_static_method_reify".to_string()));
-            let call = ast.add_expr(Expr::Call {
-                callee,
-                args: vec![cname_str, mname_str],
-            });
-            out.push(Stmt::Expr(call));
-        }
-    }
-
-    // RFC 20260718-accessor-reify 刀 3 — same reify shape for STATIC
-    // accessors, onto the class object (`gOPD(C, "s")`).
-    {
-        let mut pairs: Vec<(String, PropKey)> = ast
-            .static_accessor_getters
-            .keys()
-            .chain(ast.static_accessor_setters.keys())
-            .cloned()
-            .collect();
-        pairs.sort();
-        pairs.dedup();
-        for (cname, prop) in pairs {
-            // RFC 20260802 刀 2 — same `__ccm_` sentinel skip as the
-            // instance-accessor sweep below.
-            if gen_class_set.contains(&cname) || prop.starts_with("__ccm_") {
+            if member.starts_with("__ccm_") {
                 continue;
             }
-            let cname_str = ast.add_expr(Expr::String(cname.into()));
-            let pname_str = ast.add_expr(Expr::String(prop.into()));
-            let callee = ast.add_expr(Expr::Ident(
-                "__torajs_class_static_accessor_reify".to_string(),
-            ));
-            let call = ast.add_expr(Expr::Call {
-                callee,
-                args: vec![cname_str, pname_str],
-            });
-            out.push(Stmt::Expr(call));
+            reifies.push((cname.clone(), member, false));
         }
+    }
+    for (cname, member, is_accessor) in reifies {
+        let cname_str = ast.add_expr(Expr::String(cname.into()));
+        let member_str = ast.add_expr(Expr::String(member.into()));
+        let magic = if is_accessor {
+            "__torajs_class_static_accessor_reify"
+        } else {
+            "__torajs_static_method_reify"
+        };
+        let callee = ast.add_expr(Expr::Ident(magic.to_string()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![cname_str, member_str],
+        });
+        out.push(Stmt::Expr(call));
     }
 
     // RFC 20260718-accessor-reify 刀 2 — one reify magic per
