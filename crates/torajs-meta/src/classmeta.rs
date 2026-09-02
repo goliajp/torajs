@@ -393,6 +393,29 @@ fn str_is(s: *const c_void, lit: &[u8]) -> bool {
     unsafe { crate::str_wtf8::StrWtf8::of(s) }.as_bytes() == lit
 }
 
+/// The class's registered `__proto_<C>` AnyValue, BORROWED — 0 when
+/// the tag names no registered class. 405-04 knife 2: a generic
+/// specialization tag (often beyond `MAX_CLASSES`) reads its class's
+/// MAIN slot (see `classmeta/generic_alias.rs`). The one place that
+/// knows the fallback; `__torajs_anyv_proto_get` owns its answer on
+/// top of this, the inspect face borrows it.
+pub(crate) fn proto_anyv_borrowed(tag: i64) -> u64 {
+    // SAFETY: single-threaded JS; reading a registered slot.
+    let v = if in_range(tag) {
+        unsafe { PROTOS_BY_TAG_IMM[tag as usize] }
+    } else {
+        0
+    };
+    if v != 0 {
+        return v;
+    }
+    match generic_alias::main_tag_of(tag) {
+        // SAFETY: `main_tag_of` answers an in-range index.
+        Some(main) => unsafe { PROTOS_BY_TAG_IMM[main] },
+        None => 0,
+    }
+}
+
 /// `Object.getPrototypeOf(instance)` → owned AnyValue immediate.
 /// Returns `VALUE_NULL_IMM` (the NaN-box `null` sentinel) on
 /// out-of-range tag or unregistered class. rc_inc's the heap
@@ -400,20 +423,7 @@ fn str_is(s: *const c_void, lit: &[u8]) -> bool {
 /// the returned reference.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_proto_get(tag: i64) -> u64 {
-    // SAFETY: single-threaded JS; reading a registered slot.
-    let mut v = if in_range(tag) {
-        unsafe { PROTOS_BY_TAG_IMM[tag as usize] }
-    } else {
-        0
-    };
-    if v == 0 {
-        // 405-04 knife 2 — a generic specialization tag (often beyond
-        // MAX_CLASSES) reads its class's MAIN slot; see
-        // classmeta/generic_alias.rs.
-        if let Some(main) = generic_alias::main_tag_of(tag) {
-            v = unsafe { PROTOS_BY_TAG_IMM[main] };
-        }
-    }
+    let v = proto_anyv_borrowed(tag);
     if v == 0 {
         return VALUE_NULL_IMM;
     }

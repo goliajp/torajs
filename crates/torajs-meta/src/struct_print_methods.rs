@@ -1,40 +1,59 @@
-//! 405-05 — the prototype-method entries of the struct inspect
-//! walker. bun's default inspect lists a class instance's prototype
-//! methods after its own properties (`NG { k: 6, get: [Function:
-//! get] }`) and renders prototype accessors as `[Getter]` /
-//! `[Setter]` / `[Getter/Setter]`; tr's `struct_print` walked only
+//! 405-05 — the prototype entries of the struct inspect walker.
+//! bun's default inspect lists a class instance's prototype methods
+//! after its own properties (`NG { k: 6, get: [Function: get] }`)
+//! and renders prototype accessors as `[Getter]` / `[Setter]` /
+//! `[Getter/Setter]`; tr's `struct_print` walked only
 //! `field_metadata`, so every method-carrying class printed bare.
 //!
-//! Reads the same `.__class_methods_<i>` table the reify walk does
-//! (`classmeta/reify.rs`): `__ccm_` computed-name sentinels are
-//! skipped, `__getter_<p>` / `__setter_<p>` synthetic names collapse
-//! into one accessor entry per property key. The table merges parent
-//! chains, so inherited methods list too — the same order bun shows
-//! for subclass instances (own first) holds only if the table is
-//! own-first; verified against bun by fixture.
+//! Rotation 562 — the walk reads the class's REIFIED prototype
+//! (`__proto_<C>`, the object `Object.getOwnPropertyNames` answers
+//! from) instead of the compile-time `.__class_methods_<i>` table.
+//! The table names a row by the symbol the desugar minted, and for a
+//! computed member that symbol is a `__ccm_<n>__` sentinel — a name
+//! no property has, printed straight into the user's output
+//! (`class Y { get [k]() {} }` printed `__ccm_1__: [Getter]` where
+//! bun prints `k1: [Getter]`, and the `__getter_`-prefixed spelling
+//! walked past the sentinel filter that was meant to catch it). The
+//! prototype carries the runtime key, so the printed face and the
+//! reflected face now read one object.
+//!
+//! Shape follows bun's `forEachProperty` (`bindings.cpp`): up to
+//! five [[Prototype]] hops, `constructor` always hidden, the fast /
+//! slow walk decided per hop (see anyvalue's `key_hidden`), and a
+//! key a nearer prototype already carries is that prototype's — the
+//! override the merged table used to express with its `seen` set.
 
 use core::ffi::c_void;
 
-use crate::struct_reflect::{ACC_GETTER, ACC_SETTER, accessor_slot_name, slot_key};
+use crate::reflect::{
+    __torajs_anyv_unbox_tag, __torajs_anyv_unbox_value, __torajs_dynobj_get_tag,
+    __torajs_dynobj_get_value, __torajs_dynobj_has, __torajs_str_drop, ANY_HEAP, PROTO_SLOT_KEY,
+    TAG_DYNOBJ, alloc_str_key, heap_type_tag,
+};
 
 unsafe extern "C" {
-    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
-    fn __torajs_struct_method_count(layout: *const c_void) -> u32;
-    /// torajs-structmeta — the row's name alone (r502): the inspect
-    /// face never invokes the adapter, and reading the slot would
-    /// make it a reader the link has to keep the adapter column for.
-    fn __torajs_struct_method_name_at(
-        layout: *const c_void,
-        idx: u32,
-        name_ptr: *mut *const u8,
-        name_len: *mut u32,
-    ) -> u32;
     fn __torajs_io_putc_out(c: i32) -> i32;
-    // torajs-anyvalue::inspect — a Str key bare when it is an ASCII
-    // identifier, JSON-quoted otherwise.
+    // torajs-anyvalue::inspect — the shared key writer / width /
+    // hidden-key predicate, and the nested-context value printer
+    // (a closure renders `[Function: m]`, an AccessorPair
+    // `[Getter]`).
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
+    fn __torajs_key_cell_print_len(cell: *const c_void) -> u32;
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64, slow: i32) -> i32;
+    fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
     fn __torajs_inspect_line_add(n: u32);
+    // torajs-dynobj — own-entry walk of one prototype.
+    fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
+    fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
+    fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
+    fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
+    fn __torajs_dynobj_iter_print_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
+    fn __torajs_dynobj_iter_slow_mode(obj: *const c_void) -> i32;
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
+
+/// bun walks at most five prototypes (`prototypeCount < 5`).
+const MAX_HOPS: usize = 5;
 
 #[inline]
 unsafe fn put_bytes(s: &[u8]) {
@@ -43,127 +62,128 @@ unsafe fn put_bytes(s: &[u8]) {
     }
 }
 
-/// The name of row `i`, or `None` for a row the inspect face skips
-/// (empty name / `__ccm_` computed-name sentinel — the reify walk's
-/// filter minus its adapter null check: every baked row names an
-/// adapter fn, and the link may blank the column for a program that
-/// never invokes one).
-unsafe fn visible_row(layout: *const c_void, i: u32) -> Option<(*const u8, usize)> {
-    let mut name_ptr: *const u8 = core::ptr::null();
-    let mut name_len: u32 = 0;
-    let hit = unsafe { __torajs_struct_method_name_at(layout, i, &mut name_ptr, &mut name_len) };
-    if hit == 0 || name_ptr.is_null() || name_len == 0 {
-        return None;
+/// An AnyValue's dynobj cell, or null when it is not one.
+unsafe fn dynobj_of_anyv(anyv: u64) -> *const c_void {
+    if anyv == 0 {
+        return core::ptr::null();
     }
-    let name = unsafe { core::slice::from_raw_parts(name_ptr, name_len as usize) };
-    if name.starts_with(b"__ccm_") {
-        return None;
+    let tag = unsafe { __torajs_anyv_unbox_tag(anyv) };
+    let val = unsafe { __torajs_anyv_unbox_value(anyv) };
+    if tag != ANY_HEAP || val == 0 {
+        return core::ptr::null();
     }
-    Some((name_ptr, name_len as usize))
+    let cell = val as *const c_void;
+    if unsafe { heap_type_tag(cell) } != TAG_DYNOBJ {
+        return core::ptr::null();
+    }
+    cell
 }
 
-/// Whether an accessor row for `key` appears in rows `[0, upto)` —
-/// the two halves of a get/set pair are one printed entry.
-unsafe fn accessor_row_before(layout: *const c_void, upto: u32, key: (*const u8, usize)) -> bool {
-    for j in 0..upto {
-        let Some((np, nl)) = (unsafe { visible_row(layout, j) }) else {
-            continue;
+/// The prototype chain of `class_tag`, nearest first — the class's
+/// own `__proto_<C>` and the user prototypes above it.
+unsafe fn proto_chain(class_tag: u32) -> ([*const c_void; MAX_HOPS], usize) {
+    let mut chain = [core::ptr::null(); MAX_HOPS];
+    let mut n = 0usize;
+    let mut cur =
+        unsafe { dynobj_of_anyv(crate::classmeta::proto_anyv_borrowed(class_tag as i64)) };
+    let key = unsafe { alloc_str_key(PROTO_SLOT_KEY) };
+    while !cur.is_null() && n < MAX_HOPS {
+        chain[n] = cur;
+        n += 1;
+        cur = if unsafe { __torajs_dynobj_has(cur, key) } {
+            let t = unsafe { __torajs_dynobj_get_tag(cur, key) } as i64;
+            let v = unsafe { __torajs_dynobj_get_value(cur, key) };
+            unsafe { dynobj_of_anyv(__torajs_anyv_box_from_pair(t, v as i64)) }
+        } else {
+            core::ptr::null()
         };
-        if unsafe { accessor_slot_name(np, nl) }.is_none() {
-            continue;
-        }
-        let (p, plen) = unsafe { slot_key(np, nl) };
-        if plen == key.1
-            && unsafe {
-                core::slice::from_raw_parts(p, plen) == core::slice::from_raw_parts(key.0, key.1)
-            }
-        {
-            return true;
-        }
     }
-    false
+    unsafe { __torajs_str_drop(key) };
+    (chain, n)
 }
 
-/// bun's accessor rendering for the prototype property `key`.
-unsafe fn accessor_row_tag(layout: *const c_void, key: *const u8, key_len: usize) -> &'static [u8] {
-    let n = unsafe { __torajs_struct_method_count(layout) };
-    let (mut has_get, mut has_set) = (false, false);
-    for i in 0..n {
-        let Some((np, nl)) = (unsafe { visible_row(layout, i) }) else {
+/// Run `f` over every prototype entry the inspect face prints, in
+/// bun's order (each hop's own entries, nearest prototype first).
+unsafe fn for_each_proto_entry(class_tag: u32, mut f: impl FnMut(*mut c_void, u64)) {
+    let (chain, n_chain) = unsafe { proto_chain(class_tag) };
+    for h in 0..n_chain {
+        let proto = chain[h];
+        let len = unsafe { __torajs_dynobj_iter_len(proto) };
+        if len == 0 {
             continue;
-        };
-        if let Some((kind, p, plen)) = unsafe { accessor_slot_name(np, nl) }
-            && plen == key_len
-            && unsafe {
-                core::slice::from_raw_parts(p, plen) == core::slice::from_raw_parts(key, key_len)
-            }
-        {
-            has_get |= kind == ACC_GETTER;
-            has_set |= kind == ACC_SETTER;
         }
-    }
-    match (has_get, has_set) {
-        (true, true) => b"[Getter/Setter]",
-        (false, true) => b"[Setter]",
-        _ => b"[Getter]",
+        let mut order = vec![0u64; len as usize];
+        let n = unsafe { __torajs_dynobj_iter_print_order(proto, order.as_mut_ptr(), len) };
+        order.truncate(n as usize);
+        // bun's fast / slow walk, decided per hop (`fast` is
+        // recomputed at each `restart`): the shape rules the fast
+        // walk out, or the fast walk hits nothing at all — a
+        // prototype carrying only `constructor` and a
+        // `@@toStringTag` is the second case, and its assigned
+        // (enumerable) tag is what the slow walk then prints.
+        let mut slow = unsafe { __torajs_dynobj_iter_slow_mode(proto) };
+        if slow == 0 {
+            let fast_hit = order.iter().any(|&i| unsafe {
+                let key = __torajs_dynobj_iter_key(proto, i);
+                !key.is_null()
+                    && __torajs_key_cell_inspect_hidden(
+                        key,
+                        __torajs_dynobj_iter_flags(proto, i),
+                        0,
+                    ) == 0
+            });
+            if !fast_hit {
+                slow = 1;
+            }
+        }
+        for &i in &order {
+            let key = unsafe { __torajs_dynobj_iter_key(proto, i) };
+            if key.is_null() {
+                continue;
+            }
+            let flags = unsafe { __torajs_dynobj_iter_flags(proto, i) };
+            if unsafe { __torajs_key_cell_inspect_hidden(key, flags, slow) } != 0 {
+                continue;
+            }
+            // A nearer prototype's entry of the same key overrides
+            // this one, and printed already.
+            if (0..h).any(|j| unsafe { __torajs_dynobj_has(chain[j], key.cast::<u8>()) }) {
+                continue;
+            }
+            // The RAW stored value (an accessor entry is its
+            // `AccessorPair`, which the value printer renders
+            // `[Getter]`; the keyed GET would resolve it instead).
+            f(key, unsafe { __torajs_dynobj_iter_value(proto, i) });
+        }
     }
 }
 
 /// True when the class has at least one printable prototype entry —
 /// feeds the caller's empty-form (`Name {}`) early return.
 pub(crate) unsafe fn has_visible_methods(class_tag: u32) -> bool {
-    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
-    if layout.is_null() {
-        return false;
-    }
-    let n = unsafe { __torajs_struct_method_count(layout) };
-    (0..n).any(|i| unsafe { visible_row(layout, i) }.is_some())
+    let mut any = false;
+    unsafe { for_each_proto_entry(class_tag, |_, _| any = true) };
+    any
 }
 
-/// Emit the prototype-method entries at `indent + 2`, continuing the
+/// Emit the prototype entries at `indent + 2`, continuing the
 /// caller's separator protocol (`emitted > 0` → leading `,\n`).
 pub(crate) unsafe fn print_proto_methods(class_tag: u32, indent: u32, emitted: &mut u32) {
-    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
-    if layout.is_null() {
-        return;
-    }
-    let n = unsafe { __torajs_struct_method_count(layout) };
-    for i in 0..n {
-        let Some((np, nl)) = (unsafe { visible_row(layout, i) }) else {
-            continue;
-        };
-        let kind = unsafe { accessor_slot_name(np, nl) };
-        let (kp, klen) = unsafe { slot_key(np, nl) };
-        if kind.is_some() && unsafe { accessor_row_before(layout, i, (kp, klen)) } {
-            continue;
-        }
-        if *emitted > 0 {
-            unsafe { put_bytes(b",\n") };
-            unsafe { __torajs_inspect_line_add(1) };
-        }
-        for _ in 0..indent + 2 {
-            unsafe { __torajs_io_putc_out(b' ' as i32) };
-        }
-        // The key goes through the shared bare-or-quoted writer
-        // (ASCII identifier bare, anything else JSON-quoted), the
-        // rule a dynobj key and the own-field rows already follow.
-        let key_cell =
-            unsafe { crate::reflect::alloc_str_key(core::slice::from_raw_parts(kp, klen)) };
-        unsafe { __torajs_print_str_cell_as_key(key_cell.cast()) };
-        unsafe { crate::reflect::__torajs_str_drop(key_cell) };
-        unsafe { put_bytes(b": ") };
-        unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
-        if kind.is_some() {
-            let tag = unsafe { accessor_row_tag(layout, kp, klen) };
-            unsafe { put_bytes(tag) };
-            unsafe { __torajs_inspect_line_add(tag.len() as u32) };
-        } else {
-            // bun's method rendering: `[Function: <name>]`.
-            unsafe { put_bytes(b"[Function: ") };
-            unsafe { put_bytes(core::slice::from_raw_parts(kp, klen)) };
-            unsafe { put_bytes(b"]") };
-            unsafe { __torajs_inspect_line_add(klen as u32 + 12) };
-        }
-        *emitted += 1;
-    }
+    unsafe {
+        for_each_proto_entry(class_tag, |key, anyv| {
+            if *emitted > 0 {
+                put_bytes(b",\n");
+                __torajs_inspect_line_add(1);
+            }
+            let klen = __torajs_key_cell_print_len(key);
+            for _ in 0..indent + 2 {
+                __torajs_io_putc_out(b' ' as i32);
+            }
+            __torajs_print_str_cell_as_key(key);
+            put_bytes(b": ");
+            __torajs_inspect_line_add(klen + 2);
+            __torajs_print_anyv_inline_at(anyv, indent + 2);
+            *emitted += 1;
+        })
+    };
 }
