@@ -164,6 +164,12 @@ pub(crate) unsafe fn closure_method(
                         name.len() as u32,
                     ) as *mut c_void);
                 }
+                // 566-04 — a cell this lane's own `.bind` minted has
+                // no registry row; §20.2.3.5's native form spells it
+                // with the TARGET's name, which its `.name` holds.
+                if let Some(form) = crate::name_get::bound_native_form(ptr) {
+                    return crate::nanbox::box_void_ptr(form as *mut c_void);
+                }
                 // B6c — a class-method face resolves its adapter's
                 // registry row (the erased method-shorthand source).
                 let fn_addr = crate::method_value_class::registry_addr(ptr);

@@ -46,6 +46,9 @@ unsafe extern "C" {
     /// torajs-fnname — toString kernels (RFC 20260719 B5).
     fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8;
     fn __torajs_fn_native_form_str(name_ptr: *const u8, name_len: u32) -> *mut u8;
+    /// torajs-fnname — the same form from a name Str CELL, every
+    /// `bound ` marker stripped (566-04).
+    fn __torajs_fn_native_form_from_cell(name_cell: *const u8) -> *mut u8;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -247,9 +250,31 @@ pub unsafe extern "C" fn __torajs_closure_source_str(ptr: *mut c_void) -> *mut u
         if let Some(name) = crate::method_value::builtin_method_name(ptr) {
             return __torajs_fn_native_form_str(name.as_ptr(), name.len() as u32);
         }
+        if let Some(form) = bound_native_form(ptr) {
+            return form;
+        }
         // B6c — a class-method face resolves its adapter's registry
         // row (the erased method-shorthand source).
         __torajs_fn_source_str(crate::method_value_class::registry_addr(ptr))
+    }
+}
+
+/// §20.2.3.5 for a BOUND cell — the native-code form spelled with
+/// the TARGET's name, which is where JSC (so bun) puts it. The
+/// compiler's `__bound_<fn>` wrapper answered this off its registry
+/// row; a cell the any-lane `.bind` minted has no row, so it printed
+/// the anonymous form while its own `.name` said `"bound add"`
+/// (566-04). That name is the one to spell it with, marker off.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn bound_native_form(ptr: *mut c_void) -> Option<*mut u8> {
+    unsafe {
+        crate::method_bind::bound_cell_meta(ptr)?;
+        let name = closure_name_str(ptr);
+        let form = __torajs_fn_native_form_from_cell(name as *const u8);
+        __torajs_str_drop(name as *mut c_void);
+        Some(form)
     }
 }
 
@@ -264,7 +289,7 @@ pub unsafe extern "C" fn __torajs_closure_source_str(ptr: *mut c_void) -> *mut u
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
-unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
+pub(crate) unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
     unsafe {
         if let Some(cell) = crate::method_value::builtin_method_name_cell_of(ptr) {
             return cell;

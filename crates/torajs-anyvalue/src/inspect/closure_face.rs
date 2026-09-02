@@ -17,6 +17,10 @@ unsafe extern "C" {
     /// torajs-fnname — the anonymous `[Function]` form on its own,
     /// for a face the fn-name table cannot answer for (564-01).
     fn __torajs_fn_print_anonymous();
+    /// torajs-fnname — the `[Function: <name>]` form from a name Str
+    /// cell, one `bound ` marker off (566-04).
+    fn __torajs_fn_print_from_cell(name_cell: *const u8);
+    fn __torajs_str_drop(s: *mut c_void);
 }
 
 /// Emit a closure cell's `[Function: <name>]` form, no trailing
@@ -44,6 +48,18 @@ pub(super) unsafe fn put_closure_fn_name(closure: *const c_void) {
             crate::method_value_class::class_method_runtime_name(closure as *mut c_void).is_some()
         } {
             unsafe { __torajs_fn_print_anonymous() };
+            return;
+        }
+        // 566-04 — a cell the any-lane `.bind` minted has no
+        // registry row of its own; its name lives in the bind
+        // metadata, and the print face spells it with one `bound `
+        // marker off, exactly as it does for a registry row.
+        if unsafe { crate::method_bind::bound_cell_meta(closure as *mut c_void).is_some() } {
+            unsafe {
+                let name = crate::name_get::closure_name_str(closure as *mut c_void);
+                __torajs_fn_print_from_cell(name as *const u8);
+                __torajs_str_drop(name as *mut c_void);
+            }
             return;
         }
         // B6c — every other class-method face prints its adapter's

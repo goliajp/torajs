@@ -143,6 +143,52 @@ fn print_face_name(name: &[u8]) -> &[u8] {
     name.strip_prefix(BOUND_MARK).unwrap_or(name)
 }
 
+/// The JSC native-code toString form of a function whose name is
+/// already a Str CELL rather than a byte range (566-04 — a
+/// runtime-minted bound cell: it has no registry row of its own, so
+/// its name comes from the bind metadata instead). One `bound `
+/// marker comes off, exactly as [`print_face_name`] takes it off a
+/// registry row: `add.bind(null).bind(null)` answers
+/// `function bound add() { … }`, one marker per bind, minus the one
+/// the face spelling drops.
+///
+/// # Safety
+/// `name_cell` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_native_form_from_cell(name_cell: *const u8) -> *mut u8 {
+    let bytes = if name_cell.is_null() {
+        Vec::new()
+    } else {
+        unsafe { spelling(name_cell) }
+    };
+    let face = print_face_name(&bytes);
+    unsafe { __torajs_fn_native_form_str(face.as_ptr(), face.len() as u32) }
+}
+
+/// The `[Function: <name>]` inspect form from a name Str CELL — the
+/// print twin of [`__torajs_fn_native_form_from_cell`], for the same
+/// registry-less bound cell (566-04). Empty name prints the
+/// anonymous form, like a registry miss.
+///
+/// # Safety
+/// `name_cell` is NULL or a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_print_from_cell(name_cell: *const u8) {
+    let bytes = if name_cell.is_null() {
+        Vec::new()
+    } else {
+        unsafe { spelling(name_cell) }
+    };
+    let face = print_face_name(&bytes);
+    if face.is_empty() {
+        emit_bytes(ANON);
+        return;
+    }
+    emit_bytes(PREFIX);
+    emit_bytes(face);
+    emit_bytes(SUFFIX);
+}
+
 /// Look up `fn_addr` in `__torajs_fn_name_table[]` and emit either
 /// `[Function: <name>]` or `[Function]` to stdout.
 /// Does NOT emit a trailing newline — callers

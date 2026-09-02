@@ -1941,6 +1941,8 @@ mod tests {
         __torajs_fn_name_lookup,
         __torajs_fn_native_form_str,
         __torajs_fn_source_str,
+        __torajs_fn_native_form_from_cell,
+        __torajs_fn_print_from_cell,
         __torajs_instanceof_builtin_proto,
         __torajs_map_clear,
         __torajs_map_delete,
