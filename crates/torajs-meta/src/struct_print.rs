@@ -113,6 +113,10 @@ unsafe extern "C" {
     // strings, recurses into Tag::Arr / Tag::DynObj / Tag::Obj with
     // the field row's indent column.
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
+    // torajs-anyvalue::inspect — a Str key bare when it is an ASCII
+    // identifier, JSON-quoted otherwise (bun's isLatin1Identifier
+    // rule; the dynobj walker's key writer).
+    fn __torajs_print_str_cell_as_key(cell: *const c_void);
 
     // torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_out(c: i32) -> i32;
@@ -163,6 +167,21 @@ unsafe fn put_bytes(s: &[u8]) {
     for &b in s {
         unsafe { put_byte(b) };
     }
+}
+
+/// Emit a layout field name as an object key — bare when it is an
+/// ASCII identifier, JSON-quoted otherwise, the same rule a dynobj
+/// key takes. The name is rodata bytes, not a cell, so it is minted
+/// into a Str for the shared writer and released at once.
+unsafe fn put_key_bytes(ptr: *const u8, len: usize) {
+    let bytes = if ptr.is_null() {
+        &[][..]
+    } else {
+        unsafe { core::slice::from_raw_parts(ptr, len) }
+    };
+    let cell = unsafe { crate::reflect::alloc_str_key(bytes) };
+    unsafe { __torajs_print_str_cell_as_key(cell.cast()) };
+    unsafe { crate::reflect::__torajs_str_drop(cell) };
 }
 
 #[inline]
@@ -263,7 +282,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
             unsafe { __torajs_inspect_line_add(1) };
         }
         unsafe { put_indent(indent + 2) };
-        unsafe { put_bytes_from_raw(kp, klen) };
+        unsafe { put_key_bytes(kp, klen) };
         unsafe { put_bytes(b": ") };
         unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
         if kind.is_some() {
@@ -315,11 +334,11 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
                 unsafe { __torajs_inspect_line_add(1) };
             }
             // Line accounting counts the key's code units (bun adds
-            // str.length); the bytes written are its WTF-8 spelling.
+            // str.length); the key itself goes through the shared
+            // bare-or-quoted writer, like a dynobj key.
             let klen = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() };
-            let spelling = unsafe { crate::str_wtf8::StrWtf8::of(key) };
             unsafe { put_indent(indent + 2) };
-            unsafe { put_bytes(spelling.as_bytes()) };
+            unsafe { __torajs_print_str_cell_as_key(key) };
             unsafe { put_bytes(b": ") };
             unsafe { __torajs_inspect_line_add(klen + 2) };
             // The kernel keys by the live Str CELL (fnprops' `*const

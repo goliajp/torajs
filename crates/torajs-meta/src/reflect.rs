@@ -20,6 +20,7 @@ unsafe extern "C" {
     pub(crate) fn __torajs_throw_type_error(msg: *const c_char);
     pub(crate) fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     pub(crate) fn __torajs_str_drop(s: *mut u8);
     pub(crate) fn __torajs_dynobj_alloc() -> *mut c_void;
     pub(crate) fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
@@ -165,8 +166,16 @@ pub(crate) unsafe fn heap_type_tag(child: *const c_void) -> u16 {
     unsafe { child.cast::<u8>().add(4).cast::<u16>().read() }
 }
 
+/// A fresh rc=1 Str spelling `name` (WTF-8 bytes). ASCII names take
+/// the pooled Latin-1 block and copy verbatim — their bytes ARE their
+/// code units; anything above ASCII is decoded into the cell's own
+/// encoding by torajs-str (the pre-560 form copied WTF-8 bytes in as
+/// Latin-1 units, so a non-ASCII field's own key spelled `Ã©`).
 #[inline]
 pub(crate) unsafe fn alloc_str_key(name: &[u8]) -> *mut u8 {
+    if name.iter().any(|b| *b >= 0x80) {
+        return unsafe { __torajs_str_alloc(name.as_ptr(), name.len() as i64) };
+    }
     let s = unsafe { __torajs_str_alloc_pooled(name.len() as u64) };
     if !name.is_empty() {
         unsafe { core::ptr::copy_nonoverlapping(name.as_ptr(), s.add(16), name.len()) };

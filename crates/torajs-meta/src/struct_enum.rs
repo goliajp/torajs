@@ -47,9 +47,6 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
 
-    // torajs-str — pooled key/name allocation.
-    fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
-
     // torajs-throw — loud failure for the non-struct slot.
     fn __torajs_throw_type_error(msg: *const c_char);
     /// torajs-anyvalue — a struct accessor's [[Get]], keyed by raw name
@@ -84,8 +81,6 @@ const ANY_HEAP: u64 = 4;
 /// Byte offset of the `class_tag` u32 inside a `Tag::Obj` instance
 /// (right after the 8-byte universal heap header).
 const OBJ_CLASS_TAG_OFF: usize = 8;
-/// `Str` payload offset (`[header:8][len u32 @8][_pad:4][bytes @16]`).
-const STR_DATA_OFF: usize = 16;
 
 /// Loud non-struct fallback message (NUL-terminated for the C throw).
 /// Shared by every `Object.keys`/`values`/`entries` struct arm — the
@@ -155,14 +150,17 @@ unsafe fn slot_own_value(
     unsafe { field_slot_to_pair_owned(info.type_tag, raw) }
 }
 
-/// Allocate a pooled `Str` holding `len` bytes copied from `ptr`.
+/// A fresh rc=1 Str spelling a layout field name — `len` WTF-8 bytes
+/// at `ptr` (NULL / 0 for the empty name), decoded into the cell's
+/// own encoding.
 #[inline]
 unsafe fn alloc_str_from_raw(ptr: *const u8, len: usize) -> *mut u8 {
-    let s = unsafe { __torajs_str_alloc_pooled(len as u64) };
-    if len != 0 && !ptr.is_null() {
-        unsafe { core::ptr::copy_nonoverlapping(ptr, s.add(STR_DATA_OFF), len) };
-    }
-    s
+    let bytes = if ptr.is_null() {
+        &[][..]
+    } else {
+        unsafe { core::slice::from_raw_parts(ptr, len) }
+    };
+    unsafe { crate::reflect::alloc_str_key(bytes) }
 }
 
 /// `Object.keys(v)` arm for a `Tag::Obj` struct cell. Returns an owned

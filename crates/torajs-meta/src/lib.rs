@@ -101,6 +101,12 @@ pub unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_alloc(_src: *const u8, _len: i64) -> *mut u8 {
+    panic!("torajs-meta test stub: __torajs_str_alloc should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_drop(_s: *mut u8) {
     panic!("torajs-meta test stub: __torajs_str_drop should not be called from cargo test");
 }

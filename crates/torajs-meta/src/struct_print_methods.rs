@@ -30,6 +30,9 @@ unsafe extern "C" {
         name_len: *mut u32,
     ) -> u32;
     fn __torajs_io_putc_out(c: i32) -> i32;
+    // torajs-anyvalue::inspect — a Str key bare when it is an ASCII
+    // identifier, JSON-quoted otherwise.
+    fn __torajs_print_str_cell_as_key(cell: *const c_void);
     fn __torajs_inspect_line_add(n: u32);
 }
 
@@ -141,7 +144,13 @@ pub(crate) unsafe fn print_proto_methods(class_tag: u32, indent: u32, emitted: &
         for _ in 0..indent + 2 {
             unsafe { __torajs_io_putc_out(b' ' as i32) };
         }
-        unsafe { put_bytes(core::slice::from_raw_parts(kp, klen)) };
+        // The key goes through the shared bare-or-quoted writer
+        // (ASCII identifier bare, anything else JSON-quoted), the
+        // rule a dynobj key and the own-field rows already follow.
+        let key_cell =
+            unsafe { crate::reflect::alloc_str_key(core::slice::from_raw_parts(kp, klen)) };
+        unsafe { __torajs_print_str_cell_as_key(key_cell.cast()) };
+        unsafe { crate::reflect::__torajs_str_drop(key_cell) };
         unsafe { put_bytes(b": ") };
         unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
         if kind.is_some() {

@@ -99,13 +99,12 @@ pub unsafe extern "C" fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *
 /// # Safety
 ///
 /// `src` must point at a readable region of at least `len` bytes
-/// (or be NULL when `len == 0`). The bytes must form a well-
-/// formed UTF-8 sequence — non-UTF-8 inputs silently get the
-/// fallback Latin-1 path (every byte ≤ 0x7F is ASCII so it stays
-/// safe; bytes 0x80-0xFF would be misclassified as Latin-1
-/// codepoints if mixed with stray UTF-8 continuation bytes, but
-/// no current caller hands such garbage). Returned pointer is a
-/// fresh refcount=1 Str block owned by the caller.
+/// (or be NULL when `len == 0`). The bytes must form well-formed
+/// WTF-8 — UTF-8, plus the three-byte form of a lone surrogate,
+/// which the compiler's `Wtf8Buf` spellings and the runtime's own
+/// `StrWtf8` views carry; a lone surrogate becomes one UTF-16 unit.
+/// Returned pointer is a fresh refcount=1 Str block owned by the
+/// caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8 {
     let len_u = len as usize;
@@ -114,9 +113,8 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
         return block.into_raw();
     }
     // SAFETY: caller guarantees `src..src+len` is readable and
-    // well-formed UTF-8.
+    // well-formed WTF-8.
     let src_slice = unsafe { core::slice::from_raw_parts(src, len_u) };
-    let utf8 = unsafe { core::str::from_utf8_unchecked(src_slice) };
     // An all-ASCII payload copies verbatim into the Latin-1 layout,
     // every byte already matching its own codepoint — the shape the
     // pre-S2 `alloc + memcpy` had. And "all ASCII" is a question
@@ -144,61 +142,51 @@ pub unsafe extern "C" fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8
     // Sizing the cold half keeps that decoder off the `__text` budget
     // every string-materializing program carries (s3 rotation 504
     // census).
-    unsafe { str_alloc_wide(src_slice, utf8) }
+    unsafe { str_alloc_wide(src_slice) }
 }
 
 /// The non-ASCII tail of [`__torajs_str_alloc`]: find the widest
-/// codepoint and re-encode into the one-byte Latin-1 layout or UTF-16
-/// LE. `#[cold]` + `#[inline(never)]` keep it out of the ASCII hot
-/// path's body; `#[optimize(size)]` compiles its four `chars()` walks
-/// — the UTF-8 decoder — once, for size.
+/// code point and re-encode into the one-byte Latin-1 layout or UTF-16
+/// LE. The source is WTF-8 — UTF-8 plus the three-byte form of a lone
+/// surrogate — decoded by [`wtf8_codepoints`] rather than `str::chars`
+/// (a lone surrogate is not a `char`; rotation 560). `#[cold]` +
+/// `#[inline(never)]` keep it out of the ASCII hot path's body;
+/// `#[optimize(size)]` compiles the decoder walks for size.
 ///
 /// # Safety
 ///
-/// `src_slice` / `utf8` are the same non-empty, non-ASCII, well-formed
-/// UTF-8 buffer `__torajs_str_alloc` validated; the returned pointer
-/// is a fresh refcount=1 Str block owned by the caller.
+/// `src` is the same non-empty, non-ASCII, well-formed WTF-8 buffer
+/// `__torajs_str_alloc` scanned; the returned pointer is a fresh
+/// refcount=1 Str block owned by the caller.
 #[cold]
 #[inline(never)]
 #[optimize(size)]
-unsafe fn str_alloc_wide(src_slice: &[u8], utf8: &str) -> *mut u8 {
+unsafe fn str_alloc_wide(src: &[u8]) -> *mut u8 {
     let mut max_cp: u32 = 0;
-    for c in utf8.chars() {
-        let cp = c as u32;
-        if cp > max_cp {
-            max_cp = cp;
-        }
-    }
+    let mut length: u32 = 0;
+    wtf8_codepoints(src, |cp| {
+        max_cp = max_cp.max(cp);
+        length += if cp > 0xFFFF { 2 } else { 1 };
+    });
     if max_cp <= 0xFF {
-        // Latin-1 supplement (0x80..=0xFF). Re-encode codepoint-
-        // by-codepoint into one byte each.
-        // r503 — a byte scan, not `chars().count()`: a UTF-8 char
-        // starts at every non-continuation byte, and the char counter
-        // is 2.5 KB of core (`do_count_chars`) in every program that
-        // materializes a string.
-        let length = src_slice.iter().filter(|b| (*b & 0xC0) != 0x80).count() as u32;
+        // Latin-1 supplement (0x80..=0xFF): one byte per code point.
         let mut block = StrBlock::alloc_with_encoding(length, true);
         let dst = unsafe { block.as_bytes_mut(length) };
-        // r503 — zip, not `dst[i]`: one slot per char by
-        // construction; an index would link the bounds-check panic.
-        for (slot, c) in dst.iter_mut().zip(utf8.chars()) {
-            *slot = c as u8;
-        }
+        // r503 — a cursor, not `dst[i]`: sized exactly by the count
+        // above; an index would link the bounds-check panic.
+        let mut out = dst.iter_mut();
+        wtf8_codepoints(src, |cp| {
+            if let Some(slot) = out.next() {
+                *slot = cp as u8;
+            }
+        });
         return block.into_raw();
     }
-    // UTF-16 LE — BMP codepoints get a single u16; supplementary
-    // plane gets a surrogate pair. Walk twice: first to count code
-    // units for the length field, then to fill the payload.
-    let mut length: u32 = 0;
-    for c in utf8.chars() {
-        length += if (c as u32) > 0xFFFF { 2 } else { 1 };
-    }
+    // UTF-16 LE — a BMP code point (a lone surrogate included) is one
+    // u16; a supplementary-plane one is a surrogate pair.
     let byte_cap = (length as usize) * 2;
     let mut block = StrBlock::alloc_with_encoding(length, false);
     let dst = unsafe { block.as_bytes_mut(byte_cap as u32) };
-    // r503 — a cursor over the payload, not `dst[i]`: the counting
-    // walk above sized it exactly, and an index would link the
-    // bounds-check panic (the renderer edge).
     let mut out = dst.iter_mut();
     let mut put_u16 = |u: u16| {
         for b in u.to_le_bytes() {
@@ -207,8 +195,7 @@ unsafe fn str_alloc_wide(src_slice: &[u8], utf8: &str) -> *mut u8 {
             }
         }
     };
-    for c in utf8.chars() {
-        let cp = c as u32;
+    wtf8_codepoints(src, |cp| {
         if cp <= 0xFFFF {
             put_u16(cp as u16);
         } else {
@@ -216,6 +203,73 @@ unsafe fn str_alloc_wide(src_slice: &[u8], utf8: &str) -> *mut u8 {
             put_u16((0xD800 | (cp_off >> 10)) as u16);
             put_u16((0xDC00 | (cp_off & 0x3FF)) as u16);
         }
-    }
+    });
     block.into_raw()
+}
+
+/// Walk a well-formed WTF-8 buffer code point by code point — the
+/// lead byte's high bits give the sequence width, the continuation
+/// bytes their six low bits each. A three-byte sequence in the
+/// surrogate range is yielded as that surrogate. A truncated tail
+/// (not well-formed) ends the walk.
+#[inline]
+fn wtf8_codepoints(bytes: &[u8], mut yield_cp: impl FnMut(u32)) {
+    let mut i = 0usize;
+    while let Some(&b0) = bytes.get(i) {
+        let (width, mut cp) = match b0 {
+            0xF0.. => (4, (b0 & 0x07) as u32),
+            0xE0.. => (3, (b0 & 0x0F) as u32),
+            0xC0.. => (2, (b0 & 0x1F) as u32),
+            _ => (1, b0 as u32),
+        };
+        let Some(seq) = bytes.get(i + 1..i + width) else {
+            break;
+        };
+        for &b in seq {
+            cp = (cp << 6) | (b & 0x3F) as u32;
+        }
+        yield_cp(cp);
+        i += width;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use std::sync::Mutex;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn units_of(p: *mut u8) -> (bool, Vec<u16>) {
+        let (payload, latin1) = unsafe { crate::eq::resolve_payload(p) };
+        let units = if latin1 {
+            payload.iter().map(|&b| b as u16).collect()
+        } else {
+            payload
+                .chunks(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect()
+        };
+        (latin1, units)
+    }
+
+    #[test]
+    fn alloc_decodes_wtf8_by_code_point() {
+        let _g = TEST_LOCK.lock().unwrap();
+        crate::pool::clear_for_test();
+        for (src, latin1, want) in [
+            (&b"abc"[..], true, vec![0x61, 0x62, 0x63]),
+            ("\u{e9}".as_bytes(), true, vec![0xE9]),
+            ("\u{4e2d}".as_bytes(), false, vec![0x4E2D]),
+            ("\u{1f600}".as_bytes(), false, vec![0xD83D, 0xDE00]),
+            // a lone high surrogate in its WTF-8 form is one unit
+            (&b"a\xED\xA0\xBD"[..], false, vec![0x61, 0xD83D]),
+        ] {
+            let p = unsafe { __torajs_str_alloc(src.as_ptr(), src.len() as i64) };
+            assert_eq!(units_of(p), (latin1, want), "{src:?}");
+            unsafe { StrBlock::from_raw(p) }.free_pool_aware();
+        }
+    }
 }
