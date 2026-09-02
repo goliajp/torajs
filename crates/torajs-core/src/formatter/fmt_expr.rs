@@ -5,6 +5,7 @@
 //!
 //! Extracted from `formatter.rs` (2026-05-25, god-file decomp batch 17).
 
+use crate::ast::PropKey;
 use crate::ast::{BinOp, Expr, ExprId, Stmt, UnaryOp};
 
 use super::Formatter;
@@ -216,7 +217,7 @@ impl<'a> Formatter<'a> {
         self.write("'");
     }
 
-    fn fmt_object_lit(&mut self, fields: &[(String, ExprId)]) {
+    fn fmt_object_lit(&mut self, fields: &[(PropKey, ExprId)]) {
         self.write("{ ");
         for (i, (n, v)) in fields.iter().enumerate() {
             if i > 0 {
@@ -224,11 +225,11 @@ impl<'a> Formatter<'a> {
             }
             // shorthand: `{ x }` if value is an ident with the same name
             if let Expr::Ident(vn) = self.ast.get_expr(*v)
-                && vn == n
+                && n == vn
             {
-                self.write(n);
+                self.write(&n.to_string_lossy_owned());
             } else {
-                self.write(n);
+                self.write(&n.to_string_lossy_owned());
                 self.write(": ");
                 self.fmt_expr(*v);
             }

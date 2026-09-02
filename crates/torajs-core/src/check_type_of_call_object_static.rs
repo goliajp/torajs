@@ -31,6 +31,7 @@
 //! shape mismatch, `None` when callee isn't one of the 2
 //! matched names on the `Object` namespace.
 
+use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
@@ -230,8 +231,8 @@ pub(crate) fn try_match(
 /// * a get-only accessor accepts nothing (`None`) — ES §10.1.9 makes
 ///   the write a strict-mode `TypeError`, which SSA-lower emits, so it
 ///   must typecheck rather than be rejected.
-pub(crate) fn own_property_sink_types(fields: &[(String, Type)]) -> Vec<(String, Option<Type>)> {
-    let mut out: Vec<(String, Option<Type>)> = Vec::new();
+pub(crate) fn own_property_sink_types(fields: &[(PropKey, Type)]) -> Vec<(PropKey, Option<Type>)> {
+    let mut out: Vec<(PropKey, Option<Type>)> = Vec::new();
     for (name, ty) in fields {
         let (key, accepts) = match crate::check_type_of_object_lit::accessor_slot(name) {
             Some(("__setter_", prop)) => {
@@ -239,9 +240,9 @@ pub(crate) fn own_property_sink_types(fields: &[(String, Type)]) -> Vec<(String,
                     Type::Function(params, _) => params.first().cloned().unwrap_or(Type::Any),
                     _ => Type::Any,
                 };
-                (prop.to_string(), Some(param))
+                (PropKey::from(prop), Some(param))
             }
-            Some((_, prop)) => (prop.to_string(), None),
+            Some((_, prop)) => (PropKey::from(prop), None),
             None => (name.clone(), Some(ty.clone())),
         };
         match out.iter_mut().find(|(k, _)| *k == key) {
@@ -264,8 +265,8 @@ pub(crate) fn own_property_sink_types(fields: &[(String, Type)]) -> Vec<(String,
 /// * `__setter_v` alone contributes `undefined` (ES §10.1.8 — an
 ///   accessor with no [[Get]]), and pairs with its getter into ONE
 ///   property when both halves are present.
-pub(crate) fn own_property_types(fields: &[(String, Type)]) -> Vec<(String, Type)> {
-    let mut out: Vec<(String, Type)> = Vec::new();
+pub(crate) fn own_property_types(fields: &[(PropKey, Type)]) -> Vec<(PropKey, Type)> {
+    let mut out: Vec<(PropKey, Type)> = Vec::new();
     for (name, ty) in fields {
         let (key, prop_ty) = match crate::check_type_of_object_lit::accessor_slot(name) {
             Some(("__getter_", prop)) => {
@@ -273,9 +274,9 @@ pub(crate) fn own_property_types(fields: &[(String, Type)]) -> Vec<(String, Type
                     Type::Function(_, ret) => (**ret).clone(),
                     _ => Type::Any,
                 };
-                (prop.to_string(), ret)
+                (PropKey::from(prop), ret)
             }
-            Some((_, prop)) => (prop.to_string(), Type::Undefined),
+            Some((_, prop)) => (PropKey::from(prop), Type::Undefined),
             None => (name.clone(), ty.clone()),
         };
         match out.iter_mut().find(|(k, _)| *k == key) {

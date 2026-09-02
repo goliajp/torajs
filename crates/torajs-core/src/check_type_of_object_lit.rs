@@ -14,6 +14,9 @@
 //! minus the named keys, so `const { p, ...rest } = o` types `rest`
 //! as `o`'s struct without `p`. See [`spread_omit_set`].
 
+use torajs_wtf8::Wtf8;
+
+use crate::ast::PropKey;
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
 
@@ -25,14 +28,18 @@ use crate::check::{Checker, Type};
 /// property it stands for: `__getter_b` → `("__getter_", "b")`. A plain
 /// field answers `None`. Shared decode contract with
 /// `ssa_lower_object_lit`'s spread unfold (RFC 20260714-objlit-accessor).
-pub(crate) fn accessor_slot(name: &str) -> Option<(&'static str, &str)> {
+pub(crate) fn accessor_slot(name: &Wtf8) -> Option<(&'static str, &Wtf8)> {
     if let Some(prop) = name.strip_prefix("__getter_") {
         return Some(("__getter_", prop));
     }
     name.strip_prefix("__setter_").map(|p| ("__setter_", p))
 }
 
-pub(crate) fn spread_omit_set(name: &str) -> Option<Vec<&str>> {
+/// The omit list rides an identifier-only spelling (destructuring
+/// rest excludes bound names), so a key that is not a `&str` is never
+/// a spread marker.
+pub(crate) fn spread_omit_set(name: &Wtf8) -> Option<Vec<&str>> {
+    let name = name.as_str()?;
     if name == "__spread__" {
         return Some(Vec::new());
     }
@@ -43,9 +50,9 @@ pub(crate) fn spread_omit_set(name: &str) -> Option<Vec<&str>> {
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
-    fields: &[(String, ExprId)],
+    fields: &[(PropKey, ExprId)],
 ) -> Result<Type, String> {
-    let mut field_tys: Vec<(String, Type)> = Vec::new();
+    let mut field_tys: Vec<(PropKey, Type)> = Vec::new();
     // Rotation 267 — a spread whose source is Any has no static
     // field list, so the whole literal leaves the struct layer and
     // answers Any (the dynobj lane's runtime CopyDataProperties
@@ -94,11 +101,11 @@ pub(crate) fn check(
                         let Type::Function(_, ret) = st else {
                             return Err(format!("accessor `{prop}` is not a getter closure"));
                         };
-                        (prop.to_string(), (**ret).clone())
+                        (PropKey::from(prop), (**ret).clone())
                     }
                     _ => (sn.clone(), st.clone()),
                 };
-                if omit.contains(&sn.as_str()) {
+                if omit.iter().any(|o| sn == *o) {
                     continue;
                 }
                 if let Some(pos) = field_tys.iter().position(|(k, _)| *k == sn) {

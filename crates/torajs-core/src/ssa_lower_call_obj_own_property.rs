@@ -11,6 +11,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use torajs_wtf8::Wtf8;
 
 /// Emit `obj.hasOwnProperty(k)` / `obj.propertyIsEnumerable(k)` on a
 /// `Type::Obj` receiver. Literal key → compile-time fold against
@@ -80,7 +81,7 @@ pub(crate) fn emit_obj_has_own_property(
     let is_err_recv = crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, recv_id)
         .is_some_and(|c| ctx.class_is_error_derived(&c));
     let is_enumerable_probe = m_name == "propertyIsEnumerable";
-    let emit_present = |ctx: &mut LowerCtx<'_>, key: &str| {
+    let emit_present = |ctx: &mut LowerCtx<'_>, key: &Wtf8| {
         let target = if key == "message" {
             ctx.intrinsics.error_message_present
         } else {
@@ -121,13 +122,13 @@ pub(crate) fn emit_obj_has_own_property(
                 if is_enumerable_probe {
                     return Operand::ConstBool(false);
                 }
-                return emit_present(ctx, "message");
+                return emit_present(ctx, Wtf8::new("message"));
             }
             // `name` answers the SAME probe either way: an own one
             // only exists because user code assigned it, and that
             // assignment is an ordinary enumerable data property.
             if key == "name" {
-                return emit_present(ctx, "name");
+                return emit_present(ctx, Wtf8::new("name"));
             }
             // `stack` shares msgDesc's [[Enumerable]]: false but is
             // unconditionally own, so only the enumerable probe moves.
@@ -151,7 +152,7 @@ pub(crate) fn emit_obj_has_own_property(
         let public = fname
             .strip_prefix("__getter_")
             .or_else(|| fname.strip_prefix("__setter_"))
-            .unwrap_or(fname);
+            .unwrap_or(fname.as_wtf8());
         // Error-derived `message` runtime attributes (see fn doc):
         // the enumerable probe never matches it; the hasOwnProperty
         // chain gates its eq on the own-presence probe.

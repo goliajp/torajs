@@ -7,6 +7,8 @@
 
 use std::fmt::Write;
 
+use crate::ast::PropKey;
+
 use super::module_class_layouts::ClassLayoutMeta;
 use super::{ArrId, FuncId, Function, SigId, StringId, StructId, Type};
 
@@ -25,7 +27,7 @@ pub struct Module {
     /// order matters (it's the layout). Two structurally-equal types
     /// share a single StructId via `intern_struct`. Layouts can recurse
     /// (a struct field of type `Obj(_)` references back into this Vec).
-    pub struct_layouts: Vec<Vec<(String, Type)>>,
+    pub struct_layouts: Vec<Vec<(PropKey, Type)>>,
     /// Interned `Array<T>` element types. ArrId = index. Two arrays of
     /// the same element type share one ArrId via `intern_arr`.
     pub arr_layouts: Vec<Type>,
@@ -315,7 +317,7 @@ impl Module {
     /// Intern a struct layout. Returns an existing StructId if a
     /// structurally-equal layout was already registered, else allocates
     /// a fresh one. Field-name order matters — `{x, y}` ≠ `{y, x}`.
-    pub fn intern_struct(&mut self, layout: Vec<(String, Type)>) -> StructId {
+    pub fn intern_struct(&mut self, layout: Vec<(PropKey, Type)>) -> StructId {
         for (i, existing) in self.struct_layouts.iter().enumerate() {
             if *existing == layout {
                 return StructId(i as u32);
@@ -326,7 +328,7 @@ impl Module {
         id
     }
 
-    pub fn struct_layout(&self, id: StructId) -> &[(String, Type)] {
+    pub fn struct_layout(&self, id: StructId) -> &[(PropKey, Type)] {
         &self.struct_layouts[id.0 as usize]
     }
 

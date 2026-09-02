@@ -198,6 +198,9 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
     }
     let mut parts: Vec<String> = Vec::with_capacity(fields.len());
     for (fname, val) in fields {
+        let Some(fname) = fname.as_str() else {
+            return None;
+        };
         let mut chars = fname.chars();
         let head_ok = chars
             .next()

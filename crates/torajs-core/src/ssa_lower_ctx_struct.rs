@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, ExprId};
+use crate::ast::{Ast, ExprId, PropKey};
 use crate::ssa::{self, BakedRegexEntry, BlockId, FuncId, Operand, Type, ValueId};
 use crate::ssa_lower::{CallRetargets, Intrinsics, LocalInfo};
 use crate::ssa_lower_stmt_break_continue::LabelFrame;
@@ -99,7 +99,7 @@ pub(crate) struct LowerCtx<'a> {
     /// generic instantiation needs to grow the table. Detached from
     /// `module.struct_layouts` at the top of `lower()` and written back
     /// at the end.
-    pub(crate) struct_layouts: &'a mut Vec<Vec<(String, Type)>>,
+    pub(crate) struct_layouts: &'a mut Vec<Vec<(PropKey, Type)>>,
     /// Generic-instantiation memo: full instantiation key
     /// (`Rec<number>`) → its reserved StructId. Reserve-first so a
     /// recursive alias closes its back-edge on the in-flight sid
@@ -412,7 +412,7 @@ pub(crate) struct LowerCtx<'a> {
     pub(crate) undefable_f64_lets: std::collections::HashSet<String>,
     /// Field names some write fills with a value the F64 sentinel
     /// gate recognises — see [`crate::undef_f64_fields`].
-    pub(crate) undefable_f64_fields: std::collections::HashSet<String>,
+    pub(crate) undefable_f64_fields: std::collections::HashSet<PropKey>,
     /// RFC 20260707 residual chunk — binding names whose let-init
     /// is a string INDEX read (`const c = s[i]`) or an alias of
     /// such a binding. The Substr slot may hold the Substr-shaped

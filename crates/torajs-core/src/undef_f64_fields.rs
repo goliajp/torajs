@@ -56,6 +56,7 @@
 //! `undefined`.
 
 use crate::ast::Expr;
+use crate::ast::PropKey;
 use crate::ssa_lower::LowerCtx;
 use std::collections::HashSet;
 
@@ -111,7 +112,7 @@ fn collect_declared_idents(ctx: &LowerCtx<'_>) -> HashSet<String> {
 /// Field names that some object literal or member assignment fills
 /// with a value the sentinel gate recognises. Arena order, so the
 /// result does not depend on how anything is hashed.
-fn collect(ctx: &LowerCtx<'_>) -> HashSet<String> {
+fn collect(ctx: &LowerCtx<'_>) -> HashSet<PropKey> {
     let mut out = HashSet::new();
     for id in 0..ctx.ast.exprs.len() {
         let eid = crate::ast::ExprId(id as u32);
@@ -126,7 +127,7 @@ fn collect(ctx: &LowerCtx<'_>) -> HashSet<String> {
             Expr::Assign { target, value } => {
                 if let Expr::Member { name, .. } = ctx.ast.get_expr(*target) {
                     if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, *value) {
-                        out.insert(name.clone());
+                        out.insert(PropKey::from(name));
                     }
                 }
             }

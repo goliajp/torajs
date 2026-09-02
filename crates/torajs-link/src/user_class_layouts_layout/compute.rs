@@ -64,7 +64,7 @@ pub fn compute_user_class_layouts_layout(
         let mut field_metadata: Vec<UserFieldMetaPlacement> =
             Vec::with_capacity(entry.fields.len());
         for fm in &entry.fields {
-            let name_bytes = fm.name.as_bytes().to_vec();
+            let name_bytes = fm.name.clone();
             let name_byte_len = name_bytes.len() as u32;
             let name_file_offset = region_file_offset + inner_cursor;
             let name_vaddr = region_vaddr + u64::from(inner_cursor);

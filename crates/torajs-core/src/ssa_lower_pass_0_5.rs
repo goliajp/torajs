@@ -15,6 +15,7 @@
 //! by name, substrate codegen is invariant (binary byte-identical with
 //! chunk-326 baseline 59444912).
 
+use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, ExprId, Stmt};
@@ -29,7 +30,7 @@ pub(crate) struct Pass05 {
     pub fn_sigs: Vec<(Vec<Type>, Type)>,
     pub may_throw: HashSet<String>,
     pub generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    pub struct_layouts: Vec<Vec<(String, Type)>>,
+    pub struct_layouts: Vec<Vec<(PropKey, Type)>>,
     pub inst_memo: HashMap<String, ssa::StructId>,
     pub class_name_to_tag: HashMap<String, u32>,
 }
@@ -48,7 +49,7 @@ pub(crate) fn run(
 
     let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
         HashMap::new();
-    let mut struct_layouts: Vec<Vec<(String, Type)>> = std::mem::take(&mut module.struct_layouts);
+    let mut struct_layouts: Vec<Vec<(PropKey, Type)>> = std::mem::take(&mut module.struct_layouts);
     let mut inst_memo: HashMap<String, ssa::StructId> = HashMap::new();
     let mut class_sids: std::collections::HashMap<String, ssa::StructId> =
         std::collections::HashMap::new();
@@ -114,7 +115,7 @@ pub(crate) fn run(
             if fields.len() == 1 && fields[0].0 == "__alias__" {
                 continue;
             }
-            let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+            let mut layout: Vec<(PropKey, Type)> = Vec::with_capacity(fields.len());
             // W4 — class field widths join over all instances through
             // the nominal Class key. D5 — cyclic plain aliases take
             // the same nominal widths (their reserved sid closes the
@@ -136,8 +137,10 @@ pub(crate) fn run(
                     &mut inst_memo,
                 );
                 if let Some(ck) = &class_key {
-                    let fkey =
-                        crate::num_width::SlotKey::Field(Box::new(ck.clone()), fname.clone());
+                    let fkey = crate::num_width::SlotKey::Field(
+                        Box::new(ck.clone()),
+                        PropKey::from(fname),
+                    );
                     ty = match ty {
                         Type::I64
                             if fty_ann == "number" && num_f64_slots.field_is_f64(ck, fname) =>
@@ -170,7 +173,7 @@ pub(crate) fn run(
                         other => other,
                     };
                 }
-                layout.push((fname.clone(), ty));
+                layout.push((PropKey::from(fname), ty));
             }
             intern_or_finalize(
                 name,
@@ -233,9 +236,9 @@ pub(crate) fn run(
 /// it forever (empty, unreferenced) and never becomes a candidate.
 fn intern_or_finalize(
     name: &str,
-    layout: Vec<(String, Type)>,
+    layout: Vec<(PropKey, Type)>,
     reserved_sid: ssa::StructId,
-    struct_layouts: &mut [Vec<(String, Type)>],
+    struct_layouts: &mut [Vec<(PropKey, Type)>],
     aliases: &mut HashMap<String, Type>,
     pending_reserved: &mut HashSet<u32>,
 ) {

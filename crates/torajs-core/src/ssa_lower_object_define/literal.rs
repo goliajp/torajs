@@ -170,7 +170,7 @@ fn descriptor_field(ctx: &LowerCtx, desc_eid: ExprId, name: &str) -> Option<Expr
 fn flags_statically_decodable(ctx: &LowerCtx, desc_eid: ExprId) -> bool {
     if let Expr::ObjectLit { fields } = ctx.ast.get_expr(desc_eid) {
         for (n, e) in fields {
-            if matches!(n.as_str(), "writable" | "enumerable" | "configurable")
+            if matches!(n.as_str(), Some("writable" | "enumerable" | "configurable"))
                 && !matches!(ctx.ast.get_expr(*e), Expr::Bool(_))
             {
                 return false;

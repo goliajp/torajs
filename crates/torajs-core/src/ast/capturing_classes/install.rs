@@ -7,6 +7,7 @@
 
 use super::super::{Ast, ClassMethod, Expr, ExprId, StaticInit, Stmt};
 use super::expr_says_this;
+use crate::ast::PropKey;
 
 /// Static initialization last, and in source order: §15.7.14 runs
 /// field initializers and static blocks at class-definition time,
@@ -118,10 +119,10 @@ pub(super) fn install_computed_static_fields(
         let yes2 = ast.add_expr(Expr::Bool(true));
         let yes3 = ast.add_expr(Expr::Bool(true));
         let fields = vec![
-            ("value".to_string(), value),
-            ("writable".to_string(), yes1),
-            ("enumerable".to_string(), yes2),
-            ("configurable".to_string(), yes3),
+            ("value".into(), value),
+            ("writable".into(), yes1),
+            ("enumerable".into(), yes2),
+            ("configurable".into(), yes3),
         ];
         out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
     }
@@ -142,7 +143,7 @@ pub(super) fn descriptor_fields(
     ast: &mut Ast,
     kind: Option<super::super::AccessorKind>,
     func: ExprId,
-) -> Vec<(String, ExprId)> {
+) -> Vec<(PropKey, ExprId)> {
     let yes = ast.add_expr(Expr::Bool(true));
     match kind {
         Some(super::super::AccessorKind::Getter) => vec![("get".into(), func)],
@@ -153,7 +154,7 @@ pub(super) fn descriptor_fields(
         }
     }
     .into_iter()
-    .chain([("configurable".to_string(), yes)])
+    .chain([("configurable".into(), yes)])
     .collect()
 }
 
@@ -168,7 +169,7 @@ pub(super) fn define_member(
     ast: &mut Ast,
     recv: ExprId,
     key: ExprId,
-    fields: Vec<(String, ExprId)>,
+    fields: Vec<(PropKey, ExprId)>,
 ) -> ExprId {
     let desc = ast.add_expr(Expr::ObjectLit { fields });
     let object = ast.add_expr(Expr::Ident("Object".to_string()));

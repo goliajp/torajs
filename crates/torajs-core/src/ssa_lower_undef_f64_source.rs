@@ -11,6 +11,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_nullable_guard::{awaited_promise_inner, callee_falls_through};
+use torajs_wtf8::Wtf8;
 
 /// RFC 20260708-typed-arr-oob-read chunk 2 — the F64 `undefined`
 /// sentinel: a quiet NaN carrying a payload that nothing but a
@@ -87,7 +88,7 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // one bits compare; blanket-true for every `number` field
         // would instead arm the ToNumber step on arithmetic that can
         // never see a sentinel.
-        Expr::Member { name, .. } => ctx.undefable_f64_fields.contains(name),
+        Expr::Member { name, .. } => ctx.undefable_f64_fields.contains(Wtf8::new(name)),
         // The value-transparent wrappers — the same set the 11-A1
         // escape visitor names in `collect_value_flow_idents`. What
         // comes out is what went in, so the question passes straight

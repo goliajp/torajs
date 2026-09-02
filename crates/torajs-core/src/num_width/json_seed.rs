@@ -12,6 +12,7 @@
 //! source of truth here.
 
 use super::{Analysis, SlotKey, W};
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
@@ -86,7 +87,7 @@ impl<'a> Analysis<'a> {
         }
         self.mark_containerish(key);
         for (fname, fann) in fields {
-            let fk = SlotKey::Field(Box::new(key.clone()), fname.clone());
+            let fk = SlotKey::Field(Box::new(key.clone()), PropKey::from(fname));
             if number_domain(Some(&fann)) {
                 self.add_container_constraint(fk.clone(), W::F64);
             }

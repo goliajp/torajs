@@ -98,6 +98,9 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         // unambiguous at this position.
         Expr::Ident(n) if n == "undefined" => true,
         Expr::ObjectLit { fields } => fields.iter().all(|(name, val)| {
+            let Some(name) = name.as_str() else {
+                return false;
+            };
             let mut chars = name.chars();
             let head_ok = chars
                 .next()

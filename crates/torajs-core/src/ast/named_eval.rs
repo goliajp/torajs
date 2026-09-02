@@ -140,7 +140,11 @@ pub(crate) fn collect_named_eval_positions(ast: &Ast) -> HashMap<ExprId, String>
     for e in &ast.exprs {
         if let Expr::ObjectLit { fields } = e {
             for (fname, val) in fields {
-                map.insert(unwrap_as(ast, *val), fname.clone());
+                // Function names are `String` (557-02 C group): a key
+                // with a lone surrogate leaves the function anonymous.
+                if let Some(fname) = fname.as_str() {
+                    map.insert(unwrap_as(ast, *val), fname.to_string());
+                }
             }
         }
     }

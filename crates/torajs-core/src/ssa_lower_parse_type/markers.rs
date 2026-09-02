@@ -2,6 +2,7 @@
 //! [`super::parse_type`], split out 2026-07-03 (fn-debt decomp).
 //! Bodies verbatim; recursion goes back through `super::parse_type`.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ssa::{self, Type};
@@ -19,10 +20,10 @@ pub(super) fn parse_struct(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
-    let mut fields: Vec<(String, Type)> = Vec::new();
+    let mut fields: Vec<(PropKey, Type)> = Vec::new();
     // One splitter for this encoding, shared with the checker
     // (`check_type_ann::split_top_pipe`). The hand-rolled copies this
     // family used to keep drifted apart twice: chunk 794 taught one of
@@ -39,7 +40,7 @@ pub(super) fn parse_struct(
             struct_layouts,
             inst_memo,
         );
-        fields.push((n.to_string(), fty));
+        fields.push((PropKey::from(n), fty));
     }
     // Intern by structural equality.
     for (i, ex) in struct_layouts.iter().enumerate() {
@@ -63,7 +64,7 @@ pub(super) fn parse_cls(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
     let bytes = rest.as_bytes();

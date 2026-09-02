@@ -21,6 +21,7 @@
 //!    bit-punning);
 //! 3. auto-register an anonymous layout (V3-18 P2.4.c, unchanged).
 
+use crate::ast::PropKey;
 use crate::ssa::{BlockId, Function, InstKind, Operand, StructId, Type};
 
 /// Pick (or register) the layout for an object literal whose lowered
@@ -39,14 +40,14 @@ use crate::ssa::{BlockId, Function, InstKind, Operand, StructId, Type};
 /// falls back to the scan (checker already rejected true
 /// mismatches, so this is belt-and-braces, not a bypass).
 pub(crate) fn resolve_objlit_layout(
-    layouts: &mut Vec<Vec<(String, Type)>>,
+    layouts: &mut Vec<Vec<(PropKey, Type)>>,
     f: &mut Function,
     cur_block: BlockId,
-    field_tys: &mut [(String, Type)],
+    field_tys: &mut [(PropKey, Type)],
     field_vals: &mut [Operand],
     declared_hint: Option<StructId>,
 ) -> StructId {
-    let exact = |reg: &Vec<(String, Type)>| -> bool {
+    let exact = |reg: &Vec<(PropKey, Type)>| -> bool {
         reg.len() == field_tys.len()
             && reg
                 .iter()
@@ -55,7 +56,7 @@ pub(crate) fn resolve_objlit_layout(
                     rn == ln && (rt == lt || (*lt == Type::Ptr && rt.is_pointer_shaped()))
                 })
     };
-    let coercible = |reg: &Vec<(String, Type)>| -> bool {
+    let coercible = |reg: &Vec<(PropKey, Type)>| -> bool {
         reg.len() == field_tys.len()
             && reg
                 .iter()
@@ -85,7 +86,7 @@ pub(crate) fn resolve_objlit_layout(
     // part of `coercible`: in the un-hinted fallback scan this arm
     // would let an anon literal adsorb onto any same-named typed
     // layout and silently change existing layout selection.
-    let coercible_unbox = |reg: &Vec<(String, Type)>| -> bool {
+    let coercible_unbox = |reg: &Vec<(PropKey, Type)>| -> bool {
         reg.len() == field_tys.len()
             && reg
                 .iter()

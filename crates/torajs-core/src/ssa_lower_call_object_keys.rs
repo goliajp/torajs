@@ -47,6 +47,7 @@
 //! SSA lower-time (preserving the original block's behavior). `None`
 //! lets the caller fall through to the next arm.
 
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
@@ -181,7 +182,7 @@ pub(crate) fn try_lower(
     if m_name == "__forinKeys" && !matches!(arg_ty, Type::Obj(_)) {
         return Some(lower_forin_nonstruct_keys(ctx, args[0], arg_op, &arg_raw));
     }
-    let field_names: Vec<String> = match arg_ty {
+    let field_names: Vec<PropKey> = match arg_ty {
         Type::Obj(sid) => {
             // RFC 20260714-objlit-accessor — an accessor lives in the
             // layout under a synthetic slot name (`__getter_v` /
@@ -189,10 +190,10 @@ pub(crate) fn try_lower(
             // keyed by the plain name. Enumerate it as `v`, once (a
             // get/set pair is a single key), never as the internal
             // spelling.
-            let mut out: Vec<String> = Vec::new();
+            let mut out: Vec<PropKey> = Vec::new();
             for (fname, _) in ctx.struct_layouts[sid.0 as usize].iter() {
                 let key = match crate::check_type_of_object_lit::accessor_slot(fname) {
-                    Some((_, prop)) => prop.to_string(),
+                    Some((_, prop)) => PropKey::from(prop),
                     None => fname.clone(),
                 };
                 if !out.contains(&key) {

@@ -166,8 +166,10 @@ pub struct UserMethodMetaEntry {
 /// `.__class_fields_<i>` inner global at link time.
 #[derive(Debug, Clone)]
 pub struct UserFieldMetaEntry {
-    /// Field name as it appears in the struct literal / class decl.
-    pub name: String,
+    /// Field name as it appears in the struct literal / class decl —
+    /// WTF-8 bytes (a property key is a code-unit sequence; a lone
+    /// surrogate is a key too), opaque to the link layer.
+    pub name: Vec<u8>,
     /// Byte offset within the instance (= `OBJ_HEADER_SIZE + i*8`).
     pub offset: u32,
     /// Coarse 8-bit `Type` discriminator (`ssa::field_type_tag_of`).

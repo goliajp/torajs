@@ -50,6 +50,7 @@ pub(crate) use container::WidthTable;
 pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 
+use crate::ast::PropKey;
 use crate::ast::{Ast, ExprId, Stmt};
 use fallthrough::{alias_fallthrough_closures, seed_and_walk_fn};
 use sentinel_tables::close_sentinel_tables;
@@ -89,7 +90,7 @@ pub(crate) enum SlotKey {
     Elem(Box<SlotKey>),
     /// W4 — field-width point of a struct / class / inline-object
     /// alias class: (container class representative, field name).
-    Field(Box<SlotKey>, String),
+    Field(Box<SlotKey>, PropKey),
     /// RFC 20260726-array-elem-width — the pending-throw value slot.
     ///
     /// There is one of it in the runtime, and it holds raw 8 bytes that

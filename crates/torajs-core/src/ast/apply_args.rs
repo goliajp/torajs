@@ -15,7 +15,7 @@
 //! `torajs_core::ast::apply_default_args`; the `pub use` in ast.rs
 //! preserves that path.
 
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::{Ast, Expr, ExprId, Param, PropKey, Stmt};
 use std::collections::HashMap;
 
 /// Peel a FnDecl's hidden leading params, leaving the user-facing ones.
@@ -211,6 +211,13 @@ fn same_literal(ast: &Ast, a: ExprId, b: ExprId) -> bool {
 /// obj-literal method-field walk: `let f = __closure_N` (or a
 /// `Closure{fn_name}` value) names the lifted FnDecl that carries
 /// the defaults.
+/// A literal field holding a synthetic fn, under its identifier
+/// name. A key that is not an identifier string is never reached
+/// through `o.m(...)`, so it has no method defaults to merge.
+fn named_method<'a>(ast: &Ast, (f, e): &'a (PropKey, ExprId)) -> Option<(&'a str, String)> {
+    Some((f.as_str()?, synthetic_fn_ident(ast.get_expr(*e))?))
+}
+
 fn synthetic_fn_ident(e: &Expr) -> Option<String> {
     match e {
         Expr::Ident(n) if n.starts_with("__closure_") || n.starts_with("__genexpr_") => {
@@ -319,10 +326,7 @@ pub fn apply_default_args(ast: &mut Ast) {
         let Expr::ObjectLit { fields } = e else {
             continue;
         };
-        for (fname, feid) in fields {
-            let Some(target) = synthetic_fn_ident(ast.get_expr(*feid)) else {
-                continue;
-            };
+        for (fname, target) in fields.iter().filter_map(|p| named_method(ast, p)) {
             let Some(defaults) = fn_defaults.get(&target) else {
                 continue;
             };

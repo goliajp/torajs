@@ -13,6 +13,7 @@ use super::desugar_generators_field_ann_builtin::{
 };
 use super::desugar_generators_walkers::LiftCtx;
 use super::{Ast, BinOp, Expr, Stmt};
+use crate::ast::PropKey;
 
 /// This file's answer for `eid`, or the shared sniff's.
 ///
@@ -165,7 +166,7 @@ fn array_ann(ast: &Ast, elems: &[super::ExprId], ctx: &LiftCtx) -> Option<String
 /// Fields keep the same field-position retag the shared arm applies: a
 /// fn-valued field slot is a mutable position that can hold a
 /// capturing closure, so `__fn(` becomes `__cls(`.
-fn objlit_ann(ast: &Ast, fields: &[(String, super::ExprId)], ctx: &LiftCtx) -> Option<String> {
+fn objlit_ann(ast: &Ast, fields: &[(PropKey, super::ExprId)], ctx: &LiftCtx) -> Option<String> {
     let parts: Vec<String> = fields
         .iter()
         .map(|(n, eid)| {

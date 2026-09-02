@@ -157,8 +157,8 @@ pub(crate) fn try_match(
                     )));
                 }
                 Type::Promise(Box::new(Type::Array(Box::new(Type::Struct(vec![
-                    ("status".to_string(), Type::String),
-                    ("value".to_string(), inner.clone()),
+                    ("status".into(), Type::String),
+                    ("value".into(), inner.clone()),
                 ])))))
             }
             _ => Type::Promise(Box::new(inner)), // race / any

@@ -14,6 +14,7 @@
 //! (`Pass 1` reads `c.aliases` populated by `Pass 0`; `Pass 2`
 //! reads `c.globals` populated by `Pass 1` and the pre-pass).
 
+use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use crate::check::{Checker, DiagPush, Type, build_fn_type_full, resolve_type_ann};
 use crate::check_type_ann::resolve_type_ann_full;
@@ -104,11 +105,11 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
                 }
                 continue;
             }
-            let mut field_tys: Vec<(String, Type)> = Vec::new();
+            let mut field_tys: Vec<(PropKey, Type)> = Vec::new();
             let mut had_err = false;
             for (fname, fty_ann) in fields {
                 match resolve_type_ann_full(fty_ann, &c.aliases, &[], &c.generic_alias_decls) {
-                    Some(ty) => field_tys.push((fname.clone(), ty)),
+                    Some(ty) => field_tys.push((PropKey::from(fname), ty)),
                     None => {
                         c.errors.push_err(format!(
                             "unknown type `{fty_ann}` for field `{fname}` of `{name}`"

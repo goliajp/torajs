@@ -5,8 +5,10 @@
 //! left behind threads a slot-held accumulator, and they share
 //! nothing but the caller's layout slice.
 
+use crate::ast::PropKey;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
+use torajs_wtf8::{Wtf8, Wtf8Buf};
 
 /// jsb-builder fast path (primitive-only layouts): single growing
 /// buffer, runtime `pending_sep` comma protocol, Str fields fused
@@ -14,7 +16,7 @@ use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 pub(super) fn lower_obj_jsb(
     ctx: &mut LowerCtx,
     obj_ptr: crate::ssa::ValueId,
-    layout: &[(String, Type)],
+    layout: &[(PropKey, Type)],
 ) -> Operand {
     if let Some(r) = try_lower_obj_shape(ctx, obj_ptr, layout) {
         return r;
@@ -45,11 +47,7 @@ pub(super) fn lower_obj_jsb(
     // is "has any field been emitted" (builder `pending_sep`),
     // not the compile-time `i > 0`.
     for (i, (fname, fty)) in layout.iter().enumerate() {
-        let mut key_emit = String::with_capacity(fname.len() + 3);
-        key_emit.push('"');
-        key_emit.push_str(fname);
-        key_emit.push_str("\":");
-        let key_str = ctx.intern_string_literal(&key_emit);
+        let key_str = ctx.intern_string_literal(&json_key_spelling(fname));
         let field_off = OBJ_HEADER_SIZE + (i as u64) * 8;
         let field_v = ctx.f.append_inst(
             ctx.cur_block,
@@ -142,7 +140,7 @@ pub(super) fn lower_obj_jsb(
 fn try_lower_obj_shape(
     ctx: &mut LowerCtx,
     obj_ptr: crate::ssa::ValueId,
-    layout: &[(String, Type)],
+    layout: &[(PropKey, Type)],
 ) -> Option<Operand> {
     if layout.len() >= 128 {
         return None;
@@ -165,7 +163,7 @@ fn try_lower_obj_shape(
         desc.push(ty_code as char);
         desc.push((i as u8 + 1) as char);
         desc.push('"');
-        desc.push_str(fname);
+        desc.push_str(fname.as_str().expect("ascii key"));
         desc.push_str("\":");
     }
     let desc_lit = ctx.intern_string_literal(&desc);
@@ -179,4 +177,22 @@ fn try_lower_obj_shape(
         None,
     );
     Some(Operand::Value(result))
+}
+
+/// `"<key>":` as §25.5.2.3 QuoteJSONString spells the key: a lone
+/// surrogate becomes `\uXXXX`, everything else (well-formed, no
+/// quote / backslash / control byte — the layout gate upstream keeps
+/// those on the runtime `json_quote_str` lane) rides verbatim.
+fn json_key_spelling(key: &Wtf8) -> Wtf8Buf {
+    let mut out = Wtf8Buf::with_capacity(key.len() + 3);
+    out.push_str("\"");
+    for cp in key.code_points() {
+        if (0xD800..=0xDFFF).contains(&cp) {
+            out.push_str(&format!("\\u{cp:04x}"));
+        } else {
+            out.push_code_point(cp);
+        }
+    }
+    out.push_str("\":");
+    out
 }

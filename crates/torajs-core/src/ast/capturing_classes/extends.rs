@@ -336,9 +336,9 @@ pub(super) fn proto_chain_stmts(
     let writable = ast.add_expr(Expr::Bool(true));
     let configurable = ast.add_expr(Expr::Bool(true));
     let fields = vec![
-        ("value".to_string(), value),
-        ("writable".to_string(), writable),
-        ("configurable".to_string(), configurable),
+        ("value".into(), value),
+        ("writable".into(), writable),
+        ("configurable".into(), configurable),
     ];
     out.push(Stmt::Expr(define_member(ast, recv, key, fields)));
 }

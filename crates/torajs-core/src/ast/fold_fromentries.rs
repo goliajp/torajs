@@ -18,6 +18,7 @@
 //! and the trailing-args form (S309 keeps trailing evaluation).
 
 use super::{Ast, Expr, ExprId};
+use crate::ast::PropKey;
 
 pub fn fold_fromentries(ast: &mut Ast) {
     for i in 0..ast.exprs.len() {
@@ -30,7 +31,7 @@ pub fn fold_fromentries(ast: &mut Ast) {
 
 /// Read-only shape match: `Object.fromEntries(<array literal of
 /// [string-literal, value] pairs>)` with unique keys.
-fn try_fold(ast: &Ast, i: usize) -> Option<Vec<(String, ExprId)>> {
+fn try_fold(ast: &Ast, i: usize) -> Option<Vec<(PropKey, ExprId)>> {
     let Expr::Call { callee, args } = &ast.exprs[i] else {
         return None;
     };
@@ -52,7 +53,7 @@ fn try_fold(ast: &Ast, i: usize) -> Option<Vec<(String, ExprId)>> {
     if entries.is_empty() {
         return None;
     }
-    let mut fields: Vec<(String, ExprId)> = Vec::with_capacity(entries.len());
+    let mut fields: Vec<(PropKey, ExprId)> = Vec::with_capacity(entries.len());
     for &e in entries {
         let Expr::Array(pair) = ast.get_expr(e) else {
             return None;
@@ -63,10 +64,10 @@ fn try_fold(ast: &Ast, i: usize) -> Option<Vec<(String, ExprId)>> {
         let Expr::String(key) = ast.get_expr(*k) else {
             return None;
         };
-        if fields.iter().any(|(f, _)| key == f) {
+        if fields.iter().any(|(f, _)| f == key) {
             return None;
         }
-        fields.push((key.to_string_lossy_owned(), *v));
+        fields.push((PropKey::from(key.clone()), *v));
     }
     Some(fields)
 }

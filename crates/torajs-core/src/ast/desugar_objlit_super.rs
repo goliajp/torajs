@@ -212,10 +212,13 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
             // member / index off the base.
             let base_expr = super_base_expr(ast, &home);
             let base = ast.add_expr(base_expr);
+            // A `Member` name is an identifier string; a key that is
+            // not a `&str` (lone surrogate) stays an Index read of the
+            // literal, the same gate `parse_postfix` applies.
             ast.exprs[site.0 as usize] = match ast.get_expr(key) {
-                Expr::String(n) => Expr::Member {
+                Expr::String(n) if n.as_str().is_some() => Expr::Member {
                     obj: base,
-                    name: n.to_string_lossy_owned(),
+                    name: n.as_str().unwrap().to_string(),
                 },
                 _ => Expr::Index {
                     obj: base,

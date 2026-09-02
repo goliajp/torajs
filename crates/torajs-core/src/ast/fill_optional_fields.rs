@@ -38,6 +38,7 @@
 //!   declared list with no unknown names and no spread — anything
 //!   else was already a checker reject and stays one.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::check_type_ann_substitute::ann_substitute;
@@ -97,13 +98,13 @@ pub fn fill_optional_fields(ast: &mut Ast) {
         let Some(new_fields) = plan_fill(&fields, &declared, &env) else {
             continue;
         };
-        let mut rebuilt: Vec<(String, ExprId)> = Vec::with_capacity(new_fields.len());
+        let mut rebuilt: Vec<(PropKey, ExprId)> = Vec::with_capacity(new_fields.len());
         for slot in new_fields {
             match slot {
                 FillSlot::Existing(name, eid) => rebuilt.push((name, eid)),
                 FillSlot::Undefined(name) => {
                     let ueid = ast.add_expr(Expr::Ident("undefined".to_string()));
-                    rebuilt.push((name, ueid));
+                    rebuilt.push((PropKey::from(name), ueid));
                 }
             }
         }
@@ -112,7 +113,7 @@ pub fn fill_optional_fields(ast: &mut Ast) {
 }
 
 enum FillSlot {
-    Existing(String, ExprId),
+    Existing(PropKey, ExprId),
     Undefined(String),
 }
 
@@ -176,7 +177,7 @@ fn instantiate_generic(ann: &str, env: &AliasEnv) -> Option<Vec<(String, String)
 /// sentinel-capable `__nullable(...)` to be inserted. Returns `None`
 /// (leave the literal alone — checker stays loud) on any other shape.
 fn plan_fill(
-    literal: &[(String, ExprId)],
+    literal: &[(PropKey, ExprId)],
     declared: &[(String, String)],
     env: &AliasEnv,
 ) -> Option<Vec<FillSlot>> {
@@ -191,7 +192,7 @@ fn plan_fill(
     let mut filled_any = false;
     for (dname, dty) in declared {
         if li < literal.len() && &literal[li].0 == dname {
-            out.push(FillSlot::Existing(dname.clone(), literal[li].1));
+            out.push(FillSlot::Existing(literal[li].0.clone(), literal[li].1));
             li += 1;
             continue;
         }

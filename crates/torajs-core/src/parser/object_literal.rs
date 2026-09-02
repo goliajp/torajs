@@ -18,12 +18,13 @@
 //! `pub(super)` per the sibling-impl pack pattern. Body unchanged.
 
 use super::*;
+use crate::ast::PropKey;
 
 impl<'a> Parser<'a> {
     /// `{ name: expr, ... }` — assumes current token is `{`.
     pub(super) fn parse_object_literal(&mut self) -> Result<ExprId, String> {
         self.pos += 1; // consume `{`
-        let mut fields: Vec<(String, ExprId)> = Vec::new();
+        let mut fields: Vec<(PropKey, ExprId)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             fields.push(self.parse_object_field_or_spread()?);
             while matches!(self.peek(), Token::Comma) {
@@ -50,17 +51,17 @@ impl<'a> Parser<'a> {
     /// `...src` spread. Spread is encoded with the sentinel field name
     /// `__spread__` so the existing `Vec<(String, ExprId)>` shape
     /// doesn't need to change.
-    pub(super) fn parse_object_field_or_spread(&mut self) -> Result<(String, ExprId), String> {
+    pub(super) fn parse_object_field_or_spread(&mut self) -> Result<(PropKey, ExprId), String> {
         if matches!(self.peek(), Token::DotDotDot) {
             self.pos += 1;
             let inner = self.parse_expr()?;
-            return Ok(("__spread__".to_string(), inner));
+            return Ok(("__spread__".into(), inner));
         }
         self.parse_object_field()
     }
 
     /// One `name: expr` pair inside an object literal.
-    pub(super) fn parse_object_field(&mut self) -> Result<(String, ExprId), String> {
+    pub(super) fn parse_object_field(&mut self) -> Result<(PropKey, ExprId), String> {
         // P10.3-A3b — `{ async name() { ... } }` real substrate. See
         // `parser/object_member.rs`. Returns None when the leading
         // token isn't an async-method shape (caller falls through to
@@ -100,24 +101,24 @@ impl<'a> Parser<'a> {
             return Ok(pair);
         }
         let name = match self.peek() {
-            Token::Ident(n) => n.clone(),
+            Token::Ident(n) => PropKey::from(n),
             // ES §12.7.2 — an escaped ReservedWord is a legal
             // IdentifierName here (`{ bre\u0061k: 1 }`).
-            Token::EscapedIdent(n) => n.clone(),
+            Token::EscapedIdent(n) => PropKey::from(n),
             // V3-18 wedge — accept reserved-word tokens as object-
             // literal field names per ES spec §12.7.6 (the full
             // reserved-word set is allowed in property-name
             // positions). Pre-fix `{ type: ... }`, `{ default: ... }`,
             // etc. all bailed at "expected field name".
             t if Self::keyword_property_name(t).is_some() => {
-                Self::keyword_property_name(t).unwrap().to_string()
+                PropKey::from(Self::keyword_property_name(t).unwrap())
             }
             // P0.10 — string-literal property name `{ "0": ... }` /
             // `{ "key": ... }` per ES spec §12.7.6 PropertyName ::
             // StringLiteral. Used pervasively in test262 (~10+ cases
             // directly + many transitively for object-with-string-
             // keys patterns).
-            Token::String(s) => s.to_string_lossy_owned(),
+            Token::String(s) => PropKey::from(s.clone()),
             // P0.10 — numeric-literal property name `{ 0: ... }` /
             // `{ 99: ... }` per ES spec §12.7.6 PropertyName ::
             // NumericLiteral. Massive yield — 600+ test262 cases use
@@ -159,7 +160,9 @@ impl<'a> Parser<'a> {
         // cases that assert parse acceptance (vs accessor behaviour)
         // start passing; cases that depend on the accessor semantic
         // remain blocked until P3 / P7 lands.
-        if let Some(pair) = self.try_parse_accessor_shorthand(&name, member_start_pos)? {
+        if let Some(word) = name.as_str()
+            && let Some(pair) = self.try_parse_accessor_shorthand(word, member_start_pos)?
+        {
             return Ok(pair);
         }
         // Method shorthand: `{ valueOf() { ... } }` is sugar for
@@ -180,7 +183,12 @@ impl<'a> Parser<'a> {
         // Property shorthand: `{ x }` is sugar for `{ x: x }`. Triggers
         // when the field name isn't followed by `:` AND isn't followed
         // by `(` (the method shorthand path above).
-        if matches!(self.peek(), Token::Comma | Token::RBrace) {
+        // Both shorthand forms read the name as an IdentifierReference,
+        // always a `&str` — a lone-surrogate key is never one.
+        if matches!(self.peek(), Token::Comma | Token::RBrace)
+            && let Some(ident) = name.as_str()
+        {
+            let ident = ident.to_string();
             // The shorthand is the one place an object literal spells
             // an IdentifierReference rather than a property NAME, so it
             // is the one place §12.7.2 applies: `{ static: 1 }` and
@@ -190,8 +198,8 @@ impl<'a> Parser<'a> {
             // itself — the name has already been consumed by the time
             // the shorthand shape is recognised, and the message says
             // which word.
-            self.note_strict_reference(&name)?;
-            let value = self.ast.add_expr(Expr::Ident(name.clone()));
+            self.note_strict_reference(&ident)?;
+            let value = self.ast.add_expr(Expr::Ident(ident));
             // §B.3.1 — a shorthand `__proto__` is an ordinary own
             // property; only the `__proto__: v` production sets
             // [[Prototype]]. Mark it so the dynobj-init lane skips
@@ -208,14 +216,17 @@ impl<'a> Parser<'a> {
         // shape the pattern walk's `f: y = D` default arm consumes —
         // and record the eid; a literal that survives to expression
         // position early-errors on it (check_type_of_object_lit).
-        if matches!(self.peek(), Token::Eq) {
+        if matches!(self.peek(), Token::Eq)
+            && let Some(ident) = name.as_str()
+        {
+            let ident = ident.to_string();
             // Same reference position as the plain shorthand above, and
             // an assignment target on top of it — either clause refuses
             // the seven words, so the one judge answers both.
-            self.note_strict_reference(&name)?;
+            self.note_strict_reference(&ident)?;
             self.pos += 1;
             let default = self.parse_expr()?;
-            let target = self.ast.add_expr(Expr::Ident(name.clone()));
+            let target = self.ast.add_expr(Expr::Ident(ident));
             let value = self.ast.add_expr(Expr::Assign {
                 target,
                 value: default,
@@ -270,7 +281,7 @@ impl<'a> Parser<'a> {
         &mut self,
         name: &str,
         member_start_pos: usize,
-    ) -> Result<Option<(String, ExprId)>, String> {
+    ) -> Result<Option<(PropKey, ExprId)>, String> {
         if !((name == "get" || name == "set")
             && (matches!(
                 self.peek(),
@@ -291,13 +302,13 @@ impl<'a> Parser<'a> {
         // literal and numeric-literal property names per ES spec
         // §12.7.6 PropertyName. Pre-fix only Ident was accepted.
         let prop_name = match self.peek() {
-            Token::Ident(n) => n.clone(),
-            Token::String(s) => s.to_string_lossy_owned(),
+            Token::Ident(n) => PropKey::from(n),
+            Token::String(s) => PropKey::from(s.clone()),
             Token::Number(n) => crate::ast::number_prop_key(*n),
             // §12.7.6 — the full reserved-word set is legal in
             // property-name positions (`{ get yield() {} }`); the
             // gate above admitted it via the shared table.
-            t => Self::keyword_property_name(t).unwrap().to_string(),
+            t => PropKey::from(Self::keyword_property_name(t).unwrap()),
         };
         self.pos += 1;
         if !matches!(self.peek(), Token::LParen) {
@@ -309,7 +320,7 @@ impl<'a> Parser<'a> {
             &format!("{name}ter `{prop_name}`"),
         )?;
         self.reject_objlit_accessor_arity(name, value)?;
-        let synth = format!("__{name}ter_{prop_name}");
+        let synth = PropKey::prefixed(&format!("__{name}ter_"), &prop_name);
         Ok(Some((synth, value)))
     }
 

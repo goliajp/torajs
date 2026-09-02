@@ -33,6 +33,7 @@
 
 use super::Parser;
 use super::type_ann_helpers::unwrap_generator_return_ann;
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Param, Stmt};
 use crate::lexer::Token;
 
@@ -49,7 +50,7 @@ impl<'a> Parser<'a> {
     fn parse_computed_generator_key(
         &mut self,
         star_off: usize,
-    ) -> Result<(String, ExprId), String> {
+    ) -> Result<(PropKey, ExprId), String> {
         self.pos += star_off + 2;
         let key_expr = self.parse_assign()?;
         match self.peek() {
@@ -69,7 +70,10 @@ impl<'a> Parser<'a> {
             ));
         }
         Ok((
-            format!("__computed_{}__", self.ast.objlit_computed_keys.len()),
+            PropKey::from(format!(
+                "__computed_{}__",
+                self.ast.objlit_computed_keys.len()
+            )),
             key_expr,
         ))
     }
@@ -80,7 +84,7 @@ impl<'a> Parser<'a> {
     /// is not this shape, leaving the caller's other paths untouched.
     pub(super) fn try_parse_generator_object_method(
         &mut self,
-    ) -> Result<Option<(String, ExprId)>, String> {
+    ) -> Result<Option<(PropKey, ExprId)>, String> {
         // P-SURF S2.18 — `{ async *g() {} }` is the same shape with a
         // modifier in front. The async shorthand next door is tried
         // first by the caller and declines it (its name lookahead lands
@@ -135,7 +139,7 @@ impl<'a> Parser<'a> {
             }
             // Consume the optional `async`, the `*`, and the method name.
             self.pos += star_off + 2;
-            (method_name, None)
+            (PropKey::from(method_name), None)
         };
 
         // §15.5.1 — the generator bit swaps in BEFORE the param list

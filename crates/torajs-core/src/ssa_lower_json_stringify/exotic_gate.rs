@@ -9,6 +9,7 @@
 //! §25.5.2's null check, and what the general path is (the any-lane
 //! serializer, byte-identical for every shape both tiers express).
 
+use crate::ast::PropKey;
 use crate::check;
 use crate::ssa::{Operand, StructId, Type};
 use crate::ssa_lower::LowerCtx;
@@ -27,7 +28,7 @@ pub(super) fn lower_obj_gated(
     ctx: &mut LowerCtx,
     val_op: Operand,
     sid: StructId,
-    fe_fields: Option<Vec<(String, check::Type)>>,
+    fe_fields: Option<Vec<(PropKey, check::Type)>>,
     gap: Option<Operand>,
     depth: u32,
     is_error: bool,
@@ -44,7 +45,7 @@ fn lower_obj_nonnull(
     ctx: &mut LowerCtx,
     val_op: Operand,
     sid: StructId,
-    fe_fields: Option<Vec<(String, check::Type)>>,
+    fe_fields: Option<Vec<(PropKey, check::Type)>>,
     gap: Option<Operand>,
     depth: u32,
     is_error: bool,

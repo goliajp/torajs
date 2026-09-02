@@ -6,6 +6,8 @@
 //! import path all callers depend on stays canonical (chunk 485
 //! ssa.rs → ssa/type_def.rs handoff手法).
 
+use crate::ast::PropKey;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
     Number,
@@ -71,7 +73,7 @@ pub enum Type {
     /// `Type::Struct` are equal iff they share field names + types in
     /// matching order. (TS-style structural compatibility, not nominal.)
     /// P2.4 introduced this; backed by heap allocation in P2.4.c.
-    Struct(Vec<(String, Type)>),
+    Struct(Vec<(PropKey, Type)>),
     /// V3-05 — nominal class reference by name. Returned by
     /// `resolve_type_ann_full` when the type-ann names a declared
     /// class that's still in its pre-register placeholder phase

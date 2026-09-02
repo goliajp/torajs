@@ -130,6 +130,16 @@ impl Wtf8 {
         self.bytes.ends_with(suffix.as_bytes())
     }
 
+    /// The rest after `prefix`, or `None` when it is not a prefix.
+    /// A UTF-8 prefix ends on a code-point boundary and carries no
+    /// surrogate, so the remainder is well-formed on its own.
+    #[inline]
+    pub fn strip_prefix(&self, prefix: &str) -> Option<&Wtf8> {
+        self.bytes
+            .strip_prefix(prefix.as_bytes())
+            .map(Wtf8::from_bytes_unchecked)
+    }
+
     /// True iff the last code point is a high surrogate — the only
     /// state in which appending a low surrogate must join.
     #[inline]
@@ -254,6 +264,18 @@ impl fmt::Debug for Wtf8 {
 mod tests {
     use super::*;
     use alloc::format;
+
+    #[test]
+    fn strip_prefix_keeps_lone_surrogate_tail() {
+        let mut b = Wtf8Buf::new();
+        b.push_str("__getter_");
+        b.push_code_point(0xD800);
+        let tail = b.strip_prefix("__getter_").unwrap();
+        assert_eq!(tail.as_bytes(), &[0xED, 0xA0, 0x80]);
+        assert!(tail.has_lone_surrogates());
+        assert!(b.strip_prefix("__setter_").is_none());
+        assert_eq!(Wtf8::new("ab").strip_prefix("").unwrap(), Wtf8::new("ab"));
+    }
 
     #[test]
     fn str_view_is_zero_cost_and_equal() {

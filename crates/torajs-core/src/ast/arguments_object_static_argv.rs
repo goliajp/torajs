@@ -313,8 +313,9 @@ pub(super) fn collect_objlit_method_static_argv(
         for (fname, feid) in fields {
             if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid)
                 && env_fns.contains(fn_name)
+                && let Some(fname) = fname.as_str()
             {
-                methods.insert((name.clone(), fname.clone()), fn_name.clone());
+                methods.insert((name.clone(), fname.to_string()), fn_name.clone());
             }
         }
     }

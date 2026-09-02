@@ -8,6 +8,7 @@
 //! keeps the member/index dispatch these two answer into.
 
 use super::*;
+use crate::ast::PropKey;
 
 /// RFC 20260714-objlit-accessor blade 2 — `o.b = v` where the literal
 /// declared `set b(v) { ... }`. The setter closure is a layout field
@@ -21,7 +22,7 @@ use super::*;
 pub(super) fn try_objlit_setter(
     checker: &mut Checker,
     ast: &Ast,
-    fields: &[(String, Type)],
+    fields: &[(PropKey, Type)],
     field: &str,
     value: ExprId,
 ) -> Result<Option<Type>, String> {

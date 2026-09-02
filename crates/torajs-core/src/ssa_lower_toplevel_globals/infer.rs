@@ -4,6 +4,7 @@
 //! cap. Child module: reaches the parent-crate helpers through
 //! ordinary paths; the parent calls back through `pub(super)`.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ast::{Ast, Expr, ExprId};
@@ -55,7 +56,7 @@ pub(super) fn inferred_slot_ty(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, crate::ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> Option<Type> {

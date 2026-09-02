@@ -419,9 +419,9 @@ impl Walker<'_> {
         };
         fields.iter().any(|(n, _)| {
             n == field
-                || n.strip_prefix("__getter_") == Some(field)
-                || n.strip_prefix("__setter_") == Some(field)
-                || n.strip_prefix("__async_") == Some(field)
+                || n.strip_prefix("__getter_").is_some_and(|p| p == field)
+                || n.strip_prefix("__setter_").is_some_and(|p| p == field)
+                || n.strip_prefix("__async_").is_some_and(|p| p == field)
         })
     }
 

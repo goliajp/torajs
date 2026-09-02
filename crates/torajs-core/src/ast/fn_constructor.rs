@@ -41,6 +41,7 @@
 //! just does not receive the instance.
 
 use super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::PropKey;
 
 /// Does any `return <expr>` appear anywhere in this body?
 ///
@@ -242,7 +243,7 @@ fn promote_fn_expr_ctor_this(ast: &mut Ast) {
 
     // Bindings whose fn-expr body mentions `this` and that are
     // actually constructed (`__new_<name>` call exists).
-    let mut wanted: Vec<(String, ExprId)> = Vec::new();
+    let mut wanted: Vec<(PropKey, ExprId)> = Vec::new();
     for st in &ast.stmts {
         let Stmt::LetDecl { name, init, .. } = st else {
             continue;
@@ -268,7 +269,7 @@ fn promote_fn_expr_ctor_this(ast: &mut Ast) {
             |e| matches!(e, Expr::Call { callee, .. } if matches!(&ast.exprs[callee.0 as usize], Expr::Ident(n) if *n == factory)),
         );
         if constructed {
-            wanted.push((name.clone(), *init));
+            wanted.push((PropKey::from(name), *init));
         }
     }
 

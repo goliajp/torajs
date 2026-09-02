@@ -42,7 +42,9 @@
 
 use std::collections::HashMap;
 
-use super::{AstExprsView, Expr, ExprId, Param, Stmt, binds_to_params, infer_expr_ann_with};
+use super::{
+    AstExprsView, Expr, ExprId, Param, PropKey, Stmt, binds_to_params, infer_expr_ann_with,
+};
 
 /// One method field of one object literal, resolved to the pieces the
 /// apply phase needs. Collected read-only so the arena walk and the
@@ -150,7 +152,7 @@ pub(crate) fn run(
             // are synthetic names, and the accessor lane is the only
             // thing that ever reads those slots. A plain method can't —
             // its closure gets handed to consumers that pass no receiver.
-            let needs_recv = |fname: &String, feid: &ExprId| {
+            let needs_recv = |fname: &PropKey, feid: &ExprId| {
                 objlit_method_exprs.contains(feid)
                     && (uses_this(feid)
                         || fname.starts_with("__getter_")
@@ -178,7 +180,11 @@ pub(crate) fn run(
                 }
                 continue;
             }
-            if !fields.iter().any(|(n, e)| needs_recv(n, e)) {
+            // A nominal decl spells fields as `String`: a lone-surrogate
+            // key keeps the literal structural (557-02).
+            if fields.iter().any(|(n, _)| n.as_str().is_none())
+                || !fields.iter().any(|(n, e)| needs_recv(n, e))
+            {
                 continue;
             }
             let objlit_ty = format!("__ObjLit_{next}");
@@ -199,16 +205,17 @@ pub(crate) fn run(
             // `this.<field>` still resolves.
             let mut td_fields: Vec<(String, String)> = Vec::new();
             let mut method_names: Vec<String> = Vec::new();
-            for (fname, feid) in fields {
-                if needs_recv(fname, feid) {
+            for (key, feid) in fields {
+                let fname = key.as_str().unwrap();
+                if needs_recv(key, feid) {
                     let Expr::Closure { fn_name, .. } = &view[feid.0 as usize] else {
                         // Not lifted (`lift_arrow_fns` runs first, so
                         // this shouldn't happen). Leave it be rather
                         // than guess a shape.
                         continue;
                     };
-                    method_names.push(fname.clone());
-                    td_fields.push((fname.clone(), "__mth_placeholder".to_string()));
+                    method_names.push(fname.to_string());
+                    td_fields.push((fname.to_string(), "__mth_placeholder".to_string()));
                     // Rotation 461 — the this-FREE accessors, whose
                     // receiver slot is declared and never read (see
                     // `settle_collected`).
@@ -219,7 +226,7 @@ pub(crate) fn run(
                         eid: *feid,
                         fn_name: fn_name.clone(),
                         objlit_ty: objlit_ty.clone(),
-                        field: fname.clone(),
+                        field: fname.to_string(),
                     });
                     continue;
                 }
@@ -228,7 +235,7 @@ pub(crate) fn run(
                 // same sniffer as any other fn-valued field.
                 let ann = infer_expr_ann_with(view, *feid, &site_params, &site_binds, fn_sigs)
                     .unwrap_or_else(|| "any".to_string());
-                td_fields.push((fname.clone(), super::retag_field_fn_ann(&ann)));
+                td_fields.push((fname.to_string(), super::retag_field_fn_ann(&ann)));
             }
             objlit_method_fields.insert(objlit_ty.clone(), method_names);
             type_decls.push(Stmt::TypeDecl {

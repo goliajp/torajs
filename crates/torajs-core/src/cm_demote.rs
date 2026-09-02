@@ -30,6 +30,7 @@
 //!      the demotion is typed receiver evidence, stronger than the
 //!      name guess the gate defends against.
 
+use crate::ast::PropKey;
 use crate::ast::{Ast, ClassCtor, ClassMethod, Expr, ExprId, StaticInit};
 use crate::check::{Checker, Type};
 
@@ -216,7 +217,7 @@ impl Checker {
     /// keeps only real classes). Field TYPES are ignored — each
     /// instantiation substitutes its own args. Order-sensitive by
     /// construction: the factory builds instances in declaration order.
-    fn struct_is_generic_class_shape(&self, ast: &Ast, fields: &[(String, Type)]) -> bool {
+    fn struct_is_generic_class_shape(&self, ast: &Ast, fields: &[(PropKey, Type)]) -> bool {
         self.generic_alias_decls
             .iter()
             .any(|(name, (_tps, decl_fields, _))| {

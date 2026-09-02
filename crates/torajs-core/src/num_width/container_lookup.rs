@@ -4,6 +4,7 @@
 //! already attached Anon constraints and unions at flow sites).
 
 use super::{Analysis, Scope, SlotKey};
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -24,7 +25,7 @@ impl<'a> Analysis<'a> {
             }
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
                 let base = self.container_key_lookup(*obj, scope)?;
-                Some(SlotKey::Field(Box::new(base), name.clone()))
+                Some(SlotKey::Field(Box::new(base), PropKey::from(name)))
             }
             Expr::OptIndex { obj, .. } | Expr::Index { obj, .. } => {
                 let base = self.container_key_lookup(*obj, scope)?;
@@ -48,7 +49,7 @@ impl<'a> Analysis<'a> {
                     // (mirror of the walk side).
                     return self
                         .container_key_lookup(*callee, scope)
-                        .map(|k| SlotKey::Field(Box::new(k), "__ret".to_string()));
+                        .map(|k| SlotKey::Field(Box::new(k), "__ret".into()));
                 }
                 if let Expr::Member { obj, name } = self.ast.get_expr(*callee) {
                     // ②.6b — mirror of the walk's promise_static_key.
@@ -77,7 +78,7 @@ impl<'a> Analysis<'a> {
                 // value (`fs[0]()`): same `__ret` projection as the
                 // walk side.
                 self.container_key_lookup(*callee, scope)
-                    .map(|k| SlotKey::Field(Box::new(k), "__ret".to_string()))
+                    .map(|k| SlotKey::Field(Box::new(k), "__ret".into()))
             }
             Expr::Array(_)
             | Expr::ObjectLit { .. }
@@ -150,8 +151,8 @@ impl<'a> Analysis<'a> {
                     // F5 — struct-field-fn call: same `__ret`
                     // projection spelling as the walk side.
                     Some(SlotKey::Field(
-                        Box::new(SlotKey::Field(Box::new(recv), name.to_string())),
-                        "__ret".to_string(),
+                        Box::new(SlotKey::Field(Box::new(recv), PropKey::from(name))),
+                        "__ret".into(),
                     ))
                 }
             }

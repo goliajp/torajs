@@ -25,6 +25,7 @@
 //! win there is gated on that.
 
 use super::Parser;
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
 use crate::lexer::Token;
 
@@ -37,7 +38,7 @@ impl<'a> Parser<'a> {
     /// regular `async` as a field-name ident).
     pub(super) fn try_parse_async_object_method_shorthand(
         &mut self,
-    ) -> Result<Option<(String, ExprId)>, String> {
+    ) -> Result<Option<(PropKey, ExprId)>, String> {
         // Match `async <Ident> (`. Computed-key `async [...]()` stays
         // on the stub-drop path in the caller; explicitly NOT matched
         // here so `Ok(None)` falls through.
@@ -153,6 +154,6 @@ impl<'a> Parser<'a> {
         // synth fn — same shape as `{ greet: greet }` where `greet`
         // is a top-level fn.
         let value = self.ast.add_expr(Expr::Ident(synth_name));
-        Ok(Some((method_name, value)))
+        Ok(Some((PropKey::from(method_name), value)))
     }
 }

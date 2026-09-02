@@ -15,6 +15,7 @@
 //! interpretation — load/store/print sites all read
 //! `arr_layouts[arr_id]` and follow automatically.
 
+use crate::ast::PropKey;
 use crate::num_width::{SlotKey, WidthTable, fn_type_canon, split_fn_type};
 use crate::ssa::{StructId, Type};
 use crate::ssa_lower::{intern_arr_layout, intern_fn_sig};
@@ -24,8 +25,8 @@ use crate::ssa_lower::{intern_arr_layout, intern_fn_sig};
 /// differently-classed slots of one structural annotation can carry
 /// different field widths.
 fn intern_struct_layout(
-    layouts: &mut Vec<Vec<(String, Type)>>,
-    fields: Vec<(String, Type)>,
+    layouts: &mut Vec<Vec<(PropKey, Type)>>,
+    fields: Vec<(PropKey, Type)>,
 ) -> StructId {
     for (i, ex) in layouts.iter().enumerate() {
         if *ex == fields {
@@ -51,7 +52,7 @@ pub(crate) fn widen_container_ty(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match parsed {
@@ -151,7 +152,7 @@ pub(crate) fn widen_fn_sig(
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
     let mut new_params = param_tys.clone();
     for (i, pt) in new_params.iter_mut().enumerate() {
-        let pk = SlotKey::Field(Box::new(ck.clone()), format!("__p{i}"));
+        let pk = SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
         if *pt == Type::I64
             && param_anns.get(i).copied() == Some("number")
             && table.field_is_f64(&ck, &format!("__p{i}"))
@@ -172,7 +173,7 @@ pub(crate) fn widen_fn_sig(
     {
         Type::F64
     } else {
-        let rk = SlotKey::Field(Box::new(ck.clone()), "__ret".to_string());
+        let rk = SlotKey::Field(Box::new(ck.clone()), "__ret".into());
         widen_face(ret_ty, Some(ret_ann), &rk, table, arr_layouts, fn_sigs)
     };
     if new_params == param_tys && new_ret == ret_ty {
@@ -209,7 +210,7 @@ pub(crate) fn widen_fn_sig_by_key(
     let (param_tys, ret_ty) = fn_sigs[sid.0 as usize].clone();
     let mut new_params = param_tys.clone();
     for (i, pt) in new_params.iter_mut().enumerate() {
-        let pk = SlotKey::Field(Box::new(key.clone()), format!("__p{i}"));
+        let pk = SlotKey::Field(Box::new(key.clone()), PropKey::from(format!("__p{i}")));
         if *pt == Type::I64 && table.field_is_f64(key, &format!("__p{i}")) {
             *pt = Type::F64;
         } else {
@@ -219,7 +220,7 @@ pub(crate) fn widen_fn_sig_by_key(
     let new_ret = if ret_ty == Type::I64 && table.field_is_f64(key, "__ret") {
         Type::F64
     } else {
-        let rk = SlotKey::Field(Box::new(key.clone()), "__ret".to_string());
+        let rk = SlotKey::Field(Box::new(key.clone()), "__ret".into());
         widen_face(ret_ty, None, &rk, table, arr_layouts, fn_sigs)
     };
     if new_params == param_tys && new_ret == ret_ty {
@@ -245,7 +246,7 @@ fn ty_reaches(
     ty: Type,
     target: StructId,
     arr_layouts: &[Type],
-    struct_layouts: &[Vec<(String, Type)>],
+    struct_layouts: &[Vec<(PropKey, Type)>],
     seen: &mut Vec<StructId>,
 ) -> bool {
     match ty {
@@ -282,7 +283,7 @@ pub(crate) fn widen_struct_fields(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let Type::Obj(sid) = parsed else {
@@ -322,7 +323,7 @@ pub(crate) fn widen_struct_fields(
     for (fname, fty) in widened.iter_mut() {
         let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
         let new_fty = match *fty {
-            Type::I64 if table.field_is_f64(key, fname) => Type::F64,
+            Type::I64 if table.field_is_f64(key, fname.clone()) => Type::F64,
             Type::Arr(_) => widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
             Type::Obj(_) => {
                 widen_struct_fields(*fty, &fkey, table, arr_layouts, struct_layouts, fn_sigs)
@@ -358,7 +359,7 @@ fn widen_struct_fields_in_place(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     visiting: &mut Vec<StructId>,
 ) {
@@ -370,7 +371,7 @@ fn widen_struct_fields_in_place(
     for (fname, fty) in widened.iter_mut() {
         let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
         match *fty {
-            Type::I64 if table.field_is_f64(key, fname) => *fty = Type::F64,
+            Type::I64 if table.field_is_f64(key, fname.clone()) => *fty = Type::F64,
             Type::Arr(_) => *fty = widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
             Type::Obj(inner) => {
                 let mut seen = Vec::new();

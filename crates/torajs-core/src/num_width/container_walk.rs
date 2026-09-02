@@ -4,6 +4,7 @@
 //! machinery these feed lives in `container.rs`.
 
 use super::{Analysis, Scope, SlotKey, W};
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -76,7 +77,7 @@ impl<'a> Analysis<'a> {
             }
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
                 let base = self.container_key_of(*obj, scope)?;
-                Some(SlotKey::Field(Box::new(base), name.clone()))
+                Some(SlotKey::Field(Box::new(base), PropKey::from(name)))
             }
             Expr::OptIndex { obj, .. } | Expr::Index { obj, .. } => {
                 let base = self.container_key_of(*obj, scope)?;
@@ -115,7 +116,7 @@ impl<'a> Analysis<'a> {
                 // a reassignment died on the slot-fit mismatch while
                 // the init form bit-punned f64 slots as integers.
                 self.container_key_of(*callee, scope)
-                    .map(|k| SlotKey::Field(Box::new(k), "__ret".to_string()))
+                    .map(|k| SlotKey::Field(Box::new(k), "__ret".into()))
             }
             Expr::Array(els) => {
                 let anon = SlotKey::Anon(eid.0);
@@ -248,7 +249,7 @@ impl<'a> Analysis<'a> {
             Expr::Member { obj, name } => {
                 if let Some(rk) = self.container_key_of(*obj, scope) {
                     self.mark_containerish(&rk);
-                    let fk = SlotKey::Field(Box::new(rk), name.clone());
+                    let fk = SlotKey::Field(Box::new(rk), PropKey::from(name));
                     let w = self.width_of(value, scope);
                     self.add_container_constraint(fk.clone(), w);
                     // F5 — fn value assigned into a field: same sig

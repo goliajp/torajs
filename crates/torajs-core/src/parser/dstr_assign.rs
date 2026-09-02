@@ -31,6 +31,7 @@
 //! `try_desugar_assign_chain`.
 
 use super::*;
+use crate::ast::PropKey;
 
 impl<'a> Parser<'a> {
     /// Statement finisher: a statement-position `Expr::Assign` whose
@@ -325,7 +326,7 @@ impl<'a> Parser<'a> {
     /// TypeError even for `{}`).
     fn emit_dstr_assign_object(
         &mut self,
-        fields: &[(String, ExprId)],
+        fields: &[(PropKey, ExprId)],
         src_name: &str,
         out: &mut Vec<Stmt>,
     ) -> Result<(), String> {
@@ -359,7 +360,10 @@ impl<'a> Parser<'a> {
                         self.at()
                     ));
                 }
-                let omit: Vec<&str> = fields[..i].iter().map(|(n, _)| n.as_str()).collect();
+                // The omit list is identifier-spelled (`__spread_omit__:`
+                // sentinel); a lone-surrogate sibling key is not a name
+                // the rest object could exclude by that spelling.
+                let omit: Vec<&str> = fields[..i].iter().filter_map(|(n, _)| n.as_str()).collect();
                 let rest_obj = self.emit_obj_rest_expr(src_name, &omit);
                 self.emit_dstr_assign_slot(*val, rest_obj, out)?;
                 continue;

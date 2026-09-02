@@ -22,6 +22,7 @@
 
 use super::destr_shape::{AryElem, FieldKey, ObjBinding, ObjField, PatShape, RestShape};
 use super::*;
+use torajs_wtf8::Wtf8;
 
 impl Parser<'_> {
     /// Recursive bind emitter — one `LetDecl` per simple slot, a
@@ -207,7 +208,7 @@ impl Parser<'_> {
         out: &mut Vec<Stmt>,
     ) -> ExprId {
         match key {
-            FieldKey::Named(field) => self.dstra_field_load(src_name, field, default),
+            FieldKey::Named(field) => self.dstra_field_load(src_name, Wtf8::new(field), default),
             FieldKey::Computed(key_expr) => {
                 let id = self.mint_desugar_id();
                 let kname = format!("__ck_{id}");
@@ -348,9 +349,22 @@ impl Parser<'_> {
     pub(super) fn dstra_field_load(
         &mut self,
         src_name: &str,
-        field: &str,
+        field: &Wtf8,
         default: Option<ExprId>,
     ) -> ExprId {
+        // A key with a lone surrogate is not a `Member` name (those
+        // are identifier strings); it reads through `src["\uD800"]`,
+        // the dynamic-index lane, whose miss answers undefined like
+        // any other [[Get]] (557-02).
+        let Some(field) = field.as_str() else {
+            let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+            let key = self.ast.add_expr(Expr::String(field.to_owned()));
+            let load = self.ast.add_expr(Expr::Index {
+                obj: src_ref,
+                index: key,
+            });
+            return self.dstra_wrap_default(load, default);
+        };
         // §13.3.3 PropertyName : NumericLiteral — an all-digit field
         // (`{ 0: v }`) is an index read, not a member read (`src.0`
         // is not a member the lowering can express; `src[0]` is the
@@ -373,6 +387,13 @@ impl Parser<'_> {
         // lenient mark goes on every load this recipe mints, not just
         // the default-guarded ones; see `Ast::dstr_default_member_loads`.
         self.ast.dstr_default_member_loads.insert(load);
+        self.dstra_wrap_default(load, default)
+    }
+
+    /// `load`, or `load === undefined ? default : load` when the slot
+    /// carries a default (§13.15.5.4 — undefined and ONLY undefined
+    /// fires it).
+    fn dstra_wrap_default(&mut self, load: ExprId, default: Option<ExprId>) -> ExprId {
         let Some(default_expr) = default else {
             return load;
         };

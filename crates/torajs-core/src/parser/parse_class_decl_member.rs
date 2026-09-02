@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
                         Some(Token::RBracket)
                     ) =>
                 {
-                    let k = crate::ast::number_prop_key(*n);
+                    let k = crate::ast::number_prop_key(*n).to_string_lossy_owned();
                     self.pos += 1;
                     k
                 }
@@ -238,7 +238,7 @@ impl<'a> Parser<'a> {
                 // fold object literals use. Single tokens, so the
                 // shared "name still unconsumed" protocol holds.
                 Token::String(s) => s.to_string_lossy_owned(),
-                Token::Number(n) => crate::ast::number_prop_key(*n),
+                Token::Number(n) => crate::ast::number_prop_key(*n).to_string_lossy_owned(),
                 t => {
                     return Err(format!(
                         "expected class member name, got {t:?} at {}",

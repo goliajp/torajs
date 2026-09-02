@@ -8,6 +8,7 @@
 use crate::ssa::{self, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower::OBJ_HEADER_SIZE;
+use torajs_wtf8::Wtf8;
 
 impl LowerCtx<'_> {
     /// M6.3 — recursive `JSON.parse` codegen. The caller drives type
@@ -337,7 +338,7 @@ impl LowerCtx<'_> {
         cursor_ptr: Operand,
         obj_ptr: Operand,
         i: usize,
-        fname: &str,
+        fname: &Wtf8,
         fty: Type,
     ) {
         if i > 0 {

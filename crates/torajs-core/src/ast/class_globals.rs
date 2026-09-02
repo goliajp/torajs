@@ -228,9 +228,9 @@ fn emit_prototype_and_class_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut
         };
         let obj_expr = ast.add_expr(Expr::ObjectLit {
             fields: vec![
-                ("name".to_string(), name_expr),
-                ("prototype".to_string(), proto_ident),
-                ("length".to_string(), length_expr),
+                ("name".into(), name_expr),
+                ("prototype".into(), proto_ident),
+                ("length".into(), length_expr),
             ],
         });
         out.push(Stmt::LetDecl {

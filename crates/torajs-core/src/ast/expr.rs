@@ -9,6 +9,7 @@
 //! canonical `ast::Expr` / `ast::ExprId` / `ast::Param` paths.
 
 use super::*;
+use crate::ast::PropKey;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExprId(pub u32);
@@ -128,7 +129,7 @@ pub enum Expr {
     /// Object literal: `{ x: 1, y: 2 }`. Field order is preserved as written
     /// (matters for struct layout decisions in P2.4.c).
     ObjectLit {
-        fields: Vec<(String, ExprId)>,
+        fields: Vec<(PropKey, ExprId)>,
     },
     ArrowFn {
         params: Vec<Param>,

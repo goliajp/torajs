@@ -9,6 +9,7 @@
 //! binding to reach from a lifted fn body, so its object literal goes
 //! in at each use site instead.
 
+use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashMap;
 
@@ -42,10 +43,10 @@ pub(super) fn materialize_pending_namespaces(
             dyn_ns_inline.push((alias.clone(), sorted));
             continue;
         }
-        let mut fields: Vec<(String, crate::ast::ExprId)> = Vec::with_capacity(sorted.len());
+        let mut fields: Vec<(PropKey, crate::ast::ExprId)> = Vec::with_capacity(sorted.len());
         for (name, local) in &sorted {
             let id = ast.add_expr(Expr::Ident(local.clone()));
-            fields.push((name.clone(), id));
+            fields.push((PropKey::from(name), id));
         }
         let obj_id = ast.add_expr(Expr::ObjectLit { fields });
         // §10.4.6.8 — mark the binding so a member miss on it answers
@@ -98,11 +99,11 @@ pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<(Str
             })
             .collect();
         for idx in hits {
-            let mut fields: Vec<(String, crate::ast::ExprId)> =
+            let mut fields: Vec<(PropKey, crate::ast::ExprId)> =
                 Vec::with_capacity(field_names.len());
             for (name, local) in field_names {
                 let id = ast.add_expr(Expr::Ident(local.clone()));
-                fields.push((name.clone(), id));
+                fields.push((PropKey::from(name), id));
             }
             ast.exprs[idx] = Expr::ObjectLit { fields };
         }

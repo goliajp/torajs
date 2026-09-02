@@ -6,6 +6,7 @@
 use super::arguments_object::ArgcMode;
 use super::arguments_object_rewrite::{SloppyCallee, keyed_callee_ref, rewrite_arguments_in_expr};
 use super::{Ast, Expr, ExprId};
+use crate::ast::PropKey;
 
 /// The mechanical copy-on-write recursion over an expression's
 /// children: recurse each child, hand the original `eid` back when
@@ -353,7 +354,7 @@ fn recurse_place(
             })
         }
         Expr::ObjectLit { fields } => {
-            let new_fields: Vec<(String, ExprId)> = fields
+            let new_fields: Vec<(PropKey, ExprId)> = fields
                 .iter()
                 .map(|(n, e)| {
                     (

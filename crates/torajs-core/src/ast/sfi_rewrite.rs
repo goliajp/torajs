@@ -8,6 +8,7 @@
 //! stay sibling-private.
 
 use super::{Ast, Expr, ExprId, Stmt, SwitchCase};
+use crate::ast::PropKey;
 
 /// X-references match this exact shape.
 pub(super) fn sfi_rewrite_body(
@@ -287,7 +288,7 @@ fn sfi_rewrite_expr(
             ast.add_expr(Expr::Spread { expr: e })
         }
         Expr::ObjectLit { fields } => {
-            let new_fields: Vec<(String, ExprId)> = fields
+            let new_fields: Vec<(PropKey, ExprId)> = fields
                 .iter()
                 .map(|(n, e)| (n.clone(), sfi_rewrite_expr(ast, *e, x_name, i_name, v_name)))
                 .collect();

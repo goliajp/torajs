@@ -33,6 +33,7 @@
 //! 6. Walk body statements; emit drops + implicit ret on fall-
 //!    through.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ast::{self, Ast, ExprId, Stmt};
@@ -56,7 +57,7 @@ pub(crate) fn lower_fn(
     arr_layouts: &mut Vec<Type>,
     baked_regex_buf: &mut Vec<BakedRegexEntry>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
     string_id_base: usize,
@@ -272,7 +273,7 @@ fn setup_fn_params(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,
 ) -> (
@@ -395,7 +396,7 @@ fn promote_and_widen(
     slot_key: &crate::num_width::SlotKey,
     num_f64_slots: &crate::num_width::WidthTable,
     arr_layouts: &mut Vec<Type>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     if ty == Type::I64 && type_ann == Some("number") && num_f64_slots.slot_is_f64(slot_key) {

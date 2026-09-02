@@ -28,6 +28,7 @@
 //! not a `Type::MapIter` / `Type::ArrIter` local) so the caller
 //! falls through to the next arm.
 
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 use crate::ssa;
 use crate::ssa::{IPred, InstKind, Operand, Type};
@@ -144,7 +145,7 @@ pub(crate) fn try_lower(
     // Intern IteratorResult<any> struct layout (matches check.rs's
     // (Type::MapIter, "next") / (Type::ArrIter, "next") return
     // shape: `{ value: any, done: boolean }`).
-    let iter_result_fields: Vec<(String, Type)> =
+    let iter_result_fields: Vec<(PropKey, Type)> =
         vec![("value".into(), Type::Any), ("done".into(), Type::Bool)];
     let sid = match ctx
         .struct_layouts

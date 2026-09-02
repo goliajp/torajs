@@ -4,6 +4,7 @@
 //! type against an inferred value type (LetDecl init, Assign LHS/RHS,
 //! fn-arg coercion, return-value compat) goes through this module.
 
+use crate::ast::PropKey;
 use crate::check::{GenericAliasMap, Type, resolve_class_ref};
 
 /// Subtyping rule for the `let x: T = init` shape and similar slots.
@@ -128,9 +129,9 @@ fn is_assignable_to_deep(
         // We approximate identity by field-name signature — good
         // enough since the code path only fires inside a single
         // alias-resolve chain.
-        let fingerprint = |fs: &[(String, Type)]| -> String {
+        let fingerprint = |fs: &[(PropKey, Type)]| -> String {
             fs.iter()
-                .map(|(n, _)| n.as_str())
+                .map(|(n, _)| n.to_string())
                 .collect::<Vec<_>>()
                 .join(",")
         };

@@ -195,8 +195,8 @@ fn allsettled_record_tags(ctx: &mut LowerCtx<'_>, eid: ExprId) -> i64 {
         return i64::from(fulfilled);
     };
     let rejected_shape = check_mod::Type::Struct(vec![
-        ("status".to_string(), status_ty.clone()),
-        ("reason".to_string(), value_ty.clone()),
+        ("status".into(), status_ty.clone()),
+        ("reason".into(), value_ty.clone()),
     ]);
     let ann = crate::check_type_to_ann::type_to_ann(&rejected_shape);
     let rejected_ty = crate::ssa_lower_parse_type::parse_type(

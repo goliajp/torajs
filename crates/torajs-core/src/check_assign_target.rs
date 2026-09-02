@@ -314,9 +314,10 @@ pub(crate) fn check_index(
     // readonly / setter / assignability). Mirrors the read-side
     // lane in `check_type_of_index`.
     if matches!(obj_ty, Type::Struct(_))
-        && let Some(name) = crate::ast::literal_prop_key(ast, index)
+        && let Some(key) = crate::ast::literal_prop_key(ast, index)
+        && let Some(name) = key.as_str()
     {
-        return check_member(checker, ast, eid, obj, name, value);
+        return check_member(checker, ast, eid, obj, name.to_string(), value);
     }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES

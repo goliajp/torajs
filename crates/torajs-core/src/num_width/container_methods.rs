@@ -6,6 +6,7 @@
 //! in `container_lookup.rs`.
 
 use super::{Analysis, Scope, SlotKey};
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 
 /// Member methods with dedicated wiring in this file — the F5
@@ -62,7 +63,7 @@ impl<'a> Analysis<'a> {
     fn promise_static_wiring(&mut self, eid: ExprId, name: &str, args: &[ExprId], scope: &Scope) {
         let anon = SlotKey::Anon(eid.0);
         self.mark_containerish(&anon);
-        let pv = SlotKey::Field(Box::new(anon.clone()), "value".to_string());
+        let pv = SlotKey::Field(Box::new(anon.clone()), "value".into());
         if matches!(name, "resolve" | "reject")
             && let Some(a0) = args.first()
         {
@@ -86,7 +87,7 @@ impl<'a> Analysis<'a> {
                     Some(crate::check::Type::Promise(_))
                 ) {
                     self.uf
-                        .union(&pv, &SlotKey::Field(Box::new(ak), "value".to_string()));
+                        .union(&pv, &SlotKey::Field(Box::new(ak), "value".into()));
                 } else {
                     self.uf.union(&pv, &ak);
                 }
@@ -96,8 +97,7 @@ impl<'a> Analysis<'a> {
             && let Some(a0) = args.first()
             && let Some(ak) = self.container_key_of(*a0, scope)
         {
-            let src_elem_pv =
-                SlotKey::Field(Box::new(SlotKey::Elem(Box::new(ak))), "value".to_string());
+            let src_elem_pv = SlotKey::Field(Box::new(SlotKey::Elem(Box::new(ak))), "value".into());
             if name == "all" {
                 // The result's value is a fresh array the runtime
                 // fills from each source promise's raw value slot —
@@ -130,8 +130,8 @@ impl<'a> Analysis<'a> {
     fn promise_chain_wiring(&mut self, eid: ExprId, recv: &SlotKey, name: &str, args: &[ExprId]) {
         let anon = SlotKey::Anon(eid.0);
         self.mark_containerish(&anon);
-        let src_pv = SlotKey::Field(Box::new(recv.clone()), "value".to_string());
-        let res_pv = SlotKey::Field(Box::new(anon), "value".to_string());
+        let src_pv = SlotKey::Field(Box::new(recv.clone()), "value".into());
+        let res_pv = SlotKey::Field(Box::new(anon), "value".into());
         self.uf.union(&res_pv, &src_pv);
         if name != "finally" {
             // `.then(onOk, onErr)` — both handlers read the same
@@ -442,10 +442,10 @@ impl<'a> Analysis<'a> {
         // dedicated wiring above; projections nobody populated are
         // dead keys.
         if !class_hit && !BUILTIN_MEMBER_METHODS.contains(&name.as_str()) {
-            let fk = SlotKey::Field(Box::new(recv.clone()), name.clone());
+            let fk = SlotKey::Field(Box::new(recv.clone()), PropKey::from(name));
             for (i, a) in args.iter().enumerate() {
                 let w = self.width_of(*a, scope);
-                let pk = SlotKey::Field(Box::new(fk.clone()), format!("__p{i}"));
+                let pk = SlotKey::Field(Box::new(fk.clone()), PropKey::from(format!("__p{i}")));
                 self.add_constraint(pk.clone(), w);
                 // RFC 20260726-array-elem-width, member-callee half — a
                 // CONTAINER arg JOINS the projection, it does not merely

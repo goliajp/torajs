@@ -46,11 +46,14 @@ pub(crate) fn check(
     // indices on a struct keep the loud reject below (recorded
     // boundary — runtime property lookup on typed structs).
     if matches!(obj_ty, Type::Struct(_))
-        && let Some(name) = crate::ast::literal_prop_key(ast, index)
+        && let Some(key) = crate::ast::literal_prop_key(ast, index)
+        && let Some(name) = key.as_str()
     {
         // Index reads are never the desugar's default-guarded pattern
         // load (that lane mints Member exprs) — no lenient miss here.
-        return crate::check_type_of_member::check(checker, ast, eid, &obj, &name, false);
+        // A key with a lone surrogate is not a `&str` and takes the
+        // dynamic-index lane below (557-02).
+        return crate::check_type_of_member::check(checker, ast, eid, &obj, name, false);
     }
     let idx_ty = checker.type_of(ast, index)?;
     // L3b #13 — an `any` receiver admits string keys (ES

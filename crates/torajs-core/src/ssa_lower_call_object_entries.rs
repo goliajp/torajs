@@ -34,6 +34,7 @@
 //! lower-time (preserving the original block's behavior). `None` lets
 //! the caller fall through to the next arm.
 
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{ArrId, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
@@ -172,7 +173,7 @@ pub(crate) fn try_lower(
     // Both arms build the same `Arr<Arr<Any>>`, so the join needs no
     // conversion; the walk is the very helper the `any` arm above
     // uses.
-    let layout: Vec<(String, Type)> = match arg_ty {
+    let layout: Vec<(PropKey, Type)> = match arg_ty {
         Type::Obj(sid) => ctx.struct_layouts[sid.0 as usize].clone(),
         other => panic!("ssa-lower: Object.entries requires a struct arg, got {other:?}"),
     };
@@ -212,7 +213,7 @@ pub(crate) fn try_lower(
 fn emit_struct_entries_unfold(
     ctx: &mut LowerCtx<'_>,
     arg_op: Operand,
-    layout: &[(String, Type)],
+    layout: &[(PropKey, Type)],
 ) -> Operand {
     // RFC 20260714-objlit-accessor blade 6 — one entry per own PROPERTY:
     // an accessor's key is the plain name and its value is what the

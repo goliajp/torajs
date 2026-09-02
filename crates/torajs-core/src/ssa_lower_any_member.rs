@@ -29,6 +29,7 @@
 use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
+use torajs_wtf8::Wtf8;
 
 /// Lower a `Type::Any` Member read for `name`. `obj_val` is the
 /// already-lowered Any-box operand; `eid` is the consumer-visible
@@ -66,7 +67,7 @@ pub(crate) fn lower_any_member_read(
     // compile-time half.
     if name
         .as_str()
-        .is_some_and(|n| crate::check_type_of_object_lit::accessor_slot(n).is_some())
+        .is_some_and(|n| crate::check_type_of_object_lit::accessor_slot(Wtf8::new(n)).is_some())
     {
         let key_str = ctx.intern_string_literal(name);
         return emit_member_fallback(ctx, &obj_val, key_str, name);

@@ -8,8 +8,10 @@
 
 use super::Analysis;
 use super::fallthrough::alias_fallthrough_closures;
+use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, Stmt};
 use std::collections::HashSet;
+use torajs_wtf8::Wtf8;
 
 /// The three name sets the sentinel question needs. They feed each
 /// other, so they are closed together — see [`close_sentinel_tables`].
@@ -21,7 +23,7 @@ pub(super) struct SentinelTables {
     /// `(fn name, param name)` pairs some call site can hand one.
     pub(super) params: HashSet<(String, String)>,
     /// Field names some write hands one.
-    pub(super) fields: HashSet<String>,
+    pub(super) fields: HashSet<PropKey>,
 }
 
 /// Close the fall-through table and its tainted-parameter mirror
@@ -83,7 +85,7 @@ pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> Sentine
 /// two structs sharing a field name cost one predictable compare at
 /// the consumer, while missing one prints NaN where the program
 /// should see `undefined`.
-fn collect_sentinel_fields(a: &Analysis<'_>, t: &SentinelTables) -> HashSet<String> {
+fn collect_sentinel_fields(a: &Analysis<'_>, t: &SentinelTables) -> HashSet<PropKey> {
     let mut out = HashSet::new();
     for eid in 0..a.ast.exprs.len() {
         let eid = crate::ast::ExprId(eid as u32);
@@ -99,7 +101,7 @@ fn collect_sentinel_fields(a: &Analysis<'_>, t: &SentinelTables) -> HashSet<Stri
                 if let Expr::Member { name, .. } = a.ast.get_expr(*target)
                     && is_sentinel_source(a, *value, t)
                 {
-                    out.insert(name.clone());
+                    out.insert(PropKey::from(name));
                 }
             }
             _ => {}
@@ -166,7 +168,7 @@ pub(super) fn is_sentinel_source(
         // return r.v }` printed NaN while the identical read outside a
         // return has answered `undefined` since the lowering-stage
         // twin of this set existed.
-        Expr::Member { name, .. } => t.fields.contains(name),
+        Expr::Member { name, .. } => t.fields.contains(Wtf8::new(name)),
         Expr::Nullish { rhs, .. } => is_sentinel_source(a, *rhs, t),
         Expr::Sequence { right, .. } => is_sentinel_source(a, *right, t),
         Expr::Assign { value, .. } => is_sentinel_source(a, *value, t),

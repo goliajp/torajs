@@ -30,7 +30,9 @@
 //! array_lit := `[` (expr (`,` expr)*)? `]`
 //! type_ann := IDENT (`[` `]`)*
 
-use crate::ast::{self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, StaticInit, Stmt};
+use crate::ast::{
+    self, Ast, BinOp, ClassCtor, ClassMethod, Expr, ExprId, Param, PropKey, StaticInit, Stmt,
+};
 use crate::lexer::{self, Spanned, Token};
 
 mod arrow_fn;

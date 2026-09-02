@@ -391,10 +391,7 @@ impl<'a> Analysis<'a> {
             // which the flow unions glue onto the residents'
             // Ret keys.
             _ => match self.container_key_lookup(callee, scope) {
-                Some(k) => W::Num(vec![(
-                    SlotKey::Field(Box::new(k), "__ret".to_string()),
-                    false,
-                )]),
+                Some(k) => W::Num(vec![(SlotKey::Field(Box::new(k), "__ret".into()), false)]),
                 None => W::NotNum,
             },
         }

@@ -267,7 +267,7 @@ pub(crate) use nested_fns_idents::rename_fn_self_refs;
 pub use ns_alias::desugar_ns_alias_members;
 pub(crate) use ns_alias::walk_stmts;
 pub use optchain_call::desugar_optchain_calls;
-pub use prop_key::{literal_prop_key, number_prop_key};
+pub use prop_key::{PropKey, literal_prop_key, number_prop_key};
 pub use prototype_call::desugar_prototype_call;
 pub use readonly_globals::resolve_readonly_global_writes;
 pub use readonly_globals::resolve_readonly_ns_prop_writes;

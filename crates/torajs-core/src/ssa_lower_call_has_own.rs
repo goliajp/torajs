@@ -173,8 +173,10 @@ pub(crate) fn try_lower(
     let has = !is_internal_spelling
         && ctx.struct_layouts[sid.0 as usize].iter().any(|(n, _)| {
             n == &key
-                || n.strip_prefix("__getter_") == Some(key.as_str())
-                || n.strip_prefix("__setter_") == Some(key.as_str())
+                || n.strip_prefix("__getter_")
+                    .is_some_and(|p| p == key.as_str())
+                || n.strip_prefix("__setter_")
+                    .is_some_and(|p| p == key.as_str())
         });
     Some(Operand::ConstBool(has))
 }

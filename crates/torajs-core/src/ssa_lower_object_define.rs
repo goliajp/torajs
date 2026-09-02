@@ -27,13 +27,14 @@ mod literal;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use torajs_wtf8::Wtf8;
 
 /// Property key for [`emit_define_one`] — either an expression
 /// (`defineProperty`'s `key` arg) or a literal field name
 /// (`defineProperties`' unfolded keys).
 pub(crate) enum DefineKey<'a> {
     Expr(ExprId),
-    Name(&'a str),
+    Name(&'a Wtf8),
 }
 
 /// RFC C4b — spec §10.1.6.3 step 1 receiver `Type(O) is Object` check

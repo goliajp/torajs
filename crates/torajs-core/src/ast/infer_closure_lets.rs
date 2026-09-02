@@ -226,7 +226,7 @@ pub(super) fn seed_container_field_hints(
                 return;
             };
             for (fname, fexpr) in fields {
-                let Some(fann) = field_anns.get(fname.as_str()) else {
+                let Some(fann) = fname.as_str().and_then(|f| field_anns.get(f)) else {
                     continue;
                 };
                 match lifted_closure_name(ast, *fexpr) {

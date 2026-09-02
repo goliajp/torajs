@@ -162,8 +162,9 @@ impl<'a> FnToClosureCollector<'a> {
     ) {
         if let Expr::ObjectLit { fields } = self.ast.get_expr(eid) {
             for (fname, feid) in fields.clone() {
-                if field_anns
-                    .get(&fname)
+                if fname
+                    .as_str()
+                    .and_then(|f| field_anns.get(f))
                     .is_some_and(|a| is_fn_like_field_ann(a))
                 {
                     self.try_mark(feid);

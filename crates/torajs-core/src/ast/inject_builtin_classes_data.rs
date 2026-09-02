@@ -58,7 +58,7 @@ pub(super) fn build_length_override(ast: &mut Ast, class_name: &str, len: f64) -
     let key = ast.add_expr(Expr::String("length".to_string().into()));
     let value = ast.add_expr(Expr::Number(len));
     let desc = ast.add_expr(Expr::ObjectLit {
-        fields: vec![("value".to_string(), value)],
+        fields: vec![("value".into(), value)],
     });
     let call = ast.add_expr(Expr::Call {
         callee: dp,

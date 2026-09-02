@@ -50,11 +50,16 @@
 //! Returns `Operand` directly (terminal arm — caller's
 //! `Expr::ObjectLit` match arm bottoms out here).
 
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, StructId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: ExprId) -> Operand {
+pub(crate) fn lower(
+    ctx: &mut LowerCtx<'_>,
+    fields: Vec<(PropKey, ExprId)>,
+    eid: ExprId,
+) -> Operand {
     // Rotation 267 — a literal the checker typed Any (an any-spread
     // member has no static field list) has no struct layout to
     // resolve; the whole literal lives on the dynobj lane, where the
@@ -86,7 +91,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
     // must land the per-type undefined sentinel in the slot, not the
     // shared NULL (which means JS null): remember which field names
     // carried one before lowering collapses both to ConstPtrNull.
-    let undef_fields: std::collections::HashSet<String> = fields
+    let undef_fields: std::collections::HashSet<PropKey> = fields
         .iter()
         .filter(|(_, veid)| {
             matches!(
@@ -200,9 +205,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fields: Vec<(String, ExprId)>, eid: 
 
 fn lower_field_entries(
     ctx: &mut LowerCtx<'_>,
-    entries: &[(String, ExprId)],
+    entries: &[(PropKey, ExprId)],
     declared_hint: Option<StructId>,
-) -> (Vec<(String, Type)>, Vec<Operand>, Vec<usize>) {
+) -> (Vec<(PropKey, Type)>, Vec<Operand>, Vec<usize>) {
     // Chunk 785 — the outer declared layout also pins NESTED object
     // literals: a field whose declared type is a struct passes its
     // StructId down through the same take-once hint channel, so
@@ -211,9 +216,9 @@ fn lower_field_entries(
     // same-shaped layout registered under an unrelated TypeDecl
     // (recursion covers arbitrary depth — each objlit re-enters
     // `lower` and forwards its own declared layout).
-    let declared_fields: Option<Vec<(String, Type)>> =
+    let declared_fields: Option<Vec<(PropKey, Type)>> =
         declared_hint.map(|sid| ctx.struct_layouts[sid.0 as usize].clone());
-    let mut field_tys: Vec<(String, Type)> = Vec::new();
+    let mut field_tys: Vec<(PropKey, Type)> = Vec::new();
     let mut field_vals: Vec<Operand> = Vec::new();
     // Rotation 549 — an owned field value (call product, nested
     // literal) is alive across every later field's lower; park it so
@@ -234,7 +239,7 @@ fn lower_field_entries(
             );
         }
         if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(n) {
-            let omit: Vec<String> = omit.iter().map(|s| s.to_string()).collect();
+            let omit: Vec<PropKey> = omit.iter().map(|s| PropKey::from(*s)).collect();
             unfold_spread(ctx, *eid, &omit, &mut field_tys, &mut field_vals);
             continue;
         }
@@ -261,8 +266,8 @@ fn lower_field_entries(
 fn unfold_spread(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
-    omit: &[String],
-    field_tys: &mut Vec<(String, Type)>,
+    omit: &[PropKey],
+    field_tys: &mut Vec<(PropKey, Type)>,
     field_vals: &mut Vec<Operand>,
 ) {
     let src_op = ctx.lower_expr(eid);
@@ -284,7 +289,7 @@ fn unfold_spread(
             // read `undefined`; here it drops out of the copy.)
             Some(("__setter_", _)) => continue,
             Some(("__getter_", prop)) => {
-                if omit.contains(&prop.to_string()) {
+                if omit.iter().any(|o| o == prop) {
                     continue;
                 }
                 let Type::Closure(sig_id) = *st else {
@@ -300,7 +305,7 @@ fn unfold_spread(
                     sig_id,
                     &[],
                 );
-                (prop.to_string(), ret, v)
+                (PropKey::from(prop), ret, v)
             }
             _ => {
                 if omit.contains(sn) {
@@ -328,10 +333,10 @@ fn unfold_spread(
 
 fn lower_regular_field(
     ctx: &mut LowerCtx<'_>,
-    name: &str,
+    name: &PropKey,
     eid: ExprId,
     declared_field_ty: Option<Type>,
-    field_tys: &mut Vec<(String, Type)>,
+    field_tys: &mut Vec<(PropKey, Type)>,
     field_vals: &mut Vec<Operand>,
     parked: &mut Vec<usize>,
 ) {
@@ -422,17 +427,17 @@ fn lower_regular_field(
         ctx.emit_owned_result_inc(v, ty);
     }
     if let Some(pos) = field_tys.iter().position(|(k, _)| k == name) {
-        field_tys[pos] = (name.to_string(), ty);
+        field_tys[pos] = (name.clone(), ty);
         field_vals[pos] = v;
     } else {
-        field_tys.push((name.to_string(), ty));
+        field_tys.push((name.clone(), ty));
         field_vals.push(v);
     }
 }
 
 fn apply_w4_widen(
     ctx: &mut LowerCtx<'_>,
-    field_tys: &mut [(String, Type)],
+    field_tys: &mut [(PropKey, Type)],
     field_vals: &mut [Operand],
     eid: ExprId,
 ) {
@@ -440,10 +445,10 @@ fn apply_w4_widen(
     // W4 shape-join (rotation 371) — the literal's own verdict OR the
     // family verdict: same-shaped literals share a layout, so the
     // first registrant must already claim the joined slot width.
-    let shape: Vec<String> = field_tys.iter().map(|(n, _)| n.clone()).collect();
+    let shape: Vec<PropKey> = field_tys.iter().map(|(n, _)| n.clone()).collect();
     for (i, (fname, fty)) in field_tys.iter_mut().enumerate() {
         if *fty == Type::I64
-            && (ctx.num_f64_slots.field_is_f64(&key, fname)
+            && (ctx.num_f64_slots.field_is_f64(&key, fname.clone())
                 || ctx.num_f64_slots.objlit_shape_field_is_f64(&shape, fname))
         {
             *fty = Type::F64;

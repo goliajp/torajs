@@ -36,6 +36,7 @@
 pub(crate) mod body_passes;
 mod setup;
 
+use crate::ast::PropKey;
 pub(crate) use body_passes::{intern_fn_source, strip_static_method_name};
 use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entries};
 
@@ -369,7 +370,7 @@ fn register_toplevel_globals(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,
     module: &mut Module,
@@ -438,7 +439,7 @@ fn finalize_module(
     boxed_entries: &HashMap<FuncId, (FuncId, ssa::SigId)>,
     arr_layouts: Vec<Type>,
     fn_sigs: Vec<(Vec<Type>, Type)>,
-    struct_layouts: Vec<Vec<(String, Type)>>,
+    struct_layouts: Vec<Vec<(PropKey, Type)>>,
     baked_regex_buf: Vec<ssa::BakedRegexEntry>,
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,

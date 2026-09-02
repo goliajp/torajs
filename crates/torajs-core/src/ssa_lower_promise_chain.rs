@@ -79,7 +79,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
             Some(t @ Type::Arr(_)) => {
                 let mut t = t;
                 for k in self.promise_obj_keys(obj) {
-                    let pv = SlotKey::Field(Box::new(k), "value".to_string());
+                    let pv = SlotKey::Field(Box::new(k), "value".into());
                     t = crate::ssa_lower_container_width::widen_arr_elem(
                         t,
                         None,

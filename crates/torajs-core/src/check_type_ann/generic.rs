@@ -7,6 +7,7 @@
 //! are unchanged. The two inline depth-aware `|` splitters collapse
 //! into `markers::split_top_pipe`.
 
+use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
 use crate::check::{GenericAliasMap, Type};
@@ -205,7 +206,7 @@ fn expand_instantiation(
         return Some(Type::ClassRef(name.to_string()));
     }
     in_flight.insert(name.to_string());
-    let mut field_tys: Vec<(String, Type)> = Vec::new();
+    let mut field_tys: Vec<(PropKey, Type)> = Vec::new();
     for (fname, fann) in fields {
         let substituted = ann_substitute(fann, &subst);
         let Some(ty) = resolve_type_ann_inner(
@@ -218,7 +219,7 @@ fn expand_instantiation(
             in_flight.remove(name);
             return None;
         };
-        field_tys.push((fname.clone(), ty));
+        field_tys.push((PropKey::from(fname), ty));
     }
     in_flight.remove(name);
     Some(Type::Struct(field_tys))

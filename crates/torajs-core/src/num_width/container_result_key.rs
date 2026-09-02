@@ -8,6 +8,7 @@
 use super::{Analysis, Scope, SlotKey};
 use crate::ast::Expr;
 use crate::ast::ExprId;
+use crate::ast::PropKey;
 
 impl<'a> Analysis<'a> {
     /// Result container key of a member call, for flows consuming it.
@@ -186,8 +187,8 @@ impl<'a> Analysis<'a> {
                     // the fill site's `fn_value_flow`); keys nobody
                     // populated stay narrow.
                     Some(SlotKey::Field(
-                        Box::new(SlotKey::Field(Box::new(recv), name.to_string())),
-                        "__ret".to_string(),
+                        Box::new(SlotKey::Field(Box::new(recv), PropKey::from(name))),
+                        "__ret".into(),
                     ))
                 }
             }

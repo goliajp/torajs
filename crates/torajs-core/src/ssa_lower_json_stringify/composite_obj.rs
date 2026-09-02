@@ -4,8 +4,10 @@
 //! `super::lower`; the shared null gate lives in
 //! [`super::composite`].
 
+use crate::ast::PropKey;
 use crate::ssa::{InstKind, Operand, StructId, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
+use torajs_wtf8::{Wtf8, Wtf8Buf};
 
 use super::composite::with_null_gate;
 
@@ -20,7 +22,7 @@ pub(super) fn lower_obj(
     ctx: &mut LowerCtx,
     val_op: Operand,
     sid: StructId,
-    fe_fields: Option<Vec<(String, crate::check::Type)>>,
+    fe_fields: Option<Vec<(PropKey, crate::check::Type)>>,
     gap: Option<Operand>,
     depth: u32,
     is_error: bool,
@@ -66,8 +68,8 @@ pub(super) fn lower_obj(
 fn lower_obj_concat(
     ctx: &mut LowerCtx,
     obj_ptr: crate::ssa::ValueId,
-    layout: &[(String, Type)],
-    fe_fields: Option<&[(String, crate::check::Type)]>,
+    layout: &[(PropKey, Type)],
+    fe_fields: Option<&[(PropKey, crate::check::Type)]>,
     gap: Option<Operand>,
     depth: u32,
 ) -> Operand {
@@ -125,10 +127,10 @@ fn resolve_field(
     ctx: &mut LowerCtx,
     obj_ptr: crate::ssa::ValueId,
     field_off: u64,
-    fname: &str,
+    fname: &Wtf8,
     slot_ty: &Type,
     fe: Option<&crate::check::Type>,
-) -> Option<(String, Operand, Type, bool)> {
+) -> Option<(Wtf8Buf, Operand, Type, bool)> {
     // RFC 20260714-objlit-accessor — §25.5.2.4 serializes through
     // [[Get]], so an accessor contributes its GETTER'S RESULT under
     // the plain property name, never the closure sitting in its
@@ -181,7 +183,7 @@ fn resolve_field(
                 &[],
             );
             let ret_ty = ctx.operand_ty(&got);
-            Some((prop.to_string(), got, ret_ty, true))
+            Some((prop.to_owned(), got, ret_ty, true))
         }
         None => {
             let v = ctx.f.append_inst(
@@ -190,7 +192,7 @@ fn resolve_field(
                 *slot_ty,
                 None,
             );
-            Some((fname.to_string(), Operand::Value(v), *slot_ty, false))
+            Some((fname.to_owned(), Operand::Value(v), *slot_ty, false))
         }
     }
 }
@@ -205,7 +207,7 @@ fn emit_field(
     acc_slot: crate::ssa::ValueId,
     colon: crate::ssa::ValueId,
     i: usize,
-    fname: &str,
+    fname: &Wtf8,
     slot_ty: &Type,
     fe: Option<crate::check::Type>,
     gap: &Option<Operand>,

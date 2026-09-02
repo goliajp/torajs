@@ -5,6 +5,7 @@
 //! back-edge on the reserved nominal sid — see
 //! rfcs/20260612-generic-recursive-alias.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 mod generic;
@@ -47,7 +48,7 @@ pub(crate) fn parse_struct_field_type(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
     if let Some(rest) = ann.strip_prefix("__nullable(")
@@ -73,7 +74,7 @@ pub(crate) fn parse_type(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
     let s = match ann {
@@ -295,7 +296,7 @@ fn parse_arr_suffix(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Type {
     let elem = parse_type(

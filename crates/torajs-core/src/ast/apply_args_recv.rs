@@ -148,7 +148,10 @@ pub(super) fn collect_objlit_recv_fields(
                 if let Expr::ObjectLit { fields } = ast.get_expr(*init) {
                     let fm = fields
                         .iter()
-                        .map(|(f, feid)| (f.clone(), classify(ast.get_expr(*feid))))
+                        .filter_map(|(f, feid)| {
+                            f.as_str()
+                                .map(|f| (f.to_string(), classify(ast.get_expr(*feid))))
+                        })
                         .collect();
                     objlit.insert(name.clone(), fm);
                 }

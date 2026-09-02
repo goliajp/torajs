@@ -146,7 +146,7 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
                 .field_metadata
                 .iter()
                 .map(|fm| torajs_link::exec::UserFieldMetaEntry {
-                    name: fm.name.clone(),
+                    name: fm.name.as_bytes().to_vec(),
                     offset: fm.offset,
                     type_tag: fm.type_tag,
                 })

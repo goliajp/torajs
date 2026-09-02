@@ -3,6 +3,7 @@
 //! slot value flow) for the fixpoint in `mod.rs`.
 
 use super::{Analysis, Scope, SlotKey, W};
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
 
 impl<'a> Analysis<'a> {
@@ -270,7 +271,8 @@ impl<'a> Analysis<'a> {
                     // callees keep their builtin method handling).
                     for (i, arg) in args.iter().enumerate() {
                         let w = self.width_of(*arg, scope);
-                        let pk = SlotKey::Field(Box::new(ck.clone()), format!("__p{i}"));
+                        let pk =
+                            SlotKey::Field(Box::new(ck.clone()), PropKey::from(format!("__p{i}")));
                         self.add_constraint(pk.clone(), w);
                         // RFC 20260726-array-elem-width — a CONTAINER
                         // argument has to join the projection too, not

@@ -23,6 +23,7 @@
 //!     multiple ast.rs passes.
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::PropKey;
 
 /// Build a default-initializer Expr for a type annotation string. Used by
 /// `desugar_classes` to seed the factory's object-literal at the top of
@@ -111,7 +112,7 @@ pub(crate) fn default_init_for_field(
             );
         }
         let sub_fields = sub_fields.clone();
-        let mut sub_pairs: Vec<(String, ExprId)> = Vec::with_capacity(sub_fields.len());
+        let mut sub_pairs: Vec<(PropKey, ExprId)> = Vec::with_capacity(sub_fields.len());
         for (sfname, sfty) in &sub_fields {
             let sub_local = format!("{parent_cname}_{parent_fname}_{sfname}");
             let sub_id = default_init_for_field(
@@ -124,7 +125,7 @@ pub(crate) fn default_init_for_field(
                 sfname,
                 seen,
             );
-            sub_pairs.push((sfname.clone(), sub_id));
+            sub_pairs.push((PropKey::from(sfname), sub_id));
         }
         seen.remove(fty);
         // The cell this literal mints belongs to `fty`, not to the

@@ -7,6 +7,7 @@
 //! the same depth-aware way as `check.rs::resolve_type_ann` so SSA +
 //! check agree on the signature structure.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ssa::{self, Type};
@@ -28,7 +29,7 @@ pub(crate) fn try_parse_fn_type(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Option<Type> {
     let rest = s.strip_prefix("__fn(")?;

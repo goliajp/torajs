@@ -22,6 +22,7 @@
 
 use super::{Analysis, SlotKey};
 use crate::ast::ExprId;
+use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
 /// Union-find over slot keys. Walk-time access goes through the
@@ -136,7 +137,7 @@ pub(crate) struct WidthTable {
     /// Layout slot width is family-wide (same-shaped literals share
     /// a layout through the coercible first-match); operation width
     /// stays per-binding through the keys above.
-    objlit_shape_f64: HashMap<Vec<String>, HashSet<String>>,
+    objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
     /// The index reads the walk proved in-bounds — `xs[i]` under an
     /// enclosing, untainted `i < xs.length` guard (see
     /// [`crate::ssa_lower_bounds_proven`]). It rides here rather than
@@ -159,7 +160,7 @@ impl WidthTable {
         nominal_aliases: HashSet<String>,
         fallthrough_fns: HashSet<String>,
         undef_sentinel_params: HashSet<(String, String)>,
-        objlit_shape_f64: HashMap<Vec<String>, HashSet<String>>,
+        objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
         index_read_proven: HashSet<ExprId>,
     ) -> Self {
         WidthTable {
@@ -183,7 +184,7 @@ impl WidthTable {
 
     /// W4 shape-join query — true when `name` floats on any literal
     /// sharing this ordered field-name shape (see the field's doc).
-    pub(crate) fn objlit_shape_field_is_f64(&self, shape: &[String], name: &str) -> bool {
+    pub(crate) fn objlit_shape_field_is_f64(&self, shape: &[PropKey], name: &PropKey) -> bool {
         self.objlit_shape_f64
             .get(shape)
             .is_some_and(|s| s.contains(name))
@@ -224,9 +225,9 @@ impl WidthTable {
     }
 
     #[allow(dead_code)] // D3 wires the struct/class field face
-    pub(crate) fn field_is_f64(&self, holder: &SlotKey, name: &str) -> bool {
+    pub(crate) fn field_is_f64(&self, holder: &SlotKey, name: impl Into<PropKey>) -> bool {
         self.container_poison
-            || self.slot_is_f64(&SlotKey::Field(Box::new(holder.clone()), name.to_string()))
+            || self.slot_is_f64(&SlotKey::Field(Box::new(holder.clone()), name.into()))
     }
 }
 
@@ -292,7 +293,7 @@ pub(super) fn generator_step_unions(a: &mut Analysis) {
             if *m == format!("__cm_{class}__next") || *m == format!("__cmany_{class}__next") {
                 unions.push((
                     elem.clone(),
-                    SlotKey::Field(Box::new(SlotKey::Ret(m.clone())), "value".to_string()),
+                    SlotKey::Field(Box::new(SlotKey::Ret(m.clone())), "value".into()),
                 ));
             }
         }

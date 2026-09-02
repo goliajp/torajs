@@ -6,6 +6,7 @@
 //! plus the coarse `Type` → 8-bit discriminator they share.
 
 use super::FuncId;
+use crate::ast::PropKey;
 
 /// W-J Phase A3 (RFC 20260614-w-j-struct-reflect §3 A3) — per-field
 /// metadata for the reflection consumers (Phase B `gOPD` struct cell
@@ -24,7 +25,7 @@ use super::FuncId;
 #[derive(Debug, Clone)]
 pub struct FieldMetaSpec {
     /// Field name as it appears in the struct literal / class decl.
-    pub name: String,
+    pub name: PropKey,
     /// Byte offset within the instance (`OBJ_HEADER_SIZE + i*8`).
     pub offset: u32,
     /// Coarse type discriminator; see [`field_type_tag_of`].

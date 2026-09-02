@@ -95,8 +95,10 @@ fn seed_objlit_aliases(
             && let Expr::ObjectLit { fields } = ast.get_expr(*init)
         {
             for (fname, feid) in fields {
-                if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid) {
-                    objlit_fields.insert((name.as_str(), fname.as_str()), fn_name.as_str());
+                if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid)
+                    && let Some(fname) = fname.as_str()
+                {
+                    objlit_fields.insert((name.as_str(), fname), fn_name.as_str());
                 }
             }
         }

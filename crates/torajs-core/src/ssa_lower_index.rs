@@ -58,9 +58,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
     // checker-admitted struct indices never fall through to the
     // array panic below.
     if obj_is_struct_like(ctx, obj)
-        && let Some(name) = crate::ast::literal_prop_key(ctx.ast, index)
+        && let Some(key) = crate::ast::literal_prop_key(ctx.ast, index)
+        && let Some(name) = key.as_str()
     {
-        return crate::ssa_lower_member::lower(ctx, eid, obj, &name);
+        return crate::ssa_lower_member::lower(ctx, eid, obj, name);
     }
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);

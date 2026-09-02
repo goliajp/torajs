@@ -6,6 +6,7 @@
 //! mirrored under its own prefix by `ast::fn_constructor`.
 
 use super::{Ast, ClassCtor, Expr, ExprId, Stmt};
+use crate::ast::PropKey;
 
 pub(crate) fn build_factory_body(
     ast: &mut Ast,
@@ -50,7 +51,10 @@ pub(crate) fn build_factory_body(
         })
     } else {
         ast.add_expr(Expr::ObjectLit {
-            fields: field_inits.to_vec(),
+            fields: field_inits
+                .iter()
+                .map(|(n, e)| (PropKey::from(n), *e))
+                .collect(),
         })
     };
     let this_ann = if exotic {

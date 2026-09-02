@@ -23,7 +23,7 @@ fn to_json_slot(ctx: &LowerCtx, sid: StructId) -> Option<(u64, crate::ssa::SigId
         .iter()
         .enumerate()
         .find_map(|(i, (fname, fty))| match (fname.as_str(), fty) {
-            ("toJSON", Type::Closure(sig)) => Some((OBJ_HEADER_SIZE + (i as u64) * 8, *sig)),
+            (Some("toJSON"), Type::Closure(sig)) => Some((OBJ_HEADER_SIZE + (i as u64) * 8, *sig)),
             _ => None,
         })
 }

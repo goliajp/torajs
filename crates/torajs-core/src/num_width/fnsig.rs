@@ -29,6 +29,7 @@
 //! not glue q's width back onto Ret(h) — the S5 one-way edge).
 
 use super::{Analysis, Scope, SlotKey};
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId, Stmt};
 
 /// The fn-type canonical spelling of an annotation, peeling the
@@ -145,8 +146,10 @@ impl<'a> Analysis<'a> {
                         continue;
                     }
                     for (fname, ann) in fields {
-                        let fk =
-                            SlotKey::Field(Box::new(SlotKey::Class(name.clone())), fname.clone());
+                        let fk = SlotKey::Field(
+                            Box::new(SlotKey::Class(name.clone())),
+                            PropKey::from(fname),
+                        );
                         self.fnsig_ann_union(&fk, ann);
                     }
                 }
@@ -174,11 +177,11 @@ impl<'a> Analysis<'a> {
         };
         let user_params = self.user_params(&fname);
         self.mark_containerish(key);
-        let rk = SlotKey::Field(Box::new(key.clone()), "__ret".to_string());
+        let rk = SlotKey::Field(Box::new(key.clone()), "__ret".into());
         self.mark_containerish(&rk);
         self.uf.union(&rk, &SlotKey::Ret(fname.clone()));
         for (i, p) in user_params.iter().enumerate() {
-            let pk = SlotKey::Field(Box::new(key.clone()), format!("__p{i}"));
+            let pk = SlotKey::Field(Box::new(key.clone()), PropKey::from(format!("__p{i}")));
             self.mark_containerish(&pk);
             self.uf
                 .union(&pk, &SlotKey::Param(fname.clone(), p.clone()));

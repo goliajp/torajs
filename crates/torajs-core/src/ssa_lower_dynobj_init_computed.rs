@@ -14,7 +14,9 @@
 //!   cells and the dict keys off the cell's own `type_tag`, so the
 //!   store core needs no second entry point — only the coerce differs.
 
+use crate::ast::PropKey;
 use std::collections::HashSet;
+use torajs_wtf8::Wtf8;
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type, ValueId};
@@ -46,11 +48,11 @@ impl LowerCtx<'_> {
     /// (their lane is unread) but a spread, like a computed key,
     /// puts runtime keys in the table every later static key may
     /// collide with.
-    pub(crate) fn objlit_set_lanes(&self, fields: &[(String, ExprId)]) -> Vec<SetLane> {
+    pub(crate) fn objlit_set_lanes(&self, fields: &[(PropKey, ExprId)]) -> Vec<SetLane> {
         if !self.objlit_accessor_free(fields) {
             return vec![SetLane::General; fields.len()];
         }
-        let mut seen: HashSet<&str> = HashSet::new();
+        let mut seen: HashSet<&Wtf8> = HashSet::new();
         let mut runtime_keys = false;
         fields
             .iter()
@@ -65,7 +67,7 @@ impl LowerCtx<'_> {
                 {
                     return SetLane::FreshDup;
                 }
-                if runtime_keys || !seen.insert(fname.as_str()) {
+                if runtime_keys || !seen.insert(fname.as_wtf8()) {
                     SetLane::FreshDup
                 } else {
                     SetLane::FreshUnique
@@ -103,7 +105,7 @@ impl LowerCtx<'_> {
     /// literal installs an AccessorPair entry (shorthand
     /// `get`/`set` members or computed accessor faces), so no
     /// duplicate-key store can ever land on an accessor.
-    pub(crate) fn objlit_accessor_free(&self, fields: &[(String, ExprId)]) -> bool {
+    pub(crate) fn objlit_accessor_free(&self, fields: &[(PropKey, ExprId)]) -> bool {
         fields.iter().all(|(fname, fval_eid)| {
             !self.ast.objlit_computed_accessors.contains_key(fval_eid)
                 && !fname.starts_with("__getter_")
@@ -119,7 +121,7 @@ impl LowerCtx<'_> {
     pub(crate) fn emit_dynobj_set(
         &mut self,
         slot: ValueId,
-        fname: &str,
+        fname: &Wtf8,
         tag: Operand,
         val: Operand,
         fresh: SetLane,
@@ -132,7 +134,7 @@ impl LowerCtx<'_> {
     pub(crate) fn emit_dynobj_set_for(
         &mut self,
         slot: ValueId,
-        fname: &str,
+        fname: &Wtf8,
         runtime_key: Option<ValueId>,
         tag: Operand,
         val: Operand,
@@ -178,7 +180,7 @@ impl LowerCtx<'_> {
         );
         self.release_owned_temp(key_eid, &k_raw);
         self.emit_throw_check(None);
-        self.emit_dynobj_field_value(slot, "", fval_eid, Some(key_str), fresh);
+        self.emit_dynobj_field_value(slot, Wtf8::new(""), fval_eid, Some(key_str), fresh);
         self.emit_drop_value(Operand::Value(key_str), Type::Str);
     }
 
@@ -204,7 +206,7 @@ impl LowerCtx<'_> {
         let Operand::Value(key_v) = k_raw else {
             panic!("ssa-lower: computed symbol key lowered to a non-value operand");
         };
-        self.emit_dynobj_field_value(slot, "", fval_eid, Some(key_v), fresh);
+        self.emit_dynobj_field_value(slot, Wtf8::new(""), fval_eid, Some(key_v), fresh);
         if key_transfers {
             self.emit_drop_value(key_keep, k_ty);
         }

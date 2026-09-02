@@ -11,6 +11,7 @@
 //! chunk B: `defineProperties({}, {a: null})` must reach the per-
 //! field §6.2.6.5 TypeError).
 
+use crate::ast::PropKey;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
@@ -62,7 +63,7 @@ pub(crate) fn try_lower_define_properties(
         if let Expr::ObjectLit { fields } = ctx.ast.get_expr(args[1]) {
             // Clone the (name, desc_eid) list — `emit_define_one` borrows ctx
             // mutably, so we can't hold the AST borrow across the loop.
-            let field_list: Vec<(String, ExprId)> =
+            let field_list: Vec<(PropKey, ExprId)> =
                 fields.iter().map(|(n, e)| (n.clone(), *e)).collect();
             let obj_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
             for (name, desc_eid) in &field_list {

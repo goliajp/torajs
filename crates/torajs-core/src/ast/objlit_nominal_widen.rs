@@ -65,7 +65,7 @@ pub(crate) fn widen_detached_method_objlits(
                 matches!(&exprs[init.0 as usize], Expr::ObjectLit { fields } if fields
                 .iter()
                 .any(|(f, fe)| {
-                    reads.contains(&(name, f.as_str()))
+                    f.as_str().is_some_and(|f| reads.contains(&(name, f)))
                         && matches!(&exprs[fe.0 as usize], Expr::Closure { .. })
                 }))
             };

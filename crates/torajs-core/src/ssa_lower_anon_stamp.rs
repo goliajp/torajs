@@ -21,6 +21,7 @@
 //! same shape the Pass 1.5 anonymous-ObjectLit loop emits per sid, so
 //! the cycle visitor / reflection helpers see a uniform table.
 
+use crate::ast::PropKey;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
@@ -135,7 +136,7 @@ pub type AnonStampPoolCell = RefCell<AnonStampPool>;
 pub fn build_snapshot_pool(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, Type>,
-    struct_layouts: &[Vec<(String, Type)>],
+    struct_layouts: &[Vec<(PropKey, Type)>],
 ) -> AnonStampPoolCell {
     let named_sids: HashSet<ssa::StructId> = class_name_to_tag
         .keys()
@@ -174,7 +175,7 @@ pub fn build_snapshot_pool(
 /// re-targeted method table (built by `populate_class_layouts`).
 pub fn append_fresh_class_layouts(
     pool: &AnonStampPoolCell,
-    struct_layouts: &[Vec<(String, crate::ssa::Type)>],
+    struct_layouts: &[Vec<(PropKey, crate::ssa::Type)>],
     generic_methods: &HashMap<String, Vec<crate::ssa::MethodMetaSpec>>,
     class_layouts: &mut Vec<crate::ssa::ClassLayoutMeta>,
 ) {

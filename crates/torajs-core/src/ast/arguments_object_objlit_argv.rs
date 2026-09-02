@@ -59,9 +59,9 @@ pub(super) fn collect_objlit_boxed_only_argv(
         let Expr::ObjectLit { fields: fs } = ast.get_expr(*init) else {
             continue;
         };
-        for (fname, feid) in fs {
+        for (fname, feid) in fs.iter().filter_map(|(f, e)| f.as_str().map(|f| (f, e))) {
             if let Expr::Closure { fn_name, .. } = ast.get_expr(*feid) {
-                fields.insert((name.clone(), fname.clone()), fn_name.clone());
+                fields.insert((name.clone(), fname.to_string()), fn_name.clone());
             }
         }
     }

@@ -111,7 +111,12 @@ fn scan_stmts(
             match (type_ann.as_deref(), &exprs[init.0 as usize]) {
                 (None, Expr::ObjectLit { fields: lit }) => {
                     if fields
-                        .insert(name.clone(), lit.iter().map(|(k, _)| k.clone()).collect())
+                        .insert(
+                            name.clone(),
+                            lit.iter()
+                                .filter_map(|(k, _)| k.as_str().map(str::to_string))
+                                .collect(),
+                        )
                         .is_some()
                     {
                         poisoned.insert(name.clone());

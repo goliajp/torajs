@@ -9,6 +9,7 @@
 //! initializer is an integer literal, so a `const step = 3` counter
 //! reads as the same small-step counter a literal `3` does.
 
+use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
 use super::{Analysis, SlotKey, container, let_names};
@@ -138,8 +139,8 @@ pub(super) fn collect_objlit_shape_f64(
     ast: &Ast,
     a: &Analysis<'_>,
     canon_out: &HashSet<SlotKey>,
-) -> HashMap<Vec<String>, HashSet<String>> {
-    let mut objlit_shape_f64: HashMap<Vec<String>, HashSet<String>> = HashMap::new();
+) -> HashMap<Vec<PropKey>, HashSet<PropKey>> {
+    let mut objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>> = HashMap::new();
     if !a.container_poison {
         for (i, e) in ast.exprs.iter().enumerate() {
             let crate::ast::Expr::ObjectLit { fields } = e else {
@@ -149,7 +150,7 @@ pub(super) fn collect_objlit_shape_f64(
                 continue;
             }
             let anon = SlotKey::Anon(i as u32);
-            let floats: Vec<String> = fields
+            let floats: Vec<PropKey> = fields
                 .iter()
                 .filter(|(fname, _)| {
                     let fk = SlotKey::Field(Box::new(anon.clone()), fname.clone());
@@ -160,7 +161,7 @@ pub(super) fn collect_objlit_shape_f64(
             if floats.is_empty() {
                 continue;
             }
-            let shape: Vec<String> = fields.iter().map(|(n, _)| n.clone()).collect();
+            let shape: Vec<PropKey> = fields.iter().map(|(n, _)| n.clone()).collect();
             objlit_shape_f64.entry(shape).or_default().extend(floats);
         }
     }

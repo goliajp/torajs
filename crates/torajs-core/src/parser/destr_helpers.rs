@@ -60,7 +60,7 @@ impl<'a> Parser<'a> {
         let sentinel = format!("__spread_omit__:{}", omit.join(","));
         let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
         self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![(sentinel, src_ref)],
+            fields: vec![(PropKey::from(sentinel), src_ref)],
         })
     }
 

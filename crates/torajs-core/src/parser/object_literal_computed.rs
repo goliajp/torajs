@@ -25,6 +25,7 @@
 //! dropping it on the floor.
 
 use super::*;
+use crate::ast::PropKey;
 
 impl<'a> Parser<'a> {
     /// `{ [<key>]: v }` / `{ [<key>](){} }` computed-property arm.
@@ -36,7 +37,7 @@ impl<'a> Parser<'a> {
     pub(super) fn try_parse_computed_property(
         &mut self,
         is_async: bool,
-    ) -> Result<Option<(String, ExprId)>, String> {
+    ) -> Result<Option<(PropKey, ExprId)>, String> {
         if !matches!(self.peek(), Token::LBracket) {
             return Ok(None);
         }
@@ -47,7 +48,7 @@ impl<'a> Parser<'a> {
             // whole key (`["k"]`); a composite expression starting
             // with a string (`["a" + b]`) is a runtime computed key.
             Token::String(s) if matches!(self.tokens[self.pos + 1].token, Token::RBracket) => {
-                let key = s.to_string_lossy_owned();
+                let key = PropKey::from(s.clone());
                 self.pos += 1;
                 key
             }
@@ -152,7 +153,7 @@ impl<'a> Parser<'a> {
         &mut self,
         member_start_pos: usize,
         is_async: bool,
-    ) -> Result<(String, ExprId), String> {
+    ) -> Result<(PropKey, ExprId), String> {
         let key_expr = self.parse_assign()?;
         match self.peek() {
             Token::RBracket => self.pos += 1,
@@ -163,7 +164,10 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let name = format!("__computed_{}__", self.ast.objlit_computed_keys.len());
+        let name = PropKey::from(format!(
+            "__computed_{}__",
+            self.ast.objlit_computed_keys.len()
+        ));
         let value = if matches!(self.peek(), Token::LParen) {
             let v = self.parse_method_like_value_async(
                 member_start_pos,
@@ -224,19 +228,19 @@ impl<'a> Parser<'a> {
         &mut self,
         kind: &str,
         member_start_pos: usize,
-    ) -> Result<(String, ExprId), String> {
+    ) -> Result<(PropKey, ExprId), String> {
         self.pos += 1;
         if let Token::String(s) = self.peek()
             && matches!(self.tokens[self.pos + 1].token, Token::RBracket)
         {
-            let prop = s.to_string_lossy_owned();
+            let prop = PropKey::from(s.clone());
             self.pos += 2;
             let value = self.parse_method_like_value(
                 member_start_pos,
                 false,
                 &format!("{kind}ter `{prop}`"),
             )?;
-            return Ok((format!("__{kind}ter_{prop}"), value));
+            return Ok((PropKey::prefixed(&format!("__{kind}ter_"), &prop), value));
         }
         let key_expr = self.parse_assign()?;
         match self.peek() {
@@ -253,7 +257,10 @@ impl<'a> Parser<'a> {
             false,
             &format!("computed-key {kind}ter"),
         )?;
-        let name = format!("__computed_{}__", self.ast.objlit_computed_keys.len());
+        let name = PropKey::from(format!(
+            "__computed_{}__",
+            self.ast.objlit_computed_keys.len()
+        ));
         self.ast.objlit_computed_keys.insert(value, key_expr);
         self.ast
             .objlit_computed_accessors
@@ -268,7 +275,7 @@ impl<'a> Parser<'a> {
     /// the dynobj-init proto arm, so record the value expr in the
     /// own-property side channel (shared with the `{ __proto__ }`
     /// shorthand, which needs the identical skip).
-    fn mark_computed_proto_own(&mut self, key: &str, value: ExprId) {
+    fn mark_computed_proto_own(&mut self, key: &PropKey, value: ExprId) {
         if key == "__proto__" {
             self.ast.objlit_shorthand_proto_exprs.insert(value);
         }

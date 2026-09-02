@@ -21,6 +21,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+use torajs_wtf8::{Wtf8, Wtf8Buf};
 
 impl<'a> LowerCtx<'a> {
     /// The live dynobj pointer — a fresh Load off the shared init
@@ -50,7 +51,7 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn emit_dynobj_field_value(
         &mut self,
         slot: ValueId,
-        fname: &str,
+        fname: &Wtf8,
         fval_eid: ExprId,
         runtime_key: Option<ValueId>,
         fresh: crate::ssa_lower_dynobj_init_computed::SetLane,
@@ -278,12 +279,12 @@ impl<'a> LowerCtx<'a> {
             // `__this` reached this lane through a route the AST
             // predicate can't see — reject loudly, the struct-typed
             // body would read garbage off the dynobj receiver.
-            if let Some(prop) = fname.strip_prefix("__getter_").map(str::to_string) {
+            if let Some(prop) = fname.strip_prefix("__getter_").map(Wtf8Buf::from) {
                 self.guard_anylane_recv_face(fval_eid, "accessor getter");
                 self.emit_dynobj_accessor_field(slot, &prop, fval_eid, true);
                 continue;
             }
-            if let Some(prop) = fname.strip_prefix("__setter_").map(str::to_string) {
+            if let Some(prop) = fname.strip_prefix("__setter_").map(Wtf8Buf::from) {
                 self.guard_anylane_recv_face(fval_eid, "accessor setter");
                 self.emit_dynobj_accessor_field(slot, &prop, fval_eid, false);
                 continue;
@@ -388,7 +389,7 @@ impl<'a> LowerCtx<'a> {
     fn emit_dynobj_accessor_field(
         &mut self,
         slot: ValueId,
-        prop: &str,
+        prop: &Wtf8,
         face_eid: ExprId,
         is_get: bool,
     ) {

@@ -4,6 +4,7 @@
 //! matched, caller falls through to the primitive match (mirror of
 //! `check_type_ann/generic.rs` on the checker side).
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ssa::{self, Type};
@@ -19,7 +20,7 @@ pub(super) fn parse_generic(
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
-    struct_layouts: &mut Vec<Vec<(String, Type)>>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
 ) -> Option<Type> {
     let head = &s[..open_idx];
@@ -94,7 +95,7 @@ pub(super) fn parse_generic(
         let id = ssa::StructId(struct_layouts.len() as u32);
         struct_layouts.push(Vec::new());
         inst_memo.insert(s.to_string(), id);
-        let mut layout: Vec<(String, Type)> = Vec::with_capacity(fields.len());
+        let mut layout: Vec<(PropKey, Type)> = Vec::with_capacity(fields.len());
         for (fname, fann) in &fields {
             let substituted = substitute_in_ann(fann, &subst);
             // Chunk 795 — struct-field fn slots are Closure-repr.
@@ -122,7 +123,7 @@ pub(super) fn parse_generic(
                 struct_layouts,
                 inst_memo,
             );
-            layout.push((fname.clone(), fty));
+            layout.push((PropKey::from(fname), fty));
         }
         struct_layouts[id.0 as usize] = layout;
         return Some(Type::Obj(id));

@@ -82,9 +82,10 @@ impl<'a> LowerCtx<'a> {
         if matches!(
             self.expr_types.get(&obj),
             Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
-        ) && let Some(name) = crate::ast::literal_prop_key(self.ast, index)
+        ) && let Some(key) = crate::ast::literal_prop_key(self.ast, index)
+            && let Some(name) = key.as_str()
         {
-            return crate::ssa_lower_assign_member::lower(self, eid, obj, name, value);
+            return crate::ssa_lower_assign_member::lower(self, eid, obj, name.to_string(), value);
         }
         // M1.4 — `arr[i] = value`. 11-A1: peek receiver before
         // consuming `obj` for the head-elision flag.

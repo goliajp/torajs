@@ -15,6 +15,7 @@
 //! borrowed field load next to it — [`emit_prop_value`] reports which,
 //! so each consumer keeps its refcount ledger straight.
 
+use crate::ast::PropKey;
 use crate::ssa::{InstKind, Operand, SigId, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
@@ -30,7 +31,7 @@ pub(crate) enum PropSource {
 
 /// One own property: the key ES enumerates it under, and its source.
 pub(crate) struct OwnProp {
-    pub(crate) key: String,
+    pub(crate) key: PropKey,
     pub(crate) src: PropSource,
 }
 
@@ -49,7 +50,7 @@ impl OwnProp {
 /// Walk a struct layout into its own properties, in declaration order.
 /// A get/set pair collapses into one entry keyed by the plain name (the
 /// getter half wins whichever order the two slots appear in).
-pub(crate) fn own_props(layout: &[(String, Type)], fn_sigs: &[(Vec<Type>, Type)]) -> Vec<OwnProp> {
+pub(crate) fn own_props(layout: &[(PropKey, Type)], fn_sigs: &[(Vec<Type>, Type)]) -> Vec<OwnProp> {
     let mut out: Vec<OwnProp> = Vec::new();
     for (idx, (fname, fty)) in layout.iter().enumerate() {
         let (key, src) = match crate::check_type_of_object_lit::accessor_slot(fname) {
@@ -58,9 +59,9 @@ pub(crate) fn own_props(layout: &[(String, Type)], fn_sigs: &[(Vec<Type>, Type)]
                     panic!("ssa-lower: accessor slot `{fname}` is not a closure (got {fty:?})");
                 };
                 let ret = fn_sigs[sig.0 as usize].1;
-                (prop.to_string(), PropSource::Getter { idx, sig, ret })
+                (PropKey::from(prop), PropSource::Getter { idx, sig, ret })
             }
-            Some((_, prop)) => (prop.to_string(), PropSource::SetterOnly),
+            Some((_, prop)) => (PropKey::from(prop), PropSource::SetterOnly),
             None => (fname.clone(), PropSource::Data { idx, ty: *fty }),
         };
         match out.iter_mut().find(|p| p.key == key) {
@@ -93,7 +94,7 @@ pub(crate) enum PropSink {
 
 /// One writable own property: the key, and where a write lands.
 pub(crate) struct OwnPropSink {
-    pub(crate) key: String,
+    pub(crate) key: PropKey,
     pub(crate) sink: PropSink,
 }
 
@@ -101,7 +102,7 @@ pub(crate) struct OwnPropSink {
 /// declaration order. A get/set pair collapses into one entry keyed by
 /// the plain name; unlike [`own_props`], the SETTER half wins — it is
 /// the half a write goes through.
-pub(crate) fn own_prop_sinks(layout: &[(String, Type)]) -> Vec<OwnPropSink> {
+pub(crate) fn own_prop_sinks(layout: &[(PropKey, Type)]) -> Vec<OwnPropSink> {
     let mut out: Vec<OwnPropSink> = Vec::new();
     for (idx, (fname, fty)) in layout.iter().enumerate() {
         let (key, sink) = match crate::check_type_of_object_lit::accessor_slot(fname) {
@@ -109,9 +110,9 @@ pub(crate) fn own_prop_sinks(layout: &[(String, Type)]) -> Vec<OwnPropSink> {
                 let Type::Closure(sig) = *fty else {
                     panic!("ssa-lower: accessor slot `{fname}` is not a closure (got {fty:?})");
                 };
-                (prop.to_string(), PropSink::Setter { idx, sig })
+                (PropKey::from(prop), PropSink::Setter { idx, sig })
             }
-            Some((_, prop)) => (prop.to_string(), PropSink::GetterOnly),
+            Some((_, prop)) => (PropKey::from(prop), PropSink::GetterOnly),
             None => (fname.clone(), PropSink::Data { idx, ty: *fty }),
         };
         match out.iter_mut().find(|p| p.key == key) {

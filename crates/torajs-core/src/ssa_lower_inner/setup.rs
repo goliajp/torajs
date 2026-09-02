@@ -6,6 +6,7 @@
 //! `ssa_lower_inner.rs` under the 500-line hard cap after rotation
 //! 197 chunk 2 grew the parent past it. Verbatim moves.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ast::Ast;
@@ -103,7 +104,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
 pub(super) fn build_anon_stamp_pool_with_snapshot(
     class_name_to_tag: &HashMap<String, u32>,
     aliases: &HashMap<String, crate::ssa::Type>,
-    struct_layouts: &[Vec<(String, crate::ssa::Type)>],
+    struct_layouts: &[Vec<(PropKey, crate::ssa::Type)>],
 ) -> (crate::ssa_lower_anon_stamp::AnonStampPoolCell, usize) {
     let anon_stamp_pool = crate::ssa_lower_anon_stamp::build_snapshot_pool(
         class_name_to_tag,

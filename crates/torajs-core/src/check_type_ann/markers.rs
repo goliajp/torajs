@@ -6,6 +6,7 @@
 //! close-paren scanner collapse into `split_top_pipe` /
 //! `find_close_paren`.
 
+use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
 use crate::check::{GenericAliasMap, Type};
@@ -84,7 +85,7 @@ pub(super) fn resolve_inlobj(
     let close = find_close_paren(rest)?;
     let fields_str = &rest[..close];
     let fields_split = split_top_pipe(fields_str);
-    let mut fields_out: Vec<(String, Type)> = Vec::with_capacity(fields_split.len());
+    let mut fields_out: Vec<(PropKey, Type)> = Vec::with_capacity(fields_split.len());
     for f in fields_split {
         let colon = f.find(':')?;
         let fname = f[..colon].to_string();
@@ -96,7 +97,7 @@ pub(super) fn resolve_inlobj(
             generic_aliases,
             in_flight,
         )?;
-        fields_out.push((fname, fty));
+        fields_out.push((PropKey::from(fname), fty));
     }
     Some(Type::Struct(fields_out))
 }
