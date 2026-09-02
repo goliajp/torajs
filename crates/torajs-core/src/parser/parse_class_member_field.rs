@@ -15,6 +15,40 @@
 
 use super::*;
 
+/// The one token that may sit between a class field's name and its
+/// shape token, and what it means.
+///
+/// The two markers are mutually exclusive and share exactly one
+/// effect — each shifts every downstream cursor by one — so they
+/// were, until 563-07, a single `optional: bool`. They differ in
+/// the other half: `?` widens the declared type (§9.2 — `p?: T` IS
+/// `p: T | undefined`), while TS's definite assignment assertion
+/// asserts the field IS assigned and so leaves the type alone.
+/// That is the whole of `!`: it is a claim addressed to the type
+/// checker and has no runtime face at all.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FieldMarker {
+    /// `p: T` — nothing between the name and the shape token.
+    None,
+    /// `p?: T` / `p?` / `p? = init`.
+    Optional,
+    /// `p!: T` — definite assignment assertion.
+    Definite,
+}
+
+impl FieldMarker {
+    /// How far the marker pushes every cursor measured from the
+    /// member-name lookahead.
+    pub(super) fn shift(self) -> usize {
+        usize::from(self != Self::None)
+    }
+
+    /// Whether the declared type widens to `T | undefined`.
+    pub(super) fn is_optional(self) -> bool {
+        self == Self::Optional
+    }
+}
+
 impl<'a> Parser<'a> {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn parse_class_member_field_typed(
@@ -22,7 +56,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: PropKey,
         consumed_computed_name: bool,
-        optional: bool,
+        marker: FieldMarker,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
@@ -44,18 +78,18 @@ impl<'a> Parser<'a> {
         if consumed_computed_name {
             self.pos += 1; // consume colon only
         } else {
-            // name + colon, plus the `?` of an optional field between
+            // name + colon, plus the `?` / `!` of a marked field between
             // them. Every advance here is measured from the same
             // lookahead the member loop matched on, so a token added
             // in the middle has to be counted in both places or the
             // cursor lands on the type and reads it as a member.
-            self.pos += 2 + usize::from(optional);
+            self.pos += 2 + marker.shift();
         }
         let ty = self.parse_type_ann()?;
         // §9.2 — `p?: T` IS `p: T | undefined`, which is the same
         // marker the parameter position wraps. Written-out
         // `T | undefined` already arrives wrapped, hence the guard.
-        let ty = if optional && !ty.starts_with("__nullable(") {
+        let ty = if marker.is_optional() && !ty.starts_with("__nullable(") {
             format!("__nullable({ty})")
         } else {
             ty
@@ -105,7 +139,7 @@ impl<'a> Parser<'a> {
             let init = if matches!(self.peek(), Token::Eq) {
                 self.pos += 1;
                 Some(self.parse_assign()?)
-            } else if optional {
+            } else if marker.is_optional() {
                 // §9.2 — an optional field with no initializer holds
                 // `undefined`, and saying so explicitly is what gets
                 // it there: an absent initializer leaves the slot on
@@ -148,7 +182,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: PropKey,
         consumed_computed_name: bool,
-        optional: bool,
+        marker: FieldMarker,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
@@ -165,8 +199,8 @@ impl<'a> Parser<'a> {
             ));
         }
         if !consumed_computed_name {
-            // the member name, plus the `?` of `p?;`
-            self.pos += 1 + usize::from(optional);
+            // the member name, plus the `?` / `!` of `p?;`
+            self.pos += 1 + marker.shift();
         }
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;

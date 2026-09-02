@@ -174,17 +174,22 @@ impl<'a> Parser<'a> {
                         continue;
                     }
                 }
-                // §9.2 optional field — `p?: T`, `p?`, `p? = init`.
-                // The `?` shifts every downstream cursor by one, which
-                // is the whole of what `optional` carries; the type it
-                // implies (`T | undefined`) is applied where the
-                // annotation is read.
-                Some(Token::Question) => {
+                // §9.2 optional field — `p?: T`, `p?`, `p? = init`;
+                // and 563-07 its TS twin `p!: T`, the definite
+                // assignment assertion. Both shift every downstream
+                // cursor by one and differ only in whether the
+                // declared type widens — see `FieldMarker`.
+                Some(Token::Question) | Some(Token::Bang) => {
+                    let marker = if matches!(next_tok, Some(Token::Bang)) {
+                        FieldMarker::Definite
+                    } else {
+                        FieldMarker::Optional
+                    };
                     self.parse_class_member_field_dispatch(
                         &name,
                         member_name,
                         consumed_computed_name,
-                        true,
+                        marker,
                         explicit_visibility,
                         is_readonly,
                         is_abstract_method,
@@ -203,7 +208,7 @@ impl<'a> Parser<'a> {
                         &name,
                         member_name,
                         consumed_computed_name,
-                        false,
+                        FieldMarker::None,
                         explicit_visibility,
                         is_readonly,
                         is_abstract_method,
@@ -227,7 +232,7 @@ impl<'a> Parser<'a> {
                             &name,
                             member_name,
                             consumed_computed_name,
-                            false,
+                            FieldMarker::None,
                             explicit_visibility,
                             is_readonly,
                             is_abstract_method,

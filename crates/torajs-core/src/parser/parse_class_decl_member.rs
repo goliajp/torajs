@@ -261,7 +261,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: PropKey,
         consumed_computed_name: bool,
-        optional: bool,
+        marker: FieldMarker,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
@@ -301,20 +301,20 @@ impl<'a> Parser<'a> {
         // Same lookahead the member loop matched on: the member name
         // is still unconsumed unless the computed-name path already
         // ate it (`name + ]`), so the shape token sits one ahead.
-        // ... and the `?` of `p?: T` sits between the name and that
-        // shape token, so it shifts the lookahead exactly as it
+        // ... and the `?` / `!` of `p?: T` sits between the name and
+        // that shape token, so it shifts the lookahead exactly as it
         // shifts each parser's own advance below.
         let idx = if consumed_computed_name {
             self.pos
         } else {
-            self.pos + 1 + usize::from(optional)
+            self.pos + 1 + marker.shift()
         };
         match self.tokens.get(idx).map(|t| &t.token) {
             Some(Token::Colon) => self.parse_class_member_field_typed(
                 name,
                 member_name,
                 consumed_computed_name,
-                optional,
+                marker,
                 explicit_visibility,
                 is_readonly,
                 is_abstract_method,
@@ -327,7 +327,7 @@ impl<'a> Parser<'a> {
                 name,
                 member_name,
                 consumed_computed_name,
-                optional,
+                marker,
                 explicit_visibility,
                 is_readonly,
                 is_abstract_method,
@@ -340,7 +340,7 @@ impl<'a> Parser<'a> {
                 name,
                 member_name,
                 consumed_computed_name,
-                optional,
+                marker,
                 explicit_visibility,
                 is_readonly,
                 is_abstract_method,
@@ -386,7 +386,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: PropKey,
         consumed_computed_name: bool,
-        optional: bool,
+        marker: FieldMarker,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
@@ -413,7 +413,7 @@ impl<'a> Parser<'a> {
             self.pos += 1; // consume `=` only
         } else {
             // name + `=`, plus the `?` of `p? = init`
-            self.pos += 2 + usize::from(optional);
+            self.pos += 2 + marker.shift();
         }
         // 420-03 — a STATIC field's initializer runs with the class as
         // receiver (§15.7.14). This is the untyped-field arm; the

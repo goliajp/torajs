@@ -80,6 +80,7 @@ mod parse_fn;
 mod parse_let_decl;
 mod parse_postfix;
 pub(crate) mod tagged_template;
+use parse_class_member_field::FieldMarker;
 pub(crate) use tagged_template::TEMPLATE_OBJECT_CALLEE;
 mod dstr_assign_slot;
 mod parse_stmt;

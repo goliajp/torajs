@@ -82,6 +82,16 @@ impl<'a> Parser<'a> {
                 }
             };
             self.pos += 1;
+            // 563-07 — TS's definite assignment assertion, `let x!: T`.
+            // It is a claim addressed to the type checker ("this IS
+            // assigned before any read") with no runtime face and no
+            // effect on the declared type, so the parse just steps
+            // over it. TS additionally requires an annotation and
+            // forbids an initializer here; those early errors are a
+            // recorded boundary, not enforced.
+            if matches!(self.peek(), Token::Bang) {
+                self.pos += 1;
+            }
             let type_ann = if matches!(self.peek(), Token::Colon) {
                 self.pos += 1;
                 Some(self.parse_type_ann()?)
