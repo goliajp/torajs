@@ -7,6 +7,37 @@
 
 use super::*;
 
+/// The annotation a declaration with NO initializer carries:
+/// `T | undefined`, in the parser's `__nullable(T)` spelling
+/// (567-04).
+///
+/// `let x: T;` binds nothing until its first write, and at runtime
+/// that nothing is `undefined`: bun prints it, while tr rejected the
+/// whole program (`declared Number, init has Undefined`) or, for a
+/// pointer-shaped T, read the type's zero value. The annotation that
+/// states the truth is the one the user could have written by hand,
+/// and writing it HERE is what makes every later consumer agree
+/// without any of them learning about the uninitialized case: the
+/// checker face, the slot type each `try_resolve_type_ann` caller
+/// picks, and the per-type undefined sentinel the nullable slot
+/// already carries for `f(a?: T)`.
+///
+/// What TS reports for `let x: number; use(x)` comes from
+/// definite-assignment analysis, which is a different question from
+/// what the slot holds — and not one a runtime may answer by
+/// refusing to run. `let x!: T` asserts the answer to that question
+/// and has no runtime face, so it is wrapped the same way.
+///
+/// A T that already admits undefined, or already admits everything,
+/// is returned unchanged.
+fn no_init_type_ann(t: String) -> String {
+    match t.as_str() {
+        "any" | "undefined" | "null" => t,
+        _ if t.starts_with("__nullable(") => t,
+        _ => format!("__nullable({t})"),
+    }
+}
+
 impl<'a> Parser<'a> {
     /// `let` / `var` / `const` declaration statement (multi-decl,
     /// destructuring dispatch, `= yield` J.4 shape) — split from
@@ -133,6 +164,7 @@ impl<'a> Parser<'a> {
                     ));
                 }
                 let init = self.ast.add_expr(Expr::Uninit);
+                let type_ann = type_ann.map(no_init_type_ann);
                 decls.push(Stmt::LetDecl {
                     mutable,
                     name,
