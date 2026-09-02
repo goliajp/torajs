@@ -57,6 +57,9 @@ impl<'a> LowerCtx<'a> {
         fresh: crate::ssa_lower_dynobj_init_computed::SetLane,
     ) {
         let v_raw = self.lower_expr(fval_eid);
+        if let Some(k) = runtime_key {
+            self.emit_computed_field_fn_name(fval_eid, &v_raw, k);
+        }
         // Chunk 570 — SHARE: the bucket takes its own +1 (the
         // refcounted arm's rc_inc / the Any arm's payload inc);
         // no consume, so a borrow-shape value keeps the source

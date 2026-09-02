@@ -1,0 +1,114 @@
+//! §10.2.9 SetFunctionName for an object-literal member under a
+//! COMPUTED key (565-03) — the twin of the class-member face
+//! 564-01 built, for the one value shape that cannot carry the name
+//! on the cell: an object-literal method / arrow / anonymous
+//! function expression is an ordinary compiler-minted closure, and
+//! a per-instance word on THAT layout would be a word on every
+//! closure in the program.
+//!
+//! The spec itself says where it goes. SetFunctionName is a
+//! `DefinePropertyOrThrow(F, "name", {[[Value]]: name,
+//! [[Writable]]: false, [[Enumerable]]: false, [[Configurable]]:
+//! true})` — an own property, and a closure cell already has the
+//! bag own properties live in. The `.name` read consults that bag
+//! before the fn-addr registry, so nothing on the read side has to
+//! learn about this case.
+//!
+//! The INSPECT face is a separate question with a different answer,
+//! and it needs nothing here: bun reads the SOURCE, where a
+//! computed member has no name, and prints `[Function]`. tr reaches
+//! the same place by not handing the parser's `__computed_<n>__`
+//! sentinel to NamedEvaluation at all (`ast::named_eval`), which
+//! leaves the fn-addr registry row empty — the anonymous form.
+
+use core::ffi::c_void;
+
+use crate::reflect::{TAG_STR, heap_type_tag};
+
+unsafe extern "C" {
+    fn __torajs_dynobj_alloc() -> *mut c_void;
+    fn __torajs_dynobj_define_plain(
+        obj_slot: *mut *mut c_void,
+        key: *const u8,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
+    /// torajs-rc — the one first-attach of a user closure's props
+    /// bag (link-judged; see `torajs_rc::closure_entry`).
+    fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
+    fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut u8);
+    /// torajs-str — §10.2.9's `"[<description>]"` spelling of a
+    /// Symbol property key as a function name (564-01); fresh Str.
+    fn __torajs_symbol_fn_name(p: *const c_void) -> *mut u8;
+}
+
+/// Closure-cell props-bag slot — mirror of torajs-core
+/// `ssa_lower.rs::CLOSURE_PROPS_OFF`.
+const CLOSURE_PROPS_OFF: usize = 24;
+
+/// Entry payload tag for a heap value.
+const ANY_HEAP: u64 = 4;
+
+/// The §10.2.9 `name` descriptor: `{[[Value]] present, writable:
+/// false, enumerable: false, configurable: true}` — all three
+/// attribute sentinels present, only `configurable` set.
+const DEFINE_NAME_FLAGS: u64 = (1 << 6) | (1 << 3) | (1 << 4) | (1 << 5) | (1 << 2);
+
+/// Give `cell` the §10.2.9 name of the property key it is being
+/// defined under: a Str key IS the name (a numeric key already
+/// arrived as its Str spelling through ToPropertyKey), and a Symbol
+/// key reads `"[<description>]"` — empty when it has none.
+///
+/// Called from the object-literal init lane for a computed field
+/// whose value is an ANONYMOUS function definition, right after the
+/// value is minted and before it is stored (§13.2.5.5 evaluation
+/// order: the key is already evaluated). Both arguments stay
+/// caller-owned — the define takes its own key reference and the
+/// name Str is minted fresh here.
+///
+/// # Safety
+/// `cell` is a live `Tag::Closure` heap cell whose props slot is
+/// either NULL or a live dynobj; `key` is a live Str / Symbol cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fn_computed_name_define(cell: *mut u8, key: *const u8) {
+    if cell.is_null() || key.is_null() {
+        return;
+    }
+    unsafe {
+        let name = if heap_type_tag(key as *const c_void) == TAG_STR {
+            __torajs_rc_inc(key as *mut c_void);
+            key as *mut u8
+        } else {
+            __torajs_symbol_fn_name(key as *const c_void)
+        };
+        let mut props = *(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void);
+        let fresh = props.is_null();
+        if fresh {
+            props = __torajs_dynobj_alloc();
+            if props.is_null() {
+                __torajs_str_drop(name);
+                return;
+            }
+        }
+        let name_key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
+        __torajs_dynobj_define_plain(
+            &mut props,
+            name_key,
+            ANY_HEAP,
+            name as u64,
+            DEFINE_NAME_FLAGS,
+        );
+        __torajs_str_drop(name_key);
+        // A first bag goes through the link-judged attach seam; a
+        // bag the define grew (and so relocated) is written back
+        // through the slot, which is not an attach.
+        if fresh {
+            __torajs_closure_props_attach(cell, props);
+        } else {
+            *(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void) = props;
+        }
+    }
+}

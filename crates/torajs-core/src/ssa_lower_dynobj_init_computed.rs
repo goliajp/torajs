@@ -184,6 +184,49 @@ impl LowerCtx<'_> {
         self.emit_drop_value(Operand::Value(key_str), Type::Str);
     }
 
+    /// 565-03 — §10.2.9 SetFunctionName for a computed field whose
+    /// value is an ANONYMOUS function definition (`{ [k]() {} }`,
+    /// `{ [k]: () => {} }`, `{ [k]: function () {} }`): the name is
+    /// the runtime key, which only this point knows. A value that
+    /// already has a name of its own — a named function expression,
+    /// an identifier reference — is left alone, exactly as §8.4.5
+    /// leaves it.
+    ///
+    /// The class twin (564-01) carries the name on its reified face;
+    /// an ordinary closure gets it as the own `name` property
+    /// SetFunctionName is defined to create, because a per-instance
+    /// word on the closure layout would be a word on every closure.
+    pub(crate) fn emit_computed_field_fn_name(
+        &mut self,
+        fval_eid: ExprId,
+        v_raw: &Operand,
+        key: ValueId,
+    ) {
+        if !matches!(self.operand_ty(v_raw), Type::Closure(_)) {
+            return;
+        }
+        let crate::ast::Expr::Closure { fn_name, .. } = self.ast.get_expr(fval_eid) else {
+            return;
+        };
+        // The same two conditions Pass 2B's NamedEvaluation filter
+        // uses: only a LIFTED body is an anonymous definition (a
+        // `__forward_<target>` wrapper is an identifier reference to
+        // a function that already has a name — `{ [k]: named }` must
+        // stay `"named"`), and a named function expression's own
+        // self-name wins over every syntactic position (§15.5.5).
+        if !fn_name.starts_with("__closure_") || self.ast.closure_self_names.contains_key(fn_name) {
+            return;
+        }
+        let cur_block = self.cur_block;
+        self.f.append_void(
+            cur_block,
+            InstKind::Call(
+                self.intrinsics.fn_computed_name_define,
+                vec![v_raw.clone(), Operand::Value(key)],
+            ),
+        );
+    }
+
     /// The Symbol half of [`Self::emit_dynobj_computed_field`] — the
     /// key cell IS the key, so there is no coerce and no ToString
     /// temp to release. Twin of the `o[sym] = v` lane

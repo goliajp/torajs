@@ -30,6 +30,7 @@ pub mod classmeta;
 pub(crate) mod closure_reflect;
 pub mod error_to_string;
 pub mod extensible_reflect;
+pub mod fn_computed_name;
 pub mod fnprops;
 pub mod from_entries;
 pub mod genfn;

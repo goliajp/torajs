@@ -91,18 +91,26 @@ unsafe fn is_dynobj(obj: *const c_void) -> bool {
 /// (RFC 20260712-arr-exotic-define chunk B); the index domain is
 /// already enumerated from element storage, so those keys are
 /// filtered here.
-/// `skip_fn_prototype` — a plain function's `prototype` is materialized
-/// lazily INTO this dict on first read (RFC 20260721 刀 9), but
-/// §20.2.4 creates it at function definition, so it belongs with the
-/// virtual `length` / `name` pair the closure arm emits, not at
-/// whatever position the lazy mint happened to land in. The closure arm
-/// always emits it and filters it here.
+/// `skip_fn_virtual` — the closure arm emits `length` / `name` /
+/// `prototype` itself, in the §10.2.9 / §10.2.10 / §20.2.4 creation
+/// order, and every one of the three can ALSO have a real entry in
+/// this dict: `prototype` is materialized lazily into it on first
+/// read (RFC 20260721 刀 9), and `name` gets one from
+/// `defineProperty(f, "name", …)` or from a computed member's
+/// §10.2.9 name (565-03). An entry under any of the three is the
+/// same property the arm already emitted, so it is filtered here —
+/// otherwise `gOPN` answers the key twice (it did, for
+/// `defineProperty(f, "name", …)`: `["length","name","prototype","name"]`).
+/// `name` / `length` are filtered only under `include_nonenum`, the
+/// same condition the arm emits them under: an ENUMERABLE entry
+/// under either key is not one of the two the arm wrote, and
+/// `Object.keys` must still answer it.
 pub(crate) unsafe fn dynobj_keys_append(
     obj: *const c_void,
     include_nonenum: i64,
     mut arr: *mut u8,
     skip_index_shadow: bool,
-    skip_fn_prototype: bool,
+    skip_fn_virtual: bool,
 ) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
@@ -121,7 +129,13 @@ pub(crate) unsafe fn dynobj_keys_append(
         if skip_index_shadow && unsafe { key_is_canonical_index(key) } {
             continue;
         }
-        if skip_fn_prototype && unsafe { key_bytes_are(key, b"prototype") } {
+        if skip_fn_virtual
+            && unsafe {
+                key_bytes_are(key, b"prototype")
+                    || (include_nonenum != 0
+                        && (key_bytes_are(key, b"name") || key_bytes_are(key, b"length")))
+            }
+        {
             continue;
         }
         // PROTO_SLOT_KEY is tr's [[Prototype]]-slot simulation key

@@ -140,6 +140,16 @@ pub(crate) fn collect_named_eval_positions(ast: &Ast) -> HashMap<ExprId, String>
     for e in &ast.exprs {
         if let Expr::ObjectLit { fields } = e {
             for (fname, val) in fields {
+                // 565-03 — a COMPUTED key gives no syntactic name: the
+                // field's `__computed_<n>__` spelling is the parser's
+                // sentinel, not something the user wrote, and handing
+                // it to NamedEvaluation is what made `({ [k]() {} })[k]`
+                // print `[Function: __computed_0__]`. §10.2.9 names
+                // such a member after its RUNTIME key instead, which
+                // only the definition point knows.
+                if ast.objlit_computed_keys.contains_key(val) {
+                    continue;
+                }
                 // Function names are `String` (557-02 C group): a key
                 // with a lone surrogate leaves the function anonymous.
                 if let Some(fname) = fname.as_str() {
