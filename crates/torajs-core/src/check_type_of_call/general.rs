@@ -19,6 +19,18 @@ pub(crate) fn general_call(
     args: &Vec<ExprId>,
 ) -> Result<Type, String> {
     let callee_ty = checker.type_of(ast, *callee)?;
+    // 567-05 — a callee that MAY be undefined is still called
+    // through its signature. `let h: Fn | undefined; h = f; h(3)`
+    // is a program bun runs, and §13.3.6.2 makes the undefined case
+    // a runtime TypeError at step 6, not a compile-time refusal —
+    // the same reason `is_uncallable_value` below types its call
+    // rather than rejecting it. The difference is that this one is
+    // callable on the arm that matters, so it keeps the signature:
+    // arity and argument types are still checked against it.
+    let callee_ty = match callee_ty {
+        Type::Nullable(inner) if matches!(*inner, Type::Function(..)) => *inner,
+        other => other,
+    };
     let Type::Function(mut params, ret) = callee_ty else {
         // Cluster #4 (test262) — an Any-typed callee reaching the
         // general tail is a MEMBER READ the per-family tables
