@@ -1670,6 +1670,16 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Still current at `bb25487a9`** (2026-09-02, rotation 562). Rotations
+560, 561 and 562 each swept with a verdict diff of **0 lines** — their
+knives were the console.log surface, the Map / Set key hash and the
+property-key spelling, and test262 asserts on none of those (562 even
+changed a prototype's own-key ORDER, which `getOwnPropertyNames` shows,
+and no case reads it). So every count below is this rotation's
+measurement as well, not a stale stamp: clusters **143**, cases
+**1130**, register 2 · 251, residue 465 · 624 (31.1%), core **2005**,
+coverage top-100 **56.6%** / top-200 **74.6%** / top-400 **88.7%**.
+
 **Latest @ `c1cdd523f`** (2026-09-02, rotation 559 — a property key
 is the code-unit sequence it spells, on every lane: `ast::PropKey`
 (WTF-8) replaces `String` in object-literal fields, `Type::Struct`,

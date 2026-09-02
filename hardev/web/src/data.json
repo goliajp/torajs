@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T10:42:51.990Z",
+  "generatedAt": "2026-09-02T13:38:56.547Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-02T10:32:10Z",
-    "headSha": "a65c64966",
-    "elapsedSec": 426.67,
+    "ranAt": "2026-09-02T13:36:14Z",
+    "headSha": "bb25487a9",
+    "elapsedSec": 678.82,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 74.76
   },
   "torajs": {
-    "commit": "a65c64966",
-    "commitSubject": "chore: map-str-100k bench case, the first Map/Set cell in the matrix",
+    "commit": "bb25487a9",
+    "commitSubject": "fix: an object's inspect shows what its prototypes carry",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "bb25487a9",
+      "subject": "fix: an object's inspect shows what its prototypes carry"
+    },
+    {
+      "hash": "8dda348b8",
+      "subject": "fix: a class accessor lands on the prototype at its declaration position"
+    },
+    {
+      "hash": "fa010fabb",
+      "subject": "fix: a class instance's prototype rows come from the reified prototype"
+    },
+    {
+      "hash": "03efbb604",
+      "subject": "fix: an object's inspect prefix is its constructor's name, then its toStringTag"
+    },
+    {
+      "hash": "2d6de689a",
+      "subject": "feat: class member names are property keys, their symbols a bijective spelling"
+    },
+    {
+      "hash": "9af525d71",
+      "subject": "chore: rotation 561 sweep on 52aa36d7f and bench on a65c649, zero test262 movement"
+    },
+    {
       "hash": "a65c64966",
       "subject": "chore: map-str-100k bench case, the first Map/Set cell in the matrix"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "62e1d35a0",
       "subject": "chore: rotation 560 sweep on 17e9a2252, zero movement and no regression"
-    },
-    {
-      "hash": "17e9a2252",
-      "subject": "fix: the fn-name registry row points at the name's Str cell, so a non-ASCII fn name keeps its spelling"
-    },
-    {
-      "hash": "c1b7e8bc8",
-      "subject": "fix: a non-ASCII name is minted into a Str by decoding, and struct keys print by the dynobj rule"
-    },
-    {
-      "hash": "bba778b44",
-      "subject": "fix: every runtime read of a Str payload goes by its WTF-8 spelling"
-    },
-    {
-      "hash": "287ce5791",
-      "subject": "chore: bench results for 49822c7 (runs=3, 4-runner matrix)"
-    },
-    {
-      "hash": "49822c7a8",
-      "subject": "chore: rotation 559 sweep on c1cdd523f, 360 verdicts forward and no regression"
-    },
-    {
-      "hash": "c1cdd523f",
-      "subject": "fix: a Symbol key at the struct name boundary is never read as a Str"
     }
   ],
-  "headSha": "a65c64966",
+  "headSha": "bb25487a9",
   "autorun": {
-    "total": 864,
+    "total": 865,
     "baselineTarget": 10,
-    "bySelf": 859,
+    "bySelf": 860,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788334025-30a4",
-      "at": "2026-09-02T07:27:05Z",
-      "ts": 1788334025,
+      "rotationId": "r-1788347274-521b",
+      "at": "2026-09-02T11:07:54Z",
+      "ts": 1788347274,
       "trigger": "self",
-      "prevHead": "62e1d35a0",
-      "handoffSha": "sha256:60a355ab5c7d493310d18029335bac6884cac472065b1940881d5586a56dd311",
-      "handoffAgeSec": 17,
+      "prevHead": "9af525d71",
+      "handoffSha": "sha256:509af6bcab053bf96de40786cbbc331ccd77d149e82eeb193f94671293eb9ca0",
+      "handoffAgeSec": 461,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788347274-521b",
+        "at": "2026-09-02T11:07:54Z",
+        "ts": 1788347274,
+        "trigger": "self",
+        "prevHead": "9af525d71",
+        "handoffSha": "sha256:509af6bcab053bf96de40786cbbc331ccd77d149e82eeb193f94671293eb9ca0",
+        "handoffAgeSec": 461,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788334025-30a4",
         "at": "2026-09-02T07:27:05Z",
@@ -892,17 +903,6 @@
         "prevHead": "d0844fd25",
         "handoffSha": "sha256:2f656e9bb06501ab0ff640b58e39b596c472c1b0255471e510d1c3a95bd3a10e",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788257355-25a5",
-        "at": "2026-09-01T10:09:15Z",
-        "ts": 1788257355,
-        "trigger": "self",
-        "prevHead": "001cf9d36",
-        "handoffSha": "sha256:6b4465f7502240f6155df82764e0a45b3843ca8a2d0096ab23eee190f41dcff5",
-        "handoffAgeSec": 2,
         "conformanceBefore": null,
         "commitsInSession": null
       }
