@@ -38,11 +38,13 @@
 //! UTF-16 path: pairs of bytes are read as little-endian u16,
 //! surrogate pairs combined to a single supplementary-plane
 //! codepoint, then re-encoded as UTF-8 (1-4 bytes per codepoint).
-//! Lone surrogates pass through as their numeric value (ES spec
-//! allows non-well-formed UTF-16 in JS strings; the terminal will
-//! see the lone surrogate as a 3-byte UTF-8 sequence even though
-//! it's not strictly valid Unicode — this matches V8 / JSC
-//! behavior when console.log'ing lone surrogates).
+//! A lone surrogate is written as U+FFFD (`EF BF BD`): the output is
+//! a byte stream that has to be UTF-8, and a surrogate is not a
+//! Unicode scalar value — bun and node both replace it on the way
+//! out (a WTF-8 → UTF-8 lossy conversion). The string itself keeps
+//! the code unit; only the emitted bytes are lossy. (Rotation 558:
+//! this file used to write the three-byte surrogate form and claimed
+//! V8 / JSC did the same — bun 1.4.0 writes `EF BF BD`.)
 
 use alloc::vec::Vec;
 
@@ -78,6 +80,21 @@ pub(crate) fn write_utf8_for_codepoint<F: FnMut(u8)>(cp: u32, mut put: F) {
         put((0x80 | ((cp >> 6) & 0x3F)) as u8);
         put((0x80 | (cp & 0x3F)) as u8);
     }
+}
+
+/// [`write_utf8_for_codepoint`] for the OUTPUT stream: a lone
+/// surrogate — a code unit `iter_utf16_codepoints` could not pair —
+/// becomes U+FFFD, so the bytes written are UTF-8. Only the three
+/// text emitters use this; JSON.stringify keeps the raw unit and
+/// escapes it itself (§25.5.2.2 well-formed stringify).
+#[inline]
+pub(crate) fn write_utf8_for_output<F: FnMut(u8)>(cp: u32, put: F) {
+    let scalar = if (0xD800..=0xDFFF).contains(&cp) {
+        0xFFFD
+    } else {
+        cp
+    };
+    write_utf8_for_codepoint(scalar, put);
 }
 
 /// Walk a UTF-16 LE encoded payload (`bytes.len()` must be even),
@@ -189,7 +206,7 @@ fn encode_payload_utf8(bytes: &[u8], is_latin1: bool, extra_cap: usize) -> Vec<u
         }
     } else {
         iter_utf16_codepoints(bytes, |cp| {
-            write_utf8_for_codepoint(cp, |u| out.push(u));
+            write_utf8_for_output(cp, |u| out.push(u));
         });
     }
     out
@@ -275,7 +292,7 @@ pub unsafe extern "C" fn __torajs_str_print_inline(s: *const u8) {
             let payload_bytes = length * 2;
             let bytes = unsafe { core::slice::from_raw_parts(s.add(STR_DATA_OFF), payload_bytes) };
             iter_utf16_codepoints(bytes, |cp| {
-                write_utf8_for_codepoint(cp, putc);
+                write_utf8_for_output(cp, putc);
             });
         }
     }
@@ -335,7 +352,7 @@ pub unsafe extern "C" fn __torajs_substr_print_inline(v: *const u8) {
             }
         } else {
             iter_utf16_codepoints(payload, |cp| {
-                write_utf8_for_codepoint(cp, putc);
+                write_utf8_for_output(cp, putc);
             });
         }
     }
@@ -483,14 +500,17 @@ mod tests {
     }
 
     #[test]
-    fn utf16_lone_high_surrogate_yields_3byte_utf8() {
-        // Lone high surrogate 0xD83D (no following low) — yielded
-        // as numeric codepoint 0xD83D, which encodes to 3-byte
-        // UTF-8 0xED 0xA0 0xBD per the formula. ES spec allows
-        // this even though strictly not a valid Unicode scalar.
+    fn utf16_lone_surrogate_writes_replacement_char() {
+        // A lone high surrogate 0xD83D (no following low) and a lone
+        // low 0xDE00 each write U+FFFD — the output must be UTF-8,
+        // and that is what bun writes for them.
         assert_eq!(
             format_write_err(Some((&[0x3D, 0xD8], false))),
-            b"\xED\xA0\xBD"
+            "\u{FFFD}".as_bytes()
+        );
+        assert_eq!(
+            format_write_err(Some((&[0x00, 0xDE, b'a', 0x00], false))),
+            "\u{FFFD}a".as_bytes()
         );
     }
 }
