@@ -96,7 +96,7 @@ cases = ["generator-yield-100k"]
 
 [categories.container]
 weight = 4
-cases = ["fifo-queue-100k"]
+cases = ["fifo-queue-100k", "map-str-100k"]
 
 [categories.throw]
 weight = 3

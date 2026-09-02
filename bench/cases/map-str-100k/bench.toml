@@ -1,0 +1,3 @@
+runs = 5
+warmup = 2
+torajs_opt = "O3"
