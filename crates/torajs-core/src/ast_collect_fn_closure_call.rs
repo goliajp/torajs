@@ -253,14 +253,15 @@ impl<'a> FnToClosureCollector<'a> {
         // raw FnSig can't serve the value use: a
         // bind_this_param-promoted fn (hidden `__this` first param —
         // every argument would land off by one slot) or an
-        // untyped-param fn (becomes a `__T<N>` generic with no
-        // concrete instance). Both ride the forwarder — its public
+        // no-original fn (an untyped param becomes a `__T<N>`
+        // generic; an explicit `<T>` is one outright — neither has
+        // a concrete instance). Both ride the forwarder — its public
         // face skips `__this` / defaults to `any`, and its direct
         // forwarding call is the mono site for the generic. Typed,
         // unpromoted named fns keep their raw FnSig fast paths.
         if matches!(self.ast.get_expr(*callee), Expr::Member { .. }) {
             for &arg in args {
-                if (self.is_this_promoted_ident(arg) || self.is_untyped_plain_fn_ident(arg))
+                if (self.is_this_promoted_ident(arg) || self.is_no_original_fn_ident(arg))
                     && !self.is_generator_family_ident(arg)
                 {
                     self.try_mark(arg);

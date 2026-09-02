@@ -39,10 +39,16 @@ impl<'a> FnToClosureCollector<'a> {
     /// the un-annotated shape, the closure-shape arm defaults them to
     /// `any`, and the forwarding DIRECT call is a mono site that
     /// instantiates the generic at all-any.
-    pub(crate) fn is_untyped_plain_fn_ident(&self, eid: ExprId) -> bool {
+    pub(crate) fn is_no_original_fn_ident(&self, eid: ExprId) -> bool {
         matches!(self.ast.get_expr(eid), Expr::Ident(n)
-            if self.fn_sigs.get(n).is_some_and(
-                |(params, _, _)| params.iter().any(|p| p.type_ann.is_none() && !p.is_rest)))
+            // 563-08 — an EXPLICIT generic (`function idf<T>(x: T)`)
+            // has no original for the same reason an implicit one
+            // does, and its params ARE annotated, so the older
+            // spelling of this question ("does it have an
+            // un-annotated param?") answered no for it.
+            if self.fn_type_params.contains_key(n)
+                || self.fn_sigs.get(n).is_some_and(
+                    |(params, _, _)| params.iter().any(|p| p.type_ann.is_none() && !p.is_rest)))
     }
 
     /// `Expr::Assign` arm.
@@ -198,7 +204,7 @@ impl<'a> FnToClosureCollector<'a> {
                 let no_original_base = plain_fn_base
                     && name != "name"
                     && name != "length"
-                    && self.is_untyped_plain_fn_ident(obj);
+                    && self.is_no_original_fn_ident(obj);
                 if (name != "prototype" && !no_original_base) || !self.try_mark(obj) {
                     self.walk_expr(obj);
                 }
@@ -233,7 +239,7 @@ impl<'a> FnToClosureCollector<'a> {
             // `undefined`). Wrapping answers "function" off the cell.
             Expr::TypeOf { expr } => {
                 let e = *expr;
-                let wraps = self.is_untyped_plain_fn_ident(e) && !self.is_generator_family_ident(e);
+                let wraps = self.is_no_original_fn_ident(e) && !self.is_generator_family_ident(e);
                 if !wraps || !self.try_mark(e) {
                     self.walk_expr(e);
                 }
