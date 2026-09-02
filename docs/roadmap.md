@@ -1670,7 +1670,35 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `7cf52c2f6`** (2026-09-02, rotation 556 — the any-widen lane
+**Latest @ `ede3eec5e`** (2026-09-02, rotation 558 — four knives on
+"the same value on another lane": a negated class's complement admits
+the surrogate range the WTF-8 haystack already spells; a rest closure
+captured into a callback keeps the boxed route its declaring frame
+gave it; a pattern without `u` matches over UTF-16 code units, with
+the haystack and `src_bytes` in the code-unit form and `u` / `v`
+merging pairs after the flags are known; and a lone surrogate written
+to stdout / stderr comes out as U+FFFD). Gate predicate: **143**
+clusters of ≥ 4 holding **1130** cases, register 2 · 251, residue
+465 · 624 (31.1%), core **2005**. Against rotation 557: clusters 143
+→ **143 (=)**, cases 1130 → **1130 (=)**, core 2005 → **2005 (=)** —
+every case this rotation moved sat in the `bug` bucket, so the
+`incompatible` face the predicate counts did not move.
+
+Sweep passTotal 35376 → **35390 (+14)**, pass 30202 → **30215 (+13)**,
+passNoOracle 1027 → **1028 (+1)**, passNegative 4147 (=), bug 12441 →
+**12427 (−14)**, incompatible 5357 (=), trAccepted 47817 (=);
+conservation exact (0 = +14 + −14). Verdict diff **14 changed, 0
+backward**, all RegExp: the three `\D` / `\S` / `\W` positive-case
+files (the negated escape now accepts a lone surrogate), `dotall/
+with-dotall`, `match-indices/indices-array-non-unicode-match`, the
+`ASCII` / `ASCII_Hex_Digit` property-escape generated files,
+`Symbol.match/builtin-infer-unicode`, two `regexp-modifiers` dotAll
+files, both `mongolian-vowel-separator` literals, and `staging/sm/
+RegExp/unicode-class-empty` (the rotation-557 de-watering regression,
+back to `pass` on the fix) with `unicode-class-negated`. Sweep wall
+955 → 704 s (the two-rotation climb reversed; still unattributed).
+
+**Prior @ `7cf52c2f6`** (2026-09-02, rotation 556 — the any-widen lane
 serves a call through a top-level `const` closure binding, the
 template object is a site-cache borrow in every owned-temp predicate,
 and the 65k-pair Unicode case-mapping table compiles: two quadratic

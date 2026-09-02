@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T22:45:01.586Z",
+  "generatedAt": "2026-09-02T03:25:48.385Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-01T22:41:54Z",
-    "headSha": "24ebb3cf6",
-    "elapsedSec": 954.92,
+    "ranAt": "2026-09-02T03:12:43Z",
+    "headSha": "ede3eec5e",
+    "elapsedSec": 703.74,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30202,
-    "passNoOracle": 1027,
+    "pass": 30215,
+    "passNoOracle": 1028,
     "passNegative": 4147,
-    "passTotal": 35376,
-    "bug": 12441,
+    "passTotal": 35390,
+    "bug": 12427,
     "incompatible": 5357,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47817,
-    "passRateInScope": 66.53,
-    "passRateTrAccepted": 73.98
+    "passRateInScope": 66.56,
+    "passRateTrAccepted": 74.01
   },
   "torajs": {
-    "commit": "24ebb3cf6",
-    "commitSubject": "fix: a template literal cooks \\xNN / \\uNNNN / \\u{…} like a string literal",
+    "commit": "ede3eec5e",
+    "commitSubject": "fix: a lone surrogate written to stdout or stderr comes out as U+FFFD",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,26 @@
   },
   "commits": [
     {
+      "hash": "ede3eec5e",
+      "subject": "fix: a lone surrogate written to stdout or stderr comes out as U+FFFD"
+    },
+    {
+      "hash": "905f1ff4a",
+      "subject": "fix: a pattern without u matches over UTF-16 code units"
+    },
+    {
+      "hash": "0cd8640e4",
+      "subject": "fix: a rest closure captured into a callback keeps its boxed route"
+    },
+    {
+      "hash": "30a63c122",
+      "subject": "fix: a negated class accepts a lone surrogate"
+    },
+    {
+      "hash": "48ef5049b",
+      "subject": "chore: rotation 557 sweep on 24ebb3cf6, 14 verdicts forward and one lone-surrogate regex gap surfaced"
+    },
+    {
       "hash": "24ebb3cf6",
       "subject": "fix: a template literal cooks \\xNN / \\uNNNN / \\u{…} like a string literal"
     },
@@ -747,47 +767,38 @@
     {
       "hash": "dcc87d8c7",
       "subject": "fix: an all-empty nested literal keeps its any-flavored inner blocks"
-    },
-    {
-      "hash": "c0e8131f2",
-      "subject": "fix: a typed array literal is built in place, one element at a time"
-    },
-    {
-      "hash": "402e76abc",
-      "subject": "perf: the linear-scan sweep stops scanning what it cannot free"
-    },
-    {
-      "hash": "cf6934dd4",
-      "subject": "fix: the any-widen lane admits a call through a top-level const closure"
-    },
-    {
-      "hash": "23af729e1",
-      "subject": "fix: the template object is a site-cache borrow, not a fresh call result"
-    },
-    {
-      "hash": "9752eed78",
-      "subject": "chore: rotation 555 final sweep on 51a569ec0, zero verdict movement"
     }
   ],
-  "headSha": "24ebb3cf6",
+  "headSha": "ede3eec5e",
   "autorun": {
-    "total": 860,
+    "total": 861,
     "baselineTarget": 10,
-    "bySelf": 855,
+    "bySelf": 856,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788297572-579f",
-      "at": "2026-09-01T21:19:32Z",
-      "ts": 1788297572,
+      "rotationId": "r-1788303258-75fa",
+      "at": "2026-09-01T22:54:18Z",
+      "ts": 1788303258,
       "trigger": "self",
-      "prevHead": "4fde928f0",
-      "handoffSha": "sha256:741adf22d104b75976c79de5bd9921424ba8141e1ed8ccb820ba1d87ba9b5692",
-      "handoffAgeSec": 13,
+      "prevHead": "48ef5049b",
+      "handoffSha": "sha256:46e729b8fde489dfe5d4fd8918d02bcfad9a1fb07b7ea1071c2b1de97edf28b7",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788303258-75fa",
+        "at": "2026-09-01T22:54:18Z",
+        "ts": 1788303258,
+        "trigger": "self",
+        "prevHead": "48ef5049b",
+        "handoffSha": "sha256:46e729b8fde489dfe5d4fd8918d02bcfad9a1fb07b7ea1071c2b1de97edf28b7",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788297572-579f",
         "at": "2026-09-01T21:19:32Z",
@@ -883,17 +894,6 @@
         "trigger": "self",
         "prevHead": "68ba49f23",
         "handoffSha": "sha256:c0dfe5977d5f175897ae306196fb67f7ed157fb38bc7cb24b7fff366d511ab24",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788213205-19e0",
-        "at": "2026-08-31T21:53:25Z",
-        "ts": 1788213205,
-        "trigger": "self",
-        "prevHead": "009f7f157",
-        "handoffSha": "sha256:fcef45bf6a6387c9b6b7deedb429889e182fb08b9df38a75b3c574e1bd6f7daf",
         "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
