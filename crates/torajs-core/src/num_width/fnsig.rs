@@ -146,10 +146,8 @@ impl<'a> Analysis<'a> {
                         continue;
                     }
                     for (fname, ann) in fields {
-                        let fk = SlotKey::Field(
-                            Box::new(SlotKey::Class(name.clone())),
-                            PropKey::from(fname),
-                        );
+                        let fk =
+                            SlotKey::Field(Box::new(SlotKey::Class(name.clone())), fname.clone());
                         self.fnsig_ann_union(&fk, ann);
                     }
                 }

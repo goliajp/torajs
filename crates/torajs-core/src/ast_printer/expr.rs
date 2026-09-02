@@ -65,7 +65,7 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
         Expr::ObjectLit { fields } => {
             println!("{pad}ObjectLit {{");
             for (n, eid) in fields {
-                println!("{pad}  {n}:");
+                println!("{pad}  {}:", n.lossy());
                 print_expr(ast, *eid, indent + 2);
             }
             println!("{pad}}}");

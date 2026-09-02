@@ -104,12 +104,12 @@ fn emit_ctor_fn(
 pub(super) fn rewrite_classdecls_pass3(
     ast: &mut Ast,
     class_index: &[ClassIndexEntry],
-    full_fields: &HashMap<String, Vec<(String, String)>>,
-    class_field_inits: &HashMap<String, Vec<(String, ExprId)>>,
+    full_fields: &HashMap<String, Vec<(PropKey, String)>>,
+    class_field_inits: &HashMap<String, Vec<(PropKey, ExprId)>>,
     class_field_preludes: &HashMap<String, Vec<Stmt>>,
     appended: &mut Vec<Stmt>,
-    accessor_getter_records: &mut Vec<(String, String, String)>,
-    accessor_setter_records: &mut Vec<(String, String, String)>,
+    accessor_getter_records: &mut Vec<(String, PropKey, String)>,
+    accessor_setter_records: &mut Vec<(String, PropKey, String)>,
 ) {
     // RFC 20260802-class-computed-member 刀 2 — per-class reify
     // patches spliced AFTER the TypeDecl at the class-decl position
@@ -291,7 +291,10 @@ fn emit_computed_member_reifies(
     let mut entries: Vec<(usize, String, i64, i64, Option<ExprId>)> = Vec::new();
     for (ms, is_static) in [(methods, 0i64), (static_methods, 1i64)] {
         for m in ms {
-            let Some(rest) = m.name.strip_prefix("__ccm_") else {
+            let Some(sentinel) = m.name.as_str() else {
+                continue;
+            };
+            let Some(rest) = sentinel.strip_prefix("__ccm_") else {
                 continue;
             };
             let Ok(n) = rest.trim_end_matches('_').parse::<usize>() else {
@@ -302,7 +305,7 @@ fn emit_computed_member_reifies(
                 Some(AccessorKind::Getter) => 1,
                 Some(AccessorKind::Setter) => 2,
             };
-            entries.push((n, m.name.clone(), kind, is_static, None));
+            entries.push((n, sentinel.to_string(), kind, is_static, None));
         }
     }
     for (fc, sentinel, init) in &ast.class_computed_static_fields {

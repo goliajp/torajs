@@ -40,8 +40,9 @@ pub struct FieldMetaSpec {
 /// class instance can resolve `c.next()` by name at runtime.
 #[derive(Debug, Clone)]
 pub struct MethodMetaSpec {
-    /// Method name as declared (`next`, not `__cm_Gen__next`).
-    pub name: String,
+    /// Method name as declared (`next`, not `__cm_Gen__next`) — the
+    /// property key itself, WTF-8 (a lone-surrogate key is a key).
+    pub name: PropKey,
     /// The boxed adapter fn — resolves to a vaddr through the
     /// `__torajs_fn_<i>` sym convention (vtable slots' mechanism).
     pub adapter_fid: FuncId,

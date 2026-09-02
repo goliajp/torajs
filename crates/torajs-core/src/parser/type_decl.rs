@@ -96,7 +96,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let mut fields: Vec<(String, String)> = Vec::new();
+        let mut fields: Vec<(PropKey, String)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             fields.push(self.parse_type_decl_field()?);
             while matches!(self.peek(), Token::Comma | Token::Semi) {
@@ -204,7 +204,7 @@ impl<'a> Parser<'a> {
             return Ok(Stmt::TypeDecl {
                 name,
                 type_params,
-                fields: vec![("__alias__".to_string(), ann)],
+                fields: vec![(PropKey::from("__alias__"), ann)],
             });
         }
         match self.peek() {
@@ -216,7 +216,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let mut fields: Vec<(String, String)> = Vec::new();
+        let mut fields: Vec<(PropKey, String)> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             fields.push(self.parse_type_decl_field()?);
             // V3-18 m1.h.54 — TS spec also allows `;` (or newline-implied
@@ -250,7 +250,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub(super) fn parse_type_decl_field(&mut self) -> Result<(String, String), String> {
+    pub(super) fn parse_type_decl_field(&mut self) -> Result<(PropKey, String), String> {
         // V3-18 wedge — `readonly` modifier on a type-body field
         // (`interface X { readonly id: number }`). TS-side only;
         // subset accepts and discards. Detect when followed by an
@@ -328,7 +328,7 @@ impl<'a> Parser<'a> {
             };
             let fn_ann =
                 crate::type_ann_fnsig::fn_type_ann("__fn", &param_anns.join("|"), &ret_ann);
-            return Ok((name, fn_ann));
+            return Ok((PropKey::from(name), fn_ann));
         }
         // V3-18 wedge — optional field `field?: T` in a `type X = {...}`
         // declaration. Same modeling as the inline-obj path: optional
@@ -353,6 +353,6 @@ impl<'a> Parser<'a> {
         } else {
             ty_raw
         };
-        Ok((name, ty))
+        Ok((PropKey::from(name), ty))
     }
 }

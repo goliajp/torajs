@@ -69,7 +69,7 @@ impl<'a> Analysis<'a> {
         if !seen.insert(ann.to_string()) {
             return;
         }
-        let fields: Vec<(String, String)> = self
+        let fields: Vec<(PropKey, String)> = self
             .ast
             .stmts
             .iter()
@@ -87,7 +87,7 @@ impl<'a> Analysis<'a> {
         }
         self.mark_containerish(key);
         for (fname, fann) in fields {
-            let fk = SlotKey::Field(Box::new(key.clone()), PropKey::from(fname));
+            let fk = SlotKey::Field(Box::new(key.clone()), fname);
             if number_domain(Some(&fann)) {
                 self.add_container_constraint(fk.clone(), W::F64);
             }

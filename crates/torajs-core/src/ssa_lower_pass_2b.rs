@@ -100,7 +100,7 @@ pub(crate) fn run(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,
     call_retargets: &HashMap<ExprId, String>,
@@ -243,7 +243,7 @@ pub(crate) fn run(
             let (src_sid, src_len) = crate::ssa_lower_inner::intern_fn_source(module, ast, *span);
             module.fn_name_globals.push(FnNameEntry {
                 fn_id: fid,
-                name: binding.to_string(),
+                name: crate::ast::PropKey::from(binding),
                 name_sid,
                 arity,
                 src_sid,

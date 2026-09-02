@@ -27,16 +27,16 @@ use std::collections::HashMap;
 pub(super) fn compute_class_field_default_inits(
     ast: &mut Ast,
     class_index: &[ClassIndexEntry],
-    full_fields: &HashMap<String, Vec<(String, String)>>,
+    full_fields: &HashMap<String, Vec<(PropKey, String)>>,
 ) -> (
-    HashMap<String, Vec<(String, ExprId)>>,
+    HashMap<String, Vec<(PropKey, ExprId)>>,
     HashMap<String, Vec<Stmt>>,
 ) {
     // Build a snapshot of every TypeDecl's field layout. Used by the
     // default-init helper below so a class field whose type is a type
     // alias (`type Step = { value: number, done: boolean }`) gets a
     // structurally-correct zero rather than a Number(0).
-    let mut type_alias_fields: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut type_alias_fields: HashMap<String, Vec<(PropKey, String)>> = HashMap::new();
     for s in &ast.stmts {
         if let Stmt::TypeDecl { name, fields, .. } = s {
             type_alias_fields.insert(name.clone(), fields.clone());
@@ -44,7 +44,7 @@ pub(super) fn compute_class_field_default_inits(
     }
     let combined_fields_map = full_fields.clone();
 
-    let mut class_field_inits: HashMap<String, Vec<(String, ExprId)>> = HashMap::new();
+    let mut class_field_inits: HashMap<String, Vec<(PropKey, ExprId)>> = HashMap::new();
     let mut class_field_preludes: HashMap<String, Vec<Stmt>> = HashMap::new();
 
     // For each class, build the list of typed default-initializer expressions
@@ -65,7 +65,7 @@ pub(super) fn compute_class_field_default_inits(
     // class fields on outer iterator classes (J.3 / I.2-inside-gen).
     for (_, cname, _tp, _, _, _, _, _, _) in class_index {
         let combined = full_fields.get(cname).unwrap().clone();
-        let mut init_pairs: Vec<(String, ExprId)> = Vec::with_capacity(combined.len());
+        let mut init_pairs: Vec<(PropKey, ExprId)> = Vec::with_capacity(combined.len());
         let mut prelude: Vec<Stmt> = Vec::new();
         for (fname, fty) in &combined {
             let id = super::default_init_for_field(

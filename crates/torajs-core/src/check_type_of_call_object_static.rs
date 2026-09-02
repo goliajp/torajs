@@ -124,7 +124,8 @@ pub(crate) fn try_match(
             for (key, read_ty) in own_property_types(s_fields) {
                 let Some((_, accepts)) = sinks.iter().find(|(k, _)| *k == key) else {
                     return Some(Err(format!(
-                        "Object.assign source[{i}] has property `{key}`, which the target struct has no slot for; target={target_ty:?}"
+                        "Object.assign source[{i}] has property `{}`, which the target struct has no slot for; target={target_ty:?}",
+                        key.lossy()
                     )));
                 };
                 // A get-only target property accepts nothing — the write
@@ -133,7 +134,8 @@ pub(crate) fn try_match(
                 let Some(write_ty) = accepts else { continue };
                 if *write_ty != read_ty {
                     return Some(Err(format!(
-                        "Object.assign source[{i}] property `{key}` is {read_ty:?}, but the target takes {write_ty:?}"
+                        "Object.assign source[{i}] property `{}` is {read_ty:?}, but the target takes {write_ty:?}",
+                        key.lossy()
                     )));
                 }
             }

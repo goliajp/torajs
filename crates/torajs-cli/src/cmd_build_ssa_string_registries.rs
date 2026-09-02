@@ -100,7 +100,7 @@ pub fn build_fn_name_globals(ssa_module: &Module) -> Vec<UserFnNameEntry> {
         .map(|e| UserFnNameEntry {
             fn_addr_sym: format!("__torajs_fn_{}", e.fn_id.0),
             name_ptr_sym: format!("__torajs_str_lit_{}", e.name_sid.0),
-            name_len: e.name.chars().count() as u32,
+            name_len: e.name.code_points().count() as u32,
             arity: e.arity,
             src_ptr_sym: e.src_sid.map(|sid| format!("__torajs_str_lit_{}", sid.0)),
             src_len: e.src_len,
@@ -161,7 +161,7 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
                 .methods
                 .iter()
                 .map(|mm| torajs_link::exec::UserMethodMetaEntry {
-                    name: mm.name.clone(),
+                    name: mm.name.as_bytes().to_vec(),
                     adapter_fn_id: Some(mm.adapter_fid.0),
                     // Bit 0 = this-free (S2.38); bit 1 = twin-primary
                     // (404-01 — the adapter is recv-first-shaped);

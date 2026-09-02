@@ -7,7 +7,9 @@
 //!
 //! Extracted from `fmt_stmt.rs` (2026-05-25, god-file decomp batch 19).
 
-use crate::ast::{ClassCtor, ClassMethod, ExportStar, ExprId, Param, StaticInit, Stmt, SwitchCase};
+use crate::ast::{
+    ClassCtor, ClassMethod, ExportStar, ExprId, Param, PropKey, StaticInit, Stmt, SwitchCase,
+};
 
 use super::Formatter;
 
@@ -53,7 +55,7 @@ impl<'a> Formatter<'a> {
         &mut self,
         name: &str,
         type_params: &[String],
-        fields: &[(String, String)],
+        fields: &[(PropKey, String)],
     ) {
         self.write_indent();
         self.write("type ");
@@ -64,7 +66,7 @@ impl<'a> Formatter<'a> {
             if i > 0 {
                 self.write(", ");
             }
-            self.write(fn_);
+            self.write(&fn_.to_string_lossy_owned());
             self.write(": ");
             self.write(fty);
         }
@@ -78,7 +80,7 @@ impl<'a> Formatter<'a> {
         type_params: &[String],
         parent: Option<ExprId>,
         is_abstract: bool,
-        fields: &[(String, String)],
+        fields: &[(PropKey, String)],
         static_init: &[StaticInit],
         ctor: Option<&ClassCtor>,
         methods: &[ClassMethod],
@@ -100,7 +102,7 @@ impl<'a> Formatter<'a> {
         self.indent += 1;
         for (fn_, ann) in fields {
             self.write_indent();
-            self.write(fn_);
+            self.write(&fn_.to_string_lossy_owned());
             self.write(": ");
             self.write(ann);
             self.newline();
@@ -110,7 +112,7 @@ impl<'a> Formatter<'a> {
             match si {
                 StaticInit::Field(sf) => {
                     self.write("static ");
-                    self.write(&sf.name);
+                    self.write(&sf.name.to_string_lossy_owned());
                     self.write(": ");
                     self.write(&sf.type_ann);
                     self.write(" = ");

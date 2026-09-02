@@ -109,10 +109,11 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
             let mut had_err = false;
             for (fname, fty_ann) in fields {
                 match resolve_type_ann_full(fty_ann, &c.aliases, &[], &c.generic_alias_decls) {
-                    Some(ty) => field_tys.push((PropKey::from(fname), ty)),
+                    Some(ty) => field_tys.push((fname.clone(), ty)),
                     None => {
                         c.errors.push_err(format!(
-                            "unknown type `{fty_ann}` for field `{fname}` of `{name}`"
+                            "unknown type `{fty_ann}` for field `{}` of `{name}`",
+                            fname.lossy()
                         ));
                         had_err = true;
                         break;

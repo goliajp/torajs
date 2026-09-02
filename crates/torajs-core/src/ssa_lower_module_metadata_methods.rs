@@ -8,6 +8,8 @@
 
 use std::collections::HashMap;
 
+use crate::ast::{PropKey, mangle_key, unmangle_key};
+
 use crate::ssa;
 
 /// 刀 4 (RFC 20260714-t262-top-clusters) — collect every class's OWN
@@ -49,15 +51,15 @@ pub(crate) fn collect_own_class_methods(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     class_names: &[&String],
-) -> HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>> {
-    let mut accessor_slots: HashMap<&str, String> = HashMap::new();
+) -> HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>> {
+    let mut accessor_slots: HashMap<&str, PropKey> = HashMap::new();
     for ((_, prop), fname) in &ast.accessor_getters {
-        accessor_slots.insert(fname.as_str(), format!("__getter_{prop}"));
+        accessor_slots.insert(fname.as_str(), PropKey::prefixed("__getter_", prop));
     }
     for ((_, prop), fname) in &ast.accessor_setters {
-        accessor_slots.insert(fname.as_str(), format!("__setter_{prop}"));
+        accessor_slots.insert(fname.as_str(), PropKey::prefixed("__setter_", prop));
     }
-    let mut own: HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>> = HashMap::new();
+    let mut own: HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>> = HashMap::new();
     // Declaration order: walk the top-level FnDecls in source order
     // rather than iterating `fn_table` (a HashMap), so each class's
     // rows land in class-body order. `console.log(instance)` reifies
@@ -130,11 +132,14 @@ pub(crate) fn collect_own_class_methods(
             // Typed mono rows (`id$$_number`) also keep theirs: user
             // code cannot reach them by name, and their call sites
             // are statically retargeted anyway.
+            // The symbol spelling is a bijection of the key (557-02 C
+            // 组 — `unmangle_key`), so the row's runtime name is
+            // recovered from the fn name exactly.
             None => match mname.strip_suffix("$$anywv") {
                 Some(base) if is_generic_method_decl(ast, &format!("__cm_{cname}__{base}")) => {
-                    base.to_string()
+                    unmangle_key(base)
                 }
-                _ => mname.to_string(),
+                _ => unmangle_key(mname),
             },
         };
         // Blade 3 — the receiver-polymorphic twin's body fid, when
@@ -168,13 +173,13 @@ pub(crate) fn collect_own_class_methods(
 /// honest no-such TypeError.
 pub(crate) fn resolve_class_methods(
     ast: &crate::ast::Ast,
-    own_methods: &HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     this_free_fids: &std::collections::HashSet<ssa::FuncId>,
     cname: &str,
 ) -> Vec<ssa::MethodMetaSpec> {
     let mut out: Vec<ssa::MethodMetaSpec> = Vec::new();
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<&PropKey> = std::collections::HashSet::new();
     let mut cur: Option<String> = Some(cname.to_string());
     let mut depth = 0u32;
     while let Some(name) = cur {
@@ -192,18 +197,18 @@ pub(crate) fn resolve_class_methods(
             // the declaration-order walk keep it: a plain first-seen
             // dedup would shadow the mono behind the adapter-less
             // original and drop the method.
-            let mut order: Vec<&str> = Vec::new();
-            let mut best: HashMap<&str, (ssa::FuncId, Option<ssa::FuncId>)> = HashMap::new();
+            let mut order: Vec<&PropKey> = Vec::new();
+            let mut best: HashMap<&PropKey, (ssa::FuncId, Option<ssa::FuncId>)> = HashMap::new();
             for (mname, fid, twin_fid) in methods {
-                match best.get(mname.as_str()) {
+                match best.get(mname) {
                     None => {
-                        order.push(mname.as_str());
-                        best.insert(mname.as_str(), (*fid, *twin_fid));
+                        order.push(mname);
+                        best.insert(mname, (*fid, *twin_fid));
                     }
                     Some((cur_fid, _)) if !boxed_entries.contains_key(cur_fid) => {
                         // Upgrade to an adapter-bearing row if this one has one.
                         if boxed_entries.contains_key(fid) {
-                            best.insert(mname.as_str(), (*fid, *twin_fid));
+                            best.insert(mname, (*fid, *twin_fid));
                         }
                     }
                     Some(_) => {}
@@ -216,7 +221,7 @@ pub(crate) fn resolve_class_methods(
                 let (fid, twin_fid) = best[mname];
                 if let Some(&(adapter_fid, _)) = boxed_entries.get(&fid) {
                     out.push(ssa::MethodMetaSpec {
-                        name: mname.to_string(),
+                        name: mname.clone(),
                         adapter_fid,
                         this_free: this_free_fids.contains(&fid),
                         twin_adapter_fid: twin_fid
@@ -274,7 +279,7 @@ pub(crate) fn retarget_generic_class_methods(
             // the row may be inherited, and the twin reads through
             // GetV so it is sound under a subclass receiver too).
             let decl = accessor_decl_for(ast, base, &m.name)
-                .unwrap_or_else(|| format!("__cm_{base}__{}", m.name));
+                .unwrap_or_else(|| format!("__cm_{base}__{}", mangle_key(&m.name)));
             let Some(twin) = ast.cmany_twins.get(&decl) else {
                 return m.this_free.then_some(m);
             };
@@ -293,18 +298,19 @@ pub(crate) fn retarget_generic_class_methods(
 /// `__cm_Box__value_get`), walking `class_parents` because a resolved
 /// method table merges inherited rows. `None` for a plain method row
 /// or an accessor no ancestor declares.
-fn accessor_decl_for(ast: &crate::ast::Ast, base: &str, slot: &str) -> Option<String> {
+fn accessor_decl_for(ast: &crate::ast::Ast, base: &str, slot: &PropKey) -> Option<String> {
     let (table, prop) = match slot.strip_prefix("__getter_") {
         Some(p) => (&ast.accessor_getters, p),
         None => (&ast.accessor_setters, slot.strip_prefix("__setter_")?),
     };
+    let prop = PropKey::from(prop);
     let mut cur = Some(base.to_string());
     let mut depth = 0u32;
     while let Some(c) = cur {
         if depth > 64 {
             break;
         }
-        if let Some(f) = table.get(&(c.clone(), prop.to_string())) {
+        if let Some(f) = table.get(&(c.clone(), prop.clone())) {
             return Some(f.clone());
         }
         cur = ast.class_parents.get(&c).and_then(|p| p.clone());

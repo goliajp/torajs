@@ -54,8 +54,8 @@ mod collect;
 /// instantiates from `generic` by word-boundary substitution — the
 /// same dance as the checker's `resolve_generic`.
 struct AliasEnv {
-    plain: HashMap<String, Vec<(String, String)>>,
-    generic: HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    plain: HashMap<String, Vec<(PropKey, String)>>,
+    generic: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
 }
 
 pub fn fill_optional_fields(ast: &mut Ast) {
@@ -89,7 +89,7 @@ pub fn fill_optional_fields(ast: &mut Ast) {
             _ => {}
         }
     }
-    let mut jobs: Vec<(ExprId, Vec<(String, String)>)> = Vec::new();
+    let mut jobs: Vec<(ExprId, Vec<(PropKey, String)>)> = Vec::new();
     collect::collect_jobs(ast, &ast.stmts, &env, &fn_params, &mut jobs);
     for (lit_eid, declared) in jobs {
         let Expr::ObjectLit { fields } = ast.get_expr(lit_eid).clone() else {
@@ -104,7 +104,7 @@ pub fn fill_optional_fields(ast: &mut Ast) {
                 FillSlot::Existing(name, eid) => rebuilt.push((name, eid)),
                 FillSlot::Undefined(name) => {
                     let ueid = ast.add_expr(Expr::Ident("undefined".to_string()));
-                    rebuilt.push((PropKey::from(name), ueid));
+                    rebuilt.push((name, ueid));
                 }
             }
         }
@@ -114,7 +114,7 @@ pub fn fill_optional_fields(ast: &mut Ast) {
 
 enum FillSlot {
     Existing(PropKey, ExprId),
-    Undefined(String),
+    Undefined(PropKey),
 }
 
 /// Resolve a let-decl annotation to a declared field list: a bare
@@ -123,7 +123,7 @@ enum FillSlot {
 /// substitution; an `__inlobj(a:T|b:U)` spelling splits inline
 /// (depth-aware — nested parens shield the `|` / `:` of fn-type
 /// members).
-fn resolve_struct_ann(ann: &str, env: &AliasEnv) -> Option<Vec<(String, String)>> {
+fn resolve_struct_ann(ann: &str, env: &AliasEnv) -> Option<Vec<(PropKey, String)>> {
     if let Some(fields) = env.plain.get(ann) {
         return Some(fields.clone());
     }
@@ -137,7 +137,7 @@ fn resolve_struct_ann(ann: &str, env: &AliasEnv) -> Option<Vec<(String, String)>
     let mut fields = Vec::new();
     for part in split_depth0(inner, '|') {
         let (name, ty) = split_once_depth0(part, ':')?;
-        fields.push((name.trim().to_string(), ty.trim().to_string()));
+        fields.push((PropKey::from(name.trim()), ty.trim().to_string()));
     }
     Some(fields)
 }
@@ -149,7 +149,7 @@ fn resolve_struct_ann(ann: &str, env: &AliasEnv) -> Option<Vec<(String, String)>
 /// in every field annotation — the same dance as the checker's
 /// `resolve_generic`. `None` when the head is not a declared generic
 /// alias or the arg count mismatches (checker stays loud).
-fn instantiate_generic(ann: &str, env: &AliasEnv) -> Option<Vec<(String, String)>> {
+fn instantiate_generic(ann: &str, env: &AliasEnv) -> Option<Vec<(PropKey, String)>> {
     let open_idx = ann.find('<')?;
     if !ann.ends_with('>') {
         return None;
@@ -178,7 +178,7 @@ fn instantiate_generic(ann: &str, env: &AliasEnv) -> Option<Vec<(String, String)
 /// (leave the literal alone — checker stays loud) on any other shape.
 fn plan_fill(
     literal: &[(PropKey, ExprId)],
-    declared: &[(String, String)],
+    declared: &[(PropKey, String)],
     env: &AliasEnv,
 ) -> Option<Vec<FillSlot>> {
     if literal.len() == declared.len() {

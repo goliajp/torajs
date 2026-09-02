@@ -44,11 +44,24 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// The "neither `(` nor `:` after the member name" reject.
+    pub(super) fn member_shape_err(
+        &self,
+        member_name: &PropKey,
+        t: impl std::fmt::Debug,
+    ) -> String {
+        format!(
+            "expected `(` (method) or `:` (field) after `{}`, got {t:?} at {}",
+            member_name.lossy(),
+            self.at()
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn parse_class_member_method_or_ctor(
         &mut self,
         name: &str,
-        member_name: String,
+        member_name: PropKey,
         consumed_computed_name: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
@@ -57,7 +70,7 @@ impl<'a> Parser<'a> {
         is_async: bool,
         accessor_kind: Option<ast::AccessorKind>,
         member_span_start: u32,
-        fields: &mut Vec<(String, String)>,
+        fields: &mut Vec<(PropKey, String)>,
         ctor: &mut Option<ClassCtor>,
         methods: &mut Vec<ClassMethod>,
         static_methods: &mut Vec<ClassMethod>,
@@ -91,7 +104,7 @@ impl<'a> Parser<'a> {
         } else {
             let (mut p, dl) = self.parse_param_list()?;
             self.reject_duplicate_params(&p, true)?;
-            self.reject_accessor_arity(accessor_kind, &p, &member_name)?;
+            self.reject_accessor_arity(accessor_kind, &p, &member_name.lossy())?;
             // 刀 1b — method-position default params infer their ann
             // from the default (see param_list.rs).
             self.infer_default_param_anns(&mut p);
@@ -129,8 +142,9 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Token::LBrace => self.pos += 1,
                 t => {
+                    let mn = member_name.lossy();
                     return Err(format!(
-                        "expected `{{` for {member_name} body, got {t:?} at {}",
+                        "expected `{{` for {mn} body, got {t:?} at {}",
                         self.at()
                     ));
                 }
@@ -181,8 +195,9 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                 }
                 t => {
+                    let mn = member_name.lossy();
                     return Err(format!(
-                        "expected `}}` to end {member_name} body, got {t:?} at {}",
+                        "expected `}}` to end {mn} body, got {t:?} at {}",
                         self.at()
                     ));
                 }
@@ -257,7 +272,7 @@ impl<'a> Parser<'a> {
         name: &str,
         params: &[Param],
         promoted_props: &[(usize, ast::Visibility, bool)],
-        fields: &mut Vec<(String, String)>,
+        fields: &mut Vec<(PropKey, String)>,
         body: Vec<Stmt>,
     ) -> Vec<Stmt> {
         if promoted_props.is_empty() {
@@ -267,16 +282,16 @@ impl<'a> Parser<'a> {
         for (idx, vis, rd) in promoted_props {
             let p = &params[*idx];
             let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
-            fields.push((p.name.clone(), ty_ann));
+            fields.push((PropKey::from(&p.name), ty_ann));
             if *vis != ast::Visibility::Public {
                 self.ast
                     .member_visibility
-                    .insert((name.to_string(), p.name.clone()), *vis);
+                    .insert((name.to_string(), PropKey::from(&p.name)), *vis);
             }
             if *rd {
                 self.ast
                     .readonly_fields
-                    .insert((name.to_string(), p.name.clone()));
+                    .insert((name.to_string(), PropKey::from(&p.name)));
             }
             let this_ref = self.ast.add_expr(Expr::This);
             let lhs = self.ast.add_expr(Expr::Member {

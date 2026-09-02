@@ -203,7 +203,7 @@ pub(crate) fn run(
             // A data field the ann sniffer can't type falls back to
             // `any` rather than dropping out of the layout, so
             // `this.<field>` still resolves.
-            let mut td_fields: Vec<(String, String)> = Vec::new();
+            let mut td_fields: Vec<(PropKey, String)> = Vec::new();
             let mut method_names: Vec<String> = Vec::new();
             for (key, feid) in fields {
                 let fname = key.as_str().unwrap();
@@ -215,7 +215,7 @@ pub(crate) fn run(
                         continue;
                     };
                     method_names.push(fname.to_string());
-                    td_fields.push((fname.to_string(), "__mth_placeholder".to_string()));
+                    td_fields.push((PropKey::from(fname), "__mth_placeholder".to_string()));
                     // Rotation 461 — the this-FREE accessors, whose
                     // receiver slot is declared and never read (see
                     // `settle_collected`).
@@ -235,7 +235,7 @@ pub(crate) fn run(
                 // same sniffer as any other fn-valued field.
                 let ann = infer_expr_ann_with(view, *feid, &site_params, &site_binds, fn_sigs)
                     .unwrap_or_else(|| "any".to_string());
-                td_fields.push((fname.to_string(), super::retag_field_fn_ann(&ann)));
+                td_fields.push((PropKey::from(fname), super::retag_field_fn_ann(&ann)));
             }
             objlit_method_fields.insert(objlit_ty.clone(), method_names);
             type_decls.push(Stmt::TypeDecl {

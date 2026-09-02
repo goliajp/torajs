@@ -51,6 +51,7 @@
 //! non-closure-cell callees — the wrap routes the value through the
 //! closure construction site, which carries the boxed dual entry.
 
+use crate::ast::PropKey;
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
@@ -68,12 +69,12 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// slot can't take a raw FnSig. The canonical `__forward_*` cell
     /// keeps identity across wrap sites, so `===` faces still agree.
     pub(crate) fn_type_params: &'a HashMap<String, Vec<String>>,
-    pub(crate) struct_field_anns: &'a HashMap<String, HashMap<String, String>>,
+    pub(crate) struct_field_anns: &'a HashMap<String, HashMap<PropKey, String>>,
     /// Generic TypeDecl snapshots (name → (type params, fields with
     /// the params still spelled inside)) — chunk 795: the wrap axes
     /// resolve `Box<() => number>` instantiations by word-boundary
     /// substitution, mirroring `fill_optional_fields`'s AliasEnv.
-    pub(crate) generic_field_anns: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    pub(crate) generic_field_anns: &'a HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     /// Binding names declared with an `any` annotation anywhere in
     /// the program (scope-approximate; see module doc).
     pub(crate) any_bindings: &'a HashSet<String>,

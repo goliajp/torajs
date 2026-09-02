@@ -5,7 +5,7 @@
 //! explicit `let x: T` annotations, `collect_let_init_anns` infers
 //! them from literal / `new Map<K, V>()` init shapes.
 
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, PropKey, Stmt};
 
 /// Walk `body` collecting `let name = <init>` shapes where the init is a
 /// literal whose type can be inferred (number / string / boolean / array
@@ -226,7 +226,7 @@ pub(super) fn seed_container_field_hints(
                 return;
             };
             for (fname, fexpr) in fields {
-                let Some(fann) = fname.as_str().and_then(|f| field_anns.get(f)) else {
+                let Some(fann) = field_anns.get(fname) else {
                     continue;
                 };
                 match lifted_closure_name(ast, *fexpr) {
@@ -267,7 +267,9 @@ pub(super) fn seed_container_field_hints(
 /// type reads the same whether the arrow is written into it or handed
 /// to a method on it.
 pub(super) fn field_ann_of(ast: &Ast, ann: &str, fname: &str) -> Option<String> {
-    resolve_object_field_anns(ast, ann)?.get(fname).cloned()
+    resolve_object_field_anns(ast, ann)?
+        .get(&PropKey::from(fname))
+        .cloned()
 }
 
 /// Field name → annotation for an object type named by `ann`, whether
@@ -275,10 +277,15 @@ pub(super) fn field_ann_of(ast: &Ast, ann: &str, fname: &str) -> Option<String> 
 fn resolve_object_field_anns(
     ast: &Ast,
     ann: &str,
-) -> Option<std::collections::HashMap<String, String>> {
+) -> Option<std::collections::HashMap<PropKey, String>> {
     let ann = ann.trim();
     if let Some(fields) = crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(ann) {
-        return Some(fields);
+        return Some(
+            fields
+                .into_iter()
+                .map(|(k, v)| (PropKey::from(k), v))
+                .collect(),
+        );
     }
     ast.stmts.iter().find_map(|s| match s {
         Stmt::TypeDecl { name, fields, .. } if name == ann => {

@@ -13,7 +13,7 @@
 //!   `accessor_getters` probe (P8.2: `c.value` answers the getter's
 //!   RETURN type per ES §10.1.7 [[Get]]).
 
-use crate::ast::{Ast, Expr, ExprId, Visibility};
+use crate::ast::{Ast, Expr, ExprId, PropKey, Visibility};
 use crate::check::{Checker, Type, resolve_class_ref};
 
 /// The two accessor-read probes, in the order the member checker ran
@@ -132,7 +132,7 @@ pub(crate) fn enforce_visibility(
     };
     let Some(vis) = ast
         .member_visibility
-        .get(&(cls.to_string(), name.to_string()))
+        .get(&(cls.to_string(), PropKey::from(name)))
         .copied()
     else {
         return Ok(());

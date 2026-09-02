@@ -22,7 +22,7 @@
 
 use std::collections::HashMap;
 
-use super::Ast;
+use super::{Ast, PropKey};
 use crate::check_type_ann::split_top_pipe;
 use crate::check_type_ann_substitute::ann_substitute;
 
@@ -51,7 +51,7 @@ pub(crate) fn accessor_setter_in_chain(
 }
 
 fn accessor_in_chain(
-    table: &HashMap<(String, String), String>,
+    table: &HashMap<(String, PropKey), String>,
     ast: &Ast,
     cls_key: &str,
     prop: &str,
@@ -83,7 +83,7 @@ fn accessor_in_chain(
     let mut cur = Some(head.to_string());
     for _ in 0..=ast.class_parents.len() {
         let c = cur?;
-        if let Some(f) = table.get(&(c.clone(), prop.to_string())) {
+        if let Some(f) = table.get(&(c.clone(), PropKey::from(prop))) {
             return Some(AccessorHit {
                 fn_name: f.clone(),
                 subst,

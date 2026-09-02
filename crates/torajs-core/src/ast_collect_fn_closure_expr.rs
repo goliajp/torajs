@@ -5,7 +5,7 @@
 //! doc lists every axis). The `Expr::Call` arm lives in
 //! `ast_collect_fn_closure_call.rs` since rotation 291.
 
-use crate::ast::{Ast, BinOp, Expr, ExprId};
+use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey};
 use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann};
 
 impl<'a> FnToClosureCollector<'a> {
@@ -82,7 +82,7 @@ impl<'a> FnToClosureCollector<'a> {
         if let Expr::Member { obj, name: fname } = self.ast.get_expr(*target)
             && let Some(field_anns) = self.resolve_receiver_fields(*obj)
             && field_anns
-                .get(fname)
+                .get(&PropKey::from(fname))
                 .is_some_and(|a| is_fn_like_field_ann(a))
         {
             self.try_mark(*value);

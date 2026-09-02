@@ -411,7 +411,9 @@ pub(crate) fn infer_expr_ann_with(
             }
             fields
                 .iter()
-                .map(|(n, eid)| recur(*eid).map(|t| format!("{n}:{}", retag_field_fn_ann(&t))))
+                .map(|(n, eid)| {
+                    recur(*eid).map(|t| format!("{}:{}", n.lossy(), retag_field_fn_ann(&t)))
+                })
                 .collect::<Option<Vec<_>>>()
                 .map(|p| format!("__inlobj({})", p.join("|")))
         }

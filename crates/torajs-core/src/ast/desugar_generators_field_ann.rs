@@ -170,8 +170,13 @@ fn objlit_ann(ast: &Ast, fields: &[(PropKey, super::ExprId)], ctx: &LiftCtx) -> 
     let parts: Vec<String> = fields
         .iter()
         .map(|(n, eid)| {
-            field_ann(ast, *eid, ctx)
-                .map(|t| format!("{n}:{}", super::lift_arrow_fns::retag_field_fn_ann(&t)))
+            field_ann(ast, *eid, ctx).map(|t| {
+                format!(
+                    "{}:{}",
+                    n.lossy(),
+                    super::lift_arrow_fns::retag_field_fn_ann(&t)
+                )
+            })
         })
         .collect::<Option<Vec<_>>>()?;
     Some(format!("__inlobj({})", parts.join("|")))

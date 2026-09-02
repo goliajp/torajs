@@ -332,7 +332,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     let member_names: Vec<&str> = methods
         .iter()
         .chain(static_methods.iter())
-        .map(|m| m.name.as_str())
+        .filter_map(|m| m.name.as_str())
         .collect();
     // Computed STATIC fields (406-02) — their sentinels come from the
     // side table by class name; `decline_reason` admits them only for
@@ -456,7 +456,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         // stayed assignments and stayed wrongly enumerable, and a
         // static accessor or a computed static name — neither of which
         // an assignment can even spell — was declined outright.
-        let key = match sentinel_index(&m.name) {
+        let key = match m.name.as_str().and_then(sentinel_index) {
             Some(n) => ast.add_expr(Expr::Ident(key_binding(src_name, n))),
             None => ast.add_expr(Expr::String(m.name.clone().into())),
         };

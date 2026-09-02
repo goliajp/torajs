@@ -8,6 +8,7 @@
 
 use super::sloppy_this_prologue::insert_sloppy_this_prologue;
 use super::{Expr, ExprId, Param, Stmt};
+use crate::ast::PropKey;
 
 /// A closure to patch: the lifted FnDecl gains a `__this: any` param.
 pub(super) struct FacePatch {
@@ -307,7 +308,7 @@ pub(super) fn collect_store_face(
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     props_recvs: &std::collections::HashSet<String>,
     expando_recvs: &super::fnexpr_this_expando::ExpandoRecvs,
-    any_this_fields: &std::collections::HashSet<String>,
+    any_this_fields: &std::collections::HashSet<PropKey>,
     target: ExprId,
     value: ExprId,
     patches: &mut Vec<FacePatch>,
@@ -318,7 +319,7 @@ pub(super) fn collect_store_face(
     // (`Expr::Index`) names no field and stays out.
     if let Expr::Member { obj, name } = &exprs[target.0 as usize]
         && matches!(&exprs[peel_any_cast(exprs, *obj).0 as usize], Expr::Ident(n) if n == "__this")
-        && any_this_fields.contains(name)
+        && any_this_fields.contains(&PropKey::from(name))
     {
         collect_face(stmts, exprs, value, fn_expr_exprs, patches);
         collect_ident_face(exprs, value, ident_cands);
@@ -400,9 +401,9 @@ pub(super) fn collect_store_face(
 /// as a signature makes the name ambiguous — and an ambiguous name is
 /// refused for both. Over-refusal costs today's answer; a mispair would
 /// cost the argument shift.
-pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet<String> {
-    let mut admitted: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut other_typed: std::collections::HashSet<String> = std::collections::HashSet::new();
+pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet<PropKey> {
+    let mut admitted: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
+    let mut other_typed: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
     for s in stmts {
         let Stmt::TypeDecl { fields, .. } = s else {
             continue;

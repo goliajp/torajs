@@ -20,7 +20,7 @@
 //! borrowed since it survives outside the per-generator loop for
 //! cross-cutting checks.
 
-use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
+use super::{Ast, ClassCtor, ClassMethod, Expr, ExprId, Param, PropKey, Stmt, Visibility};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn assemble_generator_class_and_factory(
@@ -43,8 +43,11 @@ pub(super) fn assemble_generator_class_and_factory(
     // P10.6-A3 nominal marker (per-generator unique field name so
     // structurally-identical generator classes get distinct sids),
     // followed by __state + __sent. See desugar_generators.
-    let mut class_fields: Vec<(String, String)> = vec![
-        (format!("__gen_nominal_{gen_name}"), "number".into()),
+    let mut class_fields: Vec<(PropKey, String)> = vec![
+        (
+            PropKey::from(format!("__gen_nominal_{gen_name}")),
+            "number".into(),
+        ),
         ("__state".into(), "number".into()),
         ("__sent".into(), yield_ty.into()),
     ];
@@ -53,7 +56,7 @@ pub(super) fn assemble_generator_class_and_factory(
     // when the corresponding let-rewrite assignment fires inside
     // next() body.
     for (lname, lty) in lifted_locals {
-        class_fields.push((lname.clone(), lty.clone()));
+        class_fields.push((PropKey::from(lname), lty.clone()));
         // The `let`'s annotation is about to be the only record that
         // this field holds a generator object — see
         // `Ast::generator_local_classes`.
@@ -74,7 +77,7 @@ pub(super) fn assemble_generator_class_and_factory(
         }
         let pname = p.name.clone();
         let pty = p.type_ann.clone().unwrap_or_else(|| "any".into());
-        class_fields.push((pname.clone(), pty));
+        class_fields.push((PropKey::from(&pname), pty));
         // this.<param> = <param>
         let this_id = ast.add_expr(Expr::This);
         let f_member = ast.add_expr(Expr::Member {
@@ -93,7 +96,7 @@ pub(super) fn assemble_generator_class_and_factory(
     // against the ctor params verbatim, then each leaf binding is
     // stored into its class field for the state machine to read.
     for leaf in destr_leaf_fields {
-        class_fields.push((leaf.clone(), "any".into()));
+        class_fields.push((PropKey::from(leaf), "any".into()));
     }
     ctor_body_with_params.extend(ctor_destr_lets);
     for leaf in destr_leaf_fields {

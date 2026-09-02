@@ -141,6 +141,7 @@ impl<'a> Parser<'a> {
             self.pos += star_off + 2;
             (PropKey::from(method_name), None)
         };
+        let mn = method_name.lossy();
 
         // §15.5.1 — the generator bit swaps in BEFORE the param list
         // (FormalParameters[+Yield]); error paths do not restore.
@@ -155,7 +156,7 @@ impl<'a> Parser<'a> {
             Token::LBrace => self.pos += 1,
             t => {
                 return Err(format!(
-                    "expected `{{` after generator object-method `{method_name}` header, got {t:?} at {}",
+                    "expected `{{` after generator object-method `{mn}` header, got {t:?} at {}",
                     self.at()
                 ));
             }
@@ -200,7 +201,7 @@ impl<'a> Parser<'a> {
             Token::RBrace => self.pos += 1,
             t => {
                 return Err(format!(
-                    "expected `}}` to end generator object-method `{method_name}` body, got {t:?} at {}",
+                    "expected `}}` to end generator object-method `{mn}` body, got {t:?} at {}",
                     self.at()
                 ));
             }

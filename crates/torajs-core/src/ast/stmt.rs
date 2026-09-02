@@ -231,7 +231,7 @@ pub enum Stmt {
     TypeDecl {
         name: String,
         type_params: Vec<String>,
-        fields: Vec<(String, String)>,
+        fields: Vec<(PropKey, String)>,
     },
     /// M5.1 — `class ClassName { fields; constructor(...) {...} methods }`.
     /// Single-class, no inheritance / super / virtual dispatch yet.
@@ -264,7 +264,7 @@ pub enum Stmt {
         /// concrete (non-abstract) subclass must override every abstract
         /// method along the inheritance chain.
         is_abstract: bool,
-        fields: Vec<(String, String)>,
+        fields: Vec<(PropKey, String)>,
         /// P8.3 — ordered list of static initialization steps. Each entry
         /// is either `StaticInit::Field(StaticField)` (desugars to
         /// `let __sf_<Class>__<name>: T = init`) or `StaticInit::Block(Vec<Stmt>)`

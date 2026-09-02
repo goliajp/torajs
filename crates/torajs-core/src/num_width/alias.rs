@@ -30,7 +30,6 @@
 //! different widths).
 
 use super::{Analysis, SlotKey};
-use crate::ast::PropKey;
 use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -288,7 +287,7 @@ impl<'a> Analysis<'a> {
             .collect();
         for (fname, fann) in &fields {
             let substituted = crate::ssa_lower::substitute_in_ann(fann, &subst);
-            let fk = SlotKey::Field(Box::new(SlotKey::Class(key.clone())), PropKey::from(fname));
+            let fk = SlotKey::Field(Box::new(SlotKey::Class(key.clone())), fname.clone());
             self.alias_ann_union(&fk, &substituted);
         }
         true
@@ -327,10 +326,8 @@ impl<'a> Analysis<'a> {
                         continue;
                     }
                     for (fname, ann) in fields {
-                        let fk = SlotKey::Field(
-                            Box::new(SlotKey::Class(name.clone())),
-                            PropKey::from(fname),
-                        );
+                        let fk =
+                            SlotKey::Field(Box::new(SlotKey::Class(name.clone())), fname.clone());
                         self.alias_ann_union(&fk, ann);
                     }
                 }

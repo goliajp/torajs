@@ -8,7 +8,7 @@
 //! module doc).
 
 use super::swap_prefix;
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, PropKey, Stmt};
 use std::collections::{HashMap, HashSet};
 
 /// Pre-parse snapshot of the name-keyed class tables — taken by
@@ -18,8 +18,8 @@ pub(in crate::modules) struct ClassTableSnapshot {
     explicit: HashSet<String>,
     synth: HashSet<String>,
     parent_args: HashMap<String, Vec<String>>,
-    vis: HashMap<(String, String), crate::ast::Visibility>,
-    readonly: HashSet<(String, String)>,
+    vis: HashMap<(String, PropKey), crate::ast::Visibility>,
+    readonly: HashSet<(String, PropKey)>,
 }
 
 pub(in crate::modules) fn snapshot_class_tables(ast: &Ast) -> ClassTableSnapshot {
@@ -40,9 +40,9 @@ pub(in crate::modules) struct LibTableDelta {
     synth_new: HashSet<String>,
     parent_args_new: HashSet<String>,
     parent_args_changed: HashMap<String, Vec<String>>,
-    vis_new: HashSet<(String, String)>,
-    vis_changed: HashMap<(String, String), crate::ast::Visibility>,
-    readonly_new: HashSet<(String, String)>,
+    vis_new: HashSet<(String, PropKey)>,
+    vis_changed: HashMap<(String, PropKey), crate::ast::Visibility>,
+    readonly_new: HashSet<(String, PropKey)>,
 }
 
 pub(in crate::modules) fn diff_class_tables(ast: &Ast, snap: &ClassTableSnapshot) -> LibTableDelta {
@@ -173,26 +173,29 @@ pub(super) fn migrate_name_keyed_tables(
     }
     // (class, member)-keyed rows. The member's own spelling migrates
     // with the class when it is a `__priv_<C>__` bake.
-    let has_member = |m: &str| {
+    let has_member = |m: &PropKey| {
         methods
             .iter()
             .chain(static_methods.iter())
-            .any(|cm| cm.name == m)
+            .any(|cm| cm.name == *m)
             || fields.iter().any(|(n, _)| n == m)
             || static_init.iter().any(|si| match si {
-                crate::ast::StaticInit::Field(f) => f.name == m,
+                crate::ast::StaticInit::Field(f) => f.name == *m,
                 crate::ast::StaticInit::Block(_) => false,
             })
     };
     let (pre_old, pre_new) = (super::priv_prefix(old), super::priv_prefix(new));
-    let vis_keys: Vec<(String, String)> = ast
+    let vis_keys: Vec<(String, PropKey)> = ast
         .member_visibility
         .keys()
         .filter(|k| k.0 == old)
         .cloned()
         .collect();
     for k in vis_keys {
-        let new_m = swap_prefix(&k.1, &pre_old, &pre_new).unwrap_or_else(|| k.1.clone());
+        let new_m =
+            k.1.as_str()
+                .and_then(|s| swap_prefix(s, &pre_old, &pre_new))
+                .map_or_else(|| k.1.clone(), PropKey::from);
         if delta.vis_new.contains(&k) {
             if let Some(v) = ast.member_visibility.remove(&k) {
                 ast.member_visibility.insert((new.to_string(), new_m), v);
@@ -207,14 +210,17 @@ pub(super) fn migrate_name_keyed_tables(
             }
         }
     }
-    let ro_keys: Vec<(String, String)> = ast
+    let ro_keys: Vec<(String, PropKey)> = ast
         .readonly_fields
         .iter()
         .filter(|k| k.0 == old)
         .cloned()
         .collect();
     for k in ro_keys {
-        let new_m = swap_prefix(&k.1, &pre_old, &pre_new).unwrap_or_else(|| k.1.clone());
+        let new_m =
+            k.1.as_str()
+                .and_then(|s| swap_prefix(s, &pre_old, &pre_new))
+                .map_or_else(|| k.1.clone(), PropKey::from);
         if delta.readonly_new.contains(&k) {
             ast.readonly_fields.remove(&k);
             ast.readonly_fields.insert((new.to_string(), new_m));

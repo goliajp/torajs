@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, PropKey, Stmt};
 
 use super::{AliasEnv, resolve_struct_ann};
 
@@ -18,9 +18,9 @@ use super::{AliasEnv, resolve_struct_ann};
 fn push_objlit_jobs(
     ast: &Ast,
     lit_eid: ExprId,
-    declared: Vec<(String, String)>,
+    declared: Vec<(PropKey, String)>,
     env: &AliasEnv,
-    jobs: &mut Vec<(ExprId, Vec<(String, String)>)>,
+    jobs: &mut Vec<(ExprId, Vec<(PropKey, String)>)>,
 ) {
     if let Expr::ObjectLit { fields } = ast.get_expr(lit_eid) {
         for (fname, feid) in fields {
@@ -49,7 +49,7 @@ pub(super) fn collect_jobs(
     stmts: &[Stmt],
     env: &AliasEnv,
     fn_params: &HashMap<String, Vec<Option<String>>>,
-    jobs: &mut Vec<(ExprId, Vec<(String, String)>)>,
+    jobs: &mut Vec<(ExprId, Vec<(PropKey, String)>)>,
 ) {
     for s in stmts {
         match s {
@@ -172,7 +172,7 @@ fn collect_expr_jobs(
     eid: ExprId,
     env: &AliasEnv,
     fn_params: &HashMap<String, Vec<Option<String>>>,
-    jobs: &mut Vec<(ExprId, Vec<(String, String)>)>,
+    jobs: &mut Vec<(ExprId, Vec<(PropKey, String)>)>,
 ) {
     match ast.get_expr(eid) {
         Expr::Call { callee, args } => {

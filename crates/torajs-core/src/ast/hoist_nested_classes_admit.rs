@@ -128,7 +128,7 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
     let member_names: Vec<&str> = methods
         .iter()
         .chain(static_methods.iter())
-        .map(|m| m.name.as_str())
+        .filter_map(|m| m.name.as_str())
         .collect();
     let own = super::capturing_classes::own_computed_members(ast, name, ctor_body, &member_names);
     let side_exprs = super::capturing_classes::keys_of(ast, name, &own)

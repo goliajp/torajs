@@ -40,7 +40,7 @@
 //! Caller dispatch: `check_assign_target` matches on the inner
 //! Expr variant and routes to the right helper.
 
-use crate::ast::{Ast, Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId, PropKey};
 use crate::check::resolve_class_ref;
 use crate::check::{Checker, Type};
 use crate::check_assignable::is_assignable_to_resolved;
@@ -225,7 +225,7 @@ fn try_class_dynamic_write(
         );
         let is_getter = ast
             .accessor_getters
-            .contains_key(&(cname.clone(), field.to_string()));
+            .contains_key(&(cname.clone(), PropKey::from(field)));
         if !(is_method || is_getter) {
             let raw = field
                 .strip_prefix("__priv_")
@@ -270,7 +270,7 @@ fn enforce_readonly(checker: &Checker, ast: &Ast, obj: ExprId, field: &str) -> R
     };
     if !ast
         .readonly_fields
-        .contains(&(cls.to_string(), field.to_string()))
+        .contains(&(cls.to_string(), PropKey::from(field)))
     {
         return Ok(());
     }

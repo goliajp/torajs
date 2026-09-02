@@ -11,6 +11,7 @@
 
 use super::desugar_classes_super::ClassIndexEntry;
 use super::{Ast, Expr, ExprId, Param, Stmt};
+use crate::ast::PropKey;
 
 /// Seed on the classes whose own ctor body carries a value return,
 /// then spread DOWN first and only afterwards UP.
@@ -185,10 +186,10 @@ pub(super) fn is_derived(ast: &Ast, cname: &str) -> bool {
 
 /// `__torajs_ctor_ret_carry(minted, target, "<name>")` — one own
 /// element moved onto an adopted object.
-pub(super) fn carry_call(ast: &mut Ast, target: ExprId, field: &str) -> ExprId {
+pub(super) fn carry_call(ast: &mut Ast, target: ExprId, field: &PropKey) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_carry".into()));
     let minted = ast.add_expr(Expr::Ident("__this_in".into()));
-    let name = ast.add_expr(Expr::String(field.to_string().into()));
+    let name = ast.add_expr(Expr::String(field.clone().into()));
     ast.add_expr(Expr::Call {
         callee,
         args: vec![minted, target, name],

@@ -742,7 +742,7 @@ mod tests {
         .unwrap();
         let layouts = both.class_layouts.expect("columns rewritten");
         assert_eq!(layouts[0].methods[0].adapter_fn_id, None);
-        assert_eq!(layouts[0].methods[0].name, "m", "the name column stays");
+        assert_eq!(layouts[0].methods[0].name, b"m", "the name column stays");
         assert!(
             both.funcs[1].bytes.is_empty(),
             "no row names the adapter → stripped"

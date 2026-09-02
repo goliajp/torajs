@@ -32,7 +32,7 @@ pub(super) fn collect_abstract_classes(
     // `new` of an abstract class is rejected (in check.rs). Side-channel
     // (HashSet / HashMap) instead of inflating class_index's tuple.
     let mut abstract_classes: HashSet<String> = HashSet::new();
-    let mut abstract_methods: HashMap<String, Vec<String>> = HashMap::new();
+    let mut abstract_methods: HashMap<String, Vec<PropKey>> = HashMap::new();
     for s in ast.stmts.iter() {
         if let Stmt::ClassDecl {
             name,
@@ -44,7 +44,7 @@ pub(super) fn collect_abstract_classes(
             if *is_abstract {
                 abstract_classes.insert(name.clone());
             }
-            let abs: Vec<String> = methods
+            let abs: Vec<PropKey> = methods
                 .iter()
                 .filter(|m| m.is_abstract)
                 .map(|m| m.name.clone())
@@ -88,7 +88,7 @@ pub(super) fn collect_abstract_classes(
             }
         }
         chain.reverse();
-        let mut unimplemented: HashSet<String> = HashSet::new();
+        let mut unimplemented: HashSet<PropKey> = HashSet::new();
         for cls in &chain {
             if let Some(absms) = abstract_methods.get(cls) {
                 for m in absms {
@@ -105,7 +105,7 @@ pub(super) fn collect_abstract_classes(
             }
         }
         if !unimplemented.is_empty() {
-            let mut names: Vec<&String> = unimplemented.iter().collect();
+            let mut names: Vec<&PropKey> = unimplemented.iter().collect();
             names.sort();
             panic!("M-OO.6: concrete class `{cname}` must override abstract method(s): {names:?}");
         }

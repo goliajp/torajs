@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 
 use super::class_globals::ClassMetadata;
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, PropKey, Stmt, unmangle_key};
 
 /// Prototype-object wiring: the `__proto__` chain links, the
 /// tag-keyed `__torajs_proto_register` side table, and the
@@ -209,12 +209,12 @@ pub(super) fn emit_reify_stmts(
             continue;
         }
         let prefix = format!("__sm_{cname}__");
-        let mnames: Vec<String> = ast
+        let mnames: Vec<PropKey> = ast
             .stmts
             .iter()
             .filter_map(|s| match s {
                 Stmt::FnDecl { name, .. } if !static_accessor_fns.contains(name) => {
-                    name.strip_prefix(&prefix).map(str::to_string)
+                    name.strip_prefix(&prefix).map(unmangle_key)
                 }
                 _ => None,
             })
@@ -238,7 +238,7 @@ pub(super) fn emit_reify_stmts(
     // RFC 20260718-accessor-reify 刀 3 — same reify shape for STATIC
     // accessors, onto the class object (`gOPD(C, "s")`).
     {
-        let mut pairs: Vec<(String, String)> = ast
+        let mut pairs: Vec<(String, PropKey)> = ast
             .static_accessor_getters
             .keys()
             .chain(ast.static_accessor_setters.keys())
@@ -274,7 +274,7 @@ pub(super) fn emit_reify_stmts(
     // adapters and hands runtime the (tag, name, get, set) quad.
     // Compile-time accessor dispatch is untouched.
     {
-        let mut pairs: Vec<(String, String)> = ast
+        let mut pairs: Vec<(String, PropKey)> = ast
             .accessor_getters
             .keys()
             .chain(ast.accessor_setters.keys())

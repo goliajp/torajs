@@ -138,7 +138,9 @@ pub(crate) fn unify_typevar(
             for ((pn, pt), (an, at)) in p_fields.iter().zip(a_fields.iter()) {
                 if pn != an {
                     return Err(format!(
-                        "struct field name mismatch: expected `{pn}`, got `{an}`"
+                        "struct field name mismatch: expected `{}`, got `{}`",
+                        pn.lossy(),
+                        an.lossy()
                     ));
                 }
                 unify_typevar(pt, at, subst, parents)?;

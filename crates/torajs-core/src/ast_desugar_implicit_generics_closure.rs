@@ -14,7 +14,8 @@
 //! FnDecl loop and `preinfer_closure_sigs`.
 
 use crate::ast::{
-    AstExprsView, Param, Stmt, body_has_value_return, infer_return_ann, infer_return_ann_seeded,
+    AstExprsView, Param, PropKey, Stmt, body_has_value_return, infer_return_ann,
+    infer_return_ann_seeded,
 };
 use crate::ast_desugar_implicit_generics::is_synth_closure_name;
 
@@ -27,7 +28,7 @@ pub(crate) fn desugar_closure_shape_fn(
     ast_exprs_view: AstExprsView,
     outer_binds: &std::collections::HashMap<String, String>,
     cap_anns: &std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-    receiver_fields: &std::collections::HashMap<String, Vec<(String, String)>>,
+    receiver_fields: &std::collections::HashMap<String, Vec<(PropKey, String)>>,
     fn_sigs: &mut std::collections::HashMap<String, String>,
 ) {
     if (first_kind == Some("__env") && is_synth_closure_name(name)) || first_kind == Some("__this")
@@ -70,8 +71,12 @@ pub(crate) fn desugar_closure_shape_fn(
         if crate::ast::body_always_terminates(body)
             && let Some(fields) = receiver_fields_of(params, receiver_fields)
         {
+            // Seeds are keyed by the `this.<field>` Member spelling,
+            // which only an identifier-shaped key can have.
             for (field, ann) in fields {
-                seeded.insert(format!("this.{field}"), ann.clone());
+                if let Some(f) = field.as_str() {
+                    seeded.insert(format!("this.{f}"), ann.clone());
+                }
             }
         }
         if let Some(inferred) =
@@ -111,7 +116,7 @@ pub(crate) fn desugar_closure_shape_fn(
 /// `this.<field>` against its receiver's row.
 pub(crate) fn receiver_field_rows(
     stmts: &[Stmt],
-) -> std::collections::HashMap<String, Vec<(String, String)>> {
+) -> std::collections::HashMap<String, Vec<(PropKey, String)>> {
     stmts
         .iter()
         .filter_map(|s| match s {
@@ -125,8 +130,8 @@ pub(crate) fn receiver_field_rows(
 /// ann is a plain class name (`C`, not `C<T>` / `any`).
 fn receiver_fields_of<'a>(
     params: &[Param],
-    receiver_fields: &'a std::collections::HashMap<String, Vec<(String, String)>>,
-) -> Option<&'a Vec<(String, String)>> {
+    receiver_fields: &'a std::collections::HashMap<String, Vec<(PropKey, String)>>,
+) -> Option<&'a Vec<(PropKey, String)>> {
     let ann = params.first()?.type_ann.as_deref()?;
     if ann.contains('<') {
         return None;

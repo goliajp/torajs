@@ -20,23 +20,24 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_class_member_field_typed(
         &mut self,
         name: &str,
-        member_name: String,
+        member_name: PropKey,
         consumed_computed_name: bool,
         optional: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
         is_static: bool,
-        fields: &mut Vec<(String, String)>,
+        fields: &mut Vec<(PropKey, String)>,
         static_init: &mut Vec<StaticInit>,
-        field_inits: &mut Vec<(String, ExprId)>,
+        field_inits: &mut Vec<(PropKey, ExprId)>,
     ) -> Result<(), String> {
         // field declaration. Instance: `name: T;`. Static
         // (M-OO.4): `name: T = init;` — init is required
         // (no constructor to default-init in).
         if is_abstract_method {
+            let mn = member_name.lossy();
             return Err(format!(
-                "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
+                "`abstract` modifier is only valid on methods, not on field `{mn}` in class `{name}` at {}",
                 self.at()
             ));
         }
@@ -74,8 +75,9 @@ impl<'a> Parser<'a> {
             match self.peek() {
                 Token::Eq => self.pos += 1,
                 t => {
+                    let mn = member_name.lossy();
                     return Err(format!(
-                        "static field `{member_name}` requires an initializer (`= ...`), got {t:?} at {}",
+                        "static field `{mn}` requires an initializer (`= ...`), got {t:?} at {}",
                         self.at()
                     ));
                 }
@@ -138,20 +140,21 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_class_member_field_bare(
         &mut self,
         name: &str,
-        member_name: String,
+        member_name: PropKey,
         consumed_computed_name: bool,
         optional: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
         is_static: bool,
-        fields: &mut Vec<(String, String)>,
+        fields: &mut Vec<(PropKey, String)>,
         static_init: &mut Vec<StaticInit>,
-        field_inits: &mut Vec<(String, ExprId)>,
+        field_inits: &mut Vec<(PropKey, ExprId)>,
     ) -> Result<(), String> {
         if is_abstract_method {
+            let mn = member_name.lossy();
             return Err(format!(
-                "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
+                "`abstract` modifier is only valid on methods, not on field `{mn}` in class `{name}` at {}",
                 self.at()
             ));
         }

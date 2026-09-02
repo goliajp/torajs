@@ -23,7 +23,7 @@ impl<'a> Formatter<'a> {
         if m.is_abstract {
             self.write("abstract ");
         }
-        self.write(&m.name);
+        self.write(&m.name.to_string_lossy_owned());
         self.fmt_params(&m.params);
         if let Some(ret) = &m.return_type {
             self.write(": ");

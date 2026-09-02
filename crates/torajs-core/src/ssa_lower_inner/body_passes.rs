@@ -5,7 +5,7 @@
 //! verbatim; sibling of `ssa_lower_pass_3.rs` / `ssa_lower_pass_2b.rs`
 //! — this module owns the Pass 2 loop and sequences the four passes.
 
-use crate::ast::PropKey;
+use crate::ast::{PropKey, unmangle_key};
 use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId, Stmt};
@@ -32,7 +32,7 @@ pub(crate) fn run(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,
     call_retargets: &HashMap<ExprId, String>,
@@ -234,7 +234,11 @@ fn register_fn_name(
         {
             return;
         }
-        let lit = ssa::StringLiteral::encode_from_str(mname);
+        // The symbol spelling is a bijection of the key (557-02 C 组),
+        // so the user-visible name comes back exactly, lone surrogate
+        // and all.
+        let key = unmangle_key(mname);
+        let lit = ssa::StringLiteral::encode_from_wtf8(&key);
         let name_sid = ssa::StringId(module.strings.len() as u32);
         module.strings.push(lit);
         let arity = params
@@ -245,7 +249,7 @@ fn register_fn_name(
         let (src_sid, src_len) = intern_fn_source(module, ast, span);
         module.fn_name_globals.push(FnNameEntry {
             fn_id: adapter_fid,
-            name: mname.to_string(),
+            name: key,
             name_sid,
             arity,
             src_sid,
@@ -288,19 +292,24 @@ fn register_fn_name(
         if let Some(n) = ast.genexpr_names.get(base) {
             return n.as_str();
         }
-        // `__sm_<C>__<M>` static-method bodies carry the ES
-        // SetFunctionName form — the property key `<M>` (`K.sf.name`
-        // answered the mangled name). `<C>` is matched against the
-        // known class set (longest first) since both a class name and
-        // a method name may themselves contain `__`.
-        strip_static_method_name(base, class_parents).unwrap_or(base)
+        base
     });
+    // `__sm_<C>__<M>` static-method bodies carry the ES
+    // SetFunctionName form — the property key `<M>` (`K.sf.name`
+    // answered the mangled name). `<C>` is matched against the
+    // known class set (longest first) since both a class name and
+    // a method name may themselves contain `__`; the key comes back
+    // out of the symbol spelling exactly (557-02 C 组).
+    let visible: PropKey = match strip_static_method_name(visible, class_parents) {
+        Some(m) => unmangle_key(m),
+        None => PropKey::from(visible),
+    };
     // Intern the name as a Module-level string literal so the link
     // layer can resolve `__user_string_<sid>` to the rodata cstring
-    // entry. encode_from_str picks Latin-1 / UTF-16 to match the
+    // entry. The encoder picks Latin-1 / UTF-16 to match the
     // upstream string-literal encoding contract (TS allows non-ASCII
     // fn names).
-    let lit = ssa::StringLiteral::encode_from_str(visible);
+    let lit = ssa::StringLiteral::encode_from_wtf8(&visible);
     let name_sid = ssa::StringId(module.strings.len() as u32);
     module.strings.push(lit);
     // ES-spec `Function.length` — leading params before the first
@@ -313,7 +322,7 @@ fn register_fn_name(
     let (src_sid, src_len) = intern_fn_source(module, ast, span);
     module.fn_name_globals.push(FnNameEntry {
         fn_id: fid,
-        name: visible.to_string(),
+        name: visible.clone(),
         name_sid,
         arity,
         src_sid,
@@ -331,7 +340,7 @@ fn register_fn_name(
     {
         module.fn_name_globals.push(FnNameEntry {
             fn_id: adapter_fid,
-            name: visible.to_string(),
+            name: visible,
             name_sid,
             arity,
             src_sid,

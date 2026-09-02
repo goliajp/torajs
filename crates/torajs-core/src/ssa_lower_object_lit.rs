@@ -235,7 +235,8 @@ fn lower_field_entries(
         if ctx.ast.objlit_computed_keys.contains_key(eid) {
             panic!(
                 "ssa-lower: computed property key outside the dynobj lane \
-                 is not yet supported (field `{n}`)"
+                 is not yet supported (field `{}`)",
+                n.lossy()
             );
         }
         if let Some(omit) = crate::check_type_of_object_lit::spread_omit_set(n) {
@@ -293,7 +294,10 @@ fn unfold_spread(
                     continue;
                 }
                 let Type::Closure(sig_id) = *st else {
-                    panic!("ssa-lower: accessor slot `{sn}` is not a closure (got {st:?})");
+                    panic!(
+                        "ssa-lower: accessor slot `{}` is not a closure (got {st:?})",
+                        sn.lossy()
+                    );
                 };
                 let ret = ctx.fn_sigs[sig_id.0 as usize].1;
                 // Owned already — the getter returns its own value, so no

@@ -151,7 +151,7 @@ pub(crate) fn try_lower(
                 .unwrap_or_else(|| {
                     panic!(
                         "ssa-lower: Object.assign source property `{}` has no target sink",
-                        prop.key
+                        prop.key.lossy()
                     )
                 })
                 .sink;

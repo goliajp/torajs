@@ -26,7 +26,7 @@
 //! leftover row with no matching decl is a no-op for every consumer
 //! (the knife-A `copy_fn_name_tables` posture).
 
-use crate::ast::{Ast, Expr, Stmt};
+use crate::ast::{Ast, Expr, PropKey, Stmt};
 use std::collections::HashSet;
 
 /// Does any decl in the lib declare a TYPE PARAMETER spelled `name`?
@@ -188,21 +188,31 @@ fn rewrite_member_spellings(decl: &mut Stmt, old: &str, new: &str) {
         return;
     };
     let (pre_old, pre_new) = (priv_prefix(old), priv_prefix(new));
+    // A `#x` member's key carries the class name (`__priv_<C>__x`),
+    // so the key itself is re-spelled; every such key is an
+    // identifier, so `as_str` answers.
     for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-        if let Some(n) = swap_prefix(&m.name, &pre_old, &pre_new) {
-            m.name = n;
+        if let Some(n) = m
+            .name
+            .as_str()
+            .and_then(|s| swap_prefix(s, &pre_old, &pre_new))
+        {
+            m.name = PropKey::from(n);
         }
     }
     for (n, _) in fields.iter_mut() {
-        if let Some(nn) = swap_prefix(n, &pre_old, &pre_new) {
-            *n = nn;
+        if let Some(nn) = n.as_str().and_then(|s| swap_prefix(s, &pre_old, &pre_new)) {
+            *n = PropKey::from(nn);
         }
     }
     for si in static_init.iter_mut() {
         if let crate::ast::StaticInit::Field(f) = si
-            && let Some(nn) = swap_prefix(&f.name, &pre_old, &pre_new)
+            && let Some(nn) = f
+                .name
+                .as_str()
+                .and_then(|s| swap_prefix(s, &pre_old, &pre_new))
         {
-            f.name = nn;
+            f.name = PropKey::from(nn);
         }
     }
 }

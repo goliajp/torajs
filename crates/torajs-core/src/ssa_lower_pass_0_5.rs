@@ -29,7 +29,7 @@ pub(crate) struct Pass05 {
     pub baked_regex_buf: Vec<BakedRegexEntry>,
     pub fn_sigs: Vec<(Vec<Type>, Type)>,
     pub may_throw: HashSet<String>,
-    pub generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    pub generic_struct_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     pub struct_layouts: Vec<Vec<(PropKey, Type)>>,
     pub inst_memo: HashMap<String, ssa::StructId>,
     pub class_name_to_tag: HashMap<String, u32>,
@@ -47,7 +47,7 @@ pub(crate) fn run(
     let mut fn_sigs: Vec<(Vec<Type>, Type)> = Vec::new();
     let may_throw = crate::ast_throw_info::compute_may_throw_fns(ast, expr_types);
 
-    let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)> =
+    let mut generic_struct_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> =
         HashMap::new();
     let mut struct_layouts: Vec<Vec<(PropKey, Type)>> = std::mem::take(&mut module.struct_layouts);
     let mut inst_memo: HashMap<String, ssa::StructId> = HashMap::new();
@@ -137,13 +137,12 @@ pub(crate) fn run(
                     &mut inst_memo,
                 );
                 if let Some(ck) = &class_key {
-                    let fkey = crate::num_width::SlotKey::Field(
-                        Box::new(ck.clone()),
-                        PropKey::from(fname),
-                    );
+                    let fkey =
+                        crate::num_width::SlotKey::Field(Box::new(ck.clone()), fname.clone());
                     ty = match ty {
                         Type::I64
-                            if fty_ann == "number" && num_f64_slots.field_is_f64(ck, fname) =>
+                            if fty_ann == "number"
+                                && num_f64_slots.field_is_f64(ck, fname.clone()) =>
                         {
                             Type::F64
                         }
@@ -173,7 +172,7 @@ pub(crate) fn run(
                         other => other,
                     };
                 }
-                layout.push((PropKey::from(fname), ty));
+                layout.push((fname.clone(), ty));
             }
             intern_or_finalize(
                 name,

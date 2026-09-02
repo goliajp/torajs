@@ -52,7 +52,8 @@
 
 use super::Parser;
 use crate::ast::{
-    ClassMethod, Expr, GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM, Param, Stmt, Visibility,
+    ClassMethod, Expr, GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM, Param, PropKey, Stmt,
+    Visibility,
 };
 use crate::lexer::Token;
 
@@ -353,7 +354,7 @@ impl<'a> Parser<'a> {
         }
         let call = self.ast.add_expr(Expr::Call { callee, args });
         let forwarder = ClassMethod {
-            name: member_name,
+            name: PropKey::from(member_name),
             type_params: Vec::new(),
             params,
             // NOT `return_type` — that is the unwrapped YIELD type,

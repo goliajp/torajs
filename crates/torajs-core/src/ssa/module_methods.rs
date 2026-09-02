@@ -107,8 +107,9 @@ pub struct FnNameEntry {
     /// declarations this is `"foo"`; for `let f = () => {}` arrow
     /// expressions assigned to a single binding context, it's the
     /// binding name `"f"`; anonymous closures don't get an entry
-    /// (runtime falls back to `[Function (anonymous)]`).
-    pub name: String,
+    /// (runtime falls back to `[Function (anonymous)]`). A property
+    /// key (a class method's row is named by its key, WTF-8).
+    pub name: crate::ast::PropKey,
     /// String table id where the name's raw byte payload lives —
     /// `Module::strings[name_sid.0]`. The link layer turns this into
     /// the `__user_string_<sid>` alias for the rodata table's

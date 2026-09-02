@@ -66,7 +66,8 @@ pub(crate) fn check(
         // before check ever runs) may consume it.
         if ast.objlit_cover_init_exprs.contains(eid) {
             return Err(format!(
-                "shorthand property initializer `{n} = ...` is only valid in a destructuring pattern"
+                "shorthand property initializer `{} = ...` is only valid in a destructuring pattern",
+                n.lossy()
             ));
         }
         if let Some(omit) = spread_omit_set(n) {

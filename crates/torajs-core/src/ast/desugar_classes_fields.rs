@@ -24,13 +24,13 @@
 //! mutation (lowest-risk extraction pattern per chunks 177/178).
 
 use super::desugar_classes_super::ClassIndexEntry;
-use crate::ast::Ast;
+use crate::ast::{Ast, PropKey};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn compute_full_fields(
     ast: &Ast,
     class_index: &[ClassIndexEntry],
-) -> HashMap<String, Vec<(String, String)>> {
+) -> HashMap<String, Vec<(PropKey, String)>> {
     // Detect missing-parent and cycle errors for statement-position
     // classes — no forward references to classes later in source
     // order (see module doc for the deferred exemption).
@@ -57,7 +57,7 @@ pub(super) fn compute_full_fields(
     // sweep exactly as the old single pass did, and a deferred entry
     // whose parent comes later resolves in a subsequent sweep. No
     // progress with entries left = an unresolvable (or cyclic) parent.
-    let mut full_fields: HashMap<String, Vec<(String, String)>> = HashMap::new();
+    let mut full_fields: HashMap<String, Vec<(PropKey, String)>> = HashMap::new();
     // Generic-parent substitution needs the parent's type-param list.
     let tp_by_class: HashMap<&str, &Vec<String>> = class_index
         .iter()
@@ -75,7 +75,7 @@ pub(super) fn compute_full_fields(
                 next.push(entry);
                 continue;
             }
-            let mut combined: Vec<(String, String)> = Vec::new();
+            let mut combined: Vec<(PropKey, String)> = Vec::new();
             if let Some(p) = parent {
                 // Present by the resolution gate just above.
                 let pfields = full_fields.get(p).unwrap_or_else(|| {
@@ -125,8 +125,9 @@ pub(super) fn compute_full_fields(
                 if let Some(at) = combined.iter().position(|(n, _)| n == fn_) {
                     if at < inherited {
                         panic!(
-                            "M5.2: subclass `{cname}` redeclares parent field `{fn_}` — \
-                             not yet supported"
+                            "M5.2: subclass `{cname}` redeclares parent field `{}` — \
+                             not yet supported",
+                            fn_.lossy()
                         );
                     }
                     // Not an inheritance problem at all: the class declares
@@ -136,7 +137,8 @@ pub(super) fn compute_full_fields(
                     // here sent the reader looking up a hierarchy that has
                     // nothing to do with it, naming a class they never wrote.
                     panic!(
-                        "M5.2: class `{cname}` declares field `{fn_}` twice — not yet supported"
+                        "M5.2: class `{cname}` declares field `{}` twice — not yet supported",
+                        fn_.lossy()
                     );
                 }
                 combined.push((fn_.clone(), ft.clone()));

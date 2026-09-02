@@ -6,6 +6,7 @@
 //! wrap axis (named TypeDecl and inline `__inlobj` object types
 //! resolve uniformly).
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ast::{Expr, ExprId};
@@ -77,7 +78,7 @@ impl<'a> FnToClosureCollector<'a> {
     /// (stripping an optional `__nullable(...)` wrapper); an Index
     /// (chunk 790) resolves the container's declared array
     /// annotation and answers its element shape.
-    pub(crate) fn resolve_receiver_fields(&self, eid: ExprId) -> Option<HashMap<String, String>> {
+    pub(crate) fn resolve_receiver_fields(&self, eid: ExprId) -> Option<HashMap<PropKey, String>> {
         match self.ast.get_expr(eid) {
             Expr::Ident(n) => {
                 let ann = self.struct_bindings.get(n)?;
@@ -85,7 +86,7 @@ impl<'a> FnToClosureCollector<'a> {
             }
             Expr::Member { obj, name } => {
                 let outer = self.resolve_receiver_fields(*obj)?;
-                let fann = outer.get(name)?;
+                let fann = outer.get(&PropKey::from(name))?;
                 let inner = fann
                     .strip_prefix("__nullable(")
                     .and_then(|r| r.strip_suffix(')'))
@@ -98,7 +99,7 @@ impl<'a> FnToClosureCollector<'a> {
                     Expr::Ident(n) => self.struct_arr_bindings.get(n)?.clone(),
                     Expr::Member { obj: mobj, name } => {
                         let outer = self.resolve_receiver_fields(*mobj)?;
-                        outer.get(name)?.clone()
+                        outer.get(&PropKey::from(name))?.clone()
                     }
                     _ => return None,
                 };
@@ -117,13 +118,13 @@ impl<'a> FnToClosureCollector<'a> {
     /// `fill_optional_fields::instantiate_generic`). Every wrap
     /// axis resolves through here so all spellings behave
     /// identically.
-    pub(crate) fn resolve_field_anns(&self, ann: &str) -> Option<HashMap<String, String>> {
+    pub(crate) fn resolve_field_anns(&self, ann: &str) -> Option<HashMap<PropKey, String>> {
         let t = ann.trim();
         if let Some(m) = self.struct_field_anns.get(t) {
             return Some(m.clone());
         }
         if let Some(m) = parse_inlobj_field_anns(t) {
-            return Some(m);
+            return Some(m.into_iter().map(|(k, v)| (PropKey::from(k), v)).collect());
         }
         let open_idx = t.find('<')?;
         if !t.ends_with('>') {
@@ -158,13 +159,12 @@ impl<'a> FnToClosureCollector<'a> {
     pub(crate) fn mark_objlit_fn_fields(
         &mut self,
         eid: ExprId,
-        field_anns: &HashMap<String, String>,
+        field_anns: &HashMap<PropKey, String>,
     ) {
         if let Expr::ObjectLit { fields } = self.ast.get_expr(eid) {
             for (fname, feid) in fields.clone() {
-                if fname
-                    .as_str()
-                    .and_then(|f| field_anns.get(f))
+                if field_anns
+                    .get(&fname)
                     .is_some_and(|a| is_fn_like_field_ann(a))
                 {
                     self.try_mark(feid);

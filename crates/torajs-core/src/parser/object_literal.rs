@@ -176,7 +176,7 @@ impl<'a> Parser<'a> {
             let value = self.parse_method_like_value(
                 member_start_pos,
                 true,
-                &format!("method shorthand `{name}`"),
+                &format!("method shorthand `{}`", name.lossy()),
             )?;
             return Ok((name, value));
         }
@@ -238,7 +238,8 @@ impl<'a> Parser<'a> {
             Token::Colon => self.pos += 1,
             t => {
                 return Err(format!(
-                    "expected `:` after field name `{name}`, got {t:?} at {}",
+                    "expected `:` after field name `{}`, got {t:?} at {}",
+                    name.lossy(),
                     self.at()
                 ));
             }
@@ -317,7 +318,7 @@ impl<'a> Parser<'a> {
         let value = self.parse_method_like_value(
             member_start_pos,
             false,
-            &format!("{name}ter `{prop_name}`"),
+            &format!("{name}ter `{}`", prop_name.lossy()),
         )?;
         self.reject_objlit_accessor_arity(name, value)?;
         let synth = PropKey::prefixed(&format!("__{name}ter_"), &prop_name);

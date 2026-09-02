@@ -48,7 +48,7 @@ pub(super) fn emit_dispatch_method_stubs(
             .expect("base owner must exist in class_index");
         let base_method = base_methods
             .iter()
-            .find(|m| &m.name == m_name)
+            .find(|m| mangle_key(&m.name) == *m_name)
             .expect("base owner declared the method by construction");
         // Dispatcher params: `__this: Base, ...method_params`.
         let mut params: Vec<Param> = Vec::with_capacity(base_method.params.len() + 1);

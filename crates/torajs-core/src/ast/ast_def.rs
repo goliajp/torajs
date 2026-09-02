@@ -383,14 +383,14 @@ pub struct Ast {
     /// the entry's `class_name` is the class's own name regardless of
     /// instance-vs-static. check.rs reads this map at every Member
     /// access site to enforce the modifier.
-    pub member_visibility: std::collections::HashMap<(String, String), Visibility>,
+    pub member_visibility: std::collections::HashMap<(String, PropKey), Visibility>,
     /// M-OO.5 — `(class_name, field_name)` set of `readonly` fields.
     /// Both instance and static fields can be readonly. check.rs rejects
     /// `obj.field = ...` (instance) and `Class.field = ...` (static)
     /// when the entry is present. Readonly inside the constructor /
     /// class init context is allowed; check.rs's caller-context tracking
     /// lifts the restriction for the same path that visibility uses.
-    pub readonly_fields: std::collections::HashSet<(String, String)>,
+    pub readonly_fields: std::collections::HashSet<(String, PropKey)>,
     /// P8.2 — accessor descriptor side-channel maps (ES §10.1.7).
     /// `(class_name, property_name) → return_type` for getters and
     /// `(class_name, property_name) → param_type` for setters. Populated
@@ -403,16 +403,16 @@ pub struct Ast {
     /// setter map at Assign-Member typecheck (write side); ssa_lower
     /// reads both to emit a Call to the synthesised method instead of
     /// a direct field Load / Store at offset.
-    pub accessor_getters: std::collections::HashMap<(String, String), String>,
-    pub accessor_setters: std::collections::HashMap<(String, String), String>,
+    pub accessor_getters: std::collections::HashMap<(String, PropKey), String>,
+    pub accessor_setters: std::collections::HashMap<(String, PropKey), String>,
     /// RFC 20260718-accessor-reify 刀 3 — static-accessor twins of
     /// the instance maps above (`(ClassName, prop) → __sm_<C>__<p>_get
     /// / _set`). Reads/writes were already rewritten to face calls in
     /// desugar; class_globals reads these to emit the reify magic
     /// (AccessorPair own entry on the class object) and to keep the
     /// face FnDecls out of the static-METHOD reify sweep.
-    pub static_accessor_getters: std::collections::HashMap<(String, String), String>,
-    pub static_accessor_setters: std::collections::HashMap<(String, String), String>,
+    pub static_accessor_getters: std::collections::HashMap<(String, PropKey), String>,
+    pub static_accessor_setters: std::collections::HashMap<(String, PropKey), String>,
     /// RFC 20260708-closure-argc-abi — bindings that hold a
     /// length-only real-argc closure VALUE and passed the
     /// direct-call-or-alias safety walk. Populated by

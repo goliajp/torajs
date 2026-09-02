@@ -29,7 +29,7 @@
 //! pattern as chunks 177/178/179.
 
 use super::desugar_classes_super::ClassIndexEntry;
-use super::method_owner_is_in_chain;
+use super::{mangle_key, method_owner_is_in_chain};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn compute_method_owners_and_chain_methods(
@@ -58,7 +58,7 @@ pub(super) fn compute_method_owners_and_chain_methods(
                 continue;
             }
             method_owners
-                .entry(m.name.clone())
+                .entry(mangle_key(&m.name).into_owned())
                 .or_default()
                 .push(cname.clone());
         }

@@ -238,7 +238,7 @@ impl<'a> Parser<'a> {
             let value = self.parse_method_like_value(
                 member_start_pos,
                 false,
-                &format!("{kind}ter `{prop}`"),
+                &format!("{kind}ter `{}`", prop.lossy()),
             )?;
             return Ok((PropKey::prefixed(&format!("__{kind}ter_"), &prop), value));
         }

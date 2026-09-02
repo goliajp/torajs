@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
         name: &str,
         _is_static: bool,
         explicit_visibility: &mut Option<ast::Visibility>,
-    ) -> Result<(String, bool), String> {
+    ) -> Result<(PropKey, bool), String> {
         // P5.2 + RFC 20260802-class-computed-member 刀 1 — computed
         // class member key `[<key>]`. Three compile-time-foldable
         // shapes install under a static name:
@@ -120,7 +120,7 @@ impl<'a> Parser<'a> {
                         ) =>
                 {
                     self.pos += 3; // `Symbol` `.` `iterator`
-                    "__sym_Symbol_iterator__".to_string()
+                    PropKey::from("__sym_Symbol_iterator__")
                 }
                 Token::String(s)
                     if matches!(
@@ -128,7 +128,7 @@ impl<'a> Parser<'a> {
                         Some(Token::RBracket)
                     ) =>
                 {
-                    let k = s.to_string_lossy_owned();
+                    let k = PropKey::from(s.clone());
                     self.pos += 1;
                     k
                 }
@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
                         Some(Token::RBracket)
                     ) =>
                 {
-                    let k = crate::ast::number_prop_key(*n).to_string_lossy_owned();
+                    let k = crate::ast::number_prop_key(*n);
                     self.pos += 1;
                     k
                 }
@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
                     self.ast
                         .class_computed_keys
                         .insert((name.to_string(), sentinel.clone()), key_expr);
-                    sentinel
+                    PropKey::from(sentinel)
                 }
             };
             if !matches!(self.peek(), Token::RBracket) {
@@ -171,7 +171,7 @@ impl<'a> Parser<'a> {
             key
         } else {
             match self.peek() {
-                Token::Ident(n) => n.clone(),
+                Token::Ident(n) => PropKey::from(n),
                 // P8.1 — `#name` PrivateIdentifier as a class member
                 // name. Two effects: (a) mangle the name to
                 // `__priv_<ClassName>__<name>` so the existing
@@ -216,7 +216,7 @@ impl<'a> Parser<'a> {
                             .1
                             .insert(priv_name.clone());
                     }
-                    format!("__priv_{name}__{priv_name}")
+                    PropKey::from(format!("__priv_{name}__{priv_name}"))
                 }
                 // V3-18 wedge — accept the full reserved-word list
                 // as class member names per ES spec §12.7.6
@@ -225,11 +225,11 @@ impl<'a> Parser<'a> {
                 // keyword_property_name helper so all four
                 // property-name positions stay in sync.
                 t if Self::keyword_property_name(t).is_some() => {
-                    Self::keyword_property_name(t).unwrap().to_string()
+                    PropKey::from(Self::keyword_property_name(t).unwrap())
                 }
                 // ES §12.7.2 — the same IdentifierName written with an
                 // escape (`break() {}`).
-                Token::EscapedIdent(n) => n.clone(),
+                Token::EscapedIdent(n) => PropKey::from(n),
                 // RFC 20260802-class-computed-member 刀 1 — §12.7.6
                 // PropertyName literal forms as direct member names:
                 // `'default'() {}` / `get 'str'()` fold to the string
@@ -237,8 +237,8 @@ impl<'a> Parser<'a> {
                 // §6.1.6.1.20 canonical string ("16" / "1"), the same
                 // fold object literals use. Single tokens, so the
                 // shared "name still unconsumed" protocol holds.
-                Token::String(s) => s.to_string_lossy_owned(),
-                Token::Number(n) => crate::ast::number_prop_key(*n).to_string_lossy_owned(),
+                Token::String(s) => PropKey::from(s.clone()),
+                Token::Number(n) => crate::ast::number_prop_key(*n),
                 t => {
                     return Err(format!(
                         "expected class member name, got {t:?} at {}",
@@ -259,21 +259,26 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_class_member_field_dispatch(
         &mut self,
         name: &str,
-        member_name: String,
+        member_name: PropKey,
         consumed_computed_name: bool,
         optional: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
         is_static: bool,
-        fields: &mut Vec<(String, String)>,
+        fields: &mut Vec<(PropKey, String)>,
         static_init: &mut Vec<StaticInit>,
-        field_inits: &mut Vec<(String, ExprId)>,
+        field_inits: &mut Vec<(PropKey, ExprId)>,
     ) -> Result<(), String> {
         // RFC 20260802 刀 3 后半 — runtime computed FIELD; tail parse
         // in the `parse_class_decl_computed_field.rs` sibling.
-        if member_name.starts_with("__ccm_") {
-            return self.parse_computed_field_tail(name, member_name, is_static, field_inits);
+        if let Some(sentinel) = member_name.as_str().filter(|s| s.starts_with("__ccm_")) {
+            return self.parse_computed_field_tail(
+                name,
+                sentinel.to_string(),
+                is_static,
+                field_inits,
+            );
         }
         // ES §15.7.1 early error — `ClassElement : FieldDefinition;`
         // is a Syntax Error if PropName of FieldDefinition is
@@ -379,16 +384,16 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_class_member_field_untyped(
         &mut self,
         name: &str,
-        member_name: String,
+        member_name: PropKey,
         consumed_computed_name: bool,
         optional: bool,
         explicit_visibility: Option<ast::Visibility>,
         is_readonly: bool,
         is_abstract_method: bool,
         is_static: bool,
-        fields: &mut Vec<(String, String)>,
+        fields: &mut Vec<(PropKey, String)>,
         static_init: &mut Vec<StaticInit>,
-        field_inits: &mut Vec<(String, ExprId)>,
+        field_inits: &mut Vec<(PropKey, ExprId)>,
     ) -> Result<(), String> {
         // V3-18 wedge — class field with no explicit type
         // ann (`name = init` / `static name = init`). Per
@@ -398,8 +403,9 @@ impl<'a> Parser<'a> {
         // ObjectLit). Other init shapes fall back to
         // requiring an explicit ann.
         if is_abstract_method {
+            let mn = member_name.lossy();
             return Err(format!(
-                "`abstract` modifier is only valid on methods, not on field `{member_name}` in class `{name}` at {}",
+                "`abstract` modifier is only valid on methods, not on field `{mn}` in class `{name}` at {}",
                 self.at()
             ));
         }

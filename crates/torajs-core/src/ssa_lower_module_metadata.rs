@@ -17,6 +17,7 @@
 //!   Pass-2-fresh sids still lives in `ssa_lower_anon_stamp` —
 //!   `lower_inner` calls it directly after this sibling returns.
 
+use crate::ast::PropKey;
 use std::collections::HashMap;
 
 use crate::ssa::{self, ClassLayoutMeta, FieldMetaSpec, Module, Type, VtableGlobal};
@@ -231,7 +232,7 @@ pub(crate) fn populate_class_layouts(
 fn collect_this_free_fids(
     ast: &crate::ast::Ast,
     module: &Module,
-    own_methods: &HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
 ) -> std::collections::HashSet<ssa::FuncId> {
     // S2.38 — `__cm_` bodies proven safe to run through the boxed
     // adapter with a NULL receiver: (1) the body never observes its
@@ -334,7 +335,7 @@ fn generic_class_placeholder_row(
     ast: &crate::ast::Ast,
     fn_table: &HashMap<String, ssa::FuncId>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
-    own_methods: &HashMap<String, Vec<(String, ssa::FuncId, Option<ssa::FuncId>)>>,
+    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
     this_free_fids: &std::collections::HashSet<ssa::FuncId>,
     cname: &str,
 ) -> ClassLayoutMeta {

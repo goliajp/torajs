@@ -16,14 +16,16 @@
 //! into `fmt_params`, and `print_expr` moved to the `expr` child
 //! module to keep both halves under the 500-line file limit.
 
+mod decls;
 mod expr;
 
+use decls::{fmt_fields, print_class_decl};
 pub(crate) use expr::print_expr;
 
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
 /// `name: ann` comma list shared by FnDecl / ctor / method / ArrowFn
-fn fmt_params(params: &[Param]) -> String {
+pub(super) fn fmt_params(params: &[Param]) -> String {
     params
         .iter()
         .map(|p| match &p.type_ann {
@@ -214,11 +216,10 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             type_params,
             fields,
         } => {
-            let parts: Vec<String> = fields.iter().map(|(n, t)| format!("{n}: {t}")).collect();
             println!(
                 "{pad}TypeDecl {name}{} = {{ {} }}",
                 fmt_type_params(type_params),
-                parts.join(", ")
+                fmt_fields(fields)
             );
         }
         Stmt::Return(maybe) => match maybe {
@@ -457,39 +458,5 @@ fn print_fn_decl(
     );
     for s in body {
         print_stmt(ast, s, indent + 1);
-    }
-}
-
-fn print_class_decl(
-    ast: &Ast,
-    pad: &str,
-    name: &str,
-    parent: Option<&str>,
-    fields: &[(String, String)],
-    ctor: &Option<crate::ast::ClassCtor>,
-    methods: &[crate::ast::ClassMethod],
-    indent: usize,
-) {
-    let parts: Vec<String> = fields.iter().map(|(n, t)| format!("{n}: {t}")).collect();
-    let ext = match parent {
-        Some(p) => format!(" extends {p}"),
-        None => String::new(),
-    };
-    println!(
-        "{pad}ClassDecl {name}{ext} fields={{ {} }}",
-        parts.join(", ")
-    );
-    if let Some(c) = ctor {
-        println!("{pad}  constructor({})", fmt_params(&c.params));
-        for s in &c.body {
-            print_stmt(ast, s, indent + 2);
-        }
-    }
-    for m in methods {
-        let ret = m.return_type.clone().unwrap_or_else(|| "void".into());
-        println!("{pad}  method {}({}): {ret}", m.name, fmt_params(&m.params));
-        for s in &m.body {
-            print_stmt(ast, s, indent + 2);
-        }
     }
 }

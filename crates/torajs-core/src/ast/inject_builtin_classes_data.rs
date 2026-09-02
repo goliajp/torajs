@@ -3,7 +3,7 @@
 //! lines; the shared one-shape builder stays there, the data-param
 //! variant lives here).
 
-use super::{Ast, ClassCtor, Expr, Param, Stmt};
+use super::{Ast, ClassCtor, Expr, Param, PropKey, Stmt};
 
 /// §20.5.7 AggregateError / §20.5.8 SuppressedError — the two
 /// standard Error subclasses whose constructors carry own DATA
@@ -131,7 +131,7 @@ pub(super) fn build_error_data_subclass(
         is_abstract: false,
         fields: data_params
             .iter()
-            .map(|p| ((*p).to_string(), "any".to_string()))
+            .map(|p| (PropKey::from(*p), "any".to_string()))
             .collect(),
         static_init: Vec::new(),
         ctor: Some(ClassCtor { params, body }),

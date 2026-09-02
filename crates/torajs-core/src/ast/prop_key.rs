@@ -5,6 +5,7 @@
 
 use core::fmt;
 use core::ops::Deref;
+use std::borrow::Cow;
 
 use torajs_wtf8::{Wtf8, Wtf8Buf};
 
@@ -40,6 +41,26 @@ impl PropKey {
     /// feed this back into a key.
     pub fn to_string_lossy_owned(&self) -> String {
         self.0.to_string_lossy_owned()
+    }
+
+    /// Display-only spelling for a diagnostic, borrowed when the key
+    /// is well-formed. The symbol spelling is
+    /// [`super::mangle_key`]; there is deliberately no `Display` —
+    /// a `format!` of a key would silently pick this.
+    pub fn lossy(&self) -> Cow<'_, str> {
+        self.0.to_string_lossy()
+    }
+
+    /// The bytes as a `Wtf8Buf` (an `Expr::String` literal payload).
+    pub fn into_wtf8buf(self) -> Wtf8Buf {
+        self.0
+    }
+}
+
+impl From<PropKey> for Wtf8Buf {
+    #[inline]
+    fn from(k: PropKey) -> Wtf8Buf {
+        k.0
     }
 }
 
@@ -160,12 +181,6 @@ impl PartialEq<PropKey> for String {
     #[inline]
     fn eq(&self, o: &PropKey) -> bool {
         o.0 == *self
-    }
-}
-
-impl fmt::Display for PropKey {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.0, f)
     }
 }
 

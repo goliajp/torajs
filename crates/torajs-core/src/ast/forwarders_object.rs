@@ -12,7 +12,7 @@
 //! Sibling `ast/forwarders.rs` holds the Return-site variant
 //! `synthesize_forwarders`.
 
-use super::{Ast, Expr, ExprId, Param, Stmt, is_fn_like_ann};
+use super::{Ast, Expr, ExprId, Param, PropKey, Stmt, is_fn_like_ann};
 // Decl synthesis lives in the sibling (402-01 file split); the
 // re-export keeps both callers' `forwarders_object::` paths intact.
 pub(super) use super::forwarders_object_synth::synthesize_forwarder_decls;
@@ -139,8 +139,8 @@ pub(super) fn snapshot_fn_sigs(
 fn snapshot_type_field_anns(
     ast: &Ast,
 ) -> (
-    std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-    std::collections::HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    std::collections::HashMap<String, std::collections::HashMap<PropKey, String>>,
+    std::collections::HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
 ) {
     let mut struct_field_anns = std::collections::HashMap::new();
     let mut generic_field_anns = std::collections::HashMap::new();
@@ -151,7 +151,7 @@ fn snapshot_type_field_anns(
             fields,
         } = s
         {
-            let map: std::collections::HashMap<String, String> =
+            let map: std::collections::HashMap<PropKey, String> =
                 fields.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
             struct_field_anns.insert(name.clone(), map);
             if !type_params.is_empty() {

@@ -48,7 +48,7 @@ pub(crate) fn synthesize_main(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, ssa::StructId>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     string_id_base: usize,
     closure_captures: &mut HashMap<String, Vec<(String, Type, bool)>>,
     closure_variadic_captures: &mut HashMap<String, Vec<String>>,

@@ -276,6 +276,7 @@ impl<'a> Parser<'a> {
                 self.read_obj_binding_target()?
             } else {
                 if field_is_kw {
+                    let field = field.lossy();
                     return Err(format!(
                         "destructuring field `{field}` is a reserved word; use `{{ {field}: <binding> }}` to rename at {}",
                         self.at()

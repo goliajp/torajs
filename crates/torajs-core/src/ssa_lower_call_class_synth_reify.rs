@@ -5,7 +5,7 @@
 //! resolves a class-synthesis sentinel into the runtime define call
 //! that lands a real own entry on the class object / prototype.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Expr, ExprId, mangle_key};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -41,7 +41,9 @@ pub(super) fn try_lower_static_method_reify(
     // all-`any` mono instance (`$$anywv`, pre-seeded by
     // `monomorphize_and_check`) is the value-lane dispatch body the
     // class object's cell reifies instead.
-    let mut body = format!("__sm_{cname}__{mname}");
+    // The symbol is the key's mangled spelling (557-02 C 组) — a lone
+    // surrogate in the name is `__u_XXXX` there, never U+FFFD.
+    let mut body = format!("__sm_{cname}__{}", mangle_key(&mname));
     if !ctx.fn_table.contains_key(body.as_str()) {
         body.push_str("$$anywv");
     }
@@ -382,7 +384,7 @@ pub(super) fn try_lower_class_accessor_reify(
     };
     let body_prefix = if is_static { "__sm_" } else { "__cm_" };
     let face = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
-        let body = format!("{body_prefix}{cname}__{pname}{suffix}");
+        let body = format!("{body_prefix}{cname}__{}{suffix}", mangle_key(&pname));
         let body_fid = ctx.fn_table.get(body.as_str()).copied()?;
         ctx.boxed_entries.get(&body_fid).copied()
     };

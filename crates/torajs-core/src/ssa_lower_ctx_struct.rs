@@ -109,7 +109,7 @@ pub(crate) struct LowerCtx<'a> {
     /// M3.4 — generic struct decls indexed by name. Used by parse_type
     /// to instantiate `Foo<arg|...>` annotations in let-decl / fn-arg /
     /// closure-construction sites.
-    pub(crate) generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    pub(crate) generic_struct_decls: &'a HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     /// Phase H.1.b — `class name → runtime tag`. Keyed by name (not
     /// sid) because classes with structurally identical fields share
     /// a single sid; sid-keyed tags would alias them and silently

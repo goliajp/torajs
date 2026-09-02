@@ -219,7 +219,7 @@ fn expand_instantiation(
             in_flight.remove(name);
             return None;
         };
-        field_tys.push((PropKey::from(fname), ty));
+        field_tys.push((fname.clone(), ty));
     }
     in_flight.remove(name);
     Some(Type::Struct(field_tys))

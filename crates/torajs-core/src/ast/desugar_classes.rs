@@ -49,8 +49,8 @@ pub fn desugar_classes(ast: &mut Ast) {
     // (class_name, property_name, synthesised_fn_name). Drained into
     // `ast.accessor_getters` / `ast.accessor_setters` at the end of
     // desugar_classes, after the borrow on `ast` is released.
-    let mut accessor_getter_records: Vec<(String, String, String)> = Vec::new();
-    let mut accessor_setter_records: Vec<(String, String, String)> = Vec::new();
+    let mut accessor_getter_records: Vec<(String, PropKey, String)> = Vec::new();
+    let mut accessor_setter_records: Vec<(String, PropKey, String)> = Vec::new();
     // M-OO.4 — accumulator for `let __sf_<C>__<name>: T = init;`
     // declarations. These get **prepended** to `ast.stmts` (not
     // appended) so the synthetic `main` fn runs them before any
@@ -305,7 +305,7 @@ fn rewrite_static_accessor_accesses(
         let Expr::Ident(class_name) = ast.get_expr(*obj) else {
             return None;
         };
-        let (g, s) = accessor_rewrites.get(&(class_name.clone(), name.clone()))?;
+        let (g, s) = accessor_rewrites.get(&(class_name.clone(), PropKey::from(name)))?;
         if want_get { g.clone() } else { s.clone() }
     };
     // Write pass — whole-Assign nodes first.
@@ -382,7 +382,7 @@ fn route_inherited_static_calls(
         let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] else {
             continue;
         };
-        let key = (class_name.clone(), name.clone());
+        let key = (class_name.clone(), PropKey::from(name));
         let Some(owner) = inherited_static_owners.get(&key) else {
             continue;
         };
@@ -414,7 +414,7 @@ fn route_inherited_static_calls(
 /// through the top-level fn / globals tables.
 fn rewrite_static_member_accesses(
     ast: &mut Ast,
-    static_member_rewrites: &std::collections::HashMap<(String, String), String>,
+    static_member_rewrites: &std::collections::HashMap<(String, PropKey), String>,
 ) {
     if static_member_rewrites.is_empty() {
         return;
@@ -423,7 +423,7 @@ fn rewrite_static_member_accesses(
         let replacement = match &ast.exprs[i] {
             Expr::Member { obj, name } => {
                 if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
-                    let key = (class_name.clone(), name.clone());
+                    let key = (class_name.clone(), PropKey::from(name));
                     static_member_rewrites.get(&key).cloned()
                 } else {
                     None
@@ -468,8 +468,8 @@ fn reject_abstract_new(ast: &Ast, abstract_classes: &std::collections::HashSet<S
 fn finalize_side_tables(
     ast: &mut Ast,
     method_owners: std::collections::HashMap<String, Vec<String>>,
-    accessor_getter_records: Vec<(String, String, String)>,
-    accessor_setter_records: Vec<(String, String, String)>,
+    accessor_getter_records: Vec<(String, PropKey, String)>,
+    accessor_setter_records: Vec<(String, PropKey, String)>,
 ) {
     let slots =
         super::desugar_classes_method_owners::vtable_methods(&method_owners, &ast.class_parents);

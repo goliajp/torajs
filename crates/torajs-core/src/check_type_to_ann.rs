@@ -75,14 +75,14 @@ pub fn type_to_ann(ty: &Type) -> String {
                     // reaches SSA through here.
                     Type::Nullable(inner) => match &**inner {
                         Type::Function(args, ret) => {
-                            format!("{n}:__nullable({})", fn_ann("__cls", args, ret))
+                            format!("{}:__nullable({})", n.lossy(), fn_ann("__cls", args, ret))
                         }
-                        _ => format!("{n}:__nullable({})", type_to_ann(inner)),
+                        _ => format!("{}:__nullable({})", n.lossy(), type_to_ann(inner)),
                     },
                     Type::Function(args, ret) => {
-                        format!("{n}:{}", fn_ann("__cls", args, ret))
+                        format!("{}:{}", n.lossy(), fn_ann("__cls", args, ret))
                     }
-                    other => format!("{n}:{}", type_to_ann(other)),
+                    other => format!("{}:{}", n.lossy(), type_to_ann(other)),
                 })
                 .collect();
             format!("__struct({})", parts.join("|"))

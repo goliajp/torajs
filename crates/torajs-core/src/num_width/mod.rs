@@ -243,7 +243,7 @@ pub(super) struct Analysis<'a> {
     pub(super) nominal_aliases: HashSet<String>,
     /// Generic TypeDecl bodies by name (`Rec` → (["T"], fields)),
     /// for the lazy instantiation-key registration above.
-    pub(super) generic_decls: HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    pub(super) generic_decls: HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     /// W4 — an element write through a receiver the analysis cannot
     /// resolve to a container class. Never expected to fire (assign
     /// receivers are idents / members / indexes / calls); if it does,
@@ -268,7 +268,7 @@ pub(super) struct Analysis<'a> {
 
 /// Every generic `type` declaration by name, as `(type params, fields)`
 /// — the shapes the alias hookups instantiate per use site.
-fn collect_generic_decls(ast: &Ast) -> HashMap<String, (Vec<String>, Vec<(String, String)>)> {
+fn collect_generic_decls(ast: &Ast) -> HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> {
     let mut out = HashMap::new();
     for stmt in &ast.stmts {
         if let Stmt::TypeDecl {

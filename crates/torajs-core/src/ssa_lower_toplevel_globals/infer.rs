@@ -55,7 +55,7 @@ pub(super) fn inferred_slot_ty(
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
-    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(String, String)>)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
     struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
     inst_memo: &mut HashMap<String, crate::ssa::StructId>,
     num_f64_slots: &crate::num_width::WidthTable,

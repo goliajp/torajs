@@ -145,8 +145,9 @@ pub struct UserClassLayoutEntry {
 /// by id at rebase-assembly time (the fn-name table's mechanism).
 #[derive(Debug, Clone)]
 pub struct UserMethodMetaEntry {
-    /// Method name as declared (`next`, not `__cm_Gen__next`).
-    pub name: String,
+    /// Method name as declared (`next`, not `__cm_Gen__next`) — WTF-8
+    /// bytes, opaque to the link layer (`UserFieldMetaEntry::name`).
+    pub name: Vec<u8>,
     /// The boxed adapter's `FuncId` index into the link layer's
     /// `fn_vaddrs` slice; `None` bakes a 0 adapter_ptr (r502 — the
     /// dead-strip pre-pass blanks the column when no runtime finder

@@ -22,7 +22,7 @@
 //!   * `is_fn_like_ann` — closure-ABI slot detector shared by
 //!     multiple ast.rs passes.
 
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::{Ast, Expr, ExprId, Param, Stmt, mangle_key};
 use crate::ast::PropKey;
 
 /// Build a default-initializer Expr for a type annotation string. Used by
@@ -65,15 +65,15 @@ pub(crate) fn rewrite_this_in_ann(ann: &Option<String>, this_ann: &str) -> Optio
 pub(crate) fn default_init_for_field(
     ast: &mut Ast,
     fty: &str,
-    class_layouts: &std::collections::HashMap<String, Vec<(String, String)>>,
-    alias_layouts: &std::collections::HashMap<String, Vec<(String, String)>>,
+    class_layouts: &std::collections::HashMap<String, Vec<(PropKey, String)>>,
+    alias_layouts: &std::collections::HashMap<String, Vec<(PropKey, String)>>,
     prelude: &mut Vec<Stmt>,
     parent_cname: &str,
-    parent_fname: &str,
+    parent_fname: &PropKey,
     seen: &mut std::collections::HashSet<String>,
 ) -> ExprId {
     if fty.ends_with("[]") {
-        let local = format!("__def_arr_{parent_cname}_{parent_fname}");
+        let local = format!("__def_arr_{parent_cname}_{}", mangle_key(parent_fname));
         let arr_lit = ast.add_expr(Expr::Array(Vec::new()));
         prelude.push(Stmt::LetDecl {
             mutable: false,
@@ -108,13 +108,18 @@ pub(crate) fn default_init_for_field(
         if !seen.insert(fty.to_string()) {
             panic!(
                 "default_init_for_field: cyclic struct/class layout via `{fty}` \
-                 (parent `{parent_cname}.{parent_fname}`)"
+                 (parent `{parent_cname}.{}`)",
+                parent_fname.lossy()
             );
         }
         let sub_fields = sub_fields.clone();
         let mut sub_pairs: Vec<(PropKey, ExprId)> = Vec::with_capacity(sub_fields.len());
         for (sfname, sfty) in &sub_fields {
-            let sub_local = format!("{parent_cname}_{parent_fname}_{sfname}");
+            let sub_local = format!(
+                "{parent_cname}_{}_{}",
+                mangle_key(parent_fname),
+                mangle_key(sfname)
+            );
             let sub_id = default_init_for_field(
                 ast,
                 sfty,
@@ -125,7 +130,7 @@ pub(crate) fn default_init_for_field(
                 sfname,
                 seen,
             );
-            sub_pairs.push((PropKey::from(sfname), sub_id));
+            sub_pairs.push((sfname.clone(), sub_id));
         }
         seen.remove(fty);
         // The cell this literal mints belongs to `fty`, not to the

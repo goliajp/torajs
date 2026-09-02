@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, Stmt};
+use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey, Stmt};
 use crate::lexer::Span;
 
 mod diag;
@@ -27,7 +27,7 @@ pub use type_def::Type;
 /// its nominal identity (`ClassRef("Box<number>")`, RFC
 /// 20260815-generic-nominal-identity blade 3), an alias expands
 /// structurally as ever.
-pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(String, String)>, bool)>;
+pub(crate) type GenericAliasMap = HashMap<String, (Vec<String>, Vec<(PropKey, String)>, bool)>;
 
 /// M6.1 — string / array methods that borrow both their receiver and
 /// any args (no consume on pass). Shared between `check.rs`'s Call

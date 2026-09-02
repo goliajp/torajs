@@ -48,7 +48,7 @@ impl<'a> Parser<'a> {
             saved_super_prop,
             saved_has_parent,
         } = h;
-        let mut fields: Vec<(String, String)> = Vec::new();
+        let mut fields: Vec<(PropKey, String)> = Vec::new();
         let mut static_init: Vec<StaticInit> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
         let mut methods: Vec<ClassMethod> = Vec::new();
@@ -58,7 +58,7 @@ impl<'a> Parser<'a> {
         // (a synthesized one if no ctor was declared) at class-decl
         // finalization. The synthesized prefix is "this.<n> = init"
         // per declared field.
-        let mut field_inits: Vec<(String, ExprId)> = Vec::new();
+        let mut field_inits: Vec<(PropKey, ExprId)> = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             // Each member is one of:
             //   - `constructor(params) { body }`
@@ -238,10 +238,7 @@ impl<'a> Parser<'a> {
                         )?;
                         continue;
                     }
-                    return Err(format!(
-                        "expected `(` (method) or `:` (field) after `{member_name}`, got {t:?} at {}",
-                        self.at()
-                    ));
+                    return Err(self.member_shape_err(&member_name, t));
                 }
             }
         }

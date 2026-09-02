@@ -12,7 +12,7 @@ pub(crate) fn build_factory_body(
     ast: &mut Ast,
     cname: &str,
     type_params: &[String],
-    field_inits: &[(String, ExprId)],
+    field_inits: &[(PropKey, ExprId)],
     prelude: Vec<Stmt>,
     ctor: Option<&ClassCtor>,
 ) -> Vec<Stmt> {
@@ -51,10 +51,7 @@ pub(crate) fn build_factory_body(
         })
     } else {
         ast.add_expr(Expr::ObjectLit {
-            fields: field_inits
-                .iter()
-                .map(|(n, e)| (PropKey::from(n), *e))
-                .collect(),
+            fields: field_inits.iter().map(|(n, e)| (n.clone(), *e)).collect(),
         })
     };
     let this_ann = if exotic {

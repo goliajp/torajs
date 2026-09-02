@@ -14,7 +14,8 @@
 //! grants the access without widening visibility.
 
 use super::{
-    AccessorKind, Ast, BinOp, ClassMethod, Expr, ExprId, Param, Stmt, UnaryOp, rewrite_this_in_ann,
+    AccessorKind, Ast, BinOp, ClassMethod, Expr, ExprId, Param, PropKey, Stmt, UnaryOp, mangle_key,
+    rewrite_this_in_ann,
 };
 
 /// P8.2 — getter return-type inference for `get prop() { return this.x }`
@@ -31,7 +32,7 @@ use super::{
 /// `Void` default for shapes we don't yet model.
 fn infer_getter_return_ann(
     body: &[Stmt],
-    fields: &[(String, String)],
+    fields: &[(PropKey, String)],
     exprs: &[Expr],
 ) -> Option<String> {
     let ret_expr: ExprId = body.iter().rev().find_map(|s| {
@@ -51,7 +52,7 @@ fn infer_getter_return_ann(
 /// etc.) so the caller falls back to leaving `return_type` as `None`.
 fn infer_expr_ty_in_getter(
     eid: ExprId,
-    fields: &[(String, String)],
+    fields: &[(PropKey, String)],
     exprs: &[Expr],
 ) -> Option<String> {
     let e = exprs.get(eid.0 as usize)?;
@@ -143,7 +144,7 @@ fn maybe_rewrite_async_method_body(
     mangled_prefix: &str,
     method: &ClassMethod,
 ) -> Option<(Vec<Stmt>, Option<String>)> {
-    let mangled = format!("{mangled_prefix}{cname}__{}", method.name);
+    let mangled = format!("{mangled_prefix}{cname}__{}", mangle_key(&method.name));
     if !ast.async_fns.contains(&mangled) {
         return None;
     }
@@ -167,9 +168,9 @@ pub(in crate::ast) fn emit_class_instance_methods(
     cname: &str,
     type_params: &[String],
     this_ann: &str,
-    fields: &[(String, String)],
-    accessor_getter_records: &mut Vec<(String, String, String)>,
-    accessor_setter_records: &mut Vec<(String, String, String)>,
+    fields: &[(PropKey, String)],
+    accessor_getter_records: &mut Vec<(String, PropKey, String)>,
+    accessor_setter_records: &mut Vec<(String, PropKey, String)>,
     appended: &mut Vec<Stmt>,
 ) {
     for m in methods {
@@ -194,7 +195,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
             let trap_eid = ast.add_expr(Expr::Number(7777.0));
             let trap_body = vec![Stmt::Throw(trap_eid)];
             appended.push(Stmt::FnDecl {
-                name: format!("__cm_{cname}__{}", m.name),
+                name: format!("__cm_{cname}__{}", mangle_key(&m.name)),
                 type_params: fn_tp.clone(),
                 params,
                 return_type: rewrite_this_in_ann(&m.return_type, this_ann),
@@ -231,7 +232,7 @@ pub(in crate::ast) fn emit_class_instance_methods(
             Some(AccessorKind::Setter) => "_set",
             None => "",
         };
-        let fn_name = format!("__cm_{cname}__{}{suffix}", m.name);
+        let fn_name = format!("__cm_{cname}__{}{suffix}", mangle_key(&m.name));
         match m.accessor_kind {
             Some(AccessorKind::Getter) => {
                 accessor_getter_records.push((cname.to_string(), m.name.clone(), fn_name.clone()));
@@ -311,7 +312,7 @@ pub(in crate::ast) fn emit_class_static_methods(
             Some(AccessorKind::Setter) => "_set",
             None => "",
         };
-        let fn_name = format!("__sm_{cname}__{}{suffix}", sm.name);
+        let fn_name = format!("__sm_{cname}__{}{suffix}", mangle_key(&sm.name));
         match sm.accessor_kind {
             Some(AccessorKind::Getter) => {
                 ast.static_accessor_getters

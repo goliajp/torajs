@@ -56,7 +56,10 @@ pub(crate) fn own_props(layout: &[(PropKey, Type)], fn_sigs: &[(Vec<Type>, Type)
         let (key, src) = match crate::check_type_of_object_lit::accessor_slot(fname) {
             Some(("__getter_", prop)) => {
                 let Type::Closure(sig) = *fty else {
-                    panic!("ssa-lower: accessor slot `{fname}` is not a closure (got {fty:?})");
+                    panic!(
+                        "ssa-lower: accessor slot `{}` is not a closure (got {fty:?})",
+                        fname.lossy()
+                    );
                 };
                 let ret = fn_sigs[sig.0 as usize].1;
                 (PropKey::from(prop), PropSource::Getter { idx, sig, ret })
@@ -108,7 +111,10 @@ pub(crate) fn own_prop_sinks(layout: &[(PropKey, Type)]) -> Vec<OwnPropSink> {
         let (key, sink) = match crate::check_type_of_object_lit::accessor_slot(fname) {
             Some(("__setter_", prop)) => {
                 let Type::Closure(sig) = *fty else {
-                    panic!("ssa-lower: accessor slot `{fname}` is not a closure (got {fty:?})");
+                    panic!(
+                        "ssa-lower: accessor slot `{}` is not a closure (got {fty:?})",
+                        fname.lossy()
+                    );
                 };
                 (PropKey::from(prop), PropSink::Setter { idx, sig })
             }

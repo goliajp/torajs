@@ -249,7 +249,7 @@ pub(crate) fn receiver_is_this_builtin_field(
         String,
         Vec<String>,
         Option<String>,
-        Vec<(String, String)>,
+        Vec<(PropKey, String)>,
         Vec<StaticInit>,
         Option<ClassCtor>,
         Vec<ClassMethod>,

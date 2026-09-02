@@ -133,7 +133,8 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract
             || m.visibility != Visibility::Public
-            || (m.name.starts_with("__") && sentinel_index(&m.name).is_none())
+            || (m.name.starts_with("__")
+                && m.name.as_str().is_none_or(|s| sentinel_index(s).is_none()))
     }) {
         return Some(if m.is_abstract {
             "it has an abstract method"
@@ -206,7 +207,7 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     let member_names: Vec<&str> = methods
         .iter()
         .chain(static_methods.iter())
-        .map(|m| m.name.as_str())
+        .filter_map(|m| m.name.as_str())
         .collect();
     prebound.extend(
         own_computed_members(ast, name, ctor_body, &member_names)

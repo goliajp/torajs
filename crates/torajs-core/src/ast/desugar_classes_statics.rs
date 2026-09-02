@@ -38,7 +38,7 @@ use std::collections::HashMap;
 /// 20260718-accessor-reify 刀 3). Reads rewrite to a getter CALL,
 /// writes to a setter call — never to a bare Ident.
 pub(super) type StaticAccessorRewrites =
-    HashMap<(String, String), (Option<String>, Option<String>)>;
+    HashMap<(String, PropKey), (Option<String>, Option<String>)>;
 
 /// `(accessing class, member) → owning class`, for the static-method
 /// entries the V3-18 inheritance walk aliased onto a PARENT's binding.
@@ -47,12 +47,12 @@ pub(super) type StaticAccessorRewrites =
 /// the call was written on `Sub`. §15.7.14 makes the receiver of a
 /// `Sub.make()` call the `Sub` constructor object, so a body that reads
 /// `this` needs that name carried to the twin (RFC 20260804 knife 3d).
-pub(super) type InheritedStaticOwners = HashMap<(String, String), String>;
+pub(super) type InheritedStaticOwners = HashMap<(String, PropKey), String>;
 
 pub(super) fn build_static_member_rewrites(
     class_index: &[ClassIndexEntry],
 ) -> (
-    HashMap<(String, String), String>,
+    HashMap<(String, PropKey), String>,
     StaticAccessorRewrites,
     InheritedStaticOwners,
 ) {
@@ -62,7 +62,7 @@ pub(super) fn build_static_member_rewrites(
     // emitting the desugared decls, a second walk over `ast.exprs`
     // rewrites every `Expr::Member { obj: Ident("ClassName"), name }`
     // whose key is in the table to a plain `Expr::Ident(replacement)`.
-    let mut static_member_rewrites: HashMap<(String, String), String> = HashMap::new();
+    let mut static_member_rewrites: HashMap<(String, PropKey), String> = HashMap::new();
     let mut accessor_rewrites: StaticAccessorRewrites = HashMap::new();
     let mut inherited_owners: InheritedStaticOwners = HashMap::new();
     for (_, cname, _, _, _, sis, _, _, sms) in class_index {
@@ -74,7 +74,7 @@ pub(super) fn build_static_member_rewrites(
             if let StaticInit::Field(sf) = si {
                 static_member_rewrites.insert(
                     (cname.clone(), sf.name.clone()),
-                    format!("__sf_{cname}__{}", sf.name),
+                    format!("__sf_{cname}__{}", mangle_key(&sf.name)),
                 );
             }
         }
@@ -89,18 +89,18 @@ pub(super) fn build_static_member_rewrites(
                     accessor_rewrites
                         .entry((cname.clone(), sm.name.clone()))
                         .or_insert((None, None))
-                        .0 = Some(format!("__sm_{cname}__{}_get", sm.name));
+                        .0 = Some(format!("__sm_{cname}__{}_get", mangle_key(&sm.name)));
                 }
                 Some(AccessorKind::Setter) => {
                     accessor_rewrites
                         .entry((cname.clone(), sm.name.clone()))
                         .or_insert((None, None))
-                        .1 = Some(format!("__sm_{cname}__{}_set", sm.name));
+                        .1 = Some(format!("__sm_{cname}__{}_set", mangle_key(&sm.name)));
                 }
                 None => {
                     static_member_rewrites.insert(
                         (cname.clone(), sm.name.clone()),
-                        format!("__sm_{cname}__{}", sm.name),
+                        format!("__sm_{cname}__{}", mangle_key(&sm.name)),
                     );
                 }
             }
@@ -123,7 +123,7 @@ pub(super) fn build_static_member_rewrites(
         .iter()
         .map(|(_, c, _, p, _, _, _, _, _)| (c.clone(), p.clone()))
         .collect();
-    let mut class_static_index: HashMap<String, (Vec<String>, Vec<String>)> = HashMap::new();
+    let mut class_static_index: HashMap<String, (Vec<PropKey>, Vec<PropKey>)> = HashMap::new();
     for (_, cname, _, _, _, sis, _, _, sms) in class_index {
         class_static_index.insert(
             cname.clone(),
@@ -162,7 +162,7 @@ pub(super) fn build_static_member_rewrites(
                     let key = (cname.clone(), sf_name.clone());
                     static_member_rewrites
                         .entry(key)
-                        .or_insert_with(|| format!("__sf_{p}__{sf_name}"));
+                        .or_insert_with(|| format!("__sf_{p}__{}", mangle_key(sf_name)));
                 }
                 for sm_name in p_sms {
                     let key = (cname.clone(), sm_name.clone());
@@ -175,7 +175,7 @@ pub(super) fn build_static_member_rewrites(
                         .entry(key.clone())
                         .or_insert_with(|| {
                             aliased = true;
-                            format!("__sm_{p}__{sm_name}")
+                            format!("__sm_{p}__{}", mangle_key(sm_name))
                         });
                     if aliased {
                         inherited_owners.insert(key, p.clone());
@@ -247,7 +247,7 @@ pub(super) fn emit_static_inits(
                 // (the 68-case rs-static-privatename family).
                 own_statics.push(Stmt::LetDecl {
                     mutable: true,
-                    name: format!("__sf_{cname}__{}", sf.name),
+                    name: format!("__sf_{cname}__{}", mangle_key(&sf.name)),
                     type_ann: Some(sf.type_ann.clone()),
                     init: sf.init,
                     is_var: false,
@@ -263,7 +263,10 @@ pub(super) fn emit_static_inits(
                 // the plain global-read path.
                 let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
                 let fname_str = ast.add_expr(Expr::String(sf.name.clone().into()));
-                let val_ident = ast.add_expr(Expr::Ident(format!("__sf_{cname}__{}", sf.name)));
+                let val_ident = ast.add_expr(Expr::Ident(format!(
+                    "__sf_{cname}__{}",
+                    mangle_key(&sf.name)
+                )));
                 let callee = ast.add_expr(Expr::Ident("__torajs_static_field_reify".to_string()));
                 let call = ast.add_expr(Expr::Call {
                     callee,

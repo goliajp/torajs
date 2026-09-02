@@ -23,7 +23,7 @@ impl<'a> Parser<'a> {
         name: &str,
         member_name: String,
         is_static: bool,
-        field_inits: &mut Vec<(String, ExprId)>,
+        field_inits: &mut Vec<(PropKey, ExprId)>,
     ) -> Result<(), String> {
         if matches!(self.peek(), Token::Colon) {
             self.pos += 1; // consume `:`
@@ -60,7 +60,7 @@ impl<'a> Parser<'a> {
                 .class_computed_static_fields
                 .push((name.to_string(), member_name, init));
         } else {
-            field_inits.push((member_name, init));
+            field_inits.push((PropKey::from(member_name), init));
         }
         Ok(())
     }
@@ -73,11 +73,12 @@ impl<'a> Parser<'a> {
     pub(super) fn computed_field_init_lhs(
         &mut self,
         class_name: &str,
-        sentinel: &str,
+        sentinel: &torajs_wtf8::Wtf8,
         this_ref: ExprId,
     ) -> ExprId {
         let n = sentinel
             .strip_prefix("__ccm_")
+            .and_then(torajs_wtf8::Wtf8::as_str)
             .map(|r| r.trim_end_matches('_'))
             .expect("caller checked the sentinel prefix");
         let this_any = self.ast.add_expr(Expr::As {

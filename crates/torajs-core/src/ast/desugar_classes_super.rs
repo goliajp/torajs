@@ -26,13 +26,13 @@ use super::*;
 pub(super) type ClassIndexEntry = (
     usize,
     String,
-    Vec<String>,           // type_params
-    Option<String>,        // parent
-    Vec<(String, String)>, // fields
-    Vec<StaticInit>,       // static_init
-    Option<ClassCtor>,     // ctor
-    Vec<ClassMethod>,      // methods
-    Vec<ClassMethod>,      // static_methods
+    Vec<String>,            // type_params
+    Option<String>,         // parent
+    Vec<(PropKey, String)>, // fields
+    Vec<StaticInit>,        // static_init
+    Option<ClassCtor>,      // ctor
+    Vec<ClassMethod>,       // methods
+    Vec<ClassMethod>,       // static_methods
 );
 
 /// RFC 20260718-error-message-own-prop 刀 3 — §9.2.2 [[Construct]]

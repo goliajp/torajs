@@ -18,7 +18,10 @@ pub struct ClassCtor {
 
 #[derive(Debug, Clone)]
 pub struct ClassMethod {
-    pub name: String,
+    /// The member name as the program spelled it (557-02 C 组). The
+    /// desugared FnDecl is named through [`super::mangle_key`]; the
+    /// runtime key is this value, never the symbol.
+    pub name: PropKey,
     /// 398-01 — method-level generic params: `pair<T>(v: T): any`.
     /// Concatenated after the class-level list onto the desugared
     /// `__cm_` / `__sm_` FnDecl, so the same monomorphization
@@ -97,7 +100,7 @@ pub enum Visibility {
 /// machinery promotes the binding to a real LLVM data slot.
 #[derive(Debug, Clone)]
 pub struct StaticField {
-    pub name: String,
+    pub name: PropKey,
     pub type_ann: String,
     pub init: ExprId,
 }

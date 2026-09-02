@@ -14,7 +14,7 @@ impl<'a> Parser<'a> {
     pub(super) fn finalize_class_field_inits(
         &mut self,
         class_name: &str,
-        field_inits: Vec<(String, ExprId)>,
+        field_inits: Vec<(PropKey, ExprId)>,
         ctor: Option<ClassCtor>,
     ) -> Option<ClassCtor> {
         if field_inits.is_empty() {
@@ -27,10 +27,21 @@ impl<'a> Parser<'a> {
             // into the expando dict (lhs built in the sibling).
             let lhs = if fname.starts_with("__ccm_") {
                 self.computed_field_init_lhs(class_name, fname, this_ref)
-            } else {
+            } else if let Some(ident) = fname.as_str() {
                 self.ast.add_expr(Expr::Member {
                     obj: this_ref,
-                    name: fname.clone(),
+                    name: ident.to_string(),
+                })
+            } else {
+                // A key with a lone surrogate is not an identifier —
+                // it is written the way the program could have:
+                // `this["\uD800"] = init`, the keyed-write lane.
+                let key = self
+                    .ast
+                    .add_expr(Expr::String(fname.clone().into_wtf8buf()));
+                self.ast.add_expr(Expr::Index {
+                    obj: this_ref,
+                    index: key,
                 })
             };
             let assign = self.ast.add_expr(Expr::Assign {

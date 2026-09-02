@@ -17,7 +17,7 @@
 //!     conflicts (`static abstract`, abstract in non-abstract class).
 
 use super::Parser;
-use crate::ast::{AccessorKind, ClassMethod, Param, Stmt, Visibility};
+use crate::ast::{AccessorKind, ClassMethod, Param, PropKey, Stmt, Visibility, mangle_key};
 use crate::lexer::Token;
 
 /// One class member's modifier prefix. `accessor_kind` may still be
@@ -328,7 +328,7 @@ impl<'a> Parser<'a> {
     pub(super) fn finalize_class_method(
         &mut self,
         class_name: &str,
-        member_name: String,
+        member_name: PropKey,
         type_params: Vec<String>,
         params: Vec<Param>,
         return_type: Option<String>,
@@ -344,8 +344,9 @@ impl<'a> Parser<'a> {
         static_methods: &mut Vec<ClassMethod>,
     ) -> Result<(), String> {
         if is_readonly {
+            let mn = member_name.lossy();
             return Err(format!(
-                "`readonly` modifier is only valid on fields, not on method `{member_name}` in class `{class_name}` at {}",
+                "`readonly` modifier is only valid on fields, not on method `{mn}` in class `{class_name}` at {}",
                 self.at()
             ));
         }
@@ -356,10 +357,11 @@ impl<'a> Parser<'a> {
                 .insert((class_name.to_string(), member_name.clone()), visibility);
         }
         if is_async {
+            let sym = mangle_key(&member_name);
             let mangled = if is_static {
-                format!("__sm_{class_name}__{member_name}")
+                format!("__sm_{class_name}__{sym}")
             } else {
-                format!("__cm_{class_name}__{member_name}")
+                format!("__cm_{class_name}__{sym}")
             };
             self.ast.async_fns.insert(mangled);
         }

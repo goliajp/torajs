@@ -153,7 +153,7 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         args: vec![probe_arg],
     });
     let is_error = ClassMethod {
-        name: "isError".to_string(),
+        name: "isError".into(),
         type_params: Vec::new(),
         params: vec![Param {
             name: "__bi_x".to_string(),
@@ -175,9 +175,9 @@ fn build_error_class(ast: &mut Ast) -> Stmt {
         parent: None,
         is_abstract: false,
         fields: vec![
-            ("message".to_string(), "string".to_string()),
-            ("name".to_string(), "string".to_string()),
-            ("stack".to_string(), "string".to_string()),
+            ("message".into(), "string".to_string()),
+            ("name".into(), "string".to_string()),
+            ("stack".into(), "string".to_string()),
         ],
         static_init: Vec::new(),
         ctor: Some(ctor),

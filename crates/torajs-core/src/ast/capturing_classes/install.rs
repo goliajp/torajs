@@ -50,10 +50,18 @@ pub(super) fn install_static_inits(
                     sf.init
                 };
                 let recv = ast.add_expr(Expr::Ident(name.to_string()));
-                let target = ast.add_expr(Expr::Member {
-                    obj: recv,
-                    name: sf.name.clone(),
-                });
+                let target = if let Some(ident) = sf.name.as_str() {
+                    ast.add_expr(Expr::Member {
+                        obj: recv,
+                        name: ident.to_string(),
+                    })
+                } else {
+                    let key = ast.add_expr(Expr::String(sf.name.clone().into_wtf8buf()));
+                    ast.add_expr(Expr::Index {
+                        obj: recv,
+                        index: key,
+                    })
+                };
                 out.push(Stmt::Expr(ast.add_expr(Expr::Assign { target, value })));
             }
             StaticInit::Block(stmts) => {
