@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T13:38:56.547Z",
+  "generatedAt": "2026-09-02T16:16:12.366Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-02T13:36:14Z",
-    "headSha": "bb25487a9",
-    "elapsedSec": 678.82,
+    "ranAt": "2026-09-02T16:03:26Z",
+    "headSha": "9d0223fa1",
+    "elapsedSec": 580.85,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30575,
+    "pass": 30576,
     "passNoOracle": 1028,
     "passNegative": 4147,
-    "passTotal": 35750,
-    "bug": 12067,
+    "passTotal": 35751,
+    "bug": 12066,
     "incompatible": 5357,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47817,
     "passRateInScope": 67.23,
-    "passRateTrAccepted": 74.76
+    "passRateTrAccepted": 74.77
   },
   "torajs": {
-    "commit": "bb25487a9",
-    "commitSubject": "fix: an object's inspect shows what its prototypes carry",
+    "commit": "9d0223fa1",
+    "commitSubject": "fix: a generic method's name is its source spelling, not its instance symbol",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "9d0223fa1",
+      "subject": "fix: a generic method's name is its source spelling, not its instance symbol"
+    },
+    {
+      "hash": "02b2ff6c0",
+      "subject": "fix: a class object prints as a class, not as its property bag"
+    },
+    {
+      "hash": "e7c0e8430",
+      "subject": "fix: a computed class member lands at its declaration position"
+    },
+    {
+      "hash": "988e08bb6",
+      "subject": "fix: a prototype that is a struct cell is a prototype like any other"
+    },
+    {
+      "hash": "c89180717",
+      "subject": "refactor: a struct cell's rows move out of the file that frames them"
+    },
+    {
+      "hash": "d68f8f910",
+      "subject": "chore: rotation 562 sweep on bb25487a9, zero test262 movement"
+    },
+    {
       "hash": "bb25487a9",
       "subject": "fix: an object's inspect shows what its prototypes carry"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "9af525d71",
       "subject": "chore: rotation 561 sweep on 52aa36d7f and bench on a65c649, zero test262 movement"
-    },
-    {
-      "hash": "a65c64966",
-      "subject": "chore: map-str-100k bench case, the first Map/Set cell in the matrix"
-    },
-    {
-      "hash": "52aa36d7f",
-      "subject": "fix: console.log prints every own property the way bun does, hiding only constructor, a non-enumerable __proto__ and @@toStringTag"
-    },
-    {
-      "hash": "4447068bd",
-      "subject": "fix: the printer kernels stay for a typed array that can carry expando props, and a null-prototype object keeps its prefix at every depth"
-    },
-    {
-      "hash": "68ffa6c37",
-      "subject": "fix: console.log prints Symbol-keyed own properties as [Symbol(desc)], in bun's order, on objects, class instances and arrays"
-    },
-    {
-      "hash": "59edd507a",
-      "subject": "fix: a Map key hashes by its code units through torajs-str, so a Substr view finds the bucket its content owns"
-    },
-    {
-      "hash": "62e1d35a0",
-      "subject": "chore: rotation 560 sweep on 17e9a2252, zero movement and no regression"
     }
   ],
-  "headSha": "bb25487a9",
+  "headSha": "9d0223fa1",
   "autorun": {
-    "total": 865,
+    "total": 866,
     "baselineTarget": 10,
-    "bySelf": 860,
+    "bySelf": 861,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788347274-521b",
-      "at": "2026-09-02T11:07:54Z",
-      "ts": 1788347274,
+      "rotationId": "r-1788357007-2c2e",
+      "at": "2026-09-02T13:50:07Z",
+      "ts": 1788357007,
       "trigger": "self",
-      "prevHead": "9af525d71",
-      "handoffSha": "sha256:509af6bcab053bf96de40786cbbc331ccd77d149e82eeb193f94671293eb9ca0",
-      "handoffAgeSec": 461,
+      "prevHead": "d68f8f910",
+      "handoffSha": "sha256:0ce5df7a12aa39c060137423181f27caef280f03804e07ba379fba1b6ac3eb8d",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788357007-2c2e",
+        "at": "2026-09-02T13:50:07Z",
+        "ts": 1788357007,
+        "trigger": "self",
+        "prevHead": "d68f8f910",
+        "handoffSha": "sha256:0ce5df7a12aa39c060137423181f27caef280f03804e07ba379fba1b6ac3eb8d",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788347274-521b",
         "at": "2026-09-02T11:07:54Z",
@@ -892,17 +903,6 @@
         "prevHead": "0e22d18b2",
         "handoffSha": "sha256:345da93c65ab4cfa3b55043cac99fad6b03dc1317ed68950b428e517f931409b",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788265372-33ba",
-        "at": "2026-09-01T12:22:52Z",
-        "ts": 1788265372,
-        "trigger": "self",
-        "prevHead": "d0844fd25",
-        "handoffSha": "sha256:2f656e9bb06501ab0ff640b58e39b596c472c1b0255471e510d1c3a95bd3a10e",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }
