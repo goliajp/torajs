@@ -338,6 +338,47 @@ fn emit_computed_member_reifies(
         entries.push((n, sentinel, 3, 0, None));
     }
     entries.sort_by_key(|(n, ..)| *n);
+    // 563-03 — per computed STATIC member, the plain static members
+    // this class declares AFTER it, in declaration order and one
+    // entry per own key (a getter and its setter are one). The class
+    // object's members arrive one emitted reify at a time in the
+    // program prologue, and an own entry can only be APPENDED — so
+    // the computed key, which exists only at the class-decl position,
+    // would come out last. These move behind it instead; the
+    // instance side answers the same question from its method table
+    // (562-07 `redefine_rows_after`), which a class object has none
+    // of.
+    let mut later_statics: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    for (i, m) in static_methods.iter().enumerate() {
+        let Some(sentinel) = m.name.as_str() else {
+            continue;
+        };
+        if !sentinel.starts_with("__ccm_") {
+            continue;
+        }
+        // Seeded with the members declared BEFORE this one: an
+        // accessor whose first face is up there already has its own
+        // key at its own position, so its second face down here must
+        // not drag it behind the computed member.
+        let mut seen: std::collections::HashSet<&str> = static_methods[..i]
+            .iter()
+            .filter_map(|before| before.name.as_str())
+            .collect();
+        let mut later: Vec<String> = Vec::new();
+        for after in &static_methods[i + 1..] {
+            let Some(name) = after.name.as_str() else {
+                continue;
+            };
+            if !name.starts_with("__ccm_") && seen.insert(name) {
+                later.push(name.to_string());
+            }
+        }
+        // A pair's two faces share one sentinel; the own entry is
+        // created at the FIRST face, so that is where the list is
+        // taken from (`or_insert`, not overwrite).
+        later_statics.entry(sentinel.to_string()).or_insert(later);
+    }
     for (n, sentinel, kind, is_static, init) in entries {
         let Some(&key_eid) = ast
             .class_computed_keys
@@ -392,7 +433,7 @@ fn emit_computed_member_reifies(
             continue;
         }
         let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
-        let sent_str = ast.add_expr(Expr::String(sentinel.into()));
+        let sent_str = ast.add_expr(Expr::String(sentinel.clone().into()));
         let kind_e = ast.add_expr(Expr::Number(kind as f64));
         let stat_e = ast.add_expr(Expr::Number(is_static as f64));
         let callee = ast.add_expr(Expr::Ident("__torajs_class_computed_reify".to_string()));
@@ -401,5 +442,19 @@ fn emit_computed_member_reifies(
             args: vec![cname_str, sent_str, key_eid, kind_e, stat_e],
         });
         patch.push(Stmt::Expr(call));
+        if is_static == 1 {
+            for member in later_statics.remove(&sentinel).unwrap_or_default() {
+                let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
+                let member_str = ast.add_expr(Expr::String(member.into()));
+                let callee = ast.add_expr(Expr::Ident(
+                    "__torajs_class_static_own_move_to_end".to_string(),
+                ));
+                let call = ast.add_expr(Expr::Call {
+                    callee,
+                    args: vec![cname_str, member_str],
+                });
+                patch.push(Stmt::Expr(call));
+            }
+        }
     }
 }

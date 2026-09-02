@@ -496,6 +496,7 @@ pub(crate) struct Intrinsics {
     pub(crate) proto_cell_raw: FuncId,
     pub(crate) class_accessor_define: FuncId,
     pub(crate) class_static_accessor_define: FuncId,
+    pub(crate) class_static_own_move_to_end: FuncId,
     pub(crate) class_get: FuncId,
     pub(crate) get_proto_of_any: FuncId,
     pub(crate) proto_member_get: FuncId,

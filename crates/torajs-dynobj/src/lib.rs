@@ -46,6 +46,7 @@ pub mod iter_print_order;
 pub mod iter_slow_mode;
 mod key_wtf8;
 pub mod layout;
+pub mod move_to_end;
 pub mod pool;
 pub mod print_any;
 pub mod probe;

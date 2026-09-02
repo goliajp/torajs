@@ -384,3 +384,45 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
         CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
     }
 }
+
+unsafe extern "C" {
+    /// torajs-dynobj — re-append one own entry, carrying its key
+    /// cell, value and attributes across unchanged.
+    fn __torajs_dynobj_move_own_to_end(obj: *mut c_void, key: *const c_void) -> i32;
+}
+
+/// 563-03 — move the class object's own `<name>` entry behind
+/// everything defined so far. §15.7.14 defines every static element
+/// in ONE ordered pass, but a COMPUTED static member's key exists
+/// only at the class-decl position, long after the prologue's
+/// registration walk defined the plain members, and an own entry can
+/// only be APPENDED. So the members declared after the computed one
+/// are moved behind it — one emitted call each, ordered by the class
+/// element list.
+///
+/// The instance side answers the same question from the class's
+/// method table ([`super::reify::redefine_rows_after`]); a class
+/// object has no such table, its members arrive one emitted reify at
+/// a time, so the order is repaired from the emit side instead.
+/// Nothing can observe the intermediate states: this runs inside the
+/// class definition, before the binding exists.
+///
+/// # Safety
+/// `name_str` is NULL or a live Str cell (caller-owned — the entry
+/// keeps the key cell it already owns).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_static_own_move_to_end(tag: i64, name_str: *const u8) {
+    if !in_range(tag) || name_str.is_null() {
+        return;
+    }
+    let class_anyv = unsafe { CLASSES_BY_TAG_IMM[tag as usize] };
+    if !is_cell_imm(class_anyv) {
+        return;
+    }
+    unsafe {
+        if heap_type_tag(class_anyv as *const c_void) != TAG_DYNOBJ {
+            return;
+        }
+        __torajs_dynobj_move_own_to_end(class_anyv as *mut c_void, name_str.cast::<c_void>());
+    }
+}

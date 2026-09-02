@@ -75,6 +75,9 @@ pub(crate) fn try_lower(
         "__torajs_class_static_accessor_reify" => {
             reify::try_lower_class_accessor_reify(ctx, args, true)
         }
+        "__torajs_class_static_own_move_to_end" => {
+            reify::try_lower_static_own_move_to_end(ctx, args)
+        }
         "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
         "__torajs_class_computed_key" => reify::try_lower_class_computed_key(ctx, args),
         // RFC 20260820-dstr-deferred-close — the dstr family lives in

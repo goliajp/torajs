@@ -165,6 +165,10 @@ pub(crate) struct AnySubstrateIds {
     pub class_accessor_define: FuncId,
     /// 刀 3 static twin — AccessorPair own entry onto the class object.
     pub class_static_accessor_define: FuncId,
+    /// 563-03 — move one own entry of the class object to the end of
+    /// its insertion order (`tag, name Str`), so a computed static
+    /// member's key sits at its declaration position.
+    pub class_static_own_move_to_end: FuncId,
     pub any_index_get: FuncId,
     /// Cluster #1 blade 3 — `recv[key]` where both sides are `any`:
     /// runtime ToPropertyKey dispatch (numeric lane / Str / Symbol
@@ -328,6 +332,11 @@ pub(crate) fn declare(
         class_static_accessor_define: decl!(
             "__torajs_class_static_accessor_define",
             [I64, Str, I64, I64],
+            Void
+        ),
+        class_static_own_move_to_end: decl!(
+            "__torajs_class_static_own_move_to_end",
+            [I64, Str],
             Void
         ),
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),

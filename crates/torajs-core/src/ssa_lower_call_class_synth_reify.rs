@@ -104,6 +104,48 @@ pub(super) fn try_lower_static_method_reify(
     Some(Operand::ConstI64(0))
 }
 
+/// 563-03 — `__torajs_class_static_own_move_to_end("<C>", "<M>")`:
+/// move the class object's own `<M>` entry behind everything defined
+/// so far. §15.7.14 defines every static element in ONE ordered
+/// pass, but a COMPUTED static member's key exists only at the
+/// class-decl position — long after the prologue's registration walk
+/// defined the plain members — and an own entry can only be
+/// APPENDED. So the members declared after the computed one move
+/// behind it, one call each. The instance side reads its element
+/// order back off the class's method table (562-07); a class object
+/// has no such table, its members arrive one emitted reify at a
+/// time, so the repair is emitted too.
+///
+/// A tag miss (generator-factory class) skips the move — the
+/// member's own order is whatever the walk gave it.
+pub(super) fn try_lower_static_own_move_to_end(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if args.len() != 2 {
+        return None;
+    }
+    let Expr::String(cname) = ctx.ast.get_expr(args[0]) else {
+        return None;
+    };
+    let cname = cname.to_string_lossy_owned();
+    let Some(tag) = ctx.class_name_to_tag.get(cname.as_str()).copied() else {
+        return Some(Operand::ConstI64(0));
+    };
+    let name_op = ctx.lower_expr(args[1]);
+    let cur_block = ctx.cur_block;
+    let mv = ctx.intrinsics.class_static_own_move_to_end;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(mv, vec![Operand::ConstI64(tag as i64), name_op.clone()]),
+    );
+    // The lowered Str literal is a caller-owned temp — the move
+    // carries the entry's OWN key cell across, never this one.
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
+    Some(Operand::ConstI64(0))
+}
+
 /// L3b static-field-reflect (2026-07-22) —
 /// `__torajs_static_field_reify("<C>", "<f>", __sf_<C>__<f>)`: box
 /// the global slot's current value to its `(tag, value)` pair (the

@@ -173,6 +173,12 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         "__torajs_class_accessor_reify" | "__torajs_class_static_accessor_reify" => Ok(
             Type::Function(vec![Type::String, Type::String], Box::new(Type::Void)),
         ),
+        // 563-03 — (class, static member): move that own entry of the
+        // class object behind everything defined so far.
+        "__torajs_class_static_own_move_to_end" => Ok(Type::Function(
+            vec![Type::String, Type::String],
+            Box::new(Type::Void),
+        )),
         // RFC 20260802-class-computed-member 刀 2 — the class-decl-
         // position patch for one runtime computed member: (class,
         // sentinel, key expr, kind, is_static).
