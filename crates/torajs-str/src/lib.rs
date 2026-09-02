@@ -121,6 +121,7 @@ pub mod code_point;
 pub mod concat;
 pub mod concat_num;
 pub mod eq;
+pub mod hash;
 pub mod html;
 pub mod index_any;
 pub mod json;
@@ -164,6 +165,7 @@ pub use block::{
 };
 pub use concat::__torajs_str_concat;
 pub use eq::{__torajs_str_eq, __torajs_str_eq_cstr};
+pub use hash::__torajs_str_hash;
 pub use json::__torajs_json_quote_str;
 pub use json_parse::{
     __torajs_json_arr_first, __torajs_json_arr_step, __torajs_json_eat_char,

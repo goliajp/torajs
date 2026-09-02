@@ -14,8 +14,17 @@ use core::ffi::c_void;
 
 use crate::layout::{
     ANY_BOOL, ANY_F64, ANY_HEAP, ANY_I64, ANY_NULL, ANY_UNDEF, BIGINT_LEN_OFF, BIGINT_SIGN_OFF,
-    BIGINT_WORDS_OFF, HeapHeader, STR_DATA_OFF, STR_LEN_OFF, TAG_BIGINT, TAG_STR,
+    BIGINT_WORDS_OFF, HeapHeader, TAG_BIGINT, TAG_STR,
 };
+
+unsafe extern "C" {
+    /// torajs-str — the cell's content hash over code units,
+    /// view-aware; the twin of the `__torajs_str_eq` this crate's
+    /// [`crate::eq`] compares keys with. Rotation 560-01: reading
+    /// `len` payload bytes at the owned offsets hashed half of a
+    /// UTF-16 key, and a Substr view's parent pointer and offset.
+    fn __torajs_str_hash(s: *const u8) -> u64;
+}
 
 /// SplitMix64 finalizer — strong avalanche; same primitive V8 / Java
 /// / many others use as a mixing helper. Truncates to u32 for the
@@ -67,6 +76,9 @@ pub(crate) fn f64_as_exact_i64(d: f64) -> Option<i64> {
 ///   [`crate::eq::map_keys_equal`] mirrors this (eq true ⇒ hash equal).
 /// - BigInt hashes by content (sign + limbs), matching the by-value
 ///   eq arm — two separately-allocated `1n` keys collide as required.
+/// - Str hashes by content through torajs-str's kernel (code units,
+///   view-aware), so a key equal under `__torajs_str_eq` — a Substr
+///   view, a UTF-16 cell spelling Latin-1 content — finds its bucket.
 ///
 /// # Safety
 /// For `ANY_HEAP` tag, `payload` must be either NULL or a valid live
@@ -97,9 +109,10 @@ pub(crate) unsafe fn map_hash_key(tag: u8, payload: u64) -> u32 {
                 let hdr = p as *const HeapHeader;
                 let type_tag = unsafe { (*hdr).type_tag };
                 if type_tag == TAG_STR {
-                    let len = unsafe { *((p as *const u8).add(STR_LEN_OFF) as *const u32) } as u64;
-                    let data = unsafe { (p as *const u8).add(STR_DATA_OFF) };
-                    unsafe { map_hash_bytes(data, len) }
+                    // Content hash by code unit, so a UTF-16 view
+                    // of Latin-1 content shares the owned key's
+                    // bucket the way `__torajs_str_eq` says it must.
+                    map_mix_u64(unsafe { __torajs_str_hash(p as *const u8) })
                 } else if type_tag == TAG_BIGINT {
                     let sign = unsafe { *((p as *const u8).add(BIGINT_SIGN_OFF) as *const u32) };
                     let len = unsafe { *((p as *const u8).add(BIGINT_LEN_OFF) as *const u32) };
@@ -120,7 +133,6 @@ pub(crate) unsafe fn map_hash_key(tag: u8, payload: u64) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{STR_DATA_OFF, STR_LEN_OFF};
 
     #[test]
     fn mix_u64_known() {
@@ -213,32 +225,5 @@ mod tests {
         let h = unsafe { map_hash_bytes(empty.as_ptr(), 0) };
         // Just assert it equals mix(basis).
         assert_eq!(h, map_mix_u64(0xcbf29ce484222325));
-    }
-
-    #[test]
-    fn hash_key_heap_str_hashes_by_content() {
-        // Synthesize two Str blocks with identical bytes "abc":
-        //   [hdr:8][len:8][data:3]
-        let make_str = |s: &[u8]| -> Vec<u8> {
-            let mut v = vec![0u8; STR_DATA_OFF + s.len()];
-            // hdr.type_tag = TAG_STR=0 at offset 4 (default zero from vec).
-            unsafe {
-                *(v.as_mut_ptr().add(STR_LEN_OFF) as *mut u64) = s.len() as u64;
-                core::ptr::copy_nonoverlapping(
-                    s.as_ptr(),
-                    v.as_mut_ptr().add(STR_DATA_OFF),
-                    s.len(),
-                );
-            }
-            v
-        };
-        let a = make_str(b"abc");
-        let b = make_str(b"abc");
-        let ha = unsafe { map_hash_key(ANY_HEAP, a.as_ptr() as u64) };
-        let hb = unsafe { map_hash_key(ANY_HEAP, b.as_ptr() as u64) };
-        assert_eq!(ha, hb, "Str hash is content-based");
-        let c = make_str(b"abd");
-        let hc = unsafe { map_hash_key(ANY_HEAP, c.as_ptr() as u64) };
-        assert_ne!(ha, hc, "different bytes → different hash (very likely)");
     }
 }

@@ -93,6 +93,14 @@ pub unsafe extern "C" fn __torajs_str_eq(_a: *const u8, _b: *const u8) -> i64 {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_hash(_s: *const u8) -> u64 {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_str_hash should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
     panic!(
         "torajs-collections unit-test stub: __torajs_rc_inc should not be called from cargo test paths"
