@@ -232,6 +232,7 @@ pub use ns_static::{
 // Type tags (`Tag` enum) live in `tag.rs`; re-exported at crate
 // root just below, same shape as `color` / `arr_kind`.
 
+pub mod str_wtf8;
 pub mod tag;
 pub use tag::Tag;
 

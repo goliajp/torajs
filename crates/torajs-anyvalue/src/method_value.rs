@@ -454,9 +454,8 @@ pub(crate) unsafe fn key_method_id(key: *const c_void) -> i64 {
         return ANY_METHOD_UNKNOWN;
     }
     unsafe {
-        let len = (key.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() as usize;
-        let bytes = core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len);
-        match core::str::from_utf8(bytes) {
+        let spelling = torajs_rc::str_wtf8::StrWtf8::of(key);
+        match core::str::from_utf8(spelling.as_bytes()) {
             Ok(s) => any_method_id(s),
             Err(_) => ANY_METHOD_UNKNOWN,
         }

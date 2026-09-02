@@ -139,7 +139,7 @@ unsafe fn write_entry(
         push_indent(sb, depth + 1, st);
         __torajs_jsb_push_str_quoted(sb, key as *const u8);
         __torajs_jsb_push_byte(sb, b':');
-        if !st.gap.is_empty() {
+        if st.has_gap() {
             __torajs_jsb_push_byte(sb, b' ');
         }
         write_value(sb, value, depth + 1, st);
@@ -247,7 +247,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                 push_indent(sb, depth + 1, st);
                 quote_bytes(sb, name.ptr, name.len);
                 __torajs_jsb_push_byte(sb, b':');
-                if !st.gap.is_empty() {
+                if st.has_gap() {
                     __torajs_jsb_push_byte(sb, b' ');
                 }
                 write_value(sb, value, depth + 1, st);
@@ -314,7 +314,7 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
                 push_indent(sb, depth + 1, st);
                 __torajs_jsb_push_str_quoted(sb, key as *const u8);
                 __torajs_jsb_push_byte(sb, b':');
-                if !st.gap.is_empty() {
+                if st.has_gap() {
                     __torajs_jsb_push_byte(sb, b' ');
                 }
                 write_value(sb, value, depth + 1, st);

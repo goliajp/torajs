@@ -37,7 +37,7 @@ pub(crate) mod replacer;
 
 use replacer::St;
 
-use crate::member_set::{STR_DATA_OFF, STR_LEN_OFF};
+use crate::member_set::STR_LEN_OFF;
 use crate::nanbox::{
     AnyValue, as_bool, as_double, as_int32, as_void_ptr, box_double, box_void_ptr, is_bool,
     is_cell, is_double, is_int32, is_null, is_short_str, is_undefined,
@@ -146,19 +146,20 @@ enum Wrote {
 /// `v` carries a valid AnyValue bit pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_json_stringify(v: AnyValue) -> *mut u8 {
-    unsafe { stringify_with_gap(v, &[]) }
+    unsafe { stringify_with_gap(v, core::ptr::null()) }
 }
 
 /// Shared body of the two entries — `gap` is the ES §25.5.2.1
-/// indent unit (empty for the compact form).
-unsafe fn stringify_with_gap(v: AnyValue, gap: &[u8]) -> *mut u8 {
+/// indent unit as a normalized Str cell (NULL / empty for the
+/// compact form).
+unsafe fn stringify_with_gap(v: AnyValue, gap: *const u8) -> *mut u8 {
     unsafe { stringify_with_gap_at(v, gap, 0) }
 }
 
 /// [`stringify_with_gap`] starting from an arbitrary nesting level —
 /// what an any-typed member of a statically unfolded composite needs
 /// so its indentation continues its parent's instead of restarting.
-unsafe fn stringify_with_gap_at(v: AnyValue, gap: &[u8], depth: u32) -> *mut u8 {
+unsafe fn stringify_with_gap_at(v: AnyValue, gap: *const u8, depth: u32) -> *mut u8 {
     unsafe { stringify_state(v, &St::plain(gap), depth) }
 }
 
@@ -470,13 +471,16 @@ unsafe fn write_double(sb: *mut c_void, x: f64) {
 /// the closing bracket returns to the parent's level. A no-op for
 /// the compact form, which is the whole cost this adds to it.
 unsafe fn push_indent(sb: *mut c_void, depth: u32, st: &St) {
-    if st.gap.is_empty() {
+    if !st.has_gap() {
         return;
     }
     unsafe {
         __torajs_jsb_push_byte(sb, b'\n');
+        // The gap goes in as a Str cell so its encoding travels with
+        // it — a UTF-16 gap pushed byte-wise left the builder's
+        // Latin-1 assumption in place (rotation 560).
         for _ in 0..depth {
-            push_bytes(sb, st.gap);
+            __torajs_jsb_push_str_raw(sb, st.gap);
         }
     }
 }

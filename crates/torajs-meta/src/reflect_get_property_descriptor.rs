@@ -52,10 +52,8 @@ const TAG_STR_CELL: u16 = 0;
 /// `obj_own_keys` uses this shifted form and so does the arm below.
 const SHORT_STR_TOP: u64 = 0x0001;
 
-/// `torajs-str::layout` mirrors — the u32 length at +8 and the
-/// payload bytes at +16.
+/// `torajs-str::layout` mirror — the u32 length at +8.
 const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
 
 /// Buffer-family cells and their lazy expando slots (torajs-buffer
 /// `arraybuffer.rs` / `typedarray.rs::PROPS_OFF` mirrors).
@@ -124,9 +122,8 @@ unsafe fn symbol_key_descriptor_via_dict(
 /// `str_ptr` is a live Str cell of `len` code units; `key` is a live
 /// Str cell.
 unsafe fn str_cell_descriptor(str_ptr: *const c_void, len: u64, key: *const c_void) -> u64 {
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() } as usize;
-    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len) };
+    let spelling = unsafe { crate::str_wtf8::StrWtf8::of(key) };
+    let bytes = spelling.as_bytes();
     if bytes == b"length" {
         return unsafe { build_data_descriptor(2, len, 0, 0, 0) };
     }
@@ -295,12 +292,8 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptor(
     // NaN-box immediate that doesn't fit the (tag, value) shape
     // `build_data_descriptor` takes).
     if htag == TAG_STRING_WRAPPER {
-        // Key Str payload as a byte slice — mirrors `arr_reflect::key_bytes`.
-        // SAFETY: `key` is a live Str cell (Tag::Str layout: `len: u32`
-        // at offset 8; payload at offset 16).
-        let key_len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
-        let key_data = unsafe { key.cast::<u8>().add(16) };
-        let bytes = unsafe { core::slice::from_raw_parts(key_data, key_len) };
+        let spelling = unsafe { crate::str_wtf8::StrWtf8::of(key) };
+        let bytes = spelling.as_bytes();
         // Inner Str cell at STRING_WRAPPER_CELL_OFF = 8; NULL sentinel
         // (`new String()` no-arg) has length 0. Shared by both the
         // `length` arm and the char-index arm below.

@@ -8,7 +8,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{AnySlotTag, Tag};
 
-use crate::member_get::{CLOSURE_PROPS_OFF, STR_DATA_OFF, STR_LEN_OFF, header_flag, wrapper_props};
+use crate::member_get::{CLOSURE_PROPS_OFF, STR_LEN_OFF, header_flag, wrapper_props};
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
@@ -296,9 +296,8 @@ pub(crate) fn canonical_index(bytes: &[u8]) -> Option<u64> {
 /// # Safety
 /// `ptr` is a live `Tag::Arr` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn arr_own_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
+    let spelling = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
+    let bytes = spelling.as_bytes();
     let len = unsafe { ptr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
     if bytes == b"length" {
         // A deleted arguments-materialization length (§10.4.4 hole
@@ -340,10 +339,7 @@ pub(crate) unsafe fn arr_own_pair(ptr: *mut c_void, key: *const c_void) -> Optio
 /// borrow-shaped (recorded residue, RFC 20260717-objlit-anylane-recv
 /// knife-2g note).
 pub(crate) unsafe fn strwrapper_length(ptr: *mut c_void, key: *const c_void) -> Option<u64> {
-    let k = key as *const u8;
-    let key_len = unsafe { k.add(STR_LEN_OFF).cast::<u32>().read() };
-    let bytes = unsafe { core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize) };
-    if bytes != b"length" {
+    if unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) }.as_bytes() != b"length" {
         return None;
     }
     let inner = unsafe { (ptr.cast::<u8>().add(8) as *const *const c_void).read() };

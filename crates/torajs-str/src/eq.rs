@@ -26,17 +26,17 @@
 //! equal MUST share the same encoding flag — different
 //! encodings ⇒ different content. `__torajs_str_eq` exploits
 //! this to short-circuit on the encoding flag before walking
-//! payloads. `__torajs_str_eq_cstr` already short-circuits via
-//! the length-mismatch arm (cstr_len counts bytes, the Str's
-//! `length` counts code units — a UTF-16 Str compared against
-//! its UTF-8 cstr literal will mismatch on the length check
-//! since UTF-16 payload = `length × 2` bytes vs cstr's UTF-8
-//! byte count). All current `str_eq_cstr` call sites pass ASCII
-//! identifier strings (typeof results, dynobj field names), so
-//! the Str side is Latin-1 with `length == cstr_len` and bytes
-//! are bit-identical.
+//! payloads. `__torajs_str_eq_cstr` compares against a WTF-8
+//! needle by SPELLING: a pure-ASCII Latin-1 payload is its own
+//! WTF-8 and is compared byte for byte; anything else — a
+//! non-ASCII Latin-1 payload, a UTF-16 one, a Substr view — is
+//! transcoded on the fly. (The pre-560 form compared `length`
+//! code units against `cstr_len` bytes and then read `length`
+//! payload bytes, so the UTF-16 `"楳敺ab"` equalled `"size"` and a
+//! `JSON.parse` into a struct with a non-ASCII field never matched.)
 
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::print::{iter_utf16_codepoints, write_utf8_for_codepoint};
 use crate::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 use crate::substr_methods::substr_view;
 use crate::undef_sentinel::is_undef;
@@ -91,21 +91,6 @@ fn payload_byte_count(length: u32, is_latin1: bool) -> usize {
     } else {
         (length as usize) * 2
     }
-}
-
-/// Borrow a Str block's payload as a `&[u8]`. The lifetime is
-/// caller-chosen since the underlying memory is heap-managed
-/// outside Rust's lifetime model (refcount on the header).
-///
-/// # Safety
-///
-/// `p` must point at a valid Str block whose layout matches
-/// [`crate::layout`], and the bytes at `p + STR_DATA_OFF .. + len`
-/// must remain valid for the borrowed lifetime.
-#[inline]
-unsafe fn str_bytes<'a>(p: *const u8, len: u32) -> &'a [u8] {
-    // SAFETY: caller contract.
-    unsafe { core::slice::from_raw_parts(p.add(STR_DATA_OFF), len as usize) }
 }
 
 /// `===` / `!==` between two `Type::Str` values. Mirrors the
@@ -196,16 +181,19 @@ pub(crate) unsafe fn resolve_payload<'a>(p: *const u8) -> (&'a [u8], bool) {
     }
 }
 
-/// Heap-Str equals raw-C-string check. Mirrors the pre-rewrite C
-/// `__torajs_str_eq_cstr(const uint8_t *s, const uint8_t *cstr_bytes,
-/// int64_t cstr_len) -> int64_t`. Returns 1 if the Str's bytes
-/// equal `cstr_bytes[..cstr_len]`, 0 otherwise.
+/// Heap-Str equals WTF-8 needle check — 1 when `s` spells exactly
+/// `cstr_bytes[..cstr_len]`. The needle is the compiler's spelling
+/// of a name (a `.rodata` literal: a struct field name for typed
+/// `JSON.parse`, a `typeof` result), so the Str is compared by its
+/// own WTF-8 spelling — borrowed when the payload is pure-ASCII
+/// Latin-1, transcoded per code point otherwise. Code-unit count and
+/// byte count are different numbers for anything non-ASCII, so no
+/// length short-circuit precedes the transcode.
 ///
 /// # Safety
 ///
-/// `s` must point at a valid Str block; `cstr_bytes` must point at
-/// `cstr_len` readable bytes (typically a toolchain-baked
-/// `.rodata` literal).
+/// `s` must point at a valid owned-Str or Substr block; `cstr_bytes`
+/// must point at `cstr_len` readable bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_eq_cstr(
     s: *const u8,
@@ -213,17 +201,28 @@ pub unsafe extern "C" fn __torajs_str_eq_cstr(
     cstr_len: i64,
 ) -> i64 {
     // SAFETY: caller's invariant.
-    let s_len = unsafe { str_len(s) };
-    if s_len as i64 != cstr_len {
-        return 0;
+    let (payload, latin1) = unsafe { resolve_payload(s) };
+    let needle = unsafe { core::slice::from_raw_parts(cstr_bytes, cstr_len as usize) };
+    if latin1 && payload.is_ascii() {
+        return (payload.len() == needle.len() && bytes_eq(payload, needle)) as i64;
     }
-    if cstr_len == 0 {
-        return 1;
+    let mut at = 0usize;
+    let mut same = true;
+    let mut put = |b: u8| {
+        if same && needle.get(at) == Some(&b) {
+            at += 1;
+        } else {
+            same = false;
+        }
+    };
+    if latin1 {
+        for &b in payload {
+            write_utf8_for_codepoint(b as u32, &mut put);
+        }
+    } else {
+        iter_utf16_codepoints(payload, |cp| write_utf8_for_codepoint(cp, &mut put));
     }
-    // SAFETY: lengths match; both regions are `cstr_len` long.
-    let ss = unsafe { str_bytes(s, s_len) };
-    let cs = unsafe { core::slice::from_raw_parts(cstr_bytes, cstr_len as usize) };
-    if bytes_eq(ss, cs) { 1 } else { 0 }
+    (same && at == needle.len()) as i64
 }
 
 #[cfg(test)]
@@ -370,5 +369,54 @@ mod tests {
         let eq = unsafe { __torajs_str_eq_cstr(s.0.as_ptr(), b"bar".as_ptr(), 3) };
         assert_eq!(eq, 0);
         s.free_pool_aware();
+    }
+
+    fn utf16(units: &[u16]) -> StrBlock {
+        let mut block = StrBlock::alloc_with_encoding(units.len() as u32, false);
+        let bytes: alloc::vec::Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
+        unsafe {
+            block
+                .as_bytes_mut(bytes.len() as u32)
+                .copy_from_slice(&bytes)
+        };
+        block
+    }
+
+    #[test]
+    fn cstr_utf16_never_spells_its_low_bytes() {
+        let _g = TEST_LOCK.lock().unwrap();
+        crate::pool::clear_for_test();
+        // "楳敺ab" — four units whose first four payload bytes read `size`
+        let s = utf16(&[0x6973, 0x657A, 0x61, 0x62]);
+        assert_eq!(
+            unsafe { __torajs_str_eq_cstr(s.0.as_ptr(), b"size".as_ptr(), 4) },
+            0
+        );
+        s.free_pool_aware();
+    }
+
+    #[test]
+    fn cstr_compares_by_wtf8_spelling() {
+        let _g = TEST_LOCK.lock().unwrap();
+        crate::pool::clear_for_test();
+        let e = make_str(b"\xE9");
+        let lit = "é".as_bytes();
+        assert_eq!(
+            unsafe { __torajs_str_eq_cstr(e.0.as_ptr(), lit.as_ptr(), lit.len() as i64) },
+            1
+        );
+        e.free_pool_aware();
+        let zh = utf16(&[0x4E2D]);
+        let lit = "中".as_bytes();
+        assert_eq!(
+            unsafe { __torajs_str_eq_cstr(zh.0.as_ptr(), lit.as_ptr(), lit.len() as i64) },
+            1
+        );
+        let other = "一".as_bytes();
+        assert_eq!(
+            unsafe { __torajs_str_eq_cstr(zh.0.as_ptr(), other.as_ptr(), other.len() as i64) },
+            0
+        );
+        zh.free_pool_aware();
     }
 }

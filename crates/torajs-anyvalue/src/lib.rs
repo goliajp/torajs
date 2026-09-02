@@ -135,7 +135,6 @@ mod iter_helper_next;
 mod iter_zip;
 mod iter_zip_keyed;
 mod iter_zip_shared;
-mod key_wtf8;
 mod len_get;
 mod locale_list;
 pub(crate) mod member_get;

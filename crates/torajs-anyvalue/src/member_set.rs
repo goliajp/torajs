@@ -115,7 +115,7 @@ unsafe fn set_obj_member(
     throw_on_refusal: bool,
 ) -> Option<i64> {
     unsafe {
-        let k = crate::key_wtf8::KeyWtf8::of(key);
+        let k = torajs_rc::str_wtf8::StrWtf8::of(key);
         let value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
         if crate::struct_probe::__torajs_struct_accessor_set(ptr, k.as_ptr(), k.len(), value_anyv) {
             // The setter borrowed the value out of argv; the write

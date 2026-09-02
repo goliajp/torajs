@@ -95,7 +95,7 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
         if key.is_null() {
             continue;
         }
-        if unsafe { crate::key_wtf8::KeyWtf8::of(key) }.as_bytes() == want {
+        if unsafe { crate::str_wtf8::StrWtf8::of(key) }.as_bytes() == want {
             return i64::from(
                 unsafe { __torajs_dynobj_iter_flags(props, i) } & BUCKET_FLAG_ENUMERABLE == 0,
             );
@@ -120,7 +120,7 @@ pub unsafe extern "C" fn __torajs_obj_key_is_nonenumerable(
     cell: *const c_void,
     key: *const c_void,
 ) -> i64 {
-    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let k = unsafe { crate::str_wtf8::StrWtf8::of(key) };
     unsafe { __torajs_obj_field_is_nonenumerable(cell, k.as_ptr(), k.len()) }
 }
 
@@ -208,7 +208,7 @@ pub(crate) unsafe fn layout_declares(cell: *const c_void, key: *const c_void) ->
     if layout.is_null() {
         return false;
     }
-    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let k = unsafe { crate::str_wtf8::StrWtf8::of(key) };
     let (bytes, len) = (k.as_ptr(), k.len());
     unsafe {
         __torajs_struct_field_find(layout, bytes, len) != u32::MAX

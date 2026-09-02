@@ -66,7 +66,6 @@ pub(crate) fn wrapper_proto_tag(t: u16) -> Option<i64> {
 }
 
 pub(crate) const STR_LEN_OFF: usize = 8;
-pub(crate) const STR_DATA_OFF: usize = 16;
 
 /// Symbol-cell description Str slot — mirror of
 /// `torajs-str::symbol::SYMBOL_DESC_OFF`.

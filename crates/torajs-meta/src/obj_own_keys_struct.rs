@@ -19,7 +19,7 @@
 use core::ffi::c_void;
 
 use crate::obj_own_keys::FLAG_ENUMERABLE;
-use crate::obj_own_keys_key_shape::{key_is_canonical_index, key_is_proto_slot};
+use crate::obj_own_keys_key_shape::{key_canonical_index, key_is_proto_slot};
 
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
@@ -84,17 +84,6 @@ pub(crate) unsafe fn for_each_enumerable_expando(
     }
 }
 
-/// Numeric value of a canonical-index key (caller checked the shape).
-unsafe fn index_key_value(key: *const c_void) -> u64 {
-    let len = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
-    let bytes = unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(16), len) };
-    let mut v: u64 = 0;
-    for &b in bytes {
-        v = v * 10 + (b - b'0') as u64;
-    }
-    v
-}
-
 /// Fold a struct cell's expando keys into its static layout-name
 /// list per the module-doc order. Consumes `static_names` (an owned
 /// fresh `Arr<Str>`); answers an owned array either way.
@@ -138,8 +127,8 @@ pub(crate) unsafe fn struct_keys_with_expandos(
         if unsafe { crate::struct_field_attrs::layout_declares(cell, key) } {
             continue;
         }
-        if unsafe { key_is_canonical_index(key) } {
-            exp_ints.push((unsafe { index_key_value(key) }, key));
+        if let Some(idx) = unsafe { key_canonical_index(key) } {
+            exp_ints.push((idx, key));
         } else {
             exp_tail.push(key);
         }
@@ -180,8 +169,8 @@ pub(crate) unsafe fn struct_keys_with_expandos(
             dropped_static = true;
             continue;
         }
-        if unsafe { key_is_canonical_index(key) } {
-            int_keys.push((unsafe { index_key_value(key) }, key));
+        if let Some(idx) = unsafe { key_canonical_index(key) } {
+            int_keys.push((idx, key));
         } else {
             static_tail.push(key);
         }

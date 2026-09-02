@@ -29,11 +29,6 @@ unsafe extern "C" {
     ) -> *const c_void;
 }
 
-/// Str header offsets (`torajs-str` layout mirror, same constants the
-/// dynobj dispatcher carries).
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-
 /// The class-method adapter the receiver's own class defines under
 /// `name_str`, or `None` when the name is not one of them — the
 /// RESOLUTION half of [`subclass_method`], split off because the
@@ -56,9 +51,8 @@ pub(crate) unsafe fn subclass_adapter(
         if layout.is_null() {
             return None;
         }
-        let name_len = (name_str.add(STR_LEN_OFF) as *const u32).read();
-        let name_bytes = name_str.add(STR_DATA_OFF);
-        let adapter = __torajs_struct_method_find(layout, name_bytes, name_len);
+        let name = torajs_rc::str_wtf8::StrWtf8::of(name_str.cast());
+        let adapter = __torajs_struct_method_find(layout, name.as_ptr(), name.len());
         if adapter.is_null() {
             return None;
         }

@@ -240,10 +240,7 @@ unsafe fn strip_key(arr: *mut c_void, name: &[u8]) {
         if s.is_null() {
             continue;
         }
-        let slen = unsafe { s.cast::<u8>().add(8).cast::<u32>().read() } as usize;
-        if slen != name.len()
-            || unsafe { core::slice::from_raw_parts(s.cast::<u8>().add(16), slen) } != name
-        {
+        if unsafe { crate::str_wtf8::StrWtf8::of(s) }.as_bytes() != name {
             continue;
         }
         unsafe { __torajs_value_drop_heap(s as *mut c_void) };

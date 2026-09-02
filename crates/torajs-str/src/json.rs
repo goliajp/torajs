@@ -26,6 +26,7 @@
 //! applies, and it escapes the lone ones there.
 
 use crate::block::StrBlock;
+use crate::eq::resolve_payload;
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
 
@@ -285,38 +286,39 @@ pub unsafe extern "C" fn __torajs_json_obj_sep(acc: *mut u8) -> *mut u8 {
 }
 
 /// ES §25.5.2.1 — one indent step for the static unfold: a newline
-/// followed by `depth` copies of `gap`. The compile-time walk only
-/// emits a call to this when the call site actually carries a
-/// `space` argument, so the compact form pays nothing.
+/// followed by `depth` copies of `gap`, in the gap's own encoding (a
+/// UTF-16 gap makes a UTF-16 indent; the pre-560 form copied `len`
+/// payload bytes into a Latin-1 block, half of such a gap). The
+/// compile-time walk only emits a call to this when the call site
+/// actually carries a `space` argument, so the compact form pays
+/// nothing.
 ///
 /// # Safety
 ///
 /// `gap` is a live Str block (or NULL for the empty gap).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_json_indent(gap: *const u8, depth: i64) -> *mut u8 {
-    let gap_len = if gap.is_null() {
-        0
+    let (payload, latin1) = if gap.is_null() {
+        (&[][..], true)
     } else {
-        unsafe { (gap.add(STR_LEN_OFF) as *const u32).read() as usize }
+        unsafe { resolve_payload(gap) }
     };
-    if gap_len == 0 {
+    if payload.is_empty() {
         // An empty gap is the compact form (a Number space of 0, an
         // empty String space): §25.5.2.4 puts no line break in at
         // all, so this is the empty string rather than a bare "\n".
         return StrBlock::alloc(0).into_raw();
     }
+    let stride = if latin1 { 1 } else { 2 };
     let depth = depth.max(0) as usize;
-    let out_len = 1 + gap_len * depth;
-    let mut block = StrBlock::alloc(out_len as u32);
-    // SAFETY: block was just allocated with payload capacity `out_len`.
-    let dst = unsafe { block.as_bytes_mut(out_len as u32) };
-    dst[0] = b'\n';
-    if gap_len > 0 {
-        let src = unsafe { core::slice::from_raw_parts(gap.add(STR_DATA_OFF), gap_len) };
-        for i in 0..depth {
-            let at = 1 + i * gap_len;
-            dst[at..at + gap_len].copy_from_slice(src);
-        }
+    let out_units = 1 + (payload.len() / stride) * depth;
+    let mut block = StrBlock::alloc_with_encoding(out_units as u32, latin1);
+    // SAFETY: block was just allocated with `out_units` units of capacity.
+    let dst = unsafe { block.as_bytes_mut((out_units * stride) as u32) };
+    dst[..stride].copy_from_slice(&[b'\n', 0][..stride]);
+    for i in 0..depth {
+        let at = stride + i * payload.len();
+        dst[at..at + payload.len()].copy_from_slice(payload);
     }
     block.into_raw()
 }

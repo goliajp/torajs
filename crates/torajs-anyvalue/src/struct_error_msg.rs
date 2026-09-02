@@ -361,7 +361,7 @@ pub(crate) unsafe fn struct_data_field_set(
     if layout.is_null() {
         return false;
     }
-    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
     let idx = unsafe { __torajs_struct_field_find(layout, k.as_ptr(), k.len()) };
     if idx == u32::MAX {
         return false;

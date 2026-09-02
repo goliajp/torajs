@@ -349,7 +349,7 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     }
 
     // Resolve the key to a field index.
-    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let k = unsafe { crate::str_wtf8::StrWtf8::of(key) };
     let (key_bytes, key_len) = (k.as_ptr(), k.len());
     let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
     if idx == u32::MAX {

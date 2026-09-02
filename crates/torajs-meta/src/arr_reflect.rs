@@ -54,10 +54,6 @@ unsafe extern "C" {
 const ARR_LEN_OFF: usize = 8;
 const ARR_PROPS_OFF: usize = 24;
 
-/// Key Str layout mirror — len u32 at +8, payload at +16.
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-
 /// `AnySlotTag::Heap` mirror — heap-tagged descriptor values owe an
 /// inc (the slot keeps its reference, the descriptor owns a fresh one).
 const ANY_HEAP: u64 = 4;
@@ -74,12 +70,6 @@ const ARR_FLAG_LENGTH_RO: u16 = 1 << 7;
 /// Mirror of `torajs_rc::ANY_METHOD_THROW_TYPE_ERROR` (the
 /// `object_proto_install` sibling keeps the same local mirror).
 const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
-
-/// Key Str payload as a byte slice.
-unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
-    let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
-    unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len as usize) }
-}
 
 /// Canonical array-index parse — ES §10.4.2 array index: a canonical
 /// numeric string (`"0"`, or nonzero-leading all-digits) whose value
@@ -110,7 +100,8 @@ pub(crate) fn canonical_index(bytes: &[u8]) -> Option<u64> {
 /// `arr` is a live `Tag::Arr` heap pointer (caller checked the header
 /// tag); `key` is a live `Str` pointer (caller checked non-NULL).
 pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void) -> u64 {
-    let bytes = unsafe { key_bytes(key) };
+    let spelling = unsafe { crate::str_wtf8::StrWtf8::of(key) };
+    let bytes = spelling.as_bytes();
     if bytes == b"length" {
         // §10.4.2.4 — {value: len, writable: !locked, enumerable:
         // false, configurable: false}. AnySlotTag::I64 = 2; the lock

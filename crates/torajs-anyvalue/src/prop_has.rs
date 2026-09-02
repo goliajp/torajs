@@ -33,9 +33,9 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::key_wtf8::KeyWtf8;
 use crate::member_get::{closure_props, header_flag, recv_cell};
 use crate::nanbox::{AnyValue, is_null, is_short_str, is_undefined};
+use torajs_rc::str_wtf8::StrWtf8;
 
 unsafe extern "C" {
     /// torajs-dynobj — own-entry presence (1 = live entry).
@@ -85,8 +85,8 @@ pub(crate) const ARR_F_HOLE: u64 = 1 << 3;
 /// The key Str cell's name spelling — WTF-8, the form every layout
 /// / accessor / method name lookup compares against.
 #[inline]
-pub(crate) unsafe fn key_bytes(key: *const c_void) -> KeyWtf8 {
-    unsafe { KeyWtf8::of(key) }
+pub(crate) unsafe fn key_bytes(key: *const c_void) -> StrWtf8 {
+    unsafe { StrWtf8::of(key) }
 }
 
 /// Parse a canonical array-index key (`"0"`, `"12"` — all digits, no

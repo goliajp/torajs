@@ -29,8 +29,6 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{HeapHeader, Tag};
-
 // The per-index attribute READERS live in the sibling (file-size
 // rule); the re-export keeps every `crate::define::` consumer path
 // unchanged.
@@ -94,32 +92,12 @@ pub(crate) const FLAGS_DEFAULT: u64 = F_WRITABLE | F_ENUMERABLE | F_CONFIGURABLE
 /// has/gOPD answer absent, enumeration skips, writes re-create.
 pub const F_HOLE: u64 = 1 << 3;
 
-/// Key Str layout mirror — len u32 at +8, payload at +16.
-const STR_LEN_OFF: usize = 8;
+/// Key Str layout mirror — payload at +16.
 pub(crate) const STR_DATA_OFF: usize = 16;
 
 /// `AnySlotTag` mirrors.
 pub(crate) const ANY_HEAP: u64 = 4;
 pub(crate) const ANY_UNDEF: u64 = 5;
-
-/// A key's Str payload, or an empty slice when the key is a Symbol.
-///
-/// §6.1.7 lets a property key be either, and the two cells overlap
-/// where it hurts: a Str keeps `len` at +8, a Symbol keeps its
-/// description pointer there. Building the slice from that pointer
-/// spans gigabytes of whatever follows the cell — the length-first
-/// comparisons below happen not to read it, but the slice itself is
-/// already outside what this crate is allowed to describe.
-///
-/// A symbol names neither `length` nor an array index, so the empty
-/// slice routes it to the ordinary-key arm, which is where it belongs.
-unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
-    if unsafe { (*(key as *const HeapHeader)).type_tag } == Tag::Symbol as u16 {
-        return &[];
-    }
-    let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
-    unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len as usize) }
-}
 
 /// Canonical array-index parse — `arr_reflect.rs` (torajs-meta) twin.
 fn canonical_index(bytes: &[u8]) -> Option<u64> {
@@ -240,7 +218,10 @@ unsafe fn arr_define_impl(
     flags_byte: u64,
     throw_on_refusal: bool,
 ) -> i64 {
-    let bytes = unsafe { key_bytes(key) };
+    // The key's WTF-8 spelling — a Symbol answers a spelling that is
+    // neither `length` nor an index, so it takes the ordinary-key arm.
+    let spelling = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
+    let bytes = spelling.as_bytes();
     if bytes == b"length" {
         if flags_byte & (P_GET | P_SET) != 0 {
             // §10.4.2.4 — length is a data property; an accessor

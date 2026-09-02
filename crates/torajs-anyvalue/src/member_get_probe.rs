@@ -132,7 +132,7 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
                 unsafe { (ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read() };
             let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
             if !layout.is_null() {
-                let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+                let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
                 if unsafe { __torajs_struct_field_find(layout, k.as_ptr(), k.len()) } != u32::MAX {
                     return 1;
                 }

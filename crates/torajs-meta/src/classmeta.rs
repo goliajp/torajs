@@ -385,19 +385,12 @@ pub unsafe extern "C" fn __torajs_error_proto_install(tag: i64, name: *const c_v
 /// `error_to_string.rs`).
 const ANY_METHOD_ERROR_TO_STRING_MID: i64 = 156;
 
-/// Content equality of a Str cell against an ASCII literal — Str
-/// length u32 @+8, data @+16 (Latin-1 for ASCII payloads).
+/// Content equality of a Str cell against an ASCII literal, by the
+/// cell's WTF-8 spelling.
 ///
 /// # Safety-free: read-only; `s` was validated non-null by the caller.
 fn str_is(s: *const c_void, lit: &[u8]) -> bool {
-    unsafe {
-        let p = s as *const u8;
-        let len = (p.add(8) as *const u32).read() as usize;
-        if len != lit.len() {
-            return false;
-        }
-        core::slice::from_raw_parts(p.add(16), len) == lit
-    }
+    unsafe { crate::str_wtf8::StrWtf8::of(s) }.as_bytes() == lit
 }
 
 /// `Object.getPrototypeOf(instance)` → owned AnyValue immediate.

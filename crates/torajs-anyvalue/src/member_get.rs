@@ -76,8 +76,8 @@ unsafe extern "C" {
 // `member_get_layout.rs` (file-size HARD RULE); the re-export keeps
 // every `crate::member_get::` consumer face unchanged.
 pub(crate) use crate::member_get_layout::{
-    CLOSURE_PROPS_OFF, STR_DATA_OFF, STR_LEN_OFF, closure_props, header_flag, header_flag_set,
-    is_wrapper_tag, promise_props, recv_cell, wrapper_props,
+    CLOSURE_PROPS_OFF, STR_LEN_OFF, closure_props, header_flag, header_flag_set, is_wrapper_tag,
+    promise_props, recv_cell, wrapper_props,
 };
 
 /// See module doc.

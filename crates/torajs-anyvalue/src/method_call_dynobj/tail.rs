@@ -38,7 +38,7 @@ pub(crate) unsafe fn own_entry_not_callable(
             if layout.is_null() {
                 return false;
             }
-            let k = crate::key_wtf8::KeyWtf8::of(name_str.cast());
+            let k = torajs_rc::str_wtf8::StrWtf8::of(name_str.cast());
             let idx = __torajs_struct_field_find(layout, k.as_ptr(), k.len());
             if idx == u32::MAX {
                 return false;
@@ -145,7 +145,7 @@ pub(crate) unsafe fn struct_method(
             let class_tag = (obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
             let layout = __torajs_struct_layout_lookup(class_tag);
             if !layout.is_null() {
-                let k = crate::key_wtf8::KeyWtf8::of(name_str.cast());
+                let k = torajs_rc::str_wtf8::StrWtf8::of(name_str.cast());
                 let (name_bytes, name_len) = (k.as_ptr(), k.len());
                 let idx = __torajs_struct_field_find(layout, name_bytes, name_len);
                 if idx != u32::MAX {

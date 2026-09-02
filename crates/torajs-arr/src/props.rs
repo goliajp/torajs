@@ -155,11 +155,6 @@ pub unsafe extern "C" fn __torajs_arrprops_define(
     }
 }
 
-/// Str heap-block layout mirror (`torajs-str`): `len: u64` at +8,
-/// inline UTF-8 payload at +16, universal `type_tag: u16` at +4.
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-
 /// A named write landing on a builtin `<Ctor>.prototype` singleton is
 /// a monkey-patch, and the dispatcher's fast-arm pre-gate only looks
 /// at families it has been told about. `torajs-dynobj` reports its
@@ -182,11 +177,11 @@ unsafe fn note_builtin_proto_write(arr_ptr: *mut c_void, key: *const c_void) {
         if *((key as *const u8).add(4) as *const u16) != torajs_rc::Tag::Str as u16 {
             return;
         }
-        let len = *((key as *const u8).add(STR_LEN_OFF) as *const u32);
+        let name = torajs_rc::str_wtf8::StrWtf8::of(key);
         torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
             arr_ptr,
-            (key as *const u8).add(STR_DATA_OFF),
-            len as i64,
+            name.as_ptr(),
+            name.len() as i64,
         );
     }
 }

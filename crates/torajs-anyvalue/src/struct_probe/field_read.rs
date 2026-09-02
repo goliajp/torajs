@@ -24,7 +24,7 @@ use super::*;
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn struct_field_pair(ptr: *mut c_void, key: *const c_void) -> Option<(u64, u64)> {
-    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
     unsafe { struct_field_pair_bytes(ptr, k.as_bytes()) }
 }
 

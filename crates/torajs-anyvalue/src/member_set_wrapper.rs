@@ -12,8 +12,8 @@ use core::ffi::c_void;
 use torajs_rc::{FLAG_NON_EXTENSIBLE, Tag};
 
 use crate::member_set::{
-    __torajs_dynobj_alloc, __torajs_dynobj_has, __torajs_throw_type_error, STR_DATA_OFF,
-    STR_LEN_OFF, drop_payload, dynobj_set_flavored,
+    __torajs_dynobj_alloc, __torajs_dynobj_has, __torajs_throw_type_error, STR_LEN_OFF,
+    drop_payload, dynobj_set_flavored,
 };
 
 /// Number/String/Boolean-wrapper lazy props slot — mirror of
@@ -110,9 +110,8 @@ pub(crate) unsafe fn set_wrapper_member(
 /// it shadow through the expando dynobj.
 pub(crate) unsafe fn strwrapper_own_domain_key(ptr: *mut c_void, key: *const c_void) -> bool {
     unsafe {
-        let k = key as *const u8;
-        let key_len = (k.add(STR_LEN_OFF) as *const u32).read();
-        let bytes = core::slice::from_raw_parts(k.add(STR_DATA_OFF), key_len as usize);
+        let spelling = torajs_rc::str_wtf8::StrWtf8::of(key);
+        let bytes = spelling.as_bytes();
         if bytes == b"length" {
             return true;
         }

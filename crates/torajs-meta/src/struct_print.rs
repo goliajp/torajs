@@ -314,12 +314,14 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
                 unsafe { put_bytes(b",\n") };
                 unsafe { __torajs_inspect_line_add(1) };
             }
-            let klen = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() } as usize;
-            let kbytes = unsafe { key.cast::<u8>().add(16) };
+            // Line accounting counts the key's code units (bun adds
+            // str.length); the bytes written are its WTF-8 spelling.
+            let klen = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() };
+            let spelling = unsafe { crate::str_wtf8::StrWtf8::of(key) };
             unsafe { put_indent(indent + 2) };
-            unsafe { put_bytes_from_raw(kbytes, klen) };
+            unsafe { put_bytes(spelling.as_bytes()) };
             unsafe { put_bytes(b": ") };
-            unsafe { __torajs_inspect_line_add(klen as u32 + 2) };
+            unsafe { __torajs_inspect_line_add(klen + 2) };
             // The kernel keys by the live Str CELL (fnprops' `*const
             // u8` spelling is the same pointer).
             let etag = unsafe { __torajs_dynobj_get_tag(props, key.cast::<u8>()) };

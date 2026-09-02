@@ -59,10 +59,6 @@ const MEMBER_SET_CLOSURE_PROPS_OFF: usize = 24;
 /// `torajs_rc::Tag::Str` — a property key cell is a Str or a Symbol.
 const TAG_STR_KEY: u16 = 0;
 
-/// torajs-str Str layout mirrors — u32 length at +8, bytes at +16.
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
-
 /// Mark a write to a builtin-prototype singleton's expando against
 /// the CELL, so the patch bitmap sees it. A no-op for every ordinary
 /// closure (the address scan answers -1 inside) and for a symbol key
@@ -75,11 +71,11 @@ unsafe fn note_builtin_proto_write(cell: *mut c_void, key: *const c_void) {
         if key.is_null() || key.cast::<u8>().add(4).cast::<u16>().read() != TAG_STR_KEY {
             return;
         }
-        let len = key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read();
+        let name = torajs_rc::str_wtf8::StrWtf8::of(key);
         torajs_rc::builtin_proto::__torajs_builtin_proto_note_own_write(
             cell,
-            key.cast::<u8>().add(STR_DATA_OFF),
-            len as i64,
+            name.as_ptr(),
+            name.len() as i64,
         );
     }
 }

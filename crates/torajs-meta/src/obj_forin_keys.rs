@@ -7,8 +7,8 @@
 use core::ffi::c_void;
 
 use crate::obj_own_keys::{
-    __torajs_anyv_own_keys, ARR_DATA_PTR_OFF, ARR_LEN_OFF, FLAG_ENUMERABLE, STR_LEN_OFF,
-    TAG_DYNOBJ, TAG_OBJ_CELL, heap_type_tag_local, is_dynobj_imm, key_is_proto_slot,
+    __torajs_anyv_own_keys, ARR_DATA_PTR_OFF, ARR_LEN_OFF, FLAG_ENUMERABLE, TAG_DYNOBJ,
+    TAG_OBJ_CELL, heap_type_tag_local, is_dynobj_imm, key_is_proto_slot,
 };
 
 unsafe extern "C" {
@@ -43,13 +43,20 @@ unsafe fn user_proto_cell_borrowed(obj: *const c_void) -> Option<*const c_void> 
     }
 }
 
-/// Content equality of two live Str key cells (len @8, payload @16).
+/// Content equality of two live key cells, by WTF-8 spelling — a
+/// Symbol key (never yielded by for-in, but recorded as a shadow)
+/// matches only itself.
 unsafe fn key_bytes_eq(a: *const c_void, b: *const c_void) -> bool {
-    let al = unsafe { a.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as usize;
-    let bl = unsafe { b.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() } as usize;
-    al == bl
-        && unsafe { core::slice::from_raw_parts(a.cast::<u8>().add(16), al) }
-            == unsafe { core::slice::from_raw_parts(b.cast::<u8>().add(16), bl) }
+    if a == b {
+        return true;
+    }
+    if unsafe { heap_type_tag_local(a) == crate::reflect::TAG_SYMBOL }
+        || unsafe { heap_type_tag_local(b) == crate::reflect::TAG_SYMBOL }
+    {
+        return false;
+    }
+    unsafe { crate::str_wtf8::StrWtf8::of(a) }.as_bytes()
+        == unsafe { crate::str_wtf8::StrWtf8::of(b) }.as_bytes()
 }
 
 /// One DynObj level of the §14.7.5.9 walk: yield enumerable keys not

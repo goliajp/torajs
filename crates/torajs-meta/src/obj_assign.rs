@@ -20,6 +20,8 @@
 
 use core::ffi::c_void;
 
+use crate::str_wtf8::StrWtf8;
+
 use crate::obj_own_keys::{ANY_HEAP_TAG, ARR_LEN_OFF};
 use crate::reflect::{VALUE_NULL_IMM, VALUE_UNDEFINED_IMM};
 
@@ -30,11 +32,6 @@ const ACCESSOR_TAG: u64 = 6;
 /// torajs-arr cell layout mirror (`layout.rs` B1 fixed cell) — same
 /// cross-crate sync posture as obj_own_values' walks.
 const ARR_DATA_PTR_OFF: usize = 32;
-
-/// Str cell layout mirrors (same spelling the reflect siblings keep —
-/// this crate holds its dep tree narrow rather than importing them).
-const STR_LEN_OFF: usize = 8;
-const STR_DATA_OFF: usize = 16;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
@@ -98,12 +95,6 @@ pub unsafe extern "C" fn __torajs_dynobj_spread_from(
     unsafe { *obj_slot = __torajs_anyv_unbox_value(t_anyv) as *mut c_void };
 }
 
-/// Key Str payload as a byte slice.
-unsafe fn key_bytes<'a>(key: *const c_void) -> &'a [u8] {
-    let len = unsafe { key.cast::<u8>().add(STR_LEN_OFF).cast::<u32>().read() };
-    unsafe { core::slice::from_raw_parts(key.cast::<u8>().add(STR_DATA_OFF), len as usize) }
-}
-
 /// §7.3.25 step 3.b — is this key in `excludedItems`?
 ///
 /// The list rides as one Str cell holding the comma-separated names,
@@ -119,8 +110,8 @@ unsafe fn key_excluded(key: *const c_void, excluded: *const c_void) -> bool {
     if excluded.is_null() {
         return false;
     }
-    let name = unsafe { key_bytes(key) };
-    let list = unsafe { key_bytes(excluded) };
+    let (name, list) = unsafe { (StrWtf8::of(key), StrWtf8::of(excluded)) };
+    let (name, list) = (name.as_bytes(), list.as_bytes());
     let mut start = 0usize;
     for i in 0..=list.len() {
         if i == list.len() || list[i] == b',' {

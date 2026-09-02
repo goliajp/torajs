@@ -362,7 +362,7 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
         if cell_tag != Tag::Obj as u16 {
             return VALUE_UNDEFINED;
         }
-        let k = crate::key_wtf8::KeyWtf8::of(key);
+        let k = torajs_rc::str_wtf8::StrWtf8::of(key);
         // Set-only property: present, but its [[Get]] is undefined.
         __torajs_struct_accessor_get(ptr, k.as_ptr(), k.len())
     }
@@ -375,6 +375,6 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
 /// # Safety
 /// `ptr` is a live `Tag::Obj` cell; `key` a live Str cell.
 pub(crate) unsafe fn struct_accessor_key(ptr: *mut c_void, key: *const c_void) -> bool {
-    let k = unsafe { crate::key_wtf8::KeyWtf8::of(key) };
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
     unsafe { struct_accessor_present(ptr, k.as_bytes()) }
 }

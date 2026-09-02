@@ -27,7 +27,6 @@ use core::ffi::c_void;
 
 use torajs_rc::{FLAG_DYNOBJ_RAW_JSON, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED, Tag};
 
-use crate::member_set::{STR_DATA_OFF, STR_LEN_OFF};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, box_bool, box_void_ptr, is_cell};
 
 /// torajs-anyvalue `ANY_HEAP` slot tag (`nanbox_encode` pair
@@ -68,11 +67,12 @@ pub unsafe extern "C" fn __torajs_json_raw_json(v: AnyValue) -> AnyValue {
             __torajs_str_drop(s);
             return VALUE_UNDEFINED;
         }
-        let len = (s.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() as usize;
-        let data = s.cast::<u8>().add(STR_DATA_OFF) as *const u8;
-        let bytes = core::slice::from_raw_parts(data, len);
-        // Steps 2-3 — surface-char gate + scalar JSON text grammar.
-        if !is_valid_raw_json(bytes) {
+        // Steps 2-3 — surface-char gate + scalar JSON text grammar,
+        // over the text's WTF-8 spelling (the payload is Latin-1 or
+        // UTF-16 code units; the pre-560 byte read cut a UTF-16 text
+        // in half and refused `'"😀"'`).
+        let text = torajs_rc::str_wtf8::StrWtf8::of(s.cast());
+        if !is_valid_raw_json(text.as_bytes()) {
             __torajs_str_drop(s);
             __torajs_throw_syntax_error(c"Invalid rawJSON value".as_ptr());
             return VALUE_UNDEFINED;
@@ -136,7 +136,7 @@ fn is_valid_raw_json(b: &[u8]) -> bool {
 /// Scan a complete JSON string literal starting at byte 0; answers
 /// the end position (one past the closing quote) or None on any
 /// grammar violation. Raw control characters (< 0x20) are invalid;
-/// bytes ≥ 0x80 pass through (the Str is already well-formed UTF-8).
+/// bytes ≥ 0x80 pass through (the text arrives as WTF-8).
 fn scan_json_string(b: &[u8]) -> Option<usize> {
     let mut i = 1;
     while i < b.len() {

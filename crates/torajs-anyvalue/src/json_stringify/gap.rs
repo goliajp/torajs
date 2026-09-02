@@ -21,15 +21,7 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_gap(
     gap: *const u8,
     depth: i64,
 ) -> *mut u8 {
-    unsafe {
-        let bytes = if gap.is_null() {
-            &[][..]
-        } else {
-            let len = (gap.add(STR_LEN_OFF) as *const u32).read() as usize;
-            core::slice::from_raw_parts(gap.add(STR_DATA_OFF), len)
-        };
-        stringify_with_gap_at(v, bytes, depth.max(0) as u32)
-    }
+    unsafe { stringify_with_gap_at(v, gap, depth.max(0) as u32) }
 }
 
 /// ES §25.5.2.1 steps 5-8 — normalize a `space` argument into a gap,
@@ -85,10 +77,10 @@ unsafe fn gap_of(space: AnyValue) -> Vec<u8> {
             let n = n.clamp(0.0, 10.0) as usize;
             return vec![b' '; n];
         }
-        // Step 7 — a string gap keeps its first 10 code units. The
-        // payload walk below counts UTF-8 code points for a Latin-1
-        // cell, which is what this runtime's Str lane stores; a
-        // wider string simply keeps its whole prefix under the cap.
+        // Step 7 — a string gap keeps its first 10 code units, cut
+        // from the cell's WTF-8 spelling (the gap is spent into a
+        // WTF-8 output buffer; the pre-560 form copied the first 10
+        // PAYLOAD BYTES — half of a UTF-16 gap).
         if is_short_str(space)
             || (is_cell(space) && {
                 let ptr = as_void_ptr(space);
@@ -96,13 +88,91 @@ unsafe fn gap_of(space: AnyValue) -> Vec<u8> {
             })
         {
             let cell = crate::nanbox_ffi::__torajs_anyv_to_str(space);
-            let len = (cell.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() as usize;
-            let take = len.min(10);
-            let bytes = core::slice::from_raw_parts(cell.cast::<u8>().add(STR_DATA_OFF), take);
-            let out = bytes.to_vec();
+            let spelling = torajs_rc::str_wtf8::StrWtf8::of(cell.cast());
+            let out = first_code_units(spelling.as_bytes(), 10);
             __torajs_str_drop(cell);
             return out;
         }
         Vec::new()
+    }
+}
+
+/// The WTF-8 prefix spelling the first `n` code units of `wtf8` — a
+/// four-byte scalar counts two (its surrogate pair), everything else
+/// one. A cut between the two halves of a pair keeps the high
+/// surrogate alone, in its three-byte WTF-8 form, which is what
+/// §25.5.2.1 step 7's code-unit slice leaves behind.
+fn first_code_units(wtf8: &[u8], n: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(wtf8.len().min(n * 3));
+    let mut units = 0usize;
+    let mut i = 0usize;
+    while units < n {
+        let Some(&b) = wtf8.get(i) else { break };
+        let width = match b {
+            0xF0.. => 4,
+            0xE0.. => 3,
+            0xC0.. => 2,
+            _ => 1,
+        };
+        let Some(seq) = wtf8.get(i..i + width) else {
+            break;
+        };
+        if width == 4 {
+            if units + 2 > n {
+                let cp = ((seq[0] as u32 & 0x07) << 18)
+                    | ((seq[1] as u32 & 0x3F) << 12)
+                    | ((seq[2] as u32 & 0x3F) << 6)
+                    | (seq[3] as u32 & 0x3F);
+                let hi = 0xD800 + ((cp - 0x10000) >> 10);
+                out.extend_from_slice(&[
+                    0xED,
+                    0x80 | ((hi >> 6) & 0x3F) as u8,
+                    0x80 | (hi & 0x3F) as u8,
+                ]);
+                break;
+            }
+            units += 2;
+        } else {
+            units += 1;
+        }
+        out.extend_from_slice(seq);
+        i += width;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::first_code_units;
+
+    #[test]
+    fn cuts_by_code_unit_not_byte() {
+        // 12 CJK units → 10 kept, each three WTF-8 bytes
+        let s = "中".repeat(12);
+        assert_eq!(
+            first_code_units(s.as_bytes(), 10),
+            "中".repeat(10).as_bytes()
+        );
+        // Latin-1 é is two WTF-8 bytes but one unit
+        let e = "é".repeat(11);
+        assert_eq!(
+            first_code_units(e.as_bytes(), 10),
+            "é".repeat(10).as_bytes()
+        );
+        assert_eq!(first_code_units(b"abc", 10), b"abc");
+    }
+
+    #[test]
+    fn surrogate_pair_counts_two_and_splits_at_the_cut() {
+        let six = "😀".repeat(6);
+        assert_eq!(
+            first_code_units(six.as_bytes(), 10),
+            "😀".repeat(5).as_bytes()
+        );
+        let mut want = b"a".to_vec();
+        want.extend_from_slice("😀".repeat(4).as_bytes());
+        want.extend_from_slice(&[0xED, 0xA0, 0xBD]); // lone U+D83D
+        let s = format!("a{}", "😀".repeat(6));
+        assert_eq!(first_code_units(s.as_bytes(), 10), want);
     }
 }

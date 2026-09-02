@@ -148,8 +148,8 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
         return;
     }
     unsafe {
-        let prop_len = (name_str.add(8) as *const u32).read() as usize;
-        let prop = core::slice::from_raw_parts(name_str.add(16), prop_len);
+        let spelling = crate::str_wtf8::StrWtf8::of(name_str.cast());
+        let prop = spelling.as_bytes();
         let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
             if adapter == 0 {
                 return core::ptr::null_mut();
@@ -285,8 +285,7 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
             }
             let mut full = prefix.to_vec();
             if key_is_str {
-                let prop_len = (key.add(8) as *const u32).read() as usize;
-                full.extend_from_slice(core::slice::from_raw_parts(key.add(16), prop_len));
+                full.extend_from_slice(crate::str_wtf8::StrWtf8::of(key.cast()).as_bytes());
             }
             let face_name = alloc_str_key(&full);
             __torajs_class_accessor_cell_new(adapter, face_name, length) as *mut c_void
@@ -338,8 +337,8 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
         return;
     }
     unsafe {
-        let prop_len = (name_str.add(8) as *const u32).read() as usize;
-        let prop = core::slice::from_raw_parts(name_str.add(16), prop_len);
+        let spelling = crate::str_wtf8::StrWtf8::of(name_str.cast());
+        let prop = spelling.as_bytes();
         let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
             if adapter == 0 {
                 return core::ptr::null_mut();

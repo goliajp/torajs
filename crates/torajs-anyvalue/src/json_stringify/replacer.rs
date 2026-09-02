@@ -48,9 +48,13 @@ unsafe extern "C" {
 /// and `Stack` are the walk's own `depth` parameter and recursion cap
 /// (see the parent module doc); what has to travel by hand is the
 /// gap and the replacer.
-pub(crate) struct St<'a> {
-    /// §25.5.2.1 step 8's indent unit — empty for the compact form.
-    pub gap: &'a [u8],
+pub(crate) struct St {
+    /// §25.5.2.1 step 8's indent unit as the normalized Str cell
+    /// (`__torajs_anyv_json_gap_str`'s answer) — NULL or empty for the
+    /// compact form. It stays a cell so the builder's Str append
+    /// carries its encoding, instead of its bytes being pushed as
+    /// Latin-1 units.
+    pub gap: *const u8,
     /// §25.5.2 step 4.a `[[ReplacerFunction]]` — the callable's
     /// (env cell, boxed entry) pair. `None` when the argument is
     /// absent or not callable, which is exactly when the spec
@@ -64,20 +68,26 @@ pub(crate) struct St<'a> {
     pub property_list: Option<Vec<*mut c_void>>,
 }
 
-impl<'a> St<'a> {
+impl St {
     /// The replacer-free state — what the historical entry points
     /// (`__torajs_anyv_json_stringify` and the `_gap` form the static
     /// unfold splices any-typed members through) build.
-    pub(crate) fn plain(gap: &'a [u8]) -> Self {
+    pub(crate) fn plain(gap: *const u8) -> Self {
         St {
             gap,
             replacer: None,
             property_list: None,
         }
     }
+
+    /// §25.5.2.1 step 8's "gap is not the empty String" — whether an
+    /// indent unit is in force.
+    pub(crate) fn has_gap(&self) -> bool {
+        !self.gap.is_null() && unsafe { (self.gap.add(STR_LEN_OFF) as *const u32).read() } != 0
+    }
 }
 
-impl Drop for St<'_> {
+impl Drop for St {
     fn drop(&mut self) {
         if let Some(list) = self.property_list.take() {
             for key in list {
@@ -103,19 +113,13 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_full(
     depth: i64,
 ) -> *mut u8 {
     unsafe {
-        let bytes = if gap.is_null() {
-            &[][..]
-        } else {
-            let len = (gap.add(STR_LEN_OFF) as *const u32).read() as usize;
-            core::slice::from_raw_parts(gap.add(STR_DATA_OFF), len)
-        };
         // §25.5.2 step 4 — only an Object is consulted; step 4.a
         // takes a callable, step 4.b an Array. A string / number /
         // null in that slot is discarded by the spec, so answering
         // neither is the spec's own answer, not a shortcut.
         let fun = closure_boxed_entry(replacer);
         let st = St {
-            gap: bytes,
+            gap,
             property_list: if fun.is_none() {
                 property_list(replacer)
             } else {
@@ -223,7 +227,7 @@ pub(super) unsafe fn write_object_list(sb: *mut c_void, holder: AnyValue, depth:
             push_indent(sb, depth + 1, st);
             __torajs_jsb_push_str_quoted(sb, key as *const u8);
             __torajs_jsb_push_byte(sb, b':');
-            if !st.gap.is_empty() {
+            if st.has_gap() {
                 __torajs_jsb_push_byte(sb, b' ');
             }
             write_value(sb, value, depth + 1, st);
