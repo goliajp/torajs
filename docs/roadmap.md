@@ -1670,7 +1670,36 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `ede3eec5e`** (2026-09-02, rotation 558 — four knives on
+**Latest @ `c1cdd523f`** (2026-09-02, rotation 559 — a property key
+is the code-unit sequence it spells, on every lane: `ast::PropKey`
+(WTF-8) replaces `String` in object-literal fields, `Type::Struct`,
+the struct layouts, the field metadata and the width analysis; the
+dynobj hashes and compares a key's whole payload under its encoding;
+the struct probe transcodes a Str key to WTF-8 before matching it
+against a baked field / accessor / method name; a Symbol key never
+reaches that transcoder; a file write spells a lone surrogate as
+U+FFFD and a `utf8` read decodes). Gate predicate: **143** clusters of
+≥ 4 holding **1130** cases, register 2 · 251, residue 465 · 624
+(31.1%), core **2005**. Against rotation 558: clusters 143 → **143
+(=)**, cases 1130 → **1130 (=)**, core 2005 → **2005 (=)** — every
+case this rotation moved sat in the `bug` bucket.
+
+Sweep passTotal 35390 → **35750 (+360)**, pass 30215 → **30575
+(+360)**, passNoOracle 1028 (=), passNegative 4147 (=), bug 12427 →
+**12067 (−360)**, incompatible 5357 (=), trAccepted 47817 (=);
+conservation exact (0 = +360 + −360). Verdict diff **360 changed, 0
+backward**, all `bug` → `pass` and all in `language/expressions/
+class/elements` + `language/statements/class/elements` (180 each):
+the field-identifier / private-name families whose class fields
+spell non-ASCII identifiers (`\u{6F}`, `\u2118`, `ZW_\u200C_NJ`) —
+their runtime field lookups compared a Latin-1 / UTF-16 payload
+against the WTF-8 name and missed. An intermediate sweep @
+`4ce446b59` showed 19 `exit 139` regressions on Symbol keys
+(`key-is-symbol` / `Symbol.unscopables` / `Symbol.iterator`), closed
+by `c1cdd523f` before this final sweep. Sweep wall 704 → 687 s (the
+intermediate run took 1172 s; unattributed).
+
+**Prior @ `ede3eec5e`** (2026-09-02, rotation 558 — four knives on
 "the same value on another lane": a negated class's complement admits
 the surrogate range the WTF-8 haystack already spells; a rest closure
 captured into a callback keeps the boxed route its declaring frame

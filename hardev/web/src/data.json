@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T03:25:48.385Z",
+  "generatedAt": "2026-09-02T05:45:06.486Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-02T03:12:43Z",
-    "headSha": "ede3eec5e",
-    "elapsedSec": 703.74,
+    "ranAt": "2026-09-02T05:31:06Z",
+    "headSha": "c1cdd523f",
+    "elapsedSec": 686.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30215,
+    "pass": 30575,
     "passNoOracle": 1028,
     "passNegative": 4147,
-    "passTotal": 35390,
-    "bug": 12427,
+    "passTotal": 35750,
+    "bug": 12067,
     "incompatible": 5357,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47817,
-    "passRateInScope": 66.56,
-    "passRateTrAccepted": 74.01
+    "passRateInScope": 67.23,
+    "passRateTrAccepted": 74.76
   },
   "torajs": {
-    "commit": "ede3eec5e",
-    "commitSubject": "fix: a lone surrogate written to stdout or stderr comes out as U+FFFD",
+    "commit": "c1cdd523f",
+    "commitSubject": "fix: a Symbol key at the struct name boundary is never read as a Str",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -721,6 +721,34 @@
   },
   "commits": [
     {
+      "hash": "c1cdd523f",
+      "subject": "fix: a Symbol key at the struct name boundary is never read as a Str"
+    },
+    {
+      "hash": "4ce446b59",
+      "subject": "style: rustfmt the fs lone-surrogate branch"
+    },
+    {
+      "hash": "22ae3c769",
+      "subject": "fix: a file write spells a lone surrogate as U+FFFD and a utf8 read decodes"
+    },
+    {
+      "hash": "bf2ccc690",
+      "subject": "style: rustfmt the wtf8 view kernel"
+    },
+    {
+      "hash": "ac78e6186",
+      "subject": "fix: a runtime property key compares by the code units it spells"
+    },
+    {
+      "hash": "731817dbe",
+      "subject": "fix: an object-literal key keeps a lone surrogate as its own key"
+    },
+    {
+      "hash": "90d8de445",
+      "subject": "chore: rotation 558 sweep on ede3eec5e, 14 verdicts forward and no regression"
+    },
+    {
       "hash": "ede3eec5e",
       "subject": "fix: a lone surrogate written to stdout or stderr comes out as U+FFFD"
     },
@@ -739,55 +767,38 @@
     {
       "hash": "48ef5049b",
       "subject": "chore: rotation 557 sweep on 24ebb3cf6, 14 verdicts forward and one lone-surrogate regex gap surfaced"
-    },
-    {
-      "hash": "24ebb3cf6",
-      "subject": "fix: a template literal cooks \\xNN / \\uNNNN / \\u{…} like a string literal"
-    },
-    {
-      "hash": "ffa5aa63b",
-      "subject": "feat: case-mapping and normalization tables move to UCD 17.0.0"
-    },
-    {
-      "hash": "ccf15d8b0",
-      "subject": "test: torajs-arr unit tests link again — stubs for the dynobj and weakref seam symbols"
-    },
-    {
-      "hash": "cdb3a459e",
-      "subject": "feat: a string literal's value is WTF-8, so a lone surrogate survives to .rodata"
-    },
-    {
-      "hash": "4fde928f0",
-      "subject": "chore: rotation 556 sweep on 7cf52c2f6, one verdict move (case-mapping table now compiles)"
-    },
-    {
-      "hash": "7cf52c2f6",
-      "subject": "fix: loads and stores past the scaled-imm12 range ride a register index"
-    },
-    {
-      "hash": "dcc87d8c7",
-      "subject": "fix: an all-empty nested literal keeps its any-flavored inner blocks"
     }
   ],
-  "headSha": "ede3eec5e",
+  "headSha": "c1cdd523f",
   "autorun": {
-    "total": 861,
+    "total": 862,
     "baselineTarget": 10,
-    "bySelf": 856,
+    "bySelf": 857,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788303258-75fa",
-      "at": "2026-09-01T22:54:18Z",
-      "ts": 1788303258,
+      "rotationId": "r-1788319629-622d",
+      "at": "2026-09-02T03:27:09Z",
+      "ts": 1788319629,
       "trigger": "self",
-      "prevHead": "48ef5049b",
-      "handoffSha": "sha256:46e729b8fde489dfe5d4fd8918d02bcfad9a1fb07b7ea1071c2b1de97edf28b7",
-      "handoffAgeSec": 0,
+      "prevHead": "90d8de445",
+      "handoffSha": "sha256:b41a0391362dcb9309639decb17dac9f7924e16cf94e234701094ba61600b26a",
+      "handoffAgeSec": 5,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788319629-622d",
+        "at": "2026-09-02T03:27:09Z",
+        "ts": 1788319629,
+        "trigger": "self",
+        "prevHead": "90d8de445",
+        "handoffSha": "sha256:b41a0391362dcb9309639decb17dac9f7924e16cf94e234701094ba61600b26a",
+        "handoffAgeSec": 5,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788303258-75fa",
         "at": "2026-09-01T22:54:18Z",
@@ -884,17 +895,6 @@
         "prevHead": "2ed6409b7",
         "handoffSha": "sha256:6c729b0a361c33844a2415cb103d063d70eca872f246e4031ed703e6d69a774b",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788226765-33e9",
-        "at": "2026-09-01T01:39:25Z",
-        "ts": 1788226765,
-        "trigger": "self",
-        "prevHead": "68ba49f23",
-        "handoffSha": "sha256:c0dfe5977d5f175897ae306196fb67f7ed157fb38bc7cb24b7fff366d511ab24",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
