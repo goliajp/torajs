@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::compile::{compile_bytes, flag_letters, throw_if_rejected};
-use super::str_helpers::str_slice;
+use super::str_helpers::str_units;
 use super::subclass::pattern_as_regex;
 
 /// `AnySlotTag::Undefined` mirror.
@@ -44,7 +44,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_any(pat_av: u64, flags_av: u64) 
             if s.is_null() {
                 return stub();
             }
-            let b = str_slice(s);
+            let b = str_units(s);
             __torajs_str_drop(s);
             Some(b)
         };
@@ -57,7 +57,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_any(pat_av: u64, flags_av: u64) 
             if s.is_null() {
                 return stub();
             }
-            let b = str_slice(s);
+            let b = str_units(s);
             __torajs_str_drop(s);
             (b, Vec::new())
         };

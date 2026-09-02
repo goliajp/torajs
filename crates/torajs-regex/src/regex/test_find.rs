@@ -3,7 +3,7 @@
 
 use core::ffi::c_void;
 
-use super::{as_regex_mut, byte_to_utf16_units, str_slice, utf16_units_to_byte};
+use super::{as_regex_mut, byte_to_utf16_units, haystack, utf16_units_to_byte};
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{match_anchor, search_from};
 
@@ -20,7 +20,7 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
         return 0;
     }
     let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
-    let s = unsafe { str_slice(str_ptr) };
+    let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
 
     let sticky = re.flags & RE_FLAG_Y != 0;
@@ -28,7 +28,7 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
     let track = sticky || global;
     // lastIndex is spec'd in UTF-16 code units; the engine works in
     // transcoded UTF-8 bytes — map on read (and on write below).
-    // `str_slice` owns the transcode; the walk is identity-valued on
+    // `haystack` owns the transcode; the walk is identity-valued on
     // pure-ASCII bytes and dominated by that O(n) transcode.
     let start = if track {
         utf16_units_to_byte(&s, re.last_index_i64(), false)
@@ -87,7 +87,7 @@ pub unsafe extern "C" fn __torajs_regex_find(
         return -1;
     }
     let re = unsafe { super::as_regex(re_ptr) };
-    let s = unsafe { str_slice(str_ptr) };
+    let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
     let from = start.max(0);
     if from > slen {
@@ -124,7 +124,7 @@ pub unsafe extern "C" fn __torajs_str_search_regex(
         return -1;
     }
     let re = unsafe { super::as_regex(re_ptr) };
-    let s = unsafe { str_slice(str_ptr) };
+    let s = unsafe { haystack(re, str_ptr) };
     let hit = if (re.flags & RE_FLAG_Y) != 0 {
         match_anchor(&re.prog, &s, 0, re.flags)
     } else {

@@ -10,7 +10,7 @@ use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
     __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
     __torajs_str_drop, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported,
-    as_regex_mut, byte_to_utf16_units, str_from_bytes, str_slice, str_slice_ascii_view,
+    as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_slice_ascii_view,
     utf16_units_to_byte,
 };
 use crate::node::REGEX_MAX_CAPTURES;
@@ -216,7 +216,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
         Some(view) => (view, true),
         None => {
-            _s_owned = unsafe { str_slice(str_ptr) };
+            _s_owned = unsafe { haystack(re, str_ptr) };
             (&_s_owned, false)
         }
     };
@@ -383,7 +383,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
         Some(view) => (view, true),
         None => {
-            _s_owned = unsafe { str_slice(str_ptr) };
+            _s_owned = unsafe { haystack(re, str_ptr) };
             (&_s_owned, false)
         }
     };

@@ -8,7 +8,7 @@
 /// Map a byte offset in the (transcoded) UTF-8 haystack `s` to the
 /// UTF-16 code-unit offset that JS spec surfaces demand.
 ///
-/// The regex engine matches on a UTF-8 byte stream ([`str_slice`]
+/// The regex engine matches on a UTF-8 byte stream ([`haystack`]
 /// transcodes Latin-1 / UTF-16 payloads), so every match position it
 /// produces is a byte offset into that stream — equal to the code-
 /// unit offset only when the haystack is pure ASCII. `is_ascii`
@@ -64,6 +64,12 @@ pub(crate) fn utf16_units_to_byte(s: &[u8], units: i64, is_ascii: bool) -> i64 {
         } else {
             (4, 2)
         };
+        // A unit offset inside a surrogate pair (`u` mode, four-byte
+        // form) names the code point that contains it — §22.2.7.2
+        // step 12.b: the match starts at that character, not after it.
+        if u + du > units {
+            return i as i64;
+        }
         u += du;
         i += adv;
     }
@@ -123,8 +129,9 @@ mod tests {
         // total units = 13; past-end maps to slen + 1 (out-of-range guard)
         assert_eq!(utf16_units_to_byte(s, 13, false), s.len() as i64);
         assert_eq!(utf16_units_to_byte(s, 14, false), s.len() as i64 + 1);
-        // unit 11 lands inside the 𝄞 surrogate pair → rounds forward to y
-        assert_eq!(utf16_units_to_byte(s, 11, false), 19);
+        // unit 11 lands inside the 𝄞 surrogate pair → the code point
+        // that contains it (§22.2.7.2 step 12.b), i.e. 𝄞's own start
+        assert_eq!(utf16_units_to_byte(s, 11, false), 15);
         // ascii identity passes values through untouched
         assert_eq!(utf16_units_to_byte(b"abc", 2, true), 2);
         assert_eq!(utf16_units_to_byte(s, 0, false), 0);

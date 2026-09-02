@@ -63,7 +63,7 @@
 //!
 //! `0xED → 0xA0..0xBF` is deliberately NOT excluded. A JS string is a
 //! sequence of UTF-16 code units (§6.1.4), so a lone surrogate is a
-//! value, and the haystack transcoder (`str_helpers::str_slice`)
+//! value, and the haystack transcoder (`str_helpers::str_units`)
 //! spells it as the generalized three-byte form — WTF-8. A negated
 //! class must accept it the way `/./u` and a literal `/\uD83D/u`
 //! already do: `/[^]/u.exec("\uD83D")` is `["\ud83d"]`, and `/\S/u`

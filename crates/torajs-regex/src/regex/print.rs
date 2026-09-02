@@ -34,7 +34,7 @@ unsafe fn put_byte(b: u8) {
 ///
 /// `re_ptr` must point to a valid `RegExp` heap object (Tag::RegExp,
 /// compiled by `__torajs_regex_compile`). The pattern's `src_bytes`
-/// must hold valid UTF-8 (parser invariant).
+/// is the code-unit WTF-8 form (see `str_helpers::str_units`).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regex_print_inline(re_ptr: *const c_void) {
     if re_ptr.is_null() {
@@ -43,7 +43,9 @@ pub unsafe extern "C" fn __torajs_regex_print_inline(re_ptr: *const c_void) {
     unsafe {
         let re = as_regex(re_ptr);
         put_byte(b'/');
-        for &b in re.src_bytes.iter() {
+        // `src_bytes` is the code-unit form; a surrogate pair prints
+        // as the character it spells.
+        for b in crate::utf8::merge_surrogate_pairs(&re.src_bytes) {
             put_byte(b);
         }
         put_byte(b'/');

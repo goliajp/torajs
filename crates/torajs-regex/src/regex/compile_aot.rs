@@ -29,7 +29,7 @@ use alloc::{boxed::Box, vec::Vec};
 use core::ffi::c_void;
 use core::ptr::NonNull;
 
-use super::{HeapHeader, RegExp, TAG_REGEX, str_slice};
+use super::{HeapHeader, RegExp, TAG_REGEX, str_units};
 use crate::compiler::compile;
 use crate::dfa::BakedDfaMeta;
 use crate::flags::parse_flags;
@@ -62,8 +62,8 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
     pattern_str: *const c_void,
     flags_str: *const c_void,
 ) -> *mut c_void {
-    let pat = unsafe { str_slice(pattern_str) };
-    let fl = unsafe { str_slice(flags_str) };
+    let pat = unsafe { str_units(pattern_str) };
+    let fl = unsafe { str_units(flags_str) };
 
     let flag_bits_opt = parse_flags(&fl);
     let flag_bits = flag_bits_opt.unwrap_or(0);
@@ -73,7 +73,15 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
     // never-match rejected-stub path.
     let flag_conflict = flag_bits_opt.is_none()
         || (flag_bits & crate::parser::RE_FLAG_U != 0 && flag_bits & crate::parser::RE_FLAG_V != 0);
+    // `src_bytes` keeps the code-unit form (flag-independent — a
+    // `new RegExp(re, "u")` re-derives from it); the parser reads the
+    // form the flags name (§22.2.2.1).
     let src_bytes = pat.clone();
+    let pat = if crate::flags::unicode_mode(flag_bits) {
+        crate::utf8::merge_surrogate_pairs(&pat)
+    } else {
+        pat
+    };
 
     let mut parser = Parser::new(&pat, flag_bits);
     let parse_result = parser.parse();

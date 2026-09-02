@@ -24,7 +24,7 @@ use core::ffi::c_void;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::str_helpers::{str_from_bytes, str_slice};
+use super::str_helpers::{str_code_points, str_from_bytes};
 
 /// SyntaxCharacter (§22.2.1) plus U+002F `/`.
 fn is_syntax_or_slash(c: char) -> bool {
@@ -92,7 +92,7 @@ fn push_hex(out: &mut String, v: u32, width: u32) {
 /// `s` is a live tora Str pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_regexp_escape(s: *const c_void) -> *mut u8 {
-    let bytes: Vec<u8> = unsafe { str_slice(s) };
+    let bytes: Vec<u8> = unsafe { str_code_points(s) };
     let text = core::str::from_utf8(&bytes).unwrap_or("");
     let mut out = String::with_capacity(text.len() + 8);
     for c in text.chars() {

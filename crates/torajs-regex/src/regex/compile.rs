@@ -21,7 +21,7 @@
 use alloc::{boxed::Box, vec::Vec};
 use core::ffi::c_void;
 
-use super::{__torajs_throw_syntax_error, HeapHeader, RegExp, TAG_REGEX, str_slice};
+use super::{__torajs_throw_syntax_error, HeapHeader, RegExp, TAG_REGEX, str_units};
 use crate::compiler::compile;
 use crate::flags::parse_flags;
 use crate::parser::{
@@ -41,8 +41,8 @@ pub unsafe extern "C" fn __torajs_regex_compile(
     pattern_str: *const c_void,
     flags_str: *const c_void,
 ) -> *mut c_void {
-    let pat = unsafe { str_slice(pattern_str) };
-    let fl = unsafe { str_slice(flags_str) };
+    let pat = unsafe { str_units(pattern_str) };
+    let fl = unsafe { str_units(flags_str) };
     compile_bytes(pat, fl)
 }
 
@@ -59,7 +59,15 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
     // sees `rejected == 1` and records a SyntaxError.
     let flag_conflict = flag_bits_opt.is_none()
         || (flag_bits & crate::parser::RE_FLAG_U != 0 && flag_bits & crate::parser::RE_FLAG_V != 0);
+    // `src_bytes` keeps the code-unit form (flag-independent — a
+    // `new RegExp(re, "u")` re-derives from it); the parser reads the
+    // form the flags name (§22.2.2.1).
     let src_bytes = pat.clone();
+    let pat = if crate::flags::unicode_mode(flag_bits) {
+        crate::utf8::merge_surrogate_pairs(&pat)
+    } else {
+        pat
+    };
 
     let mut parser = Parser::new(&pat, flag_bits);
     let parse_result = parser.parse();
@@ -283,7 +291,7 @@ pub(crate) unsafe fn throw_if_rejected(raw: *mut c_void) {
     }
     let mut buf: Vec<u8> = Vec::with_capacity(32 + re.src_bytes.len() + 8);
     buf.extend_from_slice(b"Invalid regular expression: /");
-    buf.extend_from_slice(&re.src_bytes);
+    buf.extend_from_slice(&crate::utf8::merge_surrogate_pairs(&re.src_bytes));
     buf.push(b'/');
     buf.extend_from_slice(&flag_letters(re.flags));
     buf.push(0);
@@ -368,7 +376,7 @@ unsafe fn anyv_pattern_bytes(av: u64) -> Option<Vec<u8>> {
         unsafe { __torajs_str_drop(s) };
         return None;
     }
-    let bytes = unsafe { str_slice(s as *const c_void) };
+    let bytes = unsafe { str_units(s as *const c_void) };
     unsafe { __torajs_str_drop(s) };
     Some(bytes)
 }

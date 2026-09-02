@@ -18,7 +18,7 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::compile::{compile_bytes, flag_letters};
-use super::{__torajs_throw_syntax_error, RegExp, TAG_REGEX, str_slice};
+use super::{__torajs_throw_syntax_error, RegExp, TAG_REGEX, str_units};
 
 /// `torajs_rc::FLAG_SUBCLASSED` mirror (flags bit 0, blade 0).
 const FLAG_SUBCLASSED: u16 = 1;
@@ -95,7 +95,7 @@ pub unsafe extern "C" fn __torajs_regex_subclass_super(this_av: u64, pat_av: u64
                     if s.is_null() {
                         return this_av;
                     }
-                    let bytes = str_slice(s);
+                    let bytes = str_units(s);
                     __torajs_str_drop(s);
                     (bytes, Vec::new())
                 }
@@ -135,7 +135,7 @@ pub unsafe extern "C" fn __torajs_regex_subclass_super_flags(
             if s.is_null() {
                 return this_av;
             }
-            let b = str_slice(s);
+            let b = str_units(s);
             __torajs_str_drop(s);
             Some(b)
         };
@@ -148,7 +148,7 @@ pub unsafe extern "C" fn __torajs_regex_subclass_super_flags(
             if s.is_null() {
                 return this_av;
             }
-            let b = str_slice(s);
+            let b = str_units(s);
             __torajs_str_drop(s);
             (b, Vec::new())
         };

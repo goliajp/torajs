@@ -17,6 +17,14 @@ use crate::parser::{
 /// treat `None` as "rejected" — `regex_compile` routes it through
 /// the same never-match stub path as a malformed pattern so
 /// `__torajs_regex_compile_or_throw` records the pending throw.
+/// `u` or `v`: the pattern and the haystack are code-point
+/// sequences; without either they are UTF-16 code-unit sequences
+/// (§22.2.2.1 — `.` and a class step one unit, a surrogate pair is
+/// two of them).
+pub fn unicode_mode(flags: u8) -> bool {
+    flags & (RE_FLAG_U | RE_FLAG_V) != 0
+}
+
 pub fn parse_flags(s: &[u8]) -> Option<u8> {
     let mut out = 0u8;
     for &b in s {

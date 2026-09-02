@@ -53,7 +53,16 @@ pub(crate) fn try_bake_regex_dfa(
     {
         return None;
     }
-    let mut parser = Parser::new(pattern.as_bytes(), flag_bits);
+    // The literal is UTF-8 (code points); without `u` / `v` the
+    // pattern is a code-unit sequence, so a supplementary character
+    // becomes its two surrogate forms — the same form the runtime
+    // haystack transcodes to (§22.2.2.1; `str_helpers::str_units`).
+    let pattern_bytes = if torajs_regex::flags::unicode_mode(flag_bits) {
+        pattern.as_bytes().to_vec()
+    } else {
+        torajs_regex::utf8::split_surrogate_pairs(pattern.as_bytes())
+    };
+    let mut parser = Parser::new(&pattern_bytes, flag_bits);
     let mut root = parser.parse()?;
     if parser.err() {
         return None;

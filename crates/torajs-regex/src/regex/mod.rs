@@ -7,9 +7,9 @@
 //!   constants + cross-tier extern declarations + [`as_regex`] /
 //!   [`as_regex_mut`] lifting + [`abort_unsupported`].
 //! - [`str_helpers`] — Str-payload transcoding + fresh-Str allocation
-//!   (`str_slice_ascii_view` / `str_slice` / `str_from_bytes` /
+//!   (`str_slice_ascii_view` / `str_units` / `haystack` / `str_from_bytes` /
 //!   `str_from_bytes_ascii`). Re-exported at [`mod@self`] so
-//!   sibling callers keep `use super::str_slice;` unchanged.
+//!   sibling callers keep `use super::haystack;` unchanged.
 //! - [`compile`] — `__torajs_regex_compile` driving parser → resolve →
 //!   compile.
 //! - [`lifecycle`] — `__torajs_regex_drop` / `get_source` /
@@ -50,7 +50,10 @@ use alloc::vec::Vec;
 use crate::program::Program;
 
 pub(crate) use offset_map::{byte_to_utf16_units, utf16_units_to_byte};
-pub use str_helpers::{str_from_bytes, str_from_bytes_ascii, str_slice, str_slice_ascii_view};
+pub use str_helpers::{
+    haystack, str_code_points, str_from_bytes, str_from_bytes_ascii, str_slice_ascii_view,
+    str_units,
+};
 
 /// Universal heap header (offset 0 of every refcounted heap object).
 /// Mirrors `__torajs_heap_header_t` in runtime_str.c; `#[repr(C)]`

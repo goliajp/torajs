@@ -9,7 +9,7 @@
 //! `super::mod` re-exports every symbol at the same paths so the ~7
 //! callers under `regex/*.rs` (`match_op` / `test_find` /
 //! `match_indices` / `match_all` / `replace*` / `split` /
-//! `static_keys`) keep their `use super::{str_slice, ...}` imports
+//! `static_keys`) keep their `use super::{haystack, ...}` imports
 //! byte-for-byte unchanged.
 
 use core::ffi::c_void;
@@ -29,7 +29,7 @@ use super::{__torajs_str_alloc, __torajs_str_alloc_ascii, STR_HDR_SIZE};
 /// chunk 7.7 v2 step 12 C2 Phase B-1 attack #A — zero-copy `&[u8]`
 /// view over a tora `Str *` payload when (and only when) the payload
 /// is ASCII Latin-1. Returns `None` for non-ASCII Latin-1 / UTF-16
-/// payloads — caller must fall back to [`str_slice`] for those
+/// payloads — caller must fall back to [`haystack`] for those
 /// (transcode allocates a fresh `Vec<u8>`).
 ///
 /// The ASCII Latin-1 fast path is the overwhelmingly common case for
@@ -40,7 +40,7 @@ use super::{__torajs_str_alloc, __torajs_str_alloc_ascii, STR_HDR_SIZE};
 ///
 /// # Safety
 ///
-/// Same contract as [`str_slice`] — `p` is non-null, well-aligned,
+/// Same contract as [`str_units`] — `p` is non-null, well-aligned,
 /// references a live tora-Str-layout block. Additionally the caller
 /// must ensure the returned slice's lifetime `'a` does not outlive
 /// the underlying Str buffer; in practice the slice is bound to the
@@ -62,11 +62,45 @@ pub unsafe fn str_slice_ascii_view<'a>(p: *const c_void) -> Option<&'a [u8]> {
     Some(payload)
 }
 
-pub unsafe fn str_slice(p: *const c_void) -> Vec<u8> {
+/// The Str transcoded as a sequence of UTF-16 CODE UNITS: every unit
+/// on its own, a surrogate pair as two three-byte forms. This is the
+/// form a pattern without `u` / `v` matches over (§22.2.2.1), the
+/// canonical `src_bytes` of every RegExp, and the round-trip form
+/// for strings the engine only copies.
+///
+/// # Safety
+/// `p` is a live tora Str pointer.
+pub unsafe fn str_units(p: *const c_void) -> Vec<u8> {
+    unsafe { str_slice(p, false) }
+}
+
+/// The Str transcoded as a sequence of CODE POINTS: a surrogate pair
+/// becomes its supplementary code point (four bytes), a lone
+/// surrogate stays a three-byte form (WTF-8). This is the form
+/// `u` / `v` mode matches over, and what `RegExp.escape` walks.
+///
+/// # Safety
+/// `p` is a live tora Str pointer.
+pub unsafe fn str_code_points(p: *const c_void) -> Vec<u8> {
+    unsafe { str_slice(p, true) }
+}
+
+/// The haystack for `re`: code points under `u` / `v`, code units
+/// otherwise — the same form the pattern was compiled over.
+///
+/// # Safety
+/// `p` is a live tora Str pointer.
+pub unsafe fn haystack(re: &super::RegExp, p: *const c_void) -> Vec<u8> {
+    unsafe { str_slice(p, crate::flags::unicode_mode(re.flags)) }
+}
+
+unsafe fn str_slice(p: *const c_void, merge_pairs: bool) -> Vec<u8> {
     // P11.1-S2.1 — Str payload is encoded (Latin-1 or UTF-16 LE)
     // rather than raw UTF-8 bytes. The regex engine operates on
     // UTF-8 byte streams, so haystacks / patterns transcode here
-    // before reaching the matching code. Returns an owned Vec so
+    // before reaching the matching code. `merge_pairs` picks the
+    // code-point form (surrogate pairs joined) over the code-unit
+    // form — see the two named entries above. Returns an owned Vec so
     // call sites uniformly hold the buffer for the duration of
     // the match; ASCII-only Latin-1 payloads still allocate +
     // `to_vec` once each match, but the regex hot loops dominate
@@ -102,7 +136,7 @@ pub unsafe fn str_slice(p: *const c_void) -> Vec<u8> {
     let mut i = 0usize;
     while i + 1 < payload.len() {
         let cu = u16::from_le_bytes([payload[i], payload[i + 1]]) as u32;
-        let cp = if (0xD800..=0xDBFF).contains(&cu) && i + 3 < payload.len() {
+        let cp = if merge_pairs && (0xD800..=0xDBFF).contains(&cu) && i + 3 < payload.len() {
             let lo = u16::from_le_bytes([payload[i + 2], payload[i + 3]]) as u32;
             if (0xDC00..=0xDFFF).contains(&lo) {
                 i += 4;
@@ -148,7 +182,7 @@ pub unsafe fn str_from_bytes(data: &[u8]) -> *mut u8 {
     // returned match-fragment Strs carry the correct encoding flag
     // and downstream print / concat see them with consistent
     // semantics. Input `data` is a UTF-8 byte slice (either the
-    // already-transcoded haystack returned by `str_slice`, or a
+    // already-transcoded haystack returned by `haystack`, or a
     // replacement-builder buffer that the regex engine assembled
     // codepoint-by-codepoint).
     unsafe { __torajs_str_alloc(data.as_ptr(), data.len() as i64) }

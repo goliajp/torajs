@@ -118,9 +118,112 @@ pub fn utf8_decode_cp_before(s: &[u8], pos: usize) -> (i32, usize) {
     utf8_decode_cp(&s[start..])
 }
 
+use alloc::vec::Vec;
+
+/// Is `s[i..]` a three-byte surrogate form `ED A0..BF xx` whose code
+/// point lies in `lo..=hi`?
+fn surrogate_at(s: &[u8], i: usize, lo: u32, hi: u32) -> Option<u32> {
+    if i + 3 > s.len() || s[i] != 0xED {
+        return None;
+    }
+    let cp = (((s[i] & 0x0F) as u32) << 12)
+        | (((s[i + 1] & 0x3F) as u32) << 6)
+        | ((s[i + 2] & 0x3F) as u32);
+    (lo..=hi).contains(&cp).then_some(cp)
+}
+
+/// Code units → code points: every adjacent high + low surrogate
+/// pair spelled as two three-byte forms becomes the four-byte form
+/// of the supplementary code point. Lone surrogates stay as they
+/// are (WTF-8). This is what `u` / `v` mode matches over.
+pub fn merge_surrogate_pairs(s: &[u8]) -> Vec<u8> {
+    if !s.contains(&0xED) {
+        return s.to_vec();
+    }
+    let mut out = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if let Some(hi) = surrogate_at(s, i, 0xD800, 0xDBFF)
+            && let Some(lo) = surrogate_at(s, i + 3, 0xDC00, 0xDFFF)
+        {
+            let cp = 0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00);
+            let mut buf = [0u8; 4];
+            let n = utf8_encode_cp(cp as i32, &mut buf);
+            out.extend_from_slice(&buf[..n]);
+            i += 6;
+            continue;
+        }
+        out.push(s[i]);
+        i += 1;
+    }
+    out
+}
+
+/// Code points → code units: every four-byte form becomes the two
+/// three-byte surrogate forms of its UTF-16 spelling. This is what a
+/// pattern without `u` / `v` matches over.
+pub fn split_surrogate_pairs(s: &[u8]) -> Vec<u8> {
+    if !s.iter().any(|&b| b >= 0xF0) {
+        return s.to_vec();
+    }
+    let mut out = Vec::with_capacity(s.len() + s.len() / 2);
+    let mut i = 0;
+    while i < s.len() {
+        let b = s[i];
+        if b >= 0xF0 && i + 4 <= s.len() {
+            let (cp, n) = utf8_decode_cp(&s[i..]);
+            let off = cp as u32 - 0x10000;
+            let mut buf = [0u8; 4];
+            for unit in [0xD800 | (off >> 10), 0xDC00 | (off & 0x3FF)] {
+                let k = utf8_encode_cp(unit as i32, &mut buf);
+                out.extend_from_slice(&buf[..k]);
+            }
+            i += n;
+            continue;
+        }
+        out.push(b);
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PAIR_UNITS: &[u8] = &[0xED, 0xA0, 0xBD, 0xED, 0xB8, 0x80]; // D83D DE00
+    const PAIR_CP: &[u8] = &[0xF0, 0x9F, 0x98, 0x80]; // U+1F600
+
+    #[test]
+    fn merge_joins_a_pair_and_keeps_lone_halves() {
+        assert_eq!(merge_surrogate_pairs(PAIR_UNITS), PAIR_CP);
+        let lone = &PAIR_UNITS[..3];
+        assert_eq!(merge_surrogate_pairs(lone), lone);
+        // low then high is not a pair
+        let mut rev = PAIR_UNITS[3..].to_vec();
+        rev.extend_from_slice(&PAIR_UNITS[..3]);
+        assert_eq!(merge_surrogate_pairs(&rev), rev);
+        let mut mixed = b"a".to_vec();
+        mixed.extend_from_slice(PAIR_UNITS);
+        mixed.extend_from_slice("é".as_bytes());
+        let mut want = b"a".to_vec();
+        want.extend_from_slice(PAIR_CP);
+        want.extend_from_slice("é".as_bytes());
+        assert_eq!(merge_surrogate_pairs(&mixed), want);
+    }
+
+    #[test]
+    fn split_and_merge_round_trip() {
+        assert_eq!(split_surrogate_pairs(PAIR_CP), PAIR_UNITS);
+        assert_eq!(
+            merge_surrogate_pairs(&split_surrogate_pairs("x😀y".as_bytes())),
+            "x😀y".as_bytes()
+        );
+        assert_eq!(
+            split_surrogate_pairs("plain 日本".as_bytes()),
+            "plain 日本".as_bytes()
+        );
+    }
 
     #[test]
     fn len_for_ascii() {

@@ -14,8 +14,8 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::{
-    __torajs_throw_type_error, RegExp, abort_unsupported, as_regex, str_from_bytes,
-    str_from_bytes_ascii, str_slice, str_slice_ascii_view,
+    __torajs_throw_type_error, RegExp, abort_unsupported, as_regex, haystack, str_from_bytes,
+    str_from_bytes_ascii, str_slice_ascii_view, str_units,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -244,7 +244,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     repl_ptr: *const c_void,
 ) -> *mut c_void {
     if re_ptr.is_null() {
-        let s = unsafe { str_slice(str_ptr) };
+        let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
@@ -260,7 +260,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
         Some(v) => (v, true),
         None => {
-            s_owned = unsafe { str_slice(str_ptr) };
+            s_owned = unsafe { haystack(re, str_ptr) };
             (&s_owned, false)
         }
     };
@@ -268,7 +268,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     let (repl, repl_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(repl_ptr) } {
         Some(v) => (v, true),
         None => {
-            repl_owned = unsafe { str_slice(repl_ptr) };
+            repl_owned = unsafe { haystack(re, repl_ptr) };
             (&repl_owned, false)
         }
     };
@@ -294,7 +294,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     repl_ptr: *const c_void,
 ) -> *mut c_void {
     if re_ptr.is_null() {
-        let s = unsafe { str_slice(str_ptr) };
+        let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
@@ -311,7 +311,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
                 b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
             );
         }
-        let s = unsafe { str_slice(str_ptr) };
+        let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     // Round 5 attacks str-replace #2/#4 — same ASCII borrow shape as
@@ -320,7 +320,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     let (s, haystack_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(str_ptr) } {
         Some(v) => (v, true),
         None => {
-            s_owned = unsafe { str_slice(str_ptr) };
+            s_owned = unsafe { haystack(re, str_ptr) };
             (&s_owned, false)
         }
     };
@@ -328,7 +328,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
     let (repl, repl_is_ascii): (&[u8], bool) = match unsafe { str_slice_ascii_view(repl_ptr) } {
         Some(v) => (v, true),
         None => {
-            repl_owned = unsafe { str_slice(repl_ptr) };
+            repl_owned = unsafe { haystack(re, repl_ptr) };
             (&repl_owned, false)
         }
     };

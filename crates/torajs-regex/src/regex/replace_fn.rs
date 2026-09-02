@@ -20,7 +20,7 @@ use core::ffi::c_void;
 use super::replace_fn_dispatch::invoke_replace_cb;
 use super::{
     __torajs_str_drop, __torajs_str_undef, __torajs_throw_type_error, abort_unsupported, as_regex,
-    byte_to_utf16_units, str_from_bytes, str_slice,
+    byte_to_utf16_units, haystack, str_from_bytes, str_units,
 };
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
@@ -123,14 +123,14 @@ unsafe fn replace_fn_inner(
     mut invoke: impl FnMut(*mut c_void, &[i64], &[u8], i64) -> Result<*mut c_void, ()>,
 ) -> *mut c_void {
     if re_ptr.is_null() {
-        let s = unsafe { str_slice(str_ptr) };
+        let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    let s = unsafe { str_slice(str_ptr) };
+    let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
 
     // Lazy-init Workspace — sticky branch uses match_anchor's own
@@ -148,7 +148,7 @@ unsafe fn replace_fn_inner(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             // Round 3 Phase B attack #R-A1 — replace_fn currently
-            // routes through `str_slice` (transcodes to owned bytes),
+            // routes through `haystack` (transcodes to owned bytes),
             // so the ASCII-view shortcut isn't on this path. Pass
             // `false`; semantics preserved. Round 5 attack #1 —
             // Workspace materialises lazily inside the vm.
@@ -172,12 +172,12 @@ unsafe fn replace_fn_inner(
                 // Pending throw inside the callback — abandon the
                 // walk; the placeholder copy is discarded by the
                 // caller's throw check.
-                let s = unsafe { str_slice(str_ptr) };
+                let s = unsafe { str_units(str_ptr) };
                 return unsafe { str_from_bytes(&s) as *mut c_void };
             }
         };
         if !ret_str.is_null() {
-            let ret_bytes = unsafe { str_slice(ret_str) };
+            let ret_bytes = unsafe { str_units(ret_str) };
             out.extend_from_slice(&ret_bytes);
             unsafe { __torajs_str_drop(ret_str) };
         }
@@ -326,7 +326,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn(
     has_off_input: i64,
 ) -> *mut c_void {
     if closure_env.is_null() {
-        let s = unsafe { str_slice(str_ptr) };
+        let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
     let global = if !re_ptr.is_null() {
@@ -371,11 +371,11 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex_fn(
             __torajs_throw_type_error(
                 b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
             );
-            let s = str_slice(str_ptr);
+            let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;
         }
         if closure_env.is_null() {
-            let s = str_slice(str_ptr);
+            let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;
         }
         replace_fn_inner(
@@ -421,7 +421,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn_boxed(
 ) -> *mut c_void {
     unsafe {
         if re_ptr.is_null() || closure.is_null() {
-            let s = str_slice(str_ptr);
+            let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;
         }
         let re = as_regex(re_ptr);
@@ -429,7 +429,7 @@ pub unsafe extern "C" fn __torajs_str_replace_regex_fn_boxed(
             __torajs_throw_type_error(
                 b"String.prototype.replaceAll called with a non-global RegExp argument\0".as_ptr(),
             );
-            let s = str_slice(str_ptr);
+            let s = str_units(str_ptr);
             return str_from_bytes(&s) as *mut c_void;
         }
         let global = all != 0 || re.flags & RE_FLAG_G != 0;

@@ -5,7 +5,7 @@ use core::ffi::c_void;
 
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_str_undef, RegExp, abort_unsupported, as_regex,
-    str_from_bytes, str_slice,
+    haystack, str_from_bytes,
 };
 use crate::parser::RE_FLAG_Y;
 use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
@@ -18,6 +18,16 @@ use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
 ///
 /// # Safety
 /// `out` is a live Str array handle; `saves` is the match's row.
+/// §22.2.6.14 step 19.b.i / 19.d.i AdvanceStringIndex, over the
+/// transcoded haystack: one code unit without `u` (the code-unit
+/// form spells every unit in one to three bytes), one code point
+/// with it — either way the length of the form at `at`. A byte `+1`
+/// landed inside a multi-byte character and read the string layer
+/// off a torn cursor (`"xéy".split(/(?:)/)` was exit 138).
+fn unit_len(s: &[u8], at: i64) -> i64 {
+    crate::utf8::utf8_len_for(s[at as usize]) as i64
+}
+
 unsafe fn push_captures(out: *mut c_void, re: &RegExp, s: &[u8], saves: &[i64]) -> *mut c_void {
     let mut out = out;
     for i in 1..=(re.n_captures.max(0) as usize) {
@@ -50,7 +60,7 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
-    let s = unsafe { str_slice(str_ptr) };
+    let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
 
     // Lazy-init Workspace — sticky branch uses match_anchor's own
@@ -94,13 +104,13 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
             match match_anchor(&re.prog, &s, q, re.flags) {
                 Some(m) => Some(m),
                 None => {
-                    q += 1;
+                    q += unit_len(&s, q);
                     continue;
                 }
             }
         } else {
             // Round 3 Phase B attack #R-A1 — split currently routes
-            // through `str_slice` (transcodes to owned bytes), so the
+            // through `haystack` (transcodes to owned bytes), so the
             // ASCII-view shortcut isn't on this path. Pass `false`.
             // Round 5 attack #1 — Workspace materialises lazily
             // inside the vm.
@@ -114,7 +124,7 @@ pub unsafe extern "C" fn __torajs_str_split_regex(
         if e == p {
             // Empty match at the segment start — no split; advance
             // past this position.
-            q = m.start + 1;
+            q = m.start + unit_len(&s, m.start);
             continue;
         }
         let seg = unsafe { str_from_bytes(&s[p as usize..m.start as usize]) };

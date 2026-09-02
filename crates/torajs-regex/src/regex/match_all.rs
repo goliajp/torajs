@@ -11,7 +11,7 @@ use core::ffi::c_void;
 use super::match_op::attach_exec_all;
 use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_throw_type_error, abort_unsupported, as_regex,
-    str_from_bytes, str_slice,
+    haystack, str_from_bytes,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -42,7 +42,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
         }
         return outer;
     }
-    let s = unsafe { str_slice(str_ptr) };
+    let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
 
     // Lazy-init Workspace — sticky path uses match_anchor's own
@@ -67,7 +67,7 @@ pub unsafe extern "C" fn __torajs_str_match_all_regex(
             match_anchor(&re.prog, &s, pos, re.flags)
         } else {
             // Round 3 Phase B attack #R-A1 — match_all currently
-            // routes through `str_slice` (always transcodes to a
+            // routes through `haystack` (always transcodes to a
             // freshly-allocated Vec<u8>), so the ASCII-view shortcut
             // isn't on this path. Pass `false`; the u-flag
             // continuation-byte gate stays correct for any haystack.
@@ -110,7 +110,7 @@ unsafe fn append_inner(
         }
     }
     // `st` / `en` are byte offsets in the transcoded haystack (this
-    // path always owns a str_slice transcode, so no ascii-view
+    // path always owns a haystack transcode, so no ascii-view
     // discrimination is available — `false` routes the byte→UTF-16
     // mapping down the slow correct path for `.index` and `/d`
     // `.indices` alike).

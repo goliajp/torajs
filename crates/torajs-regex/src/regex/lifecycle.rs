@@ -2,10 +2,12 @@
 //! get-set. Port of `runtime_regex.c` L1519-1552, L2130-2140.
 
 use alloc::boxed::Box;
+use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::{
     __torajs_rc_dec, __torajs_str_alloc_pooled, RegExp, STR_HDR_SIZE, as_regex, as_regex_mut,
+    str_from_bytes,
 };
 
 unsafe extern "C" {
@@ -85,18 +87,11 @@ pub unsafe extern "C" fn __torajs_regex_get_source(re_ptr: *const c_void) -> *mu
         return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
-    let len = re.src_bytes.len() as u64;
-    let s = unsafe { __torajs_str_alloc_pooled(len) };
-    if len > 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                re.src_bytes.as_ptr(),
-                s.add(STR_HDR_SIZE),
-                len as usize,
-            );
-        }
-    }
-    s as *mut c_void
+    // `src_bytes` is the code-unit form (str_helpers::str_units); the
+    // allocator re-encodes it into the Str layout — a raw byte copy
+    // into the Latin-1 layout read every non-ASCII source as one
+    // character per byte.
+    unsafe { str_from_bytes(&re.src_bytes) as *mut c_void }
 }
 
 /// `re.lastIndex` numeric getter — the typed-tier lane
@@ -429,20 +424,12 @@ pub unsafe extern "C" fn __torajs_regex_to_string(re_ptr: *const c_void) -> *mut
             nflag += 1;
         }
     }
-    let src_len = re.src_bytes.len();
-    let total = 1 + src_len + 1 + nflag;
-    let s = unsafe { __torajs_str_alloc_pooled(total as u64) };
-    let dst = unsafe { s.add(STR_HDR_SIZE) };
-    unsafe {
-        *dst = b'/';
-        if src_len > 0 {
-            core::ptr::copy_nonoverlapping(re.src_bytes.as_ptr(), dst.add(1), src_len);
-        }
-        *dst.add(1 + src_len) = b'/';
-        if nflag > 0 {
-            core::ptr::copy_nonoverlapping(flag_buf.as_ptr(), dst.add(2 + src_len), nflag);
-        }
-    }
+    let mut buf: Vec<u8> = Vec::with_capacity(2 + re.src_bytes.len() + nflag);
+    buf.push(b'/');
+    buf.extend_from_slice(&re.src_bytes);
+    buf.push(b'/');
+    buf.extend_from_slice(&flag_buf[..nflag]);
+    let s = unsafe { str_from_bytes(&buf) };
     s as *mut c_void
 }
 
