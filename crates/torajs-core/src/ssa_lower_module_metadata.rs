@@ -178,7 +178,9 @@ pub(crate) fn populate_class_layouts(
             });
         }
         module.class_layouts.push(ClassLayoutMeta {
-            class_name: (*cname).clone(),
+            // 563-05 — the printed instance prefix IS this name, so a
+            // class expression's synth must not reach it.
+            class_name: crate::ast::class_display_name(ast, cname).to_string(),
             child_offsets,
             field_metadata,
             is_named: true,
@@ -347,7 +349,7 @@ fn generic_class_placeholder_row(
         cname,
     );
     ClassLayoutMeta {
-        class_name: cname.to_string(),
+        class_name: crate::ast::class_display_name(ast, cname).to_string(),
         child_offsets: Vec::new(),
         field_metadata: Vec::new(),
         is_named: true,

@@ -90,8 +90,16 @@ pub unsafe extern "C" fn __torajs_class_object_print(cell: *const c_void) -> i32
     };
     unsafe {
         put_bytes(b"[class ");
+        // 563-05 — an anonymous class expression's ES name is the
+        // empty string (§8.4 NamedEvaluation found no binding), and
+        // bun prints `[class (anonymous)]` for it, not `[class ]`.
         let name = own_str_entry(cell, b"name");
-        if !name.is_null() && heap_type_tag(name) == TAG_STR {
+        let named = !name.is_null()
+            && heap_type_tag(name) == TAG_STR
+            && !crate::str_wtf8::StrWtf8::of(name.cast())
+                .as_bytes()
+                .is_empty();
+        if named {
             __torajs_print_str_cell_unquoted(name);
         } else {
             put_bytes(b"(anonymous)");

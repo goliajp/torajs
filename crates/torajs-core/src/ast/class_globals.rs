@@ -207,11 +207,7 @@ fn emit_prototype_and_class_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut
         // anonymous class expression bound by a declaration or a
         // destructuring default reflects the binding identifier as
         // `.name` instead of the `__ClassExpr_<id>` synth name.
-        let display = ast
-            .class_expr_display_names
-            .get(cname)
-            .unwrap_or(cname)
-            .clone();
+        let display = class_display_name(ast, cname).to_string();
         let name_expr = if meta.static_shadow.contains(&format!("__sm_{cname}__name")) {
             ast.add_expr(Expr::Ident(format!("__sm_{cname}__name")))
         } else {
@@ -252,4 +248,26 @@ fn emit_chain_and_registration_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &
     class_globals_register::emit_class_object_register(ast, meta, &gen_class_set, out);
     class_globals_register::emit_reify_stmts(ast, meta, &gen_class_set, out);
     class_globals_register::emit_native_error_register(ast, meta, out);
+}
+
+/// The name a class shows the user — §8.4 NamedEvaluation for a class
+/// EXPRESSION, whose parse-time binding name is a `__ClassExpr_<id>`
+/// synth. A binding position registers the user's spelling
+/// (`const A = class {}` → "A"); with none registered the ES name is
+/// the empty string, never the synth. Anything else answers its own
+/// declared name.
+///
+/// The synth used to fall through here, so `(class {}).name` answered
+/// "__ClassExpr_4", `console.log(class {})` printed
+/// `[class __ClassExpr_0]` and an instance printed
+/// `__ClassExpr_0 { x: 1 }` — the implementation's spelling on three
+/// faces the user reads.
+pub fn class_display_name<'a>(ast: &'a Ast, cname: &'a str) -> &'a str {
+    if let Some(display) = ast.class_expr_display_names.get(cname) {
+        return display.as_str();
+    }
+    if cname.starts_with("__ClassExpr_") {
+        return "";
+    }
+    cname
 }
