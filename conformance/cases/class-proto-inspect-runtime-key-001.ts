@@ -7,14 +7,14 @@
 // always hidden, the fast / slow walk decided per hop, and a nearer
 // prototype's entry overriding a farther one.
 const k = "k1";
-// `m` is declared BEFORE the computed pair: a computed member
-// reifies after the plain ones rather than at its declaration
-// position (562-07), so the two orders only agree this way round.
+// 562-07 — a computed member now lands at its DECLARATION position,
+// so a plain method after the computed pair is after it here too.
 class Y {
   w = 2;
   m() {}
   get [k]() { return 9; }
   set [k](v: number) {}
+  n() {}
 }
 console.log(new Y());
 console.log(JSON.stringify(Object.getOwnPropertyNames(Y.prototype)));

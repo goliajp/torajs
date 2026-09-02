@@ -259,6 +259,12 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
             CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
         } else {
             PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+            // 562-07 — the entry could only be appended; the rows this
+            // class declares AFTER it move behind it so the own keys
+            // read in element order.
+            if let Some(row) = super::reify::row_of_adapter(tag, adapter) {
+                super::reify::redefine_rows_after(tag, row);
+            }
         }
     }
 }
@@ -325,6 +331,18 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
             CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
         } else {
             PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+            // 562-07 — same re-appending as the method twin. The row
+            // is found by whichever face this call carries; the pair's
+            // two rows are adjacent, so the second half's own
+            // re-appending is a no-op over the first's.
+            let face = if get_adapter != 0 {
+                get_adapter
+            } else {
+                set_adapter
+            };
+            if let Some(row) = super::reify::row_of_adapter(tag, face) {
+                super::reify::redefine_rows_after(tag, row);
+            }
         }
     }
 }

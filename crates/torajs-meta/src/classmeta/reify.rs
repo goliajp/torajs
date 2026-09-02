@@ -7,6 +7,13 @@
 
 use super::*;
 
+unsafe extern "C" {
+    /// torajs-dynobj — remove one own entry. 562-07 uses it to move
+    /// an entry to the end of the insertion order by defining it
+    /// again right after.
+    fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
+}
+
 /// Knife B cut 1 — the prototype's own method entries. Walks the
 /// class's `.__class_methods_<i>` boxed-adapter table (the same
 /// records `struct_method` dispatch resolves) and defines one
@@ -47,11 +54,67 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
         // iteration and every later table read must see the move.
         let mut slot = proto;
         for i in 0..n {
+            define_row(tag, &mut slot, layout, n, i, false);
+        }
+        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+    }
+}
+
+/// 562-07 — the rows this class DECLARES after `after`, re-appended
+/// behind whatever was just defined: delete the entry and define it
+/// again from the same table row, same value and same attributes.
+/// A computed member's own entry can only be APPENDED (its runtime
+/// key exists only at the class-decl position, long after the
+/// registration walk), so the rows declared after it have to move
+/// behind it for `getOwnPropertyNames` to answer element order —
+/// §15.7.14 defines every element in one ordered pass. Nothing can
+/// observe the intermediate states: this runs inside the class
+/// definition, before the binding exists.
+///
+/// # Safety
+/// `tag` names a registered class whose prototype slot is live.
+pub(super) unsafe fn redefine_rows_after(tag: i64, after: u32) {
+    unsafe {
+        let layout = __torajs_struct_layout_lookup(tag as u32);
+        if layout.is_null() {
+            return;
+        }
+        let proto = PROTOS_BY_TAG_IMM[tag as usize];
+        if !is_cell_imm(proto) || heap_type_tag(proto as *const c_void) != TAG_DYNOBJ {
+            return;
+        }
+        let n = __torajs_struct_method_count(layout);
+        let mut slot = proto as *mut c_void;
+        for i in (after + 1)..n {
+            define_row(tag, &mut slot, layout, n, i, true);
+        }
+        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+    }
+}
+
+/// The table row `i` of class `tag` as one own entry on `slot`.
+/// `reinsert` deletes the key first, which moves the entry to the
+/// end of the insertion order (`redefine_rows_after`'s whole job);
+/// the registration walk passes false and appends in table order.
+///
+/// # Safety
+/// `slot` points at a live prototype dynobj; `layout` is the class's
+/// live layout entry with `n` method rows.
+unsafe fn define_row(
+    tag: i64,
+    slot: &mut *mut c_void,
+    layout: *const c_void,
+    n: u32,
+    i: u32,
+    reinsert: bool,
+) {
+    unsafe {
+        {
             let mut name_ptr: *const u8 = core::ptr::null();
             let mut name_len: u32 = 0;
             let adapter = __torajs_struct_method_at(layout, i, &mut name_ptr, &mut name_len);
             if adapter.is_null() || name_ptr.is_null() || name_len == 0 {
-                continue;
+                return;
             }
             let name = core::slice::from_raw_parts(name_ptr, name_len as usize);
             // 508-03 — bit 2 marks a row this class DECLARES. An
@@ -64,7 +127,7 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             // arm: an inherited accessor is an inherited row too.
             let flags = __torajs_struct_method_flags_at(layout, i);
             if flags & 4 == 0 {
-                continue;
+                return;
             }
             if let Some(prop) = accessor_slot_prop(name) {
                 // A computed accessor's slot names a `__ccm_`
@@ -78,8 +141,11 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
                 if !prop.starts_with(b"__ccm_") && !accessor_row_before(layout, i, prop) {
                     let (get_adapter, set_adapter) = accessor_adapters(layout, n, prop);
                     let key = alloc_str_key(prop);
+                    if reinsert {
+                        __torajs_dynobj_delete(*slot, key.cast::<c_void>());
+                    }
                     super::define::define_accessor_pair(
-                        &mut slot,
+                        slot,
                         key,
                         prop,
                         get_adapter,
@@ -88,13 +154,13 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
                     );
                     __torajs_str_drop(key);
                 }
-                continue;
+                return;
             }
             // RFC 20260802 刀 2 — a runtime computed member's `__ccm_`
             // sentinel is not a property name; its own entry lands via
             // the class-decl-position computed define instead.
             if name.starts_with(b"__ccm_") {
-                continue;
+                return;
             }
             // S2.38 — bit 0 of the MethodMeta flags word marks a
             // receiver-free body; the face runs bare calls with a
@@ -122,10 +188,13 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             };
             let cell = __torajs_class_method_cell_new(adapter as u64, this_free, cell_tag, twin);
             let key = alloc_str_key(name);
+            if reinsert {
+                __torajs_dynobj_delete(*slot, key.cast::<c_void>());
+            }
             // The minted cell is FLAG_STATIC_LITERAL (rc no-op) — the
             // define's transferred stake is the entry's sole handle.
             __torajs_dynobj_define_plain(
-                &mut slot,
+                slot,
                 key,
                 ANY_HEAP as u64,
                 cell as u64,
@@ -133,7 +202,35 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
             );
             __torajs_str_drop(key);
         }
-        PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+    }
+}
+
+/// The row this class declares whose boxed adapter is `adapter` —
+/// how a computed define finds its own declaration position without
+/// a cursor or a side table (each `__ccm_` member has its own
+/// adapter symbol, and an inherited row is not DECLARED here).
+///
+/// # Safety
+/// `tag` names a registered class.
+pub(super) unsafe fn row_of_adapter(tag: i64, adapter: u64) -> Option<u32> {
+    unsafe {
+        if adapter == 0 {
+            return None;
+        }
+        let layout = __torajs_struct_layout_lookup(tag as u32);
+        if layout.is_null() {
+            return None;
+        }
+        let n = __torajs_struct_method_count(layout);
+        for i in 0..n {
+            let mut name_ptr: *const u8 = core::ptr::null();
+            let mut name_len: u32 = 0;
+            let a = __torajs_struct_method_at(layout, i, &mut name_ptr, &mut name_len);
+            if a as u64 == adapter && __torajs_struct_method_flags_at(layout, i) & 4 != 0 {
+                return Some(i);
+            }
+        }
+        None
     }
 }
 
