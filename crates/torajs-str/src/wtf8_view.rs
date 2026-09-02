@@ -51,13 +51,21 @@ mod tests {
     fn utf16(units: &[u16]) -> StrBlock {
         let mut block = StrBlock::alloc_with_encoding(units.len() as u32, false);
         let bytes: alloc::vec::Vec<u8> = units.iter().flat_map(|u| u.to_le_bytes()).collect();
-        unsafe { block.as_bytes_mut(bytes.len() as u32).copy_from_slice(&bytes) };
+        unsafe {
+            block
+                .as_bytes_mut(bytes.len() as u32)
+                .copy_from_slice(&bytes)
+        };
         block
     }
 
     fn latin1(bytes: &[u8]) -> StrBlock {
         let mut block = StrBlock::alloc_with_encoding(bytes.len() as u32, true);
-        unsafe { block.as_bytes_mut(bytes.len() as u32).copy_from_slice(bytes) };
+        unsafe {
+            block
+                .as_bytes_mut(bytes.len() as u32)
+                .copy_from_slice(bytes)
+        };
         block
     }
 
