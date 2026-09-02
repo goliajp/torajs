@@ -44,10 +44,9 @@ console.log(JSON.stringify(Object.getOwnPropertyNames(H.prototype)));
 class I { [k1]() {} get g() { return 1; } m() {} }
 console.log(JSON.stringify(Object.getOwnPropertyNames(I.prototype)));
 
-// (A GENERIC class's computed member does not land on the prototype
-// at all — `["constructor","m","n"]` where bun answers
-// `["constructor","m","c1","n"]`. That is 563-04, a separate gap:
-// the reify never reaches the runtime, so there is nothing to order.)
+// (A GENERIC class's computed member is 563-04, closed in
+// class-generic-computed-member-001: it used not to land on the
+// prototype at all.)
 
 // Instance and static computed members share one declaration-order
 // numbering; the instance side must not be disturbed by the static.

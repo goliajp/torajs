@@ -275,9 +275,23 @@ pub(super) fn try_lower_class_computed_reify(
     );
     let tag = ctx.class_name_to_tag.get(&cname).copied();
     let prefix = if is_static != 0 { "__sm_" } else { "__cm_" };
-    let adapter = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
+    // 563-04 / 402-01 — inside a GENERIC class the member's original
+    // never lowers; its all-`any` mono instance (`$$anywv`, pre-seeded
+    // by `monomorphize_and_check`) is the body the reified face
+    // wraps. Without the fallback every computed member of a generic
+    // class dropped out here and never reached the prototype at all:
+    // `class J<T> { m(x: T) {} [k]() {} }` answered
+    // ["constructor","m"].
+    let body_symbol = |suffix: &str| -> String {
         let body = format!("{prefix}{cname}__{sentinel}{suffix}");
-        let body_fid = ctx.fn_table.get(body.as_str()).copied()?;
+        if ctx.fn_table.contains_key(body.as_str()) {
+            body
+        } else {
+            format!("{body}$$anywv")
+        }
+    };
+    let adapter = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
+        let body_fid = ctx.fn_table.get(body_symbol(suffix).as_str()).copied()?;
         ctx.boxed_entries.get(&body_fid).copied()
     };
     let resolved = match kind {
@@ -289,7 +303,7 @@ pub(super) fn try_lower_class_computed_reify(
     // `fn_ignores_receiver` proof that lives in
     // `ssa_lower_module_metadata`, which this site cannot see, so a
     // computed instance method keeps today's conservative 0.
-    let body_name = format!("{prefix}{cname}__{sentinel}");
+    let body_name = body_symbol("");
     let this_free = kind == 0
         && is_static != 0
         && ctx

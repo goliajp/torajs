@@ -60,6 +60,16 @@ pub(crate) fn collect_own_class_methods(
         accessor_slots.insert(fname.as_str(), PropKey::prefixed("__setter_", prop));
     }
     let mut own: HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>> = HashMap::new();
+    // 563-04 — where each member was DECLARED, recorded from the
+    // original FnDecl whether or not it lowered. Inside a generic
+    // class none of them do (only the `$$anywv` monos reach
+    // `fn_table`), and monomorphization emits those in its own order
+    // — a computed member's mono comes first — so without this anchor
+    // a generic class's rows read in mono-emit order instead of class
+    // body order, and `getOwnPropertyNames(C.prototype)` answered
+    // ["constructor","c1","m","n"] for `class P<T> { m(x: T) {}
+    // [k]() {} n() {} }`.
+    let mut decl_pos: HashMap<(String, PropKey), usize> = HashMap::new();
     // Declaration order: walk the top-level FnDecls in source order
     // rather than iterating `fn_table` (a HashMap), so each class's
     // rows land in class-body order. `console.log(instance)` reifies
@@ -72,9 +82,6 @@ pub(crate) fn collect_own_class_methods(
     // its original declaration position.
     for stmt in &ast.stmts {
         let crate::ast::Stmt::FnDecl { name: fname, .. } = stmt else {
-            continue;
-        };
-        let Some(&fid) = fn_table.get(fname) else {
             continue;
         };
         let Some(rest) = fname.strip_prefix("__cm_") else {
@@ -158,9 +165,26 @@ pub(crate) fn collect_own_class_methods(
                 let twin = ast.cmany_twins.get(base)?;
                 fn_table.get(format!("{twin}$$anywv").as_str()).copied()
             });
+        let next = decl_pos.len();
+        decl_pos
+            .entry((cname.to_string(), entry_name.clone()))
+            .or_insert(next);
+        let Some(&fid) = fn_table.get(fname) else {
+            continue;
+        };
         own.entry(cname.to_string())
             .or_default()
             .push((entry_name, fid, twin_fid));
+    }
+    // Stable, so a member's original still precedes its mono — the
+    // adapter-preferring dedup in `resolve_class_methods` reads that.
+    for (cname, rows) in own.iter_mut() {
+        rows.sort_by_key(|(name, ..)| {
+            decl_pos
+                .get(&(cname.clone(), name.clone()))
+                .copied()
+                .unwrap_or(usize::MAX)
+        });
     }
     own
 }
