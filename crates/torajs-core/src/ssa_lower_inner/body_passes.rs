@@ -268,10 +268,14 @@ fn register_fn_name(
         // answers the §10.2.9 prefixed `"get cg"` off the reified
         // face — which is read first, so the row cannot shadow it.
         // A COMPUTED accessor has no source name at all and keeps
-        // its miss (the `[Function]` form), the same verdict 564-01
-        // gave the computed method face.
+        // the anonymous `[Function]` form, the same verdict 564-01
+        // gave the computed method face — 567-03 gives it an EMPTY
+        // row rather than no row, because the two things a row
+        // carries are separable: no NAME, but the source TEXT
+        // `toString` owes it (§20.2.3.5), which the miss used to
+        // answer with the erased native form.
         let key = match accessor_prop_of(ast, name) {
-            Some(p) if p.starts_with("__ccm_") => return,
+            Some(p) if p.starts_with("__ccm_") => PropKey::from(""),
             Some(p) => p.clone(),
             // The symbol spelling is a bijection of the key (557-02 C
             // 组), so the user-visible name comes back exactly, lone
@@ -347,9 +351,10 @@ fn register_fn_name(
     // 566-02 — a STATIC accessor body reaches this arm as
     // `__sm_<C>__<p>_get`, and stripping only the class prefix left
     // the `_get` on: `[Function: sg_get]` where bun prints the source
-    // spelling `sg`. Same registry lookup the instance arm makes.
+    // spelling `sg`. Same registry lookup the instance arm makes, and
+    // 567-03's empty-name row for a computed one.
     let visible: PropKey = match accessor_prop_of(ast, name) {
-        Some(p) if p.starts_with("__ccm_") => return,
+        Some(p) if p.starts_with("__ccm_") => PropKey::from(""),
         Some(p) => p.clone(),
         None => match strip_static_method_name(visible, class_parents) {
             Some(m) => unmangle_key(m),
