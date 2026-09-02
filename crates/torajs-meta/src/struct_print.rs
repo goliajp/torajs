@@ -119,7 +119,9 @@ unsafe extern "C" {
     // `[Symbol(desc)]`; and the width either adds to the line.
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
     fn __torajs_key_cell_print_len(cell: *const c_void) -> u32;
-    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64) -> i32;
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64, slow: i32) -> i32;
+    /// torajs-dynobj — bun's slow-walk predicate on the expando bag.
+    fn __torajs_dynobj_iter_slow_mode(obj: *const c_void) -> i32;
 
     // torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_out(c: i32) -> i32;
@@ -283,11 +285,31 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     } else {
         0
     };
+    // bun's fast / slow walk (anyvalue `key_hidden` module doc): slow
+    // when the expando bag rules the fast walk out, or when nothing
+    // at all would print under it (no layout field, no prototype
+    // method, no visible expando — bun's `anyHits` restart).
+    let mut slow = if props.is_null() {
+        0
+    } else {
+        unsafe { __torajs_dynobj_iter_slow_mode(props) }
+    };
+    if slow == 0 && n == 0 && !has_methods {
+        let fast_hit = order.iter().any(|&pi| unsafe {
+            let key = __torajs_dynobj_iter_key(props, pi);
+            !key.is_null()
+                && __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(props, pi), 0)
+                    == 0
+        });
+        if !fast_hit && !order.is_empty() {
+            slow = 1;
+        }
+    }
     // Accessor slots collapse a get/set pair into one entry, so the
     // separator keys off what was actually emitted, not off `i`.
     let mut emitted: u32 = 0;
     for &pi in &order[..n_idx] {
-        unsafe { put_expando_row(props, pi, indent, &mut emitted) };
+        unsafe { put_expando_row(props, pi, indent, &mut emitted, slow) };
     }
     let mut i: u32 = 0;
     while i < n {
@@ -347,7 +369,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     // Blade 3 — the string- and Symbol-keyed expando entries render
     // after the layout fields.
     for &pi in &order[n_idx..] {
-        unsafe { put_expando_row(props, pi, indent, &mut emitted) };
+        unsafe { put_expando_row(props, pi, indent, &mut emitted, slow) };
     }
     // 405-05 — prototype methods and accessors render after the own
     // properties, matching bun's inspect order (own first, proto
@@ -370,13 +392,19 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
 /// # Safety
 /// `props` is the live expando dynobj of the struct being printed
 /// and `pi` a dense-entry index from its print order.
-unsafe fn put_expando_row(props: *const c_void, pi: u64, indent: u32, emitted: &mut u32) {
+unsafe fn put_expando_row(
+    props: *const c_void,
+    pi: u64,
+    indent: u32,
+    emitted: &mut u32,
+    slow: i32,
+) {
     let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
     if key.is_null() {
         return;
     }
     let flags = unsafe { __torajs_dynobj_iter_flags(props, pi) };
-    if unsafe { __torajs_key_cell_inspect_hidden(key, flags) } != 0 {
+    if unsafe { __torajs_key_cell_inspect_hidden(key, flags, slow) } != 0 {
         return;
     }
     if *emitted > 0 {

@@ -41,6 +41,7 @@ use crate::iter::{
     __torajs_dynobj_iter_value,
 };
 use crate::iter_print_order::__torajs_dynobj_iter_print_order;
+use crate::iter_slow_mode::__torajs_dynobj_iter_slow_mode;
 use crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO;
 
 /// Universal heap-header `flags u16 @6`.
@@ -58,7 +59,10 @@ unsafe extern "C" {
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
     /// torajs-anyvalue — the own keys inspect leaves out
     /// (`constructor`, a non-enumerable `__proto__`, `@@toStringTag`).
-    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64) -> i32;
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64, slow: i32) -> i32;
+    /// torajs-anyvalue — bun's name prefix for an ordinary object
+    /// (`constructor` name / `@@toStringTag`), 1 when one printed.
+    fn __torajs_inspect_obj_name_prefix(obj: *const c_void) -> i32;
     /// Line-width estimate primitives (inspect wrap trunk) — mirror
     /// of bun's `estimated_line_length` accounting, hosted in
     /// `torajs-anyvalue::inspect::formatters`.
@@ -123,10 +127,14 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             put_bytes(b"null");
             return;
         }
-        // `Object.create(null)` semantics (regex `.groups`, module
-        // namespaces) — bun prefixes the block at every depth.
+        // Name prefix — the `constructor`'s name or the
+        // `@@toStringTag` (bun `get_object_name`, see anyvalue's
+        // `inspect/obj_name`); when neither names it, the
+        // `Object.create(null)` form (regex `.groups`, module
+        // namespaces) still prefixes at every depth.
         let hdr_flags = *((obj as *const u8).add(HDR_FLAGS_OFF) as *const u16);
-        if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+        if __torajs_inspect_obj_name_prefix(obj) == 0 && hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0
+        {
             put_bytes(b"[Object: null prototype] ");
         }
         let len = __torajs_dynobj_iter_len(obj);
@@ -140,11 +148,26 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             core::ptr::null_mut()
         };
         let n = __torajs_dynobj_iter_print_order(obj, order, len);
+        // bun's fast / slow walk (`key_hidden` module doc): the slow
+        // walk when the shape rules the fast one out, or when the
+        // fast walk would print nothing (bun's `anyHits` restart).
+        let mut slow = __torajs_dynobj_iter_slow_mode(obj);
+        if slow == 0 {
+            let fast_hit = (0..n).any(|j| {
+                let i = *order.add(j as usize);
+                let key = __torajs_dynobj_iter_key(obj, i);
+                __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(obj, i), 0) == 0
+            });
+            if !fast_hit && n > 0 {
+                slow = 1;
+            }
+        }
         let mut any_emitted = false;
         for j in 0..n {
             let i = *order.add(j as usize);
             let key = __torajs_dynobj_iter_key(obj, i);
-            if __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(obj, i)) != 0 {
+            if __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(obj, i), slow) != 0
+            {
                 continue;
             }
             if !any_emitted {

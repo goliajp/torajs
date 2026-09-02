@@ -44,6 +44,7 @@ pub mod buffer_print;
 pub mod formatters;
 pub mod key_hidden;
 pub mod line_est;
+pub mod obj_name;
 pub mod tag_dispatch;
 pub mod typeof_any;
 pub mod wrapper_block;

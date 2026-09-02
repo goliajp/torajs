@@ -49,7 +49,7 @@ unsafe extern "C" {
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
     /// torajs-anyvalue — the own keys inspect leaves out
     /// (`constructor`, a non-enumerable `__proto__`, `@@toStringTag`).
-    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64) -> i32;
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64, slow: i32) -> i32;
     /// torajs-anyvalue — indent-threaded inline AnyValue printer
     /// (inspect indent trunk), the same walker the elements use.
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
@@ -83,8 +83,11 @@ pub(crate) unsafe fn put_arrprops(arr: *mut c_void, indent: u32) {
     for j in 0..n {
         let i = unsafe { *order.add(j as usize) };
         let key = unsafe { __torajs_dynobj_iter_key(dynobj, i) };
-        if unsafe { __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(dynobj, i)) }
-            != 0
+        // An array has index keys, so bun never takes the fast walk
+        // on it: an enumerable `@@toStringTag` prints as a row.
+        if unsafe {
+            __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(dynobj, i), 1)
+        } != 0
         {
             continue;
         }
