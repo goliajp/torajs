@@ -224,7 +224,8 @@ const PREFIX_FAMILIES: [(&str, u16); 30] = [
 /// the per-tag print dispatch — any hit keeps every printer kernel.
 /// Scalar prints (`print_i64`-shape, `str_print`, typed
 /// `arr_print_<scalar>`) are NOT here: they answer without the
-/// per-tag inspect world.
+/// per-tag inspect world — except through the expando props face,
+/// see [`ANY_WRITERS`].
 const PRINT_WORLD: [&str; 6] = [
     "__torajs_print_anyv",
     "__torajs_fn_print_outer",
@@ -233,6 +234,14 @@ const PRINT_WORLD: [&str; 6] = [
     "__torajs_symbol_print",
     "__torajs_anyv_struct_print",
 ];
+
+/// The any-world writes that can put expando props on a typed array
+/// (`a.x = 5` / `a[sym] = 3` on `let a = [1, 2]`). A typed
+/// `arr_print_<scalar>` then prints the props face — keys and values
+/// through the inspect world — so a program that has BOTH a writer
+/// and a typed array printer keeps the printer kernels (rotation
+/// 561: `[ 1, 2, g: { … } ]` threw "printer kernel stripped").
+const ANY_WRITERS: [&str; 2] = ["__torajs_any_member_set", "__torajs_any_index_set"];
 
 /// A prologue-synthesized error-world fn: one of the base names or
 /// a synthesized wrapper of one (`__boxed___cm_Error__ctor` — the
@@ -274,6 +283,8 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     let mut ns_world = false;
     let mut print_world = false;
     let mut printer_ref = false;
+    let mut any_writer = false;
+    let mut typed_arr_print = false;
 
     for f in &module.funcs {
         let synth_error_fn = is_synth_error_fn(&f.name);
@@ -369,6 +380,14 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                 {
                     print_world = true;
                 }
+                if ANY_WRITERS.iter().any(|p| name.starts_with(p)) {
+                    any_writer = true;
+                }
+                if name.starts_with("__torajs_arr_print_")
+                    && !crate::cmd_build_dispatch_stubs::is_printer_sym(name)
+                {
+                    typed_arr_print = true;
+                }
                 if crate::cmd_build_dispatch_stubs::is_arm_sym(name) {
                     // user code somehow calls an arm seam directly —
                     // not a shape we emit today; refuse to stub it.
@@ -376,6 +395,13 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                 }
             }
         }
+    }
+
+    if any_writer && typed_arr_print {
+        if diag {
+            eprintln!("[judge] props-face keep: any writer + typed array printer");
+        }
+        print_world = true;
     }
 
     for &mid in &observed {

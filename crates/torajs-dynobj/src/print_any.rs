@@ -39,7 +39,10 @@ use crate::iter::{
     __torajs_dynobj_iter_value,
 };
 use crate::iter_print_order::__torajs_dynobj_iter_print_order;
-use crate::layout::BUCKET_FLAG_ENUMERABLE;
+use crate::layout::{BUCKET_FLAG_ENUMERABLE, DYNOBJ_HDR_FLAG_NULL_PROTO};
+
+/// Universal heap-header `flags u16 @6`.
+const HDR_FLAGS_OFF: usize = 6;
 
 unsafe extern "C" {
     /// mmalloc Layer-1 sized API (same pair resize.rs uses) — the
@@ -114,6 +117,12 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
         if obj.is_null() {
             put_bytes(b"null");
             return;
+        }
+        // `Object.create(null)` semantics (regex `.groups`, module
+        // namespaces) — bun prefixes the block at every depth.
+        let hdr_flags = *((obj as *const u8).add(HDR_FLAGS_OFF) as *const u16);
+        if hdr_flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
+            put_bytes(b"[Object: null prototype] ");
         }
         let len = __torajs_dynobj_iter_len(obj);
         // bun's print order (see `iter_print_order`) — index keys
