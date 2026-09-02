@@ -237,13 +237,17 @@ pub unsafe extern "C" fn __torajs_print_anyv_inline_at(v: AnyValue, indent: u32)
             // Object(sym) — fixed four-field multi-line block
             // (rotation 184; fields at indent + 2).
             unsafe { crate::inspect::wrapper_block::put_symbol_wrapper_at(child, indent) };
+        } else if tag == Tag::AccessorPair as u16 {
+            // Accessor value cell — `[Getter]` / `[Setter]` /
+            // `[Getter/Setter]`, never the closure.
+            unsafe { crate::inspect::accessor_pair::put_accessor_pair_inline(child) };
         } else if unsafe { crate::inspect::formatters::put_wrapper_inline(child, tag) } {
             // Primitive wrapper — bytes emitted by the helper.
         } else {
             // All other composite / typed-receiver tags
             // (Tag::Symbol / Tag::BigInt / Tag::Response /
-            // Tag::WeakRef / Tag::MapIter / Tag::ArrIter /
-            // Tag::AccessorPair / etc) fall back to `[object]`
+            // Tag::WeakRef / Tag::MapIter / Tag::ArrIter / etc)
+            // fall back to `[object]`
             // (no '\n'). Wire each into its typed walker as the
             // corresponding substrate lands.
             unsafe { put_bytes(b"[object]") };

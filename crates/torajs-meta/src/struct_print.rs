@@ -119,6 +119,7 @@ unsafe extern "C" {
     // `[Symbol(desc)]`; and the width either adds to the line.
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
     fn __torajs_key_cell_print_len(cell: *const c_void) -> u32;
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64) -> i32;
 
     // torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_out(c: i32) -> i32;
@@ -132,9 +133,9 @@ unsafe extern "C" {
     // walker's iter trio) + entry pair read.
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
+    fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     fn __torajs_dynobj_iter_print_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
     fn __torajs_dynobj_iter_index_count(obj: *const c_void) -> u64;
-    fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const u8) -> u64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
@@ -245,8 +246,8 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     }
 
     // Blade 3 (RFC 20260714-struct-dynamic-props) — expando entries
-    // render after the layout fields (insertion order; enumerable
-    // only, matching the keys face).
+    // render around the layout fields in bun's print order, every
+    // own entry, enumerable or not.
     let props = unsafe { crate::obj_own_keys_struct::struct_props(cell) };
     let n_props = if props.is_null() {
         0
@@ -296,6 +297,13 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         // The second half of a pair was already rendered under the
         // same key by the first (RFC 20260714-objlit-accessor).
         if kind.is_some() && unsafe { accessor_emitted_before(layout, i, (kp, klen)) } {
+            i += 1;
+            continue;
+        }
+        // An own `constructor` is the one key bun's inspect always
+        // leaves out (`key_hidden`); a literal's declared field of
+        // that name is one too.
+        if unsafe { core::slice::from_raw_parts(kp, klen) } == b"constructor" {
             i += 1;
             continue;
         }
@@ -355,7 +363,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     unsafe { put_byte(b'}') };
 }
 
-/// One expando entry row — `key: value` — enumerable only; the pair
+/// One expando entry row — `key: value`, enumerable or not; the pair
 /// read is a borrow, boxed for the inline printer with zero rc
 /// traffic. `emitted` drives the separator like the field rows.
 ///
@@ -363,12 +371,12 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
 /// `props` is the live expando dynobj of the struct being printed
 /// and `pi` a dense-entry index from its print order.
 unsafe fn put_expando_row(props: *const c_void, pi: u64, indent: u32, emitted: &mut u32) {
-    let flags = unsafe { __torajs_dynobj_iter_flags(props, pi) };
-    if flags & crate::obj_own_keys::FLAG_ENUMERABLE == 0 {
-        return;
-    }
     let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
     if key.is_null() {
+        return;
+    }
+    let flags = unsafe { __torajs_dynobj_iter_flags(props, pi) };
+    if unsafe { __torajs_key_cell_inspect_hidden(key, flags) } != 0 {
         return;
     }
     if *emitted > 0 {

@@ -291,11 +291,16 @@ fn pack_tagged_value(
             );
             (Operand::Value(tag), Operand::Value(val))
         }
+        // Mirror of `box_to_tag_value`'s refcounted arm: the slot
+        // takes its +1 through the rc helper, and a typed array
+        // crossing into the any world records its element kind on
+        // the header — without the mark, `{ value: arr }` stored a
+        // raw-i64 array that every any-side reader (print / index /
+        // drop walkers) NaN-box-walked and SIGSEGVed on (rotation
+        // 561).
         _ if v_ty.is_refcounted() => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.rc_inc, vec![v_raw.clone()]),
-            );
+            ctx.emit_rc_inc(v_raw.clone());
+            ctx.emit_arr_mark_kind(&v_raw);
             (Operand::ConstI64(4), v_raw)
         }
         // S127-1 twin — undefined and null both collapse to

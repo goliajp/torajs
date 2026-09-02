@@ -3,15 +3,17 @@
 //! Commit 3.
 //!
 //! Walks a dynobj's dense entry array via
-//! `__torajs_dynobj_iter_{len,key,value,flags}` in insertion order
-//! (CPython-3.7 compact-dict shape — `torajs-dynobj` since session
-//! 85 `88c9778`), filters out tombstones (`key == null`) and
-//! non-enumerable entries (`BUCKET_FLAG_ENUMERABLE` bit clear), and
-//! emits each `<key>: <value>` pair through
-//! `__torajs_print_anyv_inline` (Commit 1 substrate).
+//! `__torajs_dynobj_iter_{len,key,value}` in bun's print order
+//! (`iter_print_order`; CPython-3.7 compact-dict shape —
+//! `torajs-dynobj` since session 85 `88c9778`), skips tombstones
+//! (`key == null`), and emits each `<key>: <value>` pair through
+//! `__torajs_print_anyv_inline` (Commit 1 substrate). Every own
+//! property prints, enumerable or not — bun's inspect walks the own
+//! keys without the enumerable filter (`Object.keys` / for-in /
+//! `JSON.stringify` keep excluding them).
 //!
 //! Output shape (bun-parity for plain object literals):
-//! - empty (no enumerable own props) → `{}` (no '\n')
+//! - empty (no own props) → `{}` (no '\n')
 //! - non-empty → `{\n  k: v,\n  k2: v2,\n}` (no trailing '\n', but
 //!   keeps the final `}` on its own line per bun's pretty form;
 //!   trailing comma on the last entry mirrors bun exactly)
@@ -39,7 +41,7 @@ use crate::iter::{
     __torajs_dynobj_iter_value,
 };
 use crate::iter_print_order::__torajs_dynobj_iter_print_order;
-use crate::layout::{BUCKET_FLAG_ENUMERABLE, DYNOBJ_HDR_FLAG_NULL_PROTO};
+use crate::layout::DYNOBJ_HDR_FLAG_NULL_PROTO;
 
 /// Universal heap-header `flags u16 @6`.
 const HDR_FLAGS_OFF: usize = 6;
@@ -54,6 +56,9 @@ unsafe extern "C" {
     /// Indent-threaded inline AnyValue printer from
     /// `torajs-anyvalue::inspect` (inspect indent trunk).
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
+    /// torajs-anyvalue — the own keys inspect leaves out
+    /// (`constructor`, a non-enumerable `__proto__`, `@@toStringTag`).
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64) -> i32;
     /// Line-width estimate primitives (inspect wrap trunk) — mirror
     /// of bun's `estimated_line_length` accounting, hosted in
     /// `torajs-anyvalue::inspect::formatters`.
@@ -139,11 +144,7 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
         for j in 0..n {
             let i = *order.add(j as usize);
             let key = __torajs_dynobj_iter_key(obj, i);
-            let flags = __torajs_dynobj_iter_flags(obj, i);
-            if flags & BUCKET_FLAG_ENUMERABLE == 0 {
-                // Hidden property (W/E/C all-false or just
-                // enumerable=false) — skip per
-                // for-in / console.log own enumerable contract.
+            if __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(obj, i)) != 0 {
                 continue;
             }
             if !any_emitted {

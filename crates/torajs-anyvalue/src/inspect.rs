@@ -38,9 +38,11 @@
 //!   (`__torajs_print_anyv_inline`); no trailing newline, called
 //!   from composite walkers.
 
+pub mod accessor_pair;
 pub mod any;
 pub mod buffer_print;
 pub mod formatters;
+pub mod key_hidden;
 pub mod line_est;
 pub mod tag_dispatch;
 pub mod typeof_any;

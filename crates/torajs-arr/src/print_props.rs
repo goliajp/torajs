@@ -21,17 +21,13 @@
 //!
 //! Empty arrays print `[]` with no props face (bun ground truth), so
 //! the element printers' empty early-exit is already correct — this
-//! hook only fires on the non-empty path. Holes (NULL key) and
-//! non-enumerable entries are skipped here, caller-side, per the
-//! iter contract.
+//! hook only fires on the non-empty path. Holes are pre-excluded
+//! by the order; every own property prints, enumerable or not
+//! (bun's inspect walks the own keys without the enumerable filter).
 
 use core::ffi::c_void;
 
 use crate::print::put_bytes;
-
-/// `enumerable` flag — bit 1 of the dynobj entry's W/E/C flags
-/// (mirror of torajs-dynobj's `BUCKET_FLAG_ENUMERABLE`).
-const DYNOBJ_FLAG_ENUMERABLE: u64 = 1 << 1;
 
 unsafe extern "C" {
     /// torajs-dynobj — iteration surface; `iter_print_order_after_index`
@@ -51,6 +47,9 @@ unsafe extern "C" {
     /// identifier, JSON-quoted otherwise; a Symbol key as
     /// `[Symbol(desc)]` (the dynobj and struct walkers' key writer).
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
+    /// torajs-anyvalue — the own keys inspect leaves out
+    /// (`constructor`, a non-enumerable `__proto__`, `@@toStringTag`).
+    fn __torajs_key_cell_inspect_hidden(key: *const c_void, flags: u64) -> i32;
     /// torajs-anyvalue — indent-threaded inline AnyValue printer
     /// (inspect indent trunk), the same walker the elements use.
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
@@ -63,7 +62,7 @@ unsafe extern "C" {
 }
 
 /// Emit the props face for `arr` between its last element and the
-/// ` ]` suffix: `, key: value` per live enumerable entry. `indent`
+/// ` ]` suffix: `, key: value` per live entry. `indent`
 /// is the element column (the array's indent + 2), which a nested
 /// composite value pads from. No-op when the array never had a
 /// property written.
@@ -84,7 +83,9 @@ pub(crate) unsafe fn put_arrprops(arr: *mut c_void, indent: u32) {
     for j in 0..n {
         let i = unsafe { *order.add(j as usize) };
         let key = unsafe { __torajs_dynobj_iter_key(dynobj, i) };
-        if unsafe { __torajs_dynobj_iter_flags(dynobj, i) } & DYNOBJ_FLAG_ENUMERABLE == 0 {
+        if unsafe { __torajs_key_cell_inspect_hidden(key, __torajs_dynobj_iter_flags(dynobj, i)) }
+            != 0
+        {
             continue;
         }
         unsafe {
