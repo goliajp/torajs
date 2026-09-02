@@ -83,6 +83,17 @@ unsafe extern "C" {
     fn __torajs_arraybuffer_create(length: u64, options: u64) -> u64;
     fn __torajs_typedarray_create(kind: i64, a0: u64, a1: u64, a2: u64) -> u64;
     fn __torajs_typedarray_kind(av: u64) -> i64;
+    /// torajs-buffer — §25.3.2 `new DataView(buffer, byteOffset,
+    /// byteLength)`, the same kernel the static `new` lowering calls.
+    fn __torajs_dataview_create(buffer: u64, a1: u64, a2: u64) -> u64;
+}
+
+/// `DataView.prototype`'s builtin-proto slot — past the eleven
+/// per-kind typed-array slots, so it is not `tag - 20` of anything
+/// (565-01).
+const DATAVIEW_TAG: i64 = torajs_rc::builtin_proto::DATAVIEW_PROTO_TAG as i64;
+
+unsafe extern "C" {
     /// torajs-meta / torajs-dynobj — the subclass-proto `constructor`
     /// shadow read (see `ctor_cell_for_recv`).
     fn __torajs_subclass_proto(cell: *const c_void) -> u64;
@@ -342,6 +353,13 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
         if tag == 19 {
             return unsafe { __torajs_arraybuffer_create(at(0), at(1)) };
         }
+        // 565-01 — DataView's slot sits past the per-kind block, so
+        // it is NOT `tag - 20` of anything: `new dv(buf)` through a
+        // `const dv: any = DataView` binding was minting a
+        // Float16Array off kind 12.
+        if tag == DATAVIEW_TAG {
+            return unsafe { __torajs_dataview_create(at(0), at(1), at(2)) };
+        }
         return unsafe { __torajs_typedarray_create(tag - 20, at(0), at(1), at(2)) };
     }
     unsafe {
@@ -478,6 +496,10 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         // joins at 19, and a typed array's constructor is decided by
         // its element kind (the eleven share one heap tag).
         t if t == Tag::ArrayBuffer as u16 => Some(19),
+        // 565-01 — a DataView instance's constructor is DataView;
+        // with no arm here the reify walked off the end and the
+        // any-lane `v.constructor` threw on a null receiver.
+        t if t == Tag::DataView as u16 => Some(DATAVIEW_TAG),
         t if t == Tag::TypedArray as u16 => {
             let kind = unsafe { __torajs_typedarray_kind(recv) };
             if (0..=11).contains(&kind) {
