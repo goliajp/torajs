@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T16:16:12.366Z",
+  "generatedAt": "2026-09-02T17:55:46.833Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-02T16:03:26Z",
-    "headSha": "9d0223fa1",
-    "elapsedSec": 580.85,
+    "ranAt": "2026-09-02T17:44:57Z",
+    "headSha": "1da88dcf9",
+    "elapsedSec": 475.05,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30576,
+    "pass": 30578,
     "passNoOracle": 1028,
     "passNegative": 4147,
-    "passTotal": 35751,
-    "bug": 12066,
+    "passTotal": 35753,
+    "bug": 12064,
     "incompatible": 5357,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47817,
-    "passRateInScope": 67.23,
+    "passRateInScope": 67.24,
     "passRateTrAccepted": 74.77
   },
   "torajs": {
-    "commit": "9d0223fa1",
-    "commitSubject": "fix: a generic method's name is its source spelling, not its instance symbol",
+    "commit": "d758f4716",
+    "commitSubject": "test: class-object-inspect covers the anonymous form, 563-05 closed",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "d758f4716",
+      "subject": "test: class-object-inspect covers the anonymous form, 563-05 closed"
+    },
+    {
+      "hash": "1da88dcf9",
+      "subject": "fix: NamedEvaluation names a class expression at every binding position"
+    },
+    {
+      "hash": "ceb63a490",
+      "subject": "fix: an anonymous class expression is anonymous, not __ClassExpr_n"
+    },
+    {
+      "hash": "93209499d",
+      "subject": "fix: a generic class's computed member lands, at its own position"
+    },
+    {
+      "hash": "c502d4899",
+      "subject": "fix: a computed static member lands at its declaration position"
+    },
+    {
+      "hash": "c46fe3574",
+      "subject": "fix: a static class element is defined at its declaration position"
+    },
+    {
+      "hash": "1fa882759",
+      "subject": "chore: rotation 563 sweep on 9d0223fa1, one forward verdict"
+    },
+    {
       "hash": "9d0223fa1",
       "subject": "fix: a generic method's name is its source spelling, not its instance symbol"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "c89180717",
       "subject": "refactor: a struct cell's rows move out of the file that frames them"
-    },
-    {
-      "hash": "d68f8f910",
-      "subject": "chore: rotation 562 sweep on bb25487a9, zero test262 movement"
-    },
-    {
-      "hash": "bb25487a9",
-      "subject": "fix: an object's inspect shows what its prototypes carry"
-    },
-    {
-      "hash": "8dda348b8",
-      "subject": "fix: a class accessor lands on the prototype at its declaration position"
-    },
-    {
-      "hash": "fa010fabb",
-      "subject": "fix: a class instance's prototype rows come from the reified prototype"
-    },
-    {
-      "hash": "03efbb604",
-      "subject": "fix: an object's inspect prefix is its constructor's name, then its toStringTag"
-    },
-    {
-      "hash": "2d6de689a",
-      "subject": "feat: class member names are property keys, their symbols a bijective spelling"
-    },
-    {
-      "hash": "9af525d71",
-      "subject": "chore: rotation 561 sweep on 52aa36d7f and bench on a65c649, zero test262 movement"
     }
   ],
-  "headSha": "9d0223fa1",
+  "headSha": "d758f4716",
   "autorun": {
-    "total": 866,
+    "total": 867,
     "baselineTarget": 10,
-    "bySelf": 861,
+    "bySelf": 862,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788357007-2c2e",
-      "at": "2026-09-02T13:50:07Z",
-      "ts": 1788357007,
+      "rotationId": "r-1788365813-3dab",
+      "at": "2026-09-02T16:16:53Z",
+      "ts": 1788365813,
       "trigger": "self",
-      "prevHead": "d68f8f910",
-      "handoffSha": "sha256:0ce5df7a12aa39c060137423181f27caef280f03804e07ba379fba1b6ac3eb8d",
-      "handoffAgeSec": 8,
+      "prevHead": "1fa882759",
+      "handoffSha": "sha256:a36505e01fd7d5702031a5ffe9ade54508a3ededd5d7a5f0ee35acc198535b2c",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788365813-3dab",
+        "at": "2026-09-02T16:16:53Z",
+        "ts": 1788365813,
+        "trigger": "self",
+        "prevHead": "1fa882759",
+        "handoffSha": "sha256:a36505e01fd7d5702031a5ffe9ade54508a3ededd5d7a5f0ee35acc198535b2c",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788357007-2c2e",
         "at": "2026-09-02T13:50:07Z",
@@ -892,17 +903,6 @@
         "prevHead": "299b34700",
         "handoffSha": "sha256:141c3097384a501beb8f7a8efd11b4e7e1dc319203d7069ce44fcd40efde03cf",
         "handoffAgeSec": 13,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788272828-0459",
-        "at": "2026-09-01T14:27:08Z",
-        "ts": 1788272828,
-        "trigger": "self",
-        "prevHead": "0e22d18b2",
-        "handoffSha": "sha256:345da93c65ab4cfa3b55043cac99fad6b03dc1317ed68950b428e517f931409b",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
