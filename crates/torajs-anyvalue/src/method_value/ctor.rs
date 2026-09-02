@@ -291,7 +291,7 @@ static CTOR_NAME_CELLS: [AtomicU64; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS
 
 /// The interned `.name` Str cell of a ctor cell — lazily minted,
 /// immortal.
-pub(super) fn ctor_name_cell(proto_tag: i64) -> Option<*mut u8> {
+pub(crate) fn ctor_name_cell(proto_tag: i64) -> Option<*mut u8> {
     let (name, _) = ctor_meta(proto_tag)?;
     let slot = &CTOR_NAME_CELLS[proto_tag as usize];
     let p = slot.load(Ordering::Relaxed);

@@ -29,6 +29,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const u8) -> u64;
     /// torajs-anyvalue::inspect — a Str cell's bytes, no quotes.
     fn __torajs_print_str_cell_unquoted(cell: *const c_void);
+    /// torajs-anyvalue::inspect — the interned `.name` of a builtin
+    /// ctor cell that reads as a class, NULL otherwise (564-03).
+    fn __torajs_builtin_ctor_class_name(cell: *const c_void) -> *const c_void;
     /// torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_out(c: i32) -> i32;
     /// torajs-anyvalue::inspect — bun `estimated_line_length` mirror.
@@ -105,15 +108,22 @@ pub unsafe extern "C" fn __torajs_class_object_print(cell: *const c_void) -> i32
             put_bytes(b"(anonymous)");
         }
         // `extends` names the SUPERCLASS, which is this class
-        // object's [[Prototype]] — a registered class object exactly
-        // when the class extends a user class.
+        // object's [[Prototype]]. That is a registered class object
+        // when the class extends a user class, and an interned
+        // builtin ctor cell when it extends a builtin (564-03) —
+        // the latter names itself only when it reads as a class, so
+        // `class P extends Promise {}` prints `[class P]`.
         let parent = own_str_entry(cell, PROTO_SLOT_KEY);
-        if !parent.is_null() && tag_of_class_object(parent).is_some() {
-            let pname = own_str_entry(parent, b"name");
-            if !pname.is_null() && heap_type_tag(pname) == TAG_STR {
-                put_bytes(b" extends ");
-                __torajs_print_str_cell_unquoted(pname);
-            }
+        let pname = if parent.is_null() {
+            core::ptr::null()
+        } else if tag_of_class_object(parent).is_some() {
+            own_str_entry(parent, b"name")
+        } else {
+            __torajs_builtin_ctor_class_name(parent)
+        };
+        if !pname.is_null() && heap_type_tag(pname) == TAG_STR {
+            put_bytes(b" extends ");
+            __torajs_print_str_cell_unquoted(pname);
         }
         put_bytes(b"]");
     }

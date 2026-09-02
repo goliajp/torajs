@@ -162,6 +162,10 @@ pub(super) unsafe fn put_date_inline(child: *const c_void) {
 }
 
 pub(super) unsafe fn put_closure_fn_name(closure: *const c_void) {
+    // 563-06 — a builtin constructor reads as the class it is.
+    if unsafe { super::ctor_class_form::put_ctor_class_form(closure) } {
+        return;
+    }
     if let Some(name) = unsafe { crate::method_value::builtin_method_name(closure as *mut c_void) }
     {
         unsafe {

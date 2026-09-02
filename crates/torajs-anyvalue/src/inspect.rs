@@ -41,6 +41,7 @@
 pub mod accessor_pair;
 pub mod any;
 pub mod buffer_print;
+pub mod ctor_class_form;
 pub mod formatters;
 pub mod key_hidden;
 pub mod line_est;
