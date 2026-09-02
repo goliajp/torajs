@@ -62,7 +62,8 @@ pub unsafe extern "C" fn __torajs_class_static_method_define(
         // must ALWAYS take the twin — there is no receiver value
         // the mono path could honor (the instance guard's tag
         // compare has nothing to compare against).
-        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, twin);
+        let cell =
+            __torajs_class_method_cell_new(adapter, this_free, 0, twin, core::ptr::null_mut());
         let mut slot = class_anyv as *mut c_void;
         __torajs_dynobj_define_plain(
             &mut slot,
@@ -246,7 +247,10 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
     unsafe {
         // tag 0 / twin 0 — this runtime-define mint site has no
         // class-tag context; the blade-3 guard stays disarmed.
-        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, 0);
+        // 564-01 — the face's §10.2.9 name is the key it is being
+        // defined under, not the `__ccm_<n>__` sentinel the fn-name
+        // registry holds for its body; the fresh Str transfers.
+        let cell = __torajs_class_method_cell_new(adapter, this_free, 0, 0, fn_name_of_key(key));
         let mut slot = target_anyv as *mut c_void;
         __torajs_dynobj_define_plain(
             &mut slot,
@@ -267,6 +271,22 @@ pub unsafe extern "C" fn __torajs_class_computed_method_define(
             }
         }
     }
+}
+
+/// §10.2.9 SetFunctionName's spelling of the property key a
+/// computed member is being defined under: a Str key IS the name
+/// (a numeric key already arrived as its Str spelling), and a
+/// Symbol key reads `"[<description>]"` — empty when it has none.
+/// The answer is a fresh Str the caller transfers into the face.
+///
+/// # Safety
+/// `key` is a live Str / Symbol cell.
+unsafe fn fn_name_of_key(key: *const u8) -> *mut u8 {
+    if unsafe { heap_type_tag(key as *const c_void) } == crate::reflect::TAG_STR {
+        unsafe { __torajs_rc_inc(key as *mut c_void) };
+        return key as *mut u8;
+    }
+    unsafe { __torajs_symbol_fn_name(key as *const c_void) }
 }
 
 /// 刀 2 accessor twin — a SINGLE-face AccessorPair define under a
@@ -389,6 +409,9 @@ unsafe extern "C" {
     /// torajs-dynobj — re-append one own entry, carrying its key
     /// cell, value and attributes across unchanged.
     fn __torajs_dynobj_move_own_to_end(obj: *mut c_void, key: *const c_void) -> i32;
+    /// torajs-str — §10.2.9's `"[<description>]"` spelling of a
+    /// Symbol property key as a function name (564-01); fresh Str.
+    fn __torajs_symbol_fn_name(p: *const c_void) -> *mut u8;
 }
 
 /// 563-03 — move the class object's own `<name>` entry behind

@@ -186,7 +186,13 @@ unsafe fn define_row(
             } else {
                 (tag as u64, __torajs_struct_method_twin_at(layout, i) as u64)
             };
-            let cell = __torajs_class_method_cell_new(adapter as u64, this_free, cell_tag, twin);
+            let cell = __torajs_class_method_cell_new(
+                adapter as u64,
+                this_free,
+                cell_tag,
+                twin,
+                core::ptr::null_mut(),
+            );
             let key = alloc_str_key(name);
             if reinsert {
                 __torajs_dynobj_delete(*slot, key.cast::<c_void>());

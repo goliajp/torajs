@@ -53,7 +53,11 @@ const CLOSURE_CAP_BASE_OFF: usize = 48;
 /// recorded super-route residue).
 const CLS_CELL_TAG_OFF: usize = 56;
 const CLS_CELL_TWIN_OFF: usize = 64;
-const CELL_SIZE: usize = 72;
+/// 564-01 — the §10.2.9 name a COMPUTED member's face carries,
+/// derived from the key at definition time (0 for every face whose
+/// name is the source spelling the fn-name registry already holds).
+const CLS_CELL_NAME_OFF: usize = 72;
+const CELL_SIZE: usize = 80;
 
 /// Boxed dual entry of every reified class-method cell — a bare call
 /// is the ES `this = undefined` TypeError. Also the recognizer
@@ -98,6 +102,7 @@ pub extern "C" fn __torajs_class_method_cell_new(
     this_free: u64,
     class_tag: u64,
     twin: u64,
+    name: *mut u8,
 ) -> *mut u8 {
     // SAFETY: fresh CELL_SIZE allocation, fully initialized below.
     unsafe {
@@ -118,6 +123,7 @@ pub extern "C" fn __torajs_class_method_cell_new(
         *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = adapter;
         *(cell.add(CLS_CELL_TAG_OFF) as *mut u64) = class_tag;
         *(cell.add(CLS_CELL_TWIN_OFF) as *mut u64) = twin;
+        *(cell.add(CLS_CELL_NAME_OFF) as *mut u64) = name as u64;
         cell
     }
 }
@@ -272,6 +278,25 @@ pub(crate) unsafe fn class_accessor_meta(ptr: *mut c_void) -> Option<(*mut u8, u
         } else {
             None
         }
+    }
+}
+
+/// The §10.2.9 name a reified class-method face carries when its
+/// key was computed at runtime (564-01), `None` when the face's
+/// name is the source spelling the fn-name registry holds. The Str
+/// cell is the face's own immortal stake — callers rc_inc before
+/// handing it out, exactly like [`class_accessor_meta`]'s.
+///
+/// # Safety
+/// `ptr` points at a live `Tag::Closure` heap cell.
+pub(crate) unsafe fn class_method_runtime_name(ptr: *mut c_void) -> Option<*mut u8> {
+    unsafe {
+        let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
+        if entry != class_bare_entry as *const () as u64 {
+            return None;
+        }
+        let name = *(ptr.cast::<u8>().add(CLS_CELL_NAME_OFF) as *const u64) as *mut u8;
+        (!name.is_null()).then_some(name)
     }
 }
 

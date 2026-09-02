@@ -158,6 +158,42 @@ pub unsafe extern "C" fn __torajs_symbol_to_str(p: *const c_void) -> *mut u8 {
     r
 }
 
+/// §10.2.9 SetFunctionName's spelling of a SYMBOL property key:
+/// `"[<description>]"`, or the empty String when the symbol has no
+/// description. This is the name a computed class member or object
+/// literal method carries when its key evaluates to a symbol
+/// (564-01) — the key itself is the name for a Str key, so only
+/// the symbol case needs building.
+///
+/// # Safety
+///
+/// `p` is null or a `*Symbol`. Returned pointer is a pooled Str
+/// (rc=1).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_fn_name(p: *const c_void) -> *mut u8 {
+    if p.is_null() {
+        return unsafe { alloc_str(b"") };
+    }
+    let desc = unsafe { symbol_desc(p) };
+    if desc.is_null() {
+        return unsafe { alloc_str(b"") };
+    }
+    let desc_len = unsafe { *((desc as *const u8).add(STR_LEN_OFF) as *const u32) as u64 };
+    let r = unsafe { __torajs_str_alloc_pooled(desc_len + 2) };
+    if !r.is_null() {
+        unsafe {
+            let dst = r.add(STR_HDR_SIZE);
+            *dst = b'[';
+            if desc_len > 0 {
+                let src = (desc as *const u8).add(STR_HDR_SIZE);
+                core::ptr::copy_nonoverlapping(src, dst.add(1), desc_len as usize);
+            }
+            *dst.add(1 + desc_len as usize) = b']';
+        }
+    }
+    r
+}
+
 unsafe fn alloc_str(bytes: &[u8]) -> *mut u8 {
     let p = unsafe { __torajs_str_alloc_pooled(bytes.len() as u64) };
     if !p.is_null() && !bytes.is_empty() {

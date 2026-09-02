@@ -13,6 +13,12 @@ use core::ffi::c_void;
 
 use super::formatters::{__torajs_fn_print_inline, put_bytes};
 
+unsafe extern "C" {
+    /// torajs-fnname — the anonymous `[Function]` form on its own,
+    /// for a face the fn-name table cannot answer for (564-01).
+    fn __torajs_fn_print_anonymous();
+}
+
 /// Emit a closure cell's `[Function: <name>]` form, no trailing
 /// newline.
 ///
@@ -31,8 +37,17 @@ pub(super) unsafe fn put_closure_fn_name(closure: *const c_void) {
             put_bytes(b"]");
         }
     } else {
-        // B6c — a class-method face prints its adapter's registry
-        // row (the user-visible method name).
+        // 564-01 — a COMPUTED member has a `.name` (its runtime key,
+        // §10.2.9) but no name in the SOURCE, and bun's inspect
+        // reads the source: it prints the anonymous form.
+        if unsafe {
+            crate::method_value_class::class_method_runtime_name(closure as *mut c_void).is_some()
+        } {
+            unsafe { __torajs_fn_print_anonymous() };
+            return;
+        }
+        // B6c — every other class-method face prints its adapter's
+        // registry row (the user-visible method name).
         let fn_addr = unsafe { crate::method_value_class::registry_addr(closure as *mut c_void) };
         unsafe { __torajs_fn_print_inline(fn_addr) };
     }

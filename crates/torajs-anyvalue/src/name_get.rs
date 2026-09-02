@@ -79,6 +79,13 @@ pub(crate) unsafe fn closure_virtual_name_cell(ptr: *mut c_void) -> Option<*mut 
             torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
             return Some(name);
         }
+        // 564-01 — a COMPUTED member's name is its runtime key
+        // (§10.2.9), carried by the face; the registry row under it
+        // holds the compiler's `__ccm_<n>__` sentinel instead.
+        if let Some(name) = crate::method_value_class::class_method_runtime_name(ptr) {
+            torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
+            return Some(name);
+        }
         if crate::method_bind::bound_cell_meta(ptr).is_some() {
             return None;
         }
@@ -264,6 +271,11 @@ unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
         }
         // Class-accessor face — see the virtual-name twin above.
         if let Some((name, _)) = crate::method_value_class::class_accessor_meta(ptr) {
+            torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
+            return name;
+        }
+        // 564-01 — see the virtual-name twin above.
+        if let Some(name) = crate::method_value_class::class_method_runtime_name(ptr) {
             torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
             return name;
         }

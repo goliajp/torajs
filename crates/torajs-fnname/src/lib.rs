@@ -223,6 +223,17 @@ pub unsafe extern "C" fn __torajs_fn_print_inline(fn_addr: u64) {
     emit_bytes(SUFFIX);
 }
 
+/// The anonymous `[Function]` form on its own, for a face whose
+/// name exists only at runtime and so has no row here at all
+/// (564-01 — a computed class member: `.name` answers its key,
+/// while inspect reads the SOURCE, where it has no name). Callers
+/// cannot reach this by passing a vaddr no table holds — `0` is
+/// how a fn-typed slot spells JS `null`.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_fn_print_anonymous() {
+    emit_bytes(ANON);
+}
+
 /// ToString for a fn-typed slot value (RFC 20260710 C2a — the
 /// console multi-arg join path). Returns an owned Str:
 ///

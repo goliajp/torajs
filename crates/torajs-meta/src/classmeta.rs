@@ -66,11 +66,15 @@ unsafe extern "C" {
     /// torajs-structmeta — the record's `__cmany_` twin adapter
     /// vaddr (blade 3; NULL = no twin minted).
     fn __torajs_struct_method_twin_at(layout: *const c_void, idx: u32) -> *const c_void;
+    /// torajs-anyvalue — reified class-method face. `name` is 0 for
+    /// a source-named member (the fn-name registry holds it) and a
+    /// TRANSFERRED Str for a computed key's §10.2.9 name (564-01).
     fn __torajs_class_method_cell_new(
         adapter: u64,
         this_free: u64,
         class_tag: u64,
         twin: u64,
+        name: *mut u8,
     ) -> *mut u8;
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-anyvalue — reified class-accessor face (RFC

@@ -1201,6 +1201,8 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_fn_print_inline(_fn_addr: u64) {}
     #[unsafe(no_mangle)]
+    pub extern "C" fn __torajs_fn_print_anonymous() {}
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_date_to_iso_string(_d: *const c_void) -> *mut u8 {
         core::ptr::null_mut()
     }
