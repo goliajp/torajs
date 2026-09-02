@@ -25,6 +25,7 @@
 
 pub(crate) mod arr_reflect;
 pub(crate) mod buffer_reflect;
+pub mod class_object_print;
 pub mod classmeta;
 pub(crate) mod closure_reflect;
 pub mod error_to_string;

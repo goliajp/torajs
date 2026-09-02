@@ -85,6 +85,9 @@ unsafe extern "C" {
     /// object literal, a class instance) contributes to this block
     /// (562-10). `any_emitted` carries the `{`-and-separator
     /// protocol across the crate seam.
+    /// torajs-meta — `[class Z]` for a class object (562-06); 1 when
+    /// it printed, 0 for any other cell.
+    fn __torajs_class_object_print(cell: *const c_void) -> i32;
     fn __torajs_struct_put_own_rows_at(
         cell: *const c_void,
         indent: u32,
@@ -140,6 +143,12 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
     unsafe {
         if obj.is_null() {
             put_bytes(b"null");
+            return;
+        }
+        // 562-06 — a class object is a dynobj carrying `name` /
+        // `length` / `prototype`, but bun prints it as `[class Z]`
+        // with no block at all, at every depth.
+        if __torajs_class_object_print(obj) != 0 {
             return;
         }
         // Name prefix — the `constructor`'s name or the

@@ -275,3 +275,9 @@ pub unsafe extern "C" fn __torajs_struct_put_own_rows_at(
 ) {
     panic!("torajs-dynobj unit-test stub: struct rows should not print under cargo test")
 }
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_object_print(_cell: *const core::ffi::c_void) -> i32 {
+    0
+}
