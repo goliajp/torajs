@@ -66,6 +66,9 @@ pub const PATH_MAX_LEN: usize = 4096;
 #[cfg(not(test))]
 unsafe extern "C" {
     pub(crate) fn __torajs_str_alloc_pooled(len: u64) -> *mut u8;
+    /// torajs-str — a Str from well-formed UTF-8 bytes (canonical
+    /// Latin-1 / UTF-16 layout).
+    pub(crate) fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
     pub(crate) fn __torajs_panic(msg: *const u8) -> !;
@@ -74,6 +77,11 @@ unsafe extern "C" {
 #[cfg(test)]
 pub(crate) unsafe extern "C" fn __torajs_str_alloc_pooled(_len: u64) -> *mut u8 {
     panic!("torajs-fs test stub: __torajs_str_alloc_pooled should not be called from cargo test");
+}
+
+#[cfg(test)]
+pub(crate) unsafe extern "C" fn __torajs_str_alloc(_src: *const u8, _len: i64) -> *mut u8 {
+    panic!("torajs-fs test stub: __torajs_str_alloc should not be called from cargo test");
 }
 
 #[cfg(test)]

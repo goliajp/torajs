@@ -7,7 +7,7 @@
 
 use torajs_syscall::{Errno, write};
 
-use crate::{__torajs_panic, __torajs_str_alloc_pooled, PATH_MAX_LEN};
+use crate::{__torajs_panic, __torajs_str_alloc, __torajs_str_alloc_pooled, PATH_MAX_LEN};
 
 pub(crate) const STR_HDR_SIZE: usize = 16;
 pub(crate) const STR_LEN_OFF: usize = 8;
@@ -88,6 +88,9 @@ pub(crate) unsafe fn str_to_utf8_bytes(s: *const u8) -> Vec<u8> {
             i += 2;
             cu
         };
+        // A lone surrogate has no UTF-8 spelling; the file gets
+        // U+FFFD, as bun (TextEncoder semantics) writes it (558-05).
+        let cp = if (0xD800..=0xDFFF).contains(&cp) { 0xFFFD } else { cp };
         if cp <= 0x7F {
             out.push(cp as u8);
         } else if cp <= 0x7FF {
@@ -144,10 +147,17 @@ pub(crate) unsafe fn panic_with(prefix: &str, op_detail: &str) -> ! {
     unsafe { __torajs_panic(msg.as_ptr()) }
 }
 
-/// Allocate a Str with `data` as payload. The data must outlive the
-/// `Self::alloc` call; the call copies bytes into the fresh block.
+/// A Str holding `data` read off the filesystem. Well-formed UTF-8
+/// (the `utf8` read of a text file, a directory entry name) decodes
+/// into the canonical Latin-1 / UTF-16 layout — the string value is
+/// the file's characters, not its bytes (559-06: `"é"` read back
+/// as the two-unit `"Ã©"`). Anything else is kept byte for byte in
+/// the Latin-1 layout, the shape a binary read has always had.
 #[inline]
 pub(crate) unsafe fn str_alloc_with(data: &[u8]) -> *mut u8 {
+    if core::str::from_utf8(data).is_ok() {
+        return unsafe { __torajs_str_alloc(data.as_ptr(), data.len() as i64) };
+    }
     let s = unsafe { __torajs_str_alloc_pooled(data.len() as u64) };
     if !data.is_empty() {
         unsafe { core::ptr::copy_nonoverlapping(data.as_ptr(), s.add(STR_HDR_SIZE), data.len()) };
