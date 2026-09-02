@@ -209,6 +209,22 @@ pub(crate) fn run(
 /// native entry), so toString/name/length resolve the user-visible
 /// row through it. Ctor bodies, accessor bodies (their face carries
 /// its own name/length meta), and adapter-less dropouts stay out.
+/// A monomorphized instance's symbol carries a `$$` suffix — the
+/// all-`any` clone is `$$anywv` (`check_monomorph_any_widen`), a
+/// typed instance `$$_<type>`. The ES name is the source spelling,
+/// so the suffix comes off before the row is written: a generic
+/// class's method printed `[Function: get2$$anywv]` and answered
+/// that from `.name`, where bun answers `get2`. Only a real
+/// instance suffix is stripped — a property key may itself contain
+/// `$$` (`class C { "a$$b"() {} }`), and its tail is neither
+/// `anywv` nor `_`-led.
+fn strip_mono_suffix(name: &str) -> &str {
+    match name.rsplit_once("$$") {
+        Some((base, tail)) if tail == "anywv" || tail.starts_with('_') => base,
+        _ => name,
+    }
+}
+
 fn register_fn_name(
     module: &mut Module,
     name: &str,
@@ -236,8 +252,8 @@ fn register_fn_name(
         }
         // The symbol spelling is a bijection of the key (557-02 C 组),
         // so the user-visible name comes back exactly, lone surrogate
-        // and all.
-        let key = unmangle_key(mname);
+        // and all — after the mono-instance suffix comes off.
+        let key = unmangle_key(strip_mono_suffix(mname));
         let lit = ssa::StringLiteral::encode_from_wtf8(&key);
         let name_sid = ssa::StringId(module.strings.len() as u32);
         module.strings.push(lit);
@@ -300,6 +316,9 @@ fn register_fn_name(
     // known class set (longest first) since both a class name and
     // a method name may themselves contain `__`; the key comes back
     // out of the symbol spelling exactly (557-02 C 组).
+    // 562-09 — a generic function / static method lowers only as its
+    // mono instance, so the symbol reaching here is the suffixed one.
+    let visible = strip_mono_suffix(visible);
     let visible: PropKey = match strip_static_method_name(visible, class_parents) {
         Some(m) => unmangle_key(m),
         None => PropKey::from(visible),
