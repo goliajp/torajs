@@ -27,12 +27,10 @@
 //!
 //! ## arrprops
 //!
-//! Composite trailing `, key: value` props (set on regex exec
-//! results, etc) are NOT emitted here — those are the
-//! `__torajs_arr_print_*` per-element-type printers' job
-//! (`print_props::put_arrprops`), not the generic Any walker.
-//! Arr<Any> arrays produced by Object.entries / spread / etc do not
-//! carry arrprops by construction.
+//! Composite trailing `, key: value` props are emitted after the
+//! elements by `print_props::put_arrprops`, the same face the
+//! per-element-type printers render — an `any`-typed array takes
+//! expandos like any object (`a.k = 4`, `a[sym] = 3`, rotation 561).
 
 use core::ffi::c_void;
 
@@ -229,6 +227,10 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             }
             __torajs_print_anyv_inline_at(slot_at(i), my_indent);
         }
+        // Trailing `, key: value` expando props — an `any`-typed
+        // array takes them like any object (`a.k = 4`, `a[sym] =`).
+        // Unaccounted in the estimate, like the typed walker.
+        crate::print_props::put_arrprops(arr as *mut c_void, my_indent);
         // Close-bracket decision is independent of the opener: a
         // single-line opener that wrapped mid-loop still closes on
         // its own line at the PARENT indent. It does NOT re-test the

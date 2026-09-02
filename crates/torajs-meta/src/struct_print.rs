@@ -115,8 +115,10 @@ unsafe extern "C" {
     fn __torajs_print_anyv_inline_at(v: u64, indent: u32);
     // torajs-anyvalue::inspect — a Str key bare when it is an ASCII
     // identifier, JSON-quoted otherwise (bun's isLatin1Identifier
-    // rule; the dynobj walker's key writer).
+    // rule; the dynobj walker's key writer), a Symbol key as
+    // `[Symbol(desc)]`; and the width either adds to the line.
     fn __torajs_print_str_cell_as_key(cell: *const c_void);
+    fn __torajs_key_cell_print_len(cell: *const c_void) -> u32;
 
     // torajs-io — per-byte stdout writer.
     fn __torajs_io_putc_out(c: i32) -> i32;
@@ -130,7 +132,8 @@ unsafe extern "C" {
     // walker's iter trio) + entry pair read.
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
-    fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
+    fn __torajs_dynobj_iter_print_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
+    fn __torajs_dynobj_iter_index_count(obj: *const c_void) -> u64;
     fn __torajs_dynobj_iter_flags(obj: *const c_void, i: u64) -> u64;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const u8) -> u64;
@@ -263,10 +266,29 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     // bun handleFirstProperty estimate seed — see
     // torajs-dynobj::print_any for the accumulation rationale.
     unsafe { __torajs_inspect_line_reset(indent + 1) };
-    let mut i: u32 = 0;
+    // Expando entries in bun's print order (see dynobj
+    // `iter_print_order`); the leading `n_idx` are array-index keys,
+    // which bun prints before the layout fields (the butterfly comes
+    // before the structure's properties), the rest after them.
+    let mut order = vec![0u64; n_props as usize];
+    let n_ord = if n_props > 0 {
+        unsafe { __torajs_dynobj_iter_print_order(props, order.as_mut_ptr(), n_props) }
+    } else {
+        0
+    };
+    order.truncate(n_ord as usize);
+    let n_idx = if n_props > 0 {
+        unsafe { __torajs_dynobj_iter_index_count(props) as usize }
+    } else {
+        0
+    };
     // Accessor slots collapse a get/set pair into one entry, so the
     // separator keys off what was actually emitted, not off `i`.
     let mut emitted: u32 = 0;
+    for &pi in &order[..n_idx] {
+        unsafe { put_expando_row(props, pi, indent, &mut emitted) };
+    }
+    let mut i: u32 = 0;
     while i < n {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let kind = unsafe { accessor_slot_name(name.ptr, name.len) };
@@ -314,41 +336,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
         emitted += 1;
         i += 1;
     }
-    // Blade 3 — expando entries (insertion order, enumerable only;
-    // the pair read is a borrow, boxed for the inline printer with
-    // zero rc traffic).
-    if n_props > 0 {
-        let mut order = vec![0u64; n_props as usize];
-        let n_ord = unsafe { __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props) };
-        for &pi in order.iter().take(n_ord as usize) {
-            let flags = unsafe { __torajs_dynobj_iter_flags(props, pi) };
-            if flags & crate::obj_own_keys::FLAG_ENUMERABLE == 0 {
-                continue;
-            }
-            let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
-            if key.is_null() {
-                continue;
-            }
-            if emitted > 0 {
-                unsafe { put_bytes(b",\n") };
-                unsafe { __torajs_inspect_line_add(1) };
-            }
-            // Line accounting counts the key's code units (bun adds
-            // str.length); the key itself goes through the shared
-            // bare-or-quoted writer, like a dynobj key.
-            let klen = unsafe { key.cast::<u8>().add(8).cast::<u32>().read() };
-            unsafe { put_indent(indent + 2) };
-            unsafe { __torajs_print_str_cell_as_key(key) };
-            unsafe { put_bytes(b": ") };
-            unsafe { __torajs_inspect_line_add(klen + 2) };
-            // The kernel keys by the live Str CELL (fnprops' `*const
-            // u8` spelling is the same pointer).
-            let etag = unsafe { __torajs_dynobj_get_tag(props, key.cast::<u8>()) };
-            let eval = unsafe { __torajs_dynobj_get_value(props, key.cast::<u8>()) };
-            let anyv = unsafe { __torajs_anyv_box_from_pair(etag as i64, eval as i64) };
-            unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
-            emitted += 1;
-        }
+    // Blade 3 — the string- and Symbol-keyed expando entries render
+    // after the layout fields.
+    for &pi in &order[n_idx..] {
+        unsafe { put_expando_row(props, pi, indent, &mut emitted) };
     }
     // 405-05 — prototype methods and accessors render after the own
     // properties, matching bun's inspect order (own first, proto
@@ -362,6 +353,44 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     unsafe { __torajs_inspect_line_add(1) };
     unsafe { put_indent(indent) };
     unsafe { put_byte(b'}') };
+}
+
+/// One expando entry row — `key: value` — enumerable only; the pair
+/// read is a borrow, boxed for the inline printer with zero rc
+/// traffic. `emitted` drives the separator like the field rows.
+///
+/// # Safety
+/// `props` is the live expando dynobj of the struct being printed
+/// and `pi` a dense-entry index from its print order.
+unsafe fn put_expando_row(props: *const c_void, pi: u64, indent: u32, emitted: &mut u32) {
+    let flags = unsafe { __torajs_dynobj_iter_flags(props, pi) };
+    if flags & crate::obj_own_keys::FLAG_ENUMERABLE == 0 {
+        return;
+    }
+    let key = unsafe { __torajs_dynobj_iter_key(props, pi) };
+    if key.is_null() {
+        return;
+    }
+    if *emitted > 0 {
+        unsafe { put_bytes(b",\n") };
+        unsafe { __torajs_inspect_line_add(1) };
+    }
+    // Line accounting counts the key's code units (bun adds
+    // str.length); the key itself goes through the shared key
+    // writer, like a dynobj key (a Symbol expando prints as
+    // `[Symbol(desc)]`).
+    let klen = unsafe { __torajs_key_cell_print_len(key) };
+    unsafe { put_indent(indent + 2) };
+    unsafe { __torajs_print_str_cell_as_key(key) };
+    unsafe { put_bytes(b": ") };
+    unsafe { __torajs_inspect_line_add(klen + 2) };
+    // The kernel keys by the live Str CELL (fnprops' `*const u8`
+    // spelling is the same pointer).
+    let etag = unsafe { __torajs_dynobj_get_tag(props, key.cast::<u8>()) };
+    let eval = unsafe { __torajs_dynobj_get_value(props, key.cast::<u8>()) };
+    let anyv = unsafe { __torajs_anyv_box_from_pair(etag as i64, eval as i64) };
+    unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
+    *emitted += 1;
 }
 
 #[inline]

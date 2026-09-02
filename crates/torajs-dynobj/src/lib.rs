@@ -42,6 +42,7 @@ pub mod drop;
 pub mod get;
 pub mod has;
 pub mod iter;
+pub mod iter_print_order;
 mod key_wtf8;
 pub mod layout;
 pub mod pool;

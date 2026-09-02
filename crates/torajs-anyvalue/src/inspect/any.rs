@@ -419,22 +419,31 @@ pub unsafe extern "C" fn __torajs_print_str_cell_quoted(cell: *const c_void) {
     }
 }
 
-/// Emit a Str / Substr cell as an object key — bare when its code
-/// units form an ASCII identifier (`[A-Za-z$_][A-Za-z0-9$_]*`, bun
-/// `isLatin1Identifier`), otherwise JSON-quoted (`"a-b": 1`,
-/// `"0": 2`, `"with space": 5`). Cross-staticlib export for the
-/// dynobj walker.
+/// Emit a property-key cell as an object key. A Str / Substr is
+/// bare when its code units form an ASCII identifier
+/// (`[A-Za-z$_][A-Za-z0-9$_]*`, bun `isLatin1Identifier`),
+/// otherwise JSON-quoted (`"a-b": 1`, `"0": 2`, `"with space": 5`);
+/// a Symbol (§6.1.7's other key kind) prints as `[Symbol(desc)]`.
+/// Cross-staticlib export for the dynobj and struct walkers.
 ///
 /// # Safety
 ///
-/// Same contract as [`__torajs_print_str_cell_quoted`].
+/// `cell` must be NULL (no-op) or point to a valid Tag::Str or
+/// Tag::Symbol heap object.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_print_str_cell_as_key(cell: *const c_void) {
     unsafe {
         if cell.is_null() {
             return;
         }
-        if heap_type_tag(cell) != Tag::Str as u16 {
+        let tag = heap_type_tag(cell);
+        if tag == Tag::Symbol as u16 {
+            __torajs_io_putc_out(b'[' as i32);
+            __torajs_symbol_print_inline(cell);
+            __torajs_io_putc_out(b']' as i32);
+            return;
+        }
+        if tag != Tag::Str as u16 {
             return;
         }
         if str_cell_is_bare_key(cell) {
@@ -442,5 +451,37 @@ pub unsafe extern "C" fn __torajs_print_str_cell_as_key(cell: *const c_void) {
         } else {
             __torajs_print_str_cell_quoted(cell);
         }
+    }
+}
+
+/// The width [`__torajs_print_str_cell_as_key`] adds to the line
+/// estimate: a Str key's code-unit count (bun adds `key.length`;
+/// quotes stay out), a Symbol key's printed `[Symbol(desc)]` length.
+/// Both cell kinds keep their length word at +8 — a Str its `len`,
+/// a Symbol its description Str pointer.
+///
+/// # Safety
+///
+/// Same contract as [`__torajs_print_str_cell_as_key`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_key_cell_print_len(cell: *const c_void) -> u32 {
+    unsafe {
+        if cell.is_null() {
+            return 0;
+        }
+        let tag = heap_type_tag(cell);
+        if tag == Tag::Str as u16 {
+            return cell.cast::<u8>().add(8).cast::<u32>().read();
+        }
+        if tag == Tag::Symbol as u16 {
+            let desc = cell.cast::<u8>().add(8).cast::<*const u8>().read();
+            let desc_len = if desc.is_null() {
+                0
+            } else {
+                desc.add(8).cast::<u32>().read()
+            };
+            return desc_len + 10;
+        }
+        0
     }
 }

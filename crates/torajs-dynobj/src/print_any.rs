@@ -36,8 +36,9 @@ use core::ffi::c_void;
 
 use crate::iter::{
     __torajs_dynobj_iter_flags, __torajs_dynobj_iter_key, __torajs_dynobj_iter_len,
-    __torajs_dynobj_iter_order, __torajs_dynobj_iter_value,
+    __torajs_dynobj_iter_value,
 };
+use crate::iter_print_order::__torajs_dynobj_iter_print_order;
 use crate::layout::BUCKET_FLAG_ENUMERABLE;
 
 unsafe extern "C" {
@@ -115,15 +116,16 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
             return;
         }
         let len = __torajs_dynobj_iter_len(obj);
-        // ES §10.1.11.1 visit order (L3b #17) — array-index keys
-        // ascending first, then insertion order; holes pre-excluded
-        // by iter_order so no NULL-key check in the loop.
+        // bun's print order (see `iter_print_order`) — index keys
+        // ascending first, then insertion order, symbol keys in
+        // place unless an index key pushed them last; holes
+        // pre-excluded so no NULL-key check in the loop.
         let order = if len > 0 {
             calloc(len as usize * 8) as *mut u64
         } else {
             core::ptr::null_mut()
         };
-        let n = __torajs_dynobj_iter_order(obj, order, len);
+        let n = __torajs_dynobj_iter_print_order(obj, order, len);
         let mut any_emitted = false;
         for j in 0..n {
             let i = *order.add(j as usize);
@@ -149,11 +151,10 @@ unsafe fn obj_print_any_at(obj: *const c_void, indent: u32) {
                 __torajs_inspect_line_add(1);
             }
             put_indent(indent + 2);
-            // Key — borrowed Str cell ptr. Dynobj keys are always
-            // Tag::Str (dynobj symbol-keyed entries are not yet
-            // supported per W-N-c L3b). Bare when it's an ASCII
-            // identifier, JSON-quoted otherwise (bun's
-            // isLatin1Identifier rule).
+            // Key — borrowed Str or Symbol cell ptr. A Str is bare
+            // when it's an ASCII identifier, JSON-quoted otherwise
+            // (bun's isLatin1Identifier rule); a Symbol prints as
+            // `[Symbol(desc)]`.
             __torajs_print_str_cell_as_key(key);
             put_bytes(b": ");
             __torajs_inspect_line_add(2);

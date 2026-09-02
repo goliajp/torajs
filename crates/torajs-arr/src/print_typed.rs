@@ -154,7 +154,7 @@ pub(crate) unsafe fn print_typed_at(arr: *const u8, indent: u32, kind: TypedKind
         // Composite trailing `, key: value` props (regex exec
         // results etc). Unaccounted — prop-carrying arrays are
         // capture lists, far below the wrap threshold.
-        crate::print_props::put_arrprops(arr as *mut c_void);
+        crate::print_props::put_arrprops(arr as *mut c_void, my_indent);
         // Close on its own line ONLY when the opener broke or a
         // mid-loop wrap fired (probed 2026-07-05: bun keeps
         // `[ 7×"xxxxxxxxxx" ]` single-line at estimate 86 — the

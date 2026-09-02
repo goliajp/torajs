@@ -106,7 +106,7 @@ const MAX_ARRAY_INDEX: u64 = 4_294_967_294;
 /// digits, no leading zero (except `"0"` itself), value ≤ 2^32-2.
 /// Handles both Latin-1 and UTF-16 payloads (digit-only keys can
 /// arrive in either encoding). `None` for every other shape.
-unsafe fn key_array_index(key: *const c_void) -> Option<u64> {
+pub(crate) unsafe fn key_array_index(key: *const c_void) -> Option<u64> {
     // A Symbol is never an array index, and its cell keeps a pointer
     // where a Str keeps `len` — decoding one as digits both answers
     // wrong and reads past the 16-byte cell.
