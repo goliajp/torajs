@@ -20,10 +20,18 @@
 //! the same place by not handing the parser's `__computed_<n>__`
 //! sentinel to NamedEvaluation at all (`ast::named_eval`), which
 //! leaves the fn-addr registry row empty — the anonymous form.
+//!
+//! 567-02 — an anonymous CLASS expression under a computed key
+//! (`{ [k]: class {} }`) is named by the same §10.2.9 step, and its
+//! class object is a dynobj that already carries a `name` own entry
+//! (§10.2.3 MakeConstructor put it there). So there is nothing to
+//! attach: the same descriptor lands on the cell itself, as a
+//! found-key redefine. The two shapes differ only in which cell the
+//! entry table belongs to, which the heap tag answers.
 
 use core::ffi::c_void;
 
-use crate::reflect::{TAG_STR, heap_type_tag};
+use crate::reflect::{TAG_DYNOBJ, TAG_STR, heap_type_tag};
 
 unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
@@ -77,7 +85,8 @@ const DEFINE_NAME_FLAGS: u64 = (1 << 6) | (1 << 3) | (1 << 4) | (1 << 5) | (1 <<
 ///
 /// # Safety
 /// `cell` is a live `Tag::Closure` heap cell whose props slot is
-/// either NULL or a live dynobj; `key` is a live Str / Symbol cell.
+/// either NULL or a live dynobj, or a live `Tag::Dynobj` class
+/// object; `key` is a live Str / Symbol cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_fn_computed_name_define(
     cell: *mut u8,
@@ -108,7 +117,15 @@ pub unsafe extern "C" fn __torajs_fn_computed_name_define(
             }
             _ => bare,
         };
-        let mut props = *(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void);
+        // 567-02 — a class object IS the entry table the descriptor
+        // goes in; a closure keeps its own properties in a bag
+        // hanging off the cell, which may not exist yet.
+        let class_object = heap_type_tag(cell as *const c_void) == TAG_DYNOBJ;
+        let mut props = if class_object {
+            cell as *mut c_void
+        } else {
+            *(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void)
+        };
         let fresh = props.is_null();
         if fresh {
             props = __torajs_dynobj_alloc();
@@ -126,6 +143,9 @@ pub unsafe extern "C" fn __torajs_fn_computed_name_define(
             DEFINE_NAME_FLAGS,
         );
         __torajs_str_drop(name_key);
+        if class_object {
+            return;
+        }
         // A first bag goes through the link-judged attach seam; a
         // bag the define grew (and so relocated) is written back
         // through the slot, which is not an attach.

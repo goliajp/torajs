@@ -22,6 +22,19 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
+/// Where §10.2.9's name goes for one computed field's value —
+/// which cell owns the entry table the own `name` descriptor lands
+/// in (567-02).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NameTarget {
+    /// An ordinary closure: the field's own operand IS the cell,
+    /// and its properties live in a bag hanging off it.
+    Cell,
+    /// An anonymous class expression's registered class object,
+    /// which the field reaches Any-boxed through its value global.
+    ClassObject,
+}
+
 /// Which store kernel one literal field takes (r503, refining RFC
 /// 20260825-inject-narrow-define 刀 3's per-literal `fresh` flag to a
 /// per-field one).
@@ -202,29 +215,96 @@ impl LowerCtx<'_> {
         v_raw: &Operand,
         key: ValueId,
     ) {
-        if !matches!(self.operand_ty(v_raw), Type::Closure(_)) {
-            return;
-        }
-        let crate::ast::Expr::Closure { fn_name, .. } = self.ast.get_expr(fval_eid) else {
+        let Some(target) = self.computed_field_name_target(fval_eid, v_raw) else {
             return;
         };
-        // The same two conditions Pass 2B's NamedEvaluation filter
-        // uses: only a LIFTED body is an anonymous definition (a
-        // `__forward_<target>` wrapper is an identifier reference to
-        // a function that already has a name — `{ [k]: named }` must
-        // stay `"named"`), and a named function expression's own
-        // self-name wins over every syntactic position (§15.5.5).
-        if !fn_name.starts_with("__closure_") || self.ast.closure_self_names.contains_key(fn_name) {
-            return;
-        }
         let cur_block = self.cur_block;
+        let cell = match target {
+            NameTarget::Cell => v_raw.clone(),
+            NameTarget::ClassObject => {
+                // A class value global holds its class object
+                // Any-boxed; the kernel names a cell.
+                let bits = self.f.append_inst(
+                    cur_block,
+                    InstKind::Call(self.intrinsics.any_unbox_value, vec![v_raw.clone()]),
+                    Type::I64,
+                    None,
+                );
+                let cell = self.f.append_inst(
+                    cur_block,
+                    InstKind::IntToPtr(Operand::Value(bits)),
+                    Type::Ptr,
+                    None,
+                );
+                Operand::Value(cell)
+            }
+        };
         self.f.append_void(
             cur_block,
             InstKind::Call(
                 self.intrinsics.fn_computed_name_define,
-                vec![v_raw.clone(), Operand::Value(key), Operand::ConstI64(0)],
+                vec![cell, Operand::Value(key), Operand::ConstI64(0)],
             ),
         );
+    }
+
+    /// Which cell §10.2.9 names for one computed field's value, or
+    /// `None` when that value is not an anonymous function
+    /// definition and so keeps whatever name it came with.
+    fn computed_field_name_target(
+        &self,
+        fval_eid: ExprId,
+        v_raw: &Operand,
+    ) -> Option<NameTarget> {
+        match self.ast.get_expr(fval_eid) {
+            crate::ast::Expr::Closure { fn_name, .. } => {
+                if !matches!(self.operand_ty(v_raw), Type::Closure(_)) {
+                    return None;
+                }
+                // §15.5.5 — a named function expression's own
+                // self-name wins over every syntactic position.
+                if self.ast.closure_self_names.contains_key(fn_name) {
+                    return None;
+                }
+                // Only a LIFTED body is an anonymous definition. A
+                // `__forward_<target>` wrapper is normally an
+                // identifier reference to a function that already
+                // has a name (`{ [k]: named }` must stay `"named"`)
+                // — except when the target is a hoisted GENERATOR
+                // expression, which reaches EVERY value position
+                // through such a wrapper. `hoist_gen_fn_exprs`
+                // resolves NamedEvaluation itself before erasing
+                // the syntactic position and parks the verdict in
+                // `genexpr_names`, so an empty row there is exactly
+                // "anonymous, in no naming position" — which is
+                // what a computed key leaves behind (567-02).
+                let anon = match fn_name.strip_prefix("__forward_") {
+                    Some(target) => self
+                        .ast
+                        .genexpr_names
+                        .get(target)
+                        .is_some_and(|n| n.is_empty()),
+                    None => fn_name.starts_with("__closure_"),
+                };
+                anon.then_some(NameTarget::Cell)
+            }
+            // 567-02 — a class expression parses as a hoisted
+            // declaration and leaves a reference to its class value
+            // global behind, so the syntactic shape above never
+            // sees one. Anonymity is `class_display_name`'s verdict:
+            // empty for a class expression §8.4.5 found no binding
+            // for, the class's own spelling otherwise (§15.5.5).
+            crate::ast::Expr::Ident(n) => {
+                let cname = n.strip_prefix("__class_")?;
+                if !self.class_name_to_tag.contains_key(cname) {
+                    return None;
+                }
+                crate::ast::class_display_name(self.ast, cname)
+                    .is_empty()
+                    .then_some(NameTarget::ClassObject)
+            }
+            _ => None,
+        }
     }
 
     /// The Symbol half of [`Self::emit_dynobj_computed_field`] — the
