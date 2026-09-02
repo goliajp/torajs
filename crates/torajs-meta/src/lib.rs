@@ -65,6 +65,7 @@ pub mod struct_enum;
 pub mod struct_field_attrs;
 pub mod struct_print;
 mod struct_print_methods;
+mod struct_print_rows;
 pub mod struct_reflect;
 pub mod subclass_instance;
 pub mod throw_readonly;
