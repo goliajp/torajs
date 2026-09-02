@@ -225,6 +225,21 @@ fn strip_mono_suffix(name: &str) -> &str {
     }
 }
 
+/// The property key of the accessor pair whose GET or SET body is the
+/// lifted fn `name`, instance or static — `None` for every other fn
+/// (566-02). The body's symbol spells `<p>_get` / `<p>_set`, and a
+/// property may itself end in `_get`, so the key comes from the pair
+/// registry rather than from the spelling.
+fn accessor_prop_of<'a>(ast: &'a Ast, name: &str) -> Option<&'a PropKey> {
+    ast.accessor_getters
+        .iter()
+        .chain(ast.accessor_setters.iter())
+        .chain(ast.static_accessor_getters.iter())
+        .chain(ast.static_accessor_setters.iter())
+        .find(|(_, f)| *f == name)
+        .map(|((_, p), _)| p)
+}
+
 fn register_fn_name(
     module: &mut Module,
     name: &str,
@@ -245,15 +260,25 @@ fn register_fn_name(
         let Some(&(adapter_fid, _)) = boxed_entries.get(&fid) else {
             return;
         };
-        if ast.accessor_getters.values().any(|f| f == name)
-            || ast.accessor_setters.values().any(|f| f == name)
-        {
-            return;
-        }
-        // The symbol spelling is a bijection of the key (557-02 C 组),
-        // so the user-visible name comes back exactly, lone surrogate
-        // and all — after the mono-instance suffix comes off.
-        let key = unmangle_key(strip_mono_suffix(mname));
+        // 566-02 — an ACCESSOR body's symbol is `<p>_get` / `<p>_set`,
+        // so the key comes from the pair registry rather than the
+        // spelling (a property may itself end in `_get`). The row
+        // exists for the INSPECT face: bun prints `[Function: cg]`
+        // for `get cg() {}`, the name in the SOURCE, while `.name`
+        // answers the §10.2.9 prefixed `"get cg"` off the reified
+        // face — which is read first, so the row cannot shadow it.
+        // A COMPUTED accessor has no source name at all and keeps
+        // its miss (the `[Function]` form), the same verdict 564-01
+        // gave the computed method face.
+        let key = match accessor_prop_of(ast, name) {
+            Some(p) if p.starts_with("__ccm_") => return,
+            Some(p) => p.clone(),
+            // The symbol spelling is a bijection of the key (557-02 C
+            // 组), so the user-visible name comes back exactly, lone
+            // surrogate and all — after the mono-instance suffix
+            // comes off.
+            None => unmangle_key(strip_mono_suffix(mname)),
+        };
         let lit = ssa::StringLiteral::encode_from_wtf8(&key);
         let name_sid = ssa::StringId(module.strings.len() as u32);
         module.strings.push(lit);
@@ -319,9 +344,17 @@ fn register_fn_name(
     // 562-09 — a generic function / static method lowers only as its
     // mono instance, so the symbol reaching here is the suffixed one.
     let visible = strip_mono_suffix(visible);
-    let visible: PropKey = match strip_static_method_name(visible, class_parents) {
-        Some(m) => unmangle_key(m),
-        None => PropKey::from(visible),
+    // 566-02 — a STATIC accessor body reaches this arm as
+    // `__sm_<C>__<p>_get`, and stripping only the class prefix left
+    // the `_get` on: `[Function: sg_get]` where bun prints the source
+    // spelling `sg`. Same registry lookup the instance arm makes.
+    let visible: PropKey = match accessor_prop_of(ast, name) {
+        Some(p) if p.starts_with("__ccm_") => return,
+        Some(p) => p.clone(),
+        None => match strip_static_method_name(visible, class_parents) {
+            Some(m) => unmangle_key(m),
+            None => PropKey::from(visible),
+        },
     };
     // Intern the name as a Module-level string literal so the link
     // layer can resolve `__user_string_<sid>` to the rodata cstring
