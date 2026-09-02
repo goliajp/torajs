@@ -153,7 +153,18 @@ pub(crate) fn collect_named_eval_positions(ast: &Ast) -> HashMap<ExprId, String>
                 // Function names are `String` (557-02 C group): a key
                 // with a lone surrogate leaves the function anonymous.
                 if let Some(fname) = fname.as_str() {
-                    map.insert(unwrap_as(ast, *val), fname.to_string());
+                    // 566-01 — an accessor shorthand parses into a
+                    // `__getter_<p>` / `__setter_<p>` FIELD, and that
+                    // fold is tr's, not the user's. The name in the
+                    // SOURCE is `<p>`, which is what the registry row
+                    // is for (bun's inspect prints `[Function: gg]`);
+                    // the §10.2.9 `"get <p>"` form is a different
+                    // question, answered at the define point.
+                    let plain = fname
+                        .strip_prefix("__getter_")
+                        .or_else(|| fname.strip_prefix("__setter_"))
+                        .unwrap_or(fname);
+                    map.insert(unwrap_as(ast, *val), plain.to_string());
                 }
             }
         }

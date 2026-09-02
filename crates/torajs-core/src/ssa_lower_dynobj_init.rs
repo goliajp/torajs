@@ -252,6 +252,7 @@ impl<'a> LowerCtx<'a> {
                         if is_get { None } else { Some(fval_eid) },
                         Some(true),
                         Some(true),
+                        true,
                     );
                     continue;
                 }
@@ -404,6 +405,7 @@ impl<'a> LowerCtx<'a> {
             if is_get { None } else { Some(face_eid) },
             Some(true),
             Some(true),
+            true,
         );
     }
 

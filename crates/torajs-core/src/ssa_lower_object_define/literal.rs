@@ -72,6 +72,9 @@ pub(super) fn emit_define_literal(
             set_eid,
             acc_enum,
             acc_config,
+            // §10.1.6.3 does not rename a descriptor's face — it is
+            // whatever function the caller handed over (566-01).
+            false,
         );
     }
 

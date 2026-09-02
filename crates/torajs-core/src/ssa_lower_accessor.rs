@@ -158,6 +158,7 @@ pub(crate) fn emit_accessor_define(
     set_eid: Option<ExprId>,
     enumerable: Option<bool>,
     configurable: Option<bool>,
+    name_faces: bool,
 ) -> bool {
     // Receiver cell — an Any receiver unboxes to its dynobj/Arr cell;
     // a typed Arr receiver (RFC 20260713 chunk C) is already the cell
@@ -176,7 +177,16 @@ pub(crate) fn emit_accessor_define(
         ctx.cur_block,
         InstKind::Store(obj_ptr, Operand::Value(slot), 0),
     );
-    emit_accessor_define_into(ctx, slot, key, get_eid, set_eid, enumerable, configurable);
+    emit_accessor_define_into(
+        ctx,
+        slot,
+        key,
+        get_eid,
+        set_eid,
+        enumerable,
+        configurable,
+        name_faces,
+    );
     if obj_is_any {
         ctx.emit_any_dynobj_writeback(receiver_ident, slot);
     }
@@ -191,6 +201,24 @@ pub(crate) fn emit_accessor_define(
 /// field, probe /tmp/p8b-22.ts). Caller: the object-literal accessor
 /// shorthand (`emit_dynobj_accessor_field`), which owns the shared
 /// init slot.
+/// Hand one lowered accessor face its §10.2.9 name (`prefix` 1 =
+/// `"get "`, 2 = `"set "`). A face that is not a closure cell — an
+/// absent face's NULL, a NAKED named-fn address — has no own-property
+/// bag and no anonymous name to fill in either.
+fn emit_face_name(ctx: &mut LowerCtx, face: &Operand, key: &Operand, prefix: i64) {
+    if !matches!(ctx.operand_ty(face), Type::Closure(_)) {
+        return;
+    }
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.fn_computed_name_define,
+            vec![face.clone(), key.clone(), Operand::ConstI64(prefix)],
+        ),
+    );
+}
+
 pub(crate) fn emit_accessor_define_into(
     ctx: &mut LowerCtx,
     slot: ValueId,
@@ -199,6 +227,7 @@ pub(crate) fn emit_accessor_define_into(
     set_eid: Option<ExprId>,
     enumerable: Option<bool>,
     configurable: Option<bool>,
+    name_faces: bool,
 ) -> bool {
     let (key_op, key_owned) = lower_key(ctx, key);
     // Rotation 549 — a coerced key is alive across the face lowers;
@@ -212,10 +241,21 @@ pub(crate) fn emit_accessor_define_into(
         Some(e) => lower_accessor_face(ctx, e, true),
         None => (Operand::ConstPtrNull, 0),
     };
+    // 566-01 — §10.2.9 with a prefix: an accessor SHORTHAND's face is
+    // an anonymous definition the syntax names after its property key,
+    // `"get <p>"` / `"set <p>"`. `Object.defineProperty(o, p, {get: f})`
+    // passes `false` here: the descriptor's face is whatever function
+    // the caller handed over, and §10.1.6.3 never renames it.
+    if name_faces {
+        emit_face_name(ctx, &get_op, &key_op, 1);
+    }
     let (set_op, set_kind) = match set_eid {
         Some(e) => lower_accessor_face(ctx, e, false),
         None => (Operand::ConstPtrNull, 0),
     };
+    if name_faces {
+        emit_face_name(ctx, &set_op, &key_op, 2);
+    }
     let kinds = get_kind | (set_kind << 8);
     let pair = ctx.f.append_inst(
         ctx.cur_block,

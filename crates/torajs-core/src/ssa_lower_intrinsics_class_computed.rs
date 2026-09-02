@@ -15,7 +15,7 @@
 //!   present face, so `get [k]` / `set [k]` with the same runtime
 //!   key merge into one pair (§7.3.9 redefine semantics in the
 //!   dynobj define kernel).
-//! - `fn_computed_name_define(cell, key)` — 565-03, the object-literal
+//! - `fn_computed_name_define(cell, key, prefix)` — 565-03, the object-literal
 //!   twin: §10.2.9 names an anonymous function definition sitting in a
 //!   computed field after its key, and an ordinary closure carries that
 //!   name as an own property rather than on its layout.
@@ -28,7 +28,7 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct ClassComputedIds {
     pub computed_method_define: FuncId,
     pub computed_accessor_define: FuncId,
-    /// 565-03 — `fn_computed_name_define(cell, key)`: §10.2.9
+    /// 565-03 — `fn_computed_name_define(cell, key, prefix)`: §10.2.9
     /// SetFunctionName for an object-literal member under a computed
     /// key. The class twin carries its name on the reified face
     /// (564-01); an ordinary closure gets an own `name` property.
@@ -62,7 +62,7 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_fn_computed_name_define",
-            &[Type::Ptr, Type::Ptr],
+            &[Type::Ptr, Type::Ptr, Type::I64],
             Type::Void,
         ),
         class_source_register: declare_intrinsic(

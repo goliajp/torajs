@@ -222,7 +222,7 @@ impl LowerCtx<'_> {
             cur_block,
             InstKind::Call(
                 self.intrinsics.fn_computed_name_define,
-                vec![v_raw.clone(), Operand::Value(key)],
+                vec![v_raw.clone(), Operand::Value(key), Operand::ConstI64(0)],
             ),
         );
     }
