@@ -290,6 +290,19 @@ pub(crate) fn parse_type(
 /// (SIGBUS). Named-fn store-sites are wrapped by the fn-arr axes in
 /// `ast_collect_fn_closure` so both shapes reach the slot as closure
 /// cells.
+///
+/// An element spelling `T | null` rides the any lane for EVERY T, not
+/// just the two [`nullable_inner_boxes`] scalars. For a pointer-shaped
+/// T the slot itself is fine — its null is the in-band 0 a pointer
+/// always had spare — but the typed element lane has no way to SAY so:
+/// `const a: (O | null)[] = [null, {x: 1}]` died at runtime with
+/// "array element does not match the annotated element type", and the
+/// empty-then-push spelling printed `[unknown-any-tag]`. That is the
+/// same half-rule the inferred array literal had until the lane gate
+/// there was widened to every `Nullable(_)`; this is its annotated
+/// half. The two sides now agree, which is also what lets the
+/// annotated decl skip `__torajs_arr_any_to_typed` entirely (its
+/// target layout is Any, so there is nothing to convert to).
 fn parse_arr_suffix(
     elem_ann: &str,
     aliases: &HashMap<String, Type>,
@@ -311,6 +324,11 @@ fn parse_arr_suffix(
     let elem = match elem {
         Type::FnSig(sig) => Type::Closure(sig),
         e => e,
+    };
+    let elem = if elem_ann.trim_start().starts_with("__nullable(") {
+        Type::Any
+    } else {
+        elem
     };
     let id = intern_arr_layout(arr_layouts, elem);
     Type::Arr(id)
