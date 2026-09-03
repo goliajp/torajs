@@ -81,7 +81,19 @@ const FALLBACK_PREFIXES: [&str; 5] = [
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-const COERCION_PREFIXES: [&str; 11] = [
+const COERCION_PREFIXES: [&str; 12] = [
+    // The array join kernels run the coercion per ELEMENT rather
+    // than on themselves, so the scan never saw `anyv_to_str` in
+    // the user `.o` and judged the obj world unreachable. Every
+    // face of that: `[{x:1}].join("|")` answered `undefined`, and
+    // so did `String([{x:1}])` — but the one that names it is
+    // `[{toString(){return "T";}}].join(",")`, where a user method
+    // the spec requires to run simply did not. (No sibling entry is
+    // needed: `arr_join_exotic` is a runtime-internal delegate to
+    // this kernel and is never a lowering's callee, and the locale
+    // lanes already worked because they reach their element's own
+    // toLocaleString through a mid the scan does see.)
+    "__torajs_arr_join_any",
     "__torajs_anyv_to_number",
     "__torajs_anyv_number_ctor",
     "__torajs_anyv_to_str",
