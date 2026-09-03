@@ -168,7 +168,13 @@ impl<'a> Parser<'a> {
                 // a postfix (not the start of another expression like
                 // `!x` prefix).
                 Token::Bang => {
-                    if !self.bang_is_postfix() {
+                    // The only `!` that is NOT this assertion is one
+                    // ASI has already turned into the start of the
+                    // next statement, exactly as for `++` / `--`
+                    // above: reaching here means a complete operand
+                    // was just parsed, and no valid same-line
+                    // production puts a prefix `!` after one.
+                    if self.has_newline_before(self.pos) {
                         return Ok(node);
                     }
                     self.pos += 1;
@@ -415,46 +421,5 @@ impl<'a> Parser<'a> {
         } else {
             self.add_expr_at(start_pos, Expr::OptIndex { obj: node, index })
         })
-    }
-
-    /// Is the current `!` a TS non-null assertion (vs the start of a
-    /// prefix `!expr`)? Conservative test: peek for tokens that can
-    /// NOT start an expression — terminators, operators, statement
-    /// boundaries.
-    fn bang_is_postfix(&self) -> bool {
-        let next = self.tokens.get(self.pos + 1).map(|s| &s.token);
-        matches!(
-            next,
-            Some(Token::Semi)
-                | Some(Token::Comma)
-                | Some(Token::RParen)
-                | Some(Token::RBracket)
-                | Some(Token::RBrace)
-                | Some(Token::Dot)
-                | Some(Token::Eq)
-                | Some(Token::Colon)
-                | Some(Token::QuestionDot)
-                | Some(Token::EqEq)
-                | Some(Token::EqEqEq)
-                | Some(Token::BangEq)
-                | Some(Token::BangEqEq)
-                | Some(Token::Plus)
-                | Some(Token::Minus)
-                | Some(Token::Star)
-                | Some(Token::Slash)
-                | Some(Token::Percent)
-                | Some(Token::Amp)
-                | Some(Token::Pipe)
-                | Some(Token::Lt)
-                | Some(Token::Gt)
-                | Some(Token::AmpAmp)
-                | Some(Token::PipePipe)
-                | Some(Token::Question)
-                | Some(Token::FatArrow)
-                | Some(Token::LParen)
-                | Some(Token::LBracket)
-                | Some(Token::Eof)
-                | None
-        )
     }
 }
