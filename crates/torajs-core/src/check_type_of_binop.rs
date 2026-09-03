@@ -37,6 +37,7 @@
 use crate::ast::{Ast, BinOp, ExprId};
 use crate::check::{
     Checker, Type, js_add_coerces_to_number, js_arith_coerces_to_number, js_loose_eq_supported,
+    rides_any_lane,
 };
 
 pub(crate) fn check(
@@ -111,7 +112,7 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
     }
     // P0.6 — Any operand on either side: ssa_lower routes through
     // __torajs_any_add (ToPrimitive Default → concat or numeric add).
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+    if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Any);
     }
     if js_add_coerces_to_number(&l, &r) {
@@ -169,7 +170,7 @@ fn check_arith(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::BigInt && r == Type::BigInt {
         return Ok(Type::BigInt);
     }
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+    if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Any);
     }
     if js_arith_coerces_to_number(&l, &r) {
@@ -203,7 +204,7 @@ fn check_pow(l: Type, r: Type) -> Result<Type, String> {
     // pair records the catchable mixed-types TypeError), so
     // `2n ** (p: any)` resolves at runtime per §13.6 instead of a
     // compile-time refusal.
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+    if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Any);
     }
     // §13.6 is ToNumeric both sides, which reaches `valueOf`; the arith
@@ -227,7 +228,7 @@ fn check_bitwise(l: Type, r: Type) -> Result<Type, String> {
     // routes through `__torajs_anyv_bitwise_pair` (ES §13.12
     // ToInt32/ToUint32 both sides, then 32-bit op). Mirrors the
     // arith / compare Any-fringe pattern.
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+    if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Any);
     }
     if js_arith_coerces_to_number(&l, &r) {
@@ -257,7 +258,7 @@ fn check_ushr(l: Type, r: Type) -> Result<Type, String> {
     // RFC 20260716 刀 7 — Any operand routes to any_bitwise per
     // §13.12 (op=5 UShr — LHS ToUint32, result promoted to F64 if
     // ≥ 2^31).
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+    if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Any);
     }
     if js_arith_coerces_to_number(&l, &r) {
@@ -283,7 +284,7 @@ fn check_compare(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::BigInt && r == Type::BigInt {
         return Ok(Type::Boolean);
     }
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
+    if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Boolean);
     }
     if l == Type::String && r == Type::String {

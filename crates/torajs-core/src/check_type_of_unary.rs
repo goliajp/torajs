@@ -27,7 +27,7 @@
 //!   `__torajs_str_to_number` per S137).
 
 use crate::ast::{Ast, ExprId, UnaryOp};
-use crate::check::{Checker, Type, js_truthy_acceptable};
+use crate::check::{Checker, Type, js_truthy_acceptable, rides_any_lane};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -47,7 +47,7 @@ pub(crate) fn check(
             }
         }
         UnaryOp::Neg => check_neg(t),
-        UnaryOp::Plus if matches!(t, Type::Any) => Ok(Type::Any),
+        UnaryOp::Plus if rides_any_lane(&t) => Ok(Type::Any),
         UnaryOp::Plus => check_plus(t),
         UnaryOp::BitNot => check_bit_not(t),
     }
@@ -60,7 +60,7 @@ fn check_neg(t: Type) -> Result<Type, String> {
         Ok(Type::BigInt)
     } else if is_number_coercible(&t) {
         Ok(Type::Number)
-    } else if matches!(t, Type::Any) {
+    } else if rides_any_lane(&t) {
         Ok(Type::Any)
     } else {
         Err(format!("`-` requires number or bigint operand, got {t:?}"))
@@ -135,7 +135,7 @@ fn check_bit_not(t: Type) -> Result<Type, String> {
         Type::Boolean | Type::Null | Type::Undefined | Type::String
     ) {
         Ok(Type::Number)
-    } else if matches!(t, Type::Any) {
+    } else if rides_any_lane(&t) {
         // RFC 20260716 刀 7 — Any operand routes through
         // `__torajs_anyv_bitnot_pair` (ToNumber → ToInt32 → xor -1),
         // matching arith / compare Any-fringe pattern.

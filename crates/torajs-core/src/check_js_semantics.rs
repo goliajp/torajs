@@ -16,6 +16,37 @@
 
 use crate::check::Type;
 
+/// True when a value of this type sits in a NaN-boxed `any` slot, so
+/// every operator family's `any` arm is the arm that describes it.
+///
+/// `Type::Any` is the obvious member. The other is a `Nullable<T>`
+/// over a scalar: `number` and `boolean` have no bit pattern to
+/// spare for `undefined` the way a pointer has its in-band 0 or a
+/// string has its oddball, so `ssa_lower_parse_type::
+/// nullable_inner_boxes` hands them an `any` slot instead. These two
+/// are mirrors and must move together — a scalar that starts or
+/// stops boxing there belongs on the other side here the same day.
+///
+/// What it buys is the answer §13.15.3 and §13.7-§13.12 already give:
+/// `undefined + 1` is `NaN`, and reaching it needs no new lowering,
+/// because the operand is already boxed and the any-lane kernels have
+/// carried that ToNumeric / ToPrimitive walk since the first `any`
+/// operand reached them. A runtime refusing to run the file was never
+/// one of the answers; TypeScript's own is a definite-assignment
+/// diagnostic, which is a different question (567-04).
+///
+/// The result stays `Any` because the kernel's answer is a boxed
+/// value. A `Nullable<string>` is deliberately NOT a member: its slot
+/// is a real `str` whose null is an in-band 0, so the any lane would
+/// be handed something it cannot read.
+pub(crate) fn rides_any_lane(t: &Type) -> bool {
+    match t {
+        Type::Any => true,
+        Type::Nullable(inner) => matches!(**inner, Type::Number | Type::Boolean),
+        _ => false,
+    }
+}
+
 /// V3-18 m1.a — JS spec §13.15.3 ApplyStringOrNumericBinaryOperator
 /// guard for non-string `+`. Returns true iff both operands are
 /// statically-typed numerics-or-coercible-to-numerics: Number,

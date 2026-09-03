@@ -146,16 +146,16 @@ pub(crate) struct LocalInfo {
 /// reads this to pick / generate the right specialized fn.
 pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 
-// The JS-spec semantics acceptance family (5 fn: js_add_coerces_to_number,
+// The JS-spec semantics acceptance family (6 fn: js_add_coerces_to_number,
 // js_arith_coerces_to_number, is_known_builtin_global, js_truthy_acceptable,
-// js_loose_eq_supported) lives in [`crate::check_js_semantics`] (chunk-321
+// js_loose_eq_supported, rides_any_lane) lives in [`crate::check_js_semantics`] (chunk-321
 // of the check.rs god-file decomp). Re-exported here so callers
 // (`check_type_of_binop`, `check_type_of_ternary`, `check_type_of_unary`,
 // `check_type_of_misc`, `check_stmt_while`, …) keep the
 // `crate::check::<name>` import path.
 pub(crate) use crate::check_js_semantics::{
     is_known_builtin_global, js_add_coerces_to_number, js_arith_coerces_to_number,
-    js_loose_eq_supported, js_truthy_acceptable,
+    js_loose_eq_supported, js_truthy_acceptable, rides_any_lane,
 };
 
 /// V3-05 — substitute `Type::ClassRef(name)` with whatever the
