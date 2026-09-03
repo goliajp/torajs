@@ -28,6 +28,7 @@
 //! surface), and so a flush restores the true declared type rather
 //! than a stacked narrow.
 
+use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 
@@ -87,6 +88,44 @@ impl Checker {
         } else if let Some(d) = self.assign_narrows.remove(name) {
             self.apply_narrow(name, d);
         }
+    }
+
+    /// The declaration-position twin of [`Self::apply_assign_narrow`].
+    /// `let x: T | null = v` narrows for the same reason `x = v`
+    /// does — control-flow analysis reads an initializer as the
+    /// binding's first assignment, and execution is at least as
+    /// certain here as at a statement-level assign.
+    ///
+    /// It is not a nicety. `desugar_uninit_let` splices a follow-up
+    /// write back ONTO its declaration, which moves that assignment
+    /// out of the statement position the assign hook watches — so
+    /// without this, two spellings of one program disagreed:
+    /// `let c: C; log(c); c = new C()` narrowed, because the read
+    /// made the splice decline and left a statement to see, while
+    /// `let c: C | undefined; c = new C()` did not, and only the
+    /// second was refused at `c.pub`.
+    ///
+    /// Everything it needs was settled first, which is why this
+    /// arrives after three other cuts rather than with them: the
+    /// narrow may not leave the binding's lane
+    /// (`narrow_within_lane`), the guard has to keep asking the
+    /// declared type once a narrow exists (`assign_declared_ty`), and
+    /// a handler inferred from the declaration has to be admitted
+    /// against the narrowed value (`handler_param_admits`). Landed on
+    /// its own, this change reached all three as failures.
+    ///
+    /// A declaration with no initializer is unaffected: the `Uninit`
+    /// sentinel types as `Undefined`, one of the values the shared
+    /// hook refuses to narrow on, so `let x: T;` keeps its union and
+    /// keeps reading undefined.
+    pub(crate) fn apply_decl_narrow(&mut self, ast: &Ast, name: &str, init: ExprId) {
+        if matches!(ast.get_expr(init), Expr::Uninit) {
+            return;
+        }
+        let Some(ty) = self.expr_types.get(&init).cloned() else {
+            return;
+        };
+        self.apply_assign_narrow(name, &ty);
     }
 
     /// Demote-only arm for EXPRESSION-level assigns (ternary arm /
