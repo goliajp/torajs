@@ -167,10 +167,14 @@ fn lower_patched_call(
             }
             op.clone()
         } else {
-            let is_borrow = matches!(
-                ctx.ast.get_expr(aid),
-                Expr::Ident(_) | Expr::Member { .. } | Expr::Regex { .. }
-            );
+            // Same question the Any arm above already asks the
+            // shared way — and the shared answer reads through the
+            // casts a roster of AST shapes cannot (rotation 572).
+            let is_borrow = !ctx.expr_is_fresh_owned(aid)
+                || matches!(
+                    ctx.ast.get_expr(ctx.peel_as_wrappers(aid)),
+                    Expr::Regex { .. }
+                );
             if is_borrow && ty.is_refcounted() {
                 ctx.emit_rc_inc(op.clone());
             }

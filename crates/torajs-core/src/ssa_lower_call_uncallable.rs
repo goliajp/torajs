@@ -33,11 +33,14 @@ pub(crate) fn try_lower(
     // Borrow-shaped callees (an Ident binding, a Member read, the
     // fn-scope LICM-cached regex literal) don't own their value —
     // the box takes its own reference, exactly the argv discipline
-    // in `pack_any_argv`.
-    let is_borrow = matches!(
-        ctx.ast.get_expr(callee),
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Regex { .. }
-    );
+    // in `pack_any_argv`, and asked the same way: the shared answer
+    // reads through casts, which a roster of AST shapes cannot
+    // (rotation 572). Regex stays this family's one difference.
+    let is_borrow = !ctx.expr_is_fresh_owned(callee)
+        || matches!(
+            ctx.ast.get_expr(ctx.peel_as_wrappers(callee)),
+            Expr::Regex { .. }
+        );
     if is_borrow && raw_ty.is_refcounted() {
         ctx.emit_rc_inc(raw.clone());
     }

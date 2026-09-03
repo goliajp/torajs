@@ -96,12 +96,19 @@ pub(crate) fn try_lower(
     // the chunk-496 three-shape rule: a borrowed refcounted operand
     // rc-incs before the TRANSFER-shaped box, temps hand their
     // reference to the box, already-Any keys pass through borrowed.
-    let key_is_borrow = matches!(
-        ctx.ast.get_expr(index),
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Regex { .. }
-    );
     let key_raw = ctx.lower_expr(index);
     let key_ty = ctx.operand_ty(&key_raw);
+    // Who owns the key is `expr_is_fresh_owned`'s question, not a
+    // second roster's: a roster of AST shapes cannot read through a
+    // cast, and `k as any` is a cast around an Ident (rotation 572 —
+    // the argv packer's copy of this roster freed a binding's only
+    // stake that way). Regex is this family's one documented
+    // difference: `lower_expr` hands back the LICM-cached cell.
+    let key_is_borrow = !ctx.expr_is_fresh_owned(index)
+        || matches!(
+            ctx.ast.get_expr(ctx.peel_as_wrappers(index)),
+            Expr::Regex { .. }
+        );
     let (key, key_boxed) = if key_ty == Type::Any {
         (key_raw, false)
     } else {
