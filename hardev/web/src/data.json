@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T06:47:01.736Z",
+  "generatedAt": "2026-09-03T07:29:28.132Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T06:33:52Z",
-    "headSha": "9d0d31b83",
-    "elapsedSec": 878.84,
+    "ranAt": "2026-09-03T07:17:24Z",
+    "headSha": "ae995755f",
+    "elapsedSec": 717.41,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 74.79
   },
   "torajs": {
-    "commit": "9d0d31b83",
-    "commitSubject": "fix: the checker spelled the join kernel table a third time, as a rejection",
+    "commit": "ae995755f",
+    "commitSubject": "fix: a join walked on past the exception its own element raised",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,14 @@
   },
   "commits": [
     {
+      "hash": "ae995755f",
+      "subject": "fix: a join walked on past the exception its own element raised"
+    },
+    {
+      "hash": "039a245a8",
+      "subject": "chore: rotation 571 sweep on 9d0d31b83, four cases leave the type-error bucket"
+    },
+    {
       "hash": "9d0d31b83",
       "subject": "fix: the checker spelled the join kernel table a third time, as a rejection"
     },
@@ -767,17 +775,9 @@
     {
       "hash": "ad60d24ec",
       "subject": "chore: rotation 569 sweep on c1841b921, verdicts unchanged case for case"
-    },
-    {
-      "hash": "c1841b921",
-      "subject": "fix: the typed array lane can hold a null, but it cannot say so"
-    },
-    {
-      "hash": "49cd42e5d",
-      "subject": "fix: the slot spells null too, and console only tested for undefined"
     }
   ],
-  "headSha": "9d0d31b83",
+  "headSha": "ae995755f",
   "autorun": {
     "total": 874,
     "baselineTarget": 10,
