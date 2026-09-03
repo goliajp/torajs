@@ -300,17 +300,6 @@ pub(crate) fn pack_any_argv_padded(
     }
     let mut packed = AnyArgv::new(argv, argc);
     for (i, &aid) in args.iter().enumerate() {
-        // A regex literal is a BORROW, not a temp — `lower_expr`
-        // answers the fn-scope LICM-cached RegExp (hoisted compile,
-        // shared by every occurrence of the same `(pattern, flags)`
-        // pair), so the box must take its own reference or the
-        // post-call dec frees the cached cell out from under the
-        // second occurrence. `new RegExp(...)` stays a per-call
-        // fresh temp (Expr::New — not matched here).
-        let is_borrow = matches!(
-            ctx.ast.get_expr(aid),
-            Expr::Ident(_) | Expr::Member { .. } | Expr::Regex { .. }
-        );
         // RFC 20260717-objlit-anylane-recv knife 2g — an inline
         // ObjectLit argument at an any-lane call site rides the
         // dynobj lane (mirror of the direct-call promotions:
@@ -339,6 +328,30 @@ pub(crate) fn pack_any_argv_padded(
         }
         let raw = ctx.lower_expr(aid);
         let raw_ty = ctx.operand_ty(&raw);
+        // Who owns the heap this slot points at is NOT a question
+        // this site keeps its own roster for. The roster it did keep
+        // — `Ident | Member | Regex` — read `c as any` as a shape it
+        // had never heard of and therefore as a fresh temp, so the
+        // box took no reference and the post-call release freed the
+        // binding's only stake: `buf.resize(c as any)` handed the
+        // next allocation `c`'s bytes, and the read after it saw
+        // whatever moved in (rotation 572; `Object.keys(c)`'s result
+        // array answering as `c.valueOf()` is what named it). The
+        // shared answer peels casts, and it asks AFTER the lower so
+        // the owned-member-read records exist.
+        //
+        // A regex literal is the one shape where this site differs:
+        // `lower_expr` hands back the fn-scope LICM-cached RegExp
+        // (hoisted compile, shared by every occurrence of the same
+        // `(pattern, flags)` pair), so the box must take its own
+        // reference or the post-call dec frees the cached cell out
+        // from under the second occurrence. `new RegExp(...)` stays
+        // a per-call fresh temp (Expr::New — not matched here).
+        let is_borrow = !ctx.expr_is_fresh_owned(aid)
+            || matches!(
+                ctx.ast.get_expr(ctx.peel_as_wrappers(aid)),
+                Expr::Regex { .. }
+            );
         let (slot_val, we_boxed) = if raw_ty == Type::Any {
             // An operand that is already an Any rides verbatim — the
             // runtime borrows argv, so nothing is boxed here. It can

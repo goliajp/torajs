@@ -51,6 +51,32 @@ impl<'a> LowerCtx<'a> {
         Some(ty)
     }
 
+    /// The node [`Self::expr_is_fresh_owned`] actually judges —
+    /// value-transparent `As` wrappers peeled off. The cast is
+    /// IDENTITY for an Any source, a fresh IMMEDIATE box for a
+    /// primitive (whose drop is a payload-gated no-op), and a bare
+    /// pass-through for a heap source; in all three the INNER read
+    /// decides who owns the heap. `ssa_lower_object_lit
+    /// ::lower_regular_field` peels for exactly this reason.
+    ///
+    /// Unpeeled, an `Ident as any` answers fresh-owned, and whoever
+    /// asked then releases the binding's only stake: the BinOp drop
+    /// pass over `a === (b as any)` freed `b` before its scope drop
+    /// and the scope drop read the dead header (rotation 384,
+    /// `symbol-wrapper-object-coerce-001.ts`); the any-lane argv
+    /// packer's own by-name roster repeated it four rotations of
+    /// substrate later (rotation 572). A roster of AST shapes cannot
+    /// see through a cast — which is why the peel lives here, once,
+    /// and a site with an exception of its own asks about the node
+    /// this hands back rather than about the one it was given.
+    pub(crate) fn peel_as_wrappers(&self, eid: ExprId) -> ExprId {
+        let mut eid = eid;
+        while let Expr::As { expr, .. } = self.ast.get_expr(eid) {
+            eid = *expr;
+        }
+        eid
+    }
+
     /// True when an expression's lowered Operand represents a freshly-
     /// allocated owned value the surrounding lowering site must drop.
     /// False for borrow-shaped exprs (Ident / Member / Index / OptChain
@@ -60,22 +86,7 @@ impl<'a> LowerCtx<'a> {
     /// clobbers caller-saved X0 and silently destroyed `n + "x"`-style
     /// ret values). Used by Expr::BinOp's post-call drop pass.
     pub(crate) fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
-        // Peel value-transparent `As` wrappers before judging: the
-        // cast is IDENTITY for an Any source, a fresh IMMEDIATE box
-        // for a primitive (whose drop is a payload-gated no-op), and
-        // a bare pass-through for a heap source — in all three the
-        // INNER read decides who owns the heap. `ssa_lower_object_lit
-        // ::lower_regular_field` peels for exactly this reason.
-        // Unpeeled, an `Ident as any` answered fresh-owned and the
-        // BinOp drop pass released the binding's only stake:
-        // `a === (b as any)` over two symbols freed `b` before its
-        // scope drop, and the scope drop then read the dead header
-        // (rotation 384; `symbol-wrapper-object-coerce-001.ts` was
-        // the fixture, green on the gate the whole time).
-        let mut eid = eid;
-        while let Expr::As { expr, .. } = self.ast.get_expr(eid) {
-            eid = *expr;
-        }
+        let eid = self.peel_as_wrappers(eid);
         // Chunk 637 — a Member read whose owned-receiver lowering
         // detached the result (see `ssa_lower_member::lower`) IS
         // fresh-owned; every other Member stays a borrow. Chunk 717
