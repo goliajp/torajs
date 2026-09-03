@@ -25,12 +25,30 @@ impl<'a> Parser<'a> {
     /// is a VariableStatement proper. The check is post-parse on the
     /// produced Stmt — parse side effects are moot since the whole
     /// compile aborts.
+    ///
+    /// `admits_labelled_fn` separates the two readings of a label
+    /// chain. §14.13 LabelledItem may itself be a FunctionDeclaration
+    /// (annexB B.3.2), so `l1: l2: function f(){}` is legal as a
+    /// statement-list item — that is the labelled-statement body's own
+    /// position, and it passes `true`. Every other position here takes
+    /// a Statement, where §14.13.1 makes it a Syntax Error if
+    /// IsLabelledFunction(Statement) — annexB extends the bare
+    /// `if (x) function f(){}` spelling, never the labelled one. The
+    /// chain is transparent, so those positions walk it.
     pub(super) fn reject_decl_in_single_stmt(
         &self,
         body: &Stmt,
         body_start: usize,
         ctx: &str,
+        admits_labelled_fn: bool,
     ) -> Result<(), String> {
+        if !admits_labelled_fn && let Some(kind) = Self::labelled_fn_kind(body) {
+            return Err(format!(
+                "a labeled {kind} is not allowed as the body of {ctx} at {} \
+                 (ES §14.13.1)",
+                self.at()
+            ));
+        }
         let offending = match body {
             Stmt::LetDecl {
                 is_var: false,
@@ -82,6 +100,20 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// §14.13.1 IsLabelledFunction — walk a label chain and answer
+    /// what it wraps, when that is a function declaration. The chain
+    /// may be any depth (`l1: l2: l3: function f(){}`), which is why
+    /// this recurses rather than peeking one level.
+    fn labelled_fn_kind(body: &Stmt) -> Option<&'static str> {
+        let Stmt::Labeled { body, .. } = body else {
+            return None;
+        };
+        match &**body {
+            Stmt::FnDecl { .. } => Some("function declaration"),
+            inner => Self::labelled_fn_kind(inner),
+        }
+    }
+
     /// `let` at `body_start` followed by a LINE-BREAK then an
     /// identifier — the ASI-identifier spelling the reject above
     /// exempts. (`var` shares `Token::Let` at the token level but
@@ -120,7 +152,7 @@ impl<'a> Parser<'a> {
         }
         let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, body_start, "a while loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a while loop", false)?;
         Ok(Stmt::While { cond, body })
     }
 
@@ -128,7 +160,7 @@ impl<'a> Parser<'a> {
         self.pos += 1; // consume `do`
         let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, body_start, "a do-while loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a do-while loop", false)?;
         match self.peek() {
             Token::While => self.pos += 1,
             t => {
@@ -404,7 +436,7 @@ impl<'a> Parser<'a> {
         }
         let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, body_start, "a for loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a for loop", false)?;
         Ok(Stmt::For {
             init,
             cond,

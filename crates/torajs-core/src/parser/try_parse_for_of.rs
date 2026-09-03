@@ -183,7 +183,7 @@ impl<'a> Parser<'a> {
         // §14.7.5 ForIn/OfStatement takes a Statement, not a
         // Declaration — same gate every other single-stmt body has
         // (r294 刀 4; test262 for-of/decl-cls family).
-        self.reject_decl_in_single_stmt(&body, body_start, "a for-of loop")?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a for-of loop", false)?;
         // RFC 20260809 knife 3 — the body opens with a per-iteration
         // UsingDecl over a fresh loop local; see `forof_using.rs`.
         let (var_name, body) = if let Some(hint_await) = is_using {
