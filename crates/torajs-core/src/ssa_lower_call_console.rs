@@ -286,6 +286,7 @@ pub(crate) fn open_console_sentinel_branch(
     arg: &Operand,
     arg_ty: Type,
 ) -> Option<crate::ssa::BlockId> {
+    use crate::ssa::IPred;
     if !arg_ty.spells_undef_with_generic_cell() {
         return None;
     }
@@ -311,7 +312,37 @@ pub(crate) fn open_console_sentinel_branch(
     let str_target = ctx.console_print_target(Type::Str);
     ctx.emit_console_print(method, str_target, Operand::Value(lit));
     ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+    // The same slot spells `null` with the in-band 0 — that is the
+    // whole reason a pointer-shaped `T | null` needs no box tax — and
+    // the live-cell tail hands whatever it finds to a typed printer.
+    // For an Obj / Arr / Closure that printer is `print_anyv`, which
+    // read the raw 0 as a NaN box and answered `[unknown-any-tag]`:
+    // `let q: {x: number} | null = null; console.log(q)` printed a
+    // diagnostic string instead of `null`. The oddball needs the same
+    // second test its undefined sibling already has.
     ctx.cur_block = live_blk;
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, arg.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let null_blk = ctx.f.add_block();
+    let cell_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_null),
+            then_blk: null_blk,
+            else_blk: cell_blk,
+        },
+    );
+    ctx.cur_block = null_blk;
+    let null_lit = ctx.intern_string_literal("null");
+    let null_target = ctx.console_print_target(Type::Str);
+    ctx.emit_console_print(method, null_target, Operand::Value(null_lit));
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+    ctx.cur_block = cell_blk;
     Some(join_blk)
 }
 
