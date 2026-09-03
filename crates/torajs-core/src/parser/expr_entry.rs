@@ -49,17 +49,25 @@ impl<'a> Parser<'a> {
         // `A`, which is right for the string case and unreachable
         // here).
         for p in parts {
-            if let lexer::TemplatePart::Lit { raw, .. } = p
-                && crate::lexer::legacy_octal::first_legacy_escape(
-                    raw.as_bytes(),
-                    0,
-                    raw.len() as u32,
-                )
-                .is_some()
-            {
+            let lexer::TemplatePart::Lit { raw, .. } = p else {
+                continue;
+            };
+            let (b, n) = (raw.as_bytes(), raw.len() as u32);
+            if crate::lexer::legacy_octal::first_legacy_escape(b, 0, n).is_some() {
                 return Err(format!(
                     "a template literal may not contain an octal or `\\8` / \
                      `\\9` escape sequence at {} (ES §12.9.6)",
+                    self.at()
+                ));
+            }
+            // The other half of the same question. `\x` / `\u` are
+            // EscapeCharacters, so a malformed spelling is not a
+            // literal `x` / `u` — it is no escape at all, and only a
+            // TAGGED template may still carry it.
+            if crate::lexer::util::first_malformed_hex_escape(b, 0, n).is_some() {
+                return Err(format!(
+                    "a template literal may not contain a malformed `\\x` / \
+                     `\\u` escape sequence at {} (ES §12.9.6)",
                     self.at()
                 ));
             }

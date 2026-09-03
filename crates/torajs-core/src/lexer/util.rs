@@ -170,6 +170,59 @@ pub(super) fn scan_hex_escape(bytes: &[u8], i: u32) -> Option<(u32, u32)> {
     }
 }
 
+/// Offset of the first backslash in `bytes[from..to]` whose escape
+/// `pred` rejects, or `None`.
+///
+/// Steps two bytes per backslash rather than decoding, which is safe
+/// because no longer escape (`\xNN`, `\uNNNN`, `\u{…}`) contains a
+/// backslash for the walk to land inside of, and an escaped backslash
+/// (`\\101`) is stepped over as the pair it is. Callers pass a whole
+/// literal's span, quotes and all — a quote is never a backslash.
+///
+/// One walk, two questions: [`super::legacy_octal::first_legacy_escape`]
+/// asks which escapes a strict goal refuses, [`first_malformed_hex_escape`]
+/// asks which ones are not escapes at all. A second copy of the step rule
+/// would not error — it would start lying the day one copy learned
+/// something the other had not.
+pub(super) fn first_escape_where(
+    bytes: &[u8],
+    from: u32,
+    to: u32,
+    pred: impl Fn(&[u8], u32) -> bool,
+) -> Option<u32> {
+    let mut i = from;
+    while i + 1 < to {
+        if bytes[i as usize] == b'\\' {
+            if pred(bytes, i) {
+                return Some(i);
+            }
+            i += 2;
+            continue;
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Offset of the first `\x` / `\u` in `bytes[from..to]` that no
+/// UnicodeEscapeSequence / HexEscapeSequence production accepts, or
+/// `None`.
+///
+/// §12.9.4 EscapeCharacter lists `x` and `u`, so neither can fall back
+/// to NonEscapeCharacter: a malformed spelling is not a literal `x` /
+/// `u`, it is nothing at all. The string scanner raises it on the spot;
+/// an UNTAGGED template asks here, over the raw text, because a tagged
+/// one is allowed the same spelling (§12.9.6 gives it `undefined` as
+/// the cooked value instead of an error).
+///
+/// [`scan_hex_escape`] is the only judge of well-formedness — this
+/// walks, it does not re-count hex digits.
+pub(crate) fn first_malformed_hex_escape(bytes: &[u8], from: u32, to: u32) -> Option<u32> {
+    first_escape_where(bytes, from, to, |b, i| {
+        matches!(b.get((i + 1) as usize), Some(b'x' | b'u')) && scan_hex_escape(b, i).is_none()
+    })
+}
+
 pub(super) fn is_ident_start(b: u8) -> bool {
     b.is_ascii_alphabetic() || b == b'_' || b == b'$'
 }

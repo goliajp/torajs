@@ -11,7 +11,7 @@ mod scan_number;
 mod scan_slash;
 mod scan_template;
 mod types;
-mod util;
+pub(crate) mod util;
 
 pub use types::{Span, Spanned, TemplatePart, Token};
 

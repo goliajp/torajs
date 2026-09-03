@@ -70,26 +70,12 @@ pub(crate) fn is_non_octal_decimal_escape(bytes: &[u8], i: u32) -> bool {
 }
 
 /// Offset of the first legacy escape in `bytes[from..to]`, or `None`.
-///
-/// Steps two bytes per backslash rather than decoding, which is safe
-/// because no longer escape (`\xNN`, `\uNNNN`, `\u{…}`) contains a
-/// backslash for the walk to land inside of, and an escaped backslash
-/// (`\\101`) is stepped over as the pair it is. Callers pass a whole
-/// literal's span, quotes and all — a quote is never a backslash.
+/// The walk itself lives in [`super::util::first_escape_where`] — it is
+/// shared with the malformed-hex question, which steps identically.
 pub(crate) fn first_legacy_escape(bytes: &[u8], from: u32, to: u32) -> Option<u32> {
-    let mut i = from;
-    while i + 1 < to {
-        if bytes[i as usize] == b'\\' {
-            if scan_legacy_octal_escape(bytes, i).is_some() || is_non_octal_decimal_escape(bytes, i)
-            {
-                return Some(i);
-            }
-            i += 2;
-            continue;
-        }
-        i += 1;
-    }
-    None
+    super::util::first_escape_where(bytes, from, to, |b, i| {
+        scan_legacy_octal_escape(b, i).is_some() || is_non_octal_decimal_escape(b, i)
+    })
 }
 
 /// The value of a `0`-prefixed integer literal under Annex B §B.1.1,
