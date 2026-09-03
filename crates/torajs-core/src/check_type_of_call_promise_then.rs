@@ -288,7 +288,8 @@ fn try_then_heterogeneous(
             }
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
-                && params[0] == inner_ty
+                && (params[0] == inner_ty
+                    || crate::check::handler_param_admits(&params[0], &inner_ty))
                 && matches!(
                     **ret,
                     Type::Number

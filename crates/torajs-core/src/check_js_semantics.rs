@@ -47,6 +47,32 @@ pub(crate) fn rides_any_lane(t: &Type) -> bool {
     }
 }
 
+/// May a handler declaring `param` receive a value of type `given`?
+///
+/// Contravariance says yes whenever `param` is wider: a `(v: string |
+/// null) => void` still gets a string, and TS assigns it to a
+/// `(v: string) => void` slot for exactly that reason. tr has one
+/// extra thing to say — the handler's parameter is a SLOT, and the
+/// call has to be able to put the value in it. `Nullable<T>` and `T`
+/// are the same slot for a pointer-shaped T, whose null is the
+/// in-band 0 the slot always had room for; for the two scalars they
+/// are not ([`rides_any_lane`]), and handing a raw f64 to a
+/// NaN-boxed parameter is the same lie [`narrow_within_lane`]
+/// refuses at the other end.
+///
+/// The shape that needs it: a callback parameter tr infers before it
+/// can know about narrowing. `let s: string | null; …; s = "hi";
+/// Promise.resolve(s).then((v) => …)` — the pre-inference reads the
+/// declaration and writes `v: string | null`, the receiver reads the
+/// narrow and says `Promise<string>`, and the two faces of one line
+/// disagreed hard enough to refuse the program.
+pub(crate) fn handler_param_admits(param: &Type, given: &Type) -> bool {
+    match param {
+        Type::Nullable(inner) => inner.as_ref() == given && !rides_any_lane(param),
+        _ => false,
+    }
+}
+
 /// The type a narrow may install, given the type it replaces.
 ///
 /// Narrowing answers "what can this binding hold from here on"; it

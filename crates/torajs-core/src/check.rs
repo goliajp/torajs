@@ -154,8 +154,9 @@ pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 // `check_type_of_misc`, `check_stmt_while`, …) keep the
 // `crate::check::<name>` import path.
 pub(crate) use crate::check_js_semantics::{
-    is_known_builtin_global, js_add_coerces_to_number, js_arith_coerces_to_number,
-    js_loose_eq_supported, js_truthy_acceptable, narrow_within_lane, rides_any_lane,
+    handler_param_admits, is_known_builtin_global, js_add_coerces_to_number,
+    js_arith_coerces_to_number, js_loose_eq_supported, js_truthy_acceptable, narrow_within_lane,
+    rides_any_lane,
 };
 
 /// V3-05 — substitute `Type::ClassRef(name)` with whatever the
