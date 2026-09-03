@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T05:22:49.525Z",
+  "generatedAt": "2026-09-03T06:47:01.736Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T05:08:25Z",
-    "headSha": "c8b3b4594",
-    "elapsedSec": 648.3,
+    "ranAt": "2026-09-03T06:33:52Z",
+    "headSha": "9d0d31b83",
+    "elapsedSec": 878.84,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30589,
+    "pass": 30591,
     "passNoOracle": 1028,
     "passNegative": 4147,
-    "passTotal": 35764,
-    "bug": 12053,
-    "incompatible": 5357,
+    "passTotal": 35766,
+    "bug": 12054,
+    "incompatible": 5354,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47817,
+    "trAccepted": 47820,
     "passRateInScope": 67.26,
     "passRateTrAccepted": 74.79
   },
   "torajs": {
-    "commit": "c8b3b4594",
-    "commitSubject": "fix: with a string on one side, a nullable concatenates whatever T is",
+    "commit": "9d0d31b83",
+    "commitSubject": "fix: the checker spelled the join kernel table a third time, as a rejection",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,22 @@
   },
   "commits": [
     {
+      "hash": "9d0d31b83",
+      "subject": "fix: the checker spelled the join kernel table a third time, as a rejection"
+    },
+    {
+      "hash": "9dea911a6",
+      "subject": "fix: the join kernel coerces per element, so the scan never saw it"
+    },
+    {
+      "hash": "69a930840",
+      "subject": "fix: the array join table's default was one element type's kernel"
+    },
+    {
+      "hash": "983d33c18",
+      "subject": "chore: rotation 570 sweep on c8b3b4594, verdicts unchanged case for case"
+    },
+    {
       "hash": "c8b3b4594",
       "subject": "fix: with a string on one side, a nullable concatenates whatever T is"
     },
@@ -759,43 +775,38 @@
     {
       "hash": "49cd42e5d",
       "subject": "fix: the slot spells null too, and console only tested for undefined"
-    },
-    {
-      "hash": "d2a288aab",
-      "subject": "fix: an initializer is the binding's first assignment"
-    },
-    {
-      "hash": "be6660cff",
-      "subject": "fix: a handler may declare more than the call will give it"
-    },
-    {
-      "hash": "41a15bd74",
-      "subject": "fix: a guard asks about the binding, not about this segment"
-    },
-    {
-      "hash": "337d8899d",
-      "subject": "fix: a narrow may not move a binding out of its lane"
     }
   ],
-  "headSha": "c8b3b4594",
+  "headSha": "9d0d31b83",
   "autorun": {
-    "total": 873,
+    "total": 874,
     "baselineTarget": 10,
-    "bySelf": 868,
+    "bySelf": 869,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788406962-1f02",
-      "at": "2026-09-03T03:42:42Z",
-      "ts": 1788406962,
+      "rotationId": "r-1788412993-1013",
+      "at": "2026-09-03T05:23:13Z",
+      "ts": 1788412993,
       "trigger": "self",
-      "prevHead": "ad60d24ec",
-      "handoffSha": "sha256:1df3699740ac90e135215a0b192f73cbedba419d7e2428b447475d6cb29fc5b4",
-      "handoffAgeSec": 21,
+      "prevHead": "983d33c18",
+      "handoffSha": "sha256:b62a13148257df5b6a75c3ebd926c9812733b8d7eeed89a4096a131fe6920a9f",
+      "handoffAgeSec": 29,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788412993-1013",
+        "at": "2026-09-03T05:23:13Z",
+        "ts": 1788412993,
+        "trigger": "self",
+        "prevHead": "983d33c18",
+        "handoffSha": "sha256:b62a13148257df5b6a75c3ebd926c9812733b8d7eeed89a4096a131fe6920a9f",
+        "handoffAgeSec": 29,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788406962-1f02",
         "at": "2026-09-03T03:42:42Z",
@@ -892,17 +903,6 @@
         "prevHead": "9af525d71",
         "handoffSha": "sha256:509af6bcab053bf96de40786cbbc331ccd77d149e82eeb193f94671293eb9ca0",
         "handoffAgeSec": 461,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788334025-30a4",
-        "at": "2026-09-02T07:27:05Z",
-        "ts": 1788334025,
-        "trigger": "self",
-        "prevHead": "62e1d35a0",
-        "handoffSha": "sha256:60a355ab5c7d493310d18029335bac6884cac472065b1940881d5586a56dd311",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
