@@ -49,6 +49,7 @@ pub(crate) mod check_entry;
 pub(crate) mod check_fn_type;
 pub(crate) mod check_hoist_closure_lets;
 pub(crate) mod check_js_semantics;
+pub(crate) mod check_local_info;
 pub(crate) mod check_method_name;
 pub(crate) mod check_monomorph;
 pub(crate) mod check_monomorph_any_widen;
