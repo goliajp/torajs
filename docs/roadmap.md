@@ -1670,7 +1670,28 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `0973af2c7`** (2026-09-03, rotation 573 — `__` is tr's
+**Latest @ `8d1129f8d`** (2026-09-04, rotation 575 — three early
+errors of position and name: an `import` / `export` DECLARATION is a
+ModuleItem and cannot sit in a statement body; §15.7.1's four
+ClassElementName rules; and a class body may not declare the same
+private name twice. Plus one refusal WITHDRAWN — a static element
+spelled `constructor` is an ordinary static member, and tr had been
+rejecting programs test262 files under `syntax/valid/`). Gate
+predicate: **139** clusters of >= 4 holding **1082** cases, register
+2 · 247, residue 453 · 609 (31.4%), core **1938**, coverage top-100
+**57.0%** / top-200 **75.0%** / top-400 **89.2%**. Against rotation
+574: clusters 140 -> **139 (-1)**, cases 1095 -> **1082 (-13)**, core
+1951 -> **1938 (-13)**. Sweep passTotal 35845 -> **35994 (+149)**,
+passNegative 4204 -> **4342 (+138)**, pass 30611 -> **30622 (+11)**,
+bug 12026 -> **11890 (-136)**, incompatible 5303 -> **5290 (-13)**,
+trAccepted 47871 -> **47884 (+13)**; conservation exact
+(+13 = +149 - 136). Verdict diff 149 changed, **all forward, 0
+backward**: 136 `bug:negative-phase-mismatch` -> `pass-negative`
+(86 of them `module-code` decl-pos, 62 in `language/*/class`), and
+**13 out of `incompatible`** — 10 of those the withdrawn refusal,
+every one named `static-ctor` or `static/*-constructor`.
+
+**Prior @ `0973af2c7`** (2026-09-03, rotation 573 — `__` is tr's
 minting convention, not a reserved namespace, so the three
 undeclared-name sites and the data-global promote gate stopped asking
 `starts_with("__")` and started asking provenance: which `__` names
@@ -7806,8 +7827,8 @@ and added 轴 E): **P0–P13 closed ✓ *and* P-SURF closed *and* 轴 B at
 target *and* 轴 E through E4**. The axes, with what each still owes —
 
 - **轴 A (spec)** — P13 close ✓, **P-SURF open** ← S7.2's predicate:
-  unattributed ≥ 4 clusters **148** (drives to 0), holding 1153 cases,
-  register 2 · 251. Sweep @ `e620e0edc`.
+  unattributed ≥ 4 clusters **139** (drives to 0), holding 1082 cases,
+  register 2 · 247, core 1938. Sweep @ `8d1129f8d` (rotation 575).
 - **轴 B (perf)** — **target raised 2026-08-24**: no longer "0
   regression" (that lower bound was met at r470 and is now table
   stakes) but **bench-tr full-matrix median tr/bun-aot ≤ 0.33 (3×),
