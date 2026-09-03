@@ -280,22 +280,18 @@ impl<'a> Parser<'a> {
                 field_inits,
             );
         }
-        // ES §15.7.1 early error — `ClassElement : FieldDefinition;`
-        // is a Syntax Error if PropName of FieldDefinition is
-        // "constructor" (ident, string-literal, or folded `['...']`
-        // spelling all produce that PropName). A COMPUTED
-        // `["constructor"]` key is legal — PropName of a
-        // ComputedPropertyName is empty — and the literal fold above
-        // already flipped `consumed_computed_name` for it, so that
-        // flag is exactly the spec's LiteralPropertyName test. The
-        // method position stays untouched: `'constructor'() {}` IS
-        // the constructor and never reaches this field dispatch.
-        if !consumed_computed_name && member_name == "constructor" {
-            return Err(format!(
-                "class field may not be named `constructor` in class `{name}` at {} (ES §15.7.1)",
-                self.at()
-            ));
-        }
+        // §15.7.1 ClassElementName, field half. The literal fold above
+        // already flipped `consumed_computed_name` for a folded
+        // `['...']` key, so that flag is exactly the spec's
+        // LiteralPropertyName test; `'constructor'() {}` IS the
+        // constructor and never reaches this field dispatch.
+        self.reject_class_element_name(
+            name,
+            member_name.as_str().unwrap_or(""),
+            is_static,
+            !consumed_computed_name,
+            super::class_element_name::ClassElementPos::Field,
+        )?;
         let field_inits_mark = field_inits.len();
         let static_init_mark = static_init.len();
         // Same lookahead the member loop matched on: the member name

@@ -36,6 +36,7 @@ use crate::ast::{
 use crate::lexer::{self, Spanned, Token};
 
 mod arrow_fn;
+mod class_element_name;
 mod class_field_early_errors;
 mod class_field_inits;
 mod class_member;

@@ -58,6 +58,34 @@ use crate::ast::{
 use crate::lexer::Token;
 
 impl<'a> Parser<'a> {
+    /// The mangled member name for `*#g()`, and the two §15.7.1 /
+    /// §15.7 duties that come with a private ClassElementName:
+    /// `#constructor` is a Syntax Error in every position, and the
+    /// RAW name registers in the enclosing class's private scope so a
+    /// nested `#g` reference binds lexically. Both are verbatim what
+    /// the ordinary-member path in `parse_class_decl_member.rs` does,
+    /// so `static *#g()` (S2.37) needs no static-private lane: the
+    /// hoisted `function*` takes the class object as its `any`-typed
+    /// receiver exactly as a public `static *g()` does.
+    fn generator_private_member_name(
+        &mut self,
+        n: &str,
+        class_name: &str,
+    ) -> Result<String, String> {
+        if n == "constructor" {
+            return Err(format!(
+                "class member may not be named `#constructor` in class `{class_name}` at {} (ES §15.7.1)",
+                self.at()
+            ));
+        }
+        if let Some(&sid) = self.class_stack.last() {
+            self.ast.class_private_scopes[sid as usize]
+                .1
+                .insert(n.to_string());
+        }
+        Ok(format!("__priv_{class_name}__{n}"))
+    }
+
     /// Parse `*<name>(params) { body }` as a class member. The caller
     /// has already consumed any modifier prefix and verified the current
     /// token is `Star`.
@@ -84,34 +112,11 @@ impl<'a> Parser<'a> {
             t if Self::keyword_property_name(t).is_some() => {
                 Self::keyword_property_name(t).unwrap().to_string()
             }
-            // P-SURF S2.2 × S2.1 — `*#g() {}`. Mangled and forced
-            // Private exactly as the ordinary-member path does
-            // (`parse_class_decl_member.rs`), so everything downstream
-            // sees a regular name and `this.#g()` resolves to it via the
-            // same rewrite. `static *#g()` (S2.37) rides the same
-            // mangle: the hoisted `function*` takes the class object as
-            // its `any`-typed receiver exactly as a public `static *g()`
-            // does, so nothing downstream needs a static-private lane.
+            // P-SURF S2.2 × S2.1 — `*#g() {}`; see the helper above.
             Token::PrivateIdent(n) => {
-                // ES §15.7.1 — "#constructor" is a Syntax Error in
-                // every ClassElementName position (same check as the
-                // ordinary-member path in parse_class_decl_member.rs).
-                if n == "constructor" {
-                    return Err(format!(
-                        "class member may not be named `#constructor` in class `{class_name}` at {} (ES §15.7.1)",
-                        self.at()
-                    ));
-                }
-                visibility = Visibility::Private;
                 let n = n.clone();
-                // Same raw-name registration as the ordinary-member
-                // path — a nested `#<n>` reference binds lexically.
-                if let Some(&sid) = self.class_stack.last() {
-                    self.ast.class_private_scopes[sid as usize]
-                        .1
-                        .insert(n.clone());
-                }
-                format!("__priv_{class_name}__{n}")
+                visibility = Visibility::Private;
+                self.generator_private_member_name(&n, class_name)?
             }
             t => {
                 return Err(format!(
@@ -121,6 +126,19 @@ impl<'a> Parser<'a> {
             }
         };
         self.pos += 1;
+
+        // §15.7.1 ClassElementName — a generator is always a
+        // SpecialMethod, so `*constructor(){}` dies here while the
+        // plain one in the sibling parser IS the constructor. A
+        // private name arrived mangled and cannot collide; this
+        // parser has no computed-name branch at all.
+        self.reject_class_element_name(
+            class_name,
+            &member_name,
+            is_static,
+            true,
+            super::class_element_name::ClassElementPos::Method { special: true },
+        )?;
 
         // §15.5.1 — the generator bit swaps in BEFORE the param list
         // (FormalParameters[+Yield]); error paths do not restore.

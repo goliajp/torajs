@@ -79,25 +79,24 @@ impl<'a> Parser<'a> {
         if !consumed_computed_name {
             self.pos += 1; // consume name
         }
-        let is_ctor_branch = member_name == "constructor";
-        // 398-01 — method-level type parameters: `pair<T>(v: T)`.
-        // Parsed with the standalone-fn list parser and concatenated
-        // after the class-level list on the desugared FnDecl, so
-        // monomorphization needs no new machinery. A constructor
-        // cannot declare its own (TS 1092) — the class-level list is
-        // the ctor's.
-        let type_params = if matches!(self.peek(), Token::Lt) {
-            let tp = self.parse_fn_type_params()?;
-            if is_ctor_branch {
-                return Err(format!(
-                    "type parameters cannot appear on a constructor declaration in class `{name}` at {}",
-                    self.at()
-                ));
-            }
-            tp
-        } else {
-            Vec::new()
-        };
+        // §15.7.1 ClassElementName — `parser/class_element_name.rs`
+        // (generator methods call the same judge from their sibling).
+        self.reject_class_element_name(
+            name,
+            member_name.as_str().unwrap_or(""),
+            is_static,
+            !consumed_computed_name,
+            super::class_element_name::ClassElementPos::Method {
+                special: accessor_kind.is_some() || is_async,
+            },
+        )?;
+        // A static element spelled `constructor` is an ordinary static
+        // member: PrototypePropertyNameList collects only the
+        // non-static ones, so it is not the class's constructor and
+        // takes the plain-method branch below (rotation 575 — tr used
+        // to refuse it, a refusal of programs every engine runs).
+        let is_ctor_branch = member_name == "constructor" && !is_static;
+        let type_params = self.parse_class_method_type_params(name, is_ctor_branch)?;
         let (params, promoted_props, destr_lets) = if is_ctor_branch {
             let (p, pr, dl) = self.parse_ctor_param_list()?;
             (p, pr, dl)
@@ -215,12 +214,7 @@ impl<'a> Parser<'a> {
                 full
             }
         };
-        if member_name == "constructor" {
-            if is_static {
-                return Err(format!(
-                    "`static constructor` is not allowed in class `{name}`"
-                ));
-            }
+        if is_ctor_branch {
             if is_abstract_method {
                 return Err(format!(
                     "`abstract constructor` is not allowed in class `{name}`"
@@ -267,6 +261,29 @@ impl<'a> Parser<'a> {
     /// V3-18 wedge — for each TS parameter-property (e.g. `public x:
     /// number`), promote to an instance field on the class and prepend
     /// `this.<n> = <n>` to the ctor body.
+    /// 398-01 — a method's own type-parameter list, `pair<T>(v: T)`.
+    /// Parsed with the standalone-fn list parser and concatenated
+    /// after the class-level list on the desugared FnDecl, so
+    /// monomorphization needs no new machinery. A constructor cannot
+    /// declare its own (TS 1092) — the class-level list is the ctor's.
+    fn parse_class_method_type_params(
+        &mut self,
+        name: &str,
+        is_ctor_branch: bool,
+    ) -> Result<Vec<String>, String> {
+        if !matches!(self.peek(), Token::Lt) {
+            return Ok(Vec::new());
+        }
+        let tp = self.parse_fn_type_params()?;
+        if is_ctor_branch {
+            return Err(format!(
+                "type parameters cannot appear on a constructor declaration in class `{name}` at {}",
+                self.at()
+            ));
+        }
+        Ok(tp)
+    }
+
     fn promote_ctor_param_props(
         &mut self,
         name: &str,
