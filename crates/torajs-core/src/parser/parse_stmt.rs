@@ -35,27 +35,13 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Ok(Stmt::Block(Vec::new()));
         }
-        // ES §16.2.2 ImportDeclaration vs §13.3.10 ImportCall — a
-        // statement-position `import(...)` is an EXPRESSION statement
-        // (`import("./x").then(...)`), not an import declaration;
-        // only `import` followed by anything else takes the decl
-        // parser. Falls through to the expression-statement tail,
-        // whose primary tier owns the `import(` form.
-        if matches!(self.peek(), Token::Import)
-            && !matches!(self.tokens[self.pos + 1].token, Token::LParen)
-            // `import.defer("...")` / `import.source("...")` in
-            // statement position are ImportCall expressions like bare
-            // `import(...)` (§13.3.10 + phase-import proposals) — only
-            // `import.<other>` and clause forms take the declaration
-            // parser.
-            && !(matches!(self.tokens[self.pos + 1].token, Token::Dot)
-                && matches!(&self.tokens[self.pos + 2].token,
-                    Token::Ident(n) if n == "defer" || n == "source"))
-        {
-            return self.parse_import();
-        }
-        if matches!(self.peek(), Token::Export) {
-            return self.parse_export();
+        // §16.2 ModuleItem — `import` / `export` DECLARATIONS are
+        // reachable only from a module's top level, never from a
+        // statement body. `parser/module_item.rs` owns that rule,
+        // the ImportCall carve-out, and why a depth counter answers
+        // "am I at the top level" without a flag per nesting site.
+        if let Some(r) = self.try_parse_module_item() {
+            return r;
         }
         if matches!(self.peek(), Token::LBrace) {
             return self.parse_block();

@@ -63,6 +63,7 @@ mod gen_arguments_face;
 mod import_export;
 mod keyword_property;
 mod loops;
+mod module_item;
 mod object_literal;
 mod object_literal_computed;
 mod object_member;
