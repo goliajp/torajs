@@ -35,6 +35,35 @@ impl<'a> Parser<'a> {
         &mut self,
         parts: &[lexer::TemplatePart],
     ) -> Result<ExprId, String> {
+        // §12.9.6 — a TemplateCharacter admits neither a Legacy-
+        // OctalEscapeSequence nor a NonOctalDecimalEscapeSequence, and
+        // unlike the string-literal rule this one does not ask about
+        // the goal — a template spelling `\101` is a SyntaxError in
+        // sloppy script code too. Only UNTAGGED templates, which is exactly the set
+        // that reaches here — a tag applies its own `Token::Template`
+        // in `parse_postfix`, and for it §12.9.6 says the cooked value
+        // is `undefined` rather than an error.
+        //
+        // The raw spelling is the TRV, so the escape survives it; the
+        // cooked value has already lost it (the lexer decoded it to
+        // `A`, which is right for the string case and unreachable
+        // here).
+        for p in parts {
+            if let lexer::TemplatePart::Lit { raw, .. } = p
+                && crate::lexer::legacy_octal::first_legacy_escape(
+                    raw.as_bytes(),
+                    0,
+                    raw.len() as u32,
+                )
+                .is_some()
+            {
+                return Err(format!(
+                    "a template literal may not contain an octal or `\\8` / \
+                     `\\9` escape sequence at {} (ES §12.9.6)",
+                    self.at()
+                ));
+            }
+        }
         if parts.is_empty() {
             return Ok(self.ast.add_expr(Expr::String(String::new().into())));
         }

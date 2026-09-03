@@ -27,18 +27,14 @@
 //! change to what every downstream consumer of those spans sees and
 //! not this pass's to make.
 //!
-//! The escape walk deliberately does NOT re-implement the escape
-//! grammar. It steps two bytes per backslash and asks
-//! [`crate::lexer::legacy_octal::scan_legacy_octal_escape`] — the very
-//! function the scanner used for the value — at each one. Two bytes is
-//! enough because no longer escape (`\xNN`, `\uNNNN`, `\u{…}`) contains
-//! a backslash, so the walk can never land inside one and mistake its
-//! tail for a fresh escape.
+//! The escape walk itself lives with the grammar it asks
+//! ([`crate::lexer::legacy_octal::first_legacy_escape`]) rather than
+//! here, because the untagged-template gate in
+//! [`crate::parser::expr_entry`] asks the same question of a template's
+//! raw text.
 
 use super::Ast;
-use crate::lexer::legacy_octal::{
-    is_non_octal_decimal_escape, legacy_octal_number_value, scan_legacy_octal_escape,
-};
+use crate::lexer::legacy_octal::{first_legacy_escape, legacy_octal_number_value};
 use crate::lexer::{Spanned, Token};
 
 /// Fill [`Ast::legacy_octal_positions`] from one token stream. Called
@@ -70,25 +66,6 @@ pub fn record_legacy_octal_sites(ast: &mut Ast, source: &str, tokens: &[Spanned]
 
 const ESCAPE: &str = "an octal or `\\8` / `\\9` escape sequence";
 const NUMBER: &str = "a `0`-prefixed octal-style number";
-
-/// Offset of the first legacy escape inside a string literal's span,
-/// quotes included (a quote is never a backslash, so they need no
-/// special case).
-fn first_legacy_escape(bytes: &[u8], lo: u32, hi: u32) -> Option<u32> {
-    let mut i = lo;
-    while i + 1 < hi {
-        if bytes[i as usize] == b'\\' {
-            if scan_legacy_octal_escape(bytes, i).is_some() || is_non_octal_decimal_escape(bytes, i)
-            {
-                return Some(i);
-            }
-            i += 2;
-            continue;
-        }
-        i += 1;
-    }
-    None
-}
 
 /// `Some(msg)` = strict-goal SyntaxError. Sloppy goal always answers
 /// `None` — under it these are the values the lexer already produced.
