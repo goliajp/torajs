@@ -1,18 +1,26 @@
 //! Annex B §B.1.1 / §B.1.2 legacy octal — the one place that decides
 //! what `\101` and `010` mean, shared by everyone who has to ask.
 //!
-//! Two consumers, deliberately the same code: the scanners
-//! ([`super::scan::scan_string`], [`super::scan_number::scan_number`],
-//! [`super::scan_template`]) call it for the VALUE, and the parse-time
-//! recorder ([`crate::ast::legacy_octal_sites`]) calls it over the same
-//! spans for the POSITIONS the strict goal rejects. Two hand-written
-//! copies of this grammar would drift, and the drift would be a value
-//! that is legal under one of them and an error under the other.
+//! Three consumers, deliberately the same code:
 //!
-//! The value half is unconditional — sloppy script code really does
-//! evaluate `"\101"` to `"A"` and `010` to `8`, and tr answered `"101"`
-//! and `10`. The rejection half is the goal's, not the lexer's, and
-//! lives in the recorder.
+//! - the scanners ([`super::scan::scan_string`],
+//!   [`super::scan_number::scan_number`]) ask for the VALUE, which is
+//!   unconditional — sloppy script code really does evaluate `"\101"`
+//!   to `"A"` and `010` to `8`, and tr answered `"101"` and `10`;
+//! - the parse-time recorder ([`crate::ast::legacy_octal_sites`]) asks
+//!   over the same spans for the POSITIONS a strict goal rejects;
+//! - the untagged-template gate ([`crate::parser::expr_entry`]) asks of
+//!   a template's raw text, where §12.9.6 refuses the spelling under
+//!   every goal.
+//!
+//! Two hand-written copies of this grammar would drift, and the drift
+//! would be a spelling that is legal under one of them and an error
+//! under the other.
+//!
+//! A template never asks for the value: its literal parts are refused
+//! outright when untagged, and a TAGGED template's cooked value for one
+//! is `undefined` per §12.9.6 — which tr cannot yet spell, so it still
+//! answers with the decoded character there.
 
 /// `\` + LegacyOctalEscapeSequence (§B.1.2) at `i` (which points at the
 /// backslash). `Some((code_unit, width_including_backslash))`.
