@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T13:24:42.820Z",
+  "generatedAt": "2026-09-03T16:54:53.042Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T13:10:04Z",
-    "headSha": "0973af2c7",
-    "elapsedSec": 665.22,
+    "ranAt": "2026-09-03T16:38:31Z",
+    "headSha": "08400e65e",
+    "elapsedSec": 716.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30610,
-    "passNoOracle": 1028,
-    "passNegative": 4173,
-    "passTotal": 35811,
-    "bug": 12060,
+    "pass": 30611,
+    "passNoOracle": 1030,
+    "passNegative": 4204,
+    "passTotal": 35845,
+    "bug": 12026,
     "incompatible": 5303,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47871,
-    "passRateInScope": 67.35,
-    "passRateTrAccepted": 74.81
+    "passRateInScope": 67.41,
+    "passRateTrAccepted": 74.88
   },
   "torajs": {
-    "commit": "0973af2c7",
-    "commitSubject": "fix: `continue` to a label that names a switch ran the loop instead of failing",
+    "commit": "08400e65e",
+    "commitSubject": "fix: `\"use strict\"` in a function body did not condemn its legacy octal",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "08400e65e",
+      "subject": "fix: `\"use strict\"` in a function body did not condemn its legacy octal"
+    },
+    {
+      "hash": "45907737f",
+      "subject": "docs: the template gate asks this grammar for a refusal, not a value"
+    },
+    {
+      "hash": "eedaf28ba",
+      "subject": "fix: a template literal spelling `\\101` was accepted, and answered 101"
+    },
+    {
+      "hash": "07f7bfef2",
+      "subject": "fix: legacy octal was accepted under the strict goal, where it is a SyntaxError"
+    },
+    {
+      "hash": "651c0ac1c",
+      "subject": "style: rustfmt the legacy-octal grammar file"
+    },
+    {
+      "hash": "f09f331c3",
+      "subject": "fix: `\"\\101\"` was the three characters 101, and `010` was ten"
+    },
+    {
+      "hash": "aa66b531f",
+      "subject": "chore: rotation 573 close — sweep on 0973af2c7, five knives, zero regressions"
+    },
+    {
       "hash": "0973af2c7",
       "subject": "fix: `continue` to a label that names a switch ran the loop instead of failing"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "222179195",
       "subject": "refactor: move LocalInfo out of check.rs, which was one line from the limit"
-    },
-    {
-      "hash": "d6e9dc44d",
-      "subject": "chore: rotation 572 close — sweep on c8c95c5c9, seven knives, zero regressions"
-    },
-    {
-      "hash": "afe19bf54",
-      "subject": "refactor: split the two files this rotation pushed over 500"
-    },
-    {
-      "hash": "c8c95c5c9",
-      "subject": "fix: `a ?? b || c` parsed fine, and had been failing for someone else's reason"
-    },
-    {
-      "hash": "2a8a2e0ca",
-      "subject": "fix: `xs.length && xs[0]` did not compile, because a number has two widths"
-    },
-    {
-      "hash": "0d187a977",
-      "subject": "fix: `&&` refused every pair of types it had no name for"
-    },
-    {
-      "hash": "3e2c514fd",
-      "subject": "fix: `x!` was a list of punctuators, so every worded operator broke it"
-    },
-    {
-      "hash": "53b5c698d",
-      "subject": "fix: map answered an array of four types, not of what the callback returns"
     }
   ],
-  "headSha": "0973af2c7",
+  "headSha": "08400e65e",
   "autorun": {
-    "total": 876,
+    "total": 877,
     "baselineTarget": 10,
-    "bySelf": 871,
+    "bySelf": 872,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788431343-6146",
-      "at": "2026-09-03T10:29:03Z",
-      "ts": 1788431343,
+      "rotationId": "r-1788441934-6e45",
+      "at": "2026-09-03T13:25:34Z",
+      "ts": 1788441934,
       "trigger": "self",
-      "prevHead": "d6e9dc44d",
-      "handoffSha": "sha256:09882660e675fc49f10fffa13cf95a06ea483dff5c51fd051a42fd1ec07ee90d",
-      "handoffAgeSec": 8,
+      "prevHead": "aa66b531f",
+      "handoffSha": "sha256:f8bf7c1768c06e96c8a81a91ded3c9ea4422931125e5fdfcf3a644e9053915ed",
+      "handoffAgeSec": 52,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788441934-6e45",
+        "at": "2026-09-03T13:25:34Z",
+        "ts": 1788441934,
+        "trigger": "self",
+        "prevHead": "aa66b531f",
+        "handoffSha": "sha256:f8bf7c1768c06e96c8a81a91ded3c9ea4422931125e5fdfcf3a644e9053915ed",
+        "handoffAgeSec": 52,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788431343-6146",
         "at": "2026-09-03T10:29:03Z",
@@ -892,17 +903,6 @@
         "prevHead": "7a9a8ec87",
         "handoffSha": "sha256:e0edd282c921cd32465271ac3414ecb482737262d484f179f8909dcbb475cc17",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788365813-3dab",
-        "at": "2026-09-02T16:16:53Z",
-        "ts": 1788365813,
-        "trigger": "self",
-        "prevHead": "1fa882759",
-        "handoffSha": "sha256:a36505e01fd7d5702031a5ffe9ade54508a3ededd5d7a5f0ee35acc198535b2c",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
