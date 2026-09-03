@@ -114,6 +114,17 @@ pub struct Ast {
     /// synthesized-sentinel `__` filter must not localize them — a
     /// named-fn body writing one needs the global slot.
     pub sloppy_implicit_global_names: std::collections::HashSet<String>,
+    /// The `__`-prefixed identifier spellings the PROGRAM TEXT
+    /// contains, snapshotted out of the expression arena before any
+    /// pass mints a name (`ast::record_source_dunder_idents`). The
+    /// three undeclared-name checker sites carve `__` names out of the
+    /// §6.2.5.5 runtime-ReferenceError posture as compiler-synthesized;
+    /// `__` is tr's convention, not a reserved namespace, so this is
+    /// what tells one of tr's own names from one the program spelled
+    /// (sputnik writes `__ref` / `__key` / `__func` as user code).
+    /// Empty under the reduced REPL / LSP pipelines, which is the
+    /// pre-existing posture for every `__` name.
+    pub source_dunder_idents: std::collections::HashSet<String>,
     /// The bare names the sloppy delete triage folded — recorded so
     /// the implicit-globals sibling never synthesizes a `var` for a
     /// name the program deletes (`x = 1; delete x; x` wants the

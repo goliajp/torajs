@@ -165,6 +165,24 @@ pub use crate::check_monomorph::MonoOutput;
 pub use crate::check_monomorph_any_widen::WidenTarget;
 
 impl Checker {
+    /// Is this name one TR minted, rather than one the program spelled?
+    ///
+    /// The three undeclared-name sites (read, write, unresolved
+    /// capture) give an unresolvable identifier the §6.2.5.5 /
+    /// §6.2.5.6 posture — types `Any`, one deduped warning, a
+    /// catchable `ReferenceError` when evaluated — and carve out the
+    /// names tr synthesizes, because an unresolved one of those is a
+    /// compiler bug that a runtime throw would bury. `__` is the
+    /// prefix tr mints with, but it is not a reserved namespace and it
+    /// cannot answer this question on its own: sputnik's half of
+    /// test262 spells its user identifiers `__ref` / `__key` /
+    /// `__func` throughout. What answers it is provenance —
+    /// `ast::record_source_dunder_idents` snapshots the `__` names out
+    /// of the arena before any pass mints one.
+    pub(crate) fn is_synthesized_dunder(&self, name: &str) -> bool {
+        name.starts_with("__") && !self.source_dunder_idents.contains(name)
+    }
+
     pub(crate) fn new() -> Self {
         Self {
             globals: HashMap::new(),
@@ -173,6 +191,7 @@ impl Checker {
             aliases: HashMap::new(),
             class_structs: HashMap::new(),
             class_names: std::collections::HashSet::new(),
+            source_dunder_idents: std::collections::HashSet::new(),
             errors: Vec::new(),
             expected_return: None,
             current_class: None,
@@ -268,6 +287,10 @@ pub(crate) struct Checker {
     /// resolved; a generic class or a class expression is a class
     /// all the same.
     pub(crate) class_names: std::collections::HashSet<String>,
+    /// The `__`-prefixed names the PROGRAM TEXT spelled
+    /// (`ast.source_dunder_idents`). Read by
+    /// [`Checker::is_synthesized_dunder`].
+    pub(crate) source_dunder_idents: std::collections::HashSet<String>,
     /// T-04 — was `Vec<String>`; now carries severity + span. The
     /// public APIs (`check`, `collect_errors`) stringify back to the
     /// caller's expected shape; LSP consumes via `collect_diagnostics`.

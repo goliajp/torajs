@@ -77,6 +77,13 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
 }
 
 pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
+    // First of all, while the expression arena still holds nothing but
+    // what the parser put there: snapshot which `__`-prefixed names the
+    // PROGRAM spelled. Every pass below mints names with that prefix,
+    // starting with the eval desugar right underneath, and the three
+    // undeclared-name checker sites need the two told apart (doc on the
+    // pass).
+    ast::record_source_dunder_idents(ast);
     // Block/CaseBlock redeclaration early errors — must see the RAW
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.

@@ -166,9 +166,10 @@ pub(crate) fn check_closure(
             // registry (`class_get` / `proto_get`), the same way a
             // named-fn body reads it, and the lowering's capture
             // filter (`class_sentinel_name`) skips the env slot.
-        } else if cap.starts_with("__") || crate::check::is_known_builtin_global(cap) {
-            // Same carve-outs as the undeclared-read lane: synthetic
-            // names and name-keyed builtin globals stay hard errors.
+        } else if checker.is_synthesized_dunder(cap) || crate::check::is_known_builtin_global(cap) {
+            // Same carve-outs as the undeclared-read lane: names TR
+            // MINTED (by provenance, not by the `__` prefix) and
+            // name-keyed builtin globals stay hard errors.
             return Err(format!(
                 "closure `{fn_name}` references unknown identifier `{cap}`"
             ));

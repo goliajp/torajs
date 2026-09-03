@@ -69,11 +69,14 @@ pub(crate) fn check(
             // and keep typing the RHS — §13.15.2 evaluates rref before
             // PutValue throws, so its side effects (and any marked reads
             // inside it, e.g. the desugared `x = x * v` compound form)
-            // are real. Same carve-outs as the read side: `__`-prefixed
-            // names are compiler-synthesized, and known builtin globals
-            // (`Object = 12` / `NaN = 12` global-property write
-            // semantics) stay a hard reject — recorded boundary.
-            if name.starts_with("__") || crate::check::is_known_builtin_global(&name) {
+            // are real. Same carve-outs as the read side: a name TR
+            // MINTED (`is_synthesized_dunder` — not merely one spelled
+            // with the `__` prefix, which sputnik writes as user code),
+            // and known builtin globals (`Object = 12` / `NaN = 12`
+            // global-property write semantics) stay a hard reject —
+            // recorded boundary.
+            if checker.is_synthesized_dunder(&name) || crate::check::is_known_builtin_global(&name)
+            {
                 return Err(format!("assignment to undeclared `{name}`"));
             }
             checker.undeclared_reads.insert(target, name);

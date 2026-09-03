@@ -152,9 +152,11 @@ pub(crate) fn check(
         // deduped end-of-pipeline warning), and raises a catchable
         // ReferenceError when evaluated (see
         // ssa_lower_ident::try_undeclared_read_throw). Two carve-outs
-        // stay hard errors: `__`-prefixed names are compiler-
-        // synthesized (an unresolved one is a compiler bug, not user
-        // code), and known builtin globals (`parseInt` /
+        // stay hard errors: a name TR MINTED (an unresolved one is a
+        // compiler bug, not user code — and the judge is provenance,
+        // `is_synthesized_dunder`, because the `__` prefix alone calls
+        // sputnik's `__ref` / `__key` user identifiers compiler names),
+        // and known builtin globals (`parseInt` /
         // `queueMicrotask` / …) that exist only as NAME-keyed call
         // lanes — a speculative wedge probe types their callee
         // Ident, and a mark there turns every such call into a bogus
@@ -178,7 +180,8 @@ pub(crate) fn check(
             {
                 return Ok(Type::Any);
             }
-            if other.starts_with("__") || crate::check::is_known_builtin_global(other) {
+            if checker.is_synthesized_dunder(other) || crate::check::is_known_builtin_global(other)
+            {
                 return Err(format!("unknown identifier `{other}`"));
             }
             checker.undeclared_reads.insert(eid, other.to_string());

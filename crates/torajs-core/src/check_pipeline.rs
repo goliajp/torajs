@@ -49,6 +49,7 @@ pub(crate) fn pass_0_register_type_aliases(c: &mut Checker, ast: &Ast) {
     // r505 (A12) — every declared class, before any body is checked:
     // the `__class_<C>` / `__proto_<C>` reads resolve against it.
     c.class_names = ast.class_parents.keys().cloned().collect();
+    c.source_dunder_idents = ast.source_dunder_idents.clone();
     let mut placeholder_classes: std::collections::HashSet<String> =
         std::collections::HashSet::new();
     for stmt in &ast.stmts {
