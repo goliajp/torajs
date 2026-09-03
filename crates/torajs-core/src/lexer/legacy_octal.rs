@@ -26,7 +26,12 @@
 /// escape of §12.9.4.1 and is not legacy at all — this returns `None`
 /// for it, and the caller's `\0` arm keeps handling it.
 pub(crate) fn scan_legacy_octal_escape(bytes: &[u8], i: u32) -> Option<(u32, u32)> {
-    let oct = |k: u32| bytes.get(k as usize).copied().filter(|c| (b'0'..=b'7').contains(c));
+    let oct = |k: u32| {
+        bytes
+            .get(k as usize)
+            .copied()
+            .filter(|c| (b'0'..=b'7').contains(c))
+    };
     let d0 = oct(i + 1)?;
     // `\0` is legacy only when a decimal digit follows: `\08` is
     // NUL-then-`8` under the legacy production, `\0` alone is not.
