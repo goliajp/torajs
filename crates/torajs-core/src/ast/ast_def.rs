@@ -106,14 +106,6 @@ pub struct Ast {
     /// the desugar already emitted the drain shape, and the typed
     /// index lane would leave the park slot empty.
     pub dstr_deferred_rest: std::collections::HashSet<ExprId>,
-    /// Sloppy-goal implicit globals (§9.1.1.4.6, goal-triage family) —
-    /// the names whose hoisted `var` declaration the
-    /// `sloppy_implicit_globals` pass synthesized from never-declared
-    /// assignment targets. These are USER names (sputnik convention
-    /// spells them `__x`), so the data-global promote gate's
-    /// synthesized-sentinel `__` filter must not localize them — a
-    /// named-fn body writing one needs the global slot.
-    pub sloppy_implicit_global_names: std::collections::HashSet<String>,
     /// The `__`-prefixed identifier spellings the PROGRAM TEXT
     /// contains, recorded from the LEXER's token stream — not the
     /// expression arena, which the parser itself mints into

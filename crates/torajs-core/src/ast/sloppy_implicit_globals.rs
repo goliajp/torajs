@@ -6,9 +6,9 @@
 //! time (`__x = 1` then `typeof __x` is `"number"`); before the write
 //! runs, the name simply does not resolve (`typeof __x` is
 //! `"undefined"`). The checker hard-rejects such writes for
-//! `__`-prefixed names (its compiler-synthesized carve-out) and would
-//! give the strict runtime-ReferenceError posture to the rest — both
-//! wrong under the sloppy goal.
+//! names it takes for compiler-synthesized and would give the strict
+//! runtime-ReferenceError posture to the rest — both wrong under the
+//! sloppy goal.
 //!
 //! Statically decidable here, same as the siblings: walk the program
 //! for assignments whose target is an identifier it never declares,
@@ -58,7 +58,6 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
         .into_iter()
         .map(|name| {
             let init = ast.add_expr(Expr::Uninit);
-            ast.sloppy_implicit_global_names.insert(name.clone());
             Stmt::LetDecl {
                 mutable: true,
                 name,

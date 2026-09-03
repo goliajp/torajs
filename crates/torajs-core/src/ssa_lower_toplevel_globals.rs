@@ -241,7 +241,14 @@ fn slot_type_supported(
         // named-fn-visible home the Any gate exists for (an
         // uninitialized `static x;` types "any" with an undefined
         // init, and every `__sm_` method write lands on it).
-        && (!name.starts_with("__")
+        // The first clause asks PROVENANCE, not spelling: a `__` name
+        // the PROGRAM wrote is an ordinary user binding and promotes
+        // like any other (`let __o: any = {}` read from a named fn was
+        // a hard `ssa-lower: unknown ident` before rotation 573 — the
+        // same program with the prefix removed compiled). The clauses
+        // under it are a different question: those names ARE minted,
+        // but what they HOLD is the user's, so they promote too.
+        && (!crate::ast::is_synthesized_dunder(ast, name)
             || name.starts_with("__ccmk_")
             || name.starts_with("__sf_")
             // …and the resolver's re-export face bindings plus the
@@ -257,13 +264,7 @@ fn slot_type_supported(
             // minted, but what it holds is the user's class, and the
             // named fns that read it are the user's too. See
             // `capturing_classes::is_es5_class_binding`.
-            || crate::ast::capturing_classes::is_es5_class_binding(name)
-            // …and the sloppy-goal implicit globals (goal-triage
-            // family third member): USER names — the sputnik corpus
-            // spells them `__x` — whose hoisted `var` the
-            // `sloppy_implicit_globals` pass synthesized; a named-fn
-            // body writing one needs the global slot.
-            || ast.sloppy_implicit_global_names.contains(name)))
+            || crate::ast::capturing_classes::is_es5_class_binding(name)))
 }
 
 /// Whether a MUTABLE refcounted binding still promotes to a data

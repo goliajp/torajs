@@ -278,7 +278,7 @@ pub use regex_result_props::analyze_regex_result_props;
 pub use sfi_pass::rewrite_split_for_i_to_iter;
 pub use sig_thunk::synthesize_sig_thunks;
 pub use sloppy_implicit_globals::synthesize_sloppy_implicit_globals;
-pub use source_dunder_idents::record_source_dunder_idents;
+pub use source_dunder_idents::{is_synthesized_dunder, record_source_dunder_idents};
 pub use spread_callee_wrap::wrap_dynamic_spread_callees;
 pub use stmt::{ExportStar, Stmt, SwitchCase};
 pub(crate) use stmt::{GEN_ARGV_PARAM, GEN_METHOD_PREFIX, GEN_RECV_PARAM};

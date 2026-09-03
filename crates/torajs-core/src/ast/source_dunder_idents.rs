@@ -50,3 +50,13 @@ pub fn record_source_dunder_idents(ast: &mut Ast, tokens: &[Spanned]) {
         }
     }
 }
+
+/// Is this name one TR minted, rather than one the program spelled?
+///
+/// The one judge behind every site that used to ask
+/// `name.starts_with("__")`: the three undeclared-name checker sites
+/// (through `Checker::is_synthesized_dunder`, which reads its own
+/// copy of the set) and the lowering's data-global promote gate.
+pub fn is_synthesized_dunder(ast: &Ast, name: &str) -> bool {
+    name.starts_with("__") && !ast.source_dunder_idents.contains(name)
+}
