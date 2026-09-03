@@ -225,6 +225,9 @@ pub(crate) fn check(
     ) {
         checker.errors.push_err(e);
     }
+    // An initializer is the binding's first assignment — see
+    // `Checker::apply_decl_narrow`.
+    checker.apply_decl_narrow(ast, name, init);
 }
 
 /// A closure init whose capture list names the very binding it
