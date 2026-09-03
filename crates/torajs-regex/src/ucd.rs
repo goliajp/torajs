@@ -126,6 +126,33 @@ pub fn lookup_binary(name: &str) -> Option<&'static [UPropRange]> {
     lookup_with_aliases(BINARY_ALIASES, BINARY_TABLES, name)
 }
 
+/// ES §12.7.1 `IdentifierStartChar` as a code point — `UnicodeIDStart`
+/// plus `$` and `_`. §22.2.1 `RegExpIdentifierStart` is that same set
+/// (its other two productions are spellings — a `\u` escape and a
+/// surrogate pair — which the caller folds to a code point first), so
+/// a capture-group name is judged by the rule that judges a JS
+/// identifier, out of the tables this crate already carries.
+pub fn is_identifier_start_cp(cp: u32) -> bool {
+    if cp < 0x80 {
+        return cp == u32::from(b'$') || cp == u32::from(b'_') || (cp as u8).is_ascii_alphabetic();
+    }
+    lookup_binary("ID_Start").is_some_and(|t| uprop_range_contains(t, cp as i32))
+}
+
+/// ES §12.7.1 `IdentifierPartChar` — `UnicodeIDContinue` plus `$`,
+/// <ZWNJ> and <ZWJ>. `_` needs no special case: it is in ID_Continue.
+pub fn is_identifier_part_cp(cp: u32) -> bool {
+    if cp < 0x80 {
+        return cp == u32::from(b'$')
+            || cp == u32::from(b'_')
+            || (cp as u8).is_ascii_alphanumeric();
+    }
+    if cp == 0x200C || cp == 0x200D {
+        return true;
+    }
+    lookup_binary("ID_Continue").is_some_and(|t| uprop_range_contains(t, cp as i32))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

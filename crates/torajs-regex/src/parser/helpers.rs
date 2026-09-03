@@ -35,9 +35,11 @@ pub(crate) fn hex_value(h: u8) -> Option<u8> {
     }
 }
 
-/// Word-byte predicate used by named-group / `\k<>` / `\p{}` name
-/// parsing. Matches `[A-Za-z0-9_]` (ASCII only — same as C port).
-/// Public so the future VM (P6.2-e) can reuse for `\b` word-boundary.
+/// Word-byte predicate used by `\p{}` property-name parsing. Matches
+/// `[A-Za-z0-9_]` (ASCII only — same as C port). Public so the future
+/// VM (P6.2-e) can reuse for `\b` word-boundary. A capture-group name
+/// is an identifier, not a word-byte run — it reads through
+/// [`super::Parser::read_group_name`].
 pub fn is_word_byte(c: u8) -> bool {
     c.is_ascii_alphanumeric() || c == b'_'
 }

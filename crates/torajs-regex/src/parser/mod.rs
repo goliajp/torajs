@@ -24,6 +24,7 @@
 //! - [`mod@self`] — `Parser` struct + cursor primitives +
 //!   `parse_alt / concat / repeat / braced_repeat` + cross-file
 //!   helpers (`read_word_name`, `read_hex_digit`,
+//!   `read_group_name` in [`group_name`],
 //!   `apply_property_name`, free-fn `char_node` / `class_node`).
 //! - [`atom`] — `parse_atom` + `parse_group`.
 //! - [`escape`] — `parse_escape` + 7 specialized escape helpers
@@ -39,6 +40,7 @@ mod class;
 mod class_v;
 mod class_v_set;
 mod escape;
+mod group_name;
 mod helpers;
 mod named_groups;
 
@@ -360,7 +362,9 @@ impl<'p> Parser<'p> {
 
     /// Read a sequence of word bytes (`[A-Za-z0-9_]`) terminated by
     /// `delim`. Consumes the delimiter. Returns `None` (sets err) on
-    /// EOF or empty name.
+    /// EOF or empty name. This is the `\p{Name=Value}` value
+    /// production — a capture-group name is an identifier and reads
+    /// through [`Parser::read_group_name`] instead.
     pub(super) fn read_word_name(&mut self, delim: u8) -> Option<Vec<u8>> {
         let start = self.i;
         while !self.eof() && self.peek() != delim {

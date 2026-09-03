@@ -128,21 +128,24 @@ impl<'p> Parser<'p> {
                         self.get();
                         kind = NodeKind::NegLookbehind;
                     }
-                    name_lead if super::is_word_byte(name_lead) => {
-                        // `(?<name>...)` — named capture group.
+                    _ => {
+                        // `(?<name>...)` — named capture group. Anything
+                        // after `(?<` that is not `=` or `!` opens one:
+                        // the same split `scan_has_named_groups` makes,
+                        // and what is inside is judged by
+                        // `read_group_name`, not by this byte. Testing
+                        // the lead for a word byte here would refuse
+                        // `(?<$x>` and every non-ASCII name before the
+                        // name production ever saw them.
                         self.get();
                         self.get(); // consume `?<`
-                        let name = self.read_word_name(b'>')?;
+                        let name = self.read_group_name()?;
                         capture_idx = self.assign_capture_idx()?;
                         // Ensure the names slot exists at this index.
                         while self.names.len() <= capture_idx as usize {
                             self.names.push(Vec::new());
                         }
                         self.names[capture_idx as usize] = name;
-                    }
-                    _ => {
-                        self.set_err();
-                        return None;
                     }
                 },
                 _ => {

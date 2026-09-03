@@ -116,7 +116,7 @@ impl<'p> Parser<'p> {
             return None;
         }
         self.get(); // consume `<`
-        let name = self.read_word_name(b'>')?;
+        let name = self.read_group_name()?;
         let mut n = Node::new(NodeKind::Backref);
         n.capture_idx = -1; // resolved post-parse
         n.backref_name = name;
@@ -179,7 +179,7 @@ impl<'p> Parser<'p> {
     /// on success; `Some(None)` is not used (this form always either
     /// produces a code point or errors). Returns `None` and sets err
     /// on malformed input.
-    fn parse_braced_unicode(&mut self) -> Option<Option<i32>> {
+    pub(super) fn parse_braced_unicode(&mut self) -> Option<Option<i32>> {
         self.get(); // consume `{`
         let mut val: i64 = 0;
         let mut ndig = 0;
@@ -212,7 +212,7 @@ impl<'p> Parser<'p> {
     /// `\uHHHH` 4-digit form. Returns `Some(cp)` on success; `None`
     /// on a non-hex byte (caller falls back to literal `u`). Does NOT
     /// set err on the fallback path.
-    fn parse_4digit_unicode(&mut self) -> Option<i32> {
+    pub(super) fn parse_4digit_unicode(&mut self) -> Option<i32> {
         if self.remaining() < 4 {
             return None;
         }
