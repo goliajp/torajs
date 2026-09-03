@@ -1670,6 +1670,22 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Latest @ `0973af2c7`** (2026-09-03, rotation 573 — `__` is tr's
+minting convention, not a reserved namespace, so the three
+undeclared-name sites and the data-global promote gate stopped asking
+`starts_with("__")` and started asking provenance: which `__` names
+did the LEXER see. Plus §14.8.1 / §14.9.1 `break` / `continue` early
+errors, which ssa_lower had been deciding correctly under the name
+`not yet supported`). Gate predicate: **140** clusters of ≥ 4 holding
+**1095** cases, register 2 · 247, residue 452 · 609 (31.2%), core
+**1951**, coverage top-100 **56.9%** / top-200 **75.0%** / top-400
+**89.2%**. Against rotation 566's stamp: clusters 143 → **140 (−3)**,
+core 2005 → **1951 (−54)**. The verdict diff against rotation 572 is
+39 cases, all forward, 0 regressions — 24 of them
+`incompatible:negative-unsupported` → `pass-negative`, which is the
+label early errors moving a right answer from the wrong phase to the
+right one.
+
 **Still current at `38d861ecf`** (2026-09-03, rotation 566). Rotations
 560 through 566 have not moved one predicate count. 560-562 swept with
 a verdict diff of **0 lines** (the console.log surface, the Map / Set

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T10:28:38.958Z",
+  "generatedAt": "2026-09-03T13:24:42.820Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T10:11:13Z",
-    "headSha": "c8c95c5c9",
-    "elapsedSec": 705.6,
+    "ranAt": "2026-09-03T13:10:04Z",
+    "headSha": "0973af2c7",
+    "elapsedSec": 665.22,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30602,
+    "pass": 30610,
     "passNoOracle": 1028,
-    "passNegative": 4149,
-    "passTotal": 35779,
-    "bug": 12053,
-    "incompatible": 5342,
+    "passNegative": 4173,
+    "passTotal": 35811,
+    "bug": 12060,
+    "incompatible": 5303,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47832,
-    "passRateInScope": 67.29,
-    "passRateTrAccepted": 74.8
+    "trAccepted": 47871,
+    "passRateInScope": 67.35,
+    "passRateTrAccepted": 74.81
   },
   "torajs": {
-    "commit": "afe19bf54",
-    "commitSubject": "refactor: split the two files this rotation pushed over 500",
+    "commit": "0973af2c7",
+    "commitSubject": "fix: `continue` to a label that names a switch ran the loop instead of failing",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "0973af2c7",
+      "subject": "fix: `continue` to a label that names a switch ran the loop instead of failing"
+    },
+    {
+      "hash": "c4b8d7466",
+      "subject": "fix: `let __o: any` read from a named function did not compile"
+    },
+    {
+      "hash": "b01223e0c",
+      "subject": "fix: the parser mints `__` names too, so the arena is the wrong place to ask"
+    },
+    {
+      "hash": "1288ac07d",
+      "subject": "fix: `__ref` is a name the program wrote, not a name tr minted"
+    },
+    {
+      "hash": "222179195",
+      "subject": "refactor: move LocalInfo out of check.rs, which was one line from the limit"
+    },
+    {
+      "hash": "d6e9dc44d",
+      "subject": "chore: rotation 572 close — sweep on c8c95c5c9, seven knives, zero regressions"
+    },
+    {
       "hash": "afe19bf54",
       "subject": "refactor: split the two files this rotation pushed over 500"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "53b5c698d",
       "subject": "fix: map answered an array of four types, not of what the callback returns"
-    },
-    {
-      "hash": "046bb6dda",
-      "subject": "refactor: the same roster was written three more times, delete all three"
-    },
-    {
-      "hash": "35146c14c",
-      "subject": "fix: the argv packer kept its own roster of who owns an argument"
-    },
-    {
-      "hash": "d0b1f36a1",
-      "subject": "chore: re-run the rotation close on ae995755f, the sweep moves nothing"
-    },
-    {
-      "hash": "ae995755f",
-      "subject": "fix: a join walked on past the exception its own element raised"
-    },
-    {
-      "hash": "039a245a8",
-      "subject": "chore: rotation 571 sweep on 9d0d31b83, four cases leave the type-error bucket"
-    },
-    {
-      "hash": "9d0d31b83",
-      "subject": "fix: the checker spelled the join kernel table a third time, as a rejection"
     }
   ],
-  "headSha": "afe19bf54",
+  "headSha": "0973af2c7",
   "autorun": {
-    "total": 875,
+    "total": 876,
     "baselineTarget": 10,
-    "bySelf": 870,
+    "bySelf": 871,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788420682-6e9f",
-      "at": "2026-09-03T07:31:22Z",
-      "ts": 1788420682,
+      "rotationId": "r-1788431343-6146",
+      "at": "2026-09-03T10:29:03Z",
+      "ts": 1788431343,
       "trigger": "self",
-      "prevHead": "d0b1f36a1",
-      "handoffSha": "sha256:a09637c5568b96b1b0dd407c2bca6b4735d383e309913b6dc3b25d265888fc17",
-      "handoffAgeSec": 6,
+      "prevHead": "d6e9dc44d",
+      "handoffSha": "sha256:09882660e675fc49f10fffa13cf95a06ea483dff5c51fd051a42fd1ec07ee90d",
+      "handoffAgeSec": 8,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788431343-6146",
+        "at": "2026-09-03T10:29:03Z",
+        "ts": 1788431343,
+        "trigger": "self",
+        "prevHead": "d6e9dc44d",
+        "handoffSha": "sha256:09882660e675fc49f10fffa13cf95a06ea483dff5c51fd051a42fd1ec07ee90d",
+        "handoffAgeSec": 8,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788420682-6e9f",
         "at": "2026-09-03T07:31:22Z",
@@ -892,17 +903,6 @@
         "prevHead": "1fa882759",
         "handoffSha": "sha256:a36505e01fd7d5702031a5ffe9ade54508a3ededd5d7a5f0ee35acc198535b2c",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788357007-2c2e",
-        "at": "2026-09-02T13:50:07Z",
-        "ts": 1788357007,
-        "trigger": "self",
-        "prevHead": "d68f8f910",
-        "handoffSha": "sha256:0ce5df7a12aa39c060137423181f27caef280f03804e07ba379fba1b6ac3eb8d",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }
