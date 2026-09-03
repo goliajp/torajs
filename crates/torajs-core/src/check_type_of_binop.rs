@@ -39,6 +39,7 @@ use crate::check::{
     Checker, Type, js_add_coerces_to_number, js_arith_coerces_to_number, js_loose_eq_supported,
     rides_any_lane,
 };
+use crate::check_js_semantics::nullable_ptr_shaped;
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -98,15 +99,19 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
         // interpolations).
         || (l == Type::String && r == Type::RegExp)
         || (l == Type::RegExp && r == Type::String)
-        // Cluster #6 (rotation 442) — Str + Nullable(Array): the
-        // un-narrowed `match`/`exec` result rides the concat lane
-        // directly (`"got: " + s.match(re)`). §13.15.3 with a String
-        // side always concatenates, and ToString covers both arms:
-        // null → "null", an array → its join — so the answer is
-        // String either way. The lowering guards the in-band 0
-        // sentinel before the array coerce.
-        || (l == Type::String && matches!(&r, Type::Nullable(inner) if matches!(&**inner, Type::Array(_))))
-        || (matches!(&l, Type::Nullable(inner) if matches!(&**inner, Type::Array(_))) && r == Type::String)
+        // Cluster #6 (rotation 442) — Str + a pointer-shaped
+        // nullable. §13.15.3 with a String side always concatenates,
+        // and ToString answers for BOTH faces of the union: null →
+        // "null", the value → whatever its own ToString says. So the
+        // result is String either way, and the reason has nothing to
+        // do with which T it is — the arm was written for the
+        // un-narrowed `match`/`exec` result (`"got: " + s.match(re)`)
+        // and stayed pinned to Array for three hundred rotations,
+        // refusing `"" + q` on a struct, a string and a closure alike.
+        // The two scalars are not here: their nullable rides `any`
+        // and the arm below answers them.
+        || (l == Type::String && nullable_ptr_shaped(&r))
+        || (nullable_ptr_shaped(&l) && r == Type::String)
     {
         return Ok(Type::String);
     }

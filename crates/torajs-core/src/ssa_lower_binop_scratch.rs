@@ -46,8 +46,8 @@ pub(crate) struct BinopScratch {
     /// in-band 0 sentinel). The string-concat coerce reads these to
     /// guard the sentinel and answer "null" per §13.15.3
     /// ToString(null) instead of handing NULL to `arr_join`.
-    pub(crate) left_nullable_arr: bool,
-    pub(crate) right_nullable_arr: bool,
+    pub(crate) left_nullable_ptr: bool,
+    pub(crate) right_nullable_ptr: bool,
     /// S9 square carve — set when both Mul operands are the same identifier
     /// (`x * x`): a value times itself can never be negative×zero, so -0 is
     /// unmintable and the int path keeps (mirrors the `width_of` square

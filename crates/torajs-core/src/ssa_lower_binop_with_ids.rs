@@ -55,12 +55,28 @@ impl<'a> LowerCtx<'a> {
             .is_some_and(|eid| crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid));
         self.binop.right_f64_undefable = right_id
             .is_some_and(|eid| crate::ssa_lower_undef_f64_source::is_undef_f64_source(self, eid));
-        let saved_left_na = self.binop.left_nullable_arr;
-        let saved_right_na = self.binop.right_nullable_arr;
-        self.binop.left_nullable_arr = left_id
-            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_nullable_arr_source(self, eid));
-        self.binop.right_nullable_arr = right_id
-            .is_some_and(|eid| crate::ssa_lower_nullable_guard::is_nullable_arr_source(self, eid));
+        let saved_left_na = self.binop.left_nullable_ptr;
+        let saved_right_na = self.binop.right_nullable_ptr;
+        // The checker type is the direct answer to "can this operand
+        // be the in-band 0". The shape sniff beside it predates it
+        // and stays because it also catches the sources the checker
+        // types as a plain Arr (`match` / `exec`); what it could not
+        // catch was an ordinary `const a: number[] | null = null`,
+        // whose `"" + a` produced no output at all.
+        self.binop.left_nullable_ptr = left_id.is_some_and(|eid| {
+            crate::ssa_lower_nullable_guard::is_nullable_arr_source(self, eid)
+                || matches!(
+                    self.expr_types.get(&eid),
+                    Some(t) if crate::check_js_semantics::nullable_ptr_shaped(t)
+                )
+        });
+        self.binop.right_nullable_ptr = right_id.is_some_and(|eid| {
+            crate::ssa_lower_nullable_guard::is_nullable_arr_source(self, eid)
+                || matches!(
+                    self.expr_types.get(&eid),
+                    Some(t) if crate::check_js_semantics::nullable_ptr_shaped(t)
+                )
+        });
         let saved_left = self.binop.left_undef_id.take();
         let saved_right = self.binop.right_undef_id.take();
         let saved_left_null = self.binop.left_null_id.take();
@@ -91,8 +107,8 @@ impl<'a> LowerCtx<'a> {
         self.binop.right_null_id = right_id
             .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
         let r = crate::ssa_lower_binop_inner::lower(self, op, a, b);
-        self.binop.left_nullable_arr = saved_left_na;
-        self.binop.right_nullable_arr = saved_right_na;
+        self.binop.left_nullable_ptr = saved_left_na;
+        self.binop.right_nullable_ptr = saved_right_na;
         self.binop.left_f64_undefable = saved_left_f64u;
         self.binop.right_f64_undefable = saved_right_f64u;
         self.binop.left_undef_id = saved_left;

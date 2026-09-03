@@ -31,7 +31,7 @@ pub(crate) fn is_nullable_ptr(ctx: &LowerCtx<'_>, arg_eid: ExprId, arg_ty: &Type
 }
 
 /// ToString for a pointer-shaped nullable — the shape
-/// `coerce_nullable_arr_to_str` already uses on the `+` path: branch
+/// `coerce_nullable_ptr_to_str` already uses on the `+` path: branch
 /// on the in-band 0, answer `null_to_str` on one side and the
 /// ordinary coercion on the other, merge through an alloca'd Str slot
 /// (this IR has no phi). Both arms answer an owned Str.

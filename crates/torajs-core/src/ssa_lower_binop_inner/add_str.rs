@@ -79,6 +79,9 @@ pub(crate) fn try_lower(
     // RFC 20260719-fn-tostring-source B5 — Str + fn concat routes
     // the fn side through the erased-source toString kernels.
     let fn_like = |t: Type| matches!(t, Type::FnSig(_) | Type::Closure(_));
+    // Either operand may be a pointer-shaped nullable, whose null is
+    // the in-band 0 — see `coerce_nullable_ptr_to_str`.
+    let nullable_side = ctx.binop.left_nullable_ptr || ctx.binop.right_nullable_ptr;
     let mixed_string = matches!(
         (a_ty, b_ty),
         (Type::Str, Type::I64)
@@ -105,12 +108,19 @@ pub(crate) fn try_lower(
         // the heap pointer as a number (measured on the checker-side
         // widening probe).
         || (str_or_substr(a_ty) && b_ty == Type::RegExp)
-        || (str_or_substr(b_ty) && a_ty == Type::RegExp);
+        || (str_or_substr(b_ty) && a_ty == Type::RegExp)
+        // A nullable STRING is a Str on both sides, so the plain
+        // Str+Str concat below would have taken it and handed the
+        // in-band 0 to `str_concat` — `"" + s` printed "undefined".
+        // Route the pair through the coerce path instead, where the
+        // sentinel guard lives.
+        || (str_or_substr(a_ty) && str_or_substr(b_ty) && nullable_side);
     // Any Substr operand: route through view-aware concat
     // helpers. One alloc + two memcpys (vs. 2 allocs + 3
     // memcpys via substr_to_owned + str_concat).
     let either_substr = a_ty == Type::Substr || b_ty == Type::Substr;
     if either_substr
+        && !nullable_side
         && (a_ty == Type::Str || a_ty == Type::Substr)
         && (b_ty == Type::Str || b_ty == Type::Substr)
     {
@@ -129,7 +139,7 @@ pub(crate) fn try_lower(
         drop_minted_temps(ctx, a, a_temp, b, b_temp);
         return Some(Operand::Value(v));
     }
-    if a_ty == Type::Str && b_ty == Type::Str {
+    if a_ty == Type::Str && b_ty == Type::Str && !nullable_side {
         let concat = ctx.intrinsics.str_concat;
         let v = ctx.f.append_inst(
             ctx.cur_block,
@@ -143,17 +153,18 @@ pub(crate) fn try_lower(
     if mixed_string {
         let a_undefable = ctx.binop.left_f64_undefable;
         let b_undefable = ctx.binop.right_f64_undefable;
-        // Cluster #6 (rotation 442) — a nullable-arr operand (an
-        // un-narrowed `match`/`exec` result; SSA repr a plain Arr
-        // pointer with the in-band 0 sentinel) guards the sentinel
-        // before the Arr coerce would hand NULL to `arr_join`.
-        let (a_str, a_fresh) = if ctx.binop.left_nullable_arr && matches!(a_ty, Type::Arr(_)) {
-            coerce_nullable_arr_to_str(ctx, a)
+        // Cluster #6 (rotation 442) — a pointer-shaped nullable
+        // operand is spelled as bare T here, so every arm of the
+        // coerce below reads its in-band 0 as a live value: the Arr
+        // arm handed NULL to `arr_join`, the Str arm passed the null
+        // pointer through. Guard the sentinel first.
+        let (a_str, a_fresh) = if ctx.binop.left_nullable_ptr && ptr_shaped(&a_ty) {
+            coerce_nullable_ptr_to_str(ctx, a)
         } else {
             coerce_to_str(ctx, a, a_undefable)
         };
-        let (b_str, b_fresh) = if ctx.binop.right_nullable_arr && matches!(b_ty, Type::Arr(_)) {
-            coerce_nullable_arr_to_str(ctx, b)
+        let (b_str, b_fresh) = if ctx.binop.right_nullable_ptr && ptr_shaped(&b_ty) {
+            coerce_nullable_ptr_to_str(ctx, b)
         } else {
             coerce_to_str(ctx, b, b_undefable)
         };
@@ -247,14 +258,24 @@ fn drop_minted_temps(ctx: &mut LowerCtx, a: Operand, a_temp: bool, b: Operand, b
     }
 }
 
-/// Cluster #6 (rotation 442) — the nullable-arr operand's coerce:
-/// branch on the in-band 0 sentinel (§13.15.3 ToString(null) →
-/// "null" via the same `null_to_str` kernel the Str+Null pair uses)
-/// before handing a live pointer to the plain Arr coerce
-/// (`arr_join`). The merge rides an alloca'd Str slot (this IR has
-/// no phi). Both arms mint a fresh Str, so the answer is always
-/// minted=true and the caller's temp drop balances either path.
-fn coerce_nullable_arr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
+/// Which SSA shapes carry a pointer-shaped nullable's in-band 0.
+/// Mirror of `ssa_lower_call_coercion_nullable::is_nullable_ptr`,
+/// which asks the same question for the `String(x)` call face.
+fn ptr_shaped(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::Str | Type::Substr | Type::Arr(_) | Type::Obj(_) | Type::FnSig(_) | Type::Closure(_)
+    )
+}
+
+/// Cluster #6 (rotation 442) — the pointer-shaped nullable operand's
+/// coerce: branch on the in-band 0 sentinel (§13.15.3 ToString(null)
+/// → "null" via the same `null_to_str` kernel the Str+Null pair uses)
+/// before handing a live pointer to the plain coerce. The merge rides
+/// an alloca'd Str slot (this IR has no phi). Both arms mint a fresh
+/// Str, so the answer is always minted=true and the caller's temp
+/// drop balances either path.
+fn coerce_nullable_ptr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Operand, bool) {
     let slot = ctx.alloca(Type::Str, None);
     let null_blk = ctx.f.add_block();
     let arr_blk = ctx.f.add_block();

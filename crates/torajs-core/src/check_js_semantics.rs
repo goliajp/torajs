@@ -47,6 +47,22 @@ pub(crate) fn rides_any_lane(t: &Type) -> bool {
     }
 }
 
+/// Is this a `T | null` whose null is the in-band 0 — the same slot T
+/// itself lives in?
+///
+/// The third question this file has been asked in the same shape, so
+/// it gets a name: [`narrow_within_lane`] asks it about the type a
+/// narrow may install, [`handler_param_admits`] about the value a call
+/// may put in a parameter slot, and the `+` operand check about
+/// whether ToString can answer for both faces of a union. All three
+/// are "is `Nullable<T>` the same slot as `T`", and the answer is yes
+/// for every pointer shape and no for the two scalars, whose nullable
+/// rides a NaN-boxed lane instead ([`rides_any_lane`]). Move one,
+/// move all of them.
+pub(crate) fn nullable_ptr_shaped(t: &Type) -> bool {
+    matches!(t, Type::Nullable(_)) && !rides_any_lane(t)
+}
+
 /// May a handler declaring `param` receive a value of type `given`?
 ///
 /// Contravariance says yes whenever `param` is wider: a `(v: string |
@@ -68,7 +84,7 @@ pub(crate) fn rides_any_lane(t: &Type) -> bool {
 /// disagreed hard enough to refuse the program.
 pub(crate) fn handler_param_admits(param: &Type, given: &Type) -> bool {
     match param {
-        Type::Nullable(inner) => inner.as_ref() == given && !rides_any_lane(param),
+        Type::Nullable(inner) => inner.as_ref() == given && nullable_ptr_shaped(param),
         _ => false,
     }
 }
