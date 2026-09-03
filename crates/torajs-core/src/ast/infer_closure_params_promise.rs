@@ -101,3 +101,56 @@ fn resolve_arg_ann(
         _ => infer_lit_ann(ast, eid),
     }
 }
+
+/// Seed the `.then` / `.catch` callback's un-annotated user params
+/// from the source promise's inner type.
+///
+/// Without this the param would default to `any` in
+/// `desugar_lifted_closure_fn`; the pthunk pre-scan then skips the
+/// callback (its param-face gate accepts only `None | Some("number")`)
+/// and the runtime dispatcher hands the raw i64 slot to a cb whose Any
+/// param cannot decode an F64 bit pattern — the user sees the raw bits
+/// as a huge integer.
+///
+/// A `T | null` source seeds `any`, not `T | null`. This pass reads
+/// the DECLARATION — it runs long before anything knows about
+/// narrowing — so `s = "hi"; Promise.resolve(s).then((v) => v + "!")`
+/// seeded `v: string | null` and the body was refused on a program
+/// whose value is a string throughout. The receiver, which does see
+/// the narrow, says `Promise<string>`; `handler_param_admits` already
+/// reconciles the two SIGNATURES, but the body is checked against
+/// whatever this pass wrote.
+///
+/// `any` is what a nullable rides anyway (`rides_any_lane`), and it is
+/// the honest seed here: this pass cannot know whether the value
+/// reaching the handler is null. Unseeded it would default to `any`
+/// too — the seed exists to keep an F64 source off the raw-i64 slot,
+/// which a nullable source never was. An un-narrowed null then reaches
+/// the body as a null and fails there, which is where bun fails. A
+/// handler that writes its own annotation keeps it (the seed only ever
+/// fills an absent one).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn seed_then_catch_params(
+    ast: &Ast,
+    obj: ExprId,
+    all_anns: &std::collections::HashMap<String, String>,
+    fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
+    closure_args: &[(usize, String)],
+    fn_user_param_count: &std::collections::HashMap<String, usize>,
+    param_only_updates: &mut std::collections::HashMap<String, Vec<String>>,
+) {
+    let Some(inner_ann) = resolve_promise_inner_ann(ast, obj, all_anns, fn_ret_anns) else {
+        return;
+    };
+    let seed = if inner_ann.starts_with("__nullable(") {
+        "any".to_string()
+    } else {
+        inner_ann
+    };
+    for (_arg_idx, fn_name) in closure_args {
+        let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
+        if p >= 1 {
+            param_only_updates.insert(fn_name.clone(), vec![seed.clone(); p]);
+        }
+    }
+}

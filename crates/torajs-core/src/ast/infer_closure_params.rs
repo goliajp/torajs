@@ -24,7 +24,6 @@ use super::infer_closure_params_helpers::{
     mapset_foreach_expected, seed_container_arg_hints, seed_let_ann_hints,
 };
 use super::infer_closure_params_hof::apply_hof_param_only_arm;
-use super::infer_closure_params_promise::resolve_promise_inner_ann;
 use super::{Ast, Expr, ExprId};
 use crate::ssa_lower_free_helpers::count_capture_groups;
 
@@ -258,50 +257,16 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         let Expr::Member { obj, name } = ast.get_expr(callee).clone() else {
             continue;
         };
-        // Promise<T>.then(cb) / .catch(cb) — infer cb's first param
-        // from the source promise inner type (Promise.resolve/reject
-        // of a literal, or a chained cb's return ann). Without this
-        // the cb's un-annotated param would default to `any` in
-        // `desugar_lifted_closure_fn`; the pthunk pre-scan then skips
-        // it (its param-face gate accepts only `None | Some("number")`)
-        // and the runtime dispatcher hands the raw i64 slot to a cb
-        // whose Any param can't decode an F64 bit pattern — the user
-        // sees the raw bits as a huge integer.
         if matches!(name.as_str(), "then" | "catch") {
-            if let Some(inner_ann) = resolve_promise_inner_ann(ast, obj, &all_anns, &fn_ret_anns) {
-                // A `T | null` source seeds `any`, not `T | null`.
-                // This pass reads the DECLARATION — it runs long
-                // before anything knows about narrowing — so
-                // `s = "hi"; Promise.resolve(s).then((v) => v + "!")`
-                // seeded `v: string | null` and the body was refused
-                // on a program whose value is a string throughout.
-                // The receiver, which does see the narrow, says
-                // `Promise<string>`; `handler_param_admits` already
-                // reconciles the two SIGNATURES, but the body is
-                // checked against whatever this pass wrote.
-                //
-                // `any` is what a nullable rides anyway
-                // (`rides_any_lane`), and it is the honest seed here:
-                // this pass cannot know whether the value reaching
-                // the handler is null. Unseeded it would default to
-                // `any` too — the seed exists to keep an F64 source
-                // off the raw-i64 slot, which a nullable source never
-                // was. An un-narrowed null then reaches the body as a
-                // null and fails there, which is where bun fails.
-                // A handler that writes its own annotation keeps it
-                // (the seed only fills an absent one).
-                let seed = if inner_ann.starts_with("__nullable(") {
-                    "any".to_string()
-                } else {
-                    inner_ann
-                };
-                for (_arg_idx, fn_name) in &closure_args {
-                    let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
-                    if p >= 1 {
-                        param_only_updates.insert(fn_name.clone(), vec![seed.clone(); p]);
-                    }
-                }
-            }
+            super::infer_closure_params_promise::seed_then_catch_params(
+                ast,
+                obj,
+                &all_anns,
+                &fn_ret_anns,
+                &closure_args,
+                &fn_user_param_count,
+                &mut param_only_updates,
+            );
             continue;
         }
         let obj_ann = resolve_receiver_ann(ast, obj, &all_anns);
