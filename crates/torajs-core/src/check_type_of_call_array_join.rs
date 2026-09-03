@@ -59,12 +59,11 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if let Type::Array(elem) = &src_ty
-        && matches!(
-            **elem,
-            Type::String | Type::Number | Type::Boolean | Type::Any
-        )
-    {
+    // The element-type list this used to carry was the `arr_join_*`
+    // kernel table, not a rule of §23.1.3.18. Declining here would
+    // now drop `[[1],[2]].join()` onto the 1-param member signature
+    // and fail it on arity instead.
+    if matches!(&src_ty, Type::Array(_)) {
         return Some(Ok(Type::String));
     }
     None

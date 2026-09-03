@@ -61,11 +61,29 @@ fn try_join(
         // because their .toLocaleString returns the same
         // value (no Intl substrate engaged).
         let is_locale = method == "toLocaleString";
+        // Which typed kernel reads these elements? `arr_join` is the
+        // Array<Str> one, so an element type without a kernel of its
+        // own — a nested array, a struct, a closure — takes the any
+        // lane, which reads each slot by the element kind the header
+        // records and runs the real per-element ToString. The
+        // coercion sites next door ask the same question in
+        // `ssa_lower_coerce_arr::join_fid`.
+        let kernel = matches!(
+            elem_ty,
+            Type::Substr | Type::I64 | Type::F64 | Type::Bool | Type::Any | Type::Str
+        );
+        if !kernel {
+            // The any lane reads the element kind off the cell; a
+            // typed block carries it only once someone marks it.
+            ctx.emit_arr_mark_kind(&recv_op);
+        }
         // §23.1.3.32 — an Arr<Any> receiver invokes each element's
         // OWN toLocaleString (observable hook; the join helper only
         // stringifies). Separate lane: unary, fresh owned Str, may
-        // leave a pending element-hook throw.
-        if is_locale && matches!(elem_ty, Type::Any) {
+        // leave a pending element-hook throw. An element type with no
+        // kernel joins the same lane — its elements are exactly the
+        // ones with a toLocaleString worth invoking.
+        if is_locale && (matches!(elem_ty, Type::Any) || !kernel) {
             let s = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.arr_any_to_locale_string, vec![recv_op]),
@@ -127,7 +145,9 @@ fn try_join(
             }
             Type::Bool => ctx.intrinsics.arr_join_bool,
             Type::Any => ctx.intrinsics.arr_join_any, // S126-4
-            _ => ctx.intrinsics.arr_join,
+            Type::Str => ctx.intrinsics.arr_join,
+            // No kernel — the any lane, already marked above.
+            _ => ctx.intrinsics.arr_join_any,
         };
         let mut argv = Vec::with_capacity(2);
         argv.push(recv_op);

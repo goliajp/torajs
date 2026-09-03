@@ -101,13 +101,10 @@ pub(crate) fn try_match(
         }
         return Some(Ok(Type::Array(elem.clone())));
     }
-    if m_name == "join"
-        && args.len() >= 2
-        && matches!(
-            **elem,
-            Type::String | Type::Number | Type::Boolean | Type::Any
-        )
-    {
+    // No element-type guard — see `check_type_of_call_array_join`:
+    // the list was the kernel table, and the kernel is no longer the
+    // only lane.
+    if m_name == "join" && args.len() >= 2 {
         let aty0 = match checker.type_of(ast, args[0]) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),

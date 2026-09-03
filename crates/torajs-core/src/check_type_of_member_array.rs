@@ -44,29 +44,24 @@ fn try_match_base(obj_ty: &Type, name: &str) -> Option<Type> {
         (Type::Array(elem), "valueOf") => {
             Type::Function(Vec::new(), Box::new(Type::Array(elem.clone())))
         }
-        // arr.join(sep): string — receiver is Array<T> for
-        // T = String / Number / Boolean (V3-18 m1.h.43:
-        // Number/Bool elements ToString'd inline by the
-        // runtime helper). sep borrowed; result freshly
+        // arr.join(sep): string. sep borrowed; result freshly
         // allocated.
-        (Type::Array(elem), "join")
-            if matches!(
-                **elem,
-                Type::String | Type::Number | Type::Boolean | Type::Any
-            ) =>
-        {
-            Type::Function(vec![Type::String], Box::new(Type::String))
-        }
+        //
+        // These two used to require T = String / Number / Boolean /
+        // Any, which spelled out the element types the `arr_join_*`
+        // kernels could read. That is a fact about the fast path, not
+        // about the language: §23.1.3.18 joins an array of ANY
+        // element type, and `String(arr)` — the same operation
+        // through a different door — never asked. So
+        // `String([[1],[2]])` compiled and `[[1],[2]].join(",")` was
+        // a type error, on consecutive lines of one program. The
+        // lowering takes the any lane for the element types with no
+        // kernel (`ssa_lower_str_arr_join_flat`), so the question the
+        // checker was answering no longer exists here.
+        (Type::Array(_), "join") => Type::Function(vec![Type::String], Box::new(Type::String)),
         // V3-18 wedge — Array.prototype.toString. Per JS
         // spec §22.1.3.30, equivalent to `arr.join(",")`.
-        // Subset matches the join intrinsic's element-type
-        // dispatch (Str / Number / Bool / Any — S126-4).
-        (Type::Array(elem), "toString" | "toLocaleString")
-            if matches!(
-                **elem,
-                Type::String | Type::Number | Type::Boolean | Type::Any
-            ) =>
-        {
+        (Type::Array(_), "toString" | "toLocaleString") => {
             Type::Function(Vec::new(), Box::new(Type::String))
         }
         // M1.2 — `xs.push(v)`: takes one element-typed arg,
