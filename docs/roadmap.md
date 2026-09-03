@@ -1670,7 +1670,42 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `8d1129f8d`** (2026-09-04, rotation 575 — three early
+**Latest @ `cc1290b74`** (2026-09-04, rotation 576 — four knives on a
+regular-expression literal, and two places where one judgement had
+grown a second spelling. A literal body may not span a LineTerminator
+and its flags are an IdentifierPart run; the two Early Errors only the
+whole pattern decides (`\k<name>` with no GroupSpecifier, a decimal
+escape past NcapturingParens under u/v) now run in the compile-time
+reject pass; and a capture-group name is a `RegExpIdentifierName`, not
+a run of `[A-Za-z0-9_]`). Gate predicate: **139** clusters of >= 4
+holding **1082** cases, register 2 · 247, residue 447 · 605 (31.3%),
+core **1934**, coverage top-100 **57.1%** / top-200 **75.2%** /
+top-400 **89.5%**. Against rotation 575: clusters 139 -> **139 (=)**,
+cases 1082 -> **1082 (=)**, core 1938 -> **1934 (-4)**. Sweep
+passTotal 35994 -> **36039 (+45)**, pass 30622 -> **30641 (+19)**,
+passNoOracle 1030 (=), passNegative 4342 -> **4368 (+26)**, bug 11890
+-> **11849 (-41)**, incompatible 5290 -> **5286 (-4)**, trAccepted
+47884 -> **47888 (+4)**; conservation exact (+4 = +45 - 41). Verdict
+diff 47 changed, **all forward, 0 backward**: 26
+`bug:negative-phase-mismatch` -> `pass-negative`, 15 `bug:exit 1` ->
+`pass` (the `S7.8.5_A*` families whose `eval` of a line-broken literal
+now throws where they catch), **4 out of `incompatible`** — the
+`named-groups` files carrying `-valid` in their own filenames, which
+tr had been refusing — and 2 more that left `parse error` for `type
+error`, past the parse wall and stopped by the next one.
+
+The fourth knife is the one worth remembering. An intermediate sweep
+on the first three had **one** non-forward line in its diff:
+`unicode_restricted_octal_escape.js` went `bug:exit 1` ->
+`incompatible:parse error`, and the gate was green through it. Cause:
+a constant `new RegExp("…", "…")` folds to a literal only when the
+pattern is well-formed — the fold said so in its comment and then
+asked its own narrower version of the question, so once the reject
+pass learned `resolve_backrefs`, the fold handed it `RegExp("\\5",
+"u")` as a literal and the file stopped compiling. Both sites now call
+one function.
+
+**Prior @ `8d1129f8d`** (2026-09-04, rotation 575 — three early
 errors of position and name: an `import` / `export` DECLARATION is a
 ModuleItem and cannot sit in a statement body; §15.7.1's four
 ClassElementName rules; and a class body may not declare the same
