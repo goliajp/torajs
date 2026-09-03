@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-02T21:51:10.134Z",
+  "generatedAt": "2026-09-03T00:02:01.336Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-02T21:38:03Z",
-    "headSha": "38d861ecf",
-    "elapsedSec": 832.16,
+    "ranAt": "2026-09-02T23:42:30Z",
+    "headSha": "a213f8140",
+    "elapsedSec": 550.56,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 74.79
   },
   "torajs": {
-    "commit": "38d861ecf",
-    "commitSubject": "fix: a bound function's print faces read its own name",
+    "commit": "a213f8140",
+    "commitSubject": "fix: a callee that may be undefined is still called through its signature",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "a213f8140",
+      "subject": "fix: a callee that may be undefined is still called through its signature"
+    },
+    {
+      "hash": "2864cc79a",
+      "subject": "fix: a declaration with no initializer holds undefined, not the type's zero"
+    },
+    {
+      "hash": "e0f5dceee",
+      "subject": "fix: a computed accessor's source text is not the same thing as its name"
+    },
+    {
+      "hash": "25685ed56",
+      "subject": "style: rustfmt the signature 2f2cd54ba added"
+    },
+    {
+      "hash": "2f2cd54ba",
+      "subject": "fix: a computed key names the class and the generator it holds too"
+    },
+    {
+      "hash": "414da1f09",
+      "subject": "fix: a class prints the name it was defined with, not the one it carries"
+    },
+    {
+      "hash": "db1d64d15",
+      "subject": "chore: rotation 566 sweep on 38d861ecf, ten forward verdicts"
+    },
+    {
       "hash": "38d861ecf",
       "subject": "fix: a bound function's print faces read its own name"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "84beaf9ec",
       "subject": "fix: an object-literal computed member's name is its runtime key"
-    },
-    {
-      "hash": "d80388cd8",
-      "subject": "chore: rotation 565 sweep on 8026c7f4f, one forward verdict"
-    },
-    {
-      "hash": "8026c7f4f",
-      "subject": "fix: a generic function is a value under its own name"
-    },
-    {
-      "hash": "7e18e646d",
-      "subject": "feat: `v!: T` is a claim to the type checker, not a parse error"
-    },
-    {
-      "hash": "c3acb828f",
-      "subject": "fix: a computed member's name is its runtime key"
-    },
-    {
-      "hash": "a92eca71e",
-      "subject": "refactor: a closure's inspect face is its own question"
-    },
-    {
-      "hash": "8c6e1ed51",
-      "subject": "fix: a builtin constructor reads as the class it is"
-    },
-    {
-      "hash": "7a9a8ec87",
-      "subject": "chore: rotation 564 sweep on 1da88dcf9, two forward verdicts"
     }
   ],
-  "headSha": "38d861ecf",
+  "headSha": "a213f8140",
   "autorun": {
-    "total": 869,
+    "total": 870,
     "baselineTarget": 10,
-    "bySelf": 864,
+    "bySelf": 865,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788378403-718b",
-      "at": "2026-09-02T19:46:43Z",
-      "ts": 1788378403,
+      "rotationId": "r-1788386108-2c23",
+      "at": "2026-09-02T21:55:08Z",
+      "ts": 1788386108,
       "trigger": "self",
-      "prevHead": "d80388cd8",
-      "handoffSha": "sha256:047208bc8fb8d183de5213e2c5e70b69d1003a2319393e87e4c2988129cac4df",
-      "handoffAgeSec": 4,
+      "prevHead": "db1d64d15",
+      "handoffSha": "sha256:3746d976f6237ef3a16ad8f207197e68fc53df23abff70c3a5f752a30fa90dc2",
+      "handoffAgeSec": 126,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788386108-2c23",
+        "at": "2026-09-02T21:55:08Z",
+        "ts": 1788386108,
+        "trigger": "self",
+        "prevHead": "db1d64d15",
+        "handoffSha": "sha256:3746d976f6237ef3a16ad8f207197e68fc53df23abff70c3a5f752a30fa90dc2",
+        "handoffAgeSec": 126,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788378403-718b",
         "at": "2026-09-02T19:46:43Z",
@@ -892,17 +903,6 @@
         "prevHead": "48ef5049b",
         "handoffSha": "sha256:46e729b8fde489dfe5d4fd8918d02bcfad9a1fb07b7ea1071c2b1de97edf28b7",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788297572-579f",
-        "at": "2026-09-01T21:19:32Z",
-        "ts": 1788297572,
-        "trigger": "self",
-        "prevHead": "4fde928f0",
-        "handoffSha": "sha256:741adf22d104b75976c79de5bd9921424ba8141e1ed8ccb820ba1d87ba9b5692",
-        "handoffAgeSec": 13,
         "conformanceBefore": null,
         "commitsInSession": null
       }
