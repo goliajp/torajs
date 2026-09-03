@@ -81,6 +81,15 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.
     ast::early_redecl_errors(ast);
+    // §14.8.1 / §14.9.1 `break` / `continue` early errors — same RAW-AST
+    // reason as the redeclaration gate above: the generator / async /
+    // for-of desugars rewrite loops, and a rewritten loop is not the
+    // shape the spec asks about. ssa_lower already decided every one of
+    // these and said "a syntax error upstream"; this is upstream.
+    if let Some(msg) = ast::early_label_errors(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     if !ast.redecl_parse_errors.is_empty() {
         for msg in &ast.redecl_parse_errors {
             eprintln!("parse error: {msg}");

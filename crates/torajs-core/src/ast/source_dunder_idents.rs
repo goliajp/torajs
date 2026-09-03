@@ -33,9 +33,9 @@
 //!
 //! Only `__`-prefixed spellings are kept: the judge asks about no
 //! others, and a full ident set would be a per-program allocation for
-//! nothing. Reduced pipelines that never parse through these entries
-//! leave the set empty, which is the pre-existing posture for every
-//! `__` name.
+//! nothing. Recording in the parser rather than as a prelude pass also
+//! means the reduced pipelines get it for free — the REPL and the LSP
+//! skip most of the desugar chain but they all parse through here.
 
 use super::Ast;
 use crate::lexer::{Spanned, Token};

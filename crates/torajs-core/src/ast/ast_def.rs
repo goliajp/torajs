@@ -115,8 +115,6 @@ pub struct Ast {
     /// `__` is tr's convention, not a reserved namespace, so this is
     /// what tells one of tr's own names from one the program spelled
     /// (sputnik writes `__ref` / `__key` / `__func` as user code).
-    /// Empty under the reduced REPL / LSP pipelines, which is the
-    /// pre-existing posture for every `__` name.
     pub source_dunder_idents: std::collections::HashSet<String>,
     /// The bare names the sloppy delete triage folded — recorded so
     /// the implicit-globals sibling never synthesizes a `var` for a
