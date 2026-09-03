@@ -54,7 +54,66 @@ impl Parser<'_> {
         // expression statements precedes this one.
         if seen.iter().all(|p| self.directive_value(p).is_some()) {
             self.in_strict_fn = true;
+            self.record_strict_prologue_body();
         }
+    }
+
+    /// Record the byte range this `"use strict"` just made strict, for
+    /// the gates that can only judge after the parse — today the
+    /// Annex B legacy-octal one ([`crate::ast::legacy_octal_sites`]).
+    ///
+    /// The range has to be the WHOLE body, not the part after the
+    /// directive: §11.2.2 makes the entire function strict code, and
+    /// §12.9.4.1 is asked of the literals in the prologue itself.
+    /// `function f() { "\1"; "use strict"; }` is a SyntaxError, and the
+    /// offending literal sits BEFORE the directive that condemns it.
+    ///
+    /// Recovered from the token stream rather than threaded through the
+    /// eight body-parsing sites that arm this bit. Each of them would
+    /// have had to remember its own opening brace, and eight remembering
+    /// sites is eight chances for one of them to forget; the brace is
+    /// already in the stream, at the one place a scan can find it — the
+    /// nearest unclosed `{` before the cursor. Template `${…}` braces
+    /// live inside their own `Token::Template` and never reach this
+    /// stream, so nothing else can be mistaken for it.
+    fn record_strict_prologue_body(&mut self) {
+        let span = self.enclosing_brace_span().unwrap_or((0, self.source.len() as u32));
+        self.ast.strict_prologue_spans.push(span);
+    }
+
+    /// `(start, end)` bytes of the innermost brace pair enclosing the
+    /// cursor, or `None` at the top level (program code, whose prologue
+    /// makes the whole source strict).
+    fn enclosing_brace_span(&self) -> Option<(u32, u32)> {
+        let mut depth = 0i32;
+        let open = (0..self.pos).rev().find(|&i| {
+            match self.tokens[i].token {
+                Token::RBrace => depth += 1,
+                Token::LBrace => {
+                    if depth == 0 {
+                        return true;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+            false
+        })?;
+        depth = 0;
+        let close = (open + 1..self.tokens.len()).find(|&i| {
+            match self.tokens[i].token {
+                Token::LBrace => depth += 1,
+                Token::RBrace => {
+                    if depth == 0 {
+                        return true;
+                    }
+                    depth -= 1;
+                }
+                _ => {}
+            }
+            false
+        })?;
+        Some((self.tokens[open].span.start, self.tokens[close].span.end))
     }
 
     /// §14.11.1 — a WithStatement is a SyntaxError in strict mode
@@ -188,6 +247,7 @@ impl Parser<'_> {
             Some(v) => {
                 if v == "use strict" {
                     self.in_strict_fn = true;
+                    self.record_strict_prologue_body();
                 }
             }
             None => *in_prologue = false,

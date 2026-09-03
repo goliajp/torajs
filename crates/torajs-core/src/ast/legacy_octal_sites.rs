@@ -67,16 +67,25 @@ pub fn record_legacy_octal_sites(ast: &mut Ast, source: &str, tokens: &[Spanned]
 const ESCAPE: &str = "an octal or `\\8` / `\\9` escape sequence";
 const NUMBER: &str = "a `0`-prefixed octal-style number";
 
-/// `Some(msg)` = strict-goal SyntaxError. Sloppy goal always answers
-/// `None` — under it these are the values the lexer already produced.
+/// `Some(msg)` = SyntaxError. A strict goal condemns every recorded
+/// site; a sloppy goal condemns only those inside a body an explicit
+/// `"use strict"` made strict ([`Ast::strict_prologue_spans`]), and
+/// gives the rest the values the lexer already produced.
 pub fn triage_legacy_octal(ast: &Ast) -> Option<String> {
-    if ast.sloppy_script_goal {
-        return None;
-    }
-    ast.legacy_octal_positions.first().map(|(at, what)| {
-        format!(
-            "{what} is not allowed in strict code (modules are strict) \
-             at {at} (ES annexB §B.1.1 / §B.1.2)"
-        )
-    })
+    let condemned = |at: u32| {
+        !ast.sloppy_script_goal
+            || ast
+                .strict_prologue_spans
+                .iter()
+                .any(|&(lo, hi)| at >= lo && at < hi)
+    };
+    ast.legacy_octal_positions
+        .iter()
+        .find(|(at, _)| condemned(*at))
+        .map(|(at, what)| {
+            format!(
+                "{what} is not allowed in strict code \
+                 at {at} (ES annexB §B.1.1 / §B.1.2)"
+            )
+        })
 }
