@@ -77,7 +77,9 @@ impl Parser<'_> {
     /// live inside their own `Token::Template` and never reach this
     /// stream, so nothing else can be mistaken for it.
     fn record_strict_prologue_body(&mut self) {
-        let span = self.enclosing_brace_span().unwrap_or((0, self.source.len() as u32));
+        let span = self
+            .enclosing_brace_span()
+            .unwrap_or((0, self.source.len() as u32));
         self.ast.strict_prologue_spans.push(span);
     }
 
