@@ -81,7 +81,6 @@ impl LowerCtx<'_> {
         } else {
             a
         };
-        let slot = self.alloca(slot_ty, None);
         let eval_b = self.f.add_block();
         let false_blk = self.f.add_block();
         let merge = self.f.add_block();
@@ -108,6 +107,12 @@ impl LowerCtx<'_> {
         } else {
             b
         };
+        // The slot's width is settled once both arms are in hand, so
+        // its alloca waits for the rhs. Entry-block, the standard
+        // shape the ternary's join already uses: the load in `merge`
+        // has two predecessors sharing no dominator but entry.
+        let (b_for_slot, slot_ty) = self.join_arm_widths(slot_ty, b_for_slot);
+        let slot = self.alloca_in_entry(slot_ty, Some("__logic"));
         self.f.append_void(
             self.cur_block,
             InstKind::Store(b_for_slot.clone(), Operand::Value(slot), 0),
@@ -129,6 +134,7 @@ impl LowerCtx<'_> {
         }
         self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = false_blk;
+        let a_for_slot = self.coerce_arm_to_slot(a_for_slot, slot_ty);
         // a is the falsy value — return it directly (matches JS:
         // `0 && expr` returns 0, not false; `"" && expr` returns "").
         if join_owned && !a_owned {
@@ -153,6 +159,39 @@ impl LowerCtx<'_> {
             None,
         );
         Operand::Value(v)
+    }
+
+    /// W3 S8's rule, stated next door in [`crate::ssa_lower_ternary`]:
+    /// a number is ONE type to the checker and TWO widths here, so a
+    /// join whose arms land on different widths has to settle at
+    /// `f64` rather than let the slot wear whichever arm the lowering
+    /// happened to see first. `&&` / `||` reconciled nothing, and an
+    /// `f64` operand stored into an `i64` slot is not a truncation
+    /// the backend performs quietly -- it refuses outright
+    /// (`materialize_operand_gpr called on ... holding Fpr`), so
+    /// `xs.length && xs[0]` (an i64 length beside an f64 element) was
+    /// not a wrong answer but a compile error.
+    ///
+    /// Answers the joined slot type plus the rhs converted into it.
+    /// The lhs lives in a different block, so its half runs at its
+    /// own store site through [`Self::coerce_arm_to_slot`].
+    fn join_arm_widths(&mut self, slot_ty: Type, b: Operand) -> (Operand, Type) {
+        let joined = match (slot_ty, self.operand_ty(&b)) {
+            (Type::I64, Type::F64) | (Type::F64, Type::I64) => Type::F64,
+            _ => slot_ty,
+        };
+        let b = self.coerce_arm_to_slot(b, joined);
+        (b, joined)
+    }
+
+    /// One arm's half of [`Self::join_arm_widths`], emitted in that
+    /// arm's own block -- which is the whole reason it is not folded
+    /// into the join itself.
+    fn coerce_arm_to_slot(&mut self, op: Operand, slot_ty: Type) -> Operand {
+        if slot_ty == Type::F64 && self.operand_ty(&op) == Type::I64 {
+            return self.coerce_to_f64(op);
+        }
+        op
     }
 
     /// Peek whether check.rs answered Any for the JOIN itself while
@@ -214,7 +253,6 @@ impl LowerCtx<'_> {
         } else {
             a
         };
-        let slot = self.alloca(slot_ty, None);
         let true_blk = self.f.add_block();
         let eval_b = self.f.add_block();
         let merge = self.f.add_block();
@@ -227,14 +265,6 @@ impl LowerCtx<'_> {
             },
         );
         let a_owned = slot_ty.is_refcounted() && self.expr_owned_shape(left);
-        self.cur_block = true_blk;
-        // a is truthy — return it directly (matches JS: `5 || 0`
-        // returns 5; `"x" || ""` returns "x").
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(a_for_slot.clone(), Operand::Value(slot), 0),
-        );
-        self.f.set_term(self.cur_block, Terminator::Br(merge));
         self.cur_block = eval_b;
         // On the eval-b arm the (falsy) lhs value is dead — an owned
         // lhs temp releases here; the truthy arm keeps a's stake
@@ -248,6 +278,10 @@ impl LowerCtx<'_> {
         } else {
             b
         };
+        // Slot width settles once both arms are in hand — see the `&&`
+        // arm above.
+        let (b_for_slot, slot_ty) = self.join_arm_widths(slot_ty, b_for_slot);
+        let slot = self.alloca_in_entry(slot_ty, Some("__logic"));
         self.f.append_void(
             self.cur_block,
             InstKind::Store(b_for_slot.clone(), Operand::Value(slot), 0),
@@ -260,6 +294,16 @@ impl LowerCtx<'_> {
             self.emit_owned_result_inc_in(self.cur_block, b_for_slot, slot_ty.clone());
         }
         self.f.set_term(self.cur_block, Terminator::Br(merge));
+        // a is truthy — return it directly (matches JS: `5 || 0`
+        // returns 5; `"x" || ""` returns "x"). Its store waits for
+        // the rhs so it lands in a slot of the settled width.
+        self.cur_block = true_blk;
+        let a_for_slot = self.coerce_arm_to_slot(a_for_slot, slot_ty);
+        self.f.append_void(
+            true_blk,
+            InstKind::Store(a_for_slot.clone(), Operand::Value(slot), 0),
+        );
+        self.f.set_term(true_blk, Terminator::Br(merge));
         if join_owned && !a_owned {
             self.emit_owned_result_inc_in(true_blk, a_for_slot, slot_ty.clone());
         }
