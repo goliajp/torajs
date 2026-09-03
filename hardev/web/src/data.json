@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T03:40:57.013Z",
+  "generatedAt": "2026-09-03T05:22:49.525Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T03:28:18Z",
-    "headSha": "c1841b921",
-    "elapsedSec": 570.61,
+    "ranAt": "2026-09-03T05:08:25Z",
+    "headSha": "c8b3b4594",
+    "elapsedSec": 648.3,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 74.79
   },
   "torajs": {
-    "commit": "c1841b921",
-    "commitSubject": "fix: the typed array lane can hold a null, but it cannot say so",
+    "commit": "c8b3b4594",
+    "commitSubject": "fix: with a string on one side, a nullable concatenates whatever T is",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "c8b3b4594",
+      "subject": "fix: with a string on one side, a nullable concatenates whatever T is"
+    },
+    {
+      "hash": "50c23cf2a",
+      "subject": "fix: ToString asks whether it is null before asking what it says"
+    },
+    {
+      "hash": "abbb8d5cb",
+      "subject": "style: move the then/catch param seed into its own promise module"
+    },
+    {
+      "hash": "8752dcf7f",
+      "subject": "fix: a handler body reads what the call gives it, not what the declaration said"
+    },
+    {
+      "hash": "f73c9b51b",
+      "subject": "fix: the annotated array element spells null too, on both sides of the lane"
+    },
+    {
+      "hash": "ad60d24ec",
+      "subject": "chore: rotation 569 sweep on c1841b921, verdicts unchanged case for case"
+    },
+    {
       "hash": "c1841b921",
       "subject": "fix: the typed array lane can hold a null, but it cannot say so"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "337d8899d",
       "subject": "fix: a narrow may not move a binding out of its lane"
-    },
-    {
-      "hash": "e0ae97aed",
-      "subject": "chore: rotation 568 sweep on b21479cda, verdicts unchanged case for case"
-    },
-    {
-      "hash": "b21479cda",
-      "subject": "fix: the parameter position asks the same nominal question"
-    },
-    {
-      "hash": "e78448509",
-      "subject": "revert: declaration-position narrowing, which the slot does not follow"
-    },
-    {
-      "hash": "03fe0924d",
-      "subject": "fix: an initializer is the binding's first assignment"
-    },
-    {
-      "hash": "01e22eee7",
-      "subject": "fix: a binding that may be undefined is still nominally its class"
-    },
-    {
-      "hash": "750fdcc61",
-      "subject": "fix: undefined is a value the numeric operators have an answer for"
     }
   ],
-  "headSha": "c1841b921",
+  "headSha": "c8b3b4594",
   "autorun": {
-    "total": 872,
+    "total": 873,
     "baselineTarget": 10,
-    "bySelf": 867,
+    "bySelf": 868,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788400081-0303",
-      "at": "2026-09-03T01:48:01Z",
-      "ts": 1788400081,
+      "rotationId": "r-1788406962-1f02",
+      "at": "2026-09-03T03:42:42Z",
+      "ts": 1788406962,
       "trigger": "self",
-      "prevHead": "e0ae97aed",
-      "handoffSha": "sha256:c1b9932a7afd17712670f0efac09d77ec361ac306b1a5ece17ea6ffe2298dd6c",
-      "handoffAgeSec": 4,
+      "prevHead": "ad60d24ec",
+      "handoffSha": "sha256:1df3699740ac90e135215a0b192f73cbedba419d7e2428b447475d6cb29fc5b4",
+      "handoffAgeSec": 21,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788406962-1f02",
+        "at": "2026-09-03T03:42:42Z",
+        "ts": 1788406962,
+        "trigger": "self",
+        "prevHead": "ad60d24ec",
+        "handoffSha": "sha256:1df3699740ac90e135215a0b192f73cbedba419d7e2428b447475d6cb29fc5b4",
+        "handoffAgeSec": 21,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788400081-0303",
         "at": "2026-09-03T01:48:01Z",
@@ -892,17 +903,6 @@
         "prevHead": "62e1d35a0",
         "handoffSha": "sha256:60a355ab5c7d493310d18029335bac6884cac472065b1940881d5586a56dd311",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788327922-2314",
-        "at": "2026-09-02T05:45:22Z",
-        "ts": 1788327922,
-        "trigger": "self",
-        "prevHead": "49822c7a8",
-        "handoffSha": "sha256:36d01f3ec0bfd00a238775eba647a6988ebbd5923c024241bfd9875abbf14efc",
-        "handoffAgeSec": 16,
         "conformanceBefore": null,
         "commitsInSession": null
       }
