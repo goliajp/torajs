@@ -16,6 +16,17 @@
 //! whether the author wrote `8` or `010`. The token's span can, so
 //! this reads the source text back through it.
 //!
+//! One gap, deliberate and recorded here because it is invisible from
+//! the call site: a `${…}` interpolation's tokens are lexed from a
+//! SEPARATE slice ([`crate::lexer::scan_template`] hands
+//! `bytes[expr_start..expr_end]` to a fresh `tokenize`), so their spans
+//! index the interpolation, not the program. Reading them against
+//! `ast.source` would slice unrelated text, so `${"\101"}` gets its
+//! sloppy VALUE (the lexer is unconditional) but no strict-goal
+//! rejection. The fix is absolute interpolation spans, which is a
+//! change to what every downstream consumer of those spans sees and
+//! not this pass's to make.
+//!
 //! The escape walk deliberately does NOT re-implement the escape
 //! grammar. It steps two bytes per backslash and asks
 //! [`crate::lexer::legacy_octal::scan_legacy_octal_escape`] — the very

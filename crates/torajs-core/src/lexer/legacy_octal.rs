@@ -53,6 +53,14 @@ pub(crate) fn scan_legacy_octal_escape(bytes: &[u8], i: u32) -> Option<(u32, u32
     Some((v1, 3))
 }
 
+/// Does `\` at `i` begin a NonOctalDecimalEscapeSequence (`\8` / `\9`,
+/// §B.1.2)? Its VALUE needs no help — the passthrough arm yields the
+/// digit itself, which is what the production says — so this answers
+/// only the question the strict goal asks.
+pub(crate) fn is_non_octal_decimal_escape(bytes: &[u8], i: u32) -> bool {
+    matches!(bytes.get((i + 1) as usize), Some(b'8' | b'9'))
+}
+
 /// The value of a `0`-prefixed integer literal under Annex B §B.1.1,
 /// given the literal's raw spelling.
 ///

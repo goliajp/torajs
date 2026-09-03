@@ -639,6 +639,12 @@ pub struct Ast {
     /// per-FUNCTION half never lands here — the parser rejects it on
     /// the spot, knowing its own `in_strict_fn`.
     pub strict_reserved_positions: Vec<(u32, String)>,
+    /// Annex B legacy-octal sites the program spelled — `(byte offset,
+    /// what it was)`. Same parking reason as the field above: sloppy
+    /// script code evaluates them (the lexer gave every one its value),
+    /// a strict goal rejects them, and the goal is only stamped after
+    /// the parse. `ast::triage_legacy_octal` raises the first one.
+    pub legacy_octal_positions: Vec<(u32, &'static str)>,
     /// Template-substitution `String(...)` wrappers the parser
     /// synthesizes (§13.2.8.5 hint-string order) — keyed by the
     /// synthesized CALLEE Ident's ExprId (fresh per substitution, so

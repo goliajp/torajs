@@ -54,6 +54,11 @@ pub fn parse_into_super_prop(
     // imported module, each direct `eval` source — and the set
     // accumulates across them.
     crate::ast::record_source_dunder_idents(target, tokens);
+    // annexB §B.1.1 / §B.1.2 legacy-octal spellings, from the same
+    // stream and for the same reason — the question is what the program
+    // wrote, and a `Token::Number(8.0)` cannot say whether that was `8`
+    // or `010`. Its span can, so the pass reads the text back.
+    crate::ast::record_legacy_octal_sites(target, source, tokens);
     let stmt_offset = target.stmts.len();
     let id_offset = target.exprs.len() as u32;
     // 420-06 — a NESTED parse (lib / eval / builtin-injection source

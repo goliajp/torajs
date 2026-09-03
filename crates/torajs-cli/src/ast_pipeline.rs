@@ -65,6 +65,12 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // annexB §B.1.1 / §B.1.2 legacy octal, goal half — the lexer gave
+    // every site its sloppy value, strict raises the SyntaxError here.
+    if let Some(msg) = ast::triage_legacy_octal(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // §16.2.3 duplicate ExportedNames — same reason it sits here: the
     // duplicate-export cases point their `from` clause at the file
     // itself, so "import path not found" / "import error" would
