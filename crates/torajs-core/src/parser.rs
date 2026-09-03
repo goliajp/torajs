@@ -54,6 +54,7 @@ mod void_expr;
 pub use entry::{parse, parse_into, parse_into_super_prop};
 mod expr_entry;
 mod expr_prec;
+mod expr_prec_short_circuit;
 mod fn_expr;
 mod forof_binding;
 mod forof_forin_src;
