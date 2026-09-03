@@ -11,6 +11,25 @@ use std::collections::{HashMap, HashSet};
 
 use crate::check::{GenericAliasMap, Type};
 
+/// The annotation inside a `__nullable(T)` wrapper, or the
+/// annotation itself when it carries none.
+///
+/// For a lookup keyed by the annotation's own text — "is this the
+/// name of a known class?" — the wrapper is noise: which class a
+/// binding nominally IS does not change because it may also hold
+/// undefined, and the type carries that second fact already. Two
+/// such lookups (the `let` position and the parameter position) each
+/// answered None on a wrapped name, and both of their consumers read
+/// None as "no nominal info, allow it" — so a `readonly` write and a
+/// `private` read from outside the class stopped being refused,
+/// quietly. `f(c?: C)` is the shape that reaches it without anyone
+/// writing a union: an optional parameter IS `__nullable(C)`.
+pub(crate) fn strip_nullable(ann: &str) -> &str {
+    ann.strip_prefix("__nullable(")
+        .and_then(|inner| inner.strip_suffix(')'))
+        .unwrap_or(ann)
+}
+
 /// Split `s` at every depth-0 `|`, with both `(`/`)` and `<`/`>`
 /// nesting. The `>` of a fn-type return arrow
 /// (`Pair<__fn()->(number)|string>`) is not a generic closer: counting

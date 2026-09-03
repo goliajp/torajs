@@ -76,8 +76,9 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
             checker.current_class.clone()
         } else {
             p.type_ann.as_ref().and_then(|s| {
-                if ast.class_parents.contains_key(s.as_str()) {
-                    Some(s.clone())
+                let base = crate::check_type_ann::strip_nullable(s);
+                if ast.class_parents.contains_key(base) {
+                    Some(base.to_string())
                 } else {
                     None
                 }

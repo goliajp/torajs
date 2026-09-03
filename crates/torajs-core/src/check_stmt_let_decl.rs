@@ -179,17 +179,8 @@ pub(crate) fn check(
         final_ty
     };
     let is_alias_init = checker.classify_init_alias(ast, init);
-    // By the annotation's own text, so it must see through the
-    // `__nullable(T)` of a declaration with no initializer
-    // (`ast/uninit_let.rs`). Losing it goes quiet, not loud:
-    // `enforce_readonly` stops refusing a write to a `readonly`
-    // field. Possibly-undefined is a separate question from which
-    // class this nominally is; the type carries that one.
     let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
-        let base = s
-            .strip_prefix("__nullable(")
-            .and_then(|inner| inner.strip_suffix(')'))
-            .unwrap_or(s.as_str());
+        let base = crate::check_type_ann::strip_nullable(s);
         if ast.class_parents.contains_key(base) {
             Some(base.to_string())
         } else {

@@ -8,7 +8,7 @@
 mod generic;
 mod markers;
 pub(crate) use generic::expand_instantiation_full;
-pub(crate) use markers::split_top_pipe;
+pub(crate) use markers::{split_top_pipe, strip_nullable};
 use std::collections::HashMap;
 
 use crate::check::{GenericAliasMap, Type};
