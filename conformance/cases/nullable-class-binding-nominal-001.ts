@@ -47,8 +47,12 @@ console.log(c.pub, c.g);
 c.pub = 9;
 console.log(c.pub);
 
-// The hand-written spelling of the same annotation.
+// The hand-written spelling of the same annotation. The read keeps
+// the splice from folding the write into the declaration, which is
+// what leaves a statement for ut3's assignment narrowing to see —
+// a declaration-position narrow is its own open item (568-04).
 let d: C | undefined;
+console.log(d);
 d = new C();
 console.log(d.pub, d.ro, d.readPriv(), d.g);
 

@@ -28,7 +28,6 @@
 //! surface), and so a flush restores the true declared type rather
 //! than a stacked narrow.
 
-use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 
@@ -73,38 +72,6 @@ impl Checker {
         } else if let Some(d) = self.assign_narrows.remove(name) {
             self.apply_narrow(name, d);
         }
-    }
-
-    /// The declaration-position twin of [`Self::apply_assign_narrow`].
-    /// A `let x: T | undefined = v` narrows to T for the same reason
-    /// `x = v` does — TS control-flow analysis reads an initializer
-    /// as the first assignment, and execution is at least as certain
-    /// here as at a statement-level assign.
-    ///
-    /// It is not a nicety. `desugar_uninit_let` splices a follow-up
-    /// write back onto its declaration, which MOVES that assignment
-    /// out of the statement position the hook above watches — so
-    /// without this the two spellings of one program disagreed:
-    /// `let c: C; log(c); c = new C()` narrowed (the read made the
-    /// splice decline, leaving a statement to see) while
-    /// `let c: C | undefined; c = new C()` did not, and only the
-    /// second was refused at `c.pub`.
-    ///
-    /// A declaration with no initializer carries the `Uninit`
-    /// sentinel, which types as `Undefined` and is one of the values
-    /// `apply_assign_narrow` refuses to narrow on, so `let x: T;`
-    /// keeps its union without a case here. The ledger entry is
-    /// flushed at every compound-statement boundary exactly like the
-    /// assignment one, so this narrow never outlives the
-    /// straight-line segment that established it.
-    pub(crate) fn apply_decl_narrow(&mut self, ast: &Ast, name: &str, init: ExprId) {
-        if matches!(ast.get_expr(init), Expr::Uninit) {
-            return;
-        }
-        let Some(ty) = self.expr_types.get(&init).cloned() else {
-            return;
-        };
-        self.apply_assign_narrow(name, &ty);
     }
 
     /// Demote-only arm for EXPRESSION-level assigns (ternary arm /
