@@ -11,6 +11,43 @@ use alloc::boxed::Box;
 use crate::charclass::CharClass;
 use crate::node::{Node, NodeKind};
 
+/// §22.2.1 CharacterEscape :: `c` ControlLetter — ControlLetter is
+/// `[A-Za-z]`, and the escape's value is the letter's code modulo 32.
+///
+/// AnnexB §B.1.4 widens the set to ClassControlLetter :: DecimalDigit
+/// | `_`, but only INSIDE A CLASS and only outside u/v. That widening
+/// is the entire difference between the three sites that ask this —
+/// the atom parser, the class parser, and the v-mode class parser —
+/// so it is a parameter here rather than a third spelling of the rule.
+pub(crate) fn control_letter_value(b: u8, class_annex_b: bool) -> Option<u32> {
+    (b.is_ascii_alphabetic() || (class_annex_b && (b.is_ascii_digit() || b == b'_')))
+        .then(|| u32::from(b) % 32)
+}
+
+/// ES §22.2.1.1 SyntaxCharacter — the punctuation reserved by the
+/// pattern grammar, and so the valid targets for IdentityEscape under
+/// u/v. `/` joins them (§22.2.1.1 admits it for the literal form).
+/// Asked by the atom parser and, for ClassEscape, by the class parser.
+pub(crate) fn is_regex_syntax_char(b: u8) -> bool {
+    matches!(
+        b,
+        b'^' | b'$'
+            | b'\\'
+            | b'.'
+            | b'*'
+            | b'+'
+            | b'?'
+            | b'('
+            | b')'
+            | b'['
+            | b']'
+            | b'{'
+            | b'}'
+            | b'|'
+            | b'/'
+    )
+}
+
 pub(crate) fn char_node(ch: u8) -> Box<Node> {
     let mut n = Node::new(NodeKind::Char);
     n.ch = ch;

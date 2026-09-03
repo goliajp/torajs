@@ -7,7 +7,10 @@
 //! or `\k<name>`), or a `Concat` of `Char` nodes (multi-byte UTF-8
 //! encoding of `\uHHHH` / `\u{HHHH..}`).
 
-use super::{Parser, apply_property_name, char_node, class_node, hex_value, unicode_mode};
+use super::{
+    Parser, apply_property_name, char_node, class_node, control_letter_value, hex_value,
+    is_regex_syntax_char, unicode_mode,
+};
 use crate::node::{Node, NodeKind};
 use crate::utf8::utf8_encode_cp;
 use alloc::boxed::Box;
@@ -82,6 +85,26 @@ impl<'p> Parser<'p> {
             b'x' => self.parse_hex_escape(),
             b'u' => self.parse_unicode_escape(),
             b'p' | b'P' => self.parse_property_escape(c),
+            b'c' => {
+                // `\c` + ControlLetter. When what follows is not one,
+                // annexB §B.1.4 ExtendedAtom reads the BACKSLASH
+                // itself as the atom (`\` [lookahead = c]) and lets
+                // `c` reparse as an ordinary pattern character — so
+                // `/\c1/` matches the three characters `\c1`. u/v has
+                // no such reading, and there it is an early error.
+                if !self.eof()
+                    && let Some(v) = control_letter_value(self.peek(), false)
+                {
+                    self.get();
+                    return Some(char_node(v as u8));
+                }
+                if unicode_mode(self.flags) {
+                    self.set_err();
+                    return None;
+                }
+                self.i -= 1;
+                Some(char_node(b'\\'))
+            }
             other => {
                 // ES §22.2.1.1 IdentityEscape :: SourceCharacter — in
                 // u/v mode, only SyntaxCharacter (`^ $ \ . * + ? ( ) [
@@ -264,32 +287,6 @@ impl<'p> Parser<'p> {
         }
         Some(n)
     }
-}
-
-/// ES §22.2.1.1 SyntaxCharacter — the punctuation chars that are
-/// reserved by pattern grammar and thus valid targets for
-/// IdentityEscape in u/v mode. `/` is also allowed as the pattern
-/// delimiter (ES §22.2.1.1 RegularExpressionBackslashSequence for
-/// literal `/pattern/`). Any other single-byte escape in u/v mode
-/// is an early error.
-fn is_regex_syntax_char(b: u8) -> bool {
-    matches!(
-        b,
-        b'^' | b'$'
-            | b'\\'
-            | b'.'
-            | b'*'
-            | b'+'
-            | b'?'
-            | b'('
-            | b')'
-            | b'['
-            | b']'
-            | b'{'
-            | b'}'
-            | b'|'
-            | b'/'
-    )
 }
 
 #[cfg(test)]

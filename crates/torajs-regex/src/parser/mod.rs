@@ -45,7 +45,10 @@ mod helpers;
 mod named_groups;
 
 pub use helpers::is_word_byte;
-pub(crate) use helpers::{apply_property_name, char_node, class_node, hex_value};
+pub(crate) use helpers::{
+    apply_property_name, char_node, class_node, control_letter_value, hex_value,
+    is_regex_syntax_char,
+};
 
 use crate::node::{Node, NodeKind};
 use alloc::{boxed::Box, vec::Vec};

@@ -299,12 +299,18 @@ impl<'p> Parser<'p> {
             }
             b'u' => self.parse_class_set_u_escape()?,
             b'c' => {
-                // `\cX` control escape.
-                if self.eof() || !self.peek().is_ascii_alphabetic() {
+                // `\c` + ControlLetter. v-mode is always Unicode mode,
+                // so annexB's widened ClassControlLetter never applies
+                // here and a non-letter is an early error.
+                let Some(v) = (!self.eof())
+                    .then(|| super::control_letter_value(self.peek(), false))
+                    .flatten()
+                else {
                     self.set_err();
                     return None;
-                }
-                u32::from(self.get() % 32)
+                };
+                self.get();
+                v
             }
             // Escaped punctuator / identity escape — any ASCII
             // punctuator (incl. the syntax + reserved sets) stands

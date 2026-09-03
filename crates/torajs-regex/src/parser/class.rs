@@ -172,7 +172,17 @@ impl<'p> Parser<'p> {
             b'f' => Some(0x0C_u32),
             b'v' => Some(0x0B_u32),
             b'b' => Some(0x08_u32),
-            b'0' => Some(0_u32),
+            b'0' => {
+                // §22.2.1.1 — under u/v the `\0` NUL escape must not be
+                // followed by a decimal digit; `[\01]` reads as legacy
+                // octal in annexB but is a SyntaxError under u/v. The
+                // atom parser already carried this guard.
+                if unicode_mode(self.flags) && !self.eof() && self.peek().is_ascii_digit() {
+                    self.set_err();
+                    return None;
+                }
+                Some(0_u32)
+            }
             b'x' => {
                 let h1 = self.read_hex_digit()? as u32;
                 let h2 = self.read_hex_digit()? as u32;
@@ -183,6 +193,27 @@ impl<'p> Parser<'p> {
             // annexB reads `\u` as the literal `u` (bun answers null
             // for `/[\u{41}]/` on "A" for exactly that reason).
             b'u' => self.read_class_u_escape(),
+            b'c' => {
+                // `\c` + ControlLetter, widened inside a class and
+                // outside u/v to annexB's ClassControlLetter
+                // (DecimalDigit | `_`), so `[\c1]` is U+0011 there.
+                let annex_b = !unicode_mode(self.flags);
+                if !self.eof()
+                    && let Some(v) = super::control_letter_value(self.peek(), annex_b)
+                {
+                    self.get();
+                    return Some(v);
+                }
+                if unicode_mode(self.flags) {
+                    self.set_err();
+                    return None;
+                }
+                // annexB §B.1.4 ClassAtomNoDash :: `\` [lookahead = c]
+                // — the backslash is the class member and `c` reparses
+                // as the next one, so `[\c%]` holds `\`, `c` and `%`.
+                self.i -= 1;
+                Some(u32::from(b'\\'))
+            }
             b'1'..=b'7' if !unicode_mode(self.flags) => {
                 let mut n: u32 = (e - b'0') as u32;
                 let max_more = if e <= b'3' { 2 } else { 1 };
@@ -199,7 +230,19 @@ impl<'p> Parser<'p> {
                 }
                 Some(n & 0xff)
             }
-            other => Some(other as u32),
+            other => {
+                // §22.2.1 ClassEscape under u/v admits IdentityEscape
+                // only for SyntaxCharacter and `/`, plus the `-` that
+                // ClassEscape itself adds. Outside u/v annexB keeps the
+                // lenient reading, where any character stands for
+                // itself.
+                if unicode_mode(self.flags) && !super::is_regex_syntax_char(other) && other != b'-'
+                {
+                    self.set_err();
+                    return None;
+                }
+                Some(other as u32)
+            }
         }
     }
 
