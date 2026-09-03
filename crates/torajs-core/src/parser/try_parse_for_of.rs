@@ -191,7 +191,7 @@ impl<'a> Parser<'a> {
             } else {
                 "a for-of loop"
             },
-            super::loops::SingleStmtPos::LoopBody,
+            super::single_stmt_judge::SingleStmtPos::LoopBody,
         )?;
         // RFC 20260809 knife 3 — the body opens with a per-iteration
         // UsingDecl over a fresh loop local; see `forof_using.rs`.

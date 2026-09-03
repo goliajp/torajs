@@ -83,6 +83,7 @@ mod parse_class_member_method;
 mod parse_fn;
 mod parse_let_decl;
 mod parse_postfix;
+mod single_stmt_judge;
 pub(crate) mod tagged_template;
 use parse_class_member_field::FieldMarker;
 pub(crate) use tagged_template::TEMPLATE_OBJECT_CALLEE;
@@ -419,7 +420,7 @@ impl Parser<'_> {
             &then_branch,
             then_start,
             "an if statement",
-            loops::SingleStmtPos::IfBranch,
+            single_stmt_judge::SingleStmtPos::IfBranch,
         )?;
         let else_branch = if matches!(self.peek(), Token::Else) {
             self.pos += 1;
@@ -429,7 +430,7 @@ impl Parser<'_> {
                 &e,
                 else_start,
                 "an else clause",
-                loops::SingleStmtPos::IfBranch,
+                single_stmt_judge::SingleStmtPos::IfBranch,
             )?;
             Some(e)
         } else {

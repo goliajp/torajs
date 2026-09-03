@@ -232,7 +232,7 @@ impl<'a> Parser<'a> {
                 &body,
                 body_start,
                 "a labeled statement",
-                super::loops::SingleStmtPos::LabelledItem,
+                super::single_stmt_judge::SingleStmtPos::LabelledItem,
             )?;
             return Ok(Some(Stmt::Labeled { label, body }));
         }
