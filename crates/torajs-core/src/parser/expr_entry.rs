@@ -136,6 +136,7 @@ impl<'a> Parser<'a> {
             // Template interpolation is a parenthesized-
             // like nesting — [In] resets.
             in_for_init: false,
+            bare_logical: false,
             // Inherited for the same reason `current_class`
             // is: `${this.x}` inside a class generator
             // method's body must mint the same receiver

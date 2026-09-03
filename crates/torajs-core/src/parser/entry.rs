@@ -76,6 +76,7 @@ pub fn parse_into_super_prop(
         current_class: None,
         class_stack: Vec::new(),
         in_for_init: false,
+        bare_logical: false,
         in_gen_class_method: false,
         gen_recv_minted: false,
         void_folds: std::collections::HashSet::new(),

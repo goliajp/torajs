@@ -180,6 +180,14 @@ struct Parser<'a> {
     /// for-in head). `parse_primary_paren` clears it (parentheses
     /// reset [In]); restored on the for-head's exit.
     in_for_init: bool,
+    /// §13.14 — whether the expression `parse_logical_or` /
+    /// `parse_logical_and` just returned ate a `||` or `&&` AT THIS
+    /// LEVEL (a parenthesised one belongs to the nested parse and does
+    /// not count). `parse_nullish` reads it the instant the call
+    /// returns, which is the only moment it means anything: a
+    /// `CoalesceExpressionHead` is a `BitwiseORExpression`, so a bare
+    /// logical operator cannot be the head of a `??`.
+    bare_logical: bool,
     /// P-SURF S2.1 — set while parsing the body of a class generator
     /// method, which is hoisted to a top-level `function*` taking the
     /// receiver as a parameter. While it is set, `this` mints
