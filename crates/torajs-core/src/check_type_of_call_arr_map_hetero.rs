@@ -94,16 +94,25 @@ pub(crate) fn try_match(
     if matches!(**ret, Type::Void) {
         return None;
     }
-    // Only primitive `U` lanes have a matching `emit_map` dst
-    // shape today (a heap-inner map — e.g. `numbers.map(x =>
-    // ({v: x}))` returning `Struct[]` — needs a struct-registry
-    // path the M6.2 lowering hasn't been widened to).
-    if !matches!(
-        **ret,
-        Type::Number | Type::String | Type::Boolean | Type::Any
-    ) {
-        return None;
-    }
+    // Nothing else is rejected here. This used to carry a list of
+    // four accepted `U`s -- Number / String / Boolean / Any -- above
+    // a note that a heap-inner map "needs a struct-registry path the
+    // M6.2 lowering hasn't been widened to". That note had gone
+    // stale: `emit_map` converts an integer into an f64 slot and
+    // copies a Substr view out, and hands every other value to the
+    // push unchanged, so an owned heap pointer already rode across.
+    // The list outlived the reason for it, and it was the only thing
+    // standing between `[1,2,3].map(x => ({ v: x }))` and an answer
+    // -- one of the most ordinary shapes in the language, rejected
+    // at compile time with the method table's homogeneous signature
+    // quoted back at the author. Nested arrays (`x => [x, x+1]`)
+    // were the same story.
+    //
+    // The two returns that genuinely belong to someone else are
+    // already refused above: `Void` to the sister wedge, `== elem`
+    // to the method-table arm. What is left is the rule this arm
+    // exists to state -- map answers an array of whatever the
+    // callback returns.
     // S270 — type_of + drop trailing args (thisArg + extras) so
     // side-effect expressions surface their own errors; SSA-emit
     // reads args[0] (and a promoted callback's thisArg).
