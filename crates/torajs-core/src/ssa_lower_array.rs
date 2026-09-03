@@ -107,18 +107,25 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, elements: &[ExprId], eid: ExprId) ->
     // gate above only reads the checker type, so these fell into the
     // typed lane and reproduced chunk 739's failure exactly: box bits
     // stored into an 8-byte slot, every element reading back
-    // undefined. Pointer-shaped `T | null` keeps the typed lane — its
-    // in-band null sentinel is a real pointer value.
+    // undefined.
+    //
+    // A pointer-shaped `T | null` was left on the typed lane on the
+    // grounds that its in-band null sentinel is a real pointer value.
+    // It is — the slot can hold it. What the typed lane cannot do is
+    // TELL anyone: `let q: O | null = null; console.log([q])`
+    // answered `[ [unknown-any-tag] ]` where bun says `[ null ]`, and
+    // the annotated spelling `const a: (O | null)[] = [null, {x: 1}]`
+    // died at runtime with "array element does not match the
+    // annotated element type". The any lane has the encoding for
+    // exactly this: `anyv_box_from_pair` maps a zero heap payload to
+    // ANY_NULL, which is the whole reason the slot READER
+    // (`box_heap_slot_or_undef`) already goes through it.
     if !has_spread
         && element_ids.iter().any(|id| {
             matches!(ctx.expr_types.get(id), Some(crate::check::Type::Any))
                 || matches!(
                     ctx.expr_types.get(id),
-                    Some(crate::check::Type::Nullable(inner))
-                        if matches!(
-                            **inner,
-                            crate::check::Type::Number | crate::check::Type::Boolean
-                        )
+                    Some(crate::check::Type::Nullable(_))
                 )
         })
     {
