@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T00:02:01.336Z",
+  "generatedAt": "2026-09-03T01:35:10.832Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-02T23:42:30Z",
-    "headSha": "a213f8140",
-    "elapsedSec": 550.56,
+    "ranAt": "2026-09-03T01:34:45Z",
+    "headSha": "b21479cda",
+    "elapsedSec": 702.58,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 74.79
   },
   "torajs": {
-    "commit": "a213f8140",
-    "commitSubject": "fix: a callee that may be undefined is still called through its signature",
+    "commit": "b21479cda",
+    "commitSubject": "fix: the parameter position asks the same nominal question",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "b21479cda",
+      "subject": "fix: the parameter position asks the same nominal question"
+    },
+    {
+      "hash": "e78448509",
+      "subject": "revert: declaration-position narrowing, which the slot does not follow"
+    },
+    {
+      "hash": "03fe0924d",
+      "subject": "fix: an initializer is the binding's first assignment"
+    },
+    {
+      "hash": "01e22eee7",
+      "subject": "fix: a binding that may be undefined is still nominally its class"
+    },
+    {
+      "hash": "750fdcc61",
+      "subject": "fix: undefined is a value the numeric operators have an answer for"
+    },
+    {
+      "hash": "145fc320b",
+      "subject": "fix: \"no initializer\" is not final until the splice has run"
+    },
+    {
+      "hash": "ba2d58df3",
+      "subject": "chore: rotation 567 sweep on a213f8140, verdicts unchanged case for case"
+    },
+    {
       "hash": "a213f8140",
       "subject": "fix: a callee that may be undefined is still called through its signature"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "2f2cd54ba",
       "subject": "fix: a computed key names the class and the generator it holds too"
-    },
-    {
-      "hash": "414da1f09",
-      "subject": "fix: a class prints the name it was defined with, not the one it carries"
-    },
-    {
-      "hash": "db1d64d15",
-      "subject": "chore: rotation 566 sweep on 38d861ecf, ten forward verdicts"
-    },
-    {
-      "hash": "38d861ecf",
-      "subject": "fix: a bound function's print faces read its own name"
-    },
-    {
-      "hash": "deb4f6c67",
-      "subject": "fix: DataView is a constructor, not a nameless function"
-    },
-    {
-      "hash": "b83871f09",
-      "subject": "fix: an accessor's inspect face is the name in the source"
-    },
-    {
-      "hash": "ff3744e5f",
-      "subject": "fix: an accessor face's two names are two different questions"
-    },
-    {
-      "hash": "84beaf9ec",
-      "subject": "fix: an object-literal computed member's name is its runtime key"
     }
   ],
-  "headSha": "a213f8140",
+  "headSha": "b21479cda",
   "autorun": {
-    "total": 870,
+    "total": 871,
     "baselineTarget": 10,
-    "bySelf": 865,
+    "bySelf": 866,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788386108-2c23",
-      "at": "2026-09-02T21:55:08Z",
-      "ts": 1788386108,
+      "rotationId": "r-1788393930-2326",
+      "at": "2026-09-03T00:05:30Z",
+      "ts": 1788393930,
       "trigger": "self",
-      "prevHead": "db1d64d15",
-      "handoffSha": "sha256:3746d976f6237ef3a16ad8f207197e68fc53df23abff70c3a5f752a30fa90dc2",
-      "handoffAgeSec": 126,
+      "prevHead": "ba2d58df3",
+      "handoffSha": "sha256:67992b0dae8cf235708f892177da69393c35676eb81995e2bc2c6aba5d92c977",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788393930-2326",
+        "at": "2026-09-03T00:05:30Z",
+        "ts": 1788393930,
+        "trigger": "self",
+        "prevHead": "ba2d58df3",
+        "handoffSha": "sha256:67992b0dae8cf235708f892177da69393c35676eb81995e2bc2c6aba5d92c977",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788386108-2c23",
         "at": "2026-09-02T21:55:08Z",
@@ -892,17 +903,6 @@
         "prevHead": "90d8de445",
         "handoffSha": "sha256:b41a0391362dcb9309639decb17dac9f7924e16cf94e234701094ba61600b26a",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788303258-75fa",
-        "at": "2026-09-01T22:54:18Z",
-        "ts": 1788303258,
-        "trigger": "self",
-        "prevHead": "48ef5049b",
-        "handoffSha": "sha256:46e729b8fde489dfe5d4fd8918d02bcfad9a1fb07b7ea1071c2b1de97edf28b7",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
