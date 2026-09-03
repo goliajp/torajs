@@ -273,7 +273,7 @@ impl<'a> Parser<'a> {
         self.current_class = saved_class;
         self.current_class_has_parent = saved_has_parent;
         self.super_prop_allowed = saved_super_prop;
-        self.class_stack.pop();
+        self.pop_class_scope(&name, &fields, &static_init, &methods, &static_methods)?;
         Ok(Stmt::ClassDecl {
             name,
             type_params,

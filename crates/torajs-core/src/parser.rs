@@ -40,6 +40,7 @@ mod class_element_name;
 mod class_field_early_errors;
 mod class_field_inits;
 mod class_member;
+mod class_private_dup;
 mod class_self_heritage;
 mod cursor;
 mod delete_expr;
