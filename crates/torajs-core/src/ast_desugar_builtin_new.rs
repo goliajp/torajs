@@ -250,26 +250,18 @@ fn rewrite_regexp_new(ast: &mut Ast) {
             // an entry-block-safe throw-check shape — L3b), so
             // rewriting a malformed constant would silently return a
             // never-match stub.
-            // Strict flag parse: `None` = duplicate or unknown flag
-            // letter (§22.2.3.1 Early Error). Combined with the
-            // explicit `u`+`v` conflict check, the two cover every
-            // pattern-independent SyntaxError face; failing any of
-            // them keeps the node as `Expr::New` so
-            // `lower_regexp` routes through
-            // `__torajs_regex_compile_or_throw` for a catchable throw.
-            let flag_bits_opt = torajs_regex::flags::parse_flags(flags.as_bytes());
-            let parse_ok = match flag_bits_opt {
-                Some(flag_bits)
-                    if flag_bits & torajs_regex::parser::RE_FLAG_U == 0
-                        || flag_bits & torajs_regex::parser::RE_FLAG_V == 0 =>
-                {
-                    let mut parser =
-                        torajs_regex::parser::Parser::new(pattern.as_bytes(), flag_bits);
-                    let root_opt = parser.parse();
-                    root_opt.is_some() && !parser.err()
-                }
-                _ => false,
-            };
+            // "Parses cleanly" is one question, and the answer lives
+            // in one place: the compile-time reject pass, which also
+            // covers the flag faces (duplicate / unknown letter, the
+            // `u`+`v` conflict) and the two Early Errors only the
+            // whole pattern decides. Asking it here rather than
+            // rewriting a narrower version is what keeps a malformed
+            // constant on the `Expr::New` path — where `lower_regexp`
+            // routes it through `__torajs_regex_compile_or_throw` for
+            // the catchable SyntaxError §22.2.3.1 asks for.
+            let parse_ok =
+                crate::ast_desugar_regex_syntax_error::try_regex_parse_error(&pattern, &flags)
+                    .is_none();
             if parse_ok {
                 ast.exprs[i] = Expr::Regex { pattern, flags };
             }

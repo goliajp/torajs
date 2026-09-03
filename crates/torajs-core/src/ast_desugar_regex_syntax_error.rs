@@ -49,7 +49,17 @@ pub fn run(ast: &mut Ast) {
 
 /// Returns `Some(msg)` when `/pattern/flags` is malformed per ES
 /// §22.2.3.1 (RegExpInitialize); `None` when well-formed.
-fn try_regex_parse_error(pattern: &str, flags: &str) -> Option<String> {
+///
+/// `ast_desugar_builtin_new` asks the same question for the opposite
+/// reason — it folds a constant `new RegExp("…", "…")` into a literal
+/// only when the pattern is well-formed, because a malformed one has
+/// to stay a constructor call and throw where the spec throws, at the
+/// call. Two spellings of "is this pattern well-formed" drift apart:
+/// this one was already the more complete of the two, and the moment
+/// it learned about `resolve_backrefs` the fold started handing
+/// `RegExp("\\5", "u")` to it as a literal and rejecting the whole
+/// program at compile time.
+pub(crate) fn try_regex_parse_error(pattern: &str, flags: &str) -> Option<String> {
     let f = match torajs_regex::flags::parse_flags(flags.as_bytes()) {
         Some(v) => v,
         None => {
