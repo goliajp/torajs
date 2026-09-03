@@ -225,9 +225,16 @@ pub(super) fn scan_number(
         emit(out, Token::BigInt { digits, radix: 10 }, start, *i);
         return Ok(());
     }
-    let n: f64 = s
-        .parse()
-        .map_err(|_| format!("invalid number at {start}"))?;
+    // annexB §B.1.1 — a `0`-prefixed integer run is the legacy family:
+    // `010` is 8, not 10. `08` / `0778` are the NonOctalDecimal half and
+    // keep their decimal value, which is what `parse` below already
+    // gave; routing them through the same judge keeps one grammar.
+    let n: f64 = match super::legacy_octal::legacy_octal_number_value(s) {
+        Some(v) => v,
+        None => s
+            .parse()
+            .map_err(|_| format!("invalid number at {start}"))?,
+    };
     emit(out, Token::Number(n), start, *i);
     Ok(())
 }

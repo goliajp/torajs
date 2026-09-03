@@ -4,6 +4,7 @@
 //! (`advance` / `peek` / `regex_context` / `emit` / ...) in
 //! `lexer/util.rs`.
 
+pub(crate) mod legacy_octal;
 mod scan;
 mod scan_ident;
 mod scan_number;

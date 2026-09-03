@@ -47,6 +47,14 @@ pub(super) fn scan_string(
                 *i += n;
                 continue;
             }
+            // annexB §B.1.2 LegacyOctalEscapeSequence — `\101` is `A`,
+            // not `101`. Ahead of the `\0` arm below, which keeps only
+            // the non-legacy spelling (`\0` with no digit after it).
+            if let Some((cp, n)) = super::legacy_octal::scan_legacy_octal_escape(bytes, *i) {
+                push_codepoint(&mut buf, cp);
+                *i += n;
+                continue;
+            }
             match esc {
                 b'n' => {
                     buf.push(b'\n');
