@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T07:29:28.132Z",
+  "generatedAt": "2026-09-03T10:28:38.958Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T07:17:24Z",
-    "headSha": "ae995755f",
-    "elapsedSec": 717.41,
+    "ranAt": "2026-09-03T10:11:13Z",
+    "headSha": "c8c95c5c9",
+    "elapsedSec": 705.6,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30591,
+    "pass": 30602,
     "passNoOracle": 1028,
-    "passNegative": 4147,
-    "passTotal": 35766,
-    "bug": 12054,
-    "incompatible": 5354,
+    "passNegative": 4149,
+    "passTotal": 35779,
+    "bug": 12053,
+    "incompatible": 5342,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47820,
-    "passRateInScope": 67.26,
-    "passRateTrAccepted": 74.79
+    "trAccepted": 47832,
+    "passRateInScope": 67.29,
+    "passRateTrAccepted": 74.8
   },
   "torajs": {
-    "commit": "ae995755f",
-    "commitSubject": "fix: a join walked on past the exception its own element raised",
+    "commit": "afe19bf54",
+    "commitSubject": "refactor: split the two files this rotation pushed over 500",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,42 @@
   },
   "commits": [
     {
+      "hash": "afe19bf54",
+      "subject": "refactor: split the two files this rotation pushed over 500"
+    },
+    {
+      "hash": "c8c95c5c9",
+      "subject": "fix: `a ?? b || c` parsed fine, and had been failing for someone else's reason"
+    },
+    {
+      "hash": "2a8a2e0ca",
+      "subject": "fix: `xs.length && xs[0]` did not compile, because a number has two widths"
+    },
+    {
+      "hash": "0d187a977",
+      "subject": "fix: `&&` refused every pair of types it had no name for"
+    },
+    {
+      "hash": "3e2c514fd",
+      "subject": "fix: `x!` was a list of punctuators, so every worded operator broke it"
+    },
+    {
+      "hash": "53b5c698d",
+      "subject": "fix: map answered an array of four types, not of what the callback returns"
+    },
+    {
+      "hash": "046bb6dda",
+      "subject": "refactor: the same roster was written three more times, delete all three"
+    },
+    {
+      "hash": "35146c14c",
+      "subject": "fix: the argv packer kept its own roster of who owns an argument"
+    },
+    {
+      "hash": "d0b1f36a1",
+      "subject": "chore: re-run the rotation close on ae995755f, the sweep moves nothing"
+    },
+    {
       "hash": "ae995755f",
       "subject": "fix: a join walked on past the exception its own element raised"
     },
@@ -739,63 +775,38 @@
     {
       "hash": "9d0d31b83",
       "subject": "fix: the checker spelled the join kernel table a third time, as a rejection"
-    },
-    {
-      "hash": "9dea911a6",
-      "subject": "fix: the join kernel coerces per element, so the scan never saw it"
-    },
-    {
-      "hash": "69a930840",
-      "subject": "fix: the array join table's default was one element type's kernel"
-    },
-    {
-      "hash": "983d33c18",
-      "subject": "chore: rotation 570 sweep on c8b3b4594, verdicts unchanged case for case"
-    },
-    {
-      "hash": "c8b3b4594",
-      "subject": "fix: with a string on one side, a nullable concatenates whatever T is"
-    },
-    {
-      "hash": "50c23cf2a",
-      "subject": "fix: ToString asks whether it is null before asking what it says"
-    },
-    {
-      "hash": "abbb8d5cb",
-      "subject": "style: move the then/catch param seed into its own promise module"
-    },
-    {
-      "hash": "8752dcf7f",
-      "subject": "fix: a handler body reads what the call gives it, not what the declaration said"
-    },
-    {
-      "hash": "f73c9b51b",
-      "subject": "fix: the annotated array element spells null too, on both sides of the lane"
-    },
-    {
-      "hash": "ad60d24ec",
-      "subject": "chore: rotation 569 sweep on c1841b921, verdicts unchanged case for case"
     }
   ],
-  "headSha": "ae995755f",
+  "headSha": "afe19bf54",
   "autorun": {
-    "total": 874,
+    "total": 875,
     "baselineTarget": 10,
-    "bySelf": 869,
+    "bySelf": 870,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788412993-1013",
-      "at": "2026-09-03T05:23:13Z",
-      "ts": 1788412993,
+      "rotationId": "r-1788420682-6e9f",
+      "at": "2026-09-03T07:31:22Z",
+      "ts": 1788420682,
       "trigger": "self",
-      "prevHead": "983d33c18",
-      "handoffSha": "sha256:b62a13148257df5b6a75c3ebd926c9812733b8d7eeed89a4096a131fe6920a9f",
-      "handoffAgeSec": 29,
+      "prevHead": "d0b1f36a1",
+      "handoffSha": "sha256:a09637c5568b96b1b0dd407c2bca6b4735d383e309913b6dc3b25d265888fc17",
+      "handoffAgeSec": 6,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788420682-6e9f",
+        "at": "2026-09-03T07:31:22Z",
+        "ts": 1788420682,
+        "trigger": "self",
+        "prevHead": "d0b1f36a1",
+        "handoffSha": "sha256:a09637c5568b96b1b0dd407c2bca6b4735d383e309913b6dc3b25d265888fc17",
+        "handoffAgeSec": 6,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788412993-1013",
         "at": "2026-09-03T05:23:13Z",
@@ -892,17 +903,6 @@
         "prevHead": "d68f8f910",
         "handoffSha": "sha256:0ce5df7a12aa39c060137423181f27caef280f03804e07ba379fba1b6ac3eb8d",
         "handoffAgeSec": 8,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788347274-521b",
-        "at": "2026-09-02T11:07:54Z",
-        "ts": 1788347274,
-        "trigger": "self",
-        "prevHead": "9af525d71",
-        "handoffSha": "sha256:509af6bcab053bf96de40786cbbc331ccd77d149e82eeb193f94671293eb9ca0",
-        "handoffAgeSec": 461,
         "conformanceBefore": null,
         "commitsInSession": null
       }
