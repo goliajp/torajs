@@ -66,8 +66,29 @@ fn try_regex_parse_error(pattern: &str, flags: &str) -> Option<String> {
             pattern, flags
         ));
     }
-    let mut p = torajs_regex::parser::Parser::new(pattern.as_bytes(), f);
-    if p.parse().is_none() {
+    // The parser reads the pattern in the form the flags name
+    // (§22.2.2.1): under u/v a sequence of code points, otherwise a
+    // sequence of code units, where a supplementary character spells
+    // as its surrogate pair. `regex/compile.rs` and the DFA bake both
+    // hand it that form; handing it the raw UTF-8 here would check a
+    // different pattern than the one that runs.
+    let bytes = if torajs_regex::flags::unicode_mode(f) {
+        pattern.as_bytes().to_vec()
+    } else {
+        torajs_regex::utf8::split_surrogate_pairs(pattern.as_bytes())
+    };
+    let mut p = torajs_regex::parser::Parser::new(&bytes, f);
+    let Some(mut root) = p.parse() else {
+        return Some(format!("/{}/{}", pattern, flags));
+    };
+    // Two §22.2.1.1 Early Errors are not decidable during the walk —
+    // a `\k<name>` whose GroupSpecifier does not exist, and a decimal
+    // escape past NcapturingParens under u/v — because neither the
+    // name table nor the capture count is complete until the pattern
+    // ends. `resolve_backrefs` is the pass that decides them, and it
+    // ran only on the compile-to-Program paths, so those two forms
+    // reached the runtime instead of the compile-time reject.
+    if !torajs_regex::resolve::resolve_backrefs(&mut root, &p.names, p.n_captures, f) {
         return Some(format!("/{}/{}", pattern, flags));
     }
     None
