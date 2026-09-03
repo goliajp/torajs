@@ -5,7 +5,9 @@
 //!
 //! - `scan_string` — `"…"` and `'…'` literals with full JS-spec
 //!   escape decoding (`\n` / `\xNN` / `\uNNNN` / `\u{N…N}` / …).
-//!   Returns `Err` on unterminated literals.
+//!   Returns `Err` on unterminated literals, on a raw LF / CR in the
+//!   body, and on a malformed `\x` / `\u` — none of those has a
+//!   passthrough arm in §12.9.4.
 //! - `scan_number` — every numeric literal shape: decimal, BigInt,
 //!   leading-dot, binary (`0b`), octal (`0o`), hex (`0x`). Returns
 //!   `Err` on empty digit groups (e.g. `0b`).
@@ -38,11 +40,17 @@ pub(super) fn scan_string(
         let c = bytes[*i as usize];
         if c == b'\\' && *i + 1 < len {
             let esc = bytes[*i as usize + 1];
-            // `\xNN` / `\uNNNN` / `\u{N…N}` — malformed spellings fall
-            // through to the passthrough arm below (lenient, as V8).
-            if matches!(esc, b'x' | b'u')
-                && let Some((cp, n)) = scan_hex_escape(bytes, *i)
-            {
+            // `\xNN` / `\uNNNN` / `\u{N…N}`. §12.9.4 EscapeCharacter
+            // lists `x` and `u`, so neither is a NonEscapeCharacter: a
+            // malformed spelling has no passthrough arm to fall into —
+            // it is a SyntaxError, not a literal `x` / `u`.
+            if matches!(esc, b'x' | b'u') {
+                let Some((cp, n)) = scan_hex_escape(bytes, *i) else {
+                    return Err(format!(
+                        "malformed \\{} escape in string at {start}",
+                        esc as char
+                    ));
+                };
                 push_codepoint(&mut buf, cp);
                 *i += n;
                 continue;
@@ -140,6 +148,13 @@ pub(super) fn scan_string(
                     continue;
                 }
             }
+        }
+        // §12.9.4 DoubleStringCharacter :: SourceCharacter but not one
+        // of " or \ or LineTerminator — with <LS> and <PS> re-admitted
+        // as their own alternatives. So the rejected set is exactly the
+        // LineTerminators that are not those two: LF and CR.
+        if c != 0xE2 && super::util::line_terminator_at(bytes, *i as usize).is_some() {
+            return Err(format!("unterminated string starting at {start}"));
         }
         buf.push(c);
         *i += 1;
