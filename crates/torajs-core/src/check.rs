@@ -878,16 +878,15 @@ mod tests {
     }
 
     #[test]
-    fn logical_op_on_non_bool_errors() {
-        let src = "let n: number = 1; let r: boolean = n && true;";
-        let r = check_src(src);
-        assert!(
-            r.as_ref()
-                .err()
-                .map(|s| s.contains("`&&` / `||`") || s.contains("boolean"))
-                .unwrap_or(false),
-            "expected boolean-required error, got {r:?}"
-        );
+    fn logical_op_joins_mismatched_operand_types() {
+        // This test used to be `logical_op_on_non_bool_errors` and
+        // asserted that `n && true` is an error. §13.13 has no such
+        // rule: `a && b` IS one of its two operands, so every pair of
+        // types is legal and the join is their union. With no general
+        // union type to spell `number | boolean` with, that name is
+        // Any -- which is what the checker answers now.
+        let src = "let n: number = 1; let r = n && true; let s = \"x\" || n;";
+        assert!(check_src(src).is_ok(), "got {:?}", check_src(src));
     }
 
     #[test]

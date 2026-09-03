@@ -65,7 +65,8 @@ impl LowerCtx<'_> {
         // ConstPtrNull that the plain `box_to_any` tags as ANY_NULL,
         // so `anyVal && undefined` answered `null` (`typeof` printed
         // "object") — the same hole the ternary's mixed-Any join had.
-        let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
+        let widen_to_any =
+            matches!(a_ty, Type::Any) || self.right_is_any(right) || self.result_is_any(eid);
         // Rotation 507 — two different class instances (`m || new
         // Leaf(2)`): the checker joined them to a common ancestor, so
         // the slot wears the ancestor's layout. No box — both pointers
@@ -154,6 +155,16 @@ impl LowerCtx<'_> {
         Operand::Value(v)
     }
 
+    /// Peek whether check.rs answered Any for the JOIN itself while
+    /// the operands stayed typed — §13.13 makes `a && b` one of its
+    /// two operands, and with no general union type to spell `A | B`
+    /// the checker names that Any. The two peeks beside this one look
+    /// at the operands and so miss it, and the slot would then take
+    /// the lhs's shape and truncate the rhs into it.
+    fn result_is_any(&self, eid: ExprId) -> bool {
+        matches!(self.expr_types.get(&eid), Some(crate::check::Type::Any))
+    }
+
     /// Peek whether `right` was typed as Any by check.rs without
     /// lowering it (the right side of `&&` / `||` is evaluated
     /// lazily — lowering it eagerly would emit IR onto the wrong
@@ -187,7 +198,8 @@ impl LowerCtx<'_> {
         let truthy = self.coerce_to_bool(a.clone());
         // V3-18 m1.g mixed-Any case — mirror of `&&` above; widen
         // to Any so both short-circuit values share a uniform slot.
-        let widen_to_any = matches!(a_ty, Type::Any) || self.right_is_any(right);
+        let widen_to_any =
+            matches!(a_ty, Type::Any) || self.right_is_any(right) || self.result_is_any(eid);
         // Rotation 507 — two different class instances (`m || new
         // Leaf(2)`): the checker joined them to a common ancestor, so
         // the slot wears the ancestor's layout. No box — both pointers

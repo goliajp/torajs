@@ -387,7 +387,19 @@ fn check_logical(ast: &Ast, op: BinOp, l: Type, r: Type) -> Result<Type, String>
     if let Some(joined) = crate::check_type_compare::class_join(ast, &core(&l), &core(&r)) {
         return Ok(joined);
     }
-    Err(format!(
-        "`&&` / `||` require matching operand types, got {l:?} and {r:?}"
-    ))
+    // §13.13 — `a && b` IS one of its two operands: `a` when `a` is
+    // falsy, `b` otherwise. Every pair of types is therefore legal,
+    // and what the rejected ones needed was a name for the join. With
+    // no general union type to spell `A | B`, that name is Any --
+    // which is what `Nullable<T> || T` above already settles for in
+    // its own small way. Refusing instead meant `flag && count`,
+    // `s || 0`, `xs.length && xs[0]` -- shapes JS is written in --
+    // did not compile, with a message about "matching operand types"
+    // that no rule of the language asks for.
+    //
+    // Only the previously-rejected pairs land here: every arm above
+    // still answers its exact type, so nothing that compiled before
+    // loses precision. `ssa_lower_logical` widens the join slot to
+    // Any on the same condition and boxes both arms into it.
+    Ok(Type::Any)
 }
