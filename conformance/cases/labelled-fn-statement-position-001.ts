@@ -4,16 +4,10 @@
 // fixture is the other side: the neighbouring shapes that still PARSE
 // and must keep working.
 //
-// §14.13 LabelledItem may itself be a FunctionDeclaration, so a label
-// chain around a function is accepted wherever a statement-list item
-// is — at the top level, and inside a block. (Whether it also creates
-// a binding is annexB B.3.2 and sloppy-only; this file is a module,
-// so it only asserts that the shape parses.)
-l1: l2: function topLevel(): string { return "top"; }
-{
-  inner: function inBlock(): string { return "block"; }
-}
-console.log("parsed labelled function declarations");
+// §14.13 LabelledItem may itself be a FunctionDeclaration — but that
+// is annexB §B.3.2, which applies to code that is not strict mode
+// code. This file is a module, so rotation 578 moved the accepting
+// shapes to `annexb-fn-decl-sloppy-001.cts` and left the neighbours.
 // A label chain around anything that is not a function stays legal in
 // every statement position — the rule is about functions only.
 for (let i = 0; i < 1; i++) skip: { console.log("labelled block"); }

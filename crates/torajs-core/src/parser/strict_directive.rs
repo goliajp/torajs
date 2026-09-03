@@ -148,7 +148,7 @@ impl Parser<'_> {
         if !is_with {
             return Ok(());
         }
-        if self.in_strict_fn || !self.class_stack.is_empty() {
+        if self.strict_here() {
             return Err(format!(
                 "`with` is not allowed in strict code at {} (ES §14.11.1)",
                 self.at()

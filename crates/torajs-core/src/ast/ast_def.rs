@@ -645,6 +645,15 @@ pub struct Ast {
     /// a strict goal rejects them, and the goal is only stamped after
     /// the parse. `ast::triage_legacy_octal` raises the first one.
     pub legacy_octal_positions: Vec<(u32, &'static str)>,
+    /// Annex B function-declaration sites — `(byte offset, the
+    /// position that admitted it)`. §B.3.2 and §B.3.4 hand a
+    /// FunctionDeclaration back to a LabelledItem and to an
+    /// IfStatement branch, and both extensions apply to sloppy code
+    /// only. The parser refuses the ones it can already see are
+    /// strict (`Parser::strict_here`); the goal half parks here, for
+    /// the same reason as the two fields around it, and
+    /// `ast::triage_annexb_fn_decls` raises the first one.
+    pub annexb_fn_positions: Vec<(u32, &'static str)>,
     /// Byte ranges an explicit `"use strict"` directive prologue made
     /// strict code (§11.2.2) — a function body, or the whole source at
     /// the program level. Recorded by `parser::strict_directive`, and

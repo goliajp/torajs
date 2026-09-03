@@ -56,10 +56,10 @@ impl Parser<'_> {
     /// which is what [`SingleStmtPos`] carries: Annex B hands the
     /// production back in exactly two places and to no others.
     pub(super) fn reject_decl_in_single_stmt(
-        &self,
+        &mut self,
         body: &Stmt,
         body_start: usize,
-        ctx: &str,
+        ctx: &'static str,
         pos: SingleStmtPos,
     ) -> Result<(), String> {
         if !matches!(pos, SingleStmtPos::LabelledItem)
@@ -124,8 +124,45 @@ impl Parser<'_> {
                 "{kind} declarations are not allowed as the body of {ctx} at {}",
                 self.at()
             )),
-            None => Ok(()),
+            None => self.judge_annexb_fn(body, body_start, ctx, pos),
         }
+    }
+
+    /// The Annex B half, reached only when everything else admitted
+    /// the body — so a `Stmt::FnDecl` arriving here is a PLAIN
+    /// function declaration in one of §B.3.2 / §B.3.4's two
+    /// positions. Both extensions read "when parsing code that is not
+    /// strict mode code", which is why the shape has to be judged
+    /// twice: [`Parser::strict_here`] answers the halves the parser
+    /// can see, and the goal half parks on
+    /// [`Ast::annexb_fn_positions`] for `ast::triage_annexb_fn_decls`
+    /// — a module is strict code, and nothing knows that yet.
+    ///
+    /// A label chain records at its INNERMOST link: `l1: l2: fn` asks
+    /// once per label, and only the last one is handed the
+    /// FunctionDeclaration itself.
+    fn judge_annexb_fn(
+        &mut self,
+        body: &Stmt,
+        body_start: usize,
+        ctx: &'static str,
+        pos: SingleStmtPos,
+    ) -> Result<(), String> {
+        if matches!(pos, SingleStmtPos::LoopBody) || !matches!(body, Stmt::FnDecl { .. }) {
+            return Ok(());
+        }
+        let at = self
+            .tokens
+            .get(body_start)
+            .map_or_else(|| self.at(), |t| t.span.start);
+        if self.strict_here() {
+            return Err(format!(
+                "a function declaration is not allowed as the body of {ctx} \
+                 in strict code at {at} (ES annexB §B.3.2 / §B.3.4)"
+            ));
+        }
+        self.ast.annexb_fn_positions.push((at, ctx));
+        Ok(())
     }
 
     /// §14.13.1 IsLabelledFunction — walk a label chain and answer

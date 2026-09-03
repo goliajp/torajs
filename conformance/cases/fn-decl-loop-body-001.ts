@@ -36,12 +36,9 @@ for (const k in { in: 1 }) {
   }
   console.log(inForIn());
 }
-// The `if` branch keeps §B.3.4 — a bare function declaration there is
-// the extension the loop bodies do not get. (Sloppy-only as a
-// binding; this file is a module, so it only asserts the shape.)
-if (true) function ifBranch(): string { return "if"; }
-if (false) ; else function elseBranch(): string { return "else"; }
-console.log("if / else branches parsed");
+// The `if` branch keeps §B.3.4 — the extension the loop bodies do not
+// get — but only under a sloppy goal, so those shapes live in
+// `annexb-fn-decl-sloppy-001.cts`.
 // Every non-function body shape a loop legitimately takes.
 let n = 0;
 while (n < 2) n++;

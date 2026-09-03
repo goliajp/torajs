@@ -114,6 +114,24 @@ impl Parser<'_> {
         self.reject_if_strict_reserved(name, strict)
     }
 
+    /// Whether the cursor sits in strict mode code, as far as the
+    /// PARSER can tell. Two of §11.2.2's three sources are visible
+    /// here: an explicit `"use strict"` prologue, on this function or
+    /// on the program, which `in_strict_fn` carries; and a class body,
+    /// which is strict whatever the goal said and whatever encloses
+    /// it. The third — the goal itself, a module being strict code —
+    /// is only stamped after the parse, so every judgement built on
+    /// this predicate needs a goal-half gate to go with it.
+    ///
+    /// One spelling, because there were four: `judge_with_statement`
+    /// and `note_strict_reference` wrote the `||` form,
+    /// `let_reads_as_ident` and `yield_reads_as_ident` wrote its
+    /// negation, and the Annex B function-declaration site below was
+    /// about to write a fifth.
+    pub(super) fn strict_here(&self) -> bool {
+        self.in_strict_fn || !self.class_stack.is_empty()
+    }
+
     /// Whether a bare `yield` here may be read as an ordinary
     /// identifier — the question seven of the eight admission sites
     /// ask, and used to ask two thirds of each. (The eighth,
@@ -132,7 +150,7 @@ impl Parser<'_> {
     /// Sloppy code outside a generator keeps `yield` as a name, and
     /// the admitted site is still recorded for the goal gate.
     pub(super) fn yield_reads_as_ident(&self) -> bool {
-        !self.in_generator && self.class_stack.is_empty() && !self.in_strict_fn
+        !self.in_generator && !self.strict_here()
     }
 
     /// Whether a bare `let` here may be read as an ordinary
@@ -162,7 +180,7 @@ impl Parser<'_> {
     /// declaration in sloppy code TOO, so that caller keeps refusing
     /// it and only the `var` spelling asks.
     pub(super) fn let_reads_as_ident(&self) -> bool {
-        self.class_stack.is_empty() && !self.in_strict_fn
+        !self.strict_here()
     }
 
     /// §13.16 / §14.3.1 — whether a `let` at STATEMENT START heads a
@@ -200,14 +218,13 @@ impl Parser<'_> {
     ///
     /// Strictness has a third source at this position that the binding
     /// sites do not see: a class body is strict by §15.7 whatever the
-    /// goal and whatever enclosing function said, so `class_stack`
-    /// counts alongside the per-function bit — the same guard the
-    /// sibling `yield` admission sites carry.
+    /// goal and whatever enclosing function said — which is
+    /// [`Parser::strict_here`], the one predicate that now spells it.
     pub(super) fn note_strict_reference(&mut self, name: &str) -> Result<(), String> {
         if !refused_as_reference(name) {
             return Ok(());
         }
-        let strict = self.in_strict_fn || !self.class_stack.is_empty();
+        let strict = self.strict_here();
         self.reject_if_strict_reserved(name, strict)?;
         self.record_strict_goal_site(name);
         Ok(())

@@ -5,11 +5,10 @@
 // Note the declarations themselves must parse but their bindings do
 // not escape to this scope under bun — declare only, never call.
 
-// Annex B.3.2/B.3.4 — a plain function IS allowed there
-if (1) function f() {}
-
-lbl: function g() {}
-
+// The Annex B.3.2/B.3.4 shapes (`if (1) function f() {}` and
+// `lbl: function g() {}`) moved to `annexb-fn-decl-sloppy-001.cts`
+// in rotation 578 — both productions are sloppy-only, and this file
+// is a module.
 console.log("decls parsed");
 
 // block bodies are Statement proper — decls inside are fine

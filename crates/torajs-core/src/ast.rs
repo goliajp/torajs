@@ -1,6 +1,7 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
 
 pub(crate) mod accessor_lookup;
+mod annexb_fn_goal;
 mod apply_args;
 mod apply_args_materialize;
 mod apply_args_recv;
@@ -291,6 +292,7 @@ pub(crate) mod desugar_with;
 pub(crate) use desugar_with::{WITH_OBJ_FN, WITH_OBJ_PREFIX};
 mod number_template_sites;
 mod with_object_widen;
+pub use annexb_fn_goal::triage_annexb_fn_decls;
 pub use desugar_with::{WithReject, desugar_with};
 pub use legacy_octal_sites::{record_legacy_octal_sites, triage_legacy_octal};
 pub use number_template_sites::number_template_sites;

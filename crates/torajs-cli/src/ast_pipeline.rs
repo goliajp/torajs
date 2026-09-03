@@ -71,6 +71,13 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // annexB §B.3.2 / §B.3.4 function declarations, goal half — the
+    // parser refused the sites it could already see were strict; a
+    // module makes the rest of them SyntaxErrors too.
+    if let Some(msg) = ast::triage_annexb_fn_decls(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // §16.2.3 duplicate ExportedNames — same reason it sits here: the
     // duplicate-export cases point their `from` clause at the file
     // itself, so "import path not found" / "import error" would

@@ -53,17 +53,7 @@ switch (kind) {
 function outer() { return 'outer'; }
 console.log(outer());              // outer
 
-// P3.4-followup-A2 — bare FnDecl as direct then/else of an if-stmt
-// (no enclosing Block). `if (cond) function f() {}` parses with the
-// then-branch as Stmt::FnDecl directly. Per ES annexB §B.3.4 the
-// declaration parses but its binding is NOT hoisted to the outer
-// scope (the bun reference also reports `f is not defined` if
-// called from outside). tora's lift-to-top desugar makes the
-// declaration parse + lower without panicking; user code can't
-// reference the bare-form fn from outside the if (matches bun
-// behavior — but the test262 cases that use this shape only check
-// that parsing succeeds, never call into the body).
-if (true) function bareThen() { /* not callable from outer */ }
-console.log('bare-then-parsed');               // bare-then-parsed
-if (false) function bareSkipped() {} else function bareElse() {}
-console.log('bare-else-parsed');               // bare-else-parsed
+// P3.4-followup-A2 (bare FnDecl as the direct then/else of an
+// if-stmt) moved to `annexb-fn-decl-sloppy-001.cts` in rotation 578:
+// §B.3.4 applies to code that is not strict mode code, and this file
+// is a module.
