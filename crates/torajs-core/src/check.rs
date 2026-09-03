@@ -177,8 +177,9 @@ impl Checker {
     /// cannot answer this question on its own: sputnik's half of
     /// test262 spells its user identifiers `__ref` / `__key` /
     /// `__func` throughout. What answers it is provenance —
-    /// `ast::record_source_dunder_idents` snapshots the `__` names out
-    /// of the arena before any pass mints one.
+    /// `ast::record_source_dunder_idents` records the `__` names the
+    /// LEXER saw, which is the only boundary the parser's own minting
+    /// (`__torajs_in_op`, `__priv_*`) does not sit inside.
     pub(crate) fn is_synthesized_dunder(&self, name: &str) -> bool {
         name.starts_with("__") && !self.source_dunder_idents.contains(name)
     }

@@ -112,6 +112,10 @@ impl<'a> Parser<'a> {
         &mut self,
         tokens: &[lexer::Spanned],
     ) -> Result<ExprId, String> {
+        // The interpolation's tokens were lexed separately from the
+        // enclosing stream, so a `__` user name written inside `${…}`
+        // is only recorded here (doc on the pass).
+        crate::ast::record_source_dunder_idents(&mut self.ast, tokens);
         let mut sub = Parser {
             // Template interpolation tokens were extracted
             // from `self.source` — the same slice satisfies

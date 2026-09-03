@@ -115,8 +115,9 @@ pub struct Ast {
     /// named-fn body writing one needs the global slot.
     pub sloppy_implicit_global_names: std::collections::HashSet<String>,
     /// The `__`-prefixed identifier spellings the PROGRAM TEXT
-    /// contains, snapshotted out of the expression arena before any
-    /// pass mints a name (`ast::record_source_dunder_idents`). The
+    /// contains, recorded from the LEXER's token stream — not the
+    /// expression arena, which the parser itself mints into
+    /// (`ast::record_source_dunder_idents`). The
     /// three undeclared-name checker sites carve `__` names out of the
     /// §6.2.5.5 runtime-ReferenceError posture as compiler-synthesized;
     /// `__` is tr's convention, not a reserved namespace, so this is

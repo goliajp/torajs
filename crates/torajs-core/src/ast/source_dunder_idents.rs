@@ -10,44 +10,43 @@
 //! `__`-prefixed name, on the reasoning that the compiler synthesizes
 //! those, so an unresolved one is a compiler bug rather than user code.
 //!
-//! `__` is not a reserved namespace in JavaScript. It is tr's own
-//! convention, and the prefix cannot tell a name tr minted from a name
-//! the program spelled — sputnik's half of test262 writes `__ref`,
-//! `__func`, `__key`, `__in__while` as ordinary user identifiers
-//! throughout, and every one of them hit the reject.
+//! The reasoning is right; `__` cannot carry it. The prefix is tr's
+//! own minting convention, not a reserved namespace, and sputnik's
+//! half of test262 writes `__ref`, `__func`, `__key`, `__in__while` as
+//! ordinary user identifiers throughout.
 //!
-//! The question the carve-out actually wants answered is provenance,
-//! and provenance is knowable exactly: an identifier the parser
-//! produced came from the text. So snapshot the `__`-prefixed
-//! identifier spellings out of the expression arena while the arena
-//! still holds nothing but what the parser put there — a name in this
-//! set is user code, a `__` name absent from it is tr's own.
+//! Provenance carries it, and the boundary is the LEXER, not the
+//! arena: an identifier the program wrote arrived as a `Token::Ident`.
+//! Reading the expression arena instead would be wrong, because the
+//! parser mints too — binary `in` becomes a synthetic
+//! `__torajs_in_op(key, obj)` call at parse time
+//! (`parser::expr_prec`), and `#x` becomes `__priv_<class>__<x>`.
+//! Both are Ident NODES that were never Ident TOKENS, and calling
+//! them user code cost 80 conformance cases when this pass first read
+//! the arena.
 //!
-//! Runs first in the prelude, before `desugar_eval`: every later pass
-//! mints names, and that one is the earliest that does (`__evcv0`,
-//! `__dynfn_*`, `__evargs_*`). The cost of taking it there is that a
-//! `__`-prefixed user name introduced BY an eval'd source string is
-//! not in the set and keeps the old reject — a recorded remainder,
-//! not a regression, and one the eval desugar can close by inserting
-//! the names of each source it parses.
+//! Filled from every token stream that feeds the shared Ast — the
+//! whole program, each imported module, each direct `eval` source
+//! ([`crate::parser::entry`]) and each template interpolation
+//! ([`crate::parser::expr_entry`]) — so a `__` user name is recognised
+//! wherever it was written.
 //!
-//! Reduced pipelines (REPL, LSP) that never call this leave the set
-//! empty, which is the pre-existing posture for every `__` name.
-//!
-//! Only `__`-prefixed spellings are recorded — the judge asks about no
+//! Only `__`-prefixed spellings are kept: the judge asks about no
 //! others, and a full ident set would be a per-program allocation for
-//! nothing.
+//! nothing. Reduced pipelines that never parse through these entries
+//! leave the set empty, which is the pre-existing posture for every
+//! `__` name.
 
-use super::{Ast, Expr};
+use super::Ast;
+use crate::lexer::{Spanned, Token};
 
-pub fn record_source_dunder_idents(ast: &mut Ast) {
-    let names: std::collections::HashSet<String> = ast
-        .exprs
-        .iter()
-        .filter_map(|e| match e {
-            Expr::Ident(n) if n.starts_with("__") => Some(n.clone()),
-            _ => None,
-        })
-        .collect();
-    ast.source_dunder_idents.extend(names);
+pub fn record_source_dunder_idents(ast: &mut Ast, tokens: &[Spanned]) {
+    for t in tokens {
+        if let Token::Ident(n) = &t.token
+            && n.starts_with("__")
+            && !ast.source_dunder_idents.contains(n)
+        {
+            ast.source_dunder_idents.insert(n.clone());
+        }
+    }
 }

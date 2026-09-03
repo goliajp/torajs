@@ -47,6 +47,13 @@ pub fn parse_into_super_prop(
     target: &mut Ast,
     super_prop_ok: bool,
 ) -> Result<usize, String> {
+    // Which `__`-prefixed names did the PROGRAM spell? Recorded from
+    // the token stream, before the parser starts minting Ident nodes
+    // of its own with that prefix (doc on the pass). Every stream that
+    // feeds this Ast passes through here — the whole program, each
+    // imported module, each direct `eval` source — and the set
+    // accumulates across them.
+    crate::ast::record_source_dunder_idents(target, tokens);
     let stmt_offset = target.stmts.len();
     let id_offset = target.exprs.len() as u32;
     // 420-06 — a NESTED parse (lib / eval / builtin-injection source
