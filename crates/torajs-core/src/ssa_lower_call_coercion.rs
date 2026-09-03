@@ -229,6 +229,38 @@ pub(crate) fn emit_to_string(
     arg_ty: Type,
     implicit_tostring: bool,
 ) -> Operand {
+    // A pointer-shaped `T | null` arrives here spelled as bare T: the
+    // slot is the same slot and its null is the in-band 0 (the two
+    // scalars ride `any` instead and reach the Any arm below, which
+    // has always answered "null"). Every arm past this point reads
+    // that 0 as a live value of its own type — the Str arm handed it
+    // straight back, so `String(s)` answered a null POINTER that
+    // printed as `null` and had no `.length`; the join kernel read it
+    // as a cell and produced nothing at all.
+    //
+    // §7.1.17 asks the question this branch asks, in the order it
+    // asks it: null first, then ToString of whatever is there. The
+    // live arm is the same arm the non-nullable spelling takes, so a
+    // typed array keeps its join kernel.
+    if crate::ssa_lower_call_coercion_nullable::is_nullable_ptr(ctx, arg_eid, &arg_ty) {
+        return crate::ssa_lower_call_coercion_nullable::emit_nullable_to_string(
+            ctx,
+            arg_eid,
+            arg_op,
+            arg_ty,
+            implicit_tostring,
+        );
+    }
+    emit_to_string_inner(ctx, arg_eid, arg_op, arg_ty, implicit_tostring)
+}
+
+pub(crate) fn emit_to_string_inner(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    arg_ty: Type,
+    implicit_tostring: bool,
+) -> Operand {
     match arg_ty {
         Type::Str | Type::Substr => {
             // Identity pass-through: the result IS the arg value, and

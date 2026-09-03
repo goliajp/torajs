@@ -247,6 +247,13 @@ fn try_primitive_coercion_ctor(
                     // already answered both; only the typed spelling
                     // was turned away.
                     | Type::ClassRef(_)
+                    // §22.1.1.1 takes ANY value, and both faces of a
+                    // `T | null` are already on this list — the T,
+                    // and Null itself. Refusing the union refused the
+                    // one spelling that needs the call most:
+                    // `String(q)` on a possibly-null q is how you ask
+                    // for "null" instead of a crash.
+                    | Type::Nullable(_)
             ),
             _ => false,
         };
