@@ -76,7 +76,9 @@ impl Checker {
                 };
                 if let Some(name) = name {
                     let info = self.lookup(&name)?;
-                    if let Type::Nullable(inner) = info.ty.clone() {
+                    // The DECLARED type, not the live one — see
+                    // `Checker::assign_declared_ty`.
+                    if let Type::Nullable(inner) = self.assign_declared_ty(&name, &info.ty) {
                         return Some((name, *inner, polarity));
                     }
                 }
@@ -108,7 +110,7 @@ impl Checker {
             _ => return None,
         };
         let info = self.lookup(&target)?;
-        if let Type::Nullable(inner) = info.ty.clone() {
+        if let Type::Nullable(inner) = self.assign_declared_ty(&target, &info.ty) {
             Some((target, *inner, polarity))
         } else {
             None

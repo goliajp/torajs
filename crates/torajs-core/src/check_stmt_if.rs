@@ -67,12 +67,19 @@ pub(crate) fn check(
         None
     };
     checker.check_stmt(ast, then_branch);
-    // ut3 — assignment narrows minted inside the then-branch must
-    // not leak into the else walk (only one branch executes).
-    checker.flush_assign_narrows();
+    // The guard's restore runs FIRST, then the flush. `saved` is the
+    // type the binding had before this guard, which may itself be a
+    // straight-line assign narrow — and the flush exists precisely to
+    // retire those. Restoring after it resurrected one: `q = {x: 1};
+    // if (q !== null) { … } q = null` refused the last line, because
+    // `q` had been put back to the narrowed `Struct` after the flush
+    // had already returned it to the union.
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_narrow) {
         checker.restore_narrow(name, saved);
     }
+    // ut3 — assignment narrows minted inside the then-branch must
+    // not leak into the else walk (only one branch executes).
+    checker.flush_assign_narrows();
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, then_member) {
         checker.restore_member_narrow(key, prev);
     }
@@ -99,10 +106,10 @@ pub(crate) fn check(
             None
         };
         checker.check_stmt(ast, eb);
-        checker.flush_assign_narrows();
         if let (Some((name, _, _)), Some(saved)) = (&narrow, else_narrow) {
             checker.restore_narrow(name, saved);
         }
+        checker.flush_assign_narrows();
         if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
             checker.restore_member_narrow(key, prev);
         }

@@ -32,9 +32,24 @@ use crate::check::{Checker, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 
 impl Checker {
-    /// The declared (pre-narrow) type of `name` for assignability
-    /// checks — the ledger entry when the binding is currently
-    /// narrowed, the live binding type otherwise.
+    /// The declared (pre-narrow) type of `name` — the ledger entry
+    /// when the binding is currently narrowed, the live binding type
+    /// otherwise.
+    ///
+    /// Two faces need it. Assignability, because a narrow must not
+    /// shrink what the binding may be assigned (`b = null` after
+    /// `b = "x"` is legal). And the null GUARD, because a narrow does
+    /// not remove the declared possibility of being null either — the
+    /// guard is asking about the binding, not about this segment's
+    /// belief about it. `collect_null_narrow` used to ask the live
+    /// type, so once a straight-line assign had narrowed the binding
+    /// the cond no longer looked nullable and no narrow was collected
+    /// at all: harmless for `if (x !== null)`, whose then-branch runs
+    /// on the surviving narrow, and fatal for `if (x === null) {}
+    /// else { x.f }`, because the flush at the end of the then-branch
+    /// restores the union and the else-branch has nothing to restore
+    /// it FROM. `q = {x: 1}; if (q === null) {} else { q.x }` was
+    /// refused outright — a program with no null in it anywhere.
     pub(crate) fn assign_declared_ty(&self, name: &str, live_ty: &Type) -> Type {
         self.assign_narrows
             .get(name)
