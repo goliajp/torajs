@@ -155,7 +155,7 @@ pub type GenericCallSites = HashMap<ExprId, (String, Vec<Type>)>;
 // `crate::check::<name>` import path.
 pub(crate) use crate::check_js_semantics::{
     is_known_builtin_global, js_add_coerces_to_number, js_arith_coerces_to_number,
-    js_loose_eq_supported, js_truthy_acceptable, rides_any_lane,
+    js_loose_eq_supported, js_truthy_acceptable, narrow_within_lane, rides_any_lane,
 };
 
 /// V3-05 — substitute `Type::ClassRef(name)` with whatever the

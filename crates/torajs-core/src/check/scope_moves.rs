@@ -212,7 +212,9 @@ impl Checker {
         for s in self.scopes.iter_mut().rev() {
             if let Some(info) = s.get_mut(name) {
                 let prev = info.ty.clone();
-                info.ty = inner_ty;
+                // A narrow may not move the binding out of the lane
+                // its slot lives in — see `narrow_within_lane`.
+                info.ty = crate::check::narrow_within_lane(&prev, inner_ty);
                 return Some(prev);
             }
         }

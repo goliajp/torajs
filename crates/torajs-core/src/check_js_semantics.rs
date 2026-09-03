@@ -47,6 +47,42 @@ pub(crate) fn rides_any_lane(t: &Type) -> bool {
     }
 }
 
+/// The type a narrow may install, given the type it replaces.
+///
+/// Narrowing answers "what can this binding hold from here on"; it
+/// does not — cannot — answer "where does this binding live". The
+/// slot was chosen once, from the annotation
+/// (`ssa_lower_parse_type::parse_type`), and it outlives every
+/// branch: a `let n: number | null` still has to be able to hold
+/// `null` after the guarded segment ends, so its slot stays the
+/// NaN-boxed `any` the box tax bought it.
+///
+/// So a narrow that crosses OUT of that lane is not a narrow, it is
+/// a false statement about representation — and the sites that pick
+/// a lane read exactly this type to pick it. `if (n !== null) { [n,
+/// 1][0] }` answered `undefined`: the array-literal gate asks
+/// whether an element materializes boxed, the narrow had already
+/// rewritten `Nullable(Number)` to `Number`, and the typed lane
+/// stored box bits into an 8-byte slot that every reader decodes as
+/// a 16-byte tagged pair. The canonical null guard, the early-return
+/// guard, the optional-parameter guard and straight-line assignment
+/// all reached it.
+///
+/// The honest narrowed type is therefore `Any`: the binding is known
+/// to hold a value, and what it holds it AS is a boxed one. That is
+/// also what [`rides_any_lane`] already committed these two types to
+/// — every operator family serves them through its `any` arm — so
+/// the narrow lands in the lane its operators were already using.
+/// Pointer-shaped inners are untouched: their `Nullable<T>` slot and
+/// their `T` slot are the same slot, so the narrow says nothing new
+/// about representation.
+pub(crate) fn narrow_within_lane(prev: &Type, inner: Type) -> Type {
+    if rides_any_lane(prev) && !rides_any_lane(&inner) {
+        return Type::Any;
+    }
+    inner
+}
+
 /// V3-18 m1.a — JS spec §13.15.3 ApplyStringOrNumericBinaryOperator
 /// guard for non-string `+`. Returns true iff both operands are
 /// statically-typed numerics-or-coercible-to-numerics: Number,
