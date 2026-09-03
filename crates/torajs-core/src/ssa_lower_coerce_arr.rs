@@ -31,21 +31,41 @@ use crate::ssa_lower::LowerCtx;
 /// The `__torajs_arr_join_*` kernel for this array's element type —
 /// the same dispatch `arr.toString()` takes in
 /// `ssa_lower_str_arr_join_flat`.
-fn join_fid(ctx: &LowerCtx<'_>, elem_arr_id: ArrId) -> FuncId {
-    match ctx.arr_layouts[elem_arr_id.0 as usize] {
+///
+/// `None` when no kernel answers this element type. The table used to
+/// end in `_ => arr_join`, but `arr_join` is the Array<Str> kernel,
+/// not a general one: it reads every slot as a `*Str` and asks it for
+/// its units. A nested array's slot is a `*Arr`, a struct array's is a
+/// `*Obj` — read that way they report length 0, so `String([[1],[2]])`
+/// emitted the empty string and said nothing at all. Str is now an arm
+/// of its own and everything else declines, onto the same any lane the
+/// shadowed programs take, which runs the real per-element ToString.
+fn join_fid(ctx: &LowerCtx<'_>, elem_arr_id: ArrId) -> Option<FuncId> {
+    Some(match ctx.arr_layouts[elem_arr_id.0 as usize] {
         Type::Substr => ctx.intrinsics.arr_join_substr,
         Type::I64 => ctx.intrinsics.arr_join_i64,
         Type::F64 => ctx.intrinsics.arr_join_f64,
         Type::Bool => ctx.intrinsics.arr_join_bool,
         Type::Any => ctx.intrinsics.arr_join_any,
-        _ => ctx.intrinsics.arr_join,
+        Type::Str => ctx.intrinsics.arr_join,
+        _ => return None,
+    })
+}
+
+/// Does the typed side answer this array at all? The two reasons to
+/// decline are one question at the call sites — a kernel that cannot
+/// read these elements and a module that has patched the walk both
+/// mean "hand it to the any lane" — so they are asked together.
+fn kernel_join(ctx: &LowerCtx<'_>, elem_arr_id: ArrId) -> Option<FuncId> {
+    if shadowed(ctx) {
+        return None;
     }
+    join_fid(ctx, elem_arr_id)
 }
 
 /// The join with the spec separator, leaving the caller its ownership
 /// account. The result is a fresh owned Str.
-fn emit_join_comma(ctx: &mut LowerCtx<'_>, arr: Operand, elem_arr_id: ArrId) -> Operand {
-    let fid = join_fid(ctx, elem_arr_id);
+fn emit_join_comma(ctx: &mut LowerCtx<'_>, arr: Operand, fid: FuncId) -> Operand {
     let sep = ctx.intern_string_literal(",");
     Operand::Value(ctx.f.append_inst(
         ctx.cur_block,
@@ -88,7 +108,7 @@ pub(crate) fn emit_to_string(
     elem_arr_id: ArrId,
     implicit_tostring: bool,
 ) -> Operand {
-    if shadowed(ctx) {
+    let Some(join) = kernel_join(ctx, elem_arr_id) else {
         stand_down_prelude(ctx, &arg_op);
         let fid = if implicit_tostring {
             ctx.intrinsics.any_to_str_box
@@ -105,8 +125,8 @@ pub(crate) fn emit_to_string(
         ctx.release_owned_temp(arg_eid, &arg_op);
         ctx.emit_throw_check(None);
         return Operand::Value(v);
-    }
-    let s = emit_join_comma(ctx, arg_op.clone(), elem_arr_id);
+    };
+    let s = emit_join_comma(ctx, arg_op.clone(), join);
     ctx.release_owned_temp(arg_eid, &arg_op);
     s
 }
@@ -120,7 +140,7 @@ pub(crate) fn emit_to_number(
     arg_op: Operand,
     elem_arr_id: ArrId,
 ) -> Operand {
-    if shadowed(ctx) {
+    let Some(join) = kernel_join(ctx, elem_arr_id) else {
         stand_down_prelude(ctx, &arg_op);
         let boxed = ctx.box_to_any(arg_op.clone());
         let v = Operand::Value(ctx.f.append_inst(
@@ -132,8 +152,8 @@ pub(crate) fn emit_to_number(
         ctx.emit_throw_check(None);
         ctx.release_owned_temp(arg_eid, &arg_op);
         return v;
-    }
-    let s = emit_join_comma(ctx, arg_op.clone(), elem_arr_id);
+    };
+    let s = emit_join_comma(ctx, arg_op.clone(), join);
     ctx.release_owned_temp(arg_eid, &arg_op);
     let n = ctx.f.append_inst(
         ctx.cur_block,
@@ -156,7 +176,7 @@ pub(crate) fn emit_concat_side(
     v: Operand,
     elem_arr_id: ArrId,
 ) -> (Operand, bool) {
-    if shadowed(ctx) {
+    let Some(join) = kernel_join(ctx, elem_arr_id) else {
         stand_down_prelude(ctx, &v);
         // The Obj side's route: the any-lane heap dispatch (tag 4 =
         // the Heap slot tag; the header tag picks the kernel).
@@ -174,6 +194,6 @@ pub(crate) fn emit_concat_side(
         );
         ctx.emit_throw_check(None);
         return (Operand::Value(s), true);
-    }
-    (emit_join_comma(ctx, v, elem_arr_id), true)
+    };
+    (emit_join_comma(ctx, v, join), true)
 }
