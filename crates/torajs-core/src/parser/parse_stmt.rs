@@ -228,7 +228,12 @@ impl<'a> Parser<'a> {
             self.pos += 2; // consume label ident + ':'
             let body_start = self.pos;
             let body = Box::new(self.parse_stmt()?);
-            self.reject_decl_in_single_stmt(&body, body_start, "a labeled statement", true)?;
+            self.reject_decl_in_single_stmt(
+                &body,
+                body_start,
+                "a labeled statement",
+                super::loops::SingleStmtPos::LabelledItem,
+            )?;
             return Ok(Some(Stmt::Labeled { label, body }));
         }
         Ok(None)

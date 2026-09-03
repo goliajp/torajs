@@ -15,34 +15,58 @@
 
 use super::*;
 
+/// Which position handed its body to
+/// [`Parser::reject_decl_in_single_stmt`]. The judge has to ask,
+/// because the Annex B extensions it must honour belong to two
+/// DIFFERENT positions — and to no others.
+///
+/// §14.6 IfStatement, §14.7 IterationStatement and §14.13
+/// LabelledStatement all take a `Statement`, and a
+/// FunctionDeclaration is not one. Annex B then adds it back in
+/// exactly two places: §B.3.2 lets a LabelledItem BE a
+/// FunctionDeclaration, and §B.3.4 gives IfStatement four extra
+/// productions with FunctionDeclaration branches. Nothing extends a
+/// loop body, so `while (false) function f(){}` is a SyntaxError
+/// under every goal — which is what bun answers, and what tr ran
+/// happily until the judge could tell the positions apart.
+pub(super) enum SingleStmtPos {
+    /// A labelled statement's own body — §B.3.2's position. It is the
+    /// only one where a label chain around a function IS the
+    /// extension rather than something wrapping it, so
+    /// `l1: l2: function f(){}` stays legal as a statement-list item.
+    LabelledItem,
+    /// An `if` / `else` branch — §B.3.4's position. The bare spelling
+    /// is admitted; §14.13.1 still refuses the labelled one, because
+    /// B.3.4 extends `if (x) function f(){}` and never
+    /// `if (x) l: function f(){}` (rotation 577 刀 4).
+    IfBranch,
+    /// A loop body: `while` / `do`-`while` / `for` / `for`-`in` /
+    /// `for`-`of`. No extension reaches here, so both spellings go.
+    LoopBody,
+}
+
 impl<'a> Parser<'a> {
     /// §14.6 / §14.7 / §14.13 early error — a single-statement
     /// position (if/else branch, loop body, labeled body) admits a
     /// Statement, not a Declaration. Lexical declarations (let /
-    /// const / class / generator / async fn) reject; a plain
-    /// `function` is allowed (Annex B.3.2/B.3.4 — bun accepts both
-    /// `if (x) function f(){}` and `lbl: function f(){}`), and `var`
-    /// is a VariableStatement proper. The check is post-parse on the
+    /// const / class / generator / async fn) reject, and `var` is a
+    /// VariableStatement proper. The check is post-parse on the
     /// produced Stmt — parse side effects are moot since the whole
     /// compile aborts.
     ///
-    /// `admits_labelled_fn` separates the two readings of a label
-    /// chain. §14.13 LabelledItem may itself be a FunctionDeclaration
-    /// (annexB B.3.2), so `l1: l2: function f(){}` is legal as a
-    /// statement-list item — that is the labelled-statement body's own
-    /// position, and it passes `true`. Every other position here takes
-    /// a Statement, where §14.13.1 makes it a Syntax Error if
-    /// IsLabelledFunction(Statement) — annexB extends the bare
-    /// `if (x) function f(){}` spelling, never the labelled one. The
-    /// chain is transparent, so those positions walk it.
+    /// A plain `function` is the one answer that differs BY POSITION,
+    /// which is what [`SingleStmtPos`] carries: Annex B hands the
+    /// production back in exactly two places and to no others.
     pub(super) fn reject_decl_in_single_stmt(
         &self,
         body: &Stmt,
         body_start: usize,
         ctx: &str,
-        admits_labelled_fn: bool,
+        pos: SingleStmtPos,
     ) -> Result<(), String> {
-        if !admits_labelled_fn && let Some(kind) = Self::labelled_fn_kind(body) {
+        if !matches!(pos, SingleStmtPos::LabelledItem)
+            && let Some(kind) = Self::labelled_fn_kind(body)
+        {
             return Err(format!(
                 "a labeled {kind} is not allowed as the body of {ctx} at {} \
                  (ES §14.13.1)",
@@ -85,6 +109,12 @@ impl<'a> Parser<'a> {
                     Some("generator function")
                 } else if self.ast.async_fns.contains(name) {
                     Some("async function")
+                } else if matches!(pos, SingleStmtPos::LoopBody) {
+                    // The half no extension covers. §14.7's body is a
+                    // Statement under every goal, so this one refuses
+                    // in sloppy code too — unlike the strict-only
+                    // halves of B.3.2 / B.3.4.
+                    Some("function")
                 } else {
                     None
                 }
@@ -152,7 +182,12 @@ impl<'a> Parser<'a> {
         }
         let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, body_start, "a while loop", false)?;
+        self.reject_decl_in_single_stmt(
+            &body,
+            body_start,
+            "a while loop",
+            SingleStmtPos::LoopBody,
+        )?;
         Ok(Stmt::While { cond, body })
     }
 
@@ -160,7 +195,12 @@ impl<'a> Parser<'a> {
         self.pos += 1; // consume `do`
         let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, body_start, "a do-while loop", false)?;
+        self.reject_decl_in_single_stmt(
+            &body,
+            body_start,
+            "a do-while loop",
+            SingleStmtPos::LoopBody,
+        )?;
         match self.peek() {
             Token::While => self.pos += 1,
             t => {
@@ -436,7 +476,7 @@ impl<'a> Parser<'a> {
         }
         let body_start = self.pos;
         let body = Box::new(self.parse_stmt()?);
-        self.reject_decl_in_single_stmt(&body, body_start, "a for loop", false)?;
+        self.reject_decl_in_single_stmt(&body, body_start, "a for loop", SingleStmtPos::LoopBody)?;
         Ok(Stmt::For {
             init,
             cond,
