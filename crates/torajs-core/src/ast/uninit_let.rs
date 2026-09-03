@@ -47,6 +47,46 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
     // walk handles them when it descends into Stmt::FnDecl variants.
 }
 
+/// The annotation a declaration that STILL has no initializer here
+/// carries: `T | undefined`, in the `__nullable(T)` spelling (567-04,
+/// moved to this pass by 568-01).
+///
+/// `let x: T;` binds nothing until its first write, and at runtime
+/// that nothing is `undefined`: bun prints it, while tr rejected the
+/// whole program (`declared Number, init has Undefined`) or, for a
+/// pointer-shaped T, read the type's zero value. The annotation that
+/// states the truth is the one the user could have written by hand,
+/// and every later consumer then agrees without learning about the
+/// uninitialized case: the checker face, the slot type each
+/// `try_resolve_type_ann` caller picks, and the per-type undefined
+/// sentinel the nullable slot already carries for `f(a?: T)`.
+///
+/// What TS reports for `let x: number; use(x)` comes from
+/// definite-assignment analysis, which is a different question from
+/// what the slot holds — and not one a runtime may answer by
+/// refusing to run. `let x!: T` asserts the answer to that question
+/// and has no runtime face, so it is wrapped the same way.
+///
+/// It is applied HERE and not at the parse of the declaration
+/// because "no initializer" is not final until the splice above has
+/// run: `let x: number; x = 7;` becomes `let x: number = 7`, a
+/// binding no reachable code can observe holding undefined. Wrapping
+/// it anyway cost that program the whole scalar lane — the slot for
+/// `__nullable(number)` is a NaN-boxed `any`, so `console.log(x)`
+/// lowered to a box + `print_anyv` + an rc-dec where the same
+/// program written with the initializer on the declaration folds to
+/// one `print_i64`.
+///
+/// A T that already admits undefined, or already admits everything,
+/// is returned unchanged.
+fn no_init_type_ann(t: &str) -> String {
+    match t {
+        "any" | "undefined" | "null" => t.to_string(),
+        _ if t.starts_with("__nullable(") => t.to_string(),
+        _ => format!("__nullable({t})"),
+    }
+}
+
 fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: ExprId) {
     let mut i = 0;
     while i < stmts.len() {
@@ -208,8 +248,9 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
         // every later cross-scope / cross-Multi assignment (`let v;
         // function f() { v = 1; }` / `let a, b; a = 1;`). Annotated
         // survivors keep their sentinel (parser-let-no-init-001
-        // asserts their Null semantics); `var`-machinery decls
-        // (for-of `var k;`, var_hoist) keep their own path.
+        // asserts their undefined semantics) via the annotated arm
+        // right below; `var`-machinery decls (for-of `var k;`,
+        // var_hoist) keep their own path.
         if let Stmt::LetDecl {
             type_ann,
             init,
@@ -220,6 +261,15 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
         {
             *type_ann = Some("any".into());
             *init = undef_eid;
+        }
+        // The annotated sibling of the arm above — see
+        // `no_init_type_ann`. `var` is wrapped too: §14.3.2 hoists
+        // the binding, and a hoisted binding reads `undefined`
+        // before its write just the same.
+        if let Stmt::LetDecl { type_ann, .. } = &mut stmts[i]
+            && let Some(t) = type_ann.as_deref()
+        {
+            *type_ann = Some(no_init_type_ann(t));
         }
         i += 1;
     }
