@@ -192,6 +192,12 @@ fn try_join(
             Type::Str,
             None,
         );
+        // Only the any kernel runs user code per element, and only it
+        // can come back with a throw pending — see the same gate in
+        // `ssa_lower_coerce_arr::emit_join_comma`.
+        if join_fid == ctx.intrinsics.arr_join_any {
+            ctx.emit_throw_check(None);
+        }
         return Some(Operand::Value(v));
     }
     None

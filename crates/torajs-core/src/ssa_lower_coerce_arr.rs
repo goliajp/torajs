@@ -67,12 +67,20 @@ fn kernel_join(ctx: &LowerCtx<'_>, elem_arr_id: ArrId) -> Option<FuncId> {
 /// account. The result is a fresh owned Str.
 fn emit_join_comma(ctx: &mut LowerCtx<'_>, arr: Operand, fid: FuncId) -> Operand {
     let sep = ctx.intern_string_literal(",");
-    Operand::Value(ctx.f.append_inst(
+    let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(fid, vec![arr, Operand::Value(sep)]),
         Type::Str,
         None,
-    ))
+    );
+    // The any kernel is the one that runs user code per element, so
+    // it is the one that can leave a throw pending (an own toString
+    // that throws, or a Symbol element, which §7.1.17 step 2 rejects
+    // by itself). The typed kernels read their slots and cannot.
+    if fid == ctx.intrinsics.arr_join_any {
+        ctx.emit_throw_check(None);
+    }
+    Operand::Value(v)
 }
 
 /// Has this module put anything in front of the walk the join kernel

@@ -90,6 +90,25 @@ pub unsafe extern "C" fn __torajs_arr_join_any(arr: *const u8, sep: *const u8) -
             if owned {
                 __torajs_value_drop_heap(av as *mut c_void);
             }
+            // §23.1.3.18 step 5.d does ToString(element), and that
+            // runs user code: an own `toString` can throw anything,
+            // and §7.1.17 step 2 makes a Symbol element throw by
+            // itself. Walking on past a pending throw finished the
+            // join and handed back a string, so the element's
+            // exception was swallowed and the loop kept calling more
+            // user methods after it. Stop where the spec stops, drop
+            // what pass 1 already owns, and answer a type-correct
+            // empty Str — the caller's throw check unwinds.
+            if __torajs_throw_check() != 0 {
+                for k in 0..=i {
+                    let t = *tmp.add(k as usize);
+                    if !t.is_null() {
+                        str_drop(t);
+                    }
+                }
+                free(tmp as *mut c_void);
+                return alloc_join_out(0, true);
+            }
         }
         total += sep_units * (len - 1);
         let p = alloc_join_out(total, out_latin1);

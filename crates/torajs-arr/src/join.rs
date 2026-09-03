@@ -48,6 +48,11 @@ unsafe extern "C" {
     /// Cross-tier — universal NaN-box-safe heap dropper (releases the
     /// owned exotic-lane element reads).
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// Is a catchable throw pending? Per-element ToString runs user
+    /// code (§7.1.1.1 OrdinaryToPrimitive) and §7.1.17 step 2 makes
+    /// ToString(Symbol) throw outright, so the join walk has to ask.
+    /// Defined in `torajs-throw`.
+    fn __torajs_throw_check() -> i64;
 }
 
 // AnyValue NaN-box constants — match `torajs-anyvalue::nanbox`
