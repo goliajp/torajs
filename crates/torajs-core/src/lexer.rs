@@ -247,18 +247,7 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
 /// the terminator itself stays for the whitespace arm (same posture as
 /// `scan_slash`'s line comment).
 fn skip_single_line_html(bytes: &[u8], i: &mut u32, len: u32) {
-    while *i < len {
-        let c = bytes[*i as usize];
-        if c == b'\n' || c == b'\r' {
-            break;
-        }
-        if c == 0xE2
-            && (*i as usize) + 2 < len as usize
-            && bytes[*i as usize + 1] == 0x80
-            && (bytes[*i as usize + 2] == 0xA8 || bytes[*i as usize + 2] == 0xA9)
-        {
-            break;
-        }
+    while *i < len && util::line_terminator_at(bytes, *i as usize).is_none() {
         *i += 1;
     }
 }
@@ -266,13 +255,7 @@ fn skip_single_line_html(bytes: &[u8], i: &mut u32, len: u32) {
 /// Whether a byte slice contains any §12.3 LineTerminator — LF, CR, or
 /// the UTF-8 spellings of U+2028 / U+2029.
 fn has_line_break(bytes: &[u8]) -> bool {
-    bytes.iter().enumerate().any(|(k, &c)| {
-        c == b'\n'
-            || c == b'\r'
-            || (c == 0xE2
-                && bytes.get(k + 1) == Some(&0x80)
-                && matches!(bytes.get(k + 2), Some(&0xA8) | Some(&0xA9)))
-    })
+    (0..bytes.len()).any(|k| util::line_terminator_at(bytes, k).is_some())
 }
 
 /// The non-ASCII members of ES2024 §12.2 `WhiteSpace` — <NBSP>,

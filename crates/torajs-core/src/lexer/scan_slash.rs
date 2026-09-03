@@ -3,7 +3,8 @@
 //! (2026-07-03, fn-debt decomp; only change is `i` threading through
 //! `&mut u32`).
 
-use super::util::{advance, emit, peek, regex_context};
+use super::scan_ident::cp_continues_ident;
+use super::util::{advance, decode_utf8, emit, line_terminator_at, peek, regex_context};
 use super::{Spanned, Token};
 
 pub(super) fn scan_slash(
@@ -21,24 +22,11 @@ pub(super) fn scan_slash(
     match peek(bytes, *i + 1) {
         Some(b'/') => {
             // Line comment — consume to end-of-line / EOF. ES2024
-            // §12.4 SingleLineCommentChars exclude LineTerminator,
-            // and §11.3 LineTerminator is {LF, CR, LS, PS} — the
-            // last two are U+2028 / U+2029, UTF-8 E2 80 A8 / A9.
+            // §12.4 SingleLineCommentChars exclude LineTerminator.
             // Don't consume the terminator itself — outer loop's
             // whitespace branch handles it (including \r\n pairs).
             *i += 2;
-            while *i < len {
-                let c = bytes[*i as usize];
-                if c == b'\n' || c == b'\r' {
-                    break;
-                }
-                if c == 0xE2
-                    && (*i as usize) + 2 < len as usize
-                    && bytes[*i as usize + 1] == 0x80
-                    && (bytes[*i as usize + 2] == 0xA8 || bytes[*i as usize + 2] == 0xA9)
-                {
-                    break;
-                }
+            while *i < len && line_terminator_at(bytes, *i as usize).is_none() {
                 *i += 1;
             }
         }
@@ -69,18 +57,32 @@ pub(super) fn scan_slash(
             let body_start = (*i + 1) as usize;
             let mut p = body_start;
             let mut in_class = false;
+            let line_break = || {
+                Err(format!(
+                    "unterminated regex literal at {start} (line break before closing `/`)"
+                ))
+            };
             loop {
                 if p >= len as usize {
                     return Err(format!("unterminated regex literal starting at {start}"));
                 }
-                let c = bytes[p];
-                if c == b'\n' {
-                    return Err(format!(
-                        "unterminated regex literal at {start} (line break before closing `/`)"
-                    ));
+                // §12.9.5 RegularExpressionNonTerminator :: SourceCharacter
+                // but not LineTerminator. Every character of the body is
+                // one, including the one after the `\` of a
+                // RegularExpressionBackslashSequence — so a line break
+                // ends the literal wherever it appears, and the escape
+                // may not swallow it.
+                if line_terminator_at(bytes, p).is_some() {
+                    return line_break();
                 }
+                let c = bytes[p];
                 if c == b'\\' {
-                    // Skip the escape sequence's next byte.
+                    if p + 1 >= len as usize {
+                        return Err(format!("unterminated regex literal starting at {start}"));
+                    }
+                    if line_terminator_at(bytes, p + 1).is_some() {
+                        return line_break();
+                    }
                     p += 2;
                     continue;
                 }
@@ -100,11 +102,30 @@ pub(super) fn scan_slash(
                 p += 1;
             }
             let pattern = String::from_utf8_lossy(&bytes[body_start..p]).into_owned();
-            // Flags: any trailing ASCII letters.
+            // §12.9.5 RegularExpressionFlags :: RegularExpressionFlags
+            // IdentifierPart — the whole IdentifierPart run, not just the
+            // letters. Taking the run is what makes `/a/1` one literal
+            // carrying the invalid flag `1` (rejected downstream by
+            // `parse_flags`) instead of a regex followed by a stray
+            // number that runs fine.
             let flags_start = p + 1;
             let mut q = flags_start;
-            while q < len as usize && bytes[q].is_ascii_alphabetic() {
-                q += 1;
+            while q < len as usize {
+                // The one IdentifierPart spelling that is an early error
+                // rather than a bad flag: "It is a Syntax Error if
+                // IdentifierPart contains a Unicode escape sequence."
+                if bytes[q] == b'\\' {
+                    return Err(format!(
+                        "regex literal at {start}: flags may not contain a unicode escape"
+                    ));
+                }
+                let Some((cp, w)) = decode_utf8(bytes, q as u32) else {
+                    break;
+                };
+                if !cp_continues_ident(cp) {
+                    break;
+                }
+                q += w as usize;
             }
             let flags = String::from_utf8_lossy(&bytes[flags_start..q]).into_owned();
             *i = q as u32;

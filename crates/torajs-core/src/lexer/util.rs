@@ -88,6 +88,34 @@ pub(super) fn regex_context(prev: Option<&Token>) -> bool {
     )
 }
 
+/// §12.3 LineTerminator — LF, CR, and the UTF-8 spellings of U+2028
+/// LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR. Returns the width in
+/// bytes of the one starting at `i` (a CR LF pair counts as one, two
+/// bytes wide), `None` when no line terminator starts there.
+///
+/// The set is closed and small, which is exactly why it kept being
+/// respelled: the line-comment scanner, the HTML-comment scanner, the
+/// no-line-break-here checks and the regex-literal body each wrote
+/// their own two-branch version, and the regex one had only ever
+/// grown the LF branch. One spelling, one place to read it. (The
+/// `\ LineTerminatorSequence` continuation inside a string or
+/// template is the same character set but a different production —
+/// it consumes rather than stops — and stays in its own scanners.)
+pub(super) fn line_terminator_at(bytes: &[u8], i: usize) -> Option<usize> {
+    let crlf = bytes.get(i + 1) == Some(&b'\n');
+    match *bytes.get(i)? {
+        b'\n' => Some(1),
+        b'\r' if crlf => Some(2),
+        b'\r' => Some(1),
+        0xE2 if bytes.get(i + 1) == Some(&0x80)
+            && matches!(bytes.get(i + 2), Some(&0xA8) | Some(&0xA9)) =>
+        {
+            Some(3)
+        }
+        _ => None,
+    }
+}
+
 pub(super) fn emit(out: &mut Vec<Spanned>, token: Token, start: u32, end: u32) {
     out.push(Spanned {
         token,

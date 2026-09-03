@@ -79,7 +79,9 @@ fn cp_starts_ident(cp: u32) -> bool {
 }
 
 /// ES §12.7.1 `IdentifierPartChar`, as a code point. See [`cp_starts_ident`].
-fn cp_continues_ident(cp: u32) -> bool {
+/// `scan_slash` reads it too — regex-literal flags are an
+/// IdentifierPart run (§12.9.5), not a run of letters.
+pub(super) fn cp_continues_ident(cp: u32) -> bool {
     if cp < 0x80 {
         return is_ident_cont(cp as u8);
     }
