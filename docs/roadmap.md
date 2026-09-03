@@ -1670,6 +1670,45 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Latest @ `8cc3030aa`** (2026-09-04, rotation 577 — four knives, and
+the third form of "one judgement, N spellings": not that one copy grew
+smarter than another, but that of the N sites only one existed and
+nobody asked it. `\u` and `\x` are EscapeCharacters, so a malformed
+spelling in a string is a SyntaxError rather than a literal `u` / `x`,
+and a raw LF or CR is not a DoubleStringCharacter at all (<LS> and
+<PS> stay, being their own alternatives); an untagged template refuses
+the same malformed escapes a tagged one is allowed to keep; `\c`
+ControlLetter was implemented only in the v-mode class parser, so the
+atom and ordinary class parsers matched the wrong text and, under u/v,
+rejected `\cA` outright; and a label chain is transparent to the
+IsLabelledFunction rule in every statement position except a labelled
+statement's own body). Gate predicate: **139** clusters of >= 4
+holding **1082** cases, register 2 · 247, residue 447 · 605 (31.3%),
+core **1934**, coverage top-100 **57.1%** / top-200 **75.2%** /
+top-400 **89.5%**. Against rotation 576: clusters 139 -> **139 (=)**,
+cases 1082 -> **1082 (=)**, core 1934 -> **1934 (=)** — **this number
+did not move, and that is the honest reading**: all four knives carried
+cases from the `bug` bucket into `pass*`, and `incompatible`, which is
+what the cluster census counts, is unchanged. Sweep passTotal 36039 ->
+**36093 (+54)**, pass 30641 -> **30646 (+5)**, passNoOracle 1030 (=),
+passNegative 4368 -> **4417 (+49)**, bug 11849 -> **11795 (-54)**,
+incompatible 5286 (=), trAccepted 47888 (=); conservation exact
+(+0 = +54 - 54). Verdict diff 54 changed, **all forward, 0 backward**:
+49 `bug:negative-phase-mismatch` -> `pass-negative`, 5 `bug:exit 1` ->
+`pass` (the regex `\c` family). Attribution accounts for all 54:
+`labelled-fn-stmt` 17 (across if / while / do-while / for / for-in /
+for-of), `literals/string` 13, `template-literal` 13, regexp 7, and
+**`line-terminators` 4** — the raw LF / CR half of the string rule
+lands in a directory that was not on the predicted list.
+`negative-phase-mismatch` 227 -> **178**.
+
+The knife worth remembering is the third. Going in to ADD a rejection
+(`[\1]` and `[\q]` under u/v), the 18-cell matrix against bun showed
+`new RegExp("\cA","u")` was already being **wrongly rejected** — `c`
+is not a SyntaxCharacter, and nothing upstream had claimed it. The
+same pass that needed tightening in one direction was over-tight in
+another, and only measuring both faces before cutting showed it.
+
 **Latest @ `cc1290b74`** (2026-09-04, rotation 576 — four knives on a
 regular-expression literal, and two places where one judgement had
 grown a second spelling. A literal body may not span a LineTerminator

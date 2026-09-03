@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T19:51:38.056Z",
+  "generatedAt": "2026-09-03T21:35:37.603Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T19:45:05Z",
-    "headSha": "cc1290b74",
-    "elapsedSec": 828.37,
+    "ranAt": "2026-09-03T21:17:39Z",
+    "headSha": "8cc3030aa",
+    "elapsedSec": 404.41,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30641,
+    "pass": 30646,
     "passNoOracle": 1030,
-    "passNegative": 4368,
-    "passTotal": 36039,
-    "bug": 11849,
+    "passNegative": 4417,
+    "passTotal": 36093,
+    "bug": 11795,
     "incompatible": 5286,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47888,
-    "passRateInScope": 67.78,
-    "passRateTrAccepted": 75.26
+    "passRateInScope": 67.88,
+    "passRateTrAccepted": 75.37
   },
   "torajs": {
-    "commit": "cc1290b74",
-    "commitSubject": "fix: \"parses cleanly\" had two spellings, and one of them was stale",
+    "commit": "8cc3030aa",
+    "commitSubject": "fix: a label chain is transparent everywhere except where it is not",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,26 @@
   },
   "commits": [
     {
+      "hash": "8cc3030aa",
+      "subject": "fix: a label chain is transparent everywhere except where it is not"
+    },
+    {
+      "hash": "6cdb8bd22",
+      "subject": "fix: `\\c` had three sites, and only the one nobody asks answered it"
+    },
+    {
+      "hash": "90eabf577",
+      "subject": "fix: an untagged template refuses the escapes a tagged one keeps"
+    },
+    {
+      "hash": "782838ee6",
+      "subject": "fix: `\\u` and a raw newline are not string characters"
+    },
+    {
+      "hash": "12af7de63",
+      "subject": "chore: rotation 576 close — sweep on cc1290b74, four knives, zero regressions"
+    },
+    {
       "hash": "cc1290b74",
       "subject": "fix: \"parses cleanly\" had two spellings, and one of them was stale"
     },
@@ -755,47 +775,38 @@
     {
       "hash": "a4e94b6c8",
       "subject": "fix: a class body could declare the same private name twice"
-    },
-    {
-      "hash": "c3d064b59",
-      "subject": "fix: the class-element names §15.7.1 forbids, and one it does not"
-    },
-    {
-      "hash": "62dd95323",
-      "subject": "chore: bench matrix @ d608c0666 — 46 cells, median tr/bun-aot 0.487"
-    },
-    {
-      "hash": "da241ee06",
-      "subject": "fix: a statement body could hold an `import` or `export` declaration"
-    },
-    {
-      "hash": "e0d0408d5",
-      "subject": "style: rustfmt the rotation-574 prologue-span helper"
-    },
-    {
-      "hash": "d608c0666",
-      "subject": "chore: rotation 574 close — sweep on 08400e65e, four knives, zero regressions"
     }
   ],
-  "headSha": "cc1290b74",
+  "headSha": "8cc3030aa",
   "autorun": {
-    "total": 879,
+    "total": 880,
     "baselineTarget": 10,
-    "bySelf": 874,
+    "bySelf": 875,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788460145-383c",
-      "at": "2026-09-03T18:29:05Z",
-      "ts": 1788460145,
+      "rotationId": "r-1788465599-07c4",
+      "at": "2026-09-03T19:59:59Z",
+      "ts": 1788465599,
       "trigger": "self",
-      "prevHead": "650796d4f",
-      "handoffSha": "sha256:420b62a4da46d4386835ad9150936ef5c260ff133918a4e2dbde5b1d09dd99b6",
-      "handoffAgeSec": 7,
+      "prevHead": "12af7de63",
+      "handoffSha": "sha256:f8071699363ff766e26b0f68336fc1f0a6ff5668667a2ce0ae051211b4bf60b5",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788465599-07c4",
+        "at": "2026-09-03T19:59:59Z",
+        "ts": 1788465599,
+        "trigger": "self",
+        "prevHead": "12af7de63",
+        "handoffSha": "sha256:f8071699363ff766e26b0f68336fc1f0a6ff5668667a2ce0ae051211b4bf60b5",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788460145-383c",
         "at": "2026-09-03T18:29:05Z",
@@ -892,17 +903,6 @@
         "prevHead": "ba2d58df3",
         "handoffSha": "sha256:67992b0dae8cf235708f892177da69393c35676eb81995e2bc2c6aba5d92c977",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788386108-2c23",
-        "at": "2026-09-02T21:55:08Z",
-        "ts": 1788386108,
-        "trigger": "self",
-        "prevHead": "db1d64d15",
-        "handoffSha": "sha256:3746d976f6237ef3a16ad8f207197e68fc53df23abff70c3a5f752a30fa90dc2",
-        "handoffAgeSec": 126,
         "conformanceBefore": null,
         "commitsInSession": null
       }
