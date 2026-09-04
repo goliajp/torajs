@@ -22,6 +22,15 @@
 //! carries the receiver natively and reads argc off the materialized
 //! argument array.
 //!
+//! Restoring also has to CLEAR the mangled `Ident` node pass 2 minted
+//! for the call it is undoing. The node is now orphaned — nothing
+//! reaches it — but the arguments-object collectors read the arena as
+//! evidence: an `Ident` naming a `__cm_` fn means some direct call
+//! still speaks the old signature, so the method-argv face refuses to
+//! reshape it. Leaving the orphan there made a demoted method answer
+//! `arguments.length` 0 while the runtime lane was holding the true
+//! count all along.
+//!
 //! Ordering: BEFORE the static expanders — the gate below asks
 //! whether one of them will take the site, and stands aside when it
 //! will, so no working direct call is pushed onto the slower lane.
@@ -29,47 +38,53 @@
 //! collectors key on arena `Ident`s naming a fn (`collect_method_argv`
 //! and `collect_named_static_argv` both read exactly the name this
 //! pass removes), and they should read the final shape rather than one
-//! this pass is about to change. It was not enough to give a demoted
-//! class method its runtime `arguments` count — see below. AFTER
-//! `materialize_expr_defaults`, whose output the default gate reads.
+//! this pass is about to change. AFTER `materialize_expr_defaults`,
+//! whose output the default gate reads.
 //!
 //! `this` receivers stay out: pass 2 records them in
 //! `cm_this_static_calls` instead (the cmany twin mint reads that
 //! entry), and a `this.m(...xs)` site keeps the loud reject until
 //! that account is settled.
 //!
-//! So does a body that reads `arguments`. The runtime lane knows the
-//! true count — it is the length of the array it materializes — but
-//! it does not reach a `__cm_` body: measured, a class method called
-//! through this lane with a spread answers `arguments.length` 0,
-//! while an object-literal method and a plain function on the same
-//! lane both answer truthfully. (Where that count is lost is the
-//! argv-face account, registered in plan-state L3b; a class method's
-//! `arguments` works today only through the static face, which counts
-//! a uniform direct-call site and declines a spread by construction.)
-//! Demoting such a site would trade a loud reject for a wrong number
-//! — the worse of the two. Those shapes keep the reject; what this
-//! pass takes is the rest, which is ordinary JavaScript bun runs
-//! today: two spreads, a non-trailing one, a computed source, or a
-//! fixed prefix longer than the method's declared arity.
+//! A body that READS `arguments` is not offered to the static
+//! expanders at all: `apply_spread_args` index-expands a spread to the
+//! callee's declared arity, so the count dies with the trimmed tail
+//! (`c.m(...[1, 2, 3])` on `m(a)` answered `arguments.length` 1 —
+//! silently, since nothing rejected). It needs one more thing before
+//! it can move: the runtime count reaches a `__cm_` body only through
+//! the method-argv face, and the face has conditions of its own. So
+//! such a site is demoted only when the face will then take the
+//! method — every condition asked through the collector's own
+//! predicates (`decl_admits`, `old_signature_lane`) rather than a
+//! second copy of them, plus the two this pass is uniquely placed to
+//! answer: that it is removing EVERY arena `Ident` naming the fn, and
+//! that a spread among those sites already kept the constant-fold
+//! tier out (`uniform_direct_call_argc` answers `None` on a spread by
+//! construction). Where the face will not take it, the site stays as
+//! it is rather than trading its answer for a worse one.
 
 use super::apply_args::peel_hidden_params;
-use super::arguments_object_walkers::body_has_any_arguments_touch;
+use super::arguments_object_method_argv::{decl_admits, old_signature_lane};
+use super::arguments_object_walkers::{
+    body_has_any_arguments_touch, body_has_bare_arguments_assign,
+};
 use super::forwarders_object::snapshot_fn_sigs;
 use super::spread_callee_wrap::static_expander_takes;
-use super::{Ast, Expr, ExprId};
+use super::{Ast, Expr, ExprId, Stmt};
 
 pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
     if ast.speculative_cm_rewrites.is_empty() {
         return;
     }
     let (fn_sigs, _, _) = snapshot_fn_sigs(ast);
-    let mut restores: Vec<(usize, ExprId)> = Vec::new();
+    // (call node, restored shape, callee node to clear, callee name)
+    let mut restores: Vec<(usize, ExprId, usize, String)> = Vec::new();
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
             continue;
         };
-        let Expr::Ident(name) = ast.get_expr(*callee) else {
+        let callee = *callee;
+        let Expr::Ident(name) = ast.get_expr(callee) else {
             continue;
         };
         if !(name.starts_with("__cm_") || name.starts_with("__dispatch_")) {
@@ -94,7 +109,13 @@ pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
         // position for position and the shared gate reads them
         // directly.
         let user = peel_hidden_params(params);
-        if static_expander_takes(ast, args, user) {
+        // A body that reads `arguments` is one no static expander can
+        // answer for: `apply_spread_args` index-expands the spread to
+        // the callee's declared arity, and the count dies with the
+        // trimmed tail (`c.m(...[1,2,3])` on `m(a)` answered
+        // `arguments.length` 1). So the expander's claim is not
+        // consulted for those sites — the face decides them below.
+        if !body_reads_arguments(ast, name) && static_expander_takes(ast, args, user) {
             continue;
         }
         // A default the CALL SITE still has to write in is one the
@@ -108,26 +129,74 @@ pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
         {
             continue;
         }
-        // The count the runtime lane knows has no slot in a `__cm_`
-        // body — see the module doc's argv-face account.
-        if body_reads_arguments(ast, name) {
-            continue;
-        }
-        restores.push((i, alt));
+        restores.push((i, alt, callee.0 as usize, name.clone()));
     }
-    for (i, alt) in restores {
+    // A body that reads `arguments` only moves if the method-argv
+    // face will then carry the count to it — see the module doc.
+    let old_sig_lane = old_signature_lane(ast);
+    let refused: std::collections::HashSet<String> = restores
+        .iter()
+        .map(|(_, _, _, n)| n)
+        .filter(|n| {
+            body_reads_arguments(ast, n) && !face_will_admit(ast, n, &old_sig_lane, &restores)
+        })
+        .cloned()
+        .collect();
+    restores.retain(|(_, _, _, name)| !refused.contains(name));
+    for (i, alt, callee, _) in restores {
+        ast.exprs[callee] = Expr::Ident("undefined".into());
         ast.exprs[i] = ast.exprs[alt.0 as usize].clone();
         ast.speculative_cm_rewrites.remove(&ExprId(i as u32));
     }
+}
+
+/// Whether `collect_method_argv` will take `name` once this pass has
+/// removed the callee `Ident`s in `restores`. The declaration and
+/// class-table conditions are the collector's own; the arena
+/// condition is the one only this pass can answer, since it is the
+/// one it is about to change.
+fn face_will_admit(
+    ast: &Ast,
+    name: &str,
+    old_sig_lane: &std::collections::HashSet<String>,
+    restores: &[(usize, ExprId, usize, String)],
+) -> bool {
+    if old_sig_lane.contains(name) {
+        return false;
+    }
+    let decl_ok = ast.stmts.iter().any(|s| match s {
+        Stmt::FnDecl {
+            name: n,
+            params,
+            body,
+            ..
+        } if n == name => {
+            decl_admits(ast, params, body) && !body_has_bare_arguments_assign(ast, body)
+        }
+        _ => false,
+    });
+    if !decl_ok {
+        return false;
+    }
+    // Every arena `Ident` spelling the name has to be one of the
+    // callee nodes about to be cleared; one left standing keeps the
+    // collector's arena gate shut and the count would never arrive.
+    let cleared: std::collections::HashSet<usize> = restores
+        .iter()
+        .filter(|(_, _, _, n)| n == name)
+        .map(|(_, _, c, _)| *c)
+        .collect();
+    ast.exprs
+        .iter()
+        .enumerate()
+        .all(|(i, e)| !matches!(e, Expr::Ident(n) if n == name) || cleared.contains(&i))
 }
 
 /// Whether the named FnDecl's body reads its `arguments` object at
 /// all — length, index, or whole-object escape.
 fn body_reads_arguments(ast: &Ast, name: &str) -> bool {
     ast.stmts.iter().any(|s| match s {
-        super::Stmt::FnDecl { name: n, body, .. } if n == name => {
-            body_has_any_arguments_touch(ast, body)
-        }
+        Stmt::FnDecl { name: n, body, .. } if n == name => body_has_any_arguments_touch(ast, body),
         _ => false,
     })
 }
@@ -195,6 +264,52 @@ mod tests {
     fn a_name_with_no_declaration_reads_nothing() {
         let ast = Ast::default();
         assert!(!body_reads_arguments(&ast, "__cm_C__m"));
+    }
+
+    /// A name the `__dispatch_` / vtable lanes can reach is refused
+    /// outright — those call by the old signature and leave no arena
+    /// `Ident` for the check below to find.
+    #[test]
+    fn a_name_on_the_old_signature_lane_never_earns_the_face() {
+        let mut ast = Ast::default();
+        let mut lane = std::collections::HashSet::new();
+        lane.insert("__cm_C__m".to_string());
+        ast.stmts.push(fn_decl("__cm_C__m", Vec::new(), Vec::new()));
+        assert!(!face_will_admit(&ast, "__cm_C__m", &lane, &[]));
+    }
+
+    /// An `Ident` this pass is not clearing keeps the collector's
+    /// arena gate shut, so the count would never arrive.
+    #[test]
+    fn one_ident_left_standing_is_enough_to_refuse() {
+        let mut ast = Ast::default();
+        let a = ast.add_expr(Expr::Ident("arguments".into()));
+        let len = ast.add_expr(Expr::Member {
+            obj: a,
+            name: "length".into(),
+        });
+        let this = Param {
+            name: "__this".into(),
+            type_ann: None,
+            default: None,
+            is_rest: false,
+        };
+        ast.stmts
+            .push(fn_decl("__cm_C__m", vec![this], vec![Stmt::Expr(len)]));
+        let lane = std::collections::HashSet::new();
+        // no reference at all — the face takes it
+        assert!(face_will_admit(&ast, "__cm_C__m", &lane, &[]));
+        let callee = ast.add_expr(Expr::Ident("__cm_C__m".into()));
+        // …and stops taking it once one stands unclaimed
+        assert!(!face_will_admit(&ast, "__cm_C__m", &lane, &[]));
+        // claiming that very node brings it back
+        let claimed = [(
+            0usize,
+            ExprId(0),
+            callee.0 as usize,
+            "__cm_C__m".to_string(),
+        )];
+        assert!(face_will_admit(&ast, "__cm_C__m", &lane, &claimed));
     }
 
     #[test]

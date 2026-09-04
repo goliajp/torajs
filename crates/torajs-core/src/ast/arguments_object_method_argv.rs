@@ -53,30 +53,7 @@ pub(super) fn collect_method_argv(
     static_argv: &std::collections::HashMap<String, usize>,
 ) -> std::collections::HashSet<String> {
     let mut out = std::collections::HashSet::new();
-    // Exact `__cm_<C>__<M>` names owned by the multi-owner
-    // (`__dispatch_`) and inheritance-chain (vtable) lanes — both
-    // call by the OLD signature, so their implementations must not
-    // reshape. Built exactly rather than by `__<M>` suffix matching:
-    // a private method's mangled name (`__cm_A____priv_A__m`) ends
-    // with `__m` too, and an unrelated sibling collision on `m`
-    // must not evict it (the fixture caught exactly that).
-    let mut class_names: std::collections::HashSet<&str> = ast
-        .class_parents
-        .keys()
-        .map(|s| s.as_str())
-        .chain(ast.class_parents.values().filter_map(|p| p.as_deref()))
-        .collect();
-    for owners in ast.method_owners.values() {
-        for o in owners {
-            class_names.insert(o.as_str());
-        }
-    }
-    let mut old_sig_lane: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for m in ast.method_owners.keys().chain(ast.method_index.keys()) {
-        for c in &class_names {
-            old_sig_lane.insert(format!("__cm_{c}__{m}"));
-        }
-    }
+    let old_sig_lane = old_signature_lane(ast);
     for s in &ast.stmts {
         let Stmt::FnDecl {
             name, params, body, ..
@@ -87,26 +64,10 @@ pub(super) fn collect_method_argv(
         if !name.starts_with("__cm_") {
             continue;
         }
-        // Generator factories (`__cm_gen_*`) carry `__genrecv` first,
-        // not `__this` — the first-param test excludes them.
-        if params.first().map(|p| p.name.as_str()) != Some("__this") {
-            continue;
-        }
         if excluded.contains(name) || static_argv.contains_key(name) {
             continue;
         }
-        if !(body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))
-        {
-            continue;
-        }
-        let user = &params[1..];
-        if user.len() > 5 {
-            continue;
-        }
-        if user
-            .iter()
-            .any(|p| p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_"))
-        {
+        if !decl_admits(ast, params, body) {
             continue;
         }
         if old_sig_lane.contains(name.as_str()) {
@@ -122,4 +83,63 @@ pub(super) fn collect_method_argv(
         out.insert(name.clone());
     }
     out
+}
+
+/// Every `__cm_<C>__<M>` name a known class and a dispatched method
+/// name can spell. The `__dispatch_<M>` stub and the vtable lane call
+/// those by the OLD signature and leave no arena `Ident` behind for
+/// the collector's scan to see, so the reshape has to refuse them by
+/// construction. Built as an exact product rather than by suffix
+/// match: a private method's mangled name (`__cm_A____priv_A__m`)
+/// ends with `__m` too, and an unrelated sibling collision on `m`
+/// must not evict it (the fixture caught exactly that).
+pub(super) fn old_signature_lane(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut class_names: std::collections::HashSet<&str> = ast
+        .class_parents
+        .keys()
+        .map(|s| s.as_str())
+        .chain(ast.class_parents.values().filter_map(|p| p.as_deref()))
+        .collect();
+    for owners in ast.method_owners.values() {
+        for o in owners {
+            class_names.insert(o.as_str());
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    for m in ast.method_owners.keys().chain(ast.method_index.keys()) {
+        for c in &class_names {
+            out.insert(format!("__cm_{c}__{m}"));
+        }
+    }
+    out
+}
+
+/// The face's conditions on the DECLARATION alone — what the
+/// `__cm_` FnDecl itself has to look like, with none of the
+/// whole-program evidence (exclusion sets, the class tables, the
+/// arena scan) that surrounds it. `spread_method_demote` asks the
+/// same question about a method whose last direct call it is about
+/// to remove, so the two read one definition rather than two that
+/// have to be kept agreeing.
+///
+/// Generator factories (`__cm_gen_*`) carry `__genrecv` first, not
+/// `__this` — the first-param test excludes them. `user.len() > 5`
+/// would not fit `__this` + argc + argv + user inside
+/// MAX_BOXED_PARAMS, and a default / rest / destructured row is one
+/// `apply_default_args` / `apply_rest_args` reshapes too (keep the
+/// two reshapes from composing).
+pub(super) fn decl_admits(ast: &Ast, params: &[super::Param], body: &[Stmt]) -> bool {
+    if params.first().map(|p| p.name.as_str()) != Some("__this") {
+        return false;
+    }
+    if !(body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body)) {
+        return false;
+    }
+    let user = &params[1..];
+    if user.len() > 5 {
+        return false;
+    }
+    !user
+        .iter()
+        .any(|p| p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_"))
 }
