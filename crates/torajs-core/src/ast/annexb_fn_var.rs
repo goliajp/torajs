@@ -26,6 +26,17 @@ pub(super) struct AnnexBGoal {
     sloppy: bool,
     /// Byte ranges made strict by an explicit directive prologue.
     strict_spans: Vec<(u32, u32)>,
+    /// §B.3.3 is written for a `FunctionDeclaration`. A
+    /// `GeneratorDeclaration`, an `AsyncFunctionDeclaration` and an
+    /// `AsyncGeneratorDeclaration` are none of it, in sloppy code as
+    /// much as in strict — `{ async function y() {} } typeof y`
+    /// answers "undefined" in a plain sloppy script (node, measured).
+    ///
+    /// Async-ness is name-keyed here because that is how this codebase
+    /// carries it: `Ast::async_fns` exists precisely so an `is_async`
+    /// flag need not be added to every `FnDecl` construction site, and
+    /// `desugar_async` reads it the same way.
+    async_names: HashSet<String>,
 }
 
 impl AnnexBGoal {
@@ -33,7 +44,18 @@ impl AnnexBGoal {
         Self {
             sloppy: ast.sloppy_script_goal && !ast.program_strict_prologue,
             strict_spans: ast.strict_prologue_spans.clone(),
+            async_names: ast
+                .async_fns
+                .iter()
+                .chain(ast.async_generator_fns.iter())
+                .cloned()
+                .collect(),
         }
+    }
+
+    /// Is this one of the declaration forms §B.3.3 does not reach?
+    fn is_async_form(&self, name: &str) -> bool {
+        self.async_names.contains(name)
     }
 
     /// Does the declaration at `span` get the Annex B var binding?
@@ -201,7 +223,7 @@ impl LiftCtx {
         if !mode.nested || self.shadowed.contains(name) {
             return AnnexB::Legacy;
         }
-        if !self.goal.applies(span) {
+        if !self.goal.applies(span) || self.goal.is_async_form(name) {
             return AnnexB::Strict;
         }
         if self.params.contains(name) || self.lex.iter().any(|n| n == name) {
