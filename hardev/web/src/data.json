@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-03T21:35:37.603Z",
+  "generatedAt": "2026-09-04T00:42:56.041Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-03T21:17:39Z",
-    "headSha": "8cc3030aa",
-    "elapsedSec": 404.41,
+    "ranAt": "2026-09-04T00:29:08Z",
+    "headSha": "d6d189a7d",
+    "elapsedSec": 554.84,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30646,
+    "pass": 30652,
     "passNoOracle": 1030,
-    "passNegative": 4417,
-    "passTotal": 36093,
-    "bug": 11795,
-    "incompatible": 5286,
+    "passNegative": 4451,
+    "passTotal": 36133,
+    "bug": 11757,
+    "incompatible": 5284,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47888,
-    "passRateInScope": 67.88,
-    "passRateTrAccepted": 75.37
+    "trAccepted": 47890,
+    "passRateInScope": 67.95,
+    "passRateTrAccepted": 75.45
   },
   "torajs": {
-    "commit": "8cc3030aa",
-    "commitSubject": "fix: a label chain is transparent everywhere except where it is not",
+    "commit": "d6d189a7d",
+    "commitSubject": "fix: the duplicate-parameter judge asked a narrower question than its own doc",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,26 @@
   },
   "commits": [
     {
+      "hash": "d6d189a7d",
+      "subject": "fix: the duplicate-parameter judge asked a narrower question than its own doc"
+    },
+    {
+      "hash": "2549cb2a2",
+      "subject": "fix: Annex B hands the production back only to code that is not strict"
+    },
+    {
+      "hash": "af914668b",
+      "subject": "refactor: move the single-statement-position judge out of the loop cluster"
+    },
+    {
+      "hash": "4edaad562",
+      "subject": "fix: a loop body is not one of the two places Annex B gives the production back"
+    },
+    {
+      "hash": "b4b121a61",
+      "subject": "chore: rotation 577 close — sweep on 8cc3030aa, four knives, zero regressions"
+    },
+    {
       "hash": "8cc3030aa",
       "subject": "fix: a label chain is transparent everywhere except where it is not"
     },
@@ -755,47 +775,38 @@
     {
       "hash": "2dd205d7d",
       "subject": "fix: a capture-group name is an identifier, not a run of word bytes"
-    },
-    {
-      "hash": "620b0863a",
-      "subject": "fix: two regex early errors only the whole pattern can decide"
-    },
-    {
-      "hash": "1d071b5b2",
-      "subject": "fix: a regex literal could span a line break"
-    },
-    {
-      "hash": "650796d4f",
-      "subject": "chore: rotation 575 close — sweep on 8d1129f8d, three knives, zero regressions"
-    },
-    {
-      "hash": "8d1129f8d",
-      "subject": "chore: a second reading for the function-size audit"
-    },
-    {
-      "hash": "a4e94b6c8",
-      "subject": "fix: a class body could declare the same private name twice"
     }
   ],
-  "headSha": "8cc3030aa",
+  "headSha": "d6d189a7d",
   "autorun": {
-    "total": 880,
+    "total": 881,
     "baselineTarget": 10,
-    "bySelf": 875,
+    "bySelf": 876,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788465599-07c4",
-      "at": "2026-09-03T19:59:59Z",
-      "ts": 1788465599,
+      "rotationId": "r-1788471391-4563",
+      "at": "2026-09-03T21:36:31Z",
+      "ts": 1788471391,
       "trigger": "self",
-      "prevHead": "12af7de63",
-      "handoffSha": "sha256:f8071699363ff766e26b0f68336fc1f0a6ff5668667a2ce0ae051211b4bf60b5",
-      "handoffAgeSec": 15,
+      "prevHead": "b4b121a61",
+      "handoffSha": "sha256:ec4e696c42ce5d03099da6538691e8f9bae19bc5e4ce83d04a539fee8e6af620",
+      "handoffAgeSec": 100,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788471391-4563",
+        "at": "2026-09-03T21:36:31Z",
+        "ts": 1788471391,
+        "trigger": "self",
+        "prevHead": "b4b121a61",
+        "handoffSha": "sha256:ec4e696c42ce5d03099da6538691e8f9bae19bc5e4ce83d04a539fee8e6af620",
+        "handoffAgeSec": 100,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788465599-07c4",
         "at": "2026-09-03T19:59:59Z",
@@ -892,17 +903,6 @@
         "prevHead": "e0ae97aed",
         "handoffSha": "sha256:c1b9932a7afd17712670f0efac09d77ec361ac306b1a5ece17ea6ffe2298dd6c",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788393930-2326",
-        "at": "2026-09-03T00:05:30Z",
-        "ts": 1788393930,
-        "trigger": "self",
-        "prevHead": "ba2d58df3",
-        "handoffSha": "sha256:67992b0dae8cf235708f892177da69393c35676eb81995e2bc2c6aba5d92c977",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }

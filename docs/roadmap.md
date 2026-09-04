@@ -1670,7 +1670,41 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `8cc3030aa`** (2026-09-04, rotation 577 — four knives, and
+**Latest @ `d6d189a7d`** (2026-09-04, rotation 578 — three knives and
+one pure relocation, on the fourth form of "one judgement, N spellings":
+**a judge that asks a narrower question than its own doc states**. Annex
+B hands FunctionDeclaration back to exactly two positions, §B.3.2's
+LabelledItem and §B.3.4's IfStatement branch, and to no others — but one
+judge served all seven single-statement positions and granted the
+exception to all seven, so `while (false) function f(){}` and its four
+loop siblings ran. Both extensions also end "only applied when parsing
+code that is not strict mode code", which tr applied nowhere: they
+parsed inside a module, a `"use strict"` prologue and a class body
+alike. And §15.1.2's duplicate-parameter rule was written correctly in
+`reject_duplicate_params`'s own doc while the code asked only
+`current_class.is_none()`, missing the per-function bit and the goal.)
+Gate predicate: **139** clusters of >= 4 holding **1082** cases,
+register 2 · 244, residue 447 · 606 (31.4%), core **1932**, coverage
+top-100 **57.0%** / top-200 **75.2%** / top-400 **89.4%**. Against
+rotation 577: clusters 139 -> **139 (=)**, cases 1082 -> **1082 (=)**,
+core 1934 -> **1932 (-2)**. The core drop is two `13.1-3x-s.js` cases
+that stopped being `incompatible` and became `pass` — the first time in
+three rotations that this number moved at all, and it moved the right
+way. Sweep passTotal 36093 -> **36133 (+40)**, pass 30646 -> **30652
+(+6)**, passNoOracle 1030 (=), passNegative 4417 -> **4451 (+34)**,
+bug 11795 -> **11757 (-38)**, incompatible 5286 -> **5284 (-2)**,
+trAccepted 47888 -> **47890 (+2)**; conservation exact
+(+2 = +40 - 38). Verdict diff 41 changed, **0 pass regressions**:
+34 `bug:negative-phase-mismatch` -> `pass-negative`, 3 `bug:exit 1` ->
+`pass`, 3 `incompatible:not yet supported` -> `pass`, and 1
+`bug:exit 3` -> `incompatible:not yet supported` (a staging case whose
+compiler panic changed message, not existence — located this rotation
+at `fn_source_erase.rs:53`, where a `Function`-constructor body's fn
+span is sliced against the OUTER source). Attribution accounts for all
+41: duplicate parameters 21, the two Annex B halves 19, one
+reclassification. Pass rate in-scope 67.88% -> **67.95%**.
+
+**@ `8cc3030aa`** (2026-09-04, rotation 577 — four knives, and
 the third form of "one judgement, N spellings": not that one copy grew
 smarter than another, but that of the N sites only one existed and
 nobody asked it. `\u` and `\x` are EscapeCharacters, so a malformed
