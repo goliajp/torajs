@@ -72,9 +72,25 @@ pub(crate) fn lower(
         }
     }
     let after = ctx.f.add_block();
-    // RFC 20260901-scope-exit-drops — case bodies lower into the
-    // enclosing frame (no switch frame); a `break` owes only the
-    // block frames a case body opened: depth = `len()`.
+    // §14.12.4 — the CaseBlock is ONE declarative environment
+    // spanning every clause and the default. It opens here, before
+    // the first clause value is evaluated, and closes at `after`.
+    // Without it a clause's `let` stayed in `locals` past the switch
+    // (`switch (0) { default: let f = 1; } typeof f` answered
+    // "number") and, worse, permanently replaced an outer binding of
+    // the same name — the shadow frame is what restores it.
+    ctx.scope_stack.push(Vec::new());
+    ctx.shadow_stack.push(Vec::new());
+    for c in cases.iter() {
+        crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, c.body.iter());
+    }
+    if let Some(db) = default {
+        crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, db.iter());
+    }
+    // RFC 20260901-scope-exit-drops — `break` leaves the case body's
+    // own block frames but lands on `after`, which is where the
+    // CaseBlock frame itself is released: depth = `len()` AFTER the
+    // push, so every edge into `after` drops that frame exactly once.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
             cont: after,
@@ -149,6 +165,7 @@ pub(crate) fn lower(
 
     ctx.loop_stack.pop();
     ctx.cur_block = after;
+    ctx.close_scope_frame();
 }
 
 /// One clause's IsStrictlyEqual compare against the scrutinee

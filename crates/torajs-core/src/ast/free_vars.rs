@@ -165,23 +165,30 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             default,
         } => {
             walk_expr(ast, *scrutinee, bound, out);
+            // §14.12.4 — the CaseBlock is ONE declarative environment
+            // spanning every clause and the default, not one per
+            // clause: `case 0: let a = 1; case 1: a` reads the same
+            // binding. So the frame opens once here and the fn-decl
+            // names of every clause hoist into it together.
+            let saved = bound.len();
+            for c in cases.iter() {
+                hoist_fn_decl_names(&c.body, bound);
+            }
+            if let Some(db) = default {
+                hoist_fn_decl_names(db, bound);
+            }
             for c in cases {
                 walk_expr(ast, c.value, bound, out);
-                let saved = bound.len();
-                hoist_fn_decl_names(&c.body, bound);
                 for s in &c.body {
                     walk_stmt(ast, s, bound, out);
                 }
-                bound.truncate(saved);
             }
             if let Some(db) = default {
-                let saved = bound.len();
-                hoist_fn_decl_names(db, bound);
                 for s in db {
                     walk_stmt(ast, s, bound, out);
                 }
-                bound.truncate(saved);
             }
+            bound.truncate(saved);
         }
         Stmt::For {
             init,

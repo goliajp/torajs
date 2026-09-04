@@ -38,6 +38,11 @@ pub(crate) fn check_switch(
             return;
         }
     };
+    // §14.12.4 — the CaseBlock is ONE declarative environment for
+    // every clause plus the default, not one per clause. Per-clause
+    // frames made `case 0: let a = 1; case 1: a` an unknown
+    // identifier and let a clause-declared name escape the switch.
+    checker.scopes.push(HashMap::new());
     for c in cases {
         match checker.type_of(ast, c.value) {
             Ok(t) if t == scrut_ty => {}
@@ -59,23 +64,20 @@ pub(crate) fn check_switch(
             )),
             Err(e) => checker.errors.push_err(e),
         }
-        checker.scopes.push(HashMap::new());
         for s in &c.body {
             checker.check_stmt(ast, s);
         }
-        checker.scopes.pop();
         // ut3 — only one case body executes; no assignment narrow
         // crosses case boundaries.
         checker.flush_assign_narrows();
     }
     if let Some(db) = default {
-        checker.scopes.push(HashMap::new());
         for s in db {
             checker.check_stmt(ast, s);
         }
-        checker.scopes.pop();
         checker.flush_assign_narrows();
     }
+    checker.scopes.pop();
 }
 
 pub(crate) fn check_yield(checker: &mut Checker) {
