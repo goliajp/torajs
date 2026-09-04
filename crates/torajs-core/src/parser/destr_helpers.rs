@@ -101,6 +101,51 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// ES §14.3.3.1 RestBindingInitialization for object patterns —
+    /// `{ a, b, ...rest }` binds `rest` to a fresh object holding the
+    /// source's own enumerable keys minus the ones the pattern already
+    /// named. The omit set rides in the spread sentinel's name;
+    /// ObjectLit checking / lowering skip the listed keys.
+    ///
+    /// Shared by both pattern readers — the `PatShape` walker above
+    /// (let / const / for-of heads) and the param walker in
+    /// `destr_helpers` — so the sentinel protocol has one owner.
+    pub(super) fn emit_obj_rest_let(
+        &mut self,
+        src_name: &str,
+        omit: &[&str],
+        computed: &[String],
+        rest_name: &str,
+        mutable: bool,
+        is_var: bool,
+    ) -> Stmt {
+        let obj = self.emit_obj_rest_expr(src_name, omit, computed);
+        // The rest object is extensible — record the binding so a
+        // member read missing its static anchor rides the runtime
+        // [[Get]] probe instead of the typo reject (consumers:
+        // `answer_terminal_miss` / `ssa_lower_member`).
+        self.ast.obj_rest_names.insert(rest_name.to_string());
+        Stmt::LetDecl {
+            mutable,
+            name: rest_name.to_string(),
+            type_ann: None,
+            init: obj,
+            is_var,
+        }
+    }
+
+    /// `__torajs_to_property_key(<expr>)` — §7.1.19 as a value, the
+    /// same shell the class field lane uses for its own key.
+    pub(super) fn wrap_to_property_key(&mut self, key_expr: ExprId) -> ExprId {
+        let callee = self
+            .ast
+            .add_expr(Expr::Ident("__torajs_to_property_key".to_string()));
+        self.ast.add_expr(Expr::Call {
+            callee,
+            args: vec![key_expr],
+        })
+    }
+
     /// RFC 20260714-dstr-residual blade 2 — ES §8.4.5 NamedEvaluation
     /// for destructuring defaults: when a binding's default is an
     /// anonymous function definition, record (ArrowFn ExprId →
