@@ -151,7 +151,7 @@ fn is_undefined(ast: &Ast, d: ExprId) -> bool {
 
 /// Mirror of the static expanders' accept conditions — `true` means
 /// a later pass will consume this site, so the wrap stands aside.
-fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::Param]) -> bool {
+pub(super) fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::Param]) -> bool {
     if user.last().is_some_and(|p| p.is_rest) {
         // `apply_rest_args` packs a site whose required prefix is
         // covered (its trailing args bundle into the rest array,

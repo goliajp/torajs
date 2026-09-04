@@ -307,6 +307,13 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_uninit_let(ast);
     ast::desugar_var_hoist(ast);
     ast::desugar_variadic_push(ast);
+    // Before it — the arguments-object collectors key on arena
+    // `Ident`s naming a fn, and this pass removes exactly such a name,
+    // so they should read the shape it leaves. Before the static
+    // expanders too (it stands aside wherever one of them will take
+    // the site), and after `materialize_expr_defaults`, whose output
+    // its default gate reads.
+    ast::demote_dynamic_spread_method_calls(ast);
     ast::desugar_arguments_object(ast);
     ast::rewrite_split_for_i_to_iter(ast);
     ast::escape_analyze_array_literals(ast);
