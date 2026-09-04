@@ -256,8 +256,12 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
                 rewrite_stmts(ast, &m.body, &inner);
             }
             for si in static_init {
-                if let super::StaticInit::Block(b) = si {
-                    rewrite_stmts(ast, b, &body_sh);
+                match si {
+                    super::StaticInit::Block(b) => rewrite_stmts(ast, b, &body_sh),
+                    // A static field's initialiser runs at class-init
+                    // time with the binding already in place, so it
+                    // reads the class's own name like any body does.
+                    super::StaticInit::Field(f) => rewrite_expr(ast, f.init, &body_sh),
                 }
             }
         }

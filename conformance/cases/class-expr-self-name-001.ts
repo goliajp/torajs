@@ -47,3 +47,12 @@ const N = class C {
   }
 };
 console.log(N.via("param"));
+
+// A static field's initialiser runs at class-init time with the
+// binding already in place, so it reads the name like a body does.
+const S = class C {
+  static tag = "s";
+  static me = C;
+  static read = C.tag;
+};
+console.log(S.me === S, S.read);
