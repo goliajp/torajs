@@ -131,6 +131,7 @@ mod forwarders_object_mismatch;
 mod forwarders_object_synth;
 mod free_vars;
 mod free_vars_decls;
+mod free_vars_expr;
 mod free_vars_globals;
 mod free_vars_hoisted_names;
 mod gen_fn_expr;
