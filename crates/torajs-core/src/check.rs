@@ -435,9 +435,13 @@ pub(crate) struct Checker {
     /// that resolve to this binding in `self_name_writes`; both ride
     /// to the lowerer via `check_monomorph`.
     pub(crate) self_name_active: Option<String>,
-    /// RFC 20260810 — target ident eids of writes to a fn-expression's
-    /// own self-name (§15.5.5 immutable binding; strict-mode write =
-    /// runtime TypeError through the readonly-assign kernel).
+    /// RFC 20260810 — target ident eids of writes that land on an
+    /// immutable self-referential binding, which the lowerer turns
+    /// into a runtime TypeError through the readonly-assign kernel.
+    /// Two sources, one lane because bun answers both with the same
+    /// message: a fn-expression writing its own self-name (§15.5.5),
+    /// and a class body writing its own class name (§15.7.14 step 3 —
+    /// the class scope's binding, which every method body is inside).
     pub(crate) self_name_writes: std::collections::HashSet<ExprId>,
     /// RFC 20260730-undeclared-ident 刀 3 — closure captures that
     /// resolved nowhere, keyed by the `Expr::Closure` construction

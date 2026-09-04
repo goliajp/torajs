@@ -75,6 +75,33 @@ pub(crate) fn check(
             // and known builtin globals (`Object = 12` / `NaN = 12`
             // global-property write semantics) stay a hard reject —
             // recorded boundary.
+            // §15.7.14 ClassDefinitionEvaluation step 3 — the class
+            // scope holds an IMMUTABLE binding for the class's own
+            // name, and every method body sits inside that scope. So
+            // a write to it from inside the class is a runtime
+            // TypeError, exactly like the fn-expression self-name
+            // below, and bun answers both with the same message
+            // ("Attempted to assign to readonly property." — probed
+            // against a static method, an instance method and a
+            // static field initialiser). The OUTER binding a class
+            // DECLARATION also creates is mutable and is a separate
+            // question — `class C {}; C = 1` at top level is legal and
+            // still rejected here, which is the two-binding model
+            // carried in plan-state, not this lane.
+            //
+            // `current_class` is what says "inside": the checker sets
+            // it while walking a `__cm_<C>__*` / `__sm_<C>__*` body,
+            // and `desugar_classes` has already rewritten the source's
+            // `C` to `__class_<C>` by the time this runs. Writing
+            // another class's name from in here is the outer binding
+            // again, so the two names must agree.
+            if let Some(cls) = name.strip_prefix("__class_")
+                && checker.current_class.as_deref() == Some(cls)
+                && checker.class_names.contains(cls)
+            {
+                checker.self_name_writes.insert(target);
+                return checker.type_of(ast, value);
+            }
             if checker.is_synthesized_dunder(&name) || crate::check::is_known_builtin_global(&name)
             {
                 return Err(format!("assignment to undeclared `{name}`"));
