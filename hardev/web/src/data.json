@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T17:39:35.870Z",
+  "generatedAt": "2026-09-04T19:12:20.598Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T17:33:03Z",
-    "headSha": "f20de97a3",
-    "elapsedSec": 380.16,
+    "ranAt": "2026-09-04T18:56:58Z",
+    "headSha": "d31e5634b",
+    "elapsedSec": 444.18,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31057,
-    "passNoOracle": 1143,
+    "pass": 31077,
+    "passNoOracle": 1140,
     "passNegative": 4457,
-    "passTotal": 36657,
-    "bug": 11307,
-    "incompatible": 5210,
-    "bunSkip": 2931,
+    "passTotal": 36674,
+    "bug": 11309,
+    "incompatible": 5191,
+    "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47964,
-    "passRateInScope": 68.94,
+    "trAccepted": 47983,
+    "passRateInScope": 68.97,
     "passRateTrAccepted": 76.43
   },
   "torajs": {
-    "commit": "f20de97a3",
-    "commitSubject": "fix: a demoted method call has to take its old name out of the arena too",
+    "commit": "d31e5634b",
+    "commitSubject": "refactor: the rest object's construction lives where its protocol does",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,22 @@
   },
   "commits": [
     {
+      "hash": "d31e5634b",
+      "subject": "refactor: the rest object's construction lives where its protocol does"
+    },
+    {
+      "hash": "0b7b6ba8e",
+      "subject": "feat: an object rest can stand next to a computed key"
+    },
+    {
+      "hash": "0eca1e028",
+      "subject": "fix: a built-in function prints its native toString on one line"
+    },
+    {
+      "hash": "175e2da6c",
+      "subject": "chore: rotation 584 close — sweep on f20de97a3, two knives, zero regressions"
+    },
+    {
       "hash": "f20de97a3",
       "subject": "fix: a demoted method call has to take its old name out of the arena too"
     },
@@ -759,25 +775,9 @@
     {
       "hash": "2f6ae986a",
       "subject": "feat: Uint8Array's six base64 and hex conversions"
-    },
-    {
-      "hash": "93c345495",
-      "subject": "fix: a block's lexical declarations exist when the block is entered"
-    },
-    {
-      "hash": "a0929e07d",
-      "subject": "chore: rotation 582 close — sweep on 4b8d07ec2, five knives, one regression owned"
-    },
-    {
-      "hash": "4b8d07ec2",
-      "subject": "fix: a CaseBlock binding's slot has to be minted before the compare chain"
-    },
-    {
-      "hash": "271bd4382",
-      "subject": "fix: the switch scrutinee and a case value are Expression, so a comma belongs"
     }
   ],
-  "headSha": "f20de97a3",
+  "headSha": "d31e5634b",
   "autorun": {
     "total": 887,
     "baselineTarget": 10,

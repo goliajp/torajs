@@ -1620,11 +1620,15 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ a33f6cb50`, never as a constant (the two shas this
+snapshot stamped `@ d31e5634b`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
-what "never a constant" is warning about).
+what "never a constant" is warning about. The same failure wore a
+label instead of a sha until 2026-09-05: fourteen blocks in this
+section each said "Latest", one per rotation that wrote one. Exactly
+one says it now — the one at the head — and demoting the old one is
+part of writing the new one.
 
-**Latest @ `dac9f6bf6`** (2026-09-01, rotation 546 — the any-slot
+**Prior @ `dac9f6bf6`** (2026-09-01, rotation 546 — the any-slot
 promotion admits runtime-expression and receiver-less-closure
 members now that tb2 is closed, promoted method fields carry the
 `__mth` spelling, concat takes an Any argument through a runtime
@@ -1670,36 +1674,42 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `f20de97a3`** (2026-09-05, rotation 584 — when a call
-knows how many arguments it has. `desugar_classes` pass 2 rewrites
-`x.m(a)` into `__cm_<C>__m(x, a)` by method NAME, before the count is
-known; a spread makes that count a RUNTIME value, which the
-direct-call form cannot spell and which neither static expander will
-take in four shapes. Both passes stood aside and the mangled name died
-at `box_to_any element type FnSig`. Undoing the rewrite — the
-member-call shape is still in the arena, cloned there for the
-`cm_demote` decision — puts the site on the runtime any-method spread
-lane, which carries the receiver natively. Clearing the orphaned
-`Ident` the undo leaves behind is what lets the method-argv face
-reshape the body, so `arguments.length` answers the true count instead
-of 0; two silently-wrong shapes came back with it.) Gate predicate:
-**136** clusters of ≥ 4 holding **1032** cases, register 2 · 217,
-residue 449 · 609 (32.8%), core **1858**. Against rotation 583:
-clusters 136 → **136 (=)**, cases 1036 → **1032 (−4)**, core 1862 →
-**1858 (−4)**.
+**Latest @ `d31e5634b`** (2026-09-05, rotation 584 — when a call knows
+how many arguments it has, and what a rest object is allowed to
+subtract. `desugar_classes` pass 2 rewrites `x.m(a)` into
+`__cm_<C>__m(x, a)` by method NAME, before the count is known; a
+spread makes that count a RUNTIME value, which the direct-call form
+cannot spell and which neither static expander will take in four
+shapes, so the mangled name died at `box_to_any element type FnSig`.
+Undoing the rewrite puts the site on the runtime any-method spread
+lane; clearing the orphaned `Ident` the undo leaves behind is what
+lets the method-argv face reshape the body, so `arguments.length`
+answers the true count instead of 0. An object rest next to a computed
+key had the same shape of problem one level down — the omit list is a
+comma-separated string of NAMES — and now leaves the sentinel for a
+call that carries the runtime keys as values. A built-in's native
+`toString` went to one line, matching bun and node; the reason the
+gate had not said so for two days is that `tr` bakes its runtime
+staticlibs through `include_bytes!`, which cargo does not track, so
+the binary under test carried a copy from before the change.) Gate
+predicate: **135** clusters of ≥ 4 holding **1015** cases, register
+2 · 215, residue 449 · 609 (33.1%), core **1839**. Against rotation
+583: clusters 136 → **135 (−1)**, cases 1036 → **1015 (−21)**, core
+1862 → **1839 (−23)**.
 
-Sweep passTotal 36653 → **36657 (+4)**, pass 31053 → **31057 (+4)**,
-passNoOracle **1143 (=)**, passNegative **4457 (=)**, bug **11307
-(=)**, incompatible 5214 → **5210 (−4)**, trAccepted 47960 →
-**47964 (+4)**; conservation exact (+4 = +4 + 0). Verdict diff 4
-changed, **0 backward**, all four in
-`language/arguments-object` (`cls-decl` / `cls-expr` × plain /
-generator method, `args-trailing-comma-spread-operator`). Rotation
-583's #3 cluster (22 cases, `box_to_any element type FnSig`) is down
-to 18 and out of the top four; what remains of it is one account — a
-`__cm_` body has no argc/argv channel on the direct-call side.
-Coverage curve: top-100 **56.4%**, top-200 **74.5%**, top-400
-**89.1%**.
+Sweep passTotal 36653 → **36674 (+21)**, pass 31053 → **31077 (+24)**,
+passNoOracle 1143 → **1140 (−3)**, passNegative **4457 (=)**, bug
+11307 → **11309 (+2)**, incompatible 5214 → **5191 (−23)**,
+trAccepted 47960 → **47983 (+23)**; conservation exact
+(+23 = +21 + 2). Verdict diff 24 changed, **0 backward**: 16
+`object rest alongside a computed key` parse errors became passes, 4
+class-method `arguments` spreads in `language/arguments-object`, 3
+`pass-no-oracle` rows became ordinary passes once bun could judge the
+native `toString`, and 1 more. Rotation 583's #3 cluster
+(`box_to_any element type FnSig`) is down to 18 and out of the top
+five; the 19-case `object rest alongside a computed key` cluster is
+gone entirely. Coverage curve: top-100 **56.2%**, top-200 **74.3%**,
+top-400 **89.1%**.
 
 **Previous @ `1d57054a8`** (2026-09-05, rotation 583 — what a block
 binds, and when. §8.2.6 creates a block's lexical bindings when the
@@ -1730,7 +1740,7 @@ movement is 29 cases in `built-ins/Uint8Array`, 12 in
 gone entirely. Coverage curve: top-100 **56.4%**, top-200 **74.5%**,
 top-400 **89.2%**.
 
-**Latest @ `4b8d07ec2`** (2026-09-04, rotation 582 — one scope rule with
+**Prior @ `4b8d07ec2`** (2026-09-04, rotation 582 — one scope rule with
 three entrances, and a capture the read-only shape hid. §14.12.4 gives
 a switch CaseBlock ONE declarative environment across every clause;
 the free-variable walk and the checker each said "one per clause" and
@@ -1769,7 +1779,7 @@ a TDZ. Forward movement is 22 cases in `annexB/language` and 6 in
 step further along. Coverage curve: top-100 **56.8%**, top-200
 **74.9%**, top-400 **89.3%**.
 
-**Latest @ `da8e78cff`** (2026-09-04, rotation 581 — the three
+**Prior @ `da8e78cff`** (2026-09-04, rotation 581 — the three
 remaining entrances to Annex B §B.3.3. Rotation 580 landed "a block
 function declaration has two bindings" on the lifting lane, but a
 declaration has three ways through the compiler and the other two went
@@ -1804,7 +1814,7 @@ movement is 39 cases in `annexB/language` and 1 in
 entirely. Coverage curve: top-100 **57.1%**, top-200 **75.0%**,
 top-400 **89.4%**.
 
-**Latest @ `d6d189a7d`** (2026-09-04, rotation 578 — three knives and
+**Prior @ `d6d189a7d`** (2026-09-04, rotation 578 — three knives and
 one pure relocation, on the fourth form of "one judgement, N spellings":
 **a judge that asks a narrower question than its own doc states**. Annex
 B hands FunctionDeclaration back to exactly two positions, §B.3.2's
@@ -1877,7 +1887,7 @@ is not a SyntaxCharacter, and nothing upstream had claimed it. The
 same pass that needed tightening in one direction was over-tight in
 another, and only measuring both faces before cutting showed it.
 
-**Latest @ `cc1290b74`** (2026-09-04, rotation 576 — four knives on a
+**Prior @ `cc1290b74`** (2026-09-04, rotation 576 — four knives on a
 regular-expression literal, and two places where one judgement had
 grown a second spelling. A literal body may not span a LineTerminator
 and its flags are an IdentifierPart run; the two Early Errors only the
@@ -1963,7 +1973,7 @@ own measurement, not a stale stamp: clusters **143**, cases **1130**,
 register 2 · 251, residue 465 · 624 (31.1%), core **2005**, coverage
 top-100 **56.6%** / top-200 **74.6%** / top-400 **88.7%**.
 
-**Latest @ `c1cdd523f`** (2026-09-02, rotation 559 — a property key
+**Prior @ `c1cdd523f`** (2026-09-02, rotation 559 — a property key
 is the code-unit sequence it spells, on every lane: `ast::PropKey`
 (WTF-8) replaces `String` in object-literal fields, `Type::Struct`,
 the struct layouts, the field metadata and the width analysis; the
@@ -2147,7 +2157,7 @@ Verdict diff 2 changed, both sideways inside `incompatible`
 `type error`), **0 backward**. Coverage curve: top-100 **56.6%**,
 top-200 **74.5%**, top-400 **88.6%**.
 
-**Latest @ `885ab2ff5`** (2026-09-01, rotation 551 — scope exits
+**Prior @ `885ab2ff5`** (2026-09-01, rotation 551 — scope exits
 release what they leave; for-of closes its iterator on every exit).
 Gate predicate: **143** clusters of ≥ 4 holding **1129** cases,
 register 2 · 251, residue 467 · 627 (31.2%), core **2007**. Against
@@ -2230,7 +2240,7 @@ Unattributed head by directory: `language/expressions` 660,
 `language/module-code` 127. Coverage curve: top-100 **51.9%**,
 top-200 **69.7%**, top-400 **83.4%**.
 
-**Latest @ `c62c820a2`** (2026-08-29, rotation 526 — the write side
+**Prior @ `c62c820a2`** (2026-08-29, rotation 526 — the write side
 climbed only the links that were written down). Gate predicate:
 **157** clusters of ≥ 4 holding **1196** cases, register 2 · 251,
 residue 653 · 812 (35.9%), core **2259** — every one unchanged from
@@ -2278,7 +2288,7 @@ layer-3 section. The real head, this sweep: `language/expressions`
 172, `language/module-code` 127. Coverage curve: top-100 **50.4%**,
 top-200 **67.7%**, top-400 **81.0%**.
 
-**Latest @ `4129d778b`** (2026-08-29, rotation 523 — the answers that
+**Prior @ `4129d778b`** (2026-08-29, rotation 523 — the answers that
 were given before the walk began). Gate predicate: **157** clusters of
 ≥ 4 holding **1197** cases, register 2 · 251, residue 653 · 812
 (35.9%), core **2260**. Against the previous sweep (`0fffd3edb`,
@@ -2302,7 +2312,7 @@ Unattributed head by directory: `built-ins/RegExp` 38,
 `built-ins/Promise` 25, `built-ins/BigInt` 21, `built-ins/Uint8Array`
 20, `language/identifiers` 16.
 
-**Latest @ `0fffd3edb`** (2026-08-29, rotation 522 — a lookup that starts
+**Prior @ `0fffd3edb`** (2026-08-29, rotation 522 — a lookup that starts
 after the place it should start, in seven spellings). Gate predicate:
 **157** clusters of ≥ 4 holding **1196** cases, register 2 · 251,
 residue 653 · 812 (35.9%), core **2259**. Against the previous sweep
@@ -2324,7 +2334,7 @@ are the `.call`-rewrite knife, `Array/prototype/{filter,forEach}/
 `built-ins/RegExp` 38, `built-ins/Promise` 25, `built-ins/BigInt` 21,
 `built-ins/Uint8Array` 20, `language/identifiers` 16.
 
-**Latest @ `f87f2ab3d`** (2026-08-28, rotation 519 — the Get that was
+**Prior @ `f87f2ab3d`** (2026-08-28, rotation 519 — the Get that was
 skipped, and the doc that explained why skipping it was safe). Gate
 predicate: **158** clusters of ≥ 4 holding **1201** cases, register
 2 · 251, residue 653 · 810 (35.8%), core **2262** — every one of those
@@ -2350,7 +2360,7 @@ top-400 81.0%. Unattributed head by directory: `built-ins/Date` 60,
 `built-ins/Object` 59, `language/import` 42, `built-ins/Function` 40,
 `built-ins/Iterator` 38, `built-ins/RegExp` 36.
 
-**Latest @ `85a64a7ba`** (2026-08-28, rotation 515 — an argument the
+**Prior @ `85a64a7ba`** (2026-08-28, rotation 515 — an argument the
 program never passed pins no type parameter, and a call the checker
 could not infer says so itself). Gate predicate: **158** clusters of
 ≥ 4 holding **1201** cases, register 2 · 251, residue 653 · 810
@@ -2373,7 +2383,7 @@ discriminator it used was unsound; see
 `.claude/tasks/2026-08-28/async-gen-forawait-uaf-r515.md`), so the
 count does not move here.
 
-**Latest @ `4bd64984a`** (2026-08-27, rotation 511 — the slot's parameter
+**Prior @ `4bd64984a`** (2026-08-27, rotation 511 — the slot's parameter
 list has to carry its own defaults and its own tail, because the call
 site will not carry them for it. Rotation 510 left one shape refused on
 purpose: a class method's default is supplied by the CALL SITE, and
@@ -7859,7 +7869,7 @@ cases, 4.8 %).
       > attributed to an entry in the subset-decision register below.
       > The count of unattributed ≥ 4 clusters drives to 0.**
 
-      Latest @ `03200808`, 2026-08-11, rotation 366 — the first
+      Prior @ `03200808`, 2026-08-11, rotation 366 — the first
       register-aware stamp (SR-1 attributes 752 noStrict cases;
       previous `98efa861` / `b58797fb` in parentheses, pre-register
       figures):
