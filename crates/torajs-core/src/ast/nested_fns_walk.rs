@@ -1,0 +1,150 @@
+//! The descent half of the nested-fn lift — how the walk reaches a
+//! declaration, kept apart from what it does when it finds one.
+//!
+//! Every arm here is the same statement: recurse into whatever block-
+//! shaped children this statement has. The sibling
+//! [`super::nested_fns`] owns the other half — the lift itself, the
+//! mangling, and the Annex B §B.3.3 var write.
+
+use super::Stmt;
+use super::annexb_fn_var::{LiftCtx, LiftMode};
+use super::nested_fns::{collect_nested_fns_in_stmt, collect_nested_fns_to_lift};
+use std::collections::{HashMap, HashSet};
+
+/// Recurse into `stmt`'s block-shaped children. Leaf statements have
+/// no nested `FnDecl` to find.
+pub(super) fn descend_into_children(
+    stmt: &mut Stmt,
+    parent_name: &str,
+    renames: &mut HashMap<String, String>,
+    branch_scoped: &mut HashSet<String>,
+    mode: LiftMode,
+    lifted: &mut Vec<Stmt>,
+    ctx: &mut LiftCtx,
+) {
+    match stmt {
+        Stmt::Block(body) | Stmt::Multi(body) => {
+            collect_nested_fns_to_lift(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+        }
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_nested_fns_in_stmt(
+                then_branch,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+            if let Some(eb) = else_branch {
+                collect_nested_fns_in_stmt(
+                    eb,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    mode,
+                    lifted,
+                    ctx,
+                );
+            }
+        }
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
+            collect_nested_fns_in_stmt(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+        }
+        Stmt::For { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::Labeled { body, .. } => {
+            collect_nested_fns_in_stmt(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            collect_nested_fns_to_lift(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+            collect_nested_fns_to_lift(
+                catch_body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+            if let Some(fb) = finally_body {
+                collect_nested_fns_to_lift(
+                    fb,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    mode,
+                    lifted,
+                    ctx,
+                );
+            }
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for case in cases.iter_mut() {
+                collect_nested_fns_to_lift(
+                    &mut case.body,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    mode,
+                    lifted,
+                    ctx,
+                );
+            }
+            if let Some(d) = default {
+                collect_nested_fns_to_lift(
+                    d,
+                    parent_name,
+                    renames,
+                    branch_scoped,
+                    mode,
+                    lifted,
+                    ctx,
+                );
+            }
+        }
+        _ => {} // leaf stmts have no nested FnDecl children
+    }
+}

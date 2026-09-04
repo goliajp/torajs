@@ -168,6 +168,7 @@ pub(crate) mod nested_closure_captures;
 mod nested_fns;
 mod nested_fns_capture;
 mod nested_fns_idents;
+mod nested_fns_walk;
 mod ns_alias;
 pub(crate) mod objlit_nominal;
 mod objlit_nominal_anylane;

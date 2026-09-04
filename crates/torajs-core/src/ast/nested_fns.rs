@@ -13,6 +13,7 @@
 
 use super::annexb_fn_var::{LiftCtx, LiftMode, own_fn_names, param_names};
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
+use super::nested_fns_walk::descend_into_children;
 use super::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 
@@ -169,7 +170,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
 /// looking for nested FnDecls (block/if/while/for/try/switch
 /// children). When found, lift to `lifted` with mangled name and
 /// drop from the original site (replaced with a no-op Block).
-fn collect_nested_fns_in_stmt(
+pub(super) fn collect_nested_fns_in_stmt(
     stmt: &mut Stmt,
     parent_name: &str,
     renames: &mut HashMap<String, String>,
@@ -242,131 +243,7 @@ fn collect_nested_fns_in_stmt(
             return;
         }
     }
-    match stmt {
-        Stmt::Block(body) | Stmt::Multi(body) => {
-            collect_nested_fns_to_lift(
-                body,
-                parent_name,
-                renames,
-                branch_scoped,
-                mode,
-                lifted,
-                ctx,
-            );
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_nested_fns_in_stmt(
-                then_branch,
-                parent_name,
-                renames,
-                branch_scoped,
-                mode,
-                lifted,
-                ctx,
-            );
-            if let Some(eb) = else_branch {
-                collect_nested_fns_in_stmt(
-                    eb,
-                    parent_name,
-                    renames,
-                    branch_scoped,
-                    mode,
-                    lifted,
-                    ctx,
-                );
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            collect_nested_fns_in_stmt(
-                body,
-                parent_name,
-                renames,
-                branch_scoped,
-                mode,
-                lifted,
-                ctx,
-            );
-        }
-        Stmt::For { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => {
-            collect_nested_fns_in_stmt(
-                body,
-                parent_name,
-                renames,
-                branch_scoped,
-                mode,
-                lifted,
-                ctx,
-            );
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            collect_nested_fns_to_lift(
-                body,
-                parent_name,
-                renames,
-                branch_scoped,
-                mode,
-                lifted,
-                ctx,
-            );
-            collect_nested_fns_to_lift(
-                catch_body,
-                parent_name,
-                renames,
-                branch_scoped,
-                mode,
-                lifted,
-                ctx,
-            );
-            if let Some(fb) = finally_body {
-                collect_nested_fns_to_lift(
-                    fb,
-                    parent_name,
-                    renames,
-                    branch_scoped,
-                    mode,
-                    lifted,
-                    ctx,
-                );
-            }
-        }
-        Stmt::Switch { cases, default, .. } => {
-            for case in cases.iter_mut() {
-                collect_nested_fns_to_lift(
-                    &mut case.body,
-                    parent_name,
-                    renames,
-                    branch_scoped,
-                    mode,
-                    lifted,
-                    ctx,
-                );
-            }
-            if let Some(d) = default {
-                collect_nested_fns_to_lift(
-                    d,
-                    parent_name,
-                    renames,
-                    branch_scoped,
-                    mode,
-                    lifted,
-                    ctx,
-                );
-            }
-        }
-        _ => {} // leaf stmts have no nested FnDecl children
-    }
+    descend_into_children(stmt, parent_name, renames, branch_scoped, mode, lifted, ctx);
 }
 
 /// The declaration's own source range, or the `(0, 0)` sentinel for a
@@ -378,7 +255,7 @@ fn fn_decl_span(stmt: &Stmt) -> crate::lexer::Span {
     }
 }
 
-fn collect_nested_fns_to_lift(
+pub(super) fn collect_nested_fns_to_lift(
     body: &mut Vec<Stmt>,
     parent_name: &str,
     renames: &mut HashMap<String, String>,
