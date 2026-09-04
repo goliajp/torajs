@@ -1670,6 +1670,41 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Latest @ `da8e78cff`** (2026-09-04, rotation 581 — the three
+remaining entrances to Annex B §B.3.3. Rotation 580 landed "a block
+function declaration has two bindings" on the lifting lane, but a
+declaration has three ways through the compiler and the other two went
+around it: a write shadowed by a `catch` parameter, a declaration
+rewritten into a closure because it captures, and one given a slot
+early because its own name is assigned. The three read differently at
+the gate — `undefined`, `ReferenceError`, `ssa-lower unknown ident` —
+and are one sentence of spec: §B.3.3.1 step 3.a.ii.2 writes through
+`varEnv.SetMutableBinding`. The split now lives once, in
+`annexb_block_binding`, and both rewriting lanes call it. A fourth
+knife closes the boundary the sweep found: a block that reads the name
+before the declaration keeps its old shape, because both lanes leave
+the rewrite in place and the block binding does not exist there yet.
+The other half of the third knife is not Annex B at all — the
+free-variable walk dropped a block's `var` names on the way out, so a
+reference after the block looked free and the enclosing closure
+captured a name its own body declares.) Gate predicate: **138**
+clusters of ≥ 4 holding **1074** cases, register 2 · 235, residue
+449 · 609 (31.8%), core **1918**. Against rotation 580: clusters
+138 → **138 (=)**, cases 1074 → **1074 (=)**, core 1961 → **1918
+(−43)** — the whole of the `incompatible` movement, programs tr
+refused to build and now builds.
+
+Sweep passTotal 36526 → **36566 (+40)**, pass 30960 → **30975 (+15)**,
+passNoOracle 1114 → **1139 (+25)**, passNegative 4452 → **4452 (=)**,
+bug 11335 → **11338 (+3)**, incompatible 5313 → **5270 (−43)**,
+trAccepted 47861 → **47904 (+43)**; conservation exact
+(+43 = +40 + +3). Verdict diff 54 changed, **0 backward**. Forward
+movement is 39 cases in `annexB/language` and 1 in
+`language/eval-code`. Rotation 580's #3 cluster (36 cases,
+`ssa-lower unknown ident f`, the `no-skip-try` family) is gone
+entirely. Coverage curve: top-100 **57.1%**, top-200 **75.0%**,
+top-400 **89.4%**.
+
 **Latest @ `d6d189a7d`** (2026-09-04, rotation 578 — three knives and
 one pure relocation, on the fourth form of "one judgement, N spellings":
 **a judge that asks a narrower question than its own doc states**. Annex

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T08:15:22.055Z",
+  "generatedAt": "2026-09-04T11:04:01.168Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T07:59:54Z",
-    "headSha": "a6ced6e25",
-    "elapsedSec": 627.67,
+    "ranAt": "2026-09-04T10:57:25Z",
+    "headSha": "da8e78cff",
+    "elapsedSec": 380.45,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30960,
-    "passNoOracle": 1114,
+    "pass": 30975,
+    "passNoOracle": 1139,
     "passNegative": 4452,
-    "passTotal": 36526,
-    "bug": 11335,
-    "incompatible": 5313,
+    "passTotal": 36566,
+    "bug": 11338,
+    "incompatible": 5270,
     "bunSkip": 2931,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47861,
-    "passRateInScope": 68.69,
-    "passRateTrAccepted": 76.32
+    "trAccepted": 47904,
+    "passRateInScope": 68.77,
+    "passRateTrAccepted": 76.33
   },
   "torajs": {
-    "commit": "a6ced6e25",
-    "commitSubject": "fix: an eval's own declarations belong to the caller, not to its block",
+    "commit": "da8e78cff",
+    "commitSubject": "fix: a block whose function name is read before the declaration keeps its old shape",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -347,387 +347,411 @@
     "rows": [
       {
         "case": "popcount",
-        "bunAot": 52.614833000000004,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.2945830000000003,
-        "speedup": 22.9300195286028
+        "bunAot": 53.379999999999995,
+        "bunJsc": 52.597708,
+        "nodeV8": 101.071584,
+        "torajs": 2.5266669999999998,
+        "speedup": 20.81703208218574
       },
       {
         "case": "throw-catch-100k",
-        "bunAot": 13.052207999999998,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.438417,
-        "speedup": 9.074008441223928
-      },
-      {
-        "case": "array-any-indexed-100k",
-        "bunAot": 5.810250000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.2125835,
-        "speedup": 4.791628782677647
-      },
-      {
-        "case": "startup",
-        "bunAot": 4.408083,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 0.9787085000000002,
-        "speedup": 4.503979479078806
-      },
-      {
-        "case": "async-fn-call-100k",
-        "bunAot": 8.262791,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.854208,
-        "speedup": 4.456237380056606
+        "bunAot": 13.415958,
+        "bunJsc": 13.922208,
+        "nodeV8": 107.720333,
+        "torajs": 1.610916,
+        "speedup": 8.328154913105339
       },
       {
         "case": "generic-pair-1m",
-        "bunAot": 8.054083,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.833709,
-        "speedup": 4.392236172696976
+        "bunAot": 7.994709000000001,
+        "bunJsc": 8.501125,
+        "nodeV8": 56.595333000000004,
+        "torajs": 1.662542,
+        "speedup": 4.808726035191894
+      },
+      {
+        "case": "async-fn-call-100k",
+        "bunAot": 8.109207999999999,
+        "bunJsc": 8.885417000000002,
+        "nodeV8": 59.731208,
+        "torajs": 1.906333,
+        "speedup": 4.25382553835033
+      },
+      {
+        "case": "startup",
+        "bunAot": 4.278729,
+        "bunJsc": 4.855771,
+        "nodeV8": 50.9958125,
+        "torajs": 1.0238125,
+        "speedup": 4.179211525547891
       },
       {
         "case": "fifo-queue-100k",
-        "bunAot": 5.66725,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.3867500000000001,
-        "speedup": 4.086713538849828
+        "bunAot": 5.703666,
+        "bunJsc": 6.14825,
+        "nodeV8": 54.798542000000005,
+        "torajs": 1.3699999999999999,
+        "speedup": 4.163259854014599
       },
       {
-        "case": "promise-chain-1k",
-        "bunAot": 4.702667000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.1576250000000001,
-        "speedup": 4.062340567973221
+        "case": "array-any-indexed-100k",
+        "bunAot": 5.0094375,
+        "bunJsc": 5.531729,
+        "nodeV8": 54.11737550000001,
+        "torajs": 1.2177704999999999,
+        "speedup": 4.1136137720531085
       },
       {
         "case": "promise-await-100k",
-        "bunAot": 7.868792000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.937458,
-        "speedup": 4.06140004067185
+        "bunAot": 7.89775,
+        "bunJsc": 8.55775,
+        "nodeV8": 56.486416999999996,
+        "torajs": 2.029917,
+        "speedup": 3.8906763182928166
+      },
+      {
+        "case": "promise-chain-1k",
+        "bunAot": 4.471334000000001,
+        "bunJsc": 5.070375,
+        "nodeV8": 54.926083,
+        "torajs": 1.206542,
+        "speedup": 3.7059082899725
       },
       {
         "case": "promise-all-1k",
-        "bunAot": 4.529458999999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.1477080000000002,
-        "speedup": 3.946525597103095
+        "bunAot": 4.577667000000001,
+        "bunJsc": 5.1162920000000005,
+        "nodeV8": 51.964749999999995,
+        "torajs": 1.2542920000000002,
+        "speedup": 3.6496023254553167
       },
       {
         "case": "stack-pop-1m",
-        "bunAot": 11.346917000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.927542,
-        "speedup": 3.8759194573468125
+        "bunAot": 11.444792,
+        "bunJsc": 12.112791,
+        "nodeV8": 60.436,
+        "torajs": 3.191917,
+        "speedup": 3.5855543862826003
       },
       {
         "case": "i64-to-str-100k",
-        "bunAot": 6.342062500000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.786854,
-        "speedup": 3.5492897013410167
-      },
-      {
-        "case": "multibyte-concat-100k",
-        "bunAot": 5.198958500000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.559917,
-        "speedup": 3.3328430294688762
+        "bunAot": 6.3696255,
+        "bunJsc": 6.870375500000001,
+        "nodeV8": 55.2815205,
+        "torajs": 1.8292499999999998,
+        "speedup": 3.4820967609676097
       },
       {
         "case": "generator-yield-100k",
-        "bunAot": 7.1226875000000005,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.1450415,
-        "speedup": 3.3205359896300375
+        "bunAot": 7.023354500000001,
+        "bunJsc": 7.7147085,
+        "nodeV8": 55.675000000000004,
+        "torajs": 2.2100625,
+        "speedup": 3.1778985888408138
       },
       {
-        "case": "str-concat-ascii-100k",
-        "bunAot": 5.2389165,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 1.6537085,
-        "speedup": 3.1679806326205617
+        "case": "multibyte-concat-100k",
+        "bunAot": 5.2317085,
+        "bunJsc": 5.746125,
+        "nodeV8": 55.788479,
+        "torajs": 1.6665210000000001,
+        "speedup": 3.139299474774095
       },
       {
         "case": "array-sum-1m",
-        "bunAot": 40.759708,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 13.016625000000001,
-        "speedup": 3.1313576291857528
+        "bunAot": 41.554541,
+        "bunJsc": 41.82745800000001,
+        "nodeV8": 128.524875,
+        "torajs": 13.296666,
+        "speedup": 3.1251849899816992
+      },
+      {
+        "case": "str-concat-ascii-100k",
+        "bunAot": 5.463271,
+        "bunJsc": 5.2454375,
+        "nodeV8": 53.33035400000001,
+        "torajs": 1.7400000000000002,
+        "speedup": 3.014619252873563
       },
       {
         "case": "generic-id-1m",
-        "bunAot": 41.190959,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 14.929500000000003,
-        "speedup": 2.7590313808232017
+        "bunAot": 41.250125000000004,
+        "bunJsc": 41.885958,
+        "nodeV8": 131.039791,
+        "torajs": 15.575667,
+        "speedup": 2.648369729527474
       },
       {
         "case": "array-copy-1m",
-        "bunAot": 54.167334,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 22.167666999999998,
-        "speedup": 2.4435288566902416
-      },
-      {
-        "case": "closure-pipeline-1m",
-        "bunAot": 41.581624999999995,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 17.610542,
-        "speedup": 2.3611780375640907
+        "bunAot": 51.803166000000004,
+        "bunJsc": 51.28104200000001,
+        "nodeV8": 197.373583,
+        "torajs": 21.303666999999997,
+        "speedup": 2.407146243883741
       },
       {
         "case": "class-method-100k",
-        "bunAot": 6.857583,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.972792,
-        "speedup": 2.3067819746554754
+        "bunAot": 6.908250000000001,
+        "bunJsc": 7.406229000000001,
+        "nodeV8": 57.383979000000004,
+        "torajs": 2.914604,
+        "speedup": 2.3702190760734565
+      },
+      {
+        "case": "closure-pipeline-1m",
+        "bunAot": 42.074333,
+        "bunJsc": 43.174875,
+        "nodeV8": 133.666459,
+        "torajs": 17.946708,
+        "speedup": 2.34440394305184
       },
       {
         "case": "split-only-100k",
-        "bunAot": 5.700042000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 2.4885,
-        "speedup": 2.2905533453887887
+        "bunAot": 5.336083,
+        "bunJsc": 5.889916,
+        "nodeV8": 55.988291000000004,
+        "torajs": 2.4745,
+        "speedup": 2.156428773489594
       },
       {
         "case": "closure-counter",
-        "bunAot": 42.536333,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 20.236333,
-        "speedup": 2.1019783080264594
-      },
-      {
-        "case": "promise-then-100k",
-        "bunAot": 10.204583,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 4.927666,
-        "speedup": 2.070875542295277
-      },
-      {
-        "case": "collatz",
-        "bunAot": 312.790167,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 153.621292,
-        "speedup": 2.0361120709751614
+        "bunAot": 41.777792,
+        "bunJsc": 42.484415999999996,
+        "nodeV8": 135.602208,
+        "torajs": 20.542083,
+        "speedup": 2.0337660985986665
       },
       {
         "case": "rpn-eval-100k",
-        "bunAot": 10.326583,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.073958,
-        "speedup": 2.0352125500447578
+        "bunAot": 10.355292,
+        "bunJsc": 11.002625,
+        "nodeV8": 57.194208,
+        "torajs": 5.121708,
+        "speedup": 2.021843494396791
       },
       {
-        "case": "regex-dfa-anchored-100k",
-        "bunAot": 10.470749999999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.273812,
-        "speedup": 1.9854234470246566
+        "case": "promise-then-100k",
+        "bunAot": 10.129542,
+        "bunJsc": 10.791667,
+        "nodeV8": 60.01366600000001,
+        "torajs": 5.0403340000000005,
+        "speedup": 2.009696579631429
+      },
+      {
+        "case": "collatz",
+        "bunAot": 323.759083,
+        "bunJsc": 332.133542,
+        "nodeV8": 1402.241375,
+        "torajs": 164.773,
+        "speedup": 1.9648794584064135
       },
       {
         "case": "regex-dfa-uflag-cprange-100k",
-        "bunAot": 10.793125,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.496625000000001,
-        "speedup": 1.9635912946580854
-      },
-      {
-        "case": "array-sort-100k",
-        "bunAot": 13.0172915,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 6.644041499999999,
-        "speedup": 1.9592429547587868
+        "bunAot": 10.849166,
+        "bunJsc": 11.384875,
+        "nodeV8": 61.156292,
+        "torajs": 5.5579160000000005,
+        "speedup": 1.9520205055276112
       },
       {
         "case": "regex-wireback-minlit-100k",
-        "bunAot": 6.338625,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 3.244833,
-        "speedup": 1.9534518417434736
+        "bunAot": 6.480208500000001,
+        "bunJsc": 7.081146,
+        "nodeV8": 56.5700205,
+        "torajs": 3.322333,
+        "speedup": 1.9504993930469947
+      },
+      {
+        "case": "regex-dfa-anchored-100k",
+        "bunAot": 10.487104,
+        "bunJsc": 11.122270499999999,
+        "nodeV8": 58.422792,
+        "torajs": 5.483792,
+        "speedup": 1.9123817971214079
       },
       {
         "case": "regex-dfa-wbound-100k",
-        "bunAot": 10.631812,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.478374500000001,
-        "speedup": 1.9406873334416985
-      },
-      {
-        "case": "csv-rebuild-100k",
-        "bunAot": 15.728875,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 8.253042,
-        "speedup": 1.9058275724272333
-      },
-      {
-        "case": "regex-dfa-safeclass-100k",
-        "bunAot": 10.647896000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.631083,
-        "speedup": 1.8909144120234067
-      },
-      {
-        "case": "regex-dfa-dotall-100k",
-        "bunAot": 11.675333499999999,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 6.212188,
-        "speedup": 1.8794237231712883
-      },
-      {
-        "case": "ackermann",
-        "bunAot": 12.150208,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 6.495500000000001,
-        "speedup": 1.870557770764375
+        "bunAot": 10.6686245,
+        "bunJsc": 11.291291500000002,
+        "nodeV8": 59.222708499999996,
+        "torajs": 5.588541500000001,
+        "speedup": 1.909017674826249
       },
       {
         "case": "regex-dfa-iflag-100k",
-        "bunAot": 10.441270500000002,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.606458,
-        "speedup": 1.8623648834968534
+        "bunAot": 10.628646500000002,
+        "bunJsc": 11.152062500000001,
+        "nodeV8": 60.756749500000005,
+        "torajs": 5.7399165000000005,
+        "speedup": 1.8517075117730373
       },
       {
         "case": "regex-dfa-mflag-100k",
-        "bunAot": 10.3003545,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.671979,
-        "speedup": 1.816007164342463
+        "bunAot": 10.30825,
+        "bunJsc": 10.967750000000002,
+        "nodeV8": 60.504833000000005,
+        "torajs": 5.583604500000001,
+        "speedup": 1.8461640683898721
       },
       {
-        "case": "regex-dfa-uflag-100k",
-        "bunAot": 10.947083000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 6.1766250000000005,
-        "speedup": 1.772340558152713
+        "case": "regex-dfa-dotall-100k",
+        "bunAot": 11.6818125,
+        "bunJsc": 12.378541499999999,
+        "nodeV8": 61.8463335,
+        "torajs": 6.3806665,
+        "speedup": 1.8308138342601041
+      },
+      {
+        "case": "csv-rebuild-100k",
+        "bunAot": 15.478209,
+        "bunJsc": 16.22325,
+        "nodeV8": 58.53525,
+        "torajs": 8.490499999999999,
+        "speedup": 1.8230032389140807
+      },
+      {
+        "case": "regex-dfa-safeclass-100k",
+        "bunAot": 10.478625000000001,
+        "bunJsc": 11.165542,
+        "nodeV8": 60.86810400000001,
+        "torajs": 5.760354,
+        "speedup": 1.81909393068551
       },
       {
         "case": "csv-trim-100k",
-        "bunAot": 11.314542000000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 6.62525,
-        "speedup": 1.7077909512848573
+        "bunAot": 11.573958000000001,
+        "bunJsc": 12.107209000000001,
+        "nodeV8": 62.405416,
+        "torajs": 6.650792,
+        "speedup": 1.7402375536627819
       },
       {
-        "case": "json-stringify-100k",
-        "bunAot": 9.893521,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 5.8505625,
-        "speedup": 1.691037571173712
+        "case": "array-sort-100k",
+        "bunAot": 11.5036245,
+        "bunJsc": 12.136000500000002,
+        "nodeV8": 63.9879795,
+        "torajs": 6.613062500000001,
+        "speedup": 1.7395305881352248
+      },
+      {
+        "case": "regex-dfa-uflag-100k",
+        "bunAot": 10.817333,
+        "bunJsc": 11.484917000000001,
+        "nodeV8": 59.223791999999996,
+        "torajs": 6.222834,
+        "speedup": 1.7383290314348736
+      },
+      {
+        "case": "ackermann",
+        "bunAot": 11.709125,
+        "bunJsc": 12.326749999999999,
+        "nodeV8": 66.218,
+        "torajs": 7.017417000000001,
+        "speedup": 1.6685804762635594
       },
       {
         "case": "array-map-1m",
-        "bunAot": 52.873292,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 31.373083000000005,
-        "speedup": 1.6853074975130748
+        "bunAot": 50.882749999999994,
+        "bunJsc": 49.973041,
+        "nodeV8": 213.71116600000002,
+        "torajs": 30.2555,
+        "speedup": 1.6517010460907935
       },
       {
         "case": "fib40",
-        "bunAot": 375.4044170000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 231.466208,
-        "speedup": 1.6218540937085733
+        "bunAot": 376.343042,
+        "bunJsc": 376.71083300000004,
+        "nodeV8": 602.2620840000001,
+        "torajs": 237.450084,
+        "speedup": 1.5849353921475136
+      },
+      {
+        "case": "json-stringify-100k",
+        "bunAot": 9.952667000000002,
+        "bunJsc": 10.658521,
+        "nodeV8": 58.235541500000004,
+        "torajs": 6.334500000000001,
+        "speedup": 1.571184308153761
       },
       {
         "case": "str-replace-100k",
-        "bunAot": 10.586249500000001,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 7.102271,
-        "speedup": 1.490544292100372
-      },
-      {
-        "case": "mandelbrot",
-        "bunAot": 48.134,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 41.059667000000005,
-        "speedup": 1.1722939691644356
+        "bunAot": 10.601562000000001,
+        "bunJsc": 11.21175,
+        "nodeV8": 59.5093745,
+        "torajs": 7.278104,
+        "speedup": 1.4566378826133841
       },
       {
         "case": "gcd1m",
-        "bunAot": 44.26,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 38.638375,
-        "speedup": 1.1454933081424876
+        "bunAot": 44.355791,
+        "bunJsc": 44.569750000000006,
+        "nodeV8": 98.311125,
+        "torajs": 40.200375,
+        "speedup": 1.1033675929639961
       },
       {
         "case": "prime_count",
-        "bunAot": 50.739917000000005,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 48.338625,
-        "speedup": 1.0496764647318786
+        "bunAot": 50.80437500000001,
+        "bunJsc": 56.250667,
+        "nodeV8": 127.36779200000001,
+        "torajs": 48.188792,
+        "speedup": 1.054277828753209
+      },
+      {
+        "case": "mandelbrot",
+        "bunAot": 46.84550000000001,
+        "bunJsc": 47.409792,
+        "nodeV8": 95.215125,
+        "torajs": 44.779625,
+        "speedup": 1.0461342630716537
       },
       {
         "case": "map-str-100k",
-        "bunAot": 11.244542,
-        "bunJsc": null,
-        "nodeV8": null,
-        "torajs": 15.23,
-        "speedup": 0.7383152987524622
+        "bunAot": 11.075417,
+        "bunJsc": 11.765125,
+        "nodeV8": 62.62258400000001,
+        "torajs": 15.558499999999999,
+        "speedup": 0.7118563486197256
       }
     ],
-    "geomeanBunAot": 2.4817982924390916,
-    "geomeanNodeV8": null,
-    "peak": 22.9300195286028,
+    "geomeanBunAot": 2.394499917887978,
+    "geomeanNodeV8": 13.222824708077537,
+    "peak": 20.81703208218574,
     "peakCase": "popcount",
-    "min": 0.7383152987524622,
+    "min": 0.7118563486197256,
     "minCase": "map-str-100k",
     "caseCount": 46,
     "wonCount": 45,
-    "sourceFile": "bench/results/2026-09-03-mini-d608c06.json",
-    "gitSha": "d608c06665c334bf6ce3d1b371e39eee86fba5ab",
-    "startedAt": "2026-09-03T17:03:07Z",
+    "sourceFile": "bench/results/2026-09-04-mini-b461414-r2.json",
+    "gitSha": "b4614144d30e956af433069c3ecc35ecf442d740",
+    "startedAt": "2026-09-04T08:37:46Z",
     "host": "mini"
   },
   "commits": [
+    {
+      "hash": "da8e78cff",
+      "subject": "fix: a block whose function name is read before the declaration keeps its old shape"
+    },
+    {
+      "hash": "bc6d220e1",
+      "subject": "fix: a block function whose name is assigned keeps both of its bindings"
+    },
+    {
+      "hash": "85ce40749",
+      "subject": "feat: a block function that captures also gets its Annex B var binding"
+    },
+    {
+      "hash": "58bbb24fd",
+      "subject": "chore: bench results at b4614144d — full matrix runs=3 and a cross-language pass"
+    },
+    {
+      "hash": "4d5a0cf9c",
+      "subject": "fix: a catch parameter does not intercept Annex B's block-function write"
+    },
+    {
+      "hash": "b4614144d",
+      "subject": "chore: rotation 580 close — sweep on a6ced6e2, six knives, zero regressions"
+    },
     {
       "hash": "a6ced6e25",
       "subject": "fix: an eval's own declarations belong to the caller, not to its block"
@@ -751,51 +775,38 @@
     {
       "hash": "69672e976",
       "subject": "feat: a block-nested function declaration has two bindings, not one"
-    },
-    {
-      "hash": "dbfb80841",
-      "subject": "chore: rotation 579 close — sweep on 5e63457, five knives, zero regressions"
-    },
-    {
-      "hash": "5e6345756",
-      "subject": "feat: annexB §B.3.5 — a for-in head may carry an initializer"
-    },
-    {
-      "hash": "695cc56c2",
-      "subject": "refactor: the [~In] grammar parameter ends the expression, it does not error"
-    },
-    {
-      "hash": "772a049c8",
-      "subject": "fix: a var declaration is a Statement, so it needs no braces"
-    },
-    {
-      "hash": "aef563ff6",
-      "subject": "fix: a sloppy eval's declarations belong to the caller, not to the eval"
-    },
-    {
-      "hash": "7f88c7d9b",
-      "subject": "fix: a direct eval inherits its caller's strictness"
     }
   ],
-  "headSha": "a6ced6e25",
+  "headSha": "da8e78cff",
   "autorun": {
-    "total": 883,
+    "total": 884,
     "baselineTarget": 10,
-    "bySelf": 878,
+    "bySelf": 879,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788489926-7e0c",
-      "at": "2026-09-04T02:45:26Z",
-      "ts": 1788489926,
+      "rotationId": "r-1788509753-24b8",
+      "at": "2026-09-04T08:15:53Z",
+      "ts": 1788509753,
       "trigger": "self",
-      "prevHead": "dbfb80841",
-      "handoffSha": "sha256:cd693e5cd25f36424085c5bbe458e33b6218cb0b2ede35fcd03667637ff79672",
-      "handoffAgeSec": 36,
+      "prevHead": "b4614144d",
+      "handoffSha": "sha256:ae239bc5dd37fd9847ed2270003e340ed6feb85d49cb2f2958f95b1f084b893e",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788509753-24b8",
+        "at": "2026-09-04T08:15:53Z",
+        "ts": 1788509753,
+        "trigger": "self",
+        "prevHead": "b4614144d",
+        "handoffSha": "sha256:ae239bc5dd37fd9847ed2270003e340ed6feb85d49cb2f2958f95b1f084b893e",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788489926-7e0c",
         "at": "2026-09-04T02:45:26Z",
@@ -892,17 +903,6 @@
         "prevHead": "d0b1f36a1",
         "handoffSha": "sha256:a09637c5568b96b1b0dd407c2bca6b4735d383e309913b6dc3b25d265888fc17",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788412993-1013",
-        "at": "2026-09-03T05:23:13Z",
-        "ts": 1788412993,
-        "trigger": "self",
-        "prevHead": "983d33c18",
-        "handoffSha": "sha256:b62a13148257df5b6a75c3ebd926c9812733b8d7eeed89a4096a131fe6920a9f",
-        "handoffAgeSec": 29,
         "conformanceBefore": null,
         "commitsInSession": null
       }
