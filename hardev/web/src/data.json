@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T13:06:36.758Z",
+  "generatedAt": "2026-09-04T16:03:46.367Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T13:02:45Z",
-    "headSha": "4b8d07ec2",
-    "elapsedSec": 382.03,
+    "ranAt": "2026-09-04T15:35:01Z",
+    "headSha": "1d57054a8",
+    "elapsedSec": 381.93,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31002,
-    "passNoOracle": 1138,
-    "passNegative": 4453,
-    "passTotal": 36593,
-    "bug": 11330,
-    "incompatible": 5251,
+    "pass": 31053,
+    "passNoOracle": 1143,
+    "passNegative": 4457,
+    "passTotal": 36653,
+    "bug": 11307,
+    "incompatible": 5214,
     "bunSkip": 2931,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47923,
-    "passRateInScope": 68.82,
-    "passRateTrAccepted": 76.36
+    "trAccepted": 47960,
+    "passRateInScope": 68.93,
+    "passRateTrAccepted": 76.42
   },
   "torajs": {
-    "commit": "4b8d07ec2",
-    "commitSubject": "fix: a CaseBlock binding's slot has to be minted before the compare chain",
+    "commit": "66f717e8e",
+    "commitSubject": "refactor: move two families out of the files this rotation filled",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "66f717e8e",
+      "subject": "refactor: move two families out of the files this rotation filled"
+    },
+    {
+      "hash": "1d57054a8",
+      "subject": "style: rustfmt the five files this rotation left unformatted"
+    },
+    {
+      "hash": "fcaf65a6a",
+      "subject": "fix: Annex B is written for a FunctionDeclaration, not for async ones"
+    },
+    {
+      "hash": "f1bb9a866",
+      "subject": "fix: a block's function declaration binds the block, not the body"
+    },
+    {
+      "hash": "2f6ae986a",
+      "subject": "feat: Uint8Array's six base64 and hex conversions"
+    },
+    {
+      "hash": "93c345495",
+      "subject": "fix: a block's lexical declarations exist when the block is entered"
+    },
+    {
+      "hash": "a0929e07d",
+      "subject": "chore: rotation 582 close — sweep on 4b8d07ec2, five knives, one regression owned"
+    },
+    {
       "hash": "4b8d07ec2",
       "subject": "fix: a CaseBlock binding's slot has to be minted before the compare chain"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "44b971cd5",
       "subject": "fix: a switch CaseBlock is one declarative environment, not one per clause"
-    },
-    {
-      "hash": "1c13581a4",
-      "subject": "chore: rotation 581 close — sweep on da8e78cff, four knives, zero regressions"
-    },
-    {
-      "hash": "da8e78cff",
-      "subject": "fix: a block whose function name is read before the declaration keeps its old shape"
-    },
-    {
-      "hash": "bc6d220e1",
-      "subject": "fix: a block function whose name is assigned keeps both of its bindings"
-    },
-    {
-      "hash": "85ce40749",
-      "subject": "feat: a block function that captures also gets its Annex B var binding"
-    },
-    {
-      "hash": "58bbb24fd",
-      "subject": "chore: bench results at b4614144d — full matrix runs=3 and a cross-language pass"
-    },
-    {
-      "hash": "4d5a0cf9c",
-      "subject": "fix: a catch parameter does not intercept Annex B's block-function write"
-    },
-    {
-      "hash": "b4614144d",
-      "subject": "chore: rotation 580 close — sweep on a6ced6e2, six knives, zero regressions"
     }
   ],
-  "headSha": "4b8d07ec2",
+  "headSha": "66f717e8e",
   "autorun": {
-    "total": 885,
+    "total": 886,
     "baselineTarget": 10,
-    "bySelf": 880,
+    "bySelf": 881,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788520368-4fe1",
-      "at": "2026-09-04T11:12:48Z",
-      "ts": 1788520368,
+      "rotationId": "r-1788527920-1275",
+      "at": "2026-09-04T13:18:40Z",
+      "ts": 1788527920,
       "trigger": "self",
-      "prevHead": "1c13581a4",
-      "handoffSha": "sha256:840be76b4824f11e53e2af704dd1096103c2343e208f5498763c5196ab5ce11f",
-      "handoffAgeSec": 26,
+      "prevHead": "a0929e07d",
+      "handoffSha": "sha256:eb63ed4ac69f09e368f07afe44a881afe90cd0d1f55bb92df7b7f37c7d243dce",
+      "handoffAgeSec": 30,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788527920-1275",
+        "at": "2026-09-04T13:18:40Z",
+        "ts": 1788527920,
+        "trigger": "self",
+        "prevHead": "a0929e07d",
+        "handoffSha": "sha256:eb63ed4ac69f09e368f07afe44a881afe90cd0d1f55bb92df7b7f37c7d243dce",
+        "handoffAgeSec": 30,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788520368-4fe1",
         "at": "2026-09-04T11:12:48Z",
@@ -892,17 +903,6 @@
         "prevHead": "aa66b531f",
         "handoffSha": "sha256:f8bf7c1768c06e96c8a81a91ded3c9ea4422931125e5fdfcf3a644e9053915ed",
         "handoffAgeSec": 52,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788431343-6146",
-        "at": "2026-09-03T10:29:03Z",
-        "ts": 1788431343,
-        "trigger": "self",
-        "prevHead": "d6e9dc44d",
-        "handoffSha": "sha256:09882660e675fc49f10fffa13cf95a06ea483dff5c51fd051a42fd1ec07ee90d",
-        "handoffAgeSec": 8,
         "conformanceBefore": null,
         "commitsInSession": null
       }

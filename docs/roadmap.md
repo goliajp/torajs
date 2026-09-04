@@ -1670,6 +1670,35 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Latest @ `1d57054a8`** (2026-09-05, rotation 583 — what a block
+binds, and when. §8.2.6 creates a block's lexical bindings when the
+block is ENTERED, so a closure minted earlier in the block already
+names them; tr asked that question only of let-INITIALIZERS, so an
+assignment, a call argument, a condition or a nested block captured
+the outer binding instead and answered the wrong VALUE. §14.2.10
+makes a block's `function` a binding of that block, and Annex B
+§B.3.3 adds the second, function-scoped one only in sloppy code and
+only for a plain `FunctionDeclaration` — one verdict was answering
+both "this declaration is not block-nested" and "this one is
+block-nested in strict code", and read as the first, the second leaked
+the name. `Uint8Array`'s six base64 and hex conversions landed
+whole.) Gate predicate: **136** clusters of ≥ 4 holding **1036**
+cases, register 2 · 217, residue 449 · 609 (32.7%), core **1862**.
+Against rotation 582: clusters 138 → **136 (−2)**, cases 1074 →
+**1036 (−38)**, core 1899 → **1862 (−37)**.
+
+Sweep passTotal 36593 → **36653 (+60)**, pass 31002 → **31053 (+51)**,
+passNoOracle 1138 → **1143 (+5)**, passNegative 4453 → **4457 (+4)**,
+bug 11330 → **11307 (−23)**, incompatible 5251 → **5214 (−37)**,
+trAccepted 47923 → **47960 (+37)**; conservation exact
+(+37 = +60 + −23). Verdict diff 89 changed, **0 backward**. Forward
+movement is 29 cases in `built-ins/Uint8Array`, 12 in
+`language/eval-code`, and 3 each in `language/statements/switch` and
+`language/function-code`. Rotation 582's #3 cluster (22 cases,
+`no member X on type Object` — the `Uint8Array.fromBase64` family) is
+gone entirely. Coverage curve: top-100 **56.4%**, top-200 **74.5%**,
+top-400 **89.2%**.
+
 **Latest @ `4b8d07ec2`** (2026-09-04, rotation 582 — one scope rule with
 three entrances, and a capture the read-only shape hid. §14.12.4 gives
 a switch CaseBlock ONE declarative environment across every clause;
