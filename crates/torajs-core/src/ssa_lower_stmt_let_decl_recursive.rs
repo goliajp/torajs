@@ -167,7 +167,13 @@ pub(crate) fn hoist_forward_boxes<'s>(ctx: &mut LowerCtx, stmts: impl Iterator<I
             // An ordinary binding. A top-level one is a data global,
             // which needs no box at all — the closure resolves the name
             // through `globals` and takes no env slot for it.
-            if ctx.is_main_fn && ctx.globals.contains_key(&name) {
+            //
+            // Only a TOP-LEVEL one: `globals` is keyed by name, so a
+            // block's own `let x` shadowing a global `var x` matched
+            // this gate and kept its box — leaving the closure minted
+            // above it reading the global. The scope stack is one deep
+            // exactly where a declaration is the global.
+            if ctx.is_main_fn && ctx.scope_stack.len() == 1 && ctx.globals.contains_key(&name) {
                 continue;
             }
             // PROVISIONAL type: non-Copy, so the mint conservatively
@@ -277,7 +283,19 @@ fn collect<'s>(
                 }
             }
             Stmt::Multi(inner) => collect(ctx, inner.iter(), seen_captures, plan),
-            _ => {}
+            // Every other statement position mints closures too — an
+            // assignment, a call argument, a condition, a nested block
+            // of this same region. §8.2.6 creates the block's lexical
+            // bindings on entry, so one of those closures naming a
+            // binding declared LATER in this list means THAT binding,
+            // and the box has to be up before the mint runs.
+            other => {
+                let mut caps: Vec<&str> = Vec::new();
+                crate::ast::stmt_closure_captures::collect_stmt(ctx.ast, other, &mut caps);
+                for c in caps {
+                    seen_captures.insert(c.to_string());
+                }
+            }
         }
     }
 }

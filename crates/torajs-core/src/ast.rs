@@ -198,6 +198,7 @@ mod source_dunder_idents;
 mod spread_callee_wrap;
 mod stmt;
 mod stmt_class;
+pub(crate) mod stmt_closure_captures;
 mod stmt_flat;
 pub(crate) mod stmt_nested_lists;
 mod strict_reserved_goal;

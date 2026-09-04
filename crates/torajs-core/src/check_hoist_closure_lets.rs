@@ -171,7 +171,20 @@ fn collect_inner<'a>(
                 }
             }
             Stmt::Multi(inner) => collect_inner(ast, inner, decls, plain, captured, seen),
-            _ => {}
+            // Every other statement position mints closures too — an
+            // assignment, a call argument, a condition, a nested block
+            // of this same region. §8.2.6 creates the block's lexical
+            // bindings on entry, so one of those closures naming a
+            // binding declared LATER in this list means THAT binding,
+            // which is only resolvable if it hoists.
+            other => {
+                let mut caps: Vec<&str> = Vec::new();
+                crate::ast::stmt_closure_captures::collect_stmt(ast, other, &mut caps);
+                for c in caps {
+                    captured.insert(c);
+                    seen.insert(c);
+                }
+            }
         }
     }
 }
