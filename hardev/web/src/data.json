@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T02:43:20.787Z",
+  "generatedAt": "2026-09-04T08:15:22.055Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T02:29:49Z",
-    "headSha": "5e6345756",
-    "elapsedSec": 412.69,
+    "ranAt": "2026-09-04T07:59:54Z",
+    "headSha": "a6ced6e25",
+    "elapsedSec": 627.67,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30679,
-    "passNoOracle": 1034,
+    "pass": 30960,
+    "passNoOracle": 1114,
     "passNegative": 4452,
-    "passTotal": 36165,
-    "bug": 11735,
-    "incompatible": 5274,
-    "bunSkip": 3028,
+    "passTotal": 36526,
+    "bug": 11335,
+    "incompatible": 5313,
+    "bunSkip": 2931,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47900,
-    "passRateInScope": 68.01,
-    "passRateTrAccepted": 75.5
+    "trAccepted": 47861,
+    "passRateInScope": 68.69,
+    "passRateTrAccepted": 76.32
   },
   "torajs": {
-    "commit": "5e6345756",
-    "commitSubject": "feat: annexB §B.3.5 — a for-in head may carry an initializer",
+    "commit": "a6ced6e25",
+    "commitSubject": "fix: an eval's own declarations belong to the caller, not to its block",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "a6ced6e25",
+      "subject": "fix: an eval's own declarations belong to the caller, not to its block"
+    },
+    {
+      "hash": "e1544de97",
+      "subject": "fix: a harness call inside an eval argument is code, not text"
+    },
+    {
+      "hash": "e408b5b93",
+      "subject": "feat: a body-level declaration keeps its binding when a block redeclares it"
+    },
+    {
+      "hash": "e65c1c6d8",
+      "subject": "fix: \"Annex B does not apply here\" has two answers, not one"
+    },
+    {
+      "hash": "a347163cf",
+      "subject": "refactor: split how the lift walk gets there from what it does"
+    },
+    {
+      "hash": "69672e976",
+      "subject": "feat: a block-nested function declaration has two bindings, not one"
+    },
+    {
+      "hash": "dbfb80841",
+      "subject": "chore: rotation 579 close — sweep on 5e63457, five knives, zero regressions"
+    },
+    {
       "hash": "5e6345756",
       "subject": "feat: annexB §B.3.5 — a for-in head may carry an initializer"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "7f88c7d9b",
       "subject": "fix: a direct eval inherits its caller's strictness"
-    },
-    {
-      "hash": "3f5800b0b",
-      "subject": "chore: rotation 578 close — sweep on d6d189a7, three knives and one relocation, zero regressions"
-    },
-    {
-      "hash": "d6d189a7d",
-      "subject": "fix: the duplicate-parameter judge asked a narrower question than its own doc"
-    },
-    {
-      "hash": "2549cb2a2",
-      "subject": "fix: Annex B hands the production back only to code that is not strict"
-    },
-    {
-      "hash": "af914668b",
-      "subject": "refactor: move the single-statement-position judge out of the loop cluster"
-    },
-    {
-      "hash": "4edaad562",
-      "subject": "fix: a loop body is not one of the two places Annex B gives the production back"
-    },
-    {
-      "hash": "b4b121a61",
-      "subject": "chore: rotation 577 close — sweep on 8cc3030aa, four knives, zero regressions"
-    },
-    {
-      "hash": "8cc3030aa",
-      "subject": "fix: a label chain is transparent everywhere except where it is not"
     }
   ],
-  "headSha": "5e6345756",
+  "headSha": "a6ced6e25",
   "autorun": {
-    "total": 882,
+    "total": 883,
     "baselineTarget": 10,
-    "bySelf": 877,
+    "bySelf": 878,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788482912-0598",
-      "at": "2026-09-04T00:48:32Z",
-      "ts": 1788482912,
+      "rotationId": "r-1788489926-7e0c",
+      "at": "2026-09-04T02:45:26Z",
+      "ts": 1788489926,
       "trigger": "self",
-      "prevHead": "3f5800b0b",
-      "handoffSha": "sha256:6d7bf7b6a9ba2504d3b6ff5d7fbfb198abdc33785722144c96dbb63a049bc178",
-      "handoffAgeSec": 18,
+      "prevHead": "dbfb80841",
+      "handoffSha": "sha256:cd693e5cd25f36424085c5bbe458e33b6218cb0b2ede35fcd03667637ff79672",
+      "handoffAgeSec": 36,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788489926-7e0c",
+        "at": "2026-09-04T02:45:26Z",
+        "ts": 1788489926,
+        "trigger": "self",
+        "prevHead": "dbfb80841",
+        "handoffSha": "sha256:cd693e5cd25f36424085c5bbe458e33b6218cb0b2ede35fcd03667637ff79672",
+        "handoffAgeSec": 36,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788482912-0598",
         "at": "2026-09-04T00:48:32Z",
@@ -892,17 +903,6 @@
         "prevHead": "983d33c18",
         "handoffSha": "sha256:b62a13148257df5b6a75c3ebd926c9812733b8d7eeed89a4096a131fe6920a9f",
         "handoffAgeSec": 29,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788406962-1f02",
-        "at": "2026-09-03T03:42:42Z",
-        "ts": 1788406962,
-        "trigger": "self",
-        "prevHead": "ad60d24ec",
-        "handoffSha": "sha256:1df3699740ac90e135215a0b192f73cbedba419d7e2428b447475d6cb29fc5b4",
-        "handoffAgeSec": 21,
         "conformanceBefore": null,
         "commitsInSession": null
       }
