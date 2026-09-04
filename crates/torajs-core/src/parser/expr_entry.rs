@@ -270,6 +270,25 @@ impl<'a> Parser<'a> {
         self.parse_assign()
     }
 
+    /// §13.16 Expression — the comma-separated form. `parse_expr` is
+    /// AssignmentExpression; the grammar's `Expression` is a list of
+    /// them, evaluated left to right with the LAST one as the value.
+    ///
+    /// Three productions spell `Expression` and each has to accept the
+    /// list: the `for` step (§14.7.4), the switch scrutinee and the
+    /// case value (§14.12.1). The step clause grew its own copy first;
+    /// the other two were left on `parse_expr` and rejected
+    /// `switch (a, b)` / `case a, b:` at the comma.
+    pub(super) fn parse_expr_list(&mut self) -> Result<ExprId, String> {
+        let mut left = self.parse_expr()?;
+        while matches!(self.peek(), Token::Comma) {
+            self.pos += 1;
+            let right = self.parse_expr()?;
+            left = self.ast.add_expr(Expr::Sequence { left, right });
+        }
+        Ok(left)
+    }
+
     /// RC-3 (RFC 20260706-test262-bug-corpus) — any reassignment of a
     /// class-value alias binding drops the P8.5 static alias; later
     /// `C.m()` / `new C()` fall back to the dynamic path instead of

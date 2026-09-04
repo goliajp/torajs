@@ -110,7 +110,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        let scrutinee = self.parse_expr()?;
+        let scrutinee = self.parse_expr_list()?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -137,7 +137,7 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     // Case values evaluate in order until one matches
                     // — conditional position, no yield hoist.
-                    let value = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
+                    let value = self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?;
                     match self.peek() {
                         Token::Colon => self.pos += 1,
                         t => {
@@ -310,22 +310,13 @@ impl<'a> Parser<'a> {
         }
         // step clause — empty means no step.
         // V3-18 m1.h.31 — JS allows comma-separated step expressions
-        // (`for (...; ...; i++, j--)`). Parse them as a chained
-        // Expr::Sequence so the lowerer evaluates each in order.
+        // (`for (...; ...; i++, j--)`): §13.16 Expression, the same
+        // production the switch scrutinee and the case value spell.
         // Per-iteration position: no yield hoist.
         let step = if matches!(self.peek(), Token::RParen) {
             None
         } else {
-            let mut s = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
-            while matches!(self.peek(), Token::Comma) {
-                self.pos += 1;
-                let next = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
-                s = self.ast.add_expr(Expr::Sequence {
-                    left: s,
-                    right: next,
-                });
-            }
-            Some(s)
+            Some(self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?)
         };
         match self.peek() {
             Token::RParen => self.pos += 1,
