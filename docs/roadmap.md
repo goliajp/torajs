@@ -7935,8 +7935,8 @@ and added 轴 E): **P0–P13 closed ✓ *and* P-SURF closed *and* 轴 B at
 target *and* 轴 E through E4**. The axes, with what each still owes —
 
 - **轴 A (spec)** — P13 close ✓, **P-SURF open** ← S7.2's predicate:
-  unattributed ≥ 4 clusters **139** (drives to 0), holding 1082 cases,
-  register 2 · 247, core 1938. Sweep @ `8d1129f8d` (rotation 575).
+  unattributed ≥ 4 clusters **138** (drives to 0), holding 1074 cases,
+  register 2 · 238, core 1922. Sweep @ `5e6345756` (rotation 579).
 - **轴 B (perf)** — **target raised 2026-08-24**: no longer "0
   regression" (that lower bound was met at r470 and is now table
   stakes) but **bench-tr full-matrix median tr/bun-aot ≤ 0.33 (3×),

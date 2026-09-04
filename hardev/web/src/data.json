@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T00:42:56.041Z",
+  "generatedAt": "2026-09-04T02:43:20.787Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T00:29:08Z",
-    "headSha": "d6d189a7d",
-    "elapsedSec": 554.84,
+    "ranAt": "2026-09-04T02:29:49Z",
+    "headSha": "5e6345756",
+    "elapsedSec": 412.69,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30652,
-    "passNoOracle": 1030,
-    "passNegative": 4451,
-    "passTotal": 36133,
-    "bug": 11757,
-    "incompatible": 5284,
+    "pass": 30679,
+    "passNoOracle": 1034,
+    "passNegative": 4452,
+    "passTotal": 36165,
+    "bug": 11735,
+    "incompatible": 5274,
     "bunSkip": 3028,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47890,
-    "passRateInScope": 67.95,
-    "passRateTrAccepted": 75.45
+    "trAccepted": 47900,
+    "passRateInScope": 68.01,
+    "passRateTrAccepted": 75.5
   },
   "torajs": {
-    "commit": "d6d189a7d",
-    "commitSubject": "fix: the duplicate-parameter judge asked a narrower question than its own doc",
+    "commit": "5e6345756",
+    "commitSubject": "feat: annexB §B.3.5 — a for-in head may carry an initializer",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "5e6345756",
+      "subject": "feat: annexB §B.3.5 — a for-in head may carry an initializer"
+    },
+    {
+      "hash": "695cc56c2",
+      "subject": "refactor: the [~In] grammar parameter ends the expression, it does not error"
+    },
+    {
+      "hash": "772a049c8",
+      "subject": "fix: a var declaration is a Statement, so it needs no braces"
+    },
+    {
+      "hash": "aef563ff6",
+      "subject": "fix: a sloppy eval's declarations belong to the caller, not to the eval"
+    },
+    {
+      "hash": "7f88c7d9b",
+      "subject": "fix: a direct eval inherits its caller's strictness"
+    },
+    {
+      "hash": "3f5800b0b",
+      "subject": "chore: rotation 578 close — sweep on d6d189a7, three knives and one relocation, zero regressions"
+    },
+    {
       "hash": "d6d189a7d",
       "subject": "fix: the duplicate-parameter judge asked a narrower question than its own doc"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "8cc3030aa",
       "subject": "fix: a label chain is transparent everywhere except where it is not"
-    },
-    {
-      "hash": "6cdb8bd22",
-      "subject": "fix: `\\c` had three sites, and only the one nobody asks answered it"
-    },
-    {
-      "hash": "90eabf577",
-      "subject": "fix: an untagged template refuses the escapes a tagged one keeps"
-    },
-    {
-      "hash": "782838ee6",
-      "subject": "fix: `\\u` and a raw newline are not string characters"
-    },
-    {
-      "hash": "12af7de63",
-      "subject": "chore: rotation 576 close — sweep on cc1290b74, four knives, zero regressions"
-    },
-    {
-      "hash": "cc1290b74",
-      "subject": "fix: \"parses cleanly\" had two spellings, and one of them was stale"
-    },
-    {
-      "hash": "2dd205d7d",
-      "subject": "fix: a capture-group name is an identifier, not a run of word bytes"
     }
   ],
-  "headSha": "d6d189a7d",
+  "headSha": "5e6345756",
   "autorun": {
-    "total": 881,
+    "total": 882,
     "baselineTarget": 10,
-    "bySelf": 876,
+    "bySelf": 877,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788471391-4563",
-      "at": "2026-09-03T21:36:31Z",
-      "ts": 1788471391,
+      "rotationId": "r-1788482912-0598",
+      "at": "2026-09-04T00:48:32Z",
+      "ts": 1788482912,
       "trigger": "self",
-      "prevHead": "b4b121a61",
-      "handoffSha": "sha256:ec4e696c42ce5d03099da6538691e8f9bae19bc5e4ce83d04a539fee8e6af620",
-      "handoffAgeSec": 100,
+      "prevHead": "3f5800b0b",
+      "handoffSha": "sha256:6d7bf7b6a9ba2504d3b6ff5d7fbfb198abdc33785722144c96dbb63a049bc178",
+      "handoffAgeSec": 18,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788482912-0598",
+        "at": "2026-09-04T00:48:32Z",
+        "ts": 1788482912,
+        "trigger": "self",
+        "prevHead": "3f5800b0b",
+        "handoffSha": "sha256:6d7bf7b6a9ba2504d3b6ff5d7fbfb198abdc33785722144c96dbb63a049bc178",
+        "handoffAgeSec": 18,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788471391-4563",
         "at": "2026-09-03T21:36:31Z",
@@ -892,17 +903,6 @@
         "prevHead": "ad60d24ec",
         "handoffSha": "sha256:1df3699740ac90e135215a0b192f73cbedba419d7e2428b447475d6cb29fc5b4",
         "handoffAgeSec": 21,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788400081-0303",
-        "at": "2026-09-03T01:48:01Z",
-        "ts": 1788400081,
-        "trigger": "self",
-        "prevHead": "e0ae97aed",
-        "handoffSha": "sha256:c1b9932a7afd17712670f0efac09d77ec361ac306b1a5ece17ea6ffe2298dd6c",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
