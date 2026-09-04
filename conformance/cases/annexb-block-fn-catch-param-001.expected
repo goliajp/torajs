@@ -1,0 +1,11 @@
+fn pre undefined
+fn in-catch null
+fn in-catch after object
+fn post function 123
+top post function g
+param read caught
+param write assigned
+param after decl assigned
+outer h function fn
+other-name in-catch null function
+other-name post function k

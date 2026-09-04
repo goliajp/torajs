@@ -14,6 +14,7 @@
 use super::annexb_fn_var::{
     AnnexB, LiftCtx, LiftMode, block_nested_fn_names, own_fn_names, param_names,
 };
+use super::nested_fns_catch::apply_catch_renames;
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::nested_fns_walk::descend_into_children;
 use super::{Ast, Stmt};
@@ -81,6 +82,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             ctx.declared = own.intersection(&nested_names).cloned().collect();
             ctx.shadowed = own.difference(&nested_names).cloned().collect();
             ctx.params = param_names(params);
+            ctx.catch_renames.clear();
             ctx.reset_scopes();
             let mut renames: HashMap<String, String> = HashMap::new();
             let mut branch_scoped: HashSet<String> = HashSet::new();
@@ -119,6 +121,10 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                     }
                 }
             }
+            // After the mangling, so the references left under a
+            // renamed catch parameter's original name are the ones that
+            // meant the parameter.
+            apply_catch_renames(ast, body, &ctx.catch_renames);
             new_top.extend(lifted);
         }
     }
@@ -139,6 +145,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     ctx.declared = HashSet::new();
     ctx.shadowed = top_declared;
     ctx.params = HashSet::new();
+    ctx.catch_renames.clear();
     ctx.reset_scopes();
     let top_mark = ctx.enter_scope(&top);
     let mut top_renames: HashMap<String, String> = HashMap::new();
@@ -189,6 +196,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             }
         }
     }
+    apply_catch_renames(ast, &mut top, &ctx.catch_renames);
     new_top.extend(top_lifted);
     top.extend(new_top);
     ast.stmts = top;

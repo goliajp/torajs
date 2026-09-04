@@ -128,6 +128,17 @@ pub(super) struct LiftCtx {
     pub(super) shadowed: HashSet<String>,
     /// The current parent function's parameter names.
     pub(super) params: HashSet<String>,
+    /// Catch parameters this pass renamed away, as `(original, fresh)`.
+    /// §B.3.3.1 writes through `varEnv.SetMutableBinding` — the
+    /// VariableEnvironment of the enclosing function or script, which a
+    /// catch parameter is not part of. tr lowers a catch parameter as a
+    /// scope of its own wrapped around the catch block, so a write left
+    /// under the original name lands on the parameter and the var
+    /// binding outside never moves. Renaming the parameter, and the
+    /// references that mean it, hands the name back to the var scope.
+    /// Collected here because the walk cannot borrow the `Ast`; the
+    /// rewrite half applies them.
+    pub(super) catch_renames: Vec<(String, String)>,
     /// Names lexically declared by the scopes between the var scope and
     /// the declaration, innermost last. §B.3.3.1 step 1.a.ii applies
     /// Annex B only when replacing the declaration with `var F` would
@@ -148,6 +159,7 @@ impl LiftCtx {
             declared: HashSet::new(),
             shadowed: HashSet::new(),
             params: HashSet::new(),
+            catch_renames: Vec::new(),
             lex: Vec::new(),
         }
     }
@@ -172,6 +184,17 @@ impl LiftCtx {
             return AnnexB::Skip;
         }
         AnnexB::Apply
+    }
+
+    /// Does this catch parameter stand between a §B.3.3 write and the
+    /// var binding the write is addressed to? Only when the catch block
+    /// itself — a block, so a declaration at its top level is already
+    /// the Annex B shape — or a block inside it declares a function of
+    /// the parameter's name, in sloppy code. §B.3.5 already permits the
+    /// collision; what is wrong without the rename is only which of the
+    /// two bindings the write reaches.
+    pub(super) fn catch_param_shadows_write(&self, p: &str, catch_body: &[Stmt]) -> bool {
+        annexb_fn_span(catch_body, p).is_some_and(|span| self.goal.applies(span))
     }
 
     /// Enter a scope: remember the stack height, then record what the
@@ -397,5 +420,52 @@ fn lex_names_into(body: &[Stmt], out: &mut Vec<String>) {
             Stmt::Multi(inner) => lex_names_into(inner, out),
             _ => {}
         }
+    }
+}
+
+/// The span of a `function <name>` declaration the list gives the
+/// §B.3.3 shape. Unlike [`block_nested_fn_names`] the list's OWN
+/// declarations count: the only caller passes a catch block, which is
+/// a block, so a declaration written directly in it is nested already.
+fn annexb_fn_span(body: &[Stmt], name: &str) -> Option<crate::lexer::Span> {
+    body.iter().find_map(|st| annexb_fn_span_of_stmt(st, name))
+}
+
+fn annexb_fn_span_of_stmt(stmt: &Stmt, name: &str) -> Option<crate::lexer::Span> {
+    match stmt {
+        Stmt::FnDecl { name: n, span, .. } if n == name => Some(*span),
+        Stmt::Block(b) | Stmt::Multi(b) => annexb_fn_span(b, name),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => annexb_fn_span_of_stmt(then_branch, name).or_else(|| {
+            else_branch
+                .as_deref()
+                .and_then(|eb| annexb_fn_span_of_stmt(eb, name))
+        }),
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::For { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::Labeled { body, .. } => annexb_fn_span_of_stmt(body, name),
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => annexb_fn_span(body, name)
+            .or_else(|| annexb_fn_span(catch_body, name))
+            .or_else(|| {
+                finally_body
+                    .as_deref()
+                    .and_then(|fb| annexb_fn_span(fb, name))
+            }),
+        Stmt::Switch { cases, default, .. } => cases
+            .iter()
+            .find_map(|c| annexb_fn_span(&c.body, name))
+            .or_else(|| default.as_deref().and_then(|d| annexb_fn_span(d, name))),
+        _ => None,
     }
 }

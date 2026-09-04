@@ -167,6 +167,7 @@ mod namedfn_recv_cb;
 pub(crate) mod nested_closure_captures;
 mod nested_fns;
 mod nested_fns_capture;
+mod nested_fns_catch;
 mod nested_fns_idents;
 mod nested_fns_walk;
 mod ns_alias;

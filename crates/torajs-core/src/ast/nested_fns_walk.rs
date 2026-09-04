@@ -9,6 +9,7 @@
 use super::Stmt;
 use super::annexb_fn_var::{LiftCtx, LiftMode};
 use super::nested_fns::{collect_nested_fns_in_stmt, collect_nested_fns_to_lift};
+use super::nested_fns_catch::rename_catch_param_if_shadowing;
 use std::collections::{HashMap, HashSet};
 
 /// Recurse into `stmt`'s block-shaped children. Leaf statements have
@@ -135,10 +136,12 @@ pub(super) fn descend_into_children(
         }
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
+            rename_catch_param_if_shadowing(catch_param, catch_body, ctx);
             collect_nested_fns_to_lift(
                 body,
                 parent_name,
