@@ -1,0 +1,183 @@
+//! Annex B §B.3.3 eligibility — does a block-nested function
+//! declaration also get a `var`-scoped binding?
+//!
+//! §B.3.3 gives a function declaration nested in a block TWO bindings:
+//! the block-scoped one every mode has, and a var-scoped one on the
+//! nearest function/global VariableEnvironment. Only the second is
+//! Annex B, and it exists only in SLOPPY code — a strict function body
+//! (or a strict program) keeps the block binding alone.
+//!
+//! tr carries three readings of strictness after the parse, all landed
+//! by rotation 579: the goal (`sloppy_script_goal`, keyed on the `.cts`
+//! extension), the program-level directive prologue
+//! (`program_strict_prologue`), and the byte ranges an explicit
+//! `"use strict"` prologue made strict (`strict_prologue_spans` — a
+//! function body, or the whole source). A declaration is in sloppy code
+//! when the goal is script, the program has no prologue, and the
+//! declaration's own span falls in none of those ranges.
+
+use super::{Expr, ExprId, Param, Stmt};
+use std::collections::HashSet;
+
+/// The strictness half of §B.3.3's precondition, snapshotted once per
+/// pass so the walk does not carry `&Ast` through every frame.
+pub(super) struct AnnexBGoal {
+    /// Script goal AND no program-level `"use strict"`.
+    sloppy: bool,
+    /// Byte ranges made strict by an explicit directive prologue.
+    strict_spans: Vec<(u32, u32)>,
+}
+
+impl AnnexBGoal {
+    fn of(ast: &super::Ast) -> Self {
+        Self {
+            sloppy: ast.sloppy_script_goal && !ast.program_strict_prologue,
+            strict_spans: ast.strict_prologue_spans.clone(),
+        }
+    }
+
+    /// Does the declaration at `span` get the Annex B var binding?
+    /// A synthesized declaration carries the `(0, 0)` sentinel — it has
+    /// no user source, so no directive prologue can cover it, and the
+    /// goal alone decides.
+    fn applies(&self, span: crate::lexer::Span) -> bool {
+        self.sloppy
+            && !self
+                .strict_spans
+                .iter()
+                .any(|&(a, b)| span.start >= a && span.start < b)
+    }
+}
+
+/// Where in the scope tree the walk currently stands. §B.3.3 is about
+/// a function declaration nested in a BLOCK; a declaration written
+/// directly in a function body is an ordinary hoisted declaration with
+/// one binding, and taking it for the Annex B shape gives it a second
+/// one that shadows it.
+#[derive(Clone, Copy)]
+pub(super) struct LiftMode {
+    /// The walk is inside a function body rather than at module top.
+    /// Only it makes a bare-branch declaration block-scoped for outer
+    /// references — the strict half of the S5.7 boundary decision.
+    pub(super) in_fn_body: bool,
+    /// The walk has descended into a block-shaped statement, so a
+    /// declaration found here is the Annex B shape.
+    pub(super) nested: bool,
+}
+
+impl LiftMode {
+    pub(super) fn descend(self) -> Self {
+        Self {
+            nested: true,
+            ..self
+        }
+    }
+}
+
+/// The state a lift needs that is the same for every parent scope:
+/// the expression arena a §B.3.3 var declaration mints its initializer
+/// in, the mangling counter (unique across the whole pass), and the
+/// strictness snapshot that decides whether the var binding exists at
+/// all. Bundled so the walk keeps its arity.
+pub(super) struct LiftCtx {
+    /// Expressions this pass mints, appended to the arena when the pass
+    /// ends. Held apart from the `Ast` because the rewrite half of the
+    /// pass borrows the whole `Ast` between lifts; nothing in that half
+    /// mints an expression, so the ids handed out against `base` stay
+    /// accurate until the flush.
+    minted: Vec<Expr>,
+    base: u32,
+    pub(super) counter: u32,
+    goal: AnnexBGoal,
+    /// Names the CURRENT parent scope already binds — its own top-level
+    /// function declarations and its parameters. §B.3.3.1 step 3.a.ii.1
+    /// creates and zero-initializes the var binding only when
+    /// `varEnv.HasBinding(F)` is false; when it is true the Annex B
+    /// write still happens but must not reset the existing binding to
+    /// `undefined` first. Reassigned before each parent's walk. A
+    /// same-name `var` needs no entry: `desugar_var_hoist` already
+    /// shares one binding across every `var` of a name in a scope.
+    pub(super) declared: HashSet<String>,
+    /// Names the current parent scope declares with a `function` of its
+    /// OWN — a body-level declaration this pass lifts and renames away.
+    /// After the lift the scope no longer binds the name at all, so
+    /// neither shape of the §B.3.3 write has anything to land on: a
+    /// fresh `var` would not be the hoisted declaration the name is
+    /// supposed to hold before the block, and a bare assignment would
+    /// have no slot. Annex B is skipped for these, and the pass answers
+    /// as it did before it existed. Empty at module top, where a
+    /// top-level `function f` survives the pass and lands in `declared`.
+    pub(super) shadowed: HashSet<String>,
+}
+
+impl LiftCtx {
+    pub(super) fn new(ast: &super::Ast) -> Self {
+        Self {
+            minted: Vec::new(),
+            base: ast.exprs.len() as u32,
+            counter: 0,
+            goal: AnnexBGoal::of(ast),
+            declared: HashSet::new(),
+            shadowed: HashSet::new(),
+        }
+    }
+
+    /// Does the declaration at `span` get the §B.3.3 var binding?
+    pub(super) fn annexb(&self, name: &str, span: crate::lexer::Span, mode: LiftMode) -> bool {
+        mode.nested && !self.shadowed.contains(name) && self.goal.applies(span)
+    }
+
+    /// The expressions this pass minted, to append to the arena once
+    /// the walk (which borrows the `Ast`) is done.
+    pub(super) fn into_minted(self) -> Vec<Expr> {
+        self.minted
+    }
+
+    /// Mint `var <name>: any = <mangled>` for the declaration's own
+    /// textual position. `desugar_var_hoist` — which runs after this
+    /// pass — splits it into the scope-top `undefined` binding and this
+    /// assignment, which is exactly §B.3.3.1's shape: the var binding is
+    /// created uninitialized-to-`undefined` on scope entry and written
+    /// when the declaration is *evaluated*.
+    pub(super) fn annexb_var_decl(&mut self, name: &str, mangled: &str) -> Stmt {
+        if self.declared.contains(name) {
+            // The scope binds this name already (its own `function f`,
+            // or a parameter). Write it, do not re-declare it — a
+            // hoisted `let f: any = <Uninit>` would shadow the existing
+            // binding and make it read `undefined` before the block.
+            let target = self.mint(Expr::Ident(name.to_string()));
+            let value = self.mint(Expr::Ident(mangled.to_string()));
+            let assign = self.mint(Expr::Assign { target, value });
+            return Stmt::Expr(assign);
+        }
+        let init = self.mint(Expr::Ident(mangled.to_string()));
+        Stmt::LetDecl {
+            mutable: true,
+            name: name.to_string(),
+            type_ann: Some("any".to_string()),
+            init,
+            is_var: true,
+        }
+    }
+
+    fn mint(&mut self, e: Expr) -> ExprId {
+        let id = ExprId(self.base + self.minted.len() as u32);
+        self.minted.push(e);
+        id
+    }
+}
+
+/// The names a statement list declares with a `function` of its own.
+pub(super) fn own_fn_names(body: &[Stmt]) -> HashSet<String> {
+    body.iter()
+        .filter_map(|st| match st {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// A function's parameter names.
+pub(super) fn param_names(params: &[Param]) -> HashSet<String> {
+    params.iter().map(|p| p.name.clone()).collect()
+}

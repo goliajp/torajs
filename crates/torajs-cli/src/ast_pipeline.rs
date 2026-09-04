@@ -287,6 +287,13 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // `lift_arrow_fns` has made it one. The pass is a fixpoint and
     // idempotent, so running it twice costs a walk that lifts nothing.
     ast::desugar_nested_fns(ast);
+    // Again, because that pass mints writes of its own: Annex B §B.3.3
+    // gives a block-nested `function f` a var-scoped binding written
+    // where the declaration sits, and when the scope already declares
+    // `function f` at its top that write needs the same slot this pass
+    // exists to give. The first call above cannot see those writes —
+    // they do not exist until the lift runs.
+    ast::widen_rebound_fn_decls(ast);
     ast::alias_arrow_arguments(ast);
     ast::lift_arrow_fns(ast);
     ast::register_bind_receiver_recv_fns(ast);

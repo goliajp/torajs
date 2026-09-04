@@ -37,6 +37,7 @@ mod arrow_arguments_alias;
 pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
+mod annexb_fn_var;
 pub(crate) mod arguments_object_escape_store;
 mod build_factory;
 pub(crate) mod capturing_classes;

@@ -1,0 +1,11 @@
+pre undefined
+post function a
+pre undefined
+post function b
+switch function c
+existing-var 123
+existing-var function d
+fn pre undefined
+fn post function e
+fn leaked undefined
+in-block g
