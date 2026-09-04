@@ -11,7 +11,9 @@
 //! tree walk — both passes share ONE stmt collector since rotation
 //! 269 (the pass-1-only sibling lacked the bare-FnDecl-branch arm).
 
-use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode, own_fn_names, param_names};
+use super::annexb_fn_var::{
+    AnnexB, LiftCtx, LiftMode, block_nested_fn_names, own_fn_names, param_names,
+};
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::nested_fns_walk::descend_into_children;
 use super::{Ast, Stmt};
@@ -67,11 +69,17 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
         {
             let parent = parent_name.clone();
             // A function body's own declarations do not survive this
-            // pass — it lifts and renames them — so none of them can
-            // take the §B.3.3 write; its parameters do bind, and
-            // §B.3.3.1 step 1.a.iii skips the name when they do.
-            ctx.declared = HashSet::new();
-            ctx.shadowed = own_fn_names(body);
+            // pass — it lifts and renames them — so by default none of
+            // them can take the §B.3.3 write. The exception is a name
+            // the body ALSO declares inside a block: there the write has
+            // to land somewhere, so the body-level declaration becomes a
+            // hoisted var of its own and the write updates it.
+            // Parameters bind either way, and §B.3.3.1 step 1.a.iii
+            // skips the name when they do.
+            let own = own_fn_names(body);
+            let nested_names = block_nested_fn_names(body);
+            ctx.declared = own.intersection(&nested_names).cloned().collect();
+            ctx.shadowed = own.difference(&nested_names).cloned().collect();
             ctx.params = param_names(params);
             ctx.reset_scopes();
             let mut renames: HashMap<String, String> = HashMap::new();
@@ -286,6 +294,11 @@ pub(super) fn collect_nested_fns_to_lift(
     let drained = std::mem::take(body);
     let mark = ctx.enter_scope(&drained);
     let mut new_body: Vec<Stmt> = Vec::with_capacity(drained.len());
+    // Writes for the body-level declarations that keep a binding — see
+    // `body_level_var_lift`. They go at the HEAD of the list because a
+    // function declaration is initialized on scope entry, before any
+    // statement of the body runs.
+    let mut hoisted: Vec<Stmt> = Vec::new();
     for s in drained {
         match s {
             Stmt::FnDecl { ref name, .. }
@@ -300,6 +313,11 @@ pub(super) fn collect_nested_fns_to_lift(
                 // Same §B.3.3 split as the bare-branch arm above: in
                 // sloppy code the vacated slot becomes the var write and
                 // outer references stay on the un-mangled name.
+                if !mode.nested && ctx.body_level_var_lift(name, fn_decl_span(&s)) {
+                    branch_scoped.insert(name.clone());
+                    let decl = ctx.mint_var_decl(name, &mangled);
+                    hoisted.push(decl);
+                }
                 match ctx.annexb(name, fn_decl_span(&s), mode) {
                     AnnexB::Apply => {
                         branch_scoped.insert(name.clone());
@@ -359,5 +377,10 @@ pub(super) fn collect_nested_fns_to_lift(
         }
     }
     ctx.leave_scope(mark);
-    *body = new_body;
+    if hoisted.is_empty() {
+        *body = new_body;
+    } else {
+        hoisted.extend(new_body);
+        *body = hoisted;
+    }
 }

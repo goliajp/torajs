@@ -152,6 +152,17 @@ impl LiftCtx {
         }
     }
 
+    /// Does a BODY-LEVEL declaration of `name` have to become a var
+    /// binding of its own? Only when the same body also declares the
+    /// name in a block: the block declaration's §B.3.3 write needs
+    /// something to land on, and after the lift the body binds nothing.
+    /// Answering yes makes the body-level declaration a hoisted
+    /// `var name = <mangled>` at the head of the list, which is where a
+    /// function declaration's initialization belongs anyway.
+    pub(super) fn body_level_var_lift(&self, name: &str, span: crate::lexer::Span) -> bool {
+        self.declared.contains(name) && self.goal.applies(span)
+    }
+
     /// Does the declaration at `span` get the §B.3.3 var binding?
     pub(super) fn annexb(&self, name: &str, span: crate::lexer::Span, mode: LiftMode) -> AnnexB {
         if !mode.nested || self.shadowed.contains(name) || !self.goal.applies(span) {
@@ -225,15 +236,25 @@ impl LiftCtx {
     /// when the declaration is *evaluated*.
     pub(super) fn annexb_var_decl(&mut self, name: &str, mangled: &str) -> Stmt {
         if self.declared.contains(name) {
-            // The scope binds this name already (its own `function f`,
-            // or a parameter). Write it, do not re-declare it — a
-            // hoisted `let f: any = <Uninit>` would shadow the existing
-            // binding and make it read `undefined` before the block.
-            let target = self.mint(Expr::Ident(name.to_string()));
-            let value = self.mint(Expr::Ident(mangled.to_string()));
-            let assign = self.mint(Expr::Assign { target, value });
-            return Stmt::Expr(assign);
+            return self.mint_write(name, mangled);
         }
+        self.mint_var_decl(name, mangled)
+    }
+
+    /// `<name> = <mangled>` — the scope binds the name already.
+    /// The scope binds this name already (its own `function f`, or a
+    /// parameter). Write it, do not re-declare it — a hoisted
+    /// `let f: any = <Uninit>` would shadow the existing binding and
+    /// make it read `undefined` before the block.
+    fn mint_write(&mut self, name: &str, mangled: &str) -> Stmt {
+        let target = self.mint(Expr::Ident(name.to_string()));
+        let value = self.mint(Expr::Ident(mangled.to_string()));
+        let assign = self.mint(Expr::Assign { target, value });
+        Stmt::Expr(assign)
+    }
+
+    /// `var <name>: any = <mangled>` — the binding starts here.
+    pub(super) fn mint_var_decl(&mut self, name: &str, mangled: &str) -> Stmt {
         let init = self.mint(Expr::Ident(mangled.to_string()));
         Stmt::LetDecl {
             mutable: true,
@@ -259,6 +280,79 @@ pub(super) fn own_fn_names(body: &[Stmt]) -> HashSet<String> {
             _ => None,
         })
         .collect()
+}
+
+/// The names a statement list's BLOCK-SHAPED children declare with a
+/// `function`. Intersected with the list's own declarations it names
+/// the collision §B.3.3 cannot otherwise answer: the body-level
+/// declaration is the one the var binding should hold before the block
+/// runs, and this pass lifts and renames it away.
+pub(super) fn block_nested_fn_names(body: &[Stmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for st in body {
+        // The list's OWN declarations are not nested; only what their
+        // block-shaped siblings hold is.
+        if matches!(st, Stmt::FnDecl { .. }) {
+            continue;
+        }
+        nested_fn_names_of_stmt(st, &mut out);
+    }
+    out
+}
+
+fn nested_fn_names_of_stmt(stmt: &Stmt, out: &mut HashSet<String>) {
+    match stmt {
+        // A declaration reached AS a child is nested by construction —
+        // the bare-branch form `if (c) function f() {}`.
+        Stmt::FnDecl { name, .. } => {
+            out.insert(name.clone());
+        }
+        Stmt::Block(b) | Stmt::Multi(b) => {
+            for st in b {
+                nested_fn_names_of_stmt(st, out);
+            }
+        }
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            nested_fn_names_of_stmt(then_branch, out);
+            if let Some(eb) = else_branch {
+                nested_fn_names_of_stmt(eb, out);
+            }
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::For { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::ForOfSplitIter { body, .. }
+        | Stmt::Labeled { body, .. } => nested_fn_names_of_stmt(body, out),
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            for st in body
+                .iter()
+                .chain(catch_body)
+                .chain(finally_body.iter().flatten())
+            {
+                nested_fn_names_of_stmt(st, out);
+            }
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for st in cases
+                .iter()
+                .flat_map(|c| c.body.iter())
+                .chain(default.iter().flatten())
+            {
+                nested_fn_names_of_stmt(st, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// A function's parameter names. §B.3.3.1 step 1.a.iii skips Annex B

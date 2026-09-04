@@ -24,9 +24,16 @@ if (true) function g() { return "g inner"; } else function unused() {}
 console.log("ahead", typeof g, g());
 function g() { return "g outer"; }
 
-// Recorded boundary — the same collision one scope down does NOT work
-// yet, and this file states only what does. Inside a FUNCTION body tr
-// lifts the body's own `function h` out and renames it, so after the
-// pass that scope binds no `h` for the Annex B write to update; the
-// module scope keeps its declaration, which is why the shape above
-// answers. RFC 20260904-annexb-block-fn-two-bindings, knife A2.
+// The same collision one scope down. A function body's own `function h`
+// does not survive the lift — it is renamed out — so the write would
+// have nothing to update. When the body ALSO declares the name in a
+// block, the body-level declaration becomes a hoisted `var` of its own,
+// which is where a function declaration's initialization belongs
+// anyway; the block's write then updates that binding.
+function host() {
+  function h() { return "fn-outer"; }
+  console.log("fn before", h());
+  { function h() { return "fn-inner"; } }
+  console.log("fn after", h());
+}
+host();

@@ -1,3 +1,5 @@
 before outer
 after inner
 ahead function g inner
+fn before fn-outer
+fn after fn-inner
