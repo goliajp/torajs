@@ -35,12 +35,32 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     let saved_return = checker.expected_return.replace(*ret_ty);
     checker.toplevel_captures.push(Default::default());
     let saved_class = checker.current_class.take();
+    // A class name can itself contain `__`: a class EXPRESSION binds
+    // under a synth name (`__ClassExpr_<id>`), so `__sm___ClassExpr_0
+    // __bad` split at its FIRST `__` answered the empty string and the
+    // body believed it was inside no class at all. Ask the known class
+    // names instead, longest first so a class whose name is a prefix of
+    // another cannot claim the body; the old split stays as the fall
+    // back for a mangled name whose owner is not a declared class, but
+    // only when it answers something.
     let new_class: Option<String> = name
         .strip_prefix("__cm_")
-        .and_then(|rest| rest.split_once("__").map(|(c, _)| c.to_string()))
-        .or_else(|| {
-            name.strip_prefix("__sm_")
-                .and_then(|rest| rest.split_once("__").map(|(c, _)| c.to_string()))
+        .or_else(|| name.strip_prefix("__sm_"))
+        .and_then(|rest| {
+            checker
+                .class_names
+                .iter()
+                .filter(|c| {
+                    rest.strip_prefix(c.as_str())
+                        .is_some_and(|r| r.starts_with("__"))
+                })
+                .max_by_key(|c| c.len())
+                .cloned()
+                .or_else(|| {
+                    rest.split_once("__")
+                        .map(|(c, _)| c.to_string())
+                        .filter(|c| !c.is_empty())
+                })
         });
     if new_class.is_some() {
         checker.current_class = new_class;

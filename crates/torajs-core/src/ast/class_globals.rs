@@ -271,3 +271,11 @@ pub fn class_display_name<'a>(ast: &'a Ast, cname: &'a str) -> &'a str {
     }
     cname
 }
+
+/// §15.7.14 step 3 for a named class EXPRESSION — see
+/// [`super::class_globals_shadow::rewrite_class_expr_self_names`] for
+/// why this runs before `desugar_classes` rather than with the rest
+/// of the class-reference rewriting.
+pub fn rewrite_class_expr_self_names(ast: &mut Ast) {
+    super::class_globals_shadow::rewrite_class_expr_self_names(ast);
+}

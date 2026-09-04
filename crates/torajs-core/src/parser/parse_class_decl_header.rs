@@ -103,16 +103,20 @@ impl<'a> Parser<'a> {
             // P8.5 — `force_synth`: even when a class-expression-position
             // class carries an inner name (`class Inner { ... }`),
             // consume-and-discard it so the synth name controls all
-            // downstream resolution. Inner self-binding (Inner referring
-            // to the class inside its own body) is an L3b follow-up.
+            // downstream resolution. The inner self-binding — `Inner`
+            // referring to the class from inside its own body — is
+            // restored downstream by `class_globals_shadow`, which
+            // reads the display channel below and rewrites the body's
+            // own references to the synth sentinel, under the same
+            // shadowing rules the declaration half gets.
             Token::Ident(n) if force_synth => {
                 // RFC 20260714-dstr-residual blade 4 — the discarded
                 // inner name is still the class's `.name` (§15.5.5:
                 // a named class expression keeps its self-name over
                 // any binding). Record it in the display channel; it
                 // lands first, so binding-position or_insert
-                // registrations never override it. Inner self-binding
-                // resolution stays an L3b follow-up.
+                // registrations never override it, and it is also the
+                // channel the body's self-references resolve through.
                 // `implements` is TypeScript's heritage keyword, and
                 // at EXPRESSION position it reads as one: bun takes
                 // `const C = class implements {}` as an anonymous

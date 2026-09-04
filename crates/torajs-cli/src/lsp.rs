@@ -231,6 +231,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         }
         torajs_core::ast::desugar_prototype_call(&mut ast);
         torajs_core::ast::inject_builtin_classes(&mut ast);
+        torajs_core::ast::rewrite_class_expr_self_names(&mut ast);
         torajs_core::ast::desugar_classes(&mut ast);
         // §8.6.2 default-param TDZ — after desugar_classes, before materialize.
         torajs_core::ast::desugar_dflt_param_tdz(&mut ast);

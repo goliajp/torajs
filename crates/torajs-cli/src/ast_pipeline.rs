@@ -258,6 +258,11 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_optchain_calls(ast);
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
+    // §15.7.14 step 3 — a named class expression's body refers to the
+    // class by a name only that body can see. It has to be resolved
+    // before `desugar_classes`, which would otherwise bind it to a
+    // same-named class declared outside.
+    ast::rewrite_class_expr_self_names(ast);
     ast::desugar_classes(ast);
     // Object-literal method [[HomeObject]] super sites — right after
     // the class pass has consumed the markers it owns.
