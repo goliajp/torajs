@@ -1670,6 +1670,45 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
+**Latest @ `4b8d07ec2`** (2026-09-04, rotation 582 — one scope rule with
+three entrances, and a capture the read-only shape hid. §14.12.4 gives
+a switch CaseBlock ONE declarative environment across every clause;
+the free-variable walk and the checker each said "one per clause" and
+the lowerer said "none at all", so a clause's `let` outlived the
+switch, permanently displaced an outer binding of the same name, and
+was invisible to the next clause. Annex B §B.3.3 makes a block-nested
+`function` function-scoped in sloppy code, and the walk's on-entry
+pre-bind list — which already carried `var` for the same reason — did
+not carry it, so a function-expression body captured the outer binding
+and the Annex B pass then declared the var binding into the very scope
+the captured env parameter bound. A write was needed to see it: the
+write is what creates the outer binding, so the read-only shape stayed
+green. Both `Expression` positions of §14.12.1 now accept the comma
+production, shared with the `for` step. The fifth knife repairs what
+the first opened: clause bodies are sibling basic blocks, so a binding
+slot minted where the declaration sits dominates no read from another
+clause, and a constant scrutinee deletes that block outright — the
+compiler aborted at regalloc, and only the whole-corpus sweep saw it.)
+Gate predicate: **138** clusters of ≥ 4 holding **1074** cases,
+register 2 · 217, residue 448 · 608 (32.0%), core **1899**. Against
+rotation 581: clusters 138 → **138 (=)**, cases 1074 → **1074 (=)**,
+core 1918 → **1899 (−19)**.
+
+Sweep passTotal 36566 → **36593 (+27)**, pass 30975 → **31002 (+27)**,
+passNoOracle 1139 → **1138 (−1)**, passNegative 4452 → **4453 (+1)**,
+bug 11338 → **11330 (−8)**, incompatible 5270 → **5251 (−19)**,
+trAccepted 47904 → **47923 (+19)**; conservation exact
+(+19 = +27 + −8). Verdict diff 45 changed, **1 backward** —
+`staging/sm/lexical-environment/block-scoped-functions-hoisted-tdz.js`,
+which the CaseBlock environment turns from a name the checker refused
+(throwing for the wrong reason) into a legal binding tr reads without
+a TDZ. Forward movement is 22 cases in `annexB/language` and 6 in
+`language/statements`. Rotation 581's #2 cluster (36 cases,
+`redeclaration of X in current scope`) is gone entirely; the 25-case
+`type mismatch assigning to global X` behind it is the same family one
+step further along. Coverage curve: top-100 **56.8%**, top-200
+**74.9%**, top-400 **89.3%**.
+
 **Latest @ `da8e78cff`** (2026-09-04, rotation 581 — the three
 remaining entrances to Annex B §B.3.3. Rotation 580 landed "a block
 function declaration has two bindings" on the lifting lane, but a
