@@ -39,10 +39,12 @@ impl<'a> Parser<'a> {
         // (`for (#x in v;;)`) refuses it (a parenthesized head
         // resets [In]; `parse_primary_paren` clears the flag).
         if self.in_for_init {
-            return Err(format!(
-                "`#{n} in` is not allowed in a for-statement head (at {})",
-                self.at()
-            ));
+            // The production only exists with the [In] parameter, so
+            // under `[~In]` it is simply not this arm: decline, and
+            // the caller's ordinary path refuses the token it cannot
+            // use. (A parenthesized head resets [In];
+            // `parse_primary_paren` clears the flag.)
+            return Ok(None);
         }
         let site = self.ast.private_ref_sites.len();
         let mut stack = self.class_stack.clone();

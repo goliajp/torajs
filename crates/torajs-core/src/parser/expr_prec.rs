@@ -175,19 +175,21 @@ impl<'a> Parser<'a> {
             // need to handle exhaustively.
             if matches!(self.peek(), Token::Ident(n) if n == "in") {
                 // §14.7.4 / §13.13 — the RelationalExpression[~In]
-                // production has no `in` arm: a C-style for-head
-                // init refuses it at PARSE time (`for (true ? 0 :
-                // 0 in {};;)` — test262 conditional/in-branch-2,
-                // which the ternary type reject used to catch by
-                // coincidence, in the wrong phase). Parentheses and
-                // a ternary's THEN branch reset the restriction;
-                // the for-in statement never reaches here
-                // (try_parse_for_of claims it first).
+                // production has no `in` arm, so under the parameter
+                // the expression simply ENDS here and the token is
+                // left for whoever asked. That is what `[~In]` means
+                // grammatically, and the two askers both want it:
+                // a C-style for-head then expects `;`, finds `in`
+                // and refuses (`for (true ? 0 : 0 in {};;)` —
+                // test262 conditional/in-branch-2), while Annex B
+                // §B.3.5's `for (var x = 5 in o)` head expects
+                // exactly this token and goes on. Reporting the
+                // error from HERE could only serve the first.
+                // Parentheses and a ternary's THEN branch reset the
+                // restriction; the for-in statement never reaches
+                // here (try_parse_for_of claims it first).
                 if self.in_for_init {
-                    return Err(format!(
-                        "`in` is not allowed in a for-statement head (at {})",
-                        self.at()
-                    ));
+                    return Ok(left);
                 }
                 self.pos += 1;
                 let right = self.parse_shift()?;
