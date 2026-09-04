@@ -39,6 +39,7 @@ pub(crate) use arguments_object_walkers::{
 };
 mod annexb_block_binding;
 mod annexb_fn_var;
+mod annexb_names;
 pub(crate) mod arguments_object_escape_store;
 mod build_factory;
 pub(crate) mod capturing_classes;

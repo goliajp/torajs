@@ -51,7 +51,7 @@ pub(super) fn hoist_annexb_fn_names(ast: &Ast, list: &[Stmt], bound: &mut Vec<St
     if !ast.sloppy_script_goal {
         return;
     }
-    let mut names: Vec<String> = super::annexb_fn_var::block_nested_fn_names(list)
+    let mut names: Vec<String> = super::annexb_names::block_nested_fn_names(list)
         .into_iter()
         .collect();
     names.sort();
@@ -59,7 +59,7 @@ pub(super) fn hoist_annexb_fn_names(ast: &Ast, list: &[Stmt], bound: &mut Vec<St
         if bound.contains(&name) {
             continue;
         }
-        if super::annexb_fn_var::annexb_fn_span(list, &name)
+        if super::annexb_names::annexb_fn_span(list, &name)
             .is_some_and(|sp| super::annexb_fn_var::annexb_applies_at(ast, sp))
         {
             bound.push(name);

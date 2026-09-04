@@ -155,6 +155,7 @@ pub struct HeapHeader {
 // downstream crates can keep writing `torajs_rc::Color` etc.
 
 pub mod any_method;
+pub mod any_method_buffer;
 pub mod any_method_date;
 pub mod any_method_family;
 pub mod any_method_intern;

@@ -11,9 +11,8 @@
 //! tree walk — both passes share ONE stmt collector since rotation
 //! 269 (the pass-1-only sibling lacked the bare-FnDecl-branch arm).
 
-use super::annexb_fn_var::{
-    AnnexB, LiftCtx, LiftMode, block_nested_fn_names, own_fn_names, param_names,
-};
+use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode};
+use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
 use super::nested_fns_catch::apply_catch_renames;
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::nested_fns_walk::descend_into_children;
