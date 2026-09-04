@@ -335,10 +335,14 @@ pub unsafe extern "C" fn __torajs_fn_name_str(fn_addr: u64) -> *mut u8 {
 
 // RFC 20260719-fn-tostring-source B4 — the native-form fallback for
 // registry rows with no recorded source (synthesized forwarders /
-// bound wrappers) and for unregistered addresses. Matches bun's
-// JSC form: 4-space indent, no name on the anonymous shape.
+// bound wrappers) and for unregistered addresses. §20.2.3.5 leaves
+// the whitespace to the implementation; this is the one line bun
+// and node both print (`function max() { [native code] }`), with no
+// name on the anonymous shape. It used to be the four-space,
+// three-line spelling bun answered in 2026-07 — see the module
+// doc's note on why the gate could not see that it had moved.
 const NATIVE_PREFIX: &[u8] = b"function ";
-const NATIVE_SUFFIX: &[u8] = b"() {\n    [native code]\n}";
+const NATIVE_SUFFIX: &[u8] = b"() { [native code] }";
 
 /// Walk `__torajs_fn_name_table[]` for `fn_addr`'s row and answer
 /// the raw erased-source bytes pointer (storing the code-unit length
@@ -371,7 +375,7 @@ pub unsafe extern "C" fn __torajs_fn_source_lookup(fn_addr: u64, out_len: *mut u
 
 /// `Function.prototype.toString` kernel — mint an owned Str holding
 /// the row's type-erased source text, or the JSC native form
-/// `function <name>() {\n    [native code]\n}` when no source is
+/// `function <name>() { [native code] }` when no source is
 /// recorded (name comes from the same row; anonymous/absent rows
 /// leave it empty per bun's anonymous native shape).
 ///
@@ -397,7 +401,8 @@ pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
     // Native form — pull the name from the name face, stripping the
     // `bound ` SetFunctionName marker like the print faces: bun
     // (JSC) spells a bound fn's toString with the TARGET name
-    // (`function add() {\n    [native code]\n}` — probe 2026-07-19).
+    // (`function add() { [native code] }` — re-probed 2026-09-05
+    // against bun 1.4.1 and node v26.8.1, which agree).
     let mut name_len: u32 = 0;
     let mut arity: u32 = 0;
     let cell = unsafe { __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity) };
@@ -411,7 +416,7 @@ pub unsafe extern "C" fn __torajs_fn_source_str(fn_addr: u64) -> *mut u8 {
 }
 
 /// Mint the JSC native ToString form
-/// `function <name>() {\n    [native code]\n}` (anonymous when
+/// `function <name>() { [native code] }` (anonymous when
 /// `name_ptr` is NULL / `name_len` is 0). Shared by the registry
 /// fallback above and the anyvalue reified-builtin-method-cell
 /// toString arm, which carries its own interned name.

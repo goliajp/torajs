@@ -45,7 +45,7 @@ pub(crate) fn namespace_static_native_form(ctx: &LowerCtx<'_>, eid: ExprId) -> O
     ) {
         return None;
     }
-    Some(format!("function {method}() {{\n    [native code]\n}}"))
+    Some(format!("function {method}() {{ [native code] }}"))
 }
 
 pub(crate) fn try_lower(
@@ -73,7 +73,7 @@ pub(crate) fn try_lower(
                     &ctx.ast.class_parents,
                 )
                 .unwrap_or(&decl_name);
-                format!("function {visible}() {{\n    [native code]\n}}")
+                format!("function {visible}() {{ [native code] }}")
             } else {
                 crate::fn_source_erase::erase_types(&ctx.ast.source, &ctx.ast.type_ann_spans, span)
             };
