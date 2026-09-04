@@ -78,6 +78,13 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // annexB §B.3.5 for-in initializers, goal half — the parser
+    // refused the heads it could already see were strict; a module
+    // makes the rest of them SyntaxErrors too.
+    if let Some(msg) = ast::triage_annexb_forin_init(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // §15.1.2 duplicate parameters, goal half — the parser refused
     // the lists it could already see were strict; a module makes
     // every remaining one strict code too.

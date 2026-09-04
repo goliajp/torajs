@@ -96,6 +96,64 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Annex B §B.3.5 — does an `=` at the cursor introduce a for-in
+    /// head's initializer rather than a C-style `for`'s?
+    ///
+    /// The two spellings share a prefix (`for (var x = …`) and only
+    /// diverge at the token after the initializer: `in` for §B.3.5,
+    /// `;` for §14.7.4. Parsing speculatively and restoring would
+    /// answer it, but every ordinary `for (var i = 0; …)` in the
+    /// language would pay for a discarded expression parse and leave
+    /// its nodes orphaned in the arena. A token scan is exact enough:
+    /// the initializer is an AssignmentExpression, so a `;` or the
+    /// head's own `)` at bracket depth zero ends the question before
+    /// any `in` could belong to it.
+    fn annexb_forin_init_ahead(&self) -> bool {
+        let mut depth = 0i32;
+        let mut k = self.pos + 1;
+        while let Some(t) = self.tokens.get(k) {
+            match &t.token {
+                Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                }
+                Token::Semi if depth == 0 => return false,
+                Token::Ident(n) if depth == 0 && n == "in" => return true,
+                _ => {}
+            }
+            k += 1;
+        }
+        false
+    }
+
+    /// Read §B.3.5's `Initializer` and judge the two halves of
+    /// §11.2.2 the parser can see. Answers the assignment statement
+    /// the loop prelude runs before its first iteration — the
+    /// initializer is evaluated once, in the head, and the first key
+    /// then overwrites the binding.
+    fn parse_annexb_forin_init(&mut self, name: &str) -> Result<Stmt, String> {
+        let at = self.at();
+        self.pos += 1; // consume `=`
+        // `Initializer[~In]`: the `in` that follows belongs to the
+        // for-in head, not to the expression.
+        let saved_no_in = std::mem::replace(&mut self.in_for_init, true);
+        let value = self.parse_assign();
+        self.in_for_init = saved_no_in;
+        let value = value?;
+        if self.strict_here() {
+            return Err(format!(
+                "a for-in head may not initialize its binding in strict code                  at {at} (ES annexB §B.3.5)"
+            ));
+        }
+        self.ast.annexb_forin_init_positions.push(at);
+        let target = self.ast.add_expr(Expr::Ident(name.to_string()));
+        let assign = self.ast.add_expr(Expr::Assign { target, value });
+        Ok(Stmt::Expr(assign))
+    }
+
     /// chunk B2 — assignment-form body wrap: `{ k = __forvar_N; body }`
     /// so the user's binding tracks the fresh loop-local each
     /// iteration (`var` and bare head forms).
@@ -147,6 +205,24 @@ impl<'a> Parser<'a> {
             None
         };
         let have_type_ann = var_type_ann.is_some();
+        // annexB §B.3.5 — `for (var x = 5 in o)`. Only the `var` form
+        // with a plain BindingIdentifier takes it: a `let` / `const`
+        // head, a destructuring one, and the `of` spelling all have
+        // no such production and fall through to the restore below,
+        // which is the SyntaxError every engine answers for them.
+        // The name to write is the USER's binding, which for a `var`
+        // head lives in `assign_target` — `var_name` by then is the
+        // fresh per-iteration local the loop overwrites.
+        let annexb_init = if is_var_decl == Some(true)
+            && destruct_pat.is_none()
+            && matches!(self.peek(), Token::Eq)
+            && self.annexb_forin_init_ahead()
+        {
+            let bound = assign_target.clone().unwrap_or_else(|| var_name.clone());
+            Some(self.parse_annexb_forin_init(&bound)?)
+        } else {
+            None
+        };
         // Contextual `of` / `in` keyword — must be an Ident. Anything
         // else (`=` for a regular let-in-init, `;` for empty init, etc.)
         // means this is NOT a for-of/in and we restore.
@@ -226,7 +302,11 @@ impl<'a> Parser<'a> {
         // Prelude order: the fn-scoped `var k;` first, then the
         // for-in object hoist (its init may reference `k`-free exprs
         // only, but keeping decl-before-init order is the safe form).
-        let prelude: Vec<Stmt> = var_decl.into_iter().chain(forin_obj_hoist).collect();
+        let prelude: Vec<Stmt> = var_decl
+            .into_iter()
+            .chain(annexb_init)
+            .chain(forin_obj_hoist)
+            .collect();
 
         // P-iter — `for (let v of <expr>.split(<literal_sep>))` →
         // emit Stmt::ForOfSplitIter. ssa_lower handles via stack

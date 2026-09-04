@@ -2,6 +2,7 @@
 
 pub(crate) mod accessor_lookup;
 mod annexb_fn_goal;
+mod annexb_forin_init_goal;
 mod apply_args;
 mod apply_args_materialize;
 mod apply_args_recv;
@@ -294,6 +295,7 @@ pub(crate) use desugar_with::{WITH_OBJ_FN, WITH_OBJ_PREFIX};
 mod number_template_sites;
 mod with_object_widen;
 pub use annexb_fn_goal::triage_annexb_fn_decls;
+pub use annexb_forin_init_goal::triage_annexb_forin_init;
 pub use desugar_with::{WithReject, desugar_with};
 pub use dup_param_goal::triage_duplicate_params;
 pub use legacy_octal_sites::{record_legacy_octal_sites, triage_legacy_octal};

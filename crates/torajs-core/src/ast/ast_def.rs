@@ -661,6 +661,14 @@ pub struct Ast {
     /// strict goal every parameter list in the file qualifies.
     /// `ast::triage_duplicate_params` raises the first one.
     pub dup_param_positions: Vec<(u32, String)>,
+    /// Annex B §B.3.5 for-in heads that carried an initializer —
+    /// `for (var x = 5 in o)`. Byte offsets. The production is handed
+    /// back to non-strict code only, so it parks for the same reason
+    /// as the three fields above: `Parser::strict_here` refuses the
+    /// halves the parser can see, and a module makes the rest of them
+    /// SyntaxErrors too. `ast::triage_annexb_forin_init` raises the
+    /// first one.
+    pub annexb_forin_init_positions: Vec<u32>,
     /// Did THIS file's own directive prologue say `"use strict"`
     /// (§11.2.2, program level)? A bool rather than a read of
     /// `stmts[0]`, because by the time anything downstream asks,
