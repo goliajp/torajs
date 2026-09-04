@@ -131,6 +131,7 @@ mod collapse;
 mod completion;
 mod completion_stmt;
 mod const_prop;
+mod foreign_spans;
 mod function_ctor;
 mod param_default;
 mod param_default_arrow;
@@ -144,8 +145,8 @@ use super::{Ast, Expr, Stmt, free_vars};
 use collapse::{completes_empty_effect_free, decl_names, is_effect_free_decl, name_mentioned};
 use scope::{binds_eval, seal_var_scope};
 use source::{
-    CallForm, eval_strictness, first_line, has_use_strict_prologue, literal_eval_call,
-    nonstring_literal_eval_arg, parse_eval_source, syntax_error_throw,
+    CallForm, EvalStrictness, eval_strictness, first_line, has_use_strict_prologue,
+    literal_eval_call, nonstring_literal_eval_arg, parse_eval_source, syntax_error_throw,
 };
 
 /// Resolve every literal `eval` call this pass can resolve exactly.
@@ -267,7 +268,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
             // the completion value when nothing after it produces one.
             let prologue = has_use_strict_prologue(&parsed, ast);
             let tail = if prologue { &parsed[1..] } else { &parsed[..] };
-            let strict_ctx = form == CallForm::Direct || prologue;
+            let strict_ctx = strict == EvalStrictness::Strict || prologue;
             // Declarations complete with *empty* and, in a strict
             // eval, bind nothing anyone can see — so a tail of
             // effect-free declarations and empty statements leaves
@@ -373,21 +374,15 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     // any other; the nesting is finite because each
                     // level is a literal written in the level above.
                     rewrite_list(&mut inlined, ast, in_fn, home, strict);
-                    // A "use strict" prologue makes even an indirect
-                    // eval's code strict — its `var`s die with the
-                    // eval (§19.2.1.1 steps 3-5), so it seals exactly
-                    // like a direct one.
-                    //
-                    // The `Direct` half of this condition is the old
-                    // "a direct eval is always strict" premise, which
-                    // is what `sw` above now answers properly. Steps
-                    // 3-5 seal on STRICTNESS, not on call form, so a
-                    // sloppy direct eval's `var` should reach the
-                    // caller's VariableEnvironment and today does not.
-                    // That is a scope change with its own blast
-                    // radius; this knife settles what the text may
-                    // SAY, and the sealing stays as it was.
-                    if form == CallForm::Direct || has_use_strict_prologue(&inlined, ast) {
+                    // §19.2.1.1 steps 3-5 seal on STRICTNESS, not on
+                    // call form: strict eval code gets its own
+                    // VariableEnvironment and its `var`s die with the
+                    // eval, while a SLOPPY direct eval's `var` lands in
+                    // the caller's. `sw` is that verdict; a "use
+                    // strict" prologue in the text arms it from the
+                    // other side, which is how an indirect eval — never
+                    // strict by inheritance — can still seal.
+                    if sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast) {
                         seal_var_scope(&mut inlined);
                     }
                     // Blank the consumed Call: an orphan still shaped

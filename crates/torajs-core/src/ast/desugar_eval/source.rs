@@ -249,6 +249,10 @@ pub(super) fn parse_eval_source(
     // than falling out of the parse. The table is truncated on every
     // path, strict or not: the offsets index the eval text, so leaving
     // them would make the NEXT eval's read see this one's sites.
+    // The statements now belong to a program whose `Ast::source` is a
+    // different string — see `super::foreign_spans`.
+    let mut stmts = stmts;
+    super::foreign_spans::blank_fn_spans(&mut stmts);
     let octal_here = ast.legacy_octal_positions.len() > octal_before;
     ast.legacy_octal_positions.truncate(octal_before);
     if is_strict && octal_here {
