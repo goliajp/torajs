@@ -406,6 +406,7 @@ pub(crate) struct Intrinsics {
     pub(crate) reflect_apply: FuncId,
     pub(crate) reflect_construct: FuncId,
     pub(crate) dynobj_spread_from: FuncId,
+    pub(crate) anyv_obj_rest: FuncId,
     pub(crate) accessor_pair_new: FuncId,
     pub(crate) accessor_invoke_getter: FuncId,
     pub(crate) get_property_descriptor: FuncId,

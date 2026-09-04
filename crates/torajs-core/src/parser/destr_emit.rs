@@ -158,13 +158,14 @@ impl Parser<'_> {
         // throws even for `{}`.
         let guard = self.emit_object_coercible_guard(&src_name);
         out.push(guard);
+        let mut computed: Vec<String> = Vec::new();
         for ObjField { key, binding } in fields {
             match binding {
                 ObjBinding::Bind { name, default } => {
                     if let Some(d) = default {
                         self.record_dstr_default_name(*d, name);
                     }
-                    let init = self.dstra_key_load(&src_name, key, *default, out);
+                    let init = self.dstra_key_load(&src_name, key, *default, out, &mut computed);
                     out.push(Stmt::LetDecl {
                         mutable,
                         name: name.clone(),
@@ -174,14 +175,15 @@ impl Parser<'_> {
                     });
                 }
                 ObjBinding::Nested { pat, default } => {
-                    let loaded = self.dstra_key_load(&src_name, key, *default, out);
+                    let loaded = self.dstra_key_load(&src_name, key, *default, out, &mut computed);
                     self.emit_pattern_binds(pat, loaded, mutable, is_var, out);
                 }
             }
         }
         if let Some(rest_name) = rest {
-            // Named keys only — the reader rejects a computed key
-            // alongside rest (recorded boundary), so no key is lost.
+            // Two halves: the keys the pattern SPELLS, and the ones it
+            // computed — those have no name to put in the omit list
+            // and ride as values instead (`emit_obj_rest_expr`).
             let omit: Vec<&str> = fields
                 .iter()
                 .filter_map(|f| match &f.key {
@@ -189,7 +191,8 @@ impl Parser<'_> {
                     FieldKey::Computed(_) => None,
                 })
                 .collect();
-            let bind = self.emit_obj_rest_let(&src_name, &omit, rest_name, mutable, is_var);
+            let bind =
+                self.emit_obj_rest_let(&src_name, &omit, &computed, rest_name, mutable, is_var);
             out.push(bind);
         }
     }
@@ -206,22 +209,44 @@ impl Parser<'_> {
         key: &FieldKey,
         default: Option<ExprId>,
         out: &mut Vec<Stmt>,
+        computed: &mut Vec<String>,
     ) -> ExprId {
         match key {
             FieldKey::Named(field) => self.dstra_field_load(src_name, field, default),
             FieldKey::Computed(key_expr) => {
                 let id = self.mint_desugar_id();
                 let kname = format!("__ck_{id}");
+                // §13.15.5.5 evaluates the key and puts it through
+                // ToPropertyKey once, at this position. Binding the
+                // CONVERTED key is what lets a sibling rest exclude it
+                // without converting it a second time; the load below
+                // reads through the same temp, and indexing with a key
+                // that already is one is the identity branch of
+                // §7.1.19.
+                let init = self.wrap_to_property_key(*key_expr);
                 out.push(Stmt::LetDecl {
                     mutable: false,
                     name: kname.clone(),
                     type_ann: None,
-                    init: *key_expr,
+                    init,
                     is_var: false,
                 });
+                computed.push(kname.clone());
                 self.dstra_computed_load(src_name, &kname, default)
             }
         }
+    }
+
+    /// `__torajs_to_property_key(<expr>)` — §7.1.19 as a value, the
+    /// same shell the class field lane uses for its own key.
+    pub(super) fn wrap_to_property_key(&mut self, key_expr: ExprId) -> ExprId {
+        let callee = self
+            .ast
+            .add_expr(Expr::Ident("__torajs_to_property_key".to_string()));
+        self.ast.add_expr(Expr::Call {
+            callee,
+            args: vec![key_expr],
+        })
     }
 
     /// `__t[__ck]`, optionally wrapped in the §13.15.5.4 default
@@ -273,11 +298,12 @@ impl Parser<'_> {
         &mut self,
         src_name: &str,
         omit: &[&str],
+        computed: &[String],
         rest_name: &str,
         mutable: bool,
         is_var: bool,
     ) -> Stmt {
-        let obj = self.emit_obj_rest_expr(src_name, omit);
+        let obj = self.emit_obj_rest_expr(src_name, omit, computed);
         // The rest object is extensible — record the binding so a
         // member read missing its static anchor rides the runtime
         // [[Get]] probe instead of the typo reject (consumers:

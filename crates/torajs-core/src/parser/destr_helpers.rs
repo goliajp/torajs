@@ -56,11 +56,48 @@ impl<'a> Parser<'a> {
     /// already expand. Both destructuring forms mint it here so the
     /// declaration and the assignment answer with one construction
     /// rather than two that have to be kept agreeing.
-    pub(super) fn emit_obj_rest_expr(&mut self, src_name: &str, omit: &[&str]) -> ExprId {
+    pub(super) fn emit_obj_rest_expr(
+        &mut self,
+        src_name: &str,
+        omit: &[&str],
+        computed: &[String],
+    ) -> ExprId {
+        if !computed.is_empty() {
+            return self.emit_obj_rest_call(src_name, omit, computed);
+        }
         let sentinel = format!("__spread_omit__:{}", omit.join(","));
         let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
         self.ast.add_expr(Expr::ObjectLit {
             fields: vec![(PropKey::from(sentinel), src_ref)],
+        })
+    }
+
+    /// The same rest object when one of the excluded keys is a
+    /// COMPUTED one. The sentinel spelling cannot carry it — the omit
+    /// list is a comma-separated string of names, and a runtime key
+    /// has no name — and the rest object's shape stops being a static
+    /// answer with it, so this form says so: `__torajs_obj_rest(src,
+    /// "a,b", [k1, k2])`, typed `any`, lowered onto the §7.3.25
+    /// kernel with both halves of `excludedItems`.
+    ///
+    /// `computed` names the `__ck_N` temps, which by now hold the
+    /// keys ALREADY put through ToPropertyKey at their own position
+    /// in the pattern — so the excluded list and the field load read
+    /// one conversion, not two.
+    fn emit_obj_rest_call(&mut self, src_name: &str, omit: &[&str], computed: &[String]) -> ExprId {
+        let callee = self
+            .ast
+            .add_expr(Expr::Ident("__torajs_obj_rest".to_string()));
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let names = self.ast.add_expr(Expr::String(omit.join(",").into()));
+        let elems: Vec<ExprId> = computed
+            .iter()
+            .map(|n| self.ast.add_expr(Expr::Ident(n.clone())))
+            .collect();
+        let keys = self.ast.add_expr(Expr::Array(elems));
+        self.ast.add_expr(Expr::Call {
+            callee,
+            args: vec![src_ref, names, keys],
         })
     }
 

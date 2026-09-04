@@ -331,6 +331,9 @@ impl<'a> Parser<'a> {
         out: &mut Vec<Stmt>,
     ) -> Result<(), String> {
         out.push(self.emit_object_coercible_guard(src_name));
+        // The `__ck_N` temps the computed fields bind, in source
+        // order — a trailing rest excludes those by value.
+        let mut computed_keys: Vec<String> = Vec::new();
         for (i, (fname, val)) in fields.iter().enumerate() {
             // §13.15.5.4 — AssignmentRestProperty takes every own
             // enumerable key the earlier fields did not name. Same
@@ -345,26 +348,18 @@ impl<'a> Parser<'a> {
                         self.at()
                     ));
                 }
-                // Recorded boundary (loud, never silent): the omit
-                // set carries static names only — a computed key's
-                // `__computed_N__` sentinel in it would omit the
-                // wrong property, so the coexistence rejects (same
-                // rule as the declaration lanes).
-                if fields[..i]
-                    .iter()
-                    .any(|(n, _)| n.starts_with("__computed_"))
-                {
-                    return Err(format!(
-                        "not yet supported: object rest alongside a computed key \
-                         in the same destructuring pattern at {}",
-                        self.at()
-                    ));
-                }
                 // The omit list is identifier-spelled (`__spread_omit__:`
                 // sentinel); a lone-surrogate sibling key is not a name
-                // the rest object could exclude by that spelling.
-                let omit: Vec<&str> = fields[..i].iter().filter_map(|(n, _)| n.as_str()).collect();
-                let rest_obj = self.emit_obj_rest_expr(src_name, &omit);
+                // the rest object could exclude by that spelling, and a
+                // COMPUTED key has no name at all — those ride as
+                // values in `computed_keys`, which the loop above filled
+                // as it bound each `__ck_N`.
+                let omit: Vec<&str> = fields[..i]
+                    .iter()
+                    .filter(|(n, _)| !n.starts_with("__computed_"))
+                    .filter_map(|(n, _)| n.as_str())
+                    .collect();
+                let rest_obj = self.emit_obj_rest_expr(src_name, &omit, &computed_keys);
                 self.emit_dstr_assign_slot(*val, rest_obj, out)?;
                 continue;
             }
@@ -378,13 +373,18 @@ impl<'a> Parser<'a> {
             if let Some(&key_expr) = self.ast.objlit_computed_keys.get(val) {
                 let id = self.mint_desugar_id();
                 let kname = format!("__ck_{id}");
+                // §13.15.5.5 converts once, at this position; the rest
+                // below excludes the CONVERTED key, so no `toString`
+                // runs a second time.
+                let init = self.wrap_to_property_key(key_expr);
                 out.push(Stmt::LetDecl {
                     mutable: false,
                     name: kname.clone(),
                     type_ann: None,
-                    init: key_expr,
+                    init,
                     is_var: false,
                 });
+                computed_keys.push(kname.clone());
                 let (target, default) = match self.ast.get_expr(*val) {
                     Expr::Assign { target, value } => (*target, Some(*value)),
                     _ => (*val, None),

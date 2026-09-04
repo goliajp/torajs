@@ -21,21 +21,12 @@ impl<'a> Parser<'a> {
         // Keys the pattern names, in source order — the omit set for a
         // trailing `...rest`.
         let mut seen_fields: Vec<PropKey> = Vec::new();
-        let mut saw_computed = false;
+        // The `__ck_N` temps a computed sibling key binds — a trailing
+        // rest excludes those by VALUE, having no name to spell.
+        let mut computed_keys: Vec<String> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             loop {
                 if matches!(self.peek(), Token::DotDotDot) {
-                    // Recorded boundary (loud, never silent): the rest
-                    // omit-set protocol carries static names only, and
-                    // §14.3.3.1 wants the evaluated computed key
-                    // excluded from the remainder copy.
-                    if saw_computed {
-                        return Err(format!(
-                            "not yet supported: object rest alongside a computed key \
-                             in the same param destructuring pattern at {}",
-                            self.at()
-                        ));
-                    }
                     self.pos += 1;
                     let rest_name = match self.peek() {
                         Token::Ident(n) => n.clone(),
@@ -48,7 +39,14 @@ impl<'a> Parser<'a> {
                     };
                     self.pos += 1;
                     let omit: Vec<&str> = seen_fields.iter().filter_map(|f| f.as_str()).collect();
-                    let bind = self.emit_obj_rest_let(&src_name, &omit, &rest_name, false, false);
+                    let bind = self.emit_obj_rest_let(
+                        &src_name,
+                        &omit,
+                        &computed_keys,
+                        &rest_name,
+                        false,
+                        false,
+                    );
                     lets.push(bind);
                     // §14.3.3.1 — a rest element is always last; the
                     // pattern must close here.
@@ -66,8 +64,8 @@ impl<'a> Parser<'a> {
                 // The field parses through its own method; the shared
                 // comma tail below still runs.
                 if matches!(self.peek(), Token::LBracket) {
-                    saw_computed = true;
-                    self.parse_destr_computed_field(&src_name, lets)?;
+                    let kname = self.parse_destr_computed_field(&src_name, lets)?;
+                    computed_keys.push(kname);
                     match self.peek() {
                         Token::Comma => {
                             self.pos += 1;
@@ -231,11 +229,13 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// Answers the `__ck_N` temp it bound, so a trailing rest can
+    /// exclude the key by value.
     fn parse_destr_computed_field(
         &mut self,
         src_name: &str,
         lets: &mut Vec<Stmt>,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         self.pos += 1; // consume `[`
         let key_expr = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
         match self.peek() {
@@ -258,11 +258,14 @@ impl<'a> Parser<'a> {
         }
         let id = self.mint_desugar_id();
         let kname = format!("__ck_{id}");
+        // §13.15.5.5 converts once, here — a sibling rest then
+        // excludes the CONVERTED key without asking `toString` twice.
+        let init = self.wrap_to_property_key(key_expr);
         lets.push(Stmt::LetDecl {
             mutable: false,
             name: kname.clone(),
             type_ann: None,
-            init: key_expr,
+            init,
             is_var: false,
         });
         let mem = self.dstra_computed_load(src_name, &kname, None);
@@ -304,6 +307,6 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        Ok(())
+        Ok(kname)
     }
 }

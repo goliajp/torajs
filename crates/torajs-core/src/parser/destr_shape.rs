@@ -12,10 +12,13 @@
 //! `dstra_field_load`) so the §13.3.3 default semantics can never
 //! drift between lanes.
 //!
-//! Recorded boundaries (loud, never silent): object rest alongside a
-//! computed key (the omit-set protocol carries static names only);
-//! `for (let PAT in obj)` pattern heads; CoverInitializedName in
-//! assignment-position object heads.
+//! Recorded boundaries (loud, never silent): `for (let PAT in obj)`
+//! pattern heads; CoverInitializedName in assignment-position object
+//! heads. Object rest alongside a computed key used to be one — the
+//! omit-set protocol carries static names only — and is not any more:
+//! a computed sibling sends the rest through `__torajs_obj_rest`
+//! (`destr_helpers::emit_obj_rest_call`), which carries the runtime
+//! keys as values.
 
 use super::*;
 
@@ -174,20 +177,6 @@ impl<'a> Parser<'a> {
         let mut rest: Option<String> = None;
         while !matches!(self.peek(), Token::RBrace) {
             if matches!(self.peek(), Token::DotDotDot) {
-                // Recorded boundary (loud, never silent): `{ [k]: v,
-                // ...rest }` — the rest omit-set protocol carries
-                // static names only, and §14.3.3.1 wants the evaluated
-                // key excluded from the remainder copy.
-                if fields
-                    .iter()
-                    .any(|f| matches!(f.key, FieldKey::Computed(_)))
-                {
-                    return Err(format!(
-                        "not yet supported: object rest alongside a computed key \
-                         in the same destructuring pattern at {}",
-                        self.at()
-                    ));
-                }
                 self.pos += 1;
                 let n = match self.peek() {
                     Token::Ident(n) => n.clone(),

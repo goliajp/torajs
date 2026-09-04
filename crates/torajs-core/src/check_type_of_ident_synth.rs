@@ -195,7 +195,21 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         // 419-01 — the FIELD lane's ToPropertyKey shell: the key
         // evaluated at the class-decl position, answered as the `any`
         // the `__ccmk_<C>_<n>` global holds.
-        "__torajs_class_computed_key" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Any))),
+        // The same §7.1.19 shell under the name the destructuring
+        // rest lane spells it with — a key evaluated at its own
+        // position in the pattern, answered as the `any` both the
+        // load and the excluded list then read.
+        "__torajs_class_computed_key" | "__torajs_to_property_key" => {
+            Ok(Type::Function(vec![Type::Any], Box::new(Type::Any)))
+        }
+        // §13.15.5.4 — object rest whose excluded set has a computed
+        // key in it: (source, spelled names, computed keys) -> the
+        // rest object. `any`, because the shape is not a static
+        // answer once one of the subtracted keys is a runtime value.
+        "__torajs_obj_rest" => Ok(Type::Function(
+            vec![Type::Any, Type::String, Type::Any],
+            Box::new(Type::Any),
+        )),
         // RFC 20260820-dstr-deferred-close — the deferred
         // IteratorClose a suspendable destructuring pattern's finally
         // calls on its parked iterator slot.

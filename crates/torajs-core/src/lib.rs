@@ -359,6 +359,7 @@ pub(crate) mod ssa_lower_call_namespace_obj_methods;
 pub(crate) mod ssa_lower_call_number_methods;
 pub(crate) mod ssa_lower_call_number_namespace;
 pub(crate) mod ssa_lower_call_obj_own_property;
+pub(crate) mod ssa_lower_call_obj_rest;
 pub(crate) mod ssa_lower_call_object_assign;
 pub(crate) mod ssa_lower_call_object_coerce;
 pub(crate) mod ssa_lower_call_object_create;

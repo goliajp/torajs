@@ -350,6 +350,7 @@ pub(crate) fn build(
         ns_object_reflect: init_b.object.ns_object_reflect,
         global_eval_value: init_b.object.global_eval_value,
         dynobj_spread_from: init_b.object.dynobj_spread_from,
+        anyv_obj_rest: init_b.object.anyv_obj_rest,
         accessor_pair_new: init_b.object.accessor_pair_new,
         accessor_invoke_getter: init_b.object.accessor_invoke_getter,
         get_property_descriptor: init_b.object.get_property_descriptor,

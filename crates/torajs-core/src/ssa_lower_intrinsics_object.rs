@@ -183,6 +183,9 @@ pub(crate) struct ObjectIds {
     /// literal (`{ ...anySrc }`, rotation 267) — pointer-slot form
     /// so a member_set resize writes the relocated block back.
     pub dynobj_spread_from: FuncId,
+    /// §13.15.5.4 rest with a computed sibling key — the excluded set
+    /// arrives in two halves (static names, runtime property keys).
+    pub anyv_obj_rest: FuncId,
     pub object_create_check_proto: FuncId,
     pub object_create_link_proto: FuncId,
     pub anyv_set_prototype_of: FuncId,
@@ -305,6 +308,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         ns_object_reflect: decl!("__torajs_ns_object_reflect", [], Any),
         global_eval_value: decl!("__torajs_global_eval_value", [], Any),
         dynobj_spread_from: decl!("__torajs_dynobj_spread_from", [Ptr, Any, Ptr], Void),
+        anyv_obj_rest: decl!("__torajs_anyv_obj_rest", [Any, Ptr, Any], Any),
         object_create_check_proto: decl!("__torajs_object_create_check_proto", [Any], Void),
         object_create_link_proto: decl!("__torajs_object_create_link_proto", [Ptr, Any], Void),
         anyv_set_prototype_of: decl!("__torajs_anyv_set_prototype_of", [Any, Any], Void),
