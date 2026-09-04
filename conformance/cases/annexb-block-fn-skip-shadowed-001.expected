@@ -1,0 +1,9 @@
+lex same scope 123
+lex enclosing 456
+lex enclosing leaked undefined
+for head undefined
+for-in head undefined
+param 123 123
+dflt param 456 456
+unshadowed pre undefined
+unshadowed post function yes

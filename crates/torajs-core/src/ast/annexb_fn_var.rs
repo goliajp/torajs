@@ -49,6 +49,24 @@ impl AnnexBGoal {
     }
 }
 
+/// What §B.3.3 says about one declaration.
+pub(super) enum AnnexB {
+    /// It applies: the declaration also writes a var binding, and the
+    /// outer references belong to that binding rather than to the
+    /// lifted block one.
+    Apply,
+    /// It does not apply, because something else in this scope owns the
+    /// name — an enclosing `let` / `const`, or a parameter. Those outer
+    /// references belong to that owner, so they must not be redirected
+    /// to the lifted name either.
+    Skip,
+    /// It does not apply, and nothing else claims the name: strict
+    /// code, or a declaration this pass itself renames away so that no
+    /// binding is left to write. The lift answers as it did before
+    /// §B.3.3 was implemented.
+    Legacy,
+}
+
 /// Where in the scope tree the walk currently stands. §B.3.3 is about
 /// a function declaration nested in a BLOCK; a declaration written
 /// directly in a function body is an ordinary hoisted declaration with
@@ -108,6 +126,16 @@ pub(super) struct LiftCtx {
     /// as it did before it existed. Empty at module top, where a
     /// top-level `function f` survives the pass and lands in `declared`.
     pub(super) shadowed: HashSet<String>,
+    /// The current parent function's parameter names.
+    pub(super) params: HashSet<String>,
+    /// Names lexically declared by the scopes between the var scope and
+    /// the declaration, innermost last. §B.3.3.1 step 1.a.ii applies
+    /// Annex B only when replacing the declaration with `var F` would
+    /// raise no early error, and a `let` / `const` of the same name in
+    /// any enclosing block is exactly that error — so a hit here skips
+    /// the whole thing, var binding included. Pushed and truncated by
+    /// the walk, so it is a stack, not a set.
+    lex: Vec<String>,
 }
 
 impl LiftCtx {
@@ -119,18 +147,74 @@ impl LiftCtx {
             goal: AnnexBGoal::of(ast),
             declared: HashSet::new(),
             shadowed: HashSet::new(),
+            params: HashSet::new(),
+            lex: Vec::new(),
         }
     }
 
     /// Does the declaration at `span` get the §B.3.3 var binding?
-    pub(super) fn annexb(&self, name: &str, span: crate::lexer::Span, mode: LiftMode) -> bool {
-        mode.nested && !self.shadowed.contains(name) && self.goal.applies(span)
+    pub(super) fn annexb(&self, name: &str, span: crate::lexer::Span, mode: LiftMode) -> AnnexB {
+        if !mode.nested || self.shadowed.contains(name) || !self.goal.applies(span) {
+            return AnnexB::Legacy;
+        }
+        if self.params.contains(name) || self.lex.iter().any(|n| n == name) {
+            return AnnexB::Skip;
+        }
+        AnnexB::Apply
     }
 
-    /// The expressions this pass minted, to append to the arena once
-    /// the walk (which borrows the `Ast`) is done.
-    pub(super) fn into_minted(self) -> Vec<Expr> {
-        self.minted
+    /// Enter a scope: remember the stack height, then record what the
+    /// statement list declares lexically. The mark goes back to
+    /// [`Self::leave_scope`] when the walk leaves.
+    pub(super) fn enter_scope(&mut self, body: &[Stmt]) -> usize {
+        let mark = self.lex.len();
+        lex_names_into(body, &mut self.lex);
+        mark
+    }
+
+    /// Enter a scope that binds exactly one name — a `for` head's
+    /// `let` / `const`, or a for-in / for-of element binding.
+    pub(super) fn enter_binding(&mut self, name: &str) -> usize {
+        let mark = self.lex.len();
+        self.lex.push(name.to_string());
+        mark
+    }
+
+    /// A scope that binds nothing — the mark alone, so both arms of a
+    /// loop head can leave the same way.
+    pub(super) fn enter_binding_none(&self) -> usize {
+        self.lex.len()
+    }
+
+    pub(super) fn leave_scope(&mut self, mark: usize) {
+        self.lex.truncate(mark);
+    }
+
+    /// Start a fresh var scope. Nothing outside a function body's own
+    /// lexical scopes can raise the early error §B.3.3.1 asks about.
+    pub(super) fn reset_scopes(&mut self) {
+        self.lex.clear();
+    }
+
+    /// Move what has been minted into the arena and re-base.
+    ///
+    /// Must run before anything READS an id this pass handed out. The
+    /// rewrite half does: it walks the very statements the lift just
+    /// wrote, `var f: any = <mangled>` among them, and an id past the
+    /// end of the arena is an `index out of bounds` there — reached
+    /// only when one parent scope has both an Annex B declaration and a
+    /// legacy one, since the rewrite is skipped when every name is
+    /// block-scoped.
+    pub(super) fn flush(&mut self, ast: &mut super::Ast) {
+        // Through `add_expr`, never `exprs.append`: the arena has a
+        // parallel span vector, and pushing to one without the other
+        // desynchronizes them. The ids stay the ones `mint` handed out
+        // because `add_expr` numbers from `exprs.len()`, which is
+        // `base` here.
+        for e in std::mem::take(&mut self.minted) {
+            ast.add_expr(e);
+        }
+        self.base = ast.exprs.len() as u32;
     }
 
     /// Mint `var <name>: any = <mangled>` for the declaration's own
@@ -177,7 +261,29 @@ pub(super) fn own_fn_names(body: &[Stmt]) -> HashSet<String> {
         .collect()
 }
 
-/// A function's parameter names.
+/// A function's parameter names. §B.3.3.1 step 1.a.iii skips Annex B
+/// when the name is one of them: the parameter already binds it, and
+/// the tests say the binding keeps its argument across the
+/// declaration.
 pub(super) fn param_names(params: &[Param]) -> HashSet<String> {
     params.iter().map(|p| p.name.clone()).collect()
+}
+
+/// The names a statement list declares lexically. A `class` is already
+/// a `TypeDecl` plus declarations by the time this pass runs, and a
+/// `function` is the thing §B.3.3 is about rather than a bar to it, so
+/// `let` / `const` are all that is left. `Multi` shares the surrounding
+/// scope, so its children count as this list's.
+fn lex_names_into(body: &[Stmt], out: &mut Vec<String>) {
+    for st in body {
+        match st {
+            Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            } => out.push(name.clone()),
+            Stmt::Multi(inner) => lex_names_into(inner, out),
+            _ => {}
+        }
+    }
 }

@@ -71,10 +71,7 @@ pub(super) fn descend_into_children(
                 ctx,
             );
         }
-        Stmt::For { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => {
+        Stmt::Labeled { body, .. } => {
             collect_nested_fns_in_stmt(
                 body,
                 parent_name,
@@ -84,6 +81,42 @@ pub(super) fn descend_into_children(
                 lifted,
                 ctx,
             );
+        }
+        // A loop head is a scope of its own: `for (let f; ;)` and
+        // `for (let f of …)` both put `f` in scope for the body, which
+        // is the early error §B.3.3.1 asks about.
+        Stmt::For { init, body, .. } => {
+            let mark = match init.as_deref() {
+                Some(Stmt::LetDecl {
+                    name,
+                    is_var: false,
+                    ..
+                }) => ctx.enter_binding(name),
+                _ => ctx.enter_binding_none(),
+            };
+            collect_nested_fns_in_stmt(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+            ctx.leave_scope(mark);
+        }
+        Stmt::ForOfSplitIter { var_name, body, .. } | Stmt::ForOf { var_name, body, .. } => {
+            let mark = ctx.enter_binding(var_name);
+            collect_nested_fns_in_stmt(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode,
+                lifted,
+                ctx,
+            );
+            ctx.leave_scope(mark);
         }
         Stmt::Try {
             body,

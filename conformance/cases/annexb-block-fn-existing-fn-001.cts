@@ -13,6 +13,17 @@ console.log("before", f());
 if (true) function f() { return "inner"; }
 console.log("after", f());
 
+// A declaration STILL AHEAD is a different case: it is hoisted over
+// anything written before it, so §B.3.3 is skipped and the lift answers
+// as it did before — which is the same answer. What matters here is
+// that the else-branch declaration beside it is NOT skipped, so this
+// one parent scope mints an Annex B write and a legacy lift at once.
+// That is the only shape in which the rewrite half runs over a
+// statement the lift just wrote.
+if (true) function g() { return "g inner"; } else function unused() {}
+console.log("ahead", typeof g, g());
+function g() { return "g outer"; }
+
 // Recorded boundary — the same collision one scope down does NOT work
 // yet, and this file states only what does. Inside a FUNCTION body tr
 // lifts the body's own `function h` out and renames it, so after the

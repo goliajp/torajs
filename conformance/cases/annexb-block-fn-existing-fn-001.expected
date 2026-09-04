@@ -1,2 +1,3 @@
 before outer
 after inner
+ahead function g inner

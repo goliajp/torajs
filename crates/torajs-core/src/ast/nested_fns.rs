@@ -11,7 +11,7 @@
 //! tree walk — both passes share ONE stmt collector since rotation
 //! 269 (the pass-1-only sibling lacked the bare-FnDecl-branch arm).
 
-use super::annexb_fn_var::{LiftCtx, LiftMode, own_fn_names, param_names};
+use super::annexb_fn_var::{AnnexB, LiftCtx, LiftMode, own_fn_names, param_names};
 use super::nested_fns_idents::{rewrite_idents_in_body, rewrite_idents_in_stmt};
 use super::nested_fns_walk::descend_into_children;
 use super::{Ast, Stmt};
@@ -66,8 +66,14 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
         } = stmt
         {
             let parent = parent_name.clone();
-            ctx.declared = param_names(params);
+            // A function body's own declarations do not survive this
+            // pass — it lifts and renames them — so none of them can
+            // take the §B.3.3 write; its parameters do bind, and
+            // §B.3.3.1 step 1.a.iii skips the name when they do.
+            ctx.declared = HashSet::new();
             ctx.shadowed = own_fn_names(body);
+            ctx.params = param_names(params);
+            ctx.reset_scopes();
             let mut renames: HashMap<String, String> = HashMap::new();
             let mut branch_scoped: HashSet<String> = HashSet::new();
             let mut lifted: Vec<Stmt> = Vec::new();
@@ -83,6 +89,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                 &mut lifted,
                 &mut ctx,
             );
+            ctx.flush(ast);
             if !renames.is_empty() {
                 // A bare-branch decl (`if (c) function f() {}`) is
                 // block-scoped in TS semantics: outer references keep
@@ -116,14 +123,26 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     // namespace for mangling. Also handles If / While / DoWhile /
     // For / ForOf / ForIn / Try / Switch nested at module top.
     let parent = "__top".to_string();
-    ctx.declared = top_declared;
-    ctx.shadowed = HashSet::new();
+    // A module-top `function f` survives the pass and can take the
+    // write — but only once the walk has passed it. One still ahead
+    // gets hoisted over anything written before it, and
+    // `widen_rebound_fn_decls` declines to give a slot to a name read
+    // before its declaration, so the write would have nowhere to land.
+    ctx.declared = HashSet::new();
+    ctx.shadowed = top_declared;
+    ctx.params = HashSet::new();
+    ctx.reset_scopes();
+    let top_mark = ctx.enter_scope(&top);
     let mut top_renames: HashMap<String, String> = HashMap::new();
     let mut top_branch_scoped: HashSet<String> = HashSet::new();
     let mut top_lifted: Vec<Stmt> = Vec::new();
     for stmt in top.iter_mut() {
         match stmt {
-            Stmt::FnDecl { .. } => {} // handled by Pass 1
+            Stmt::FnDecl { name, .. } => {
+                // Handled by pass 1; the walk has now passed it.
+                ctx.shadowed.remove(name);
+                ctx.declared.insert(name.clone());
+            }
             other => {
                 collect_nested_fns_in_stmt(
                     other,
@@ -140,6 +159,8 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
             }
         }
     }
+    ctx.leave_scope(top_mark);
+    ctx.flush(ast);
     if !top_renames.is_empty() {
         // Rewrite ident references in the entire top-level (excluding
         // the lifted decls themselves; those get rewritten below).
@@ -162,7 +183,6 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     }
     new_top.extend(top_lifted);
     top.extend(new_top);
-    ast.exprs.extend(ctx.into_minted());
     ast.stmts = top;
 }
 
@@ -207,14 +227,13 @@ pub(super) fn collect_nested_fns_in_stmt(
             // reject (bun answers ReferenceError there), and strict
             // MODULE-TOP keeps the historical leak-to-parent rewrite.
             // The strict split is an S5.7 boundary-decision entry.
-            let annexb = ctx.annexb(name, *span, mode);
-            if annexb || mode.in_fn_body {
+            let verdict = ctx.annexb(name, *span, mode);
+            if !matches!(verdict, AnnexB::Legacy) || mode.in_fn_body {
                 branch_scoped.insert(name.clone());
             }
-            let slot = if annexb {
-                ctx.annexb_var_decl(name, &mangled)
-            } else {
-                Stmt::Block(Vec::new())
+            let slot = match verdict {
+                AnnexB::Apply => ctx.annexb_var_decl(name, &mangled),
+                AnnexB::Skip | AnnexB::Legacy => Stmt::Block(Vec::new()),
             };
             // Take the FnDecl out of the slot, push the renamed decl
             // into `lifted`.
@@ -265,6 +284,7 @@ pub(super) fn collect_nested_fns_to_lift(
     ctx: &mut LiftCtx,
 ) {
     let drained = std::mem::take(body);
+    let mark = ctx.enter_scope(&drained);
     let mut new_body: Vec<Stmt> = Vec::with_capacity(drained.len());
     for s in drained {
         match s {
@@ -280,10 +300,16 @@ pub(super) fn collect_nested_fns_to_lift(
                 // Same §B.3.3 split as the bare-branch arm above: in
                 // sloppy code the vacated slot becomes the var write and
                 // outer references stay on the un-mangled name.
-                if ctx.annexb(name, fn_decl_span(&s), mode) {
-                    branch_scoped.insert(name.clone());
-                    let decl = ctx.annexb_var_decl(name, &mangled);
-                    new_body.push(decl);
+                match ctx.annexb(name, fn_decl_span(&s), mode) {
+                    AnnexB::Apply => {
+                        branch_scoped.insert(name.clone());
+                        let decl = ctx.annexb_var_decl(name, &mangled);
+                        new_body.push(decl);
+                    }
+                    AnnexB::Skip => {
+                        branch_scoped.insert(name.clone());
+                    }
+                    AnnexB::Legacy => {}
                 }
                 let new_decl = match s {
                     Stmt::FnDecl {
@@ -332,5 +358,6 @@ pub(super) fn collect_nested_fns_to_lift(
             }
         }
     }
+    ctx.leave_scope(mark);
     *body = new_body;
 }
