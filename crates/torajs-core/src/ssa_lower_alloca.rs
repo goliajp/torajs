@@ -73,6 +73,11 @@ impl<'a> LowerCtx<'a> {
                 InstKind::Store(Operand::ConstPtrNull, Operand::Value(slot), 0),
             );
             slot
+        } else if self.case_block_depth > 0 {
+            // Inside a switch CaseBlock the frame spans sibling clause
+            // blocks, so the declaration's own block does not dominate
+            // a read from another clause — see `case_block_depth`.
+            self.alloca_in_entry(ty, Some(name))
         } else {
             self.alloca(ty, Some(name))
         }

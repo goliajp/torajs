@@ -107,6 +107,7 @@ pub(crate) fn synthesize_main(
             scope_stack: vec![Vec::new()],
             shadow_stack: vec![Vec::new()],
             loop_stack: Vec::new(),
+            case_block_depth: 0,
             label_stack: Vec::new(),
             cur_block: entry,
             new_strings: &mut new_strings,

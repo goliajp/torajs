@@ -81,11 +81,30 @@ pub(crate) fn lower(
     // the same name — the shadow frame is what restores it.
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
+    ctx.case_block_depth += 1;
     for c in cases.iter() {
         crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, c.body.iter());
     }
     if let Some(db) = default {
         crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, db.iter());
+    }
+    // A clause-declared binding some closure in the CaseBlock captures
+    // gets its box HERE, before the compare chain — the clause bodies
+    // are siblings, so the block holding the declaration dominates
+    // none of the others (see `open_case_block_box`).
+    let captured: Vec<String> = cases
+        .iter()
+        .flat_map(|c| c.body.iter())
+        .chain(default.iter().flatten())
+        .filter_map(|s| match s {
+            Stmt::LetDecl { name, .. } if ctx.escape_captured_lets.contains(name) => {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect();
+    for name in captured {
+        crate::ssa_lower_stmt_let_decl_recursive::open_case_block_box(ctx, &name);
     }
     // RFC 20260901-scope-exit-drops — `break` leaves the case body's
     // own block frames but lands on `after`, which is where the
@@ -164,6 +183,7 @@ pub(crate) fn lower(
     }
 
     ctx.loop_stack.pop();
+    ctx.case_block_depth -= 1;
     ctx.cur_block = after;
     ctx.close_scope_frame();
 }

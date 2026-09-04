@@ -77,6 +77,32 @@ fn open_box(ctx: &mut LowerCtx, name: &str, ty: Type) -> crate::ssa::ValueId {
     slot
 }
 
+/// Open `name`'s capture box HERE, in the ordinary-binding shape
+/// [`hoist_forward_boxes`] gives a forward-referenced one: a
+/// provisional `Any` box the declaration patches when it runs.
+///
+/// The switch lowerer needs the same thing for a different reason.
+/// §14.12.4 gives the whole CaseBlock one declarative environment, so
+/// a closure in one clause may capture a binding another clause
+/// declares — and the clause bodies are sibling basic blocks. A box
+/// minted where the declaration sits is defined in a block that does
+/// not dominate the capture, and a constant scrutinee
+/// (`switch (1) { case 0: let x; case 1: (function () { x; })(); }`)
+/// deletes that block outright, leaving the capture reading a value
+/// with no definition ("ValueId not allocated" at regalloc). Minting
+/// it before the compare chain puts it where every clause can see it.
+pub(crate) fn open_case_block_box(ctx: &mut LowerCtx, name: &str) {
+    if ctx.is_main_fn && ctx.globals.contains_key(name) {
+        return;
+    }
+    if ctx.hoisted_closure_lets.contains(name) || ctx.forward_capture_boxes.contains_key(name) {
+        return;
+    }
+    open_box(ctx, name, Type::Any);
+    ctx.forward_capture_boxes
+        .insert(name.to_string(), Vec::new());
+}
+
 /// The binding's slot type: an annotated binding keeps its declared
 /// signature — that is what the call sites type against — and an
 /// inferred one takes exactly what the mint is about to produce, read

@@ -240,6 +240,12 @@ pub(crate) struct LowerCtx<'a> {
     /// entry also records the scope depth either jump leaves (RFC
     /// 20260901-scope-exit-drops).
     pub(crate) loop_stack: Vec<crate::ssa_lower_scope_exit::LoopTargets>,
+    /// How many switch CaseBlocks enclose the statement being lowered.
+    /// Their clause bodies are sibling basic blocks, so a binding slot
+    /// `alloca`d where the declaration sits dominates no read from
+    /// another clause; nonzero here entry-hoists it. Full account in
+    /// [`crate::ssa_lower_stmt_let_decl_recursive::open_case_block_box`].
+    pub(crate) case_block_depth: usize,
     /// Active labeled statements — innermost on top (ES §13.13). A
     /// `break label` / `continue label` inside the labeled statement's
     /// body resolves its target through this stack. See
