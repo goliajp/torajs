@@ -14,7 +14,7 @@
 
 use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
 use super::free_vars_expr::walk_expr;
-use super::free_vars_hoisted_names::{hoist_fn_decl_names, hoist_var_names};
+use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_fn_decl_names, hoist_var_names};
 use super::{Ast, Param, Stmt};
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
@@ -69,6 +69,9 @@ pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -
     // is bound for the whole body — including after the block, where
     // the block-scoped walk below would have dropped it.
     hoist_var_names(body, &mut bound);
+    // Annex B §B.3.3 hoists a block-nested `function` the same way in
+    // sloppy code — see `hoist_annexb_fn_names`.
+    hoist_annexb_fn_names(ast, body, &mut bound);
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);
     }

@@ -1,0 +1,9 @@
+undefined 123 function
+undefined 123 undefined
+function
+outer
+function
+undefined
+function
+undefined
+outer read: ReferenceError

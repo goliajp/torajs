@@ -17,7 +17,7 @@
 //!
 //! The walk stops at a nested function: its `var`s belong to it.
 
-use super::Stmt;
+use super::{Ast, Stmt};
 
 /// Function declarations hoist: a reference anywhere in the holding
 /// list — including before the declaration — resolves to the local
@@ -29,6 +29,40 @@ pub(super) fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
             if !bound.contains(name) {
                 bound.push(name.clone());
             }
+        }
+    }
+}
+
+/// §B.3.3 gives a block-nested `function f` a var-scoped binding on
+/// top of its block-scoped one, in sloppy code. That var binding is a
+/// local of THIS body, so every reference to the name in the body —
+/// before the block, after it, or from a closure the body mints —
+/// means the local, never an outer binding of the same name. The
+/// names hoist for the same reason `var` does, so they hoist here.
+///
+/// Missing it, the arrow lift captured the outer binding, and the
+/// Annex B pass then declared the var binding into the very scope the
+/// captured env parameter already bound: `var f; (function () { f =
+/// 123; { function f() {} } })()` answered "redeclaration of `f` in
+/// current scope" where node prints the function. The read-only shape
+/// hid it — with nothing writing `f` there was no outer binding to
+/// capture in the first place.
+pub(super) fn hoist_annexb_fn_names(ast: &Ast, list: &[Stmt], bound: &mut Vec<String>) {
+    if !ast.sloppy_script_goal {
+        return;
+    }
+    let mut names: Vec<String> = super::annexb_fn_var::block_nested_fn_names(list)
+        .into_iter()
+        .collect();
+    names.sort();
+    for name in names {
+        if bound.contains(&name) {
+            continue;
+        }
+        if super::annexb_fn_var::annexb_fn_span(list, &name)
+            .is_some_and(|sp| super::annexb_fn_var::annexb_applies_at(ast, sp))
+        {
+            bound.push(name);
         }
     }
 }

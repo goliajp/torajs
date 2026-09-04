@@ -435,7 +435,7 @@ fn lex_names_into(body: &[Stmt], out: &mut Vec<String>) {
 /// §B.3.3 shape. Unlike [`block_nested_fn_names`] the list's OWN
 /// declarations count: the only caller passes a catch block, which is
 /// a block, so a declaration written directly in it is nested already.
-fn annexb_fn_span(body: &[Stmt], name: &str) -> Option<crate::lexer::Span> {
+pub(super) fn annexb_fn_span(body: &[Stmt], name: &str) -> Option<crate::lexer::Span> {
     body.iter().find_map(|st| annexb_fn_span_of_stmt(st, name))
 }
 
