@@ -273,13 +273,24 @@ impl LiftCtx {
 }
 
 /// The names a statement list declares with a `function` of its own.
+/// `Multi` is transparent — its children share the surrounding scope,
+/// so a declaration inside one is this list's.
 pub(super) fn own_fn_names(body: &[Stmt]) -> HashSet<String> {
-    body.iter()
-        .filter_map(|st| match st {
-            Stmt::FnDecl { name, .. } => Some(name.clone()),
-            _ => None,
-        })
-        .collect()
+    let mut out = HashSet::new();
+    own_fn_names_into(body, &mut out);
+    out
+}
+
+fn own_fn_names_into(body: &[Stmt], out: &mut HashSet<String>) {
+    for st in body {
+        match st {
+            Stmt::FnDecl { name, .. } => {
+                out.insert(name.clone());
+            }
+            Stmt::Multi(inner) => own_fn_names_into(inner, out),
+            _ => {}
+        }
+    }
 }
 
 /// The names a statement list's BLOCK-SHAPED children declare with a
@@ -289,15 +300,20 @@ pub(super) fn own_fn_names(body: &[Stmt]) -> HashSet<String> {
 /// runs, and this pass lifts and renames it away.
 pub(super) fn block_nested_fn_names(body: &[Stmt]) -> HashSet<String> {
     let mut out = HashSet::new();
+    nested_fn_names_of_list(body, &mut out);
+    out
+}
+
+/// A statement list that shares its enclosing scope: its OWN
+/// declarations are not nested, only what its block-shaped members
+/// hold.
+fn nested_fn_names_of_list(body: &[Stmt], out: &mut HashSet<String>) {
     for st in body {
-        // The list's OWN declarations are not nested; only what their
-        // block-shaped siblings hold is.
         if matches!(st, Stmt::FnDecl { .. }) {
             continue;
         }
-        nested_fn_names_of_stmt(st, &mut out);
+        nested_fn_names_of_stmt(st, out);
     }
-    out
 }
 
 fn nested_fn_names_of_stmt(stmt: &Stmt, out: &mut HashSet<String>) {
@@ -307,11 +323,13 @@ fn nested_fn_names_of_stmt(stmt: &Stmt, out: &mut HashSet<String>) {
         Stmt::FnDecl { name, .. } => {
             out.insert(name.clone());
         }
-        Stmt::Block(b) | Stmt::Multi(b) => {
+        Stmt::Block(b) => {
             for st in b {
                 nested_fn_names_of_stmt(st, out);
             }
         }
+        // Transparent — see `nested_fn_names_of_list`.
+        Stmt::Multi(b) => nested_fn_names_of_list(b, out),
         Stmt::If {
             then_branch,
             else_branch,

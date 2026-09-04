@@ -159,7 +159,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
                     &mut top_branch_scoped,
                     LiftMode {
                         in_fn_body: false,
-                        nested: true,
+                        nested: false,
                     },
                     &mut top_lifted,
                     &mut ctx,
@@ -207,13 +207,6 @@ pub(super) fn collect_nested_fns_in_stmt(
     lifted: &mut Vec<Stmt>,
     ctx: &mut LiftCtx,
 ) {
-    // Every entry here is a descent: the caller reached this statement
-    // as the child of a block-shaped one (or, at module top, as a
-    // top-level non-declaration statement, where a `function` found
-    // inside is nested by construction). A declaration written directly
-    // in a function body never arrives here — `collect_nested_fns_to_lift`
-    // takes those in its own arm, with `nested` still false.
-    let mode = mode.descend();
     // Bare-FnDecl-as-statement: `if (cond) function f() {}` parses
     // the then-branch as Stmt::FnDecl directly (no enclosing Block).
     // Same lift-and-mangle as the Block case but in-place.
@@ -235,7 +228,10 @@ pub(super) fn collect_nested_fns_in_stmt(
             // reject (bun answers ReferenceError there), and strict
             // MODULE-TOP keeps the historical leak-to-parent rewrite.
             // The strict split is an S5.7 boundary-decision entry.
-            let verdict = ctx.annexb(name, *span, mode);
+            // A declaration reached in this position is the branch of
+            // an `if` / a loop / a label — a block by construction,
+            // whatever the caller's own depth was.
+            let verdict = ctx.annexb(name, *span, mode.descend());
             if !matches!(verdict, AnnexB::Legacy) || mode.in_fn_body {
                 branch_scoped.insert(name.clone());
             }

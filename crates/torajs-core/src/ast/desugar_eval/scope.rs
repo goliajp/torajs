@@ -20,6 +20,38 @@ use super::super::{Ast, Expr, Stmt};
 /// with or without an eval. See the module doc — that is a separate
 /// defect, and sealing it from this side would paper over the general
 /// case while leaving it wrong everywhere else.
+/// §19.2.1.1 — a SLOPPY eval's function declarations belong to the
+/// CALLER's VariableEnvironment. The inlined `Block` is the eval's
+/// LexicalEnvironment, which is why `let` / `const` stay inside it; the
+/// declarations come OUT of it, into a `Multi`, whose children share
+/// the surrounding scope.
+///
+/// Without this the Annex B §B.3.3 knife reads them as block-nested —
+/// the Block is a block — and gives each a var binding written at its
+/// own textual position. `eval('initial = f; function f(){}')` then
+/// reads `f` before that write and answers `undefined`, where the spec
+/// (and node) answer the function: an eval's declarations are
+/// instantiated when the eval is evaluated, not where they sit in it.
+///
+/// A SEALED (strict) eval keeps them: there the eval has a
+/// VariableEnvironment of its own and they belong to it.
+pub(super) fn hoist_fn_decls_out(inlined: Vec<Stmt>) -> Stmt {
+    let mut decls: Vec<Stmt> = Vec::new();
+    let mut rest: Vec<Stmt> = Vec::with_capacity(inlined.len());
+    for s in inlined {
+        if matches!(s, Stmt::FnDecl { .. }) {
+            decls.push(s);
+        } else {
+            rest.push(s);
+        }
+    }
+    if decls.is_empty() {
+        return Stmt::Block(rest);
+    }
+    decls.push(Stmt::Block(rest));
+    Stmt::Multi(decls)
+}
+
 pub(super) fn seal_var_scope(stmts: &mut [Stmt]) {
     for s in stmts.iter_mut() {
         match s {

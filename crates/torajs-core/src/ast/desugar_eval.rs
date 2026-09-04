@@ -382,7 +382,9 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     // strict" prologue in the text arms it from the
                     // other side, which is how an indirect eval — never
                     // strict by inheritance — can still seal.
-                    if sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast) {
+                    let sealed =
+                        sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast);
+                    if sealed {
                         seal_var_scope(&mut inlined);
                     }
                     // Blank the consumed Call: an orphan still shaped
@@ -390,7 +392,11 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     // constructs from the arena-walking completion
                     // pass (r333 harness-wide lifting break).
                     ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
-                    *s = Stmt::Block(inlined);
+                    *s = if sealed {
+                        Stmt::Block(inlined)
+                    } else {
+                        scope::hoist_fn_decls_out(inlined)
+                    };
                     return;
                 }
                 Ok(_) => {}

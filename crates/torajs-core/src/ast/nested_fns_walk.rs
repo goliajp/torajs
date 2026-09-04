@@ -22,14 +22,29 @@ pub(super) fn descend_into_children(
     lifted: &mut Vec<Stmt>,
     ctx: &mut LiftCtx,
 ) {
+    // Every arm but `Multi` opens a scope, so a `function` found under
+    // it is nested. `Multi` is a compiler-generated sequence sharing the
+    // SURROUNDING scope (a sloppy eval's hoisted declarations arrive in
+    // one), so what it holds is at the caller's own depth.
     match stmt {
-        Stmt::Block(body) | Stmt::Multi(body) => {
+        Stmt::Multi(body) => {
             collect_nested_fns_to_lift(
                 body,
                 parent_name,
                 renames,
                 branch_scoped,
                 mode,
+                lifted,
+                ctx,
+            );
+        }
+        Stmt::Block(body) => {
+            collect_nested_fns_to_lift(
+                body,
+                parent_name,
+                renames,
+                branch_scoped,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -44,7 +59,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -54,7 +69,7 @@ pub(super) fn descend_into_children(
                     parent_name,
                     renames,
                     branch_scoped,
-                    mode,
+                    mode.descend(),
                     lifted,
                     ctx,
                 );
@@ -66,7 +81,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -77,7 +92,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -99,7 +114,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -112,7 +127,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -129,7 +144,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -138,7 +153,7 @@ pub(super) fn descend_into_children(
                 parent_name,
                 renames,
                 branch_scoped,
-                mode,
+                mode.descend(),
                 lifted,
                 ctx,
             );
@@ -148,7 +163,7 @@ pub(super) fn descend_into_children(
                     parent_name,
                     renames,
                     branch_scoped,
-                    mode,
+                    mode.descend(),
                     lifted,
                     ctx,
                 );
@@ -161,7 +176,7 @@ pub(super) fn descend_into_children(
                     parent_name,
                     renames,
                     branch_scoped,
-                    mode,
+                    mode.descend(),
                     lifted,
                     ctx,
                 );
@@ -172,7 +187,7 @@ pub(super) fn descend_into_children(
                     parent_name,
                     renames,
                     branch_scoped,
-                    mode,
+                    mode.descend(),
                     lifted,
                     ctx,
                 );
