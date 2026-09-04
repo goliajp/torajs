@@ -139,27 +139,57 @@ fn read_harness() -> Result<String, String> {
 /// `===` byte rewrite, which had been erasing loose-equality
 /// semantics across the whole corpus).
 fn transform_source(src: &str) -> String {
+    transform_inner(src, true)
+}
+
+/// `quotes_open_strings` is false when `src` is itself the BODY of a
+/// string literal — an `eval` argument, re-transformed so that a
+/// harness call written inside one reaches the same rewrite the call
+/// sites outside it get. Without this, `eval('assert.sameValue(…)')`
+/// keeps the member spelling and dies on `unknown identifier assert`:
+/// the harness exposes flat `__t262_*` names, and nothing rewrote the
+/// text. In that position a quote is a character of the body, not the
+/// start of a nested literal, so treating it as one would swallow the
+/// rest of the line.
+fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
     let bytes = src.as_bytes();
     let mut out = String::with_capacity(bytes.len() + 64);
     let mut i = 0usize;
     while i < bytes.len() {
         let b = bytes[i];
-        // String literal — copy verbatim until the matching quote.
-        if b == b'"' || b == b'\'' || b == b'`' {
+        // String literal — copied verbatim, except when it is an
+        // `eval` argument, which is code.
+        if quotes_open_strings && (b == b'"' || b == b'\'' || b == b'`') {
             let quote = b;
+            let trimmed = out.trim_end();
+            let eval_arg = trimmed.ends_with("eval(") || trimmed.ends_with("eval)(");
             out.push(quote as char);
             i += 1;
+            let mut body = String::new();
+            let mut closed = false;
             while i < bytes.len() {
                 let c = bytes[i];
                 let is_escape = c == b'\\' && i + 1 < bytes.len();
-                copy_utf8_char(bytes, &mut i, &mut out);
+                copy_utf8_char(bytes, &mut i, &mut body);
                 if is_escape {
-                    copy_utf8_char(bytes, &mut i, &mut out);
+                    copy_utf8_char(bytes, &mut i, &mut body);
                     continue;
                 }
                 if c == quote {
+                    closed = true;
                     break;
                 }
+            }
+            if closed {
+                body.pop();
+            }
+            if eval_arg {
+                out.push_str(&transform_inner(&body, false));
+            } else {
+                out.push_str(&body);
+            }
+            if closed {
+                out.push(quote as char);
             }
             continue;
         }
