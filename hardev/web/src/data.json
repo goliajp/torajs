@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T19:12:20.598Z",
+  "generatedAt": "2026-09-04T23:51:57.355Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T18:56:58Z",
-    "headSha": "d31e5634b",
-    "elapsedSec": 444.18,
+    "ranAt": "2026-09-04T23:41:35Z",
+    "headSha": "bdb212db2",
+    "elapsedSec": 409.89,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31077,
+    "pass": 31081,
     "passNoOracle": 1140,
     "passNegative": 4457,
-    "passTotal": 36674,
-    "bug": 11309,
-    "incompatible": 5191,
+    "passTotal": 36678,
+    "bug": 11306,
+    "incompatible": 5190,
     "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47983,
-    "passRateInScope": 68.97,
-    "passRateTrAccepted": 76.43
+    "trAccepted": 47984,
+    "passRateInScope": 68.98,
+    "passRateTrAccepted": 76.44
   },
   "torajs": {
-    "commit": "d31e5634b",
-    "commitSubject": "refactor: the rest object's construction lives where its protocol does",
+    "commit": "bdb212db2",
+    "commitSubject": "fix: a static field initialiser is inside the class scope too",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,26 @@
   },
   "commits": [
     {
+      "hash": "bdb212db2",
+      "subject": "fix: a static field initialiser is inside the class scope too"
+    },
+    {
+      "hash": "2dde69c56",
+      "subject": "fix: a named class expression can refer to itself"
+    },
+    {
+      "hash": "3e297326d",
+      "subject": "fix: a class body writing its own name throws where it should"
+    },
+    {
+      "hash": "12574acd8",
+      "subject": "chore: ask whether the binary under test agrees with the tree"
+    },
+    {
+      "hash": "308032d46",
+      "subject": "chore: rotation 584 close — sweep on d31e5634b, five knives, zero regressions"
+    },
+    {
       "hash": "d31e5634b",
       "subject": "refactor: the rest object's construction lives where its protocol does"
     },
@@ -755,47 +775,38 @@
     {
       "hash": "359609ff0",
       "subject": "chore: rotation 583 close — sweep on 1d57054a8, four knives, zero regressions"
-    },
-    {
-      "hash": "66f717e8e",
-      "subject": "refactor: move two families out of the files this rotation filled"
-    },
-    {
-      "hash": "1d57054a8",
-      "subject": "style: rustfmt the five files this rotation left unformatted"
-    },
-    {
-      "hash": "fcaf65a6a",
-      "subject": "fix: Annex B is written for a FunctionDeclaration, not for async ones"
-    },
-    {
-      "hash": "f1bb9a866",
-      "subject": "fix: a block's function declaration binds the block, not the body"
-    },
-    {
-      "hash": "2f6ae986a",
-      "subject": "feat: Uint8Array's six base64 and hex conversions"
     }
   ],
-  "headSha": "d31e5634b",
+  "headSha": "bdb212db2",
   "autorun": {
-    "total": 887,
+    "total": 888,
     "baselineTarget": 10,
-    "bySelf": 882,
+    "bySelf": 883,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788537856-48d9",
-      "at": "2026-09-04T16:04:16Z",
-      "ts": 1788537856,
+      "rotationId": "r-1788549331-35a5",
+      "at": "2026-09-04T19:15:31Z",
+      "ts": 1788549331,
       "trigger": "self",
-      "prevHead": "359609ff0",
-      "handoffSha": "sha256:6b4709f7fc0618e69e3af6fdd9236e13ab9ca343089860de521398b529953d9e",
-      "handoffAgeSec": 11,
+      "prevHead": "308032d46",
+      "handoffSha": "sha256:b5add4e1f20ca0b60144dd53a9e8cf7fc8968ef190c4ca0057bfed03f3530ee0",
+      "handoffAgeSec": 1,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788549331-35a5",
+        "at": "2026-09-04T19:15:31Z",
+        "ts": 1788549331,
+        "trigger": "self",
+        "prevHead": "308032d46",
+        "handoffSha": "sha256:b5add4e1f20ca0b60144dd53a9e8cf7fc8968ef190c4ca0057bfed03f3530ee0",
+        "handoffAgeSec": 1,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788537856-48d9",
         "at": "2026-09-04T16:04:16Z",
@@ -892,17 +903,6 @@
         "prevHead": "650796d4f",
         "handoffSha": "sha256:420b62a4da46d4386835ad9150936ef5c260ff133918a4e2dbde5b1d09dd99b6",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788454531-12cc",
-        "at": "2026-09-03T16:55:31Z",
-        "ts": 1788454531,
-        "trigger": "self",
-        "prevHead": "d608c0666",
-        "handoffSha": "sha256:a84a82c775db9e2b64069c3ddd55d7bc4ce08b9f0061b01b4af6c4b9dd211037",
-        "handoffAgeSec": 6,
         "conformanceBefore": null,
         "commitsInSession": null
       }

@@ -1620,7 +1620,7 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ d31e5634b`, never as a constant (the two shas this
+snapshot stamped `@ bdb212db2`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,56 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `d31e5634b`** (2026-09-05, rotation 584 — when a call knows
+**Latest @ `bdb212db2`** (2026-09-05, rotation 585 — what a class's own
+name means inside its own body, and whether the binary under test is
+the one this tree builds. §15.7.14 step 3 binds a class's name inside
+the class scope for both halves of the grammar; tr modelled only the
+declaration half. A write to it from a method body was refused at
+COMPILE time, taking the whole program with it, where the answer is a
+runtime TypeError — the same one, with the same message, that a
+function expression writing its own self-name already got, so the
+existing readonly-assign lane took it unchanged. A named class
+EXPRESSION could not refer to itself at all: the parser folds its name
+into a synth binding and parks the source spelling in a display
+channel, leaving the body's `C` matching nothing. Restoring it is a
+question of WHERE — done in the class-reference rewrite it is too late
+twice over, because `desugar_classes` has by then hoisted the bodies
+out of the class AND, with a same-named class declared outside, bound
+the body's `C` to that outer one. Renaming before `desugar_classes`,
+to the synth name rather than to a sentinel, makes every later pass
+treat it as a declaration's own name. Underneath, `current_class` was
+split out of a mangled method name at its first `__`, and a synth
+class name starts with `__`, so every class-expression member body
+believed it was inside a class named "". Separately: the standing
+explanation for how a baked runtime staticlib goes stale —
+"cargo does not track `include_bytes!`" — is measured wrong here; the
+dep-info lists every archive and one `--workspace` build propagates.
+The real mechanism is cargo's uplift, `target/<profile>/lib*.a` being
+a copy refreshed only for REQUESTED packages, while a `-p` build
+relinks `tr` anyway — a fresh mtime over stale bytes, which is what
+rotation 584 hit. `hardev/autorun/staticlib_freshness.sh` is the gate
+for it.) Gate predicate: **135** clusters of ≥ 4 holding **1014**
+cases, register 2 · 215, residue 449 · 609 (33.1%), core **1838**.
+Against rotation 584: clusters **135 (=)**, cases 1015 → **1014
+(−1)**, core 1839 → **1838 (−1)**.
+
+Sweep passTotal 36674 → **36678 (+4)**, pass 31077 → **31081 (+4)**,
+passNoOracle **1140 (=)**, passNegative **4457 (=)**, bug 11309 →
+**11306 (−3)**, incompatible 5191 → **5190 (−1)**, trAccepted 47983 →
+**47984 (+1)**; conservation exact (+1 = +4 − 3). Verdict diff 6
+changed, **0 backward**: 4 forward, every one of them in the class
+name-binding family this rotation went after —
+`expressions/class/scope-name-lex-close`,
+`scope-name-lex-open-no-heritage`, `statements/class/name-binding/const`
+and `name-binding/expression` — plus 2 sideways inside `incompatible`
+(`staging/sm/class/fields-instance-class-name-binding{,-eval}`, now
+answering an `assignment to undeclared` reject against the
+deconflicted class name where they used to answer "not yet supported";
+the direct shape of what they test passes, so what is left there is
+that renamed-class path). Coverage
+curve: top-100 **56.1%**, top-200 **74.3%**, top-400 **89.1%**.
+
+**Prior @ `d31e5634b`** (2026-09-05, rotation 584 — when a call knows
 how many arguments it has, and what a rest object is allowed to
 subtract. `desugar_classes` pass 2 rewrites `x.m(a)` into
 `__cm_<C>__m(x, a)` by method NAME, before the count is known; a
