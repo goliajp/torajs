@@ -44,8 +44,9 @@ use super::super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use super::completion;
 use super::param_default::{declares_var_arguments, mark_defaults};
 use super::source::{
-    CallForm, DeleteSites, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+    CallForm, eval_strictness, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
+use super::walk;
 use std::collections::HashMap;
 
 /// Rewrite every true-arrow whose default-parameter position holds a
@@ -112,6 +113,7 @@ pub(super) fn rewrite_arrow_param_default_arguments_evals(ast: &mut Ast) {
 /// match; slots outside the owned map are never parsed (see the
 /// caller's ownership-first note).
 fn collect_declaring_evals(ast: &mut Ast, owned: &[bool]) -> HashMap<usize, (String, Vec<Stmt>)> {
+    let caller_strict = walk::caller_strict_exprs(ast);
     let mut found = HashMap::new();
     for i in 0..owned.len() {
         if !owned[i] {
@@ -119,7 +121,8 @@ fn collect_declaring_evals(ast: &mut Ast, owned: &[bool]) -> HashMap<usize, (Str
         }
         let eid = ExprId(i as u32);
         if let Some((src, CallForm::Direct)) = literal_eval_call(eid, ast) {
-            if let Ok(stmts) = parse_eval_source(&src, ast, false, DeleteSites::Strict) {
+            let strict = eval_strictness(CallForm::Direct, i, &caller_strict);
+            if let Ok(stmts) = parse_eval_source(&src, ast, false, strict) {
                 if declares_var_arguments(&stmts) {
                     found.insert(i, (src, stmts));
                 }

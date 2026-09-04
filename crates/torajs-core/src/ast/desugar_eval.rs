@@ -144,7 +144,7 @@ use super::{Ast, Expr, Stmt, free_vars};
 use collapse::{completes_empty_effect_free, decl_names, is_effect_free_decl, name_mentioned};
 use scope::{binds_eval, seal_var_scope};
 use source::{
-    CallForm, DeleteSites, first_line, has_use_strict_prologue, literal_eval_call,
+    CallForm, eval_strictness, first_line, has_use_strict_prologue, literal_eval_call,
     nonstring_literal_eval_arg, parse_eval_source, syntax_error_throw,
 };
 
@@ -173,8 +173,10 @@ pub fn desugar_eval(ast: &mut Ast) {
         // longer an eval call, so the statement walks below see only
         // the sources that need inlining.
         rewrite_value_position_evals(ast);
+        // Before the take: the map is built by walking `ast.stmts`.
+        let caller_strict = walk::caller_strict_exprs(ast);
         let mut stmts = std::mem::take(&mut ast.stmts);
-        rewrite_list(&mut stmts, ast, false, false);
+        rewrite_list(&mut stmts, ast, false, false, &caller_strict);
         ast.stmts = stmts;
         rewrite_arrow_bodies(ast);
         completion::rewrite_completion_value_evals(ast);
@@ -218,6 +220,7 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
     // position of the call they replace.
     let fn_owned = walk::fn_owned_exprs(ast);
     let class_owned = walk::class_owned_exprs(ast);
+    let caller_strict = walk::caller_strict_exprs(ast);
     let nested_lexical = walk::nested_lexical_names(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
@@ -238,7 +241,8 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
         // carriers downstream raise the step-12 SyntaxError.
         let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
         let arena_before = ast.exprs.len();
-        if let Ok(parsed) = parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
+        let strict = eval_strictness(form, i, &caller_strict);
+        if let Ok(parsed) = parse_eval_source(&src, ast, super_ok, strict) {
             if let [Stmt::Expr(inner)] = parsed[..] {
                 let at_toplevel = !fn_owned.get(i).copied().unwrap_or(false);
                 let closed = form == CallForm::Direct || {
@@ -327,6 +331,7 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
     // the bounds check — conservative (their eval supers decline to a
     // runtime SyntaxError rather than resolving).
     let class_owned = walk::class_owned_exprs(ast);
+    let caller_strict = walk::caller_strict_exprs(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
         let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) else {
@@ -335,7 +340,7 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
         };
         let mut taken = std::mem::take(body);
         let home = class_owned.get(i).copied().unwrap_or(false);
-        rewrite_list(&mut taken, ast, true, home);
+        rewrite_list(&mut taken, ast, true, home, &caller_strict);
         if let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) {
             *body = taken;
         }
@@ -343,13 +348,13 @@ fn rewrite_arrow_bodies(ast: &mut Ast) {
     }
 }
 
-fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, in_fn: bool, home: bool) {
+fn rewrite_list(stmts: &mut Vec<Stmt>, ast: &mut Ast, in_fn: bool, home: bool, strict: &[bool]) {
     for s in stmts.iter_mut() {
-        rewrite_stmt(s, ast, in_fn, home);
+        rewrite_stmt(s, ast, in_fn, home, strict);
     }
 }
 
-fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
+fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[bool]) {
     // The rewrite itself: a statement that is nothing but a call to
     // `eval` with one literal argument becomes the block that literal
     // parses to. A direct eval's block is sealed (strict — nothing
@@ -361,21 +366,27 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
     if let Stmt::Expr(eid) = s {
         if let Some((src, form)) = literal_eval_call(*eid, ast) {
             let inline_here = form == CallForm::Direct || !in_fn;
-            match parse_eval_source(
-                &src,
-                ast,
-                form == CallForm::Direct && home,
-                DeleteSites::Strict,
-            ) {
+            let sw = eval_strictness(form, eid.0 as usize, strict);
+            match parse_eval_source(&src, ast, form == CallForm::Direct && home, sw) {
                 Ok(mut inlined) if inline_here => {
                     // An eval inside the inlined text is an eval like
                     // any other; the nesting is finite because each
                     // level is a literal written in the level above.
-                    rewrite_list(&mut inlined, ast, in_fn, home);
+                    rewrite_list(&mut inlined, ast, in_fn, home, strict);
                     // A "use strict" prologue makes even an indirect
                     // eval's code strict — its `var`s die with the
                     // eval (§19.2.1.1 steps 3-5), so it seals exactly
                     // like a direct one.
+                    //
+                    // The `Direct` half of this condition is the old
+                    // "a direct eval is always strict" premise, which
+                    // is what `sw` above now answers properly. Steps
+                    // 3-5 seal on STRICTNESS, not on call form, so a
+                    // sloppy direct eval's `var` should reach the
+                    // caller's VariableEnvironment and today does not.
+                    // That is a scope change with its own blast
+                    // radius; this knife settles what the text may
+                    // SAY, and the sealing stays as it was.
                     if form == CallForm::Direct || has_use_strict_prologue(&inlined, ast) {
                         seal_var_scope(&mut inlined);
                     }
@@ -412,14 +423,8 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
             let (target, value) = (*target, *value);
             if matches!(ast.exprs.get(target.0 as usize), Some(Expr::Ident(_))) {
                 if let Some((src, form)) = literal_eval_call(value, ast) {
-                    if parse_eval_source(
-                        &src,
-                        ast,
-                        form == CallForm::Direct && home,
-                        DeleteSites::Strict,
-                    )
-                    .is_err()
-                    {
+                    let sw = eval_strictness(form, value.0 as usize, strict);
+                    if parse_eval_source(&src, ast, form == CallForm::Direct && home, sw).is_err() {
                         // Same orphan story as the inline above.
                         ast.exprs[value.0 as usize] = Expr::Ident("undefined".to_string());
                         *s = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
@@ -430,49 +435,49 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool) {
         }
     }
     match s {
-        Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast, in_fn, home),
+        Stmt::Block(b) | Stmt::Multi(b) => rewrite_list(b, ast, in_fn, home, strict),
         // An ordinary function body cuts the home chain (§19.2.1.1
         // step 6 — its this-environment has no [[HomeObject]]).
-        Stmt::FnDecl { body, .. } => rewrite_list(body, ast, true, false),
+        Stmt::FnDecl { body, .. } => rewrite_list(body, ast, true, false, strict),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            rewrite_stmt(then_branch, ast, in_fn, home);
+            rewrite_stmt(then_branch, ast, in_fn, home, strict);
             if let Some(e) = else_branch.as_deref_mut() {
-                rewrite_stmt(e, ast, in_fn, home);
+                rewrite_stmt(e, ast, in_fn, home, strict);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            rewrite_stmt(body, ast, in_fn, home)
+            rewrite_stmt(body, ast, in_fn, home, strict)
         }
-        Stmt::Labeled { body, .. } => rewrite_stmt(body, ast, in_fn, home),
+        Stmt::Labeled { body, .. } => rewrite_stmt(body, ast, in_fn, home, strict),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init.as_deref_mut() {
-                rewrite_stmt(i, ast, in_fn, home);
+                rewrite_stmt(i, ast, in_fn, home, strict);
             }
-            rewrite_stmt(body, ast, in_fn, home);
+            rewrite_stmt(body, ast, in_fn, home, strict);
         }
-        Stmt::ForOf { body, .. } => rewrite_stmt(body, ast, in_fn, home),
+        Stmt::ForOf { body, .. } => rewrite_stmt(body, ast, in_fn, home, strict),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            rewrite_list(body, ast, in_fn, home);
-            rewrite_list(catch_body, ast, in_fn, home);
+            rewrite_list(body, ast, in_fn, home, strict);
+            rewrite_list(catch_body, ast, in_fn, home, strict);
             if let Some(f) = finally_body.as_mut() {
-                rewrite_list(f, ast, in_fn, home);
+                rewrite_list(f, ast, in_fn, home, strict);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases.iter_mut() {
-                rewrite_list(&mut c.body, ast, in_fn, home);
+                rewrite_list(&mut c.body, ast, in_fn, home, strict);
             }
             if let Some(d) = default.as_mut() {
-                rewrite_list(d, ast, in_fn, home);
+                rewrite_list(d, ast, in_fn, home, strict);
             }
         }
         _ => {}

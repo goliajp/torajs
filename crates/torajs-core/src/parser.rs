@@ -53,7 +53,7 @@ mod dstr_assign;
 mod dstr_assign_rest;
 mod entry;
 mod void_expr;
-pub use entry::{parse, parse_into, parse_into_super_prop};
+pub use entry::{parse, parse_into, parse_into_eval};
 mod expr_entry;
 mod expr_prec;
 mod expr_prec_short_circuit;
@@ -326,7 +326,7 @@ struct Parser<'a> {
     /// body (declaration and expression — their own `this` binding cuts
     /// the home chain). Arrows inherit, same as `super_call_allowed`.
     /// Eval text parses with the flag supplied by the eval desugar
-    /// (`parse_into_super_prop`): PerformEval judges super from the
+    /// (`parse_into_eval`): PerformEval judges super from the
     /// call site's environment, and an illegal one must surface as a
     /// RUNTIME SyntaxError at the eval — which the desugar builds out
     /// of exactly this parse failure.

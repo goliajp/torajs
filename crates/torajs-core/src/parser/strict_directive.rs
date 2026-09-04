@@ -249,6 +249,7 @@ impl Parser<'_> {
             Some(v) => {
                 if v == "use strict" {
                     self.in_strict_fn = true;
+                    self.ast.program_strict_prologue = true;
                     self.record_strict_prologue_body();
                 }
             }

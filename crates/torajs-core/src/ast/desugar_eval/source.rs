@@ -11,7 +11,9 @@ use crate::{lexer, parser};
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum CallForm {
     /// `eval("…")` — the callee is the bare identifier. Evaluates in
-    /// the caller's scope; strict (tr's mode), so nothing leaks.
+    /// the caller's scope, and inherits its strictness (§19.2.1.1
+    /// step 8) — which is what
+    /// [`super::walk::caller_strict_exprs`] answers per call site.
     Direct,
     /// `(0, eval)("…")` — the callee is a comma expression whose value
     /// is `eval`. Evaluates in the GLOBAL scope: it cannot see the
@@ -138,54 +140,93 @@ pub(super) fn has_use_strict_prologue(parsed: &[Stmt], ast: &Ast) -> bool {
 /// rejected before any of it could run (`(0, eval)('executed = true;
 /// super.x;')` must leave `executed` untouched).
 ///
-/// `delete_sites` resolves the §13.5.1 goal question for any `delete
-/// <bare name>` in the parsed text. The parser no longer judges the
-/// form (it emits a plain `Delete{Ident}` for the post-parse goal
-/// triage, rotation 372), and the triage refuses the whole PROGRAM at
-/// compile time on the strict goal — the wrong answer for text that
-/// only exists inside an eval. So the sites must be settled here,
-/// before the triage can meet them:
+/// Is the text about to be parsed strict mode code? §19.2.1.1 step 2
+/// asks it once and three parts of this function answer to it, so it
+/// arrives as one verdict rather than one flag per consumer:
 ///
-/// - `Strict` (eval code in a strict program, a strict-prologue
-///   `Function` body): the §13.5.1.1 early error — the parse fails,
-///   which the callers turn into the step-12 runtime throw. The
-///   orphaned sites are neutralized first: a failed parse leaves its
-///   expressions in the arena, and the triage walks the WHOLE arena.
-/// - `SloppyFold` (a `Function(...)` body without a strict prologue,
-///   §20.2.1.1 parses it non-strict): each site folds to the
-///   §13.5.1.2 constant, exactly what the triage does for a sloppy
-///   program.
+/// - the parse itself runs with `in_strict_fn` seeded from it, which
+///   puts the text under every judge the parser already owns —
+///   `yield` / §12.7.2 reserved words as identifiers, the Annex B
+///   function-declaration positions (§B.3.2 / §B.3.4), duplicate
+///   parameters (§15.1.2), `with` (§14.11.1);
+/// - the Annex B legacy-octal spellings (§B.1.1 / §B.1.2), which the
+///   lexer records rather than refuses, are read back below;
+/// - `delete <bare name>` and the §15.2.1 assignment-target sites are
+///   the §13.5.1.1 / §13.15.1 early errors under `Strict` and fold to
+///   their §13.5.1.2 constants under `Sloppy`.
 ///
-/// Under the sloppy script goal (`.cts`) eval code is sloppy too, so
-/// `Strict` demotes to the fold.
+/// Who answers it: a DIRECT eval inherits the calling code's
+/// strictness ([`super::walk::caller_strict_exprs`]); an INDIRECT one
+/// never does (step 3 — its code is global sloppy code whatever the
+/// caller was); a `Function(...)` body is strict only on its own
+/// prologue (§20.2.1.1). Text that carries its OWN `"use strict"` is
+/// strict either way, and the parser sees that prologue for itself.
+///
+/// A refusal neutralizes the freshly parsed segment before returning:
+/// a failed parse leaves its expressions in the arena, and the goal
+/// triages walk the WHOLE arena, orphans included.
 #[derive(Clone, Copy, PartialEq)]
-pub(super) enum DeleteSites {
+pub(super) enum EvalStrictness {
     Strict,
-    SloppyFold,
+    Sloppy,
+}
+
+/// The verdict for one call site, from its form and its arena slot:
+/// a DIRECT eval inherits the calling code's strictness, an INDIRECT
+/// one never does (§19.2.1.1 step 3 — its code is global sloppy code
+/// whatever the caller was). `caller_strict` is
+/// [`super::walk::caller_strict_exprs`]; a slot past its end is an
+/// appended one and reads sloppy, per that function's doc.
+pub(super) fn eval_strictness(
+    form: CallForm,
+    slot: usize,
+    caller_strict: &[bool],
+) -> EvalStrictness {
+    if form == CallForm::Direct && caller_strict.get(slot).copied().unwrap_or(false) {
+        EvalStrictness::Strict
+    } else {
+        EvalStrictness::Sloppy
+    }
 }
 
 /// Why a parse attempt refused the text. `NoParse` is a lex / parse /
 /// Script-goal failure — a real syntax error OR a shape tr's subset
 /// does not cover, indistinguishable here. `StrictEarlyError` is a
 /// strict-code early error resolved post-parse — `delete <bare name>`
-/// (§13.5.1.1) or an assignment / update targeting `eval` /
-/// `arguments` (§13.15.1, §13.4 via AssignmentTargetType): a DEFINITE
-/// syntax error, so callers that must separate "creation-time
-/// SyntaxError" from "honest reject" (the `Function(...)` desugar)
-/// can throw on it without probing.
+/// (§13.5.1.1), an assignment / update targeting `eval` / `arguments`
+/// (§13.15.1, §13.4 via AssignmentTargetType), or an Annex B
+/// legacy-octal spelling (§B.1.1 / §B.1.2): a DEFINITE syntax error,
+/// so callers that must separate "creation-time SyntaxError" from
+/// "honest reject" (the `Function(...)` desugar) can throw on it
+/// without probing.
 pub(super) enum EvalRefusal {
     NoParse,
     StrictEarlyError,
+}
+
+/// Refuse the WHOLE freshly parsed segment, not just the offending
+/// site. The dropped statements leave their expressions orphaned in
+/// the arena, and arena-walking passes pick orphans up — the goal
+/// triage meets a `Delete{Ident}`, the closure collector meets a
+/// complete `ArrowFn` (a fn expression out of the refused text) and
+/// lowers it as if the user had written it.
+fn neutralize(ast: &mut Ast, exprs_before: usize, why: EvalRefusal) -> EvalRefusal {
+    for e in ast.exprs[exprs_before..].iter_mut() {
+        *e = Expr::Bool(false);
+    }
+    why
 }
 
 pub(super) fn parse_eval_source(
     src: &str,
     ast: &mut Ast,
     super_ok: bool,
-    delete_sites: DeleteSites,
+    strict: EvalStrictness,
 ) -> Result<Vec<Stmt>, EvalRefusal> {
     let exprs_before = ast.exprs.len();
-    let stmts = parse_once(src, ast, super_ok)
+    let octal_before = ast.legacy_octal_positions.len();
+    let is_strict = strict == EvalStrictness::Strict;
+    let stmts = parse_once(src, ast, super_ok, is_strict)
         .and_then(reject_module_decls)
         .or_else(|| {
             // §12.9.1 rule 2 — automatic semicolon insertion at end of
@@ -198,9 +239,21 @@ pub(super) fn parse_eval_source(
             // — it cannot make an invalid source valid, because a
             // semicolon only ever terminates a final statement.
             let with_semi = format!("{src};");
-            parse_once(&with_semi, ast, super_ok).and_then(reject_module_decls)
+            parse_once(&with_semi, ast, super_ok, is_strict).and_then(reject_module_decls)
         })
         .ok_or(EvalRefusal::NoParse)?;
+    // Annex B §B.1.1 / §B.1.2 — the one family of this set the lexer
+    // RECORDS instead of refusing, because a sloppy program evaluates
+    // every one of them and only the goal (or a prologue span) says
+    // otherwise. Its sites therefore have to be read back here rather
+    // than falling out of the parse. The table is truncated on every
+    // path, strict or not: the offsets index the eval text, so leaving
+    // them would make the NEXT eval's read see this one's sites.
+    let octal_here = ast.legacy_octal_positions.len() > octal_before;
+    ast.legacy_octal_positions.truncate(octal_before);
+    if is_strict && octal_here {
+        return Err(neutralize(ast, exprs_before, EvalRefusal::StrictEarlyError));
+    }
     // §13.5.1.1 sites — `delete <bare name>` — carry their name for
     // the sloppy fold and must be neutralized on refusal (the goal
     // triage walks the WHOLE arena, orphans included).
@@ -254,7 +307,7 @@ pub(super) fn parse_eval_source(
     // under `SloppyFold` only those inside a nested 'use strict'
     // function (or class code) — §11.2.1 arms the prologue's body
     // even when the outermost text is sloppy.
-    let strict_hit = if delete_sites == DeleteSites::Strict {
+    let strict_hit = if is_strict {
         true
     } else {
         let strict_owned = super::walk::strict_owned_exprs(ast, &stmts);
@@ -262,17 +315,7 @@ pub(super) fn parse_eval_source(
         del_sites.iter().any(|(i, _)| in_strict(i)) || ea_sites.iter().any(in_strict)
     };
     if strict_hit {
-        // The whole text is refused, so the WHOLE freshly parsed
-        // segment is neutralized, not just the offending sites: the
-        // dropped statements leave their expressions orphaned in the
-        // arena, and arena-walking passes pick orphans up — the goal
-        // triage meets a `Delete{Ident}`, the closure collector meets
-        // a complete `ArrowFn` (a fn expression out of the refused
-        // text) and lowers it as if the user had written it.
-        for e in ast.exprs[exprs_before..].iter_mut() {
-            *e = Expr::Bool(false);
-        }
-        return Err(EvalRefusal::StrictEarlyError);
+        return Err(neutralize(ast, exprs_before, EvalRefusal::StrictEarlyError));
     }
     // A sloppy `Function(...)` body that ALSO contains a `with`
     // somewhere in the program cannot take the fold — a with-body
@@ -280,10 +323,7 @@ pub(super) fn parse_eval_source(
     // program-wide, so which body owns the `with` is not knowable
     // here. Honest reject, segment neutralized (orphans, see above).
     if !del_sites.is_empty() && ast.has_with_stmt {
-        for e in ast.exprs[exprs_before..].iter_mut() {
-            *e = Expr::Bool(false);
-        }
-        return Err(EvalRefusal::NoParse);
+        return Err(neutralize(ast, exprs_before, EvalRefusal::NoParse));
     }
     let mut declared = std::collections::HashSet::new();
     crate::ast::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
@@ -388,12 +428,12 @@ fn has_orphan_jump(stmts: &[Stmt], in_loop: bool, in_switch: bool) -> bool {
 /// parse leaves whatever it managed to build appended to `ast.stmts` —
 /// statements belonging to nobody, which would otherwise be spliced
 /// into the program as if the user had written them.
-fn parse_once(src: &str, ast: &mut Ast, super_ok: bool) -> Option<Vec<Stmt>> {
+fn parse_once(src: &str, ast: &mut Ast, super_ok: bool, strict: bool) -> Option<Vec<Stmt>> {
     let before = ast.stmts.len();
     // Script goal — eval / dynamic-Function text is script code, so
     // the annexB §B.1.3 HTML-like comments are comments here.
     let tokens = lexer::tokenize_script(src).ok()?;
-    match parser::parse_into_super_prop(src, &tokens, ast, super_ok) {
+    match parser::parse_into_eval(src, &tokens, ast, super_ok, strict) {
         Ok(offset) => Some(ast.stmts.drain(offset..).collect()),
         Err(_) => {
             ast.stmts.truncate(before);

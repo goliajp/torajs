@@ -173,6 +173,32 @@ pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
     mark_stmts(ast, body, true, Mode::FnOwned, owned);
 }
 
+/// One flag per arena slot: is a DIRECT eval whose call sits in this
+/// slot looking at strict mode code? §19.2.1.1 step 8 gives the eval
+/// code the CALLING code's strictness, and §11.2.2 names the three
+/// sources: the goal (a module is strict code), a `"use strict"`
+/// prologue on the program or on an enclosing function, and class
+/// code. The first two are program-wide and settle the whole map on
+/// their own — the program prologue via `Ast::program_strict_prologue`,
+/// which is the parser's answer rather than a read of `stmts[0]` (that
+/// vector has other files in it by now); the rest is exactly what
+/// [`Mode::StrictOwned`] walks.
+///
+/// Slots appended after this ran — an eval source's own expressions,
+/// including a nested eval inside one — read `false` through the
+/// bounds check in the caller. That under-reports a nested eval inside
+/// strict text, which keeps today's behaviour there rather than
+/// inventing a stricter one; the direction is deliberate, since a
+/// wrongly strict verdict refuses a program that runs.
+pub(super) fn caller_strict_exprs(ast: &Ast) -> Vec<bool> {
+    let goal_strict = !ast.sloppy_script_goal || ast.program_strict_prologue;
+    let mut owned = vec![goal_strict; ast.exprs.len()];
+    if !goal_strict {
+        mark_stmts(ast, &ast.stmts, false, Mode::StrictOwned, &mut owned);
+    }
+    owned
+}
+
 /// One flag per arena slot: is this expression inside STRICT code,
 /// for a text parsed at a sloppy outermost level? Sized to the whole
 /// arena so a freshly parsed segment indexes directly; only the given

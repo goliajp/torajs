@@ -38,14 +38,16 @@
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 use super::completion;
 use super::source::{
-    CallForm, DeleteSites, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+    CallForm, eval_strictness, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
+use super::walk;
 
 /// Rewrite every direct literal eval in non-arrow default-parameter
 /// position whose source var-declares `arguments` into a SyntaxError
 /// throw IIFE (the statement-in-value-position carrier).
 pub(super) fn rewrite_param_default_arguments_evals(ast: &mut Ast) {
     let owned = param_default_owned_exprs(ast);
+    let caller_strict = walk::caller_strict_exprs(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
         if !owned.get(i).copied().unwrap_or(false) {
@@ -59,7 +61,8 @@ pub(super) fn rewrite_param_default_arguments_evals(ast: &mut Ast) {
         };
         // A source that fails to parse is not this pass's problem —
         // the completion pass already turns it into the same throw.
-        let Ok(body) = parse_eval_source(&src, ast, false, DeleteSites::Strict) else {
+        let strict = eval_strictness(CallForm::Direct, i, &caller_strict);
+        let Ok(body) = parse_eval_source(&src, ast, false, strict) else {
             i += 1;
             continue;
         };

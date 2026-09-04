@@ -1,0 +1,13 @@
+s-yield true
+s-reserved true
+s-octal true
+s-annexb true
+s-dup true
+s-with true
+plain 42
+p-yield ran
+p-reserved ran
+p-octal ran
+p-annexb ran
+p-dup ran
+p-with ran

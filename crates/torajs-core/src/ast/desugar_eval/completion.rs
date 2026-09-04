@@ -21,7 +21,7 @@ use super::super::{Ast, Expr, ExprId, Stmt, free_vars};
 use super::completion_stmt;
 use super::rewrite_list;
 use super::source::{
-    CallForm, DeleteSites, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
+    CallForm, eval_strictness, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
 };
 use super::walk;
 
@@ -48,6 +48,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
     // multi-statement shape.
     let fn_owned = walk::fn_owned_exprs(ast);
     let class_owned = walk::class_owned_exprs(ast);
+    let caller_strict = walk::caller_strict_exprs(ast);
     let nested_lexical = walk::nested_lexical_names(ast);
     let mut i = 0;
     while i < ast.exprs.len() {
@@ -62,7 +63,8 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
         // into the None arm below: the whole source becomes a
         // SyntaxError throw and none of it runs.
         let super_ok = form == CallForm::Direct && class_owned.get(i).copied().unwrap_or(false);
-        match parse_eval_source(&src, ast, super_ok, DeleteSites::Strict) {
+        let strict = eval_strictness(form, i, &caller_strict);
+        match parse_eval_source(&src, ast, super_ok, strict) {
             Err(_) => {
                 let throw = syntax_error_throw(format!("eval: {}", first_line(&src)), ast);
                 wrap_iife(i, vec![throw], ast);
@@ -79,7 +81,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 // A nested statement-position eval inside the source is
                 // an eval like any other; the statement walk no longer
                 // runs, so give the new body its own pass.
-                rewrite_list(&mut body, ast, true, super_ok);
+                rewrite_list(&mut body, ast, true, super_ok, &caller_strict);
                 body.push(Stmt::Return(Some(tail)));
                 wrap_iife(i, body, ast);
             }
@@ -91,7 +93,7 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                     && (form == CallForm::Direct
                         || scope_transparent(&body, ast, i, &fn_owned, &nested_lexical)) =>
             {
-                rewrite_list(&mut body, ast, true, super_ok);
+                rewrite_list(&mut body, ast, true, super_ok, &caller_strict);
                 let body = completion_stmt::rewrite_trailing_stmt_completion(body, ast);
                 wrap_iife(i, body, ast);
             }

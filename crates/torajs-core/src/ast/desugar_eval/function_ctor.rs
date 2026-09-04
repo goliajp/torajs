@@ -34,7 +34,7 @@
 use super::super::{Ast, Expr, ExprId, Stmt};
 use super::scope::binds_name;
 use super::source::{
-    DeleteSites, EvalRefusal, const_string, first_line, parse_eval_source, syntax_error_throw,
+    EvalRefusal, EvalStrictness, const_string, first_line, parse_eval_source, syntax_error_throw,
 };
 use crate::lexer::{self, Token};
 
@@ -111,12 +111,14 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
         // FunctionBody, where `super` is an early SyntaxError in every
         // call context; the parse failure lands in the throw arm below,
         // which is exactly the creation-time SyntaxError the spec wants.
-        let delete_sites = if strict_body {
-            DeleteSites::Strict
+        // §20.2.1.1 builds the body in the GLOBAL scope, so no
+        // caller's strictness reaches it — only its own prologue.
+        let strict = if strict_body {
+            EvalStrictness::Strict
         } else {
-            DeleteSites::SloppyFold
+            EvalStrictness::Sloppy
         };
-        match parse_eval_source(&full, ast, false, delete_sites) {
+        match parse_eval_source(&full, ast, false, strict) {
             Ok(mut parsed) => {
                 let is_the_decl = matches!(
                     parsed.as_slice(),

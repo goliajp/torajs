@@ -1,5 +1,5 @@
 //! Parse entry points — `parse` / `parse_into` /
-//! `parse_into_super_prop`, split from `parser.rs` when the r438
+//! `parse_into_eval`, split from `parser.rs` when the r438
 //! span-snapshot rework left it 2 lines under the 500 limit (the
 //! r438 watch\'s predicted cut: the parse_into double-entry family).
 //! The `Parser` struct and its grammar impls stay with the parent;
@@ -32,20 +32,32 @@ pub fn parse(source: &str, tokens: &[Spanned]) -> Result<Ast, String> {
 /// names already minted while parsing the main file (or any earlier
 /// imported file).
 pub fn parse_into(source: &str, tokens: &[Spanned], target: &mut Ast) -> Result<usize, String> {
-    parse_into_super_prop(source, tokens, target, false)
+    parse_into_eval(source, tokens, target, false, false)
 }
 
-/// Eval-source variant of [`parse_into`]. §19.2.1.1 PerformEval decides
-/// SuperProperty legality from the CALL SITE's environment (steps 4-6:
-/// direct eval within a method context may contain `super.x`), which a
-/// fresh parse of the eval text cannot see — the eval desugar passes
-/// the verdict in as `super_prop_ok`. Everything else parses with the
-/// same default position flags as a whole program.
-pub fn parse_into_super_prop(
+/// Eval-source variant of [`parse_into`], carrying the two facts about
+/// the text that only its CALL SITE knows.
+///
+/// §19.2.1.1 PerformEval decides SuperProperty legality from the call
+/// site's environment (steps 4-6: direct eval within a method context
+/// may contain `super.x`), which a fresh parse of the eval text cannot
+/// see — the eval desugar passes the verdict in as `super_prop_ok`.
+///
+/// `strict` is step 2's other half: a DIRECT eval's code is strict mode
+/// code when the CALLING code is (§19.2.1.1 step 8 / §11.2.2), and the
+/// call site is the only place that knows. Seeding `in_strict_fn` with
+/// it is what puts the eval text under the judges the parser already
+/// owns — `yield` and the §12.7.2 reserved words as identifiers, the
+/// Annex B function-declaration positions, duplicate parameters, `with`
+/// — rather than growing a second spelling of each for eval. (A whole
+/// program cannot use this lane: its goal is stamped only after the
+/// parse, which is why those judges have goal-half gates at all.)
+pub fn parse_into_eval(
     source: &str,
     tokens: &[Spanned],
     target: &mut Ast,
     super_prop_ok: bool,
+    strict: bool,
 ) -> Result<usize, String> {
     // Which `__`-prefixed names did the PROGRAM spell? Recorded from
     // the token stream, before the parser starts minting Ident nodes
@@ -74,6 +86,12 @@ pub fn parse_into_super_prop(
     // keeps its spans.
     let nested_spans_snapshot =
         (stmt_offset > 0 || id_offset > 0).then(|| target.class_decl_spans.clone());
+    // Same nested-parse story for the program-level `"use strict"`
+    // verdict: an imported module is its own program and an eval text
+    // is its own Script, so neither may answer the question "did the
+    // ENTRY say it" (the field's doc). Snapshot and restore.
+    let nested_prologue =
+        (stmt_offset > 0 || id_offset > 0).then_some(target.program_strict_prologue);
     let taken = std::mem::take(target);
     let mut p = Parser {
         source,
@@ -94,7 +112,7 @@ pub fn parse_into_super_prop(
         void_folds: std::collections::HashSet::new(),
         in_async_gen: false,
         in_generator: false,
-        in_strict_fn: false,
+        in_strict_fn: strict,
         pending_async_fn_expr: false,
         static_this_class: None,
         super_call_allowed: false,
@@ -124,6 +142,9 @@ pub fn parse_into_super_prop(
     *target = p.ast;
     if let Some(snap) = nested_spans_snapshot {
         target.class_decl_spans = snap;
+    }
+    if let Some(was) = nested_prologue {
+        target.program_strict_prologue = was;
     }
     result?;
     Ok(stmt_offset)

@@ -661,6 +661,19 @@ pub struct Ast {
     /// strict goal every parameter list in the file qualifies.
     /// `ast::triage_duplicate_params` raises the first one.
     pub dup_param_positions: Vec<(u32, String)>,
+    /// Did THIS file's own directive prologue say `"use strict"`
+    /// (§11.2.2, program level)? A bool rather than a read of
+    /// `stmts[0]`, because by the time anything downstream asks,
+    /// `modules::resolve_imports` has merged other files into that
+    /// vector and the leading run of directives is no longer
+    /// recoverable from it — the same reason
+    /// `Parser::arm_strict_directive_program` takes the prologue state
+    /// as a parameter instead of scanning. Recorded there and restored
+    /// across nested parses by `parser::parse_into_eval`, so an
+    /// imported module's prologue (or an eval text's) never answers
+    /// for the entry. Read by `desugar_eval::walk::caller_strict_exprs`
+    /// as one of §11.2.2's three sources.
+    pub program_strict_prologue: bool,
     /// Byte ranges an explicit `"use strict"` directive prologue made
     /// strict code (§11.2.2) — a function body, or the whole source at
     /// the program level. Recorded by `parser::strict_directive`, and
