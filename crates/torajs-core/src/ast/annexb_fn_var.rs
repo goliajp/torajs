@@ -68,6 +68,12 @@ pub(super) enum AnnexB {
     /// references belong to that owner, so they must not be redirected
     /// to the lifted name either.
     Skip,
+    /// The code is strict, so §B.3.3 does not exist for it and the
+    /// declaration is what §14.2.10 says it is: a binding of the BLOCK.
+    /// Nothing outside the block binds the name, so outer references
+    /// must not be redirected to the lifted one — the same treatment
+    /// [`AnnexB::Skip`] gives them, for the other reason.
+    Strict,
     /// It does not apply, and nothing else claims the name: strict
     /// code, or a declaration this pass itself renames away so that no
     /// binding is left to write. The lift answers as it did before
@@ -185,8 +191,18 @@ impl LiftCtx {
 
     /// Does the declaration at `span` get the §B.3.3 var binding?
     pub(super) fn annexb(&self, name: &str, span: crate::lexer::Span, mode: LiftMode) -> AnnexB {
-        if !mode.nested || self.shadowed.contains(name) || !self.goal.applies(span) {
+        // Two things used to answer `Legacy` together and mean
+        // opposite things. A declaration that is not block-nested is
+        // an ordinary declaration of this body and keeps the name;
+        // one that is block-nested in STRICT code binds its block and
+        // nothing else. Reading the second as the first is what let
+        // `{ function s() {} } typeof s` answer "function" where the
+        // spec — and bun — say "undefined".
+        if !mode.nested || self.shadowed.contains(name) {
             return AnnexB::Legacy;
+        }
+        if !self.goal.applies(span) {
+            return AnnexB::Strict;
         }
         if self.params.contains(name) || self.lex.iter().any(|n| n == name) {
             return AnnexB::Skip;
@@ -282,6 +298,26 @@ impl LiftCtx {
         let value = self.mint(Expr::Ident(mangled.to_string()));
         let assign = self.mint(Expr::Assign { target, value });
         Stmt::Expr(assign)
+    }
+
+    /// `let <name>: any = <mangled>` — the binding is the BLOCK's, for
+    /// strict code where §B.3.3 adds nothing. It goes to the head of
+    /// the block's own statement list, because a function declaration
+    /// is hoisted WITHIN its block: a call written above it works, and
+    /// so does mutual recursion between two of them.
+    ///
+    /// `let`, not `var`: a `var` would be hoisted out to the enclosing
+    /// function by `desugar_var_hoist`, which is the very leak this
+    /// binding exists to stop.
+    pub(super) fn mint_block_decl(&mut self, name: &str, mangled: &str) -> Stmt {
+        let init = self.mint(Expr::Ident(mangled.to_string()));
+        Stmt::LetDecl {
+            mutable: true,
+            name: name.to_string(),
+            type_ann: Some("any".to_string()),
+            init,
+            is_var: false,
+        }
     }
 
     /// `var <name>: any = <mangled>` — the binding starts here.

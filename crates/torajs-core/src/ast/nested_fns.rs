@@ -240,12 +240,28 @@ pub(super) fn collect_nested_fns_in_stmt(
             // an `if` / a loop / a label — a block by construction,
             // whatever the caller's own depth was.
             let verdict = ctx.annexb(name, *span, mode.descend());
-            if !matches!(verdict, AnnexB::Legacy) || mode.in_fn_body {
+            // A BARE-branch declaration (`if (c) function f() {}`) is
+            // §B.3.2's shape, not §14.2.10's, and it keeps the answer
+            // it had: there is no block here for a binding of its own
+            // to live in. `AnnexB::Strict` therefore reads as `Legacy`
+            // on this path.
+            //
+            // It also cannot be decided from the program's goal alone.
+            // An INDIRECT eval's code is global SLOPPY code whatever
+            // the calling program was (§19.2.1.1 step 3), so
+            // `(0, eval)("if (true) function ib(){}")` inside a module
+            // wants Annex B — and the eval's own goal is not something
+            // this pass can see: `desugar_eval` blanks every spliced
+            // declaration's span to the same `(0, 0)` sentinel every
+            // synthesized declaration carries, so there is nothing to
+            // ask. Same missing marker as the §B.3.3.3 parameterNames
+            // item; both wait on the same design.
+            if !matches!(verdict, AnnexB::Legacy | AnnexB::Strict) || mode.in_fn_body {
                 branch_scoped.insert(name.clone());
             }
             let slot = match verdict {
                 AnnexB::Apply => ctx.annexb_var_decl(name, &mangled),
-                AnnexB::Skip | AnnexB::Legacy => Stmt::Block(Vec::new()),
+                AnnexB::Skip | AnnexB::Strict | AnnexB::Legacy => Stmt::Block(Vec::new()),
             };
             // Take the FnDecl out of the slot, push the renamed decl
             // into `lifted`.
@@ -303,6 +319,9 @@ pub(super) fn collect_nested_fns_to_lift(
     // function declaration is initialized on scope entry, before any
     // statement of the body runs.
     let mut hoisted: Vec<Stmt> = Vec::new();
+    // Block bindings for the strict-mode lifts of THIS list, keyed by
+    // name so a legal re-declaration replaces rather than repeats.
+    let mut strict_block: Vec<(String, String)> = Vec::new();
     for s in drained {
         match s {
             Stmt::FnDecl { ref name, .. }
@@ -328,8 +347,31 @@ pub(super) fn collect_nested_fns_to_lift(
                         let decl = ctx.annexb_var_decl(name, &mangled);
                         new_body.push(decl);
                     }
+                    // Another owner holds the name outside the block,
+                    // so outer references belong to it and must not
+                    // follow the lift.
                     AnnexB::Skip => {
                         branch_scoped.insert(name.clone());
+                    }
+                    // Nothing outside the block holds the name at all,
+                    // so the binding is this list's — minted at its
+                    // HEAD, because a function declaration is hoisted
+                    // within its block. `branch_scoped` keeps the
+                    // enclosing body's references off the lifted name;
+                    // this binding is what the block's own references
+                    // resolve to.
+                    AnnexB::Strict => {
+                        branch_scoped.insert(name.clone());
+                        // ONE binding per name, and the last
+                        // declaration wins: two plain `function f` in
+                        // one block is legal (§B.3.3.4 — bun accepts,
+                        // and `block-redecl-legal-001` measures it), so
+                        // minting one binding each would answer
+                        // "redeclaration of `f`" for a legal program.
+                        match strict_block.iter_mut().find(|(n, _)| n == name) {
+                            Some(slot) => slot.1 = mangled.clone(),
+                            None => strict_block.push((name.clone(), mangled.clone())),
+                        }
                     }
                     AnnexB::Legacy => {}
                 }
@@ -381,6 +423,13 @@ pub(super) fn collect_nested_fns_to_lift(
         }
     }
     ctx.leave_scope(mark);
+    // At the HEAD, because a function declaration is hoisted within
+    // its block: a call written above it has to resolve.
+    let minted: Vec<Stmt> = strict_block
+        .iter()
+        .map(|(n, m)| ctx.mint_block_decl(n, m))
+        .collect();
+    hoisted.splice(0..0, minted);
     if hoisted.is_empty() {
         *body = new_body;
     } else {
