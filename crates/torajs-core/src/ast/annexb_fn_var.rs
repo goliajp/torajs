@@ -49,6 +49,14 @@ impl AnnexBGoal {
     }
 }
 
+/// §B.3.3's strictness precondition, for the one caller outside this
+/// walk: [`super::nested_fns_capture`] routes a capturing declaration
+/// off the lifting lane before the lift ever sees it, and has to ask the
+/// same question about the block form it leaves behind.
+pub(super) fn annexb_applies_at(ast: &super::Ast, span: crate::lexer::Span) -> bool {
+    AnnexBGoal::of(ast).applies(span)
+}
+
 /// What §B.3.3 says about one declaration.
 pub(super) enum AnnexB {
     /// It applies: the declaration also writes a var binding, and the
