@@ -22,10 +22,13 @@ impl<'a> Parser<'a> {
     ///   `S10.2.1_A2.js` run it and expect it to work. Refusing there
     ///   cost exactly those three cases — measured, not predicted.
     ///
-    /// Class bodies are always strict (§11.2.2), so a `function` nested
-    /// in one is refused too. `current_class` is an exact test for that
-    /// rather than a heuristic: everything lexically inside a class body
-    /// is strict code.
+    /// The strict half is NOT decided here. A function's own
+    /// `"use strict"` sits inside the body its parameters precede, so
+    /// at this point the answer is not knowable — and a class body,
+    /// the second source, was the only one this ever asked about.
+    /// `Parser::judge_duplicate_params_strict` owns all three sources
+    /// at the end of the body, where `reject_strict_reserved_params`
+    /// already judges parameter NAMES for the identical reason.
     ///
     /// P-SURF S2.9 — tr used to refuse `*m(x = 0, x)` by accident. The
     /// generator desugar turns parameters into fields of the `__Gen_*`
@@ -48,7 +51,7 @@ impl<'a> Parser<'a> {
         let simple = params
             .iter()
             .all(|p| p.default.is_none() && !p.is_rest && !p.name.starts_with("__param_destr_"));
-        if !unique && simple && self.current_class.is_none() {
+        if !unique && simple {
             return Ok(());
         }
         for (i, p) in params.iter().enumerate() {

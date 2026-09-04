@@ -654,6 +654,13 @@ pub struct Ast {
     /// the same reason as the two fields around it, and
     /// `ast::triage_annexb_fn_decls` raises the first one.
     pub annexb_fn_positions: Vec<(u32, &'static str)>,
+    /// Duplicate-parameter sites — `(byte offset, the repeated name)`.
+    /// §15.1.2 makes them a SyntaxError only where the
+    /// FormalParameters are strict mode code; the parser refuses the
+    /// sources it can see and parks the rest here, since under a
+    /// strict goal every parameter list in the file qualifies.
+    /// `ast::triage_duplicate_params` raises the first one.
+    pub dup_param_positions: Vec<(u32, String)>,
     /// Byte ranges an explicit `"use strict"` directive prologue made
     /// strict code (§11.2.2) — a function body, or the whole source at
     /// the program level. Recorded by `parser::strict_directive`, and

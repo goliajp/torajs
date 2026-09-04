@@ -280,7 +280,8 @@ impl Parser<'_> {
     ) -> Result<(), String> {
         let strict = self.in_strict_fn;
         self.in_strict_fn = inherited;
-        self.reject_strict_reserved_params(params, strict)
+        self.reject_strict_reserved_params(params, strict)?;
+        self.judge_duplicate_params_strict(params, strict)
     }
 
     /// §12.7.2 and §13.1.1 in a parameter list. This runs at the END
@@ -311,6 +312,51 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// §15.1.2 — duplicate BoundNames in a FormalParameters list are
+    /// a SyntaxError when that list is strict mode code. The
+    /// goal-independent halves (UniqueFormalParameters, and any
+    /// non-simple list) belong to `reject_duplicate_params` and are
+    /// already refused where the names are read; this is the half
+    /// that has to wait, and it waits here for exactly the reason
+    /// `reject_strict_reserved_params` above does —
+    /// `function f(a, a) { "use strict"; }` puts the directive inside
+    /// the body its parameters precede.
+    ///
+    /// `strict` is the function's OWN bit, passed in because the
+    /// caller has already restored the enclosing one. The class
+    /// source is not in it (`class_stack` is what
+    /// [`Parser::strict_here`] adds), and it is still live here — the
+    /// method whose body just closed is inside its class.
+    ///
+    /// The sloppy branch parks the site: under a strict goal every
+    /// FormalParameters in the file is strict code, and the goal is
+    /// only stamped after the parse. Sloppy code with a simple list
+    /// keeps `function f(a, a) {}` legal, which test262 asserts
+    /// (`param-duplicated-non-strict.js`, `S10.2.1_A2.js`).
+    fn judge_duplicate_params_strict(
+        &mut self,
+        params: &[Param],
+        strict: bool,
+    ) -> Result<(), String> {
+        let Some(dup) = params
+            .iter()
+            .enumerate()
+            .find(|(i, p)| params[..*i].iter().any(|q| q.name == p.name))
+            .map(|(_, p)| p.name.clone())
+        else {
+            return Ok(());
+        };
+        let at = self.at();
+        if strict || !self.class_stack.is_empty() {
+            return Err(format!(
+                "duplicate parameter name `{dup}` is not allowed in strict code \
+                 at {at} (ES §15.1.2)"
+            ));
+        }
+        self.ast.dup_param_positions.push((at, dup));
+        Ok(())
+    }
+
     /// Restore the enclosing function's strictness bit and, when this
     /// body is strict only by INHERITANCE, give it a directive of its
     /// own so the rest of the pipeline can read the fact off the body.
@@ -338,6 +384,7 @@ impl Parser<'_> {
         let strict = self.in_strict_fn;
         self.in_strict_fn = inherited;
         self.reject_strict_reserved_params(params, strict)?;
+        self.judge_duplicate_params_strict(params, strict)?;
         if !inherited {
             // Sloppy here, or strict by this body's own directive —
             // which is what the probe downstream already reads.
