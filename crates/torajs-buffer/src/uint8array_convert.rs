@@ -31,8 +31,9 @@ use torajs_rc::str_wtf8::StrWtf8;
 
 use crate::typedarray::{Kind, is_object_value};
 use crate::typedarray_span::{Span, validate};
-use crate::uint8array_codec::{Decoded, LastChunk, decode_base64, decode_hex, encode_base64,
-    encode_hex};
+use crate::uint8array_codec::{
+    Decoded, LastChunk, decode_base64, decode_hex, encode_base64, encode_hex,
+};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
@@ -145,7 +146,9 @@ unsafe fn string_option(bag: AnyValue, name: &[u8], allowed: &[&[u8]]) -> Option
     match allowed.iter().position(|a| *a == bytes.as_slice()) {
         Some(i) => Some(i),
         None => {
-            unsafe { __torajs_throw_type_error(cmsg!("option value is not one of the allowed ones")) };
+            unsafe {
+                __torajs_throw_type_error(cmsg!("option value is not one of the allowed ones"))
+            };
             None
         }
     }

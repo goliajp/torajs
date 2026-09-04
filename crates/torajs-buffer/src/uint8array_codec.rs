@@ -307,7 +307,11 @@ mod tests {
         ] {
             let d = decode_base64(text.as_bytes(), false, LastChunk::Loose, usize::MAX);
             assert_eq!((d.bytes.as_slice(), d.err), (bytes, None), "decode {text}");
-            assert_eq!(encode_base64(bytes, false, false), text.as_bytes(), "encode");
+            assert_eq!(
+                encode_base64(bytes, false, false),
+                text.as_bytes(),
+                "encode"
+            );
         }
     }
 
@@ -400,11 +404,20 @@ mod tests {
     #[test]
     fn error_carries_its_prefix() {
         let d = decode_base64(b"MjYyZm.9v", false, LastChunk::Loose, 5);
-        assert_eq!((d.bytes.as_slice(), d.err.is_some()), (&[50, 54, 50][..], true));
+        assert_eq!(
+            (d.bytes.as_slice(), d.err.is_some()),
+            (&[50, 54, 50][..], true)
+        );
         let d = decode_base64(b"MjYyZg", false, LastChunk::Strict, 5);
-        assert_eq!((d.bytes.as_slice(), d.err.is_some()), (&[50, 54, 50][..], true));
+        assert_eq!(
+            (d.bytes.as_slice(), d.err.is_some()),
+            (&[50, 54, 50][..], true)
+        );
         let d = decode_base64(b"MjYyZg===", false, LastChunk::Loose, 5);
-        assert_eq!((d.bytes.as_slice(), d.err.is_some()), (&[50, 54, 50][..], true));
+        assert_eq!(
+            (d.bytes.as_slice(), d.err.is_some()),
+            (&[50, 54, 50][..], true)
+        );
     }
 
     /// test262 `fromBase64/alphabet.js` + `whitespace.js` +
