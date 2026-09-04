@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T16:03:46.367Z",
+  "generatedAt": "2026-09-04T17:39:35.870Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T15:35:01Z",
-    "headSha": "1d57054a8",
-    "elapsedSec": 381.93,
+    "ranAt": "2026-09-04T17:33:03Z",
+    "headSha": "f20de97a3",
+    "elapsedSec": 380.16,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31053,
+    "pass": 31057,
     "passNoOracle": 1143,
     "passNegative": 4457,
-    "passTotal": 36653,
+    "passTotal": 36657,
     "bug": 11307,
-    "incompatible": 5214,
+    "incompatible": 5210,
     "bunSkip": 2931,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47960,
-    "passRateInScope": 68.93,
-    "passRateTrAccepted": 76.42
+    "trAccepted": 47964,
+    "passRateInScope": 68.94,
+    "passRateTrAccepted": 76.43
   },
   "torajs": {
-    "commit": "66f717e8e",
-    "commitSubject": "refactor: move two families out of the files this rotation filled",
+    "commit": "f20de97a3",
+    "commitSubject": "fix: a demoted method call has to take its old name out of the arena too",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,18 @@
   },
   "commits": [
     {
+      "hash": "f20de97a3",
+      "subject": "fix: a demoted method call has to take its old name out of the arena too"
+    },
+    {
+      "hash": "ffd11b3de",
+      "subject": "fix: a method call whose argument count is a runtime value is not a direct call"
+    },
+    {
+      "hash": "359609ff0",
+      "subject": "chore: rotation 583 close — sweep on 1d57054a8, four knives, zero regressions"
+    },
+    {
       "hash": "66f717e8e",
       "subject": "refactor: move two families out of the files this rotation filled"
     },
@@ -763,39 +775,38 @@
     {
       "hash": "271bd4382",
       "subject": "fix: the switch scrutinee and a case value are Expression, so a comma belongs"
-    },
-    {
-      "hash": "863496928",
-      "subject": "fix: a block function's Annex B var binding is a local, so nothing captures it"
-    },
-    {
-      "hash": "d7f991d76",
-      "subject": "refactor: move the free-variable expression walker to its own file"
-    },
-    {
-      "hash": "44b971cd5",
-      "subject": "fix: a switch CaseBlock is one declarative environment, not one per clause"
     }
   ],
-  "headSha": "66f717e8e",
+  "headSha": "f20de97a3",
   "autorun": {
-    "total": 886,
+    "total": 887,
     "baselineTarget": 10,
-    "bySelf": 881,
+    "bySelf": 882,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788527920-1275",
-      "at": "2026-09-04T13:18:40Z",
-      "ts": 1788527920,
+      "rotationId": "r-1788537856-48d9",
+      "at": "2026-09-04T16:04:16Z",
+      "ts": 1788537856,
       "trigger": "self",
-      "prevHead": "a0929e07d",
-      "handoffSha": "sha256:eb63ed4ac69f09e368f07afe44a881afe90cd0d1f55bb92df7b7f37c7d243dce",
-      "handoffAgeSec": 30,
+      "prevHead": "359609ff0",
+      "handoffSha": "sha256:6b4709f7fc0618e69e3af6fdd9236e13ab9ca343089860de521398b529953d9e",
+      "handoffAgeSec": 11,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788537856-48d9",
+        "at": "2026-09-04T16:04:16Z",
+        "ts": 1788537856,
+        "trigger": "self",
+        "prevHead": "359609ff0",
+        "handoffSha": "sha256:6b4709f7fc0618e69e3af6fdd9236e13ab9ca343089860de521398b529953d9e",
+        "handoffAgeSec": 11,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788527920-1275",
         "at": "2026-09-04T13:18:40Z",
@@ -892,17 +903,6 @@
         "prevHead": "d608c0666",
         "handoffSha": "sha256:a84a82c775db9e2b64069c3ddd55d7bc4ce08b9f0061b01b4af6c4b9dd211037",
         "handoffAgeSec": 6,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788441934-6e45",
-        "at": "2026-09-03T13:25:34Z",
-        "ts": 1788441934,
-        "trigger": "self",
-        "prevHead": "aa66b531f",
-        "handoffSha": "sha256:f8bf7c1768c06e96c8a81a91ded3c9ea4422931125e5fdfcf3a644e9053915ed",
-        "handoffAgeSec": 52,
         "conformanceBefore": null,
         "commitsInSession": null
       }

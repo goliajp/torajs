@@ -1670,7 +1670,38 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `1d57054a8`** (2026-09-05, rotation 583 — what a block
+**Latest @ `f20de97a3`** (2026-09-05, rotation 584 — when a call
+knows how many arguments it has. `desugar_classes` pass 2 rewrites
+`x.m(a)` into `__cm_<C>__m(x, a)` by method NAME, before the count is
+known; a spread makes that count a RUNTIME value, which the
+direct-call form cannot spell and which neither static expander will
+take in four shapes. Both passes stood aside and the mangled name died
+at `box_to_any element type FnSig`. Undoing the rewrite — the
+member-call shape is still in the arena, cloned there for the
+`cm_demote` decision — puts the site on the runtime any-method spread
+lane, which carries the receiver natively. Clearing the orphaned
+`Ident` the undo leaves behind is what lets the method-argv face
+reshape the body, so `arguments.length` answers the true count instead
+of 0; two silently-wrong shapes came back with it.) Gate predicate:
+**136** clusters of ≥ 4 holding **1032** cases, register 2 · 217,
+residue 449 · 609 (32.8%), core **1858**. Against rotation 583:
+clusters 136 → **136 (=)**, cases 1036 → **1032 (−4)**, core 1862 →
+**1858 (−4)**.
+
+Sweep passTotal 36653 → **36657 (+4)**, pass 31053 → **31057 (+4)**,
+passNoOracle **1143 (=)**, passNegative **4457 (=)**, bug **11307
+(=)**, incompatible 5214 → **5210 (−4)**, trAccepted 47960 →
+**47964 (+4)**; conservation exact (+4 = +4 + 0). Verdict diff 4
+changed, **0 backward**, all four in
+`language/arguments-object` (`cls-decl` / `cls-expr` × plain /
+generator method, `args-trailing-comma-spread-operator`). Rotation
+583's #3 cluster (22 cases, `box_to_any element type FnSig`) is down
+to 18 and out of the top four; what remains of it is one account — a
+`__cm_` body has no argc/argv channel on the direct-call side.
+Coverage curve: top-100 **56.4%**, top-200 **74.5%**, top-400
+**89.1%**.
+
+**Previous @ `1d57054a8`** (2026-09-05, rotation 583 — what a block
 binds, and when. §8.2.6 creates a block's lexical bindings when the
 block is ENTERED, so a closure minted earlier in the block already
 names them; tr asked that question only of let-INITIALIZERS, so an
