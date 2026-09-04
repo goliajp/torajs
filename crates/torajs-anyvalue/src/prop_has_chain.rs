@@ -68,7 +68,7 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
     // root like every other chain. The OWN half already answered
     // above, which is what keeps `Object.hasOwn` honest.
     if crate::member_get_buffer::is_buffer_family(tag) {
-        if unsafe { crate::member_get_buffer::buffer_proto_key(tag, key) } {
+        if unsafe { crate::member_get_buffer::buffer_proto_key(ptr, tag, key) } {
             return 1;
         }
         let proto = unsafe {

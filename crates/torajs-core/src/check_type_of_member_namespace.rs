@@ -175,18 +175,16 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // is a runtime-minted dynobj, so it surfaces as `any` and
         // both members ride the any lane (RFC 20260823-proxy-
         // substrate 刀 3).
-        // §25.1.5.1 ArrayBuffer.isView — a predicate over the
-        // argument's heap tag (RFC 20260823-typedarray-substrate
-        // 刀 1).
-        // §23.2.5.1 table 71 — a constant on each of the eleven
-        // constructors (RFC 20260823-typedarray-substrate 刀 2).
-        (Type::Object(ns), "BYTES_PER_ELEMENT")
-            if crate::ssa_lower_call_typedarray::bytes_per_element(ns).is_some() =>
-        {
-            Type::Number
-        }
-        (Type::Object("ArrayBuffer"), "isView") => {
-            Type::Function(vec![Type::Any], Box::new(Type::Boolean))
+        // The buffer families' statics and constants — extracted to
+        // `try_match_buffer` the way `Math` was, and for the same
+        // reason: this fn sits at the 200-line hard limit, so an arm
+        // moves out before one moves in.
+        (Type::Object(ns), _) if is_buffer_ns(ns) => {
+            if let Some(t) = try_match_buffer(ns, name) {
+                t
+            } else {
+                return None;
+            }
         }
         (Type::Object("Proxy"), "revocable") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
@@ -338,4 +336,30 @@ fn try_match_math(name: &str) -> Option<Result<Type, String>> {
         _ => return None,
     };
     Some(Ok(ty))
+}
+
+/// `ArrayBuffer` and the eleven typed-array constructors — the
+/// namespaces [`try_match_buffer`] answers for.
+fn is_buffer_ns(ns: &str) -> bool {
+    ns == "ArrayBuffer" || crate::ssa_lower_call_typedarray::bytes_per_element(ns).is_some()
+}
+
+/// §25.1.5.1 `ArrayBuffer.isView` — a predicate over the argument's
+/// heap tag (RFC 20260823-typedarray-substrate 刀 1). §23.2.5.1
+/// table 71 `BYTES_PER_ELEMENT` — a constant on each of the eleven
+/// constructors (刀 2). §23.2.2.1-2 `Uint8Array.fromBase64` /
+/// `fromHex` — the answer is a fresh `Uint8Array`, which surfaces as
+/// `any` the way every runtime-minted buffer cell does, and the
+/// arguments stay `any` because the kernel's own steps decide what
+/// they are (a non-String is a TypeError there, not a coercion).
+fn try_match_buffer(ns: &str, name: &str) -> Option<Type> {
+    Some(match (ns, name) {
+        (_, "BYTES_PER_ELEMENT") if ns != "ArrayBuffer" => Type::Number,
+        ("ArrayBuffer", "isView") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
+        ("Uint8Array", "fromBase64") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
+        ("Uint8Array", "fromHex") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        _ => return None,
+    })
 }

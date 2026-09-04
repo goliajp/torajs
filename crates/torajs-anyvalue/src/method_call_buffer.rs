@@ -28,6 +28,17 @@ unsafe extern "C" {
         preserve_resizability: i64,
     ) -> AnyValue;
     fn __torajs_typedarray_at(recv: AnyValue, index: AnyValue) -> AnyValue;
+    /// §23.2.3's four `Uint8Array.prototype` text conversions. The
+    /// `Uint8Array` brand check is theirs, not this dispatcher's —
+    /// the heap tag is `TypedArray` for all eleven element types.
+    fn __torajs_uint8array_to_base64(recv: AnyValue, options: AnyValue) -> AnyValue;
+    fn __torajs_uint8array_to_hex(recv: AnyValue) -> AnyValue;
+    fn __torajs_uint8array_set_from_base64(
+        recv: AnyValue,
+        string: AnyValue,
+        options: AnyValue,
+    ) -> AnyValue;
+    fn __torajs_uint8array_set_from_hex(recv: AnyValue, string: AnyValue) -> AnyValue;
     fn __torajs_typedarray_fill(
         recv: AnyValue,
         value: AnyValue,
@@ -170,6 +181,16 @@ pub(crate) unsafe fn typedarray_method(
             Some(unsafe { __torajs_typedarray_with(recv, arg(0), arg(1)) })
         }
         torajs_rc::ANY_METHOD_SET => Some(unsafe { __torajs_typedarray_set(recv, arg(0), arg(1)) }),
+        torajs_rc::ANY_METHOD_TO_BASE64 => {
+            Some(unsafe { __torajs_uint8array_to_base64(recv, arg(0)) })
+        }
+        torajs_rc::ANY_METHOD_TO_HEX => Some(unsafe { __torajs_uint8array_to_hex(recv) }),
+        torajs_rc::ANY_METHOD_SET_FROM_BASE64 => {
+            Some(unsafe { __torajs_uint8array_set_from_base64(recv, arg(0), arg(1)) })
+        }
+        torajs_rc::ANY_METHOD_SET_FROM_HEX => {
+            Some(unsafe { __torajs_uint8array_set_from_hex(recv, arg(0)) })
+        }
         // §23.2.3.29 / §23.2.3.34 — the ordering is an AnyValue walk
         // over a user comparator, so it lives on this side; see
         // [`crate::method_call_buffer_sort`].

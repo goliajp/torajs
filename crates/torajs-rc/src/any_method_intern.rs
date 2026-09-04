@@ -100,32 +100,6 @@ pub fn any_method_id(name: &str) -> i64 {
         "test" => ANY_METHOD_TEST,
         "exec" => ANY_METHOD_EXEC,
         "compile" => ANY_METHOD_COMPILE,
-        "resize" => ANY_METHOD_RESIZE,
-        "subarray" => ANY_METHOD_SUBARRAY,
-        "transfer" => ANY_METHOD_TRANSFER,
-        "transferToFixedLength" => ANY_METHOD_TRANSFER_TO_FIXED_LENGTH,
-        "getInt8" => ANY_METHOD_DV_GET_INT8,
-        "setInt8" => ANY_METHOD_DV_SET_INT8,
-        "getUint8" => ANY_METHOD_DV_GET_UINT8,
-        "setUint8" => ANY_METHOD_DV_SET_UINT8,
-        "getInt16" => ANY_METHOD_DV_GET_INT16,
-        "setInt16" => ANY_METHOD_DV_SET_INT16,
-        "getUint16" => ANY_METHOD_DV_GET_UINT16,
-        "setUint16" => ANY_METHOD_DV_SET_UINT16,
-        "getInt32" => ANY_METHOD_DV_GET_INT32,
-        "setInt32" => ANY_METHOD_DV_SET_INT32,
-        "getUint32" => ANY_METHOD_DV_GET_UINT32,
-        "setUint32" => ANY_METHOD_DV_SET_UINT32,
-        "getFloat16" => ANY_METHOD_DV_GET_FLOAT16,
-        "setFloat16" => ANY_METHOD_DV_SET_FLOAT16,
-        "getFloat32" => ANY_METHOD_DV_GET_FLOAT32,
-        "setFloat32" => ANY_METHOD_DV_SET_FLOAT32,
-        "getFloat64" => ANY_METHOD_DV_GET_FLOAT64,
-        "setFloat64" => ANY_METHOD_DV_SET_FLOAT64,
-        "getBigInt64" => ANY_METHOD_DV_GET_BIGINT64,
-        "setBigInt64" => ANY_METHOD_DV_SET_BIGINT64,
-        "getBigUint64" => ANY_METHOD_DV_GET_BIGUINT64,
-        "setBigUint64" => ANY_METHOD_DV_SET_BIGUINT64,
         "then" => ANY_METHOD_THEN,
         "catch" => ANY_METHOD_CATCH,
         "finally" => ANY_METHOD_FINALLY,
@@ -205,6 +179,49 @@ pub fn any_method_id(name: &str) -> i64 {
         "isSubsetOf" => ANY_METHOD_IS_SUBSET_OF,
         "isSupersetOf" => ANY_METHOD_IS_SUPERSET_OF,
         "isDisjointFrom" => ANY_METHOD_IS_DISJOINT_FROM,
+        // A miss here is not a miss yet — the buffer families' rows
+        // live next door, and only their `_` is the real one.
+        n => buffer_method_id(n),
+    }
+}
+
+/// The buffer families' rows — `ArrayBuffer` / `%TypedArray%` /
+/// `DataView`, which is a third of this table and grows on its own
+/// schedule. Extracted when the parent reached the 200-line function
+/// limit; [`crate::any_method_meta::buffer_method_meta`] is the same
+/// split on the other side of the same id block.
+fn buffer_method_id(name: &str) -> i64 {
+    match name {
+        "resize" => ANY_METHOD_RESIZE,
+        "subarray" => ANY_METHOD_SUBARRAY,
+        "transfer" => ANY_METHOD_TRANSFER,
+        "transferToFixedLength" => ANY_METHOD_TRANSFER_TO_FIXED_LENGTH,
+        "toBase64" => ANY_METHOD_TO_BASE64,
+        "toHex" => ANY_METHOD_TO_HEX,
+        "setFromBase64" => ANY_METHOD_SET_FROM_BASE64,
+        "setFromHex" => ANY_METHOD_SET_FROM_HEX,
+        "getInt8" => ANY_METHOD_DV_GET_INT8,
+        "setInt8" => ANY_METHOD_DV_SET_INT8,
+        "getUint8" => ANY_METHOD_DV_GET_UINT8,
+        "setUint8" => ANY_METHOD_DV_SET_UINT8,
+        "getInt16" => ANY_METHOD_DV_GET_INT16,
+        "setInt16" => ANY_METHOD_DV_SET_INT16,
+        "getUint16" => ANY_METHOD_DV_GET_UINT16,
+        "setUint16" => ANY_METHOD_DV_SET_UINT16,
+        "getInt32" => ANY_METHOD_DV_GET_INT32,
+        "setInt32" => ANY_METHOD_DV_SET_INT32,
+        "getUint32" => ANY_METHOD_DV_GET_UINT32,
+        "setUint32" => ANY_METHOD_DV_SET_UINT32,
+        "getFloat16" => ANY_METHOD_DV_GET_FLOAT16,
+        "setFloat16" => ANY_METHOD_DV_SET_FLOAT16,
+        "getFloat32" => ANY_METHOD_DV_GET_FLOAT32,
+        "setFloat32" => ANY_METHOD_DV_SET_FLOAT32,
+        "getFloat64" => ANY_METHOD_DV_GET_FLOAT64,
+        "setFloat64" => ANY_METHOD_DV_SET_FLOAT64,
+        "getBigInt64" => ANY_METHOD_DV_GET_BIGINT64,
+        "setBigInt64" => ANY_METHOD_DV_SET_BIGINT64,
+        "getBigUint64" => ANY_METHOD_DV_GET_BIGUINT64,
+        "setBigUint64" => ANY_METHOD_DV_SET_BIGUINT64,
         _ => ANY_METHOD_UNKNOWN,
     }
 }

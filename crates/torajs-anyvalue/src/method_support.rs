@@ -31,13 +31,13 @@ use torajs_rc::{
     ANY_METHOD_MATCH, ANY_METHOD_MATCH_ALL, ANY_METHOD_NORMALIZE, ANY_METHOD_PAD_END,
     ANY_METHOD_PAD_START, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REDUCE,
     ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_REPEAT, ANY_METHOD_REPLACE, ANY_METHOD_REPLACE_ALL,
-    ANY_METHOD_RESIZE, ANY_METHOD_REVERSE, ANY_METHOD_SEARCH, ANY_METHOD_SET, ANY_METHOD_SHIFT,
+    ANY_METHOD_RESIZE, ANY_METHOD_REVERSE, ANY_METHOD_SEARCH, ANY_METHOD_SET, ANY_METHOD_SET_FROM_BASE64, ANY_METHOD_SET_FROM_HEX, ANY_METHOD_SHIFT,
     ANY_METHOD_SLICE, ANY_METHOD_SOME, ANY_METHOD_SORT, ANY_METHOD_SPLICE, ANY_METHOD_SPLIT,
     ANY_METHOD_STARTS_WITH, ANY_METHOD_SUBARRAY, ANY_METHOD_SUBSTR, ANY_METHOD_SUBSTRING,
     ANY_METHOD_SUP, ANY_METHOD_SYMMETRIC_DIFFERENCE, ANY_METHOD_TEST, ANY_METHOD_TO_EXPONENTIAL,
     ANY_METHOD_TO_FIXED, ANY_METHOD_TO_LOCALE_LOWER_CASE, ANY_METHOD_TO_LOCALE_STRING,
     ANY_METHOD_TO_LOCALE_UPPER_CASE, ANY_METHOD_TO_LOWER_CASE, ANY_METHOD_TO_PRECISION,
-    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING,
+    ANY_METHOD_TO_REVERSED, ANY_METHOD_TO_BASE64, ANY_METHOD_TO_HEX, ANY_METHOD_TO_SORTED, ANY_METHOD_TO_SPLICED, ANY_METHOD_TO_STRING,
     ANY_METHOD_TO_UPPER_CASE, ANY_METHOD_TO_WELL_FORMED, ANY_METHOD_TRANSFER,
     ANY_METHOD_TRANSFER_TO_FIXED_LENGTH, ANY_METHOD_TRIM, ANY_METHOD_TRIM_END,
     ANY_METHOD_TRIM_START, ANY_METHOD_UNION, ANY_METHOD_UNSHIFT, ANY_METHOD_VALUE_OF,
@@ -339,6 +339,30 @@ pub(crate) fn arraybuffer_supports(mid: i64) -> bool {
 ///
 /// `toString` is absent for the same reason every other cell's is:
 /// the universal arm above already answers it.
+/// The four §23.2.3 text conversions are `Uint8Array.prototype`'s,
+/// not `%TypedArray%.prototype`'s, and the heap tag cannot tell the
+/// eleven element types apart — so the receiver decides them. A null
+/// pointer is the tag-only caller that has none; it answers the
+/// generic set, which over-reports these four and is the one face
+/// left doing so.
+pub(crate) unsafe fn typedarray_supports_on(recv: *const core::ffi::c_void, mid: i64) -> bool {
+    if matches!(
+        mid,
+        ANY_METHOD_TO_BASE64
+            | ANY_METHOD_TO_HEX
+            | ANY_METHOD_SET_FROM_BASE64
+            | ANY_METHOD_SET_FROM_HEX
+    ) && !recv.is_null()
+    {
+        return unsafe { __torajs_typedarray_is_uint8(recv) } != 0;
+    }
+    typedarray_supports(mid)
+}
+
+unsafe extern "C" {
+    fn __torajs_typedarray_is_uint8(p: *const core::ffi::c_void) -> i64;
+}
+
 pub(crate) fn typedarray_supports(mid: i64) -> bool {
     matches!(
         mid,
@@ -356,6 +380,10 @@ pub(crate) fn typedarray_supports(mid: i64) -> bool {
             | ANY_METHOD_SET
             | ANY_METHOD_SORT
             | ANY_METHOD_TO_SORTED
+            | ANY_METHOD_TO_BASE64
+            | ANY_METHOD_TO_HEX
+            | ANY_METHOD_SET_FROM_BASE64
+            | ANY_METHOD_SET_FROM_HEX
             | ANY_METHOD_JOIN
             | ANY_METHOD_FOR_EACH
             | ANY_METHOD_MAP

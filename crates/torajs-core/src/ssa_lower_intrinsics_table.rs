@@ -482,6 +482,8 @@ pub(crate) fn build(
         proxy_create: init_c.proxy.proxy_create,
         arraybuffer_create: init_c.buffer.arraybuffer_create,
         arraybuffer_is_view: init_c.buffer.arraybuffer_is_view,
+        uint8array_from_base64: init_c.buffer.uint8array_from_base64,
+        uint8array_from_hex: init_c.buffer.uint8array_from_hex,
         typedarray_create: init_c.buffer.typedarray_create,
         typedarray_is_kind: init_c.buffer.typedarray_is_kind,
         dataview_create: init_c.buffer.dataview_create,

@@ -1808,6 +1808,15 @@ mod tests {
         __torajs_typedarray_set,
         __torajs_typedarray_validate,
         __torajs_typedarray_create_same_type,
+        // §23.2.3's four Uint8Array text conversions, plus the brand
+        // test the reflection faces ask by cell pointer.
+        __torajs_uint8array_to_base64,
+        __torajs_uint8array_to_hex,
+        __torajs_uint8array_set_from_base64,
+        __torajs_uint8array_set_from_hex,
+        __torajs_typedarray_is_uint8,
+        __torajs_uint8array_from_base64,
+        __torajs_uint8array_from_hex,
         __torajs_arr_alloc_any_filled,
         __torajs_arr_alloc_any_filled_f64,
         __torajs_make_aggregate_error,

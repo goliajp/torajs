@@ -227,6 +227,10 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_arraybuffer_static::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // §23.2.2.1-2 `Uint8Array.fromBase64` / `fromHex`.
+    if let Some(op) = crate::ssa_lower_call_uint8array_static::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     if let Some(op) = crate::ssa_lower_call_proxy_revocable::try_lower(ctx, callee, args) {
         return Some(op);
     }

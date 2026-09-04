@@ -450,6 +450,19 @@ pub const ANY_METHOD_GET_RESIZABLE: i64 = 204;
 /// mechanically.
 pub const ANY_METHOD_FN_HAS_INSTANCE: i64 = 206;
 
+/// §23.2.3's four `Uint8Array.prototype` text conversions. They are
+/// `Uint8Array`'s alone, not `%TypedArray%.prototype`'s — the brand
+/// check that says so lives at the call, because the heap tag is
+/// `TypedArray` for all eleven element types and the id space is not
+/// where that distinction can be drawn.
+///
+/// 207 continues the tail of BOTH id files (see the note above:
+/// `any_method_iter` grows the same space and reached 205).
+pub const ANY_METHOD_TO_BASE64: i64 = 207;
+pub const ANY_METHOD_TO_HEX: i64 = 208;
+pub const ANY_METHOD_SET_FROM_BASE64: i64 = 209;
+pub const ANY_METHOD_SET_FROM_HEX: i64 = 210;
+
 /// RegExp property-read ids (Any-method-call RFC 20260704 C4-3c-2)
 /// — `r.source` / `r.lastIndex` / flag booleans through an `any`
 /// receiver. ssa-lower interns the member NAME into one of these at

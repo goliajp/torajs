@@ -561,6 +561,9 @@ pub(crate) struct Intrinsics {
     pub(crate) arraybuffer_create: FuncId,
     /// §25.1.5.1 `ArrayBuffer.isView(arg)`.
     pub(crate) arraybuffer_is_view: FuncId,
+    /// §23.2.2.1-2 `Uint8Array.fromBase64` / `fromHex`.
+    pub(crate) uint8array_from_base64: FuncId,
+    pub(crate) uint8array_from_hex: FuncId,
     /// §23.2.5.1 `new <TypedArray>(…)`.
     pub(crate) typedarray_create: FuncId,
     /// §23.2 `x instanceof <T>` — the element-kind test.

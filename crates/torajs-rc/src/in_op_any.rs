@@ -82,7 +82,8 @@ unsafe extern "C" {
     fn __torajs_struct_proto_member_has(ptr: *const c_void, key: *const c_void) -> i64;
     // torajs-anyvalue — the buffer family's name-level prototype
     // face (accessor names + interned methods; never a getter call).
-    fn __torajs_buffer_family_proto_key(tag: i64, key: *const c_void) -> i64;
+    fn __torajs_buffer_family_proto_key(recv: *const c_void, tag: i64, key: *const c_void)
+        -> i64;
     // torajs-throw — arms a pending TypeError and returns; the
     // caller must return on its own (see the C→Rust port playbook
     // B-2: a `-> !` signature here would let LLVM DCE the resume
@@ -345,7 +346,7 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
         || type_tag == crate::Tag::TypedArray as u16
         || type_tag == crate::Tag::DataView as u16
     {
-        if unsafe { __torajs_buffer_family_proto_key(type_tag as i64, key as *const c_void) } != 0 {
+        if unsafe { __torajs_buffer_family_proto_key(ptr as *const c_void, type_tag as i64, key as *const c_void) } != 0 {
             return true;
         }
         let root = crate::builtin_proto::OBJECT_PROTO_TAG as i64;
@@ -426,7 +427,11 @@ unsafe fn __torajs_struct_proto_member_has(_ptr: *const c_void, _key: *const c_v
 }
 
 #[cfg(test)]
-unsafe fn __torajs_buffer_family_proto_key(_tag: i64, _key: *const c_void) -> i64 {
+unsafe fn __torajs_buffer_family_proto_key(
+    _recv: *const c_void,
+    _tag: i64,
+    _key: *const c_void,
+) -> i64 {
     // Unit tests never build a buffer-family receiver.
     0
 }

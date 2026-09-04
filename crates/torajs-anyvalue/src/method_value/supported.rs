@@ -14,7 +14,7 @@ use torajs_rc::{ANY_METHOD_NEXT, ANY_METHOD_TO_STRING, Tag};
 use crate::method_support::{
     arr_supports, arraybuffer_supports, closure_supports, date_supports, map_supports,
     num_supports, proto_tag_family_owns, regexp_supports, set_supports, str_supports,
-    typedarray_supports, weakmap_supports, weakref_supports, weakset_supports,
+    typedarray_supports_on, weakmap_supports, weakref_supports, weakset_supports,
 };
 use crate::method_value::recv_proto_family;
 use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
@@ -134,7 +134,7 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         // `byteLength`, `byteOffset`, `buffer`) are getters and
         // answer through the member-read face, not here.
         t if t == Tag::ArrayBuffer as u16 => arraybuffer_supports(mid),
-        t if t == Tag::TypedArray as u16 => typedarray_supports(mid),
+        t if t == Tag::TypedArray as u16 => unsafe { typedarray_supports_on(ptr, mid) },
         t if t == Tag::DataView as u16 => crate::method_support::dataview_supports(mid),
         t if t == Tag::Date as u16 => date_supports(mid),
         t if t == Tag::RegExp as u16 => regexp_supports(mid),

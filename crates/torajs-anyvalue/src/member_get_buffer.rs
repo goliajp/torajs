@@ -247,7 +247,7 @@ pub(crate) unsafe fn dataview_prop(recv: AnyValue, key: *const c_void) -> Option
 ///
 /// # Safety
 /// `key` is NULL or a live Str cell.
-pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
+pub(crate) unsafe fn buffer_proto_key(recv: *const c_void, tag: u16, key: *const c_void) -> bool {
     let names: &[&[u8]] = if tag == Tag::TypedArray as u16 {
         &[
             b"length",
@@ -280,7 +280,7 @@ pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
         return false;
     }
     if tag == Tag::TypedArray as u16 {
-        crate::method_support::typedarray_supports(mid)
+        unsafe { crate::method_support::typedarray_supports_on(recv, mid) }
     } else if tag == Tag::ArrayBuffer as u16 {
         crate::method_support::arraybuffer_supports(mid)
     } else {
@@ -294,8 +294,12 @@ pub(crate) unsafe fn buffer_proto_key(tag: u16, key: *const c_void) -> bool {
 /// # Safety
 /// `key` is NULL or a live Str cell.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_buffer_family_proto_key(tag: i64, key: *const c_void) -> i64 {
-    unsafe { buffer_proto_key(tag as u16, key) as i64 }
+pub unsafe extern "C" fn __torajs_buffer_family_proto_key(
+    recv: *const c_void,
+    tag: i64,
+    key: *const c_void,
+) -> i64 {
+    unsafe { buffer_proto_key(recv, tag as u16, key) as i64 }
 }
 
 /// A byte count on the probe pair. JS numbers are doubles and the

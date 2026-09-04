@@ -228,6 +228,10 @@ fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_SUBARRAY => ("subarray", 2),
         ANY_METHOD_TRANSFER => ("transfer", 0),
         ANY_METHOD_TRANSFER_TO_FIXED_LENGTH => ("transferToFixedLength", 0),
+        ANY_METHOD_TO_BASE64 => ("toBase64", 0),
+        ANY_METHOD_TO_HEX => ("toHex", 0),
+        ANY_METHOD_SET_FROM_BASE64 => ("setFromBase64", 1),
+        ANY_METHOD_SET_FROM_HEX => ("setFromHex", 1),
         _ => return iter_method_meta(mid),
     })
 }

@@ -36,3 +36,5 @@ pub mod typedarray_set;
 pub mod typedarray_slice;
 pub mod typedarray_span;
 pub mod typedarray_subclass;
+pub mod uint8array_codec;
+pub mod uint8array_convert;
