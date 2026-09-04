@@ -9,6 +9,7 @@
 //! free_vars_of_arrow.
 
 use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
+use super::free_vars_hoisted_names::{hoist_fn_decl_names, hoist_var_names};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
@@ -59,6 +60,10 @@ pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -
     let mut bound: Vec<String> = prebound.to_vec();
     let mut out: Vec<String> = Vec::new();
     hoist_fn_decl_names(body, &mut bound);
+    // `var` is function-scoped, so a declaration written inside a block
+    // is bound for the whole body — including after the block, where
+    // the block-scoped walk below would have dropped it.
+    hoist_var_names(body, &mut bound);
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);
     }
@@ -72,20 +77,6 @@ pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -
 /// so over-reporting (builtins, entry spellings) is harmless.
 pub(crate) fn free_idents_of_stmt(ast: &Ast, s: &Stmt) -> Vec<String> {
     free_vars_of_body(ast, &[], std::slice::from_ref(s))
-}
-
-/// Function declarations hoist: a reference anywhere in the holding
-/// list — including before the declaration — resolves to the local
-/// decl, never to an outer binding. Bind every direct FnDecl name
-/// before walking the list's statements.
-pub(super) fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
-    for s in list {
-        if let Stmt::FnDecl { name, .. } = s {
-            if !bound.contains(name) {
-                bound.push(name.clone());
-            }
-        }
-    }
 }
 
 /// The try / catch / finally scopes: each block is its own binding

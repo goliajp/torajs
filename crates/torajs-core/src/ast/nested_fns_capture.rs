@@ -57,11 +57,10 @@
 //! levels down is already an arrow when its parent's free variables are
 //! computed and the capture propagates outward on its own.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-use super::annexb_fn_var::annexb_applies_at;
+use super::annexb_block_binding::split_block_binding;
 use super::free_vars::free_vars_of_body;
-use super::nested_fns_idents::rewrite_idents_in_body;
 use super::{Ast, Expr, Stmt};
 
 /// Compiler-minted declarations (lifted arrows, class methods, generator
@@ -301,19 +300,9 @@ fn route_list(
             rewrite_in_place(ast, &mut stmts[*i]);
         }
     }
-    // Annex B §B.3.3 — a declaration nested in a BLOCK has TWO bindings
-    // in sloppy code: the block one this pass just minted, and a
-    // var-scoped one on the enclosing function or script, written where
-    // the declaration sits. Both are spelled the same name, so the block
-    // one has to be renamed for the write to reach the var binding at
-    // all — the same move the lifting lane makes when it mangles. What
-    // is inside the block and meant the declaration follows the rename;
-    // what is outside means the var binding and is left alone.
-    //
-    // The block binding is `mutable`: §B.3.3 makes it an ordinary
-    // let-like binding, and test262's `block-scoping` family assigns to
-    // it (`f = 123` inside the body) and then checks that the var
-    // binding still holds the function.
+    // Annex B §B.3.3 — a declaration nested in a BLOCK has a second,
+    // var-scoped binding as well, and the rewrite above only made the
+    // block one. See `annexb_block_binding` for what the split does.
     if !in_block {
         return;
     }
@@ -324,41 +313,7 @@ fn route_list(
         if !routed[k] || scope.iter().any(|b| *b == names[k]) {
             continue;
         }
-        if !annexb_applies_at(ast, spans[k]) {
-            continue;
-        }
-        let mangled = format!("__blkfn_{}_{}", names[k], counter);
-        *counter += 1;
-        let map: HashMap<String, String> = HashMap::from([(names[k].clone(), mangled.clone())]);
-        rewrite_idents_in_body(ast, stmts, &map, true);
-        let var_init = ast.add_expr(Expr::Ident(mangled.clone()));
-        ast.set_expr_span(var_init, spans[k]);
-        let taken = std::mem::replace(&mut stmts[*i], Stmt::Block(Vec::new()));
-        let Stmt::LetDecl {
-            type_ann,
-            init,
-            is_var,
-            ..
-        } = taken
-        else {
-            unreachable!("the rewrite above left a LetDecl");
-        };
-        stmts[*i] = Stmt::Multi(vec![
-            Stmt::LetDecl {
-                mutable: true,
-                name: mangled,
-                type_ann,
-                init,
-                is_var,
-            },
-            Stmt::LetDecl {
-                mutable: true,
-                name: names[k].clone(),
-                type_ann: None,
-                init: var_init,
-                is_var: true,
-            },
-        ]);
+        split_block_binding(ast, stmts, *i, &names[k], spans[k], counter);
     }
 }
 

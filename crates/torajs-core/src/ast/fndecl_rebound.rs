@@ -56,6 +56,7 @@
 //! one binding and nothing else — the Any lane answers the same
 //! program.
 
+use super::annexb_block_binding::split_block_binding;
 use super::free_vars::free_vars_of_body;
 use super::{Ast, Expr, Stmt};
 
@@ -72,6 +73,9 @@ pub fn widen_rebound_fn_decls(ast: &mut Ast) {
     // not the statement tree; the arena holds every such body flat, so
     // a fixed-length low→high scan reaches each exactly once. Same
     // traversal as `nested_fns_capture`, for the same reason.
+    // Unique across the pass — it names the block bindings §B.3.3 keeps
+    // apart from the var bindings they are written into.
+    let mut counter: u32 = 0;
     let n = ast.exprs.len();
     for i in 0..n {
         if !matches!(ast.exprs[i], Expr::ArrowFn { .. }) {
@@ -81,62 +85,101 @@ pub fn widen_rebound_fn_decls(ast: &mut Ast) {
             Expr::ArrowFn { body, .. } => std::mem::take(body),
             _ => unreachable!("matched ArrowFn above"),
         };
-        walk_list(ast, &mut body);
+        walk_list(ast, &mut body, false, &mut Vec::new(), &mut counter);
         match &mut ast.exprs[i] {
             Expr::ArrowFn { body: b, .. } => *b = body,
             _ => unreachable!("matched ArrowFn above"),
         }
     }
-    walk_list(ast, &mut top);
+    walk_list(ast, &mut top, false, &mut Vec::new(), &mut counter);
     ast.stmts = top;
 }
 
-fn walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>) {
+/// `scope` carries what the enclosing scopes bind, so §B.3.3's step
+/// 1.a.ii — the name already belongs to someone else — can be answered
+/// where the block binding is split off.
+fn walk_list(
+    ast: &mut Ast,
+    stmts: &mut Vec<Stmt>,
+    in_block: bool,
+    scope: &mut Vec<String>,
+    counter: &mut u32,
+) {
+    let depth = scope.len();
     for s in stmts.iter_mut() {
-        walk_children(ast, s);
+        walk_children(ast, s, in_block, scope, counter);
+        if let Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } = s {
+            scope.push(name.clone());
+        }
     }
-    route_list(ast, stmts);
+    scope.truncate(depth);
+    route_list(ast, stmts, in_block, scope, counter);
 }
 
 /// Descend into every statement list `s` owns.
-fn walk_children(ast: &mut Ast, s: &mut Stmt) {
+fn walk_children(
+    ast: &mut Ast,
+    s: &mut Stmt,
+    in_block: bool,
+    scope: &mut Vec<String>,
+    counter: &mut u32,
+) {
     match s {
-        Stmt::FnDecl { body, .. } => walk_list(ast, body),
-        Stmt::Block(b) | Stmt::Multi(b) => walk_list(ast, b),
+        Stmt::FnDecl { params, body, .. } => {
+            let depth = scope.len();
+            scope.extend(params.iter().map(|p| p.name.clone()));
+            walk_list(ast, body, false, scope, counter);
+            scope.truncate(depth);
+        }
+        // A `Block` opens one; `Multi` is a compiler-minted sequence
+        // sharing the surrounding scope, so it is whatever its parent is.
+        Stmt::Block(b) => walk_list(ast, b, true, scope, counter),
+        Stmt::Multi(b) => walk_list(ast, b, in_block, scope, counter),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            walk_children(ast, then_branch);
+            walk_children(ast, then_branch, true, scope, counter);
             if let Some(eb) = else_branch.as_deref_mut() {
-                walk_children(ast, eb);
+                walk_children(ast, eb, true, scope, counter);
             }
+        }
+        Stmt::ForOf { var_name, body, .. } => {
+            let depth = scope.len();
+            scope.push(var_name.clone());
+            walk_children(ast, body, true, scope, counter);
+            scope.truncate(depth);
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
         | Stmt::For { body, .. }
-        | Stmt::ForOf { body, .. }
         | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::Labeled { body, .. } => walk_children(ast, body),
+        | Stmt::Labeled { body, .. } => walk_children(ast, body, true, scope, counter),
         Stmt::Try {
             body,
+            catch_param,
             catch_body,
             finally_body,
             ..
         } => {
-            walk_list(ast, body);
-            walk_list(ast, catch_body);
+            walk_list(ast, body, true, scope, counter);
+            let depth = scope.len();
+            if let Some(cp) = catch_param {
+                scope.push(cp.clone());
+            }
+            walk_list(ast, catch_body, true, scope, counter);
+            scope.truncate(depth);
             if let Some(fb) = finally_body {
-                walk_list(ast, fb);
+                walk_list(ast, fb, true, scope, counter);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases.iter_mut() {
-                walk_list(ast, &mut c.body);
+                walk_list(ast, &mut c.body, true, scope, counter);
             }
             if let Some(d) = default {
-                walk_list(ast, d);
+                walk_list(ast, d, true, scope, counter);
             }
         }
         _ => {}
@@ -144,7 +187,13 @@ fn walk_children(ast: &mut Ast, s: &mut Stmt) {
 }
 
 /// One statement list: which of its `function` declarations get a slot.
-fn route_list(ast: &mut Ast, stmts: &mut [Stmt]) {
+fn route_list(
+    ast: &mut Ast,
+    stmts: &mut [Stmt],
+    in_block: bool,
+    scope: &[String],
+    counter: &mut u32,
+) {
     let sites: Vec<usize> = stmts
         .iter()
         .enumerate()
@@ -162,8 +211,8 @@ fn route_list(ast: &mut Ast, stmts: &mut [Stmt]) {
         return;
     }
     for i in sites {
-        let name = match &stmts[i] {
-            Stmt::FnDecl { name, .. } => name.clone(),
+        let (name, span) = match &stmts[i] {
+            Stmt::FnDecl { name, span, .. } => (name.clone(), *span),
             _ => unreachable!("site is a FnDecl"),
         };
         if !assigned.contains(&name) {
@@ -173,6 +222,13 @@ fn route_list(ast: &mut Ast, stmts: &mut [Stmt]) {
             continue;
         }
         rewrite_in_place(ast, &mut stmts[i]);
+        // Annex B §B.3.3 — in a block, the slot this pass just made is
+        // the BLOCK binding, and a var-scoped one is owed as well. The
+        // name an enclosing scope already binds is step 1.a.ii's early
+        // error, where the extension does not apply.
+        if in_block && !scope.iter().any(|b| *b == name) {
+            split_block_binding(ast, stmts, i, &name, span, counter);
+        }
     }
 }
 

@@ -3,7 +3,8 @@
 //! whole declaration BODY (a fn's or a class's own scope) leaves
 //! free in the enclosing scope.
 
-use super::free_vars::{hoist_fn_decl_names, walk_expr, walk_stmt};
+use super::free_vars::{walk_expr, walk_stmt};
+use super::free_vars_hoisted_names::hoist_fn_decl_names;
 use super::{Ast, ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt};
 
 /// A nested `function` declaration's body walk. The decl's own name is

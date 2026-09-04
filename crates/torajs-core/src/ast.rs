@@ -37,6 +37,7 @@ mod arrow_arguments_alias;
 pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
+mod annexb_block_binding;
 mod annexb_fn_var;
 pub(crate) mod arguments_object_escape_store;
 mod build_factory;
@@ -131,6 +132,7 @@ mod forwarders_object_synth;
 mod free_vars;
 mod free_vars_decls;
 mod free_vars_globals;
+mod free_vars_hoisted_names;
 mod gen_fn_expr;
 mod globalthis_member;
 mod heritage;

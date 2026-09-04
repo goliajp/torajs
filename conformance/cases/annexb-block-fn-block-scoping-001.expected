@@ -1,0 +1,4 @@
+fn decl 123 decl
+top g-decl 456 g-decl
+independent h-decl function
+var-in-block 1
