@@ -101,6 +101,17 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
         }
     }
+    // A name any inner scope rebinds is refused OUTRIGHT, everywhere.
+    // The site walk below is an arena sweep with no scope information,
+    // so it cannot tell `return fn` inside `function g() { const fn = 1 }`
+    // from a read of the declaration — and rewriting that one turns a
+    // program that answers `1` into one that answers `[Function: fn]`.
+    // Refusing the whole name leaves such a program exactly where it
+    // was before this pass existed, which is the only safe direction
+    // when the alternative is a wrong answer in a shape the conformance
+    // gate does not carry. Same over-refusal the sibling
+    // `namedfn_recv_cb` collectors take, and the same two helpers.
+    sigs.retain(|n, _| !name_rebound_anywhere(&ast.stmts, n));
     if sigs.is_empty() {
         return;
     }
@@ -217,4 +228,33 @@ fn synth_forwarder(
         // user function's source.
         span: target_span,
     }
+}
+
+/// Whether any scope in the program rebinds `name` — a parameter, a
+/// catch or loop variable (`name_shadowed_elsewhere` answers those),
+/// or a `let` / `const` / `var` declaration at ANY depth, which that
+/// helper does not look for: it descends through blocks but its match
+/// has no `LetDecl` arm, and its companion `collect_decls_by_name` was
+/// written for the top level. A bare block is enough to matter —
+/// `{ const fn = 3; console.log(fn) }` under a top-level
+/// `function fn` printed the function instead of `3`.
+fn name_rebound_anywhere(stmts: &[Stmt], name: &str) -> bool {
+    if super::fnexpr_this_names::name_shadowed_elsewhere(stmts, name) {
+        return true;
+    }
+    for s in stmts {
+        if let Stmt::LetDecl { name: dn, .. } = s
+            && dn == name
+        {
+            return true;
+        }
+        let mut hit = false;
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            hit = hit || name_rebound_anywhere(inner, name);
+        });
+        if hit {
+            return true;
+        }
+    }
+    false
 }
