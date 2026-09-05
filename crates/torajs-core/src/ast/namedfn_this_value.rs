@@ -238,7 +238,7 @@ fn synth_forwarder(
 /// written for the top level. A bare block is enough to matter —
 /// `{ const fn = 3; console.log(fn) }` under a top-level
 /// `function fn` printed the function instead of `3`.
-fn name_rebound_anywhere(stmts: &[Stmt], name: &str) -> bool {
+pub(super) fn name_rebound_anywhere(stmts: &[Stmt], name: &str) -> bool {
     if super::fnexpr_this_names::name_shadowed_elsewhere(stmts, name) {
         return true;
     }

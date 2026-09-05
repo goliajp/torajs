@@ -165,7 +165,25 @@ fn snapshot_type_field_anns(
 pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     use std::collections::{HashMap, HashSet};
 
-    let (fn_sigs, existing_forwarders, fn_type_params) = snapshot_fn_sigs(ast);
+    let (mut fn_sigs, existing_forwarders, fn_type_params) = snapshot_fn_sigs(ast);
+    // Rotation 595 — a name some inner scope rebinds is refused
+    // OUTRIGHT, everywhere, the same verdict on the same evidence the
+    // sibling `namedfn_this_value` takes (its `name_rebound_anywhere`
+    // is the shared copy). Every axis below matches a bare Ident
+    // against `fn_sigs` over a flat arena with no scope information,
+    // so it cannot tell a read of the declaration from a read of an
+    // inner binding that shadows it — and wrapping the latter turns a
+    // program that answers `3` into one that answers
+    // `[Function: fn]`. That helper's own doc already carried this
+    // exact repro; rotation 594 closed it for the value-promote pass
+    // and missed that THIS pass mints the same `__forward_` cell at
+    // the same positions, so the bug survived in bare blocks, `if`
+    // bodies and loop bodies while a function body answered right.
+    //
+    // Over-refusal leaves such a program exactly where it was before
+    // any of this existed, which is the only safe direction when the
+    // alternative is a wrong value.
+    fn_sigs.retain(|n, _| !super::namedfn_this_value::name_rebound_anywhere(&ast.stmts, n));
     if fn_sigs.is_empty() {
         return;
     }
