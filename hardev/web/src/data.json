@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T15:37:33.801Z",
+  "generatedAt": "2026-09-05T17:28:52.276Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-05T15:09:03Z",
-    "headSha": "040ec68bc",
-    "elapsedSec": 1964.25,
+    "ranAt": "2026-09-05T17:14:09Z",
+    "headSha": "0defd9c0d",
+    "elapsedSec": 383.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "ae5440514",
-    "commitSubject": "chore: rotation 593 close — sweep on 040ec68bc, one boundary annotation dropped",
+    "commit": "0defd9c0d",
+    "commitSubject": "fix: a props-receiver root may be spelled as a factory call",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "0defd9c0d",
+      "subject": "fix: a props-receiver root may be spelled as a factory call"
+    },
+    {
+      "hash": "0c2ad0a27",
+      "subject": "refactor: move the runtime-props receiver census to its own file"
+    },
+    {
+      "hash": "e2ae35fb2",
+      "subject": "fix: a named function stored into a property slot keeps its receiver"
+    },
+    {
+      "hash": "f7df1bcda",
+      "subject": "fix: the value-face rewrite refuses a name any scope rebinds"
+    },
+    {
+      "hash": "76e980e35",
+      "subject": "fix: a this-using function declaration has one value"
+    },
+    {
+      "hash": "75b128724",
+      "subject": "chore: refresh the hardev dashboard snapshot for rotation 593"
+    },
+    {
       "hash": "ae5440514",
       "subject": "chore: rotation 593 close — sweep on 040ec68bc, one boundary annotation dropped"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "b96b7deb1",
       "subject": "fix: a literal member naming a closure binding kept it main-local"
-    },
-    {
-      "hash": "d4bdcb0ac",
-      "subject": "fix: a promoted any[] element could not be called on the main path"
-    },
-    {
-      "hash": "32d87c06f",
-      "subject": "fix: a function declaration could not see a top-level closure alias"
-    },
-    {
-      "hash": "7494a0c6a",
-      "subject": "fix: a this-using fn-expr written into a nested index slot was refused"
-    },
-    {
-      "hash": "f0496c426",
-      "subject": "fix: a call through a nested index read got no receiver"
-    },
-    {
-      "hash": "4d607c52f",
-      "subject": "chore: rotation 591 close — sweep on da2e5fcde, receiver lanes and any slots"
-    },
-    {
-      "hash": "da2e5fcde",
-      "subject": "fix: release_batch compared stderr and never compared exit codes"
     }
   ],
-  "headSha": "ae5440514",
+  "headSha": "0defd9c0d",
   "autorun": {
-    "total": 896,
+    "total": 897,
     "baselineTarget": 10,
-    "bySelf": 891,
+    "bySelf": 892,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788613623-35e0",
-      "at": "2026-09-05T13:07:03Z",
-      "ts": 1788613623,
+      "rotationId": "r-1788622676-0c61",
+      "at": "2026-09-05T15:37:56Z",
+      "ts": 1788622676,
       "trigger": "self",
-      "prevHead": "66edba529",
-      "handoffSha": "sha256:d5188ce62c038978c25fde719b88eca3e44efa8439aa651ef88855338da89d5b",
-      "handoffAgeSec": 3,
+      "prevHead": "75b128724",
+      "handoffSha": "sha256:cadb3f39058b55d59998915b9887eaea44e35f5f0d1ae07f90248393a7e746b6",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788622676-0c61",
+        "at": "2026-09-05T15:37:56Z",
+        "ts": 1788622676,
+        "trigger": "self",
+        "prevHead": "75b128724",
+        "handoffSha": "sha256:cadb3f39058b55d59998915b9887eaea44e35f5f0d1ae07f90248393a7e746b6",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788613623-35e0",
         "at": "2026-09-05T13:07:03Z",
@@ -892,17 +903,6 @@
         "prevHead": "308032d46",
         "handoffSha": "sha256:b5add4e1f20ca0b60144dd53a9e8cf7fc8968ef190c4ca0057bfed03f3530ee0",
         "handoffAgeSec": 1,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788537856-48d9",
-        "at": "2026-09-04T16:04:16Z",
-        "ts": 1788537856,
-        "trigger": "self",
-        "prevHead": "359609ff0",
-        "handoffSha": "sha256:6b4709f7fc0618e69e3af6fdd9236e13ab9ca343089860de521398b529953d9e",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }
