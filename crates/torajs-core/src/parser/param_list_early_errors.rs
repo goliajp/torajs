@@ -77,17 +77,25 @@ impl<'a> Parser<'a> {
     /// of the program falls back to the dynamic path — the same trade
     /// the other two make.
     ///
-    /// A destructuring parameter binds through its `destr_lets`, not
-    /// through `Param::name` (which is a synthesized holder), so it
-    /// is not reached from here — recorded, not fixed.
+    /// A destructuring parameter binds through `destr_lets` rather
+    /// than through `Param::name` (which holds an unspellable
+    /// `__param_destr_N`), so both are read here — `function g({ C })`
+    /// binds `C` just as surely as `function g(C)` does, and answered
+    /// the same remembered class until it did.
     pub(super) fn finish_formal_params(
         &mut self,
         params: &[Param],
+        destr_lets: &[Stmt],
         unique: bool,
     ) -> Result<(), String> {
         self.reject_duplicate_params(params, unique)?;
         for p in params {
             self.class_value_aliases.remove(&p.name);
+        }
+        for s in destr_lets {
+            if let Stmt::LetDecl { name, .. } = s {
+                self.class_value_aliases.remove(name);
+            }
         }
         Ok(())
     }

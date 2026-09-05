@@ -146,7 +146,7 @@ impl<'a> Parser<'a> {
         let (mut params, destr_lets) = self.parse_param_list()?;
         self.infer_default_param_anns(&mut params);
         // A method definition takes UniqueFormalParameters (§15.4).
-        self.finish_formal_params(&params, true)?;
+        self.finish_formal_params(&params, &destr_lets, true)?;
 
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;

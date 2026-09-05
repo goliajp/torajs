@@ -148,7 +148,7 @@ impl<'a> Parser<'a> {
         let saved_gen = std::mem::replace(&mut self.in_generator, true);
         let (mut params, destr_lets) = self.parse_param_list()?;
         self.infer_default_param_anns(&mut params);
-        self.finish_formal_params(&params, true)?;
+        self.finish_formal_params(&params, &destr_lets, true)?;
 
         let return_type = self.parse_gen_method_return_ann()?;
 

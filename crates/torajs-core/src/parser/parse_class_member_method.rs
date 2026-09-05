@@ -102,7 +102,7 @@ impl<'a> Parser<'a> {
             (p, pr, dl)
         } else {
             let (mut p, dl) = self.parse_param_list()?;
-            self.finish_formal_params(&p, true)?;
+            self.finish_formal_params(&p, &dl, true)?;
             self.reject_accessor_arity(accessor_kind, &p, &member_name.lossy())?;
             // 刀 1b — method-position default params infer their ann
             // from the default (see param_list.rs).

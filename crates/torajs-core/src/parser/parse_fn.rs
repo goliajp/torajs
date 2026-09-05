@@ -423,7 +423,7 @@ impl<'a> Parser<'a> {
             Token::RParen => self.pos += 1,
             t => return Err(format!("expected `)`, got {t:?} at {}", self.at())),
         }
-        self.finish_formal_params(&params, false)?;
+        self.finish_formal_params(&params, &param_destr_lets, false)?;
         Ok((params, param_destr_lets))
     }
 }
