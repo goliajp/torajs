@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-04T23:51:57.355Z",
+  "generatedAt": "2026-09-05T02:16:59.801Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-04T23:41:35Z",
-    "headSha": "bdb212db2",
-    "elapsedSec": 409.89,
+    "ranAt": "2026-09-05T02:04:58Z",
+    "headSha": "2bda3fd61",
+    "elapsedSec": 394.27,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31081,
+    "pass": 31084,
     "passNoOracle": 1140,
     "passNegative": 4457,
-    "passTotal": 36678,
-    "bug": 11306,
-    "incompatible": 5190,
+    "passTotal": 36681,
+    "bug": 11310,
+    "incompatible": 5183,
     "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47984,
+    "trAccepted": 47991,
     "passRateInScope": 68.98,
-    "passRateTrAccepted": 76.44
+    "passRateTrAccepted": 76.43
   },
   "torajs": {
-    "commit": "bdb212db2",
-    "commitSubject": "fix: a static field initialiser is inside the class scope too",
+    "commit": "2bda3fd61",
+    "commitSubject": "fix: only a class whose name is written needs the outer binding",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "2bda3fd61",
+      "subject": "fix: only a class whose name is written needs the outer binding"
+    },
+    {
+      "hash": "cfce402d0",
+      "subject": "fix: a hoisted class's outer binding stays in the block it was written in"
+    },
+    {
+      "hash": "79e0fb02f",
+      "subject": "fix: a class declaration's outer binding is mutable, and is not the one inside"
+    },
+    {
+      "hash": "25e005689",
+      "subject": "fix: a block that rebinds a class's name shadows it there"
+    },
+    {
+      "hash": "5c8382294",
+      "subject": "refactor: move the scope-declaration census out of the shadow walk"
+    },
+    {
+      "hash": "73c4fc0b0",
+      "subject": "chore: rotation 585 close — sweep on bdb212db2, four knives, zero regressions"
+    },
+    {
       "hash": "bdb212db2",
       "subject": "fix: a static field initialiser is inside the class scope too"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "d31e5634b",
       "subject": "refactor: the rest object's construction lives where its protocol does"
-    },
-    {
-      "hash": "0b7b6ba8e",
-      "subject": "feat: an object rest can stand next to a computed key"
-    },
-    {
-      "hash": "0eca1e028",
-      "subject": "fix: a built-in function prints its native toString on one line"
-    },
-    {
-      "hash": "175e2da6c",
-      "subject": "chore: rotation 584 close — sweep on f20de97a3, two knives, zero regressions"
-    },
-    {
-      "hash": "f20de97a3",
-      "subject": "fix: a demoted method call has to take its old name out of the arena too"
-    },
-    {
-      "hash": "ffd11b3de",
-      "subject": "fix: a method call whose argument count is a runtime value is not a direct call"
-    },
-    {
-      "hash": "359609ff0",
-      "subject": "chore: rotation 583 close — sweep on 1d57054a8, four knives, zero regressions"
     }
   ],
-  "headSha": "bdb212db2",
+  "headSha": "2bda3fd61",
   "autorun": {
-    "total": 888,
+    "total": 889,
     "baselineTarget": 10,
-    "bySelf": 883,
+    "bySelf": 884,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788549331-35a5",
-      "at": "2026-09-04T19:15:31Z",
-      "ts": 1788549331,
+      "rotationId": "r-1788566169-7bb0",
+      "at": "2026-09-04T23:56:09Z",
+      "ts": 1788566169,
       "trigger": "self",
-      "prevHead": "308032d46",
-      "handoffSha": "sha256:b5add4e1f20ca0b60144dd53a9e8cf7fc8968ef190c4ca0057bfed03f3530ee0",
-      "handoffAgeSec": 1,
+      "prevHead": "73c4fc0b0",
+      "handoffSha": "sha256:49532a850557ba8dba750ef57945d5f5d764466874cebc892ae07ad6e4d9750c",
+      "handoffAgeSec": 12,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788566169-7bb0",
+        "at": "2026-09-04T23:56:09Z",
+        "ts": 1788566169,
+        "trigger": "self",
+        "prevHead": "73c4fc0b0",
+        "handoffSha": "sha256:49532a850557ba8dba750ef57945d5f5d764466874cebc892ae07ad6e4d9750c",
+        "handoffAgeSec": 12,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788549331-35a5",
         "at": "2026-09-04T19:15:31Z",
@@ -892,17 +903,6 @@
         "prevHead": "12af7de63",
         "handoffSha": "sha256:f8071699363ff766e26b0f68336fc1f0a6ff5668667a2ce0ae051211b4bf60b5",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788460145-383c",
-        "at": "2026-09-03T18:29:05Z",
-        "ts": 1788460145,
-        "trigger": "self",
-        "prevHead": "650796d4f",
-        "handoffSha": "sha256:420b62a4da46d4386835ad9150936ef5c260ff133918a4e2dbde5b1d09dd99b6",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }

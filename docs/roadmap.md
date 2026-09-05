@@ -1620,7 +1620,7 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ bdb212db2`, never as a constant (the two shas this
+snapshot stamped `@ 2bda3fd61`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,49 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `bdb212db2`** (2026-09-05, rotation 585 — what a class's own
+**Latest @ `2bda3fd61`** (2026-09-05, rotation 586 — what a class's own
+name means OUTSIDE its own body. §14.2.3 / §16.1.7: a class
+declaration is not a constant declaration, so the scope around it
+holds a MUTABLE binding — a second one, distinct from the immutable
+binding §15.7.14 step 3 puts inside the class scope, which rotation
+585 landed. tr had only the second, and every reference resolved to
+it, so `class D {}; D = 1` — a legal program — was refused at compile
+time. The two have to stay two: after `C = null`, a reference captured
+inside the class still answers the class, which is what a single
+renamed-to-mutable cell cannot do and what those tests are for. So the
+outer binding gets a slot of its own and the rewrite stops claiming
+the name outside the class's own bodies; which bodies those are is
+answered by their names, since after `desugar_classes` that is all
+that is left of having been written inside the class. A class the
+nested-class hoist renames on collision keeps its binding in the
+container it was written in, not at program level, or two blocks'
+classes fight over one spelling. Underneath all of that, the
+class-reference rewrite shrank its visible set only on entering a
+FUNCTION scope — and the program's own scope is not one, so at top
+level nothing shadowed at all and `{ class C {} } { let C = 42 }`
+answered the class, silently. The coarse fn-level reading is licensed
+by erring loudly; that licence needs something coarser enclosing it,
+and nothing encloses the program. Last: minting the outer slot for
+every class, rather than only for one whose name is written, cost a
+65k-line generated test its compile — the slot lives in main's frame,
+and a uniform per-class cost found a threshold. Only the full sweep
+saw it.) Gate predicate: **135** clusters of >= 4 holding **1007**
+cases, register 2 · 215, residue 449 · 609 (33.3%), core **1831**.
+Against rotation 585: clusters **135 (=)**, cases 1014 -> **1007
+(-7)**, core 1838 -> **1831 (-7)**.
+
+Sweep passTotal 36678 -> **36681 (+3)**, pass 31081 -> **31084 (+3)**,
+passNoOracle **1140 (=)**, passNegative **4457 (=)**, bug 11306 ->
+**11310 (+4)**, incompatible 5190 -> **5183 (-7)**, trAccepted 47984 ->
+**47991 (+7)**; conservation exact (+7 = +3 + 4). Pass rate 68.98% (=).
+Seven verdicts moved, none backward: three to pass, four from an
+`incompatible` compile reject to a `bug` at run time, which is what
+"tr now accepts and runs the program" looks like on this scoreboard.
+An eighth move existed mid-rotation and is gone from this sweep: the
+per-class frame cost took `staging/sm/String/string-upper-lower-mapping`
+its pass, and narrowing the binding to written names restored it.
+
+**Prior @ `bdb212db2`** (2026-09-05, rotation 585 — what a class's own
 name means inside its own body, and whether the binary under test is
 the one this tree builds. §15.7.14 step 3 binds a class's name inside
 the class scope for both halves of the grammar; tr modelled only the
