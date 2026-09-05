@@ -1,10 +1,9 @@
 //! The runtime-props receiver census — the B2 store-receiver bar.
 //!
 //! Moved out of [`super::fnexpr_this_recvs`] verbatim in rotation 594:
-//! that file stood at 478 prod lines, and the next thing this census
-//! needs is an arm for a CALL initializer, which does not fit under the
-//! 500-line limit alongside the five other censuses. Nothing else
-//! changed in the move.
+//! that file stood at 478 prod lines, and this census then needed an
+//! arm for a CALL initializer, which does not fit under the 500-line
+//! limit alongside the five other censuses.
 
 use super::{Expr, Stmt};
 
@@ -31,16 +30,61 @@ pub(super) fn collect_props_receiver_binding_names(
     stmts: &[Stmt],
     exprs: &[Expr],
 ) -> std::collections::HashSet<String> {
+    let mut fn_rets: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    collect_fn_return_anns(stmts, &mut fn_rets);
     let mut names = std::collections::HashSet::new();
     let mut other = std::collections::HashSet::new();
-    collect_props_receiver_inner(stmts, exprs, &mut names, &mut other);
+    collect_props_receiver_inner(stmts, exprs, &fn_rets, &mut names, &mut other);
     names.retain(|n| !other.contains(n));
     names
+}
+
+/// Every function declaration's declared return annotation, by name,
+/// at any depth. Read only to answer what shape a CALL initializer
+/// hands its binding — see the `Expr::Call` arm below. Program-wide
+/// by name, the same approximation grade as every census in this
+/// family; a name two declarations disagree about is dropped rather
+/// than guessed at.
+fn collect_fn_return_anns(stmts: &[Stmt], out: &mut std::collections::HashMap<String, String>) {
+    let mut conflicting: Vec<String> = Vec::new();
+    walk(stmts, out, &mut conflicting);
+    for n in conflicting {
+        out.remove(&n);
+    }
+
+    fn walk(
+        stmts: &[Stmt],
+        out: &mut std::collections::HashMap<String, String>,
+        conflicting: &mut Vec<String>,
+    ) {
+        for s in stmts {
+            if let Stmt::FnDecl {
+                name, return_type, ..
+            } = s
+            {
+                match return_type {
+                    Some(rt) => {
+                        if out
+                            .insert(name.clone(), rt.clone())
+                            .is_some_and(|p| p != *rt)
+                        {
+                            conflicting.push(name.clone());
+                        }
+                    }
+                    None => conflicting.push(name.clone()),
+                }
+            }
+            super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+                walk(inner, out, conflicting)
+            });
+        }
+    }
 }
 
 fn collect_props_receiver_inner(
     stmts: &[Stmt],
     exprs: &[Expr],
+    fn_rets: &std::collections::HashMap<String, String>,
     names: &mut std::collections::HashSet<String>,
     other: &mut std::collections::HashSet<String>,
 ) {
@@ -57,6 +101,22 @@ fn collect_props_receiver_inner(
                     None => match &exprs[init.0 as usize] {
                         Expr::Array(_) => true,
                         Expr::ObjectLit { fields } => fields.is_empty(),
+                        // Rotation 594 — a CALL initializer. The
+                        // binding's shape is the callee's DECLARED
+                        // return annotation, read by the same bar the
+                        // annotated arm above uses. Without it
+                        // `const z = mk()` was pushed into `other` and
+                        // REMOVED the name, so `z[0] = fn` lost its
+                        // receiver while the byte-identical program
+                        // spelled `const z: any[][] = [[]]` kept it —
+                        // a difference no one writing either could
+                        // predict.
+                        Expr::Call { callee, .. } => match &exprs[callee.0 as usize] {
+                            Expr::Ident(f) => fn_rets
+                                .get(f)
+                                .is_some_and(|a| a == "any" || a.ends_with("[]")),
+                            _ => false,
+                        },
                         _ => false,
                     },
                 };
@@ -69,7 +129,7 @@ fn collect_props_receiver_inner(
             _ => {}
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_props_receiver_inner(inner, exprs, names, other)
+            collect_props_receiver_inner(inner, exprs, fn_rets, names, other)
         });
     }
 }
