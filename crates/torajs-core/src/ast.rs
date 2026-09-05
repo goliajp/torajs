@@ -122,6 +122,7 @@ pub(crate) mod fnexpr_this_expando;
 pub(crate) mod fnexpr_this_faces;
 mod fnexpr_this_member_ret;
 mod fnexpr_this_names;
+mod fnexpr_this_objlit;
 mod fnexpr_this_pairing;
 pub(crate) mod fnexpr_this_recvs;
 pub(crate) mod fnexpr_this_routed;

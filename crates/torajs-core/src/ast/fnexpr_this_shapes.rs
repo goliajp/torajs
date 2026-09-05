@@ -90,8 +90,13 @@ pub(super) struct UseShapes {
     /// [`super::fnexpr_this_arraylit::arraylit_elem_idents`]. Admits
     /// only for a binding outside [`Self::variadic_names`].
     pub(super) arraylit_elem: std::collections::HashSet<ExprId>,
-    /// Bindings whose closure carries a variadic repr, which
-    /// [`Self::arraylit_elem`] does not cover — see
+    /// A bare-Ident VALUE of an object-literal field (590-01) — see
+    /// [`super::fnexpr_this_objlit::objlit_field_idents`]. Admits
+    /// only for a binding outside [`Self::variadic_names`], the same
+    /// exclusion [`Self::arraylit_elem`] carries.
+    pub(super) objlit_field: std::collections::HashSet<ExprId>,
+    /// Bindings whose closure carries a variadic repr, which neither
+    /// [`Self::arraylit_elem`] nor [`Self::objlit_field`] covers — see
     /// [`super::fnexpr_this_arraylit::variadic_binding_names`].
     pub(super) variadic_names: std::collections::HashSet<String>,
     /// The init site of a PROVEN-SAFE alias declaration (397-02) —
@@ -168,6 +173,7 @@ impl UseShapes {
             hof_cb_arg: hof_any_cb_arg_idents(stmts, exprs),
             any_arraylit_elem: super::fnexpr_this_arraylit::any_arraylit_elem_idents(stmts, exprs),
             arraylit_elem: super::fnexpr_this_arraylit::arraylit_elem_idents(exprs),
+            objlit_field: super::fnexpr_this_objlit::objlit_field_idents(exprs),
             variadic_names: super::fnexpr_this_arraylit::variadic_binding_names(
                 stmts, exprs, argc, argv,
             ),
@@ -194,6 +200,7 @@ impl UseShapes {
             || self.hof_cb_arg.contains(&e)
             || self.any_arraylit_elem.contains(&e)
             || (self.arraylit_elem.contains(&e) && !self.variadic_names.contains(name))
+            || (self.objlit_field.contains(&e) && !self.variadic_names.contains(name))
             || self.safe_alias_init.contains(&e)
             || self.inline_call_arg.contains(&e)
             || self.assign_target.contains(&e)
