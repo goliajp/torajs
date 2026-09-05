@@ -16,28 +16,34 @@ use super::{Expr, ExprId, Stmt};
 ///
 /// Returning the name never CALLS the binding — the same one-liner that
 /// admits a member's object and the right of `instanceof`. What makes
-/// this one different is that the cell ESCAPES, so the proof it needs
-/// is the explicit-`any` argument shape's rather than theirs: the value
-/// has to cross into the any lane and STAY there, because every
-/// any-lane call path honors the receiver channel (`__torajs_any_call`
-/// / `invoke_with_this` / the NewDynamic kernel all shift argv on
-/// FLAG_CLOSURE_RECV_FIRST) while a typed indirect call does not.
+/// this one different is that the cell ESCAPES, so the proof has to be
+/// about every path the caller can reach it by rather than about this
+/// syntactic position. Those paths all honor the receiver channel: the
+/// any lane shifts argv on FLAG_CLOSURE_RECV_FIRST (`__torajs_any_call`
+/// / `invoke_with_this` / the NewDynamic kernel), and 398-06 put the
+/// same runtime test on the TYPED indirect lanes, so a value that flows
+/// through a concrete slot answers correctly too.
 ///
-/// Two things have to hold for that crossing, and this classifier only
-/// checks the second — the caller pairs it with the binding's own `any`
-/// annotation, which is what makes the RETURNED expression an any-lane
-/// cell in the first place:
+/// The single lane with no gate is `emit_fnsig_callee`'s bare
+/// `CallIndirect`, and it is reached only when the callee's static type
+/// is a spelled-out `Type::FnSig` — which is precisely what the RETURN
+/// annotation decides. So the boundary carries the whole proof: an
+/// absent annotation infers straight through, an explicit `any` says it
+/// outright, and a concrete signature (`function take(f: any): (a:
+/// number) => string`) hands the caller a typed callee and is rejected
+/// here.
 ///
-/// 1. the binding is annotated `any`, and
-/// 2. the boundary does not re-type it — an absent return annotation
-///    infers the `any` straight through, and an explicit `any` says it
-///    outright. A concrete signature (`function take(f: any): (a:
-///    number) => string`) is what this rejects: it hands the caller a
-///    typed callee, whose call path never reads the flag.
-///
-/// The excluded halves stay loud, which is where they already are:
-/// every program that returns a `this`-using binding is rejected today,
-/// so nothing that answers correctly can be pulled in.
+/// The binding's OWN annotation was required alongside this from the
+/// day the shape landed (`7c259d91f`), on the theory that it was what
+/// put the returned cell in the any lane to begin with. It is not —
+/// the promoter keeps every admitted binding on the runtime gate,
+/// which is why the array-element and `any`-parameter shapes never
+/// asked for it either. 593 measured the difference across every
+/// read-back path (immediate call, through a variable, into an array
+/// element or an object field, on to another function, one more
+/// boundary out, `typeof`) and found the annotated and unannotated
+/// bindings answering alike — including the argv-shift witnesses that
+/// a zero-parameter callee cannot show.
 ///
 /// Bare Ident only, like the `instanceof` shape — `return C as any` is
 /// a different node and is not measured here.
@@ -83,10 +89,13 @@ pub(super) fn any_boundary_return_idents(
     out
 }
 
-/// Every name a `LetDecl` annotates exactly `any` — the binding half of
-/// the return-shape proof above. A name declared twice lands here off
-/// either decl, and the `decls.len() != 1` guard is what turns that
-/// away.
+/// Every name a `LetDecl` annotates exactly `any`. It was the binding
+/// half of the return-shape proof above until 593 showed that half was
+/// not load-bearing; what still reads it is
+/// [`super::fnexpr_this_routed`]'s rebindable test, where an explicit
+/// `any` says the slot was declared wide on purpose. A name declared
+/// twice lands here off either decl, and the `decls.len() != 1` guard
+/// is what turns that away.
 pub(super) fn collect_any_ann_decl_names(
     stmts: &[Stmt],
     out: &mut std::collections::HashSet<String>,

@@ -16,12 +16,16 @@
 //!    `instanceof`, a `typeof` operand, an equality operand, the target
 //!    of `Object.defineProperty`, the name in `export default <name>` —
 //!    these consume the cell as a value and enter no call lane at all.
-//! 2. **The value crosses into the any lane and stays there.** An
-//!    explicitly-`any` parameter slot, and a `return` across an
-//!    any-typed boundary. The cell escapes, so the proof has to cover
-//!    every downstream path — which holds because every any-lane call
-//!    path shifts argv on `FLAG_CLOSURE_RECV_FIRST`, while a typed
-//!    indirect call does not.
+//! 2. **Every path the value can be called back through honors the
+//!    receiver channel.** An explicitly-`any` parameter slot, an array
+//!    element, a `return` across a boundary that does not re-type it.
+//!    The cell escapes, so the proof has to cover every downstream
+//!    path — which holds because the any lane shifts argv on
+//!    `FLAG_CLOSURE_RECV_FIRST` and 398-06 put the same test at
+//!    runtime on the typed indirect lanes. The one lane with no gate
+//!    is the bare `CallIndirect` for a spelled-out `Type::FnSig`
+//!    callee, so what a shape in this kind has to prove is that the
+//!    value cannot arrive at a call site holding that static type.
 //!
 //! A direct call is the one member of neither kind: it is receiver-safe
 //! because the CALL SITE is rewritten to seed `undefined` into the
@@ -93,8 +97,7 @@ pub(super) struct UseShapes {
     /// The bare name in `export default <name>`.
     pub(super) export_default: std::collections::HashSet<ExprId>,
     /// `return <bare name>` out of a function whose return type is
-    /// inferred or spelled exactly `any`. Admits only together with
-    /// [`Self::any_ann_names`] — see
+    /// inferred or spelled exactly `any` — see
     /// [`super::fnexpr_this_ret_boundary::any_boundary_return_idents`].
     pub(super) any_return: std::collections::HashSet<ExprId>,
     /// The target argument of `Object.defineProperty` /
@@ -236,7 +239,7 @@ impl UseShapes {
             || self.safe_alias_init.contains(&e)
             || self.inline_call_arg.contains(&e)
             || self.assign_target.contains(&e)
-            || (self.any_return.contains(&e) && self.any_ann_names.contains(name))
+            || self.any_return.contains(&e)
     }
 }
 
