@@ -25,6 +25,7 @@
 //! an `Ident` — the deconflict census owns that spelling; this walk
 //! only serves value-position reads.
 
+use super::class_globals_shadow_decls::collect_scope_decls;
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashSet;
 
@@ -137,67 +138,6 @@ fn shrunk(sh: &Shadow, params: &[Param], body: &[Stmt]) -> Shadow {
     let mut declared: HashSet<String> = params.iter().map(|p| p.name.clone()).collect();
     collect_scope_decls(body, &mut declared);
     sh.without(&declared)
-}
-
-fn collect_scope_decls(stmts: &[Stmt], out: &mut HashSet<String>) {
-    for s in stmts {
-        match s {
-            Stmt::LetDecl { name, .. }
-            | Stmt::FnDecl { name, .. }
-            | Stmt::ClassDecl { name, .. } => {
-                out.insert(name.clone());
-            }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_scope_decls(std::slice::from_ref(then_branch), out);
-                if let Some(eb) = else_branch.as_deref() {
-                    collect_scope_decls(std::slice::from_ref(eb), out);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-                collect_scope_decls(std::slice::from_ref(body), out)
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init.as_deref() {
-                    collect_scope_decls(std::slice::from_ref(i), out);
-                }
-                collect_scope_decls(std::slice::from_ref(body), out);
-            }
-            Stmt::ForOf { var_name, body, .. } => {
-                out.insert(var_name.clone());
-                collect_scope_decls(std::slice::from_ref(body), out);
-            }
-            Stmt::ForOfSplitIter { var_name, body, .. } => {
-                out.insert(var_name.clone());
-                collect_scope_decls(std::slice::from_ref(body), out);
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                collect_scope_decls(body, out);
-                collect_scope_decls(catch_body, out);
-                if let Some(fb) = finally_body {
-                    collect_scope_decls(fb, out);
-                }
-            }
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases {
-                    collect_scope_decls(&c.body, out);
-                }
-                if let Some(d) = default {
-                    collect_scope_decls(d, out);
-                }
-            }
-            Stmt::Block(b) | Stmt::Multi(b) => collect_scope_decls(b, out),
-            _ => {}
-        }
-    }
 }
 
 fn rewrite_stmts(ast: &mut Ast, stmts: &[Stmt], sh: &Shadow) {

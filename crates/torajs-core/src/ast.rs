@@ -46,6 +46,7 @@ pub(crate) mod capturing_classes;
 mod class_globals;
 mod class_globals_register;
 mod class_globals_shadow;
+mod class_globals_shadow_decls;
 mod clone_body;
 mod clone_body_tables;
 mod closure_capture_anns;
