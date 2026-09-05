@@ -177,6 +177,7 @@ mod module_ns_members;
 mod module_passes;
 mod named_eval;
 mod namedfn_recv_cb;
+mod namedfn_recv_cb_sites;
 mod namedfn_this_value;
 pub(crate) mod nested_closure_captures;
 mod nested_fns;

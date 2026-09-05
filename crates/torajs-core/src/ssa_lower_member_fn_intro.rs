@@ -126,7 +126,7 @@ fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) 
         // declaration. The registry rows already strip both; this
         // compile-time fold saw only the first until the namespace
         // member direct-connect started handing it the second.
-        let base = crate::ssa_lower_inner::body_passes::strip_module_mangle(&fn_name_owned);
+        let base = crate::ssa_lower_inner::body_passes_fn_name::strip_module_mangle(&fn_name_owned);
         crate::ssa_lower_inner::strip_static_method_name(base, &ctx.ast.class_parents)
             .unwrap_or(base)
             .to_string()

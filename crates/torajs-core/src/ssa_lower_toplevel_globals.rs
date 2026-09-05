@@ -259,7 +259,7 @@ fn slot_type_supported(
             // user's too. Same category as the ES5 class binding
             // below.
             || name.starts_with("__reex_")
-            || crate::ssa_lower_inner::body_passes::strip_module_mangle(name) != name
+            || crate::ssa_lower_inner::body_passes_fn_name::strip_module_mangle(name) != name
             // …and the ES5 class binding (rotation 417): the name is
             // minted, but what it holds is the user's class, and the
             // named fns that read it are the user's too. See
