@@ -35,6 +35,45 @@ fn index_is_symbol_key(ctx: &LowerCtx<'_>, index: ExprId) -> bool {
     matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Symbol))
 }
 
+/// The element read's REPRESENTATION is `any` even though the
+/// checker named a sharper type — the doctrine
+/// [`crate::ssa_lower_any_call::callee_slot_is_any`] states for a
+/// bare Ident callee, one shape further out.
+///
+/// A top-level binding promoted for named-fn visibility takes the
+/// slot type K.3b inferred, and for an array of closures that is
+/// `any[]`: the elements are boxes. The checker's MAIN-side view of
+/// the same binding is still the array literal's own element type,
+/// so `arr[0]` types as a Function while the value the call has to
+/// work with is an Any. The typed indirect lane does not claim it
+/// and the call fell through to "unsupported callee form: Index" —
+/// a hard reject on `const arr = [(a: number) => a]` the moment any
+/// named fn read `arr`, while the identical program spelled
+/// `const arr: any[] = […]` worked (there the annotation makes both
+/// homes agree).
+///
+/// Reading the SLOT rather than the checker answers it: `locals`
+/// first, so a binding shadowed inside a fn body is not mistaken
+/// for the global of the same name. A keyed hop off such a slot is
+/// itself an Any value, and indexing an Any answers Any, so the
+/// question recurses down the chain to the binding it starts from.
+fn obj_slot_elems_are_any(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
+    match ctx.ast.get_expr(obj) {
+        Expr::Ident(n) => {
+            if ctx.locals.contains_key(n) {
+                return false;
+            }
+            match ctx.globals.get(n) {
+                Some(Type::Any) => true,
+                Some(Type::Arr(aid)) => ctx.arr_layouts[aid.0 as usize] == Type::Any,
+                _ => false,
+            }
+        }
+        Expr::Index { obj: inner, .. } => obj_slot_elems_are_any(ctx, *inner),
+        _ => false,
+    }
+}
+
 /// Try to lower `callee(args…)` as an any-receiver index-keyed
 /// method call. Returns `None` unless the callee is an Index read
 /// off an `any`-typed object.
@@ -70,6 +109,7 @@ pub(crate) fn try_lower(
     if !matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any))
         && !index_is_symbol_key(ctx, index)
         && !callee_dispatches_dynamically
+        && !obj_slot_elems_are_any(ctx, obj)
     {
         return None;
     }

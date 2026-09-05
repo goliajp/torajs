@@ -331,8 +331,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         // identifier" while the same program written
                         // `const c: any = k` worked.
                         else if !*is_var
-                            && let Some(canon) =
-                                crate::ast_refs::closure_alias_fn_canon(ast, *init)
+                            && let Some(canon) = crate::ast_refs::closure_alias_fn_canon(ast, *init)
                             && !canon.contains("__rest(")
                         {
                             resolve_type_ann(&canon, &c.aliases)
