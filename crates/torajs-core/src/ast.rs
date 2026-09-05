@@ -108,6 +108,7 @@ mod fndecl_rebound;
 mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
 mod fnexpr_this_alias;
+mod fnexpr_this_any_init;
 pub(crate) mod fnexpr_this_args;
 mod fnexpr_this_args_valueops;
 mod fnexpr_this_arraylit;

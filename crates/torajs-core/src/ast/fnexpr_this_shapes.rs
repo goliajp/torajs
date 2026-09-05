@@ -74,6 +74,14 @@ pub(super) struct UseShapes {
     /// binding (590-03) — see
     /// [`super::fnexpr_this_arrpush::any_elem_push_arg_idents`].
     pub(super) any_elem_push_arg: std::collections::HashSet<ExprId>,
+    /// The bare-Ident INIT of a binding annotated exactly `any`
+    /// (591-04) — see
+    /// [`super::fnexpr_this_any_init::any_ann_init_idents`]. Like
+    /// [`Self::any_arraylit_elem`] and unlike [`Self::arraylit_elem`],
+    /// it carries no variadic exclusion: that exclusion exists
+    /// because an array element's type is not spelled anywhere this
+    /// pass can see, and here the annotation spells it.
+    pub(super) any_ann_init: std::collections::HashSet<ExprId>,
     /// The bare name on the right of `instanceof`.
     pub(super) instanceof_name: std::collections::HashSet<ExprId>,
     /// The bare name under `typeof`.
@@ -177,6 +185,7 @@ impl UseShapes {
             any_arg: any_param_arg_idents(stmts, exprs),
             any_param_assign: any_param_assign_value_idents(stmts, exprs),
             any_elem_push_arg: super::fnexpr_this_arrpush::any_elem_push_arg_idents(stmts, exprs),
+            any_ann_init: super::fnexpr_this_any_init::any_ann_init_idents(stmts, exprs),
             instanceof_name: instanceof_name_idents(exprs),
             typeof_operand: typeof_operand_idents(exprs),
             export_default: export_default_idents(stmts, exprs),
@@ -208,6 +217,7 @@ impl UseShapes {
             || self.any_arg.contains(&e)
             || self.any_param_assign.contains(&e)
             || self.any_elem_push_arg.contains(&e)
+            || self.any_ann_init.contains(&e)
             || self.instanceof_name.contains(&e)
             || self.typeof_operand.contains(&e)
             || self.export_default.contains(&e)
