@@ -128,13 +128,13 @@ pub(crate) fn try_lower(
         let crate::ssa::Type::Closure(sig) = ctx.operand_ty(&callee_op) else {
             return None;
         };
-        let out = crate::ssa_lower_call_fn_indirect::emit_closure_callee_with_this(
+        let out = crate::ssa_lower_call_closure_emit::emit_closure_callee_with_this(
             ctx,
             eid,
             callee_op,
             sig,
             &rest,
-            crate::ssa_lower_call_fn_indirect::ClosureThis::Expr(args[0]),
+            crate::ssa_lower_call_closure_emit::ClosureThis::Expr(args[0]),
         );
         ctx.release_owned_temp(obj, &callee_op);
         return Some(out);
@@ -176,7 +176,7 @@ pub(crate) fn try_lower(
                 );
             }
             crate::ssa::Type::Closure(sig) => {
-                return Some(crate::ssa_lower_call_fn_indirect::emit_closure_callee(
+                return Some(crate::ssa_lower_call_closure_emit::emit_closure_callee(
                     ctx, eid, callee_op, sig, &rest,
                 ));
             }

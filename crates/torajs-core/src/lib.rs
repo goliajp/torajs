@@ -325,6 +325,7 @@ pub(crate) mod ssa_lower_call_class_synth_error;
 pub(crate) mod ssa_lower_call_class_synth_proto;
 pub(crate) mod ssa_lower_call_class_synth_reify;
 mod ssa_lower_call_class_synth_writeback;
+pub(crate) mod ssa_lower_call_closure_emit;
 pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
 pub(crate) mod ssa_lower_call_coercion_nullable;
