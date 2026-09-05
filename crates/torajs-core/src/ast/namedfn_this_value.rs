@@ -101,17 +101,28 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));
         }
     }
-    // A name any inner scope rebinds is refused OUTRIGHT, everywhere.
     // The site walk below is an arena sweep with no scope information,
     // so it cannot tell `return fn` inside `function g() { const fn = 1 }`
     // from a read of the declaration — and rewriting that one turns a
     // program that answers `1` into one that answers `[Function: fn]`.
-    // Refusing the whole name leaves such a program exactly where it
-    // was before this pass existed, which is the only safe direction
-    // when the alternative is a wrong answer in a shape the conformance
-    // gate does not carry. Same over-refusal the sibling
-    // `namedfn_recv_cb` collectors take, and the same two helpers.
-    sigs.retain(|n, _| !name_rebound_anywhere(&ast.stmts, n));
+    // A rebinding no block boundary separates from the declaration
+    // (a parameter / catch / loop variable, a top-level redeclaration)
+    // still refuses the whole name; a BLOCK hands back the arena slots
+    // it owns instead, so the reads outside it keep their forwarder
+    // (`namedfn_rebound_scope`, whose doc carries why the whole-name
+    // verdict is not free).
+    let mut block_scoped: HashSet<usize> = HashSet::new();
+    sigs.retain(|n, _| {
+        if super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n) {
+            return false;
+        }
+        block_scoped.extend(
+            super::namedfn_rebound_scope::block_scoped_expr_ids(ast, n)
+                .into_iter()
+                .map(|e| e.0 as usize),
+        );
+        true
+    });
     if sigs.is_empty() {
         return;
     }
@@ -141,6 +152,7 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             && sigs.contains_key(n)
             && !non_value.contains(&i)
             && !claimed.contains(&i)
+            && !block_scoped.contains(&i)
         {
             sites.push((i, n.clone()));
         }
@@ -228,33 +240,4 @@ fn synth_forwarder(
         // user function's source.
         span: target_span,
     }
-}
-
-/// Whether any scope in the program rebinds `name` — a parameter, a
-/// catch or loop variable (`name_shadowed_elsewhere` answers those),
-/// or a `let` / `const` / `var` declaration at ANY depth, which that
-/// helper does not look for: it descends through blocks but its match
-/// has no `LetDecl` arm, and its companion `collect_decls_by_name` was
-/// written for the top level. A bare block is enough to matter —
-/// `{ const fn = 3; console.log(fn) }` under a top-level
-/// `function fn` printed the function instead of `3`.
-pub(super) fn name_rebound_anywhere(stmts: &[Stmt], name: &str) -> bool {
-    if super::fnexpr_this_names::name_shadowed_elsewhere(stmts, name) {
-        return true;
-    }
-    for s in stmts {
-        if let Stmt::LetDecl { name: dn, .. } = s
-            && dn == name
-        {
-            return true;
-        }
-        let mut hit = false;
-        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            hit = hit || name_rebound_anywhere(inner, name);
-        });
-        if hit {
-            return true;
-        }
-    }
-    false
 }

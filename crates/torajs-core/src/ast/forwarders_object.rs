@@ -162,52 +162,11 @@ fn snapshot_type_field_anns(
     (struct_field_anns, generic_field_anns)
 }
 
-/// Drop a `bind_this_param`-promoted candidate whose name some inner
-/// scope rebinds — the same verdict on the same evidence the sibling
-/// `namedfn_this_value` takes, through the same helper rather than a
-/// second copy of it.
-///
-/// Every axis in [`synthesize_fn_to_closure_forwarders`] matches a bare
-/// Ident against this table over a flat arena carrying no scope
-/// information, so none of them can tell a read of the declaration from
-/// a read of an inner binding that shadows it. Wrapping the latter
-/// turns a program that answers `3` into one that answers
-/// `[Function: fn]` — a wrong value, not a wrong receiver.
-///
-/// `name_rebound_anywhere`'s own doc already carried this repro:
-/// rotation 594 took the verdict for the value-promote pass and missed
-/// that THIS pass mints the same `__forward_` cell at the same
-/// positions. The bug therefore survived in bare blocks, `if` bodies
-/// and loop bodies while a function body answered right.
-///
-/// The promoted gate is the SYMPTOM's own boundary, measured both ways:
-/// a declaration that never says `this` reads its inner shadow
-/// correctly today, because the value it would be wrapped into is the
-/// same cell either way. Refusing those too costs real programs — the
-/// first cut did, and test262 answered with six pass regressions
-/// (`Object/S15.2.1.1_A2_T9`, `S15.2.2.1_A2_T6`, two
-/// `tagged-template/cache-*-new-function`, `statements/function/name`,
-/// `sm/class/newTargetDVG`), all of them turning into
-/// "not yet supported" because a downstream slot still wanted the
-/// closure repr this pass had stopped minting.
-fn refuse_rebound_names(
-    ast: &Ast,
-    fn_sigs: &mut std::collections::HashMap<
-        String,
-        (Vec<Param>, Option<String>, crate::lexer::Span),
-    >,
-) {
-    fn_sigs.retain(|n, _| {
-        !ast.this_param_fns.contains(n)
-            || !super::namedfn_this_value::name_rebound_anywhere(&ast.stmts, n)
-    });
-}
-
 pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     use std::collections::{HashMap, HashSet};
 
     let (mut fn_sigs, existing_forwarders, fn_type_params) = snapshot_fn_sigs(ast);
-    refuse_rebound_names(ast, &mut fn_sigs);
+    let block_scoped = super::namedfn_rebound_scope::refuse_rebound_names(ast, &mut fn_sigs);
     if fn_sigs.is_empty() {
         return;
     }
@@ -374,6 +333,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     );
     ast.variadic_value_bindings.extend(variadic_bindings);
 
+    rewrites.retain(|(eid, _)| !block_scoped.contains(eid));
     if rewrites.is_empty() {
         return;
     }
