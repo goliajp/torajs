@@ -1614,13 +1614,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `da2e5fcde` (53174
+**Where the numbers come from.** Full sweep @ `b96b7deb1` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ da2e5fcde`, never as a constant (the two shas this
+snapshot stamped `@ b96b7deb1`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,65 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `da2e5fcde`** (2026-09-05, rotation 591 — where a call's
+**Latest @ `b96b7deb1`** (2026-09-05, rotation 592 — what a call's
+receiver may be read off, and which top-level bindings a function
+declaration can see at all. Five knives, all gated, and **zero
+movement on test262 — the whole-domain verdict diff is 0 lines**,
+which for this rotation is the honest number: nothing here is a
+shape the suite exercises, and the value is that nothing regressed
+while five hard rejects and one silent wrong went away.
+
+591 restored the §13.3.6.2 base for an index callee but could admit
+only an Ident base, because the seed was lowered separately from the
+element read — which lowers the base again — so only a shape safe to
+evaluate twice qualified. Everything else seeded nothing, and
+`b[0][0]()` called with `this === undefined` **without saying so**.
+Parking the lowered base under `redispatch_lowered`, the established
+"a dispatcher lowered this and declined" channel, makes the element
+read consume it instead of re-emitting: the base evaluates exactly
+once and its shape stops mattering — a nested index, a member chain,
+and a side-effecting call base all seed, and `makeRow()[0]()` runs
+`makeRow` one time. With the read-back half true, the WRITE half
+follows: the store face read only the immediate receiver of
+`rows[0][0] = fn`, so it refused what `rows[0] = fn` allowed; what
+decides is the ROOT the keyed hops start from, since every hop off
+such a binding stays in the same world.
+
+The other three came out of a probe that was measuring something
+else, and are not about `this` at all. A named fn body has no
+capture machinery, so it reads top-level bindings through the
+globals table — and a binding lands there only if the checker and
+the lowering both infer a slot for it, from the same spelling.
+Neither did for an ALIAS of a closure binding, so `const c = k;
+function give() { return c(9) }` was a hard reject on "unknown
+identifier `c`" while `const c: any = k` worked; nor for a literal
+MEMBER naming one (`const arr = [k]`), where the any-slot verdict
+admitted a closure written inline at that position but not one
+reached through its name. Both now answer the same `__fn(...)`
+string the closure init itself uses, so the two homes cannot drift.
+Between them sits the reason they had to ship in that order:
+promoting such a binding puts an `any[]` slot under a main-path
+`arr[0](1)`, and the checker's main-side view still carried the
+literal's own element type — so the typed lane found an Any operand
+it does not claim and answered "unsupported callee form: Index". A
+pre-existing hard reject on `const arr = [(a: number) => a + 1]`,
+reachable the moment any named fn mentioned `arr`. Reading the SLOT
+rather than the checker fixes it, the rule the bare-Ident callee
+already followed, one shape out — and routing it through the
+index-keyed any lane rather than the bare any-call layer is what
+keeps the receiver.
+
+Registered, not fixed: `bun 1.4.1` answers `[k][0]()` with
+`undefined` where node 26.8.1 and tr both say `object` — an
+array-literal base is still a property Reference (that row is
+deliberately absent from the fixture, which must stay byte-equal
+against bun); the array-of-closures case still rejects when the
+root binding is not one the props-receiver bar names
+(`const z = mk(); z[0][0] = fn`). Gate predicate unchanged at
+**135** clusters of ≥ 4 holding **1004** cases, register 2 · 215,
+residue 449 · 608 (33.3%), core **1827**. Gate 3696 → **3701**.
+
+**Prior @ `da2e5fcde`** (2026-09-05, rotation 591 — where a call's
 receiver comes from, and how much "the slot is spelled `any`" can
 prove. Two lines. §13.3.6.2 takes `this` from the callee
 Reference's base, and tr dropped that base in two places. Both
