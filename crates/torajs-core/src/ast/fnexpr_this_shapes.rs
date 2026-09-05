@@ -70,6 +70,10 @@ pub(super) struct UseShapes {
     /// parameter has already been moved to by the time this census
     /// runs.
     pub(super) any_param_assign: std::collections::HashSet<ExprId>,
+    /// A bare-Ident argument of `push` / `unshift` on an `any[]`
+    /// binding (590-03) — see
+    /// [`super::fnexpr_this_arrpush::any_elem_push_arg_idents`].
+    pub(super) any_elem_push_arg: std::collections::HashSet<ExprId>,
     /// The bare name on the right of `instanceof`.
     pub(super) instanceof_name: std::collections::HashSet<ExprId>,
     /// The bare name under `typeof`.
@@ -172,6 +176,7 @@ impl UseShapes {
             eq_operand: eq_operand_idents(exprs),
             any_arg: any_param_arg_idents(stmts, exprs),
             any_param_assign: any_param_assign_value_idents(stmts, exprs),
+            any_elem_push_arg: super::fnexpr_this_arrpush::any_elem_push_arg_idents(stmts, exprs),
             instanceof_name: instanceof_name_idents(exprs),
             typeof_operand: typeof_operand_idents(exprs),
             export_default: export_default_idents(stmts, exprs),
@@ -202,6 +207,7 @@ impl UseShapes {
             || self.eq_operand.contains(&e)
             || self.any_arg.contains(&e)
             || self.any_param_assign.contains(&e)
+            || self.any_elem_push_arg.contains(&e)
             || self.instanceof_name.contains(&e)
             || self.typeof_operand.contains(&e)
             || self.export_default.contains(&e)
