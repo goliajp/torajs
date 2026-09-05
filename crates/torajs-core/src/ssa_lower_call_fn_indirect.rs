@@ -155,6 +155,35 @@ fn try_lower_call_or_closure_callee(
     ) {
         return None;
     }
+    // Rotation 591 — §13.3.6.2: an Index callee is a property
+    // Reference, so the call's `this` is its BASE. Lower the base
+    // first: that is spec order, and it means an assignment hiding
+    // among the arguments (`ops[0](ops = other)`) cannot re-point the
+    // binding under the seed. An Ident base is a pure slot load, so
+    // the extra read has no side effect and no rc account; every
+    // other base shape (a call, a chain) would need the element read
+    // restructured to hand its receiver back, and stays out.
+    //
+    // Both extra conditions keep this off programs it cannot help:
+    // with no promoted fn-expr anywhere the gate it feeds is compiled
+    // out, and a callee the checker did not call a Function does not
+    // reach the Closure arm below.
+    let base_id = match ctx.ast.get_expr(callee) {
+        Expr::Index { obj, .. } if matches!(ctx.ast.get_expr(*obj), Expr::Ident(_)) => Some(*obj),
+        _ => None,
+    };
+    let recv_base = match base_id {
+        Some(obj)
+            if !ctx.ast.fnexpr_recv_fns.is_empty()
+                && matches!(
+                    ctx.expr_types.get(&callee),
+                    Some(crate::check::Type::Function(..))
+                ) =>
+        {
+            Some(ctx.lower_expr(obj))
+        }
+        _ => None,
+    };
     let callee_op = ctx.lower_expr(callee);
     let callee_ty = ctx.operand_ty(&callee_op);
     match callee_ty {
@@ -193,7 +222,10 @@ fn try_lower_call_or_closure_callee(
                 Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name) => {
                     ClosureThis::Undef
                 }
-                _ => ClosureThis::None,
+                _ => match recv_base {
+                    Some(op) => ClosureThis::Base(op),
+                    None => ClosureThis::None,
+                },
             };
             // 403-03 — an fn-typed boundary can hand back the
             // undefined sentinel (coerce_to_ret's Any→Closure arm);

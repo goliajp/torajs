@@ -29,6 +29,18 @@ pub(crate) enum ClosureThis {
     /// call (the rotation-328 IIFE arm; §10.2.1.2 strict-mode
     /// call-site `this`).
     Undef,
+    /// Rotation 591 — the §13.3.6.2 Reference base of an index callee
+    /// (`ops[i]()` calls with `this === ops`), already lowered.
+    ///
+    /// Distinct from [`ClosureThis::Undef`]: the ABI stays the plain
+    /// env-first shape, because whether the callee actually carries a
+    /// `__this` slot is a RUNTIME fact about the value in the slot,
+    /// not something the call site knows. This rides the same
+    /// `FLAG_CLOSURE_RECV_FIRST` gate `None` does and only changes
+    /// what the taken arm seeds — so an ordinary callee's emit is
+    /// byte-identical to `None`'s and `ops[i](x)` keeps its typed
+    /// `CallIndirect` at zero cost.
+    Base(Operand),
 }
 
 /// Emit env-first ABI CallIndirect for a `Type::Closure` callee:
@@ -73,7 +85,9 @@ pub(crate) fn emit_closure_callee_with_this(
     // S1 (RFC 20260810-indirect-argc-abi) — hidden I64 argc at ABI
     // position 1 of every `__env`-first entry.
     env_first.push(Type::I64);
-    if !matches!(this_arg, ClosureThis::None) {
+    // Only a STATIC receiver slot widens the native signature.
+    // `Base` seeds the runtime gate below and leaves the ABI alone.
+    if matches!(this_arg, ClosureThis::Expr(_) | ClosureThis::Undef) {
         env_first.push(Type::Any);
     }
     env_first.extend(user_params.iter().copied());
@@ -85,13 +99,15 @@ pub(crate) fn emit_closure_callee_with_this(
     // With no promoted closure anywhere the flag can never be set —
     // keep the single-path emit (knife-2 whole-program kill, doc on
     // the closure_local twin).
-    let recv_gated = matches!(this_arg, ClosureThis::None) && !ctx.ast.fnexpr_recv_fns.is_empty();
+    let recv_gated = matches!(this_arg, ClosureThis::None | ClosureThis::Base(_))
+        && !ctx.ast.fnexpr_recv_fns.is_empty();
     let user_params = ctx.fn_sigs[user_sig_id.0 as usize].0.clone();
     let mut argv: Vec<Operand> = Vec::with_capacity(args.len() + 3);
     argv.push(Operand::Value(env_ptr));
     // S1 argc slot — the real user argument count.
     argv.push(Operand::ConstI64(args.len() as i64));
     let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
+    let mut recv_base = None;
     match this_arg {
         ClosureThis::Expr(t) => {
             let raw = ctx.lower_expr(t);
@@ -119,6 +135,9 @@ pub(crate) fn emit_closure_callee_with_this(
             );
             argv.push(Operand::Value(undef_box));
         }
+        // The base is not an argument — it only seeds the gate's
+        // taken arm, so nothing joins argv here.
+        ClosureThis::Base(op) => recv_base = Some(op),
         ClosureThis::None => {}
     }
     for (i, a) in args.iter().enumerate() {
@@ -182,7 +201,10 @@ pub(crate) fn emit_closure_callee_with_this(
             Operand::Value(fn_ptr),
             env_first_sig,
             argv,
-            crate::ssa_lower_call_recv_gate::RecvSeed::Undef,
+            match recv_base {
+                Some(op) => crate::ssa_lower_call_recv_gate::RecvSeed::BoxOf(op),
+                None => crate::ssa_lower_call_recv_gate::RecvSeed::Undef,
+            },
             ret_ty,
         )
     };
