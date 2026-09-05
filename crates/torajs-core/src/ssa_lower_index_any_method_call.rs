@@ -43,18 +43,33 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    let Expr::Index { obj, index } = ctx.ast.get_expr(callee) else {
+    // Rotation 591 — §13.3.6.2 reads the base off the REFERENCE, and
+    // a type assertion does not consume one: `(a[0] as any)()` calls
+    // with `this === a` exactly as `a[0]()` does. The shape test
+    // peels `As`; every TYPE test below keeps the unpeeled `callee`.
+    let shape = ctx.peel_as_wrappers(callee);
+    let Expr::Index { obj, index } = ctx.ast.get_expr(shape) else {
         return None;
     };
     let (obj, index) = (*obj, *index);
     // A symbol-keyed index call rides this lane for TYPED receivers
     // too (`[1][Symbol.iterator]()`, `set[Symbol.iterator]()`) — the
     // receiver boxes at the boundary below and the runtime's symbol
-    // face dispatches with the receiver in place. Everything else
-    // keeps the Any-receiver gate: numeric/string index calls on
-    // typed receivers have their own typed lanes.
+    // face dispatches with the receiver in place.
+    //
+    // Rotation 591 — so does an element read that ALREADY dispatches
+    // dynamically (`c: any[]` → `c[0]()`, or any `as any` spelling):
+    // the callee's own type is Any, so the alternative is the bare
+    // any-call layer, which drops the base outright. Routing it here
+    // costs nothing it was not already paying and restores the
+    // receiver. A callee typing as a concrete Function is deliberately
+    // NOT admitted: `ops[i](x)` keeps its typed CallIndirect, and its
+    // receiver is the separate ABI question the typed lane owns.
+    let callee_dispatches_dynamically =
+        matches!(ctx.expr_types.get(&callee), Some(crate::check::Type::Any));
     if !matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any))
         && !index_is_symbol_key(ctx, index)
+        && !callee_dispatches_dynamically
     {
         return None;
     }

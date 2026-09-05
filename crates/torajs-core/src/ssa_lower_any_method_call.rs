@@ -38,7 +38,14 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
+    // Rotation 591 — §13.3.6.2 reads the base off the REFERENCE, and
+    // a type assertion does not consume one: `(o.f as any)()` calls
+    // with `this === o` exactly as `o.f()` does. The shape test
+    // therefore peels `As`, while every TYPE test below keeps the
+    // unpeeled `callee` — the assertion is what widened the read to
+    // Any, and that widening is the admission this lane wants.
+    let shape = ctx.peel_as_wrappers(callee);
+    let Expr::Member { obj, name } = ctx.ast.get_expr(shape) else {
         return None;
     };
     // A NULLISH receiver (`undefined.toString()`) rides this lane
