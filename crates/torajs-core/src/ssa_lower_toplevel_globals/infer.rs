@@ -24,6 +24,59 @@ fn slot_shape_to_type(shape: GlobalSlotShape) -> Type {
     }
 }
 
+/// The slot type for a binding holding a lifted closure, from the
+/// canonical `__fn(...)` spelling of its signature — shared by the
+/// closure init itself and by an alias of such a binding, which must
+/// answer the identical type from the identical string.
+///
+/// Variadic sigs (`__rest(` spellings parse to Closure directly)
+/// keep the main-local home — the boxed-dual call routing rides the
+/// fn-local `variadic_locals` table (RFC O2).
+///
+/// The width join takes the F5 shape, NOT the F1 canon class: with
+/// no annotation written, the binding never joined the spelling's
+/// nominal class — its widths live on the slot key's `__ret` /
+/// `__p{i}` projections, glued to the lifted fn's Ret / Param keys
+/// by the let site's `fn_value_flow` (and, for an alias, reaching
+/// the same keys through the congruence closure over the two slots).
+/// Querying the canon class here would answer stale parse widths and
+/// the env-first CallIndirect would read a floated callee's d0 ret
+/// off x0 (the untouched env pointer). Joining the class instead is
+/// wrong the other way: it glues unrelated same-spelling residents'
+/// widths together.
+#[allow(clippy::too_many_arguments)]
+fn closure_slot_from_canon(
+    canon: &str,
+    name: &str,
+    aliases: &HashMap<String, Type>,
+    arr_layouts: &mut Vec<Type>,
+    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
+    generic_struct_decls: &HashMap<String, (Vec<String>, Vec<(PropKey, String)>)>,
+    struct_layouts: &mut Vec<Vec<(PropKey, Type)>>,
+    inst_memo: &mut HashMap<String, crate::ssa::StructId>,
+    num_f64_slots: &crate::num_width::WidthTable,
+) -> Option<Type> {
+    let parsed = parse_type(
+        Some(canon),
+        aliases,
+        arr_layouts,
+        fn_sigs,
+        generic_struct_decls,
+        struct_layouts,
+        inst_memo,
+    );
+    let Type::FnSig(sig) = parsed else {
+        return None;
+    };
+    Some(crate::ssa_lower_container_width::widen_fn_sig_by_key(
+        Type::Closure(sig),
+        &SlotKey::Global(name.to_string()),
+        num_f64_slots,
+        arr_layouts,
+        fn_sigs,
+    ))
+}
+
 /// K.3b — slot type for an UN-ANNOTATED top-level binding. Promotes
 /// only behind the ast_refs gate — a named-fn body must reference the
 /// binding (named fns have no capture machinery), and a MUTABLE
@@ -86,40 +139,31 @@ pub(super) fn inferred_slot_ty(
     if dynobj_degraded.contains(&init) {
         return Some(Type::Any);
     }
-    if let Expr::Closure { fn_name, .. } = ast.get_expr(init) {
-        let canon = crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)?;
-        let parsed = parse_type(
-            Some(&canon),
+    // Rotation 592 — an ALIAS of a lifted-arrow binding
+    // (`const c = k`) takes that binding's own spelling: the alias
+    // holds the identical value, and the checker's pass_2 registers
+    // it from the identical string, so the two slots cannot drift.
+    // Everything below the canon — the FnSig→Closure re-repr, the
+    // variadic guard, the width join — is the closure init's own
+    // story and applies unchanged.
+    let canon = match ast.get_expr(init) {
+        Expr::Closure { fn_name, .. } => {
+            Some(crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)?)
+        }
+        _ => crate::ast_refs::closure_alias_fn_canon(ast, init),
+    };
+    if let Some(canon) = canon {
+        return closure_slot_from_canon(
+            &canon,
+            name,
             aliases,
             arr_layouts,
             fn_sigs,
             generic_struct_decls,
             struct_layouts,
             inst_memo,
-        );
-        // Variadic sigs (`__rest(` spellings parse to Closure
-        // directly) keep the main-local home — the boxed-dual call
-        // routing rides the fn-local `variadic_locals` table (RFC O2).
-        let Type::FnSig(sig) = parsed else {
-            return None;
-        };
-        // F5 shape, NOT the F1 canon class: with no annotation
-        // written, the binding never joined the spelling's nominal
-        // class — its widths live on the slot key's `__ret` / `__p{i}`
-        // projections, glued to the lifted fn's Ret / Param keys by
-        // the let site's `fn_value_flow`. Querying the canon class
-        // here would answer stale parse widths and the env-first
-        // CallIndirect would read a floated callee's d0 ret off x0
-        // (the untouched env pointer). Joining the class instead is
-        // wrong the other way: it glues unrelated same-spelling
-        // residents' widths together.
-        return Some(crate::ssa_lower_container_width::widen_fn_sig_by_key(
-            Type::Closure(sig),
-            &SlotKey::Global(name.to_string()),
             num_f64_slots,
-            arr_layouts,
-            fn_sigs,
-        ));
+        );
     }
     // RFC 20260725 follow-up — an un-annotated all-literal ObjectLit
     // init promotes under its synthesized `__inlobj(...)` spelling

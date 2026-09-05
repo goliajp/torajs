@@ -25,8 +25,8 @@ use std::collections::HashSet;
 mod shape;
 mod shape_operator;
 pub use shape::{
-    GlobalSlotShape, infer_toplevel_slot_shape, lifted_closure_fn_canon, new_class_ann,
-    objlit_literal_inlobj_ann,
+    GlobalSlotShape, closure_alias_fn_canon, infer_toplevel_slot_shape, lifted_closure_fn_canon,
+    new_class_ann, objlit_literal_inlobj_ann,
 };
 
 pub struct ToplevelBindingRefs {

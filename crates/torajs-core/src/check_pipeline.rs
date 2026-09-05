@@ -320,6 +320,23 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                                     .and_then(|canon| resolve_type_ann(&canon, &c.aliases))
                             }
                         }
+                        // Rotation 592 — an un-annotated ALIAS of a
+                        // lifted-arrow binding (`const c = k`)
+                        // registers under that binding's own
+                        // spelling. The alias holds the identical
+                        // value, and both sides resolve the identical
+                        // string (`closure_alias_fn_canon`), so the
+                        // slots cannot drift. Without it a named-fn
+                        // read of the alias answered "unknown
+                        // identifier" while the same program written
+                        // `const c: any = k` worked.
+                        else if !*is_var
+                            && let Some(canon) =
+                                crate::ast_refs::closure_alias_fn_canon(ast, *init)
+                            && !canon.contains("__rest(")
+                        {
+                            resolve_type_ann(&canon, &c.aliases)
+                        }
                         // RFC 20260725 follow-up — an un-annotated
                         // all-literal ObjectLit init registers under
                         // its synthesized `__inlobj(...)` spelling

@@ -166,6 +166,53 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
     })
 }
 
+/// Rotation 592 — the same canonical spelling for a binding that
+/// ALIASES a lifted-closure binding (`const c = k`). The alias
+/// carries the identical value, so it must register under the
+/// identical string: both the checker's pass_2 and the lowerer's
+/// K.3b resolve what this answers, exactly as they do for the
+/// closure init itself, and the two slots cannot drift.
+///
+/// Without it the alias registered as nothing, so a named-fn body
+/// reading it answered "unknown identifier" — an ordinary
+/// `const c = k; function give() { return c }` was a hard reject,
+/// while the `any`-annotated spelling of the same program worked.
+///
+/// One hop only, and only from a top-level `let` / `const` whose
+/// name is declared exactly once: a second declaration means the
+/// name at the alias site is not necessarily the one found here,
+/// and chasing further hops would need the same uniqueness argument
+/// at every step. `var` is excluded for the reason every sibling
+/// arm excludes it — its hoisted home is not this slot.
+pub fn closure_alias_fn_canon(ast: &Ast, init: ExprId) -> Option<String> {
+    let Expr::Ident(src) = ast.get_expr(init) else {
+        return None;
+    };
+    let mut found: Option<&str> = None;
+    for s in crate::ast::toplevel_stmts_flat(ast) {
+        let Stmt::LetDecl {
+            name,
+            init,
+            is_var: false,
+            ..
+        } = s
+        else {
+            continue;
+        };
+        if name != src {
+            continue;
+        }
+        if found.is_some() {
+            return None;
+        }
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*init) else {
+            return None;
+        };
+        found = Some(fn_name);
+    }
+    lifted_closure_fn_canon(ast, found?)
+}
+
 /// RFC 20260725 follow-up (un-annotated struct global) — the
 /// canonical `__inlobj(f:T|...)` spelling for an all-literal-field
 /// ObjectLit init (`let s = { a: 1, b: "x" }`). Both the checker's
