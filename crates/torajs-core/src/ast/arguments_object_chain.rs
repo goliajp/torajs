@@ -296,8 +296,9 @@ pub(super) fn safe_binding_chain(ast: &Ast, seed: impl Fn(&str) -> bool) -> Vec<
     // or the any-lane call path, both of which enter the boxed dual
     // entry with REAL argc/argv. Computed once for the kill walk's
     // escape-store exemption below.
-    let props_recvs =
-        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
+        &ast.stmts, &ast.exprs,
+    );
     let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
     let boxed_face_store = |target: ExprId| -> bool {
         super::arguments_object_escape_store::boxed_face_store_target(

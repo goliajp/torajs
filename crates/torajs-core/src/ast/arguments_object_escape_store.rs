@@ -21,8 +21,9 @@ pub(super) fn collect_escape_stored(
     argv_fns: &std::collections::HashSet<String>,
     argv_locals: &std::collections::HashSet<String>,
 ) -> std::collections::HashSet<String> {
-    let props_recvs =
-        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
+        &ast.stmts, &ast.exprs,
+    );
     let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
     let mut stored: std::collections::HashSet<String> = std::collections::HashSet::new();
     for e in &ast.exprs {

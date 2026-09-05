@@ -53,8 +53,7 @@ pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_store_face};
 use super::fnexpr_this_recvs::{
     collect_any_arraylit_inits, collect_any_binding_names, collect_arraylit_binding_names,
-    collect_gen_iter_binding_names, collect_mapset_binding_names,
-    collect_props_receiver_binding_names, collect_strwrapper_binding_names,
+    collect_gen_iter_binding_names, collect_mapset_binding_names, collect_strwrapper_binding_names,
 };
 use super::fnexpr_this_routed::promote_variable_routed;
 use super::{Expr, ExprId, Stmt};
@@ -167,7 +166,8 @@ fn collect_position_faces(
     let any_recvs = collect_any_binding_names(stmts, exprs);
     let gen_recvs = collect_gen_iter_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
-    let props_recvs = collect_props_receiver_binding_names(stmts, exprs);
+    let props_recvs =
+        super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(stmts, exprs);
     let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     let strwrapper_recvs = collect_strwrapper_binding_names(stmts, exprs);

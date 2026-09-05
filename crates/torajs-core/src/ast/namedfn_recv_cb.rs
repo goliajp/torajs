@@ -286,8 +286,9 @@ fn collect_props_store_sites(
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     sites: &mut Vec<(ExprId, String)>,
 ) {
-    let props_recvs =
-        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
+        &ast.stmts, &ast.exprs,
+    );
     let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
     let this_store_keys = super::fnexpr_this_store_fields::this_store_keys(&ast.stmts, &ast.exprs);
     for e in &ast.exprs {
