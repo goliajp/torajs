@@ -62,8 +62,8 @@
 //! top-level by then).
 
 use super::namedfn_recv_cb_sites::{
-    collect_any_let_init_sites, collect_objlit_field_sites, collect_props_push_sites,
-    collect_props_store_sites, collect_sites,
+    collect_any_let_init_sites, collect_json_cb_sites, collect_objlit_field_sites,
+    collect_props_push_sites, collect_props_store_sites, collect_sites,
 };
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashMap;
@@ -78,6 +78,7 @@ pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
     collect_any_let_init_sites(ast, &fn_sigs, &mut sites);
     collect_props_store_sites(ast, &fn_sigs, &mut sites);
     collect_props_push_sites(ast, &fn_sigs, &mut sites);
+    collect_json_cb_sites(ast, &fn_sigs, &mut sites);
     if sites.is_empty() {
         return;
     }
@@ -114,6 +115,7 @@ pub(crate) fn recv_cb_claimed_sites(ast: &Ast) -> std::collections::HashSet<usiz
     collect_any_let_init_sites(ast, &fn_sigs, &mut sites);
     collect_props_store_sites(ast, &fn_sigs, &mut sites);
     collect_props_push_sites(ast, &fn_sigs, &mut sites);
+    collect_json_cb_sites(ast, &fn_sigs, &mut sites);
     sites.into_iter().map(|(e, _)| e.0 as usize).collect()
 }
 

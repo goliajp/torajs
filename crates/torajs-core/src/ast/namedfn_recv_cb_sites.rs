@@ -283,6 +283,82 @@ pub(super) fn collect_props_push_sites(
     }
 }
 
+/// Rotation 597 — the JSON callback slots: a promoted named fn handed
+/// to `JSON.parse(text, R)` as the reviver or to
+/// `JSON.stringify(value, R)` as the replacer. §25.5.1.1
+/// InternalizeJSONProperty calls the reviver with the HOLDER as
+/// `this`, and §25.5.2.2 step 3 calls the replacer the same way (the
+/// synthetic `{ "": value }` wrapper at the root), so both slots owe
+/// their callback a real receiver rather than the plain shim's
+/// hardwired `undefined`.
+///
+/// This is the arm the function-EXPRESSION twin has had since RFC
+/// 20260808-json-parse-any blade 4
+/// ([`super::fnexpr_this_cb_slots::collect_json_face`], which admits
+/// both slots through one collector for exactly this reason). The
+/// named-declaration family never got it, so the same program in the
+/// two spellings disagreed: measured, `JSON.parse('{"k":7}', R)` with
+/// a named `R` answered a `this` that is not the holder while the
+/// `const R = function (…)` spelling answered the holder, matching
+/// bun. The kernel was never the problem — `json_reviver.rs` and
+/// `json_stringify/replacer.rs` both dispatch through
+/// `invoke_with_this`, which seeds the holder off the header flag; it
+/// was only ever the shim the site got.
+///
+/// A rebound `JSON` disarms the whole census. The twin matches the
+/// bare `Ident("JSON")` without that test, but the twin's mistake
+/// would be to promote a callback for a user-written `parse` whose
+/// lane has no receiver channel — a mis-promote, not an over-refusal,
+/// so this family does not copy it.
+///
+/// An ALIAS of the reviver (`const g = R; JSON.parse(t, g)`) stays on
+/// the plain route: the site's Ident is `g`, which names no fn decl.
+/// That is today's answer, kept.
+pub(super) fn collect_json_cb_sites(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    sites: &mut Vec<(ExprId, String)>,
+) {
+    if super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, "JSON") {
+        return;
+    }
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Member { obj, name: mname } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if !matches!(mname.as_str(), "parse" | "stringify")
+            || !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "JSON")
+        {
+            continue;
+        }
+        let Some(cb) = args.get(1) else {
+            continue;
+        };
+        // The `as any` shell spells the same intent and erases
+        // nothing at runtime — the same peel the sibling censuses do.
+        let inner = match ast.get_expr(*cb) {
+            Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
+            _ => *cb,
+        };
+        let Expr::Ident(n) = ast.get_expr(inner) else {
+            continue;
+        };
+        if !fn_sigs.contains_key(n)
+            || ast.generator_factory_classes.contains_key(n)
+            || ast.async_generator_fns.contains(n)
+            || super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n)
+            || scopes.owns(ast, n, inner)
+        {
+            continue;
+        }
+        sites.push((inner, n.clone()));
+    }
+}
+
 /// Rotation 410 — the any-let BARE-INIT sites: a promoted named fn
 /// is the whole initializer of an `: any`-annotated binding
 /// (`const B: any = F`, the `as any` shell admitted). The binding is
