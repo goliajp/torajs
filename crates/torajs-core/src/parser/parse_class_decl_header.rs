@@ -39,6 +39,13 @@ impl<'a> Parser<'a> {
     ) -> Result<ClassHeader, String> {
         self.pos += 1; // consume `class`
         let name = self.parse_class_name(allow_anon, force_synth)?;
+        // RC-3 — the class binds this spelling, so a P8.5 class-value
+        // alias standing on it is stale from here on. `let` rebinding
+        // and assignment already drop it for exactly this reason; a
+        // class did not, and `{ let C = class Inner {} } { class C {
+        // static t = "x" } C.t }` read the block-before class
+        // EXPRESSION and answered `undefined`.
+        self.class_value_aliases.remove(&name);
         // P8.1 — set `current_class` so private-member parsing inside
         // this class body can mangle `this.#x` to `__priv_<class>__x`.
         // Saved/restored at every successful return path; on `return
