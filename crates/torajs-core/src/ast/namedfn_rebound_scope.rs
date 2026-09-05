@@ -39,11 +39,35 @@ use std::collections::HashSet;
 
 /// Whether `name` is rebound in a way this module can NOT carve out
 /// per site — the callers keep refusing such a name outright.
+///
+/// Three of them. A parameter / catch / loop variable and a TOP-level
+/// redeclaration are conflicts over the declaration's own scope. A
+/// `var` is the third and the least obvious: it is written inside a
+/// block but BINDS at function scope, so the reads it owns are not
+/// the reads under that block — carving per site would refuse the
+/// wrong half.
 pub(crate) fn rebound_beyond_blocks(stmts: &[Stmt], name: &str) -> bool {
     super::fnexpr_this_names::name_shadowed_elsewhere(stmts, name)
         || stmts
             .iter()
             .any(|s| matches!(s, Stmt::LetDecl { name: dn, .. } if dn == name))
+        || var_anywhere(stmts, name)
+}
+
+fn var_anywhere(stmts: &[Stmt], name: &str) -> bool {
+    for s in stmts {
+        if matches!(s, Stmt::LetDecl { name: dn, is_var: true, .. } if dn == name) {
+            return true;
+        }
+        let mut hit = false;
+        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+            hit = hit || var_anywhere(inner, name);
+        });
+        if hit {
+            return true;
+        }
+    }
+    false
 }
 
 /// Every arena slot reachable from a nested statement list that
@@ -59,6 +83,18 @@ pub(crate) fn block_scoped_expr_ids(ast: &Ast, name: &str) -> HashSet<ExprId> {
 /// `inside` is true once an enclosing list has declared `name`; from
 /// there every slot below belongs to that binding.
 fn walk_stmt(ast: &Ast, s: &Stmt, name: &str, inside: bool, out: &mut HashSet<ExprId>) {
+    // Two statements hand `for_each_nested_list` several lists that
+    // share ONE scope, so asking each list on its own under-refuses:
+    // a `for` head's binding scopes over the head and the body, and a
+    // switch's CaseBlock is one lexical scope across every case. Both
+    // answer for the whole statement instead.
+    //
+    // Only the switch was measured to manifest — `case 1: const t = 3`
+    // read from `case 2` answered `function` where bun answers
+    // `number`. The `for` head is defensive: its own A/B answered the
+    // same before and after, and nothing found a spelling that shows
+    // it.
+    let inside = inside || stmt_scope_declares(s, name);
     if inside {
         for e in walk::stmt_exprs(s) {
             collect_expr(ast, e, out);
@@ -81,10 +117,26 @@ fn walk_stmt(ast: &Ast, s: &Stmt, name: &str, inside: bool, out: &mut HashSet<Ex
     });
 }
 
+/// A statement whose own several lists share one scope, declaring
+/// `name` in any of them.
+fn stmt_scope_declares(s: &Stmt, name: &str) -> bool {
+    match s {
+        Stmt::For { init: Some(i), .. } => declares(std::slice::from_ref(&**i), name),
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| declares(&c.body, name))
+                || default.as_ref().is_some_and(|d| declares(d, name))
+        }
+        _ => false,
+    }
+}
+
+/// A lexical declaration of `name` directly in this list. A `var` is
+/// not one — [`rebound_beyond_blocks`] refuses those whole-name,
+/// because the reads it owns reach outside the block it is written in.
 fn declares(stmts: &[Stmt], name: &str) -> bool {
     stmts
         .iter()
-        .any(|s| matches!(s, Stmt::LetDecl { name: dn, .. } if dn == name))
+        .any(|s| matches!(s, Stmt::LetDecl { name: dn, is_var: false, .. } if dn == name))
 }
 
 fn collect_expr(ast: &Ast, e: ExprId, out: &mut HashSet<ExprId>) {
