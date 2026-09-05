@@ -35,6 +35,25 @@ pub(crate) fn check(
     name: String,
     value: ExprId,
 ) -> Result<Type, String> {
+    // §15.7.14 step 3 again, in the ES5 lane's spelling. A
+    // `__cci<N>_<C>` binding is the class-scope immutable one
+    // `capturing_classes` mints, and nothing outside the class body
+    // can name it — the container reads the mutable `__cc<N>_<C>`
+    // alias — so a write here is the class writing its own name:
+    // the same runtime TypeError the `__class_<C>` arm below gives
+    // the hoist lane, and the same kernel a fn-expression writing its
+    // own self-name uses.
+    //
+    // Asked before either resolution arm because neither would catch
+    // it: a method body reaches the binding as a lifted-closure
+    // capture, where the `const` the lane declared is not the thing
+    // being looked up. Until now the write silently SUCCEEDED —
+    // `typeof C` inside the body answered "number" afterwards while
+    // bun threw — which is the failure mode this ordering exists for.
+    if crate::ast::capturing_classes::is_es5_inner_class_binding(&name) {
+        checker.self_name_writes.insert(target);
+        return checker.type_of(ast, value);
+    }
     if checker.lookup(&name).is_none()
         && let Some(global_ty) = checker.globals.get(&name).cloned()
     {

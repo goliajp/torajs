@@ -95,10 +95,28 @@ pub(super) use this_sites::{expr_says_this, this_sites};
 /// the `typeof` spelling of the same read answered `"undefined"`
 /// (§13.5.3's answer for an unresolvable reference).
 pub(crate) fn is_es5_class_binding(name: &str) -> bool {
-    let Some(rest) = name
-        .strip_prefix("__cci")
-        .or_else(|| name.strip_prefix("__cc"))
-    else {
+    is_es5_inner_class_binding(name) || numbered_binding(name, "__cc")
+}
+
+/// Is this the CLASS-SCOPE half of the pair — `__cci<N>_<user name>`?
+///
+/// Only the class's own bodies can see it: the lane mints it exactly
+/// when the body reads its own name, and the container reads the
+/// mutable `__cc<N>_` alias instead. So a WRITE to this name is
+/// §15.7.14 step 3's immutable binding being written from inside the
+/// class, which is a runtime TypeError rather than anything the
+/// checker should refuse (`check_assign_ident`) — and the `const`
+/// the lane declares does not catch it, because a method body reaches
+/// the binding as a lifted-closure capture.
+pub(crate) fn is_es5_inner_class_binding(name: &str) -> bool {
+    numbered_binding(name, "__cci")
+}
+
+/// `<prefix><digits>_…` — the shape both halves of the pair wear, and
+/// the digit is what separates them from the lane's letter-carrying
+/// spellings.
+fn numbered_binding(name: &str, prefix: &str) -> bool {
+    let Some(rest) = name.strip_prefix(prefix) else {
         return false;
     };
     let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
