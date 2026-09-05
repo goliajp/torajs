@@ -148,8 +148,7 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         // (a primitive alias) still admits through the fall-back —
         // this arm only widens.
         Expr::Ident(_) => {
-            crate::ast_refs::closure_alias_fn_canon(ast, e)
-                .is_some_and(|c| !c.contains("__rest("))
+            crate::ast_refs::closure_alias_fn_canon(ast, e).is_some_and(|c| !c.contains("__rest("))
                 || crate::ast_refs::infer_toplevel_slot_shape(ast, e).is_some()
         }
         // Statically-shaped expressions (operator results, top-level
