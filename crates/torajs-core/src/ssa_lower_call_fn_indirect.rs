@@ -159,17 +159,26 @@ fn try_lower_call_or_closure_callee(
     // Reference, so the call's `this` is its BASE. Lower the base
     // first: that is spec order, and it means an assignment hiding
     // among the arguments (`ops[0](ops = other)`) cannot re-point the
-    // binding under the seed. An Ident base is a pure slot load, so
-    // the extra read has no side effect and no rc account; every
-    // other base shape (a call, a chain) would need the element read
-    // restructured to hand its receiver back, and stays out.
+    // binding under the seed.
+    //
+    // Rotation 592 — the base is no longer restricted to an Ident.
+    // 591 could only admit a shape it was safe to read TWICE, since
+    // the element read below re-lowers the base itself; a nested
+    // `b[0][0]()` was therefore left seeding nothing and its body
+    // read `undefined` for `this` (silently — the call ran). Park the
+    // lowered base under `redispatch_lowered` instead: the element
+    // read consumes it in place of re-emitting, so the base
+    // evaluates exactly once and any shape — a nested index, a call,
+    // a chain — is admissible. The element read is a +0 borrow and
+    // the base outlives it (module doc above), so the seed, which
+    // boxes only inside the gate's taken arm, needs no rc account.
     //
     // Both extra conditions keep this off programs it cannot help:
     // with no promoted fn-expr anywhere the gate it feeds is compiled
     // out, and a callee the checker did not call a Function does not
     // reach the Closure arm below.
     let base_id = match ctx.ast.get_expr(callee) {
-        Expr::Index { obj, .. } if matches!(ctx.ast.get_expr(*obj), Expr::Ident(_)) => Some(*obj),
+        Expr::Index { obj, .. } => Some(*obj),
         _ => None,
     };
     let recv_base = match base_id {
@@ -180,11 +189,23 @@ fn try_lower_call_or_closure_callee(
                     Some(crate::check::Type::Function(..))
                 ) =>
         {
-            Some(ctx.lower_expr(obj))
+            let op = ctx.lower_expr(obj);
+            ctx.redispatch_lowered = Some((obj, op.clone()));
+            Some(op)
         }
         _ => None,
     };
     let callee_op = ctx.lower_expr(callee);
+    // A callee path that reached its value without re-reading the
+    // base (the struct-like literal-key arm hands off to the member
+    // reader) leaves the park standing. Drop it, or an unrelated
+    // later mention of the same expression would consume a stale
+    // operand.
+    if let Some((parked, _)) = ctx.redispatch_lowered
+        && Some(parked) == base_id
+    {
+        ctx.redispatch_lowered = None;
+    }
     let callee_ty = ctx.operand_ty(&callee_op);
     match callee_ty {
         Type::Closure(user_sig_id) => {
