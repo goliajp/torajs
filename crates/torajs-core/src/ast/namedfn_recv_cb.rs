@@ -72,6 +72,7 @@ pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
     let mut sites = collect_sites(ast, &fn_sigs);
     collect_objlit_field_sites(ast, &fn_sigs, &mut sites);
     collect_any_let_init_sites(ast, &fn_sigs, &mut sites);
+    collect_props_store_sites(ast, &fn_sigs, &mut sites);
     if sites.is_empty() {
         return;
     }
@@ -106,6 +107,7 @@ pub(crate) fn recv_cb_claimed_sites(ast: &Ast) -> std::collections::HashSet<usiz
     let mut sites = collect_sites(ast, &fn_sigs);
     collect_objlit_field_sites(ast, &fn_sigs, &mut sites);
     collect_any_let_init_sites(ast, &fn_sigs, &mut sites);
+    collect_props_store_sites(ast, &fn_sigs, &mut sites);
     sites.into_iter().map(|(e, _)| e.0 as usize).collect()
 }
 
@@ -262,6 +264,69 @@ fn collect_objlit_field_sites(
         }
     }
     walk(&ast.stmts, ast, fn_sigs, sites);
+}
+
+/// Rotation 594 — the property-STORE sites: a promoted named fn
+/// stored into a slot whose every read-back channel honours the
+/// receiver (`o.f = fn`, `rows[0][0] = fn`, `this.m = fn`,
+/// `C.prototype.k = fn`). Called back as a method, such a value must
+/// see the holder as `this` (§13.3.6.2); the plain `__forward_` shim
+/// hardwires `undefined`, so `this` was wrong on every one of them —
+/// seven spellings measured against bun in rotation 594, all seven
+/// answering `undefined` where bun answers the holder, all exit 0.
+///
+/// The admission is not re-derived here: it is
+/// [`super::fnexpr_this_faces::store_target_admits`], the same verdict
+/// the function-EXPRESSION twin of this family uses for the same
+/// position. Those gates encode which spellings actually come back
+/// through a receiver-honouring channel, and a second copy would
+/// drift from the first.
+fn collect_props_store_sites(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    sites: &mut Vec<(ExprId, String)>,
+) {
+    let props_recvs =
+        super::fnexpr_this_recvs::collect_props_receiver_binding_names(&ast.stmts, &ast.exprs);
+    let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
+    let this_store_keys = super::fnexpr_this_store_fields::this_store_keys(&ast.stmts, &ast.exprs);
+    for e in &ast.exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        if !super::fnexpr_this_faces::store_target_admits(
+            &ast.stmts,
+            &ast.exprs,
+            &props_recvs,
+            &expando_recvs,
+            &this_store_keys,
+            *target,
+        ) {
+            continue;
+        }
+        // The `as any` shell spells the same intent and erases
+        // nothing at runtime — same peel the callback sites do.
+        let inner = match ast.get_expr(*value) {
+            Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
+            _ => *value,
+        };
+        let Expr::Ident(n) = ast.get_expr(inner) else {
+            continue;
+        };
+        if !fn_sigs.contains_key(n)
+            || ast.generator_factory_classes.contains_key(n)
+            || ast.async_generator_fns.contains(n)
+            || name_shadowed_elsewhere(&ast.stmts, n)
+        {
+            continue;
+        }
+        let mut decls: Vec<(bool, ExprId)> = Vec::new();
+        collect_decls_by_name(&ast.stmts, n, &mut decls);
+        if !decls.is_empty() {
+            continue;
+        }
+        sites.push((inner, n.clone()));
+    }
 }
 
 /// Rotation 410 — the any-let BARE-INIT sites: a promoted named fn

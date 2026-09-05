@@ -316,6 +316,39 @@ pub(super) fn collect_store_face(
     patches: &mut Vec<FacePatch>,
     ident_cands: &mut Vec<(String, ExprId)>,
 ) {
+    if store_target_admits(
+        stmts,
+        exprs,
+        props_recvs,
+        expando_recvs,
+        this_store_keys,
+        target,
+    ) {
+        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
+        collect_ident_face(exprs, value, ident_cands);
+    }
+}
+
+/// Whether a store TARGET puts its value somewhere every read-back
+/// channel is receiver-honoring — the whole admission of
+/// [`collect_store_face`], with the value side left to the caller.
+///
+/// Split out because the named-DECLARATION twin of this family
+/// (`namedfn_recv_cb`) needs exactly the same verdict for exactly the
+/// same reason, and a second hand-written copy of these gates would
+/// drift: the `rows[0][0] = fn` chain peel, the `.prototype` /
+/// `.constructor` hops and the expando arm are each here because a
+/// specific spelling was getting the wrong `this`, and none of that is
+/// re-derivable from the shape of the store alone.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn store_target_admits(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    props_recvs: &std::collections::HashSet<String>,
+    expando_recvs: &super::fnexpr_this_expando::ExpandoRecvs,
+    this_store_keys: &super::fnexpr_this_store_fields::ThisStoreKeys,
+    target: ExprId,
+) -> bool {
     // The `this.m = fn` arm reads the member NAME, so it is decided on
     // the target rather than on the receiver alone: a computed key
     // (`Expr::Index`) names no field and stays out.
@@ -323,9 +356,7 @@ pub(super) fn collect_store_face(
         && matches!(&exprs[peel_any_cast(exprs, *obj).0 as usize], Expr::Ident(n) if n == "__this")
         && this_store_keys.admits(&PropKey::from(name))
     {
-        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
-        collect_ident_face(exprs, value, ident_cands);
-        return;
+        return true;
     }
     // §27.2.4 static-slot patch (rotation 448) — `Promise.resolve =
     // function () { this }` / `.reject`: the store lands in the
@@ -341,9 +372,7 @@ pub(super) fn collect_store_face(
         && matches!(name.as_str(), "resolve" | "reject")
         && !super::fnexpr_this_names::name_shadowed_elsewhere(stmts, "Promise")
     {
-        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
-        collect_ident_face(exprs, value, ident_cands);
-        return;
+        return true;
     }
     let store_recv = match &exprs[target.0 as usize] {
         Expr::Member { obj, .. } => Some(*obj),
@@ -385,10 +414,7 @@ pub(super) fn collect_store_face(
     // The expando store — a key the receiver's object literal never
     // declared, so the value lands in the dict and comes back through
     // the any lane (doc on `fnexpr_this_expando`).
-    if admits || expando_recvs.admits(exprs, target) {
-        collect_face(stmts, exprs, value, fn_expr_exprs, patches);
-        collect_ident_face(exprs, value, ident_cands);
-    }
+    admits || expando_recvs.admits(exprs, target)
 }
 
 /// Whether a chain of keyed reads starts from one of the receiver
