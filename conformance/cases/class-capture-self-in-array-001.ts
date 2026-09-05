@@ -22,3 +22,18 @@ function outer() {
   console.log(again.n);
 }
 outer();
+
+// Same witness as the object-literal half: this shape's first
+// fixture constructed once, and one construct leaves the callee
+// dangling but its block un-recycled, so the walk read stale-yet-
+// plausible bytes and every gate stayed green over a real SIGSEGV.
+function twice() {
+  let b = 2;
+  class D {
+    n = b;
+  }
+  const pair = [D, b];
+  console.log((new (pair[0] as any)() as any).n);
+  console.log((new (pair[0] as any)() as any).n);
+}
+twice();

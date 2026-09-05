@@ -48,3 +48,18 @@ const nested = { a: { f: deep } };
 console.log((new (nested.a.f as any)() as any).q);
 const inArray = [{ f: deep }];
 console.log((new (inArray[0].f as any)() as any).q);
+
+// Constructing TWICE off one container slot is what made the
+// premature-free visible: `new (o.f as any)()` released a reference
+// the literal still held, so the second construct's callee was a
+// recycled block and the exit-drain cycle walk segfaulted — with
+// stdout complete and byte-identical to bun the whole way. A fixture
+// that constructs once cannot see it, which is why the array half of
+// this shape shipped green a rotation earlier.
+let twice = function (this: any) {
+  this.q = 9;
+};
+const held = { f: twice };
+console.log((new (held.f as any)() as any).q);
+console.log((new (held.f as any)() as any).q);
+console.log((new (held.f as any)() as any).q);
