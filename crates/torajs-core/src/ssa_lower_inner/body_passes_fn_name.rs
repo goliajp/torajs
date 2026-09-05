@@ -63,6 +63,27 @@ fn accessor_prop_of<'a>(ast: &'a Ast, name: &str) -> Option<&'a PropKey> {
         .map(|((_, p), _)| p)
 }
 
+/// ES-spec `Function.length` — leading params before the first default
+/// or rest (§10.2.10 SetFunctionLength), with the two synthetic slots
+/// dropped.
+///
+/// `__env` is the closure environment every lowered fn value carries.
+/// `__this` is the hidden receiver `bind_this_param` inserts into a
+/// declaration whose body says `this`, and which `__fwdrecv_`
+/// re-declares; every caller able to reach such a value shifts argv
+/// past it on `FLAG_CLOSURE_RECV_FIRST`, so it is no more part of the
+/// user's arity than `__env` is. Counting it answered `2` for a
+/// one-parameter fn on every receiver-honouring position — the
+/// `__cm_` arm had always shed both, and this is now the one copy of
+/// that rule rather than two that could drift apart.
+fn es_arity(params: &[crate::ast::Param]) -> u32 {
+    params
+        .iter()
+        .filter(|p| p.name != "__env" && p.name != "__this")
+        .take_while(|p| p.default.is_none() && !p.is_rest)
+        .count() as u32
+}
+
 pub(super) fn register_fn_name(
     module: &mut Module,
     name: &str,
@@ -109,11 +130,7 @@ pub(super) fn register_fn_name(
         let lit = ssa::StringLiteral::encode_from_wtf8(&key);
         let name_sid = ssa::StringId(module.strings.len() as u32);
         module.strings.push(lit);
-        let arity = params
-            .iter()
-            .filter(|p| p.name != "__env" && p.name != "__this")
-            .take_while(|p| p.default.is_none() && !p.is_rest)
-            .count() as u32;
+        let arity = es_arity(params);
         let (src_sid, src_len) = intern_fn_source(module, ast, span);
         module.fn_name_globals.push(FnNameEntry {
             fn_id: adapter_fid,
@@ -147,7 +164,17 @@ pub(super) fn register_fn_name(
         .and_then(|rest| rest.rsplit_once('_'))
         .map(|(target, _id)| format!("bound {target}"));
     let visible = bound_form.as_deref().unwrap_or_else(|| {
-        let base = name.strip_prefix("__forward_").unwrap_or(name);
+        // `__fwdrecv_<target>` is the receiver-FIRST twin of that same
+        // wrapper (`ast::namedfn_recv_cb`), minted wherever the
+        // read-back channel honours a receiver, and it carries the
+        // user-visible target name for the same reason: before
+        // rotation 595 a stored `o.m = t` answered
+        // `[Function: __fwdrecv_t]` and `.name === "__fwdrecv_t"` —
+        // a synthetic identifier the user cannot even spell.
+        let base = name
+            .strip_prefix("__forward_")
+            .or_else(|| name.strip_prefix("__fwdrecv_"))
+            .unwrap_or(name);
         // 423-01 deconflict — a module-mangled decl (`__m<k>_<name>`)
         // answers the user spelling, mirroring the namespace object's
         // FIELD face (`B.tag.name` must say "tag").
@@ -192,13 +219,7 @@ pub(super) fn register_fn_name(
     let lit = ssa::StringLiteral::encode_from_wtf8(&visible);
     let name_sid = ssa::StringId(module.strings.len() as u32);
     module.strings.push(lit);
-    // ES-spec `Function.length` — leading params before the first
-    // default / rest (§10.2.10 SetFunctionLength).
-    let arity = params
-        .iter()
-        .filter(|p| p.name != "__env")
-        .take_while(|p| p.default.is_none() && !p.is_rest)
-        .count() as u32;
+    let arity = es_arity(params);
     let (src_sid, src_len) = intern_fn_source(module, ast, span);
     module.fn_name_globals.push(FnNameEntry {
         fn_id: fid,
