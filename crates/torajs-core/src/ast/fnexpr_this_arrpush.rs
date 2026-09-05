@@ -72,17 +72,30 @@ fn any_elem_arr_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
 /// `new`), and every any-lane call path shifts argv on
 /// FLAG_CLOSURE_RECV_FIRST.
 ///
-/// The receiver must be a bare Ident naming such a binding: an
-/// inline array literal has no `any` annotation to read, and a
-/// member/index receiver (`o.xs.push(g)`) would need the field's
-/// type, which this pass cannot see. Both keep today's loud reject.
+/// An inline array literal receiver keeps today's loud reject: it has
+/// no `any` annotation to read.
+///
+/// A member / index receiver (`bag.fns.push(g)`) was rejected for the
+/// same-sounding but different reason — it "would need the field's
+/// type, which this pass cannot see". True of THIS census, which is
+/// of annotations; it is not what decides. Rotation 597: when the
+/// chain roots in a binding whose properties already live in the any
+/// world (`super::fnexpr_this_recvs_props`'s census — the same bar the
+/// STORE position of this very slot uses), the field's type is not
+/// needed, because an any-world read yields an any-world container
+/// whatever the field was declared as. The named-declaration family
+/// closed exactly this gap in the same rotation, and the two families
+/// disagreeing about `bag.fns.push(f)` is what surfaced it: one
+/// answered the holder, the other refused to compile.
 pub(super) fn any_elem_push_arg_idents(
     stmts: &[Stmt],
     exprs: &[Expr],
 ) -> std::collections::HashSet<ExprId> {
     let names = any_elem_arr_names(stmts);
+    let props_recvs =
+        super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(stmts, exprs);
     let mut out = std::collections::HashSet::new();
-    if names.is_empty() {
+    if names.is_empty() && props_recvs.is_empty() {
         return out;
     }
     for e in exprs {
@@ -96,10 +109,11 @@ pub(super) fn any_elem_push_arg_idents(
             continue;
         }
         let obj = peel_as(exprs, *obj);
-        let Expr::Ident(recv) = &exprs[obj.0 as usize] else {
-            continue;
+        let admits = match &exprs[obj.0 as usize] {
+            Expr::Ident(recv) => names.contains(recv.as_str()),
+            _ => super::fnexpr_this_recvs_props::store_receiver_admits(exprs, &props_recvs, obj),
         };
-        if !names.contains(recv.as_str()) {
+        if !admits {
             continue;
         }
         for a in args {
