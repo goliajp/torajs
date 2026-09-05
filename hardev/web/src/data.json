@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T09:15:49.490Z",
+  "generatedAt": "2026-09-05T10:56:28.793Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-05T09:02:18Z",
-    "headSha": "2b8afe9ba",
-    "elapsedSec": 379.11,
+    "ranAt": "2026-09-05T10:46:35Z",
+    "headSha": "da2e5fcde",
+    "elapsedSec": 382.22,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31086,
+    "pass": 31126,
     "passNoOracle": 1140,
     "passNegative": 4457,
-    "passTotal": 36683,
-    "bug": 11310,
-    "incompatible": 5181,
+    "passTotal": 36723,
+    "bug": 11273,
+    "incompatible": 5178,
     "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47993,
-    "passRateInScope": 68.99,
-    "passRateTrAccepted": 76.43
+    "trAccepted": 47996,
+    "passRateInScope": 69.06,
+    "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "2b8afe9ba",
-    "commitSubject": "fix: pushing a this-using fn-expr into an any[] cost its binding the receiver",
+    "commit": "da2e5fcde",
+    "commitSubject": "fix: release_batch compared stderr and never compared exit codes",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,38 @@
   },
   "commits": [
     {
+      "hash": "da2e5fcde",
+      "subject": "fix: release_batch compared stderr and never compared exit codes"
+    },
+    {
+      "hash": "df4f7d5a3",
+      "subject": "fix: a this-using fn-expr stored as a Map value or Set member was refused"
+    },
+    {
+      "hash": "12ec79d38",
+      "subject": "fix: a conditional in an any slot refused what either arm alone allows"
+    },
+    {
+      "hash": "5ec74ec28",
+      "subject": "fix: a this-using fn-expr written straight into an any binding was refused"
+    },
+    {
+      "hash": "f70e7364d",
+      "subject": "fix: a fn-typed array element was called without the array as its this"
+    },
+    {
+      "hash": "63477cfc3",
+      "subject": "refactor: split the closure-call emitter out of fn-indirect dispatch"
+    },
+    {
+      "hash": "7dff5babb",
+      "subject": "fix: a type assertion around a callee cost the call its receiver"
+    },
+    {
+      "hash": "2ed3b582c",
+      "subject": "chore: rotation 590 close — sweep on 2b8afe9ba, five knives, one shipped crash fixed"
+    },
+    {
       "hash": "2b8afe9ba",
       "subject": "fix: pushing a this-using fn-expr into an any[] cost its binding the receiver"
     },
@@ -743,59 +775,38 @@
     {
       "hash": "23b429eac",
       "subject": "fix: constructing off a container slot released a reference nobody owned"
-    },
-    {
-      "hash": "46fe4fa06",
-      "subject": "fix: writing a binding into an object-literal field cost it its receiver"
-    },
-    {
-      "hash": "b5dfecea2",
-      "subject": "chore: rotation 589 close — sweep on e189f9465, two knives, zero regressions"
-    },
-    {
-      "hash": "e189f9465",
-      "subject": "fix: handing a class its own binding in an array literal cost it its receiver"
-    },
-    {
-      "hash": "b36a52c27",
-      "subject": "refactor: move the array-literal element shape out of the shape catalogue"
-    },
-    {
-      "hash": "80590458c",
-      "subject": "fix: a constructor that stores itself lost its receiver"
-    },
-    {
-      "hash": "84a81e0cc",
-      "subject": "refactor: move the `this`-store key census out of the face collector"
-    },
-    {
-      "hash": "5bdbc3f4d",
-      "subject": "chore: rotation 588 close — sweep on 16152756f, four knives, zero regressions"
-    },
-    {
-      "hash": "16152756f",
-      "subject": "fix: the pair a class declaration binds is not optional"
     }
   ],
-  "headSha": "2b8afe9ba",
+  "headSha": "da2e5fcde",
   "autorun": {
-    "total": 893,
+    "total": 894,
     "baselineTarget": 10,
-    "bySelf": 888,
+    "bySelf": 889,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788591614-3e26",
-      "at": "2026-09-05T07:00:14Z",
-      "ts": 1788591614,
+      "rotationId": "r-1788599780-3ad1",
+      "at": "2026-09-05T09:16:20Z",
+      "ts": 1788599780,
       "trigger": "self",
-      "prevHead": "b5dfecea2",
-      "handoffSha": "sha256:62326bede6935f6d32c990d8299fcd132516030846059f51cb90da8bfc77ea8e",
-      "handoffAgeSec": 30,
+      "prevHead": "2ed3b582c",
+      "handoffSha": "sha256:466014afa5f84ce9c5768d8ce3379d173bb25ddb057ef616945e0792504dabf5",
+      "handoffAgeSec": 36,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788599780-3ad1",
+        "at": "2026-09-05T09:16:20Z",
+        "ts": 1788599780,
+        "trigger": "self",
+        "prevHead": "2ed3b582c",
+        "handoffSha": "sha256:466014afa5f84ce9c5768d8ce3379d173bb25ddb057ef616945e0792504dabf5",
+        "handoffAgeSec": 36,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788591614-3e26",
         "at": "2026-09-05T07:00:14Z",
@@ -892,17 +903,6 @@
         "prevHead": "1c13581a4",
         "handoffSha": "sha256:840be76b4824f11e53e2af704dd1096103c2343e208f5498763c5196ab5ce11f",
         "handoffAgeSec": 26,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788509753-24b8",
-        "at": "2026-09-04T08:15:53Z",
-        "ts": 1788509753,
-        "trigger": "self",
-        "prevHead": "b4614144d",
-        "handoffSha": "sha256:ae239bc5dd37fd9847ed2270003e340ed6feb85d49cb2f2958f95b1f084b893e",
-        "handoffAgeSec": 32,
         "conformanceBefore": null,
         "commitsInSession": null
       }

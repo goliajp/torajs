@@ -1614,13 +1614,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `f64638442` (53174
+**Where the numbers come from.** Full sweep @ `da2e5fcde` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 2b8afe9ba`, never as a constant (the two shas this
+snapshot stamped `@ da2e5fcde`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,67 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `2b8afe9ba`** (2026-09-05, rotation 590 — three more
+**Latest @ `da2e5fcde`** (2026-09-05, rotation 591 — where a call's
+receiver comes from, and how much "the slot is spelled `any`" can
+prove. Two lines. §13.3.6.2 takes `this` from the callee
+Reference's base, and tr dropped that base in two places. Both
+receiver-bearing lanes destructured the callee expression directly,
+so an `as` wrapper made it "not a Member" and "not an Index" and the
+call fell through to the bare any-call layer — a purely type-level
+cast changed the runtime `this`. The shape test now peels `As` while
+every TYPE test keeps the unpeeled callee, because the assertion is
+exactly what widened the read to Any and that widening is the
+admission the any lane wants. Second cause, index arm only: the gate
+asked whether the OBJECT typed Any, so an `any[]` binding failed it
+and `c[0]()` went receiverless though its element read already
+dispatches dynamically; the gate now also admits a callee whose own
+type is Any, while a callee typing as a concrete Function stays out
+so `ops[i](x)` keeps its typed CallIndirect. The runtime was never
+involved — `(c as any)[0]()` answered correctly before the change,
+for `any[]` and `Array<() => T>` alike.
+
+The typed lane needed no new machinery either, only a seed pointed
+the other way: `RecvSeed::BoxOf` already existed for struct methods
+and the gate boxes it inside the TAKEN arm only, so
+`ClosureThis::Base(Operand)` — unlike `Expr` and `Undef`, which are
+static slots that widen the native signature — leaves the ABI alone,
+rides the same FLAG_CLOSURE_RECV_FIRST test, and costs an ordinary
+callee nothing. **The measured payoff is 40 test262 cases**, every
+one a class computed-property-name method reached as `c[1 + 1]()`,
+attributed by full-workspace A/B: without that knife the same
+program says `class method called without a receiver`.
+
+The second half finished what "the slot's type is spelled `any`"
+can carry. `const v: any = k` — the shortest spelling of the escape
+the family already admitted through an `any[]` element, an
+object-literal field and an `any` parameter — was itself an
+unclaimed position, and its proof needs no census at all: the
+annotation on THAT declaration types the slot, so a same-name
+declaration elsewhere is irrelevant, which is why it admits outright
+where the unannotated alias needs a fixpoint. `c ? k : k` failed in
+five positions at once because every slot shape asked "peel `as`,
+then is it an Ident?"; a conditional stores whichever arm it
+evaluates into the same slot, so the five now share one slot-value
+read. And `m.set('k', k)` is the push proof one step further to the
+annotation — a step that nearly went wrong, because the parser
+FLATTENS `Map<string, any>` to `Map<string|any>` and only
+`Set<any>`, which has no separator to get wrong, appeared to work.
+
+Registered, not fixed, each confirmed pre-existing by
+full-workspace A/B: a nested base `b[0][0]()`, a function
+DECLARATION in an array (never promoted, so there is no slot to
+seed), and a loud reject on `b[0]((b = c) as any)` unrelated to
+receivers. Also fixed here: `release_batch` compared `2>&1` as one
+string, which both false-flagged any fixture where bun writes more
+than tr and meant it never compared exit codes — so r590's
+exit-139 crash with byte-identical stdout was structurally invisible
+to it. Gate predicate: **135** clusters of ≥ 4 holding **1004**
+cases, register 2 · 215, residue 449 · 608 (33.3%), core **1827**;
+whole-domain verdict diff 132 lines, **all forward** — 40
+`bug → pass`, 3 `incompatible → bug`, 2 message rewrites, zero pass
+and zero passNegative regressions. Gate 3691 → **3696**.
+
+**Prior @ `2b8afe9ba`** (2026-09-05, rotation 590 — three more
 receiver-safe positions, and the crash the last rotation shipped
 under them. `fnexpr this in unclaimed receiver position` refused
 `const o = { f: k }`, `function take(f: any = k)` and
