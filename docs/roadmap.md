@@ -1620,7 +1620,7 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 815fd5369`, never as a constant (the two shas this
+snapshot stamped `@ 16152756f`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,35 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `815fd5369`** (2026-09-05, rotation 587 — what the compiler
+**Latest @ `16152756f`** (2026-09-05, rotation 588 — a class
+declaration binds twice, and the ES5 lane now binds twice too.
+§14.2.3 gives the scope around a class a MUTABLE binding and
+§15.7.14 step 3 gives the class's own scope an IMMUTABLE one; the
+capturing-class lane collapsed the pair at its α-rename, which
+writes one minted spelling over every occurrence inside the class
+and outside it. So `class C { static self(){ return C } }` next to
+an outer local answered `cannot assign to const __cc0_C` for a
+legal `C = null`, a body WRITING its own name stored silently where
+bun throws, and — the one that shows the pair is not optional — a
+sibling's `super(…)`, prototype link and ctor-forward all reached
+their parent through the container's cell, so `class Q extends P {};
+P = null; new Q()` died on a null callee. Both are minted now,
+always: `__cci<N>_<C>` holds the constructor and carries every
+member install, `__cc<N>_<C>` is a mutable alias declared last.
+rotation 586-05's argument for one binding — a body that never says
+its own name cannot tell them apart — is retired: `extends` is the
+witness that it can. Gate predicate: **135** clusters of ≥ 4 holding
+**1007** cases, register 2 · 215, residue 447 · 606 (33.2%), core
+**1828**. Against rotation 587: clusters 135 → **135 (=)**, cases
+1009 → **1007 (−2)**, core 1831 → **1828 (−3)**. The
+`cannot assign to const \`__cc<N>_` signature is **gone (2 → 0)**;
+`fnexpr this in unclaimed receiver position` moved **32 → 33**, one
+net case, and that signature is now characterized (see the RFC):
+its bulk is a DELIBERATE over-refusal in `fnexpr_this_default`'s
+slot table, plus one real bug — a `this`-using function expression
+that reads its own binding loses receiver promotion.
+
+**Prior @ `815fd5369`** (2026-09-05, rotation 587 — what the compiler
 still remembers a name meant after something else rebinds it. P8.5's
 class-value alias is a parse-order note that one binding holds one
 class expression, kept so `C.m()` / `new C()` / `x instanceof C` /
