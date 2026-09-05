@@ -168,7 +168,7 @@ pub(super) fn store_receiver_admits(
         // peels. Nothing admits here that rotation 592 did not also
         // give a receiver on the way back out: before it, a nested
         // index read seeded none.
-        Expr::Index { .. } => index_chain_rooted_in(exprs, obj, props_recvs),
+        Expr::Index { .. } => keyed_chain_rooted_in(exprs, obj, props_recvs),
         Expr::Member {
             obj: pobj,
             name: pname,
@@ -182,21 +182,39 @@ pub(super) fn store_receiver_admits(
             // `other.Ctor.prototype.toJSON = function () { ... this ... }`
             // — a member chain, and the ordinary spelling once the
             // constructor lives on a namespace object.
+            // Rotation 597 — a NAMED hop off one of those receivers is
+            // the same situation as the keyed hop above, and was the
+            // only one of the two the chain test did not peel:
+            // `bag.fns.push(fn)` where `bag` is an any-world binding
+            // parks the value in a slot reached by an any-lane read of
+            // `bag`, so it comes back out through the any lane exactly
+            // as `rows[0].push(fn)` does. Measured before the arm: the
+            // binding spelling `const z: any[] = []` answered the
+            // holder while `bag.fns` answered `undefined`, for the same
+            // program.
             pname == "prototype"
                 || (pname == "constructor"
                     && matches!(&exprs[peel_any_cast(exprs, *pobj).0 as usize], Expr::Ident(n)
                         if props_recvs.contains(n)))
+                || keyed_chain_rooted_in(exprs, obj, props_recvs)
         }
         _ => false,
     }
 }
 
-/// Whether a chain of keyed reads starts from one of the receiver
+/// Whether a chain of property reads starts from one of the receiver
 /// bindings whose property slots live in the any world. Each hop is
 /// peeled through `as any` for the same reason the single-hop
-/// admission is: the cast is typecheck-only and cannot move the
-/// value out of that world.
-fn index_chain_rooted_in(
+/// admission is: the cast is typecheck-only and cannot move the value
+/// out of that world.
+///
+/// Both hop spellings peel, and for one reason: what decides is the
+/// ROOT, not how the chain spells its way down from it. `rows[0][0]`
+/// and `bag.fns` are the same read of the same any-world slot, and a
+/// value stored through either comes back through the same channel.
+/// Until rotation 597 only the keyed spelling peeled, so the two
+/// halves of one rule disagreed about the same program.
+fn keyed_chain_rooted_in(
     exprs: &[Expr],
     e: ExprId,
     props_recvs: &std::collections::HashSet<String>,
@@ -205,7 +223,7 @@ fn index_chain_rooted_in(
     loop {
         match &exprs[cur.0 as usize] {
             Expr::Ident(n) => return props_recvs.contains(n),
-            Expr::Index { obj, .. } => cur = peel_any_cast(exprs, *obj),
+            Expr::Index { obj, .. } | Expr::Member { obj, .. } => cur = peel_any_cast(exprs, *obj),
             _ => return false,
         }
     }
