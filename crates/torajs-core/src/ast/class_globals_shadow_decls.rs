@@ -107,3 +107,36 @@ pub(super) fn collect_block_decls(stmts: &[Stmt], out: &mut HashSet<String>) {
         }
     }
 }
+
+/// The class whose own scope a synthesized top-level item belongs to,
+/// if any. `desugar_classes` hoists every ctor / method / static
+/// block / static field initialiser / computed key out of the class
+/// and names it after the class it came from, so the name is the only
+/// record left that the body was written inside the class scope.
+///
+/// The prefixes are tried longest-first (`__cmany_` before `__cm_`),
+/// and so are the class names: a member name can contain `__`, and a
+/// class can be called `C_3`, so splitting at the first separator
+/// answers the wrong thing — the same trap `current_class` fell into
+/// until rotation 585.
+pub(super) fn owner_class<'a>(name: &str, classes: &'a HashSet<String>) -> Option<&'a String> {
+    const PREFIXES: [&str; 9] = [
+        "__ctorany_",
+        "__cmany_",
+        "__smany_",
+        "__ccmk_",
+        "__new_",
+        "__cm_",
+        "__sm_",
+        "__sb_",
+        "__sf_",
+    ];
+    let rest = PREFIXES.iter().find_map(|p| name.strip_prefix(p))?;
+    classes
+        .iter()
+        .filter(|c| {
+            rest.strip_prefix(c.as_str())
+                .is_some_and(|tail| tail.is_empty() || tail.starts_with('_'))
+        })
+        .max_by_key(|c| c.len())
+}

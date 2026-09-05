@@ -37,7 +37,7 @@
 //! an `Ident` — the deconflict census owns that spelling; this walk
 //! only serves value-position reads.
 
-use super::class_globals_shadow_decls::{collect_block_decls, collect_scope_decls};
+use super::class_globals_shadow_decls::{collect_block_decls, collect_scope_decls, owner_class};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashSet;
 
@@ -145,10 +145,21 @@ pub(super) fn rewrite_class_expr_self_names(ast: &mut Ast) {
 }
 
 /// Rewrite every value-position class reference the given scope can
-/// still see. `class_set` is the full set of known class names.
-pub(super) fn rewrite_class_value_refs(ast: &mut Ast, class_set: &HashSet<String>) {
+/// still see. `class_set` is the full set of known class names;
+/// `outer_bound` are the ones that also carry the outer mutable
+/// binding §14.2.3 gives a class declaration, and so are NOT the
+/// class object outside their own bodies.
+///
+/// Post-`desugar_classes` every one of those bodies is a top-level
+/// item named after its class, which is why the alias is installed
+/// here rather than inside the walk: nothing deeper can be one.
+pub(super) fn rewrite_class_value_refs(
+    ast: &mut Ast,
+    class_set: &HashSet<String>,
+    outer_bound: &HashSet<String>,
+) {
     let sh = Shadow {
-        active: class_set.clone(),
+        active: class_set.difference(outer_bound).cloned().collect(),
         alias: None,
         scanning: false,
     };
@@ -157,7 +168,23 @@ pub(super) fn rewrite_class_value_refs(ast: &mut Ast, class_set: &HashSet<String
     // `let C` is what `C` means here, class or no class.
     let sh = sh.in_block(&stmts);
     for s in &stmts {
-        rewrite_stmt(ast, s, &sh);
+        let name = match s {
+            Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } => Some(name.as_str()),
+            _ => None,
+        };
+        match name.and_then(|n| owner_class(n, outer_bound)) {
+            // §15.7.14 step 3 — inside the class, the name is the
+            // immutable binding the class scope holds, which is the
+            // cell the registry read answers from.
+            Some(c) => {
+                let inner = Shadow {
+                    alias: Some((c.clone(), format!("__class_{c}"))),
+                    ..sh.clone()
+                };
+                rewrite_stmt(ast, s, &inner);
+            }
+            None => rewrite_stmt(ast, s, &sh),
+        }
     }
     ast.stmts = stmts;
 }

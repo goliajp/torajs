@@ -91,7 +91,17 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // param-shadow-class bug). Synthesized __proto_<C> / __class_<C>
     // idents are not in class_set (their names carry the prefix), so
     // the walk leaves them untouched.
-    super::class_globals_shadow::rewrite_class_value_refs(ast, &meta.class_set);
+    // §14.2.3 / §16.1.7 — a class DECLARATION is not a constant
+    // declaration, so the scope around it holds a MUTABLE binding
+    // under the source's spelling. That is a different binding from
+    // the immutable one §15.7.14 step 3 puts inside the class scope,
+    // and `__class_<C>` is the second: it is the cell every method
+    // body reads through the registry, and it must keep answering the
+    // class after `C = 1` outside. So the outer one gets a slot of
+    // its own, and the rewrite below stops claiming `C` outside the
+    // class's own bodies. See `.claude/rfcs/20260905-class-decl-outer-binding`.
+    let outer_bound = outer_bound_classes(ast, &meta);
+    super::class_globals_shadow::rewrite_class_value_refs(ast, &meta.class_set, &outer_bound);
 
     // r505 — the prologue becomes `function __cprologue(): void {…}`
     // plus one call at the very top of main, so static field inits +
@@ -113,8 +123,56 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
         },
         Stmt::Expr(call),
     ];
+    // The outer bindings, after the prologue that fills the cells
+    // they read from. Mutable on purpose: that mutability IS the
+    // difference between the two bindings, and it is also what the
+    // module-global promote admits, so a top-level fn body can see
+    // this the same way it sees any other module let.
+    for cname in &meta.class_names {
+        if !outer_bound.contains(cname) {
+            continue;
+        }
+        let init = ast.add_expr(Expr::Ident(format!("__class_{cname}")));
+        combined.push(Stmt::LetDecl {
+            mutable: true,
+            name: cname.clone(),
+            type_ann: Some("any".to_string()),
+            init,
+            is_var: false,
+        });
+    }
     combined.extend(std::mem::take(&mut ast.stmts));
     ast.stmts = combined;
+}
+
+/// Which classes get the outer mutable binding §14.2.3 gives a class
+/// DECLARATION.
+///
+/// Four kinds are held out, each for its own reason:
+///
+/// - a class EXPRESSION (`__ClassExpr_<id>`) never had an outer
+///   binding to begin with — §15.7.14 gives it only the one inside
+///   the class scope, which rotation 585 already models;
+/// - a class hoisted out of a block and RENAMED on collision
+///   (`__hc<N>_<C>`) binds its source spelling in that block, not at
+///   program level, and putting it here would let two blocks' classes
+///   fight over one name — knife B of the RFC;
+/// - the injected Error family and the other builtin globals are
+///   global-object properties, and a write to one of those is the
+///   global-property lane, not this one;
+/// - a generator factory class is synthesized, so no source scope
+///   ever wrote its name.
+fn outer_bound_classes(ast: &Ast, meta: &ClassMetadata) -> HashSet<String> {
+    let synthesized: HashSet<&String> = ast.generator_factory_classes.values().collect();
+    meta.class_names
+        .iter()
+        .filter(|c| !c.starts_with("__ClassExpr_"))
+        .filter(|c| !c.starts_with("__hc"))
+        .filter(|c| !ast.injected_error_classes.contains(*c))
+        .filter(|c| !crate::check_js_semantics::is_known_builtin_global(c))
+        .filter(|c| !synthesized.contains(*c))
+        .cloned()
+        .collect()
 }
 
 /// Collect class names + lengths + static-shadow markers from the
