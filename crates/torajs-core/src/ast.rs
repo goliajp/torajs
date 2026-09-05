@@ -128,6 +128,7 @@ mod fnexpr_this_names;
 mod fnexpr_this_objlit;
 mod fnexpr_this_pairing;
 pub(crate) mod fnexpr_this_recvs;
+mod fnexpr_this_ret_boundary;
 pub(crate) mod fnexpr_this_routed;
 mod fnexpr_this_shapes;
 mod fnexpr_this_store_fields;

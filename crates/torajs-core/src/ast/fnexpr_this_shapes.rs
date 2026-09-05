@@ -94,7 +94,8 @@ pub(super) struct UseShapes {
     pub(super) export_default: std::collections::HashSet<ExprId>,
     /// `return <bare name>` out of a function whose return type is
     /// inferred or spelled exactly `any`. Admits only together with
-    /// [`Self::any_ann_names`] — see [`any_boundary_return_idents`].
+    /// [`Self::any_ann_names`] — see
+    /// [`super::fnexpr_this_ret_boundary::any_boundary_return_idents`].
     pub(super) any_return: std::collections::HashSet<ExprId>,
     /// The target argument of `Object.defineProperty` /
     /// `defineProperties`.
@@ -143,7 +144,7 @@ impl UseShapes {
         argv: &std::collections::HashSet<String>,
     ) -> Self {
         let mut any_ann_names = std::collections::HashSet::new();
-        collect_any_ann_decl_names(stmts, &mut any_ann_names);
+        super::fnexpr_this_ret_boundary::collect_any_ann_decl_names(stmts, &mut any_ann_names);
         let mut shapes = Self {
             callee: exprs
                 .iter()
@@ -194,7 +195,7 @@ impl UseShapes {
             instanceof_name: instanceof_name_idents(exprs),
             typeof_operand: typeof_operand_idents(exprs),
             export_default: export_default_idents(stmts, exprs),
-            any_return: any_boundary_return_idents(stmts, exprs),
+            any_return: super::fnexpr_this_ret_boundary::any_boundary_return_idents(stmts, exprs),
             define_target: define_property_target_idents(exprs),
             any_ann_names,
             hof_cb_arg: hof_any_cb_arg_idents(stmts, exprs),
@@ -400,90 +401,4 @@ fn hof_any_cb_arg_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::Ha
         }
     }
     out
-}
-
-/// `return <bare name>` out of a function whose return type is
-/// inferred or spelled exactly `any`.
-///
-/// Returning the name never CALLS the binding — the same one-liner that
-/// admits a member's object and the right of `instanceof`. What makes
-/// this one different is that the cell ESCAPES, so the proof it needs
-/// is the explicit-`any` argument shape's rather than theirs: the value
-/// has to cross into the any lane and STAY there, because every
-/// any-lane call path honors the receiver channel (`__torajs_any_call`
-/// / `invoke_with_this` / the NewDynamic kernel all shift argv on
-/// FLAG_CLOSURE_RECV_FIRST) while a typed indirect call does not.
-///
-/// Two things have to hold for that crossing, and this classifier only
-/// checks the second — the caller pairs it with the binding's own `any`
-/// annotation, which is what makes the RETURNED expression an any-lane
-/// cell in the first place:
-///
-/// 1. the binding is annotated `any`, and
-/// 2. the boundary does not re-type it — an absent return annotation
-///    infers the `any` straight through, and an explicit `any` says it
-///    outright. A concrete signature (`function take(f: any): (a:
-///    number) => string`) is what this rejects: it hands the caller a
-///    typed callee, whose call path never reads the flag.
-///
-/// The excluded halves stay loud, which is where they already are:
-/// every program that returns a `this`-using binding is rejected today,
-/// so nothing that answers correctly can be pulled in.
-///
-/// Bare Ident only, like the `instanceof` shape — `return C as any` is
-/// a different node and is not measured here.
-fn any_boundary_return_idents(stmts: &[Stmt], exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
-    fn walk(
-        stmts: &[Stmt],
-        exprs: &[Expr],
-        admits: bool,
-        out: &mut std::collections::HashSet<ExprId>,
-    ) {
-        for s in stmts {
-            if let Stmt::Return(Some(eid)) = s
-                && admits
-                && matches!(&exprs[eid.0 as usize], Expr::Ident(_))
-            {
-                out.insert(*eid);
-            }
-            // A `return` belongs to the nearest enclosing function, so
-            // the FnDecl arm re-derives `admits` while every other
-            // compound form carries it through. Top level starts false:
-            // a `return` cannot appear there, and guessing in the
-            // admitting direction is the unsafe one.
-            match s {
-                Stmt::FnDecl {
-                    return_type, body, ..
-                } => walk(
-                    body,
-                    exprs,
-                    return_type.as_deref().is_none_or(|a| a == "any"),
-                    out,
-                ),
-                _ => super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-                    walk(inner, exprs, admits, out)
-                }),
-            }
-        }
-    }
-    let mut out = std::collections::HashSet::new();
-    walk(stmts, exprs, false, &mut out);
-    out
-}
-
-/// Every name a `LetDecl` annotates exactly `any` — the binding half of
-/// the return-shape proof above. A name declared twice lands here off
-/// either decl, and the `decls.len() != 1` guard is what turns that
-/// away.
-fn collect_any_ann_decl_names(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
-    for s in stmts {
-        if let Stmt::LetDecl { name, type_ann, .. } = s
-            && type_ann.as_deref() == Some("any")
-        {
-            out.insert(name.clone());
-        }
-        super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-            collect_any_ann_decl_names(inner, out)
-        });
-    }
 }
