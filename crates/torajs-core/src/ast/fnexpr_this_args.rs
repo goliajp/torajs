@@ -226,6 +226,88 @@ fn collect_fn_decl_params<'a>(
     }
 }
 
+/// 590-02 — the VALUE stored into a slot annotated exactly `any`:
+/// `f = g` where `f` is an `any` param.
+///
+/// This is where a DEFAULT PARAMETER actually lives by the time this
+/// census runs. `function take(f: any = g)` never reaches here in
+/// that shape: `materialize_expr_defaults` moved the initializer into
+/// the body long before (pipeline order), leaving the param default
+/// as the `undefined` pad and emitting
+/// `if (f === undefined) { f = g }` — so the position to answer for
+/// is the assignment's VALUE, not a declaration. Measured, not
+/// assumed: a diag over the arena showed the param's `default` node
+/// was `Ident(undefined)` while the only `Ident(g)` in the program
+/// sat in the guard's assign.
+///
+/// The proof is [`any_param_arg_idents`]'s, one step later. The
+/// conversion gate in `apply_args_materialize` only builds that guard
+/// for an `any` (or unannotated, which `patch_params` then widens to
+/// `any`) param, so the slot the value lands in is the any lane —
+/// and every any-lane call path honors the receiver channel. This
+/// census re-derives the annotation itself rather than trusting that
+/// invariant, so a guard over any other slot type simply never joins.
+///
+/// Name-based, and therefore conservative in the safe direction: a
+/// name is admitted only when SOME FnDecl spells it an `any` param
+/// and NO declaration anywhere spells it as anything else (another
+/// param annotation, or a `let` / `const` whose annotation is not
+/// exactly `any`). A name used for an `any` param in one function and
+/// a typed local in another is excluded wholesale — the same
+/// whole-program declared-set discipline `uncallable_builtins` uses,
+/// erring toward refusal.
+pub(super) fn any_param_assign_value_idents(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+) -> std::collections::HashSet<ExprId> {
+    let mut any_params: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut conflicting: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    fn census<'a>(
+        stmts: &'a [Stmt],
+        any_params: &mut std::collections::HashSet<&'a str>,
+        conflicting: &mut std::collections::HashSet<&'a str>,
+    ) {
+        for s in stmts {
+            match s {
+                Stmt::FnDecl { params, .. } => {
+                    for p in params {
+                        if !p.is_rest && p.type_ann.as_deref() == Some("any") {
+                            any_params.insert(p.name.as_str());
+                        } else {
+                            conflicting.insert(p.name.as_str());
+                        }
+                    }
+                }
+                Stmt::LetDecl { name, type_ann, .. } if type_ann.as_deref() != Some("any") => {
+                    conflicting.insert(name.as_str());
+                }
+                _ => {}
+            }
+            super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
+                census(inner, any_params, conflicting)
+            });
+        }
+    }
+    census(stmts, &mut any_params, &mut conflicting);
+    let mut out = std::collections::HashSet::new();
+    for e in exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let Expr::Ident(t) = &exprs[target.0 as usize] else {
+            continue;
+        };
+        if !any_params.contains(t.as_str()) || conflicting.contains(t.as_str()) {
+            continue;
+        }
+        let inner = super::fnexpr_this_names::peel_as(exprs, *value);
+        if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
+            out.insert(inner);
+        }
+    }
+    out
+}
+
 /// 2b — a param whose annotation IS one of its fn's type params
 /// (`same<T>(a: T, b: T)`) admits an argument only when the param
 /// NAME provably never enters a call lane: monomorphization may bind
