@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T17:28:52.276Z",
+  "generatedAt": "2026-09-05T21:08:03.812Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-05T17:14:09Z",
-    "headSha": "0defd9c0d",
-    "elapsedSec": 383.7,
+    "ranAt": "2026-09-05T21:07:06Z",
+    "headSha": "3e0cdfaf7",
+    "elapsedSec": 476.65,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -22,7 +22,7 @@
     "passTotal": 36723,
     "bug": 11273,
     "incompatible": 5178,
-    "bunSkip": 2929,
+    "bunSkip": 2926,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47996,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "0defd9c0d",
-    "commitSubject": "fix: a props-receiver root may be spelled as a factory call",
+    "commit": "3e0cdfaf7",
+    "commitSubject": "fix: narrow the rebound-name refusal to promoted declarations",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "3e0cdfaf7",
+      "subject": "fix: narrow the rebound-name refusal to promoted declarations"
+    },
+    {
+      "hash": "85e633918",
+      "subject": "fix: a block-scoped binding that shadows a fn is read as itself"
+    },
+    {
+      "hash": "1298f4127",
+      "subject": "fix: an object-literal field does not need an annotation to keep this"
+    },
+    {
+      "hash": "7bb7f2bf7",
+      "subject": "fix: a named fn pushed into a props container keeps its receiver"
+    },
+    {
+      "hash": "673a9d355",
+      "subject": "fix: the receiver-first shell must not show the user its own name"
+    },
+    {
+      "hash": "cbe889afd",
+      "subject": "refactor: split the recv-first site censuses and the fn-name rows out"
+    },
+    {
+      "hash": "79d324b18",
+      "subject": "chore: rotation 594 close — sweep on 0defd9c0d, plus the incompat ndjson"
+    },
+    {
       "hash": "0defd9c0d",
       "subject": "fix: a props-receiver root may be spelled as a factory call"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "76e980e35",
       "subject": "fix: a this-using function declaration has one value"
-    },
-    {
-      "hash": "75b128724",
-      "subject": "chore: refresh the hardev dashboard snapshot for rotation 593"
-    },
-    {
-      "hash": "ae5440514",
-      "subject": "chore: rotation 593 close — sweep on 040ec68bc, one boundary annotation dropped"
-    },
-    {
-      "hash": "040ec68bc",
-      "subject": "fix: a returned this-using binding no longer needs its own any annotation"
-    },
-    {
-      "hash": "3eb7fad3f",
-      "subject": "refactor: move the return-boundary shape family to its own file"
-    },
-    {
-      "hash": "3a2b85bd3",
-      "subject": "style: rustfmt drift left by rotation 592"
-    },
-    {
-      "hash": "66edba529",
-      "subject": "chore: rotation 592 close — sweep on b96b7deb1, receiver bases and global visibility"
-    },
-    {
-      "hash": "b96b7deb1",
-      "subject": "fix: a literal member naming a closure binding kept it main-local"
     }
   ],
-  "headSha": "0defd9c0d",
+  "headSha": "3e0cdfaf7",
   "autorun": {
-    "total": 897,
+    "total": 898,
     "baselineTarget": 10,
-    "bySelf": 892,
+    "bySelf": 893,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788622676-0c61",
-      "at": "2026-09-05T15:37:56Z",
-      "ts": 1788622676,
+      "rotationId": "r-1788629367-7a1c",
+      "at": "2026-09-05T17:29:27Z",
+      "ts": 1788629368,
       "trigger": "self",
-      "prevHead": "75b128724",
-      "handoffSha": "sha256:cadb3f39058b55d59998915b9887eaea44e35f5f0d1ae07f90248393a7e746b6",
-      "handoffAgeSec": 4,
+      "prevHead": "79d324b18",
+      "handoffSha": "sha256:4fe6d7cd37a51693346470ac0f64571566986d6083a05bb037314989f9790f0d",
+      "handoffAgeSec": 17,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788629367-7a1c",
+        "at": "2026-09-05T17:29:27Z",
+        "ts": 1788629368,
+        "trigger": "self",
+        "prevHead": "79d324b18",
+        "handoffSha": "sha256:4fe6d7cd37a51693346470ac0f64571566986d6083a05bb037314989f9790f0d",
+        "handoffAgeSec": 17,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788622676-0c61",
         "at": "2026-09-05T15:37:56Z",
@@ -892,17 +903,6 @@
         "prevHead": "73c4fc0b0",
         "handoffSha": "sha256:49532a850557ba8dba750ef57945d5f5d764466874cebc892ae07ad6e4d9750c",
         "handoffAgeSec": 12,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788549331-35a5",
-        "at": "2026-09-04T19:15:31Z",
-        "ts": 1788549331,
-        "trigger": "self",
-        "prevHead": "308032d46",
-        "handoffSha": "sha256:b5add4e1f20ca0b60144dd53a9e8cf7fc8968ef190c4ca0057bfed03f3530ee0",
-        "handoffAgeSec": 1,
         "conformanceBefore": null,
         "commitsInSession": null
       }
