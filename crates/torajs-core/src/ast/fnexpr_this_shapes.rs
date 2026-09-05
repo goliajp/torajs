@@ -86,6 +86,14 @@ pub(super) struct UseShapes {
     /// binding (397-01) — see
     /// [`super::fnexpr_this_arraylit::any_arraylit_elem_idents`].
     pub(super) any_arraylit_elem: std::collections::HashSet<ExprId>,
+    /// An ELEMENT of ANY array literal (589-03) — see
+    /// [`super::fnexpr_this_arraylit::arraylit_elem_idents`]. Admits
+    /// only for a binding outside [`Self::variadic_names`].
+    pub(super) arraylit_elem: std::collections::HashSet<ExprId>,
+    /// Bindings whose closure carries a variadic repr, which
+    /// [`Self::arraylit_elem`] does not cover — see
+    /// [`super::fnexpr_this_arraylit::variadic_binding_names`].
+    pub(super) variadic_names: std::collections::HashSet<String>,
     /// The init site of a PROVEN-SAFE alias declaration (397-02) —
     /// see [`super::fnexpr_this_alias`]. Filled in a second pass of
     /// `collect`, since the fixpoint consults the base shapes.
@@ -100,7 +108,12 @@ pub(super) struct UseShapes {
 }
 
 impl UseShapes {
-    pub(super) fn collect(stmts: &[Stmt], exprs: &[Expr]) -> Self {
+    pub(super) fn collect(
+        stmts: &[Stmt],
+        exprs: &[Expr],
+        argc: &std::collections::HashSet<String>,
+        argv: &std::collections::HashSet<String>,
+    ) -> Self {
         let mut any_ann_names = std::collections::HashSet::new();
         collect_any_ann_decl_names(stmts, &mut any_ann_names);
         let mut shapes = Self {
@@ -154,6 +167,10 @@ impl UseShapes {
             any_ann_names,
             hof_cb_arg: hof_any_cb_arg_idents(stmts, exprs),
             any_arraylit_elem: super::fnexpr_this_arraylit::any_arraylit_elem_idents(stmts, exprs),
+            arraylit_elem: super::fnexpr_this_arraylit::arraylit_elem_idents(exprs),
+            variadic_names: super::fnexpr_this_arraylit::variadic_binding_names(
+                stmts, exprs, argc, argv,
+            ),
             safe_alias_init: std::collections::HashSet::new(),
             inline_call_arg: inline_fnexpr_call_arg_idents(exprs),
             assign_target: assign_target_idents(exprs),
@@ -176,6 +193,7 @@ impl UseShapes {
             || self.define_target.contains(&e)
             || self.hof_cb_arg.contains(&e)
             || self.any_arraylit_elem.contains(&e)
+            || (self.arraylit_elem.contains(&e) && !self.variadic_names.contains(name))
             || self.safe_alias_init.contains(&e)
             || self.inline_call_arg.contains(&e)
             || self.assign_target.contains(&e)

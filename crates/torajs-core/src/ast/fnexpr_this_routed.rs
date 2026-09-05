@@ -129,7 +129,7 @@ pub(super) fn promote_variable_routed(
     // Every receiver-safe use POSITION in the program, by kind, with
     // the two proof families documented on the module. A binding
     // promotes only if all of its non-face uses land in one of them.
-    let shapes = UseShapes::collect(stmts, exprs);
+    let shapes = UseShapes::collect(stmts, exprs, closure_argc_locals, closure_argv_locals);
     for (name, face_eids) in &faces_by_name {
         let use_eids: Vec<ExprId> = exprs
             .iter()
