@@ -26,7 +26,7 @@
 //! this declaration's own annotation that types the slot the value
 //! lands in.
 
-use super::fnexpr_this_names::peel_as;
+use super::fnexpr_this_names::slot_value_idents;
 use super::{Expr, ExprId, Stmt};
 
 /// The bare-Ident initializer of every binding annotated exactly
@@ -49,10 +49,7 @@ fn walk(stmts: &[Stmt], exprs: &[Expr], out: &mut std::collections::HashSet<Expr
         if let Stmt::LetDecl { type_ann, init, .. } = s
             && type_ann.as_deref() == Some("any")
         {
-            let inner = peel_as(exprs, *init);
-            if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
-                out.insert(inner);
-            }
+            slot_value_idents(exprs, *init, out);
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| walk(inner, exprs, out));
     }

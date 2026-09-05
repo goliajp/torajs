@@ -103,10 +103,7 @@ pub(super) fn any_elem_push_arg_idents(
             continue;
         }
         for a in args {
-            let inner = peel_as(exprs, *a);
-            if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
-                out.insert(inner);
-            }
+            super::fnexpr_this_names::slot_value_idents(exprs, *a, &mut out);
         }
     }
     out

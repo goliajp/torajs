@@ -148,6 +148,46 @@ pub(super) fn peel_as(exprs: &[Expr], mut e: super::ExprId) -> super::ExprId {
     e
 }
 
+/// Every bare Ident that can be the VALUE stored by an expression in
+/// a slot position: the `as` suffix peeled, and a conditional's two
+/// arms distributed over.
+///
+/// 591-05. The family's slot shapes each asked `peel_as(…)` then
+/// `matches!(Ident)`, which reads `c ? k : k` as "not an Ident" and
+/// refuses. But a conditional in a slot position stores WHICHEVER ARM
+/// it evaluates into that same slot, so an arm's proof is the slot's
+/// proof — the join adds no path the single-Ident spelling did not
+/// already have. Nested conditionals recurse for the same reason, and
+/// an arm that is not an Ident simply contributes nothing.
+///
+/// Deliberately used only where the slot's type is spelled exactly
+/// `any` (or `any[]`). Nothing here would be unsound elsewhere, but
+/// "the annotation says `any`" is what makes each of those proofs
+/// unconditional, and a shape whose slot type is inferred rather than
+/// spelled should be widened by reading ITS proof, not by inheriting
+/// this one.
+pub(super) fn slot_value_idents(
+    exprs: &[Expr],
+    e: super::ExprId,
+    out: &mut std::collections::HashSet<super::ExprId>,
+) {
+    let e = peel_as(exprs, e);
+    match &exprs[e.0 as usize] {
+        Expr::Ident(_) => {
+            out.insert(e);
+        }
+        Expr::Ternary {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            slot_value_idents(exprs, *then_branch, out);
+            slot_value_idents(exprs, *else_branch, out);
+        }
+        _ => {}
+    }
+}
+
 /// Every `LetDecl` matching `name`, over the full
 /// [`for_each_nested_list`] spine — knife 2's uniqueness guard needs
 /// the program-wide count, and it must re-find every decl the

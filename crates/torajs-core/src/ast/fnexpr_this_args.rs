@@ -125,13 +125,21 @@ pub(super) fn any_param_arg_idents(
             continue;
         }
         for (i, a) in args.iter().enumerate() {
-            if matches!(&exprs[a.0 as usize], Expr::Ident(_))
-                && let Some(p) = params.get(i)
-                && !p.is_rest
+            let Some(p) = params.get(i) else { continue };
+            if p.is_rest {
+                continue;
+            }
+            // An exactly-`any` slot takes the shared slot-value read
+            // (591-05): the `as` suffix peeled and a conditional's
+            // arms distributed over, since either arm lands in this
+            // same slot. The GENERIC half stays a bare-Ident test —
+            // its proof is about what monomorphization may bind the
+            // slot to, and that argument has not been made for a join.
+            if p.type_ann.as_deref() == Some("any") {
+                super::fnexpr_this_names::slot_value_idents(exprs, *a, &mut out);
+            } else if matches!(&exprs[a.0 as usize], Expr::Ident(_))
                 && p.type_ann.as_deref().is_some_and(|ann| {
-                    ann == "any"
-                        || (type_params.iter().any(|t| t == ann)
-                            && safe_generics.contains(p.name.as_str()))
+                    type_params.iter().any(|t| t == ann) && safe_generics.contains(p.name.as_str())
                 })
             {
                 out.insert(*a);
@@ -300,10 +308,7 @@ pub(super) fn any_param_assign_value_idents(
         if !any_params.contains(t.as_str()) || conflicting.contains(t.as_str()) {
             continue;
         }
-        let inner = super::fnexpr_this_names::peel_as(exprs, *value);
-        if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
-            out.insert(inner);
-        }
+        super::fnexpr_this_names::slot_value_idents(exprs, *value, &mut out);
     }
     out
 }

@@ -37,10 +37,7 @@ pub(super) fn any_arraylit_elem_idents(
                 let init = peel_as(exprs, *init);
                 if let Expr::Array(elems) = &exprs[init.0 as usize] {
                     for e in elems {
-                        let inner = peel_as(exprs, *e);
-                        if matches!(&exprs[inner.0 as usize], Expr::Ident(_)) {
-                            out.insert(inner);
-                        }
+                        super::fnexpr_this_names::slot_value_idents(exprs, *e, out);
                     }
                 }
             }
