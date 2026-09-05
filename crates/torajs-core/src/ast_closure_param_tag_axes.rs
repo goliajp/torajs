@@ -185,7 +185,24 @@ pub(crate) fn wrap_named_fn_values(
             // arguments touch, the argv/static faces adopt IT, and
             // the true call-site argv reaches the factory however
             // the relay is invoked (member call or escaped alias).
-            let (declared, takes_gen_argv) = crate::ast::split_gen_argv_tail(&params);
+            // A `bind_this_param`-promoted target carries a hidden
+            // `__this` first param. The forwarder's public face skips
+            // it and the forwarding call feeds `undefined` — the same
+            // plain-call receiver `this_param.rs`'s direct-call
+            // rewrite supplies, and the same shape the sibling
+            // synthesizer in `ast/forwarders.rs` has always built.
+            // Left in, it became a DECLARED slot of the forwarder, so
+            // the caller's first real argument landed in the receiver:
+            // `function take(f) { return f(7) }; take(t)` seeded
+            // `__this = 7` and padded `a` with undefined, and the
+            // wrapped face reported one parameter too many.
+            let takes_this = params.first().is_some_and(|p| p.name == "__this");
+            let user_params = if takes_this {
+                &params[1..]
+            } else {
+                &params[..]
+            };
+            let (declared, takes_gen_argv) = crate::ast::split_gen_argv_tail(user_params);
             let declared = declared.to_vec();
             let mut fwd_params: Vec<Param> = Vec::with_capacity(declared.len() + 1);
             fwd_params.push(Param {
@@ -195,10 +212,13 @@ pub(crate) fn wrap_named_fn_values(
                 is_rest: false,
             });
             fwd_params.extend(declared.iter().cloned());
-            let mut arg_eids: Vec<ExprId> = declared
-                .iter()
-                .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
-                .collect();
+            let mut arg_eids: Vec<ExprId> = Vec::with_capacity(declared.len() + 1);
+            if takes_this {
+                arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
+            }
+            for p in &declared {
+                arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
+            }
             if takes_gen_argv {
                 crate::ast::push_gen_argv_spread(ast, &mut arg_eids);
             }

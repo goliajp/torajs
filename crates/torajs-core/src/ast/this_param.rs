@@ -58,6 +58,10 @@ pub fn bind_this_param(ast: &mut Ast) {
     if needs.is_empty() {
         return;
     }
+    // The value face needs the same answer this pass computes, and
+    // computing it again later would mean guessing from name prefixes
+    // (see the field's doc for why that is only an approximation).
+    ast.this_param_fns.extend(needs.iter().cloned());
 
     let Ast {
         stmts,

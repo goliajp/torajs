@@ -706,6 +706,17 @@ pub struct Ast {
     /// byte `ACC_KIND_RECV`, so receiver-aware invokers put the
     /// receiver in argv[0].
     pub fnexpr_recv_fns: std::collections::HashSet<String>,
+    /// Top-level `function` declarations `bind_this_param` promoted —
+    /// their body had `__this` free, so it inserted the hidden
+    /// receiver parameter and seeded `undefined` at every DIRECT call
+    /// site. Recorded rather than re-derived by name-matching on
+    /// `__cm_` / `__new_` prefixes, which `this_param.rs` deliberately
+    /// avoids: a class member is bound by its parameter list and never
+    /// qualifies, so the promoted set is the exact answer and a prefix
+    /// test is only an approximation of it. Consumer:
+    /// `namedfn_this_value::promote_this_fn_values`, which gives the
+    /// same declarations' VALUE uses the matching forwarder.
+    pub this_param_fns: std::collections::HashSet<String>,
     /// RFC 20260717-fnexpr-this-channel knife 2 — exact face ExprIds
     /// (the `Expr::Ident` in an accessor-face position) whose
     /// SINGLE-USE const binding routes a promoted fn-expr. Keyed by

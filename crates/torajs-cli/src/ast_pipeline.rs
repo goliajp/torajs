@@ -303,6 +303,15 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::lift_arrow_fns(ast);
     ast::register_bind_receiver_recv_fns(ast);
     ast::infer_anonymous_closure_params(ast);
+    // BEFORE the closure-arg fixpoint, not after: giving a promoted
+    // declaration's value uses their forwarder turns them into
+    // `Expr::Closure`, and the receiving parameters have to be retagged
+    // to the env-first repr in the same run — a slot left typed
+    // `(x: any) => string` while the argument became a closure cell is
+    // the calling-convention mismatch that prints nothing at all. The
+    // sites `synthesize_recv_cb_forwarders` wants (it runs later and
+    // gives them the receiver-FIRST shim) are left for it.
+    ast::promote_this_fn_values(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
     ast::synthesize_forwarders(ast);
     ast::desugar_nested_fns(ast);

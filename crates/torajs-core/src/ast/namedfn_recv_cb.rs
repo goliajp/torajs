@@ -92,6 +92,23 @@ pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
     }
 }
 
+/// The arena slots this pass will claim, for a pass that runs
+/// EARLIER and must not take them first. `promote_this_fn_values`
+/// gives every other value use of a promoted declaration the plain
+/// `__forward_` shim; these sites want the receiver-FIRST one
+/// (`__fwdrecv_`, registered in `fnexpr_recv_fns`) so the real
+/// receiver survives, and only this pass knows which they are.
+pub(crate) fn recv_cb_claimed_sites(ast: &Ast) -> std::collections::HashSet<usize> {
+    let fn_sigs = collect_promoted_fn_sigs(ast);
+    if fn_sigs.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    let mut sites = collect_sites(ast, &fn_sigs);
+    collect_objlit_field_sites(ast, &fn_sigs, &mut sites);
+    collect_any_let_init_sites(ast, &fn_sigs, &mut sites);
+    sites.into_iter().map(|(e, _)| e.0 as usize).collect()
+}
+
 /// Top-level plain fns `bind_this_param` promoted (`__this` first
 /// param). Synthetic names (`__cm_` methods, forwarders, lifted
 /// closures) never qualify — the `__` prefix is not user-spellable.
