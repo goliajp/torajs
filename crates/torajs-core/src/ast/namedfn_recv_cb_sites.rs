@@ -215,6 +215,76 @@ pub(super) fn collect_props_store_sites(
     }
 }
 
+/// Rotation 595 — the container-PUSH sites: a promoted named fn handed
+/// to `push` / `unshift` on a runtime-props container (`z.push(fn)`,
+/// `rows[0].unshift(fn)`). This is an ARGUMENT position, so
+/// `store_target_admits` cannot reach it — there is no assignment and
+/// no key — but the fn lands in exactly the slot `z[0] = fn` would
+/// have used and comes back out through exactly the same channel, so
+/// the receiver half of that verdict
+/// ([`super::fnexpr_this_recvs_props::store_receiver_admits`]) is the right
+/// bar and is reused rather than re-derived.
+///
+/// Only the two ES array appenders admit. `splice` / `fill` /
+/// `copyWithin` also write slots but take the value at a position that
+/// varies with arity, and a user-defined `push` on an `: any` holder is
+/// harmless either way: the shell it gets is called through the any
+/// lane, which shifts argv on `FLAG_CLOSURE_RECV_FIRST` and so answers
+/// `undefined` for a plain `f(x)` inside that method — the same thing
+/// the plain forwarder answered.
+pub(super) fn collect_props_push_sites(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    sites: &mut Vec<(ExprId, String)>,
+) {
+    let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
+        &ast.stmts, &ast.exprs,
+    );
+    for e in &ast.exprs {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        let Expr::Member { obj, name: mname } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if !matches!(mname.as_str(), "push" | "unshift")
+            || !super::fnexpr_this_recvs_props::store_receiver_admits(
+                &ast.exprs,
+                &props_recvs,
+                *obj,
+            )
+        {
+            continue;
+        }
+        // Every argument is a stored slot, so each is judged on its
+        // own — `z.push(1, fn)` parks the fn just as `z.push(fn)`
+        // does. The `as any` shell spells the same intent and erases
+        // nothing at runtime, the same peel the other censuses do.
+        for a in args {
+            let inner = match ast.get_expr(*a) {
+                Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
+                _ => *a,
+            };
+            let Expr::Ident(n) = ast.get_expr(inner) else {
+                continue;
+            };
+            if !fn_sigs.contains_key(n)
+                || ast.generator_factory_classes.contains_key(n)
+                || ast.async_generator_fns.contains(n)
+                || name_shadowed_elsewhere(&ast.stmts, n)
+            {
+                continue;
+            }
+            let mut decls: Vec<(bool, ExprId)> = Vec::new();
+            collect_decls_by_name(&ast.stmts, n, &mut decls);
+            if !decls.is_empty() {
+                continue;
+            }
+            sites.push((inner, n.clone()));
+        }
+    }
+}
+
 /// Rotation 410 — the any-let BARE-INIT sites: a promoted named fn
 /// is the whole initializer of an `: any`-annotated binding
 /// (`const B: any = F`, the `as any` shell admitted). The binding is

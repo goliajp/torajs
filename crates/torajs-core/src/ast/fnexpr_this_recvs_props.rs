@@ -5,7 +5,8 @@
 //! arm for a CALL initializer, which does not fit under the 500-line
 //! limit alongside the five other censuses.
 
-use super::{Expr, Stmt};
+use super::fnexpr_this_faces::peel_any_cast;
+use super::{Expr, ExprId, Stmt};
 
 /// Runtime-props receiver bindings for the B2 store-receiver bar
 /// (RFC 20260808-construct-channel, species key 2) — a name admits
@@ -131,5 +132,81 @@ fn collect_props_receiver_inner(
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
             collect_props_receiver_inner(inner, exprs, fn_rets, names, other)
         });
+    }
+}
+
+/// Whether a RECEIVER holds its properties in the any world — the half
+/// of [`super::fnexpr_this_faces::store_target_admits`] that looks only
+/// at what the value is being put into, with no opinion about the key.
+///
+/// It lives here rather than beside that caller because this is the
+/// same bar the census above answers, one level further out: that one
+/// says which BINDINGS keep their properties in the any world, this one
+/// says which EXPRESSIONS reach such a binding.
+///
+/// Split out in rotation 595 for the push/unshift arm: handing a fn to
+/// `z.push(...)` parks it in the very slot `z[0] = ...` would have
+/// used, so the question "does a value stored here come back through a
+/// receiver-honouring channel" is the same question and must not get a
+/// second, drifting answer. The key-shaped arms of that function
+/// (`this.m`, `Promise.resolve`, the expando dict) stay behind — they
+/// are decided on the member NAME, which an argument position has none
+/// of.
+pub(super) fn store_receiver_admits(
+    exprs: &[Expr],
+    props_recvs: &std::collections::HashSet<String>,
+    obj: ExprId,
+) -> bool {
+    match &exprs[peel_any_cast(exprs, obj).0 as usize] {
+        Expr::Ident(n) => props_recvs.contains(n),
+        // A keyed hop off one of those receivers is itself in the any
+        // world — reading an element of an `any` binding, or of an
+        // array whose slots the receiver gate already covers — so a
+        // store one level further in (`rows[0][0] = fn`) lands in the
+        // same place and comes back through the same channels. What
+        // decides is the ROOT the hops start from, so the whole chain
+        // peels. Nothing admits here that rotation 592 did not also
+        // give a receiver on the way back out: before it, a nested
+        // index read seeded none.
+        Expr::Index { .. } => index_chain_rooted_in(exprs, obj, props_recvs),
+        Expr::Member {
+            obj: pobj,
+            name: pname,
+        } => {
+            // `<anything>.prototype.k` — how the prototype object was
+            // REACHED does not change the channel the stored value
+            // comes back through: an instance method call resolves the
+            // name up the prototype chain in the any lane, which shifts
+            // argv on FLAG_CLOSURE_RECV_FIRST. The Ident / Closure
+            // restriction the first cut carried refused
+            // `other.Ctor.prototype.toJSON = function () { ... this ... }`
+            // — a member chain, and the ordinary spelling once the
+            // constructor lives on a namespace object.
+            pname == "prototype"
+                || (pname == "constructor"
+                    && matches!(&exprs[peel_any_cast(exprs, *pobj).0 as usize], Expr::Ident(n)
+                        if props_recvs.contains(n)))
+        }
+        _ => false,
+    }
+}
+
+/// Whether a chain of keyed reads starts from one of the receiver
+/// bindings whose property slots live in the any world. Each hop is
+/// peeled through `as any` for the same reason the single-hop
+/// admission is: the cast is typecheck-only and cannot move the
+/// value out of that world.
+fn index_chain_rooted_in(
+    exprs: &[Expr],
+    e: ExprId,
+    props_recvs: &std::collections::HashSet<String>,
+) -> bool {
+    let mut cur = peel_any_cast(exprs, e);
+    loop {
+        match &exprs[cur.0 as usize] {
+            Expr::Ident(n) => return props_recvs.contains(n),
+            Expr::Index { obj, .. } => cur = peel_any_cast(exprs, *obj),
+            _ => return false,
+        }
     }
 }

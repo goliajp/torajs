@@ -379,62 +379,13 @@ pub(super) fn store_target_admits(
         Expr::Index { obj, .. } => Some(*obj),
         _ => None,
     };
-    let admits = store_recv.is_some_and(|obj| match &exprs[peel_any_cast(exprs, obj).0 as usize] {
-        Expr::Ident(n) => props_recvs.contains(n),
-        // A keyed hop off one of those receivers is itself in the any
-        // world — reading an element of an `any` binding, or of an
-        // array whose slots the receiver gate already covers — so a
-        // store one level further in (`rows[0][0] = fn`) lands in the
-        // same place and comes back through the same channels. What
-        // decides is the ROOT the hops start from, so the whole chain
-        // peels. Nothing admits here that rotation 592 did not also
-        // give a receiver on the way back out: before it, a nested
-        // index read seeded none.
-        Expr::Index { .. } => index_chain_rooted_in(exprs, obj, props_recvs),
-        Expr::Member {
-            obj: pobj,
-            name: pname,
-        } => {
-            // `<anything>.prototype.k` — how the prototype object was
-            // REACHED does not change the channel the stored value
-            // comes back through: an instance method call resolves the
-            // name up the prototype chain in the any lane, which shifts
-            // argv on FLAG_CLOSURE_RECV_FIRST. The Ident / Closure
-            // restriction the first cut carried refused
-            // `other.Ctor.prototype.toJSON = function () { ... this ... }`
-            // — a member chain, and the ordinary spelling once the
-            // constructor lives on a namespace object.
-            pname == "prototype"
-                || (pname == "constructor"
-                    && matches!(&exprs[peel_any_cast(exprs, *pobj).0 as usize], Expr::Ident(n)
-                        if props_recvs.contains(n)))
-        }
-        _ => false,
+    let admits = store_recv.is_some_and(|obj| {
+        super::fnexpr_this_recvs_props::store_receiver_admits(exprs, props_recvs, obj)
     });
     // The expando store — a key the receiver's object literal never
     // declared, so the value lands in the dict and comes back through
     // the any lane (doc on `fnexpr_this_expando`).
     admits || expando_recvs.admits(exprs, target)
-}
-
-/// Whether a chain of keyed reads starts from one of the receiver
-/// bindings whose property slots live in the any world. Each hop is
-/// peeled through `as any` for the same reason the single-hop
-/// admission is: the cast is typecheck-only and cannot move the
-/// value out of that world.
-fn index_chain_rooted_in(
-    exprs: &[Expr],
-    e: ExprId,
-    props_recvs: &std::collections::HashSet<String>,
-) -> bool {
-    let mut cur = peel_any_cast(exprs, e);
-    loop {
-        match &exprs[cur.0 as usize] {
-            Expr::Ident(n) => return props_recvs.contains(n),
-            Expr::Index { obj, .. } => cur = peel_any_cast(exprs, *obj),
-            _ => return false,
-        }
-    }
 }
 
 /// The store receiver seen through `as any` — a cast the lowering
