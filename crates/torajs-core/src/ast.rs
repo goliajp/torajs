@@ -125,6 +125,7 @@ mod fnexpr_this_pairing;
 pub(crate) mod fnexpr_this_recvs;
 pub(crate) mod fnexpr_this_routed;
 mod fnexpr_this_shapes;
+mod fnexpr_this_store_fields;
 mod fnexpr_this_unclaimed;
 mod fold_fromentries;
 mod forwarders;
