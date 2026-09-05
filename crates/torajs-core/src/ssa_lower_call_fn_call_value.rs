@@ -139,6 +139,15 @@ pub(crate) fn try_lower(
         ctx.release_owned_temp(obj, &callee_op);
         return Some(out);
     }
+    // Direct member form (`Math.max.call(…)`, or a field holding a fn
+    // value — the value was never bound to a local): both replay arms
+    // gate on an `Expr::Ident` callee, so neither admits a Member obj
+    // and this arm owns the shape outright. It runs BEFORE the
+    // no-this drop below, because a member-held cell can be promoted
+    // at runtime, and then the thisArg is not dead.
+    if matches!(ctx.ast.get_expr(obj), Expr::Member { .. }) {
+        return lower_member_receiver(ctx, eid, obj, args[0], &rest);
+    }
     // thisArg evaluates for effect (§20.2.3.3 evaluates it), then
     // its fresh ownership ends here — the callee never sees it.
     let t_op = ctx.lower_expr(args[0]);
@@ -149,44 +158,72 @@ pub(crate) fn try_lower(
     if let Some(op) = crate::ssa_lower_call_closure_local::try_lower(ctx, eid, obj, &rest) {
         return Some(op);
     }
-    if let Some(op) = crate::ssa_lower_call_fn_indirect::try_lower(ctx, eid, obj, &rest) {
-        return Some(op);
+    crate::ssa_lower_call_fn_indirect::try_lower(ctx, eid, obj, &rest)
+}
+
+/// The receiver a MEMBER-held fn value gets from `.call` / `.apply`.
+///
+/// An ns-static cell must take the BOXED dual entry — its fn_addr is
+/// the typed-slot boundary throw and the real dispatcher lives behind
+/// `CLOSURE_BOXED_ENTRY_OFF` (the same lane `variadic_locals` routes
+/// an alias call through). A non-callable repr answers `None` and
+/// falls through to the `resolve_callee` panic exactly as before.
+///
+/// Dropping the thisArg was right while the answer here was always
+/// the no-this subset, and stopped being right once a promoted
+/// declaration's shim became reachable through a FIELD:
+/// `const o = { m: t }; o.m.call(r, 1)` read `undefined` for `this`
+/// where bun reads `r` — and so did the function-expression twin, so
+/// this is the lane's own gap, not one the named-fn family brought.
+/// The two arms above test the callee's SPELLING
+/// (`fnexpr_recv_locals` / `fnexpr_recv_fns`) and a field read spells
+/// neither; a runtime fact is what
+/// [`crate::ssa_lower_call_recv_gate`] exists for, and
+/// `RecvSeed::Boxed`'s own doc names this very thisArg. A cell that
+/// is not promoted takes the gate's plain arm and ignores the seed,
+/// so every shape that answered correctly before is byte-identical.
+///
+/// `box_to_any` is RC-neutral, so the thisArg's fresh ownership still
+/// ends in this frame — after the call rather than before it.
+fn lower_member_receiver(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    obj: ExprId,
+    this_eid: ExprId,
+    rest: &[ExprId],
+) -> Option<Operand> {
+    let is_ns_static =
+        crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj).is_some();
+    let callee_op = ctx.lower_expr(obj);
+    let callee_ty = ctx.operand_ty(&callee_op);
+    // §20.2.3.3 step 3 — the thisArg evaluates after the callee
+    // reference, whichever arm below takes the call.
+    let t_op = ctx.lower_expr(this_eid);
+    let t_ty = ctx.operand_ty(&t_op);
+    let t_fresh = t_ty.is_refcounted() && ctx.expr_is_fresh_owned(this_eid);
+    let out = match callee_ty {
+        crate::ssa::Type::Closure(sig) if is_ns_static => Some(
+            crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
+                ctx, callee_op, sig, rest,
+            ),
+        ),
+        crate::ssa::Type::Closure(sig) => Some(
+            crate::ssa_lower_call_closure_emit::emit_closure_callee_with_this(
+                ctx,
+                eid,
+                callee_op,
+                sig,
+                rest,
+                crate::ssa_lower_call_closure_emit::ClosureThis::Base(t_op.clone()),
+            ),
+        ),
+        crate::ssa::Type::FnSig(sig) => Some(crate::ssa_lower_call_fn_indirect::emit_fnsig_callee(
+            ctx, eid, callee_op, sig, rest,
+        )),
+        _ => None,
+    };
+    if t_fresh {
+        ctx.emit_drop_value(t_op, t_ty);
     }
-    // Direct member form (`Math.max.call(...)` — the value was never
-    // bound to a local): neither replay arm admits a Member obj, but
-    // the member VALUE read itself lowers (the ns-static mint /
-    // fn-typed field arms), so lower it and dispatch on the SSA
-    // repr. An ns-static cell must take the BOXED dual entry — its
-    // fn_addr is the typed-slot boundary throw, the real dispatcher
-    // lives behind CLOSURE_BOXED_ENTRY_OFF (the same lane
-    // variadic_locals routes an alias call through); every other
-    // Closure/FnSig repr keeps the env-first / direct emitters the
-    // generalized-indirect arm uses. A non-callable repr falls
-    // through to the resolve_callee panic exactly as before.
-    if matches!(ctx.ast.get_expr(obj), Expr::Member { .. }) {
-        let is_ns_static =
-            crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj).is_some();
-        let callee_op = ctx.lower_expr(obj);
-        match ctx.operand_ty(&callee_op) {
-            crate::ssa::Type::Closure(sig) if is_ns_static => {
-                return Some(
-                    crate::ssa_lower_call_closure_local::emit_variadic_boxed_call(
-                        ctx, callee_op, sig, &rest,
-                    ),
-                );
-            }
-            crate::ssa::Type::Closure(sig) => {
-                return Some(crate::ssa_lower_call_closure_emit::emit_closure_callee(
-                    ctx, eid, callee_op, sig, &rest,
-                ));
-            }
-            crate::ssa::Type::FnSig(sig) => {
-                return Some(crate::ssa_lower_call_fn_indirect::emit_fnsig_callee(
-                    ctx, eid, callee_op, sig, &rest,
-                ));
-            }
-            _ => {}
-        }
-    }
-    None
+    out
 }

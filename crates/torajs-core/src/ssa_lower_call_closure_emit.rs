@@ -43,24 +43,10 @@ pub(crate) enum ClosureThis {
     Base(Operand),
 }
 
-/// Emit env-first ABI CallIndirect for a `Type::Closure` callee:
-/// load fn_ptr from `CLOSURE_FN_ADDR_OFF`, prepend env_ptr to argv,
-/// intern an env-first signature for the indirect call.
-pub(crate) fn emit_closure_callee(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    callee_op: Operand,
-    user_sig_id: crate::ssa::SigId,
-    args: &[ExprId],
-) -> Operand {
-    emit_closure_callee_with_this(ctx, eid, callee_op, user_sig_id, args, ClosureThis::None)
-}
-
 /// Rotation 261 — the inline fn-expr `.call`/`.apply` face entry:
 /// [`ClosureThis::Expr`] boxes the EXPLICIT thisArg (§20.2.3.3/.1)
-/// into the promoted callee's leading `__this` argv slot; the plain
-/// entry above passes [`ClosureThis::None`] and keeps the env-first
-/// shape byte-for-byte.
+/// into the promoted callee's leading `__this` argv slot;
+/// [`ClosureThis::None`] keeps the env-first shape byte-for-byte.
 pub(crate) fn emit_closure_callee_with_this(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,

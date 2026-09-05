@@ -289,7 +289,7 @@ pub(crate) fn emit_fnsig_callee(
     // Chunk 569 — args SHARE: no consume; owned temps release after.
     let mut temps = crate::ssa_lower_call_arg_temps::ArgTemps::new();
     // RC-4 F3 — Type::Any target param boxes a concrete arg (see
-    // emit_closure_callee / arm-1 P0.5).
+    // emit_closure_callee_with_this / arm-1 P0.5).
     let mut argv: Vec<Operand> = args
         .iter()
         .enumerate()
