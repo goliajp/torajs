@@ -1620,7 +1620,7 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 16152756f`, never as a constant (the two shas this
+snapshot stamped `@ e189f9465`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,40 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `16152756f`** (2026-09-05, rotation 588 — a class
+**Latest @ `e189f9465`** (2026-09-05, rotation 589 — a function
+expression that reads its own binding. Rotation 588 characterized
+`fnexpr this in unclaimed receiver position` and registered a root
+cause; the first thing this rotation measured is that the
+registration was wrong. `fnexpr_this_pairing` runs only for a
+multiply-declared name, and every program in this family declares
+its name once — the refusal is one gate earlier, at knife 2's shape
+census, and it is TWO missing shapes rather than one.
+`let k = function () { this.q = k }; new k()` died while
+`this.q = 1` compiled: the `this.<key> =` store face wanted the key
+declared `any` by some `TypeDecl`, and a plain function constructor
+declares nothing — yet a key NO nominal type declares has that proof
+more strongly, since no typed slot exists for it to land in. Nominal
+field names come from two places and both are now read: object
+literals infer a struct and emit no `TypeDecl`, so a `TypeDecl`-only
+census would have shifted argv on a typed indirect call (measured —
+adding `const lit = { q: 1 }` puts the program back on the loud
+reject). Second: `class C { g = () => [C, a] }` died while
+`() => C`, `() => [C]` and `id(C)` compiled, and the dividing line
+was never the self-read — reading `a` makes `C` a CAPTURING class,
+which goes down the ES5 lane where its constructor needs promotion.
+The array-element bar was simply STALE: 397-01's "an inferred array
+type rides the typed lanes, whose element calls do not shift"
+predates 398-06 putting `fn_indirect`, `closure_local` and
+`struct_method_dispatch` behind the runtime `FLAG_CLOSURE_RECV_FIRST`
+gate. Gate predicate unchanged: **135** clusters of ≥ 4 holding
+**1007** cases, register 2 · 215, residue 447 · 606 (33.2%), core
+**1828** — the whole-domain verdict diff is **0 lines**. Both bugs
+are real and neither has a test262 witness; the two conformance
+fixtures are the witness (3685 → **3687**). The 33 cases under that
+signature are all the deliberate `fnexpr_this_default` slot-table
+over-refusal, exactly as 588 characterized them.
+
+**Prior @ `16152756f`** (2026-09-05, rotation 588 — a class
 declaration binds twice, and the ES5 lane now binds twice too.
 §14.2.3 gives the scope around a class a MUTABLE binding and
 §15.7.14 step 3 gives the class's own scope an IMMUTABLE one; the
