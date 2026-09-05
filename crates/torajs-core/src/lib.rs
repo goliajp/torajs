@@ -350,6 +350,7 @@ pub(crate) mod ssa_lower_call_json_parse;
 pub(crate) mod ssa_lower_call_json_raw;
 pub(crate) mod ssa_lower_call_json_stringify;
 pub(crate) mod ssa_lower_call_map_dispatch;
+pub(crate) mod ssa_lower_call_map_foreach;
 pub(crate) mod ssa_lower_call_map_goi;
 pub(crate) mod ssa_lower_call_map_group_by;
 pub(crate) mod ssa_lower_call_math_binary_undef_fold;
