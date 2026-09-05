@@ -1614,7 +1614,7 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `b96b7deb1` (53174
+**Where the numbers come from.** Full sweep @ `040ec68bc` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
@@ -1674,7 +1674,41 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `b96b7deb1`** (2026-09-05, rotation 592 — what a call's
+**Latest @ `040ec68bc`** (2026-09-06, rotation 593 — what a named
+function's value is, measured; and one over-refusal removed. Gate
+predicate: **135** clusters of >= 4 holding **1003** cases, register
+2 · 215, residue 450 · 609 (33.3%), core **1827**. Against rotation
+592: clusters 135 -> **135 (=)**, cases 1004 -> **1003 (-1)**, core
+1827 -> **1827 (=)**.
+
+Sweep totals are byte-identical to 592 — pass **31126 (=)**, passTotal
+**36723 (=)**, bug **11273 (=)**, incompatible **5178 (=)**, trAccepted
+**47996 (=)**, rate **69.06% (=)** — and the whole-domain verdict diff
+is **one line**: `built-ins/BigInt/wrapper-object-ordinary-toprimitive`
+moved `incompatible:not yet supported` -> `incompatible:type error`.
+That is the shape of this rotation's knife showing up in the corpus
+exactly once: the program stopped being refused for returning a
+`this`-using binding and got one stage further before failing for a
+different reason. The single case moved a `>= 4` cluster to `<= 3`,
+which is the whole of the -1.
+
+The knife: a `return <bare name>` out of a function that does not
+re-type the value used to demand TWO annotations — the boundary's and
+the binding's. Only the boundary carries a proof, because the one call
+lane that ignores `FLAG_CLOSURE_RECV_FIRST` is the bare `CallIndirect`
+for a spelled-out `Type::FnSig` callee, and that static type exists
+only when a concrete signature is written. 39 probes over every
+read-back path (with argv-shift witnesses, which a zero-parameter
+callee cannot provide) found the annotated and unannotated bindings
+answering alike.
+
+Measured but NOT fixed, and the larger finding of the rotation: the
+VALUE of a named function declaration is three separate silent wrongs
+(argument shift by one through an alias, `h === g` answering false,
+`.length` counting the hidden receiver slot). RFC
+`20260905-named-fn-value-identity`.
+
+**Prior @ `b96b7deb1`** (2026-09-05, rotation 592 — what a call's
 receiver may be read off, and which top-level bindings a function
 declaration can see at all. Five knives, all gated, and **zero
 movement on test262 — the whole-domain verdict diff is 0 lines**,
