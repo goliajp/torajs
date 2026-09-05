@@ -13,19 +13,31 @@
 //! point. Entering any function scope (statement `FnDecl`, arena
 //! `ArrowFn` in all its identities — arrow, fn-expr, generator,
 //! method) removes the names its parameters or its OWN scope's
-//! declarations rebind; a `catch (R)` removes the name for the catch
-//! body. Scope declarations are collected to the function boundary
-//! (a nested fn's `var` belongs to the nested fn), at fn-level
-//! granularity: a deep block-scoped `let R` hides `R` for the whole
-//! enclosing fn body, which can only turn a would-be-rewritten
-//! reference into a LOUD unknown identifier — the same precision as
-//! `rebinds_in_stmt`, never a silent wrong.
+//! declarations rebind. Scope declarations are collected to the
+//! function boundary (a nested fn's `var` belongs to the nested fn),
+//! at fn-level granularity: a deep block-scoped `let R` hides `R` for
+//! the whole enclosing fn body, which can only turn a would-be-
+//! rewritten reference into a LOUD unknown identifier, never a silent
+//! wrong.
+//!
+//! Every OTHER scope is walked at its own granularity, because the
+//! coarse reading is only safe when something coarser encloses it.
+//! The program's own scope has nothing enclosing it, and used not to
+//! shadow at all — `{ class C {} } { let C = 42; console.log(C) }`
+//! answered the class, silently, which is the failure the fn-level
+//! approximation is licensed by not producing. So a block scope
+//! (`Block`, a loop head's `let`, a `for-of` variable, a `catch`
+//! parameter and body, the one scope a whole `CaseBlock` shares)
+//! drops exactly the names written directly in it, and the program
+//! scope is one of them. `Multi` is not a scope: it is a
+//! compiler-made grouping whose declarations belong to the scope
+//! around it.
 //!
 //! `new C()` carries its class in a `String` field (`Expr::New`), not
 //! an `Ident` — the deconflict census owns that spelling; this walk
 //! only serves value-position reads.
 
-use super::class_globals_shadow_decls::collect_scope_decls;
+use super::class_globals_shadow_decls::{collect_block_decls, collect_scope_decls};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::HashSet;
 
@@ -72,6 +84,19 @@ impl Shadow {
         None
     }
 
+    /// This one as seen from inside a block scope written as
+    /// `stmts` — whatever that block declares, it owns.
+    fn in_block(&self, stmts: &[Stmt]) -> Shadow {
+        let mut declared = HashSet::new();
+        collect_block_decls(stmts, &mut declared);
+        self.without(&declared)
+    }
+
+    /// This one with a single name rebound.
+    fn without_one(&self, name: &str) -> Shadow {
+        self.without(&std::iter::once(name.to_string()).collect())
+    }
+
     /// Drop whatever the given names rebind.
     fn without(&self, declared: &HashSet<String>) -> Shadow {
         Shadow {
@@ -110,6 +135,9 @@ pub(super) fn rewrite_class_expr_self_names(ast: &mut Ast) {
         scanning: true,
     };
     let stmts = std::mem::take(&mut ast.stmts);
+    // The program's own scope shadows like any other: a top-level
+    // `let C` is what `C` means here, class or no class.
+    let sh = sh.in_block(&stmts);
     for s in &stmts {
         rewrite_stmt(ast, s, &sh);
     }
@@ -125,6 +153,9 @@ pub(super) fn rewrite_class_value_refs(ast: &mut Ast, class_set: &HashSet<String
         scanning: false,
     };
     let stmts = std::mem::take(&mut ast.stmts);
+    // The program's own scope shadows like any other: a top-level
+    // `let C` is what `C` means here, class or no class.
+    let sh = sh.in_block(&stmts);
     for s in &stmts {
         rewrite_stmt(ast, s, &sh);
     }
@@ -226,32 +257,50 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
             step,
             body,
         } => {
+            // `for (let C = …; …; …)` binds C for the head and the
+            // body alike (§14.7.4 CreatePerIterationEnvironment) —
+            // including its own initialiser, which is in the loop
+            // scope already.
+            let inner = match init.as_deref() {
+                Some(i) => sh.in_block(std::slice::from_ref(i)),
+                None => sh.clone(),
+            };
             if let Some(i) = init.as_deref() {
-                rewrite_stmt(ast, i, sh);
+                rewrite_stmt(ast, i, &inner);
             }
             if let Some(c) = cond {
-                rewrite_expr(ast, *c, sh);
+                rewrite_expr(ast, *c, &inner);
             }
             if let Some(st) = step {
-                rewrite_expr(ast, *st, sh);
+                rewrite_expr(ast, *st, &inner);
             }
-            rewrite_stmt(ast, body, sh);
+            rewrite_stmt(ast, body, &inner);
         }
         Stmt::ForOf {
-            elem_expr, body, ..
+            var_name,
+            elem_expr,
+            body,
+            ..
         } => {
             rewrite_expr(ast, *elem_expr, sh);
-            rewrite_stmt(ast, body, sh);
+            rewrite_stmt(ast, body, &sh.without_one(var_name));
         }
         Stmt::ForOfSplitIter {
-            parent, sep, body, ..
+            var_name,
+            parent,
+            sep,
+            body,
+            ..
         } => {
             rewrite_expr(ast, *parent, sh);
             rewrite_expr(ast, *sep, sh);
-            rewrite_stmt(ast, body, sh);
+            rewrite_stmt(ast, body, &sh.without_one(var_name));
         }
         Stmt::Labeled { body, .. } => rewrite_stmt(ast, body, sh),
-        Stmt::Block(b) | Stmt::Multi(b) => rewrite_stmts(ast, b, sh),
+        Stmt::Block(b) => rewrite_stmts(ast, b, &sh.in_block(b)),
+        // `Multi` is a compiler-made grouping, not a scope — what it
+        // declares belongs to the scope around it.
+        Stmt::Multi(b) => rewrite_stmts(ast, b, sh),
         Stmt::Try {
             body,
             catch_param,
@@ -259,15 +308,15 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
             finally_body,
             ..
         } => {
-            rewrite_stmts(ast, body, sh);
+            rewrite_stmts(ast, body, &sh.in_block(body));
             // catch (R) shadows R for exactly the catch body
             let catch_sh = match catch_param {
-                Some(p) => sh.without(&std::iter::once(p.clone()).collect()),
+                Some(p) => sh.without_one(p),
                 None => sh.clone(),
             };
-            rewrite_stmts(ast, catch_body, &catch_sh);
+            rewrite_stmts(ast, catch_body, &catch_sh.in_block(catch_body));
             if let Some(fb) = finally_body {
-                rewrite_stmts(ast, fb, sh);
+                rewrite_stmts(ast, fb, &sh.in_block(fb));
             }
         }
         Stmt::Switch {
@@ -276,12 +325,23 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
             default,
         } => {
             rewrite_expr(ast, *scrutinee, sh);
+            // §14.12.2 — the whole CaseBlock is ONE scope, so a `let`
+            // written in any arm binds across every arm, the case
+            // expressions included. Only the scrutinee is outside.
+            let mut declared = HashSet::new();
             for c in cases {
-                rewrite_expr(ast, c.value, sh);
-                rewrite_stmts(ast, &c.body, sh);
+                collect_block_decls(&c.body, &mut declared);
             }
             if let Some(d) = default {
-                rewrite_stmts(ast, d, sh);
+                collect_block_decls(d, &mut declared);
+            }
+            let inner = sh.without(&declared);
+            for c in cases {
+                rewrite_expr(ast, c.value, &inner);
+                rewrite_stmts(ast, &c.body, &inner);
+            }
+            if let Some(d) = default {
+                rewrite_stmts(ast, d, &inner);
             }
         }
         Stmt::Yield(eid) | Stmt::YieldInto { value: eid, .. } => rewrite_expr(ast, *eid, sh),
