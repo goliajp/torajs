@@ -68,7 +68,7 @@ impl<'a> Parser<'a> {
         // Params — reuse the standard param parser (handles
         // destructuring + type anns).
         let (mut params, destr_lets) = self.parse_param_list()?;
-        self.reject_duplicate_params(&params, true)?;
+        self.finish_formal_params(&params, true)?;
         // 刀 1b — method-position default params infer their ann
         // from the default (see param_list.rs).
         self.infer_default_param_anns(&mut params);

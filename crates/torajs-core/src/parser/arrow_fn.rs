@@ -40,7 +40,7 @@ impl<'a> Parser<'a> {
         // is seen the same text may still be a parenthesized sequence
         // expression, and `(x, x)` is perfectly legal as one. Refusing
         // at the `)` would reject the comma operator.
-        self.reject_duplicate_params(&params, true)?;
+        self.finish_formal_params(&params, true)?;
         let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
         let strict_outer = self.in_strict_fn;
         let body_result = if matches!(self.peek(), Token::LBrace) {

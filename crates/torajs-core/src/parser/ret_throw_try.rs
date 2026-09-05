@@ -121,6 +121,12 @@ impl<'a> Parser<'a> {
                     }
                 }
                 catch_param = Some(n.clone());
+                // RC-3 — the catch parameter is an ordinary lexical
+                // binding over the body that follows, so it drops any
+                // class-value alias standing on the spelling for the
+                // same reason a formal parameter does
+                // (`finish_formal_params`).
+                self.class_value_aliases.remove(&n);
                 catch_type = ty;
                 // Destructure forces `: any` catch type so the
                 // synthesized reads route through the Any-tier.

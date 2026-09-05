@@ -252,7 +252,7 @@ impl<'a> Parser<'a> {
         let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
         let (params, destr_lets) = self.parse_param_list()?;
         // A function *expression* takes plain FormalParameters.
-        self.reject_duplicate_params(&params, false)?;
+        self.finish_formal_params(&params, false)?;
         let mut return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             Some(self.parse_type_ann()?)

@@ -41,11 +41,7 @@ impl<'a> Parser<'a> {
     /// Called from every parameter-list parser rather than from one
     /// shared place, because there is no shared place: `parse_fn` and
     /// the arrow parser each carry their own copy of the loop.
-    pub(super) fn reject_duplicate_params(
-        &self,
-        params: &[Param],
-        unique: bool,
-    ) -> Result<(), String> {
+    fn reject_duplicate_params(&self, params: &[Param], unique: bool) -> Result<(), String> {
         // §15.1.2 IsSimpleParameterList — no default, no rest, no
         // binding pattern (which arrives as a synthesized holder name).
         let simple = params
@@ -62,6 +58,36 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+        }
+        Ok(())
+    }
+
+    /// The end of a formal parameter list: the duplicate check below
+    /// plus the one binding effect the parser has to record here.
+    ///
+    /// RC-3 — a parameter binds its spelling for the whole body that
+    /// follows, and the P8.5 class-value alias map is linear
+    /// parse-order with no scopes, so an alias standing on that
+    /// spelling gets read from inside the body and answers the class
+    /// it remembered instead of the argument: `let C = class Inner {
+    /// static t = "i" }` followed by `function g(C) { return C.t }`
+    /// answered `"i"` whatever was passed. `let` rebinding and
+    /// assignment already drop the alias; a parameter is the third
+    /// binding form that has to. The drop is permanent and the rest
+    /// of the program falls back to the dynamic path — the same trade
+    /// the other two make.
+    ///
+    /// A destructuring parameter binds through its `destr_lets`, not
+    /// through `Param::name` (which is a synthesized holder), so it
+    /// is not reached from here — recorded, not fixed.
+    pub(super) fn finish_formal_params(
+        &mut self,
+        params: &[Param],
+        unique: bool,
+    ) -> Result<(), String> {
+        self.reject_duplicate_params(params, unique)?;
+        for p in params {
+            self.class_value_aliases.remove(&p.name);
         }
         Ok(())
     }
