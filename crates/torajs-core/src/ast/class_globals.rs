@@ -149,12 +149,47 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     ast.stmts = combined;
 }
 
+/// The class names the program writes in value position.
+///
+/// A class whose name is never assigned cannot tell its two bindings
+/// apart: the outer slot would hold the class object for the life of
+/// the program, exactly what the reference rewrite already answers.
+/// So it does not get one.
+///
+/// That is not economy, it is correctness of a second kind. The slot
+/// lives in main's frame, and minting one per class unconditionally
+/// pushed a 65k-line generated test past the frame-addressing cap —
+/// measured: `staging/sm/String/string-upper-lower-mapping` went from
+/// pass to a compile reject, on a file with no `class` in it at all
+/// (the harness brings them).
+///
+/// Over-inclusion is harmless and deliberate: no scope is tracked
+/// here, so a write to a shadowing local of the same spelling still
+/// mints the slot. An unwritten slot is inert.
+fn class_names_written(ast: &Ast, class_set: &HashSet<String>) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for e in &ast.exprs {
+        let target = match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => *target,
+            _ => continue,
+        };
+        if let Expr::Ident(n) = &ast.exprs[target.0 as usize]
+            && class_set.contains(n)
+        {
+            out.insert(n.clone());
+        }
+    }
+    out
+}
+
 /// Which classes get the outer mutable binding §14.2.3 gives a class
 /// DECLARATION.
 ///
-/// Three kinds are held out, each for its own reason (a fourth, the
-/// class renamed by the nested-class hoist, IS bound — its binding
-/// just lives in the container it was written in rather than here):
+/// Only a class whose name the program writes gets one (see
+/// [`class_names_written`]), and three kinds are held out beyond that,
+/// each for its own reason (a fourth, the class renamed by the
+/// nested-class hoist, IS bound — its binding just lives in the
+/// container it was written in rather than here):
 ///
 /// - a class EXPRESSION (`__ClassExpr_<id>`) never had an outer
 ///   binding to begin with — §15.7.14 gives it only the one inside
@@ -166,8 +201,10 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
 ///   ever wrote its name.
 fn outer_bound_classes(ast: &Ast, meta: &ClassMetadata) -> HashSet<String> {
     let synthesized: HashSet<&String> = ast.generator_factory_classes.values().collect();
+    let written = class_names_written(ast, &meta.class_set);
     meta.class_names
         .iter()
+        .filter(|c| written.contains(*c))
         .filter(|c| !c.starts_with("__ClassExpr_"))
         .filter(|c| !ast.injected_error_classes.contains(*c))
         .filter(|c| !crate::check_js_semantics::is_known_builtin_global(c))
