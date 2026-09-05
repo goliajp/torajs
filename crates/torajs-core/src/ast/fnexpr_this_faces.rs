@@ -296,12 +296,13 @@ pub(super) fn collect_method_return_faces(
 ///   (ArraySpeciesCreate reads it back through the arrprops bag).
 ///   Other member names on these roots stay loud until a consumer
 ///   shape needs them.
-/// * `this.m = <fn-expr>` where the field is declared `any` — the
-///   receiver is the flattened `__this`, and an `any` slot hands the
-///   value back as a NaN box, so every read of it enters the same
-///   runtime any lane the receivers above ride
-///   ([`super::fnexpr_this_store_fields::any_typed_this_fields`] is
-///   what proves the slot).
+/// * `this.m = <fn-expr>` where the key has no slot the promotion
+///   would not survive — declared `any` everywhere, or declared by no
+///   nominal type at all. The receiver is the flattened `__this`, and
+///   both admissions hand the value back as a NaN box, so every read
+///   of it enters the same runtime any lane the receivers above ride
+///   ([`super::fnexpr_this_store_fields::ThisStoreKeys`] is what
+///   proves the slot).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn collect_store_face(
     stmts: &[Stmt],
@@ -309,7 +310,7 @@ pub(super) fn collect_store_face(
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     props_recvs: &std::collections::HashSet<String>,
     expando_recvs: &super::fnexpr_this_expando::ExpandoRecvs,
-    any_this_fields: &std::collections::HashSet<PropKey>,
+    this_store_keys: &super::fnexpr_this_store_fields::ThisStoreKeys,
     target: ExprId,
     value: ExprId,
     patches: &mut Vec<FacePatch>,
@@ -320,7 +321,7 @@ pub(super) fn collect_store_face(
     // (`Expr::Index`) names no field and stays out.
     if let Expr::Member { obj, name } = &exprs[target.0 as usize]
         && matches!(&exprs[peel_any_cast(exprs, *obj).0 as usize], Expr::Ident(n) if n == "__this")
-        && any_this_fields.contains(&PropKey::from(name))
+        && this_store_keys.admits(&PropKey::from(name))
     {
         collect_face(stmts, exprs, value, fn_expr_exprs, patches);
         collect_ident_face(exprs, value, ident_cands);

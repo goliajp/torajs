@@ -171,7 +171,7 @@ fn collect_position_faces(
     let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(stmts, exprs);
     let mapset_recvs = collect_mapset_binding_names(stmts, exprs);
     let strwrapper_recvs = collect_strwrapper_binding_names(stmts, exprs);
-    let any_this_fields = super::fnexpr_this_store_fields::any_typed_this_fields(stmts);
+    let this_store_keys = super::fnexpr_this_store_fields::this_store_keys(stmts, exprs);
     let mut any_arraylit_inits = std::collections::HashSet::new();
     collect_any_arraylit_inits(stmts, exprs, &any_recvs, &mut any_arraylit_inits);
     for i in 0..exprs.len() {
@@ -193,7 +193,7 @@ fn collect_position_faces(
                 fn_expr_exprs,
                 &props_recvs,
                 &expando_recvs,
-                &any_this_fields,
+                &this_store_keys,
                 *target,
                 *value,
                 patches,

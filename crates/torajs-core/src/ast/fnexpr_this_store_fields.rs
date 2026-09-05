@@ -5,15 +5,69 @@
 //! lines with 42 to spare, and the shape this answers is its own
 //! question — [`super::fnexpr_this_faces::collect_store_face`] asks
 //! "is this store POSITION a face", this asks "does the KEY have a
-//! slot the promotion survives". The move is verbatim; the widening
-//! is the commit after it.
+//! slot the promotion survives".
 
-use super::Stmt;
+use super::{Expr, Stmt};
 use crate::ast::PropKey;
 
-/// The field names a `this.<name> = <fn-expr>` store may promote
-/// through: declared by at least one `TypeDecl`, and typed exactly
-/// `any` by EVERY `TypeDecl` that declares them.
+/// The verdict for one `this.<key> =` store key, over the whole
+/// program.
+///
+/// Two ways to earn it, and they are the same argument from opposite
+/// ends. A key every `TypeDecl` types `any` (or a closure-repr
+/// signature) has a slot the promotion survives. A key **no nominal
+/// type declares at all** has no slot to land in: the store goes to
+/// the receiver's expando dict and the read is a NaN box on every
+/// path — which is `fnexpr_this_expando`'s argument, stated there for
+/// object literals ("a name the literal never declared … has no typed
+/// slot to land in") and applied here to `this`.
+///
+/// The second half is what lets a plain function constructor promote:
+///
+/// ```js
+/// let k = function () { this.q = k };  // `q` is declared nowhere
+/// new k();
+/// ```
+///
+/// Before this, `q` was in no `TypeDecl`, so the store was not a face,
+/// so the body's own read of `k` was an unadmitted use, so knife 2
+/// declined and the program died on `fnexpr this in unclaimed
+/// receiver position` — while the same program without the self-read
+/// compiled. See `.claude/rfcs/20260905-fnexpr-self-read-receiver/`.
+///
+/// **Nominal field names come from two places and both are consulted.**
+/// `TypeDecl` is the obvious one (`desugar_classes` flattens each
+/// class into one). The other is OBJECT LITERALS: `{ q: 1 }` infers a
+/// `Struct` type carrying a field `q` and emits no `TypeDecl` at all,
+/// and `objlit_nominal` hands an object-literal method a `__this`
+/// typed as that struct — so a store into it WOULD land in a typed
+/// slot. A census reading only `TypeDecl`s would have admitted that
+/// and shifted argv on the typed indirect call. Any key an object
+/// literal spells anywhere in the program is therefore excluded,
+/// whatever its type: object-literal field types are not spelled in
+/// the tree this pass walks, so there is nothing to read them off.
+///
+/// Coarse and name-keyed like every census in this family. One
+/// unrelated `{ q: … }` anywhere refuses every `this.q` store; an
+/// over-refusal costs one loud reject, a mispair costs the argument
+/// shift.
+pub(super) struct ThisStoreKeys {
+    /// Declared by a `TypeDecl`, and typed `any` / closure-repr by
+    /// every `TypeDecl` that declares it.
+    any_typed: std::collections::HashSet<PropKey>,
+    /// Named by ANY `TypeDecl` field or ANY object-literal field —
+    /// i.e. a key that some nominal type in this program spells.
+    nominal: std::collections::HashSet<PropKey>,
+}
+
+impl ThisStoreKeys {
+    pub(super) fn admits(&self, key: &PropKey) -> bool {
+        self.any_typed.contains(key) || !self.nominal.contains(key)
+    }
+}
+
+/// Take the census — see [`ThisStoreKeys`] for the two admissions and
+/// the counterexample that decides the second one's shape.
 ///
 /// `desugar_classes` flattens a class into a `TypeDecl` plus flat
 /// member FnDecls, so a field initializer and a constructor store are
@@ -33,9 +87,15 @@ use crate::ast::PropKey;
 /// as a signature makes the name ambiguous — and an ambiguous name is
 /// refused for both. Over-refusal costs today's answer; a mispair would
 /// cost the argument shift.
-pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet<PropKey> {
+pub(super) fn this_store_keys(stmts: &[Stmt], exprs: &[Expr]) -> ThisStoreKeys {
     let mut admitted: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
     let mut other_typed: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
+    let mut nominal: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
+    for e in exprs {
+        if let Expr::ObjectLit { fields } = e {
+            nominal.extend(fields.iter().map(|(f, _)| f.clone()));
+        }
+    }
     for s in stmts {
         let Stmt::TypeDecl { fields, .. } = s else {
             continue;
@@ -55,6 +115,7 @@ pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet
             // this bar has not audited.
             let fn_shaped =
                 (fty.starts_with("__fn(") || fty.starts_with("__cls(")) && !fty.contains("__rest");
+            nominal.insert(fname.clone());
             if fty == "any" || fn_shaped {
                 admitted.insert(fname.clone());
             } else {
@@ -63,5 +124,8 @@ pub(super) fn any_typed_this_fields(stmts: &[Stmt]) -> std::collections::HashSet
         }
     }
     admitted.retain(|f| !other_typed.contains(f));
-    admitted
+    ThisStoreKeys {
+        any_typed: admitted,
+        nominal,
+    }
 }
