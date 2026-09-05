@@ -161,13 +161,17 @@ pub(super) fn try_rewrite_capturing_class(
     *counter += 1;
     let new = format!("__cc{n}_{old}");
     debug_assert!(is_es5_class_binding(&new));
-    // §14.2.3 gives a class declaration TWO bindings, and they can
-    // only be told apart when the body reads its own name. When it
-    // does, the body gets one of its own — immutable, holding the
-    // class — and `new` above stays the container's, mutable. Asked
-    // on the SOURCE name, before the rename below rewrites it.
-    let inner = own_binding::is_read_inside_class(ast, &stmts[idx], &old)
-        .then(|| format!("__cci{n}_{old}"));
+    // §14.2.3 gives a class declaration TWO bindings: an immutable
+    // one in the class's own scope, which the body reads, and a
+    // mutable one in the scope the class was written in, which
+    // everything else reads. Both are minted, always. rotation 586-05
+    // argued a body that reads nothing of itself cannot tell them
+    // apart and can have one — `extends` is the witness that it can:
+    // a sibling's `super(…)` reaches the parent through the same
+    // binding the container holds, so a later `P = null` redirected
+    // it and `new Q()` died. The class object needs a cell no write
+    // can reach.
+    let inner = format!("__cci{n}_{old}");
     // Every class this lane claims is a faithful `extends` target for
     // a later sibling (blade 5; 405-01 opened the static-carrying
     // half — `Object.setPrototypeOf(D, P)` links the class side now
@@ -177,11 +181,9 @@ pub(super) fn try_rewrite_capturing_class(
     ast.es5_parent_classes.insert(new.clone());
     // Where this class's `super(…)` lands, plus the real-parent
     // twin request (405-01) — see `extends::record_claim_tables`.
-    extends::record_claim_tables(ast, &stmts[idx], &new, inner.as_deref().unwrap_or(&new));
+    extends::record_claim_tables(ast, &stmts[idx], &new, &inner);
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
-    if let Some(i) = &inner {
-        super::hoist_nested_classes_rename::rename_in_class_bodies(ast, &mut stmts[idx], &new, i);
-    }
+    super::hoist_nested_classes_rename::rename_in_class_bodies(ast, &mut stmts[idx], &new, &inner);
     alias::mint_unique_aliases(ast, stmts, &new, counter);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
     stmts[idx] = lower_to_es5(ast, taken, &old, inner);
@@ -289,12 +291,10 @@ pub(super) fn keys_of(ast: &Ast, cname: &str, ns: &[usize]) -> Vec<(usize, ExprI
 /// the parser baked into the constructor prefix are keyed by the
 /// original.
 ///
-/// `inner` is the class-scope binding when the body reads its own
-/// name (§14.2.3). Everything emitted here is the class object
-/// itself, so it all stands on that one; the container's mutable
-/// binding is minted last, as an alias. Without it there is a single
-/// binding and it is the container's.
-fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: Option<String>) -> Stmt {
+/// `inner` is the class-scope binding (§14.2.3). Everything emitted
+/// here is the class object itself, so it all stands on that one; the
+/// container's mutable binding is minted last, as an alias to it.
+fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> Stmt {
     let Stmt::ClassDecl {
         name,
         parent,
@@ -321,11 +321,8 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: Option<String
         ast.tombstone_expr(pid);
     }
     install::drop_static_this_sites(ast, src_name, &static_methods, &static_init);
-    // The pair, or the single binding standing in for both.
-    let (name, outer) = match inner {
-        Some(i) => (i, Some(name)),
-        None => (name, None),
-    };
+    let outer = name;
+    let name = inner;
     // §15.7.14 evaluates every ComputedPropertyName once, in element
     // order, at class-definition time — ahead of anything a method or
     // an initializer does, because those run later (on call, on
@@ -407,7 +404,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: Option<String
     });
     ast.fn_expr_exprs.insert(ctor_eid);
     out.push(Stmt::LetDecl {
-        mutable: outer.is_none(),
+        mutable: false,
         name: name.clone(),
         type_ann: Some("any".to_string()),
         init: ctor_eid,
@@ -477,8 +474,6 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: Option<String
     );
     // Last, so the container's binding is only ever handed a fully
     // installed class — every read of it happens after this point.
-    if let Some(o) = outer {
-        out.push(own_binding::outer_alias_stmt(ast, o, &name));
-    }
+    out.push(own_binding::outer_alias_stmt(ast, outer, &name));
     Stmt::Multi(out)
 }
