@@ -1620,7 +1620,7 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ e189f9465`, never as a constant (the two shas this
+snapshot stamped `@ 2b8afe9ba`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,52 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `e189f9465`** (2026-09-05, rotation 589 — a function
+**Latest @ `2b8afe9ba`** (2026-09-05, rotation 590 — three more
+receiver-safe positions, and the crash the last rotation shipped
+under them. `fnexpr this in unclaimed receiver position` refused
+`const o = { f: k }`, `function take(f: any = k)` and
+`xs.push(k)` for a `this`-using function expression; all three are
+the escaping proof one container later, and each was measured
+rather than assumed. The object-literal field admits because a
+`__mth(` slot — the one closure repr whose call passes a receiver
+statically — is minted only for an INLINE method expression, so a
+bare Ident field carries `__fn(` or `any` and both have shifted
+since 398-06. The DEFAULT PARAMETER is not where it looks: by
+census time `materialize_expr_defaults` has moved the initializer
+into the body as `if (f === undefined) { f = k }` and left the
+param default as the `undefined` pad — a diag over the arena showed
+exactly that, and a shape written against the declaration would
+have been dead code. The `any[]` element store is the shortest
+proof of the three: the slot is Any by the receiver's own
+annotation, with no inference to trust.
+
+The rotation's real find was underneath them. 589-04's array-element
+widening shipped a REACHABLE SIGSEGV: `new (a[0] as any)()` took no
+`+1` on the callee while the boxed target it builds is dropped
+unconditionally, so constructing twice off one container slot freed
+the callee early and the exit-drain cycle walk read the recycled
+block — stdout complete and byte-identical to bun the whole way.
+Both rotations' fixtures constructed exactly ONCE, which is why
+gate, sweep and the Guard Malloc scan were all green over it; the
+borrow test was a hand-written two-variant `matches!` that names no
+Index arm and reads the raw node, so the `as` shell hid what was
+under it. `expr_transfers_ownership` answers exactly that question
+and now does. Both witness fixtures were widened to construct more
+than once.
+
+Two findings registered, not fixed: §10.2.1's "a class constructor
+called without new throws" is wrong only on the ES5 capturing lane
+and its silent-wrong surface is ONE shape (a ctor that never reads
+`this` — every other spelling is already a loud reject), which
+rules out Babel's `_classCallCheck` as the instrument since it
+reads `this`; and `(xs[0] as any)()` answers `this === undefined`
+where §13.3.6.2 makes the receiver the array, for every callee
+shape including functions that are never promoted. Gate predicate
+unchanged: **135** clusters of ≥ 4 holding **1007** cases, register
+2 · 215, residue 447 · 606 (33.2%), core **1828**; whole-domain
+verdict diff **0 lines**, gate 3687 → **3691**.
+
+**Prior @ `e189f9465`** (2026-09-05, rotation 589 — a function
 expression that reads its own binding. Rotation 588 characterized
 `fnexpr this in unclaimed receiver position` and registered a root
 cause; the first thing this rotation measured is that the

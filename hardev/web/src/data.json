@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T06:59:48.432Z",
+  "generatedAt": "2026-09-05T09:15:49.490Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-05T06:46:12Z",
-    "headSha": "e189f9465",
-    "elapsedSec": 400.15,
+    "ranAt": "2026-09-05T09:02:18Z",
+    "headSha": "2b8afe9ba",
+    "elapsedSec": 379.11,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.43
   },
   "torajs": {
-    "commit": "e189f9465",
-    "commitSubject": "fix: handing a class its own binding in an array literal cost it its receiver",
+    "commit": "2b8afe9ba",
+    "commitSubject": "fix: pushing a this-using fn-expr into an any[] cost its binding the receiver",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "2b8afe9ba",
+      "subject": "fix: pushing a this-using fn-expr into an any[] cost its binding the receiver"
+    },
+    {
+      "hash": "7d6d1c208",
+      "subject": "fix: a this-using fn-expr as a default parameter cost its binding the receiver"
+    },
+    {
+      "hash": "c08ba8489",
+      "subject": "test: make both receiver fixtures construct more than once"
+    },
+    {
+      "hash": "23b429eac",
+      "subject": "fix: constructing off a container slot released a reference nobody owned"
+    },
+    {
+      "hash": "46fe4fa06",
+      "subject": "fix: writing a binding into an object-literal field cost it its receiver"
+    },
+    {
+      "hash": "b5dfecea2",
+      "subject": "chore: rotation 589 close — sweep on e189f9465, two knives, zero regressions"
+    },
+    {
       "hash": "e189f9465",
       "subject": "fix: handing a class its own binding in an array literal cost it its receiver"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "16152756f",
       "subject": "fix: the pair a class declaration binds is not optional"
-    },
-    {
-      "hash": "03c9e4db6",
-      "subject": "fix: an ES5-lane class writing its own name throws instead of succeeding"
-    },
-    {
-      "hash": "bbbf90ecb",
-      "subject": "fix: a capturing class that reads its own name gets both its bindings"
-    },
-    {
-      "hash": "03995902c",
-      "subject": "refactor: move the `this`-site walks out of the capturing-class module"
-    },
-    {
-      "hash": "05957feca",
-      "subject": "chore: rotation 587 close — sweep on 815fd5369, four knives, zero regressions"
-    },
-    {
-      "hash": "815fd5369",
-      "subject": "fix: a class in the ES5 lane gets the mutable binding §14.2.3 gives it"
-    },
-    {
-      "hash": "8b282966c",
-      "subject": "fix: a destructuring parameter drops the class-value alias too"
     }
   ],
-  "headSha": "e189f9465",
+  "headSha": "2b8afe9ba",
   "autorun": {
-    "total": 892,
+    "total": 893,
     "baselineTarget": 10,
-    "bySelf": 887,
+    "bySelf": 888,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788586097-2c62",
-      "at": "2026-09-05T05:28:17Z",
-      "ts": 1788586097,
+      "rotationId": "r-1788591614-3e26",
+      "at": "2026-09-05T07:00:14Z",
+      "ts": 1788591614,
       "trigger": "self",
-      "prevHead": "5bdbc3f4d",
-      "handoffSha": "sha256:94475222682b70d4b24ad7ab44dc6192fa471ebdc6d1f992e08945352adb86aa",
-      "handoffAgeSec": 35,
+      "prevHead": "b5dfecea2",
+      "handoffSha": "sha256:62326bede6935f6d32c990d8299fcd132516030846059f51cb90da8bfc77ea8e",
+      "handoffAgeSec": 30,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788591614-3e26",
+        "at": "2026-09-05T07:00:14Z",
+        "ts": 1788591614,
+        "trigger": "self",
+        "prevHead": "b5dfecea2",
+        "handoffSha": "sha256:62326bede6935f6d32c990d8299fcd132516030846059f51cb90da8bfc77ea8e",
+        "handoffAgeSec": 30,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788586097-2c62",
         "at": "2026-09-05T05:28:17Z",
@@ -892,17 +903,6 @@
         "prevHead": "b4614144d",
         "handoffSha": "sha256:ae239bc5dd37fd9847ed2270003e340ed6feb85d49cb2f2958f95b1f084b893e",
         "handoffAgeSec": 32,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788489926-7e0c",
-        "at": "2026-09-04T02:45:26Z",
-        "ts": 1788489926,
-        "trigger": "self",
-        "prevHead": "dbfb80841",
-        "handoffSha": "sha256:cd693e5cd25f36424085c5bbe458e33b6218cb0b2ede35fcd03667637ff79672",
-        "handoffAgeSec": 36,
         "conformanceBefore": null,
         "commitsInSession": null
       }
