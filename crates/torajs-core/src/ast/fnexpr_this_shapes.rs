@@ -82,6 +82,10 @@ pub(super) struct UseShapes {
     /// because an array element's type is not spelled anywhere this
     /// pass can see, and here the annotation spells it.
     pub(super) any_ann_init: std::collections::HashSet<ExprId>,
+    /// The bare-Ident VALUE argument of `set` / `add` on a `Map` /
+    /// `Set` whose value slot is spelled `any` (591-06) — see
+    /// [`super::fnexpr_this_kv::any_valued_store_idents`].
+    pub(super) any_valued_store: std::collections::HashSet<ExprId>,
     /// The bare name on the right of `instanceof`.
     pub(super) instanceof_name: std::collections::HashSet<ExprId>,
     /// The bare name under `typeof`.
@@ -186,6 +190,7 @@ impl UseShapes {
             any_param_assign: any_param_assign_value_idents(stmts, exprs),
             any_elem_push_arg: super::fnexpr_this_arrpush::any_elem_push_arg_idents(stmts, exprs),
             any_ann_init: super::fnexpr_this_any_init::any_ann_init_idents(stmts, exprs),
+            any_valued_store: super::fnexpr_this_kv::any_valued_store_idents(stmts, exprs),
             instanceof_name: instanceof_name_idents(exprs),
             typeof_operand: typeof_operand_idents(exprs),
             export_default: export_default_idents(stmts, exprs),
@@ -218,6 +223,7 @@ impl UseShapes {
             || self.any_param_assign.contains(&e)
             || self.any_elem_push_arg.contains(&e)
             || self.any_ann_init.contains(&e)
+            || self.any_valued_store.contains(&e)
             || self.instanceof_name.contains(&e)
             || self.typeof_operand.contains(&e)
             || self.export_default.contains(&e)

@@ -122,6 +122,7 @@ mod fnexpr_this_default_userfn;
 mod fnexpr_this_default_writes;
 pub(crate) mod fnexpr_this_expando;
 pub(crate) mod fnexpr_this_faces;
+mod fnexpr_this_kv;
 mod fnexpr_this_member_ret;
 mod fnexpr_this_names;
 mod fnexpr_this_objlit;
