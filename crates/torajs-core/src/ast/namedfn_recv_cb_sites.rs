@@ -15,9 +15,20 @@
 //! only ever reach a call path that shifts argv on
 //! `FLAG_CLOSURE_RECV_FIRST`. Over-refusal is the old
 //! `undefined`-`this`; a mis-promote is shifted arguments.
+//!
+//! The re-declaration half used to be a `collect_decls_by_name`
+//! census, non-empty for a `const` of that name in ANY block anywhere,
+//! which made it a whole-NAME refusal: one block reusing the spelling
+//! cost the receiver at every store / object-literal field / `: any`
+//! init / push site of that declaration, program-wide. The five
+//! censuses that carried it now ask
+//! [`super::namedfn_rebound_scope`] per SITE instead, so a block only
+//! takes the reads it actually owns. All five, including the
+//! HOF-callback slot: `{ const cb = 3 }` anywhere in the program made
+//! `[11].every(cb, r)` answer `false` where bun answers `true`,
+//! whether the block was written before the call or after it.
 
 use super::fnexpr_this::is_hof_method;
-use super::fnexpr_this_names::{collect_decls_by_name, name_shadowed_elsewhere};
 use super::fnexpr_this_recvs::{
     collect_any_binding_names, collect_arraylit_binding_names, collect_mapset_binding_names,
 };
@@ -33,6 +44,7 @@ pub(super) fn collect_sites(
     let any_recvs = collect_any_binding_names(&ast.stmts, &ast.exprs);
     let arraylit_recvs = collect_arraylit_binding_names(&ast.stmts, &ast.exprs);
     let mapset_recvs = collect_mapset_binding_names(&ast.stmts, &ast.exprs);
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
     let mut sites: Vec<(ExprId, String)> = Vec::new();
     for e in &ast.exprs {
         let Expr::Call { callee, args } = e else {
@@ -77,12 +89,9 @@ pub(super) fn collect_sites(
         }
         // A shadowed or re-declared name cannot be paired to the top
         // decl syntactically — keep the plain-forwarder route.
-        if name_shadowed_elsewhere(&ast.stmts, cbname) {
-            continue;
-        }
-        let mut decls: Vec<(bool, ExprId)> = Vec::new();
-        collect_decls_by_name(&ast.stmts, cbname, &mut decls);
-        if !decls.is_empty() {
+        if super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, cbname)
+            || scopes.owns(ast, cbname, cb)
+        {
             continue;
         }
         sites.push((cb, cbname.clone()));
@@ -125,6 +134,7 @@ pub(super) fn collect_objlit_field_sites(
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     sites: &mut Vec<(ExprId, String)>,
 ) {
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
     let mut fields: Vec<ExprId> = super::fnexpr_this_objlit::objlit_field_idents(&ast.exprs)
         .into_iter()
         .collect();
@@ -136,13 +146,9 @@ pub(super) fn collect_objlit_field_sites(
         if !fn_sigs.contains_key(n)
             || ast.generator_factory_classes.contains_key(n)
             || ast.async_generator_fns.contains(n)
-            || name_shadowed_elsewhere(&ast.stmts, n)
+            || super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n)
+            || scopes.owns(ast, n, inner)
         {
-            continue;
-        }
-        let mut decls: Vec<(bool, ExprId)> = Vec::new();
-        collect_decls_by_name(&ast.stmts, n, &mut decls);
-        if !decls.is_empty() {
             continue;
         }
         sites.push((inner, n.clone()));
@@ -169,6 +175,7 @@ pub(super) fn collect_props_store_sites(
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     sites: &mut Vec<(ExprId, String)>,
 ) {
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
     let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
         &ast.stmts, &ast.exprs,
     );
@@ -200,13 +207,9 @@ pub(super) fn collect_props_store_sites(
         if !fn_sigs.contains_key(n)
             || ast.generator_factory_classes.contains_key(n)
             || ast.async_generator_fns.contains(n)
-            || name_shadowed_elsewhere(&ast.stmts, n)
+            || super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n)
+            || scopes.owns(ast, n, inner)
         {
-            continue;
-        }
-        let mut decls: Vec<(bool, ExprId)> = Vec::new();
-        collect_decls_by_name(&ast.stmts, n, &mut decls);
-        if !decls.is_empty() {
             continue;
         }
         sites.push((inner, n.clone()));
@@ -238,6 +241,7 @@ pub(super) fn collect_props_push_sites(
     let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
         &ast.stmts, &ast.exprs,
     );
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
     for e in &ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;
@@ -269,13 +273,9 @@ pub(super) fn collect_props_push_sites(
             if !fn_sigs.contains_key(n)
                 || ast.generator_factory_classes.contains_key(n)
                 || ast.async_generator_fns.contains(n)
-                || name_shadowed_elsewhere(&ast.stmts, n)
+                || super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n)
+                || scopes.owns(ast, n, inner)
             {
-                continue;
-            }
-            let mut decls: Vec<(bool, ExprId)> = Vec::new();
-            collect_decls_by_name(&ast.stmts, n, &mut decls);
-            if !decls.is_empty() {
                 continue;
             }
             sites.push((inner, n.clone()));
@@ -309,6 +309,7 @@ pub(super) fn collect_any_let_init_sites(
         ast: &Ast,
         fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
         sites: &mut Vec<(ExprId, String)>,
+        scopes: &mut super::namedfn_rebound_scope::BlockScopes,
     ) {
         for s in stmts {
             if let Stmt::LetDecl { type_ann, init, .. } = s
@@ -322,19 +323,17 @@ pub(super) fn collect_any_let_init_sites(
                     && fn_sigs.contains_key(n)
                     && !ast.generator_factory_classes.contains_key(n)
                     && !ast.async_generator_fns.contains(n)
-                    && !name_shadowed_elsewhere(&ast.stmts, n)
+                    && !super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n)
+                    && !scopes.owns(ast, n, inner)
                 {
-                    let mut decls: Vec<(bool, ExprId)> = Vec::new();
-                    collect_decls_by_name(&ast.stmts, n, &mut decls);
-                    if decls.is_empty() {
-                        sites.push((inner, n.clone()));
-                    }
+                    sites.push((inner, n.clone()));
                 }
             }
             super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-                walk(inner, ast, fn_sigs, sites)
+                walk(inner, ast, fn_sigs, sites, scopes)
             });
         }
     }
-    walk(&ast.stmts, ast, fn_sigs, sites);
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
+    walk(&ast.stmts, ast, fn_sigs, sites, &mut scopes);
 }

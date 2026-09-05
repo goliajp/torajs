@@ -148,6 +148,27 @@ fn collect_expr(ast: &Ast, e: ExprId, out: &mut HashSet<ExprId>) {
     }
 }
 
+/// Per-name memo of [`block_scoped_expr_ids`].
+///
+/// The receiver-first collectors ask site by site, and each answer is
+/// a walk of the whole statement tree — asking once per site would be
+/// quadratic in program size for a fact that depends only on the name.
+#[derive(Default)]
+pub(crate) struct BlockScopes {
+    memo: std::collections::HashMap<String, HashSet<ExprId>>,
+}
+
+impl BlockScopes {
+    /// Whether the read of `name` at `site` belongs to an inner
+    /// block's own binding rather than to the declaration.
+    pub(crate) fn owns(&mut self, ast: &Ast, name: &str, site: ExprId) -> bool {
+        self.memo
+            .entry(name.to_string())
+            .or_insert_with(|| block_scoped_expr_ids(ast, name))
+            .contains(&site)
+    }
+}
+
 /// Drop a `bind_this_param`-promoted candidate whose name some inner
 /// scope rebinds — the same verdict on the same evidence the sibling
 /// `namedfn_this_value` takes, through the same helper rather than a
