@@ -18,6 +18,18 @@
 # Same family as build_determinism.sh / gmalloc_scan.sh: a defect
 # class every other gate is green on, bought mechanically.
 #
+# What is compared: STDOUT and the EXIT CODE, separately — the same
+# stdout-only judgement the conformance gate makes, plus the exit code
+# the gate does not check. Merging stderr in (as this did until r591)
+# was wrong twice over. It reported a false NEQ on any fixture where
+# bun writes something tr does not — an unhandled-rejection report and
+# bun's own version banner, which async-024 documents in its own
+# header as out of scope — and, by capturing one merged string, it
+# never compared exit codes at all, so a crash with correct output
+# (r590's exit-139 receiver bug) was invisible to it. Every defect
+# class named above still shows: a binary dyld refuses produces no
+# stdout and a non-zero exit; a stripped writer entry changes stdout.
+#
 # RUN AFTER `scripts/release-build.sh`. The gate rebuilds
 # target/release/tr as the HOST profile (r503); a stale or host tr
 # here measures nothing. Never run while a gate is running.
@@ -50,8 +62,10 @@ for f in $(ls conformance/cases | awk -v s="$STRIDE" 'NR % s == 1') \
   if ! "$TR" build "conformance/cases/$f" -o "$TMP/a.bin" >"$TMP/build.log" 2>&1; then
     buildfail=$((buildfail + 1)); echo "BUILDFAIL $f: $(tail -1 "$TMP/build.log")"; continue
   fi
-  a=$("$TMP/a.bin" 2>&1); b=$(bun "conformance/cases/$f" 2>&1)
-  if [ "$a" != "$b" ]; then neq=$((neq + 1)); echo "NEQ $f"; fi
+  a=$("$TMP/a.bin" 2>/dev/null); arc=$?
+  b=$(bun "conformance/cases/$f" 2>/dev/null); brc=$?
+  if [ "$a" != "$b" ]; then neq=$((neq + 1)); echo "NEQ $f (stdout)"
+  elif [ "$arc" != "$brc" ]; then neq=$((neq + 1)); echo "NEQ $f (rc $arc vs $brc)"; fi
 done
 echo "release_batch: n=$n neq=$neq buildfail=$buildfail"
 [ "$neq" -eq 0 ] && [ "$buildfail" -eq 0 ]
