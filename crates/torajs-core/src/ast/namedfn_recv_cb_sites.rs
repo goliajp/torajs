@@ -90,65 +90,63 @@ pub(super) fn collect_sites(
     sites
 }
 
-/// 401-02 — the object-literal FIELD sites: a promoted named fn
-/// stored as a field of an `: any`-annotated binding's literal
-/// (`const o: any = { k: 10, m: cb }`). The binding is a dynobj, so
-/// EVERY consumer of that field is an any-lane call path — the
-/// method-call arm reads `FLAG_CLOSURE_RECV_FIRST` and seeds the
-/// holder as the receiver (`o.m(1)` binds `this = o`, §13.3.6.2),
-/// while a detached read's plain call / `.call` face rides
-/// `invoke_with_this`, which shifts on the same flag. The plain
-/// `__forward_` shim hardwired `undefined` instead, so `this` was
-/// always wrong on these fields. Same shadow / re-decl / generator
-/// gates as the callback sites; the field value admits the bare
-/// Ident and its `as any` shell.
+/// 401-02 / 595 — the object-literal FIELD sites: a promoted named fn
+/// written as a field value of an object literal (`{ k: 10, m: cb }`,
+/// shorthand `{ cb }` included). Read back as `o.m(1)` it is a method
+/// call and must see the holder as `this` (§13.3.6.2); the plain
+/// `__forward_` shim hardwired `undefined`, so `this` was always wrong
+/// on these fields.
+///
+/// The admission is [`super::fnexpr_this_objlit::objlit_field_idents`]
+/// — the census the function-EXPRESSION twin of this family uses for
+/// the same position, whose module doc carries the three-link proof
+/// that a bare-Ident field's read-back always shifts argv: the one
+/// closure repr that would NOT shift (`__mth(`) is minted exclusively
+/// for an inline method/closure expression, so a bare Ident's slot is
+/// either the binding's plain repr or `any`; both reach
+/// `ssa_lower_call_recv_gate` through the struct-method dispatch, the
+/// detached-read `closure_local`, or the any lane; and a literal the
+/// any-promote verdict boxes into a dynobj is an any-lane read by
+/// construction.
+///
+/// Until rotation 595 this arm demanded the HOLDING binding carry an
+/// `: any` annotation, which is not something that proof needs and not
+/// something the author of `const o = { m: cb }` has any reason to
+/// write. Four spellings were measured wrong against bun and were all
+/// the same omission: the plain literal, one with a sibling field, a
+/// nested literal, and one reached through a parameter.
+///
+/// The set is walked in ExprId order rather than the census's own hash
+/// order: the sites list decides the order forwarder declarations are
+/// appended, and an unordered walk would leak into the artifact bytes —
+/// the failure `build_determinism.sh` exists to catch.
 pub(super) fn collect_objlit_field_sites(
     ast: &Ast,
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
     sites: &mut Vec<(ExprId, String)>,
 ) {
-    fn walk(
-        stmts: &[Stmt],
-        ast: &Ast,
-        fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
-        sites: &mut Vec<(ExprId, String)>,
-    ) {
-        for s in stmts {
-            if let Stmt::LetDecl { type_ann, init, .. } = s
-                && type_ann.as_deref() == Some("any")
-            {
-                let init = super::fnexpr_this_names::peel_as(&ast.exprs, *init);
-                if let Expr::ObjectLit { fields } = ast.get_expr(init) {
-                    for (_, feid) in fields {
-                        let inner = match ast.get_expr(*feid) {
-                            Expr::As { expr, ty_ann } if ty_ann == "any" => *expr,
-                            _ => *feid,
-                        };
-                        let Expr::Ident(n) = ast.get_expr(inner) else {
-                            continue;
-                        };
-                        if !fn_sigs.contains_key(n)
-                            || ast.generator_factory_classes.contains_key(n)
-                            || ast.async_generator_fns.contains(n)
-                            || name_shadowed_elsewhere(&ast.stmts, n)
-                        {
-                            continue;
-                        }
-                        let mut decls: Vec<(bool, ExprId)> = Vec::new();
-                        collect_decls_by_name(&ast.stmts, n, &mut decls);
-                        if !decls.is_empty() {
-                            continue;
-                        }
-                        sites.push((inner, n.clone()));
-                    }
-                }
-            }
-            super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
-                walk(inner, ast, fn_sigs, sites)
-            });
+    let mut fields: Vec<ExprId> = super::fnexpr_this_objlit::objlit_field_idents(&ast.exprs)
+        .into_iter()
+        .collect();
+    fields.sort_by_key(|e| e.0);
+    for inner in fields {
+        let Expr::Ident(n) = ast.get_expr(inner) else {
+            continue;
+        };
+        if !fn_sigs.contains_key(n)
+            || ast.generator_factory_classes.contains_key(n)
+            || ast.async_generator_fns.contains(n)
+            || name_shadowed_elsewhere(&ast.stmts, n)
+        {
+            continue;
         }
+        let mut decls: Vec<(bool, ExprId)> = Vec::new();
+        collect_decls_by_name(&ast.stmts, n, &mut decls);
+        if !decls.is_empty() {
+            continue;
+        }
+        sites.push((inner, n.clone()));
     }
-    walk(&ast.stmts, ast, fn_sigs, sites);
 }
 
 /// Rotation 594 — the property-STORE sites: a promoted named fn
