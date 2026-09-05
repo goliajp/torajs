@@ -69,6 +69,7 @@ use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, Expr, ExprId, Stmt};
 
 mod install;
+mod own_binding;
 use decline::decline_reason;
 pub(crate) use decline::{EXPR_HERITAGE_REASON, unclaimed_class_message};
 use install::{define_member, descriptor_fields};
@@ -323,6 +324,17 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         ast.tombstone_expr(pid);
     }
     install::drop_static_this_sites(ast, src_name, &static_methods, &static_init);
+    // §14.2.3 — the outer binding is mutable, and this lane has only
+    // one binding to give (see `own_binding`). Asked before anything
+    // below consumes the parts.
+    let outer_only = !own_binding::is_read_inside(
+        ast,
+        &name,
+        ctor.as_ref(),
+        &methods,
+        &static_methods,
+        &static_init,
+    );
     // §15.7.14 evaluates every ComputedPropertyName once, in element
     // order, at class-definition time — ahead of anything a method or
     // an initializer does, because those run later (on call, on
@@ -404,7 +416,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     });
     ast.fn_expr_exprs.insert(ctor_eid);
     out.push(Stmt::LetDecl {
-        mutable: false,
+        mutable: outer_only,
         name: name.clone(),
         type_ann: Some("any".to_string()),
         init: ctor_eid,
