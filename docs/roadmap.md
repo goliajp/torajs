@@ -1620,7 +1620,7 @@ dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 2bda3fd61`, never as a constant (the two shas this
+snapshot stamped `@ 815fd5369`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1674,7 +1674,43 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `2bda3fd61`** (2026-09-05, rotation 586 — what a class's own
+**Latest @ `815fd5369`** (2026-09-05, rotation 587 — what the compiler
+still remembers a name meant after something else rebinds it. P8.5's
+class-value alias is a parse-order note that one binding holds one
+class expression, kept so `C.m()` / `new C()` / `x instanceof C` /
+`class B extends C` can reach that class's static machinery directly.
+It carries no scope, and its own contract says every later rebinding
+of the spelling drops it — `let` rebinding and assignment did; a class
+declaration, a formal parameter, a catch parameter and a destructuring
+parameter did not. So `{ let C = class Inner {} } { class C { static t
+= "x" } C.t }` read the class EXPRESSION from the block before and
+answered `undefined`, and `function g(C) { return C.t }` after such a
+binding answered the remembered class's static for every argument the
+caller passed — the argument ignored outright, silently. Only the
+statically-typed read went wrong; `(C as any).t` took the dynamic path
+and answered correctly, which is why the shape hid. Dropping the note
+is safe only if the dynamic fallback carries what the note carried, so
+all four consumers were probed against bun after an unrelated
+parameter takes the name — the note's own comment warns that
+`instanceof` would constant-fold to false without it, which would have
+traded one silent wrong for another. Last, §14.2.3 again, from the
+side rotation 586 did not reach: a class that reads an enclosing local
+takes the ES5 lane, whose alpha-rename collapses the outer mutable
+binding and the inner immutable one into a single `let` — minted
+immutable, so `{ class C { static t = "a" } C = 9 }` was refused at
+compile time. The two are distinguishable only when the body reads its
+own name; when it does not, one mutable binding is exactly what the
+spec describes, which is 586-05's argument run backwards.) Gate
+predicate: **135** clusters of >= 4 holding **1009** cases, register
+2 · 215, residue 448 · 607 (33.2%), core **1831**. Against rotation
+586: clusters **135 (=)**, core **1831 (=)**, cases 1007 -> **1009
+(+2)** — and that +2 is not new failure: the core total and the
+`incompatible` bucket are both unmoved (1831 / 5183) and no verdict
+entered or left that bucket, so two cases crossed from the <= 3 tail
+into an existing cluster (tail 609 -> 607). A cluster grew; none was
+added.
+
+**Prior @ `2bda3fd61`** (2026-09-05, rotation 586 — what a class's own
 name means OUTSIDE its own body. §14.2.3 / §16.1.7: a class
 declaration is not a constant declaration, so the scope around it
 holds a MUTABLE binding — a second one, distinct from the immutable
