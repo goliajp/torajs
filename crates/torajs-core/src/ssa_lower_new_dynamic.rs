@@ -34,11 +34,30 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> 
     // Chunk-496 three-shape rule: a borrowed refcounted operand
     // rc-incs before the TRANSFER-shaped box, temps hand their
     // reference over, already-Any callees pass through borrowed.
-    let callee_is_borrow = matches!(
-        ctx.ast.get_expr(callee),
-        Expr::Ident(_) | Expr::Member { .. }
-    );
+    //
+    // Rotation 590 — the question is exactly the one
+    // `expr_transfers_ownership` answers, and asking it by hand
+    // over a two-variant `matches!` got it wrong twice over: the
+    // list names no Index arm, and it reads the RAW node, so the
+    // `as` shell hides whatever is under it. `new (a[0] as any)()`
+    // therefore took no `+1` while the boxed target below is
+    // dropped unconditionally — one net release per construct on a
+    // reference the array still holds. Constructing twice off one
+    // container slot drove the callee to a premature free with the
+    // prototype's `constructor` back-ref still pointing at it, and
+    // the exit-drain cycle walk read the recycled block (SIGSEGV,
+    // stdout intact — the same signature rotation 323 recorded for
+    // `b = (a = [1,2,3])`). The predicate peels `As` and knows
+    // every owned-read lane, so it is also the thing that keeps an
+    // owned any-member read (`o.f as any` on an `any` receiver)
+    // from taking a `+1` it never releases.
+    //
+    // Asked AFTER the lower, not before: the owned-read lanes record
+    // their eid while they lower, so the pre-lower answer for an
+    // any-member read is a stale "borrow" and would put the `+1`
+    // back on the one shape that already owns its reference.
     let raw = ctx.lower_expr(callee);
+    let callee_is_borrow = !ctx.expr_transfers_ownership(callee);
     let raw_ty = ctx.operand_ty(&raw);
     let (target, target_boxed) = if raw_ty == Type::Any {
         (raw, false)
