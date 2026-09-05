@@ -76,12 +76,15 @@ pub(crate) use decline::{EXPR_HERITAGE_REASON, unclaimed_class_message};
 use install::{define_member, descriptor_fields};
 pub(super) use this_sites::{expr_says_this, this_sites};
 
-/// Is this the CLASS BINDING this lane mints — `__cc<N>_<user name>`?
+/// Is this a CLASS BINDING this lane mints — the container-facing
+/// `__cc<N>_<user name>` or the class-scope `__cci<N>_<user name>`
+/// §14.2.3 gives it a second one of (see `own_binding`)?
 ///
-/// The lane's other minted spellings all put a letter where this one
-/// puts a digit (`__cca<N>_` aliases, `__ccm_<n>__` member sentinels,
+/// The lane's other minted spellings all put a letter where these put
+/// a digit (`__cca<N>_` aliases, `__ccm_<n>__` member sentinels,
 /// `__ccmk_<C>_<n>` computed keys, `__ccp<N>` heritage bindings), so
-/// the digit is what tells them apart.
+/// the digit is what tells them apart — the inner one wears its `i`
+/// ahead of the digits for the same reason.
 ///
 /// Asked outside the AST passes by the top-level data-global gate:
 /// a desugar-minted `__`-prefixed name stays a main-local there, but
@@ -92,7 +95,10 @@ pub(super) use this_sites::{expr_says_this, this_sites};
 /// the `typeof` spelling of the same read answered `"undefined"`
 /// (§13.5.3's answer for an unresolvable reference).
 pub(crate) fn is_es5_class_binding(name: &str) -> bool {
-    let Some(rest) = name.strip_prefix("__cc") else {
+    let Some(rest) = name
+        .strip_prefix("__cci")
+        .or_else(|| name.strip_prefix("__cc"))
+    else {
         return false;
     };
     let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
@@ -133,9 +139,17 @@ pub(super) fn try_rewrite_capturing_class(
         unreachable!("routes() matched a ClassDecl");
     };
     let old = name.clone();
-    let new = format!("__cc{}_{}", *counter, old);
+    let n = *counter;
     *counter += 1;
+    let new = format!("__cc{n}_{old}");
     debug_assert!(is_es5_class_binding(&new));
+    // §14.2.3 gives a class declaration TWO bindings, and they can
+    // only be told apart when the body reads its own name. When it
+    // does, the body gets one of its own — immutable, holding the
+    // class — and `new` above stays the container's, mutable. Asked
+    // on the SOURCE name, before the rename below rewrites it.
+    let inner = own_binding::is_read_inside_class(ast, &stmts[idx], &old)
+        .then(|| format!("__cci{n}_{old}"));
     // Every class this lane claims is a faithful `extends` target for
     // a later sibling (blade 5; 405-01 opened the static-carrying
     // half — `Object.setPrototypeOf(D, P)` links the class side now
@@ -145,11 +159,14 @@ pub(super) fn try_rewrite_capturing_class(
     ast.es5_parent_classes.insert(new.clone());
     // Where this class's `super(…)` lands, plus the real-parent
     // twin request (405-01) — see `extends::record_claim_tables`.
-    extends::record_claim_tables(ast, &stmts[idx], &new);
+    extends::record_claim_tables(ast, &stmts[idx], &new, inner.as_deref().unwrap_or(&new));
     super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old, &new);
+    if let Some(i) = &inner {
+        super::hoist_nested_classes_rename::rename_in_class_bodies(ast, &mut stmts[idx], &new, i);
+    }
     alias::mint_unique_aliases(ast, stmts, &new, counter);
     let taken = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
-    stmts[idx] = lower_to_es5(ast, taken, &old);
+    stmts[idx] = lower_to_es5(ast, taken, &old, inner);
     true
 }
 
@@ -253,7 +270,13 @@ pub(super) fn keys_of(ast: &Ast, cname: &str, ns: &[usize]) -> Vec<(usize, ExprI
 /// both the computed-key side table and the `__ccmk_<C>_<n>` reference
 /// the parser baked into the constructor prefix are keyed by the
 /// original.
-fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
+///
+/// `inner` is the class-scope binding when the body reads its own
+/// name (§14.2.3). Everything emitted here is the class object
+/// itself, so it all stands on that one; the container's mutable
+/// binding is minted last, as an alias. Without it there is a single
+/// binding and it is the container's.
+fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: Option<String>) -> Stmt {
     let Stmt::ClassDecl {
         name,
         parent,
@@ -280,17 +303,11 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         ast.tombstone_expr(pid);
     }
     install::drop_static_this_sites(ast, src_name, &static_methods, &static_init);
-    // §14.2.3 — the outer binding is mutable, and this lane has only
-    // one binding to give (see `own_binding`). Asked before anything
-    // below consumes the parts.
-    let outer_only = !own_binding::is_read_inside(
-        ast,
-        &name,
-        ctor.as_ref(),
-        &methods,
-        &static_methods,
-        &static_init,
-    );
+    // The pair, or the single binding standing in for both.
+    let (name, outer) = match inner {
+        Some(i) => (i, Some(name)),
+        None => (name, None),
+    };
     // §15.7.14 evaluates every ComputedPropertyName once, in element
     // order, at class-definition time — ahead of anything a method or
     // an initializer does, because those run later (on call, on
@@ -372,7 +389,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
     });
     ast.fn_expr_exprs.insert(ctor_eid);
     out.push(Stmt::LetDecl {
-        mutable: outer_only,
+        mutable: outer.is_none(),
         name: name.clone(),
         type_ann: Some("any".to_string()),
         init: ctor_eid,
@@ -440,5 +457,10 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str) -> Stmt {
         src_name,
         &mut out,
     );
+    // Last, so the container's binding is only ever handed a fully
+    // installed class — every read of it happens after this point.
+    if let Some(o) = outer {
+        out.push(own_binding::outer_alias_stmt(ast, o, &name));
+    }
     Stmt::Multi(out)
 }

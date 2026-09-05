@@ -22,7 +22,7 @@
 //! itself needs no second one either.
 
 use super::super::free_vars::free_vars_of_body;
-use super::super::{Ast, ClassCtor, ClassMethod, Param, StaticInit, Stmt};
+use super::super::{Ast, ClassCtor, ClassMethod, Expr, Param, StaticInit, Stmt};
 
 /// Every part of the class body a self-reference can be written in.
 /// The name is the MINTED one — this runs after the α-rename, so the
@@ -69,4 +69,43 @@ pub(super) fn is_read_inside(
         StaticInit::Field(f) => reads(&[], &[Stmt::Expr(f.init)]),
         StaticInit::Block(v) => reads(&[], v),
     })
+}
+
+/// [`is_read_inside`] asked of a whole class declaration, under the
+/// name it still carries. The lane asks this BEFORE its α-rename, so
+/// the name here is the source spelling.
+pub(super) fn is_read_inside_class(ast: &Ast, s: &Stmt, name: &str) -> bool {
+    let Stmt::ClassDecl {
+        ctor,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = s
+    else {
+        return false;
+    };
+    is_read_inside(
+        ast,
+        name,
+        ctor.as_ref(),
+        methods,
+        static_methods,
+        static_init,
+    )
+}
+
+/// `let <outer>: any = <inner>` — the container's half of the pair.
+/// Mutable, because §14.2.3 asks for `CreateMutableBinding`: a class
+/// declaration is not a constant declaration, so `C = 1` next to one
+/// is legal and the body's own reads do not see it.
+pub(super) fn outer_alias_stmt(ast: &mut Ast, outer: String, inner: &str) -> Stmt {
+    let init = ast.add_expr(Expr::Ident(inner.to_string()));
+    Stmt::LetDecl {
+        mutable: true,
+        name: outer,
+        type_ann: Some("any".to_string()),
+        init,
+        is_var: false,
+    }
 }

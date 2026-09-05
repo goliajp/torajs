@@ -117,18 +117,7 @@ fn rename_in_stmt(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
             if let Some(pid) = parent {
                 rename_in_expr(ast, *pid, old, new);
             }
-            if let Some(c) = ctor {
-                rename_in_stmts(ast, &mut c.body, old, new);
-            }
-            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-                rename_in_stmts(ast, &mut m.body, old, new);
-            }
-            for si in static_init {
-                match si {
-                    StaticInit::Field(f) => rename_in_expr(ast, f.init, old, new),
-                    StaticInit::Block(v) => rename_in_stmts(ast, v, old, new),
-                }
-            }
+            rename_in_bodies(ast, ctor, methods, static_methods, static_init, old, new);
         }
         Stmt::ExportDecl {
             inner,
@@ -147,6 +136,47 @@ fn rename_in_stmt(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
         | Stmt::Continue(_)
         | Stmt::TypeDecl { .. }
         | Stmt::ImportDecl { .. } => {}
+    }
+}
+
+/// Rename inside a class's own BODIES only — constructor, methods,
+/// static methods and static initialisers. Not the `name` field, not
+/// the heritage: §14.2.3 gives a class declaration two bindings, and
+/// this walk covers exactly the half only the body can see.
+pub(super) fn rename_in_class_bodies(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
+    let Stmt::ClassDecl {
+        ctor,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = s
+    else {
+        return;
+    };
+    rename_in_bodies(ast, ctor, methods, static_methods, static_init, old, new);
+}
+
+fn rename_in_bodies(
+    ast: &mut Ast,
+    ctor: &mut Option<ClassCtor>,
+    methods: &mut [ClassMethod],
+    static_methods: &mut [ClassMethod],
+    static_init: &mut [StaticInit],
+    old: &str,
+    new: &str,
+) {
+    if let Some(c) = ctor {
+        rename_in_stmts(ast, &mut c.body, old, new);
+    }
+    for m in methods.iter_mut().chain(static_methods.iter_mut()) {
+        rename_in_stmts(ast, &mut m.body, old, new);
+    }
+    for si in static_init {
+        match si {
+            StaticInit::Field(f) => rename_in_expr(ast, f.init, old, new),
+            StaticInit::Block(v) => rename_in_stmts(ast, v, old, new),
+        }
     }
 }
 

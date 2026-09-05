@@ -42,7 +42,7 @@ use super::install::define_member;
 /// parent, so the forward TARGET may be the real class even when
 /// the direct parent is a lane sibling — whichever real name the
 /// chain lands on is recorded.
-pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str) {
+pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str, self_target: &str) {
     let Stmt::ClassDecl { ctor, parent, .. } = s else {
         return;
     };
@@ -55,7 +55,10 @@ pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str) {
             .get(p)
             .cloned()
             .unwrap_or_else(|| p.clone()),
-        _ => new.to_string(),
+        // A class carrying its own constructor forwards to itself —
+        // to the CLASS-SCOPE binding when it has one, so a later write
+        // through the container's cannot redirect a `super(…)`.
+        _ => self_target.to_string(),
     };
     ast.es5_ctor_forward.insert(new.to_string(), target);
     if let Some(p) = &parent {
