@@ -135,6 +135,23 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         Expr::Closure { fn_name, .. } => {
             lifted_closure_fn_canon(ast, fn_name).is_some_and(|c| !c.contains("__rest("))
         }
+        // Rotation 592 — a member that NAMES a lifted-closure
+        // binding (`{ f: k }`, `[k]`) holds the same value the
+        // Closure arm above admits, reached through one hop, so it
+        // boxes the same way. Without it ONE such member kept the
+        // whole binding main-local and every named-fn read of it
+        // answered "unknown identifier", while the identical program
+        // spelled `const arr: any[] = [k]` worked.
+        // `closure_alias_fn_canon` carries the uniqueness argument
+        // (a single top-level, non-`var` declaration) and the same
+        // variadic exclusion. A name the shape table answers for
+        // (a primitive alias) still admits through the fall-back —
+        // this arm only widens.
+        Expr::Ident(_) => {
+            crate::ast_refs::closure_alias_fn_canon(ast, e)
+                .is_some_and(|c| !c.contains("__rest("))
+                || crate::ast_refs::infer_toplevel_slot_shape(ast, e).is_some()
+        }
         // Statically-shaped expressions (operator results, top-level
         // aliases, `Symbol()`) are certainly non-callable — the
         // shape table only answers primitives.
