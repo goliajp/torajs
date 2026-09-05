@@ -129,7 +129,11 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // module-global promote admits, so a top-level fn body can see
     // this the same way it sees any other module let.
     for cname in &meta.class_names {
-        if !outer_bound.contains(cname) {
+        // A class renamed by the nested-class hoist already got its
+        // outer binding left behind in the container it was written
+        // in, which is the scope §14.2.3 names — two blocks' classes
+        // would otherwise fight over one program-level spelling.
+        if !outer_bound.contains(cname) || cname.starts_with("__hc") {
             continue;
         }
         let init = ast.add_expr(Expr::Ident(format!("__class_{cname}")));
@@ -148,15 +152,13 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
 /// Which classes get the outer mutable binding §14.2.3 gives a class
 /// DECLARATION.
 ///
-/// Four kinds are held out, each for its own reason:
+/// Three kinds are held out, each for its own reason (a fourth, the
+/// class renamed by the nested-class hoist, IS bound — its binding
+/// just lives in the container it was written in rather than here):
 ///
 /// - a class EXPRESSION (`__ClassExpr_<id>`) never had an outer
 ///   binding to begin with — §15.7.14 gives it only the one inside
 ///   the class scope, which rotation 585 already models;
-/// - a class hoisted out of a block and RENAMED on collision
-///   (`__hc<N>_<C>`) binds its source spelling in that block, not at
-///   program level, and putting it here would let two blocks' classes
-///   fight over one name — knife B of the RFC;
 /// - the injected Error family and the other builtin globals are
 ///   global-object properties, and a write to one of those is the
 ///   global-property lane, not this one;
@@ -167,7 +169,6 @@ fn outer_bound_classes(ast: &Ast, meta: &ClassMetadata) -> HashSet<String> {
     meta.class_names
         .iter()
         .filter(|c| !c.starts_with("__ClassExpr_"))
-        .filter(|c| !c.starts_with("__hc"))
         .filter(|c| !ast.injected_error_classes.contains(*c))
         .filter(|c| !crate::check_js_semantics::is_known_builtin_global(c))
         .filter(|c| !synthesized.contains(*c))

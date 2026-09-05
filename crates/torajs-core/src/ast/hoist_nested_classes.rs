@@ -234,6 +234,7 @@ fn walk_container(
         // for the class's own occurrence, so count duplicates.
         let collides = top_names.iter().filter(|n| **n == old_name).count() > 1
             || top_names[..sibling_start].contains(&old_name);
+        let mut residual: Option<String> = None;
         if collides {
             let new_name = format!("__hc{}_{}", *counter, old_name);
             *counter += 1;
@@ -263,11 +264,35 @@ fn walk_container(
                 }
             }
             super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old_name, &new_name);
-            top_names.push(new_name);
+            top_names.push(new_name.clone());
+            residual = Some(new_name);
         } else {
             top_names.push(old_name);
         }
-        let cls = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
+        // §14.2.3 — the scope the class was WRITTEN in holds the
+        // outer mutable binding, and for a renamed class that scope
+        // is this container, not the top level the class is moving
+        // to. So the declaration leaves one behind in its place.
+        // Every reference here has just been renamed to match, and
+        // `class_globals` reads the init's spelling as the class
+        // object it is (a synthesized dunder the reference rewrite
+        // does not touch). A class that did NOT collide keeps the
+        // top-level binding `class_globals` mints for it, which is
+        // the same widening its hoist already records.
+        let slot = match residual {
+            Some(name) => {
+                let init = ast.add_expr(Expr::Ident(format!("__class_{name}")));
+                Stmt::LetDecl {
+                    mutable: true,
+                    name,
+                    type_ann: Some("any".to_string()),
+                    init,
+                    is_var: false,
+                }
+            }
+            None => Stmt::Multi(Vec::new()),
+        };
+        let cls = std::mem::replace(&mut stmts[idx], slot);
         hoisted.push(cls);
     }
 
