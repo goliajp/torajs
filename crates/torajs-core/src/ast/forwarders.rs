@@ -116,7 +116,23 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
             }
             // Body has any Return(Closure-producing expr)? Mirrors
             // ssa_lower's `body_returns_closure` heuristic.
-            if !body_has_closure_return(ast, body) {
+            //
+            // Rotation 599 — a VARIADIC declared return is the
+            // exception. `return g` is an `Expr::Ident`, not a
+            // Closure, so this sniff answers no for every bare
+            // fn-name return; a non-variadic one survives that
+            // because the raw FnSig address it returns is callable
+            // as-is at the call site. A variadic call site is not:
+            // it packs its arguments through the boxed-dual route,
+            // which needs a real cell, so `function mk(): (...a:
+            // number[]) => number { return g }` compiled and then
+            // died at `mk()(1,2,3)` with "value is not a function".
+            // Every other spelling of the same program — argument,
+            // annotated binding, `any` binding, array element,
+            // direct call — already wraps or already works; the
+            // return boundary was the one that did neither.
+            let variadic_ret = rt.contains("__rest(") || rt.contains("...");
+            if !variadic_ret && !body_has_closure_return(ast, body) {
                 continue;
             }
             // Collect Return(Ident(name)) where name is FnSig-shaped.
