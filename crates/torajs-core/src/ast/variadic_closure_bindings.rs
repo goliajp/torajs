@@ -15,16 +15,26 @@
 
 use super::{Ast, Expr, Stmt};
 
-/// Record every top-level `let` / `const` whose init is a lifted
-/// closure whose last user parameter is a rest. `var` is excluded for
-/// the reason every promote arm excludes it — its hoisted home is not
-/// this slot.
+/// Record every top-level `let` / `const` holding a lifted closure
+/// that is variadic on EITHER side: the closure's own last parameter
+/// is a rest, or the binding's annotation says the value is called
+/// variadically. The second half is not the same fact as the first —
+/// `const t: (...xs: number[]) => number = (a: number) => a * 2` is a
+/// one-parameter closure reached through a variadic face, and its
+/// calls have to box exactly like the other flavor's, because it is
+/// the CALL SITE that has any arity. Recording only the first half
+/// promoted such a binding into a static dispatch and `t(21)`
+/// answered 4 (variadic-fn-type-ann-002 / -003).
+///
+/// `var` is excluded for the reason every promote arm excludes it —
+/// its hoisted home is not this slot.
 pub(crate) fn record(ast: &mut Ast) {
     let mut out: Vec<String> = Vec::new();
     for s in &ast.stmts {
         let Stmt::LetDecl {
             name,
             init,
+            type_ann,
             is_var: false,
             ..
         } = s
@@ -34,7 +44,8 @@ pub(crate) fn record(ast: &mut Ast) {
         let Expr::Closure { fn_name, .. } = ast.get_expr(*init) else {
             continue;
         };
-        if fn_decl_is_variadic(ast, fn_name) {
+        let ann_is_variadic = type_ann.as_deref().is_some_and(|a| a.contains("__rest("));
+        if ann_is_variadic || fn_decl_is_variadic(ast, fn_name) {
             out.push(name.clone());
         }
     }

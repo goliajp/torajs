@@ -63,6 +63,21 @@ function retAnn(): (...a: number[]) => number {
 }
 console.log(callAnn(), retAnn()(1, 2), gann(7));
 
+// a variadic FACE over a closure that is not itself variadic: the
+// call site is what has any arity, so its calls have to box exactly
+// like a real rest-tail closure's. Promoting the binding without
+// recording that turned `tv(21)` into a static dispatch answering 4
+// (the shape `variadic-fn-type-ann-002` guards at top level; here it
+// is read from inside a fn, which is what promotion needs).
+const tv: (...xs: number[]) => number = (a: number) => a * 2;
+function callFace(): number {
+  return tv(21);
+}
+function callFaceExtra(): number {
+  return tv(21, 99);
+}
+console.log(callFace(), callFaceExtra(), tv(21));
+
 // a non-variadic closure binding through the same boundaries, so a
 // regression on the ordinary lane shows up here too
 const gp = (x: number): number => x + 1;
