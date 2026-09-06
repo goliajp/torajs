@@ -117,6 +117,18 @@ fn try_top_level_fn_decl(ctx: &mut LowerCtx<'_>, fn_name_ref: &str, name: &str) 
         // slot), so this compile-time fold has to answer the same
         // NamedEvaluation verdict the fn-name registry does.
         n.clone()
+    } else if let Some(n) = ctx.ast.nested_fn_names.get(&fn_name_owned) {
+        // 604-03's other reader. §B.3.3's hoist renames a nested
+        // `function f` so two blocks in one body can each declare one,
+        // and the mint (`__nested_<parent>_<f>_<n>`) is not a name any
+        // source can spell. The fn-name registry learned to answer the
+        // recorded source spelling; this compile-time fold — the lane a
+        // read takes when the object slot's type is statically a
+        // function — did not, so `Foo.name` still answered the mint
+        // while `(Foo as any).name` answered `Foo`. Same table, same
+        // reason it cannot be recovered from the symbol: parent and
+        // name may both contain `_`.
+        n.clone()
     } else {
         // ES SetFunctionName — a static-method mangled ident answers
         // the property key (same strip as the fn-addr registry rows),
