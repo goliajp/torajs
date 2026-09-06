@@ -197,6 +197,12 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     }
     apply_catch_renames(ast, &mut top, &ctx.catch_renames);
     new_top.extend(top_lifted);
+    // Pass 3 — function-expression bodies, which are neither of the two
+    // scopes above. Runs while those bodies are still whole: after
+    // `lift_arrow_fns` each one is a top-level FnDecl and pass 1 does
+    // reach it, but by then the body's other function values have been
+    // lifted out too and the rename cannot follow them.
+    super::nested_fns_fnexpr::lift_in_fn_expr_bodies(ast, &mut ctx, &mut new_top);
     top.extend(new_top);
     ast.stmts = top;
 }
