@@ -189,20 +189,57 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
 /// `const c = k; function give() { return c }` was a hard reject,
 /// while the `any`-annotated spelling of the same program worked.
 ///
-/// One hop only, and only from a top-level `let` / `const` whose
-/// name is declared exactly once: a second declaration means the
-/// name at the alias site is not necessarily the one found here,
-/// and chasing further hops would need the same uniqueness argument
-/// at every step. `var` is excluded for the reason every sibling
-/// arm excludes it — its hoisted home is not this slot.
+/// Follows a CHAIN of aliases (`const gc = gb; const gb = ga`),
+/// making the same argument at every hop: the name must be declared
+/// exactly once at top level, as a `let` / `const`. A second
+/// declaration means the name at the alias site is not necessarily
+/// the one found here; `var` is excluded for the reason every
+/// sibling arm excludes it — its hoisted home is not this slot. A
+/// name reached twice is a cycle and answers nothing.
 pub fn closure_alias_fn_canon(ast: &Ast, init: ExprId) -> Option<String> {
     let Expr::Ident(src) = ast.get_expr(init) else {
         return None;
     };
-    let mut found: Option<(&str, Option<&str>)> = None;
+    let mut name: &str = src;
+    let mut seen: Vec<&str> = Vec::new();
+    loop {
+        if seen.contains(&name) {
+            return None;
+        }
+        seen.push(name);
+        let (init, ann) = unique_toplevel_binding(ast, name)?;
+        // The source's own ANNOTATION is the string it registered
+        // under, and it is not always its closure's decl canon: a
+        // variadic FACE over a non-variadic closure (`const t:
+        // (...xs: number[]) => R = (a: number) => …`) registers
+        // rest-tail while the lifted decl spells one fixed
+        // parameter. The alias holds that binding's value through
+        // that binding's face, so the face is what it answers —
+        // otherwise the two slots disagree about arity and the
+        // alias's call takes a static dispatch the value cannot
+        // serve. A non-fn-like ann (a named type alias) is not a
+        // spelling this resolves, and falls through to the init.
+        if let Some(a) = ann.filter(|a| crate::ast::is_fn_like_ann(a)) {
+            return Some(a.to_string());
+        }
+        match ast.get_expr(init) {
+            Expr::Closure { fn_name, .. } => return lifted_closure_fn_canon(ast, fn_name),
+            Expr::Ident(next) => name = next,
+            _ => return None,
+        }
+    }
+}
+
+/// The one top-level `let` / `const` declaring `name`, with its init
+/// and annotation — `None` when there is no such declaration or more
+/// than one. `var` is not a candidate (its hoisted home is not this
+/// slot), and a `var` of the same name does not make the `const`
+/// ambiguous either: a program with both is not one this resolves.
+fn unique_toplevel_binding<'a>(ast: &'a Ast, name: &str) -> Option<(ExprId, Option<&'a str>)> {
+    let mut found: Option<(ExprId, Option<&'a str>)> = None;
     for s in crate::ast::toplevel_stmts_flat(ast) {
         let Stmt::LetDecl {
-            name,
+            name: decl,
             init,
             type_ann,
             is_var: false,
@@ -211,32 +248,15 @@ pub fn closure_alias_fn_canon(ast: &Ast, init: ExprId) -> Option<String> {
         else {
             continue;
         };
-        if name != src {
+        if decl != name {
             continue;
         }
         if found.is_some() {
             return None;
         }
-        let Expr::Closure { fn_name, .. } = ast.get_expr(*init) else {
-            return None;
-        };
-        found = Some((fn_name, type_ann.as_deref()));
+        found = Some((*init, type_ann.as_deref()));
     }
-    let (fn_name, ann) = found?;
-    // The source's own ANNOTATION is the string it registered under,
-    // and it is not always its closure's decl canon: a variadic FACE
-    // over a non-variadic closure (`const t: (...xs: number[]) => R =
-    // (a: number) => …`) registers rest-tail while the lifted decl
-    // spells one fixed parameter. The alias holds that binding's
-    // value through that binding's face, so the face is what it
-    // answers — otherwise the two slots disagree about arity and the
-    // alias's call takes a static dispatch the value cannot serve.
-    // A non-fn-like ann (a named type alias) is not a spelling this
-    // resolves, and falls through to the decl canon as before.
-    if let Some(a) = ann.filter(|a| crate::ast::is_fn_like_ann(a)) {
-        return Some(a.to_string());
-    }
-    lifted_closure_fn_canon(ast, fn_name)
+    found
 }
 
 /// RFC 20260725 follow-up (un-annotated struct global) — the
