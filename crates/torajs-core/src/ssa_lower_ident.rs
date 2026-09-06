@@ -68,7 +68,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if let Some(op) = try_global_fn_addr(ctx, name) {
             return op;
         }
-        if let Some(op) = try_inline_const_literal(ctx, name) {
+        if let Some(op) = try_inline_const_literal(ctx, eid, name) {
             return op;
         }
         if let Some(op) = try_k3_global_data(ctx, name) {
@@ -313,8 +313,27 @@ fn try_global_fn_addr(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
     Some(Operand::Value(v))
 }
 
-fn try_inline_const_literal(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
+/// A read of a top-level `const X = <literal>` answers the literal
+/// itself — no slot, no load.
+///
+/// Two of the conditions relax for a read `emit_tdz_raise` has already
+/// raised at, because the value it produces is DEAD and only its shape
+/// is still wanted. `mutable` is one: a `let` is excluded here because
+/// a later write must be visible, and a read that never returns cannot
+/// see one. String is the other: it is excluded because interning per
+/// read site leaks an allocation per read, and a site that throws first
+/// performs none. Without this relaxation those two forms reach the
+/// unknown-identifier abort at the bottom of `lower` and take the whole
+/// program down — where the SAME program spelled `const X = 5` catches
+/// its ReferenceError and keeps running.
+fn try_inline_const_literal(
+    ctx: &mut LowerCtx<'_>,
+    eid: crate::ast::ExprId,
+    name: &str,
+) -> Option<Operand> {
+    let dead = ctx.ast.tdz_reads.contains(&eid);
     let name_owned = name.to_string();
+    let mut str_init: Option<torajs_wtf8::Wtf8Buf> = None;
     for s in &ctx.ast.stmts {
         let Stmt::LetDecl {
             name: n,
@@ -325,7 +344,7 @@ fn try_inline_const_literal(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operan
         else {
             continue;
         };
-        if n != &name_owned || *mutable {
+        if n != &name_owned || (*mutable && !dead) {
             continue;
         }
         match ctx.ast.get_expr(*init) {
@@ -336,10 +355,15 @@ fn try_inline_const_literal(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operan
                 return Some(Operand::ConstF64(*v));
             }
             Expr::Bool(b) => return Some(Operand::ConstBool(*b)),
+            Expr::String(sv) if dead => {
+                str_init = Some(sv.clone());
+                break;
+            }
             _ => {}
         }
     }
-    None
+    let sv = str_init?;
+    Some(Operand::Value(ctx.intern_string_literal(&sv)))
 }
 
 fn try_k3_global_data(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
