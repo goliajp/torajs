@@ -7,8 +7,9 @@
 //! `ReferenceError`) as `Stmt::ClassDecl` and splices them at
 //! `ast.stmts[0..0]` so the rest of the desugar pipeline processes
 //! them as ordinary user classes. Injection is idempotent +
-//! usage-gated (user `class Error` overrides; each subclass gated
-//! on reference/implied/runtime-thrown minus user-shadowing).
+//! usage-gated (a user declaration of `Error` overrides the whole
+//! hierarchy; each subclass gated on reference/implied/runtime-thrown
+//! minus user-shadowing).
 //!
 //! Four siblings carry the pieces that would push this file past
 //! the 500-line limit: `inject_builtin_classes_build` (the root
@@ -53,7 +54,7 @@ use super::{Ast, Expr, Stmt};
 ///   declaration-order panic that an injected `Sub extends Error`
 ///   prepended ahead of a user `class Error` would trigger).
 /// - Each subclass is injected only when referenced and not
-///   user-shadowed by a same-named ClassDecl.
+///   user-shadowed by a same-named top-level declaration of any kind.
 /// - `Error` is injected when referenced directly OR implied by any
 ///   wanted subclass (subclasses extend it). Nothing is injected for
 ///   programs that never mention the error hierarchy (compile-time
@@ -65,12 +66,30 @@ use super::{Ast, Expr, Stmt};
 /// gate-open sweep) was driven to zero; released in rotation 497.
 const GATE_HELD_OPEN: bool = false;
 
+/// Does the program declare `name` at module top level itself? The
+/// injection has always stepped aside for a user `class Error`, but
+/// it asked only about `ClassDecl` — so a program binding the name
+/// with `function` / `let` / `const` / `var` got the injected class
+/// spliced in AHEAD of its own declaration, and every `new <name>()`
+/// in the file built the intrinsic instead of the thing the program
+/// wrote. Silently, because the two answer to the same name: only an
+/// identity comparison tells them apart, which is precisely what
+/// test262's `harness/assert-throws-custom-typeerror` does.
+///
+/// Module top level is the whole question. A declaration nested in a
+/// function body shadows only inside that body, and the injected
+/// class is still what the outer scope must resolve to.
+fn user_declares_top_level(ast: &Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| match s {
+        Stmt::ClassDecl { name: n, .. }
+        | Stmt::FnDecl { name: n, .. }
+        | Stmt::LetDecl { name: n, .. } => n == name,
+        _ => false,
+    })
+}
+
 pub fn inject_builtin_classes(ast: &mut Ast) {
-    let user_has_error = ast
-        .stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == "Error"));
-    if user_has_error {
+    if user_declares_top_level(ast, "Error") {
         return;
     }
 
@@ -187,10 +206,7 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         .iter()
         .copied()
         .filter(|n| {
-            let shadowed = ast
-                .stmts
-                .iter()
-                .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == *n));
+            let shadowed = user_declares_top_level(ast, n);
             let implied =
                 (*n == "RangeError" && uses_bigint) || (*n == "URIError" && uses_uri_global);
             let runtime_thrown = observable
@@ -215,10 +231,7 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         .iter()
         .copied()
         .filter(|(n, _)| {
-            let shadowed = ast
-                .stmts
-                .iter()
-                .any(|s| matches!(s, Stmt::ClassDecl { name, .. } if name == n));
+            let shadowed = user_declares_top_level(ast, n);
             let implied = *n == "AggregateError" && uses_promise_any;
             !shadowed && (referenced(n) || implied)
         })
