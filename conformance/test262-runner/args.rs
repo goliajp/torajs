@@ -62,6 +62,15 @@ pub struct Args {
     /// rerunning the dumped file under `tr run` reproduces exactly
     /// what the worker ran. Use with `--filter` to keep DIR small.
     pub dump_src: Option<String>,
+
+    /// `--head-sha SHA` flag: stamp SHA into the summary JSON's
+    /// `headSha` instead of asking git. The runner's own git lookup
+    /// describes the *directory it runs in*, which is not the same
+    /// thing as the source the `tr` binary was built from: this
+    /// project syncs its runner box by rsync, so that box's git HEAD
+    /// can sit many commits behind the source actually under test.
+    /// Callers that know the real sha pass it here.
+    pub head_sha: Option<String>,
 }
 
 pub fn parse_args() -> Args {
@@ -75,6 +84,7 @@ pub fn parse_args() -> Args {
     let mut dump_verdicts: Option<String> = None;
     let mut no_cache = false;
     let mut dump_src: Option<String> = None;
+    let mut head_sha: Option<String> = None;
     let mut iter = std::env::args().skip(1);
     while let Some(a) = iter.next() {
         match a.as_str() {
@@ -96,6 +106,7 @@ pub fn parse_args() -> Args {
             "--dump-verdicts" => dump_verdicts = iter.next(),
             "--no-cache" => no_cache = true,
             "--dump-src" => dump_src = iter.next(),
+            "--head-sha" => head_sha = iter.next(),
             "-h" | "--help" => {
                 let default_w = default_workers();
                 eprintln!(
@@ -110,7 +121,8 @@ pub fn parse_args() -> Args {
                      --incompat-ndjson PATH  same, for the incompatible bucket (stdout only shows kind counts + 30 samples/kind)\n  \
                      --dump-verdicts PATH  write `<case>\\t<outcome>` per case; diff two runs to attribute a sweep delta\n  \
                      --no-cache      bypass the bun oracle cache for this run\n  \
-                     --dump-src DIR  also write each assembled source (harness + transformed case) into DIR"
+                     --dump-src DIR  also write each assembled source (harness + transformed case) into DIR\n  \
+                     --head-sha SHA  stamp SHA as the summary's headSha (the runner's own git lookup describes the directory it runs in, not the source tr was built from)"
                 );
                 std::process::exit(0);
             }
@@ -131,5 +143,6 @@ pub fn parse_args() -> Args {
         dump_verdicts,
         no_cache,
         dump_src,
+        head_sha,
     }
 }

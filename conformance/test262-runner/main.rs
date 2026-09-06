@@ -980,7 +980,7 @@ fn main() {
     // values shown in the stdout report above.
     if let Some(out_path) = args.json_out.as_deref() {
         let ran_at = now_rfc3339();
-        let head_sha = detect_head_sha();
+        let head_sha = args.head_sha.clone().unwrap_or_else(detect_head_sha);
         if let Err(e) = write_summary_json(
             Path::new(out_path),
             &ran_at,

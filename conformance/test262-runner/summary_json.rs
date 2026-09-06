@@ -68,22 +68,37 @@ pub fn write_summary_json(
     Ok(())
 }
 
-/// Read git HEAD short sha from `.git/HEAD` chain, falling back to
-/// `git rev-parse` if the chain doesn't resolve to a packed/loose ref.
-/// Best-effort — returns "unknown" on any error since the JSON consumer
-/// must tolerate it (cold-start invocations may not be in a git repo).
+/// Best-effort provenance for the summary's `headSha`.
+///
+/// git answers a question about the *directory this runs in*, which is
+/// not the question the field is asked: which source produced the `tr`
+/// under test. The two come apart whenever the tree is not the tree
+/// HEAD names — this project rsyncs its runner box, so that box's HEAD
+/// can sit many commits behind the source actually being swept, and a
+/// bare sha there is a confident lie. A tree that differs from HEAD is
+/// therefore stamped `<sha>-dirty`: HEAD does not name this source, and
+/// the reader is told so rather than shown a plausible commit.
+///
+/// Callers who know the real sha pass `--head-sha` and skip all of this.
+/// Returns "unknown" on any error — a cold-start invocation need not be
+/// in a git repo at all.
 pub fn detect_head_sha() -> String {
-    if let Ok(out) = std::process::Command::new("git")
-        .args(["rev-parse", "--short", "HEAD"])
-        .output()
-        && out.status.success()
-    {
-        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if !s.is_empty() {
-            return s;
-        }
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    };
+    let Some(sha) = git(&["rev-parse", "--short", "HEAD"]).filter(|s| !s.is_empty()) else {
+        return "unknown".to_string();
+    };
+    match git(&["status", "--porcelain", "--untracked-files=no"]) {
+        Some(st) if st.is_empty() => sha,
+        Some(_) => format!("{sha}-dirty"),
+        None => "unknown".to_string(),
     }
-    "unknown".to_string()
 }
 
 /// RFC 3339 UTC timestamp without external deps. Uses libc gmtime.
