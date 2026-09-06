@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T08:29:13.900Z",
+  "generatedAt": "2026-09-06T10:25:35.224Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T08:16:57Z",
-    "headSha": "a680385c4",
-    "elapsedSec": 378.77,
+    "ranAt": "2026-09-06T10:10:04Z",
+    "headSha": "3e91a45c8",
+    "elapsedSec": 379.45,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31127,
+    "pass": 31132,
     "passNoOracle": 1140,
     "passNegative": 4457,
-    "passTotal": 36724,
-    "bug": 11273,
+    "passTotal": 36729,
+    "bug": 11268,
     "incompatible": 5177,
     "bunSkip": 2926,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 47997,
-    "passRateInScope": 69.06,
-    "passRateTrAccepted": 76.51
+    "passRateInScope": 69.07,
+    "passRateTrAccepted": 76.52
   },
   "torajs": {
-    "commit": "a680385c4",
-    "commitSubject": "fix: an object-literal binding with a variadic closure field promotes",
+    "commit": "545188b31",
+    "commitSubject": "fix: release_batch reads the .expected oracle the runner already reads",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,38 @@
   },
   "commits": [
     {
+      "hash": "545188b31",
+      "subject": "fix: release_batch reads the .expected oracle the runner already reads"
+    },
+    {
+      "hash": "3e91a45c8",
+      "subject": "fix: an un-annotated new Map / Set / WeakMap binding gets a global home"
+    },
+    {
+      "hash": "03c8568ce",
+      "subject": "fix: a promoted Map / Set global finds its typed method lane"
+    },
+    {
+      "hash": "c307a8241",
+      "subject": "fix: an alias of a var-declared variadic closure keeps the boxed route"
+    },
+    {
+      "hash": "24033ab82",
+      "subject": "fix: an object-literal field holding a cast to a fn type promotes"
+    },
+    {
+      "hash": "96b07e37b",
+      "subject": "refactor: split the canonical-annotation family out of shape.rs"
+    },
+    {
+      "hash": "12fe558b4",
+      "subject": "fix: an object-literal field naming a closure binding takes the typed lane"
+    },
+    {
+      "hash": "f9e11203e",
+      "subject": "chore: rotation 601 sweep on a680385c4, plus the dashboard snapshot"
+    },
+    {
       "hash": "a680385c4",
       "subject": "fix: an object-literal binding with a variadic closure field promotes"
     },
@@ -743,59 +775,38 @@
     {
       "hash": "ea29bebda",
       "subject": "fix: an alias answers the source binding's face, not its closure's decl"
-    },
-    {
-      "hash": "eb08f0c37",
-      "subject": "fix: an alias of a variadic closure binding is itself variadic"
-    },
-    {
-      "hash": "517d2171d",
-      "subject": "chore: rotation 600 sweep on 3762d0f45, plus the dashboard snapshot"
-    },
-    {
-      "hash": "3762d0f45",
-      "subject": "fix: a var-bound variadic closure read from a named fn no longer segfaults"
-    },
-    {
-      "hash": "27daa7207",
-      "subject": "fix: a rest tail of refcounted elements gets its boxed dual entry"
-    },
-    {
-      "hash": "c9f8e6cc6",
-      "subject": "fix: an erased container's get answers Any, not a second name for Any"
-    },
-    {
-      "hash": "7870527b6",
-      "subject": "fix: a variadic FACE over a non-variadic closure still boxes its calls"
-    },
-    {
-      "hash": "5a548fc54",
-      "subject": "fix: a variadic arrow held in a top-level binding is callable from anywhere"
-    },
-    {
-      "hash": "5f0990fea",
-      "subject": "chore: rotation 599 sweep on b1e09e59b, plus the dashboard snapshot"
     }
   ],
-  "headSha": "a680385c4",
+  "headSha": "545188b31",
   "autorun": {
-    "total": 904,
+    "total": 905,
     "baselineTarget": 10,
-    "bySelf": 899,
+    "bySelf": 900,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788675967-7f85",
-      "at": "2026-09-06T06:26:07Z",
-      "ts": 1788675967,
+      "rotationId": "r-1788683481-5294",
+      "at": "2026-09-06T08:31:21Z",
+      "ts": 1788683481,
       "trigger": "self",
-      "prevHead": "517d2171d",
-      "handoffSha": "sha256:24732e5f378100e0509eeef2a3b2994e6abab30692c27370823cd894c6dcf4dc",
-      "handoffAgeSec": 28,
+      "prevHead": "f9e11203e",
+      "handoffSha": "sha256:2b2b751a851b35e937633398f14826b1711901dc49f90cee8484b6ac4ea81190",
+      "handoffAgeSec": 56,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788683481-5294",
+        "at": "2026-09-06T08:31:21Z",
+        "ts": 1788683481,
+        "trigger": "self",
+        "prevHead": "f9e11203e",
+        "handoffSha": "sha256:2b2b751a851b35e937633398f14826b1711901dc49f90cee8484b6ac4ea81190",
+        "handoffAgeSec": 56,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788675967-7f85",
         "at": "2026-09-06T06:26:07Z",
@@ -892,17 +903,6 @@
         "prevHead": "66edba529",
         "handoffSha": "sha256:d5188ce62c038978c25fde719b88eca3e44efa8439aa651ef88855338da89d5b",
         "handoffAgeSec": 3,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788606174-39b4",
-        "at": "2026-09-05T11:02:54Z",
-        "ts": 1788606174,
-        "trigger": "self",
-        "prevHead": "4d607c52f",
-        "handoffSha": "sha256:1f0ac464f239ae4d64ab1a67d675bd671b06111d2410ac79caddba7800b4b5c6",
-        "handoffAgeSec": 47,
         "conformanceBefore": null,
         "commitsInSession": null
       }
