@@ -12,7 +12,24 @@
 //! size-debt entry, so growing it in place was not available.
 
 use super::Parser;
-use crate::ast::Expr;
+use crate::ast::{Expr, ExprId};
+
+/// A TS type assertion emits no code, so it cannot change whether the
+/// operand is a Reference — `delete (x as any)` is `delete x`, which
+/// bun confirms in both goals: a SyntaxError under strict (§13.5.1.1
+/// reads through the assertion the same way it reads through parens),
+/// and §13.5.1.2's own answer under sloppy. Without this, every arm
+/// below saw an `As` node, and all three answers were wrong at once:
+/// `delete (declared as any)` said true where the binding is
+/// non-configurable, `delete (undeclared as any)` died at compile time
+/// on an unknown identifier, and the strict early error never fired.
+/// Assertions nest (`x as any as string`), so this strips to the end.
+fn strip_type_assertions(p: &Parser<'_>, mut id: ExprId) -> ExprId {
+    while let Expr::As { expr, .. } = p.ast.get_expr(id) {
+        id = *expr;
+    }
+    id
+}
 
 impl Parser<'_> {
     /// Enters with `delete` already consumed. Parses the operand and
@@ -27,6 +44,7 @@ impl Parser<'_> {
         // IdentifierReference, whatever it folded to.
         let opens_with_void = matches!(self.peek(), crate::lexer::Token::Void);
         let inner = self.parse_unary()?;
+        let inner = strip_type_assertions(self, inner);
         // §13.5.1.1 early error — the operand must not be a private
         // reference (`delete o.#m`), however the receiver is shaped.
         // Parens are transparent in the arena, so the covered forms
