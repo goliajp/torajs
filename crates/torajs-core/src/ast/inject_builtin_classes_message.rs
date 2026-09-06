@@ -5,7 +5,7 @@
 //! `inject_builtin_classes_data`, and the message-coercion builder
 //! here).
 
-use super::inject_builtin_classes::build_absent_sentinel;
+use super::inject_builtin_classes_build::build_absent_sentinel;
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
 /// §20.5.1.1 step 3 — the `this.message` install, single copy here in
