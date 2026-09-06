@@ -115,9 +115,9 @@ fn read_harness() -> Result<String, String> {
 ///
 ///   - `assert.sameValue(`     → `__t262_sameValue(`
 ///   - `assert.notSameValue(`  → `__t262_notSameValue(`
-///   - `assert.throws(<id>, `  → `__t262_throws_runtime(`  (drops the
-///                              first ident arg — torajs has no way
-///                              to compare class identity at runtime)
+///   - `assert.throws(<id>, `  → `__t262_throws_runtime(`  (the class
+///                              arg is KEPT and compared for real —
+///                              see the shim note in the harness)
 ///   - bare `assert(`          → `__t262_assert(`
 ///
 /// `var` passes through UNCHANGED. A `var ` → `let ` rewrite lived here
@@ -225,11 +225,11 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
                 (b"assert.deepEqual(", "__t262_deepEqual("),
                 (b"assert.compareIterator(", "__t262_compareIterator("),
                 // Must sit in this table (tried before the
-                // `assert.throws(` class-arg-drop block below, whose
-                // needle can't match this one anyway — after "throws"
-                // it requires '('): unlike assert.throws, the class
-                // arg is KEPT — `.constructor === Class` compares
-                // bun-equal on tr, so the port keeps full fidelity.
+                // `assert.throws(` block below, whose needle can't
+                // match this one anyway — after "throws" it requires
+                // '('). Both keep the class arg: `.constructor ===
+                // Class` compares bun-equal on tr, so both ports keep
+                // full fidelity.
                 (b"assert.throwsAsync(", "__t262_throwsAsync("),
             ];
             let mut hit = false;
@@ -244,7 +244,7 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
             if hit {
                 continue;
             }
-            // `assert.throws(<ident>, ` → drop the class arg.
+            // `assert.throws(<ident>, ` → keep the class arg.
             if starts_with_at(bytes, i, b"assert.throws(") {
                 let after = i + b"assert.throws(".len();
                 let mut j = after;
@@ -277,7 +277,13 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
                         } else {
                             "__t262_throws_anyfn("
                         });
-                        i = j;
+                        // Resume at the class arg, not past it: both
+                        // shims now take it as their first parameter
+                        // and compare `thrown.constructor` against it,
+                        // the way test262's own assert.js does. The
+                        // scan above was only ever needed to reach the
+                        // second argument and read its shape.
+                        i = after;
                         continue;
                     }
                 }
@@ -1053,9 +1059,9 @@ mod transform_tests {
     #[test]
     fn async_helpers_rewrites_fire_and_guard() {
         // `asyncTest(` is a bare-call rewrite; member access and
-        // longer identifiers must not match. `assert.throwsAsync(`
-        // keeps ALL args (the class arg is compared for real, unlike
-        // `assert.throws` whose rewrite drops it).
+        // longer identifiers must not match. Both `assert.throwsAsync(`
+        // and `assert.throws(` keep ALL args — the class arg is
+        // compared for real on either side.
         let src = "asyncTest(async function () {});\n\
                    obj.asyncTest(1);\n\
                    myasyncTest(2);\n\
@@ -1075,8 +1081,8 @@ mod transform_tests {
             "throwsAsync must keep the class arg: {out:?}"
         );
         assert!(
-            out.contains("__t262_throws_runtime(function () {})"),
-            "assert.throws class-arg drop must survive the new needle: {out:?}"
+            out.contains("__t262_throws_runtime(TypeError, function () {})"),
+            "assert.throws must keep the class arg: {out:?}"
         );
     }
 

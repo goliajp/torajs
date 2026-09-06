@@ -151,6 +151,54 @@ function __t262_notSameValue<T>(actual: T, expected: T, msg: any = ""): void {
 // Test262 also exposes `assert.throws(ErrorType, fn, msg)` — the
 // rewrite turns that into `__t262_throws`.
 
+// Shared verdict body for both `assert.throws` entries — a
+// full-fidelity port of test262's own assert.js INCLUDING the
+// constructor identity comparison. The class arg used to be DROPPED by
+// the rewrite layer, on a note that "torajs has no way to compare class
+// identity at runtime". That note outlived its truth: `e.constructor
+// === TypeError` probes bun-equal on tr today, for built-in error
+// classes and user classes alike, and `assert.throwsAsync` has been
+// comparing it for real since it landed. Dropping it meant every case
+// that threw the WRONG error class still reported a pass — which is
+// exactly the shape of metric water the design principles name
+// ("errors cancelling each other out"): a case exercising an unmet
+// global would raise ReferenceError from its own callback, the shim
+// asked only "did anything throw", and both engines printed nothing.
+function __t262_throws_check(
+  expectedErrorConstructor: any,
+  threw: boolean,
+  thrown: any,
+  message: any
+): void {
+  const m: string = message === undefined ? "" : String(message) + " ";
+  if (!threw) {
+    throw new Test262Error(
+      m +
+        "Expected a " +
+        String(expectedErrorConstructor.name) +
+        " to be thrown but no exception was thrown at all"
+    );
+  }
+  if (thrown === null || typeof thrown !== "object") {
+    throw new Test262Error(m + "Thrown value was not an object!");
+  }
+  if (thrown.constructor !== expectedErrorConstructor) {
+    const expectedName: any = expectedErrorConstructor.name;
+    const actualName: any = thrown.constructor.name;
+    if (expectedName === actualName) {
+      throw new Test262Error(
+        m +
+          "Expected a " +
+          String(expectedName) +
+          " but got a different error constructor with the same name"
+      );
+    }
+    throw new Test262Error(
+      m + "Expected a " + String(expectedName) + " but got a " + String(actualName)
+    );
+  }
+}
+
 // Two entries, one body: the rewrite layer picks by the shape of the
 // second `assert.throws` argument. A function/arrow LITERAL keeps the
 // typed `() => void` thunk (the fn-expr lanes lower it today, and the
@@ -162,7 +210,7 @@ function __t262_notSameValue<T>(actual: T, expected: T, msg: any = ""): void {
 // semantics under test, and the structural annotation rejected those
 // cases at typecheck; the any-call lane pads missing arguments with
 // undefined.
-function __t262_throws_anyfn(thunk: any, msg: any = ""): void {
+function __t262_throws_anyfn(ctor: any, thunk: any, msg: any = undefined): void {
   // Real test262 assert.js guards callability BEFORE invoking: a
   // non-function second argument must raise Test262Error, not
   // whatever the call-of-non-callable would raise downstream
@@ -175,18 +223,19 @@ function __t262_throws_anyfn(thunk: any, msg: any = ""): void {
     );
   }
   let threw: boolean = false;
+  let thrown: any = undefined;
   try {
     thunk();
   } catch (e) {
     threw = true;
+    thrown = e;
   }
-  if (!threw) {
-    throw new Test262Error(String(msg));
-  }
+  __t262_throws_check(ctor, threw, thrown, msg);
 }
 
-function __t262_throws_runtime(thunk: () => void, msg: any = ""): void {
+function __t262_throws_runtime(ctor: any, thunk: () => void, msg: any = undefined): void {
   let threw: boolean = false;
+  let thrown: any = undefined;
   try {
     thunk();
   } catch (e) {
@@ -196,21 +245,12 @@ function __t262_throws_runtime(thunk: () => void, msg: any = ""): void {
     // `__t262_throws_runtime` reported the opposite verdict — see
     // e.g. isFinite / isNaN `return-abrupt-from-tonumber-number.js`
     // after the Any-arm ToNumber throw-check landed. Other harness
-    // clauses (line 180 / 227) already use the untyped form.
+    // clauses already use the untyped form.
     threw = true;
+    thrown = e;
   }
-  if (!threw) {
-    throw new Test262Error(String(msg));
-  }
+  __t262_throws_check(ctor, threw, thrown, msg);
 }
-
-// `assert.throws(ErrorClass, fn, msg)` — the first arg is a class
-// reference. torajs has no way to compare class identity at runtime
-// without `Type::Class`; we drop the class arg in the rewrite layer
-// and call `__t262_throws_runtime(fn, msg)` instead. Cases that
-// depend on the specific error class flag will report their own
-// mismatch via Test262Error message text, which still fails the
-// case correctly via the throw-was-empty path.
 
 // ─── 2026-05-18 — broader test262 helper coverage ───
 //
