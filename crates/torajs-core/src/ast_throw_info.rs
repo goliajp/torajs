@@ -222,7 +222,7 @@ fn is_arr_length_member(
 /// The two marks that make a bare identifier read RAISE instead of
 /// answering: an unresolvable Reference (RFC 20260730-undeclared-ident,
 /// §6.2.5.5) and a binding still in its temporal dead zone
-/// (`ast::mark_toplevel_tdz_reads`, §8.1.1.1). Either way the enclosing
+/// (`ast::mark_tdz_reads`, §8.1.1.1). Either way the enclosing
 /// fn must enter `may_throw`, or callers prune the check and the throw
 /// is silently swallowed across the fn boundary.
 fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {

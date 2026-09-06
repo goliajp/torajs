@@ -205,7 +205,7 @@ pub struct Ast {
     /// AND write targets, together for the same reason
     /// `undeclared_reads` keeps both: §6.2.5.5 GetValue and §6.2.5.6
     /// PutValue are the same Reference. Filled last in the AST
-    /// pipeline by `ast::mark_toplevel_tdz_reads` (which documents why
+    /// pipeline by `ast::mark_tdz_reads` (which documents why
     /// this one shape is decidable and where the walk stops); the
     /// ident and assign lanes each raise a catchable ReferenceError at
     /// the occurrence. Empty pre-pipeline.

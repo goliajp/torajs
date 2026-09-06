@@ -214,7 +214,7 @@ impl Checker {
         // the LetDecl arm sees the set.
         self.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
         // §8.1.1.1 — the pipeline already settled which top-level
-        // reads sit in a dead zone (`ast::mark_toplevel_tdz_reads`).
+        // reads sit in a dead zone (`ast::mark_tdz_reads`).
         // Carried, not recomputed: the answer is about STATEMENT
         // POSITION in the tree the pipeline finished, and this side
         // has no other way to ask.

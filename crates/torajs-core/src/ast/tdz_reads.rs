@@ -1,6 +1,6 @@
-//! §8.1.1.1 step 4 — the temporal dead zone of a top-level `let` /
-//! `const`, for the one shape a compiler can settle without tracking
-//! initialization at run time: a read written EARLIER in the top-level
+//! §8.1.1.1 step 4 — the temporal dead zone of a `let` / `const`, for
+//! the one shape a compiler can settle without tracking
+//! initialization at run time: a read written EARLIER in the same
 //! statement list than the declaration itself.
 //!
 //! ```text
@@ -98,7 +98,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// Fill `ast.tdz_reads`. Runs last in the AST pipeline, on the tree
 /// the lowerer will read, so no later rewrite can move a marked
 /// occurrence out from under its mark.
-pub fn mark_toplevel_tdz_reads(ast: &mut Ast) {
+pub fn mark_tdz_reads(ast: &mut Ast) {
     let mut marks: HashSet<ExprId> = HashSet::new();
     mark_list(ast, &super::toplevel_stmts_flat(ast), &mut marks);
     for s in &ast.stmts {

@@ -394,6 +394,6 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // see the order the lowerer will walk. Every pass above may append
     // or lift a declaration, and a mark taken before one of them could
     // name an occurrence that later moved.
-    ast::mark_toplevel_tdz_reads(ast);
+    ast::mark_tdz_reads(ast);
     Ok(())
 }

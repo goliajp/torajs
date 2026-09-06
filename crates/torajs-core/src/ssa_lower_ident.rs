@@ -224,7 +224,7 @@ pub(crate) fn read_raises(ast: &crate::ast::Ast, eid: crate::ast::ExprId) -> boo
 
 /// §8.1.1.1 — the read is written earlier in the top-level statement
 /// list than the `let` / `const` it names, so reaching it means the
-/// declaration has not run (`ast::mark_toplevel_tdz_reads` documents
+/// declaration has not run (`ast::mark_tdz_reads` documents
 /// why that is decidable here and nowhere else).
 ///
 /// This RAISES and returns; the caller lowers the read as it always
