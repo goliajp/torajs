@@ -88,6 +88,9 @@ pub(crate) fn is_global_name(name: &str) -> bool {
             | "decodeURI"
             | "encodeURIComponent"
             | "decodeURIComponent"
+            // §B.2.1 — the two Annex B string globals.
+            | "escape"
+            | "unescape"
             | "globalThis"
             // WHATWG HTML microtask scheduling (P10.1)
             | "queueMicrotask"

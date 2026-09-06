@@ -126,7 +126,9 @@ pub(crate) fn check(
         )),
         "parseFloat" => Ok(Type::Function(vec![Type::String], Box::new(Type::Number))),
         "isNaN" | "isFinite" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean))),
-        "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
+        "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent"
+        // §B.2.1 escape / unescape — same shape, String in, String out.
+        | "escape" | "unescape" => {
             Ok(Type::Function(vec![Type::String], Box::new(Type::String)))
         }
         "undefined" => Ok(Type::Undefined),

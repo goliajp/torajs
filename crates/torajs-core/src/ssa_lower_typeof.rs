@@ -132,7 +132,9 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
         | "Proxy" | "Iterator" | "BigInt" | "ArrayBuffer" | "DataView" | "TypeError"
         | "RangeError" | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError"
         | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
-        | "encodeURIComponent" | "decodeURIComponent" | "eval" => Some("function"),
+        | "encodeURIComponent" | "decodeURIComponent" | "escape" | "unescape" | "eval" => {
+            Some("function")
+        }
         // RFC 20260823-typedarray-substrate 刀 4 — the eleven §23.2
         // constructors. `typeof Float16Array` deliberately stays
         // out: the harness feature-tests it against `"undefined"`,

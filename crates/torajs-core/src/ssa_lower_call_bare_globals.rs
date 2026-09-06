@@ -37,6 +37,8 @@ pub(crate) fn try_lower(
         "encodeURIComponent" => Some(lower_uri(ctx, args, true, true)),
         "decodeURI" => Some(lower_uri(ctx, args, false, false)),
         "decodeURIComponent" => Some(lower_uri(ctx, args, false, true)),
+        "escape" => Some(lower_escape(ctx, args, true)),
+        "unescape" => Some(lower_escape(ctx, args, false)),
         _ => None,
     }
 }
@@ -414,4 +416,58 @@ fn lower_queue_microtask(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         None,
     );
     Operand::ConstI64(0)
+}
+
+/// §B.2.1 `escape` / `unescape` — ToString the argument (step 1) and
+/// run the kernel. Unlike the URI four, neither direction can fail:
+/// Annex B keeps a `%` it cannot parse as an ordinary character, so
+/// there is nothing to throw and no check to emit. A missing argument
+/// is `undefined`, whose ToString is the string "undefined" — the
+/// same shape `lower_uri` gives it.
+fn lower_escape(ctx: &mut LowerCtx<'_>, args: &[ExprId], escape: bool) -> Operand {
+    if args.is_empty()
+        || matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(check_mod::Type::Undefined)
+        )
+    {
+        for &a in args.iter().skip(1) {
+            let _ = ctx.lower_expr(a);
+        }
+        let undef_str = ctx.intrinsics.undefined_to_str;
+        let cur_block = ctx.cur_block;
+        let u = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(undef_str, vec![]),
+            Type::Str,
+            None,
+        );
+        let kernel = if escape {
+            ctx.intrinsics.str_escape
+        } else {
+            ctx.intrinsics.str_unescape
+        };
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(kernel, vec![Operand::Value(u)]),
+            Type::Str,
+            None,
+        );
+        return Operand::Value(v);
+    }
+    let raw = ctx.lower_expr(args[0]);
+    let s = decode_any_to_str(ctx, raw);
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let kernel = if escape {
+        ctx.intrinsics.str_escape
+    } else {
+        ctx.intrinsics.str_unescape
+    };
+    let cur_block = ctx.cur_block;
+    let v = ctx
+        .f
+        .append_inst(cur_block, InstKind::Call(kernel, vec![s]), Type::Str, None);
+    Operand::Value(v)
 }

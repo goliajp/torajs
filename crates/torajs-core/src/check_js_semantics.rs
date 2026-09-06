@@ -192,6 +192,8 @@ pub(crate) fn is_known_builtin_global(name: &str) -> bool {
             | "decodeURI"
             | "encodeURIComponent"
             | "decodeURIComponent"
+            | "escape"
+            | "unescape"
             | "parseInt"
             | "parseFloat"
             | "isFinite"

@@ -121,6 +121,7 @@ pub mod code_point;
 pub mod concat;
 pub mod concat_num;
 pub mod eq;
+pub mod escape;
 pub mod hash;
 pub mod html;
 pub mod index_any;

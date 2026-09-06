@@ -804,6 +804,8 @@ pub(crate) fn build(
         symbol_description: init_d.str_extra.symbol_description,
         str_uri_encode: init_d.str_extra.str_uri_encode,
         str_uri_decode: init_d.str_extra.str_uri_decode,
+        str_escape: init_d.str_extra.str_escape,
+        str_unescape: init_d.str_extra.str_unescape,
         f64_to_str: init_d.arr_str_etc.f64_to_str,
         math_sqrt: init_d.math.math_sqrt,
         math_abs: init_d.math.math_abs,

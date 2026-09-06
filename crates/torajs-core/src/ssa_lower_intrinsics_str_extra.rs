@@ -39,6 +39,8 @@ pub(crate) struct StrExtraIds {
     pub undefined_to_str: FuncId,
     pub str_uri_encode: FuncId,
     pub str_uri_decode: FuncId,
+    pub str_escape: FuncId,
+    pub str_unescape: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> StrExtraIds {
@@ -123,6 +125,23 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_uri_decode",
             &[Type::Str, Type::I64],
+            Type::Str,
+        ),
+        // §B.2.1 escape / unescape (torajs-str escape.rs) — Str →
+        // fresh Str, and neither can fail: Annex B keeps whatever it
+        // cannot parse, so no throw check follows these.
+        str_escape: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_escape",
+            &[Type::Str],
+            Type::Str,
+        ),
+        str_unescape: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_unescape",
+            &[Type::Str],
             Type::Str,
         ),
     }

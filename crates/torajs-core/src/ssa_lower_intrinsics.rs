@@ -966,6 +966,8 @@ pub(crate) struct Intrinsics {
     pub(crate) symbol_description: FuncId,
     pub(crate) str_uri_encode: FuncId,
     pub(crate) str_uri_decode: FuncId,
+    pub(crate) str_escape: FuncId,
+    pub(crate) str_unescape: FuncId,
     pub(crate) f64_to_str: FuncId,
     pub(crate) math_sqrt: FuncId,
     pub(crate) math_abs: FuncId,

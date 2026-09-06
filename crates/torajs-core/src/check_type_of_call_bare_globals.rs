@@ -101,7 +101,8 @@ pub(crate) fn try_match(
                 }
                 Some(Ok(Type::Number))
             }
-            "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" => {
+            "encodeURI" | "encodeURIComponent" | "decodeURI" | "decodeURIComponent" | "escape"
+            | "unescape" => {
                 // §19.2.6 URI globals — one ToString'd argument
                 // (String / Undefined / Any accepted like the
                 // parse* pair), trailing args Web-IDL ignored.
