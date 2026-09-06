@@ -40,6 +40,9 @@ fn print_usage() {
     println!("                                  8-runner matrix; ~5× slower from python alone)");
     println!("        --runtime r1,r2           explicit comma-separated runtime list (overrides");
     println!("                                  both --all and the default set)");
+    println!("        --head-sha SHA            stamp results with this source id (the runner's");
+    println!("                                  own git HEAD names its CHECKOUT, a different");
+    println!("                                  thing whenever the tree arrived by rsync)");
     println!(
         "        --runs N                  N full interleaved passes; row = median run_ms + MAD"
     );
@@ -161,6 +164,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
     let mut runtime_filter: Option<Vec<String>> = None;
     let mut no_save = false;
     let mut runs: usize = 1;
+    let mut head_sha: Option<String> = None;
     let mut self_only = false;
     let mut all_runtimes = false;
     let mut vs_baseline: Option<String> = None;
@@ -197,6 +201,16 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
                     .filter(|&n| n >= 1)
                     .context("--runs requires a positive integer")?;
                 i += 2;
+            }
+            // The value that names the SOURCE, for a caller that
+            // knows it. The runner's own `git rev-parse HEAD` answers
+            // a different question whenever the tree did not arrive by
+            // pull — see `report::git_sha`.
+            "--head-sha" => {
+                let v = args.get(i + 1).context("--head-sha requires a value")?;
+                head_sha = Some(v.clone());
+                i += 2;
+                continue;
             }
             "--runtime" => {
                 let v = args.get(i + 1).context("--runtime requires a value")?;
@@ -369,7 +383,7 @@ fn run_cmd(bench_dir: &Path, args: &[String]) -> Result<bool> {
         }
     }
 
-    let mut report = report::Report::new(bench_dir)?;
+    let mut report = report::Report::new(bench_dir, head_sha.as_deref())?;
     report.runs = runs;
     let mut all_ok = true;
 

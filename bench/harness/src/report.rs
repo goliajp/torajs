@@ -21,11 +21,11 @@ pub struct Report {
 }
 
 impl Report {
-    pub fn new(bench_dir: &Path) -> Result<Self> {
+    pub fn new(bench_dir: &Path, head_sha: Option<&str>) -> Result<Self> {
         Ok(Self {
             started_at: now_iso8601(),
             host: hostname(),
-            git_sha: git_sha(bench_dir),
+            git_sha: git_sha(bench_dir, head_sha),
             runs: 1,
             rows: Vec::new(),
         })
@@ -87,11 +87,18 @@ impl Report {
             .with_context(|| format!("creating {}", results_dir.display()))?;
         let date = self.started_at.split('T').next().unwrap_or("undated");
         let host_short = self.host.split('.').next().unwrap_or(&self.host);
+        // Truncating to 7 is for readability, but the `-dirty` marker
+        // is the part a reader most needs — cutting it off leaves a
+        // filename that names a commit the file is not a measurement
+        // of, which is the whole defect this marker exists to stop.
         let sha_short = self
             .git_sha
             .as_deref()
-            .map(|s| &s[..s.len().min(7)])
-            .unwrap_or("nogit");
+            .map(|s| match s.strip_suffix("-dirty") {
+                Some(base) => format!("{}-dirty", &base[..base.len().min(7)]),
+                None => s[..s.len().min(7)].to_string(),
+            })
+            .unwrap_or_else(|| "nogit".to_string());
         let base = format!("{date}-{host_short}-{sha_short}");
         // First run gets `<base>.json`; re-runs at the same SHA append
         // `-r2`, `-r3`, ... so 3-run median workflows keep all results
@@ -237,7 +244,25 @@ fn hostname() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-fn git_sha(bench_dir: &Path) -> Option<String> {
+/// What produced the binaries this run timed.
+///
+/// `git rev-parse HEAD` answers "what did this directory check out",
+/// which is a different question, and on the bench runner the two
+/// diverge: it receives source by rsync rather than by pull, so its
+/// HEAD names a commit from several rotations back while the tree
+/// under it is current. A result file stamped that way claims to be a
+/// measurement of code it was not a measurement of, and nothing
+/// downstream can tell. The same defect was fixed in the test262
+/// runner; this is the bench half of it.
+///
+/// So: an explicit `--head-sha` from a caller that knows the real
+/// value wins, and otherwise a dirty tree is stamped `<sha>-dirty` —
+/// HEAD does not name this source, and saying so is better than a
+/// plausible commit id.
+fn git_sha(bench_dir: &Path, override_sha: Option<&str>) -> Option<String> {
+    if let Some(s) = override_sha {
+        return Some(s.to_string());
+    }
     let output = Command::new("git")
         .args(["rev-parse", "HEAD"])
         .current_dir(bench_dir)
@@ -246,5 +271,12 @@ fn git_sha(bench_dir: &Path) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    let sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let dirty = Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(bench_dir)
+        .output()
+        .ok()
+        .is_some_and(|o| o.status.success() && !o.stdout.is_empty());
+    Some(if dirty { format!("{sha}-dirty") } else { sha })
 }
