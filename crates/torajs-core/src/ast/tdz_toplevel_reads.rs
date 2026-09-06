@@ -30,15 +30,33 @@
 //! exactly what the emitted raise says, at exactly the read's own
 //! site.
 //!
-//! A function body is where that reasoning stops: `function g() {
-//! return a }` written before the `const` reads it whenever `g` is
-//! CALLED, which is normally after. So the walk enters no fn body —
-//! not a `Stmt::FnDecl`, not a class body, not an arrow / fn
-//! expression (`expr_children` already stops at `ArrowFn`, and the
-//! statement walker never had FnDecl or ClassDecl children). Calling
-//! such a fn early (`g(); const a = 5`) is still wrong, and still
-//! answers `5`; settling it needs a call graph, and is registered
-//! rather than guessed at here.
+//! A function body is where that reasoning stops FOR THE TOP-LEVEL
+//! LIST: `function g() { return a }` written before the `const` reads
+//! it whenever `g` is CALLED, which is normally after. So no walk
+//! carries an outer list's names into a fn body. Calling such a fn
+//! early (`g(); const a = 5`) is still wrong, and still answers `5`;
+//! settling it needs a call graph, and is registered rather than
+//! guessed at here.
+//!
+//! But the reasoning itself is about a STATEMENT LIST, not about the
+//! top level, and every list is linear the same way. A body's own
+//! `const` is in dead zone for a read written earlier in that same
+//! body, whenever the body runs:
+//!
+//! ```text
+//! function f() { console.log(a); const a = 5 }   // f() throws
+//! { console.log(a); const a = 5 }                // the block throws
+//! ```
+//!
+//! So the rule runs once per list — the top level, every block, every
+//! function body — each seeing only its own declarations. Nothing
+//! crosses a list boundary, which is what keeps a false raise
+//! impossible: an inner list's read of an outer name is the CALLED
+//! shape above, and stays unmarked.
+//!
+//! A switch's CaseBlock is one declarative environment spread across
+//! the case bodies (§14.12.4), so it is not one of the lists this pass
+//! runs on — a recorded gap rather than a guess.
 //!
 //! Two more narrowings, both to keep a false raise impossible:
 //!
@@ -81,7 +99,84 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// the lowerer will read, so no later rewrite can move a marked
 /// occurrence out from under its mark.
 pub fn mark_toplevel_tdz_reads(ast: &mut Ast) {
-    let flat = super::toplevel_stmts_flat(ast);
+    let mut marks: HashSet<ExprId> = HashSet::new();
+    mark_list(ast, &super::toplevel_stmts_flat(ast), &mut marks);
+    for s in &ast.stmts {
+        descend_lists(ast, s, &mut marks);
+    }
+    ast.tdz_reads = marks;
+}
+
+/// `Multi` shares the surrounding scope, so it is spliced rather than
+/// treated as a list of its own — the same flattening the top level
+/// gets.
+fn flatten<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Stmt>) {
+    for s in stmts {
+        match s {
+            Stmt::Multi(inner) => flatten(inner, out),
+            other => out.push(other),
+        }
+    }
+}
+
+/// Run the rule on one more list, then keep descending. A list's own
+/// declarations are the only ones it sees.
+fn run_nested(ast: &Ast, stmts: &[Stmt], out: &mut HashSet<ExprId>) {
+    let mut flat: Vec<&Stmt> = Vec::new();
+    flatten(stmts, &mut flat);
+    mark_list(ast, &flat, out);
+    for s in stmts {
+        descend_lists(ast, s, out);
+    }
+}
+
+/// Every statement list reachable from `s`, each run as its own scope.
+fn descend_lists(ast: &Ast, s: &Stmt, out: &mut HashSet<ExprId>) {
+    match s {
+        Stmt::Block(b) => {
+            run_nested(ast, b, out);
+            return;
+        }
+        Stmt::FnDecl { body, .. } => {
+            run_nested(ast, body, out);
+            return;
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            run_nested(ast, body, out);
+            run_nested(ast, catch_body, out);
+            if let Some(f) = finally_body {
+                run_nested(ast, f, out);
+            }
+            return;
+        }
+        _ => {}
+    }
+    for root in stmt_exprs(s) {
+        descend_expr_lists(ast, root, out);
+    }
+    for c in stmt_children_ref(s) {
+        descend_lists(ast, c, out);
+    }
+}
+
+/// A function expression's body is a list too, and the pipeline runs
+/// this pass before the arrows are lifted out of the arena.
+fn descend_expr_lists(ast: &Ast, eid: ExprId, out: &mut HashSet<ExprId>) {
+    if let Expr::ArrowFn { body, .. } = ast.get_expr(eid) {
+        run_nested(ast, body, out);
+        return;
+    }
+    for c in expr_children(ast, eid) {
+        descend_expr_lists(ast, c, out);
+    }
+}
+
+fn mark_list(ast: &Ast, flat: &[&Stmt], marks: &mut HashSet<ExprId>) {
     let mut decl_at: HashMap<&str, usize> = HashMap::new();
     let mut mutable_decl: HashSet<&str> = HashSet::new();
     for (i, s) in flat.iter().enumerate() {
@@ -101,7 +196,6 @@ pub fn mark_toplevel_tdz_reads(ast: &mut Ast) {
     if decl_at.is_empty() {
         return;
     }
-    let mut marks: HashSet<ExprId> = HashSet::new();
     for (i, s) in flat.iter().enumerate() {
         let later: Vec<&str> = decl_at
             .iter()
@@ -125,9 +219,8 @@ pub fn mark_toplevel_tdz_reads(ast: &mut Ast) {
             .copied()
             .filter(|n| mutable_decl.contains(n))
             .collect();
-        mark_stmt(ast, s, &wanted, &wanted_mut, &mut marks);
+        mark_stmt(ast, s, &wanted, &wanted_mut, marks);
     }
-    ast.tdz_reads = marks;
 }
 
 /// Every name the statement's own subtree binds — the walk that
