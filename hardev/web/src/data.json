@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T10:25:35.224Z",
+  "generatedAt": "2026-09-06T12:25:48.012Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T10:10:04Z",
-    "headSha": "3e91a45c8",
-    "elapsedSec": 379.45,
+    "ranAt": "2026-09-06T11:59:28Z",
+    "headSha": "9043b3dfb",
+    "elapsedSec": 413.93,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31132,
+    "pass": 31522,
     "passNoOracle": 1140,
-    "passNegative": 4457,
-    "passTotal": 36729,
-    "bug": 11268,
-    "incompatible": 5177,
+    "passNegative": 4459,
+    "passTotal": 37121,
+    "bug": 10889,
+    "incompatible": 5164,
     "bunSkip": 2926,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47997,
-    "passRateInScope": 69.07,
-    "passRateTrAccepted": 76.52
+    "trAccepted": 48010,
+    "passRateInScope": 69.81,
+    "passRateTrAccepted": 77.32
   },
   "torajs": {
-    "commit": "545188b31",
-    "commitSubject": "fix: release_batch reads the .expected oracle the runner already reads",
+    "commit": "65fa2a74c",
+    "commitSubject": "refactor(torajs-core): move is_synthesized_dunder out of check.rs (file-size)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "65fa2a74c",
+      "subject": "refactor(torajs-core): move is_synthesized_dunder out of check.rs (file-size)"
+    },
+    {
+      "hash": "9043b3dfb",
+      "subject": "fix: a write to a top-level let before its declaration raises instead of aborting"
+    },
+    {
+      "hash": "3ef09af35",
+      "subject": "fix: a receiver that already raised stops being rejected at compile time"
+    },
+    {
+      "hash": "c5fbd84ea",
+      "subject": "fix: a dead-zone read with no literal initializer stops being called undeclared"
+    },
+    {
+      "hash": "2d987032e",
+      "subject": "fix: a dead-zone read of a let, or of a string const, stops aborting the build"
+    },
+    {
+      "hash": "fddbb7cae",
+      "subject": "fix: a top-level const read before its declaration raises instead of answering"
+    },
+    {
+      "hash": "7f28a567d",
+      "subject": "chore: rotation 602 sweep on 3e91a45c8, plus the dashboard snapshot"
+    },
+    {
       "hash": "545188b31",
       "subject": "fix: release_batch reads the .expected oracle the runner already reads"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "24033ab82",
       "subject": "fix: an object-literal field holding a cast to a fn type promotes"
-    },
-    {
-      "hash": "96b07e37b",
-      "subject": "refactor: split the canonical-annotation family out of shape.rs"
-    },
-    {
-      "hash": "12fe558b4",
-      "subject": "fix: an object-literal field naming a closure binding takes the typed lane"
-    },
-    {
-      "hash": "f9e11203e",
-      "subject": "chore: rotation 601 sweep on a680385c4, plus the dashboard snapshot"
-    },
-    {
-      "hash": "a680385c4",
-      "subject": "fix: an object-literal binding with a variadic closure field promotes"
-    },
-    {
-      "hash": "b20c60ac7",
-      "subject": "fix: an alias of an alias resolves, one hop at a time"
-    },
-    {
-      "hash": "2b2a946e1",
-      "subject": "fix: an annotated alias of a variadic closure binding promotes"
-    },
-    {
-      "hash": "ea29bebda",
-      "subject": "fix: an alias answers the source binding's face, not its closure's decl"
     }
   ],
-  "headSha": "545188b31",
+  "headSha": "65fa2a74c",
   "autorun": {
-    "total": 905,
+    "total": 906,
     "baselineTarget": 10,
-    "bySelf": 900,
+    "bySelf": 901,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788683481-5294",
-      "at": "2026-09-06T08:31:21Z",
-      "ts": 1788683481,
+      "rotationId": "r-1788690469-7706",
+      "at": "2026-09-06T10:27:49Z",
+      "ts": 1788690469,
       "trigger": "self",
-      "prevHead": "f9e11203e",
-      "handoffSha": "sha256:2b2b751a851b35e937633398f14826b1711901dc49f90cee8484b6ac4ea81190",
-      "handoffAgeSec": 56,
+      "prevHead": "7f28a567d",
+      "handoffSha": "sha256:c8089aa77c357d66313ea433c2b10644727d529585227f69d4130d1020b88eff",
+      "handoffAgeSec": 34,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788690469-7706",
+        "at": "2026-09-06T10:27:49Z",
+        "ts": 1788690469,
+        "trigger": "self",
+        "prevHead": "7f28a567d",
+        "handoffSha": "sha256:c8089aa77c357d66313ea433c2b10644727d529585227f69d4130d1020b88eff",
+        "handoffAgeSec": 34,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788683481-5294",
         "at": "2026-09-06T08:31:21Z",
@@ -892,17 +903,6 @@
         "prevHead": "75b128724",
         "handoffSha": "sha256:cadb3f39058b55d59998915b9887eaea44e35f5f0d1ae07f90248393a7e746b6",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788613623-35e0",
-        "at": "2026-09-05T13:07:03Z",
-        "ts": 1788613623,
-        "trigger": "self",
-        "prevHead": "66edba529",
-        "handoffSha": "sha256:d5188ce62c038978c25fde719b88eca3e44efa8439aa651ef88855338da89d5b",
-        "handoffAgeSec": 3,
         "conformanceBefore": null,
         "commitsInSession": null
       }
