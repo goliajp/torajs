@@ -63,6 +63,20 @@ for f in $(ls conformance/cases | awk -v s="$STRIDE" 'NR % s == 1') \
     buildfail=$((buildfail + 1)); echo "BUILDFAIL $f: $(tail -1 "$TMP/build.log")"; continue
   fi
   a=$("$TMP/a.bin" 2>/dev/null); arc=$?
+  # Oracle source, same rule the conformance runner uses: a sibling
+  # `.expected` file OVERRIDES bun (runner/main.rs). 22 cases carry
+  # one, because bun does not implement what they test — comparing
+  # those against bun reported a NEQ on a product whose output was
+  # byte-identical to `tr run`'s, i.e. the measuring device failing
+  # in a shape indistinguishable from a release-only regression
+  # (rotation 602 spent a close-sequence on exactly that). Only the
+  # bun arm can compare exit codes; an `.expected` file records
+  # stdout alone.
+  exp="conformance/cases/${f%.ts}.expected"
+  if [ -f "$exp" ]; then
+    if [ "$a" != "$(cat "$exp")" ]; then neq=$((neq + 1)); echo "NEQ $f (vs .expected)"; fi
+    continue
+  fi
   b=$(bun "conformance/cases/$f" 2>/dev/null); brc=$?
   if [ "$a" != "$b" ]; then neq=$((neq + 1)); echo "NEQ $f (stdout)"
   elif [ "$arc" != "$brc" ]; then neq=$((neq + 1)); echo "NEQ $f (rc $arc vs $brc)"; fi
