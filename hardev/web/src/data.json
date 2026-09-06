@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T06:23:44.768Z",
+  "generatedAt": "2026-09-06T08:29:13.900Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T06:09:46Z",
-    "headSha": "3762d0f4",
-    "elapsedSec": 379.74,
+    "ranAt": "2026-09-06T08:16:57Z",
+    "headSha": "a680385c4",
+    "elapsedSec": 378.77,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "3762d0f45",
-    "commitSubject": "fix: a var-bound variadic closure read from a named fn no longer segfaults",
+    "commit": "a680385c4",
+    "commitSubject": "fix: an object-literal binding with a variadic closure field promotes",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "a680385c4",
+      "subject": "fix: an object-literal binding with a variadic closure field promotes"
+    },
+    {
+      "hash": "b20c60ac7",
+      "subject": "fix: an alias of an alias resolves, one hop at a time"
+    },
+    {
+      "hash": "2b2a946e1",
+      "subject": "fix: an annotated alias of a variadic closure binding promotes"
+    },
+    {
+      "hash": "ea29bebda",
+      "subject": "fix: an alias answers the source binding's face, not its closure's decl"
+    },
+    {
+      "hash": "eb08f0c37",
+      "subject": "fix: an alias of a variadic closure binding is itself variadic"
+    },
+    {
+      "hash": "517d2171d",
+      "subject": "chore: rotation 600 sweep on 3762d0f45, plus the dashboard snapshot"
+    },
+    {
       "hash": "3762d0f45",
       "subject": "fix: a var-bound variadic closure read from a named fn no longer segfaults"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "5f0990fea",
       "subject": "chore: rotation 599 sweep on b1e09e59b, plus the dashboard snapshot"
-    },
-    {
-      "hash": "b1e09e59b",
-      "subject": "fix: the bench result stops passing off a directory's git HEAD as provenance"
-    },
-    {
-      "hash": "5cd4f87cf",
-      "subject": "fix: a variadic declaration handed out through a return arrives callable"
-    },
-    {
-      "hash": "8a1513f7a",
-      "subject": "fix: a receiver-first shell is one object per declaration, not one per store"
-    },
-    {
-      "hash": "4704d3217",
-      "subject": "fix: a named function held in a binding is the same object as the name"
-    },
-    {
-      "hash": "77e4f47f9",
-      "subject": "chore(checkpoints): 2026-09-06 v1-axes report, with a full bench matrix at HEAD"
-    },
-    {
-      "hash": "fd1bc2a2e",
-      "subject": "chore: refresh the hardev dashboard snapshot"
     }
   ],
-  "headSha": "3762d0f45",
+  "headSha": "a680385c4",
   "autorun": {
-    "total": 903,
+    "total": 904,
     "baselineTarget": 10,
-    "bySelf": 898,
+    "bySelf": 899,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788669504-1f4b",
-      "at": "2026-09-06T04:38:24Z",
-      "ts": 1788669504,
+      "rotationId": "r-1788675967-7f85",
+      "at": "2026-09-06T06:26:07Z",
+      "ts": 1788675967,
       "trigger": "self",
-      "prevHead": "5f0990fea",
-      "handoffSha": "sha256:fbf4cedad2fbb45fbf76fe7f439e7d54d1168b4d1f33b8f5ab8d8d72b4724718",
-      "handoffAgeSec": 0,
+      "prevHead": "517d2171d",
+      "handoffSha": "sha256:24732e5f378100e0509eeef2a3b2994e6abab30692c27370823cd894c6dcf4dc",
+      "handoffAgeSec": 28,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788675967-7f85",
+        "at": "2026-09-06T06:26:07Z",
+        "ts": 1788675967,
+        "trigger": "self",
+        "prevHead": "517d2171d",
+        "handoffSha": "sha256:24732e5f378100e0509eeef2a3b2994e6abab30692c27370823cd894c6dcf4dc",
+        "handoffAgeSec": 28,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788669504-1f4b",
         "at": "2026-09-06T04:38:24Z",
@@ -892,17 +903,6 @@
         "prevHead": "4d607c52f",
         "handoffSha": "sha256:1f0ac464f239ae4d64ab1a67d675bd671b06111d2410ac79caddba7800b4b5c6",
         "handoffAgeSec": 47,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788599780-3ad1",
-        "at": "2026-09-05T09:16:20Z",
-        "ts": 1788599780,
-        "trigger": "self",
-        "prevHead": "2ed3b582c",
-        "handoffSha": "sha256:466014afa5f84ce9c5768d8ce3379d173bb25ddb057ef616945e0792504dabf5",
-        "handoffAgeSec": 36,
         "conformanceBefore": null,
         "commitsInSession": null
       }
