@@ -357,18 +357,44 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
             // decided by shape), the ann spells `number`, and the
             // widen re-interns the field as F64 — `0.5`, where a
             // missing correction would print `0`.
-            _ => match infer_slot_shape(ast, *val, 0) {
-                Some(GlobalSlotShape::Str) => "string".to_string(),
-                Some(GlobalSlotShape::Bool) => "boolean".to_string(),
-                Some(GlobalSlotShape::I64) => "number".to_string(),
-                Some(GlobalSlotShape::F64) => "f64".to_string(),
-                Some(GlobalSlotShape::BigInt) => "bigint".to_string(),
-                _ => return None,
+            //
+            // A field NAMING a top-level closure binding (`{ f: ga }`)
+            // holds the same value the Closure arm above spells, one
+            // hop away, so it spells the same string —
+            // `closure_alias_fn_canon` carries the uniqueness argument
+            // and answers the source binding's own face. The shape
+            // table never resolved such a name (it only answers
+            // primitives), so one such field kept the WHOLE literal
+            // off this lane; the binding then landed on the boxed
+            // any-promote lane when the name was non-variadic and
+            // nowhere at all when it was variadic ("unknown identifier
+            // `o`"). That the typed lane serves this field is not a
+            // new claim: writing the annotation out
+            // (`const o: { f: (...xs: number[]) => number } = { f: ga }`)
+            // already takes it, variadic tail included.
+            Expr::Ident(_) => match closure_alias_fn_canon(ast, *val) {
+                Some(canon) => crate::ast::retag_field_fn_ann(&canon),
+                None => shape_field_ann(ast, *val)?,
             },
+            _ => shape_field_ann(ast, *val)?,
         };
         parts.push(format!("{fname}:{ann}"));
     }
     Some(format!("__inlobj({})", parts.join("|")))
+}
+
+/// The field spelling of a value the shape table answers for — the
+/// fall-back every non-callable field takes. `None` keeps the whole
+/// literal off this lane, which is what the callers read.
+fn shape_field_ann(ast: &Ast, val: ExprId) -> Option<String> {
+    Some(match infer_slot_shape(ast, val, 0)? {
+        GlobalSlotShape::Str => "string".to_string(),
+        GlobalSlotShape::Bool => "boolean".to_string(),
+        GlobalSlotShape::I64 => "number".to_string(),
+        GlobalSlotShape::F64 => "f64".to_string(),
+        GlobalSlotShape::BigInt => "bigint".to_string(),
+        GlobalSlotShape::Symbol => return None,
+    })
 }
 
 /// The receiver-less `__mth(P|..)->(R)` spelling of a METHOD's lifted
