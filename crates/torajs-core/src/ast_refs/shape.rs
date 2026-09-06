@@ -329,9 +329,6 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
             }
             Expr::Closure { fn_name, .. } => {
                 let canon = lifted_closure_fn_canon(ast, fn_name)?;
-                if canon.contains("__rest(") {
-                    return None;
-                }
                 // A struct FIELD holding a fn is Closure-repr, not the
                 // direct-dispatch FnSig a `__fn(` spelling names — the
                 // same retag the parser applies where it mints
