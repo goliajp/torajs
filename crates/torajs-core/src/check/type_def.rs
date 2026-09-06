@@ -19,13 +19,13 @@ pub enum Type {
     /// TypeError per spec; same-type ops produce BigInt.
     BigInt,
     /// T-26 — observed reference. `new WeakRef(target)` returns
-    /// this; `wr.deref()` returns `Nullable<Any>` (type narrowing
+    /// this; `wr.deref()` returns `Any` (type narrowing
     /// over generic T deferred — at the SSA layer the target slot
     /// is ptr-shaped regardless of the original T, and conformance
     /// cases work fine with `as` casts on the deref result).
     WeakRef,
     /// T-26.B — `WeakMap`. Pointer-identity-keyed map with auto-
-    /// eviction on key death. `m.get(k)` returns `Nullable<Any>`,
+    /// eviction on key death. `m.get(k)` returns `Any`,
     /// `m.has/delete` return Boolean, `m.set` returns the map (we
     /// stick with Void for the SSA result since chaining isn't
     /// observed in conformance fixtures yet — adjust if test262

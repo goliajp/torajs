@@ -28,17 +28,13 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
         // a dedicated arm below (the static-table path
         // only fires when args.len() == 0, so trailing
         // args[1..] are typecheck-and-dropped there).
-        (Type::WeakRef, "deref") => {
-            Type::Function(Vec::new(), Box::new(Type::Nullable(Box::new(Type::Any))))
-        }
+        (Type::WeakRef, "deref") => Type::Function(Vec::new(), Box::new(Type::Any)),
         // T-26.B — WeakMap methods. set takes (key,
-        // value); both type-erased to Any. get returns
-        // Nullable<Any>. has / delete return Boolean.
+        // value); both type-erased to Any. get answers Any
+        // (see the Map.get note in check_type_of_member_setmap).
+        // has / delete return Boolean.
         (Type::WeakMap, "set") => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Void)),
-        (Type::WeakMap, "get") => Type::Function(
-            vec![Type::Any],
-            Box::new(Type::Nullable(Box::new(Type::Any))),
-        ),
+        (Type::WeakMap, "get") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // 383-04 — the stage-3 upsert pair (bun ships both).
         (Type::WeakMap, "getOrInsert") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))

@@ -7,7 +7,7 @@
 //! S325 — `WeakRef.deref(...trailing)` per ES §26.1.3.2:
 //! spec is 0-arg; trailing args MUST be silently ignored.
 //! Pre-S325 tora's static-table sig
-//! `(Type::WeakRef, "deref") -> Function([], Nullable<Any>)`
+//! `(Type::WeakRef, "deref") -> Function([], Any)`
 //! rejected 1+ arg calls at strict arity. Carve-out
 //! typecheck-and-drops args[..]; ssa_lower mirror peeks the
 //! receiver via expr_types and lower-and-drops trailing.
@@ -15,10 +15,10 @@
 //! Receiver / m_name / arity matrix:
 //! - `Type::WeakRef` + m_name == "deref" + !args.is_empty():
 //!     - args[..] type_of'd for side-effect validation
-//!     - returns `Some(Ok(Type::Nullable(Box::new(Type::Any))))`
+//!     - returns `Some(Ok(Type::Any))`
 //!
 //! Returns:
-//! - `Some(Ok(Type::Nullable(Box::new(Type::Any))))` on success
+//! - `Some(Ok(Type::Any))` on success
 //! - `Some(Err(_))` on receiver / arg type_of failure
 //! - `None` otherwise (non-Member callee, m_name != "deref",
 //!   args.is_empty(), or non-WeakRef receiver — cascade falls
@@ -59,5 +59,5 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    Some(Ok(Type::Nullable(Box::new(Type::Any))))
+    Some(Ok(Type::Any))
 }

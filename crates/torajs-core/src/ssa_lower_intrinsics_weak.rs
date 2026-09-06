@@ -71,7 +71,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             Type::WeakRef,
         ),
         // Chunk 629 — boxed deref: checker types `wr.deref()` as
-        // Nullable<Any>, so the SSA value is an AnyValue box (alive
+        // Any, so the SSA value is an AnyValue box (alive
         // box = ptr, cleared = ANY_UNDEF). The raw-Ptr
         // `__torajs_weakref_deref` stays in the runtime as this
         // helper's core but is no longer declared as an intrinsic.

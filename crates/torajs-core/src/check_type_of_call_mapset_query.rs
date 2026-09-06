@@ -20,13 +20,13 @@
 //! - `Type::{Set,Map}` + `{has,delete}` + args.len() >= 2
 //!   → eval all args → `Some(Ok(Type::Boolean))`
 //! - `Type::Map` + `get` + args.len() >= 2 → eval all args
-//!   → `Some(Ok(Type::Nullable(Box::new(Type::Any))))`
+//!   → `Some(Ok(Type::Any))`
 //! - `Type::{Set,Map}` + `clear` + !args.is_empty()
 //!   → eval all args → `Some(Ok(Type::Void))`
 //!
 //! Returns:
 //! - `Some(Ok(Type::Boolean))` for has/delete success
-//! - `Some(Ok(Type::Nullable(Box::new(Type::Any))))` for
+//! - `Some(Ok(Type::Any))` for
 //!   Map.get success
 //! - `Some(Ok(Type::Void))` for clear success
 //! - `Some(Err(_))` on receiver / arg type_of failure
@@ -77,7 +77,7 @@ pub(crate) fn try_match(
                 return Some(Err(e));
             }
         }
-        return Some(Ok(Type::Nullable(Box::new(Type::Any))));
+        return Some(Ok(Type::Any));
     }
     // (Set|Map).clear accept >= 1 (trail only).
     if matches!(src_ty, Type::Set | Type::Map) && m_name == "clear" && !args.is_empty() {

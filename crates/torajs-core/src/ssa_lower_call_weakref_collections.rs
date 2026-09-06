@@ -81,7 +81,7 @@ fn try_lower_weakref_deref(
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
     let cur_block = ctx.cur_block;
     // Chunk 629 — boxed deref: the checker types the result
-    // Nullable<Any>, so the SSA value is an AnyValue box (alive box
+    // Any, so the SSA value is an AnyValue box (alive box
     // = target ptr with the caller's +1, cleared = ANY_UNDEF). The
     // raw-Ptr form NaN-box-misaligned every downstream Any consumer
     // (member access on a narrowed deref result was a loud reject).

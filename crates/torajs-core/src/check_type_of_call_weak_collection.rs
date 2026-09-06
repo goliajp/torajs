@@ -26,7 +26,7 @@
 //!
 //! Returns:
 //! - `Some(Ok(Type::Void))` for WeakMap.set / WeakSet.add
-//! - `Some(Ok(Type::Nullable(Box::new(Type::Any))))` for
+//! - `Some(Ok(Type::Any))` for
 //!   WeakMap.get
 //! - `Some(Ok(Type::Boolean))` for {WeakMap,WeakSet}.{has,delete}
 //! - `Some(Err(_))` on receiver / arg type_of failure
@@ -71,7 +71,7 @@ pub(crate) fn try_match(
     }
     let ret = match (&src_ty, m_name.as_str()) {
         (Type::WeakMap, "set") => Type::Void,
-        (Type::WeakMap, "get") => Type::Nullable(Box::new(Type::Any)),
+        (Type::WeakMap, "get") => Type::Any,
         (Type::WeakSet, "add") => Type::Void,
         _ => Type::Boolean,
     };

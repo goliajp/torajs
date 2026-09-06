@@ -32,13 +32,16 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * mirrors with an emit_rc_inc on the receiver
          * before returning so the chained value owns its
          * own ref independent of the source binding.
-         * get returns Nullable<Any>. has / delete return
+         * get answers Any: with V type-erased, TS's
+         * `V | undefined` IS `any`, and spelling it
+         * Nullable(Any) only made a second name for one
+         * type that the checker then refused to call, add
+         * to, or `??` (rotation 600). Every undefined-
+         * observing behaviour is unchanged — the value is
+         * a tagged Any either way. has / delete return
          * Boolean. clear returns Void. */
         (Type::Map, "set") => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Map)),
-        (Type::Map, "get") => Type::Function(
-            vec![Type::Any],
-            Box::new(Type::Nullable(Box::new(Type::Any))),
-        ),
+        (Type::Map, "get") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // Stage-3 upsert (RFC 20260721 刀 6) — answers the present
         // value or the freshly inserted default.
         (Type::Map, "getOrInsert") => {

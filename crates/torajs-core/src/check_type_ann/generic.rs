@@ -139,7 +139,7 @@ pub(super) fn resolve_generic(
             "WeakMap" => Type::WeakMap,
             "WeakSet" => Type::WeakSet,
             // Chunk 629 — `WeakRef<T>` erases like its weak-family
-            // siblings (deref() answers Nullable<Any>; the target
+            // siblings (deref() answers Any; the target
             // type is validated above, then dropped).
             "WeakRef" => Type::WeakRef,
             "MapIter" | "mapiter" => Type::MapIter,
