@@ -233,7 +233,18 @@ fn collect_hof_cb_face(
 ) {
     let mapset_ok = name == "forEach";
     let inline_arraylit = matches!(&exprs[obj.0 as usize], Expr::Array(_));
+    // The Map / Set receiver written in place, for the same reason the
+    // array literal one is here: `new Set([7])` is as certainly a Set
+    // as the binding the census proves holds one, and the mint is the
+    // only consumer of it. The censuses are of BINDING names, so
+    // without this the two spellings of one program disagreed —
+    // `const s = new Set([7]); s.forEach(f)` ran (rotation 597) and
+    // `new Set([7]).forEach(f)` was an unclaimed-receiver refusal.
+    let inline_mapset = mapset_ok
+        && matches!(&exprs[obj.0 as usize], Expr::New { class_name, .. }
+            if class_name == "Map" || class_name == "Set");
     if !inline_arraylit
+        && !inline_mapset
         && !matches!(&exprs[obj.0 as usize], Expr::Ident(n)
         if any_recvs.contains(n)
             || arraylit_recvs.contains(n)
