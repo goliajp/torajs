@@ -415,6 +415,19 @@ fn annotated_slot_ty(
     let parsed = match parsed {
         Type::FnSig(sig) if !ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
         Type::Closure(sig) if ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
+        // An ALIAS of a lifted-arrow binding carries the same env
+        // cell the arrow itself mints, so it takes the same slot —
+        // `const gb: (...xs: number[]) => number = ga` was "unknown
+        // function `gb`" from a named-fn body because the binding
+        // never promoted. Resolved through the one-hop spelling that
+        // types an UNannotated alias, so the annotated and the bare
+        // form of the same line agree.
+        Type::Closure(sig)
+            if ann.contains("__rest(")
+                && crate::ast_refs::closure_alias_fn_canon(ast, peeled).is_some() =>
+        {
+            Type::Closure(sig)
+        }
         Type::Closure(_) if ann.contains("__rest(") => return None,
         // `const a: string[] = s.split(" ")` — the annotation spells
         // Arr<Str>, but the init the K.4 lane will store is what
