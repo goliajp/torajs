@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T14:18:46.739Z",
+  "generatedAt": "2026-09-06T16:44:15.392Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T14:04:59Z",
-    "headSha": "cfd371d5c",
-    "elapsedSec": 427.38,
+    "ranAt": "2026-09-06T16:28:06Z",
+    "headSha": "573d37b17",
+    "elapsedSec": 426.53,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30891,
+    "pass": 30893,
     "passNoOracle": 1144,
     "passNegative": 4459,
-    "passTotal": 36494,
-    "bug": 11516,
-    "incompatible": 5164,
+    "passTotal": 36496,
+    "bug": 11513,
+    "incompatible": 5165,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48010,
-    "passRateInScope": 68.63,
-    "passRateTrAccepted": 76.01
+    "trAccepted": 48009,
+    "passRateInScope": 68.64,
+    "passRateTrAccepted": 76.02
   },
   "torajs": {
-    "commit": "cfd371d5c",
-    "commitSubject": "fix(torajs-core): a top-level function or let binding shadows the injected error class",
+    "commit": "573d37b17",
+    "commitSubject": "refactor(torajs-core): the dead-zone pass is no longer top-level-only",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "573d37b17",
+      "subject": "refactor(torajs-core): the dead-zone pass is no longer top-level-only"
+    },
+    {
+      "hash": "3d6729401",
+      "subject": "fix(torajs-core): the dead-zone rule runs on every statement list, not just the top one"
+    },
+    {
+      "hash": "6f57ff136",
+      "subject": "fix(torajs-core): a function declaration shadows a class of the same name for `new`"
+    },
+    {
+      "hash": "d1c2557d8",
+      "subject": "fix(torajs-core): a nested function declared in a function-expression body"
+    },
+    {
+      "hash": "8ad1574c3",
+      "subject": "fix(torajs-core): the compile-time fold answers a lifted nested function's source name"
+    },
+    {
+      "hash": "d4cd0f553",
+      "subject": "chore: rotation 604 sweep on cfd371d5c, plus the dashboard snapshot"
+    },
+    {
       "hash": "cfd371d5c",
       "subject": "fix(torajs-core): a top-level function or let binding shadows the injected error class"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "01dcd00c0",
       "subject": "chore: rotation 603 sweep on 9043b3dfb, plus the dashboard snapshot"
-    },
-    {
-      "hash": "65fa2a74c",
-      "subject": "refactor(torajs-core): move is_synthesized_dunder out of check.rs (file-size)"
-    },
-    {
-      "hash": "9043b3dfb",
-      "subject": "fix: a write to a top-level let before its declaration raises instead of aborting"
-    },
-    {
-      "hash": "3ef09af35",
-      "subject": "fix: a receiver that already raised stops being rejected at compile time"
-    },
-    {
-      "hash": "c5fbd84ea",
-      "subject": "fix: a dead-zone read with no literal initializer stops being called undeclared"
-    },
-    {
-      "hash": "2d987032e",
-      "subject": "fix: a dead-zone read of a let, or of a string const, stops aborting the build"
-    },
-    {
-      "hash": "fddbb7cae",
-      "subject": "fix: a top-level const read before its declaration raises instead of answering"
     }
   ],
-  "headSha": "cfd371d5c",
+  "headSha": "573d37b17",
   "autorun": {
-    "total": 907,
+    "total": 908,
     "baselineTarget": 10,
-    "bySelf": 902,
+    "bySelf": 903,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788697662-6d4f",
-      "at": "2026-09-06T12:27:42Z",
-      "ts": 1788697662,
+      "rotationId": "r-1788704337-4a1e",
+      "at": "2026-09-06T14:18:57Z",
+      "ts": 1788704337,
       "trigger": "self",
-      "prevHead": "01dcd00c0",
-      "handoffSha": "sha256:6f6b5923af854e439a74170a33a6a457657d2df527430fff9088ee20730d2f34",
-      "handoffAgeSec": 32,
+      "prevHead": "d4cd0f553",
+      "handoffSha": "sha256:0bc24a794624810c2d41286ddcdae4fa427a64d0987e1f3e7ec8c7228bafab86",
+      "handoffAgeSec": 19,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788704337-4a1e",
+        "at": "2026-09-06T14:18:57Z",
+        "ts": 1788704337,
+        "trigger": "self",
+        "prevHead": "d4cd0f553",
+        "handoffSha": "sha256:0bc24a794624810c2d41286ddcdae4fa427a64d0987e1f3e7ec8c7228bafab86",
+        "handoffAgeSec": 19,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788697662-6d4f",
         "at": "2026-09-06T12:27:42Z",
@@ -892,17 +903,6 @@
         "prevHead": "aba648800",
         "handoffSha": "sha256:3d3d4a4dd145d9e0e90837a53dab96b5a19c77d982fc1272da312d663b93ca2c",
         "handoffAgeSec": 53,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788629367-7a1c",
-        "at": "2026-09-05T17:29:27Z",
-        "ts": 1788629368,
-        "trigger": "self",
-        "prevHead": "79d324b18",
-        "handoffSha": "sha256:4fe6d7cd37a51693346470ac0f64571566986d6083a05bb037314989f9790f0d",
-        "handoffAgeSec": 17,
         "conformanceBefore": null,
         "commitsInSession": null
       }
