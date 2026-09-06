@@ -257,6 +257,22 @@ pub fn objlit_literal_inlobj_ann(ast: &Ast, init: ExprId) -> Option<String> {
                 Some(canon) => crate::ast::retag_field_fn_ann(&canon),
                 None => shape_field_ann(ast, *val)?,
             },
+            // A field holding a CAST to a fn type
+            // (`{ f: c as (...xs: number[]) => number }`). The
+            // written face IS the string, for the reason an alias
+            // answers its source's face (r601): what the field call
+            // goes through is the face, and the checker's rest test
+            // on it is what routes a rest tail to the boxed dual
+            // entry. Nothing about the promotion trusts the cast —
+            // the literal is still checked against the layout this
+            // spells, exactly as it is when the same annotation is
+            // written on the binding instead. A non-fn cast
+            // (`x as number`) is a different claim and keeps falling
+            // through: the shape table answers from runtime
+            // certainty, and an assertion is not that.
+            Expr::As { ty_ann, .. } if crate::ast::is_fn_like_ann(ty_ann) => {
+                crate::ast::retag_field_fn_ann(ty_ann)
+            }
             _ => shape_field_ann(ast, *val)?,
         };
         parts.push(format!("{fname}:{ann}"));
