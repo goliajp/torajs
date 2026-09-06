@@ -71,7 +71,9 @@ fn collect_binding_names_inner(
 /// Bindings whose cell is certainly the literal array the program
 /// wrote — the syntactically-certain typed-Arr receivers for the
 /// knife-4 typed HOF trio. Same over-removal posture as
-/// [`collect_any_binding_names`].
+/// [`collect_any_binding_names`]. An array ANNOTATION is admitted
+/// alongside no annotation: writing the type down does not make the
+/// binding hold something else.
 ///
 /// Two proofs admit a name, and they prove the same thing (the
 /// `fnexpr_this_default` census carries the argument in full). A
@@ -115,13 +117,27 @@ fn collect_arraylit_names_inner(
 ) {
     for s in stmts {
         match s {
+            // An ARRAY annotation admits on the same terms as no
+            // annotation: `const a: number[] = [5]` holds the literal
+            // just as certainly as `const a = [5]`, and both reach the
+            // typed HOF lane. Requiring `None` meant that writing the
+            // type down took the binding out of the census, so
+            // `a.map(f, thisArg)` ran unannotated and was an
+            // unclaimed-receiver refusal annotated — measured across
+            // `any[]`, `number[]` and `string[]`. `: any` is NOT here:
+            // that receiver rides the runtime any-method dispatch and
+            // is [`collect_any_binding_names`]'s answer. Same shape the
+            // sibling props census already admits
+            // (`fnexpr_this_recvs_props.rs:101`).
             Stmt::LetDecl {
                 mutable,
                 name,
-                type_ann: None,
+                type_ann,
                 init,
                 ..
-            } if matches!(&exprs[init.0 as usize], Expr::Array(_)) => {
+            } if matches!(&exprs[init.0 as usize], Expr::Array(_))
+                && type_ann.as_deref().is_none_or(|a| a.ends_with("[]")) =>
+            {
                 // A second declaration of the name — whatever its
                 // shape — drops it: certainty is one binding, once.
                 if names.contains(name) || mut_once.contains(name) {
