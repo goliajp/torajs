@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T12:25:48.012Z",
+  "generatedAt": "2026-09-06T14:18:46.739Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T11:59:28Z",
-    "headSha": "9043b3dfb",
-    "elapsedSec": 413.93,
+    "ranAt": "2026-09-06T14:04:59Z",
+    "headSha": "cfd371d5c",
+    "elapsedSec": 427.38,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31522,
-    "passNoOracle": 1140,
+    "pass": 30891,
+    "passNoOracle": 1144,
     "passNegative": 4459,
-    "passTotal": 37121,
-    "bug": 10889,
+    "passTotal": 36494,
+    "bug": 11516,
     "incompatible": 5164,
-    "bunSkip": 2926,
+    "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 48010,
-    "passRateInScope": 69.81,
-    "passRateTrAccepted": 77.32
+    "passRateInScope": 68.63,
+    "passRateTrAccepted": 76.01
   },
   "torajs": {
-    "commit": "65fa2a74c",
-    "commitSubject": "refactor(torajs-core): move is_synthesized_dunder out of check.rs (file-size)",
+    "commit": "cfd371d5c",
+    "commitSubject": "fix(torajs-core): a top-level function or let binding shadows the injected error class",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "cfd371d5c",
+      "subject": "fix(torajs-core): a top-level function or let binding shadows the injected error class"
+    },
+    {
+      "hash": "a35fe04d0",
+      "subject": "refactor(torajs-core): move the Error class bodies out of inject_builtin_classes (file-size)"
+    },
+    {
+      "hash": "219382266",
+      "subject": "fix(torajs-core): a lifted nested function answers its source name"
+    },
+    {
+      "hash": "bc234b061",
+      "subject": "fix(torajs-core): a lifted nested function is reachable from new, casts and delete"
+    },
+    {
+      "hash": "9ca97b7f9",
+      "subject": "fix(test262): assert.throws compares the error class again"
+    },
+    {
+      "hash": "01dcd00c0",
+      "subject": "chore: rotation 603 sweep on 9043b3dfb, plus the dashboard snapshot"
+    },
+    {
       "hash": "65fa2a74c",
       "subject": "refactor(torajs-core): move is_synthesized_dunder out of check.rs (file-size)"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "fddbb7cae",
       "subject": "fix: a top-level const read before its declaration raises instead of answering"
-    },
-    {
-      "hash": "7f28a567d",
-      "subject": "chore: rotation 602 sweep on 3e91a45c8, plus the dashboard snapshot"
-    },
-    {
-      "hash": "545188b31",
-      "subject": "fix: release_batch reads the .expected oracle the runner already reads"
-    },
-    {
-      "hash": "3e91a45c8",
-      "subject": "fix: an un-annotated new Map / Set / WeakMap binding gets a global home"
-    },
-    {
-      "hash": "03c8568ce",
-      "subject": "fix: a promoted Map / Set global finds its typed method lane"
-    },
-    {
-      "hash": "c307a8241",
-      "subject": "fix: an alias of a var-declared variadic closure keeps the boxed route"
-    },
-    {
-      "hash": "24033ab82",
-      "subject": "fix: an object-literal field holding a cast to a fn type promotes"
     }
   ],
-  "headSha": "65fa2a74c",
+  "headSha": "cfd371d5c",
   "autorun": {
-    "total": 906,
+    "total": 907,
     "baselineTarget": 10,
-    "bySelf": 901,
+    "bySelf": 902,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788690469-7706",
-      "at": "2026-09-06T10:27:49Z",
-      "ts": 1788690469,
+      "rotationId": "r-1788697662-6d4f",
+      "at": "2026-09-06T12:27:42Z",
+      "ts": 1788697662,
       "trigger": "self",
-      "prevHead": "7f28a567d",
-      "handoffSha": "sha256:c8089aa77c357d66313ea433c2b10644727d529585227f69d4130d1020b88eff",
-      "handoffAgeSec": 34,
+      "prevHead": "01dcd00c0",
+      "handoffSha": "sha256:6f6b5923af854e439a74170a33a6a457657d2df527430fff9088ee20730d2f34",
+      "handoffAgeSec": 32,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788697662-6d4f",
+        "at": "2026-09-06T12:27:42Z",
+        "ts": 1788697662,
+        "trigger": "self",
+        "prevHead": "01dcd00c0",
+        "handoffSha": "sha256:6f6b5923af854e439a74170a33a6a457657d2df527430fff9088ee20730d2f34",
+        "handoffAgeSec": 32,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788690469-7706",
         "at": "2026-09-06T10:27:49Z",
@@ -892,17 +903,6 @@
         "prevHead": "79d324b18",
         "handoffSha": "sha256:4fe6d7cd37a51693346470ac0f64571566986d6083a05bb037314989f9790f0d",
         "handoffAgeSec": 17,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788622676-0c61",
-        "at": "2026-09-05T15:37:56Z",
-        "ts": 1788622676,
-        "trigger": "self",
-        "prevHead": "75b128724",
-        "handoffSha": "sha256:cadb3f39058b55d59998915b9887eaea44e35f5f0d1ae07f90248393a7e746b6",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
