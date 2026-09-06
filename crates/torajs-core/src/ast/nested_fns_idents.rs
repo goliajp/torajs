@@ -205,6 +205,31 @@ pub(super) fn rewrite_idents_in_expr(
                 stack.push(lhs);
                 stack.push(rhs);
             }
+            // `new F()` reaches here as `NewDynamic` whenever F is
+            // neither a class nor an intercepted builtin
+            // (`route_non_class_new`, which runs first, rewrites it) —
+            // which is every lifted nested function. Its callee is an
+            // operand, so all that was missing is the descent; without
+            // it the constructor position kept the pre-lift spelling,
+            // loud as `unknown identifier` when nothing else bound the
+            // name. The `Expr::New` arm below stays operand-only: the
+            // only spellings that survive that rewrite are classes and
+            // intercepted builtins, and a lifted `function` never ends
+            // up in this map under either — a shadowed intrinsic is
+            // taken over by `desugar_builtin_new` long before the lift
+            // (a separate hole, registered).
+            Expr::NewDynamic { callee, args } => {
+                stack.push(callee);
+                for a in args {
+                    stack.push(a);
+                }
+            }
+            // A cast and a `delete` each wrap one operand. `new (F as
+            // any)()` is the spelling a TS fixture needs when the
+            // constructor is a plain function.
+            Expr::As { expr, .. } | Expr::Delete { expr } => {
+                stack.push(expr);
+            }
             Expr::New { args, .. } | Expr::Super { args } => {
                 for a in args {
                     stack.push(a);
