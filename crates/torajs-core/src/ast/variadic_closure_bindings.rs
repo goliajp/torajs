@@ -26,6 +26,12 @@ use super::{Ast, Expr, Stmt};
 /// promoted such a binding into a static dispatch and `t(21)`
 /// answered 4 (variadic-fn-type-ann-002 / -003).
 ///
+/// An alias of either flavor (`const gb = ga`) is recorded too: the
+/// alias holds the same env cell, and a named-fn body reading it
+/// dispatches through the same route. Without the record the alias's
+/// call took a static dispatch on the fixed-prefix sig — arity 0 for
+/// a bare rest — and segfaulted.
+///
 /// `var` is INCLUDED, unlike every promote arm: this record is not a
 /// promotion, it is the routing a call takes once the reader is not
 /// the declaring frame, and a `var` binding read from a named fn body
@@ -43,11 +49,19 @@ pub(crate) fn record(ast: &mut Ast) {
         else {
             continue;
         };
-        let Expr::Closure { fn_name, .. } = ast.get_expr(*init) else {
-            continue;
-        };
         let ann_is_variadic = type_ann.as_deref().is_some_and(|a| a.contains("__rest("));
-        if ann_is_variadic || fn_decl_is_variadic(ast, fn_name) {
+        let is_variadic = match ast.get_expr(*init) {
+            Expr::Closure { fn_name, .. } => ann_is_variadic || fn_decl_is_variadic(ast, fn_name),
+            // An ALIAS of such a binding (`const gb = ga`) holds the
+            // identical env cell, so it is called the identical way.
+            // Asked through the same one-hop spelling the alias's
+            // slot type is decided by, so the two answers cannot
+            // disagree: if the canon that types the slot says rest,
+            // the route that calls it says rest.
+            _ => crate::ast_refs::closure_alias_fn_canon(ast, *init)
+                .is_some_and(|c| c.contains("__rest(")),
+        };
+        if is_variadic {
             out.push(name.clone());
         }
     }

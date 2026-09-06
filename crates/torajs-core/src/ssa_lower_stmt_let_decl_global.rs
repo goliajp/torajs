@@ -165,11 +165,23 @@ pub(crate) fn try_lower_global_let(
             // answers +1), so a blanket inc would double-count.
             let got = ctx.operand_ty(&init_val);
             let ident_alias = matches!(ctx.ast.get_expr(init), Expr::Ident(_));
+            // A VARIADIC binding's two Closure spellings are the
+            // same env cell: the slot carries only the fixed prefix
+            // (a rest gets no static param slot — `parse_cls` drops
+            // the `__rest(` segment), while the source binding holds
+            // the lifted fn's own sig, which spells that rest tail as
+            // its one array parameter. Neither is read by a call
+            // through this binding — the route is the boxed dual
+            // entry, which is exactly what `variadic_value_bindings`
+            // names — so the sig ids are free to differ and the bits
+            // stored are identical either way.
             let compatible = got == slot_ty
                 || matches!(
                     (&slot_ty, &got),
                     (Type::Arr(_), Type::Arr(_)) | (Type::Arr(_), Type::Any)
-                );
+                )
+                || (matches!((&slot_ty, &got), (Type::Closure(_), Type::Closure(_)))
+                    && ctx.ast.variadic_value_bindings.contains(name));
             if !ident_alias || !compatible {
                 panic!(
                     "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
