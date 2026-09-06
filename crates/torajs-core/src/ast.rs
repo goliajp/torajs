@@ -104,6 +104,7 @@ mod fill_optional_fields;
 mod fn_constructor;
 mod fn_constructor_argc;
 mod fn_constructor_assign;
+mod fn_shadowed_new;
 mod fndecl_rebound;
 mod fnexpr_bind_this;
 pub(crate) mod fnexpr_this;
@@ -264,6 +265,7 @@ pub use export_names::triage_duplicate_exports;
 pub use expr::{BinOp, Expr, ExprId, Param, UnaryOp};
 pub use fill_optional_fields::fill_optional_fields;
 pub use fn_constructor::synthesize_fn_constructors;
+pub use fn_shadowed_new::mark_fn_shadowed_new;
 pub use fndecl_rebound::widen_rebound_fn_decls;
 pub use fnexpr_bind_this::{
     normalize_function_bind_call, promote_bind_receiver_this, register_bind_receiver_recv_fns,

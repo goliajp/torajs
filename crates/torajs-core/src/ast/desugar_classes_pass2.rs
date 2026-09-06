@@ -78,6 +78,14 @@ pub(super) fn rewrite_expr_arena_pass2(
                  * → owning bindings drop normally → registry
                  * cleanup runs). Skip the generic factory rewrite
                  * here to keep the Expr::New shape intact. */
+                // A `function` of the same name declared in an
+                // enclosing function scope is what this `new` means
+                // lexically. Leaving the node alone sends it down the
+                // non-class route, where `desugar_nested_fns`'s rename
+                // of that declaration does reach it.
+                if ast.fn_shadowed_new.contains(&ExprId(i as u32)) {
+                    continue;
+                }
                 if ssa_intercepted_builtin(class_name) {
                     /* P6.1 — `new Map()` is the same shape: SSA
                      * intercepts to emit __torajs_map_create.
@@ -296,7 +304,15 @@ pub fn route_non_class_new(ast: &mut Ast) {
             },
             Expr::New {
                 class_name, args, ..
-            } if !ssa_intercepted_builtin(class_name) && !factories.contains(class_name) => {
+            } if !ssa_intercepted_builtin(class_name)
+                && (!factories.contains(class_name)
+                    || ast.fn_shadowed_new.contains(&ExprId(i as u32))) =>
+            {
+                // A class of that name exists and has a factory, but
+                // this `new` is written inside a function scope that
+                // declares a `function` of the same name — pass 2 left
+                // it alone for that reason, and the dynamic route is
+                // where the declaration's own rename can reach it.
                 Some((class_name.clone(), args.clone()))
             }
             _ => None,

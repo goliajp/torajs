@@ -258,6 +258,13 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_optchain_calls(ast);
     ast::desugar_prototype_call(ast);
     ast::inject_builtin_classes(ast);
+    // Before `desugar_classes`, which binds every `Expr::New` to the
+    // `__new_<C>` factory of the class with that name — a lookup with
+    // no notion of scope. A `function N` declared in a function body
+    // shadows a class `N` for the `new`s inside it, but the rename
+    // that says so is `desugar_nested_fns`, twenty passes later. This
+    // records the shadowed sites while the scopes are still readable.
+    ast::mark_fn_shadowed_new(ast);
     // §15.7.14 step 3 — a named class expression's body refers to the
     // class by a name only that body can see. It has to be resolved
     // before `desugar_classes`, which would otherwise bind it to a

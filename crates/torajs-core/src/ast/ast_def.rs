@@ -54,6 +54,16 @@ pub struct Ast {
     /// expression. Recovering it from the symbol is not possible —
     /// both halves of the mint may themselves contain `_`.
     pub nested_fn_names: std::collections::HashMap<String, String>,
+    /// `new N()` sites where `N` names a `function` declared in an
+    /// enclosing function scope, so the lexical answer is that
+    /// declaration and not the class of the same name. `Expr::New`
+    /// carries a NAME, and `desugar_classes` binds every one of them
+    /// to the `__new_<C>` factory by a global lookup; these are the
+    /// sites that lookup must not claim. Filled by
+    /// `fn_shadowed_new::mark_fn_shadowed_new` before the class pass
+    /// runs, because the rename that establishes the shadow happens
+    /// long after it.
+    pub fn_shadowed_new: std::collections::HashSet<ExprId>,
     /// Private-name lexical scopes, one entry per class body in parse
     /// order (the entry index is the scope id carried on
     /// `Parser::class_stack`). `.0` is the parse-time class name (the
