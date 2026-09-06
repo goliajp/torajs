@@ -361,3 +361,51 @@ pub fn new_class_ann(ast: &Ast, init: ExprId) -> Option<String> {
         .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name.as_str() == fname.as_str()))
         .then(|| class.to_string())
 }
+
+/// The collection spelling of an un-annotated `new Map()` /
+/// `new Set()` / `new WeakMap()` / `new WeakSet()` init — the
+/// sibling of [`new_class_ann`] for the builtins no factory claims.
+///
+/// `desugar_builtin_new` rewrites `new Date` / `new Array` /
+/// `new RegExp` and friends into shapes the promote arms already
+/// read, which is why a `const d = new Date(0)` has had a global
+/// home all along. It does not rewrite the four collections, so they
+/// reached neither the slot-shape table (which has no `Expr::New`
+/// arm) nor the factory spelling above, and `const m = new Map()`
+/// plus any `function f() { … m.get(k) … }` answered "unknown
+/// identifier `m`" — while the identical program with
+/// `const m: Map<string, number>` written out worked.
+///
+/// A user-declared `class Map` cannot reach here: `desugar_classes`
+/// turns its `new` into a `__new_Map(...)` call, and
+/// `route_non_class_new` has already run — an `Expr::New` still
+/// holding a bare name is one nobody claimed. That is the same
+/// argument [`new_class_ann`] makes from the other side.
+///
+/// The written type arguments are carried through when the program
+/// gave any, in the parser's own canonical spelling — it joins
+/// generic arguments with `|`, not `,` (`parser::type_ann`), so
+/// `new Map<string, number>()` spells `Map<string|number>`. Joining
+/// them the way the source reads left `Map<string, number>`
+/// unresolvable and the binding main-local, while the single-argument
+/// `Set<number>` promoted fine and hid it. An argument spelling that
+/// still does not resolve leaves the binding main-local, the way
+/// every sibling arm fails.
+pub fn collection_new_ann(ast: &Ast, init: ExprId) -> Option<String> {
+    let Expr::New {
+        class_name,
+        type_args,
+        ..
+    } = ast.get_expr(init)
+    else {
+        return None;
+    };
+    if !matches!(class_name.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
+        return None;
+    }
+    Some(if type_args.is_empty() {
+        class_name.clone()
+    } else {
+        format!("{class_name}<{}>", type_args.join("|"))
+    })
+}

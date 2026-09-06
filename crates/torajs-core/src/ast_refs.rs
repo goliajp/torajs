@@ -27,7 +27,8 @@ mod init_ann;
 mod shape;
 mod shape_operator;
 pub use init_ann::{
-    closure_alias_fn_canon, lifted_closure_fn_canon, new_class_ann, objlit_literal_inlobj_ann,
+    closure_alias_fn_canon, collection_new_ann, lifted_closure_fn_canon, new_class_ann,
+    objlit_literal_inlobj_ann,
 };
 pub use shape::{GlobalSlotShape, infer_toplevel_slot_shape};
 

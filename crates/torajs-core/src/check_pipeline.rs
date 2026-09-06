@@ -376,6 +376,7 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         // Error()` answered "unknown identifier".
                         else if !*is_var
                             && let Some(ann) = crate::ast_refs::new_class_ann(ast, *init)
+                                .or_else(|| crate::ast_refs::collection_new_ann(ast, *init))
                         {
                             resolve_type_ann(&ann, &c.aliases)
                         } else {

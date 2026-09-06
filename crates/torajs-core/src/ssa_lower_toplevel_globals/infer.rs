@@ -234,7 +234,9 @@ pub(super) fn inferred_slot_ty(
     // this is the "different wall" its doc names — the binding keeps
     // the nominal type main-side method calls dispatch on instead of
     // being boxed away.
-    if let Some(ann) = crate::ast_refs::new_class_ann(ast, init) {
+    if let Some(ann) = crate::ast_refs::new_class_ann(ast, init)
+        .or_else(|| crate::ast_refs::collection_new_ann(ast, init))
+    {
         let parsed = parse_type(
             Some(&ann),
             aliases,
