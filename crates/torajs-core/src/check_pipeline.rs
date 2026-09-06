@@ -308,15 +308,17 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         // lane resolves. Mutable bindings register
                         // too (chunk 730: the Assign-Ident lane owns
                         // drop-old/store-new, mirroring the lowerer's
-                        // mutable_promote gate). Variadic sigs stay
-                        // main-local (boxed-dual routing is a
-                        // fn-local table — RFC O2).
+                        // mutable_promote gate). A VARIADIC sig
+                        // registers with the rest sentinel it really
+                        // carries: the lowerer gives the same binding
+                        // a Closure slot from the same string and
+                        // routes its calls through the boxed dual
+                        // entry, so the two homes agree (RFC O2).
                         else if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
                             if *is_var {
                                 None
                             } else {
                                 crate::ast_refs::lifted_closure_fn_canon(ast, fn_name)
-                                    .filter(|canon| !canon.contains("__rest("))
                                     .and_then(|canon| resolve_type_ann(&canon, &c.aliases))
                             }
                         }
@@ -332,7 +334,6 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         // `const c: any = k` worked.
                         else if !*is_var
                             && let Some(canon) = crate::ast_refs::closure_alias_fn_canon(ast, *init)
-                            && !canon.contains("__rest(")
                         {
                             resolve_type_ann(&canon, &c.aliases)
                         }

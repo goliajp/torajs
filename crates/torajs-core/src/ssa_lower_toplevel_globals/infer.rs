@@ -29,9 +29,12 @@ fn slot_shape_to_type(shape: GlobalSlotShape) -> Type {
 /// closure init itself and by an alias of such a binding, which must
 /// answer the identical type from the identical string.
 ///
-/// Variadic sigs (`__rest(` spellings parse to Closure directly)
-/// keep the main-local home — the boxed-dual call routing rides the
-/// fn-local `variadic_locals` table (RFC O2).
+/// A variadic sig (`__rest(` spellings) parses to Closure already —
+/// the boxed dual entry lives in the env cell, so the slot can never
+/// be a bare fn pointer — and it takes the same global home as any
+/// other closure binding. Its calls route the boxed dual entry off
+/// `Ast::variadic_value_bindings`, which names the promoted flavor
+/// the fn-local `variadic_locals` table cannot see (RFC O2).
 ///
 /// The width join takes the F5 shape, NOT the F1 canon class: with
 /// no annotation written, the binding never joined the spelling's
@@ -65,8 +68,12 @@ fn closure_slot_from_canon(
         struct_layouts,
         inst_memo,
     );
-    let Type::FnSig(sig) = parsed else {
-        return None;
+    // A `__rest(`-bearing spelling parses to Closure already; every
+    // other one parses to the direct-dispatch FnSig and re-reprs
+    // here, because the value a lifted arrow stores is an env cell.
+    let sig = match parsed {
+        Type::FnSig(sig) | Type::Closure(sig) => sig,
+        _ => return None,
     };
     Some(crate::ssa_lower_container_width::widen_fn_sig_by_key(
         Type::Closure(sig),

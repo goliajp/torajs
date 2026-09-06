@@ -150,7 +150,18 @@ pub fn lifted_closure_fn_canon(ast: &Ast, fn_name: &str) -> Option<String> {
         } if name == fn_name => {
             let mut anns: Vec<String> = Vec::with_capacity(params.len());
             for p in params.iter().filter(|p| p.name != "__env") {
-                anns.push(p.type_ann.clone()?);
+                // A rest parameter's own ann is the ARRAY spelling
+                // (`number[]`); what makes it a rest is the flag
+                // beside it. Joining the anns alone therefore spelled
+                // `(...xs: number[]) => number` as `__fn(number[])
+                // ->(number)` — one Array parameter, arity 1 — and
+                // every consumer of this string believed it. The
+                // `__rest(` sentinel is how a rest reaches a type
+                // ann everywhere else (`parser::type_ann_fn`), and
+                // the guards downstream were already written to look
+                // for it.
+                let a = p.type_ann.clone()?;
+                anns.push(if p.is_rest { format!("__rest({a})") } else { a });
             }
             let ret = match return_type {
                 Some(rt) => rt.clone(),

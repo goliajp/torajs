@@ -22,6 +22,16 @@ use crate::check::{Checker, Type};
 /// `Array(elem)` param the packed site feeds. A fn VALUE (a local
 /// binding, a param, a member read) has no packing site and keeps
 /// the per-argument sentinel for [`apply`] to stretch.
+///
+/// Which names got packed is the packer's own answer, published as
+/// `Ast::rest_arg_prefix` — it keys on rest-declaring FnDecls. Asking
+/// `globals` instead made this a second reading of "was this call
+/// packed", and the two disagreed for a variadic closure held in a
+/// top-level binding: inside a named fn body the binding is not a
+/// local but IS a global, so the fold fired on a call the packer had
+/// never touched, and three loose arguments met one `Array` param
+/// ("argument 0: expected Array(Number), got Number"). Every call of
+/// such a binding from inside any function was refused.
 pub(crate) fn fold_packed_direct_call(
     checker: &Checker,
     ast: &Ast,
@@ -34,7 +44,7 @@ pub(crate) fn fold_packed_direct_call(
     let Expr::Ident(n) = ast.get_expr(callee) else {
         return;
     };
-    if checker.lookup(n).is_some() || !checker.globals.contains_key(n) {
+    if checker.lookup(n).is_some() || !ast.rest_arg_prefix.contains_key(n) {
         return;
     }
     let Some(Type::Rest(elem)) = params.pop() else {

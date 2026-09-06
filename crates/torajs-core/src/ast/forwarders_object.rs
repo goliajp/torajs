@@ -334,6 +334,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         &mut variadic_bindings,
     );
     ast.variadic_value_bindings.extend(variadic_bindings);
+    super::variadic_closure_bindings::record(ast);
 
     rewrites.retain(|(eid, _)| !block_scoped.contains(eid));
     if rewrites.is_empty() {

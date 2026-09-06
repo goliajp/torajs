@@ -352,8 +352,11 @@ fn mutable_promotes(
 /// (`const f: (x)=>y = take`) lowers to a borrow-shaped FnAddr and
 /// must keep the main-local home (the fn_addr_let lane handles it);
 /// wrapping it in a forwarder env is the RFC's chunk-4 station.
-/// Variadic anns keep the main-local home too: the boxed-dual call
-/// routing rides the fn-local `variadic_locals` table (RFC O2).
+/// A variadic ann parses to Closure already (the boxed dual entry
+/// lives in the env cell) and takes the global home on the same
+/// terms — its calls route off `Ast::variadic_value_bindings`. It
+/// keeps the lifted-arrow condition for the same reason the re-repr
+/// above does: only that init shape mints the env cell K.4 needs.
 #[allow(clippy::too_many_arguments)]
 fn annotated_slot_ty(
     ann: &str,
@@ -411,6 +414,7 @@ fn annotated_slot_ty(
     }
     let parsed = match parsed {
         Type::FnSig(sig) if !ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
+        Type::Closure(sig) if ann.contains("__rest(") && init_is_lifted_arrow => Type::Closure(sig),
         Type::Closure(_) if ann.contains("__rest(") => return None,
         // `const a: string[] = s.split(" ")` — the annotation spells
         // Arr<Str>, but the init the K.4 lane will store is what
