@@ -187,6 +187,15 @@ pub(super) fn register_fn_name(
         if let Some(n) = ast.genexpr_names.get(base) {
             return n.as_str();
         }
+        // §B.3.3's hoist renames a nested `function f` so two blocks
+        // can each declare one; the mint is not a name any source can
+        // spell, and `.name` answered it verbatim
+        // (`__nested_outer_Foo_0` where bun says `Foo`). The lift
+        // records what it renamed, because the symbol cannot be taken
+        // apart again — parent and name may both contain `_`.
+        if let Some(n) = ast.nested_fn_names.get(base) {
+            return n.as_str();
+        }
         base
     });
     // `__sm_<C>__<M>` static-method bodies carry the ES

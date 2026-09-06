@@ -45,6 +45,15 @@ pub struct Ast {
     /// naming position lands an EMPTY string (the ES answer), so a
     /// missing key means "not a hoisted generator expression".
     pub genexpr_names: std::collections::HashMap<String, String>,
+    /// Lifted nested-function symbol (`__nested_<parent>_<name>_<n>`)
+    /// → the name it was written with. §B.3.3's hoist renames the
+    /// declaration so two blocks can each declare `f`, and the mint is
+    /// not a name any source can spell; the fn-name registry reads
+    /// this in its place so `.name` answers the source spelling, the
+    /// same job `genexpr_names` does for a hoisted generator
+    /// expression. Recovering it from the symbol is not possible —
+    /// both halves of the mint may themselves contain `_`.
+    pub nested_fn_names: std::collections::HashMap<String, String>,
     /// Private-name lexical scopes, one entry per class body in parse
     /// order (the entry index is the scope id carried on
     /// `Parser::class_stack`). `.0` is the parse-time class name (the

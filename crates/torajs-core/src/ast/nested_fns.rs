@@ -225,6 +225,7 @@ pub(super) fn collect_nested_fns_in_stmt(
         {
             let mangled = format!("__nested_{parent_name}_{name}_{}", ctx.counter);
             ctx.counter += 1;
+            ctx.source_names.push((mangled.clone(), name.clone()));
             renames.insert(name.clone(), mangled.clone());
             // §B.3.3 in SLOPPY code: the outer name is a `var` binding
             // of its own, written where the declaration sits — so the
@@ -331,6 +332,7 @@ pub(super) fn collect_nested_fns_to_lift(
             {
                 let mangled = format!("__nested_{parent_name}_{name}_{}", ctx.counter);
                 ctx.counter += 1;
+                ctx.source_names.push((mangled.clone(), name.clone()));
                 renames.insert(name.clone(), mangled.clone());
                 // Same §B.3.3 split as the bare-branch arm above: in
                 // sloppy code the vacated slot becomes the var write and

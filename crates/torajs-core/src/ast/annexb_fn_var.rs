@@ -143,6 +143,11 @@ pub(super) struct LiftCtx {
     minted: Vec<Expr>,
     base: u32,
     pub(super) counter: u32,
+    /// Mangled symbol → the name the declaration was written with,
+    /// drained into `Ast::nested_fn_names` on the next flush. Held
+    /// here for the same reason `minted` is: the mangle happens while
+    /// the walk holds the tree, and the `Ast` is not reachable there.
+    pub(super) source_names: Vec<(String, String)>,
     goal: AnnexBGoal,
     /// Names the CURRENT parent scope already binds — its own top-level
     /// function declarations and its parameters. §B.3.3.1 step 3.a.ii.1
@@ -192,6 +197,7 @@ impl LiftCtx {
             minted: Vec::new(),
             base: ast.exprs.len() as u32,
             counter: 0,
+            source_names: Vec::new(),
             goal: AnnexBGoal::of(ast),
             declared: HashSet::new(),
             shadowed: HashSet::new(),
@@ -294,6 +300,9 @@ impl LiftCtx {
         // `base` here.
         for e in std::mem::take(&mut self.minted) {
             ast.add_expr(e);
+        }
+        for (mangled, source) in std::mem::take(&mut self.source_names) {
+            ast.nested_fn_names.insert(mangled, source);
         }
         self.base = ast.exprs.len() as u32;
     }
