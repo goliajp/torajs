@@ -31,9 +31,16 @@
 //!   body's names through the scope object, so an assignment there
 //!   is not evidence of an implicit global (`with (o) { foo = 42 }`
 //!   must NOT create `foo`);
-//! - a name the program also `delete`s stays out — a var binding is
-//!   non-configurable where the implicit global's property must
-//!   delete away (`x = 1; delete x; x` wants the ReferenceError);
+//! - (WAS: a name the program also `delete`s stayed out, so that
+//!   `x = 1; delete x; x` could reach the ReferenceError areal delete
+//!   leaves behind. It bought that at the cost of the ASSIGNMENT: with
+//!   no binding synthesized, `x = 1` was an unresolvable write and the
+//!   program died at compile time on an unknown identifier, so the
+//!   delete's own answer was never reached either. Three wrong answers
+//!   for one right one. The name is admitted now, and what remains is
+//!   theapproximation `delete_bare_name` already records for its own
+//!   configurable-builtin lane: the answer is right, the property is
+//!   not actually removed.);
 //! - known builtin globals keep the recorded reject next to
 //!   `check_assign_ident`'s carve-out, the §19.1 readonly names never
 //!   reach this pass (the sibling already folded their writes), and
@@ -70,10 +77,9 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
     ast.stmts.splice(0..0, decls);
 }
 
-fn admit(ast: &Ast, n: &str, declared: &std::collections::HashSet<String>, out: &mut Vec<String>) {
+fn admit(n: &str, declared: &std::collections::HashSet<String>, out: &mut Vec<String>) {
     if declared.contains(n)
         || out.iter().any(|seen| seen == n)
-        || ast.sloppy_deleted_bare_names.contains(n)
         || crate::check::is_known_builtin_global(n)
         || matches!(
             n,
@@ -218,7 +224,7 @@ fn walk_expr(
     match ast.get_expr(eid) {
         Expr::Assign { target, value } => {
             if let Expr::Ident(n) = ast.get_expr(*target) {
-                admit(ast, n, declared, out);
+                admit(n, declared, out);
             } else {
                 walk_expr(ast, *target, declared, out);
             }

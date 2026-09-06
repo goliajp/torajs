@@ -144,13 +144,6 @@ pub struct Ast {
     /// what tells one of tr's own names from one the program spelled
     /// (sputnik writes `__ref` / `__key` / `__func` as user code).
     pub source_dunder_idents: std::collections::HashSet<String>,
-    /// The bare names the sloppy delete triage folded — recorded so
-    /// the implicit-globals sibling never synthesizes a `var` for a
-    /// name the program deletes (`x = 1; delete x; x` wants the
-    /// unresolvable-name ReferenceError, and a var binding is
-    /// non-configurable where the implicit global's property must
-    /// delete away).
-    pub sloppy_deleted_bare_names: std::collections::HashSet<String>,
     /// Bindings minted by object-rest destructuring (`{a, ...rest}`,
     /// §14.3.3.1 RestBindingInitialization) — the rest object's
     /// static Struct shape is the source-minus-omit ANCHOR, but the

@@ -21,7 +21,13 @@
 //!   global builtin — answers **true**. RESIDUE (recorded): a
 //!   configurable builtin answers true but is NOT actually removed
 //!   from the global; a program that deletes `Math` and then reads
-//!   it observes the difference.
+//!   it observes the difference. The same residue covers a sloppy
+//!   implicit global (`x = 1; delete x` answers true, and a later
+//!   read sees `undefined` rather than the ReferenceError a real
+//!   removal leaves) — this pass used to keep such a name out of the
+//!   implicit-globals sibling to preserve that read, which cost the
+//!   ASSIGNMENT its binding and killed the program at compile time
+//!   before either answer was reached.
 //!
 //! Both goals leave zero `Delete { Ident }` nodes behind, so no
 //! downstream pass ever meets the shape.
@@ -78,11 +84,6 @@ pub fn triage_delete_bare_names(ast: &mut Ast) -> Option<String> {
     collect_declared_names(&ast.stmts, &mut declared);
     for (i, n) in sites {
         ast.exprs[i] = Expr::Bool(sloppy_delete_answer(&n, &declared));
-        // Leave the name behind for the implicit-globals sibling —
-        // a name the program deletes must not gain a synthesized
-        // `var` (non-configurable where the deleted property must
-        // go away).
-        ast.sloppy_deleted_bare_names.insert(n);
     }
     None
 }
