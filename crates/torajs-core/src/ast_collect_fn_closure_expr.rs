@@ -56,8 +56,17 @@ impl<'a> FnToClosureCollector<'a> {
         // L3b #8 — `f = name` where `f` was declared `any`;
         // RFC 20260709 chunk 4 — `cb = name` where `cb` is a
         // Closure-repr top-level binding.
+        // Rotation 599 — the identity axis, assign half. When the
+        // let-decl arm wrapped a binding's INIT because the name is
+        // compared, its slot re-reprs Closure, so a later `h = t`
+        // feeding the raw FnSig is a slot/value mismatch (a loud
+        // `assignment to \`h\` mismatch` reject, which is how this
+        // was caught). Both halves read the same census, so the
+        // binding is Closure-repr on every write or on none.
         if let Expr::Ident(tname) = self.ast.get_expr(*target)
-            && (self.any_bindings.contains(tname) || self.closure_bindings.contains(tname))
+            && (self.any_bindings.contains(tname)
+                || self.closure_bindings.contains(tname)
+                || self.eq_operand_names.contains(tname))
         {
             self.try_mark(*value);
         }

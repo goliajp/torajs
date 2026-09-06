@@ -280,6 +280,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         &ast.stmts,
         &mut new_init_bindings,
     );
+    let eq_operand_names = crate::ast_collect_fn_closure_init::eq_operand_ident_names(ast);
     let mut collector = crate::ast_collect_fn_closure::FnToClosureCollector {
         ast,
         fn_sigs: &fn_sigs,
@@ -293,6 +294,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         struct_bindings: &struct_bindings,
         struct_arr_bindings: &struct_arr_bindings,
         proto_shadow: &proto_shadow,
+        eq_operand_names: &eq_operand_names,
         targets: HashSet::new(),
         rewrites: Vec::new(),
         shadowed: Vec::new(),

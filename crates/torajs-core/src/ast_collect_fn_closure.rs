@@ -114,6 +114,14 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// program that never names a builtin prototype, which is what
     /// keeps `xs.map(top_fn)` on its raw-FnSig direct dispatch.
     pub(crate) proto_shadow: &'a crate::builtin_proto_shadow::ShadowSet,
+    /// Binding names compared with `===` / `!==` / `==` / `!=`
+    /// anywhere in the program (`eq_operand_ident_names`). The
+    /// let-decl and assign arms consult it: an immutable binding
+    /// initialized with a bare named fn keeps the raw FnSig address
+    /// for direct dispatch, which is a DIFFERENT representation from
+    /// the canonical `__fncell_*` cell every value site answers, and
+    /// `===` is the one observer that can tell them apart.
+    pub(crate) eq_operand_names: &'a HashSet<String>,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
     /// Per-fn shadow stack (rotation 128) — names bound as a param or
@@ -215,6 +223,22 @@ impl<'a> FnToClosureCollector<'a> {
                 .as_deref()
                 .is_some_and(|a| is_fn_like_ann(a) && !a.contains("__rest("))
         {
+            self.try_mark(init);
+        }
+        // Rotation 599 — the identity axis. `const h = t` (and the
+        // fn-typed immutable spelling) keeps the raw FnSig address so
+        // `h()` is a direct call, while every value SITE of `t`
+        // answers the canonical `__fncell_*` singleton; `===` is the
+        // only observer that can see the two apart, and it saw them:
+        // `const h = t; h === t` was false while `const a = t;
+        // const b = t; a === b` was true, because both of THOSE were
+        // on the raw side. ES creates one function object per
+        // declaration (§10.2.11), so when the binding is compared it
+        // must be the cell. Gated on the comparison rather than
+        // applied to every immutable fn binding, because the wrap
+        // costs the direct-dispatch lane and only a comparison can
+        // observe the difference.
+        if self.eq_operand_names.contains(name) {
             self.try_mark(init);
         }
         self.walk_expr(init);

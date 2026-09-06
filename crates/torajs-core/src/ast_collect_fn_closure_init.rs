@@ -9,7 +9,7 @@
 use crate::ast::PropKey;
 use std::collections::HashMap;
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Ast, BinOp, Expr, ExprId};
 
 use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann, strip_arr_ann};
 
@@ -217,4 +217,53 @@ impl<'a> FnToClosureCollector<'a> {
             _ => {}
         }
     }
+}
+
+/// Binding names that are an operand of `===` / `!==` / `==` / `!=`
+/// somewhere in the program.
+///
+/// A top-level `function t` used as a value has TWO representations:
+/// the canonical `__fncell_*` singleton every value SITE answers
+/// (`t === t`, `[t]`, `{ m: t }`, `eq(t, t)`), and the raw FnSig code
+/// address an IMMUTABLE binding keeps so `h()` stays a direct call
+/// (`ssa_lower`'s `fn_addr_let` lane). Both are correct in isolation
+/// and the property bag is shared, so an expando write through either
+/// is visible through the other — the only observer that can tell them
+/// apart is `===`, and it answered false (`const h = t; h === t`)
+/// while two bindings answered true to each other, because they were
+/// both on the raw side.
+///
+/// ES has one function object per declaration (§10.2.11 declaration
+/// instantiation), so the binding must answer the singleton — but
+/// wrapping every immutable fn binding would take the direct-dispatch
+/// lane away from every program, identity-observing or not. This is
+/// the census that keeps the wrap where the difference is observable:
+/// the name is compared, so it must be the cell.
+pub(crate) fn eq_operand_ident_names(ast: &Ast) -> std::collections::HashSet<String> {
+    let mut out = std::collections::HashSet::new();
+    // `as` layers are value pass-throughs — `(h as any) === t` is
+    // still a comparison of `h`.
+    let strip_as = |mut e: ExprId| {
+        while let Expr::As { expr, .. } = ast.get_expr(e) {
+            e = *expr;
+        }
+        e
+    };
+    for e in &ast.exprs {
+        let Expr::BinOp { op, left, right } = e else {
+            continue;
+        };
+        if !matches!(
+            op,
+            BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq
+        ) {
+            continue;
+        }
+        for side in [*left, *right] {
+            if let Expr::Ident(n) = ast.get_expr(strip_as(side)) {
+                out.insert(n.clone());
+            }
+        }
+    }
+    out
 }
