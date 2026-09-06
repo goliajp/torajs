@@ -1,0 +1,102 @@
+//! The one `__forward_<target>` synthesizer.
+//!
+//! Four passes mint forwarders — [`super::forwarders`] (a fn-typed
+//! `return f`), [`super::forwarders_object_synth`] (a member-assigned
+//! `o.m = f`), [`super::namedfn_this_value`] (a `this`-reading
+//! declaration used as a value) and
+//! [`crate::ast_closure_param_tag_axes`] (a name reaching a retagged
+//! lane). Each arrived with its own copy of the same decl shape, and
+//! the copies had begun to drift: the fourth forwarded a rest param as
+//! a bare ident where the other three spread it. A rule with four
+//! transcripts is a rule that will be applied to three of them.
+//!
+//! The shape itself is fixed by what the callers of a forwarder expect:
+//!
+//! - **`__env` first.** A forwarder is a closure value; its callers
+//!   invoke it through the closure ABI, which feeds the env pointer.
+//! - **The hidden `__this` never enters the public face.** A
+//!   `bind_this_param`-promoted target carries `__this` as its first
+//!   declared param. Left in, it would become a declared slot of the
+//!   forwarder and the caller's first real argument would land in the
+//!   receiver — `function take(f) { return f(7) }; take(t)` seeds
+//!   `__this = 7`. So it is skipped on the face and fed `undefined` by
+//!   the forwarding call, the same plain-call receiver
+//!   `this_param.rs`'s direct-call rewrite supplies.
+//! - **A rest param forwards as a SPREAD.** `target(args)` would be
+//!   re-packed by `apply_rest_args` (which runs after every one of
+//!   these passes) into `target([args])`. `target(...args)` rides that
+//!   pass's single-spread arm instead.
+//! - **A trailing `GEN_ARGV_PARAM` never enters the face.** An
+//!   argv-consuming generator factory takes its argv from the
+//!   forwarder's own `[...arguments]`, so the true call-site argv
+//!   reaches the factory however the forwarder is invoked.
+//! - **The span is the TARGET's.** `toString` answers the wrapped
+//!   user function's source; the forwarder is that function as far as
+//!   an observer is concerned.
+//!
+//! Not folded in: giving the public face a receiver-first channel.
+//! That was tried twice (rotations 366 and 595) and reverted both
+//! times; the audit at
+//! `.claude/rfcs/20260905-named-fn-value-identity/boxed-entry-caller-audit.md`
+//! says why it can only move per route. This file is that audit's §5.4
+//! precondition — one place to apply a per-route conclusion, instead
+//! of four places to apply it to three of.
+
+use super::{push_gen_argv_spread, split_gen_argv_tail};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
+
+/// Build `__forward_<target>(__env, ...user params) { return
+/// target(...); }` from the target's own signature.
+pub(crate) fn synth_forwarder_decl(
+    ast: &mut Ast,
+    forward_name: &str,
+    target: &str,
+    params: &[Param],
+    return_type: Option<String>,
+    target_span: crate::lexer::Span,
+) -> Stmt {
+    let takes_this = params.first().is_some_and(|p| p.name == "__this");
+    let user_params = if takes_this { &params[1..] } else { params };
+    let (user_params, takes_gen_argv) = split_gen_argv_tail(user_params);
+    let user_params = user_params.to_vec();
+
+    let mut fwd_params: Vec<Param> = Vec::with_capacity(user_params.len() + 1);
+    fwd_params.push(Param {
+        name: "__env".into(),
+        type_ann: Some("__env()".to_string()),
+        default: None,
+        is_rest: false,
+    });
+    fwd_params.extend(user_params.iter().cloned());
+
+    let mut arg_eids: Vec<ExprId> = Vec::with_capacity(user_params.len() + 1);
+    if takes_this {
+        arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
+    }
+    for p in &user_params {
+        let id = ast.add_expr(Expr::Ident(p.name.clone()));
+        if p.is_rest {
+            arg_eids.push(ast.add_expr(Expr::Spread { expr: id }));
+        } else {
+            arg_eids.push(id);
+        }
+    }
+    if takes_gen_argv {
+        push_gen_argv_spread(ast, &mut arg_eids);
+    }
+
+    let callee_id = ast.add_expr(Expr::Ident(target.to_string()));
+    let call_id = ast.add_expr(Expr::Call {
+        callee: callee_id,
+        args: arg_eids,
+    });
+    Stmt::FnDecl {
+        name: forward_name.to_string(),
+        type_params: Vec::new(),
+        params: fwd_params,
+        return_type,
+        body: vec![Stmt::Return(Some(call_id))],
+        is_generator: false,
+        span: target_span,
+    }
+}

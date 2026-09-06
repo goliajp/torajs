@@ -134,65 +134,14 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
     for target in &targets {
         let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
         let forward_name = format!("__forward_{target}");
-        // params: __env: ptr, ...orig params
-        let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
-        fwd_params.push(Param {
-            name: "__env".into(),
-            type_ann: Some(format!("__env({})", "")),
-            default: None,
-            is_rest: false,
-        });
-        // A bind_this_param-promoted target carries a hidden `__this`
-        // first param. The forwarder's public face skips it (callers
-        // pass the user-visible arity) and the forwarding call feeds
-        // `undefined` — same plain-call receiver the direct-call
-        // rewrite in this_param.rs supplies.
-        let takes_this = params.first().is_some_and(|p| p.name == "__this");
-        let user_params = if takes_this {
-            &params[1..]
-        } else {
-            &params[..]
-        };
-        // Knife 4d — a trailing GEN_ARGV_PARAM never enters the
-        // forwarder's declared face; the call below feeds it
-        // `[...arguments]` (see split_gen_argv_tail).
-        let (user_params, takes_gen_argv) = split_gen_argv_tail(user_params);
-        fwd_params.extend(user_params.iter().cloned());
-        // body: return target(p0, p1, ...);
-        let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
-        if takes_this {
-            arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
-        }
-        for p in user_params {
-            let id = ast.add_expr(Expr::Ident(p.name.clone()));
-            // Rest param → spread-forward (see forwarders_object.rs —
-            // a bare ident would be re-packed by apply_rest_args).
-            if p.is_rest {
-                arg_eids.push(ast.add_expr(Expr::Spread { expr: id }));
-            } else {
-                arg_eids.push(id);
-            }
-        }
-        if takes_gen_argv {
-            push_gen_argv_spread(ast, &mut arg_eids);
-        }
-        let callee_id = ast.add_expr(Expr::Ident(target.clone()));
-        let call_id = ast.add_expr(Expr::Call {
-            callee: callee_id,
-            args: arg_eids,
-        });
-        let body = vec![Stmt::Return(Some(call_id))];
-        new_decls.push(Stmt::FnDecl {
-            name: forward_name.clone(),
-            type_params: Vec::new(),
-            params: fwd_params,
+        new_decls.push(super::forwarder_synth::synth_forwarder_decl(
+            ast,
+            &forward_name,
+            target,
+            &params,
             return_type,
-            body,
-            is_generator: false,
-            // B4 — carry the TARGET's source span: the forwarder IS
-            // the user fn as far as toString is concerned.
-            span: target_span,
-        });
+            target_span,
+        ));
         renames.insert(target.clone(), forward_name);
     }
 

@@ -135,6 +135,7 @@ mod fnexpr_this_shapes;
 mod fnexpr_this_store_fields;
 mod fnexpr_this_unclaimed;
 mod fold_fromentries;
+mod forwarder_synth;
 mod forwarders;
 mod forwarders_object;
 mod forwarders_object_mismatch;
@@ -266,6 +267,7 @@ pub use fnexpr_bind_this::{
 pub use fnexpr_this_default::bind_fnexpr_this_default;
 pub use fnexpr_this_unclaimed::unclaimed_fnexpr_this;
 pub use fold_fromentries::fold_fromentries;
+pub(crate) use forwarder_synth::synth_forwarder_decl;
 pub use forwarders::synthesize_forwarders;
 pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};

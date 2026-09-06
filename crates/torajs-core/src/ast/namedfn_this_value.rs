@@ -70,7 +70,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use super::{Ast, Expr, ExprId, Param, Stmt, push_gen_argv_spread, split_gen_argv_tail};
+use super::{Ast, Expr, Param, Stmt};
 
 /// Rewrite value uses of `bind_this_param`-promoted declarations to
 /// their forwarder, synthesizing the forwarder when no earlier pass
@@ -169,7 +169,7 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
         }
         have_forwarder.insert(forward_name.clone());
         let (params, return_type, target_span) = sigs.get(target).unwrap().clone();
-        new_decls.push(synth_forwarder(
+        new_decls.push(super::forwarder_synth::synth_forwarder_decl(
             ast,
             &forward_name,
             target,
@@ -185,59 +185,4 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
         };
     }
     ast.stmts.extend(new_decls);
-}
-
-/// `__forward_<target>(__env, ...user params) { return target(undefined, ...) }`
-/// — the same shape `ast::forwarders::synthesize_forwarders` builds,
-/// including the `__this` skip, the rest-param spread and the
-/// generator-factory argv tail.
-fn synth_forwarder(
-    ast: &mut Ast,
-    forward_name: &str,
-    target: &str,
-    params: &[Param],
-    return_type: Option<String>,
-    target_span: crate::lexer::Span,
-) -> Stmt {
-    let (user_params, takes_gen_argv) = split_gen_argv_tail(&params[1..]);
-    let user_params = user_params.to_vec();
-    let mut fwd_params: Vec<Param> = Vec::with_capacity(user_params.len() + 1);
-    fwd_params.push(Param {
-        name: "__env".into(),
-        type_ann: Some("__env()".to_string()),
-        default: None,
-        is_rest: false,
-    });
-    fwd_params.extend(user_params.iter().cloned());
-    let mut arg_eids: Vec<ExprId> = Vec::with_capacity(user_params.len() + 1);
-    arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
-    for p in &user_params {
-        let id = ast.add_expr(Expr::Ident(p.name.clone()));
-        // A bare ident would be re-packed by `apply_rest_args` — the
-        // sibling synthesizer spreads it for the same reason.
-        if p.is_rest {
-            arg_eids.push(ast.add_expr(Expr::Spread { expr: id }));
-        } else {
-            arg_eids.push(id);
-        }
-    }
-    if takes_gen_argv {
-        push_gen_argv_spread(ast, &mut arg_eids);
-    }
-    let callee_id = ast.add_expr(Expr::Ident(target.to_string()));
-    let call_id = ast.add_expr(Expr::Call {
-        callee: callee_id,
-        args: arg_eids,
-    });
-    Stmt::FnDecl {
-        name: forward_name.to_string(),
-        type_params: Vec::new(),
-        params: fwd_params,
-        return_type,
-        body: vec![Stmt::Return(Some(call_id))],
-        is_generator: false,
-        // Carry the TARGET's span — `toString` answers the wrapped
-        // user function's source.
-        span: target_span,
-    }
 }

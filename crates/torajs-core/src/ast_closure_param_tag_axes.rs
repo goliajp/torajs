@@ -178,66 +178,23 @@ pub(crate) fn wrap_named_fn_values(
         if !existing_forwarders.contains(&forward_name) {
             let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
             // Knife 4d (RFC 20260801-arguments-method-face) — an
-            // argv-consuming generator factory (trailing
-            // GEN_ARGV_PARAM, the obj-gen parser's argv channel)
-            // takes its argv from the relay's own `[...arguments]`
-            // rather than a declared slot: the relay then carries an
-            // arguments touch, the argv/static faces adopt IT, and
-            // the true call-site argv reaches the factory however
-            // the relay is invoked (member call or escaped alias).
-            // A `bind_this_param`-promoted target carries a hidden
-            // `__this` first param. The forwarder's public face skips
-            // it and the forwarding call feeds `undefined` — the same
-            // plain-call receiver `this_param.rs`'s direct-call
-            // rewrite supplies, and the same shape the sibling
-            // synthesizer in `ast/forwarders.rs` has always built.
-            // Left in, it became a DECLARED slot of the forwarder, so
-            // the caller's first real argument landed in the receiver:
-            // `function take(f) { return f(7) }; take(t)` seeded
-            // `__this = 7` and padded `a` with undefined, and the
-            // wrapped face reported one parameter too many.
-            let takes_this = params.first().is_some_and(|p| p.name == "__this");
-            let user_params = if takes_this {
-                &params[1..]
-            } else {
-                &params[..]
-            };
-            let (declared, takes_gen_argv) = crate::ast::split_gen_argv_tail(user_params);
-            let declared = declared.to_vec();
-            let mut fwd_params: Vec<Param> = Vec::with_capacity(declared.len() + 1);
-            fwd_params.push(Param {
-                name: "__env".into(),
-                type_ann: Some("__env()".to_string()),
-                default: None,
-                is_rest: false,
-            });
-            fwd_params.extend(declared.iter().cloned());
-            let mut arg_eids: Vec<ExprId> = Vec::with_capacity(declared.len() + 1);
-            if takes_this {
-                arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
-            }
-            for p in &declared {
-                arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
-            }
-            if takes_gen_argv {
-                crate::ast::push_gen_argv_spread(ast, &mut arg_eids);
-            }
-            let callee_id = ast.add_expr(Expr::Ident(target.clone()));
-            let call_id = ast.add_expr(Expr::Call {
-                callee: callee_id,
-                args: arg_eids,
-            });
-            new_decls.push(Stmt::FnDecl {
-                name: forward_name.clone(),
-                type_params: Vec::new(),
-                params: fwd_params,
+            // argv-consuming generator factory takes its argv from the
+            // relay's own `[...arguments]` rather than a declared slot:
+            // the relay then carries an arguments touch, the argv/static
+            // faces adopt IT, and the true call-site argv reaches the
+            // factory however the relay is invoked. That, the hidden
+            // `__this` skip and the rest-param spread all live in
+            // `ast/forwarder_synth.rs` now — this site used to forward a
+            // rest param as a bare ident, the one place the four copies
+            // of the rule had drifted apart.
+            new_decls.push(crate::ast::synth_forwarder_decl(
+                ast,
+                &forward_name,
+                target,
+                &params,
                 return_type,
-                body: vec![Stmt::Return(Some(call_id))],
-                is_generator: false,
-                // B4 — carry the TARGET's span (toString answers the
-                // wrapped user fn's source).
-                span: target_span,
-            });
+                target_span,
+            ));
             existing_forwarders.insert(forward_name.clone());
         }
         renames.insert(target.clone(), forward_name);
