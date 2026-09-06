@@ -13,7 +13,7 @@
 //! Name-keyed, and read behind a locals miss: a fn-local binding of
 //! the same name shadows the global and keeps its own route.
 
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 /// Record every top-level `let` / `const` holding a lifted closure
 /// that is variadic on EITHER side: the closure's own last parameter
@@ -58,8 +58,11 @@ pub(crate) fn record(ast: &mut Ast) {
             // slot type is decided by, so the two answers cannot
             // disagree: if the canon that types the slot says rest,
             // the route that calls it says rest.
-            _ => crate::ast_refs::closure_alias_fn_canon(ast, *init)
-                .is_some_and(|c| c.contains("__rest(")),
+            _ => {
+                crate::ast_refs::closure_alias_fn_canon(ast, *init)
+                    .is_some_and(|c| c.contains("__rest("))
+                    || var_rooted_alias_is_variadic(ast, *init)
+            }
         };
         if is_variadic {
             out.push(name.clone());
@@ -72,5 +75,102 @@ fn fn_decl_is_variadic(ast: &Ast, fn_name: &str) -> bool {
     ast.stmts.iter().any(|s| {
         matches!(s, Stmt::FnDecl { name, params, .. }
             if name == fn_name && params.last().is_some_and(|p| p.is_rest))
+    })
+}
+
+/// The same alias question for a chain whose ROOT is a `var`
+/// (`var gv = (...xs: number[]) => …; const gb = gv`).
+///
+/// `closure_alias_fn_canon` cannot answer it and must not learn to:
+/// that spelling is what TYPES the two slots, and every promote arm
+/// keeps `var` out because a `var`'s hoisted home is not the slot
+/// being typed. This record asks a different question — which route
+/// a CALL takes once the reader is not the declaring frame — and the
+/// module doc already admits `var` on exactly that ground for the
+/// direct flavor. Answering it here keeps the two questions apart
+/// rather than widening the typing spelling to reach it.
+///
+/// Over-recording is the safe direction here and under-recording is
+/// not: the boxed dual entry serves a closure of any declared arity
+/// (r601-02 — a fixed-arity closure behind a variadic face rides it
+/// correctly), while a missed record leaves the call on a static
+/// dispatch against the fixed-prefix sig — arity 0 for a bare rest,
+/// which segfaults. So a name declared `var` more than once counts
+/// if ANY of them is variadic.
+///
+/// Runs BEFORE `desugar_var_hoist` (the pipeline puts
+/// `synthesize_forwarders` at the pass that calls this, the hoist
+/// six passes later), so a `var` declaration still carries its own
+/// initializer here; after the hoist it would be a bare `Uninit`
+/// with the closure moved into a separate assignment.
+fn var_rooted_alias_is_variadic(ast: &Ast, init: ExprId) -> bool {
+    let Expr::Ident(src) = ast.get_expr(init) else {
+        return false;
+    };
+    // Walk the `let` / `const` hops the same way the canon does —
+    // one at a time, each hop a uniquely-declared name, a name
+    // reached twice being a cycle — and ask the `var` question at
+    // whatever name the chain bottoms out on.
+    let mut name: &str = src;
+    let mut seen: Vec<&str> = Vec::new();
+    loop {
+        if seen.contains(&name) {
+            return false;
+        }
+        seen.push(name);
+        if toplevel_var_decls_are_variadic(ast, name) {
+            return true;
+        }
+        let mut next: Option<&str> = None;
+        for s in &ast.stmts {
+            let Stmt::LetDecl {
+                name: decl,
+                init,
+                is_var: false,
+                ..
+            } = s
+            else {
+                continue;
+            };
+            if decl != name {
+                continue;
+            }
+            // A second declaration means the name at the alias site
+            // is not necessarily the one found here.
+            if next.is_some() {
+                return false;
+            }
+            match ast.get_expr(*init) {
+                Expr::Ident(n) => next = Some(n),
+                _ => return false,
+            }
+        }
+        let Some(n) = next else {
+            return false;
+        };
+        name = n;
+    }
+}
+
+/// Does any top-level `var` declaring `name` hold a variadic closure
+/// — by the closure's own rest parameter, or by a variadic face
+/// written on the declaration? Both halves are the same two the
+/// direct flavor above reads.
+fn toplevel_var_decls_are_variadic(ast: &Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        let Stmt::LetDecl {
+            name: decl,
+            init,
+            type_ann,
+            is_var: true,
+            ..
+        } = s
+        else {
+            return false;
+        };
+        decl == name
+            && (type_ann.as_deref().is_some_and(|a| a.contains("__rest("))
+                || matches!(ast.get_expr(*init),
+                    Expr::Closure { fn_name, .. } if fn_decl_is_variadic(ast, fn_name)))
     })
 }
