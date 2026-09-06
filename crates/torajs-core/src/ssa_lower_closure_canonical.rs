@@ -29,7 +29,15 @@ pub(crate) fn try_lower_canonical_cell(
     closure_ty: Type,
     has_captures: bool,
 ) -> Option<Operand> {
-    if !fn_name.starts_with("__forward_") || has_captures {
+    // Rotation 599 — `__fwdrecv_` joins `__forward_` here. Both are
+    // per-NAME shells (`namedfn_recv_cb::synthesize_one` checks for an
+    // existing decl before minting), but only the plain one answered a
+    // canonical cell, so two receiver-claimed sites of one function
+    // minted two objects: `o.m = t; p.m = t; o.m === p.m` was false.
+    // The shells still differ from each other — that cross-shell merge
+    // is RFC §8 residue 1 and is NOT this — but a shell must at least
+    // be one object per declaration (ES 10.2.11).
+    if !(fn_name.starts_with("__forward_") || fn_name.starts_with("__fwdrecv_")) || has_captures {
         return None;
     }
     let slot_name = format!("__fncell_{fn_name}");

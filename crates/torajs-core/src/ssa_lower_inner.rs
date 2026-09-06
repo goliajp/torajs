@@ -411,7 +411,10 @@ fn register_toplevel_globals(
     // lazily minted only if a face ever evaluates.
     for stmt in &ast.stmts {
         if let crate::ast::Stmt::FnDecl { name, .. } = stmt {
-            if name.starts_with("__forward_") {
+            // Rotation 599 — `__fwdrecv_` shells get the same per-name
+            // slot the plain forwarders have; without it the widened
+            // canonical arm would look up a global nobody emitted.
+            if name.starts_with("__forward_") || name.starts_with("__fwdrecv_") {
                 data_globals_out.push(ssa::DataGlobal {
                     name: format!("__fncell_{name}"),
                     ty: Type::Ptr,
