@@ -40,8 +40,19 @@ pub(crate) fn emit_map_for_each(
     // callback takes the §23.1.3.5 thisArg as its leading boxed
     // `__this` arg (undefined box when absent); the call aligns sig
     // params past it via sig_skip.
+    // Rotation 597 — and a knife-2 variable-routed BINDING of the same
+    // closure (`fnexpr_recv_locals`), which the four array lanes have
+    // tested since rotation 286 and this pair never gained. Without it
+    // `const m = new Map([[1, 7]]); m.forEach(F)` passed argv unshifted
+    // to a callee whose first declared param is `__this`, so the
+    // callback read its receiver off the first spec argument and its
+    // own first parameter off the second: measured, it was handed the
+    // KEY where the value belongs and bound `this` to the value, where
+    // §23.1.3.5 says the absent thisArg is `undefined`.
     let promoted = matches!(ctx.ast.get_expr(args[0]),
-        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name));
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(args[0]),
+            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
     let mut this_temp: Option<(ExprId, Operand)> = None;
     let this_arg: Option<Operand> = if promoted {
         if let Some(&t) = args.get(1) {
