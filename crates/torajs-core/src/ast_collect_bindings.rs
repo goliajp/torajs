@@ -39,8 +39,40 @@ pub(crate) fn collect_any_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
 /// Chunk 733 — binding names declared with a fn-typed array
 /// annotation (`((n)=>n)[]` / `Array<(n)=>n>`); their element slots
 /// are Closure-repr, so named-fn store-sites into them wrap.
+///
+/// An `any`-element array joins them. Its slots are tagged rather
+/// than Closure-repr, but a closure cell is exactly what they hold —
+/// `const z: any[] = [p]` already stores one and answers
+/// `z[0] === p`. Without this, only the STORE-SITE spelling fell
+/// through: `const z: any[] = []; z.push(p)` reached the lowering
+/// with a raw `FnSig` and panicked with `Array<Any>.push unsupported
+/// value type FnSig(..)`, while `z.push(p as any)`, a binding hop,
+/// a function expression and an arrow all worked. Same shape as the
+/// array-literal element position, one spelling later.
 pub(crate) fn collect_fn_arr_bindings(stmts: &[Stmt], out: &mut HashSet<String>) {
-    collect_bindings_matching(stmts, &crate::ast::is_fn_arr_ann, out);
+    collect_bindings_matching(
+        stmts,
+        &|a| crate::ast::is_fn_arr_ann(a) || is_any_arr_ann(a),
+        out,
+    );
+}
+
+/// `any[]` / `Array<any>` / `ReadonlyArray<any>` / `Iterable<any>` —
+/// the element-annotation shapes [`crate::ast::is_fn_arr_ann`] reads,
+/// answered for `any` instead of for a function type.
+fn is_any_arr_ann(s: &str) -> bool {
+    let t = s.trim();
+    if let Some(rest) = t.strip_suffix("[]") {
+        return rest.trim() == "any";
+    }
+    for head in ["Array<", "ReadonlyArray<", "Iterable<"] {
+        if let Some(rest) = t.strip_prefix(head)
+            && t.ends_with('>')
+        {
+            return rest[..rest.len() - 1].trim() == "any";
+        }
+    }
+    false
 }
 
 /// Chunk 736 — binding names declared with a plain fn-type
