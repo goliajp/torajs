@@ -199,11 +199,12 @@ pub fn closure_alias_fn_canon(ast: &Ast, init: ExprId) -> Option<String> {
     let Expr::Ident(src) = ast.get_expr(init) else {
         return None;
     };
-    let mut found: Option<&str> = None;
+    let mut found: Option<(&str, Option<&str>)> = None;
     for s in crate::ast::toplevel_stmts_flat(ast) {
         let Stmt::LetDecl {
             name,
             init,
+            type_ann,
             is_var: false,
             ..
         } = s
@@ -219,9 +220,23 @@ pub fn closure_alias_fn_canon(ast: &Ast, init: ExprId) -> Option<String> {
         let Expr::Closure { fn_name, .. } = ast.get_expr(*init) else {
             return None;
         };
-        found = Some(fn_name);
+        found = Some((fn_name, type_ann.as_deref()));
     }
-    lifted_closure_fn_canon(ast, found?)
+    let (fn_name, ann) = found?;
+    // The source's own ANNOTATION is the string it registered under,
+    // and it is not always its closure's decl canon: a variadic FACE
+    // over a non-variadic closure (`const t: (...xs: number[]) => R =
+    // (a: number) => …`) registers rest-tail while the lifted decl
+    // spells one fixed parameter. The alias holds that binding's
+    // value through that binding's face, so the face is what it
+    // answers — otherwise the two slots disagree about arity and the
+    // alias's call takes a static dispatch the value cannot serve.
+    // A non-fn-like ann (a named type alias) is not a spelling this
+    // resolves, and falls through to the decl canon as before.
+    if let Some(a) = ann.filter(|a| crate::ast::is_fn_like_ann(a)) {
+        return Some(a.to_string());
+    }
+    lifted_closure_fn_canon(ast, fn_name)
 }
 
 /// RFC 20260725 follow-up (un-annotated struct global) — the
