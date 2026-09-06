@@ -85,10 +85,19 @@ pub(crate) fn lower(
     name: String,
     value: ExprId,
 ) -> Operand {
+    // §8.1.1.1 / §6.2.5.6 — PutValue on a binding still in its dead
+    // zone. Ahead of the unresolvable-Reference arm below because the
+    // two marks can both be present: the checker files a write it
+    // cannot resolve, and a dead-zone binding with a non-literal
+    // initializer is exactly such a write. The name IS declared, so
+    // this is the truer of the two.
+    if ctx.ast.tdz_reads.contains(&target) {
+        return lower_undeclared_write_throw(ctx, &name, value, true);
+    }
     if ctx.ast.undeclared_reads.contains_key(&target) {
         // The throw makes the value unobservable and the lane past
         // the check is unreachable — nothing to hand a consumer.
-        return lower_undeclared_write_throw(ctx, &name, value);
+        return lower_undeclared_write_throw(ctx, &name, value, false);
     }
     if ctx.ast.self_name_writes.contains(&target) {
         // §15.5.5 (RFC 20260810) — write to the enclosing
@@ -151,14 +160,25 @@ fn lower_self_name_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand
     Operand::ConstPtrNull
 }
 
-fn lower_undeclared_write_throw(ctx: &mut LowerCtx<'_>, name: &str, value: ExprId) -> Operand {
+fn lower_undeclared_write_throw(
+    ctx: &mut LowerCtx<'_>,
+    name: &str,
+    value: ExprId,
+    dead_zone: bool,
+) -> Operand {
     let v = ctx.lower_expr(value);
     let v_ty = ctx.operand_ty(&v);
     if !v_ty.is_copy() {
         ctx.emit_drop_value(v, v_ty);
     }
     let name_str = ctx.intern_string_literal(name);
-    let raiser = ctx.intrinsics.throw_reference_error_name;
+    // The rhs is evaluated either way (§13.15.2 evaluates it before
+    // PutValue), so only the raiser differs.
+    let raiser = if dead_zone {
+        ctx.intrinsics.throw_reference_error_tdz
+    } else {
+        ctx.intrinsics.throw_reference_error_name
+    };
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,

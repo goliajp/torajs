@@ -59,9 +59,18 @@
 //!     inner binding of the same name goes unmarked, which is the safe
 //!     direction.
 //!
-//! Write targets are left alone: `a = 1` before `const a` is the same
-//! ReferenceError in ES, but it lands in the assign lane, which has
-//! its own unresolvable-Reference kernel — a separate cut.
+//! Write targets are marked too, and land in the same set: §6.2.5.5
+//! GetValue and §6.2.5.6 PutValue are the same Reference, dead zone
+//! and all, and `Ast::undeclared_reads` already keeps both kinds of
+//! occurrence together for exactly that reason. The assign lane reads
+//! the mark off the TARGET eid, which the read lane never lowers, so
+//! the two never collide.
+//!
+//! A `const` target is the exception, and it is not this rule's:
+//! `a = 1` where `a` is `const` is an EARLY error (§13.15.1 —
+//! AssignmentTargetType is not simple), which bun reports without
+//! running the program at all. Whatever tr does with that shape, it
+//! is not a dead-zone raise, so const targets stay off the mark.
 
 use std::collections::{HashMap, HashSet};
 
@@ -74,15 +83,19 @@ use super::{Ast, Expr, ExprId, Stmt};
 pub fn mark_toplevel_tdz_reads(ast: &mut Ast) {
     let flat = super::toplevel_stmts_flat(ast);
     let mut decl_at: HashMap<&str, usize> = HashMap::new();
+    let mut mutable_decl: HashSet<&str> = HashSet::new();
     for (i, s) in flat.iter().enumerate() {
         if let Stmt::LetDecl {
             name,
             is_var: false,
+            mutable,
             ..
         } = s
             && !name.starts_with("__")
         {
-            decl_at.entry(name.as_str()).or_insert(i);
+            if decl_at.insert(name.as_str(), i).is_none() && *mutable {
+                mutable_decl.insert(name.as_str());
+            }
         }
     }
     if decl_at.is_empty() {
@@ -107,7 +120,12 @@ pub fn mark_toplevel_tdz_reads(ast: &mut Ast) {
         if wanted.is_empty() {
             continue;
         }
-        mark_stmt(ast, s, &wanted, &mut marks);
+        let wanted_mut: HashSet<&str> = wanted
+            .iter()
+            .copied()
+            .filter(|n| mutable_decl.contains(n))
+            .collect();
+        mark_stmt(ast, s, &wanted, &wanted_mut, &mut marks);
     }
     ast.tdz_reads = marks;
 }
@@ -139,32 +157,49 @@ fn collect_bound_names<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
     }
 }
 
-fn mark_stmt(ast: &Ast, s: &Stmt, wanted: &HashSet<&str>, out: &mut HashSet<ExprId>) {
+fn mark_stmt(
+    ast: &Ast,
+    s: &Stmt,
+    wanted: &HashSet<&str>,
+    wanted_mut: &HashSet<&str>,
+    out: &mut HashSet<ExprId>,
+) {
     for root in stmt_exprs(s) {
-        mark_expr(ast, root, wanted, out);
+        mark_expr(ast, root, wanted, wanted_mut, out);
     }
     for c in stmt_children_ref(s) {
-        mark_stmt(ast, c, wanted, out);
+        mark_stmt(ast, c, wanted, wanted_mut, out);
     }
 }
 
-fn mark_expr(ast: &Ast, eid: ExprId, wanted: &HashSet<&str>, out: &mut HashSet<ExprId>) {
+fn mark_expr(
+    ast: &Ast,
+    eid: ExprId,
+    wanted: &HashSet<&str>,
+    wanted_mut: &HashSet<&str>,
+    out: &mut HashSet<ExprId>,
+) {
     if let Expr::Ident(name) = ast.get_expr(eid) {
         if wanted.contains(name.as_str()) {
             out.insert(eid);
         }
         return;
     }
-    // The target of an assignment is a Reference, not a GetValue —
-    // its own raise belongs to the assign lane.
+    // An assignment's TARGET is the one position where the const
+    // carve-out above applies; its own subtree (`o.k = v`) is ordinary
+    // reads again.
     if let Expr::Assign { target, value } = ast.get_expr(eid) {
-        if !matches!(ast.get_expr(*target), Expr::Ident(_)) {
-            mark_expr(ast, *target, wanted, out);
+        match ast.get_expr(*target) {
+            Expr::Ident(name) if wanted_mut.contains(name.as_str()) => {
+                out.insert(*target);
+            }
+            Expr::Ident(_) => {}
+            _ => mark_expr(ast, *target, wanted, wanted_mut, out),
         }
-        mark_expr(ast, *value, wanted, out);
+        mark_expr(ast, *value, wanted, wanted_mut, out);
         return;
     }
     for c in expr_children(ast, eid) {
-        mark_expr(ast, c, wanted, out);
+        mark_expr(ast, c, wanted, wanted_mut, out);
     }
 }
