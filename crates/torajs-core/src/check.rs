@@ -199,6 +199,7 @@ impl Checker {
             closure_captures: HashMap::new(),
             closure_fn_names: std::collections::HashSet::new(),
             dynobj_degraded: std::collections::HashSet::new(),
+            tdz_reads: std::collections::HashSet::new(),
             proto_shadow: Default::default(),
             cross_type_widened: std::collections::HashSet::new(),
             any_promoted_inits: std::collections::HashSet::new(),
@@ -230,6 +231,12 @@ impl Checker {
         // `crate::dynobj_degrade`). Collected before the passes so
         // the LetDecl arm sees the set.
         self.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
+        // §8.1.1.1 — the pipeline already settled which top-level
+        // reads sit in a dead zone (`ast::mark_toplevel_tdz_reads`).
+        // Carried, not recomputed: the answer is about STATEMENT
+        // POSITION in the tree the pipeline finished, and this side
+        // has no other way to ask.
+        self.tdz_reads = ast.tdz_reads.clone();
         // RFC 20260806 — what this module might patch onto a builtin
         // prototype, so a member read of such a method answers Any and
         // the call takes the dispatcher lane instead of a kernel.
@@ -325,6 +332,12 @@ pub(crate) struct Checker {
     /// so it lowers through the P3.2 dynobj-init lane and the define
     /// write-back can rebind it.
     pub(crate) dynobj_degraded: std::collections::HashSet<crate::ast::ExprId>,
+    /// §8.1.1.1 — `Ast::tdz_reads`, so the ident lane can tell a
+    /// dead-zone read (resolvable, raises on GetValue) from an
+    /// unresolvable one (answers for `typeof`, warns once at the end
+    /// of the pipeline). Both raise ReferenceError; only the second
+    /// is a name that is not there.
+    pub(crate) tdz_reads: std::collections::HashSet<crate::ast::ExprId>,
     /// RFC 20260804-mutable-let-widen — init ExprIds of mutable
     /// lets later reassigned a different syntactic family
     /// (`crate::let_widen` scope-correct walk); such bindings type

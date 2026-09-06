@@ -184,7 +184,15 @@ pub(crate) fn check(
             {
                 return Err(format!("unknown identifier `{other}`"));
             }
-            checker.undeclared_reads.insert(eid, other.to_string());
+            // §8.1.1.1 — a dead-zone read is not an unresolvable
+            // Reference: the binding exists, it is just uninitialized,
+            // and the lowerer raises its own message there. Marking it
+            // undeclared here would add a second raise plus the
+            // end-of-pipeline `unknown identifier` warning for a name
+            // the program does declare.
+            if !checker.tdz_reads.contains(&eid) {
+                checker.undeclared_reads.insert(eid, other.to_string());
+            }
             Ok(Type::Any)
         }
     }

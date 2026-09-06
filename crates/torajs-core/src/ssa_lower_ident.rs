@@ -95,6 +95,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str)
         if let Some(op) = try_ns_static_ident(ctx, eid, name) {
             return op;
         }
+        // §8.1.1.1, last — the binding exists but has no home a read
+        // can reach (its initializer is not a literal, so neither the
+        // inline lane above nor a K.3 slot answers). `emit_tdz_raise`
+        // already raised at the top of this function, so the only
+        // thing still wanted is a shape, and the checker typed this
+        // read `Any` for exactly that reason. Without this the read
+        // reaches the unknown-identifier abort below and takes a
+        // program down that bun runs to completion.
+        if ctx.ast.tdz_reads.contains(&eid) {
+            return Operand::ConstPtrNull;
+        }
     }
     lower_local_binding(ctx, name)
 }
