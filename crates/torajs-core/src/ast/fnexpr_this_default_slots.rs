@@ -76,24 +76,36 @@ pub(super) fn no_receiver_slots(
     // §22.1.3.19 String.prototype.replace / replaceAll — both spell
     // the replacer call as `Call(replaceValue, undefined, «matched,
     // …, string»)`, and so does the regexp route they delegate to
-    // (§22.2.6.11 RegExp.prototype[@@replace] step 14.a). What has to
-    // be certain is WHOSE method runs: a STRING literal receiver
-    // fixes the method, and a REGEXP LITERAL searchValue fixes the
-    // `@@replace` that receives the delegation — a user object in
-    // either position decides for itself how it calls the replacer.
+    // (§22.2.6.11 RegExp.prototype[@@replace] step 14.a). Two things
+    // have to be certain, and neither of them is a spelling: that
+    // `String.prototype`'s method is the one that runs, and that the
+    // searchValue is not a user object whose own `@@replace` would
+    // decide how the replacer gets called. A LITERAL searchValue —
+    // regexp or string — settles the second; [`Certain::string`]
+    // settles the first for a binding as well as for a literal.
     //
-    // The string-literal searchValue is deliberately not here:
-    // `fnexpr_this_cb_slots::collect_replace_face` PROMOTES that one
-    // (the str replace_fn lane has a receiver slot, and the site
-    // seeds `undefined` into it), which is the same answer by a
-    // different route. The regexp route has no such slot, which is
-    // exactly why the promotion declines it and why the body-local
-    // binding is the right shape here.
+    // The receiver test used to be `Expr::String(_)` alone, and the
+    // two spellings of one program therefore disagreed:
+    // `'xQx'.replace('Q', f)` ran and `const s = 'xQx';
+    // s.replace('Q', f)` was an unclaimed-receiver refusal, as were
+    // both regexp spellings over a binding. Over-refusal only — the
+    // answer here is `undefined`, which is what the literal spelling
+    // was already supplying.
+    //
+    // The literal receiver with a string searchValue never reaches
+    // this arm: `fnexpr_this_cb_slots::collect_replace_face` PROMOTES
+    // that one (the str replace_fn lane has a receiver slot and the
+    // site seeds `undefined` into it), and a claimed slot is filtered
+    // out before this table's answer is used. Same answer, earlier
+    // route.
     if matches!(name, "replace" | "replaceAll")
-        && matches!(&ast.exprs[obj.0 as usize], Expr::String(_))
-        && args
-            .first()
-            .is_some_and(|p| matches!(&ast.exprs[p.0 as usize], Expr::Regex { .. }))
+        && certain.string(&ast.exprs, obj)
+        && args.first().is_some_and(|p| {
+            matches!(
+                &ast.exprs[p.0 as usize],
+                Expr::Regex { .. } | Expr::String(_)
+            )
+        })
     {
         return args.iter().skip(1).take(1).copied().collect();
     }

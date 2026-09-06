@@ -323,6 +323,9 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
             matches!(&exprs[e.0 as usize], Expr::New { class_name, .. }
                 if class_name == "Map" || class_name == "WeakMap")
         }),
+        strings: certain_bindings(ast, &single, &|exprs, e| {
+            matches!(&exprs[e.0 as usize], Expr::String(_))
+        }),
         promises: certain_promise_bindings(ast, &single, &async_fns),
         async_fns,
     };
@@ -370,6 +373,7 @@ fn collect_targets(ast: &Ast) -> Vec<(ExprId, String)> {
 pub(super) struct Certain {
     arrays: std::collections::HashSet<String>,
     maps: std::collections::HashSet<String>,
+    strings: std::collections::HashSet<String>,
     promises: std::collections::HashSet<String>,
     async_fns: std::collections::HashSet<String>,
 }
@@ -392,6 +396,20 @@ impl Certain {
         match &exprs[eid.0 as usize] {
             Expr::New { class_name, .. } => class_name == "Map" || class_name == "WeakMap",
             Expr::Ident(n) => self.maps.contains(n),
+            _ => false,
+        }
+    }
+
+    /// A primitive string — a literal, or a binding the same census
+    /// proves holds only string literals. What this buys is the
+    /// certainty that `String.prototype`'s method is the one that
+    /// runs; the receiver's SPELLING never mattered, which is why a
+    /// literal-only test made `'xQx'.replace('Q', f)` and
+    /// `const s = 'xQx'; s.replace('Q', f)` answer differently.
+    pub(super) fn string(&self, exprs: &[Expr], eid: ExprId) -> bool {
+        match &exprs[eid.0 as usize] {
+            Expr::String(_) => true,
+            Expr::Ident(n) => self.strings.contains(n),
             _ => false,
         }
     }
