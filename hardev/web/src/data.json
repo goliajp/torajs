@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T01:57:15.594Z",
+  "generatedAt": "2026-09-06T02:09:58.203Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "550c3b973",
-    "commitSubject": "fix: a Map or Set written in place is as certain a receiver as one in a binding",
+    "commit": "8338e6770",
+    "commitSubject": "fix: a named function pushed into an any-element array reaches the slot as a value",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,14 @@
   },
   "commits": [
     {
+      "hash": "8338e6770",
+      "subject": "fix: a named function pushed into an any-element array reaches the slot as a value"
+    },
+    {
+      "hash": "7d0c4391f",
+      "subject": "chore: rotation 598 sweep on 550c3b973"
+    },
+    {
       "hash": "550c3b973",
       "subject": "fix: a Map or Set written in place is as certain a receiver as one in a binding"
     },
@@ -767,17 +775,9 @@
     {
       "hash": "6328805f1",
       "subject": "fix: the push arm asks about the root, not the annotation"
-    },
-    {
-      "hash": "7f179a03e",
-      "subject": "fix: a container reached through a member hop keeps its receiver"
-    },
-    {
-      "hash": "028572f71",
-      "subject": "fix: the JSON callback slots hand a named reviver its holder"
     }
   ],
-  "headSha": "550c3b973",
+  "headSha": "8338e6770",
   "autorun": {
     "total": 901,
     "baselineTarget": 10,
