@@ -26,8 +26,11 @@ use super::{Ast, Expr, Stmt};
 /// promoted such a binding into a static dispatch and `t(21)`
 /// answered 4 (variadic-fn-type-ann-002 / -003).
 ///
-/// `var` is excluded for the reason every promote arm excludes it —
-/// its hoisted home is not this slot.
+/// `var` is INCLUDED, unlike every promote arm: this record is not a
+/// promotion, it is the routing a call takes once the reader is not
+/// the declaring frame, and a `var` binding read from a named fn body
+/// is exactly that reader. Leaving it out let such a call take a
+/// static dispatch and segfault.
 pub(crate) fn record(ast: &mut Ast) {
     let mut out: Vec<String> = Vec::new();
     for s in &ast.stmts {
@@ -35,7 +38,6 @@ pub(crate) fn record(ast: &mut Ast) {
             name,
             init,
             type_ann,
-            is_var: false,
             ..
         } = s
         else {

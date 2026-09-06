@@ -71,6 +71,15 @@ function callMutable(): number {
 }
 console.log(nested(), viaSpread(), callMutable());
 
+// a `var` binding read from a named fn body is the same reader as a
+// promoted one, even though `var` never promotes: routing its call
+// statically segfaulted
+var gvar = (...xs: number[]): number => xs.length;
+function callVar(): number {
+  return gvar(1, 2, 3);
+}
+console.log(callVar(), gvar(1));
+
 // a local of the same name still shadows the global and keeps its own
 // route
 function shadowed(): number {
