@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T00:38:02.403Z",
+  "generatedAt": "2026-09-06T01:57:15.594Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T00:20:35Z",
-    "headSha": "a2d147b43",
-    "elapsedSec": 380.2,
+    "ranAt": "2026-09-06T01:44:39Z",
+    "headSha": "550c3b973",
+    "elapsedSec": 378.48,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "c8c89fe0f",
-    "commitSubject": "chore: rotation 597 sweep on a2d147b43",
+    "commit": "550c3b973",
+    "commitSubject": "fix: a Map or Set written in place is as certain a receiver as one in a binding",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "550c3b973",
+      "subject": "fix: a Map or Set written in place is as certain a receiver as one in a binding"
+    },
+    {
+      "hash": "ea12ccef2",
+      "subject": "fix: writing down an array's type no longer costs it its receiver census"
+    },
+    {
+      "hash": "889b6ba88",
+      "subject": "fix: a replace callback's receiver is decided by the receiver, not its spelling"
+    },
+    {
+      "hash": "e026d2852",
+      "subject": "refactor: one synthesizer mints every __forward_ shell"
+    },
+    {
+      "hash": "300225381",
+      "subject": "fix: the sweep summary stops passing off a directory's git HEAD as provenance"
+    },
+    {
+      "hash": "3c609ed5f",
+      "subject": "chore: refresh the hardev dashboard snapshot"
+    },
+    {
       "hash": "c8c89fe0f",
       "subject": "chore: rotation 597 sweep on a2d147b43"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "028572f71",
       "subject": "fix: the JSON callback slots hand a named reviver its holder"
-    },
-    {
-      "hash": "0051910a3",
-      "subject": "chore: rotation 596 sweep on caab1dc81, plus the dashboard snapshot"
-    },
-    {
-      "hash": "caab1dc81",
-      "subject": "fix: the receiver-first censuses ask per site, not per name"
-    },
-    {
-      "hash": "2178336f5",
-      "subject": "fix: a switch case block is one scope for the block-scope carve-out"
-    },
-    {
-      "hash": "38f1dbc34",
-      "subject": "fix: a block that rebinds a fn name owns only the reads inside it"
-    },
-    {
-      "hash": "bc8bf3826",
-      "subject": "fix: a member-held fn value keeps the explicit thisArg of call and apply"
-    },
-    {
-      "hash": "aba648800",
-      "subject": "chore: rotation 595 sweep on 3e0cdfaf7, plus the dashboard snapshot"
     }
   ],
-  "headSha": "c8c89fe0f",
+  "headSha": "550c3b973",
   "autorun": {
-    "total": 900,
+    "total": 901,
     "baselineTarget": 10,
-    "bySelf": 895,
+    "bySelf": 896,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788648989-0e0e",
-      "at": "2026-09-05T22:56:29Z",
-      "ts": 1788648989,
+      "rotationId": "r-1788655101-2576",
+      "at": "2026-09-06T00:38:21Z",
+      "ts": 1788655101,
       "trigger": "self",
-      "prevHead": "0051910a3",
-      "handoffSha": "sha256:3706476ea346d83be94449069172f913dce6b143d566832b4a5db1828a309076",
-      "handoffAgeSec": 7,
+      "prevHead": "3c609ed5f",
+      "handoffSha": "sha256:a5c8eb8e7d5e434fe745934e2b2ada577c44a3634442452454acedcaa48096d9",
+      "handoffAgeSec": 14,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788655101-2576",
+        "at": "2026-09-06T00:38:21Z",
+        "ts": 1788655101,
+        "trigger": "self",
+        "prevHead": "3c609ed5f",
+        "handoffSha": "sha256:a5c8eb8e7d5e434fe745934e2b2ada577c44a3634442452454acedcaa48096d9",
+        "handoffAgeSec": 14,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788648989-0e0e",
         "at": "2026-09-05T22:56:29Z",
@@ -892,17 +903,6 @@
         "prevHead": "5bdbc3f4d",
         "handoffSha": "sha256:94475222682b70d4b24ad7ab44dc6192fa471ebdc6d1f992e08945352adb86aa",
         "handoffAgeSec": 35,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788580206-3f46",
-        "at": "2026-09-05T03:50:06Z",
-        "ts": 1788580206,
-        "trigger": "self",
-        "prevHead": "05957feca",
-        "handoffSha": "sha256:195ed4fbfb56c7b0817e8fec66a27c30a51a312596862e619cb27b61dbd0b5ed",
-        "handoffAgeSec": 11,
         "conformanceBefore": null,
         "commitsInSession": null
       }

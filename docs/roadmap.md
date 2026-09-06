@@ -1674,7 +1674,48 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `040ec68bc`** (2026-09-06, rotation 593 — what a named
+**Latest @ `550c3b973`** (2026-09-06, rotation 598 — one synthesizer
+for the forwarder shell, and three receiver censuses that were asking
+about a spelling. Gate predicate: **135** clusters of >= 4 holding
+**1002** cases, register 2 · 215, residue 451 · 610 (33.4%), core
+**1827**. Coverage curve: top-100 **55.8%**, top-200 **74.1%**,
+top-400 **88.9%**.
+
+Sweep totals byte-identical to 593 — pass **31126 (=)**, passTotal
+**36723 (=)**, bug **11273 (=)**, incompatible **5178 (=)**,
+trAccepted **47996 (=)**, rate **69.06% (=)** — and the whole-domain
+verdict diff against the previous sweep is **0 lines**, not even
+bun-side jitter. Gate 3718 -> **3721** (three new fixtures, 0 fail,
+4 skip). What this rotation moved does not exist in the test262
+corpus; the evidence is the fixtures.
+
+The one case between 593's `1003` and this `1002` moved during
+rotations 594-597, none of which stamped this section — four
+rotations of drift in step 0b's roadmap half, recorded here rather
+than backfilled, since the intervening sweeps were byte-identical
+on every other line.
+
+This sweep is also the first whose `headSha` is true. The runner used
+to stamp the git HEAD of the directory it ran in, and this project
+syncs its runner box by rsync, so that HEAD sat 19 commits behind the
+source under test; rotation 597's sweep named a commit from two
+rotations earlier and had to be corrected by hand. `--head-sha` now
+carries the real value, and a tree that differs from HEAD stamps
+`<sha>-dirty` rather than a plausible commit.
+
+Withdrawn this rotation, and the reason it matters more than the
+knives: the audit's "8 of 10 kernels already honor
+FLAG_CLOSURE_RECV_FIRST" was measuring the wrong thing. `map`,
+`forEach`, `reduce`, `sort` and `then` reach a `this`-reading callback
+through the DEFAULT-BINDING route — a body-local `let __this =
+undefined`, no flag and no channel — so those rows read a constant,
+not a kernel. A genuinely flagged cell cannot be routed into a second
+position at all (the whitelist refuses it), so the fn-expr instrument
+cannot reach the non-honoring lanes by construction. Residue 1's
+blocker is where it was; what changed is that the reassuring table is
+gone.
+
+**Prior @ `040ec68bc`** (2026-09-06, rotation 593 — what a named
 function's value is, measured; and one over-refusal removed. Gate
 predicate: **135** clusters of >= 4 holding **1003** cases, register
 2 · 215, residue 450 · 609 (33.3%), core **1827**. Against rotation
