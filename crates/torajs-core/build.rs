@@ -256,15 +256,29 @@ fn main() {
         println!("cargo:rerun-if-env-changed={}", env_name);
     }
 
-    // Force this build script to rerun every cargo invocation —
-    // sub-crate source edits invalidate their own rlib/staticlib
-    // but cargo otherwise considers torajs-core's build script
-    // fingerprint stable. A non-existent sentinel path is cargo's
-    // documented "always rerun" idiom (cargo treats missing files
-    // as "changed" on every poll). The script's body is just a
-    // handful of printlns, so unconditional rerun is essentially
-    // free.
-    println!("cargo:rerun-if-changed=NULL_FORCE_RERUN");
+    // NO always-rerun sentinel here, deliberately.
+    //
+    // This used to be `cargo:rerun-if-changed=NULL_FORCE_RERUN` — the
+    // documented "always rerun" idiom — to make a sub-crate's staticlib
+    // edit reach this crate. The note beside it said an unconditional
+    // rerun was "essentially free" because the script body is a handful
+    // of printlns. That accounted for the script and not for what cargo
+    // does with it: a dirty build script makes every downstream unit
+    // dirty too, so each no-op `cargo build --workspace --release`
+    // rebuilt torajs-core, -egraph, -codegen, -obj, -link and `tr` —
+    // 72 seconds to compile nothing at all, in front of every gate,
+    // sweep and scan (measured 2026-09-07, cargo's own
+    // `fingerprint=info` naming MissingFile{NULL_FORCE_RERUN} as the
+    // root and StaleDepFingerprint for all fivedownstream units).
+    //
+    // What it was protecting is already covered: `include_bytes!` reads
+    // each `lib<name>.a` at THIS crate's compile time, so rustc records
+    // all 36 of them in `torajs_core-<hash>.d` and cargo re-runs the
+    // crate when one changes. That is the mechanism rotation 585
+    // confirmed when it corrected the opposite belief — one
+    // `cargo build --workspace` picks a runtime-crate edit up without
+    // any sentinel. `hardev/autorun/staticlib_freshness.sh` is the
+    // mechanical check that this stays true.
 
     // Compute a compiler-source fingerprint for the per-fixture .o
     // cache key (B-1 phase 2). Hash every `.rs` file that affects
