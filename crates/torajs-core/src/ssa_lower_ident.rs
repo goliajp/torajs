@@ -192,6 +192,36 @@ fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
     Some(Operand::Value(v))
 }
 
+/// The two marks that make a bare identifier read RAISE rather than
+/// answer — an unresolvable Reference (§6.2.5.5) and a binding still
+/// in its temporal dead zone (§8.1.1.1). Both lanes emit the raise and
+/// then hand back a STAND-IN operand whose only job is to have a
+/// shape, because everything past the throw-check is unreachable.
+///
+/// Receivers are where that stand-in leaks: `o.v` and `xs[0]` read the
+/// operand's static type to pick a lane, see the stand-in's `Ptr`, and
+/// reject the program at COMPILE time — for a read that bun raises at
+/// and then carries on from. Those two lanes ask this before they
+/// insist on a real receiver. It is deliberately about the RECEIVER
+/// EXPRESSION, not about types: a genuine `Ptr` receiver is still a
+/// bug worth the panic.
+///
+/// It walks the receiver chain because the stand-in propagates along
+/// it — those same two lanes answer a dead value of their own, so in
+/// `o.a.b` the receiver of `.b` is a member load that is dead for the
+/// same reason `o` is, and stopping at one link would leave the panic
+/// exactly one property deeper.
+pub(crate) fn read_raises(ast: &crate::ast::Ast, eid: crate::ast::ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Ident(_) => ast.undeclared_reads.contains_key(&eid) || ast.tdz_reads.contains(&eid),
+        Expr::Member { obj, .. }
+        | Expr::OptChain { obj, .. }
+        | Expr::Index { obj, .. }
+        | Expr::OptIndex { obj, .. } => read_raises(ast, *obj),
+        _ => false,
+    }
+}
+
 /// §8.1.1.1 — the read is written earlier in the top-level statement
 /// list than the `let` / `const` it names, so reaching it means the
 /// declaration has not run (`ast::mark_toplevel_tdz_reads` documents

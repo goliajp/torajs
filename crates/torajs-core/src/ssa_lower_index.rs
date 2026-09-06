@@ -233,6 +233,13 @@ pub(crate) fn lower_from_value(
     crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &arr_val);
     let elem_ty = match arr_ty {
         Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
+        // Same as the member lane: the receiver is a read that already
+        // RAISED, so this element load is unreachable and `arr_val` is
+        // only the raise's stand-in shape
+        // (`ssa_lower_ident::read_raises`).
+        _ if crate::ssa_lower_ident::read_raises(ctx.ast, obj) => {
+            return Operand::ConstPtrNull;
+        }
         other => panic!("ssa-lower: index access on non-array type {other:?}"),
     };
     let idx_val = ctx.lower_index_operand(index);

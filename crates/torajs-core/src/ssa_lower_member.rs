@@ -225,6 +225,13 @@ pub(crate) fn lower_with_val(
     }
     let sid = match obj_ty {
         Type::Obj(sid) => sid,
+        // The receiver is a read that already RAISED, so this load is
+        // unreachable and `obj_val` is only the raise's stand-in shape
+        // — see `ssa_lower_ident::read_raises`. Rejecting here turns a
+        // program bun runs to completion into a compile error.
+        _ if crate::ssa_lower_ident::read_raises(ctx.ast, obj) => {
+            return Operand::ConstPtrNull;
+        }
         _ => panic!("ssa-lower: member access on non-object {obj_ty:?} (.{name})"),
     };
     // S2.24 刀 4 — a desugar-minted pattern field load
