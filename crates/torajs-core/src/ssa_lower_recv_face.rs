@@ -35,9 +35,24 @@ use crate::ssa_lower::LowerCtx;
 /// local table; every other spelling answers from the checker, which
 /// is where a cast's annotation lands.
 pub(crate) fn static_ty(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<Type> {
-    if let Expr::Ident(n) = ctx.ast.get_expr(obj) {
-        return ctx.locals.get(n).map(|info| info.ty);
+    if let Expr::Ident(n) = ctx.ast.get_expr(obj)
+        && let Some(info) = ctx.locals.get(n)
+    {
+        return Some(info.ty);
     }
+    // A name the local table does not hold is a PROMOTED GLOBAL, and
+    // the checker types it like it types every other spelling. The
+    // Ident arm used to stop at the local table and answer None for
+    // one, so `const m = new Map(); function f() { m.get(k) }` found
+    // no lane willing to claim it and reached the same terminal
+    // panic the cast spelling used to ("unsupported member call
+    // shape: get") — while the identical call on main, through a
+    // parameter, or on a fn-local Map all worked. That is the
+    // private-table drift this module exists to end, left standing
+    // in its own first arm.
+    //
+    // A local still wins where there is one: a fn-local binding
+    // shadows the global and keeps its own type.
     monomorphic_face(ctx.expr_types.get(&obj)?)
 }
 
