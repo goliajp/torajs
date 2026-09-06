@@ -63,6 +63,7 @@ representative case set (or note the changed set in commit msg).
 | date | HEAD | roadmap phase | conformance gate | test262 in-scope % | bench geomean tr/bun-aot | tr artifact (MB) | workspace crates | metal-core ext dep | total LOC |
 |------|------|---------------|------------------|--------------------|---|---:|---:|---:|---:|
 | 2026-06-14 | `a53a11de` (W-J A3a, +0e100f63 dashboard) | P10 (Promise/async/Generator) hot · W-J substrate trunk 4/9 chunk | 825/0/4 | 4.17% (2217/53174); 含 oracle 12.66% (6730) | tr ~2× faster (closure/throw/promise/startup/fib/array hot 9 case) · 持平 mandelbrot/gcd · slower popcount/json-stringify | 1.45 | 44 | 0 (cli + playground-api 隔离 scope) | 236,190 |
+| 2026-09-06 | `fd1bc2a2e` (rotation 598 close) | P0–P13 closed · P-SURF / P-PERF / P-PLAT 三 track 并行 | 3722/0/4 | 69.06% (36723/53174); tr-accepted 76.51% | median **0.5107** · geomean 0.4309 · 45/46 cells 快于 bun-aot (46 cases, runs=3, bun 1.4.2) | 0.049 (中位 51,677 B) | 49 | 0 (cli + playground-api 隔离 scope) | 652,027 |
 
 ## How to add a checkpoint
 
