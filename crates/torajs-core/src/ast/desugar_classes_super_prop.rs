@@ -166,7 +166,13 @@ fn rewrite_sites(
                         vec![ast.add_expr(Expr::This)]
                     };
                     ast.exprs[member.0 as usize] = Expr::Call { callee, args };
-                } else if dynamic && !deletes.contains(&member) {
+                } else if deletes.contains(&member) {
+                    // §13.5.1.2 step 4.b — recorded for the lowering,
+                    // which no longer sees the `__superbase__` marker.
+                    ast.super_delete_operands.insert(member);
+                    let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                    ast.exprs[member.0 as usize] = Expr::Member { obj: base, name };
+                } else if dynamic {
                     // See `delete_operands`: a delete operand must stay
                     // a property reference, so it keeps the plain read.
                     let base = mint_base(ast, parent_name, cname, is_static, dynamic);
@@ -189,7 +195,9 @@ fn rewrite_sites(
                 let key = *index;
                 let base = mint_base(ast, parent_name, cname, is_static, dynamic);
                 if deletes.contains(&index_expr) {
-                    // See `delete_operands` — the plain index stays.
+                    // See `delete_operands` — the plain index stays,
+                    // and §13.5.1.2 step 4.b is recorded for lowering.
+                    ast.super_delete_operands.insert(index_expr);
                     ast.exprs[index_expr.0 as usize] = Expr::Index {
                         obj: base,
                         index: key,

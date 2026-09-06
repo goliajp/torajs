@@ -64,6 +64,15 @@ pub struct Ast {
     /// runs, because the rename that establishes the shadow happens
     /// long after it.
     pub fn_shadowed_new: std::collections::HashSet<ExprId>,
+    /// Operands of a `delete` that are Super References — §13.5.1.2
+    /// step 4.b makes each one a ReferenceError whatever the property
+    /// is. The parser writes `super.x` as a member off the
+    /// `__superbase__` marker, but the class / object-literal super
+    /// desugars rewrite a delete operand to a plain member off a
+    /// MINTED base (they must: routing it through the read kernel
+    /// breaks `delete <a call>`), and the marker is gone by lowering.
+    /// So the judgement is recorded where the fact is still known.
+    pub super_delete_operands: std::collections::HashSet<ExprId>,
     /// Private-name lexical scopes, one entry per class body in parse
     /// order (the entry index is the scope id carried on
     /// `Parser::class_stack`). `.0` is the parse-time class name (the

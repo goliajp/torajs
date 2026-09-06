@@ -209,7 +209,9 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
         let key = plan.mint(ast);
         if deletes.contains(&site) {
             // See `delete_operands` — a delete operand keeps the plain
-            // member / index off the base.
+            // member / index off the base, and §13.5.1.2 step 4.b is
+            // recorded for the lowering.
+            ast.super_delete_operands.insert(site);
             let base_expr = super_base_expr(ast, &home);
             let base = ast.add_expr(base_expr);
             // A `Member` name is an identifier string; a key that is

@@ -362,6 +362,16 @@ pub unsafe extern "C" fn __torajs_throw_reference_error(msg: *const c_char) {
     unsafe { throw_native(SLOT_REFERENCE_ERROR as i64, msg) };
 }
 
+/// §13.5.1.2 step 4.b — `delete super.x` is a ReferenceError whatever
+/// the property is and whether or not it exists, because the operand
+/// is a Super Reference. No argument: the message does not name the
+/// property, and matches bun's text verbatim.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_reference_error_super_delete() {
+    // SAFETY: a 'static NUL-terminated literal.
+    unsafe { __torajs_throw_reference_error(c"Cannot delete a super property".as_ptr()) };
+}
+
 /// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an
 /// unresolvable Reference. `name` is the identifier as a tr Str
 /// (the lowerer's interned literal); the message is

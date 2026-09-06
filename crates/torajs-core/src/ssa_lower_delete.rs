@@ -38,7 +38,43 @@ fn lower_receiver(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
     ctx.box_to_any_from_expr(obj, recv)
 }
 
+/// §13.5.1.2 step 4.b — a Super Reference operand is a ReferenceError
+/// whatever the property is, and whether or not it exists. The parser
+/// encodes `super.x` / `super[k]` as a member off the `__superbase__`
+/// marker, but the super desugars rewrite a delete operand to a plain
+/// member off a MINTED base — they must, because routing it through
+/// the read kernel breaks `delete <a call>` — so by here the marker is
+/// gone. `Ast::super_delete_operands` carries the judgement from the
+/// pass that still knew it.
+///
+/// Step 1 evaluates the operand first, so `delete super[(n = 1, "k")]`
+/// performs the assignment and then throws. The base itself is the
+/// inert marker and is never lowered.
+fn try_super_property_raise(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Option<Operand> {
+    if !ctx.ast.super_delete_operands.contains(&operand) {
+        return None;
+    }
+    let index = match ctx.ast.get_expr(operand) {
+        Expr::Index { index, .. } => Some(*index),
+        _ => None,
+    };
+    if let Some(k) = index {
+        let _ = ctx.lower_expr(k);
+    }
+    let raiser = ctx.intrinsics.throw_reference_error_super_delete;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(cur_block, InstKind::Call(raiser, vec![]));
+    ctx.emit_throw_check(None);
+    // The value lane past the throw-check is dead; `false` stands in
+    // so the enclosing expression still types out, the same posture
+    // the tdz raise takes.
+    Some(Operand::ConstBool(false))
+}
+
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
+    if let Some(op) = try_super_property_raise(ctx, operand) {
+        return op;
+    }
     let (recv, key_v, owned_temp) = match ctx.ast.get_expr(operand) {
         Expr::Member { obj, name } => {
             let name = name.clone();

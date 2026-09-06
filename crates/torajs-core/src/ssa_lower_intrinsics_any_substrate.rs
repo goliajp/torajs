@@ -153,6 +153,7 @@ pub(crate) struct AnySubstrateIds {
     /// the identifier Str; the occurrences come from
     /// `ast.tdz_reads`.
     pub throw_reference_error_tdz: FuncId,
+    pub throw_reference_error_super_delete: FuncId,
     /// RFC 20260713 blade 5 cut 4 — %GeneratorFunction.prototype% /
     /// %AsyncGeneratorFunction.prototype% singleton (kind 0/1) and
     /// the per-generator-proto → %GeneratorPrototype% chain writer.
@@ -353,6 +354,11 @@ pub(crate) fn declare(
         ctor_no_super_throw: decl!("__torajs_ctor_no_super_throw", [], Void),
         throw_reference_error_name: decl!("__torajs_throw_reference_error_name", [Str], Void),
         throw_reference_error_tdz: decl!("__torajs_throw_reference_error_tdz", [Str], Void),
+        throw_reference_error_super_delete: decl!(
+            "__torajs_throw_reference_error_super_delete",
+            [],
+            Void
+        ),
         genfn_proto: decl!("__torajs_genfn_proto", [I64], Any),
         genfn_chain: decl!("__torajs_genfn_chain", [Any, I64], I64),
         // RFC 20260704 S3 — recv[idx] on an `any` receiver (Arr
