@@ -383,5 +383,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // every rewrite that could introduce one has to have happened.
     ast::analyze_regex_result_props(ast);
     ast::analyze_let_owned_elems(ast);
+    // Truly last: it reads TOP-LEVEL STATEMENT POSITION, so it has to
+    // see the order the lowerer will walk. Every pass above may append
+    // or lift a declaration, and a mark taken before one of them could
+    // name an occurrence that later moved.
+    ast::mark_toplevel_tdz_reads(ast);
     Ok(())
 }

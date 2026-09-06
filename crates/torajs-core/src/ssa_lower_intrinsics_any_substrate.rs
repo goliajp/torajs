@@ -147,6 +147,12 @@ pub(crate) struct AnySubstrateIds {
     /// unresolvable Reference: raises `<name> is not defined` as a
     /// catchable ReferenceError. `name` is the identifier Str.
     pub throw_reference_error_name: FuncId,
+    /// §8.1.1.1 — GetValue on a `let` / `const` still in its
+    /// temporal dead zone: raises `Cannot access '<name>' before
+    /// initialization.` as a catchable ReferenceError. `name` is
+    /// the identifier Str; the occurrences come from
+    /// `ast.tdz_reads`.
+    pub throw_reference_error_tdz: FuncId,
     /// RFC 20260713 blade 5 cut 4 — %GeneratorFunction.prototype% /
     /// %AsyncGeneratorFunction.prototype% singleton (kind 0/1) and
     /// the per-generator-proto → %GeneratorPrototype% chain writer.
@@ -346,6 +352,7 @@ pub(crate) fn declare(
         error_tostring_dispatch: decl!("__torajs_error_tostring_dispatch", [Ptr], Str),
         ctor_no_super_throw: decl!("__torajs_ctor_no_super_throw", [], Void),
         throw_reference_error_name: decl!("__torajs_throw_reference_error_name", [Str], Void),
+        throw_reference_error_tdz: decl!("__torajs_throw_reference_error_tdz", [Str], Void),
         genfn_proto: decl!("__torajs_genfn_proto", [I64], Any),
         genfn_chain: decl!("__torajs_genfn_chain", [Any, I64], I64),
         // RFC 20260704 S3 — recv[idx] on an `any` receiver (Arr

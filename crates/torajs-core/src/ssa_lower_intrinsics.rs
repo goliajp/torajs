@@ -512,6 +512,7 @@ pub(crate) struct Intrinsics {
     pub(crate) get_property_descriptors: FuncId,
     pub(crate) ctor_no_super_throw: FuncId,
     pub(crate) throw_reference_error_name: FuncId,
+    pub(crate) throw_reference_error_tdz: FuncId,
     pub(crate) class_computed_method_define: FuncId,
     pub(crate) fn_computed_name_define: FuncId,
     pub(crate) class_computed_accessor_define: FuncId,

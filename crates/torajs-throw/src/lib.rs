@@ -396,6 +396,47 @@ pub unsafe extern "C" fn __torajs_throw_reference_error_name(name: *mut c_void) 
     }
 }
 
+/// §8.1.1.1 — GetValue on a `let` / `const` binding still in its
+/// temporal dead zone. `name` is the identifier as a tr Str; the
+/// message is `Cannot access '<name>' before initialization.`,
+/// matching bun's text verbatim (JSC keeps the trailing period V8
+/// omits, and the fixtures compare against bun).
+///
+/// # Safety
+///
+/// `name` must be a valid Str block pointer. Borrowed — only its
+/// bytes are read.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_reference_error_tdz(name: *mut c_void) {
+    const PREFIX: &[u8] = b"Cannot access '";
+    const SUFFIX: &[u8] = b"' before initialization.";
+    let name = name as *const u8;
+    // SAFETY: name is a valid Str block per caller invariant; len
+    // field lives at STR_LEN_OFF.
+    let name_len = unsafe { (name.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    let total = (PREFIX.len() + name_len + SUFFIX.len()) as u64;
+    // SAFETY: __torajs_str_alloc_pooled returns an initialized Str
+    // header with the len field set; we own the rc = 1 allocation.
+    let err = unsafe { __torajs_str_alloc_pooled(total) };
+    // SAFETY: dst spans `total` bytes past the payload offset of the
+    // just-allocated block; all three srcs are readable for their
+    // lengths and non-overlapping with the fresh allocation.
+    unsafe {
+        ptr::copy_nonoverlapping(PREFIX.as_ptr(), err.add(STR_HDR_SIZE), PREFIX.len());
+        ptr::copy_nonoverlapping(
+            name.add(STR_HDR_SIZE),
+            err.add(STR_HDR_SIZE + PREFIX.len()),
+            name_len,
+        );
+        ptr::copy_nonoverlapping(
+            SUFFIX.as_ptr(),
+            err.add(STR_HDR_SIZE + PREFIX.len() + name_len),
+            SUFFIX.len(),
+        );
+        throw_native_str(SLOT_REFERENCE_ERROR as i64, err);
+    }
+}
+
 /// Cross-TU wrapper for `SyntaxError` — RFC 20260720 刀 5b (the
 /// §7.1.14 StringToBigInt parse-failure raise in torajs-bigint).
 ///

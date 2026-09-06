@@ -67,6 +67,17 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
+    // §8.1.1.1 before §13.5.3 — `typeof` is the one form that answers
+    // for an UNRESOLVABLE Reference instead of raising, and every fold
+    // below is built on that. A dead-zone binding is not unresolvable:
+    // it resolves, and GetValue on it throws. Without this the folds
+    // answer `"undefined"` for it — the same silent wrong answer the
+    // value lane gave, wearing the exception that was written for the
+    // other case.
+    if let Expr::Ident(name) = ctx.ast.get_expr(expr) {
+        let name = name.clone();
+        crate::ssa_lower_ident::emit_tdz_raise(ctx, expr, &name);
+    }
     if let Some(check_mod::Type::Undefined) = ctx.expr_types.get(&expr) {
         // Chunk 806 — typeof evaluates its operand (ES §13.5.3); a
         // void call typed Undefined must still run for effect before

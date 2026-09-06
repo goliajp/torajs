@@ -46,6 +46,7 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str) -> Operand {
+    emit_tdz_raise(ctx, eid, name);
     if ctx.locals.get(name).is_none() {
         if let Some(op) = try_undeclared_read_throw(ctx, eid, name) {
             return op;
@@ -178,6 +179,31 @@ fn try_ns_object_ident(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
         None,
     );
     Some(Operand::Value(v))
+}
+
+/// §8.1.1.1 — the read is written earlier in the top-level statement
+/// list than the `let` / `const` it names, so reaching it means the
+/// declaration has not run (`ast::mark_toplevel_tdz_reads` documents
+/// why that is decidable here and nowhere else).
+///
+/// This RAISES and returns; the caller lowers the read as it always
+/// did and the value lane past the throw-check is dead. That is
+/// deliberate: the shape of the dead value stays whatever the
+/// resolved binding would have produced, so no arm downstream has to
+/// be taught a stand-in width — a lesson the undeclared lane paid for
+/// by needing the checker to type its marks `Any` first.
+pub(crate) fn emit_tdz_raise(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str) {
+    if !ctx.ast.tdz_reads.contains(&eid) {
+        return;
+    }
+    let name_str = ctx.intern_string_literal(name);
+    let raiser = ctx.intrinsics.throw_reference_error_tdz;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(raiser, vec![Operand::Value(name_str)]),
+    );
+    ctx.emit_throw_check(None);
 }
 
 /// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an

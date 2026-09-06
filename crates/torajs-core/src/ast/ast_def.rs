@@ -180,6 +180,14 @@ pub struct Ast {
     /// Parked by `check_monomorph` on the owned post-check AST (same
     /// ride as `undeclared_reads`). Empty pre-check.
     pub self_name_writes: std::collections::HashSet<ExprId>,
+    /// §8.1.1.1 — top-level `let` / `const` reads written EARLIER in
+    /// the statement list than the declaration, so the read is in the
+    /// binding's temporal dead zone whenever it runs. Filled last in
+    /// the AST pipeline by `ast::mark_toplevel_tdz_reads` (which
+    /// documents why this one shape is decidable and where the walk
+    /// stops); the lowerer's ident lane raises a catchable
+    /// ReferenceError at the occurrence. Empty pre-pipeline.
+    pub tdz_reads: std::collections::HashSet<ExprId>,
     /// 551-03 — any-widened clone of a lifted closure body → the
     /// lifted name it was cloned from. Never constructed (the call
     /// retargets to it with the ORIGINAL cell's env), so its env

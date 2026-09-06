@@ -442,6 +442,7 @@ pub(crate) fn build(
         get_property_descriptors: init_c.struct_expando.get_property_descriptors,
         ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
+        throw_reference_error_tdz: init_c.any_substrate.throw_reference_error_tdz,
         class_computed_method_define: init_c.class_computed.computed_method_define,
         fn_computed_name_define: init_c.class_computed.fn_computed_name_define,
         class_computed_accessor_define: init_c.class_computed.computed_accessor_define,
