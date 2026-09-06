@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T04:38:14.422Z",
+  "generatedAt": "2026-09-06T06:23:44.768Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-06T04:26:10Z",
-    "headSha": "b1e09e59b",
-    "elapsedSec": 390.18,
+    "ranAt": "2026-09-06T06:09:46Z",
+    "headSha": "3762d0f4",
+    "elapsedSec": 379.74,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31126,
+    "pass": 31127,
     "passNoOracle": 1140,
     "passNegative": 4457,
-    "passTotal": 36723,
+    "passTotal": 36724,
     "bug": 11273,
-    "incompatible": 5178,
+    "incompatible": 5177,
     "bunSkip": 2926,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47996,
+    "trAccepted": 47997,
     "passRateInScope": 69.06,
     "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "b1e09e59b",
-    "commitSubject": "fix: the bench result stops passing off a directory's git HEAD as provenance",
+    "commit": "3762d0f45",
+    "commitSubject": "fix: a var-bound variadic closure read from a named fn no longer segfaults",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "3762d0f45",
+      "subject": "fix: a var-bound variadic closure read from a named fn no longer segfaults"
+    },
+    {
+      "hash": "27daa7207",
+      "subject": "fix: a rest tail of refcounted elements gets its boxed dual entry"
+    },
+    {
+      "hash": "c9f8e6cc6",
+      "subject": "fix: an erased container's get answers Any, not a second name for Any"
+    },
+    {
+      "hash": "7870527b6",
+      "subject": "fix: a variadic FACE over a non-variadic closure still boxes its calls"
+    },
+    {
+      "hash": "5a548fc54",
+      "subject": "fix: a variadic arrow held in a top-level binding is callable from anywhere"
+    },
+    {
+      "hash": "5f0990fea",
+      "subject": "chore: rotation 599 sweep on b1e09e59b, plus the dashboard snapshot"
+    },
+    {
       "hash": "b1e09e59b",
       "subject": "fix: the bench result stops passing off a directory's git HEAD as provenance"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "fd1bc2a2e",
       "subject": "chore: refresh the hardev dashboard snapshot"
-    },
-    {
-      "hash": "8338e6770",
-      "subject": "fix: a named function pushed into an any-element array reaches the slot as a value"
-    },
-    {
-      "hash": "7d0c4391f",
-      "subject": "chore: rotation 598 sweep on 550c3b973"
-    },
-    {
-      "hash": "550c3b973",
-      "subject": "fix: a Map or Set written in place is as certain a receiver as one in a binding"
-    },
-    {
-      "hash": "ea12ccef2",
-      "subject": "fix: writing down an array's type no longer costs it its receiver census"
-    },
-    {
-      "hash": "889b6ba88",
-      "subject": "fix: a replace callback's receiver is decided by the receiver, not its spelling"
-    },
-    {
-      "hash": "e026d2852",
-      "subject": "refactor: one synthesizer mints every __forward_ shell"
     }
   ],
-  "headSha": "b1e09e59b",
+  "headSha": "3762d0f45",
   "autorun": {
-    "total": 902,
+    "total": 903,
     "baselineTarget": 10,
-    "bySelf": 897,
+    "bySelf": 898,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788660602-3d1e",
-      "at": "2026-09-06T02:10:02Z",
-      "ts": 1788660602,
+      "rotationId": "r-1788669504-1f4b",
+      "at": "2026-09-06T04:38:24Z",
+      "ts": 1788669504,
       "trigger": "self",
-      "prevHead": "fd1bc2a2e",
-      "handoffSha": "sha256:330ed4316447ef1a8013c79f1353f4dacf6aa70e3dc046c098e53e2503aba2f0",
-      "handoffAgeSec": 5,
+      "prevHead": "5f0990fea",
+      "handoffSha": "sha256:fbf4cedad2fbb45fbf76fe7f439e7d54d1168b4d1f33b8f5ab8d8d72b4724718",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788669504-1f4b",
+        "at": "2026-09-06T04:38:24Z",
+        "ts": 1788669504,
+        "trigger": "self",
+        "prevHead": "5f0990fea",
+        "handoffSha": "sha256:fbf4cedad2fbb45fbf76fe7f439e7d54d1168b4d1f33b8f5ab8d8d72b4724718",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788660602-3d1e",
         "at": "2026-09-06T02:10:02Z",
@@ -892,17 +903,6 @@
         "prevHead": "2ed3b582c",
         "handoffSha": "sha256:466014afa5f84ce9c5768d8ce3379d173bb25ddb057ef616945e0792504dabf5",
         "handoffAgeSec": 36,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788591614-3e26",
-        "at": "2026-09-05T07:00:14Z",
-        "ts": 1788591614,
-        "trigger": "self",
-        "prevHead": "b5dfecea2",
-        "handoffSha": "sha256:62326bede6935f6d32c990d8299fcd132516030846059f51cb90da8bfc77ea8e",
-        "handoffAgeSec": 30,
         "conformanceBefore": null,
         "commitsInSession": null
       }
