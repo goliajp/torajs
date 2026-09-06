@@ -346,12 +346,22 @@ fn collect_boxed_targets(
         // an array (garbage). The adapter collects argv[fixed..argc]
         // into a fresh Arr<Any> itself; a TYPED rest (刀 2, RFC
         // 20260815-fn-value-rest-spread) converts that collection
-        // through `__torajs_arr_any_to_typed` when the element repr
-        // has an ARR_KIND (I64 / F64 / Bool). Element reprs outside
-        // the kind scheme (Str — a ShortStr argument is an immediate
-        // the heap-kind check would refuse; nested typed arrays)
-        // keep no adapter: a runtime call stays a loud not-callable
-        // instead of silent garbage.
+        // through `__torajs_arr_any_to_typed` with the element's
+        // ARR_KIND. A REFCOUNTED element is one cell per slot, which
+        // the kernel's HEAP path already stakes — and it materializes
+        // a ShortStr immediate there rather than refusing it (the
+        // rotation-546 form). Reading the kind off a narrower private
+        // copy of `arr_kind_chain_of`'s mapping is what kept `Str`
+        // out: `const g = (...xs: string[]) => …; g('a')` died at
+        // "value is not a function" for want of an adapter, while
+        // every other element type and the declaration spelling of
+        // the same function worked (rotation 600).
+        //
+        // Nested typed arrays stay out for a reason that is still
+        // true: their element kind is a CHAIN and the kernel takes
+        // one level, so the inner stamp would be lost. No adapter
+        // keeps a runtime call a loud not-callable instead of silent
+        // garbage.
         let rest = params.last().is_some_and(|p| p.is_rest);
         let mut rest_kind: Option<i64> = None;
         if rest && params.last().and_then(|p| p.type_ann.as_deref()) != Some("any[]") {
@@ -363,6 +373,8 @@ fn collect_boxed_targets(
                 Some(Type::I64) | Some(Type::I32) => Some(torajs_rc::ARR_KIND_I64 as i64),
                 Some(Type::F64) => Some(torajs_rc::ARR_KIND_F64 as i64),
                 Some(Type::Bool) => Some(torajs_rc::ARR_KIND_BOOL as i64),
+                Some(Type::Arr(_)) => None,
+                Some(t) if t.is_refcounted() => Some(torajs_rc::ARR_KIND_HEAP as i64),
                 _ => None,
             };
             if rest_kind.is_none() {
