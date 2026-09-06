@@ -20,14 +20,16 @@
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
-// r290 file-size split — the slot-shape inference half; `pub use`
-// keeps every `crate::ast_refs::*` consumer path unchanged.
+// r290 / r602 file-size splits — the slot-shape inference half and
+// the canonical-annotation half; `pub use` keeps every
+// `crate::ast_refs::*` consumer path unchanged.
+mod init_ann;
 mod shape;
 mod shape_operator;
-pub use shape::{
-    GlobalSlotShape, closure_alias_fn_canon, infer_toplevel_slot_shape, lifted_closure_fn_canon,
-    new_class_ann, objlit_literal_inlobj_ann,
+pub use init_ann::{
+    closure_alias_fn_canon, lifted_closure_fn_canon, new_class_ann, objlit_literal_inlobj_ann,
 };
+pub use shape::{GlobalSlotShape, infer_toplevel_slot_shape};
 
 pub struct ToplevelBindingRefs {
     /// Names referenced anywhere inside a named (non-lifted) fn body.
