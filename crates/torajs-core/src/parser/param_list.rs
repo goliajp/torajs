@@ -113,10 +113,7 @@ impl<'a> Parser<'a> {
                 if is_rest {
                     self.pos += 1;
                 }
-                // §15.1 — a FunctionRestParameter is a
-                // BindingRestElement, and its right-hand side may be a
-                // BindingPattern as readily as a BindingIdentifier.
-                // See the twin in `parse_fn.rs`.
+                // §15.1 rest patterns ride here too — see `parse_fn.rs`.
                 if matches!(self.peek(), Token::LBracket | Token::LBrace) {
                     if vis.is_some() || rd {
                         return Err(format!(
@@ -129,8 +126,7 @@ impl<'a> Parser<'a> {
                         self.pos += 1;
                         Some(self.parse_type_ann()?)
                     } else if is_rest {
-                        // Untyped rest param is implicitly `any[]`.
-                        Some("any[]".into())
+                        Some("any[]".into()) // implicit, as for a named rest
                     } else {
                         None
                     };
