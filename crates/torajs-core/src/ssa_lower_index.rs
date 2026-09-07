@@ -462,13 +462,13 @@ fn obj_is_struct_like(ctx: &LowerCtx<'_>, obj: crate::ast::ExprId) -> bool {
 /// lowering while `(new Map() as any)[0] = 1` had just started
 /// working one layer down.
 ///
-/// WeakMap / WeakSet / WeakRef are deliberately ABSENT. bun answers a
-/// property write on them like any ordinary object, but their runtime
-/// cells carry no props slot at all, so admitting them here would move
-/// the refusal one layer down rather than remove it — exactly what
-/// rotation 610-04 caught when a write-side admit list was copied from
-/// the read side instead of being asked item by item. Giving them a
-/// bag is its own seam, registered, not smuggled in with this one.
+/// WeakMap / WeakSet / WeakRef joined once they actually had a bag to
+/// reach: when this predicate was first written their cells carried no
+/// props slot, so admitting them would have moved the refusal one
+/// layer down into member_set's reject rather than removing it (the
+/// rotation 610-04 lesson). The following commit gave all three a
+/// slot, and only then were they admitted — the order matters, and is
+/// the whole difference between closing a seam and relocating it.
 ///
 /// `Arr` is absent for a different reason: an array's expando lives
 /// behind the `arrprops_*` kernels and its index keys are elements,
@@ -484,5 +484,8 @@ pub(crate) fn shape_has_expando_bag(ty: &Type) -> bool {
             | Type::Promise
             | Type::MapIter
             | Type::ArrIter
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
     )
 }

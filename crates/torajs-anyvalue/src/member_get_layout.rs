@@ -119,6 +119,16 @@ pub(crate) const MAP_PROPS_OFF: usize = 48;
 /// `DATE_PROPS_OFF`.
 pub(crate) const DATE_PROPS_OFF: usize = 16;
 
+/// WeakRef cell lazy expando slot — mirror of
+/// `torajs_weak::layout::WEAKREF_PROPS_OFF` (header, target, props).
+pub(crate) const WEAKREF_PROPS_OFF: usize = 16;
+
+/// WeakMap / WeakSet lazy expando slot — mirror of
+/// `torajs_weak::layout::WEAKCOLL_PROPS_OFF`. The two cells share a
+/// four-field prefix (header, n_buckets, n_entries, buckets), so both
+/// tags read one offset, the way Map and Set already do.
+pub(crate) const WEAKCOLL_PROPS_OFF: usize = 24;
+
 /// RegExp cell lazy expando slot — mirror of torajs-regex's
 /// `regex::REGEX_PROPS_OFF`. It sits directly after the header so
 /// the offset survives any reshuffle of the compiled program below.
@@ -162,6 +172,10 @@ pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
         Some(MAP_PROPS_OFF)
     } else if tag == Tag::Date as u16 {
         Some(DATE_PROPS_OFF)
+    } else if tag == Tag::WeakRef as u16 {
+        Some(WEAKREF_PROPS_OFF)
+    } else if tag == Tag::WeakMap as u16 || tag == Tag::WeakSet as u16 {
+        Some(WEAKCOLL_PROPS_OFF)
     } else if tag == Tag::RegExp as u16 {
         Some(REGEX_PROPS_OFF)
     } else if tag == Tag::ArrIter as u16 || tag == Tag::MapIter as u16 {
@@ -186,6 +200,13 @@ pub(crate) fn is_stateful_bag_tag(t: u16) -> bool {
         || t == Tag::Set as u16
         || t == Tag::Date as u16
         || t == Tag::RegExp as u16
+        // §24.3 / §24.4 / §26.1 — the weak shapes carry their entry
+        // table and observed target as internal state watched by the
+        // registry, never as properties, so their whole ordinary own
+        // face is the bag too (rotation 611 gave them one).
+        || t == Tag::WeakMap as u16
+        || t == Tag::WeakSet as u16
+        || t == Tag::WeakRef as u16
         || is_iter_cell_tag(t)
 }
 

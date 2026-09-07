@@ -75,7 +75,27 @@ pub struct HeapHeader {
 pub struct WeakRef {
     pub header: HeapHeader,
     pub target: *mut c_void,
+    /// Lazy own-property bag (§7.3 ordinary object face). NULL until
+    /// the first `wr.z = 1` / `wr[0] = 1`. A WeakRef's entry table is
+    /// internal state observed weakly, never properties — so every
+    /// ordinary key it answers is this bag's, exactly as for Map
+    /// (§26.1 has no exotic property behaviour beyond the entries).
+    /// Rotation 611: before this slot existed the three Weak shapes
+    /// were the one family the keyed lanes had to keep refusing,
+    /// because admitting them would have moved the refusal into
+    /// member_set's reject rather than removed it.
+    pub props: *mut c_void,
 }
+
+/// Byte offset of [`WeakRef::props`] — mirrored by
+/// `torajs_anyvalue::member_get_layout::WEAKREF_PROPS_OFF`, which is
+/// how the any-lane channels reach the bag.
+pub const WEAKREF_PROPS_OFF: usize = 16;
+
+/// Byte offset of the props slot on WeakMap / WeakSet cells, whose
+/// four-field prefix is identical (header, n_buckets, n_entries,
+/// buckets). Mirrored by `member_get_layout::WEAKCOLL_PROPS_OFF`.
+pub const WEAKCOLL_PROPS_OFF: usize = 24;
 
 #[cfg(test)]
 mod tests {
@@ -87,8 +107,9 @@ mod tests {
         assert_eq!(core::mem::size_of::<HeapHeader>(), 8);
         assert_eq!(core::mem::align_of::<HeapHeader>(), 8);
 
-        // WeakRef: header(8) + ptr(8) = 16B, align 8.
-        assert_eq!(core::mem::size_of::<WeakRef>(), 16);
+        // WeakRef: header(8) + target(8) + props(8) = 24B, align 8.
+        assert_eq!(core::mem::size_of::<WeakRef>(), 24);
+        assert_eq!(core::mem::offset_of!(WeakRef, props), WEAKREF_PROPS_OFF);
         assert_eq!(core::mem::align_of::<WeakRef>(), 8);
 
         // Field offsets must match runtime_weakref.c::WeakRef.

@@ -59,6 +59,12 @@ struct WeakSet {
     n_buckets: u32,
     n_entries: u32,
     buckets: *mut *mut WeakSetEntry,
+    /// Lazy own-property bag (§7.3 ordinary object face). NULL until
+    /// the first `ws.z = 1` / `ws[0] = 1`. A WeakSet's entry table is
+    /// internal state observed weakly, never properties — so every
+    /// ordinary key it answers is this bag's (§24.4 adds no exotic
+    /// property behaviour beyond the entries).
+    props: *mut c_void,
 }
 
 unsafe extern "C" {
@@ -73,6 +79,10 @@ unsafe extern "C" {
     /// identity entry (RFC 20260730 blade 0); gated on
     /// `FLAG_SUBCLASSED` so plain weak collections never call out.
     fn __torajs_subclass_drop_entry(p: *mut c_void);
+
+    /// torajs-str — universal heap-value drop dispatch; releases the
+    /// lazy own-property bag (a DynObj cell) when the owner dies.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// Fold a pointer into a bucket index. Same splitmix-style mix as
@@ -152,6 +162,7 @@ pub unsafe extern "C" fn __torajs_weakset_create() -> *mut c_void {
         };
         (*s).n_buckets = WEAKSET_INITIAL_BUCKETS;
         (*s).n_entries = 0;
+        (*s).props = core::ptr::null_mut();
         (*s).buckets = calloc(
             WEAKSET_INITIAL_BUCKETS as usize,
             core::mem::size_of::<*mut WeakSetEntry>(),
@@ -270,6 +281,10 @@ pub unsafe extern "C" fn __torajs_weakset_drop(p: *mut c_void) {
         if (*s).header.refcount != 0 {
             return;
         }
+        if !(*s).props.is_null() {
+            __torajs_value_drop_heap((*s).props);
+            (*s).props = core::ptr::null_mut();
+        }
         for i in 0..(*s).n_buckets as usize {
             let mut cur = *(*s).buckets.add(i);
             while !cur.is_null() {
@@ -303,8 +318,14 @@ mod tests {
         assert_eq!(core::mem::offset_of!(WeakSetEntry, key), 0);
         assert_eq!(core::mem::offset_of!(WeakSetEntry, next), 8);
 
-        // WeakSet: header(8) + 2×u32(8) + ptr(8) = 24B (same as WeakMap).
-        assert_eq!(core::mem::size_of::<WeakSet>(), 24);
+        // WeakSet: header(8) + 2×u32(8) + buckets(8) + props(8) = 32B
+        // (same as WeakMap, and the shared prefix is what lets one
+        // offset constant serve both bags).
+        assert_eq!(core::mem::size_of::<WeakSet>(), 32);
+        assert_eq!(
+            core::mem::offset_of!(WeakSet, props),
+            crate::layout::WEAKCOLL_PROPS_OFF
+        );
         assert_eq!(core::mem::align_of::<WeakSet>(), 8);
         assert_eq!(core::mem::offset_of!(WeakSet, header), 0);
         assert_eq!(core::mem::offset_of!(WeakSet, n_buckets), 8);

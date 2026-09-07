@@ -71,6 +71,16 @@ struct WeakMap {
     n_buckets: u32,
     n_entries: u32,
     buckets: *mut *mut WeakMapEntry,
+    /// Lazy own-property bag (§7.3 ordinary object face). NULL until
+    /// the first `wm.z = 1` / `wm[0] = 1`. A WeakMap's entry table is
+    /// internal state observed weakly, never properties — so every
+    /// ordinary key it answers is this bag's, exactly as for Map
+    /// (§24.3 has no exotic property behaviour beyond the entries).
+    /// Rotation 611: before this slot existed the three Weak shapes
+    /// were the one family the keyed lanes had to keep refusing,
+    /// because admitting them would have moved the refusal into
+    /// member_set's reject rather than removed it.
+    props: *mut c_void,
 }
 
 unsafe extern "C" {
@@ -174,6 +184,7 @@ pub unsafe extern "C" fn __torajs_weakmap_create() -> *mut c_void {
         };
         (*m).n_buckets = WEAKMAP_INITIAL_BUCKETS;
         (*m).n_entries = 0;
+        (*m).props = core::ptr::null_mut();
         (*m).buckets = calloc(
             WEAKMAP_INITIAL_BUCKETS as usize,
             core::mem::size_of::<*mut WeakMapEntry>(),
@@ -341,6 +352,10 @@ pub unsafe extern "C" fn __torajs_weakmap_drop(p: *mut c_void) {
         if (*m).header.refcount != 0 {
             return;
         }
+        if !(*m).props.is_null() {
+            __torajs_value_drop_heap((*m).props);
+            (*m).props = core::ptr::null_mut();
+        }
         for i in 0..(*m).n_buckets as usize {
             let mut cur = *(*m).buckets.add(i);
             while !cur.is_null() {
@@ -379,8 +394,15 @@ mod tests {
         assert_eq!(core::mem::offset_of!(WeakMapEntry, value), 8);
         assert_eq!(core::mem::offset_of!(WeakMapEntry, next), 16);
 
-        // WeakMap: header(8) + 2×u32(8) + ptr(8) = 24B, align 8.
-        assert_eq!(core::mem::size_of::<WeakMap>(), 24);
+        // WeakMap: header(8) + 2×u32(8) + buckets(8) + props(8) = 32B,
+        // align 8. The props slot was appended in rotation 611 — the
+        // four-field prefix is unchanged, which is why WeakSet can keep
+        // reading the same offset for its own bag.
+        assert_eq!(core::mem::size_of::<WeakMap>(), 32);
+        assert_eq!(
+            core::mem::offset_of!(WeakMap, props),
+            crate::layout::WEAKCOLL_PROPS_OFF
+        );
         assert_eq!(core::mem::align_of::<WeakMap>(), 8);
         assert_eq!(core::mem::offset_of!(WeakMap, header), 0);
         assert_eq!(core::mem::offset_of!(WeakMap, n_buckets), 8);

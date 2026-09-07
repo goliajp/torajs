@@ -29,6 +29,10 @@ unsafe extern "C" {
     /// (target, kind, owner) tuple from the shared observer
     /// registry. Tolerant of NULL target and missing entries.
     fn __torajs_weakref_registry_deregister(target: *mut c_void, kind: u32, owner: *mut c_void);
+
+    /// torajs-str — universal heap-value drop dispatch; releases the
+    /// lazy own-property bag (a DynObj cell) when the owner dies.
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// `__torajs_weakref_drop(wr)` — refcount-aware WeakRef drop.
@@ -51,6 +55,10 @@ pub unsafe extern "C" fn __torajs_weakref_drop(p: *mut c_void) {
         }
         (*wr).header.refcount -= 1;
         if (*wr).header.refcount == 0 {
+            if !(*wr).props.is_null() {
+                __torajs_value_drop_heap((*wr).props);
+                (*wr).props = core::ptr::null_mut();
+            }
             let target = (*wr).target;
             if !target.is_null() {
                 __torajs_weakref_registry_deregister(target, OBSERVER_WEAKREF, p);

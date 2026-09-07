@@ -42,6 +42,7 @@ pub unsafe extern "C" fn __torajs_weakref_create(target: *mut c_void) -> *mut c_
             flags: 0,
         };
         (*wr).target = target;
+        (*wr).props = core::ptr::null_mut();
         if !target.is_null() {
             __torajs_weakref_registry_register(target, OBSERVER_WEAKREF, wr as *mut c_void);
         }
