@@ -289,6 +289,18 @@ fn check_compare(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::BigInt && r == Type::BigInt {
         return Ok(Type::Boolean);
     }
+    // §7.2.13 IsLessThan is defined ACROSS the numeric types: steps
+    // 3.a-3.b take a BigInt against a String (via StringToBigInt) and
+    // steps 4-5 take a BigInt against a Number by mathematical value.
+    // Only the ARITHMETIC operators refuse a mixed pair (§6.1.6.1.x),
+    // and reading that refusal onto comparison made `1n < 2` a
+    // compile error while `(1n as any) < 2` answered true off the
+    // same kernel.
+    if matches!(l, Type::BigInt) && matches!(r, Type::Number | Type::String)
+        || matches!(r, Type::BigInt) && matches!(l, Type::Number | Type::String)
+    {
+        return Ok(Type::Boolean);
+    }
     if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Boolean);
     }

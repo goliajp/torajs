@@ -31,6 +31,29 @@ use crate::ast::BinOp as AstBinOp;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+/// §7.2.13 IsLessThan is defined ACROSS the numeric types: steps
+/// 3.a-3.b compare a BigInt with a String through StringToBigInt,
+/// and steps 4-5 compare a BigInt with a Number by mathematical
+/// value. Only the ARITHMETIC operators refuse a mixed pair.
+///
+/// Neither side is `Any`, so the admission test above declined the
+/// pair and the comparison fell through to a lane that had no answer
+/// for it — `1n < 2` lowered to `false` while `(1n as any) < 2`
+/// answered `true` off this very kernel. Packing both sides here
+/// routes the mixed pair to `any_compare`, which already carries the
+/// cross-type walk.
+fn mixed_bigint_compare(op: AstBinOp, a: &Type, b: &Type) -> bool {
+    if !matches!(
+        op,
+        AstBinOp::Lt | AstBinOp::Le | AstBinOp::Gt | AstBinOp::Ge
+    ) {
+        return false;
+    }
+    let numeric_or_string = |t: &Type| matches!(t, Type::F64 | Type::I64 | Type::I32 | Type::Str);
+    matches!(a, Type::BigInt) && numeric_or_string(b)
+        || matches!(b, Type::BigInt) && numeric_or_string(a)
+}
+
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx,
     op: AstBinOp,
@@ -60,7 +83,10 @@ pub(crate) fn try_lower(
     }
     let a_ty = ctx.operand_ty(&a);
     let b_ty = ctx.operand_ty(&b);
-    if !matches!(a_ty, Type::Any) && !matches!(b_ty, Type::Any) {
+    if !matches!(a_ty, Type::Any)
+        && !matches!(b_ty, Type::Any)
+        && !mixed_bigint_compare(op, &a_ty, &b_ty)
+    {
         return None;
     }
     // Third slot carries the original Any operand when the pair
