@@ -414,6 +414,32 @@ pub(crate) fn emit_to_string_inner(
             ctx.release_owned_temp(arg_eid, &arg_op);
             Operand::Value(s)
         }
+        // §7.1.17 ToString takes every value. A typed spelling whose
+        // repr is a heap cell simply has no dedicated kernel here, so
+        // it boxes at the any boundary and takes the very kernel the
+        // `any` spelling already takes — the Symbol arm above is the
+        // same move, one type earlier. Without it `String(10n)` and
+        // `` `${new Map()}` `` were compile errors while
+        // `String(x as any)` answered "10" and "[object Map]" off
+        // this kernel, the receiver's own spelling deciding whether
+        // the program builds.
+        Type::BigInt | Type::Map | Type::Set | Type::RegExp => {
+            let boxed = ctx.box_to_any(arg_op.clone());
+            let fid = if implicit_tostring {
+                ctx.intrinsics.any_to_str_box
+            } else {
+                ctx.intrinsics.any_to_display_str
+            };
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(fid, vec![boxed]),
+                Type::Str,
+                None,
+            );
+            ctx.release_owned_temp(arg_eid, &arg_op);
+            ctx.emit_throw_check(None);
+            Operand::Value(v)
+        }
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
     }
 }

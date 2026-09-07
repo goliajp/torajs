@@ -254,6 +254,17 @@ fn try_primitive_coercion_ctor(
                     // `String(q)` on a possibly-null q is how you ask
                     // for "null" instead of a crash.
                     | Type::Nullable(_)
+                    // §7.1.17 takes every value, and the any lane
+                    // already answered these four off the same
+                    // kernel: "10" for a BigInt, "[object Map]" /
+                    // "[object Set]", the source text of a RegExp.
+                    // Only the typed spelling was turned away, so
+                    // `String(10n)` was a compile error while
+                    // `String(10n as any)` was not.
+                    | Type::BigInt
+                    | Type::Map
+                    | Type::Set
+                    | Type::RegExp
             ),
             _ => false,
         };
