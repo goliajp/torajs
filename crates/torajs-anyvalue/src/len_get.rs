@@ -255,65 +255,81 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             return VALUE_UNDEFINED;
         }
         if tag == Tag::Closure as u16 {
-            // §10.1.6.3 — a define/write that landed in the expando
-            // is a REDEFINED own `length` and shadows every virtual
-            // source below: the tombstone recreate (chunk C), the
-            // reflection-surface cells (RFC 20260721 刀 2), and a
-            // `defineProperty(f, "length", …)` data or accessor form
-            // (pre-fix the registry arity answered first and the
-            // define was invisible — the rotation-347 recorded
-            // silent-wrong). Present-undefined answers undefined
-            // (the wrapper arm's `has` form).
-            let props = crate::member_get::closure_props(ptr);
-            if !props.is_null() {
-                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
-                let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-                if present {
-                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
-                    __torajs_str_drop(key as *mut c_void);
-                    return v;
-                }
-                __torajs_str_drop(key as *mut c_void);
-            }
-            // chunk C (RFC 20260711) — a tombstoned virtual `length`
-            // with no expando recreate continues along [[Prototype]]:
-            // %Function.prototype% carries an own `length` 0 (§20.2.3),
-            // so `delete f.length; f.length` answers 0 like bun (the
-            // formerly recorded undefined edge).
-            if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) {
-                return crate::nanbox_encode::__torajs_anyv_box_i64(0);
-            }
-            // chunk 715 — a reified builtin method cell answers its
-            // ES-spec arity; chunk 716 — an ordinary closure walks
-            // the fn-addr registry (the entry's former pad slot now
-            // carries the fn-decl arity); chunk 719 — a bound cell
-            // answers `max(0, targetLength - boundArgc)` recursively
-            // (ES §20.2.3.2 BoundFunctionCreate). A registry miss
-            // (arrow / anon closures never register) stays undefined
-            // — the binding-context NamedEvaluation face is a
-            // recorded follow-up, and a bound-of-unregistered target
-            // inherits the undefined (recorded edge; ES would answer
-            // 0 via the has-length fallback).
-            if let Some(l) = closure_length_of(ptr) {
-                return crate::nanbox_encode::__torajs_anyv_box_i64(l);
-            }
-            // %Function.prototype% is a Closure cell (§20.2.3) and
-            // registers no fn-decl arity, so the walk above finds
-            // nothing — its own virtual `length` 0 comes from the
-            // builtin-prototype meta face, the same one the dynobj
-            // arm above consults.
-            let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-            let meta =
-                crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key as *const c_void);
-            __torajs_str_drop(key as *mut c_void);
-            if let Some((mtag, mval)) = meta {
-                return crate::nanbox_encode::__torajs_anyv_box_from_pair(mtag as i64, mval as i64);
-            }
+            return closure_length_arm(ptr, recv).unwrap_or(VALUE_UNDEFINED);
         }
     }
     VALUE_UNDEFINED
+}
+
+/// The `Tag::Closure` arm of [`__torajs_any_length_get`] — split out
+/// at the file's function size limit. `None` = nothing answered and
+/// the caller's tail undefined stands.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell and `recv` its boxed form.
+unsafe fn closure_length_arm(ptr: *mut c_void, recv: AnyValue) -> Option<AnyValue> {
+    unsafe {
+        // §10.1.6.3 — a define/write that landed in the expando
+        // is a REDEFINED own `length` and shadows every virtual
+        // source below: the tombstone recreate (chunk C), the
+        // reflection-surface cells (RFC 20260721 刀 2), and a
+        // `defineProperty(f, "length", …)` data or accessor form
+        // (pre-fix the registry arity answered first and the
+        // define was invisible — the rotation-347 recorded
+        // silent-wrong). Present-undefined answers undefined
+        // (the wrapper arm's `has` form).
+        let props = crate::member_get::closure_props(ptr);
+        if !props.is_null() {
+            let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+            let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+            let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+            let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
+            if present {
+                let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                return Some(v);
+            }
+            __torajs_str_drop(key as *mut c_void);
+        }
+        // chunk C (RFC 20260711) — a tombstoned virtual `length`
+        // with no expando recreate continues along [[Prototype]]:
+        // %Function.prototype% carries an own `length` 0 (§20.2.3),
+        // so `delete f.length; f.length` answers 0 like bun (the
+        // formerly recorded undefined edge).
+        if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_LENGTH_DELETED) {
+            return Some(crate::nanbox_encode::__torajs_anyv_box_i64(0));
+        }
+        // chunk 715 — a reified builtin method cell answers its
+        // ES-spec arity; chunk 716 — an ordinary closure walks
+        // the fn-addr registry (the entry's former pad slot now
+        // carries the fn-decl arity); chunk 719 — a bound cell
+        // answers `max(0, targetLength - boundArgc)` recursively
+        // (ES §20.2.3.2 BoundFunctionCreate). A registry miss
+        // (arrow / anon closures never register) stays undefined
+        // — the binding-context NamedEvaluation face is a
+        // recorded follow-up, and a bound-of-unregistered target
+        // inherits the undefined (recorded edge; ES would answer
+        // 0 via the has-length fallback).
+        if let Some(l) = closure_length_of(ptr) {
+            return Some(crate::nanbox_encode::__torajs_anyv_box_i64(l));
+        }
+        // %Function.prototype% is a Closure cell (§20.2.3) and
+        // registers no fn-decl arity, so the walk above finds
+        // nothing — its own virtual `length` 0 comes from the
+        // builtin-prototype meta face, the same one the dynobj
+        // arm above consults.
+        let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
+        let meta =
+            crate::method_support_proto_meta::builtin_proto_own_meta(ptr, key as *const c_void);
+        __torajs_str_drop(key as *mut c_void);
+        if let Some((mtag, mval)) = meta {
+            return Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                mtag as i64,
+                mval as i64,
+            ));
+        }
+        None
+    }
 }
 
 /// `.length` metadata read for external consumers — torajs-meta's
