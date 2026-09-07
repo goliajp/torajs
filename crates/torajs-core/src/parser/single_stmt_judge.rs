@@ -165,6 +165,37 @@ impl Parser<'_> {
         Ok(())
     }
 
+    /// §B.3.4's other half — what the production MEANS once it has
+    /// been admitted.
+    ///
+    /// > The semantics of such a production are the same as for
+    /// > `if ( Expression ) Block` where `Block` is
+    /// > `{ FunctionDeclaration }`.
+    ///
+    /// So the declaration is block-scoped, and §B.3.3 then owes it a
+    /// var-scoped binding besides — the two independent slots
+    /// `annexb_block_binding` splits, and `fndecl_rebound` gives the
+    /// `any` a self-assigning body needs. Every one of those passes
+    /// works on statement LISTS, and a bare branch is not in one: it
+    /// is a single `Stmt` hanging off the `if`. Left that way it
+    /// reached none of them, and the whole `if-decl-*` half of
+    /// test262's `annexB/.../block-scoping` family answered with a
+    /// type error while the `block-decl-*` half — the same program
+    /// with braces — answered correctly.
+    ///
+    /// Writing the braces here is the narrowest place they can go:
+    /// the one site that recognizes the production, after the judge
+    /// above has already refused it under every goal that has no
+    /// §B.3.4. It is a grammar-level equivalence, not a rewrite, so
+    /// nothing downstream needs to know it happened.
+    pub(super) fn wrap_annexb_if_clause(branch: &mut Stmt) {
+        if !matches!(branch, Stmt::FnDecl { .. }) {
+            return;
+        }
+        let decl = std::mem::replace(branch, Stmt::Block(Vec::new()));
+        *branch = Stmt::Block(vec![decl]);
+    }
+
     /// §14.13.1 IsLabelledFunction — walk a label chain and answer
     /// what it wraps, when that is a function declaration. The chain
     /// may be any depth (`l1: l2: l3: function f(){}`), which is why

@@ -415,23 +415,25 @@ impl Parser<'_> {
             }
         }
         let then_start = self.pos;
-        let then_branch = Box::new(self.parse_stmt()?);
+        let mut then_branch = Box::new(self.parse_stmt()?);
         self.reject_decl_in_single_stmt(
             &then_branch,
             then_start,
             "an if statement",
             single_stmt_judge::SingleStmtPos::IfBranch,
         )?;
+        Self::wrap_annexb_if_clause(&mut then_branch);
         let else_branch = if matches!(self.peek(), Token::Else) {
             self.pos += 1;
             let else_start = self.pos;
-            let e = Box::new(self.parse_stmt()?);
+            let mut e = Box::new(self.parse_stmt()?);
             self.reject_decl_in_single_stmt(
                 &e,
                 else_start,
                 "an else clause",
                 single_stmt_judge::SingleStmtPos::IfBranch,
             )?;
+            Self::wrap_annexb_if_clause(&mut e);
             Some(e)
         } else {
             None
