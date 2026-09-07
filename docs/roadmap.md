@@ -1674,7 +1674,49 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `550c3b973`** (2026-09-06, rotation 598 — one synthesizer
+**Latest @ `70bdac732`** (2026-09-07, rotation 609 — the key domain of
+a receiver, measured as a 162-cell receiver x key matrix against bun
+rather than reasoned about one receiver at a time). Gate predicate:
+**128** clusters of >= 4 holding **933** cases, register 2 · 175,
+residue 458 · 622 (36.0%), core **1730**. Coverage curve: top-100
+**54.9%**, top-200 **73.2%**, top-400 **88.4%**. Against rotation 608:
+clusters 130 -> **128 (-2)**, cases 949 -> **933 (-16)**, core 1748 ->
+**1730 (-18)** — cluster count and case count down together for the
+second sweep running.
+
+Sweep passTotal 36605 -> **36621 (+16)**, pass 30974 -> **30988 (+14)**,
+passNoOracle 1172 -> **1174 (+2)**, passNegative **4459 (=)**, bug
+11480 -> **11484 (+4)**, incompatible 5089 -> **5069 (-20)**,
+trAccepted 48085 -> **48105 (+20)**; conservation exact
+(+20 = +16 + +4). Verdict diff 24 changed: **16** `incompatible:type
+error` -> `pass` (nine Array cases seeding `arr[true] = 11`, four
+`f[Symbol.hasInstance]` reads, the RegExp species case and two
+TypedArray iterator writes), **2** `incompatible:no-oracle:not yet
+supported` -> `pass-no-oracle` (Map / Set `Symbol.iterator`
+not-a-constructor, from the new Map / Set lanes), **4**
+`incompatible:type error` -> `bug:exit 1` (accepted now, failing
+deeper), and **2** `pass` -> `incompatible:tr-timeout` that are not
+this rotation's: both are known-heavy regex cases, both re-run to
+`pass` in isolation on the same binary, and the sweep ran at 62/s
+against a documented ~124/s because another project's suite held
+rustc at 100% and three servers at 90% throughout. Zero backward
+verdicts attributable to the code.
+
+Gate 3765 -> **3769** (four new fixtures, 0 fail, 4 skip throughout).
+
+What this phase's own denominator does not show is the size of the
+surface behind those 16 cases. The matrix says it: 83 of 162 cells
+disagreed with bun at the start and 25 do now, and most of the 58 that
+moved have no test262 case at all — `x[undefined]` on an array,
+`m[Symbol.iterator]` on a Map, every non-number key on a Set. The
+remaining 25 are registered by family in
+`.claude/tasks/2026-09-07/index-receiver-key-matrix.md`, the largest
+being the STRING receiver, which is the one receiver still holding a
+narrower key domain and holding it deliberately (`s[0]` is a
+character, so it owns an element lane the coerced keys would have to
+be told apart from at runtime).
+
+**Prior @ `550c3b973`** (2026-09-06, rotation 598 — one synthesizer
 for the forwarder shell, and three receiver censuses that were asking
 about a spelling. Gate predicate: **135** clusters of >= 4 holding
 **1002** cases, register 2 · 215, residue 451 · 610 (33.4%), core
