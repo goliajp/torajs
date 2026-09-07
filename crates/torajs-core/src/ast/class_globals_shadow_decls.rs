@@ -15,64 +15,53 @@
 //! own `C` as well.
 
 use super::Stmt;
+use super::desugar_with::walk::stmt_children_ref;
 use std::collections::HashSet;
+
+/// The names a nested BLOCK contributes to the enclosing FUNCTION
+/// scope — `var` at any depth, and the §B.3.3 `function` a block
+/// declares. A `let` / `const` / `class` in there belongs to its own
+/// block and is left to `collect_block_decls`; collecting it here is
+/// what made a deep `const R` hide `R` for the whole body.
+fn collect_fn_scoped_only(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                name, is_var: true, ..
+            }
+            | Stmt::FnDecl { name, .. } => {
+                out.insert(name.clone());
+            }
+            _ => {}
+        }
+        if matches!(s, Stmt::FnDecl { .. }) {
+            continue;
+        }
+        for c in stmt_children_ref(s) {
+            collect_fn_scoped_only(std::slice::from_ref(c), out);
+        }
+    }
+}
 
 pub(super) fn collect_scope_decls(stmts: &[Stmt], out: &mut HashSet<String>) {
     for s in stmts {
+        // Anything that is not written directly in this list sits in a
+        // scope of its own; only what that scope hands UP to the
+        // function (a `var`, a §B.3.3 `function`) is collected here.
+        if !matches!(
+            s,
+            Stmt::LetDecl { .. } | Stmt::FnDecl { .. } | Stmt::ClassDecl { .. } | Stmt::Multi(_)
+        ) {
+            collect_fn_scoped_only(std::slice::from_ref(s), out);
+            continue;
+        }
         match s {
             Stmt::LetDecl { name, .. }
             | Stmt::FnDecl { name, .. }
             | Stmt::ClassDecl { name, .. } => {
                 out.insert(name.clone());
             }
-            Stmt::If {
-                then_branch,
-                else_branch,
-                ..
-            } => {
-                collect_scope_decls(std::slice::from_ref(then_branch), out);
-                if let Some(eb) = else_branch.as_deref() {
-                    collect_scope_decls(std::slice::from_ref(eb), out);
-                }
-            }
-            Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-                collect_scope_decls(std::slice::from_ref(body), out)
-            }
-            Stmt::For { init, body, .. } => {
-                if let Some(i) = init.as_deref() {
-                    collect_scope_decls(std::slice::from_ref(i), out);
-                }
-                collect_scope_decls(std::slice::from_ref(body), out);
-            }
-            Stmt::ForOf { var_name, body, .. } => {
-                out.insert(var_name.clone());
-                collect_scope_decls(std::slice::from_ref(body), out);
-            }
-            Stmt::ForOfSplitIter { var_name, body, .. } => {
-                out.insert(var_name.clone());
-                collect_scope_decls(std::slice::from_ref(body), out);
-            }
-            Stmt::Try {
-                body,
-                catch_body,
-                finally_body,
-                ..
-            } => {
-                collect_scope_decls(body, out);
-                collect_scope_decls(catch_body, out);
-                if let Some(fb) = finally_body {
-                    collect_scope_decls(fb, out);
-                }
-            }
-            Stmt::Switch { cases, default, .. } => {
-                for c in cases {
-                    collect_scope_decls(&c.body, out);
-                }
-                if let Some(d) = default {
-                    collect_scope_decls(d, out);
-                }
-            }
-            Stmt::Block(b) | Stmt::Multi(b) => collect_scope_decls(b, out),
+            Stmt::Multi(b) => collect_scope_decls(b, out),
             _ => {}
         }
     }

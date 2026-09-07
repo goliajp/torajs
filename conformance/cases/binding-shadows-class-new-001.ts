@@ -35,22 +35,19 @@ function viaParam(W: any): void {
 }
 viaParam(function (): void {});
 
-// A `const` inside a nested block shadows there too.
-//
-// The other half of that boundary — a `new W()` written AFTER the
-// block, which must mean the class again — is not exercised here: it
-// hits a separate, pre-existing bug where a block-scoped `const W`
-// makes the class unreachable for the rest of the body
-// (`ReferenceError: W is not defined`). Measured by reverting only
-// this census file: that error is identical before and after this cut,
-// while `inner` goes from the class's instance to the const's.
-// Recorded, not fixed here.
+// The scope boundary, both halves: a `const` inside a nested block
+// shadows there, and a `new W()` written after the block means the
+// class again. (The second half was a separate pre-existing bug when
+// this fixture was first written — a block-scoped `const W` made the
+// class unreachable for the rest of the body — fixed in the next cut.)
 function blockScoped(): void {
   {
     const W: any = function (): void {};
     const inner: any = new W();
     console.log("inner", inner.constructor === W, inner.tag);
   }
+  const outer: any = new W();
+  console.log("outer", outer.constructor === W, outer.tag);
 }
 blockScoped();
 
