@@ -113,7 +113,11 @@ impl<'a> Parser<'a> {
                 if is_rest {
                     self.pos += 1;
                 }
-                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                // §15.1 — a FunctionRestParameter is a
+                // BindingRestElement, and its right-hand side may be a
+                // BindingPattern as readily as a BindingIdentifier.
+                // See the twin in `parse_fn.rs`.
+                if matches!(self.peek(), Token::LBracket | Token::LBrace) {
                     if vis.is_some() || rd {
                         return Err(format!(
                             "ctor destructuring param can't carry visibility / readonly modifiers at {}",
@@ -124,6 +128,9 @@ impl<'a> Parser<'a> {
                     let type_ann = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
                         Some(self.parse_type_ann()?)
+                    } else if is_rest {
+                        // Untyped rest param is implicitly `any[]`.
+                        Some("any[]".into())
                     } else {
                         None
                     };
@@ -131,7 +138,7 @@ impl<'a> Parser<'a> {
                         name: synth,
                         type_ann,
                         default: None,
-                        is_rest: false,
+                        is_rest,
                     });
                     match self.peek() {
                         Token::Comma => {
@@ -301,11 +308,16 @@ impl<'a> Parser<'a> {
                 if is_rest {
                     self.pos += 1;
                 }
-                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                // §15.1 — the rest slot takes a BindingPattern too;
+                // see the twin above.
+                if matches!(self.peek(), Token::LBracket | Token::LBrace) {
                     let synth = self.parse_destr_param(&mut param_destr_lets)?;
                     let type_ann = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
                         Some(self.parse_type_ann()?)
+                    } else if is_rest {
+                        // Untyped rest param is implicitly `any[]`.
+                        Some("any[]".into())
                     } else {
                         None
                     };
@@ -335,7 +347,7 @@ impl<'a> Parser<'a> {
                         name: synth,
                         type_ann,
                         default,
-                        is_rest: false,
+                        is_rest,
                     });
                     match self.peek() {
                         Token::Comma => {

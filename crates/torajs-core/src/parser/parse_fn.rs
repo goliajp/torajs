@@ -286,11 +286,22 @@ impl<'a> Parser<'a> {
                 if is_rest {
                     self.pos += 1;
                 }
-                if !is_rest && matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                // §15.1 FunctionRestParameter is a BindingRestElement,
+                // whose right-hand side is `BindingIdentifier` OR
+                // `BindingPattern` — `(...[a, b])` and `(...{length})`
+                // are both spelled by the grammar. Reading the rest
+                // marker as a reason to stop looking for a pattern
+                // rejected them at parse time; the rest slot is an
+                // array either way, and the pattern destructures it
+                // exactly as it destructures a named one.
+                if matches!(self.peek(), Token::LBracket | Token::LBrace) {
                     let synth = self.parse_destr_param(&mut param_destr_lets)?;
                     let type_ann = if matches!(self.peek(), Token::Colon) {
                         self.pos += 1;
                         Some(self.parse_type_ann()?)
+                    } else if is_rest {
+                        // Untyped rest param is implicitly `any[]`.
+                        Some("any[]".into())
                     } else {
                         None
                     };
@@ -320,7 +331,7 @@ impl<'a> Parser<'a> {
                         name: synth,
                         type_ann,
                         default,
-                        is_rest: false,
+                        is_rest,
                     });
                     match self.peek() {
                         Token::Comma => {
