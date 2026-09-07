@@ -120,6 +120,14 @@ impl<'a> LowerCtx<'a> {
                 }
                 _ => op,
             },
+            // §7.1.6 ToInt32(null) and ToInt32(undefined) are both 0
+            // (ToNumber gives +0 and NaN, and ToInt32 maps NaN to 0).
+            // The LITERAL folds long before this, but a BINDING of the
+            // same value reaches here as a Ptr — `const s = null;
+            // s | 0` used to panic while `null | 0` answered 0. The
+            // checker's operand gate is what keeps every other Ptr
+            // shape out (`~[1, 2]` is a type error there).
+            Type::Ptr => Operand::ConstI64(0),
             other => panic!("ssa-lower: cannot coerce {other:?} to i64 for bitwise"),
         }
     }

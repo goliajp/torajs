@@ -66,9 +66,15 @@ pub(crate) fn try_lower(
     // BigInt on either side. ssa_lower coerces via
     // __torajs_bool_to_str / __torajs_null_to_str /
     // __torajs_bigint_to_string before concat.
-    let bool_or_null = |t: Type, op: &Operand| -> bool {
-        matches!(t, Type::Bool) || matches!(op, Operand::ConstPtrNull)
-    };
+    // The null side is recognised by its TYPE, not by the operand
+    // being the literal: `const s = null; "x" + s` binds the value, so
+    // the read is a Load and this gate used to answer false — the pair
+    // then fell past the concat coerce and printed the POINTER
+    // (`x4305973960` where bun prints `xnull`). A bare `Type::Ptr`
+    // here is null and nothing else; every pointer-shaped VALUE
+    // carries its own SSA type and the nullable ones route through
+    // `coerce_nullable_ptr_to_str` above.
+    let bool_or_null = |t: Type, _op: &Operand| -> bool { matches!(t, Type::Bool | Type::Ptr) };
     let str_or_substr = |t: Type| matches!(t, Type::Str | Type::Substr);
     // S138 — `String + Arr` / `String + Obj` (ES §13.15.3
     // ToPrimitive(Default) → ToString on the non-String side).
@@ -388,8 +394,10 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
             );
             (Operand::Value(r), true)
         }
-        Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
-            // V3-18 m1.d — null literal → "null".
+        Type::Ptr => {
+            // V3-18 m1.d — ToString(null) is "null", for the literal
+            // and for a binding of it alike (the guard here used to
+            // admit only `ConstPtrNull`).
             let r = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.null_to_str, vec![]),

@@ -24,6 +24,23 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
+    /// Whether this operand is the null / undefined VALUE, however it
+    /// was spelled. Five sites across the coercion family used to ask
+    /// `op == Operand::ConstPtrNull`, which only ever holds for the
+    /// LITERAL: bind the same value and the read is a Load, so
+    /// `const s = null; +s` / `s | 0` / `s * 3` / `String(s)` each
+    /// fell off its own arm — one panicked, one answered the pointer.
+    /// Asking the TYPE covers both spellings at every site, and one
+    /// predicate keeps them from drifting apart again.
+    ///
+    /// A `Type::Ptr` operand reaching a coercion is null or undefined
+    /// and nothing else: every object shape carries its own SSA type
+    /// (`Obj` / `Arr` / `Str` / `Closure` / …), and the checker's
+    /// operand gates keep the rest out of these sites entirely.
+    pub(crate) fn operand_is_nullish(&self, op: &Operand) -> bool {
+        matches!(op, Operand::ConstPtrNull) || matches!(self.operand_ty(op), Type::Ptr)
+    }
+
     /// Promote an i64 operand to f64. Constants are rewritten in place
     /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
     /// anyway). Value operands emit an explicit InstKind::SiToFp.
@@ -40,6 +57,13 @@ impl<'a> LowerCtx<'a> {
                 }
                 _ => op,
             },
+            // §7.1.4 ToNumber(null) is +0. The literal folds long
+            // before this; a BINDING of it arrives as a Ptr, and
+            // `const s = null; s * 3` used to panic here while
+            // `null * 3` answered 0. Undefined never reaches this
+            // sink — the checker's arith gate turns it away first
+            // (registered residue).
+            Type::Ptr => Operand::ConstF64(0.0),
             other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
         }
     }

@@ -212,6 +212,22 @@ pub(crate) fn emit_to_number(
             ctx.release_owned_temp(arg_eid, &arg_op);
             n
         }
+        // §7.1.4 steps 2-3 — ToNumber(undefined) is NaN, ToNumber(null)
+        // is +0. Both are Ptr-shaped once bound to a name, so
+        // `Number(null)` answered 0 while `const s = null;
+        // Number(s)` panicked here. The checker's record of the type
+        // tells the two apart, exactly as the ToString sibling reads
+        // it.
+        Type::Ptr => {
+            if matches!(
+                ctx.expr_types.get(&arg_eid),
+                Some(crate::check::Type::Undefined)
+            ) {
+                Operand::ConstF64(f64::NAN)
+            } else {
+                Operand::ConstF64(0.0)
+            }
+        }
         _ => panic!("ssa-lower: Number() with arg type {arg_ty:?} not yet supported"),
     }
 }

@@ -105,7 +105,14 @@ pub(crate) fn emit_to_string_inner(
         // rationale as emit_to_number above): ToString(undef) is
         // "undefined" per §7.1.17 step 3, ToString(null) is "null"
         // per §7.1.17 step 2.
-        Type::Ptr if matches!(arg_op, Operand::ConstPtrNull) => {
+        // The gate here used to be `arg_op == ConstPtrNull`, which only
+        // ever holds for the LITERAL: bind the same value and the read
+        // is a Load, so `const s = null; String(s)` fell off the end
+        // of this match and panicked while `String(null)` answered
+        // "null". A bare `Type::Ptr` is null or undefined and nothing
+        // else here, and the kernel pick one line down already reads
+        // the checker's record to tell them apart.
+        Type::Ptr => {
             let fid = if matches!(
                 ctx.expr_types.get(&arg_eid),
                 Some(crate::check::Type::Undefined)

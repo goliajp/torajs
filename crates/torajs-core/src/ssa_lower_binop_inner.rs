@@ -339,8 +339,10 @@ fn coerce_bool_null_operands(
     if coerce_op {
         let a_ty = ctx.operand_ty(&a);
         let b_ty = ctx.operand_ty(&b);
-        let a_is_null = matches!(a, Operand::ConstPtrNull);
-        let b_is_null = matches!(b, Operand::ConstPtrNull);
+        // Both spellings of the value, not just the literal — see
+        // `LowerCtx::operand_is_nullish`.
+        let a_is_null = ctx.operand_is_nullish(&a);
+        let b_is_null = ctx.operand_is_nullish(&b);
         // A side is coercible-to-Number iff it's already i64,
         // a bool (zext to i64), or the null literal (const 0).
         let a_coerce = matches!(a_ty, Type::I64 | Type::Bool) || a_is_null;

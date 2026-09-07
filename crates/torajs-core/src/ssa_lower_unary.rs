@@ -295,7 +295,7 @@ impl LowerCtx<'_> {
         }
         match op {
             crate::ast::UnaryOp::Neg => {
-                if matches!(v, Operand::ConstPtrNull) {
+                if self.operand_is_nullish(&v) {
                     Operand::ConstF64(0.0)
                 } else if matches!(self.operand_ty(&v), Type::Bool) {
                     // bool → i64 → f64 chain so the sign-
@@ -317,7 +317,7 @@ impl LowerCtx<'_> {
                 }
             }
             crate::ast::UnaryOp::Plus => {
-                if matches!(v, Operand::ConstPtrNull) {
+                if self.operand_is_nullish(&v) {
                     Operand::ConstI64(0)
                 } else if matches!(self.operand_ty(&v), Type::Bool) {
                     self.coerce_bool_to_i64(v)
@@ -336,7 +336,7 @@ impl LowerCtx<'_> {
                 }
             }
             crate::ast::UnaryOp::BitNot => {
-                if matches!(v, Operand::ConstPtrNull) {
+                if self.operand_is_nullish(&v) {
                     Operand::ConstI64(0)
                 } else if matches!(self.operand_ty(&v), Type::Bool) {
                     self.coerce_bool_to_i64(v)
