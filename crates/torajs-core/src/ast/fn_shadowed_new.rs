@@ -29,14 +29,31 @@
 //! ordinary non-class `new` route, where the declaration's own rename
 //! does reach them.
 //!
-//! **Function declarations only.** A `let` / `const` / parameter of the
-//! same name shadows a class too, but those bind values rather than
-//! constructors, and a `new` through one is already the dynamic route.
-//! A class METHOD body is not walked either: this pass runs before
-//! `desugar_classes` flattens them, so the bodies are still inside
-//! `Stmt::ClassDecl`. Both are recorded gaps rather than claims.
+//! **Every binding kind that can name a constructor**, not just
+//! `function`. An earlier note here claimed a `let` / `const` /
+//! parameter "binds a value rather than a constructor, and a `new`
+//! through one is already the dynamic route" — measured, that was
+//! wrong: `class W {}` beside `function f() { const W = function
+//! (){}; new W() }` handed the program the CLASS's instance, fields
+//! and all, exactly as the `function` case did.
+//!
+//! The three kinds do not share a scope, so they are not collected
+//! into one. A `function` declaration belongs to the function scope
+//! (Annex B §B.3.3 puts a block-nested one there too, which is what
+//! `block_nested_fn_names` answers); a parameter belongs to it as
+//! well; a `let` / `const` belongs to its BLOCK. Flattening the last
+//! into the function's set would shadow a `new` written outside the
+//! block that declares it. `Stmt::Multi` shares the surrounding scope
+//! by definition and so is spliced rather than given a scope.
+//!
+//! Recorded gaps: a `for` / `for-of` loop variable and a `catch`
+//! parameter are bindings too and are not collected yet; a class
+//! METHOD body is not walked either, since this pass runs before
+//! `desugar_classes` flattens them and the bodies are still inside
+//! `Stmt::ClassDecl`.
 
-use super::annexb_names::{block_nested_fn_names, own_fn_names};
+use super::annexb_names::{block_nested_fn_names, own_fn_names, param_names};
+use super::desugar_with::walk::stmt_children_ref;
 use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
 
@@ -66,13 +83,64 @@ fn body_fn_names(body: &[Stmt]) -> HashSet<String> {
     names
 }
 
+/// The `let` / `const` names a statement list binds DIRECTLY. `Multi`
+/// shares the surrounding scope, so its entries belong to this list;
+/// a nested `Block` gets its own scope and is not descended into here.
+fn let_const_names(stmts: &[Stmt]) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for s in stmts {
+        match s {
+            Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
+            }
+            | Stmt::UsingDecl { name, .. } => {
+                out.insert(name.clone());
+            }
+            Stmt::Multi(inner) => out.extend(let_const_names(inner)),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Every `var` the body binds, at any depth — `var` is function-scoped,
+/// so a `var W` inside a nested block shadows the whole body and not
+/// just that block. The walk stops at a nested function: its `var`s
+/// are its own.
+fn var_names(stmts: &[Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        if let Stmt::LetDecl {
+            name, is_var: true, ..
+        } = s
+        {
+            out.insert(name.clone());
+        }
+        if matches!(s, Stmt::FnDecl { .. }) {
+            continue;
+        }
+        for c in stmt_children_ref(s) {
+            var_names(std::slice::from_ref(c), out);
+        }
+    }
+}
+
+/// A function scope: its `function` declarations, its parameters, the
+/// `let` / `const` its body binds at top level (the body is that
+/// block), and every `var` at any depth.
 fn walk_body(
     ast: &Ast,
     body: &[Stmt],
+    params: &[super::Param],
     scopes: &mut Vec<HashSet<String>>,
     out: &mut HashSet<ExprId>,
 ) {
-    scopes.push(body_fn_names(body));
+    let mut names = body_fn_names(body);
+    names.extend(param_names(params));
+    names.extend(let_const_names(body));
+    var_names(body, &mut names);
+    scopes.push(names);
     for s in body {
         walk_stmt(ast, s, scopes, out);
     }
@@ -133,7 +201,17 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             walk_expr(ast, *sep, scopes, out);
             walk_stmt(ast, body, scopes, out);
         }
-        Stmt::Block(b) | Stmt::Multi(b) => {
+        Stmt::Block(b) => {
+            // A block is a scope of its own for `let` / `const`.
+            scopes.push(let_const_names(b));
+            for s in b {
+                walk_stmt(ast, s, scopes, out);
+            }
+            scopes.pop();
+        }
+        Stmt::Multi(b) => {
+            // Shares the surrounding scope — its bindings were already
+            // collected by whoever owns that scope.
             for s in b {
                 walk_stmt(ast, s, scopes, out);
             }
@@ -168,7 +246,7 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             }
         }
         Stmt::Labeled { body, .. } => walk_stmt(ast, body, scopes, out),
-        Stmt::FnDecl { body, .. } => walk_body(ast, body, scopes, out),
+        Stmt::FnDecl { body, params, .. } => walk_body(ast, body, params, scopes, out),
         Stmt::ExportDecl { inner, .. } => {
             if let Some(i) = inner {
                 walk_stmt(ast, i, scopes, out);
@@ -195,7 +273,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, scopes: &mut Vec<HashSet<String>>, out: &mu
                 walk_expr(ast, *a, scopes, out);
             }
         }
-        Expr::ArrowFn { body, .. } => walk_body(ast, body, scopes, out),
+        Expr::ArrowFn { body, params, .. } => walk_body(ast, body, params, scopes, out),
         Expr::BinOp { left, right, .. }
         | Expr::Sequence { left, right }
         | Expr::Assign {
