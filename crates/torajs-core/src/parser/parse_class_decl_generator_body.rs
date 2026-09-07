@@ -17,6 +17,8 @@ impl<'a> Parser<'a> {
     /// The MethodDefinition body: the caller has consumed `*` and
     /// the member name, and everything from the parameter list to the
     /// synthesized `function*` plus its forwarder happens here.
+    /// `computed_name` says whether that name came out of a
+    /// `[...]` key, which changes exactly one thing below.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn finish_class_generator_method(
         &mut self,
@@ -27,21 +29,27 @@ impl<'a> Parser<'a> {
         visibility: Visibility,
         member_span_start: u32,
         member_name: String,
+        computed_name: bool,
         methods: &mut Vec<ClassMethod>,
         static_methods: &mut Vec<ClassMethod>,
     ) -> Result<(), String> {
         // §15.7.1 ClassElementName — a generator is always a
         // SpecialMethod, so `*constructor(){}` dies here while the
         // plain one in the sibling parser IS the constructor. A
-        // private name arrived mangled and cannot collide; this
-        // parser has no computed-name branch at all.
-        self.reject_class_element_name(
-            class_name,
-            &member_name,
-            is_static,
-            true,
-            super::class_element_name::ClassElementPos::Method { special: true },
-        )?;
+        // private name arrived mangled and cannot collide. A COMPUTED
+        // one is exempt for the reason the ordinary member path
+        // exempts it: its key is not known until the class definition
+        // evaluates, so no static spelling of it can be an early
+        // error.
+        if !computed_name {
+            self.reject_class_element_name(
+                class_name,
+                &member_name,
+                is_static,
+                true,
+                super::class_element_name::ClassElementPos::Method { special: true },
+            )?;
+        }
 
         // §15.5.1 — the generator bit swaps in BEFORE the param list
         // (FormalParameters[+Yield]); error paths do not restore.

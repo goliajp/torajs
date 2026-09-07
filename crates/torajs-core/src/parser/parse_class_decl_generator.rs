@@ -102,6 +102,38 @@ impl<'a> Parser<'a> {
         self.pos += 1;
 
         let mut visibility = visibility;
+        // §15.4 ClassElementName → ComputedPropertyName. A generator
+        // method is a MethodDefinition like any other, and the
+        // sibling `parse_class_member_name` already owns every
+        // spelling of a computed one — the folded `Symbol.iterator` /
+        // string / numeric keys, and the `__ccm_<n>__` sentinel whose
+        // real key `desugar_classes` evaluates at the class-decl
+        // position. Reading the bracket here rather than growing a
+        // second copy is what keeps `*[k]()` install under the same
+        // name `[k]()` does.
+        if matches!(self.peek(), Token::LBracket) {
+            let mut computed_visibility = None;
+            let (key, consumed) =
+                self.parse_class_member_name(class_name, is_static, &mut computed_visibility)?;
+            let Some(name) = key.as_str() else {
+                return Err(format!(
+                    "generator method key in class `{class_name}` is not a well-formed name at {}",
+                    self.at()
+                ));
+            };
+            return self.finish_class_generator_method(
+                class_name,
+                parent,
+                is_static,
+                is_async,
+                visibility,
+                member_span_start,
+                name.to_string(),
+                consumed,
+                methods,
+                static_methods,
+            );
+        }
         let member_name = match self.peek() {
             Token::Ident(n) => n.clone(),
             // ES §12.7.2 — escaped ReservedWord as an IdentifierName.
@@ -131,6 +163,7 @@ impl<'a> Parser<'a> {
             visibility,
             member_span_start,
             member_name,
+            false,
             methods,
             static_methods,
         )
