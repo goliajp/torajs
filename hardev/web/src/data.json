@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T13:51:01.228Z",
+  "generatedAt": "2026-09-07T15:52:42.329Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T11:42:27Z",
-    "headSha": "8ffa78b99",
-    "elapsedSec": 436.46,
+    "ranAt": "2026-09-07T15:51:49Z",
+    "headSha": "a9f7c7b90",
+    "elapsedSec": 441.25,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30991,
+    "pass": 30997,
     "passNoOracle": 1174,
     "passNegative": 4459,
-    "passTotal": 36624,
-    "bug": 11488,
-    "incompatible": 5062,
+    "passTotal": 36630,
+    "bug": 11486,
+    "incompatible": 5058,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48112,
-    "passRateInScope": 68.88,
-    "passRateTrAccepted": 76.12
+    "trAccepted": 48116,
+    "passRateInScope": 68.89,
+    "passRateTrAccepted": 76.13
   },
   "torajs": {
-    "commit": "ba50b08f9",
-    "commitSubject": "chore(checkpoints): 2026-09-07 v1-axes-report, with the bench rerun and the ruler change",
+    "commit": "a9f7c7b90",
+    "commitSubject": "fix(torajs-meta): Object.keys counted the property, Object.values did not",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,6 +740,42 @@
   },
   "commits": [
     {
+      "hash": "a9f7c7b90",
+      "subject": "fix(torajs-meta): Object.keys counted the property, Object.values did not"
+    },
+    {
+      "hash": "51c3a445f",
+      "subject": "fix(torajs-meta): a weak shape's property read back but enumerated nothing"
+    },
+    {
+      "hash": "06ea4862e",
+      "subject": "feat(torajs-weak): the weak shapes had nowhere to put a property, so now they have one"
+    },
+    {
+      "hash": "1302ac2d2",
+      "subject": "fix(torajs-core): the keyed lanes each kept their own list of which shapes have a property bag"
+    },
+    {
+      "hash": "125110c5b",
+      "subject": "fix(torajs-anyvalue): a numeric key on a Map stored into the bag and read back undefined"
+    },
+    {
+      "hash": "ef46124ef",
+      "subject": "fix(torajs-core): ASI after a no-init declaration was a list of sixteen tokens, and `Ident` was not on it"
+    },
+    {
+      "hash": "ea537826a",
+      "subject": "fix(torajs-core): a generator excluded from the argc face did not refuse, it answered wrong"
+    },
+    {
+      "hash": "e887abf56",
+      "subject": "fix(hardev): INV-4 demanded a line only a broken plugin writes, so the green path was unreachable"
+    },
+    {
+      "hash": "b3f1b2c27",
+      "subject": "feat(hardev): TRIG gate redesign — four gates pointing one way become five that each point somewhere"
+    },
+    {
       "hash": "ba50b08f9",
       "subject": "chore(checkpoints): 2026-09-07 v1-axes-report, with the bench rerun and the ruler change"
     },
@@ -750,45 +786,9 @@
     {
       "hash": "8ffa78b99",
       "subject": "fix(torajs-core): the write half of one key spelled two ways"
-    },
-    {
-      "hash": "be4efafee",
-      "subject": "refactor(torajs-core): split the assign checker at the line its doc drew"
-    },
-    {
-      "hash": "7a14b9efd",
-      "subject": "fix(torajs-core): the struct lane had no arm for a symbol key"
-    },
-    {
-      "hash": "93df7b61b",
-      "subject": "fix(torajs-core): one key, spelled two ways, answered two ways"
-    },
-    {
-      "hash": "1ee568c38",
-      "subject": "fix(torajs-core): a string's key domain is the whole one too"
-    },
-    {
-      "hash": "304390cfb",
-      "subject": "chore: refresh the hardev dashboard snapshot for rotation 609"
-    },
-    {
-      "hash": "b1782035e",
-      "subject": "chore: rotation 609 sweep on 70bdac732, and what its 16 cases understate"
-    },
-    {
-      "hash": "22e0c9d47",
-      "subject": "docs(torajs-core): the read gate said a number key gets rejected; it never was"
-    },
-    {
-      "hash": "70bdac732",
-      "subject": "fix(torajs-core): those receivers' key domain is the whole one too"
-    },
-    {
-      "hash": "efad70400",
-      "subject": "fix(torajs-core): a Map, a Set and a RegExp carry properties too"
     }
   ],
-  "headSha": "ba50b08f9",
+  "headSha": "a9f7c7b90",
   "autorun": {
     "total": 914,
     "baselineTarget": 10,
