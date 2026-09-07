@@ -1,0 +1,5 @@
+obj 1 2 true
+ary 3 4 true
+init 5 6 object
+yield 7 7
+read number number number

@@ -38,20 +38,41 @@ impl<'a> Parser<'a> {
         if !is_pattern && let Some(recovered) = self.recover_yield_temps(target)? {
             out.extend(recovered);
         }
-        // §13.15.1 — `eval` / `arguments` are not valid simple
-        // assignment targets in strict code (module code always is),
-        // and `yield` is a strict-mode reserved word outright
-        // (rotation 346 — `0, { yield } = {}` must reject at parse
-        // phase; the checker-side admits landed this rotation let it
-        // fall through to a runtime unknown-ident instead).
-        if let Expr::Ident(n) = self.ast.get_expr(target)
-            && (n == "arguments" || n == "eval" || n == "yield")
-        {
-            return Err(format!(
-                "`{n}` is not a valid assignment target in a destructuring pattern at {} \
-                 (ES §13.15.1)",
-                self.at()
-            ));
+        // §13.15.1 — a pattern slot is an early error when the
+        // AssignmentTargetType of its target is not simple, and
+        // §13.1.3 makes that judgement STRICTNESS-DEPENDENT: `eval`
+        // and `arguments` are invalid targets in strict code and
+        // perfectly ordinary names outside it, `yield` is only an
+        // IdentifierReference at all where it is neither reserved nor
+        // a YieldExpression. This site used to refuse all three
+        // unconditionally, which cost the 17 `*-no-strict` t262 cases
+        // that assign to exactly these names on purpose.
+        //
+        // It has to judge by NAME rather than let the admission sites
+        // decide, because the object-literal shorthand reaches here
+        // having gone through the PROPERTY-name reader: that reader
+        // accepts the word and turns it into a string, and only the
+        // re-read as an AssignmentPattern asks whether the string is
+        // a legal reference (`strict_reserved`'s module doc records
+        // the same asymmetry for `{ let }`). So both halves of the
+        // strictness answer are needed here — the per-function half
+        // now, and the per-goal half parked for the prelude gate,
+        // whose §13.1.3 message already names this position.
+        if let Expr::Ident(n) = self.ast.get_expr(target) {
+            let n = n.clone();
+            if n == "yield" {
+                if !self.yield_reads_as_ident() {
+                    return Err(format!(
+                        "`yield` is not a valid assignment target in a destructuring \
+                         pattern at {} (ES §13.15.1)",
+                        self.at()
+                    ));
+                }
+                let at = self.at();
+                self.ast.yield_ident_positions.push(at);
+            } else {
+                self.note_strict_binding(&n, self.strict_here())?;
+            }
         }
         // §12.7.2 ReservedWord — never a valid IdentifierReference,
         // so never an assignment target. The objlit COVER parse
