@@ -74,6 +74,29 @@ fn obj_slot_elems_are_any(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     }
 }
 
+/// A struct / class receiver keyed by a compile-time literal, which
+/// `check_type_of_index` already resolves through the member checker
+/// on the READ side (`g[0]` ≡ `g."0"` per §7.1.19 ToPropertyKey).
+/// The call side had no matching arm: `class C { [1]() {} }` let
+/// `c[1]` answer a function and `c[1]()` crash the compiler with
+/// "unsupported callee form: Index", while `(c as any)[1]()` ran —
+/// the receiver's own spelling deciding whether the program compiles.
+///
+/// Only keys the string-literal fold in `parse_postfix_index`
+/// declines reach here: an IdentifierName key was rewritten to a
+/// `Member` at parse time and never takes this shape. So the lane
+/// picks up exactly the numeric and non-identifier spellings, and
+/// pays the any-lane boxing on a shape that until now paid a panic.
+fn struct_recv_literal_key(ctx: &LowerCtx<'_>, obj: ExprId, index: ExprId) -> bool {
+    matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
+    ) && crate::ast::literal_prop_key(ctx.ast, index)
+        .as_ref()
+        .and_then(|k| k.as_str())
+        .is_some()
+}
+
 /// Try to lower `callee(args…)` as an any-receiver index-keyed
 /// method call. Returns `None` unless the callee is an Index read
 /// off an `any`-typed object.
@@ -110,6 +133,7 @@ pub(crate) fn try_lower(
         && !index_is_symbol_key(ctx, index)
         && !callee_dispatches_dynamically
         && !obj_slot_elems_are_any(ctx, obj)
+        && !struct_recv_literal_key(ctx, obj, index)
     {
         return None;
     }
