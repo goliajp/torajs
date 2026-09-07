@@ -279,14 +279,16 @@ pub unsafe extern "C" fn __torajs_promise_then_observed(cell: *mut c_void) -> u6
         };
         let tag = __torajs_dynobj_get_tag(props, key);
         let value = __torajs_dynobj_get_value(props, key);
-        __torajs_str_drop(key);
         if tag == ANY_UNDEF {
+            __torajs_str_drop(key);
             return 0;
         }
         // Borrow-boxed receiver for the getter's `this` — the cell
         // stays the caller's.
         let recv = __torajs_anyv_box_from_pair(4, cell as i64);
-        crate::len_get::box_probe_pair(tag, value, recv)
+        let v = crate::len_get::box_probe_pair(tag, value, recv, key);
+        __torajs_str_drop(key);
+        v
     }
 }
 

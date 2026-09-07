@@ -64,10 +64,24 @@ const ANY_ACCESSOR_TAG: u64 = 6;
 /// `.length` / `.size` special-prop reads boxed the raw accessor pair
 /// as data: the getter never ran). `pub(crate)`: `name_get.rs`'s
 /// closure expando shadow shares it for the same accessor face.
-pub(crate) unsafe fn box_probe_pair(dtag: u64, dval: u64, recv: AnyValue) -> AnyValue {
+///
+/// `key` is the probed key, live for the call. The accessor arm used
+/// to invoke the AccessorPair directly and take no key at all, which
+/// made it a half of `__torajs_any_accessor_get`: that function's
+/// OTHER half — a struct accessor, which has no pair cell and is
+/// addressed by key, the value channel answering zero on purpose —
+/// was unreachable from every caller here. `JSON.stringify(o, ["b"])`
+/// is where it showed: the property list walk asks this and got
+/// undefined for an accessor the plain walk serializes.
+pub(crate) unsafe fn box_probe_pair(
+    dtag: u64,
+    dval: u64,
+    recv: AnyValue,
+    key: *const c_void,
+) -> AnyValue {
     unsafe {
         if dtag == ANY_ACCESSOR_TAG {
-            let got = __torajs_accessor_invoke_getter(dval as *const c_void, recv);
+            let got = crate::struct_probe::__torajs_any_accessor_get(recv, key, dval);
             if __torajs_throw_check() != 0 {
                 return VALUE_UNDEFINED;
             }
@@ -137,10 +151,12 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                 let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
                 let dval = __torajs_dynobj_get_value(props, key as *const c_void);
                 let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-                __torajs_str_drop(key as *mut c_void);
                 if present {
-                    return box_probe_pair(dtag, dval, recv);
+                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
+                    __torajs_str_drop(key as *mut c_void);
+                    return v;
                 }
+                __torajs_str_drop(key as *mut c_void);
             }
         }
         if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, tag) {
@@ -159,10 +175,12 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                 let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
                 let dval = __torajs_dynobj_get_value(props, key as *const c_void);
                 let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-                __torajs_str_drop(key as *mut c_void);
                 if present {
-                    return box_probe_pair(dtag, dval, recv);
+                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
+                    __torajs_str_drop(key as *mut c_void);
+                    return v;
                 }
+                __torajs_str_drop(key as *mut c_void);
             }
             if tag == Tag::TypedArray as u16 {
                 return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_typedarray_length(
@@ -215,8 +233,9 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                     );
                 }
             }
+            let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            return box_probe_pair(dtag, dval, recv);
+            return v;
         }
         if tag == Tag::Obj as u16 {
             // Struct cell (an inline object literal's anon struct, or
@@ -251,10 +270,12 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
                 let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
                 let dval = __torajs_dynobj_get_value(props, key as *const c_void);
                 let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-                __torajs_str_drop(key as *mut c_void);
                 if present {
-                    return box_probe_pair(dtag, dval, recv);
+                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
+                    __torajs_str_drop(key as *mut c_void);
+                    return v;
                 }
+                __torajs_str_drop(key as *mut c_void);
             }
             // chunk C (RFC 20260711) — a tombstoned virtual `length`
             // with no expando recreate continues along [[Prototype]]:
@@ -393,8 +414,9 @@ pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
             let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
+            let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
             __torajs_str_drop(key as *mut c_void);
-            return box_probe_pair(dtag, dval, recv);
+            return v;
         }
     }
     VALUE_UNDEFINED

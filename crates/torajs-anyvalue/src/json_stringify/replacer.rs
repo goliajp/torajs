@@ -199,7 +199,7 @@ pub(super) unsafe fn write_object_list(sb: *mut c_void, holder: AnyValue, depth:
         for &key in st.property_list.as_deref().unwrap_or(&[]) {
             let tag = __torajs_any_member_get_tag(holder, key);
             let raw = __torajs_any_member_get_value(holder, key);
-            let mut value = crate::len_get::box_probe_pair(tag, raw, holder);
+            let mut value = crate::len_get::box_probe_pair(tag, raw, holder, key);
             if __torajs_throw_check() != 0 {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
                 break;

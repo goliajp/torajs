@@ -202,7 +202,6 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
             let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
             let dval = __torajs_dynobj_get_value(props, key as *const c_void);
             let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-            __torajs_str_drop(key as *mut c_void);
             if present {
                 // Shared with the `.length` face: a data pair boxes
                 // owned, an accessor entry runs its getter (pre-fix
@@ -211,8 +210,12 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
                 // the pair, not the getter). A heap cell's pointer
                 // bits ARE its box encoding, so the receiver
                 // reconstructs from `ptr`.
-                return crate::len_get::box_probe_pair(dtag, dval, ptr as u64);
+                let v =
+                    crate::len_get::box_probe_pair(dtag, dval, ptr as u64, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                return v;
             }
+            __torajs_str_drop(key as *mut c_void);
         }
         // chunk C — a tombstoned virtual `name` with no expando
         // recreate (probed above) continues along [[Prototype]]:
