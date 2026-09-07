@@ -329,6 +329,7 @@ pub(crate) mod ssa_lower_call_closure_emit;
 pub(crate) mod ssa_lower_call_closure_local;
 pub(crate) mod ssa_lower_call_coercion;
 pub(crate) mod ssa_lower_call_coercion_nullable;
+pub(crate) mod ssa_lower_call_coercion_str;
 pub(crate) mod ssa_lower_call_console;
 pub(crate) mod ssa_lower_call_date_methods;
 pub(crate) mod ssa_lower_call_date_parse_undef_fold;
