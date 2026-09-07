@@ -327,8 +327,10 @@ fn emit_define_objlit_runtime(
         // receiver dispatch targets whichever +24 expando dict the
         // tag names (neither cell relocates, no writeback below).
         Type::Closure(_) | Type::FnSig(_) | Type::Obj(_) => obj_op,
-        // Typed Date / RegExp / Error — no expando define storage yet
-        // (RFC 20260721 刀 2b backlog). Handled (no-op).
+        // Same dispatch for every shape whose ordinary own face is a
+        // property bag — see the twin in `reflect_integrity`.
+        ref t if crate::ssa_lower_index::shape_has_expando_bag(t) => obj_op,
+        // What is left carries no bag to define into. Handled (no-op).
         _ => return true,
     };
     let (key_op, key_owned) = lower_key(ctx, key);

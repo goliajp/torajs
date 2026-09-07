@@ -252,9 +252,14 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         // Closure receiver: §10.1.6 into its `+24` expando dict, with
         // a declared field refused there rather than shadowed here.
         Type::Closure(_) | Type::FnSig(_) | Type::Obj(_) => obj_op.clone(),
-        // Typed Date / RegExp / ... — no expando define
-        // storage yet (RFC 20260721 刀 2b backlog; mirrors the Object
-        // flavor's no-op). Nothing gets defined, and `false` is the
+        // Every other shape whose ordinary own face IS a property bag
+        // rides the same dispatch — the kernel defines into that bag,
+        // and the `any` spelling of the identical receiver has always
+        // reached it. `Reflect.defineProperty(new Map(), …)` answered
+        // false and defined nothing while `(m as any)` answered true
+        // and defined.
+        t if crate::ssa_lower_index::shape_has_expando_bag(t) => obj_op.clone(),
+        // What is left carries no bag to define into. `false` is the
         // honest spelling (the prop_delete Tag::Obj precedent; the
         // runtime kernel's non-dynobj arm answers the same).
         _ => {

@@ -39,6 +39,19 @@ pub(crate) unsafe fn lazy_bag_props_off(htag: u16, key: *mut c_void) -> Option<u
             Some(crate::layout::ITER_PROPS_OFF)
         }
         crate::layout::TAG_ITER_HELPER_HDR => Some(crate::layout::ITER_HELPER_PROPS_OFF),
+        // The Weak family joined the bag-carrying shapes in rotation
+        // 611 and this table did not follow, so `wm.z = 1` stored and
+        // read back while `defineProperty(wm, "z", …)` stored nothing
+        // — the assignment path and the define path answering
+        // differently about the same cell. The authority on where a
+        // bag lives is torajs-anyvalue's
+        // `member_get_layout::expando_props_off`; this crate sits
+        // below it and keeps a mirror, so a shape added there has to
+        // be added here too.
+        crate::layout::TAG_WEAKREF_HDR => Some(crate::layout::WEAKREF_PROPS_OFF),
+        crate::layout::TAG_WEAKMAP_HDR | crate::layout::TAG_WEAKSET_HDR => {
+            Some(crate::layout::WEAKCOLL_PROPS_OFF)
+        }
         crate::layout::TAG_REGEXP_HDR if !unsafe { crate::layout::key_is(key, b"lastIndex") } => {
             Some(crate::layout::REGEX_PROPS_OFF)
         }

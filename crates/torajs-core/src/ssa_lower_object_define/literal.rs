@@ -113,9 +113,25 @@ pub(super) fn emit_define_literal(
     if matches!(obj_ty, Type::Obj(_)) {
         return false;
     }
-    // Non-Any/non-Arr obj (typed Date / RegExp / Error) — no expando
-    // define storage yet (RFC 20260721 刀 2b backlog). Handled
-    // (no-op).
+    // Every other shape whose ordinary own face IS a property bag
+    // takes the same road the Closure receiver just took — the kernel
+    // defines into that bag. Third copy of this arm (the other two are
+    // in `ssa_lower_object_define` and `ssa_lower_call_reflect_integrity`);
+    // all three answered a silent no-op for a Map while the `any`
+    // spelling of the same receiver defined.
+    if crate::ssa_lower_index::shape_has_expando_bag(&obj_ty) {
+        emit_define_dynobj(
+            ctx,
+            obj_op,
+            &obj_ty,
+            key,
+            receiver_ident,
+            value_eid,
+            flags_byte,
+        );
+        return true;
+    }
+    // What is left carries no bag to define into. Handled (no-op).
     if !matches!(obj_ty, Type::Any) {
         return true;
     }

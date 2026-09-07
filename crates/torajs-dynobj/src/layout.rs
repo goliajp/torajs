@@ -159,6 +159,17 @@ pub const TAG_DATE_HDR: u16 = 5;
 /// Date expando slot (torajs-date `DATE_PROPS_OFF` mirror).
 pub const DATE_PROPS_OFF: usize = 16;
 
+/// `Tag::WeakRef` / `Tag::WeakMap` / `Tag::WeakSet` header tags
+/// (torajs-rc `Tag` mirror) and their expando slots — the three cells
+/// grew a props slot in rotation 611 (`WeakRef` 16→24 B,
+/// `WeakMap`/`WeakSet` 24→32 B); mirrors of torajs-weak's
+/// `WEAKREF_PROPS_OFF` / `WEAKCOLL_PROPS_OFF`.
+pub const TAG_WEAKREF_HDR: u16 = 11;
+pub const TAG_WEAKMAP_HDR: u16 = 12;
+pub const TAG_WEAKSET_HDR: u16 = 13;
+pub const WEAKREF_PROPS_OFF: usize = 16;
+pub const WEAKCOLL_PROPS_OFF: usize = 24;
+
 /// RegExp heap tag (torajs-rc `Tag::RegExp` = 4); its lazy expando
 /// props dynobj sits directly after the header at +8
 /// ([`REGEX_PROPS_OFF`], torajs-regex `regex::REGEX_PROPS_OFF`).
