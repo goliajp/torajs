@@ -94,10 +94,16 @@ check_inv2() {
 
 # ── INV-3 — conformance non-decreasing vs last jsonl row ────────────────
 # Why: P0 baseline already exhibits monotonic-non-decreasing across 10
-# rows; P1 turns the observation into a machine gate. Reading the
-# *current* conformance from status memory header is best-effort (same
-# source `autorun_record_rotation` uses for `conformanceBefore`), so
-# the INV-3 check matches what the next row would record.
+# rows; P1 turns the observation into a machine gate. The current
+# reading comes from the same helper `autorun_record_rotation` uses for
+# `conformanceBefore`, so this check matches what the next row records.
+#
+# 2026-09-07: that helper used to probe a profile memory layout two
+# generations dead and returned "" on every call, so INV-3 had been
+# SKIPping unconditionally — present in the output, deciding nothing.
+# It now reads the handoff `gate: N/F/S` line (TRIG-3 contract), so the
+# invariant actually compares two numbers. Prior rows all recorded null,
+# so the first real comparison happens one rotation after the fix.
 check_inv3() {
   local current_conf last_conf last_pass cur_pass
   current_conf=$(autorun_conformance_now)
@@ -132,11 +138,28 @@ except Exception:
   fi
 }
 
-# ── INV-4 — handoff.md non-empty + has `> saved:` metadata line ─────────
-# Why: file existence + mtime are not enough. A 0-byte handoff, or one
-# missing the metadata blockquote, indicates either a half-written save
-# or stray `touch`. Both are "phantom" handoffs that would mislead a
-# new session.
+# ── INV-4 — handoff.md non-empty + carries a real rotate-trigger section ─
+# Why: file existence + mtime are not enough. A 0-byte handoff, a stray
+# `touch`, or a half-written save is a "phantom" handoff that would
+# mislead a new session.
+#
+# 2026-09-07: this used to require a `> saved:` blockquote — metadata
+# written by the `/handoff:handoff save` plugin. That plugin has been
+# broken for months and the protocol explicitly says the agent writes
+# handoff.md by hand (autorun-pipeline § rotation 收尾 sequence step 1),
+# so the line has not existed in any handoff since. INV-4 therefore
+# FAILed on every turn-end, which means stop_hook's green path — the
+# one that writes the marker and consumes the intent — was structurally
+# unreachable, and `check_self_test.sh` case 1 (the GREEN happy path)
+# had been failing accordingly. Nobody noticed because a red stop_hook
+# only writes to stderr. Same family as the two rotted probes in lib.sh
+# fixed the same day: a rule and its implementation drifted apart, and
+# the symptom was absorbed in silence.
+#
+# The check now asks for what a hand-written handoff actually has, and
+# what a phantom one cannot fake: a rotate-trigger section, and at least
+# one commit sha somewhere in the file. Contents of that section are
+# TRIG-3's job at trigger time; INV-4 only certifies the file is real.
 check_inv4() {
   if [ ! -f "$HANDOFF_FILE" ]; then
     emit INV-4 FAIL "handoff.md missing"
@@ -148,14 +171,19 @@ check_inv4() {
     failed+=(INV-4)
     return
   fi
-  if ! grep -q '^> saved:' "$HANDOFF_FILE"; then
-    emit INV-4 FAIL "handoff.md missing '> saved:' metadata blockquote"
+  if ! grep -q '^## .*rotate 触发' "$HANDOFF_FILE"; then
+    emit INV-4 FAIL "handoff.md has no '## rotate 触发' section"
+    failed+=(INV-4)
+    return
+  fi
+  if ! grep -qE '\b[0-9a-f]{7,40}\b' "$HANDOFF_FILE"; then
+    emit INV-4 FAIL "handoff.md references no commit sha (phantom handoff)"
     failed+=(INV-4)
     return
   fi
   local bytes
   bytes=$(wc -c < "$HANDOFF_FILE" | tr -d ' ')
-  emit INV-4 PASS "handoff.md ${bytes}B with metadata blockquote"
+  emit INV-4 PASS "handoff.md ${bytes}B with rotate-trigger section + sha"
 }
 
 # ── INV-5 — rotation_id not yet present in rotations.jsonl ──────────────
