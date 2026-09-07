@@ -153,6 +153,25 @@ pub(crate) fn try_lower(
 
     // W-J Phase C3 — `any` receiver: struct identity only known at
     // runtime. Throws loudly on non-struct cells inside the helper.
+    // A shape whose entire ordinary own face is a property bag boxes
+    // into the any lane, where the runtime kernels below already walk
+    // that bag — every one of them was probed against bun rather than
+    // assumed. `Type::Obj(_)` stays out on purpose: a struct's keys
+    // come from its compile-time layout, which is both exact and
+    // cheaper than a runtime walk.
+    //
+    // The refusal this removes was the lowering's alone. `const x: any
+    // = m; Object.keys(x)` already answered correctly through the Any
+    // arm below; only the spelling that kept its static type died, at
+    // "requires a struct arg, got Map". Eighth copy of the same list.
+    let (arg_op, arg_ty) = if !matches!(arg_ty, Type::Obj(_))
+        && crate::ssa_lower_index::shape_has_expando_bag(&arg_ty)
+    {
+        (ctx.box_to_any(arg_op), Type::Any)
+    } else {
+        (arg_op, arg_ty)
+    };
+
     if matches!(arg_ty, Type::Any) {
         let inner_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let outer_arr_id = intern_arr_layout(ctx.arr_layouts, Type::Arr(inner_arr_id));

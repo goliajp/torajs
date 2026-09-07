@@ -197,6 +197,15 @@ pub(crate) fn try_match(
         if matches!(arg_ty, Type::Function(..)) {
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
+        // A bag-only shape answers its property bag, the way a Function
+        // receiver two arms up does: the lowering boxes it and the
+        // runtime own-values walk reads the bag. Same question the SSA
+        // side asks as `shape_has_expando_bag` — but the checker has
+        // its OWN Type enum, so the two lists cannot be shared and each
+        // must point at the other instead.
+        if checker_shape_has_expando_bag(&arg_ty) {
+            return Some(Ok(Type::Array(Box::new(Type::Any))));
+        }
         let Type::Struct(fields) = &arg_ty else {
             return Some(Err(format!(
                 "Object.values requires a struct arg, got {arg_ty:?}"
@@ -290,4 +299,31 @@ pub(crate) fn own_property_types(fields: &[(PropKey, Type)]) -> Vec<(PropKey, Ty
         }
     }
     out
+}
+
+/// Whether this receiver keeps an ordinary own-property bag at runtime.
+///
+/// The checker-side twin of `ssa_lower_index::shape_has_expando_bag`.
+/// The two cannot be one function — the checker and the SSA layer carry
+/// separate `Type` enums — so they are two lists that must move
+/// together, and both docs say so. The authority under both is
+/// torajs-anyvalue's `member_get_layout::expando_props_off`.
+///
+/// Rotation 611 found seven hand-written copies of this question and
+/// collapsed each into a call; these two are the irreducible remainder,
+/// kept honest by pointing at each other.
+fn checker_shape_has_expando_bag(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Map
+            | Type::Set
+            | Type::RegExp
+            | Type::Date
+            | Type::Promise(..)
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+    )
 }
