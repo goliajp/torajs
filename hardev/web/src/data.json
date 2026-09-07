@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T07:19:38.337Z",
+  "generatedAt": "2026-09-07T08:49:31.760Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T07:04:51Z",
-    "headSha": "f3ee3cdc5",
-    "elapsedSec": 416.73,
+    "ranAt": "2026-09-07T08:38:59Z",
+    "headSha": "70bdac732",
+    "elapsedSec": 639.31,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30974,
-    "passNoOracle": 1172,
+    "pass": 30988,
+    "passNoOracle": 1174,
     "passNegative": 4459,
-    "passTotal": 36605,
-    "bug": 11480,
-    "incompatible": 5089,
+    "passTotal": 36621,
+    "bug": 11484,
+    "incompatible": 5069,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48085,
-    "passRateInScope": 68.84,
+    "trAccepted": 48105,
+    "passRateInScope": 68.87,
     "passRateTrAccepted": 76.13
   },
   "torajs": {
-    "commit": "f3ee3cdc5",
-    "commitSubject": "fix(torajs-core): every value is a property key, not a shortlist of them",
+    "commit": "b1782035e",
+    "commitSubject": "chore: rotation 609 sweep on 70bdac732, and what its 16 cases understate",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,42 @@
   },
   "commits": [
     {
+      "hash": "b1782035e",
+      "subject": "chore: rotation 609 sweep on 70bdac732, and what its 16 cases understate"
+    },
+    {
+      "hash": "22e0c9d47",
+      "subject": "docs(torajs-core): the read gate said a number key gets rejected; it never was"
+    },
+    {
+      "hash": "70bdac732",
+      "subject": "fix(torajs-core): those receivers' key domain is the whole one too"
+    },
+    {
+      "hash": "efad70400",
+      "subject": "fix(torajs-core): a Map, a Set and a RegExp carry properties too"
+    },
+    {
+      "hash": "c4dce6f62",
+      "subject": "fix(torajs-core): an array's key domain is the whole value domain"
+    },
+    {
+      "hash": "f7deb743f",
+      "subject": "fix(torajs-core): an array's key list is its key domain, derived"
+    },
+    {
+      "hash": "0ea164bb5",
+      "subject": "fix(torajs-core): a function is an object, so it has property keys"
+    },
+    {
+      "hash": "713dc9b17",
+      "subject": "refactor(torajs-core): the write-side key gate has receivers, not clauses"
+    },
+    {
+      "hash": "41f7b11e6",
+      "subject": "chore: rotation 608 sweep on f3ee3cdc5, plus the dashboard snapshot"
+    },
+    {
       "hash": "f3ee3cdc5",
       "subject": "fix(torajs-core): every value is a property key, not a shortlist of them"
     },
@@ -739,63 +775,38 @@
     {
       "hash": "1eab0a57b",
       "subject": "fix(torajs-core): a function is an object, so it is a property key"
-    },
-    {
-      "hash": "696966001",
-      "subject": "fix(torajs-core): eval, arguments and yield are assignment targets in sloppy code"
-    },
-    {
-      "hash": "fb0f016da",
-      "subject": "docs(torajs-core): the assignment threw, it did not die at compile time"
-    },
-    {
-      "hash": "84b372481",
-      "subject": "chore: rotation 607 sweep on 7b29ca5b5, plus the dashboard snapshot"
-    },
-    {
-      "hash": "7b29ca5b5",
-      "subject": "fix(torajs-core): eval strictness is the call AND the text"
-    },
-    {
-      "hash": "a293e4832",
-      "subject": "fix(torajs-core): a block-scoped binding shadows a class only in its block"
-    },
-    {
-      "hash": "30d7fd2c2",
-      "subject": "fix(torajs-core): a let / const / var / parameter shadows a class for `new` too"
-    },
-    {
-      "hash": "7f157a1d7",
-      "subject": "fix(torajs-core): a declaration under an if / loop / switch / try is declared"
-    },
-    {
-      "hash": "6908d2022",
-      "subject": "fix(torajs-core): sloppy eval code keeps its own Annex B answer"
-    },
-    {
-      "hash": "33f1703cb",
-      "subject": "fix(torajs-core): §B.3.4's if-clause declaration gets its braces"
     }
   ],
-  "headSha": "f3ee3cdc5",
+  "headSha": "b1782035e",
   "autorun": {
-    "total": 911,
+    "total": 912,
     "baselineTarget": 10,
-    "bySelf": 906,
+    "bySelf": 907,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788759534-527e",
-      "at": "2026-09-07T05:38:54Z",
-      "ts": 1788759534,
+      "rotationId": "r-1788765687-39f5",
+      "at": "2026-09-07T07:21:27Z",
+      "ts": 1788765687,
       "trigger": "self",
-      "prevHead": "84b372481",
-      "handoffSha": "sha256:44c2be090a4d7e02e762862e66459f074ce4b67aac9fe3d25acb685cbbc2d694",
-      "handoffAgeSec": 15,
+      "prevHead": "41f7b11e6",
+      "handoffSha": "sha256:732d06032d62aa34cff12ee08435b6accf2394398d38e2f328baf7f40940e6e3",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788765687-39f5",
+        "at": "2026-09-07T07:21:27Z",
+        "ts": 1788765687,
+        "trigger": "self",
+        "prevHead": "41f7b11e6",
+        "handoffSha": "sha256:732d06032d62aa34cff12ee08435b6accf2394398d38e2f328baf7f40940e6e3",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788759534-527e",
         "at": "2026-09-07T05:38:54Z",
@@ -892,17 +903,6 @@
         "prevHead": "5f0990fea",
         "handoffSha": "sha256:fbf4cedad2fbb45fbf76fe7f439e7d54d1168b4d1f33b8f5ab8d8d72b4724718",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788660602-3d1e",
-        "at": "2026-09-06T02:10:02Z",
-        "ts": 1788660602,
-        "trigger": "self",
-        "prevHead": "fd1bc2a2e",
-        "handoffSha": "sha256:330ed4316447ef1a8013c79f1353f4dacf6aa70e3dc046c098e53e2503aba2f0",
-        "handoffAgeSec": 5,
         "conformanceBefore": null,
         "commitsInSession": null
       }
