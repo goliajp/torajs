@@ -10,15 +10,18 @@
 //! Object.assign + Bun runtime cluster + Reflect.get +
 //! Symbol.for/keyFor).
 //!
-//! v0.2 #3 — both `Object.hasOwn(obj, key)` (ES §20.1.2.4) and
-//! `Reflect.has(obj, key)` (ES §28.1.9) fold to a constant Bool when
-//! the target lowers to `Type::Obj(sid)` and the key arg is a string
-//! literal: the field is either declared on the struct or it's not.
+//! v0.2 #3 — `Object.hasOwn(obj, key)` (ES §20.1.2.4) folds to a
+//! constant Bool when the target lowers to `Type::Obj(sid)` and the
+//! key arg is a string literal: the field is either declared on the
+//! struct or it's not. Own-only is exactly what §20.1.2.4 asks, so
+//! the fold stays sound however the prototype chain grows.
 //!
-//! tr has no prototype chain, so `Reflect.has` (`key in target` per
-//! spec, walking the proto chain) collapses to the same own-property
-//! check as `Object.hasOwn` — the spec gap is empty for tr's typed
-//! struct subset.
+//! `Reflect.has(obj, key)` (§28.1.9) used to ride that same fold on
+//! the reasoning that "tr has no prototype chain, so `key in target`
+//! collapses to the same own-property check". It has one now, and
+//! §28.1.9 is §13.10.1 verbatim, so the surface hands off to
+//! `ssa_lower_call_in_op::lower_has_property` and only `Object.hasOwn`
+//! is answered here.
 //!
 //! Variable-key paths + non-struct targets are deferred (caller falls
 //! through to the generic Call lowering): returning `None` here lets
@@ -45,16 +48,41 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
         return None;
     };
-    let matches = (m_name == "hasOwn" && ns == "Object")
-        // `Reflect.has(obj, key)` aliases to the same emit — tr has
-        // no prototype chain so own == all and the spec gap with `in`
-        // is empty.
-        || (m_name == "has" && ns == "Reflect");
-    if !matches {
+    let is_reflect_has = m_name == "has" && ns == "Reflect";
+    if !(m_name == "hasOwn" && ns == "Object") && !is_reflect_has {
         return None;
     }
     if args.len() < 2 {
         return None;
+    }
+    if is_reflect_has {
+        // §28.1.9 steps 1-3 are §13.10.1 steps 5-6 verbatim: throw on
+        // a non-Object target, ToPropertyKey, [[HasProperty]]. So
+        // `Reflect.has(o, k)` IS `k in o`, and it now emits as one.
+        //
+        // It used to alias to the own-property probe below instead,
+        // on the reasoning that "tr has no prototype chain so own ==
+        // all and the spec gap with `in` is empty". That was true
+        // when written and stopped being true; the copy could not
+        // notice, because it lived in the lowering and the chain grew
+        // in the runtime. Three ways it was wrong, all silent:
+        // `Reflect.has(new Map(), "get")` answered false (chain),
+        // `Reflect.has(42, "x")` answered false where step 1 throws,
+        // and every non-struct receiver died at "unsupported member
+        // call shape" while `k in o` on the same value worked.
+        //
+        // Argument order is the one thing the two surfaces do NOT
+        // share — `in` evaluates the key first — so the operands are
+        // lowered here, in call order, and handed over lowered.
+        let obj_op = ctx.lower_expr(args[0]);
+        let key_op = ctx.lower_expr(args[1]);
+        // S302 — trailing args eval-then-discard, before the call.
+        for &a in args.iter().skip(2) {
+            let _ = ctx.lower_expr(a);
+        }
+        return Some(crate::ssa_lower_call_in_op::lower_has_property(
+            ctx, key_op, args[1], obj_op,
+        ));
     }
     let key_lit: Option<PropKey> = match ctx.ast.get_expr(args[1]) {
         Expr::String(k) => Some(PropKey::from(k.clone())),
@@ -65,6 +93,22 @@ pub(crate) fn try_lower(
     // exit). No emit_drop_value here.
     let obj_op = ctx.lower_expr(args[0]);
     let obj_ty = ctx.operand_ty(&obj_op);
+    // A receiver whose shape is known statically still has its
+    // own-property face only at run time — a Map's bag, an array's
+    // indices and `length`, a string's indices, a closure's `name`.
+    // `any_prop_has` below already answers every one of them
+    // correctly (each probed against bun, not assumed); the refusal
+    // was this lowering's alone, and it read "unsupported member call
+    // shape: hasOwn" while the same value spelled `any` answered.
+    // `Type::Obj(_)` stays out: a struct's own face IS its
+    // compile-time layout, so the fold at the bottom is both exact
+    // and free. `FnSig` stays out for the reason `in` gives — a bare
+    // function-pointer value has no cell to box.
+    let (obj_op, obj_ty) = if matches!(obj_ty, Type::Obj(_) | Type::Any | Type::FnSig(_)) {
+        (obj_op, obj_ty)
+    } else {
+        (ctx.box_to_any(obj_op), Type::Any)
+    };
     // chunk D-1 (RFC 20260711) — Any receiver: runtime own-property
     // probe through `any_prop_has` (B3 substrate). Static key names
     // intern; dynamic keys lower + coerce to a Str (Substr temps are

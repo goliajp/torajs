@@ -46,6 +46,28 @@ pub(crate) fn try_lower(
     }
     let key_op = ctx.lower_expr(args[0]);
     let obj_op = ctx.lower_expr(args[1]);
+    Some(lower_has_property(ctx, key_op, args[0], obj_op))
+}
+
+/// §7.3.12 HasProperty on two already-lowered operands — the whole
+/// answer, from the shape dispatch down to the kernel call.
+///
+/// Split out of [`try_lower`] so `Reflect.has` can reach it. §28.1.9
+/// steps 1-3 and §13.10.1 steps 5-6 are the same three steps in the
+/// same order (non-Object throws, ToPropertyKey, [[HasProperty]]),
+/// so the two surfaces are one emit — but their ARGUMENT ORDER is
+/// opposite (`k in o` evaluates the key first, `Reflect.has(o, k)`
+/// the object), which is why the operands arrive lowered rather than
+/// as expressions.
+///
+/// `key_expr` is the key's source expression, needed only to decide
+/// whether an `any` key's ToPropertyKey temp is owned.
+pub(crate) fn lower_has_property(
+    ctx: &mut LowerCtx<'_>,
+    key_op: Operand,
+    key_expr: ExprId,
+    obj_op: Operand,
+) -> Operand {
     let obj_ty = ctx.operand_ty(&obj_op);
     // A function value is an Object per §13.10.1 — box the closure
     // cell (borrow'd NaN-box, no rc traffic) and take the Any
@@ -91,7 +113,7 @@ pub(crate) fn try_lower(
             Type::Bool,
             None,
         );
-        return Some(Operand::Value(r));
+        return Operand::Value(r);
     }
     let obj_sid = if let Type::Obj(sid) = &obj_ty {
         Some(*sid)
@@ -100,7 +122,7 @@ pub(crate) fn try_lower(
     };
     if let Some(sid) = obj_sid {
         let layout = ctx.struct_layouts[sid.0 as usize].clone();
-        if let Expr::String(s) = ctx.ast.get_expr(args[0]) {
+        if let Expr::String(s) = ctx.ast.get_expr(key_expr) {
             // An accessor is an own property (§10.4) but sits in the
             // layout under a synthetic slot name, so the plain-name
             // scan alone would deny it (RFC 20260714-objlit-accessor).
@@ -110,7 +132,7 @@ pub(crate) fn try_lower(
                         .is_some_and(|(_, prop)| *prop == **s)
             });
             if present {
-                return Some(Operand::ConstBool(true));
+                return Operand::ConstBool(true);
             }
         }
         // The layout scan can only prove PRESENCE. Absence is not a
@@ -150,7 +172,7 @@ pub(crate) fn try_lower(
             // this the throw would sit pending and `"q" in undefined`
             // would answer false instead of throwing.
             ctx.emit_throw_check(None);
-            return Some(Operand::Value(r));
+            return Operand::Value(r);
         }
         // §6.1.7 — a Symbol key rides the same kernel as a Str key,
         // uncoerced per §7.1.19 step 2: the own probe and the user
@@ -165,22 +187,34 @@ pub(crate) fn try_lower(
             );
             // See the num arm — same pending-throw contract.
             ctx.emit_throw_check(None);
-            return Some(Operand::Value(r));
+            return Operand::Value(r);
         }
-        // An `any` key only names its kind at run time, and §7.1.19
-        // is defined on the value, so it resolves through the same
-        // kernel the define family asks: a Symbol arrives as itself,
-        // everything else as its ToString. Without this the whole
-        // program was rejected, which is how `sym in o` reads when
-        // the symbol travels in an `any` — the usual way it travels.
-        if matches!(key_ty, Type::Any) {
+        // Everything else resolves through the §7.1.19 kernel the
+        // define family asks: a Symbol arrives as itself, everything
+        // else as its ToString.
+        //
+        // An `any` key only names its kind at run time, so it has to
+        // come here. A key whose kind IS known — a Bool, an object,
+        // a shape with no lane above — comes here too, boxed (a
+        // borrow), rather than getting a lane of its own: §7.1.19 is
+        // defined on the value, and one resolver answering the whole
+        // key domain is what keeps `true in o` and `o["true"]`
+        // agreeing. The lanes above are the two fast paths, not the
+        // list of admitted kinds — a `panic!` stood here instead and
+        // `true in o` was a compile error.
+        {
+            let key_any = if matches!(key_ty, Type::Any) {
+                key_op.clone()
+            } else {
+                ctx.box_to_any(key_op.clone())
+            };
             let k = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![key_op.clone()]),
+                InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![key_any]),
                 Type::Ptr,
                 None,
             );
-            ctx.release_owned_temp(args[0], &key_op);
+            ctx.release_owned_temp(key_expr, &key_op);
             ctx.emit_throw_check(None);
             let r = ctx.f.append_inst(
                 ctx.cur_block,
@@ -200,9 +234,8 @@ pub(crate) fn try_lower(
             );
             // See the num arm — same pending-throw contract.
             ctx.emit_throw_check(None);
-            return Some(Operand::Value(r));
+            return Operand::Value(r);
         }
-        panic!("ssa-lower: `<key> in <obj:any>` unsupported key type {key_ty:?}");
     }
     panic!("ssa-lower: `in` rhs unsupported type {obj_ty:?}");
 }
