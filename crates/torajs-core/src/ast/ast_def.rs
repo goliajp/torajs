@@ -522,6 +522,28 @@ pub struct Ast {
     /// by the anchor but may really carry the field). Only marked
     /// reads — a user member read keeps the hard error (TS posture).
     pub dstr_default_member_loads: std::collections::HashSet<ExprId>,
+    /// rotation 610 — ExprIds whose property read was SPELLED with
+    /// brackets and a literal key (`m["a"]`, `o[0]`). The parser
+    /// folds `o["k"]` to a Member when the key is an identifier name
+    /// (§13.3.2: `o["k"]` IS `o.k`, and the fold is what lets a
+    /// literal key reach the class IC, accessors and static field
+    /// layout), so by the time the checker sees it the two spellings
+    /// are one node — and a Map, a Set, a RegExp or a String got the
+    /// member checker's nominal reject for a name its hand-written
+    /// builtin table happens not to list, while the SAME key spelled
+    /// dynamically answered undefined off the runtime probe. One key,
+    /// two answers, decided by whether it was a literal.
+    ///
+    /// So the fold records what it erased. A marked read is LENIENT
+    /// on a static miss (`answer_terminal_miss` → `Any`, and the
+    /// lowering already rides the any-member probe for every one of
+    /// these receivers): §10.1.8.1 [[Get]] answers `undefined` for an
+    /// absent property, and a hand-written builtin surface is not the
+    /// list of properties a value HAS. An unmarked `o.k` keeps the
+    /// hard error — that is the TS posture, and it is also how a
+    /// missing builtin still surfaces loudly instead of silently
+    /// becoming `undefined`.
+    pub index_spelled_reads: std::collections::HashSet<ExprId>,
     /// rotation 233 — Member ExprIds minted by the parser's `await e`
     /// desugar (`e.value`, expr_prec L.2). §27.7.5.1 Await: a Promise
     /// unwraps to its settled value, ANY other operand passes through

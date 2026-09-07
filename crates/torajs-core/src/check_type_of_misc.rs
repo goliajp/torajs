@@ -298,24 +298,40 @@ pub(crate) fn check_nullish(
 pub(crate) fn check_opt_chain(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     obj: ExprId,
     name: &str,
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
+    // `a?.["k"]` is the chain spelling of the same fold the Member
+    // lane marks (`Ast::index_spelled_reads`), so a static miss is
+    // lenient here for the same reason and answers `Any`. This
+    // ladder is narrower than the one next door — it has drifted
+    // from it before — so the leniency is spelled on both of its
+    // `member_type` calls rather than inside it.
+    let lenient = ast.index_spelled_reads.contains(&eid);
     match &obj_ty {
         Type::Nullable(_) => {
             let inner_obj_ty = match &obj_ty {
                 Type::Nullable(inner) => (**inner).clone(),
                 _ => obj_ty.clone(),
             };
-            let _ = checker.member_type(&inner_obj_ty, name)?;
+            if let Err(e) = checker.member_type(&inner_obj_ty, name)
+                && !lenient
+            {
+                return Err(e);
+            }
             Ok(Type::Any)
         }
         Type::Null | Type::Undefined | Type::Any => Ok(Type::Any),
         _ => {
             // Plain (non-nullable) obj: `?.` ≡ `.`. Return concrete
             // member type since the optional path is dead.
-            checker.member_type(&obj_ty, name)
+            match checker.member_type(&obj_ty, name) {
+                Ok(t) => Ok(t),
+                Err(_) if lenient => Ok(Type::Any),
+                Err(e) => Err(e),
+            }
         }
     }
 }

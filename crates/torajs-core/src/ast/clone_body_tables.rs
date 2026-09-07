@@ -74,6 +74,7 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(objlit_cover_init_exprs);
     copy_set!(arrlit_trailing_comma_after_rest);
     copy_set!(dstr_default_member_loads);
+    copy_set!(index_spelled_reads);
     copy_set!(await_value_reads);
     copy_set!(fn_expr_exprs);
     copy_set!(template_str_calls);

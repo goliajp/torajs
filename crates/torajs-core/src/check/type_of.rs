@@ -65,7 +65,8 @@ impl Checker {
                     eid,
                     obj,
                     name,
-                    ast.dstr_default_member_loads.contains(&eid),
+                    ast.dstr_default_member_loads.contains(&eid)
+                        || ast.index_spelled_reads.contains(&eid),
                 )
             }
             Expr::Index { obj, index } => {
@@ -226,7 +227,7 @@ impl Checker {
                 // §13.3.9 (Nullable/Null/Undefined/Any obj); plain
                 // obj → concrete member type. See
                 // [`crate::check_type_of_misc::check_opt_chain`].
-                crate::check_type_of_misc::check_opt_chain(self, ast, *obj, name)
+                crate::check_type_of_misc::check_opt_chain(self, ast, eid, *obj, name)
             }
             Expr::OptIndex { obj, index } => {
                 // Chunk 703 — `obj?.[index]` element access, same

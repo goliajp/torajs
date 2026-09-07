@@ -53,11 +53,23 @@ pub(crate) fn check(
         && let Some(key) = crate::ast::literal_prop_key(ast, index)
         && let Some(name) = key.as_str()
     {
-        // Index reads are never the desugar's default-guarded pattern
-        // load (that lane mints Member exprs) — no lenient miss here.
         // A key with a lone surrogate is not a `&str` and takes the
         // dynamic-index lane below (557-02).
-        return crate::check_type_of_member::check(checker, ast, eid, &obj, name, false);
+        //
+        // Lenient on a static miss, because this key was SPELLED with
+        // brackets: `{ a: 1 }[0]` is a miss answering undefined on
+        // every engine, and the parser marked it (`index_spelled_
+        // reads`) precisely so the two spellings of one key stop
+        // giving two answers. The desugar's own default-guarded
+        // pattern load mints Member exprs and never reaches here.
+        return crate::check_type_of_member::check(
+            checker,
+            ast,
+            eid,
+            &obj,
+            name,
+            ast.index_spelled_reads.contains(&eid),
+        );
     }
     let idx_ty = checker.type_of(ast, index)?;
     reject_bad_key(obj_ty.clone(), idx_ty.clone())?;

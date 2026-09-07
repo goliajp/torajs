@@ -244,7 +244,11 @@ pub(crate) fn lower_with_val(
     // any-member IC + runtime probe: a hit answers the value, a true
     // miss answers ANY_UNDEF (the guard's default, if any, fires on
     // it). User reads keep the layout panic.
-    if ctx.ast.dstr_default_member_loads.contains(&eid)
+    // A bracket-spelled literal key joins on the same terms — the
+    // checker answered `Any` for it (`Ast::index_spelled_reads`), so
+    // the runtime probe has to be here to answer it.
+    if (ctx.ast.dstr_default_member_loads.contains(&eid)
+        || ctx.ast.index_spelled_reads.contains(&eid))
         && !ctx.struct_layouts[sid.0 as usize]
             .iter()
             .any(|(f, _)| f == name)
