@@ -108,18 +108,88 @@ pub(crate) fn sloppy_delete_answer(n: &str, declared: &std::collections::HashSet
 /// FnDecl / ClassDecl NAMES (the shared binding collector gathers
 /// params and let/var/for-of/catch bindings but not the declaring
 /// names themselves).
+///
+/// The two halves must agree on WHERE a declaration can be. This one
+/// used to descend through `Block` / `Multi` only, while
+/// `collect_local_binding_names` walked every statement container
+/// there is — so a declaration under an `if`, a loop, a `switch` case
+/// or a `try` was invisible to the pair. What that cost was not the
+/// `delete` answer it was written for but the implicit-globals
+/// sibling, which shares this set: `if (c) { function f(){ f = 1 } }`
+/// left `f` undeclared, so the assignment in the body read as a write
+/// to an unresolvable name and a global `var f` was synthesized out of
+/// nothing. That invented binding then made §B.3.3.1 step 1.a.ii
+/// answer "an enclosing scope already owns this name", and the block
+/// function never got its var binding at all. `delete` gains the same
+/// correction on the way: a §B.3.3 var binding is not configurable, so
+/// the name answers false, as it already did with the braces at the
+/// top of a scope.
+///
+/// Recorded boundary: the set stays scope-BLIND — it answers "the
+/// program declares this name somewhere", not "this name is bound
+/// here". A `class` in a block binds only that block, so
+/// `{ class C {} } delete C` answers false where the spec says true.
+/// That approximation is not new (the `Block` arm has always
+/// collected such a name) and the containers only extend its reach;
+/// narrowing it wants a scope-aware set, which is its own knife.
 fn collect_decl_names(stmts: &[Stmt], out: &mut std::collections::HashSet<String>) {
     for s in stmts {
-        match s {
-            Stmt::FnDecl { name, body, .. } => {
-                out.insert(name.clone());
-                collect_decl_names(body, out);
-            }
-            Stmt::ClassDecl { name, .. } => {
-                out.insert(name.clone());
-            }
-            Stmt::Block(inner) | Stmt::Multi(inner) => collect_decl_names(inner, out),
-            _ => {}
+        collect_decl_names_stmt(s, out);
+    }
+}
+
+/// One statement: its own declaring name, and every list it owns.
+fn collect_decl_names_stmt(s: &Stmt, out: &mut std::collections::HashSet<String>) {
+    match s {
+        Stmt::FnDecl { name, body, .. } => {
+            out.insert(name.clone());
+            collect_decl_names(body, out);
         }
+        Stmt::ClassDecl { name, .. } => {
+            out.insert(name.clone());
+        }
+        Stmt::Block(inner) | Stmt::Multi(inner) => collect_decl_names(inner, out),
+        Stmt::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_decl_names_stmt(then_branch, out);
+            if let Some(eb) = else_branch.as_deref() {
+                collect_decl_names_stmt(eb, out);
+            }
+        }
+        Stmt::While { body, .. }
+        | Stmt::DoWhile { body, .. }
+        | Stmt::Labeled { body, .. }
+        | Stmt::ForOf { body, .. }
+        | Stmt::ForOfSplitIter { body, .. } => collect_decl_names_stmt(body, out),
+        Stmt::For { init, body, .. } => {
+            if let Some(init) = init.as_deref() {
+                collect_decl_names_stmt(init, out);
+            }
+            collect_decl_names_stmt(body, out);
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                collect_decl_names(&c.body, out);
+            }
+            if let Some(d) = default {
+                collect_decl_names(d, out);
+            }
+        }
+        Stmt::Try {
+            body,
+            catch_body,
+            finally_body,
+            ..
+        } => {
+            collect_decl_names(body, out);
+            collect_decl_names(catch_body, out);
+            if let Some(fb) = finally_body {
+                collect_decl_names(fb, out);
+            }
+        }
+        _ => {}
     }
 }
