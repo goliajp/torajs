@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T03:06:59.282Z",
+  "generatedAt": "2026-09-07T05:37:53.795Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T02:01:42Z",
-    "headSha": "3bffb6abc",
-    "elapsedSec": 422.74,
+    "ranAt": "2026-09-07T05:25:10Z",
+    "headSha": "7b29ca5b5",
+    "elapsedSec": 418.77,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30915,
-    "passNoOracle": 1144,
+    "pass": 30927,
+    "passNoOracle": 1163,
     "passNegative": 4459,
-    "passTotal": 36518,
-    "bug": 11479,
-    "incompatible": 5177,
+    "passTotal": 36549,
+    "bug": 11474,
+    "incompatible": 5151,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 47997,
-    "passRateInScope": 68.68,
-    "passRateTrAccepted": 76.08
+    "trAccepted": 48023,
+    "passRateInScope": 68.73,
+    "passRateTrAccepted": 76.11
   },
   "torajs": {
-    "commit": "fbbac993a",
-    "commitSubject": "perf(hardev): schedule gmalloc_scan's build phase wide, run phase narrow",
+    "commit": "7b29ca5b5",
+    "commitSubject": "fix(torajs-core): eval strictness is the call AND the text",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "7b29ca5b5",
+      "subject": "fix(torajs-core): eval strictness is the call AND the text"
+    },
+    {
+      "hash": "a293e4832",
+      "subject": "fix(torajs-core): a block-scoped binding shadows a class only in its block"
+    },
+    {
+      "hash": "30d7fd2c2",
+      "subject": "fix(torajs-core): a let / const / var / parameter shadows a class for `new` too"
+    },
+    {
+      "hash": "7f157a1d7",
+      "subject": "fix(torajs-core): a declaration under an if / loop / switch / try is declared"
+    },
+    {
+      "hash": "6908d2022",
+      "subject": "fix(torajs-core): sloppy eval code keeps its own Annex B answer"
+    },
+    {
+      "hash": "33f1703cb",
+      "subject": "fix(torajs-core): §B.3.4's if-clause declaration gets its braces"
+    },
+    {
+      "hash": "9d5a7fcf7",
+      "subject": "chore: refresh the hardev dashboard snapshot"
+    },
+    {
       "hash": "fbbac993a",
       "subject": "perf(hardev): schedule gmalloc_scan's build phase wide, run phase narrow"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "9cfc23849",
       "subject": "fix(torajs-core): a deleted name still gets its implicit global"
-    },
-    {
-      "hash": "fe55ed846",
-      "subject": "fix(torajs-core): `delete super.x` is a ReferenceError"
-    },
-    {
-      "hash": "05e9efcc7",
-      "subject": "fix(torajs-core): a type assertion is transparent to `delete`"
-    },
-    {
-      "hash": "b6bad966c",
-      "subject": "chore: rotation 605 sweep on 573d37b17, plus the dashboard snapshot"
-    },
-    {
-      "hash": "573d37b17",
-      "subject": "refactor(torajs-core): the dead-zone pass is no longer top-level-only"
-    },
-    {
-      "hash": "3d6729401",
-      "subject": "fix(torajs-core): the dead-zone rule runs on every statement list, not just the top one"
-    },
-    {
-      "hash": "6f57ff136",
-      "subject": "fix(torajs-core): a function declaration shadows a class of the same name for `new`"
-    },
-    {
-      "hash": "d1c2557d8",
-      "subject": "fix(torajs-core): a nested function declared in a function-expression body"
     }
   ],
-  "headSha": "fbbac993a",
+  "headSha": "7b29ca5b5",
   "autorun": {
-    "total": 909,
+    "total": 910,
     "baselineTarget": 10,
-    "bySelf": 904,
+    "bySelf": 905,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788713156-2db1",
-      "at": "2026-09-06T16:45:56Z",
-      "ts": 1788713156,
+      "rotationId": "r-1788752093-7b01",
+      "at": "2026-09-07T03:34:53Z",
+      "ts": 1788752093,
       "trigger": "self",
-      "prevHead": "b6bad966c",
-      "handoffSha": "sha256:e451db4b24dd8b1896109b8633369630f7ef5d1dd8fa03e7087d4ffbf41ac810",
+      "prevHead": "9d5a7fcf7",
+      "handoffSha": "sha256:6929a151cf7402cd09be3fa4a9745a136d41e3283da91e52d182589caec1e65e",
       "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788752093-7b01",
+        "at": "2026-09-07T03:34:53Z",
+        "ts": 1788752093,
+        "trigger": "self",
+        "prevHead": "9d5a7fcf7",
+        "handoffSha": "sha256:6929a151cf7402cd09be3fa4a9745a136d41e3283da91e52d182589caec1e65e",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788713156-2db1",
         "at": "2026-09-06T16:45:56Z",
@@ -892,17 +903,6 @@
         "prevHead": "3c609ed5f",
         "handoffSha": "sha256:a5c8eb8e7d5e434fe745934e2b2ada577c44a3634442452454acedcaa48096d9",
         "handoffAgeSec": 14,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788648989-0e0e",
-        "at": "2026-09-05T22:56:29Z",
-        "ts": 1788648989,
-        "trigger": "self",
-        "prevHead": "0051910a3",
-        "handoffSha": "sha256:3706476ea346d83be94449069172f913dce6b143d566832b4a5db1828a309076",
-        "handoffAgeSec": 7,
         "conformanceBefore": null,
         "commitsInSession": null
       }
