@@ -213,7 +213,8 @@ pub(crate) fn try_lower(
     // themselves are NOT properties (the runtime lane guards them via
     // accessor_name_kind; mirror that here so the internal name never
     // leaks onto the user-visible surface).
-    let is_internal_spelling = key.starts_with("__getter_") || key.starts_with("__setter_");
+    let is_internal_spelling =
+        crate::check_type_of_object_lit::accessor_slot(key.as_wtf8()).is_some();
     let has = !is_internal_spelling
         && ctx.struct_layouts[sid.0 as usize].iter().any(|(n, _)| {
             n == &key

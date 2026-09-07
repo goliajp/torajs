@@ -35,6 +35,9 @@ unsafe extern "C" {
         name_len: u32,
         kind: u8,
     ) -> *const c_void;
+    /// torajs-structmeta — see `prop_has`: 255 for a plain name, a
+    /// kind byte for a synthetic accessor slot spelling.
+    fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
 }
 
 /// Offset of the u32 class_tag inside a `Tag::Obj` heap block
@@ -59,6 +62,13 @@ pub unsafe extern "C" fn __torajs_struct_proto_member_has(
     }
     let k = unsafe { key_bytes(key) };
     let (name, len) = (k.as_ptr(), k.len());
+    // A class accessor's adapters are registered under their
+    // synthetic slot names too, so the probes below matched
+    // `"__getter_d" in c` — the same leak the own face had, one
+    // chain link over. Both now ask the one authority.
+    if unsafe { __torajs_accessor_name_kind(name, len as u32) } != 255 {
+        return 0;
+    }
     if !unsafe { __torajs_struct_method_find(layout, name, len) }.is_null() {
         return 1;
     }

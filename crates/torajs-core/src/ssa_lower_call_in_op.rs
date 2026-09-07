@@ -126,11 +126,21 @@ pub(crate) fn lower_has_property(
             // An accessor is an own property (§10.4) but sits in the
             // layout under a synthetic slot name, so the plain-name
             // scan alone would deny it (RFC 20260714-objlit-accessor).
-            let present = layout.iter().any(|(n, _)| {
-                n == s
-                    || crate::check_type_of_object_lit::accessor_slot(n)
-                        .is_some_and(|(_, prop)| *prop == **s)
-            });
+            //
+            // The synthetic spellings themselves are NOT properties.
+            // The runtime lane guards them via `accessor_name_kind`
+            // and `Object.hasOwn`'s own fold guards them here — this
+            // scan did not, so a bare layout-name match answered true
+            // for `"__getter_b" in o`. A synthetic key falls through
+            // to the runtime rather than folding, which is where the
+            // guard already lives.
+            let is_internal_spelling = crate::check_type_of_object_lit::accessor_slot(s).is_some();
+            let present = !is_internal_spelling
+                && layout.iter().any(|(n, _)| {
+                    n == s
+                        || crate::check_type_of_object_lit::accessor_slot(n)
+                            .is_some_and(|(_, prop)| *prop == **s)
+                });
             if present {
                 return Operand::ConstBool(true);
             }

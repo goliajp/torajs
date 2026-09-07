@@ -106,9 +106,17 @@ pub(crate) fn emit_obj_has_own_property(
         // hasOwnProperty("foo") is true).
         let getter = PropKey::prefixed("__getter_", key);
         let setter = PropKey::prefixed("__setter_", key);
-        let result = layout
-            .iter()
-            .any(|(fname, _)| fname == key || *fname == getter || *fname == setter);
+        // …and the synthetic spelling itself is not a property, so
+        // the plain `fname == key` arm must not match it: it did, and
+        // `o.hasOwnProperty("__getter_foo")` answered true about a
+        // name `Object.keys(o)` would never show. Third fold of this
+        // one question (`Object.hasOwn` and `in` are the others);
+        // all three now ask `accessor_slot`, the compiler-side
+        // authority on the spelling, rather than each re-deriving it.
+        let result = crate::check_type_of_object_lit::accessor_slot(key).is_none()
+            && layout
+                .iter()
+                .any(|(fname, _)| fname == key || *fname == getter || *fname == setter);
         let arg_val = ctx.lower_expr(arg_eid);
         ctx.release_owned_temp(arg_eid, &arg_val);
         // S304 — lower-and-drop trailing args per S272 idiom

@@ -55,6 +55,11 @@ unsafe extern "C" {
     /// torajs-structmeta — class-layout lookup + field probe.
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    /// torajs-structmeta — 0/1 when `name` spells an accessor SLOT
+    /// (`__getter_v` / `__setter_v`), 255 for a plain name. The
+    /// authority that keeps the mangled spelling off the user-visible
+    /// surface; the read face has asked it since the slots existed.
+    fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
     /// Accessor slot standing for a plain property name (`kind` 0 =
     /// getter, 1 = setter) — RFC 20260714-objlit-accessor.
     fn __torajs_struct_accessor_find(
@@ -137,6 +142,18 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
     }
     let k = unsafe { key_bytes(key) };
     let (name_bytes, name_len) = (k.as_ptr(), k.len());
+    // The layout stores an accessor under its synthetic slot name, so
+    // the plain-name field probe below MATCHES that spelling — and
+    // answered `hasOwnProperty("__getter_b")` true, handing a
+    // compiler-internal name to user code. The read face has always
+    // asked `accessor_name_kind` here (`struct_probe::field_read`);
+    // this face did not. Enumeration never listed the spelling, so
+    // the two faces disagreed about a key `Object.keys` would not
+    // even show. An expando genuinely named `__getter_b` still
+    // answers — it is probed above, before this gate.
+    if unsafe { __torajs_accessor_name_kind(name_bytes, name_len as u32) } != 255 {
+        return 0;
+    }
     if unsafe { __torajs_struct_field_find(layout, name_bytes, name_len) } != u32::MAX {
         // A `message` / `name` slot holding the own-absence sentinel
         // means the property does not exist (§20.5.6.1.1: an undefined

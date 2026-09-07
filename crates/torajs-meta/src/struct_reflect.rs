@@ -33,6 +33,9 @@ unsafe extern "C" {
     // torajs-structmeta (W-J Phase A4) — read-side over __torajs_class_layouts.
     fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
     fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
+    /// torajs-structmeta — 255 for a plain name, a kind byte for a
+    /// synthetic accessor slot spelling (`__getter_v` / `__setter_v`).
+    fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
     /// Accessor slot standing for a plain property name (`kind` 0 =
     /// getter, 1 = setter) — RFC 20260714-objlit-accessor.
     fn __torajs_struct_accessor_find(
@@ -351,6 +354,15 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // Resolve the key to a field index.
     let k = unsafe { crate::str_wtf8::StrWtf8::of(key) };
     let (key_bytes, key_len) = (k.as_ptr(), k.len());
+    // The layout carries an accessor under a synthetic slot name, and
+    // the field probe below matches that spelling literally — so
+    // `getOwnPropertyDescriptor(o, "__getter_v")` handed back a DATA
+    // descriptor holding the getter function, for a key `Object.keys`
+    // does not list and `o.__getter_v` reads as undefined. Only the
+    // expando face can own that name legitimately, so route there.
+    if unsafe { __torajs_accessor_name_kind(key_bytes, key_len as u32) } != 255 {
+        return unsafe { expando_descriptor(cell, key) };
+    }
     let idx = unsafe { __torajs_struct_field_find(layout, key_bytes, key_len) };
     if idx == u32::MAX {
         // RFC 20260714-objlit-accessor — the plain name never matches
