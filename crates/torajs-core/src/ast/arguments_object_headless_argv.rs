@@ -84,19 +84,42 @@ pub(super) fn collect_headless_argv(
             continue;
         }
         // A generator's FnDecl is no longer the source body by the
-        // time this pass runs — `desugar_generators` (pipeline 139)
+        // time this pass runs — `desugar_generators` (pipeline 215)
         // replaced it with a FACTORY that mints the `__Gen_*` state
         // machine, and the `[...arguments]` it synthesizes into that
         // factory is a machine-field seed, not the user's read.
-        // Reshaping the factory's params breaks its wiring
-        // (`unknown identifier <param>` — the state machine binds
-        // positionally). The generator's own `arguments` face is its
-        // own gap (plan-state L3b, rotation 415 ③).
-        if ast.generator_factory_classes.contains_key(name)
-            || ast.async_generator_fns.contains(name)
-        {
-            continue;
-        }
+        //
+        // That factory used to be excluded here outright, on the
+        // stated ground that "reshaping the factory's params breaks
+        // its wiring (`unknown identifier <param>` — the state machine
+        // binds positionally)". Rotation 611 tested the claim by
+        // lifting the exclusion behind an `if false` and rebuilding:
+        // the workspace compiled clean, the conformance gate read
+        // 3773/0/4 unchanged, and every generator probe that answered
+        // correctly before still did. Nothing binds positionally to
+        // what this pass adds — `inject_argc_params` APPENDS hidden
+        // slots, it does not reshuffle declared ones.
+        //
+        // What the exclusion actually bought was silence. A factory
+        // outside the argc face is never static-argv-qualified, so its
+        // `[...arguments]` takes the documented degrade in
+        // `desugar_generators_class` ("a non-qualified one degrades to
+        // the declared params") — and a generator declaring no params
+        // degrades to an empty argv. `function* g(){ return
+        // arguments.length }` called as `g(42, ...[1], ...arr)` then
+        // answered 0 where bun answers 4: not a refusal, a wrong
+        // answer, which design-principles §4 refuses outright.
+        //
+        // Admitted, the same program reaches the loud
+        // `box_to_any(FnSig)` refusal its function-EXPRESSION twin
+        // already had — the two halves of one seam now fail the same
+        // way instead of one of them lying. Closing the seam for real
+        // needs the `__forward_` relay to carry argv, not just the
+        // argc it has carried since RFC 20260815 blade 5; that is an
+        // ABI change and has its own RFC. See
+        // `.claude/tasks/2026-09-07/generator-arguments-spread.md`
+        // for the eleven probes that pin the trigger to
+        // generator × reads-arguments × spread-call.
         // A `__forward_` relay already exists for this name — the
         // forwarder passes (pipeline 195, ahead of this one) minted
         // one for a value escape. Its forwarding call carries the
