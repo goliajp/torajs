@@ -262,6 +262,7 @@ pillar wants to preserve.
 the gate (P5 of TRIG work). `[D]` here means "needs production usage
 data to lock"; this row will land an `[M]` value with the same
 measurement pipeline (`stats.sh` against post-gate `rotations.jsonl`).
+**Superseded by the P5 lock below — that measure took 12 weeks, not 1.**
 
 | Metric (TRIG-track) | now @ 2026-06-15 | after v1 (1 wk under gate) | after v2 |
 |---|---|---|---|
@@ -269,6 +270,38 @@ measurement pipeline (`stats.sh` against post-gate `rotations.jsonl`).
 | TRIG-2 M | **5400 s candidate** `[D]` | locked from baseline | adapts per project |
 | self-rotation pass rate | **31.3 % historical** `[M]` | target ≥ 80 % (gate effective, not punitive) | ≥ 95 % (rare reject = real procrastination) |
 | recent-30 wall p50 drift | **−51 % vs all-time** `[M]` | ≤ ±20 % (no drift signal) | observability-driven self-tune |
+
+### P5 lock @2026-09-07 (the 1-week measure the row above asked for)
+
+The candidates above ran for **12 weeks** carrying a `[D]` tag, because
+the lock step was never executed. takagi called for it on 2026-09-07.
+Measurement over the last 60 rotations before the change, reconstructed
+from `prevHead` — `commitsInSession` was **hardcoded null** for all 909
+rows, so the field that exists precisely to answer this question could
+not (see `autorun/README.md` → JSONL schema; fixed in the same commit):
+
+| Metric | value `[M]` | reading |
+|---|---|---|
+| commits/rotation | min **5** · p10 5 · p50 **6** · p90 8 · max **9** | **0/60 below the threshold, left edge glued to it** — the gate became the target |
+| wall (min) | p10 **95** · p50 **125** · p90 **221** | TRIG-2's 90 min floor sits *below* p10 → it constrained nothing |
+| `triggerReason` | d **606** · a 133 · c 2 · b 2 | **81.6 % = d**, whose definition is "commit ≥ TRIG-1" → TRIG-3 restated TRIG-1 |
+| axis of the last ~60 | all **A** | axis B untouched since 08-30, axis E never started — invisible to all four gates |
+
+**Locked values** (`trig_gate.sh` tunables, env-overridable):
+
+| Slot | was | now `[M]` | basis |
+|---|---|---|---|
+| `TRIG1_MIN_COMMITS` | 5 `[D]` | **12** | fixed cost per rotation = sweep 507s + build_determinism 197s + gmalloc_scan 401s = **18.4 min**; solving `wall(N) = 18.4 + N × 17.8` from the measured p50 puts N=12 at 232 min (7.9 % machine overhead vs 14.7 % at N=6). N=20 would reach 374 min — past the observed p90 of 221 min, i.e. outside every rotation ever measured. **12 is the far edge of evidence.** |
+| `TRIG2_MIN_WALL_SEC` | 5400 (floor) `[D]` | **1800** (floor) | twelve commits inside half an hour is a batch of trivia, not a session |
+| `TRIG2_MAX_WALL_SEC` | — | **18000** (cap, waives TRIG-1) | with a 12-commit floor and no agent-accessible override (`manual` is takagi's alone), a five-hour session on one hard problem could never close. Same number doubles as "drift now outweighs amortisation" |
+| `TRIG5_SAME_AXIS_MAX` | — | **8** | ≈ 2.3 days at the projected 3.5 rotations/day |
+
+**Next measure — same rule, applied again**: run one week under the
+locked values, then `stats.sh` for (a) rotations/day ≈ 3.5 (b) wall p50
+≈ 230 min (c) drift signals (中文破裂 / 4-layer 越层 / silent-wrong) flat
+or lower. Drift flat → 16–20 becomes arguable. Drift up → back to 10.
+**This time the telemetry exists**: `commitsInSession` and `axis` are
+real values, so the next lock needs no reconstruction.
 
 ## How to keep this file honest
 

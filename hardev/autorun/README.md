@@ -115,7 +115,7 @@ P1 扩展（不阻塞本次 ship）：
 每次 trigger 写一行（compact, 无 trailing newline 外的空格）：
 
 ```json
-{"rotationId":"r-1747836296-a1b2","at":"2026-05-20T12:34:56Z","ts":1747836296,"project":"torajs","trigger":"manual","prevHead":"aaaef71","handoffSha":"sha256:abc...","handoffAgeSec":12,"conformanceBefore":"631/0/1","commitsInSession":null}
+{"rotationId":"r-1747836296-a1b2","at":"2026-05-20T12:34:56Z","ts":1747836296,"project":"torajs","trigger":"manual","prevHead":"aaaef71","handoffSha":"sha256:abc...","handoffAgeSec":12,"conformanceBefore":"3773/0/4","commitsInSession":12,"axis":"A","triggerReason":"d"}
 ```
 
 字段语义：
@@ -132,9 +132,22 @@ P1 扩展（不阻塞本次 ship）：
 - `handoffSha`：`shasum -a 256 .claude/handoff.md`，便于 audit。
 - `handoffAgeSec`：trigger 时刻 `.claude/handoff.md` 的 mtime 距 now 秒数。
   P1 INV-1 要求 < 90。
-- `conformanceBefore`：尝试从 status memory header grep 出 `NNN/0/1`，
-  失败置 `null`（不 fabricate）。
-- `commitsInSession`：P0 占位 null；P1 配合 Stop hook 才能精确。
+- `conformanceBefore`：conformance 三元组 `N/F/S`，来源是 handoff
+  `## rotate 触发` 段的 `gate:` 行（TRIG-3 契约的一部分），缺行置 `null`
+  （不 fabricate）。**2026-09-07 修**：此前探的是
+  `~/.claude-profile-{2,1}/.../memory/project_status_*.md` —— 两代前的 profile
+  记忆形态，目录早已不存在，于是它在**每一行**都返回 null。一个指向已消失世界
+  的探针，其失效形态与「这一轮没有数据」完全一致。
+- `commitsInSession`：`git rev-list --count <上次 self 的 prevHead>..HEAD`。
+  **2026-09-07 修**：此前是硬编码的字面 `null`，909 行一次都没填过——而
+  `trig_gate.sh` 每次调用都算出了这个数然后扔掉。调 TRIG-1 阈值时只能靠
+  `prevHead` 事后反推。
+- `axis`：**2026-09-07 新增**。本轮服务的 v1.0 gate 轴，`A`–`E`，多值逗号分隔；
+  来源是 handoff `## rotate 触发` 段的 `axis:` 行。TRIG-5 读它判断轴倾斜。
+  旧行无此键 → 读作未知，**打断 streak 而不是延长它**。
+- `triggerReason`：handoff 的 `reason: <a|b|c|d>` 字母，缺失置 `null`。
+  2026-09-07 起 gate 不再要求这一行（它 81.6% 都填 `d`，而 `d` 的定义就是
+  「commit ≥ TRIG-1」——在复读 TRIG-1），但仍记录，历史序列不断。
 
 **schema 不变性 (HARD RULE)**：现有字段不删、不改语义。新字段只追加，且默认
 允许缺失。下游消费者（dashboard、metrics 报告）必须 tolerate 旧记录。
@@ -193,26 +206,123 @@ if "$AUTORUN_DIR/check.sh" >&2; then
 fi
 ```
 
-## TRIG-1..4 spec（rotation 触发不变量,P2.0 SHIPPED — `trig_gate.sh`）
+## TRIG-1..5 spec（rotation 触发不变量,`trig_gate.sh`;P2.0 SHIPPED,2026-09-07 重设计）
 
-INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-1..4
+INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-1..5
 治 rotation _触发_(trigger.sh self 入口);两侧 gate 互相独立、机器化、
 零模型自评估。
 
-**背景**:`metrics.md` §6 "Baseline @2026-06-15 (171-row drift surface)"
-量化 — 近期 self rotation wall p50 从 98 min 退到 48 min(−51 %),3 个
-连续 10–13 min session 用 "file-size 单文件 clear = phase 收口" 当 trigger,
-本质是 `cases#rotate-as-procrastination` 的 surface 变体(file-size prep
-当 phase 收口)。autorun-pipeline §rotation ① "phase 收口" / ③
-"silent-wrong 风险升高" 两条 fuzzy,可被滥用绕开 ④ commit ≥ 5 硬条件。
-TRIG-1..4 把"是否该 rotation 触发"机器化,删 fuzzy 自评估。
+**2026-09-07 重设计的实测依据(takagi 发起)**。P2.0 的四条门**全部指向同一个
+方向** —— 反「rotate 太早」。于是实际只有 TRIG-1 在咬人,而它已经从「门」退化
+成「配额」。重设计前最后 60 轮实测(靠 `prevHead` 逐轮反推 —— 因为
+`commitsInSession` 当时是硬编码的 null,见下方「同轮修掉的两处腐坏」):
 
-| ID | 不变量 | 失败 = 什么风险 | 实现 |
-|----|--------|----------------|------|
-| **TRIG-1** | `git rev-list --count <last-self-rotation-prevHead>..HEAD` ≥ **N** (= 5 候选) | session 工作量不足以构成合法 rotation — 把 substrate prep 切小段每段 rotate 一次,**等于 rotate-as-procrastination** | git rev-list |
-| **TRIG-2** | 当前 `ts` − 上次 self rotation 行 `ts` ≥ **M** 秒 (= 5400 = 90 min 候选,takagi framing "1/2-3/4 ctx 至少") | wall time 太短 = context 未充分利用 = rotation 频繁不必要 | rotations.jsonl tail self filter |
-| **TRIG-3** | handoff.md 末段含 `^## .*rotate 触发` heading,且段内含 closed enum 之一: `(a)` phase substrate-completeness 完整字串 `Phase [A-Z][0-9a-z]* close`(W-J/W-N 系列)/ `(b)` HARD RULE break + recovery / `(c)` measurable silent-wrong signal(fabricated tool output / 中文规则破裂 evidence) / `(d)` commit ≥ TRIG-1 且自然 chunk 边界 | reason fuzzy = 借口空间太大 = TRIG-4 绕过路径 | handoff.md grep -E |
-| **TRIG-4** | handoff.md "rotate 触发" 段 grep -i 不含 blacklist 借口 phrase:`file-size .* clear` / `prep work done` / `audit complete` / `fresh session 更稳` / `subagent prep 完整` / `ROI` / `工程量大` / `complexity` / `substantial work` | 这些是已知 procrastination 借口,触发者会用这些字眼包装 "phase 收口" 假象 | handoff.md grep -iE |
+| 量 | min | p10 | p50 | p90 | max |
+|---|---:|---:|---:|---:|---:|
+| commit / rotation | **5** | 5 | 6 | 8 | **9** |
+| wall (min) | — | 95 | 125 | 221 | — |
+
+`triggerReason` 分布:**d 606 · a 133 · c 2 · b 2**。
+
+三个结论,每个都直接对应一条改动:
+
+1. **commit 分布左端紧贴阈值,0/60 低于 5,几乎没有超过 9** —— 门变成了目标
+   (Goodhart)。**→ TRIG-1 抬到 12。**
+2. **TRIG-2 的下限 90min 低于实测 p10 95min** —— 它没有约束任何东西,是
+   TRIG-1 的影子。**→ TRIG-2 语义反转,管两端。**
+3. **`reason: d` 占 81.6%,而 d 的定义就是「commit ≥ TRIG-1」** —— TRIG-3 在
+   复读 TRIG-1,不携带信息。**→ TRIG-3 改成 axis / closed / gate 三行契约。**
+
+外加一条只有做整体汇报时才浮出来的事实:**整个 9 月每一轮都在轴 A**,轴 B 自
+08-30 起零投入、轴 E 从未起步,而五条门没有一条问过「这一轮属于哪条轴」。
+**→ 新增 TRIG-5。**
+
+| ID | 不变量 | 它独有的职责 | 实现 |
+|----|--------|------------|------|
+| **TRIG-1** | `git rev-list --count <last-self-prevHead>..HEAD` ≥ **12** | **下限** — 这一轮的工作量够不够摊掉固定成本 | git rev-list(经 `autorun_commits_since_last_self`) |
+| **TRIG-2** | wall ∈ [**1800s**, **18000s**];**≥ 18000s 时豁免 TRIG-1** | **两端 + 唯一的机器化出口** — 太快不真实,太长该收 | rotations.jsonl tail self filter |
+| **TRIG-3** | handoff `## rotate 触发` 段含三行:`axis:` / `closed:`(含本 session 区间内真实 sha)/ `gate: N/F/S`(F 必须 0) | **内容** — 哪条轴、闭合了什么、gate 读数多少 | grep + `git rev-list <range>` 校验 sha |
+| **TRIG-4** | 同段 grep -i 不含 13 条 blacklist 借口 phrase | **措辞** — 已知的 procrastination 话术 | grep -iE |
+| **TRIG-5** | 若前 **7** 轮 axis 与本轮相同,则同段必须含 `axes-review:` 行 | **分配** — 一条轴是不是在饿死其它轴 | rotations.jsonl 的 `axis` 字段 |
+
+### 为什么 N 是 12 而不是 10 或 20
+
+每轮都有**不随 commit 数变化的固定成本**:sweep 507s + `build_determinism`
+197s + `gmalloc_scan` 401s = **1105s = 18.4 min** 机器时间,外加写 handoff 与
+下一轮重建上下文的模型时间。按实测 p50(6 commit / 125 min)解
+`wall(N) = 18.4 + N × 17.8`:
+
+| N | wall 外推 | 机器固定成本占比 | 含 handoff 写作/起手(保守 +20min) |
+|---:|---:|---:|---:|
+| 6(改前) | 125 min | 14.7% | 30.7% |
+| 10 | 196 min | 9.4% | 19.6% |
+| **12** | **232 min** | **7.9%** | **16.6%** |
+| 20 | 374 min | 4.9% | 10.3% |
+
+6→12 拿走 14.1pp,12→20 只再拿 6.3pp —— 摊薄收益按 1/N 递减,翻倍到 12 就吃掉
+大半。而另一侧有硬边界:**历史 wall p90 = 221 min**。N=12 外推的 232 min 落在
+有大量先例的区间;**N=20 的 374 min 超出全部 909 轮的观测范围**,而 rotation
+存在的唯一理由就是防那个区域的 drift。**12 是证据的最远边,不是保守选择。**
+
+### 为什么 TRIG-2 必须反转(它是 N=12 的必需配套,不是附赠)
+
+12-commit 的下限意味着:一轮花五小时啃一个硬问题(decomposition、E0 形态的
+重构)可能**永远凑不满 12 个 commit,于是永远不能 close**。`trigger.sh manual`
+是 takagi 的 override 通道,**模型严禁主动走**(见下方 anti-pattern),所以出口
+必须机器化 —— 过 `TRIG2_MAX_WALL_SEC` 自动豁免 commit 下限。同一个数字同时
+是「这一轮已经长到 drift 风险大过摊薄收益」的判据。新增的 30min 下限管相反的
+失败:十二个琐碎 commit 挤在半小时里同样不是一轮。
+
+### handoff `## rotate 触发` 段的精确格式(TRIG-3 / TRIG-5 契约)
+
+```markdown
+## rotate 触发
+
+axis: A
+closed: 8ffa78b99 键域矩阵 25→12;93df7b61b parser 折叠记下被抹掉的拼写
+gate: 3773/0/4
+
+<具体 evidence,引用 commit hash / file:line / cases#xxx>
+```
+
+- **`axis:`** — `A|B|C|D|E` 之一或多个(逗号分隔),对应 roadmap `v1.0 release
+  gate` 的五轴。写进 rotations.jsonl 的 `axis` 字段,TRIG-5 再读回来。
+- **`closed:`** — 至少一个 sha 必须落在 `<last-self-prevHead>..HEAD` 区间内。
+  **这是唯一无法靠措辞满足的一条**:一轮如果没有可指认的产出,就拿不出自己的
+  commit。
+- **`gate:`** — conformance 三元组 `N/F/S`,**F 必须为 0** —— 一轮不带红收尾。
+  这一行同时是 `conformanceBefore` 遥测字段的来源(见下)。
+- **`axes-review:`** — 仅当 TRIG-5 触发(连续 8 轮同轴)时必须写:其余四轴各自
+  的当前状态 + 为什么这一轮仍不动它们。
+
+`reason: <a|b|c|d>` 旧行**不再被 gate 要求**,但 `autorun_trigger_reason` 仍会
+读它、仍写进 jsonl(历史序列不断)。要写就写,不写不拒。
+
+### TRIG-5 为什么是「结算」而不是「强制换轴」
+
+强制换轴会与 CLAUDE.md 的「顺序执行计划」HARD RULE 正面冲突,而且**做哪条轴的
+决定权属于 takagi**,这条 gate 没有资格越权。它拿掉的是**沉默**:9 月每一轮都
+在轴 A、轴 B 停了一个月、轴 E 一行未写,这件事直到做整体汇报时才浮出来 —— 那
+太晚了。装上之后它每 8 轮就必须被写出来一次,不管有没有人问。
+
+**向后兼容**:2026-09-07 之前的行没有 `axis` 键,读出来是 `?`,**打断 streak
+而不是延长它** —— 所以 gate 需要积累 8 轮新数据后才可能首次触发。
+
+### 同轮修掉的两处腐坏(`lib.sh`)
+
+两处都不是设计问题,是**测量装置自己坏了而没人发现**,且症状与「这一轮没有
+数据」完全一致(`perf-decomposition` §1 点名的那个失败模式):
+
+1. **`commitsInSession` 是硬编码的字面 `null`** —— 909 行一次都没填过,而
+   `trig_gate.sh` **每次调用都算出了这个数然后扔掉**。调 TRIG-1 时只能靠
+   `prevHead` 事后反推整个历史分布。现在走 `autorun_commits_since_last_self`。
+2. **`conformanceBefore` 的探针指向 `~/.claude-profile-{2,1}/.../memory/
+   project_status_*.md`** —— 两代之前的 profile 记忆形态,目录早已不存在,所以
+   它**永远返回空字符串**。现在读 handoff `gate:` 行,即一个**有主的实测值**,
+   而不是对别人文件格式的猜测。
+
+顺带给 `ROTATIONS_LOG` / `HANDOFF_FILE` 加了环境覆盖点
+(`HARDEV_ROTATIONS_LOG` / `HARDEV_HANDOFF_FILE`),生产不设,只供自测重定向。
 
 调用约定:
 
@@ -220,11 +330,18 @@ TRIG-1..4 把"是否该 rotation 触发"机器化,删 fuzzy 自评估。
 hardev/autorun/trig_gate.sh
 ```
 
-- 退出 0:全部 PASS;适合作为 `&&` 链 gate(trigger.sh self 前置)
+- 退出 0:全部 PASS / SKIP / WAIVED;适合作为 `&&` 链 gate(trigger.sh self 前置)
 - 退出 1:至少一个 FAIL;stderr 末尾一行 `TRIG-FAILED: TRIG-N [TRIG-M ...]`
 - 退出 2:内部错误(lib.sh 缺、git 不可用、rotations.jsonl 缺、handoff.md 缺)
 
-stdout 每条 TRIG 一行 `TRIG-N STATE detail`,行格式稳定供下游解析。
+stdout 每条 TRIG 一行 `TRIG-N STATE detail`,STATE ∈ PASS / FAIL / SKIP /
+WAIVED,行格式稳定供下游解析。
+
+**自测**:`hardev/autorun/trig_gate_self_test.sh`,10 个 case 覆盖每一条能拦住
+或放行 rotation 的分支(happy / commit 不足 / 过 cap 豁免 / 低于 floor / 缺
+axis / sha 不在区间 / gate 带红 / blacklist / 轴倾斜未结算 / 轴倾斜已结算),
+用 fixture 重定向,不碰生产状态。**2026-09-07 之前 TRIG gate 一直没有自测** ——
+这正是上面两处腐坏能长期不被发现的原因之一。
 
 **Trigger.sh 接线**:
 
@@ -236,35 +353,22 @@ trigger.sh manual → 不调 trig_gate(takagi override 一切;cases#rotate-as-pr
                     决断权属用户)
 ```
 
-**reason 表达约定**(handoff.md 写作纪律):agent 写 handoff 末尾必须有
-精确格式段:
-
-```markdown
-## rotate 触发
-
-reason: <a|b|c|d>
-
-<具体 evidence,引用 commit hash / line:col / cases#xxx>
-```
-
-TRIG-3 解析 `reason: a` 等抓 closed enum;TRIG-4 grep -i 全段 blacklist。
-
 **例子**(GREEN):
 
 ```markdown
 ## rotate 触发
 
-reason: a
+axis: A
+closed: 8ffa78b99 键域矩阵 25→12;be4efafee 位移 check_assign_target 510→290+199
+gate: 3773/0/4
 
-Phase A3c close — chunk 2(`5a6740ae`)+ chunk 3 D walker(`ab12cd34`)
-ship + conformance 829 → 832/0/4(+3 named-class 新 fixture)。8 commit /
-2h35min wall,跨 torajs-link + torajs-structmeta + torajs-meta + ssa
-+ cmd_build 5 crate substrate 改动。
+609 handoff 的下一项 #1 被本轮判据证明是 609 自己写错的登记,顺着把 25 格推到
+12;剩下 12 格里 9 格用 tsc 查证为有意分歧。5 commit / 跨 parser + checker。
 ```
 
-→ TRIG-1 8≥5 PASS · TRIG-2 9300s≥5400s PASS · TRIG-3 "Phase A3c close" match (a) PASS · TRIG-4 0 blacklist hit PASS。
+→ TRIG-1 12≥12 PASS · TRIG-2 232min ∈ [30,300] PASS · TRIG-3 axis=A + sha 在区间 + gate F=0 PASS · TRIG-4 0 hit PASS · TRIG-5 前 7 轮非全 A PASS。
 
-**例子**(RED — 本次根治的 ground-truth):
+**例子**(RED — 原始的 ground-truth,四条门当年就是为它写的):
 
 ```markdown
 ## rotate 触发
@@ -273,13 +377,19 @@ archive_link.rs file-size HARD limit clear sub-milestone,chunk 2 是
 substantial work fresh session 起手更稳,subagent prep 完整。
 ```
 
-→ TRIG-1 2<5 FAIL · TRIG-2 1299s<5400s FAIL · TRIG-3 无 `reason: <a|b|c|d>` 段 FAIL · TRIG-4 hit `file-size .* clear` + `substantial work` + `fresh session 更稳` + `subagent prep 完整` 4 个 phrase FAIL。**4/4 FAIL = rotation 非法**。
+→ TRIG-1 2<12 FAIL · TRIG-2 1299s<1800s FAIL · TRIG-3 无 axis/closed/gate 三行 FAIL · TRIG-4 hit `file-size .* clear` + `substantial work` + `fresh session 更稳` + `subagent prep 完整` 4 个 phrase FAIL · TRIG-5 SKIP(无 axis)。**4 FAIL = rotation 非法**。
 
-**第 1 周 measure 节奏**(`metrics.md` §6 TRIG slot 表):
+**P5 lock 与下一次 measure 节奏**(`metrics.md` §6):
 
-- 上线后 trig_gate 默认 ENABLED(不 dry-run — gate 设计意图就是要拒 fuzzy rotation)
-- `stats.sh` 跑 1 周,看 (a) self rotation 总数下降到合理范围 (b) drift 信号消失
-- 1 周后 takagi review,根据数据调 N / M(可能 N 偏严 ↓ 4 或 M 偏严 ↑ 7200)
+`metrics.md` 从 2026-06-15 起就写着 5 / 5400 是 **candidate,待 1 周实测后
+lock(P5)** —— 那个 lock 从未发生,阈值带着 `[D]` 标记跑了近三个月。本次
+(2026-09-07)就是它,并且**同一条规矩再来一遍**:
+
+- 上线后 trig_gate 默认 ENABLED(不 dry-run)
+- 跑 1 周,`stats.sh` 看 (a) rotation 数是否落到 ~3.5/天 (b) wall p50 是否落在
+  ~230min (c) drift 信号(中文破裂 / 4-layer 越层 / silent-wrong)有没有升高
+- 1 周后 takagi review:drift 没升 → 可以考虑 16–20;drift 升了 → 退回 10
+- **这次有遥测了** —— `commitsInSession` / `axis` 都是真值,不必再事后反推
 
 ## Stop hook（P1.2 SHIPPED — `stop_hook.sh`）
 

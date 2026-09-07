@@ -4,6 +4,74 @@ Incubation versioning, semver-ish. One entry per shipped hardev change.
 A pillar item is "shipped" only when its metric in `metrics.md` is
 re-measured and the *now* column updated.
 
+## v0.1.15 — 2026-09-07 — TRIG gate redesigned: four gates pointing one way became five that each point somewhere
+
+takagi: "是不是要改成几个规则都有意义而不是只有数量,然后数量要求大一点
+可能效率更高?因为 handoff 会有损耗". Both halves measured before changing
+anything.
+
+**The measurement** (last 60 rotations before the change, reconstructed
+from `prevHead` because `commitsInSession` was hardcoded null):
+
+- commits/rotation: min **5** · p10 5 · p50 **6** · p90 8 · max **9** —
+  **0/60 below the threshold, left edge glued to it**. The gate had
+  become the target.
+- wall: p10 **95** min, p50 125, p90 **221**. TRIG-2's 90-min floor sat
+  *below* p10, so it constrained nothing.
+- `triggerReason`: **d 606** / a 133 / c 2 / b 2 — 81.6% on a letter
+  whose own definition is "commit ≥ TRIG-1". TRIG-3 was restating
+  TRIG-1.
+- axis of every rotation in September: **A**. Axis B untouched since
+  08-30, axis E never started — and not one of the four gates ever
+  asked which axis a rotation served.
+
+**The change** — each gate now owns a different question:
+
+- **TRIG-1 (floor) 5 → 12 commits.** Fixed cost per rotation is sweep
+  507s + build_determinism 197s + gmalloc_scan 401s = **18.4 min** that
+  does not scale with commits. Solving `wall(N) = 18.4 + N × 17.8` from
+  the measured p50: N=12 → 232 min (7.9% machine overhead, vs 14.7% at
+  N=6); N=20 → 374 min, past the observed p90 of 221 min and outside
+  every rotation ever measured. 12 is the far edge of evidence.
+- **TRIG-2 (both edges + the only escape).** Floor 90 → 30 min; new cap
+  at 300 min **waives TRIG-1**. Without it a five-hour session on one
+  hard problem could never close, and `trigger.sh manual` is takagi's
+  override, not a path the agent may take.
+- **TRIG-3 (content).** `reason: <a|b|c|d>` → three lines: `axis:`,
+  `closed:` (at least one sha verified to be inside this session's
+  range), `gate: N/F/S` (F must be 0). The sha check is the one thing
+  wording cannot satisfy.
+- **TRIG-4 (wording).** Unchanged — it costs nothing and the disease it
+  catches is expensive when it returns.
+- **TRIG-5 (allocation), new.** Eight consecutive rotations on one axis
+  require an `axes-review:` line. It does not force a switch — which
+  axis to work is takagi's call — it removes the silence.
+
+**Two rotted instruments fixed in the same commit** (`lib.sh`), both
+failing in the shape of "this rotation had no data":
+
+- `commitsInSession` was the literal string `null`, never populated in
+  909 rows, while `trig_gate.sh` computed exactly that number on every
+  call and discarded it.
+- `conformanceBefore` probed `~/.claude-profile-{2,1}/.../memory/
+  project_status_*.md` — a profile layout two generations dead. It had
+  returned "" on every call for months. Now reads the handoff `gate:`
+  line, a measured value with an owner.
+
+**First self-test for the TRIG gate** (`trig_gate_self_test.sh`, 10
+cases): every branch that can block or release a rotation, driven
+through `HARDEV_ROTATIONS_LOG` / `HARDEV_HANDOFF_FILE` fixtures so
+production state is never touched. Its absence is part of why the two
+instruments above could rot unnoticed.
+
+metrics.md §6 gains "P5 lock @2026-09-07" — the one-week measure the
+2026-06-15 row asked for and never got; it ran 12 weeks with `[D]`
+tags. Same rule applies again: one week under the locked values, then
+`stats.sh`, then decide whether 16–20 is earned. This time the
+telemetry exists.
+
+CHANGELOG/VERSION 0.1.15.
+
 ## v0.1.14 — 2026-05-19 — hardev efficiency empirically verified on real P7.5 dev work
 
 takagi reopened torajs autorun (full-force P7.5) and asked to test

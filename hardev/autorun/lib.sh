@@ -21,10 +21,13 @@ AUTORUN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HARDEV_DIR="$(cd "$AUTORUN_DIR/.." && pwd)"
 PROJECT_DIR="$(cd "$HARDEV_DIR/.." && pwd)"
 CLAUDE_DIR="$PROJECT_DIR/.claude"
-ROTATIONS_LOG="$AUTORUN_DIR/rotations.jsonl"
+# Both the log and the handoff are overridable so the gates can be
+# exercised against fixtures (see trig_gate_self_test.sh) without
+# touching production state. Unset in every real invocation.
+ROTATIONS_LOG="${HARDEV_ROTATIONS_LOG:-$AUTORUN_DIR/rotations.jsonl}"
 INTENT_FILE="$CLAUDE_DIR/autorun-intent"
 MARKER_FILE="$CLAUDE_DIR/autorun-marker"
-HANDOFF_FILE="$CLAUDE_DIR/handoff.md"
+HANDOFF_FILE="${HARDEV_HANDOFF_FILE:-$CLAUDE_DIR/handoff.md}"
 
 # ── Identity ────────────────────────────────────────────────────────────
 # rotation_id = r-<unix-ts>-<4 hex from $RANDOM>
@@ -75,22 +78,25 @@ autorun_handoff_sha() {
   [ -n "$sum" ] && printf 'sha256:%s\n' "$sum" || echo ""
 }
 
-# Grep the project's most-recent status memory header for an `NNN/0/N`
-# conformance triple. Best-effort — returns empty string when memory
-# isn't readable (no fabrication).
+# Read the conformance triple `N/F/S` from the handoff's rotate-trigger
+# section `gate:` line (part of the TRIG-3 contract).  Empty when the
+# line is absent — never fabricated.
+#
+# 2026-09-07: this used to probe `~/.claude-profile-{2,1}/.../memory/
+# project_status_*.md`, a layout two profile generations old.  That
+# directory has not existed for months, so the function returned "" on
+# every call and `conformanceBefore` was null in every row since.  A
+# probe aimed at a world that no longer exists fails in exactly the
+# shape of "this rotation had no data" — the failure mode
+# `perf-decomposition` §1 names, where a broken instrument reads like an
+# absent measurement.  The source is now a line the agent writes by hand
+# in the very section TRIG-3 already validates: a measured value with an
+# owner, instead of a guess about someone else's file format.
 autorun_conformance_now() {
-  local base mem
-  base="$HOME/.claude-profile-2/projects/-Users-doracawl-workspace-goliajp-torajs/memory"
-  if [ ! -d "$base" ]; then
-    base="$HOME/.claude-profile-1/projects/-Users-doracawl-workspace-goliajp-torajs/memory"
-  fi
-  if [ ! -d "$base" ]; then
-    echo ""
-    return
-  fi
-  mem=$(ls -1 "$base"/project_status_*.md 2>/dev/null | sort | tail -1)
-  [ -n "$mem" ] && [ -f "$mem" ] || { echo ""; return; }
-  grep -oE '\b[0-9]{2,4}/0/[0-9]+\b' "$mem" | head -1
+  autorun_handoff_trigger_section \
+    | grep -oE '^[[:space:]]*gate:[[:space:]]*[0-9]+/[0-9]+/[0-9]+' \
+    | head -1 \
+    | grep -oE '[0-9]+/[0-9]+/[0-9]+'
 }
 
 # ── JSON line emit ──────────────────────────────────────────────────────
@@ -125,6 +131,62 @@ print(json.dumps(out, ensure_ascii=False, separators=(",", ":")))
 PY
 }
 
+# Last `trigger=self` row for this project from rotations.jsonl, as
+# `ts<TAB>prevHead`.  Empty when no such row exists (cold start).
+# Single source of truth: trig_gate.sh sources this instead of carrying
+# its own copy — two spellings of one query is how they drift apart.
+autorun_last_self_row() {
+  if [ ! -f "$ROTATIONS_LOG" ]; then
+    echo ""
+    return
+  fi
+  python3 - "$ROTATIONS_LOG" "$(autorun_project_name)" <<'PY'
+import json, sys
+log, project = sys.argv[1], sys.argv[2]
+last = None
+try:
+    with open(log) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if r.get("project") != project or r.get("trigger") != "self":
+                continue
+            last = r
+except FileNotFoundError:
+    pass
+if last and last.get("ts") is not None and last.get("prevHead"):
+    print(str(last["ts"]) + "\t" + last["prevHead"])
+PY
+}
+
+# Commit count for the current session: `<last self prevHead>..HEAD`.
+# Empty on cold start or when git cannot answer — callers decide what an
+# unknown means (TRIG-1 SKIPs it; the jsonl records null).
+autorun_commits_since_last_self() {
+  local row last_head
+  row=$(autorun_last_self_row)
+  [ -n "$row" ] || { echo ""; return; }
+  last_head=$(printf '%s\n' "$row" | cut -f2)
+  [ -n "$last_head" ] || { echo ""; return; }
+  git -C "$PROJECT_DIR" rev-list --count "$last_head..HEAD" 2>/dev/null || echo ""
+}
+
+# The `axis:` line from the handoff rotate-trigger section, normalised to
+# uppercase comma-separated letters (`A`, or `A,E`).  Empty if absent.
+# TRIG-5 reads it back out of rotations.jsonl to see axis skew over time.
+autorun_trigger_axis() {
+  autorun_handoff_trigger_section \
+    | grep -iE '^[[:space:]]*axis:[[:space:]]*[A-Ea-e]([[:space:]]*,[[:space:]]*[A-Ea-e])*[[:space:]]*$' \
+    | head -1 \
+    | sed -E 's/^[[:space:]]*[Aa][Xx][Ii][Ss]:[[:space:]]*//; s/[[:space:]]//g' \
+    | tr '[:lower:]' '[:upper:]'
+}
+
 # Extract the body of the handoff.md "rotate 触发" markdown section.
 # Lines between `## ...rotate 触发` and the next `## ` heading. Empty if
 # section absent or handoff missing. Used by TRIG-3 / TRIG-4 (trig_gate.sh)
@@ -156,7 +218,7 @@ autorun_trigger_reason() {
 autorun_record_rotation() {
   local rotation_id=$1
   local trigger=$2
-  local at ts head handoff_sha handoff_age conf reason
+  local at ts head handoff_sha handoff_age conf reason axis commits
 
   at=$(autorun_now_iso)
   ts=$(date +%s)
@@ -165,6 +227,13 @@ autorun_record_rotation() {
   handoff_age=$(autorun_file_age_sec "$HANDOFF_FILE")
   conf=$(autorun_conformance_now)
   reason=$(autorun_trigger_reason)
+  axis=$(autorun_trigger_axis)
+  # 2026-09-07: `commitsInSession` was the literal string "null" here —
+  # hardcoded, never once populated across 909 rows, while trig_gate.sh
+  # computed exactly this number on every single call and discarded it.
+  # The historical distribution had to be reconstructed from `prevHead`
+  # after the fact to tune TRIG-1.
+  commits=$(autorun_commits_since_last_self)
 
   local line
   line=$(autorun_emit_jsonl \
@@ -177,7 +246,8 @@ autorun_record_rotation() {
     "handoffSha=$handoff_sha" \
     "handoffAgeSec=${handoff_age:+int:$handoff_age}" \
     "conformanceBefore=$conf" \
-    "commitsInSession=null" \
+    "commitsInSession=${commits:+int:$commits}" \
+    "axis=$axis" \
     "triggerReason=$reason")
 
   mkdir -p "$(dirname "$ROTATIONS_LOG")"
