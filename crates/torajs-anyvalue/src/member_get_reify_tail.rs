@@ -40,6 +40,14 @@ pub(crate) unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
     if unsafe { crate::method_value::builtin_method_lookup(recv, key) }.is_some() {
         return 4;
     }
+    // An accessor the receiver's FAMILY carries (`Map.prototype.size`
+    // through a live map) answers the sentinel, exactly as a struct
+    // accessor does — the single [[Get]] happens in
+    // `__torajs_any_accessor_get`, so the two channels must not each
+    // invoke it. Value twin: `reify_value` answers 0.
+    if unsafe { crate::method_support_proto::recv_family_accessor_mid(recv, key) }.is_some() {
+        return crate::struct_probe::ANY_ACCESSOR_TAG;
+    }
     // §10.1.8.1 step 4 — the walk does not end at the family
     // prototype (517-07), and it does not start at the root either
     // (525-04): the singletons in between are asked too.

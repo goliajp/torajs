@@ -434,6 +434,22 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
             return crate::proxy::get(ptr, key, recv);
         }
         if cell_tag != Tag::Obj as u16 {
+            // An accessor the receiver's family carries — the third
+            // shape that answers the sentinel with a zero value
+            // channel. Its [[Get]] is the dispatcher arm the reified
+            // getter cell re-dispatches to under `.call(recv)`, so
+            // this asks for exactly that, with the receiver it has.
+            if let Some(mid) = crate::method_support_proto::recv_family_accessor_mid(recv, key) {
+                return crate::method_call::__torajs_any_method_call(
+                    recv,
+                    mid,
+                    core::ptr::null(),
+                    0,
+                    core::ptr::null_mut(),
+                    core::ptr::null(),
+                    0,
+                );
+            }
             return VALUE_UNDEFINED;
         }
         let k = torajs_rc::str_wtf8::StrWtf8::of(key);

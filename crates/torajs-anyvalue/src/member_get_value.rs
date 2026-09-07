@@ -382,6 +382,12 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     if let Some(c) = unsafe { crate::method_value::builtin_method_lookup(recv, key) } {
         return c as u64;
     }
+    // Family accessor — mirror of the tag channel's sentinel. Zero,
+    // like a struct accessor: there is no AccessorPair cell, and that
+    // zero is what routes the invoke into the resolve-by-key lane.
+    if unsafe { crate::method_support_proto::recv_family_accessor_mid(recv, key) }.is_some() {
+        return 0;
+    }
     // Mirror of the tag channel (517-07 / 525-04).
     match unsafe { crate::member_get_proto_root::proto_chain_expando(recv, key) } {
         Some((_, v)) => v as u64,

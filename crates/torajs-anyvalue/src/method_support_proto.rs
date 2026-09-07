@@ -373,6 +373,34 @@ pub unsafe extern "C" fn __torajs_builtin_proto_method_value(
     unsafe { crate::method_support_proto_chain::proto_chain_value(tag, key) }
 }
 
+/// The method id of an accessor the RECEIVER's family carries — `Map.prototype.size` reached through a live map, not
+/// through the prototype singleton (that one brand-throws, and is
+/// handled by `proto_virtual_accessor_throws`).
+///
+/// `None` = no such accessor, or a `delete` tombstoned it. The id is
+/// the one the reified getter cell carries, so the [[Get]] is the
+/// same dispatcher arm a `.call(recv)` on that cell reaches.
+///
+/// Three faces of this table were already asking it — the gOPD
+/// descriptor synthesis, `getOwnPropertyNames` through the
+/// enumeration twin, and (since the accessor arm landed in
+/// `proto_chain_key_owned`) `in`. The member READ was not: `m.size`
+/// answered through its own `__torajs_any_size_get` intrinsic, so the
+/// gap only showed on the spellings that go through the general
+/// cascade — a dynamic key (`m["si" + "ze"]`) and `Reflect.get(m,
+/// "size")`, both undefined.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+pub(crate) unsafe fn recv_family_accessor_mid(recv: AnyValue, key: *const c_void) -> Option<i64> {
+    let family = crate::method_value::recv_proto_family(recv);
+    let mid = unsafe { proto_tag_accessor_mid(family, key) }?;
+    if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(family, mid) } != 0 {
+        return None;
+    }
+    Some(mid)
+}
+
 /// `in` is HasProperty (§7.3.12): after the receiver's own face
 /// misses, the answer comes from its prototype chain. For a builtin
 /// family receiver that chain is `<Ctor>.prototype` →

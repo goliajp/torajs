@@ -396,6 +396,25 @@ pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
     unsafe {
         let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
         if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
+            // §10.1.8.1 own-before-family: a `defineProperty(m, "size",
+            // …)` lands in the cell's own bag and shadows the family
+            // accessor. The keyed spelling reached the bag through the
+            // general cascade and answered it; this intrinsic went
+            // straight to the live count, so `m["size"]` and `m.size`
+            // disagreed about the same object.
+            let props = crate::member_get_layout::expando_props(ptr, tag);
+            if !props.is_null() {
+                let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
+                let present = __torajs_dynobj_has(props, key as *const c_void) != 0;
+                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+                if present {
+                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
+                    __torajs_str_drop(key as *mut c_void);
+                    return v;
+                }
+                __torajs_str_drop(key as *mut c_void);
+            }
             return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_map_size(ptr));
         }
         if tag == Tag::Obj as u16 {
