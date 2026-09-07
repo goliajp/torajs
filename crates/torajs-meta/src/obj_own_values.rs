@@ -32,8 +32,8 @@ use core::ffi::c_void;
 use crate::obj_own_keys::{
     ANY_HEAP_TAG, ARR_LEN_OFF, ARR_PROPS_OFF, CLOSURE_PROPS_OFF, FLAG_ENUMERABLE, HDR_TYPE_TAG_OFF,
     KIND_CHAIN_HEAP, SHORT_STR_TOP16, TAG_ACCESSOR_PAIR, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER,
-    TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER, TAG_OBJ_CELL, TAG_PROMISE_CELL, TAG_STR_CELL,
-    TAG_STRING_WRAPPER, WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
+    TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER, TAG_OBJ_CELL, TAG_STR_CELL, TAG_STRING_WRAPPER,
+    WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
 };
 
 unsafe extern "C" {
@@ -335,14 +335,17 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
             // `obj_own_keys_bag::bag_cell_keys`, whose doc says which
             // shapes and why. `lastIndex` is non-enumerable, so the
             // bag is the whole surface here even for RegExp.
-            TAG_PROMISE_CELL
-            | crate::obj_own_keys_layout::TAG_MAP_CELL
-            | crate::obj_own_keys_layout::TAG_SET_CELL
-            | crate::obj_own_keys_layout::TAG_DATE_CELL
-            | crate::obj_own_keys_layout::TAG_REGEXP_CELL
-            | crate::obj_own_keys_layout::TAG_MAP_ITER_CELL
-            | crate::obj_own_keys_layout::TAG_ARR_ITER_CELL
-            | crate::obj_own_keys_layout::TAG_ITER_HELPER_CELL => {
+            //
+            // Asks the predicate rather than spelling the tags, for
+            // the reason the keys dispatch now does: this arm and its
+            // entries twin below were the sixth and seventh copies of
+            // one list found in rotation 611, and they were the copies
+            // that made `Object.keys(wm)` answer 1 while
+            // `Object.values(wm)` answered 0 — the same property,
+            // counted by one surface and not the other.
+            t if crate::obj_own_keys_layout::is_bag_only_tag(t)
+                || t == crate::obj_own_keys_layout::TAG_REGEXP_CELL =>
+            {
                 let props = unsafe { crate::obj_own_keys_layout::expando_props(cell, htag) };
                 let arr = unsafe { __torajs_arr_alloc_any(0) };
                 if props.is_null() {
@@ -444,14 +447,9 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 crate::obj_own_values_buffer::arraybuffer_cell_entries(cell)
             },
             // Bag-only receivers — pairs twin of the values arm above.
-            TAG_PROMISE_CELL
-            | crate::obj_own_keys_layout::TAG_MAP_CELL
-            | crate::obj_own_keys_layout::TAG_SET_CELL
-            | crate::obj_own_keys_layout::TAG_DATE_CELL
-            | crate::obj_own_keys_layout::TAG_REGEXP_CELL
-            | crate::obj_own_keys_layout::TAG_MAP_ITER_CELL
-            | crate::obj_own_keys_layout::TAG_ARR_ITER_CELL
-            | crate::obj_own_keys_layout::TAG_ITER_HELPER_CELL => {
+            t if crate::obj_own_keys_layout::is_bag_only_tag(t)
+                || t == crate::obj_own_keys_layout::TAG_REGEXP_CELL =>
+            {
                 let props = unsafe { crate::obj_own_keys_layout::expando_props(cell, htag) };
                 let outer = unsafe { __torajs_arr_alloc(0) };
                 let outer = if props.is_null() {
