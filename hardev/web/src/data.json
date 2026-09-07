@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T16:22:32.467Z",
+  "generatedAt": "2026-09-07T18:31:00.953Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T16:22:12Z",
-    "headSha": "eb8d72c81",
-    "elapsedSec": 441.82,
+    "ranAt": "2026-09-07T18:26:13Z",
+    "headSha": "767a445ad",
+    "elapsedSec": 417.61,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30998,
+    "pass": 31015,
     "passNoOracle": 1174,
     "passNegative": 4459,
-    "passTotal": 36631,
-    "bug": 11486,
-    "incompatible": 5057,
+    "passTotal": 36648,
+    "bug": 11489,
+    "incompatible": 5037,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48117,
-    "passRateInScope": 68.89,
+    "trAccepted": 48137,
+    "passRateInScope": 68.92,
     "passRateTrAccepted": 76.13
   },
   "torajs": {
-    "commit": "eb8d72c81",
-    "commitSubject": "fix(torajs-core): the same Map answered Object.keys one way typed and another way widened",
+    "commit": "767a445ad",
+    "commitSubject": "fix: defineProperty answered for four receiver shapes and quietly did nothing for the rest",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "eb8d72c81",
-      "subject": "fix(torajs-core): the same Map answered Object.keys one way typed and another way widened"
+      "hash": "767a445ad",
+      "subject": "fix: defineProperty answered for four receiver shapes and quietly did nothing for the rest"
     },
     {
-      "hash": "f11e992f7",
-      "subject": "chore: rotation 611 sweep on a9f7c7b90, and the eight verdicts it moved"
+      "hash": "1cd4d4c7c",
+      "subject": "fix(torajs-core): a function's length can move, and the typed lane folded it"
     },
     {
-      "hash": "a9f7c7b90",
-      "subject": "fix(torajs-meta): Object.keys counted the property, Object.values did not"
+      "hash": "7ec55d8ba",
+      "subject": "style(torajs-anyvalue): split the Closure arm out of __torajs_any_length_get"
     },
     {
-      "hash": "51c3a445f",
-      "subject": "fix(torajs-meta): a weak shape's property read back but enumerated nothing"
+      "hash": "f4555b26a",
+      "subject": "fix(torajs-anyvalue): the member-read cascade had no step for a family accessor"
     },
     {
-      "hash": "06ea4862e",
-      "subject": "feat(torajs-weak): the weak shapes had nowhere to put a property, so now they have one"
+      "hash": "d54f7f242",
+      "subject": "fix(torajs-core): Reflect.get's fold proved presence and answered absence"
     },
     {
-      "hash": "1302ac2d2",
-      "subject": "fix(torajs-core): the keyed lanes each kept their own list of which shapes have a property bag"
+      "hash": "f2bda4d37",
+      "subject": "fix(torajs-anyvalue): the probe pair's accessor arm was half of the function it should have called"
     },
     {
-      "hash": "125110c5b",
-      "subject": "fix(torajs-anyvalue): a numeric key on a Map stored into the bag and read back undefined"
+      "hash": "b8167bfce",
+      "subject": "fix(torajs-anyvalue): three fixed-key reads, three different subsets of the struct arm"
     },
     {
-      "hash": "ef46124ef",
-      "subject": "fix(torajs-core): ASI after a no-init declaration was a list of sixteen tokens, and `Ident` was not on it"
+      "hash": "df8905e95",
+      "subject": "fix(torajs-anyvalue): the enumerability sidecar is keyed by property name, not slot name"
     },
     {
-      "hash": "ea537826a",
-      "subject": "fix(torajs-core): a generator excluded from the argc face did not refuse, it answered wrong"
+      "hash": "e1ef1bf2a",
+      "subject": "fix(torajs-anyvalue): JSON walked the same object Object.keys did and lost a property"
     },
     {
-      "hash": "e887abf56",
-      "subject": "fix(hardev): INV-4 demanded a line only a broken plugin writes, so the green path was unreachable"
+      "hash": "ab830a97a",
+      "subject": "fix: a compiler-internal spelling was answering as a property on five faces"
     },
     {
-      "hash": "b3f1b2c27",
-      "subject": "feat(hardev): TRIG gate redesign — four gates pointing one way become five that each point somewhere"
+      "hash": "e11af392f",
+      "subject": "fix(torajs-core): Reflect.has was a copy of the wrong surface, and it stopped being true"
     },
     {
-      "hash": "ba50b08f9",
-      "subject": "chore(checkpoints): 2026-09-07 v1-axes-report, with the bench rerun and the ruler change"
+      "hash": "b7de44bc4",
+      "subject": "fix(torajs-anyvalue): three faces of one fact, and only `in` was not asking"
     }
   ],
-  "headSha": "eb8d72c81",
+  "headSha": "767a445ad",
   "autorun": {
-    "total": 914,
+    "total": 915,
     "baselineTarget": 10,
-    "bySelf": 909,
+    "bySelf": 910,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788782239-201b",
-      "at": "2026-09-07T11:57:19Z",
-      "ts": 1788782239,
+      "rotationId": "r-1788798209-3089",
+      "at": "2026-09-07T16:23:29Z",
+      "ts": 1788798209,
       "trigger": "self",
-      "prevHead": "48e7eab7a",
-      "handoffSha": "sha256:6b65a541ffef4e558a66d5425145dc0fa7edb1ef35f0c0cf4df1c5d52c4838d0",
-      "handoffAgeSec": 5,
-      "conformanceBefore": null,
-      "commitsInSession": null
+      "prevHead": "10e98ecaf",
+      "handoffSha": "sha256:4fdffa8e3f816c018e07414a4a8d9f00d07c98b6ff363de5b416a063eccf0c7b",
+      "handoffAgeSec": 10,
+      "conformanceBefore": "3780/0/4",
+      "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1788798209-3089",
+        "at": "2026-09-07T16:23:29Z",
+        "ts": 1788798209,
+        "trigger": "self",
+        "prevHead": "10e98ecaf",
+        "handoffSha": "sha256:4fdffa8e3f816c018e07414a4a8d9f00d07c98b6ff363de5b416a063eccf0c7b",
+        "handoffAgeSec": 10,
+        "conformanceBefore": "3780/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1788782239-201b",
         "at": "2026-09-07T11:57:19Z",
@@ -903,17 +914,6 @@
         "prevHead": "7f28a567d",
         "handoffSha": "sha256:c8089aa77c357d66313ea433c2b10644727d529585227f69d4130d1020b88eff",
         "handoffAgeSec": 34,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788683481-5294",
-        "at": "2026-09-06T08:31:21Z",
-        "ts": 1788683481,
-        "trigger": "self",
-        "prevHead": "f9e11203e",
-        "handoffSha": "sha256:2b2b751a851b35e937633398f14826b1711901dc49f90cee8484b6ac4ea81190",
-        "handoffAgeSec": 56,
         "conformanceBefore": null,
         "commitsInSession": null
       }

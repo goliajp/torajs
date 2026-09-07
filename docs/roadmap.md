@@ -1681,7 +1681,29 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `8ffa78b99`** (2026-09-07, rotation 610 — one key, spelled
+**Latest @ `767a445ad`** (2026-09-08, rotation 612 — eleven hand-written
+copies of one question, across six crates: which shapes carry a property
+bag, and which faces are allowed to ask). Gate predicate: **126**
+clusters of >= 4 holding **919** cases, register 2 · 175, residue
+448 · 607 (35.7%), core **1701**. Coverage curve: top-100 **55.4%**,
+top-200 **73.7%**, top-400 **88.8%**. Against rotation 611: clusters
+128 -> **126 (-2)**, cases 933 -> **919 (-14)**, core 1718 ->
+**1701 (-17)** — two signatures closed outright and the rest came out
+of existing clusters.
+
+Sweep passTotal 36631 -> **36648 (+17)**, pass 30998 -> **31015 (+17)**,
+passNoOracle **1174 (=)**, passNegative **4459 (=)**, bug 11486 ->
+**11489 (+3)**, incompatible 5057 -> **5037 (-20)**, trAccepted 48117
+-> **48137 (+20)**; conservation exact (+20 = +17 + +3). Verdict diff
+**27 changed, every one forward, zero backward**: **10**
+`incompatible:not yet supported` -> `pass` (the `Reflect.has` target
+gate, `Object.hasOwn`'s ToObject, four private-method cases, three
+`in` cases), **10** the same signature -> `bug:exit 1` (programs that
+now compile and run and fail their own assertion — refusal traded for
+an honest wrong answer), **5** `bug:exit 1` -> `pass` and **2**
+`bug:exit 3` -> `pass`.
+
+**Prior @ `8ffa78b99`** (2026-09-07, rotation 610 — one key, spelled
 two ways, answered two ways; the same 162-cell matrix carried from 25
 disagreements to 12). Gate predicate: **128** clusters of >= 4 holding
 **931** cases, register 2 · 175, residue 455 · 617 (35.8%), core
