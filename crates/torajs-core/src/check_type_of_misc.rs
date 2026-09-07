@@ -304,12 +304,12 @@ pub(crate) fn check_opt_chain(
 ) -> Result<Type, String> {
     let obj_ty = checker.type_of(ast, obj)?;
     // `a?.["k"]` is the chain spelling of the same fold the Member
-    // lane marks (`Ast::index_spelled_reads`), so a static miss is
+    // lane marks (`Ast::index_spelled_props`), so a static miss is
     // lenient here for the same reason and answers `Any`. This
     // ladder is narrower than the one next door — it has drifted
     // from it before — so the leniency is spelled on both of its
     // `member_type` calls rather than inside it.
-    let lenient = ast.index_spelled_reads.contains(&eid);
+    let lenient = ast.index_spelled_props.contains(&eid);
     match &obj_ty {
         Type::Nullable(_) => {
             let inner_obj_ty = match &obj_ty {

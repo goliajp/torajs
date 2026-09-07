@@ -68,7 +68,7 @@ pub(crate) fn check(
             eid,
             &obj,
             name,
-            ast.index_spelled_reads.contains(&eid),
+            ast.index_spelled_props.contains(&eid),
         );
     }
     let idx_ty = checker.type_of(ast, index)?;

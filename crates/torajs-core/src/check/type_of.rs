@@ -66,7 +66,7 @@ impl Checker {
                     obj,
                     name,
                     ast.dstr_default_member_loads.contains(&eid)
-                        || ast.index_spelled_reads.contains(&eid),
+                        || ast.index_spelled_props.contains(&eid),
                 )
             }
             Expr::Index { obj, index } => {

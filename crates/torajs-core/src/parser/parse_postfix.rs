@@ -390,14 +390,14 @@ impl<'a> Parser<'a> {
             self.add_expr_at(start_pos, Expr::Index { obj: node, index })
         };
         // Record the SPELLING the fold above is about to erase — see
-        // `Ast::index_spelled_reads`. Both outcomes are marked: the
+        // `Ast::index_spelled_props`. Both outcomes are marked: the
         // folded Member is the one that loses the brackets, and the
         // unfolded literal (`o[0]`, `o["a-b"]`) reaches the member
         // checker too, through the struct lane in
         // `check_type_of_index`. A dynamic key is not marked; it
         // never had a static answer to be lenient about.
         if crate::ast::literal_prop_key(&self.ast, index).is_some() {
-            self.ast.index_spelled_reads.insert(out);
+            self.ast.index_spelled_props.insert(out);
         }
         Ok(out)
     }
@@ -433,9 +433,9 @@ impl<'a> Parser<'a> {
             self.add_expr_at(start_pos, Expr::OptIndex { obj: node, index })
         };
         // The twin above's mark, for the same erasure — see
-        // `Ast::index_spelled_reads`.
+        // `Ast::index_spelled_props`.
         if crate::ast::literal_prop_key(&self.ast, index).is_some() {
-            self.ast.index_spelled_reads.insert(out);
+            self.ast.index_spelled_props.insert(out);
         }
         Ok(out)
     }

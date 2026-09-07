@@ -57,6 +57,7 @@ pub(crate) fn check_member(
     obj: ExprId,
     field: String,
     value: ExprId,
+    bracket_spelled: bool,
 ) -> Result<Type, String> {
     // RFC 20260715-nominal-class-identity — a class instance's type is
     // its NAME (`ClassRef(C)`); every structural step below needs the
@@ -121,6 +122,40 @@ pub(crate) fn check_member(
     // model, for the same reason the Promise arm above admits exactly
     // two — see `check_type_of_member_global_miss`.
     if crate::check_type_of_member_global_miss::expando_write_admitted(&obj_ty, &field) {
+        let _ = checker.type_of(ast, value)?;
+        return Ok(Type::Any);
+    }
+    // A BRACKET-SPELLED literal key on an OBJECT receiver
+    // (`m["a"] = 9`) — see `Ast::index_spelled_props`. §10.1.9.2
+    // OrdinarySet puts it in that cell's own bag, which the
+    // member-store ladder's catch-all arm has done for every one of
+    // these shapes since rotation 527's write-side twin: the same key
+    // spelled dynamically (`m[kd] = 9`) has landed there all along,
+    // and so has the `any` spelling. Only the literal was refused,
+    // and only by the line below.
+    //
+    // The list is exactly the shapes whose `any` spelling already
+    // stores — asked one by one rather than assumed from the read
+    // side's. WeakMap / WeakSet / WeakRef are NOT here: the kernel
+    // answers `(wm as any)["z"] = 9` with a TypeError too, so
+    // admitting them would only move the compile error to run time,
+    // which is what rotation 608 did on the read side. They sit on
+    // the same kernel boundary as `m[0] = 9`, and are registered
+    // there rather than admitted here.
+    //
+    // PRIMITIVE receivers stay out for a different reason. `s["a"]
+    // = 9` is a strict-mode TypeError in every engine; answering it
+    // with a silent success into a Str's bag would trade a
+    // compile-time refusal for a wrong answer at run time, which the
+    // design principles rank strictly worse than the refusal. A
+    // DOT-spelled write stays out too — `m.a = 9` is an error in TS,
+    // and that is the posture the read half keeps as well.
+    if bracket_spelled
+        && matches!(
+            &*obj_ty,
+            Type::Map | Type::Set | Type::MapIter | Type::ArrIter | Type::RegExp | Type::Date
+        )
+    {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }

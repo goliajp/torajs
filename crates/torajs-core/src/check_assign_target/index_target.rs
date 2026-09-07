@@ -44,7 +44,9 @@ pub(crate) fn check_index(
         && let Some(key) = crate::ast::literal_prop_key(ast, index)
         && let Some(name) = key.as_str()
     {
-        return check_member(checker, ast, eid, obj, name.to_string(), value);
+        // Bracket-spelled by construction: every path into this
+        // module came from an `Expr::Index` target.
+        return check_member(checker, ast, eid, obj, name.to_string(), value, true);
     }
     let idx_ty = checker.type_of(ast, index)?;
     reject_bad_key(&obj_ty, &idx_ty)?;

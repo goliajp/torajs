@@ -56,7 +56,18 @@ pub(crate) fn check(
                         && !crate::check_assigns_to::path_overlaps(recv, &full)
                 });
             }
-            crate::check_assign_target::check_member(checker, ast, eid, obj, field, value)
+            // The TARGET carries the spelling, not the assignment
+            // expression wrapped around it — see
+            // `Ast::index_spelled_props`.
+            crate::check_assign_target::check_member(
+                checker,
+                ast,
+                eid,
+                obj,
+                field,
+                value,
+                ast.index_spelled_props.contains(&target),
+            )
         }
         Expr::Index { obj, index } => {
             // G2.5 — the Index spelling: a string-literal key takes
