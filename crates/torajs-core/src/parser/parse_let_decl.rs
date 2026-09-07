@@ -98,34 +98,31 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            // No-init shape: `let x` / `let x: T` (followed by
-            // `,` or `;` or — per JS ASI — a known statement-
-            // start token on the next line). Const requires an
-            // init by spec. T-37-followup-asi: accept Switch /
-            // If / For / While / Try / Function / Class / Let /
-            // Const / Var / Return / Throw / Break / Continue /
-            // Do / RBrace as ASI-implied terminators so test262
-            // patterns like `let x\nswitch (x) {...}` parse.
-            let next_is_stmt_start = matches!(
-                self.peek(),
-                Token::Switch
-                    | Token::If
-                    | Token::For
-                    | Token::While
-                    | Token::Try
-                    | Token::Function
-                    | Token::Class
-                    | Token::Let
-                    | Token::Const
-                    | Token::Var
-                    | Token::Return
-                    | Token::Throw
-                    | Token::Break
-                    | Token::Continue
-                    | Token::Do
-                    | Token::RBrace
-            );
-            if matches!(self.peek(), Token::Semi | Token::Comma) || next_is_stmt_start {
+            // No-init shape: `let x` / `let x: T`, terminated by `,`,
+            // `;`, or — per §11.9.1 — an *offending token*: one that
+            // cannot continue the declaration. That rule is not a list.
+            // A token offends when a LineTerminator separates it from
+            // what precedes it, or when it is `}` or end-of-input (the
+            // two cases §11.9.1 admits without a newline). `=` and `,`
+            // are the only tokens that genuinely continue a
+            // declaration, so they never offend — `var x` then `= 5` on
+            // the next line is `var x = 5`, and bun agrees.
+            //
+            // This was an enumerated whitelist of sixteen statement-
+            // start tokens (Switch / If / For / … / RBrace), grown one
+            // token at a time as test262 patterns hit it. `Ident` was
+            // never on it, so `var x` followed by `x = 1` — among the
+            // most ordinary shapes JS has — died on `expected \`=\``,
+            // while `var x` followed by `switch` parsed. A whitelist
+            // cannot converge on a rule that quantifies over all
+            // tokens; `has_newline_before` already existed for the
+            // other restricted productions (`return`'s expression
+            // gate, postfix `++`), so the derived judgement was one
+            // call away.
+            let asi_terminates = !matches!(self.peek(), Token::Eq | Token::Comma)
+                && (self.has_newline_before(self.pos)
+                    || matches!(self.peek(), Token::RBrace | Token::Eof));
+            if matches!(self.peek(), Token::Semi | Token::Comma) || asi_terminates {
                 if !mutable {
                     return Err(format!(
                         "`const {name}` requires an initializer at {}",
