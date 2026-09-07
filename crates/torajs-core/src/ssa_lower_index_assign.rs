@@ -435,6 +435,7 @@ impl<'a> LowerCtx<'a> {
                 crate::check::Type::Any
                     | crate::check::Type::Undefined
                     | crate::check::Type::Struct(_)
+                    | crate::check::Type::Function(..)
             )
         ) {
             return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);

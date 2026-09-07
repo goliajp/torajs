@@ -75,7 +75,8 @@ impl<'a> LowerCtx<'a> {
             Some(
                 crate::check::Type::Any
                 | crate::check::Type::Undefined
-                | crate::check::Type::Struct(_),
+                | crate::check::Type::Struct(_)
+                | crate::check::Type::Function(..),
             ) => {
                 let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, i1);
                 let transfers = self.expr_transfers_ownership(i1);

@@ -123,7 +123,11 @@ pub(crate) fn lower_any_key(ctx: &mut LowerCtx<'_>, index: ExprId) -> Operand {
     let raw = ctx.lower_expr(index);
     if matches!(
         ctx.expr_types.get(&index),
-        Some(crate::check::Type::Undefined | crate::check::Type::Struct(_))
+        Some(
+            crate::check::Type::Undefined
+                | crate::check::Type::Struct(_)
+                | crate::check::Type::Function(..),
+        )
     ) {
         return ctx.box_to_any_from_expr(index, raw);
     }
@@ -252,7 +256,10 @@ pub(crate) fn lower_struct_like_index(
     if matches!(
         ctx.expr_types.get(&index),
         Some(
-            crate::check::Type::Any | crate::check::Type::Undefined | crate::check::Type::Struct(_)
+            crate::check::Type::Any
+                | crate::check::Type::Undefined
+                | crate::check::Type::Struct(_)
+                | crate::check::Type::Function(..)
         )
     ) {
         // Cluster #4 T4 — a compound write lane pinned the coerced

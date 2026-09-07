@@ -81,7 +81,7 @@ const FALLBACK_PREFIXES: [&str; 5] = [
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-const COERCION_PREFIXES: [&str; 12] = [
+const COERCION_PREFIXES: [&str; 17] = [
     // The array join kernels run the coercion per ELEMENT rather
     // than on themselves, so the scan never saw `anyv_to_str` in
     // the user `.o` and judged the obj world unreachable. Every
@@ -104,6 +104,26 @@ const COERCION_PREFIXES: [&str; 12] = [
     "__torajs_anyv_arith_pair",
     "__torajs_anyv_loose_eq",
     "__torajs_anyv_json_stringify",
+    // §7.1.19 ToPropertyKey is ToPrimitive first, so a keyed read or
+    // write whose KEY is a heap value runs the same OrdinaryToPrimitive
+    // machinery the entries above do — `o[k]` where `k` is an object
+    // or a function asks `k` for its `toString`. Rotation 608: with a
+    // FUNCTION key admitted, nothing else in such a program emits a
+    // `__torajs_closure_*` symbol, so the closure arm was stubbed and
+    // `o[() => {}]` reached the loud reject instead of the key "() =>
+    // {}". The object-key half (rotation 438) was reachable the same
+    // way and only ever worked because a program with an object key
+    // also had dynobj symbols. The four keyed kernels are here for
+    // the same reason as the seam itself: they run ToPropertyKey on
+    // the key INSIDE the runtime, so the seam symbol never appears in
+    // the user `.o` and only the kernel names are visible to the scan
+    // (`__torajs_any_index_method_call` stays a FALLBACK trigger — it
+    // also interns a mid, which is strictly more than a coercion).
+    "__torajs_anyv_to_property_key",
+    "__torajs_any_index_get",
+    "__torajs_any_index_get_keyed",
+    "__torajs_any_index_set",
+    "__torajs_any_index_set_keyed",
     "__torajs_anyv_await",
 ];
 

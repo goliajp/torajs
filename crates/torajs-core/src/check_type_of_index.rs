@@ -56,6 +56,87 @@ pub(crate) fn check(
         return crate::check_type_of_member::check(checker, ast, eid, &obj, name, false);
     }
     let idx_ty = checker.type_of(ast, index)?;
+    reject_bad_key(obj_ty.clone(), idx_ty.clone())?;
+    match obj_ty {
+        // See the note in `reject_bad_key` — the three outcomes have
+        // no common narrower type, so a non-number key answers Any.
+        Type::String
+            if matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ) =>
+        {
+            Ok(Type::Any)
+        }
+        Type::String => Ok(Type::String),
+        // See the note in `reject_bad_key`.
+        Type::Array(_)
+            if matches!(
+                idx_ty,
+                Type::String | Type::Symbol | Type::Any | Type::Undefined
+            ) =>
+        {
+            Ok(Type::Any)
+        }
+        // An element read must answer with the element's own type,
+        // CLASS AND ALL. Resolving above is about the RECEIVER — a
+        // class instance indexes through its struct shape — but
+        // `resolve_class_ref` recurses into the element type as well,
+        // so `bs[0]` on an `Array(ClassRef("Box"))` came back as the
+        // anonymous struct. Reading it straight through still worked
+        // (the call checker recovers the class from the receiver
+        // expression), but BINDING it did not: `const first = bs[0]`
+        // recorded the nameless struct, and every method call on
+        // `first` then failed to compile — "no member `.get` on type
+        // Struct([(\"v\", Number)])" on a program every engine runs.
+        // The mirror of the same question one level out (an element
+        // of a `Promise<T>[]` is as much a promise as a binding is).
+        Type::Array(_) => match &raw_obj_ty {
+            Type::Array(raw_elem) => Ok((**raw_elem).clone()),
+            _ => match obj_ty {
+                Type::Array(elem) => Ok(*elem),
+                _ => unreachable!("matched Array above"),
+            },
+        },
+        // Chunk 753 — struct receiver + dynamic index (the literal
+        // form resolved through the member checker above): runtime
+        // property lookup over the struct's layout table via the
+        // any-index lane; field types are heterogeneous so the
+        // static answer is Any (miss → undefined). Dynamic WRITES
+        // keep the loud reject in `check_assign_target` (a typed
+        // slot store needs a static field type — recorded boundary).
+        Type::Struct(_) => Ok(Type::Any),
+        // See the Map/Set/RegExp/namespace notes in `reject_bad_key` —
+        // property reads over the prototype surface answer Any.
+        Type::Map | Type::Set | Type::RegExp | Type::Object(_) => Ok(Type::Any),
+        // A FUNCTION receiver's numeric read is the §7.1.19
+        // stringified expando probe on the closure cell (the write
+        // half's admit in `check_assign_target`) — heterogeneous, so
+        // Any (miss → undefined).
+        Type::Function(..) => Ok(Type::Any),
+        // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
+        // result) decays for indexing; null is a runtime
+        // TypeError at the lowering-side guard.
+        Type::Nullable(inner) if matches!(*inner, Type::Array(_)) => match *inner {
+            Type::Array(elem) => Ok(*elem),
+            _ => unreachable!(),
+        },
+        Type::Any => Ok(Type::Any),
+        other => Err(format!("can't index into {other:?}")),
+    }
+}
+
+/// §7.1.19 — whether `idx_ty` is a legal key for `obj_ty`, or the
+/// loud reject. Split out of `check` at the 200-line rule when the
+/// function-key admit landed (rotation 608); the caller keeps the
+/// other half of the question, which is what the read ANSWERS.
+///
+/// The two halves have to be read together: every receiver arm
+/// admitted here has a matching arm below that answers `Any`,
+/// because a non-number key on those receivers can be an element,
+/// a property or a miss and the three have no common narrower
+/// type.
+fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
     // L3b #13 — an `any` receiver admits string keys (ES
     // ToPropertyKey: `o["k"]` ≡ `o.k`); every other receiver keeps
     // the number-only spec narrow. Chunk 753 — a struct receiver
@@ -79,11 +160,24 @@ pub(crate) fn check(
     // only the runtime can run. The lowering boxes the key and rides
     // the keyed kernel's runtime dispatch (`{}[{toString(){...}}]`,
     // the t262 target-member-computed-reference shape).
+    // Rotation 608 — a FUNCTION-typed key joins them, which is the
+    // same admission: §7.1.19 does not ask what KIND of object a key
+    // is, it asks the object, and a function answers through the
+    // ordinary §20.2.3.5 toString. The computed-property-name family
+    // writes `o[() => { }]` to read back what `{ [() => { }]: 1 }`
+    // stored, so the literal half already worked and only the read
+    // was refused — 27 t262 cases across object literals, class
+    // declarations and class expressions, all on this one key shape.
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any | Type::Struct(_))
             && matches!(
                 idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
+                Type::String
+                    | Type::Symbol
+                    | Type::Any
+                    | Type::Undefined
+                    | Type::Struct(_)
+                    | Type::Function(..)
             ))
         // An ARRAY receiver takes the same key domain the `any` and
         // struct receivers do, and for the same reason: `a[k]` is an
@@ -145,71 +239,5 @@ pub(crate) fn check(
     {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
-    match obj_ty {
-        // See the note on the reject above — the three outcomes have
-        // no common narrower type, so a non-number key answers Any.
-        Type::String
-            if matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ) =>
-        {
-            Ok(Type::Any)
-        }
-        Type::String => Ok(Type::String),
-        // See the note on the reject above.
-        Type::Array(_)
-            if matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ) =>
-        {
-            Ok(Type::Any)
-        }
-        // An element read must answer with the element's own type,
-        // CLASS AND ALL. Resolving above is about the RECEIVER — a
-        // class instance indexes through its struct shape — but
-        // `resolve_class_ref` recurses into the element type as well,
-        // so `bs[0]` on an `Array(ClassRef("Box"))` came back as the
-        // anonymous struct. Reading it straight through still worked
-        // (the call checker recovers the class from the receiver
-        // expression), but BINDING it did not: `const first = bs[0]`
-        // recorded the nameless struct, and every method call on
-        // `first` then failed to compile — "no member `.get` on type
-        // Struct([(\"v\", Number)])" on a program every engine runs.
-        // The mirror of the same question one level out (an element
-        // of a `Promise<T>[]` is as much a promise as a binding is).
-        Type::Array(_) => match &raw_obj_ty {
-            Type::Array(raw_elem) => Ok((**raw_elem).clone()),
-            _ => match obj_ty {
-                Type::Array(elem) => Ok(*elem),
-                _ => unreachable!("matched Array above"),
-            },
-        },
-        // Chunk 753 — struct receiver + dynamic index (the literal
-        // form resolved through the member checker above): runtime
-        // property lookup over the struct's layout table via the
-        // any-index lane; field types are heterogeneous so the
-        // static answer is Any (miss → undefined). Dynamic WRITES
-        // keep the loud reject in `check_assign_target` (a typed
-        // slot store needs a static field type — recorded boundary).
-        Type::Struct(_) => Ok(Type::Any),
-        // See the Map/Set/RegExp/namespace notes on the reject above —
-        // property reads over the prototype surface answer Any.
-        Type::Map | Type::Set | Type::RegExp | Type::Object(_) => Ok(Type::Any),
-        // A FUNCTION receiver's numeric read is the §7.1.19
-        // stringified expando probe on the closure cell (the write
-        // half's admit in `check_assign_target`) — heterogeneous, so
-        // Any (miss → undefined).
-        Type::Function(..) => Ok(Type::Any),
-        // RC-4 F1a — un-narrowed Nullable<Array<T>> (exec/match
-        // result) decays for indexing; null is a runtime
-        // TypeError at the lowering-side guard.
-        Type::Nullable(inner) if matches!(*inner, Type::Array(_)) => match *inner {
-            Type::Array(elem) => Ok(*elem),
-            _ => unreachable!(),
-        },
-        Type::Any => Ok(Type::Any),
-        other => Err(format!("can't index into {other:?}")),
-    }
+    Ok(())
 }

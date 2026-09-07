@@ -333,11 +333,19 @@ pub(crate) fn check_index(
     // ToPropertyKey coerces an object key through toString/valueOf at
     // runtime, so the lowering boxes it and rides the keyed set
     // kernel (read-side mirror in `check_type_of_index`).
+    // Rotation 608 — a FUNCTION-typed key joins on the same terms; a
+    // function is an object and §7.1.19 asks it the same question
+    // (read-side note in `check_type_of_index` carries the reason).
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any)
             && matches!(
                 idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
+                Type::String
+                    | Type::Symbol
+                    | Type::Any
+                    | Type::Undefined
+                    | Type::Struct(_)
+                    | Type::Function(..)
             ))
         // Rotation 346 — a STRUCT receiver under an UNDEFINED key:
         // §7.1.19 ToPropertyKey(undefined) is the fixed string key
@@ -352,7 +360,12 @@ pub(crate) fn check_index(
         && !(matches!(obj_ty, Type::Struct(_))
             && matches!(
                 idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
+                Type::String
+                    | Type::Symbol
+                    | Type::Any
+                    | Type::Undefined
+                    | Type::Struct(_)
+                    | Type::Function(..)
             ))
         // An ARRAY receiver admits an `any` key: §7.1.19 decides
         // element-vs-property from the runtime value, so the write
@@ -401,7 +414,12 @@ pub(crate) fn check_index(
     if matches!(obj_ty, Type::Struct(_))
         && matches!(
             idx_ty,
-            Type::String | Type::Symbol | Type::Any | Type::Undefined | Type::Struct(_)
+            Type::String
+                | Type::Symbol
+                | Type::Any
+                | Type::Undefined
+                | Type::Struct(_)
+                | Type::Function(..)
         )
     {
         let _ = checker.type_of(ast, value)?;

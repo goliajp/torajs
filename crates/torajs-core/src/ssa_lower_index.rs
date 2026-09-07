@@ -174,6 +174,7 @@ pub(crate) fn lower_from_value(
                 crate::check::Type::Any
                     | crate::check::Type::Undefined
                     | crate::check::Type::Struct(_)
+                    | crate::check::Type::Function(..)
             )
         ) {
             // Cluster #4 T4 — reuse a compound write lane's pinned
