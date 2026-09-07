@@ -130,12 +130,13 @@ pub(crate) fn check(
 /// a property or a miss and the three have no common narrower
 /// type.
 fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
-    // Two domains, and which one a receiver takes is the whole
-    // question. §7.1.19 makes every value a property key, but only a
-    // receiver that already answers `Any` for a non-number key can
-    // take the ones the RUNTIME has to coerce (a struct or a function
-    // key runs OrdinaryToPrimitive through the keyed kernel); the
-    // others admit the keys whose spelling is decidable here.
+    // A NUMBER key never reaches this match — the guard below lets
+    // it past for every receiver, because whether it names an
+    // element or a property is the LANE's question, not the gate's.
+    // What the match answers is the other half: which non-number
+    // keys this receiver takes. §7.1.19 makes every value a property
+    // key, so the answer is now the whole domain everywhere except a
+    // STRING receiver (see the note under the match).
     //
     // Was a six-armed `&&` chain that spelled its two domains six
     // times between them. The arms are mutually exclusive on the
@@ -158,15 +159,17 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // `m[Symbol.iterator]()` is an ordinary property read off the
         // prototype surface, with no element lane to collide with —
         // and for RegExp the same shape (r289; §22.2.6's well-known-
-        // symbol protocol probes are all of it). A NUMBER key stays
-        // the loud reject on both: neither carries indexed elements.
+        // symbol protocol probes are all of it). Since none of them
+        // carries indexed elements, a number key is just another
+        // spelling and `m[0]` answers undefined like any other miss.
         Type::Map | Type::Set | Type::RegExp => coerced_key_domain(&idx_ty),
         // A NAMESPACE receiver (the hardcoded global stand-ins: Math
         // / JSON / Reflect / console …) joins for the same §7.1.19
         // reason, and load-bearingly since rotation 382 gave those
         // objects real `@@toStringTag` entries — `Math[Symbol
-        // .toStringTag]` reads a property that exists. A NUMBER key
-        // stays the loud reject; a namespace has no indexed elements.
+        // .toStringTag]` reads a property that exists. A namespace
+        // has no indexed elements either, so `Math[0]` is a miss and
+        // not a reject.
         Type::Object(_) => coerced_key_domain(&idx_ty),
         // A FUNCTION receiver takes the COERCED domain, the same one
         // an `any` or struct receiver takes and for the same reason:
