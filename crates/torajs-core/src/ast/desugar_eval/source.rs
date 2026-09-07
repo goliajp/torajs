@@ -261,7 +261,16 @@ pub(super) fn parse_eval_source(
     // synthesized one: both carry the `(0, 0)` sentinel, and the
     // program's goal answers for the FILE, which for an indirect eval
     // inside a module is the wrong question entirely.
-    if !is_strict {
+    //
+    // "Its own" has two halves and `is_strict` is only the first.
+    // `eval_strictness` answers from the CALL — a direct eval inherits
+    // the caller, an indirect one never does — and a text that opens
+    // with `"use strict"` is strict code whichever call reached it.
+    // Reading only the call half handed `(0,eval)('"use strict"; {
+    // function f(){} }')` a var binding for `f`, so the declaration
+    // escaped its block and the ReferenceError the program is written
+    // to catch never came.
+    if !is_strict && !has_use_strict_prologue(&stmts, ast) {
         ast.sloppy_eval_fn_names.extend(blanked);
     }
     let octal_here = ast.legacy_octal_positions.len() > octal_before;
