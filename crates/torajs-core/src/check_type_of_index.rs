@@ -160,14 +160,14 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // and for RegExp the same shape (r289; §22.2.6's well-known-
         // symbol protocol probes are all of it). A NUMBER key stays
         // the loud reject on both: neither carries indexed elements.
-        Type::Map | Type::Set | Type::RegExp => spelled_key_domain(&idx_ty),
+        Type::Map | Type::Set | Type::RegExp => coerced_key_domain(&idx_ty),
         // A NAMESPACE receiver (the hardcoded global stand-ins: Math
         // / JSON / Reflect / console …) joins for the same §7.1.19
         // reason, and load-bearingly since rotation 382 gave those
         // objects real `@@toStringTag` entries — `Math[Symbol
         // .toStringTag]` reads a property that exists. A NUMBER key
         // stays the loud reject; a namespace has no indexed elements.
-        Type::Object(_) => spelled_key_domain(&idx_ty),
+        Type::Object(_) => coerced_key_domain(&idx_ty),
         // A FUNCTION receiver takes the COERCED domain, the same one
         // an `any` or struct receiver takes and for the same reason:
         // §20.2 makes a function an ordinary object with an ordinary
@@ -181,17 +181,16 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         Type::Function(..) => coerced_key_domain(&idx_ty),
         _ => false,
     };
-    // The four receivers left on the SPELLED domain are registered,
-    // not decided. A 162-cell receiver x key matrix against bun
-    // (rotation 609) says the reason is not the domain: their
-    // LOWERING has no arm for a non-number key at all — a Map or Set
-    // receiver dies "index access on non-array type Map" on every
-    // one of them, number included, and a String receiver dies on
-    // the literal-key lane. Widening the gate over a lane that
-    // cannot answer just moves the crash, which is what rotation
-    // 608's one-word attempt measured and read as the domain's
-    // fault. Give those receivers their lanes first; the domain is
-    // one word behind them.
+    // STRING is the one receiver still on the spelled domain, and it
+    // is registered rather than decided: it owns an element lane
+    // (`s[0]` is a character) that the coerced keys would have to be
+    // told apart from at runtime, which is the question the array
+    // lane answers and the string lane does not yet. The other
+    // receivers were on that list for a reason that turned out not
+    // to be the domain — their LOWERING had no arm for a non-number
+    // key at all, so widening the gate only moved the crash, which
+    // is what rotation 608's one-word attempt measured and read as
+    // the domain's fault. Lanes first, then the word.
     if idx_ty != Type::Number && !admitted {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }

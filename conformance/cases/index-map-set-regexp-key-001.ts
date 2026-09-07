@@ -49,3 +49,36 @@ console.log(Math[kd], Math[sk], Math[undefined])
 m.set("k", 1)
 console.log(m.get("k"), m.size, s.size, re.test("ab"), re.source)
 console.log(typeof m[Symbol.iterator], typeof s[Symbol.iterator])
+
+// And their key domain is the whole non-number domain, coerced keys
+// included — none of these receivers owns an element lane, so
+// §7.1.19's spelling of the key is the only thing that has to
+// happen and the keyed kernel does it off the key's runtime tag.
+// Measured across the domain rather than on one member, because
+// rotation 608 read a one-word attempt at exactly this as the
+// domain's fault when what was missing was the lane above.
+class K { x = 1 }
+const a2 = [1, 2]
+const re2 = /zz/
+const m2 = new Map()
+const g = function () {}
+m[true] = 11
+m[null] = 12
+m[10n] = 13
+m[a2] = 14
+m[re2] = 15
+m[m2] = 16
+m[new K()] = 17
+m[g] = 18
+console.log(m[true], m[null], m[10n], m[a2], m[re2], m[m2], m[g])
+s[true] = 21
+s[10n] = 22
+s[a2] = 23
+re[true] = 31
+re[null] = 32
+Math[true] = 41
+Math[null] = 42
+console.log(s[true], s[10n], s[a2], re[true], re[null], Math[true], Math[null])
+
+// none of it disturbed the real surfaces
+console.log(m.get("k"), m.size, s.size, re.test("ab"), Math.max(1, 2))

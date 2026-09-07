@@ -452,14 +452,17 @@ fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
         // symbol onto a plain function.
         Type::Function(..) => crate::check_type_of_index::coerced_key_domain(idx_ty),
         // A MAP / SET / REGEXP receiver, and the singleton-backed
-        // namespaces, take the SPELLED domain — the same arms the
-        // read gate carries, and for the same reason: a property
-        // store on one of them has no element lane to collide with.
+        // namespaces, take the whole non-number domain — the same
+        // arms the read gate carries, and for the same reason: a
+        // property store on one of them has no element lane to
+        // collide with, so §7.1.19's spelling of the key is the
+        // only thing that has to happen and the keyed set kernel
+        // does it off the key's runtime tag.
         // The write side simply never had these arms, so a receiver
         // whose READ answers a property could not STORE one, and the
         // two halves disagreed about what a property is.
         Type::Map | Type::Set | Type::RegExp | Type::Object(_) => {
-            crate::check_type_of_index::spelled_key_domain(idx_ty)
+            crate::check_type_of_index::coerced_key_domain(idx_ty)
         }
         _ => false,
     };
