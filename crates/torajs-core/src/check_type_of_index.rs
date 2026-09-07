@@ -137,107 +137,75 @@ pub(crate) fn check(
 /// a property or a miss and the three have no common narrower
 /// type.
 fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
-    // L3b #13 — an `any` receiver admits string keys (ES
-    // ToPropertyKey: `o["k"]` ≡ `o.k`); every other receiver keeps
-    // the number-only spec narrow. Chunk 753 — a struct receiver
-    // admits them too (dynamic key rides the any-index runtime lane).
-    // Symbol keys ride the same two receivers: §6.1.7 makes them the
-    // other half of the property-key domain, and §7.1.19 step 2 hands
-    // them to the lookup uncoerced. Cluster #1 blades 3/5 — an `any`
-    // KEY rides the runtime keyed kernel's ToPropertyKey dispatch on
-    // both receivers (a struct receiver boxes at the lane boundary,
-    // same as its str/symbol-key path).
-    // Rotation 346 — an UNDEFINED key joins every receiver already in
-    // the property-key domain: §7.1.19 ToPropertyKey(undefined) is
-    // the string key "undefined", and the boxed undefined rides the
-    // same runtime dispatch the `any` key does (the t262 dstr
-    // harness's `{}[thrower()]` shape, where the throwing callee
-    // types its result Undefined). `Void` stays out — a Void expr
-    // has no SSA value to box.
-    // Cluster #4 (rotation 438) — a STRUCT-typed key joins the any /
-    // struct receivers: §7.1.19 ToPropertyKey coerces an object key
-    // through its own toString/valueOf (OrdinaryToPrimitive), which
-    // only the runtime can run. The lowering boxes the key and rides
-    // the keyed kernel's runtime dispatch (`{}[{toString(){...}}]`,
-    // the t262 target-member-computed-reference shape).
-    // Rotation 608 — a FUNCTION-typed key joins them, which is the
-    // same admission: §7.1.19 does not ask what KIND of object a key
-    // is, it asks the object, and a function answers through the
-    // ordinary §20.2.3.5 toString. The computed-property-name family
-    // writes `o[() => { }]` to read back what `{ [() => { }]: 1 }`
-    // stored, so the literal half already worked and only the read
-    // was refused — 27 t262 cases across object literals, class
-    // declarations and class expressions, all on this one key shape.
-    if idx_ty != Type::Number
-        && !(matches!(obj_ty, Type::Any | Type::Struct(_))
-            && matches!(
-                idx_ty,
-                Type::String
-                    | Type::Symbol
-                    | Type::Any
-                    | Type::Undefined
-                    | Type::Struct(_)
-                    | Type::Function(..)
-            ))
-        // An ARRAY receiver takes the same key domain the `any` and
-        // struct receivers do, and for the same reason: `a[k]` is an
-        // element read, a property read, or a miss, and §7.1.19
-        // decides which — from k's runtime tag for an `any` key, from
-        // its spelling for a string one (`a["length"]` ≡ `a.length`,
-        // `a["0"]` is an element), and uncoerced for a symbol (step
-        // 2). The static answer is Any for the same reason the struct
-        // receiver's is: the three outcomes have no common narrower
-        // type.
-        && !(matches!(obj_ty, Type::Array(_))
-            && matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ))
-        // A STRING receiver takes that same key domain, and §10.4.3
-        // decides the outcome the same three ways: `s["0"]` is the
-        // character, `s["length"]` ≡ `s.length`, and anything else
-        // reads through to the method surface or a miss. Only the
-        // number key keeps the narrow String answer below.
-        && !(matches!(obj_ty, Type::String)
-            && matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ))
-        // Map / Set receivers join the property-key domain for the
-        // same §7.1.19 reason — `m[Symbol.iterator]()` is an ordinary
-        // property read off the prototype surface (no element lane to
-        // collide with; a NUMBER key stays the loud reject below,
-        // since Map/Set carry no indexed elements at all).
-        && !(matches!(obj_ty, Type::Map | Type::Set)
-            && matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ))
-        // A REGEXP receiver joins for the same §7.1.19 reason as
-        // Map/Set — `re[Symbol.match]` is an ordinary property read
-        // off the prototype surface (r289; the well-known-symbol
-        // protocol probes of §22.2.6 all take this shape). A NUMBER
-        // key stays the loud reject: a RegExp carries no indexed
-        // elements.
-        && !(matches!(obj_ty, Type::RegExp)
-            && matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ))
-        // A NAMESPACE receiver (`Type::Object` — the hardcoded global
-        // stand-ins: Math / JSON / Reflect / console …) joins for the
-        // same §7.1.19 reason, and it is now load-bearing: rotation
-        // 382 gave those objects real `@@toStringTag` entries, so
-        // `Math[Symbol.toStringTag]` reads a property that exists.
-        // A NUMBER key stays the loud reject — a namespace carries no
-        // indexed elements.
-        && !(matches!(obj_ty, Type::Object(_))
-            && matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ))
-    {
+    // Two domains, and which one a receiver takes is the whole
+    // question. §7.1.19 makes every value a property key, but only a
+    // receiver that already answers `Any` for a non-number key can
+    // take the ones the RUNTIME has to coerce (a struct or a function
+    // key runs OrdinaryToPrimitive through the keyed kernel); the
+    // others admit the keys whose spelling is decidable here.
+    //
+    // Was a six-armed `&&` chain that spelled its two domains six
+    // times between them. The arms are mutually exclusive on the
+    // receiver, so a match says the same thing once — which is what
+    // made the function-key admit a one-line change instead of six.
+    let admitted = match obj_ty {
+        Type::Any | Type::Struct(_) => coerced_key_domain(&idx_ty),
+        // `a[k]` is an element read, a property read, or a miss, and
+        // §7.1.19 decides which — from k's runtime tag for an `any`
+        // key, from its spelling for a string one (`a["length"]` ≡
+        // `a.length`, `a["0"]` is an element), uncoerced for a symbol
+        // (step 2). The three have no common narrower type, which is
+        // why the answer below is Any.
+        Type::Array(_) => spelled_key_domain(&idx_ty),
+        // §10.4.3 decides a string receiver's outcome the same three
+        // ways: `s["0"]` is the character, `s["length"]` ≡ `s.length`,
+        // anything else reads through to the method surface or a miss.
+        // Only the NUMBER key keeps the narrow String answer below.
+        Type::String => spelled_key_domain(&idx_ty),
+        // `m[Symbol.iterator]()` is an ordinary property read off the
+        // prototype surface, with no element lane to collide with —
+        // and for RegExp the same shape (r289; §22.2.6's well-known-
+        // symbol protocol probes are all of it). A NUMBER key stays
+        // the loud reject on both: neither carries indexed elements.
+        Type::Map | Type::Set | Type::RegExp => spelled_key_domain(&idx_ty),
+        // A NAMESPACE receiver (the hardcoded global stand-ins: Math
+        // / JSON / Reflect / console …) joins for the same §7.1.19
+        // reason, and load-bearingly since rotation 382 gave those
+        // objects real `@@toStringTag` entries — `Math[Symbol
+        // .toStringTag]` reads a property that exists. A NUMBER key
+        // stays the loud reject; a namespace has no indexed elements.
+        Type::Object(_) => spelled_key_domain(&idx_ty),
+        _ => false,
+    };
+    if idx_ty != Type::Number && !admitted {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
     Ok(())
+}
+
+/// The keys an `any` or STRUCT receiver takes. Everything
+/// [`spelled_key_domain`] takes, plus the two the runtime has to
+/// coerce: §7.1.19 runs OrdinaryToPrimitive over a STRUCT key
+/// (cluster #4, rotation 438 — an object literal carrying its own
+/// `toString`) and over a FUNCTION key (rotation 608 — §20.2.3.5
+/// answers with the source text, which is what a computed property
+/// name stored under). Both ride the keyed kernel's runtime
+/// dispatch; the lowering boxes them at the lane boundary.
+fn coerced_key_domain(idx_ty: &Type) -> bool {
+    spelled_key_domain(idx_ty) || matches!(idx_ty, Type::Struct(_) | Type::Function(..))
+}
+
+/// The keys every property-key receiver takes.
+///
+/// A STRING key is the §7.1.19 identity (`o["k"]` is `o.k`), a SYMBOL
+/// is the other half of the key domain and §7.1.19 step 2 hands it
+/// on uncoerced, an ANY key can be any of those at runtime so the
+/// keyed kernel dispatches, and UNDEFINED is the fixed string key
+/// "undefined" (rotation 346). `Void` stays out — a Void expr has no
+/// SSA value to box.
+fn spelled_key_domain(idx_ty: &Type) -> bool {
+    matches!(
+        idx_ty,
+        Type::String | Type::Symbol | Type::Any | Type::Undefined
+    )
 }
