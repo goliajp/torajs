@@ -321,12 +321,7 @@ pub(crate) fn check_index(
     }
     let idx_ty = checker.type_of(ast, index)?;
     reject_bad_key(&obj_ty, &idx_ty)?;
-    if matches!(obj_ty, Type::Array(_))
-        && matches!(
-            idx_ty,
-            Type::String | Type::Symbol | Type::Any | Type::Undefined
-        )
-    {
+    if matches!(obj_ty, Type::Array(_)) && crate::check_type_of_index::array_key_domain(&idx_ty) {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
     }
@@ -439,7 +434,7 @@ fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
         // (`[1, 2][true]` answered 2). The spelled keys route a
         // canonical array-index spelling ("0") to the ELEMENT store,
         // length update included — S15.4_A1.1_T4's `x["0"] = 0`.
-        Type::Array(_) => crate::check_type_of_index::spelled_key_domain(idx_ty),
+        Type::Array(_) => crate::check_type_of_index::array_key_domain(idx_ty),
         // A FUNCTION receiver takes the coerced domain — the read
         // side's arm of the same name carries the reason (a function
         // is an ordinary object with no element lane, so nothing has

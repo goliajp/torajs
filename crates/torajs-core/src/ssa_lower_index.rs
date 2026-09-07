@@ -217,10 +217,10 @@ pub(crate) fn lower_from_value(
         return Operand::Value(v);
     }
     if matches!(arr_ty, Type::Arr(_))
-        && matches!(
-            ctx.expr_types.get(&index),
-            Some(crate::check::Type::Any | crate::check::Type::String | crate::check::Type::Symbol)
-        )
+        && ctx
+            .expr_types
+            .get(&index)
+            .is_some_and(crate::check_type_of_index::array_key_domain)
     {
         return lower_typed_arr_any_key(ctx, eid, arr_val, index);
     }

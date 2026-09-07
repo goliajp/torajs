@@ -38,7 +38,23 @@ pub(crate) fn lower_typed_arr_any_key(
     // A string key arrives as a Str slot; the kernel takes an
     // AnyValue. The box helpers are pure encodings, so the raw
     // operand keeps its own stake and its own drop below.
-    let k_boxed = if k_ty == Type::Any {
+    //
+    // Which box, though, is the shared predicate's call and not this
+    // lane's. `undefined` and `null` both lower to a null pointer and
+    // only the source expression's TYPE tells them apart (ANY_UNDEF
+    // vs ANY_NULL); the plain helper cannot see it, so this lane
+    // spelled every `x[undefined]` as `x["null"]` while the write
+    // side — which has ridden `lower_any_key` since rotation 346 —
+    // stored it under "undefined". The two halves of one key
+    // disagreed, and `x[undefined] = 9; x[undefined]` answered
+    // undefined on a program that answers 9.
+    let k_boxed = if ctx
+        .expr_types
+        .get(&index)
+        .is_some_and(crate::check_type_of_index::key_needs_boxing)
+    {
+        ctx.box_to_any_from_expr(index, k_raw.clone())
+    } else if k_ty == Type::Any {
         k_raw.clone()
     } else {
         ctx.box_to_any(k_raw.clone())

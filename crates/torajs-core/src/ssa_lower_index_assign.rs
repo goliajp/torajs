@@ -107,15 +107,10 @@ impl<'a> LowerCtx<'a> {
         // join (cluster #3, rotation 442): the kernel routes a
         // canonical array-index spelling ("0") to the ELEMENT store,
         // so `x["0"] = 0` and a dynamic string key both box here.
-        let key_is_any = matches!(
-            self.expr_types.get(&index),
-            Some(
-                crate::check::Type::Any
-                    | crate::check::Type::Undefined
-                    | crate::check::Type::String
-                    | crate::check::Type::Symbol
-            )
-        );
+        let key_is_any = self
+            .expr_types
+            .get(&index)
+            .is_some_and(crate::check_type_of_index::array_key_domain);
         // A FUNCTION receiver boxes too — the closure cell's numeric
         // write is the §7.1.19 stringified expando write the any
         // index-set kernel's closure arm owns (checker admit in

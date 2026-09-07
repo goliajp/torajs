@@ -70,14 +70,7 @@ pub(crate) fn check(
         }
         Type::String => Ok(Type::String),
         // See the note in `reject_bad_key`.
-        Type::Array(_)
-            if matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ) =>
-        {
-            Ok(Type::Any)
-        }
+        Type::Array(_) if array_key_domain(&idx_ty) => Ok(Type::Any),
         // An element read must answer with the element's own type,
         // CLASS AND ALL. Resolving above is about the RECEIVER — a
         // class instance indexes through its struct shape — but
@@ -156,7 +149,7 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // `a.length`, `a["0"]` is an element), uncoerced for a symbol
         // (step 2). The three have no common narrower type, which is
         // why the answer below is Any.
-        Type::Array(_) => spelled_key_domain(&idx_ty),
+        Type::Array(_) => array_key_domain(&idx_ty),
         // §10.4.3 decides a string receiver's outcome the same three
         // ways: `s["0"]` is the character, `s["length"]` ≡ `s.length`,
         // anything else reads through to the method surface or a miss.
@@ -247,6 +240,21 @@ pub(crate) fn key_needs_boxing(idx_ty: &Type) -> bool {
 /// already boxed and can be any of them at runtime.
 pub(crate) fn key_rides_keyed_kernel(idx_ty: &Type) -> bool {
     matches!(idx_ty, Type::Any) || key_needs_boxing(idx_ty)
+}
+
+/// The keys an ARRAY receiver takes besides a number — the one place
+/// the gate, the read answer and the two lowering lanes all read it
+/// from, so they cannot drift apart.
+///
+/// They already had. The gate admitted `Undefined`; the read lane in
+/// `ssa_lower_index` spelled `Any | String | Symbol` and did not. So
+/// `x[undefined]` type-checked and then died in the lowering
+/// ("cannot coerce Ptr to i64") on a program every engine answers
+/// `undefined` for — the fifth mirror of a domain that already had
+/// four, and the one `key_needs_boxing` did not reach because it
+/// asks a different question (what to box, not which lane).
+pub(crate) fn array_key_domain(idx_ty: &Type) -> bool {
+    spelled_key_domain(idx_ty)
 }
 
 /// The keys every property-key receiver takes.
