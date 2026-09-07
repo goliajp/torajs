@@ -64,7 +64,7 @@ pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
         };
         // `let g = g` re-binds the name this pass would rewrite
         // through; leave that shadow alone.
-        if g == name || g.starts_with("__") || !fn_sigs.contains_key(g) {
+        if g == name || !fn_sigs.contains_key(g) || !relayable_target(g) {
             return;
         }
         cands.push((*init, name.clone(), g.clone()));
@@ -97,6 +97,21 @@ pub fn wrap_escaping_fn_ident_bindings(ast: &mut Ast) {
         }
     }
     ast.stmts.extend(new_decls);
+}
+
+/// Which synthetic names may be relayed. `desugar_classes` rewrites
+/// `C.m` in place to a flat `__sm_C__m` Ident, so a static method
+/// bound to a variable arrives here already spelled synthetic — and
+/// it is an ordinary top-level fn, safe to relay. The other synthetic
+/// FnDecls are not: `__new_C` factories and `__cm_` super chains are
+/// owned by the static expanders (an arity-0 derived-class factory
+/// relayed here would turn its loud reject into silently
+/// uninitialized fields — the `wrap_dynamic_spread_callees` account),
+/// and a static FIELD read (`__sf_C__x`) is a global, never in
+/// `fn_sigs`. Accessors never reach this test at all: `C.p` becomes a
+/// CALL to `__sm_C__p_get`, not a bare Ident.
+fn relayable_target(g: &str) -> bool {
+    !g.starts_with("__") || g.starts_with("__sm_")
 }
 
 /// Whether some arena `Ident(name)` sits outside a callee slot.
