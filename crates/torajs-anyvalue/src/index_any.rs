@@ -206,6 +206,23 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     if tag == Tag::Obj as u16 {
         return unsafe { struct_index_get(ptr, idx) };
     }
+    // Every remaining shape that keeps an ordinary own-property bag
+    // answers a numeric read out of it, for the same reason the name
+    // channel does: the key stringifies (§7.1.19) and the bag is
+    // where an ordinary own property of that shape lives. Map / Set /
+    // RegExp / Date / the iterator cells reach this arm; Arr,
+    // TypedArray, ArrayBuffer, DataView, Str, DynObj, Closure and Obj
+    // all returned above through their own element or layout faces.
+    //
+    // The write side asks `expando_props_off` the same question, so a
+    // shape that grows a bag is admitted to both channels by the one
+    // line in that table. Before this arm the two sides disagreed in
+    // the worst direction: `m[0] = 1` stored into the bag and `m[0]`
+    // read back undefined — a write that reports success and a read
+    // that cannot see it.
+    if let Some(props) = unsafe { crate::member_get_layout::expando_props(ptr, tag).as_ref() } {
+        return unsafe { dynobj_index_get(props as *const _ as *mut c_void, idx) };
+    }
     VALUE_UNDEFINED
 }
 

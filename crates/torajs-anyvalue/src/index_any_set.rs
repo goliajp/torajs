@@ -174,19 +174,31 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     // non-extensible gate, so `f[5] = v` is exactly `f."5" = v`
     // (§7.1.19). Pre-fix this fell to the loud tail below while the
     // matching index READ already resolved through the expando.
-    if hdr_tag == Tag::NumberWrapper as u16
-        || hdr_tag == Tag::StringWrapper as u16
-        || hdr_tag == Tag::BooleanWrapper as u16
-        || hdr_tag == Tag::Obj as u16
-        || hdr_tag == Tag::Closure as u16
-        // §25.1 / §25.3 — ArrayBuffer and DataView are ordinary off
-        // their index face (a DataView reaches its bytes only through
-        // the §25.3.4 methods), so a numeric key is the stringified
-        // bag write member_set's buffer arm owns. TypedArray stays on
-        // its §10.4.5 element arm above.
-        || hdr_tag == Tag::ArrayBuffer as u16
-        || hdr_tag == Tag::DataView as u16
-    {
+    // §25.1 / §25.3 — ArrayBuffer and DataView are ordinary off their
+    // index face (a DataView reaches its bytes only through the
+    // §25.3.4 methods), so a numeric key is the stringified bag write
+    // member_set's buffer arm owns. TypedArray and Arr stay on their
+    // §10.4.5 / §10.4.2 element arms above and never reach here.
+    //
+    // The condition used to enumerate seven tags. It is the same
+    // question `member_get_layout::expando_props_off` already answers
+    // for every channel that asks it — "does this shape keep an
+    // ordinary own-property bag?" — and that table's own doc says it
+    // exists so a shape which grows a bag is one line there rather
+    // than a new `tag ==` arm in each consumer. This consumer was
+    // still spelling its own list, and Map / Set / RegExp were the
+    // shapes the two spellings disagreed about: their NAME-key write
+    // has worked since member_set grew the stateful-bag arm
+    // (`m.z = 1` stores), while `m[0] = 1` fell to the loud tail
+    // below. One key, two spellings, two answers — the same shape of
+    // bug rotation 610 spent five knives on, one layer down.
+    //
+    // Each tag the table admits here was probed against bun rather
+    // than assumed (the rotation 610-04 lesson: an admit list is asked
+    // item by item, never copied): Map / Set / RegExp / ArrIter now
+    // agree. Date and MapIter still refuse EARLIER, in the lowering's
+    // own index-assign list — a separate seam, registered.
+    if crate::member_get_layout::expando_props_off(hdr_tag).is_some() {
         let mut buf = [0u8; 20];
         let (start, len) = i64_dec(&mut buf, idx);
         unsafe {
