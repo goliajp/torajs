@@ -320,57 +320,7 @@ pub(crate) fn check_index(
         return check_member(checker, ast, eid, obj, name.to_string(), value);
     }
     let idx_ty = checker.type_of(ast, index)?;
-    // L3b #13 — an `any` receiver admits string keys (ES
-    // ToPropertyKey); every other receiver keeps the number-only
-    // spec narrow. Symbol keys ride the same receiver: §6.1.7 makes
-    // them the other half of the property-key domain, and §7.1.19
-    // step 2 hands them to the store uncoerced (mirror of the
-    // read-side gate in `check_type_of_index`).
-    // Cluster #1 blade 4 — an `any` key on an `any` receiver rides
-    // the keyed set kernel's runtime ToPropertyKey dispatch (mirror
-    // of the read-side admit in `check_type_of_index`).
-    // Cluster #4 (rotation 438) — a STRUCT-typed key joins: §7.1.19
-    // ToPropertyKey coerces an object key through toString/valueOf at
-    // runtime, so the lowering boxes it and rides the keyed set
-    // kernel (read-side mirror in `check_type_of_index`).
-    // Rotation 608 — a FUNCTION-typed key joins on the same terms; a
-    // function is an object and §7.1.19 asks it the same question
-    // (read-side note in `check_type_of_index` carries the reason).
-    if idx_ty != Type::Number
-        && !(matches!(obj_ty, Type::Any)
-            && crate::check_type_of_index::coerced_key_domain(&idx_ty))
-        // Rotation 346 — a STRUCT receiver under an UNDEFINED key:
-        // §7.1.19 ToPropertyKey(undefined) is the fixed string key
-        // "undefined". Cluster #3 (rotation 442) — STRING / SYMBOL /
-        // ANY keys join, completing the read-side mirror (the read
-        // gate has admitted this exact domain since chunk 753 / L3b
-        // #13): the keyed set kernel's member_set struct arm
-        // dispatches layout field / inherited accessor / expando
-        // (rotation 441 blade 3c), so the shadow-split concern that
-        // once kept dynamic string keys out no longer holds — the
-        // cpn-class accessor family's `c[String(1 + 1)] = 2`.
-        && !(matches!(obj_ty, Type::Struct(_))
-            && crate::check_type_of_index::coerced_key_domain(&idx_ty))
-        // An ARRAY receiver admits an `any` key: §7.1.19 decides
-        // element-vs-property from the runtime value, so the write
-        // rides the keyed set kernel with the receiver boxed (the
-        // read-side Array arm's write mirror — S12.6.3_A5's
-        // `var x = 0; a[x] = v`, where a `var` binding reads as
-        // Any). String / Symbol / Undefined keys join (cluster #3,
-        // rotation 442), completing the read-side mirror: the keyed
-        // set kernel spells the key per §7.1.19 and routes a
-        // canonical array-index spelling ("0") to the ELEMENT store
-        // (length update included), so the shadow-split concern that
-        // kept string keys out no longer holds — S15.4_A1.1_T4's
-        // `x["0"] = 0`.
-        && !(matches!(obj_ty, Type::Array(_))
-            && matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ))
-    {
-        return Err(format!("index must be number, got {idx_ty:?}"));
-    }
+    reject_bad_key(&obj_ty, &idx_ty)?;
     if matches!(obj_ty, Type::Array(_))
         && matches!(
             idx_ty,
@@ -452,4 +402,51 @@ pub(crate) fn check_index(
     // Chunk 567 — element assignment shares the rhs (mirror of the
     // member-store contract above); no consume.
     Ok(elem_ty)
+}
+
+/// §7.1.19 — whether `idx_ty` is a legal key for a WRITE to
+/// `obj_ty`, or the loud reject. The write half of
+/// [`crate::check_type_of_index`]'s gate of the same name, and it
+/// has to be read against it: a receiver that ANSWERS a property
+/// key on the read side has to be able to STORE one here, or the
+/// two halves disagree about what a property is.
+///
+/// Was three `!(receiver && domain)` clauses inside one `&&` chain
+/// with the receiver arms below spelling their domains a second
+/// time — and the two spellings had already drifted apart: the
+/// FUNCTION arm below listed `Any | String | Undefined` keys that
+/// this gate rejected before it could ever see them, so three
+/// quarters of that arm was dead code (measured, rotation 609).
+/// A match says each receiver's domain once, where the arm below
+/// can be read against it.
+fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
+    let admitted = match obj_ty {
+        // L3b #13 / cluster #1 blade 4 — an `any` receiver admits
+        // the whole property-key domain (§7.1.19 ToPropertyKey), the
+        // coerced keys included: the keyed set kernel runs the
+        // coercion at runtime off the key's tag.
+        Type::Any => crate::check_type_of_index::coerced_key_domain(idx_ty),
+        // Rotation 346 / cluster #3 (442) / cluster #4 (438) — a
+        // STRUCT receiver takes the same domain: the keyed set
+        // kernel's member_set struct arm dispatches layout field /
+        // inherited accessor / expando off the spelled key, so a
+        // dynamic string key no longer risks shadow-splitting a
+        // layout slot — the cpn-class accessor family's
+        // `c[String(1 + 1)] = 2`.
+        Type::Struct(_) => crate::check_type_of_index::coerced_key_domain(idx_ty),
+        // An ARRAY receiver keeps the SPELLED domain only, and the
+        // read side's note carries the measurement: an array owns an
+        // element lane that §7.1.19 tells apart from the property
+        // lane by the key's spelling, which the keyed set kernel
+        // does for these keys and not yet for the coerced ones
+        // (`[1, 2][true]` answered 2). The spelled keys route a
+        // canonical array-index spelling ("0") to the ELEMENT store,
+        // length update included — S15.4_A1.1_T4's `x["0"] = 0`.
+        Type::Array(_) => crate::check_type_of_index::spelled_key_domain(idx_ty),
+        _ => false,
+    };
+    if *idx_ty != Type::Number && !admitted {
+        return Err(format!("index must be number, got {idx_ty:?}"));
+    }
+    Ok(())
 }

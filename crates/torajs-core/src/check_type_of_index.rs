@@ -246,7 +246,7 @@ pub(crate) fn key_rides_keyed_kernel(idx_ty: &Type) -> bool {
 /// keyed kernel dispatches, and UNDEFINED is the fixed string key
 /// "undefined" (rotation 346). `Void` stays out — a Void expr has no
 /// SSA value to box.
-fn spelled_key_domain(idx_ty: &Type) -> bool {
+pub(crate) fn spelled_key_domain(idx_ty: &Type) -> bool {
     matches!(
         idx_ty,
         Type::String | Type::Symbol | Type::Any | Type::Undefined
