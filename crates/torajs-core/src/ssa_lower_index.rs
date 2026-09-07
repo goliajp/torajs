@@ -129,12 +129,11 @@ pub(crate) fn lower_from_value(
     // type Map". Boxing is the whole mechanism: RegExp has been on
     // this list the whole time and its non-number keys have worked
     // the whole time.
-    let (arr_val, arr_ty) =
-        if matches!(arr_ty, Type::Obj(_) | Type::RegExp | Type::Map | Type::Set) || obj_is_fn {
-            (ctx.box_to_any(arr_val), Type::Any)
-        } else {
-            (arr_val, arr_ty)
-        };
+    let (arr_val, arr_ty) = if shape_has_expando_bag(&arr_ty) || obj_is_fn {
+        (ctx.box_to_any(arr_val), Type::Any)
+    } else {
+        (arr_val, arr_ty)
+    };
     // Any-dynamic-access RFC (20260704) S3 — `recv[i]` where recv is
     // an `any` value: runtime dispatch (kind-aware Arr / Str /
     // primitive) via `__torajs_any_index_get`. A null/undefined
@@ -442,5 +441,48 @@ fn obj_is_struct_like(ctx: &LowerCtx<'_>, obj: crate::ast::ExprId) -> bool {
     matches!(
         ctx.expr_types.get(&obj),
         Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
+    )
+}
+
+/// Whether a receiver of this shape keeps an ordinary own-property bag
+/// at runtime, and therefore boxes into the any lane so its keyed read
+/// and write land in that bag.
+///
+/// The SSA-side mirror of torajs-anyvalue's
+/// `member_get_layout::expando_props_off`, which is the authority:
+/// that table decides where a shape's bag lives, this one decides
+/// which shapes get to reach it. Both keyed channels here — the read
+/// in this file and the write in `ssa_lower_index_assign` — ask this
+/// one function, because they used to spell the same four-variant list
+/// twice and a shape added to one would silently not reach the other.
+///
+/// `Date` / `Promise` / `MapIter` / `ArrIter` joined in rotation 611:
+/// the runtime table has always had a slot for them, so the refusal
+/// was this list's alone. `(new Date(0) as any)[0] = 1` died at
+/// lowering while `(new Map() as any)[0] = 1` had just started
+/// working one layer down.
+///
+/// WeakMap / WeakSet / WeakRef are deliberately ABSENT. bun answers a
+/// property write on them like any ordinary object, but their runtime
+/// cells carry no props slot at all, so admitting them here would move
+/// the refusal one layer down rather than remove it — exactly what
+/// rotation 610-04 caught when a write-side admit list was copied from
+/// the read side instead of being asked item by item. Giving them a
+/// bag is its own seam, registered, not smuggled in with this one.
+///
+/// `Arr` is absent for a different reason: an array's expando lives
+/// behind the `arrprops_*` kernels and its index keys are elements,
+/// not bag entries — it takes the element lane above.
+pub(crate) fn shape_has_expando_bag(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::Obj(_)
+            | Type::Map
+            | Type::Set
+            | Type::RegExp
+            | Type::Date
+            | Type::Promise
+            | Type::MapIter
+            | Type::ArrIter
     )
 }
