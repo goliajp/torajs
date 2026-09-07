@@ -285,6 +285,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::synthesize_forwarders(&mut a);
     ast::synthesize_recv_cb_forwarders(&mut a);
     ast::synthesize_fn_to_closure_forwarders(&mut a);
+    ast::wrap_escaping_fn_ident_bindings(&mut a);
     ast::desugar_function_prototype_methods(&mut a);
     ast::desugar_uninit_let(&mut a);
     ast::synthesize_sig_thunks(&mut a);

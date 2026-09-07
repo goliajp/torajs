@@ -324,6 +324,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_nested_fns(ast);
     ast::synthesize_recv_cb_forwarders(ast);
     ast::synthesize_fn_to_closure_forwarders(ast);
+    ast::wrap_escaping_fn_ident_bindings(ast);
     ast::desugar_function_prototype_methods(ast);
     ast::desugar_uninit_let(ast);
     ast::desugar_var_hoist(ast);
