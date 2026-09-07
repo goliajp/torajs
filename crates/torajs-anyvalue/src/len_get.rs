@@ -332,6 +332,36 @@ unsafe fn closure_length_arm(ptr: *mut c_void, recv: AnyValue) -> Option<AnyValu
     }
 }
 
+/// `.length` on a Closure-typed receiver in the TYPED lane: the
+/// runtime answer when there is one, `fallback` — the compile-time
+/// arity — when there is not.
+///
+/// The typed lane used to fold to that arity outright, which made a
+/// function's `.length` say two different things about one cell:
+/// `Object.defineProperty(f, "length", {value: 9})` moved the `any`
+/// spelling and left `f.length` on the declared count. `.name` was
+/// taken off its static approximation for the same reason (chunk
+/// 798); this is its twin, and it keeps the fallback because the
+/// fn-addr registry has no row for an arrow or an anonymous closure
+/// — where the arity IS the answer the registry would have given.
+///
+/// A redefine to a NON-number is a recorded edge: the typed lane's
+/// `.length` is a Number and cannot carry one.
+///
+/// # Safety
+/// `recv` is a live boxed Closure receiver.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_length_or(recv: AnyValue, fallback: i64) -> i64 {
+    let v = unsafe { __torajs_any_length_get(recv) };
+    if crate::nanbox::is_int32(v) {
+        return crate::nanbox::as_int32(v) as i64;
+    }
+    if crate::nanbox::is_double(v) {
+        return crate::nanbox::as_double(v) as i64;
+    }
+    fallback
+}
+
 /// `.length` metadata read for external consumers — torajs-meta's
 /// gOPD Closure arm (RFC 20260711-closure-reflection chunk B) builds
 /// the virtual `length` descriptor from this. `-1` = no metadata

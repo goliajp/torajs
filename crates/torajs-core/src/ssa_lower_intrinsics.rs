@@ -717,6 +717,7 @@ pub(crate) struct Intrinsics {
     pub(crate) closure_source_str: FuncId,
     /// RFC 20260721 刀 9 — plain-fn `.prototype` materialization.
     pub(crate) closure_prototype_any: FuncId,
+    pub(crate) closure_length_or: FuncId,
     /// RFC 20260721 刀 4 — flavor-keyed closure `.constructor`.
     pub(crate) closure_ctor_value: FuncId,
     /// Chunk 798 — typed-tier `.name` registry rewire: Closure

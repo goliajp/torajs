@@ -281,17 +281,49 @@ fn lower_fn_length_or_name(
         _ => unreachable!(),
     };
     if name == "length" {
-        if let Some(n) = try_ast_expected_count(ctx, obj) {
-            return Operand::ConstI64(n as i64);
-        }
-        let (params, _ret) = &ctx.fn_sigs[sig_id.0 as usize];
-        let visible =
-            if matches!(obj_ty, Type::Closure(_)) && !params.is_empty() && params[0] == Type::Ptr {
+        let static_count = if let Some(n) = try_ast_expected_count(ctx, obj) {
+            n as i64
+        } else {
+            let (params, _ret) = &ctx.fn_sigs[sig_id.0 as usize];
+            let visible = if matches!(obj_ty, Type::Closure(_))
+                && !params.is_empty()
+                && params[0] == Type::Ptr
+            {
                 params.len() - 1
             } else {
                 params.len()
             };
-        return Operand::ConstI64(visible as i64);
+            visible as i64
+        };
+        // A `FnSig` receiver is a raw fn-body vaddr with no cell to
+        // ask, so the static count IS the answer there.
+        if !matches!(obj_ty, Type::Closure(_)) {
+            return Operand::ConstI64(static_count);
+        }
+        // A Closure receiver has a cell, and that cell's `length` can
+        // move: `Object.defineProperty(f, "length", {value: 9})` and
+        // `delete f.length` both change it. Folding outright made one
+        // cell answer two different things depending on which name
+        // reached it — `(f as any).length` said 9 while `f.length`
+        // said the declared count. `.name` came off its static
+        // approximation for this reason (chunk 798); this is its twin.
+        //
+        // The static count stays as the fallback rather than as the
+        // answer: the fn-addr registry has no row for an arrow or an
+        // anonymous closure, and the arity is exactly what the row
+        // would have held.
+        let any_recv = ctx.box_to_any(obj_val);
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.closure_length_or,
+                vec![any_recv, Operand::ConstI64(static_count)],
+            ),
+            Type::I64,
+            None,
+        );
+        return Operand::Value(v);
     }
     // Chunk 798 — `.name` answers the runtime fn-addr registry, not
     // the call-site ident (an alias `const h = g` reads "g", a field
