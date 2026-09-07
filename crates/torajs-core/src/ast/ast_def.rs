@@ -144,6 +144,21 @@ pub struct Ast {
     /// what tells one of tr's own names from one the program spelled
     /// (sputnik writes `__ref` / `__key` / `__func` as user code).
     pub source_dunder_idents: std::collections::HashSet<String>,
+    /// Function declarations spliced in from an eval text whose own
+    /// code is SLOPPY (§19.2.1.1 — an indirect eval is sloppy global
+    /// code whatever the calling program was; a direct one inherits).
+    /// Annex B §B.3.3 applies to them even inside a module, and the
+    /// span cannot say so: `desugar_eval::foreign_spans` blanks every
+    /// spliced declaration's span to the `(0, 0)` sentinel because it
+    /// indexes a different string, and every synthesized declaration
+    /// carries that same sentinel. Name-keyed for the reason
+    /// `Ast::async_fns` is.
+    ///
+    /// Recorded boundary: a name reaches this set from a parse that a
+    /// later check may still refuse, and nothing takes it back out —
+    /// the same orphan story `parse_eval_source` records for the
+    /// expressions it leaves behind.
+    pub sloppy_eval_fn_names: std::collections::HashSet<String>,
     /// Bindings minted by object-rest destructuring (`{a, ...rest}`,
     /// §14.3.3.1 RestBindingInitialization) — the rest object's
     /// static Struct shape is the source-minus-omit ANCHOR, but the

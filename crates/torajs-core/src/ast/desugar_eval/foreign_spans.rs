@@ -33,39 +33,49 @@ use crate::lexer::Span;
 
 /// Blank every `FnDecl` span in `stmts`, at any depth: a nested
 /// function's range is just as foreign as its enclosure's.
-pub(super) fn blank_fn_spans(stmts: &mut [Stmt]) {
+///
+/// The same walk reports the names it blanked. Blanking is precisely
+/// what costs a later pass the ability to ask whether the declaration
+/// is in sloppy code — so the one walk that knows which declarations
+/// came out of an eval text hands the list over, and the caller, which
+/// is the only place that knows the eval's own strictness, decides
+/// what to do with it (`Ast::sloppy_eval_fn_names`).
+pub(super) fn blank_fn_spans(stmts: &mut [Stmt], blanked: &mut Vec<String>) {
     for s in stmts.iter_mut() {
-        blank_stmt(s);
+        blank_stmt(s, blanked);
     }
 }
 
-fn blank_stmt(s: &mut Stmt) {
+fn blank_stmt(s: &mut Stmt, blanked: &mut Vec<String>) {
     match s {
-        Stmt::FnDecl { span, body, .. } => {
+        Stmt::FnDecl {
+            name, span, body, ..
+        } => {
             *span = Span { start: 0, end: 0 };
-            blank_fn_spans(body);
+            blanked.push(name.clone());
+            blank_fn_spans(body, blanked);
         }
-        Stmt::Block(b) | Stmt::Multi(b) => blank_fn_spans(b),
+        Stmt::Block(b) | Stmt::Multi(b) => blank_fn_spans(b, blanked),
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            blank_stmt(then_branch);
+            blank_stmt(then_branch, blanked);
             if let Some(e) = else_branch.as_deref_mut() {
-                blank_stmt(e);
+                blank_stmt(e, blanked);
             }
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
         | Stmt::Labeled { body, .. }
         | Stmt::ForOf { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => blank_stmt(body),
+        | Stmt::ForOfSplitIter { body, .. } => blank_stmt(body, blanked),
         Stmt::For { init, body, .. } => {
             if let Some(i) = init.as_deref_mut() {
-                blank_stmt(i);
+                blank_stmt(i, blanked);
             }
-            blank_stmt(body);
+            blank_stmt(body, blanked);
         }
         Stmt::Try {
             body,
@@ -73,18 +83,18 @@ fn blank_stmt(s: &mut Stmt) {
             finally_body,
             ..
         } => {
-            blank_fn_spans(body);
-            blank_fn_spans(catch_body);
+            blank_fn_spans(body, blanked);
+            blank_fn_spans(catch_body, blanked);
             if let Some(f) = finally_body.as_mut() {
-                blank_fn_spans(f);
+                blank_fn_spans(f, blanked);
             }
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases.iter_mut() {
-                blank_fn_spans(&mut c.body);
+                blank_fn_spans(&mut c.body, blanked);
             }
             if let Some(d) = default.as_mut() {
-                blank_fn_spans(d);
+                blank_fn_spans(d, blanked);
             }
         }
         _ => {}

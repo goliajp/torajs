@@ -40,7 +40,7 @@ pub(super) fn split_block_binding(
     span: crate::lexer::Span,
     counter: &mut u32,
 ) {
-    if !annexb_applies_at(ast, span) {
+    if !annexb_applies_at(ast, name, span) {
         return;
     }
     // A reference to the name BEFORE the declaration, in the same

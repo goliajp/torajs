@@ -38,6 +38,10 @@ pub(super) struct AnnexBGoal {
     /// flag need not be added to every `FnDecl` construction site, and
     /// `desugar_async` reads it the same way.
     async_names: HashSet<String>,
+    /// Declarations spliced in from sloppy eval code. Their spans were
+    /// blanked at the splice, so the goal and the prologue ranges both
+    /// answer for the wrong program; the name is what is left.
+    sloppy_eval_names: HashSet<String>,
 }
 
 impl AnnexBGoal {
@@ -51,6 +55,7 @@ impl AnnexBGoal {
                 .chain(ast.async_generator_fns.iter())
                 .cloned()
                 .collect(),
+            sloppy_eval_names: ast.sloppy_eval_fn_names.clone(),
         }
     }
 
@@ -63,7 +68,15 @@ impl AnnexBGoal {
     /// A synthesized declaration carries the `(0, 0)` sentinel — it has
     /// no user source, so no directive prologue can cover it, and the
     /// goal alone decides.
-    fn applies(&self, span: crate::lexer::Span) -> bool {
+    ///
+    /// Unless the declaration came out of sloppy eval code, in which
+    /// case neither reading applies to it: the goal describes the FILE,
+    /// and `(0, 0)` is the very sentinel the splice stamped on. Those
+    /// are answered by name.
+    fn applies(&self, name: &str, span: crate::lexer::Span) -> bool {
+        if self.sloppy_eval_names.contains(name) {
+            return true;
+        }
         self.sloppy
             && !self
                 .strict_spans
@@ -76,8 +89,8 @@ impl AnnexBGoal {
 /// walk: [`super::nested_fns_capture`] routes a capturing declaration
 /// off the lifting lane before the lift ever sees it, and has to ask the
 /// same question about the block form it leaves behind.
-pub(super) fn annexb_applies_at(ast: &super::Ast, span: crate::lexer::Span) -> bool {
-    AnnexBGoal::of(ast).applies(span)
+pub(super) fn annexb_applies_at(ast: &super::Ast, name: &str, span: crate::lexer::Span) -> bool {
+    AnnexBGoal::of(ast).applies(name, span)
 }
 
 /// What §B.3.3 says about one declaration.
@@ -215,7 +228,7 @@ impl LiftCtx {
     /// `var name = <mangled>` at the head of the list, which is where a
     /// function declaration's initialization belongs anyway.
     pub(super) fn body_level_var_lift(&self, name: &str, span: crate::lexer::Span) -> bool {
-        self.declared.contains(name) && self.goal.applies(span)
+        self.declared.contains(name) && self.goal.applies(name, span)
     }
 
     /// Does the declaration at `span` get the §B.3.3 var binding?
@@ -230,7 +243,7 @@ impl LiftCtx {
         if !mode.nested || self.shadowed.contains(name) {
             return AnnexB::Legacy;
         }
-        if !self.goal.applies(span) || self.goal.is_async_form(name) {
+        if !self.goal.applies(name, span) || self.goal.is_async_form(name) {
             return AnnexB::Strict;
         }
         if self.params.contains(name) || self.lex.iter().any(|n| n == name) {
@@ -247,7 +260,7 @@ impl LiftCtx {
     /// collision; what is wrong without the rename is only which of the
     /// two bindings the write reaches.
     pub(super) fn catch_param_shadows_write(&self, p: &str, catch_body: &[Stmt]) -> bool {
-        annexb_fn_span(catch_body, p).is_some_and(|span| self.goal.applies(span))
+        annexb_fn_span(catch_body, p).is_some_and(|span| self.goal.applies(p, span))
     }
 
     /// Enter a scope: remember the stack height, then record what the

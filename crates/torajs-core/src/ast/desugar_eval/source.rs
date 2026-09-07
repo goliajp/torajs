@@ -252,7 +252,18 @@ pub(super) fn parse_eval_source(
     // The statements now belong to a program whose `Ast::source` is a
     // different string — see `super::foreign_spans`.
     let mut stmts = stmts;
-    super::foreign_spans::blank_fn_spans(&mut stmts);
+    let mut blanked: Vec<String> = Vec::new();
+    super::foreign_spans::blank_fn_spans(&mut stmts, &mut blanked);
+    // §19.2.1.1 — the eval code's strictness is its OWN, and this is
+    // the only place that knows it. Annex B §B.3.3 gives a block-nested
+    // declaration in sloppy code a var binding, and after the blank
+    // above no downstream pass can tell such a declaration from a
+    // synthesized one: both carry the `(0, 0)` sentinel, and the
+    // program's goal answers for the FILE, which for an indirect eval
+    // inside a module is the wrong question entirely.
+    if !is_strict {
+        ast.sloppy_eval_fn_names.extend(blanked);
+    }
     let octal_here = ast.legacy_octal_positions.len() > octal_before;
     ast.legacy_octal_positions.truncate(octal_before);
     if is_strict && octal_here {

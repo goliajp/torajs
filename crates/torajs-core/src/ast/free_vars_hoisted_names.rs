@@ -60,7 +60,7 @@ pub(super) fn hoist_annexb_fn_names(ast: &Ast, list: &[Stmt], bound: &mut Vec<St
             continue;
         }
         if super::annexb_names::annexb_fn_span(list, &name)
-            .is_some_and(|sp| super::annexb_fn_var::annexb_applies_at(ast, sp))
+            .is_some_and(|sp| super::annexb_fn_var::annexb_applies_at(ast, &name, sp))
         {
             bound.push(name);
         }
