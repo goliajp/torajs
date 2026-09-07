@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T05:37:53.795Z",
+  "generatedAt": "2026-09-07T07:19:38.337Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T05:25:10Z",
-    "headSha": "7b29ca5b5",
-    "elapsedSec": 418.77,
+    "ranAt": "2026-09-07T07:04:51Z",
+    "headSha": "f3ee3cdc5",
+    "elapsedSec": 416.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30927,
-    "passNoOracle": 1163,
+    "pass": 30974,
+    "passNoOracle": 1172,
     "passNegative": 4459,
-    "passTotal": 36549,
-    "bug": 11474,
-    "incompatible": 5151,
+    "passTotal": 36605,
+    "bug": 11480,
+    "incompatible": 5089,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48023,
-    "passRateInScope": 68.73,
-    "passRateTrAccepted": 76.11
+    "trAccepted": 48085,
+    "passRateInScope": 68.84,
+    "passRateTrAccepted": 76.13
   },
   "torajs": {
-    "commit": "7b29ca5b5",
-    "commitSubject": "fix(torajs-core): eval strictness is the call AND the text",
+    "commit": "f3ee3cdc5",
+    "commitSubject": "fix(torajs-core): every value is a property key, not a shortlist of them",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "f3ee3cdc5",
+      "subject": "fix(torajs-core): every value is a property key, not a shortlist of them"
+    },
+    {
+      "hash": "5da5e9e69",
+      "subject": "refactor(torajs-core): the index key gate has two domains, not six arms"
+    },
+    {
+      "hash": "1eab0a57b",
+      "subject": "fix(torajs-core): a function is an object, so it is a property key"
+    },
+    {
+      "hash": "696966001",
+      "subject": "fix(torajs-core): eval, arguments and yield are assignment targets in sloppy code"
+    },
+    {
+      "hash": "fb0f016da",
+      "subject": "docs(torajs-core): the assignment threw, it did not die at compile time"
+    },
+    {
+      "hash": "84b372481",
+      "subject": "chore: rotation 607 sweep on 7b29ca5b5, plus the dashboard snapshot"
+    },
+    {
       "hash": "7b29ca5b5",
       "subject": "fix(torajs-core): eval strictness is the call AND the text"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "33f1703cb",
       "subject": "fix(torajs-core): §B.3.4's if-clause declaration gets its braces"
-    },
-    {
-      "hash": "9d5a7fcf7",
-      "subject": "chore: refresh the hardev dashboard snapshot"
-    },
-    {
-      "hash": "fbbac993a",
-      "subject": "perf(hardev): schedule gmalloc_scan's build phase wide, run phase narrow"
-    },
-    {
-      "hash": "3bffb6abc",
-      "subject": "refactor(torajs-throw): move the raiser family into a sibling (file-size)"
-    },
-    {
-      "hash": "ecd73bb30",
-      "subject": "perf(torajs-core): drop the always-rerun sentinel from the build script"
-    },
-    {
-      "hash": "7f81a9749",
-      "subject": "feat(torajs-str): §B.2.1 escape / unescape"
-    },
-    {
-      "hash": "9cfc23849",
-      "subject": "fix(torajs-core): a deleted name still gets its implicit global"
     }
   ],
-  "headSha": "7b29ca5b5",
+  "headSha": "f3ee3cdc5",
   "autorun": {
-    "total": 910,
+    "total": 911,
     "baselineTarget": 10,
-    "bySelf": 905,
+    "bySelf": 906,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788752093-7b01",
-      "at": "2026-09-07T03:34:53Z",
-      "ts": 1788752093,
+      "rotationId": "r-1788759534-527e",
+      "at": "2026-09-07T05:38:54Z",
+      "ts": 1788759534,
       "trigger": "self",
-      "prevHead": "9d5a7fcf7",
-      "handoffSha": "sha256:6929a151cf7402cd09be3fa4a9745a136d41e3283da91e52d182589caec1e65e",
-      "handoffAgeSec": 4,
+      "prevHead": "84b372481",
+      "handoffSha": "sha256:44c2be090a4d7e02e762862e66459f074ce4b67aac9fe3d25acb685cbbc2d694",
+      "handoffAgeSec": 15,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788759534-527e",
+        "at": "2026-09-07T05:38:54Z",
+        "ts": 1788759534,
+        "trigger": "self",
+        "prevHead": "84b372481",
+        "handoffSha": "sha256:44c2be090a4d7e02e762862e66459f074ce4b67aac9fe3d25acb685cbbc2d694",
+        "handoffAgeSec": 15,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788752093-7b01",
         "at": "2026-09-07T03:34:53Z",
@@ -892,17 +903,6 @@
         "prevHead": "fd1bc2a2e",
         "handoffSha": "sha256:330ed4316447ef1a8013c79f1353f4dacf6aa70e3dc046c098e53e2503aba2f0",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788655101-2576",
-        "at": "2026-09-06T00:38:21Z",
-        "ts": 1788655101,
-        "trigger": "self",
-        "prevHead": "3c609ed5f",
-        "handoffSha": "sha256:a5c8eb8e7d5e434fe745934e2b2ada577c44a3634442452454acedcaa48096d9",
-        "handoffAgeSec": 14,
         "conformanceBefore": null,
         "commitsInSession": null
       }
