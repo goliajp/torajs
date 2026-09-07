@@ -380,7 +380,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             let target = self.parse_unary()?;
             self.reject_invalid_assignment_target(target)?;
-            let lhs_clone = self.clone_expr_for_compound(target);
+            let lhs_clone = self.clone_expr_for_compound(target)?;
             let one = self.ast.add_expr(Expr::Number(1.0));
             let op = if is_inc { BinOp::Add } else { BinOp::Sub };
             let rhs = self.ast.add_expr(Expr::BinOp {

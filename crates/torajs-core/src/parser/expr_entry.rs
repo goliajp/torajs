@@ -9,7 +9,8 @@
 //! - parse_assign — right-associative `=` / compound-assign
 //!   (`+=` / `-=` / `*=` / `/=` / `%=` / `**=` / `<<=` / `>>=` /
 //!   `>>>=` / `&=` / `|=` / `^=` / `&&=` / `||=` / `??=`)
-//! - clone_expr_for_compound — fresh top-level Ident/Member/Index
+//! - clone_expr_for_compound — fresh top-level Ident/Member/Index,
+//!   and the §13.15.1 simple-target check every compound form needs
 //!   node so compound assigns can name the LHS twice
 //!
 //! parse_assign + clone_expr_for_compound were already `pub(super)`
@@ -335,7 +336,7 @@ impl<'a> Parser<'a> {
             // `??= ||= &&=` rhs only evaluates when the guard fires —
             // conditional position, no yield hoist.
             let value = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
-            let lhs = self.clone_expr_for_compound(target);
+            let lhs = self.clone_expr_for_compound(target)?;
             // ES2021 §13.15 requires short-circuit — PutValue must not
             // fire when the lhs already satisfies the guard (truthy for
             // ||=, falsy for &&=, non-nullish for ??=). Desugar so the
@@ -384,7 +385,7 @@ impl<'a> Parser<'a> {
             self.reject_invalid_assignment_target(target)?;
             self.drop_class_alias_on_assign(target);
             let value = self.parse_assign()?;
-            let lhs = self.clone_expr_for_compound(target);
+            let lhs = self.clone_expr_for_compound(target)?;
             let rhs = self.ast.add_expr(Expr::BinOp {
                 op,
                 left: lhs,
@@ -416,7 +417,7 @@ impl<'a> Parser<'a> {
             // the AST node by re-evaluating at the rhs position. tr's
             // AST is arena-backed so we just append a fresh expr that
             // re-reads the same Ident / Member / Index.
-            let lhs = self.clone_expr_for_compound(target);
+            let lhs = self.clone_expr_for_compound(target)?;
             let rhs = self.ast.add_expr(Expr::BinOp {
                 op,
                 left: lhs,
@@ -442,7 +443,19 @@ impl<'a> Parser<'a> {
     /// confuse downstream passes that index by ExprId. So make a
     /// fresh top-level node — for the shapes the parser produces here
     /// (`Ident`, `Member`, `Index`) the read is side-effect-free.
-    pub(super) fn clone_expr_for_compound(&mut self, eid: ExprId) -> ExprId {
+    ///
+    /// Those three shapes are also exactly §13.15.1's simple
+    /// AssignmentTargetType, which every caller of this helper
+    /// requires: a compound / logical / bitwise assignment and the
+    /// prefix `++` / `--` all read the target before writing it, and
+    /// none of them may destructure. So anything else here is the
+    /// early Syntax Error the spec names — `1 += 1`, `"s" += "t"`,
+    /// `a++ += 1`, `++1` — reported at parse phase where it belongs
+    /// rather than crashing the compiler.
+    /// (`reject_invalid_assignment_target` runs first and owns the
+    /// shapes that are invalid for PLAIN `=` too, which this helper
+    /// never sees: a call, a comma expression, `yield`, `void`.)
+    pub(super) fn clone_expr_for_compound(&mut self, eid: ExprId) -> Result<ExprId, String> {
         let cloned = match self.ast.get_expr(eid) {
             Expr::Ident(name) => Expr::Ident(name.clone()),
             Expr::Member { obj, name } => Expr::Member {
@@ -453,8 +466,13 @@ impl<'a> Parser<'a> {
                 obj: *obj,
                 index: *index,
             },
-            other => panic!("parser: invalid compound-assign target shape {other:?}"),
+            _ => {
+                return Err(format!(
+                    "expression is not a valid assignment target at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
         };
-        self.ast.add_expr(cloned)
+        Ok(self.ast.add_expr(cloned))
     }
 }
