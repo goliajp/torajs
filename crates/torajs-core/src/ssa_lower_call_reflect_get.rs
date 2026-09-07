@@ -66,8 +66,32 @@ pub(crate) fn try_lower(
     let obj_ty_probe = ctx.operand_ty(&obj_op);
     // The fold needs BOTH halves: a struct layout to read out of and a
     // name to read. Anything else is the general lane.
+    //
+    // A THIRD condition the fold needs and did not have: the key must
+    // name a DATA FIELD of that layout.
+    //
+    // The layout scan below can only prove presence — absence is not a
+    // constant, and the scan answered `undefined` for both things it
+    // cannot see. An accessor lives in the layout under a synthetic
+    // slot name the plain-name scan never matches, and a class member
+    // is not in the instance layout at all; `Reflect.get(o, "b")`
+    // therefore folded to undefined for a property the very same
+    // object hands over through `o.b`, `o["b"]` and `Object.values`.
+    // (This is the lesson `in`'s struct arm records one file over, in
+    // the same words.) A synthetic spelling must not fold either — it
+    // would hand back the closure sitting in the slot.
+    let key_is_data_field = |ctx: &LowerCtx<'_>, k: &str| -> bool {
+        let Type::Obj(sid) = ctx.operand_ty(&obj_op) else {
+            return false;
+        };
+        let w = torajs_wtf8::Wtf8::new(k);
+        crate::check_type_of_object_lit::accessor_slot(w).is_none()
+            && ctx.struct_layouts[sid.0 as usize]
+                .iter()
+                .any(|(n, _)| n.as_wtf8() == w)
+    };
     let (key, _) = match (literal_key, matches!(obj_ty_probe, Type::Obj(_))) {
-        (Some(k), true) => (k, ()),
+        (Some(k), true) if key_is_data_field(ctx, &k) => (k, ()),
         _ => return Some(lower_general(ctx, args, obj_op)),
     };
     // ES §28.1.6 receiver arg + trailing silently ignored in the typed-
