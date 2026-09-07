@@ -324,6 +324,13 @@ estimate.
 
 ### Most recent
 
+- 📄 [`2026-09-07-v1-axes-report.md`](checkpoints/2026-09-07-v1-axes-report.md)
+  — v1.0 five-axis progress report @ `48e7eab7a` (rotation 610). Axis A
+  73.4% / axis B 73.2% / axis C 100% / axis E 0%; composite 48.9%. Carries
+  the per-rotation attribution of the 627-case harness de-inflation that
+  makes 09-07's 68.88% a *different ruler* from 09-06's 69.06%.
+- 📄 [`2026-09-06-v1-axes-report.md`](checkpoints/2026-09-06-v1-axes-report.md)
+  — the first five-axis report, @ `fd1bc2a2e` (rotation 598).
 - 📄 [`2026-06-14-w-j-a3a.md`](checkpoints/2026-06-14-w-j-a3a.md) — W-J
   substrate trunk Phase A3a close (4/9 chunk). First checkpoint after
   the protocol was established; baseline for future diffs.
