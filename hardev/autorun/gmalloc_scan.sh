@@ -87,13 +87,30 @@ run_bounded() {
   return "$rc"
 }
 
-probe_one() {
-  local f="$1" bin plain guarded
+# Build only, split from the run half so the two can be scheduled at
+# different widths. `tr build` is CPU-bound and costs nothing in memory;
+# a GUARDED run costs a page per allocation, which is the whole reason
+# the run width is 2. Holding the build to that width was waste.
+#
+# Measured full-scale, not projected: 503s in one phase at -P 2, 401s
+# split (-P 10 build / -P 2 run). An earlier read of this called the
+# split SLOWER — that comparison used the ~360s figure from the docs
+# rather than a measurement, and the docs were stale.
+build_one() {
+  local f="$1" bin
   bin="$WORK/$(echo "$f" | tr '/.' '__')"
   if ! "$TR" build "$f" -o "$bin" >/dev/null 2>&1; then
     printf '%s\tBUILD-FAILED\n' "$f" >>"$WORK/skipped"
     return 0
   fi
+}
+
+# Run half — verdict logic verbatim from when this was one function.
+probe_one() {
+  local f="$1" bin plain guarded
+  bin="$WORK/$(echo "$f" | tr '/.' '__')"
+  # A fixture whose build failed has no artifact; it is already recorded.
+  [ -f "$bin" ] || return 0
   run_bounded no "$bin"
   plain=$?
   run_bounded yes "$bin"
@@ -117,7 +134,7 @@ probe_one() {
   fi
   rm -f "$bin"
 }
-export -f probe_one run_bounded
+export -f probe_one build_one run_bounded
 export TR GUARD WORK TIMEOUT_SECS
 
 : >"$WORK/offenders"
@@ -127,9 +144,17 @@ export TR GUARD WORK TIMEOUT_SECS
 # shellcheck disable=SC2086
 ls $GLOB >"$WORK/cases" 2>/dev/null
 TOTAL=$(wc -l <"$WORK/cases" | tr -d ' ')
-echo "gmalloc_scan: $TOTAL fixtures, $WORKERS workers, tr = $TR"
+BUILD_WORKERS="${BUILD_WORKERS:-10}"
+BATCH="${BATCH:-500}"
+echo "gmalloc_scan: $TOTAL fixtures, build -P $BUILD_WORKERS / run -P $WORKERS, tr = $TR"
 
-xargs -P "$WORKERS" -I{} bash -c 'probe_one "$@"' _ {} <"$WORK/cases"
+# Two phases per batch: build wide, then run narrow. Batching keeps the
+# artifacts on disk bounded to one batch rather than all 3386 at once.
+split -l "$BATCH" "$WORK/cases" "$WORK/batch."
+for b in "$WORK"/batch.*; do
+  xargs -P "$BUILD_WORKERS" -I{} bash -c 'build_one "$@"' _ {} <"$b"
+  xargs -P "$WORKERS" -I{} bash -c 'probe_one "$@"' _ {} <"$b"
+done
 
 SKIPPED=$(wc -l <"$WORK/skipped" | tr -d ' ')
 TIMEDOUT=$(wc -l <"$WORK/timeouts" | tr -d ' ')

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-06T16:44:15.392Z",
+  "generatedAt": "2026-09-07T01:54:03.813Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.02
   },
   "torajs": {
-    "commit": "573d37b17",
-    "commitSubject": "refactor(torajs-core): the dead-zone pass is no longer top-level-only",
+    "commit": "3bffb6abc",
+    "commitSubject": "refactor(torajs-throw): move the raiser family into a sibling (file-size)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,34 @@
   },
   "commits": [
     {
+      "hash": "3bffb6abc",
+      "subject": "refactor(torajs-throw): move the raiser family into a sibling (file-size)"
+    },
+    {
+      "hash": "ecd73bb30",
+      "subject": "perf(torajs-core): drop the always-rerun sentinel from the build script"
+    },
+    {
+      "hash": "7f81a9749",
+      "subject": "feat(torajs-str): §B.2.1 escape / unescape"
+    },
+    {
+      "hash": "9cfc23849",
+      "subject": "fix(torajs-core): a deleted name still gets its implicit global"
+    },
+    {
+      "hash": "fe55ed846",
+      "subject": "fix(torajs-core): `delete super.x` is a ReferenceError"
+    },
+    {
+      "hash": "05e9efcc7",
+      "subject": "fix(torajs-core): a type assertion is transparent to `delete`"
+    },
+    {
+      "hash": "b6bad966c",
+      "subject": "chore: rotation 605 sweep on 573d37b17, plus the dashboard snapshot"
+    },
+    {
       "hash": "573d37b17",
       "subject": "refactor(torajs-core): the dead-zone pass is no longer top-level-only"
     },
@@ -747,55 +775,38 @@
     {
       "hash": "8ad1574c3",
       "subject": "fix(torajs-core): the compile-time fold answers a lifted nested function's source name"
-    },
-    {
-      "hash": "d4cd0f553",
-      "subject": "chore: rotation 604 sweep on cfd371d5c, plus the dashboard snapshot"
-    },
-    {
-      "hash": "cfd371d5c",
-      "subject": "fix(torajs-core): a top-level function or let binding shadows the injected error class"
-    },
-    {
-      "hash": "a35fe04d0",
-      "subject": "refactor(torajs-core): move the Error class bodies out of inject_builtin_classes (file-size)"
-    },
-    {
-      "hash": "219382266",
-      "subject": "fix(torajs-core): a lifted nested function answers its source name"
-    },
-    {
-      "hash": "bc234b061",
-      "subject": "fix(torajs-core): a lifted nested function is reachable from new, casts and delete"
-    },
-    {
-      "hash": "9ca97b7f9",
-      "subject": "fix(test262): assert.throws compares the error class again"
-    },
-    {
-      "hash": "01dcd00c0",
-      "subject": "chore: rotation 603 sweep on 9043b3dfb, plus the dashboard snapshot"
     }
   ],
-  "headSha": "573d37b17",
+  "headSha": "3bffb6abc",
   "autorun": {
-    "total": 908,
+    "total": 909,
     "baselineTarget": 10,
-    "bySelf": 903,
+    "bySelf": 904,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788704337-4a1e",
-      "at": "2026-09-06T14:18:57Z",
-      "ts": 1788704337,
+      "rotationId": "r-1788713156-2db1",
+      "at": "2026-09-06T16:45:56Z",
+      "ts": 1788713156,
       "trigger": "self",
-      "prevHead": "d4cd0f553",
-      "handoffSha": "sha256:0bc24a794624810c2d41286ddcdae4fa427a64d0987e1f3e7ec8c7228bafab86",
-      "handoffAgeSec": 19,
+      "prevHead": "b6bad966c",
+      "handoffSha": "sha256:e451db4b24dd8b1896109b8633369630f7ef5d1dd8fa03e7087d4ffbf41ac810",
+      "handoffAgeSec": 4,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788713156-2db1",
+        "at": "2026-09-06T16:45:56Z",
+        "ts": 1788713156,
+        "trigger": "self",
+        "prevHead": "b6bad966c",
+        "handoffSha": "sha256:e451db4b24dd8b1896109b8633369630f7ef5d1dd8fa03e7087d4ffbf41ac810",
+        "handoffAgeSec": 4,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788704337-4a1e",
         "at": "2026-09-06T14:18:57Z",
@@ -892,17 +903,6 @@
         "prevHead": "0051910a3",
         "handoffSha": "sha256:3706476ea346d83be94449069172f913dce6b143d566832b4a5db1828a309076",
         "handoffAgeSec": 7,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788643300-7e8b",
-        "at": "2026-09-05T21:21:40Z",
-        "ts": 1788643300,
-        "trigger": "self",
-        "prevHead": "aba648800",
-        "handoffSha": "sha256:3d3d4a4dd145d9e0e90837a53dab96b5a19c77d982fc1272da312d663b93ca2c",
-        "handoffAgeSec": 53,
         "conformanceBefore": null,
         "commitsInSession": null
       }
