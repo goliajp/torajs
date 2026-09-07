@@ -26,8 +26,11 @@
 //!   read sees `undefined` rather than the ReferenceError a real
 //!   removal leaves) — this pass used to keep such a name out of the
 //!   implicit-globals sibling to preserve that read, which cost the
-//!   ASSIGNMENT its binding and killed the program at compile time
-//!   before either answer was reached.
+//!   ASSIGNMENT its binding: `x = 1` threw the unresolvable-name
+//!   ReferenceError itself, so neither the delete nor the read was
+//!   reached. Removing a real removal's own residue needs a runtime
+//!   existence bit for the binding, which is registered rather than
+//!   guessed at here (rotation 608, `S11.4.1_A3.3_T1`).
 //!
 //! Both goals leave zero `Delete { Ident }` nodes behind, so no
 //! downstream pass ever meets the shape.

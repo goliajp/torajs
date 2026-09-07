@@ -32,15 +32,18 @@
 //!   is not evidence of an implicit global (`with (o) { foo = 42 }`
 //!   must NOT create `foo`);
 //! - (WAS: a name the program also `delete`s stayed out, so that
-//!   `x = 1; delete x; x` could reach the ReferenceError areal delete
+//!   `x = 1; delete x; x` could reach the ReferenceError a real delete
 //!   leaves behind. It bought that at the cost of the ASSIGNMENT: with
-//!   no binding synthesized, `x = 1` was an unresolvable write and the
-//!   program died at compile time on an unknown identifier, so the
-//!   delete's own answer was never reached either. Three wrong answers
-//!   for one right one. The name is admitted now, and what remains is
-//!   theapproximation `delete_bare_name` already records for its own
-//!   configurable-builtin lane: the answer is right, the property is
-//!   not actually removed.);
+//!   no binding synthesized, `x = 1` was an unresolvable write, so the
+//!   ASSIGNMENT ITSELF threw the ReferenceError and neither the delete
+//!   nor the read was ever reached. That made `S11.4.1_A3.3_T1` "pass"
+//!   off its very first statement, three of its four steps skipped —
+//!   water, not an answer (measured by A/B in rotation 608: with the
+//!   exclusion restored the program prints no step marker at all and
+//!   the catch still sees a ReferenceError). The name is admitted now,
+//!   and what remains is the approximation `delete_bare_name` already
+//!   records for its own configurable-builtin lane: the answer is
+//!   right, the property is not actually removed.);
 //! - known builtin globals keep the recorded reject next to
 //!   `check_assign_ident`'s carve-out, the §19.1 readonly names never
 //!   reach this pass (the sibling already folded their writes), and
