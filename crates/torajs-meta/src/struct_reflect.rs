@@ -36,6 +36,10 @@ unsafe extern "C" {
     /// torajs-structmeta — 255 for a plain name, a kind byte for a
     /// synthetic accessor slot spelling (`__getter_v` / `__setter_v`).
     fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
+    /// torajs-structmeta — the prefix byte count of that spelling, so
+    /// the plain property name can be recovered without naming the
+    /// prefix here.
+    fn __torajs_accessor_slot_prefix_len(name: *const u8, name_len: u32) -> u32;
     /// Accessor slot standing for a plain property name (`kind` 0 =
     /// getter, 1 = setter) — RFC 20260714-objlit-accessor.
     fn __torajs_struct_accessor_find(
@@ -189,8 +193,6 @@ pub(crate) const ACC_SETTER: u8 = 1;
 /// reflection consumer in this crate (keys / entries / print / gOPD)
 /// resolves slot names through [`accessor_slot_name`], so the spelling
 /// lives in exactly one place.
-const ACCESSOR_PREFIXES: [(&[u8], u8); 2] =
-    [(b"__getter_", ACC_GETTER), (b"__setter_", ACC_SETTER)];
 
 /// Split a layout slot name into `(kind, plain-name)` when it is an
 /// accessor slot (`__getter_v` → `(ACC_GETTER, "v")`); a data field
@@ -205,13 +207,16 @@ pub(crate) unsafe fn accessor_slot_name(
     if ptr.is_null() {
         return None;
     }
-    let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
-    for (prefix, kind) in ACCESSOR_PREFIXES {
-        if bytes.len() > prefix.len() && &bytes[..prefix.len()] == prefix {
-            return Some((kind, unsafe { ptr.add(prefix.len()) }, len - prefix.len()));
-        }
+    // The spelling itself is torajs-structmeta's — this crate used to
+    // carry its own copy of the two prefixes under a doc comment
+    // claiming the spelling lived in exactly one place, which was
+    // true of this crate and not of the program.
+    let kind = unsafe { __torajs_accessor_name_kind(ptr, len as u32) };
+    if kind == 255 {
+        return None;
     }
-    None
+    let off = unsafe { __torajs_accessor_slot_prefix_len(ptr, len as u32) } as usize;
+    Some((kind, unsafe { ptr.add(off) }, len - off))
 }
 
 /// The own-property key a layout slot enumerates under: an accessor

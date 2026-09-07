@@ -100,6 +100,11 @@ unsafe extern "C" {
         name_len: u32,
     ) -> i64;
     fn __torajs_struct_field_name(layout: *const c_void, idx: u32) -> StructFieldName;
+    // torajs-structmeta — the prefix byte count of a synthetic
+    // accessor slot spelling (`__getter_v`), 0 for a plain name. The
+    // struct walk resolves slot names through it so the spelling is
+    // not respelled here.
+    fn __torajs_accessor_slot_prefix_len(name: *const u8, name_len: u32) -> u32;
     // Fill `out_anyv` with the field's value as a BORROWED NaN-box;
     // returns 1 on hit, 0 for missing layout / absent field.
     fn __torajs_struct_field_read_anyv(

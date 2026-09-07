@@ -86,6 +86,29 @@ pub unsafe extern "C" fn __torajs_accessor_name_kind(name: *const u8, name_len: 
     }
 }
 
+/// How many bytes of `name` are the accessor-slot PREFIX — `0` for a
+/// plain name. Pairs with [`__torajs_accessor_name_kind`]: that one
+/// answers *whether* (and which half), this one answers *where the
+/// property name starts*, so a consumer can recover `v` from
+/// `__getter_v` without spelling the prefix itself. torajs-meta's
+/// reflection walkers carried their own copy of the two prefixes for
+/// exactly this; they ask here now.
+///
+/// # Safety
+/// `name` must be NULL or point at `name_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_accessor_slot_prefix_len(name: *const u8, name_len: u32) -> u32 {
+    if name.is_null() {
+        return 0;
+    }
+    // SAFETY: caller contract above.
+    let bytes = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    match AccessorKind::of_slot_name(bytes) {
+        Some(kind) => kind.prefix().len() as u32,
+        None => 0,
+    }
+}
+
 impl StructLayoutEntry {
     /// Find an object-literal accessor SLOT by the property it stands
     /// for: `prop = "v"` matches the field named `__getter_v` (or
