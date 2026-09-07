@@ -121,14 +121,11 @@ pub(crate) fn lower_str_recv_index(
 /// runs OrdinaryToPrimitive over it.
 pub(crate) fn lower_any_key(ctx: &mut LowerCtx<'_>, index: ExprId) -> Operand {
     let raw = ctx.lower_expr(index);
-    if matches!(
-        ctx.expr_types.get(&index),
-        Some(
-            crate::check::Type::Undefined
-                | crate::check::Type::Struct(_)
-                | crate::check::Type::Function(..),
-        )
-    ) {
+    if ctx
+        .expr_types
+        .get(&index)
+        .is_some_and(crate::check_type_of_index::key_needs_boxing)
+    {
         return ctx.box_to_any_from_expr(index, raw);
     }
     raw
@@ -253,15 +250,11 @@ pub(crate) fn lower_struct_like_index(
     // (rotation 346): `lower_any_key` boxes it to ANY_UNDEF. A
     // STRUCT key joins (cluster #4): `lower_any_key` tag-encodes
     // the heap cell and the kernel runs OrdinaryToPrimitive.
-    if matches!(
-        ctx.expr_types.get(&index),
-        Some(
-            crate::check::Type::Any
-                | crate::check::Type::Undefined
-                | crate::check::Type::Struct(_)
-                | crate::check::Type::Function(..)
-        )
-    ) {
+    if ctx
+        .expr_types
+        .get(&index)
+        .is_some_and(crate::check_type_of_index::key_rides_keyed_kernel)
+    {
         // Cluster #4 T4 — a compound write lane pinned the coerced
         // key for this eid: reuse it (one ToPropertyKey total), no
         // re-lower, no drop (the write lane owns the cell).

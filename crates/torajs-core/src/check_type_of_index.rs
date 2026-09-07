@@ -177,6 +177,15 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         Type::Object(_) => spelled_key_domain(&idx_ty),
         _ => false,
     };
+    // MEASURED, not assumed: rotation 608 tried handing these five
+    // receivers the coerced domain too, one word each, and the data
+    // refused it. `[1, 2][true]` answered 2 — the boolean reached the
+    // ELEMENT lane as index 1, where §7.1.19 spells it "true" and the
+    // answer is undefined — and an object or function key on an array
+    // died in the lowering coercing a heap cell to i64. These
+    // receivers own an element lane that has to be told apart from
+    // the property lane at runtime, which the keyed kernel does for
+    // the spelled keys and not yet for the coerced ones. Registered.
     if idx_ty != Type::Number && !admitted {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
@@ -191,8 +200,42 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
 /// answers with the source text, which is what a computed property
 /// name stored under). Both ride the keyed kernel's runtime
 /// dispatch; the lowering boxes them at the lane boundary.
-fn coerced_key_domain(idx_ty: &Type) -> bool {
-    spelled_key_domain(idx_ty) || matches!(idx_ty, Type::Struct(_) | Type::Function(..))
+pub(crate) fn coerced_key_domain(idx_ty: &Type) -> bool {
+    spelled_key_domain(idx_ty)
+        || matches!(
+            idx_ty,
+            Type::Struct(_)
+                | Type::Function(..)
+                | Type::ClassRef(_)
+                | Type::Boolean
+                | Type::Null
+                | Type::RegExp
+                | Type::BigInt
+                | Type::Array(_)
+                | Type::Map
+                | Type::Set
+        )
+}
+
+/// Which of those the LOWERING has to box before the keyed kernel —
+/// everything in the coerced domain whose SSA value is not already an
+/// `AnyValue`. `Any` already is one, and `String` / `Symbol` keys have
+/// dedicated lanes of their own.
+///
+/// Derived rather than listed, because it used to be listed: the same
+/// domain was spelled once here and four more times across the
+/// lowering's lane-selection sites, and every widening had to find all
+/// five. Rotation 608's function key found four of them and shipped a
+/// program that type-checked and then died coercing a Closure to i64.
+pub(crate) fn key_needs_boxing(idx_ty: &Type) -> bool {
+    coerced_key_domain(idx_ty) && !matches!(idx_ty, Type::Any | Type::String | Type::Symbol)
+}
+
+/// Whether a key rides the keyed kernel's runtime §7.1.19 dispatch
+/// rather than a static lane — the boxed keys plus `Any`, which is
+/// already boxed and can be any of them at runtime.
+pub(crate) fn key_rides_keyed_kernel(idx_ty: &Type) -> bool {
+    matches!(idx_ty, Type::Any) || key_needs_boxing(idx_ty)
 }
 
 /// The keys every property-key receiver takes.

@@ -168,15 +168,11 @@ pub(crate) fn lower_from_value(
         // Probe borrows the key; same owned-read bookkeeping as the
         // numeric lane below. An UNDEFINED key joins (rotation 346);
         // a STRUCT key joins (cluster #4, boxed by `lower_any_key`).
-        if matches!(
-            ctx.expr_types.get(&index),
-            Some(
-                crate::check::Type::Any
-                    | crate::check::Type::Undefined
-                    | crate::check::Type::Struct(_)
-                    | crate::check::Type::Function(..)
-            )
-        ) {
+        if ctx
+            .expr_types
+            .get(&index)
+            .is_some_and(crate::check_type_of_index::key_rides_keyed_kernel)
+        {
             // Cluster #4 T4 — reuse a compound write lane's pinned
             // coerced key (see the boxed-struct twin above).
             let (k_raw, memoed) = match &ctx.compound_key_memo {

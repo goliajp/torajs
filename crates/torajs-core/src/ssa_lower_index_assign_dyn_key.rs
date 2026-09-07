@@ -72,12 +72,7 @@ impl<'a> LowerCtx<'a> {
             return None;
         }
         match self.expr_types.get(&i1) {
-            Some(
-                crate::check::Type::Any
-                | crate::check::Type::Undefined
-                | crate::check::Type::Struct(_)
-                | crate::check::Type::Function(..),
-            ) => {
+            Some(t) if crate::check_type_of_index::key_rides_keyed_kernel(t) => {
                 let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, i1);
                 let transfers = self.expr_transfers_ownership(i1);
                 let cur_block = self.cur_block;

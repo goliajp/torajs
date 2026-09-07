@@ -429,15 +429,11 @@ impl<'a> LowerCtx<'a> {
         // UNDEFINED key joins (rotation 346, boxed to ANY_UNDEF
         // inside the lane); a STRUCT key joins (cluster #4, tag-
         // boxed inside the lane, kernel runs OrdinaryToPrimitive).
-        if matches!(
-            self.expr_types.get(&index),
-            Some(
-                crate::check::Type::Any
-                    | crate::check::Type::Undefined
-                    | crate::check::Type::Struct(_)
-                    | crate::check::Type::Function(..)
-            )
-        ) {
+        if self
+            .expr_types
+            .get(&index)
+            .is_some_and(crate::check_type_of_index::key_rides_keyed_kernel)
+        {
             return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);
         }
         let idx_val = self.lower_index_operand(index);

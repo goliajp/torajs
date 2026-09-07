@@ -338,15 +338,7 @@ pub(crate) fn check_index(
     // (read-side note in `check_type_of_index` carries the reason).
     if idx_ty != Type::Number
         && !(matches!(obj_ty, Type::Any)
-            && matches!(
-                idx_ty,
-                Type::String
-                    | Type::Symbol
-                    | Type::Any
-                    | Type::Undefined
-                    | Type::Struct(_)
-                    | Type::Function(..)
-            ))
+            && crate::check_type_of_index::coerced_key_domain(&idx_ty))
         // Rotation 346 — a STRUCT receiver under an UNDEFINED key:
         // §7.1.19 ToPropertyKey(undefined) is the fixed string key
         // "undefined". Cluster #3 (rotation 442) — STRING / SYMBOL /
@@ -358,15 +350,7 @@ pub(crate) fn check_index(
         // once kept dynamic string keys out no longer holds — the
         // cpn-class accessor family's `c[String(1 + 1)] = 2`.
         && !(matches!(obj_ty, Type::Struct(_))
-            && matches!(
-                idx_ty,
-                Type::String
-                    | Type::Symbol
-                    | Type::Any
-                    | Type::Undefined
-                    | Type::Struct(_)
-                    | Type::Function(..)
-            ))
+            && crate::check_type_of_index::coerced_key_domain(&idx_ty))
         // An ARRAY receiver admits an `any` key: §7.1.19 decides
         // element-vs-property from the runtime value, so the write
         // rides the keyed set kernel with the receiver boxed (the
@@ -411,16 +395,7 @@ pub(crate) fn check_index(
     // ride the same box (cluster #3, rotation 442 — see the gate
     // note above); field types are heterogeneous so the static
     // answer is Any, the read side's mirror.
-    if matches!(obj_ty, Type::Struct(_))
-        && matches!(
-            idx_ty,
-            Type::String
-                | Type::Symbol
-                | Type::Any
-                | Type::Undefined
-                | Type::Struct(_)
-                | Type::Function(..)
-        )
+    if matches!(obj_ty, Type::Struct(_)) && crate::check_type_of_index::coerced_key_domain(&idx_ty)
     {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
