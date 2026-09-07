@@ -38,6 +38,18 @@ pub(crate) fn proto_family_of(ptr: *const c_void, type_tag: u16) -> Option<i64> 
         3
     } else if t == Tag::BooleanWrapper as u16 {
         4
+    } else if t == Tag::SymbolWrapper as u16 {
+        // §20.4.3 — `Object(Symbol())` hangs off %Symbol.prototype%
+        // like every other wrapper. The three siblings above were
+        // here from the start and this one was not, so `"toString"
+        // in Object(Symbol())` answered false while `.toString()`
+        // on the same cell worked: the read face reaches the family
+        // through its own route, and only the chain face went
+        // through this table. `member_get_layout::wrapper_proto_tag`
+        // leaves Symbol out on purpose — but for the EXPANDO face
+        // it documents, not this one; the interned-method face is
+        // exactly as present for Symbol as for Number.
+        5
     } else if t == Tag::WeakMap as u16 {
         16
     } else if t == Tag::WeakSet as u16 {

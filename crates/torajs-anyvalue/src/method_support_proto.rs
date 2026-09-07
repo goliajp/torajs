@@ -401,9 +401,30 @@ pub unsafe extern "C" fn __torajs_proto_chain_key_owned(
     }
     let mid = unsafe { crate::method_value::key_method_id(key) };
     if mid == ANY_METHOD_UNKNOWN || (mid as usize) >= crate::method_value::TABLE_SIZE {
-        // Not a method name — the singleton's expando dynobj face
-        // still owns user-installed keys (`Object.prototype[1] = …`,
-        // RFC 20260721 G2d digit keys ride HasProperty through here).
+        // An accessor-valued prototype member has no row in the
+        // intern table — `size` is not a method name, so the walk
+        // below never sees it. `proto_tag_accessor_mid` is the
+        // authority on which accessors a family carries, and the
+        // other two faces of that same fact were already asking it:
+        // `Map.prototype.hasOwnProperty("size")` answered true and
+        // `getOwnPropertyNames(Map.prototype)` listed it (through
+        // this table's enumeration twin in
+        // `method_support_proto_names`), while `"size" in m` said
+        // false. Three faces of one fact, one of them not asking.
+        let mut t = family_tag;
+        while t >= 0 {
+            if let Some(amid) = unsafe { proto_tag_accessor_mid(t, key) }
+                && unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(t, amid) }
+                    == 0
+            {
+                return 1;
+            }
+            t = torajs_rc::builtin_proto::proto_parent_tag(t);
+        }
+        // Not a method name and not an accessor — the singleton's
+        // expando dynobj face still owns user-installed keys
+        // (`Object.prototype[1] = …`, RFC 20260721 G2d digit keys
+        // ride HasProperty through here).
         return unsafe {
             crate::method_support_proto_chain::proto_chain_expando_owns(family_tag, key)
         } as i64;
