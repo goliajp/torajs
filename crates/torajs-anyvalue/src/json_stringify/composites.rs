@@ -399,13 +399,6 @@ unsafe fn struct_slot_entry(
                 return SlotEntry::Skip;
             }
         }
-        // RFC 20260806-declared-field-redefine — the same filter one
-        // line up, for an enumerability USER code moved rather than
-        // the spec fixing. Free on any instance never passed to
-        // defineProperty (the kernel gates on a header bit).
-        if __torajs_obj_field_is_nonenumerable(ptr, name.ptr, name.len as u32) != 0 {
-            return SlotEntry::Skip;
-        }
         // An accessor rides the layout under a synthetic slot name, so
         // the raw name is not the property's — and the read below,
         // which correctly refuses that spelling, answered 0 and
@@ -420,6 +413,18 @@ unsafe fn struct_slot_entry(
             ptr: key_ptr,
             len: key_len,
         };
+        // RFC 20260806-declared-field-redefine — the same filter one
+        // line up, for an enumerability USER code moved rather than
+        // the spec fixing. Free on any instance never passed to
+        // defineProperty (the kernel gates on a header bit).
+        //
+        // Asked with the PROPERTY name, not the slot name: a redefine
+        // of an accessor records against `p`, never `__getter_p`, so
+        // asking the raw name here answered "still enumerable" about a
+        // property `Object.keys` had already dropped.
+        if __torajs_obj_field_is_nonenumerable(ptr, key_ptr, key_len as u32) != 0 {
+            return SlotEntry::Skip;
+        }
         if key_len == name.len {
             let mut value: u64 = 0;
             if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0 {
