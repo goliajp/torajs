@@ -261,6 +261,24 @@ pub(crate) fn lower_struct_like_index(
         ctx.owned_member_reads.insert(eid);
         return v;
     }
+    // §6.1.7 / §7.1.19 step 2 — a symbol key reaches the probe as
+    // its own cell, uncoerced. The any-receiver lane in
+    // `ssa_lower_index::lower_from_value` has had this arm since it
+    // was written and this one did not, so `({ a: 1 })[sym]`
+    // type-checked — the gate admits Struct x Symbol — and then
+    // died coercing a Symbol to i64. The seventh mirror of one
+    // domain in as many rotations.
+    //
+    // These two sets of arms have to stay the same SET. What
+    // legitimately differs is only their rc contract: over there the
+    // receiver may be an owned temp to release, here the box is a
+    // borrow off a live binding (see the caller's note), which is
+    // why they are not one function.
+    if matches!(ctx.expr_types.get(&index), Some(crate::check::Type::Symbol)) {
+        let v = lower_any_index_symbol_key(ctx, boxed, index);
+        ctx.owned_member_reads.insert(eid);
+        return v;
+    }
     // Cluster #1 blade 5 — an `any`-typed key on the boxed struct
     // rides the keyed kernel's ToPropertyKey dispatch (mirror of
     // the Any-receiver arm below). An UNDEFINED key joins
