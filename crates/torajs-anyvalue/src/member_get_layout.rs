@@ -121,6 +121,11 @@ pub(crate) const DATE_PROPS_OFF: usize = 16;
 
 /// WeakRef cell lazy expando slot — mirror of
 /// `torajs_weak::layout::WEAKREF_PROPS_OFF` (header, target, props).
+/// `torajs_meta::obj_own_keys_layout` carries the same three weak
+/// entries for the enumeration and descriptor surfaces; adding a
+/// shape here and not there is directly observable as a property that
+/// reads back but does not enumerate (rotation 611 shipped exactly
+/// that for one commit).
 pub(crate) const WEAKREF_PROPS_OFF: usize = 16;
 
 /// WeakMap / WeakSet lazy expando slot — mirror of

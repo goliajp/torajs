@@ -84,6 +84,25 @@ pub(crate) const DATE_PROPS_OFF: usize = 16;
 pub(crate) const TAG_REGEXP_CELL: u16 = 4;
 pub(crate) const REGEX_PROPS_OFF: usize = 8;
 
+/// The three weak cell tags (`torajs_rc::Tag::{WeakRef, WeakMap,
+/// WeakSet}`; `torajs_weak::layout::{WEAKREF_PROPS_OFF,
+/// WEAKCOLL_PROPS_OFF}` mirrors). WeakMap and WeakSet share a
+/// four-field prefix so one offset serves both, the way Map and Set
+/// already do; WeakRef's bag sits right after its observed target.
+///
+/// Rotation 611 added the slots and admitted them to
+/// torajs-anyvalue's twin table in the same commit — but not to this
+/// one, and the divergence was immediately observable: `wm.a = 1`
+/// stored and read back, while `for (const k in wm)` enumerated
+/// nothing. Two tables mirroring each other by hand is exactly the
+/// shape that drifts, which is why both now carry the same doc
+/// pointing at the other.
+pub(crate) const TAG_WEAKREF_CELL: u16 = 11;
+pub(crate) const TAG_WEAKMAP_CELL: u16 = 12;
+pub(crate) const TAG_WEAKSET_CELL: u16 = 13;
+pub(crate) const WEAKREF_PROPS_OFF: usize = 16;
+pub(crate) const WEAKCOLL_PROPS_OFF: usize = 24;
+
 /// The three iterator cell tags (`torajs_rc::Tag::{MapIter, ArrIter,
 /// IterHelper}`). ArrIter and MapIter share a layout shape, so their
 /// bags sit at the same offset (`torajs_arr::iter::ARR_ITER_PROPS_OFF`
@@ -114,6 +133,8 @@ pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
         TAG_DATE_CELL => Some(DATE_PROPS_OFF),
         TAG_REGEXP_CELL => Some(REGEX_PROPS_OFF),
         TAG_MAP_ITER_CELL | TAG_ARR_ITER_CELL => Some(ITER_PROPS_OFF),
+        TAG_WEAKREF_CELL => Some(WEAKREF_PROPS_OFF),
+        TAG_WEAKMAP_CELL | TAG_WEAKSET_CELL => Some(WEAKCOLL_PROPS_OFF),
         TAG_ITER_HELPER_CELL => Some(ITER_HELPER_PROPS_OFF),
         _ => None,
     }
@@ -137,6 +158,13 @@ pub(crate) fn is_bag_only_tag(tag: u16) -> bool {
             | TAG_MAP_ITER_CELL
             | TAG_ARR_ITER_CELL
             | TAG_ITER_HELPER_CELL
+            // §24.3 / §24.4 / §26.1 — the weak shapes keep their entry
+            // table and observed target as registry-watched internal
+            // state, never properties, so their whole own face is the
+            // bag too.
+            | TAG_WEAKREF_CELL
+            | TAG_WEAKMAP_CELL
+            | TAG_WEAKSET_CELL
     )
 }
 

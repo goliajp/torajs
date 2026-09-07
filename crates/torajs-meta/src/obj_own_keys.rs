@@ -398,16 +398,20 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             // Map / Set / Date ride the same arm (§24.1.6 / §24.2.6 /
             // §21.4.4): entry table and [[DateValue]] are internal
             // state, so the bag is the entire own-key surface.
-            TAG_PROMISE_CELL
-            | crate::obj_own_keys_layout::TAG_MAP_CELL
-            | crate::obj_own_keys_layout::TAG_SET_CELL
-            | crate::obj_own_keys_layout::TAG_DATE_CELL
-            | crate::obj_own_keys_layout::TAG_REGEXP_CELL
-            | crate::obj_own_keys_layout::TAG_MAP_ITER_CELL
-            | crate::obj_own_keys_layout::TAG_ARR_ITER_CELL
-            | crate::obj_own_keys_layout::TAG_ITER_HELPER_CELL => unsafe {
-                crate::obj_own_keys_bag::bag_cell_keys(cell, htag, include_nonenum)
-            },
+            // The weak shapes joined in rotation 611 once their cells
+            // grew a bag. This used to spell the eight tags out; it now
+            // asks `is_bag_only_tag`, the predicate two files over that
+            // answers precisely this question, plus RegExp by name —
+            // RegExp is deliberately outside that predicate because it
+            // also owns `lastIndex` in the cell, but for ENUMERATION
+            // its bag is still the whole story (`lastIndex` is
+            // non-enumerable, §22.2.6.9). Spelling the list here meant
+            // a shape admitted to the bag could still enumerate
+            // nothing, which is exactly what `for (const k in wm)`
+            // did for one commit.
+            t if crate::obj_own_keys_layout::is_bag_only_tag(t)
+                || t == crate::obj_own_keys_layout::TAG_REGEXP_CELL =>
+            unsafe { crate::obj_own_keys_bag::bag_cell_keys(cell, htag, include_nonenum) },
             // §10.4.3.3 String exotic OwnPropertyKeys — the
             // [[StringData]] integer indices come first (+ "length"
             // for gOPN, like the bare Str arm), then the expando
