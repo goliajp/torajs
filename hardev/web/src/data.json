@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T08:49:31.760Z",
+  "generatedAt": "2026-09-07T11:49:19.225Z",
   "hardevVersion": "0.1.14",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T08:38:59Z",
-    "headSha": "70bdac732",
-    "elapsedSec": 639.31,
+    "ranAt": "2026-09-07T11:42:27Z",
+    "headSha": "8ffa78b99",
+    "elapsedSec": 436.46,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 30988,
+    "pass": 30991,
     "passNoOracle": 1174,
     "passNegative": 4459,
-    "passTotal": 36621,
-    "bug": 11484,
-    "incompatible": 5069,
+    "passTotal": 36624,
+    "bug": 11488,
+    "incompatible": 5062,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48105,
-    "passRateInScope": 68.87,
-    "passRateTrAccepted": 76.13
+    "trAccepted": 48112,
+    "passRateInScope": 68.88,
+    "passRateTrAccepted": 76.12
   },
   "torajs": {
-    "commit": "b1782035e",
-    "commitSubject": "chore: rotation 609 sweep on 70bdac732, and what its 16 cases understate",
+    "commit": "8ffa78b99",
+    "commitSubject": "fix(torajs-core): the write half of one key spelled two ways",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -729,6 +729,30 @@
   },
   "commits": [
     {
+      "hash": "8ffa78b99",
+      "subject": "fix(torajs-core): the write half of one key spelled two ways"
+    },
+    {
+      "hash": "be4efafee",
+      "subject": "refactor(torajs-core): split the assign checker at the line its doc drew"
+    },
+    {
+      "hash": "7a14b9efd",
+      "subject": "fix(torajs-core): the struct lane had no arm for a symbol key"
+    },
+    {
+      "hash": "93df7b61b",
+      "subject": "fix(torajs-core): one key, spelled two ways, answered two ways"
+    },
+    {
+      "hash": "1ee568c38",
+      "subject": "fix(torajs-core): a string's key domain is the whole one too"
+    },
+    {
+      "hash": "304390cfb",
+      "subject": "chore: refresh the hardev dashboard snapshot for rotation 609"
+    },
+    {
       "hash": "b1782035e",
       "subject": "chore: rotation 609 sweep on 70bdac732, and what its 16 cases understate"
     },
@@ -751,51 +775,38 @@
     {
       "hash": "f7deb743f",
       "subject": "fix(torajs-core): an array's key list is its key domain, derived"
-    },
-    {
-      "hash": "0ea164bb5",
-      "subject": "fix(torajs-core): a function is an object, so it has property keys"
-    },
-    {
-      "hash": "713dc9b17",
-      "subject": "refactor(torajs-core): the write-side key gate has receivers, not clauses"
-    },
-    {
-      "hash": "41f7b11e6",
-      "subject": "chore: rotation 608 sweep on f3ee3cdc5, plus the dashboard snapshot"
-    },
-    {
-      "hash": "f3ee3cdc5",
-      "subject": "fix(torajs-core): every value is a property key, not a shortlist of them"
-    },
-    {
-      "hash": "5da5e9e69",
-      "subject": "refactor(torajs-core): the index key gate has two domains, not six arms"
-    },
-    {
-      "hash": "1eab0a57b",
-      "subject": "fix(torajs-core): a function is an object, so it is a property key"
     }
   ],
-  "headSha": "b1782035e",
+  "headSha": "8ffa78b99",
   "autorun": {
-    "total": 912,
+    "total": 913,
     "baselineTarget": 10,
-    "bySelf": 907,
+    "bySelf": 908,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788765687-39f5",
-      "at": "2026-09-07T07:21:27Z",
-      "ts": 1788765687,
+      "rotationId": "r-1788771865-3731",
+      "at": "2026-09-07T09:04:25Z",
+      "ts": 1788771865,
       "trigger": "self",
-      "prevHead": "41f7b11e6",
-      "handoffSha": "sha256:732d06032d62aa34cff12ee08435b6accf2394398d38e2f328baf7f40940e6e3",
-      "handoffAgeSec": 4,
+      "prevHead": "304390cfb",
+      "handoffSha": "sha256:e9c7d8384e5597eaef1088d8f11eb3509fb98c9c6e0a736f1125f1405331ac5a",
+      "handoffAgeSec": 0,
       "conformanceBefore": null,
       "commitsInSession": null
     },
     "recent": [
+      {
+        "rotationId": "r-1788771865-3731",
+        "at": "2026-09-07T09:04:25Z",
+        "ts": 1788771865,
+        "trigger": "self",
+        "prevHead": "304390cfb",
+        "handoffSha": "sha256:e9c7d8384e5597eaef1088d8f11eb3509fb98c9c6e0a736f1125f1405331ac5a",
+        "handoffAgeSec": 0,
+        "conformanceBefore": null,
+        "commitsInSession": null
+      },
       {
         "rotationId": "r-1788765687-39f5",
         "at": "2026-09-07T07:21:27Z",
@@ -892,17 +903,6 @@
         "prevHead": "517d2171d",
         "handoffSha": "sha256:24732e5f378100e0509eeef2a3b2994e6abab30692c27370823cd894c6dcf4dc",
         "handoffAgeSec": 28,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788669504-1f4b",
-        "at": "2026-09-06T04:38:24Z",
-        "ts": 1788669504,
-        "trigger": "self",
-        "prevHead": "5f0990fea",
-        "handoffSha": "sha256:fbf4cedad2fbb45fbf76fe7f439e7d54d1168b4d1f33b8f5ab8d8d72b4724718",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }

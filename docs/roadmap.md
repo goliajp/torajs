@@ -1674,7 +1674,54 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `70bdac732`** (2026-09-07, rotation 609 — the key domain of
+**Latest @ `8ffa78b99`** (2026-09-07, rotation 610 — one key, spelled
+two ways, answered two ways; the same 162-cell matrix carried from 25
+disagreements to 12). Gate predicate: **128** clusters of >= 4 holding
+**931** cases, register 2 · 175, residue 455 · 617 (35.8%), core
+**1723**. Coverage curve: top-100 **55.0%**, top-200 **73.4%**,
+top-400 **88.5%**. Against rotation 609: clusters **128 (=)**, cases
+933 -> **931 (-2)**, core 1730 -> **1723 (-7)** — the cluster count
+held while cases and core fell, so what moved came out of existing
+clusters rather than unlocking new signatures.
+
+Sweep passTotal 36621 -> **36624 (+3)**, pass 30988 -> **30991 (+3)**,
+passNoOracle **1174 (=)**, passNegative **4459 (=)**, bug 11484 ->
+**11488 (+4)**, incompatible 5069 -> **5062 (-7)**, trAccepted 48105
+-> **48112 (+7)**; conservation exact (+7 = +3 + +4). Verdict diff
+**7 changed, every one forward, zero backward**: **1**
+`incompatible:type error` -> `pass`
+(`Array/prototype/push/length-near-integer-limit`), **4** the same
+family -> `bug:exit 1` (reverse / splice x2 / unshift — the key is
+accepted now, the failure moved down to sparse storage past the dense
+limit), and **2** `incompatible:tr-timeout` -> `pass`, which are
+exactly the two the previous rotation called machine contention
+rather than code. That call is now confirmed by the cases themselves.
+The five type-error cases all belong to one cut: they spell
+`arrayLike["9007199254740989"]`, a string literal that is not an
+identifier name, so the parser does not fold it and it took the
+struct literal-key lane into a nominal reject.
+
+Gate 3769 -> **3773** (four new fixtures, 0 fail, 4 skip throughout).
+
+The denominator understates this rotation the same way it did the
+last one. The matrix is the measure: 25 cells disagreed with bun at
+the start and 12 do now, and most of the 13 that moved have no
+test262 case — `"ab"[undefined]`, `m["a"]` read and written,
+`({a: 1})[sym]`. Of the 12 that remain, **9 are a deliberate
+divergence rather than a gap**, and that was settled by asking `tsc`
+rather than by judgement: writing through a string index is TS2542
+"Index signature in type 'String' only permits reading",
+unconditionally, so refusing those programs IS the TS semantics.
+The same question underwrites the two cuts that moved the read and
+write halves: `tsc` answers TS2339 "Property does not exist"
+unconditionally for `m.a`, and TS7052 "implicitly has an 'any' type"
+only under `noImplicitAny` for `m["a"]` — TS splits dot from bracket
+exactly where these cuts split them, and `Type::Any` is tr's implicit
+any. Registered with the remaining three (an any-set-kernel arm that
+`m[0] = 9` and the whole Weak-family property write both wait on) in
+`.claude/tasks/2026-09-07/index-receiver-key-matrix.md`.
+
+**Prior @ `70bdac732`** (2026-09-07, rotation 609 — the key domain of
 a receiver, measured as a 162-cell receiver x key matrix against bun
 rather than reasoned about one receiver at a time). Gate predicate:
 **128** clusters of >= 4 holding **933** cases, register 2 · 175,
