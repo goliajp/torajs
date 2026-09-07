@@ -426,14 +426,14 @@ fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
         // layout slot — the cpn-class accessor family's
         // `c[String(1 + 1)] = 2`.
         Type::Struct(_) => crate::check_type_of_index::coerced_key_domain(idx_ty),
-        // An ARRAY receiver keeps the SPELLED domain only, and the
-        // read side's note carries the measurement: an array owns an
-        // element lane that §7.1.19 tells apart from the property
-        // lane by the key's spelling, which the keyed set kernel
-        // does for these keys and not yet for the coerced ones
-        // (`[1, 2][true]` answered 2). The spelled keys route a
-        // canonical array-index spelling ("0") to the ELEMENT store,
-        // length update included — S15.4_A1.1_T4's `x["0"] = 0`.
+        // An ARRAY receiver takes the whole non-number domain, and
+        // the read side's `array_key_domain` carries the reason:
+        // §7.1.19 spells the key first and only then asks whether
+        // the spelling is a canonical array index, so `x["0"] = 0`
+        // reaches the ELEMENT store with its length update while
+        // `x[true] = 1` stores under "true" and leaves `x[1]`
+        // undefined — S15.4_A1.1_T4 and property-cast-boolean-
+        // primitive, the two halves of one rule.
         Type::Array(_) => crate::check_type_of_index::array_key_domain(idx_ty),
         // A FUNCTION receiver takes the coerced domain — the read
         // side's arm of the same name carries the reason (a function

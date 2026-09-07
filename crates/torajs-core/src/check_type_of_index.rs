@@ -181,15 +181,17 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         Type::Function(..) => coerced_key_domain(&idx_ty),
         _ => false,
     };
-    // MEASURED, not assumed: rotation 608 tried handing these five
-    // receivers the coerced domain too, one word each, and the data
-    // refused it. `[1, 2][true]` answered 2 — the boolean reached the
-    // ELEMENT lane as index 1, where §7.1.19 spells it "true" and the
-    // answer is undefined — and an object or function key on an array
-    // died in the lowering coercing a heap cell to i64. These
-    // receivers own an element lane that has to be told apart from
-    // the property lane at runtime, which the keyed kernel does for
-    // the spelled keys and not yet for the coerced ones. Registered.
+    // The four receivers left on the SPELLED domain are registered,
+    // not decided. A 162-cell receiver x key matrix against bun
+    // (rotation 609) says the reason is not the domain: their
+    // LOWERING has no arm for a non-number key at all — a Map or Set
+    // receiver dies "index access on non-array type Map" on every
+    // one of them, number included, and a String receiver dies on
+    // the literal-key lane. Widening the gate over a lane that
+    // cannot answer just moves the crash, which is what rotation
+    // 608's one-word attempt measured and read as the domain's
+    // fault. Give those receivers their lanes first; the domain is
+    // one word behind them.
     if idx_ty != Type::Number && !admitted {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
@@ -253,8 +255,20 @@ pub(crate) fn key_rides_keyed_kernel(idx_ty: &Type) -> bool {
 /// `undefined` for — the fifth mirror of a domain that already had
 /// four, and the one `key_needs_boxing` did not reach because it
 /// asks a different question (what to box, not which lane).
+///
+/// And it is the WHOLE non-number domain, coerced keys included.
+/// `x[true] = 1` stores under "true" and leaves `x[1]` undefined and
+/// `length` at 0 — §7.1.19 spells the key first and only then asks
+/// whether the spelling is a canonical array index, so a boolean, a
+/// null or an object key never reaches the element lane at all.
+/// Rotation 608 tried this as a one-word change and measured
+/// `[1, 2][true]` answering 2; what refused it was not the runtime
+/// but the lane list above, which sent the key down the element path
+/// where a boolean zero-extends to index 1. The keyed kernel has
+/// spelled all of these correctly the whole time, which is why the
+/// `any` spelling of every one of them already worked.
 pub(crate) fn array_key_domain(idx_ty: &Type) -> bool {
-    spelled_key_domain(idx_ty)
+    coerced_key_domain(idx_ty)
 }
 
 /// The keys every property-key receiver takes.
