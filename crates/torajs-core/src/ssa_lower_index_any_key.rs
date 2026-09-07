@@ -103,10 +103,11 @@ pub(crate) fn lower_str_recv_index(
     arr_ty: Type,
     index: ExprId,
 ) -> Operand {
-    if matches!(
-        ctx.expr_types.get(&index),
-        Some(crate::check::Type::Any | crate::check::Type::String | crate::check::Type::Symbol)
-    ) {
+    if ctx
+        .expr_types
+        .get(&index)
+        .is_some_and(crate::check_type_of_index::string_key_domain)
+    {
         return lower_typed_arr_any_key(ctx, eid, arr_val, index);
     }
     let idx_raw = ctx.lower_expr(index);

@@ -3,18 +3,22 @@
 //! as chunk-312 of the type_of_inner decomp.
 //!
 //! Rules:
-//! - Index expression `index` must typecheck to `Type::Number`
-//!   (V3-18 index-expression spec narrow; non-number index is a
-//!   typecheck error rather than a silent runtime coercion) —
-//!   except a `Type::Any` receiver, which also admits string and
-//!   symbol keys (L3b #13; ES ToPropertyKey / §6.1.7).
-//! - `Type::String` indexed → `Type::String` (1-char substring;
-//!   spec §6.1.4 string-indexed access returns a length-1 string).
-//! - `Type::Array(T)` indexed → element type `T`.
-//! - `Type::Any` indexed → `Type::Any` (TS `any` admits every
-//!   member/index access; runtime dispatch via
-//!   `__torajs_any_index_get` — Any-dynamic-access RFC 20260704 S3).
-//! - Any other receiver type → error.
+//! - A NUMBER key is legal on every receiver. Which other keys are
+//!   legal is [`reject_bad_key`]; §7.1.19 makes every value a
+//!   property key, so for every receiver that has a property
+//!   surface the answer is now the whole domain. (It was once
+//!   "number only, except an `any` receiver" — V3-18's narrow —
+//!   and the widening took rotations 346 through 610, one receiver
+//!   at a time, each waiting on a lowering lane rather than on the
+//!   rule.)
+//! - What the read ANSWERS is the other half. `Type::Array(T)`
+//!   indexed by a number → `T`; `Type::String` by a number →
+//!   `Type::String` (§6.1.4: a length-1 string). Every non-number
+//!   key answers `Type::Any`, because it can name an element, a
+//!   property or a miss and the three have no common narrower
+//!   type.
+//! - A receiver with no property surface (a Nullable) stays on
+//!   numbers alone; anything else → error.
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
@@ -60,14 +64,7 @@ pub(crate) fn check(
     match obj_ty {
         // See the note in `reject_bad_key` — the three outcomes have
         // no common narrower type, so a non-number key answers Any.
-        Type::String
-            if matches!(
-                idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Undefined
-            ) =>
-        {
-            Ok(Type::Any)
-        }
+        Type::String if string_key_domain(&idx_ty) => Ok(Type::Any),
         Type::String => Ok(Type::String),
         // See the note in `reject_bad_key`.
         Type::Array(_) if array_key_domain(&idx_ty) => Ok(Type::Any),
@@ -155,7 +152,7 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // ways: `s["0"]` is the character, `s["length"]` ≡ `s.length`,
         // anything else reads through to the method surface or a miss.
         // Only the NUMBER key keeps the narrow String answer below.
-        Type::String => spelled_key_domain(&idx_ty),
+        Type::String => string_key_domain(&idx_ty),
         // `m[Symbol.iterator]()` is an ordinary property read off the
         // prototype surface, with no element lane to collide with —
         // and for RegExp the same shape (r289; §22.2.6's well-known-
@@ -184,16 +181,12 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         Type::Function(..) => coerced_key_domain(&idx_ty),
         _ => false,
     };
-    // STRING is the one receiver still on the spelled domain, and it
-    // is registered rather than decided: it owns an element lane
-    // (`s[0]` is a character) that the coerced keys would have to be
-    // told apart from at runtime, which is the question the array
-    // lane answers and the string lane does not yet. The other
-    // receivers were on that list for a reason that turned out not
-    // to be the domain — their LOWERING had no arm for a non-number
-    // key at all, so widening the gate only moved the crash, which
-    // is what rotation 608's one-word attempt measured and read as
-    // the domain's fault. Lanes first, then the word.
+    // Every receiver with a property surface now takes the whole
+    // domain. Each still says so on its own arm because the arms
+    // carry nine different REASONS for one shared answer, and the
+    // reasons are what a widening has to be checked against — the
+    // one arm that does not join (`_`, a Nullable receiver) is
+    // deliberately narrow and would be lost in a merge.
     if idx_ty != Type::Number && !admitted {
         return Err(format!("index must be number, got {idx_ty:?}"));
     }
@@ -270,6 +263,33 @@ pub(crate) fn key_rides_keyed_kernel(idx_ty: &Type) -> bool {
 /// spelled all of these correctly the whole time, which is why the
 /// `any` spelling of every one of them already worked.
 pub(crate) fn array_key_domain(idx_ty: &Type) -> bool {
+    coerced_key_domain(idx_ty)
+}
+
+/// The keys a STRING receiver takes besides a number — read by the
+/// gate, by the read answer and by the character lane in
+/// `lower_str_recv_index`, so they cannot drift apart.
+///
+/// They already had, the same way the array's had: the gate admitted
+/// `Undefined` and the lane spelled its own `Any | String | Symbol`,
+/// so `"ab"[undefined]` type-checked and then died coercing a Ptr to
+/// i64 on a program every engine answers `undefined` for. The sixth
+/// mirror of that domain, and the last one.
+///
+/// And it is the WHOLE domain, coerced keys included. A string was
+/// the one receiver left on the spelled list, registered as a real
+/// exception: it owns an element lane (`s[0]` is a character) that
+/// the coerced keys would have to be told apart from at runtime,
+/// which looked like a question the array lane answers and the
+/// string lane does not. Measured, the string lane answers it too —
+/// `("abc" as any)[[1]]` and `("abc" as any)[1n]` both hand back the
+/// CHARACTER `b`, because §7.1.19 spells the key before §10.4.3 asks
+/// whether the spelling is a canonical index, and the keyed kernel
+/// has done both halves the whole time. What refused those keys was
+/// this predicate, not the runtime — which is why the `any` spelling
+/// of every one of them already worked, exactly as it did for the
+/// array in rotation 609.
+pub(crate) fn string_key_domain(idx_ty: &Type) -> bool {
     coerced_key_domain(idx_ty)
 }
 
