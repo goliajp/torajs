@@ -369,8 +369,15 @@ pub(crate) fn check_index(
     }
     let Type::Array(elem) = &obj_ty else {
         // The singleton-backed namespaces again (member arm above)
-        // — `Math[0] = 1` is a keyed expando write on the dynobj.
-        if matches!(obj_ty, Type::Object("Math" | "JSON" | "Reflect")) {
+        // — `Math[0] = 1` is a keyed expando write on the dynobj —
+        // and the Map / Set / RegExp receivers whose reads have
+        // answered `Any` since r289. The lowering boxes them and
+        // rides the any set kernel; field types are heterogeneous so
+        // the static answer is Any, the read side's mirror.
+        if matches!(
+            obj_ty,
+            Type::Object(_) | Type::Map | Type::Set | Type::RegExp
+        ) {
             let _ = checker.type_of(ast, value)?;
             return Ok(Type::Any);
         }
@@ -444,6 +451,16 @@ fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
         // TypedArray / RegExp-species cases that write a well-known
         // symbol onto a plain function.
         Type::Function(..) => crate::check_type_of_index::coerced_key_domain(idx_ty),
+        // A MAP / SET / REGEXP receiver, and the singleton-backed
+        // namespaces, take the SPELLED domain — the same arms the
+        // read gate carries, and for the same reason: a property
+        // store on one of them has no element lane to collide with.
+        // The write side simply never had these arms, so a receiver
+        // whose READ answers a property could not STORE one, and the
+        // two halves disagreed about what a property is.
+        Type::Map | Type::Set | Type::RegExp | Type::Object(_) => {
+            crate::check_type_of_index::spelled_key_domain(idx_ty)
+        }
         _ => false,
     };
     if *idx_ty != Type::Number && !admitted {

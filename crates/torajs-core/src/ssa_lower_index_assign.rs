@@ -119,14 +119,20 @@ impl<'a> LowerCtx<'a> {
             self.expr_types.get(&obj),
             Some(crate::check::Type::Function(..))
         );
-        let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_))
-            || obj_is_fn
-            || (matches!(arr_ty, Type::Arr(_)) && key_is_any)
-        {
-            (self.box_to_any(arr_val), Type::Any)
-        } else {
-            (arr_val, arr_ty)
-        };
+        // A MAP / SET / REGEXP receiver joins the same box, the write
+        // mirror of the read lane's list (rotation 609): a property
+        // store on one of them is the ordinary expando store the any
+        // set kernel already runs, which is why the `any` spelling of
+        // `m[sym] = 1` has always worked.
+        let (arr_val, arr_ty) =
+            if matches!(arr_ty, Type::Obj(_) | Type::Map | Type::Set | Type::RegExp)
+                || obj_is_fn
+                || (matches!(arr_ty, Type::Arr(_)) && key_is_any)
+            {
+                (self.box_to_any(arr_val), Type::Any)
+            } else {
+                (arr_val, arr_ty)
+            };
         // Any-dynamic-access RFC (20260704) S3-set — `recv[i] = v`
         // where recv is an `any` value: runtime kind-aware dispatch;
         // OOB → catchable RangeError, elem-kind mismatch → catchable

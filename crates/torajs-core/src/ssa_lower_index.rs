@@ -121,11 +121,20 @@ pub(crate) fn lower_from_value(
         ctx.expr_types.get(&obj),
         Some(crate::check::Type::Function(..))
     );
-    let (arr_val, arr_ty) = if matches!(arr_ty, Type::Obj(_) | Type::RegExp) || obj_is_fn {
-        (ctx.box_to_any(arr_val), Type::Any)
-    } else {
-        (arr_val, arr_ty)
-    };
+    // A MAP or SET receiver joins the same box (rotation 609). The
+    // checker has answered `Any` for their non-number keys since
+    // r289 — `m[Symbol.iterator]` is an ordinary prototype-surface
+    // read — but this list never learned them, so every one of those
+    // keys, the number included, died "index access on non-array
+    // type Map". Boxing is the whole mechanism: RegExp has been on
+    // this list the whole time and its non-number keys have worked
+    // the whole time.
+    let (arr_val, arr_ty) =
+        if matches!(arr_ty, Type::Obj(_) | Type::RegExp | Type::Map | Type::Set) || obj_is_fn {
+            (ctx.box_to_any(arr_val), Type::Any)
+        } else {
+            (arr_val, arr_ty)
+        };
     // Any-dynamic-access RFC (20260704) S3 — `recv[i]` where recv is
     // an `any` value: runtime dispatch (kind-aware Arr / Str /
     // primitive) via `__torajs_any_index_get`. A null/undefined
