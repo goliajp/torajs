@@ -72,19 +72,27 @@ pub(crate) fn check(
         }
         if let Some(omit) = spread_omit_set(n) {
             let src_ty = checker.type_of(ast, *eid)?;
-            // Any-typed spread source → the whole literal goes to the
-            // dynobj lane (see above). That holds for the
+            // Only a Struct source has a static field list to unfold.
+            // EVERYTHING else goes to the dynobj lane, whose runtime
+            // CopyDataProperties (§7.3.25) names the fields — and it
+            // already answers correctly for every source shape: null
+            // and undefined contribute nothing (step 1), a Number /
+            // Boolean / BigInt / Symbol / Map / Set / function has no
+            // own enumerable key, a String contributes its index
+            // properties, an Array its elements.
+            //
+            // This gate used to admit `Type::Any` alone and reject the
+            // rest as "object spread source must be a struct", which
+            // is the shape where a receiver's own SPELLING decides
+            // whether a program runs: `const s: any = null; {...s}`
+            // worked while `{...null}` was a compile error, with the
+            // same runtime underneath both. The reject was never
+            // guarding a missing implementation. That holds for the
             // destructuring-rest omit form too: the lane's kernel walk
-            // already excludes the named keys, so this gate had no
-            // missing implementation behind it.
-            if matches!(src_ty, Type::Any) {
+            // already excludes the named keys.
+            let Type::Struct(src_fields) = &src_ty else {
                 dynobj_lane = true;
                 continue;
-            }
-            let Type::Struct(src_fields) = &src_ty else {
-                return Err(format!(
-                    "object spread source must be a struct, got {src_ty:?}"
-                ));
             };
             for (sn, st) in src_fields.iter() {
                 // RFC 20260714-objlit-accessor blade 3 — CopyDataProperties
