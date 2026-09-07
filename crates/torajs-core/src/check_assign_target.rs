@@ -367,10 +367,7 @@ pub(crate) fn check_index(
     // the TYPED spelling the any lane already reaches). The lowering
     // boxes the receiver and rides the any index-set kernel.
     if matches!(obj_ty, Type::Function(..))
-        && matches!(
-            idx_ty,
-            Type::Number | Type::Any | Type::String | Type::Undefined
-        )
+        && (idx_ty == Type::Number || crate::check_type_of_index::coerced_key_domain(&idx_ty))
     {
         let _ = checker.type_of(ast, value)?;
         return Ok(Type::Any);
@@ -443,6 +440,15 @@ fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
         // canonical array-index spelling ("0") to the ELEMENT store,
         // length update included — S15.4_A1.1_T4's `x["0"] = 0`.
         Type::Array(_) => crate::check_type_of_index::spelled_key_domain(idx_ty),
+        // A FUNCTION receiver takes the coerced domain — the read
+        // side's arm of the same name carries the reason (a function
+        // is an ordinary object with no element lane, so nothing has
+        // to be told apart from a spelling). The store the arm below
+        // reaches is the one the `any` lane has always run:
+        // `fn[Symbol.isConcatSpreadable] = true`, and the four
+        // TypedArray / RegExp-species cases that write a well-known
+        // symbol onto a plain function.
+        Type::Function(..) => crate::check_type_of_index::coerced_key_domain(idx_ty),
         _ => false,
     };
     if *idx_ty != Type::Number && !admitted {

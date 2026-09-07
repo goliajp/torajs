@@ -175,6 +175,17 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // .toStringTag]` reads a property that exists. A NUMBER key
         // stays the loud reject; a namespace has no indexed elements.
         Type::Object(_) => spelled_key_domain(&idx_ty),
+        // A FUNCTION receiver takes the COERCED domain, the same one
+        // an `any` or struct receiver takes and for the same reason:
+        // §20.2 makes a function an ordinary object with an ordinary
+        // property surface, `f[Symbol.hasInstance]` reads a property
+        // that exists on it, and a function has no element lane for
+        // §7.1.19's spelling to be told apart from — a numeric key is
+        // already just the stringified expando probe this arm has
+        // admitted since rotation 408. The lowering boxes the
+        // receiver and rides the any lane, which coerces off the
+        // key's runtime tag (rotation 609).
+        Type::Function(..) => coerced_key_domain(&idx_ty),
         _ => false,
     };
     // MEASURED, not assumed: rotation 608 tried handing these five
