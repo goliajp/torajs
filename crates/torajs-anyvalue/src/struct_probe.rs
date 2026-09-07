@@ -77,6 +77,14 @@ unsafe extern "C" {
     fn __torajs_accessor_name_kind(name: *const u8, name_len: u32) -> u8;
     /// torajs-dynobj — the AccessorPair lane (unchanged).
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
+    /// torajs-dynobj — the +24 expando dict face, for
+    /// [`struct_own_named`].
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-str — mint / release the probe key.
+    fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
+    fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -286,6 +294,72 @@ unsafe fn invoke_setter(recv: *mut c_void, acc: StructAccessor, value: AnyValue)
                 invoke_boxed(recv, adapter as u64, argv.as_ptr(), 2);
             }
         }
+    }
+}
+
+/// The own `<prop>` of a struct cell for the three FIXED-KEY member
+/// reads that have their own intrinsic — `.length`, `.name`, `.size` —
+/// and therefore never reach `member_get`'s struct arm at all.
+///
+/// `None` = the cell has no such own property, and the caller keeps
+/// its own answer. Field face, then accessor face, then the +24
+/// expando dict: the same order and the same authorities the general
+/// struct arm walks, in one place, because the three intrinsics had
+/// each grown a different subset of it — `.length` had the field and
+/// the expando but not the accessor, and `.name` and `.size` had no
+/// struct arm at all, so `{get size() { return 7 }}.size` read
+/// undefined while `Object.keys` listed `size` and `o["size"]`
+/// answered 7.
+///
+/// The prototype chain deliberately stays out: these three keys are
+/// answered from the own face here and the intrinsics' own tails
+/// handle what comes after.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell and `recv` its boxed form; `prop`
+/// is a property name.
+pub(crate) unsafe fn struct_own_named(
+    ptr: *mut c_void,
+    recv: AnyValue,
+    prop: &[u8],
+) -> Option<AnyValue> {
+    unsafe {
+        if let Some((dtag, dval)) = struct_field_pair_bytes(ptr, prop) {
+            crate::payload_rc_inc(dtag as i64, dval as i64);
+            return Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                dtag as i64,
+                dval as i64,
+            ));
+        }
+        if struct_accessor_present(ptr, prop) {
+            return Some(__torajs_struct_accessor_get(
+                ptr,
+                prop.as_ptr(),
+                prop.len() as u32,
+            ));
+        }
+        let props = crate::member_get_layout::struct_props(ptr);
+        if props.is_null() {
+            return None;
+        }
+        let key = __torajs_str_alloc(prop.as_ptr(), prop.len() as i64);
+        let present = __torajs_dynobj_has(props, key as *const c_void) != 0;
+        let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
+        let dval = __torajs_dynobj_get_value(props, key as *const c_void);
+        __torajs_str_drop(key as *mut c_void);
+        if !present {
+            return None;
+        }
+        // A defineProperty getter landed in the expando answers the
+        // sentinel from the value channel's AccessorPair cell.
+        if dtag == ANY_ACCESSOR_TAG {
+            return Some(__torajs_accessor_invoke_getter(dval as *const c_void, recv));
+        }
+        crate::payload_rc_inc(dtag as i64, dval as i64);
+        Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            dtag as i64,
+            dval as i64,
+        ))
     }
 }
 

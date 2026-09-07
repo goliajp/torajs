@@ -139,6 +139,15 @@ pub unsafe extern "C" fn __torajs_any_name_get(recv: AnyValue) -> AnyValue {
         if tag == Tag::Closure as u16 {
             return closure_name(ptr);
         }
+        if tag == Tag::Obj as u16 {
+            // The struct arm this getter never had — twin of the one
+            // in `len_get`. A `name` field / `get name()` / expando
+            // are own properties and all three read undefined here.
+            if let Some(v) = crate::struct_probe::struct_own_named(ptr, recv, b"name") {
+                return v;
+            }
+            return VALUE_UNDEFINED;
+        }
         if tag == Tag::DynObj as u16 {
             // Own-property probe for the literal key "name" — the
             // `__torajs_any_length_get` dynobj-arm shape.
