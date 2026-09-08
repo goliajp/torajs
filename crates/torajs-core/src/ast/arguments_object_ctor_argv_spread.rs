@@ -39,6 +39,21 @@
 //! - **no default / rest params** — `apply_default_args` and
 //!   `apply_rest_args` reshape the same list; keep the two reshapes
 //!   from composing.
+//! **Why constructors only, and not `__cm_` methods generally.**
+//! Measured in rotation 616 by lifting the `__ctor` restriction and
+//! rebuilding: an admitted `__cm_P__m` reached from `super.m(...xs)`
+//! answers
+//! `vtable slot 0 of hierarchy \`P\` holds two different signatures`.
+//! A method that a `super.m` site can name is by construction on an
+//! inheritance chain, and every override sharing a vtable slot has
+//! to share a signature — so the whole chain would have to move
+//! together or not at all. There was nothing to gain by widening
+//! either: an ordinary `recv.m(...xs)` is already answered, because
+//! `spread_method_demote` restores the member-call shape and the
+//! runtime any-method lane carries the count natively. A
+//! constructor has no vtable slot and no demotion path, which is
+//! exactly why it was the one left refusing.
+//!
 //! - **every arena `Ident` naming the ctor is a call callee** — a
 //!   value escape reaches sites that know nothing of the new slot.
 //!   For a ctor those Idents are the factory's own call and the
