@@ -176,14 +176,33 @@ pub(super) fn collect_headless_argv(
     (admitted, touched)
 }
 
-/// Drop any candidate with a spread call site. `f(1, ...arr)` passes
-/// a count only the runtime knows, and the terminal's packer works
-/// from the statically lowered operand list — it would answer the
-/// spread's single arena node as one argument. Such calls keep their
-/// pre-face behavior (today: a loud refusal at the spread lowering).
-/// The runtime-width packing is the follow-up this face's next blade
-/// owes (registered residue, plan-state L3b).
+/// Drop any candidate with a spread call site the spread lowering
+/// cannot feed. `f(1, ...arr)` passes a count only the runtime
+/// knows, and the terminal's packer works from the statically
+/// lowered operand list — it would answer the spread's single arena
+/// node as one argument.
+///
+/// The owed blade landed for the ZERO-DECLARED shape
+/// (`ssa_lower_call_spread::try_lower_headless_argv_spread`): that
+/// lane already materializes the whole list into an `Array<Any>`,
+/// whose slots are the contiguous NaN-boxes the argv channel wants,
+/// so it feeds argc and the slot base directly. A callee with
+/// declared parameters still has no path — its slots would have to
+/// be unpacked back out of that array and coerced — so those keep
+/// the old refusal.
 fn retain_off_spread_sites(ast: &Ast, candidates: &mut std::collections::HashSet<String>) {
+    let zero_declared: std::collections::HashSet<&String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, params, .. }
+                if !params.iter().any(|p| !p.name.starts_with("__")) =>
+            {
+                Some(name)
+            }
+            _ => None,
+        })
+        .collect();
     for e in &ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;
@@ -192,6 +211,7 @@ fn retain_off_spread_sites(ast: &Ast, candidates: &mut std::collections::HashSet
             continue;
         };
         if candidates.contains(n)
+            && !zero_declared.contains(n)
             && args
                 .iter()
                 .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))

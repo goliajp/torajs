@@ -58,6 +58,9 @@ pub(crate) fn lower_bare_spread(
     callee: ExprId,
     args: &[ExprId],
 ) -> Operand {
+    if let Some(op) = try_lower_headless_argv_spread(ctx, callee, args) {
+        return op;
+    }
     let raw = ctx.lower_expr(callee);
     let recv = if matches!(ctx.operand_ty(&raw), Type::Any) {
         raw.clone()
@@ -81,6 +84,82 @@ pub(crate) fn lower_bare_spread(
     ctx.release_owned_temp(callee, &raw);
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
     Operand::Value(result)
+}
+
+/// RFC 20260816-headless-argv-face — the blade that face's own doc
+/// registered as owed: "the runtime-width packing is the follow-up
+/// this face's next blade owes". Until it landed,
+/// `retain_off_spread_sites` dropped any head-less candidate with a
+/// spread call site, and the bare fn name then died loud at the
+/// callee boxing below — `box_to_any element type FnSig`.
+///
+/// A head-less body with a runtime argv channel wants exactly two
+/// things at the call: the count, and a pointer to that many
+/// contiguous NaN-boxes. Both fall out of the array this lane was
+/// building anyway — an `Array<Any>`'s slots ARE contiguous
+/// NaN-boxes (`torajs_arr::layout`), so `len` comes off the cell and
+/// the slot base off the data pointer. No boxed adapter, no
+/// forwarder, and no static width anywhere on the path.
+///
+/// The head offset is not read: this array was allocated three
+/// instructions ago and only pushed into, so logical[0] is slot 0
+/// (a deque head only moves under `shift` / `unshift`).
+///
+/// Restricted to callees with no declared user parameter. A declared
+/// slot would have to be unpacked back out of the same array and
+/// coerced to its param type — the next blade — while the
+/// zero-declared shape is exactly what the arguments-object family
+/// writes (`function f() { … arguments[i] … }`) and what a
+/// `constructor() { … arguments … }` parent takes from
+/// `super(...xs)`.
+fn try_lower_headless_argv_spread(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let Expr::Ident(name) = ctx.ast.get_expr(callee) else {
+        return None;
+    };
+    let name = name.clone();
+    if !ctx.ast.headless_argv_fns.contains(&name) || !ctx.ast.headless_argc_fns.contains(&name) {
+        return None;
+    }
+    let declared_user = ctx.ast.stmts.iter().find_map(|s| match s {
+        crate::ast::Stmt::FnDecl {
+            name: n, params, ..
+        } if *n == name => Some(params.iter().filter(|p| !p.name.starts_with("__")).count()),
+        _ => None,
+    })?;
+    if declared_user != 0 {
+        return None;
+    }
+    let target = *ctx.fn_table.get(&name)?;
+    let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+    let args_arr = build_args_arr(ctx, args);
+    let argc = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, args_arr.clone(), crate::ssa_lower::ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let argv = ctx.emit_arr_data_ptr(args_arr.clone());
+    let ret_ty = ctx.f_ret_type_hint(target);
+    let call_args = vec![Operand::Value(argc), argv];
+    let result = if ret_ty == Type::Void {
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Call(target, call_args));
+        Operand::ConstPtrNull
+    } else {
+        Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(target, call_args),
+            ret_ty,
+            None,
+        ))
+    };
+    ctx.emit_drop_value(args_arr, Type::Arr(arr_any_id));
+    ctx.emit_throw_check(Some(target));
+    Some(result)
 }
 
 /// Member callee: the receiver boxes at this any-lane boundary and
