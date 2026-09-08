@@ -265,6 +265,19 @@ fn try_primitive_coercion_ctor(
                     | Type::Map
                     | Type::Set
                     | Type::RegExp
+                    // Same sentence, the rest of the heap cells: the
+                    // kernel reads the header tag, so a Date answers
+                    // its date string and the weak pair / the two
+                    // iterators / a Promise answer §20.1.4.4. Adding
+                    // four of them in one rotation and stopping is
+                    // how a list like this stays half-written.
+                    | Type::Date
+                    | Type::WeakMap
+                    | Type::WeakSet
+                    | Type::WeakRef
+                    | Type::MapIter
+                    | Type::ArrIter
+                    | Type::Promise(_)
             ),
             _ => false,
         };

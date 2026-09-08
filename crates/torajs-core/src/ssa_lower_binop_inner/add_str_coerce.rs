@@ -247,7 +247,26 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
         // through the any-lane heap dispatch the same way the Obj
         // arm below is (tag 4 = the Heap slot tag; the header tag
         // routes to the regex kernel).
-        Type::RegExp => {
+        //
+        // Every other heap cell rides the very same two instructions:
+        // the kernel reads the header tag and answers §20.1.4.4's
+        // "[object Map]" / "[object Promise]" / the Date string / the
+        // two iterator names. It always could — `("x" as any) + m`
+        // has printed all eight for as long as the kernel has existed
+        // — so what refused `"x" + new Map()` was this list and the
+        // checker's, not a missing answer. Symbol is deliberately
+        // absent: §13.15.3 ToString of a Symbol is a TypeError, and
+        // tsc refuses the pair too.
+        Type::RegExp
+        | Type::Map
+        | Type::Set
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::WeakRef
+        | Type::MapIter
+        | Type::ArrIter
+        | Type::Date
+        | Type::Promise => {
             let raw = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::PtrToInt(v.clone()),
@@ -263,6 +282,7 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
                 Type::Str,
                 None,
             );
+            ctx.emit_throw_check(None);
             (Operand::Value(s), true)
         }
         // S138 — the Obj side below runs OrdinaryToPrimitive; the Arr

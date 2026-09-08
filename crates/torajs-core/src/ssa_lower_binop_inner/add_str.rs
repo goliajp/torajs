@@ -119,8 +119,8 @@ pub(crate) fn try_lower(
         // the operand fell through to the numeric arms and printed
         // the heap pointer as a number (measured on the checker-side
         // widening probe).
-        || (str_or_substr(a_ty) && b_ty == Type::RegExp)
-        || (str_or_substr(b_ty) && a_ty == Type::RegExp)
+        || (str_or_substr(a_ty) && heap_cell_tostring(b_ty))
+        || (str_or_substr(b_ty) && heap_cell_tostring(a_ty))
         // A nullable STRING is a Str on both sides, so the plain
         // Str+Str concat below would have taken it and handed the
         // in-band 0 to `str_concat` — `"" + s` printed "undefined".
@@ -191,6 +191,26 @@ pub(crate) fn try_lower(
         return Some(Operand::Value(v));
     }
     None
+}
+
+/// The heap cells whose ToString the any-lane kernel answers off the
+/// header tag — one arm in `add_str_coerce`, this list, and
+/// `check_add`'s. RegExp was the only one ever added, so the same
+/// program with its `any` erased was a type error.
+fn heap_cell_tostring(t: Type) -> bool {
+    matches!(
+        t,
+        Type::RegExp
+            | Type::Map
+            | Type::Set
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Date
+            | Type::Promise
+    )
 }
 
 /// Release the fresh owned Str temps this lowering minted once the

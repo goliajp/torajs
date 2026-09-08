@@ -64,6 +64,31 @@ pub(crate) fn check(
     }
 }
 
+/// §13.15.3 with a String side is a concat, and ToString answers for
+/// every one of these: the any-lane kernel reads the heap header tag
+/// and gives "[object Map]" / "[object Promise]" / the Date string /
+/// the two iterator names. `("x" as any) + new Map()` has printed
+/// them all along; the static lane listed only RegExp, so the same
+/// program with the `any` erased was a type error.
+///
+/// Symbol is deliberately absent — §13.15.3 ToString of a Symbol
+/// throws, and tsc refuses `string + symbol` as well.
+fn heap_cell_tostring(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::RegExp
+            | Type::Map
+            | Type::Set
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Date
+            | Type::Promise(_)
+    )
+}
+
 fn check_add(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::Number && r == Type::Number {
         return Ok(Type::Number);
@@ -97,8 +122,8 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
         // `new RegExp(...)` spelling types Type::RegExp and was the
         // one shape left refusing (the S15.10.1_A1 error-message
         // interpolations).
-        || (l == Type::String && r == Type::RegExp)
-        || (l == Type::RegExp && r == Type::String)
+        || (l == Type::String && heap_cell_tostring(&r))
+        || (heap_cell_tostring(&l) && r == Type::String)
         // Cluster #6 (rotation 442) — Str + a pointer-shaped
         // nullable. §13.15.3 with a String side always concatenates,
         // and ToString answers for BOTH faces of the union: null →

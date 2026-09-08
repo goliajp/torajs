@@ -228,9 +228,21 @@ pub(crate) fn emit_to_string_inner(
         // `String(x as any)` answered "10" and "[object Map]" off
         // this kernel, the receiver's own spelling deciding whether
         // the program builds.
-        Type::BigInt | Type::Map | Type::Set | Type::RegExp => {
-            emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring)
-        }
+        // The kernel reads the header tag, so the rest of the heap
+        // cells answer too. Adding four of them and stopping is how a
+        // list stays half-written: `String(new Date(0))` was still a
+        // compile error while `String(d as any)` was not.
+        Type::BigInt
+        | Type::Map
+        | Type::Set
+        | Type::RegExp
+        | Type::Date
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::WeakRef
+        | Type::MapIter
+        | Type::ArrIter
+        | Type::Promise => emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring),
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
     }
 }
