@@ -334,12 +334,25 @@ impl<'a> Parser<'a> {
             let key = match self.peek() {
                 Token::Ident(n) => n.clone(),
                 Token::String(s) => s.to_string_lossy_owned(),
-                t => {
-                    return Err(format!(
-                        "expected an import-attribute key, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
+                // §16.2.2 AttributeKey is `IdentifierName |
+                // StringLiteral`, and IdentifierName admits every
+                // reserved word. `type` — the one key the proposal's
+                // own examples use, and the only one with a defined
+                // meaning today — lexes as a keyword, so the two-arm
+                // list above refused `with { type: "json" }` outright.
+                // `keyword_property_name` is the table four other
+                // property-name positions already share; its own doc
+                // records that each of them used to carry a private
+                // list that drifted. This was the fifth.
+                t => match Self::keyword_property_name(t) {
+                    Some(k) => k.to_string(),
+                    None => {
+                        return Err(format!(
+                            "expected an import-attribute key, got {t:?} at {}",
+                            self.at()
+                        ));
+                    }
+                },
             };
             self.pos += 1;
             if keys.contains(&key) {
@@ -348,7 +361,7 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
-            keys.push(key);
+            keys.push(key.clone());
             if !matches!(self.peek(), Token::Colon) {
                 return Err(format!(
                     "expected `:` after an import-attribute key, got {:?} at {}",
@@ -357,14 +370,28 @@ impl<'a> Parser<'a> {
                 ));
             }
             self.pos += 1;
-            if !matches!(self.peek(), Token::String(_)) {
+            let value = match self.peek() {
+                Token::String(s) => s.to_string_lossy_owned(),
+                t => {
+                    return Err(format!(
+                        "an import-attribute value must be a string literal, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            };
+            self.pos += 1;
+            // §16.2.2 leaves the attribute's MEANING to the host, and
+            // `type` is the one key with a defined effect: it selects
+            // how the module is read. tr reads every module as source,
+            // so a `type` it cannot honour has to say so — swallowing
+            // the clause would answer a JSON file parsed as
+            // TypeScript, which is the quiet kind of wrong.
+            if key == "type" {
                 return Err(format!(
-                    "an import-attribute value must be a string literal, got {:?} at {}",
-                    self.peek(),
+                    "`type: \"{value}\"` module records are not yet supported at {}",
                     self.at()
                 ));
             }
-            self.pos += 1;
             if matches!(self.peek(), Token::Comma) {
                 self.pos += 1;
             } else {
