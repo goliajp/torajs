@@ -57,6 +57,20 @@ impl Frontmatter {
     pub fn is_only_strict(&self) -> bool {
         self.flags.iter().any(|f| f == "onlyStrict")
     }
+
+    /// `flags: [raw]` — "the test source code must not be modified in
+    /// any way, files from the harness/ directory must not be
+    /// evaluated, and the test must be executed just once (in
+    /// non-strict mode, only)."
+    ///
+    /// The corpus spends this flag almost entirely on cases where a
+    /// byte's POSITION is the thing under test — a hashbang is a
+    /// comment only at offset 0, an HTML close-comment only on a line
+    /// that has produced no token — so anything at all in front of the
+    /// source changes the answer.
+    pub fn is_raw(&self) -> bool {
+        self.flags.iter().any(|f| f == "raw")
+    }
 }
 
 /// Parse the `/*--- ... ---*/` block out of `src`. Missing block or

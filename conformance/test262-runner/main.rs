@@ -534,6 +534,17 @@ fn run_case(
         };
     }
 
+    // `flags: [raw]` — hand the bytes over untouched. Not a special
+    // case for tidiness: 32 of these test where a byte may STAND, and
+    // the assembly below put a newline in front of every case. A
+    // hashbang is a comment only at offset 0, so `#!/usr/bin/env tr`
+    // came back `lex error: unexpected byte 0x23 at 1` — and 22 of
+    // them are negative cases, which therefore "passed" on an error
+    // that had nothing to do with what they test. Proven by making
+    // one of them LEGAL and watching it get rejected anyway.
+    if fm.is_raw() {
+        return run_raw_case(path, &case_src, &fm, tr_bin, slot, dump_src);
+    }
     let mut transformed = transform_source(&case_src);
     // asyncHelpers port — stock `asyncTest` probes the async flag via
     // `Object.hasOwn(globalThis, "$DONE")`; tr's harness reads the
@@ -706,6 +717,80 @@ fn run_case(
         // bun itself failed — not a skip (takagi 2026-06-13): test262
         // positive cases self-validate through the assert harness.
         verdict::judge_no_oracle(&out, is_async)
+    }
+}
+
+/// `flags: [raw]` — run the case exactly as it sits in the corpus.
+///
+/// No harness, no `transform_source`, nothing in front of byte 0, and
+/// the sloppy Script goal the flag names. The oracle key is salted so
+/// these can never be served an answer cached for the assembled form.
+fn run_raw_case(
+    path: &Path,
+    case_src: &str,
+    fm: &frontmatter::Frontmatter,
+    tr_bin: &Path,
+    slot: usize,
+    dump_src: Option<&Path>,
+) -> Outcome {
+    if let Some(dir) = dump_src {
+        let rel = path
+            .strip_prefix(TEST262_ROOT)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('/', "__");
+        let _ = std::fs::write(dir.join(format!("{rel}.cts")), case_src);
+    }
+    let slot_dir =
+        std::env::temp_dir().join(format!("torajs-test262-{}-{}", std::process::id(), slot));
+    if let Err(e) = std::fs::create_dir_all(&slot_dir) {
+        return Outcome::HarnessError {
+            msg: format!("mkdir tmp: {e}"),
+        };
+    }
+    let tmp_path = slot_dir.join("case.cts");
+    if let Err(e) = std::fs::write(&tmp_path, case_src) {
+        return Outcome::HarnessError {
+            msg: format!("write tmp: {e}"),
+        };
+    }
+
+    if let Some(phase) = fm.negative_phase.as_deref() {
+        let expected_type = fm.negative_type.as_deref().unwrap_or("?").to_string();
+        let out = match verdict::run_tr(tr_bin, &tmp_path) {
+            Ok(o) => o,
+            Err(outcome) => {
+                let _ = std::fs::remove_file(&tmp_path);
+                return outcome;
+            }
+        };
+        let _ = std::fs::remove_file(&tmp_path);
+        return verdict::judge_negative(phase, &expected_type, &out);
+    }
+
+    let mut salted = case_src.as_bytes().to_vec();
+    salted.extend_from_slice(b"\xfeflags:raw");
+    let (bun_success, bun_stdout) = match cache::bun_oracle(&salted, b"", &tmp_path) {
+        Ok(v) => v,
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Outcome::HarnessError { msg: e };
+        }
+    };
+    let out = match verdict::run_tr(tr_bin, &tmp_path) {
+        Ok(o) => o,
+        Err(outcome) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return outcome;
+        }
+    };
+    let _ = std::fs::remove_file(&tmp_path);
+    // `raw` cases carry no harness, so there is no assert surface to
+    // self-validate against — without bun there is nothing to compare.
+    if bun_success {
+        verdict::judge_oracle(&out, &bun_stdout)
+    } else {
+        verdict::judge_no_oracle(&out, false)
     }
 }
 
