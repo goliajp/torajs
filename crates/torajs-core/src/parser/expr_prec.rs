@@ -270,13 +270,45 @@ impl<'a> Parser<'a> {
     /* V3-01 — `**` exponent. JS spec: precedence above mul/div/mod
      * (which is why parse_multiplicative now defers to this), and
      * **right-associative** (`2 ** 3 ** 2` = `2 ** (3 ** 2)` =
-     * `2 ** 9` = 512). Spec also requires parens around any unary
-     * operand of `**` (e.g. `-2 ** 2` is a SyntaxError per spec);
-     * we accept it as `-(2 ** 2)` for now and ship a stricter
-     * check alongside the test262 push (V3-18 in the v3 plan). */
+     * `2 ** 9` = 512). */
     pub(super) fn parse_pow(&mut self) -> Result<ExprId, String> {
+        let start = self.pos;
         let left = self.parse_unary()?;
         if matches!(self.peek(), Token::StarStar) {
+            // §13.6 — the left side of `**` is an UpdateExpression,
+            // not a UnaryExpression, so `-a ** b` is a SyntaxError and
+            // `(-a) ** b` is how you say it. The AST records no
+            // parentheses, so the question has to be asked of the
+            // TOKEN this operand started at.
+            //
+            // `--a ** b` is legal: `++` / `--` ARE UpdateExpression,
+            // which is exactly the production the rule admits.
+            //
+            // Until now `-a ** b` parsed as `-(a ** b)` and answered
+            // -8. Three test262 cases still reported pass-negative for
+            // it, because the checker happened to refuse the operand
+            // pair on TYPE grounds and the runner read that refusal as
+            // the expected early error. Widening `**` to its siblings'
+            // coercibles took that accident away and showed what had
+            // been standing in for the rule.
+            if matches!(
+                self.tokens.get(start).map(|s| &s.token),
+                Some(
+                    Token::Bang
+                        | Token::Minus
+                        | Token::Plus
+                        | Token::Tilde
+                        | Token::TypeOf
+                        | Token::Delete
+                        | Token::Void
+                        | Token::Await
+                )
+            ) {
+                return Err(format!(
+                    "unary operand of `**` must be parenthesized (ES §13.6) at {}",
+                    self.at()
+                ));
+            }
             self.pos += 1;
             let right = self.parse_pow()?;
             return Ok(self.ast.add_expr(Expr::BinOp {
