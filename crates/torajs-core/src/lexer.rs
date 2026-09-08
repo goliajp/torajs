@@ -48,7 +48,13 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
     // deliberately outside the loop rather than a `#` match arm. A `#`
     // anywhere else is still either a private name or an error.
     if bytes.starts_with(b"#!") {
-        while i < len && bytes[i as usize] != b'\n' && bytes[i as usize] != b'\r' {
+        // §12.3 LineTerminator has four members, and this loop used to
+        // carry a hand-written copy with two of them — so a hashbang
+        // ended by U+2028 / U+2029 swallowed the first line of the
+        // program. `line_terminator_at` is the one spelling, and its
+        // own doc records the last time these copies were consolidated;
+        // this loop was not in that sweep.
+        while i < len && util::line_terminator_at(bytes, i as usize).is_none() {
             i += 1;
         }
     }
