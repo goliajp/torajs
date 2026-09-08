@@ -109,6 +109,9 @@ impl<'a> LowerCtx<'a> {
         // §7.1.4 ToNumber(undefined) is NaN — substituted here, with
         // the scratch flags freshly set and before any lane is picked.
         let (a, b) = crate::ssa_lower_binop_null_undef::nan_for_undefined_operands(self, op, a, b);
+        // A Symbol operand, and a BigInt facing a non-BigInt, belong to
+        // the any lane — the only one carrying their TypeError.
+        let (a, b) = crate::ssa_lower_binop_null_undef::box_any_lane_operands(self, op, a, b);
         let r = crate::ssa_lower_binop_inner::lower(self, op, a, b);
         self.binop.left_nullable_ptr = saved_left_na;
         self.binop.right_nullable_ptr = saved_right_na;

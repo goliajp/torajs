@@ -99,6 +99,78 @@ pub(crate) fn nan_for_undefined_operands(
     (a, b)
 }
 
+/// Two operand shapes whose only correct answer is a TypeError, and
+/// whose TypeError only the `any`-lane kernels carry: a Symbol
+/// (§13.15.3 / §6.1.6 — every arithmetic, ordering and concat
+/// operator throws on one) and a BigInt facing a non-BigInt in the
+/// numeric families (§6.1.6.1.x's mixed-types refusal).
+///
+/// The concrete lanes have no arm for either, and never needed one:
+/// the checker refuses both typed pairs outright. The `any` spelling
+/// reaches them anyway, because `x as any` leaves a heap value's SSA
+/// type alone — only primitives and the nullish pointer box there.
+/// So `"x" + (Symbol("a") as any)` and `(1n as any) * 2` matched no
+/// arm, fell through to the integer lane, and printed the POINTER —
+/// the same shape the null coercions printed before their rows were
+/// read. Boxing hands the pair to the kernels that have thrown the
+/// right TypeError all along: the identical programs through a `const
+/// x: any` binding (whose slot really is boxed) already did.
+///
+/// What stays out is as load-bearing as what goes in. Equality is not
+/// in the list — a Symbol compares by identity there, and that arm is
+/// correct. Ordering is not in the BigInt half — §7.2.13 IS defined
+/// across the numeric types, and `(1n as any) < 2` already answered
+/// true. Neither is a String partner, which owns §13.15.3's concat
+/// branch and makes `"x" + 1n` the string "x1".
+pub(crate) fn box_any_lane_operands(
+    ctx: &mut LowerCtx<'_>,
+    op: AstBinOp,
+    a: Operand,
+    b: Operand,
+) -> (Operand, Operand) {
+    let numeric_family = matches!(
+        op,
+        AstBinOp::Add
+            | AstBinOp::Sub
+            | AstBinOp::Mul
+            | AstBinOp::Div
+            | AstBinOp::Mod
+            | AstBinOp::Pow
+            | AstBinOp::BitAnd
+            | AstBinOp::BitOr
+            | AstBinOp::BitXor
+            | AstBinOp::Shl
+            | AstBinOp::Shr
+            | AstBinOp::UShr
+    );
+    let ordering = matches!(
+        op,
+        AstBinOp::Lt | AstBinOp::Gt | AstBinOp::Le | AstBinOp::Ge
+    );
+    if !numeric_family && !ordering {
+        return (a, b);
+    }
+    let a_ty = ctx.operand_ty(&a);
+    let b_ty = ctx.operand_ty(&b);
+    let str_shaped = |t: Type| matches!(t, Type::Str | Type::Substr);
+    let mixed_bigint = numeric_family
+        && ((a_ty == Type::BigInt) != (b_ty == Type::BigInt))
+        && !str_shaped(a_ty)
+        && !str_shaped(b_ty);
+    let wants_any = |t: Type| t == Type::Symbol || (mixed_bigint && t == Type::BigInt);
+    let a = if wants_any(a_ty) {
+        ctx.box_to_any(a)
+    } else {
+        a
+    };
+    let b = if wants_any(b_ty) {
+        ctx.box_to_any(b)
+    } else {
+        b
+    };
+    (a, b)
+}
+
 impl<'a> LowerCtx<'a> {
     /// RFC 20260710-optional-undefined-repr C1 — materialize the
     /// per-type undefined sentinel address for a sentinel-capable
