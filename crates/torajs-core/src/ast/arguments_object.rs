@@ -13,7 +13,6 @@
 //! The cross-sibling call to the actual rewriters lives at
 //! `crate::ast::arguments_object_rewrite::rewrite_arguments_in_stmt`.
 
-use super::Ast;
 use super::arguments_object_collect::{collect_value_argc, collect_value_argv};
 use super::arguments_object_inject::inject_argc_params;
 use super::arguments_object_stages::{
@@ -23,6 +22,7 @@ use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
     collect_objlit_method_static_argv, inject_iife_static_params,
 };
+use super::{Ast, Stmt};
 
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -233,6 +233,25 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         super::arguments_object_method_argv::collect_method_argv(ast, &excluded, &iife_static_argv);
     method_argv_fns.extend(objlit_method_argv);
     ast.method_argv_fns = method_argv_fns.clone();
+    // Rotation 616 — record every class-member body that touches
+    // `arguments` while the idents are still there to see. The
+    // static spread expander runs after this pass and needs the
+    // answer; asking it there reads a body the rewrite has already
+    // emptied. Recorded for the whole `__cm_` / `__sm_` family, not
+    // just the ones a face admits: the question is "would the
+    // index-read expansion lie", and it lies for every member of
+    // the family that reads the count.
+    let mut method_arguments_touch: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && (name.starts_with("__cm_") || name.starts_with("__sm_"))
+            && super::arguments_object_walkers::body_has_any_arguments_touch(ast, body)
+        {
+            method_arguments_touch.insert(name.clone());
+        }
+    }
+    ast.method_arguments_touch_fns = method_arguments_touch;
     // RFC 20260816-headless-argv-face — the head-less tier's runtime
     // VALUE channel (module doc in arguments_object_headless_argv).
     // Its bodies read `__torajs_argc` too (the materialize take-count

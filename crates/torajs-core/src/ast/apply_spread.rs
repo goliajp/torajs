@@ -159,8 +159,18 @@ pub fn apply_spread_args(ast: &mut Ast) {
         // spread and rides the runtime lane
         // (`ssa_lower_call_spread`), whose boxed dispatch feeds the
         // true argc.
+        // The class-member family asks the same question through
+        // its own record (`method_arguments_touch_fns`), taken
+        // before the ident rewrite. It is not covered by the three
+        // above: a `__cm_<C>__ctor` reached from `super(...xs)` sits
+        // on the static-argv face, which ABSTAINS on a spread site
+        // by construction (`uniform_direct_call_argc` answers None),
+        // so nothing downstream was left holding the count and the
+        // expansion below trimmed it to the declared arity —
+        // `arguments.length` answered 0 where bun answered 3.
         if ast.closure_argv_fns.contains(&resolved)
             || ast.headless_argc_fns.contains(&resolved)
+            || ast.method_arguments_touch_fns.contains(&resolved)
             || ast.closure_argc_locals.contains(name)
             || ast.closure_argv_locals.contains(name)
         {

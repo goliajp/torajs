@@ -846,6 +846,23 @@ pub struct Ast {
     /// this to strip TWO leading params (`__this` + argv) when
     /// answering the method's value type, instead of the usual one.
     pub method_argv_fns: std::collections::HashSet<String>,
+    /// Class-member fns (`__cm_` / `__sm_`, constructors included)
+    /// whose body touches `arguments`, recorded BEFORE
+    /// `desugar_arguments_object` rewrites those idents away.
+    ///
+    /// `apply_spread_args` runs after that rewrite, so it cannot ask
+    /// the question itself — it asks this record instead, the same
+    /// way it already asks the head-less and closure faces. Without
+    /// it a `super(...xs)` against an `arguments`-reading parent
+    /// index-expanded to the ctor's declared arity and the real
+    /// count died with the trimmed tail (`arguments.length` answered
+    /// 0 while bun answered 3 — silent, rotation 616).
+    ///
+    /// Membership does not promise the fn has a runtime argv
+    /// channel; it only says the static index-read expansion would
+    /// lie. Sites kept off that expansion land on the runtime spread
+    /// lane, which either carries the true count or rejects loudly.
+    pub method_arguments_touch_fns: std::collections::HashSet<String>,
     /// RFC 20260810-indirect-argc-abi H1 — head-less top-level fns
     /// on the T-31 real-argc tier (`arguments.length` readers with
     /// no `__env`/`__this` head). Their SSA sig carries the hidden
