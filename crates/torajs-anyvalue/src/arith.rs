@@ -140,12 +140,23 @@ pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> A
     let r = unsafe { any_to_number(rt, rv) };
     let result = arith_op.apply(l, r);
 
-    if arith_op.allows_i64_fast_path()
-        && tag_is_i64_shaped(lt)
-        && tag_is_i64_shaped(rt)
-        && result >= i64::MIN as f64
-        && result <= i64::MAX as f64
-    {
+    box_arith_result(
+        result,
+        arith_op.allows_i64_fast_path() && tag_is_i64_shaped(lt) && tag_is_i64_shaped(rt),
+    )
+}
+
+/// Box an arithmetic answer: the integer immediate when the operands
+/// were i64-shaped and the value round-trips, the double otherwise.
+///
+/// A negative zero never takes the integer path. i64 has no sign for
+/// it, and the round-trip test cannot see the difference because
+/// `0 as f64 == -0.0` is true — so `(-1 as any) * 0` boxed a plain
+/// integer 0 and `Object.is(x, -0)` answered false where the spec
+/// says the sign survives.
+pub(crate) fn box_arith_result(result: f64, i64_shaped: bool) -> AnyValue {
+    let minus_zero = result == 0.0 && result.is_sign_negative();
+    if i64_shaped && !minus_zero && result >= i64::MIN as f64 && result <= i64::MAX as f64 {
         let int_result = result as i64;
         // Round-trip check: only box as I64 if the cast is lossless.
         if (int_result as f64) == result {

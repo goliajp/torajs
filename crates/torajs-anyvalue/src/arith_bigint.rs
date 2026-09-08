@@ -143,16 +143,23 @@ pub(crate) unsafe fn try_unary_neg_bigint(tag: i64, value: i64) -> Option<AnyVal
     Some(crate::nanbox::box_void_ptr(out as *mut c_void))
 }
 
-/// Any-tier unary minus: the BigInt leg above, else the Number
-/// lane's `0 - x` through [`crate::arith::any_arith`] (whose
-/// ToNumber records the Symbol / mixed rejects as pending throws —
-/// the lowering emits the throw check).
+/// Any-tier unary minus: the BigInt leg above, else §13.5.5's
+/// Number::unaryMinus over ToNumber (whose Symbol / mixed rejects are
+/// recorded as pending throws — the lowering emits the throw check).
+///
+/// This used to be spelled `0 - x` through `any_arith`, an identity
+/// that is right at every input but one: IEEE gives (+0) - (+0) = +0,
+/// while §6.1.6.1.1 says unary minus flips the SIGN. So `-x` answered
+/// +0 for every zero that arrived through the any lane —
+/// `Object.is(-(0 as any), -0)` was false, and so was the same
+/// question about `-("0" as any)` and `-(new Date(0) as any)`, while
+/// the typed `-0` had been right all along.
 pub(crate) unsafe fn any_unary_neg(tag: i64, value: i64) -> AnyValue {
     // SAFETY: caller invariant — propagated.
     if let Some(v) = unsafe { try_unary_neg_bigint(tag, value) } {
         return v;
     }
-    // SAFETY: same contract; 0=Sub, ANY_I64 tag = 2 (ssa_lower wire
-    // format).
-    unsafe { crate::arith::any_arith(0, AnySlotTag::I64 as i64, 0, tag, value) }
+    // SAFETY: same contract — Heap tags carry a live cell pointer.
+    let n = unsafe { crate::coerce::any_to_number(tag, value) };
+    crate::arith::box_arith_result(-n, crate::arith::tag_is_i64_shaped(tag))
 }
