@@ -227,7 +227,18 @@ fn walk_expr(
     match ast.get_expr(eid) {
         Expr::Assign { target, value } => {
             if let Expr::Ident(n) = ast.get_expr(*target) {
-                admit(n, declared, out);
+                // §13.15.2 evaluates the RHS and calls GetValue on it
+                // BEFORE PutValue ever runs, so an assignment whose own
+                // value reads the target cannot be what creates the
+                // binding — the read throws first. That is every
+                // compound form: the parser desugars `x += 1` to
+                // `x = x + 1`, and `++x` likewise, so the read §13.15.2
+                // performs is sitting right there in the value. It is
+                // also true of a plain `x = y + x`, and for the same
+                // reason.
+                if !reads_name(ast, *value, n) {
+                    admit(n, declared, out);
+                }
             } else {
                 walk_expr(ast, *target, declared, out);
             }
@@ -302,6 +313,99 @@ fn walk_expr(
         Expr::ObjectLit { fields } => {
             for (_, e) in fields {
                 walk_expr(ast, *e, declared, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Whether evaluating `eid` READS `name` — a question about what runs
+/// before the enclosing assignment's PutValue, not about what the
+/// expression mentions.
+///
+/// So it stops at every function-like boundary: `x = function () {
+/// return x; }` really does create the binding, because the read
+/// inside runs later, if ever. Object and array literals, calls,
+/// operators and the rest are evaluated on the spot and are walked.
+///
+/// A nested assignment's TARGET is a write, not a read (`x = (x = 1)`
+/// creates the binding on the inner one), so only its value is walked.
+fn reads_name(ast: &Ast, eid: ExprId, name: &str) -> bool {
+    let mut found = false;
+    reads_name_walk(ast, eid, name, &mut found);
+    found
+}
+
+fn reads_name_walk(ast: &Ast, eid: ExprId, name: &str, found: &mut bool) {
+    if *found {
+        return;
+    }
+    let mut go = |e: ExprId| reads_name_walk(ast, e, name, found);
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => {
+            if n == name {
+                *found = true;
+            }
+        }
+        Expr::Assign { target, value } => {
+            if !matches!(ast.get_expr(*target), Expr::Ident(_)) {
+                go(*target);
+            }
+            go(*value);
+        }
+        Expr::Call { callee, args } | Expr::OptCall { callee, args, .. } => {
+            go(*callee);
+            for &a in args {
+                go(a);
+            }
+        }
+        Expr::New { args, .. } => {
+            for &a in args {
+                go(a);
+            }
+        }
+        Expr::NewDynamic { callee, args, .. } => {
+            go(*callee);
+            for &a in args {
+                go(a);
+            }
+        }
+        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => go(*obj),
+        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
+            go(*obj);
+            go(*index);
+        }
+        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
+            go(*left);
+            go(*right);
+        }
+        Expr::Nullish { lhs, rhs } => {
+            go(*lhs);
+            go(*rhs);
+        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::Delete { expr }
+        | Expr::PostIncr { target: expr, .. }
+        | Expr::As { expr, .. }
+        | Expr::Spread { expr } => go(*expr),
+        Expr::Ternary {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            go(*cond);
+            go(*then_branch);
+            go(*else_branch);
+        }
+        Expr::Array(items) => {
+            for &el in items {
+                go(el);
+            }
+        }
+        Expr::ObjectLit { fields } => {
+            for (_, e) in fields {
+                go(*e);
             }
         }
         _ => {}
