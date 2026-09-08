@@ -31,6 +31,7 @@
 #![allow(clippy::too_many_arguments)]
 
 pub(crate) mod add_str;
+pub(crate) mod add_str_coerce;
 
 use crate::ast::BinOp as AstBinOp;
 use crate::ssa::{Operand, Type};
