@@ -323,6 +323,7 @@ fn coerce_bool_null_operands(
             | AstBinOp::Mul
             | AstBinOp::Div
             | AstBinOp::Mod
+            | AstBinOp::Pow
             | AstBinOp::Lt
             | AstBinOp::Gt
             | AstBinOp::Le
@@ -343,8 +344,16 @@ fn coerce_bool_null_operands(
         // `LowerCtx::operand_is_nullish`.
         let a_is_null = ctx.operand_is_nullish(&a);
         let b_is_null = ctx.operand_is_nullish(&b);
-        // A side is coercible-to-Number iff it's already i64,
-        // a bool (zext to i64), or the null literal (const 0).
+        // §7.1.4 — ToNumber(null) is +0 but ToNumber(undefined) is
+        // NaN, and the two are the SAME operand shape down here (both
+        // spell as a null pointer; `try_fold_undef_null_eq`'s comment
+        // has said so since V3-18). An undefined operand headed for an
+        // arithmetic or ordering answer was already turned into
+        // `ConstF64(NaN)` upstream — see
+        // `ssa_lower_binop_null_undef::nan_for_undefined_operands` —
+        // so what reaches this arm as nullish is the +0 half.
+        // ToInt32 erases the difference (`ToInt32(NaN)` is 0 too), so
+        // the bitwise six keep taking undefined through here.
         let a_coerce = matches!(a_ty, Type::I64 | Type::Bool) || a_is_null;
         let b_coerce = matches!(b_ty, Type::I64 | Type::Bool) || b_is_null;
         // Trigger only when at least one side is non-Number — pure

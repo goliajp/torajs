@@ -35,6 +35,70 @@ use crate::ssa_lower_intrinsics_substr::SUBSTR_UNDEF_CELL_SYM;
 /// `Tag::Undefined` header block in torajs-rc (`undef_cell.rs`).
 pub(crate) const UNDEF_CELL_SYM: &str = "___TORAJS_UNDEF_CELL";
 
+/// §7.1.4 — ToNumber(undefined) is NaN. Substitute the constant for
+/// an Undefined-typed operand before the lane decision, so the whole
+/// downstream (int-vs-float pick, the bool/null coercion arm, the
+/// f64 kernels) sees a plain number and needs no undefined story of
+/// its own.
+///
+/// Only the operators whose answer is ToNumber's, and only when BOTH
+/// sides are already in the numeric lane. `"x" + u` must stay
+/// "xundefined" — its String side owns §13.15.3's concat branch — and
+/// an `any` side owns the runtime kernels that carry the walk
+/// themselves. The bitwise six are excluded on purpose: ToInt32(NaN)
+/// and ToInt32(+0) are both 0, so `undefined | 0` wants null's const
+/// 0 and a float round trip would buy nothing. Loose equality is
+/// excluded because §7.2.15 step 2 answers a nullish side before
+/// ToNumber is ever reached.
+///
+/// Null is not substituted here: its +0 is representable in the int
+/// lane, which is exactly why the coercion family carried the null
+/// half for three hundred rotations while `const u = undefined;
+/// u * 3` was a compile error.
+pub(crate) fn nan_for_undefined_operands(
+    ctx: &LowerCtx<'_>,
+    op: AstBinOp,
+    a: Operand,
+    b: Operand,
+) -> (Operand, Operand) {
+    if !matches!(
+        op,
+        AstBinOp::Add
+            | AstBinOp::Sub
+            | AstBinOp::Mul
+            | AstBinOp::Div
+            | AstBinOp::Mod
+            | AstBinOp::Pow
+            | AstBinOp::Lt
+            | AstBinOp::Gt
+            | AstBinOp::Le
+            | AstBinOp::Ge
+    ) {
+        return (a, b);
+    }
+    // "Already in the numeric lane" is the same question
+    // `coerce_bool_null_operands` asks of its own sides: a concrete
+    // scalar, or a nullish pointer that its arm turns into one.
+    let numeric_lane = |ctx: &LowerCtx<'_>, op: &Operand| {
+        matches!(ctx.operand_ty(op), Type::I64 | Type::F64 | Type::Bool)
+            || ctx.operand_is_nullish(op)
+    };
+    if !numeric_lane(ctx, &a) || !numeric_lane(ctx, &b) {
+        return (a, b);
+    }
+    let a = if ctx.binop.left_undef_id.is_some() {
+        Operand::ConstF64(f64::NAN)
+    } else {
+        a
+    };
+    let b = if ctx.binop.right_undef_id.is_some() {
+        Operand::ConstF64(f64::NAN)
+    } else {
+        b
+    };
+    (a, b)
+}
+
 impl<'a> LowerCtx<'a> {
     /// RFC 20260710-optional-undefined-repr C1 — materialize the
     /// per-type undefined sentinel address for a sentinel-capable

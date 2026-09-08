@@ -128,15 +128,30 @@ pub(crate) fn narrow_within_lane(prev: &Type, inner: Type) -> Type {
 /// V3-18 m1.a — JS spec §13.15.3 ApplyStringOrNumericBinaryOperator
 /// guard for non-string `+`. Returns true iff both operands are
 /// statically-typed numerics-or-coercible-to-numerics: Number,
-/// Boolean (ToNumber → 0/1), Null (ToNumber → 0). When this holds,
-/// check.rs accepts `l + r` with result type Number; ssa_lower
-/// mirrors the coercion at lower time. Strings are handled by the
-/// existing String+String / String+Number arms (they short-circuit
-/// before this helper). Excludes BigInt — mixed BigInt+Number is a
-/// TypeError per spec, caught by the trailing catch-all.
+/// Boolean (ToNumber → 0/1), Null (ToNumber → +0), Undefined
+/// (ToNumber → NaN). When this holds, check.rs accepts `l + r` with
+/// result type Number; ssa_lower mirrors the coercion at lower time.
+/// Strings are handled by the existing String+String / String+Number
+/// arms (they short-circuit before this helper). Excludes BigInt —
+/// mixed BigInt+Number is a TypeError per spec, caught by the
+/// trailing catch-all.
+///
+/// §7.1.4 gives `undefined` an answer in the very same table that
+/// gives `null` one, and the whole family — `+ - * / %`, the bitwise
+/// six, ordering — read only half of it: `const n = null; n * 3` ran
+/// and answered 0 while `const u = undefined; u * 3` was a compile
+/// error, and so was the literal `undefined * 3`. Every one of those
+/// programs already ran when the same value was spelled `any`.
+/// ToNumber(undefined) is NaN, not 0, so the lowering side takes the
+/// two apart again (`ssa_lower_binop_inner::coerce_bool_null_operands`)
+/// — admitting the type here without that would answer 0 and be worse
+/// than the refusal.
 pub(crate) fn js_add_coerces_to_number(l: &Type, r: &Type) -> bool {
     fn coerces(t: &Type) -> bool {
-        matches!(t, Type::Number | Type::Boolean | Type::Null)
+        matches!(
+            t,
+            Type::Number | Type::Boolean | Type::Null | Type::Undefined
+        )
     }
     coerces(l) && coerces(r) && (*l != Type::Number || *r != Type::Number)
 }

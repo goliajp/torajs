@@ -106,6 +106,9 @@ impl<'a> LowerCtx<'a> {
             .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
         self.binop.right_null_id = right_id
             .filter(|eid| matches!(self.expr_types.get(eid), Some(crate::check::Type::Null)));
+        // §7.1.4 ToNumber(undefined) is NaN — substituted here, with
+        // the scratch flags freshly set and before any lane is picked.
+        let (a, b) = crate::ssa_lower_binop_null_undef::nan_for_undefined_operands(self, op, a, b);
         let r = crate::ssa_lower_binop_inner::lower(self, op, a, b);
         self.binop.left_nullable_ptr = saved_left_na;
         self.binop.right_nullable_ptr = saved_right_na;

@@ -212,6 +212,14 @@ fn check_pow(l: Type, r: Type) -> Result<Type, String> {
     if rides_any_lane(&l) || rides_any_lane(&r) {
         return Ok(Type::Any);
     }
+    // §13.6 step 1 is ToNumeric on both operands, the same call
+    // §13.7-§13.10 make — so `**` takes the same coercibles its four
+    // arithmetic siblings take. It was the one operator in the family
+    // that never got this arm, which is why `null ** 2` and even
+    // `true ** 2` were compile errors while `null * 2` ran.
+    if js_arith_coerces_to_number(&l, &r) {
+        return Ok(Type::Number);
+    }
     // §13.6 is ToNumeric both sides, which reaches `valueOf`; the arith
     // kernel's op 4 takes it exactly as it does for an `any` operand.
     if objectish_numeric_pair(&l, &r) {
