@@ -102,7 +102,10 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
                 skip_single_line_html(bytes, &mut i, len);
                 continue;
             }
-            b'.' => scan_number::scan_dot(bytes, &mut i, &mut out, start),
+            b'.' => {
+                scan_number::scan_dot(bytes, &mut i, &mut out, start);
+                reject_ident_after_numeric(bytes, &out, i)?;
+            }
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),
             b':' => emit(&mut out, Token::Colon, start, advance(&mut i)),
             b';' => emit(&mut out, Token::Semi, start, advance(&mut i)),
@@ -224,7 +227,8 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
                 scan_ident::scan_private_ident(bytes, &mut i, &mut out, start, len)?
             }
             b if b.is_ascii_digit() => {
-                scan_number::scan_number(bytes, &mut i, &mut out, start, len, b)?
+                scan_number::scan_number(bytes, &mut i, &mut out, start, len, b)?;
+                reject_ident_after_numeric(bytes, &out, i)?;
             }
             // ES §12.7.1 IdentifierStart. Kept below the digit arm so
             // `0`-`9` still route to the numeric scanner; a non-ASCII
@@ -247,6 +251,42 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
     }
     emit(&mut out, Token::Eof, len, len);
     Ok(out)
+}
+
+/// §12.9.3 — "The SourceCharacter immediately following a
+/// NumericLiteral must not be an IdentifierStart or DecimalDigit."
+///
+/// Without it the scanner takes the longest literal it can and hands
+/// the rest to the identifier arm, so `123abc` becomes `123` and
+/// `abc`, `0b12` becomes `0b1` and `2`, and `1.2.3` becomes `1.2` and
+/// `.3` — three programs that are Syntax Errors read as three programs
+/// that are not. Nothing downstream can recover the difference; by
+/// then the two tokens are indistinguishable from two the source
+/// really did write.
+///
+/// Checked at the CALL SITE rather than inside the scanners because
+/// the numeric path has several exits (radix, decimal, leading-dot)
+/// and `scan_dot` may not have produced a number at all — `.foo` is a
+/// member access, and the last token says which happened.
+fn reject_ident_after_numeric(bytes: &[u8], out: &[Spanned], i: u32) -> Result<(), String> {
+    if !matches!(
+        out.last().map(|s| &s.token),
+        Some(Token::Number(_) | Token::BigInt { .. })
+    ) {
+        return Ok(());
+    }
+    let Some(&b) = bytes.get(i as usize) else {
+        return Ok(());
+    };
+    if b.is_ascii_digit()
+        || util::is_ident_start(b)
+        || (b >= 0x80 && scan_ident::ident_start_at(bytes, i))
+    {
+        return Err(format!(
+            "a numeric literal may not be followed directly by an identifier or digit at {i} (ES §12.9.3)"
+        ));
+    }
+    Ok(())
 }
 
 /// Consume an HTML-like comment opener and everything to end-of-line;
