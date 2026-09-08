@@ -242,52 +242,8 @@ impl<'a> Parser<'a> {
             name = self.consume_nullish_union_suffix(name)?;
             return Ok(name);
         }
-        // V3-18 wedge — string-literal type-ann (`type Mode =
-        // "dev" | "prod"`). Per TS spec §3.2.10 a string literal
-        // is a type that has only that literal as its value. The
-        // subset widens to plain `string` and consumes any
-        // following `| "..."` chain (treating them as further
-        // string-literal alternatives that all collapse to the
-        // same `string`).
-        if let Token::String(_) = self.peek() {
-            self.pos += 1;
-            while matches!(self.peek(), Token::Pipe)
-                && matches!(
-                    self.tokens.get(self.pos + 1).map(|s| &s.token),
-                    Some(Token::String(_))
-                )
-            {
-                self.pos += 2;
-            }
-            return Ok("string".to_string());
-        }
-        // V3-18 wedge — number-literal type-ann (`type Bit =
-        // 0 | 1`). Same widening to plain `number`.
-        if let Token::Number(_) = self.peek() {
-            self.pos += 1;
-            while matches!(self.peek(), Token::Pipe)
-                && matches!(
-                    self.tokens.get(self.pos + 1).map(|s| &s.token),
-                    Some(Token::Number(_))
-                )
-            {
-                self.pos += 2;
-            }
-            return Ok("number".to_string());
-        }
-        // V3-18 wedge — boolean-literal type-ann (`type Always =
-        // true`). Same widening to plain `boolean`.
-        if matches!(self.peek(), Token::True | Token::False) {
-            self.pos += 1;
-            while matches!(self.peek(), Token::Pipe)
-                && matches!(
-                    self.tokens.get(self.pos + 1).map(|s| &s.token),
-                    Some(Token::True) | Some(Token::False)
-                )
-            {
-                self.pos += 2;
-            }
-            return Ok("boolean".to_string());
+        if let Some(widened) = self.literal_type_widen() {
+            return Ok(widened);
         }
         let mut name = match self.peek() {
             Token::Ident(n) => n.clone(),
