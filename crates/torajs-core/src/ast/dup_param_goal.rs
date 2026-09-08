@@ -23,13 +23,13 @@ use super::Ast;
 /// `Some(msg)` = strict-goal SyntaxError (the caller reports it as a
 /// parse error and stops). Sloppy goal always answers `None`.
 pub fn triage_duplicate_params(ast: &Ast) -> Option<String> {
-    if ast.sloppy_script_goal {
+    if ast.program_is_sloppy() {
         return None;
     }
     ast.dup_param_positions.first().map(|(at, name)| {
         format!(
             "duplicate parameter name `{name}` is not allowed in strict code \
-             (modules are strict) at {at} (ES §15.1.2)"
+             (a module, or a `\"use strict\"` prologue) at {at} (ES §15.1.2)"
         )
     })
 }

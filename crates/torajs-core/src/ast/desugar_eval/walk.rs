@@ -191,7 +191,7 @@ pub(crate) fn body_owned_exprs(ast: &Ast, body: &[Stmt], owned: &mut [bool]) {
 /// inventing a stricter one; the direction is deliberate, since a
 /// wrongly strict verdict refuses a program that runs.
 pub(super) fn caller_strict_exprs(ast: &Ast) -> Vec<bool> {
-    let goal_strict = !ast.sloppy_script_goal || ast.program_strict_prologue;
+    let goal_strict = !ast.program_is_sloppy();
     let mut owned = vec![goal_strict; ast.exprs.len()];
     if !goal_strict {
         mark_stmts(ast, &ast.stmts, false, Mode::StrictOwned, &mut owned);

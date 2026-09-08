@@ -316,7 +316,7 @@ pub(super) fn parse_eval_source(
     if del_sites.is_empty() && ea_sites.is_empty() {
         return Ok(stmts);
     }
-    let strict_goal = !ast.sloppy_script_goal;
+    let strict_goal = !ast.program_is_sloppy();
     // Under the sloppy SCRIPT goal (`.cts`) every site is left to the
     // goal triage. The triage runs AFTER the `with` desugar for a
     // reason its own doc records — §14.11 resolves a with-body

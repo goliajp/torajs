@@ -20,13 +20,13 @@ use super::Ast;
 /// `Some(msg)` = strict-goal SyntaxError (the caller reports it as a
 /// parse error and stops). Sloppy goal always answers `None`.
 pub fn triage_annexb_forin_init(ast: &Ast) -> Option<String> {
-    if ast.sloppy_script_goal {
+    if ast.program_is_sloppy() {
         return None;
     }
     ast.annexb_forin_init_positions.first().map(|at| {
         format!(
             "a for-in head may not initialize its binding in strict code \
-             (modules are strict) at {at} (ES annexB §B.3.5)"
+             (a module, or a `\"use strict\"` prologue) at {at} (ES annexB §B.3.5)"
         )
     })
 }

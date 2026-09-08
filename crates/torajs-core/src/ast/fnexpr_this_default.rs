@@ -262,7 +262,7 @@ pub fn bind_fnexpr_this_default(ast: &mut Ast) {
         };
         // The goal answer is read before the mutable walk: the mint
         // needs an `&mut Ast` and the directive probe an `&Ast`.
-        let global_this = ast.sloppy_script_goal
+        let global_this = ast.program_is_sloppy()
             && ast.stmts.iter().any(|s| {
                 matches!(s, Stmt::FnDecl { name, body, .. }
                     if name == &fn_name && !has_use_strict_directive(body, &ast.exprs))

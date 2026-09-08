@@ -48,7 +48,7 @@ pub(super) fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
 /// hid it — with nothing writing `f` there was no outer binding to
 /// capture in the first place.
 pub(super) fn hoist_annexb_fn_names(ast: &Ast, list: &[Stmt], bound: &mut Vec<String>) {
-    if !ast.sloppy_script_goal {
+    if !ast.program_is_sloppy() {
         return;
     }
     let mut names: Vec<String> = super::annexb_names::block_nested_fn_names(list)

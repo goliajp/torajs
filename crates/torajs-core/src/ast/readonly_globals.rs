@@ -90,7 +90,7 @@ pub fn resolve_readonly_global_writes(ast: &mut Ast) {
     if sites.is_empty() {
         return;
     }
-    if ast.sloppy_script_goal {
+    if ast.program_is_sloppy() {
         for (i, value) in sites {
             // The rhs node moves into the assignment's slot; its old
             // slot goes orphaned (nothing references it), so the rhs
@@ -139,7 +139,7 @@ pub fn resolve_readonly_ns_prop_writes(ast: &mut Ast) {
             hit.then_some((i, *value))
         })
         .collect();
-    if ast.sloppy_script_goal {
+    if ast.program_is_sloppy() {
         for (i, value) in sites {
             if let Some(rhs) = ast.exprs.get(value.0 as usize).cloned() {
                 ast.exprs[i] = rhs;

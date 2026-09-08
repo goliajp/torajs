@@ -167,7 +167,7 @@ fn finish(
     key_v: crate::ssa::ValueId,
     release_key: bool,
 ) -> Operand {
-    let kernel = if ctx.ast.sloppy_script_goal {
+    let kernel = if ctx.ast.program_is_sloppy() {
         ctx.intrinsics.any_prop_delete_soft
     } else {
         ctx.intrinsics.any_prop_delete

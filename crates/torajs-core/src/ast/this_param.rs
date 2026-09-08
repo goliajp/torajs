@@ -63,11 +63,12 @@ pub fn bind_this_param(ast: &mut Ast) {
     // (see the field's doc for why that is only an approximation).
     ast.this_param_fns.extend(needs.iter().cloned());
 
+    // Read before the borrow split (two fields, one of them handed out).
+    let sloppy = ast.program_is_sloppy();
     let Ast {
         stmts,
         exprs,
         expr_spans,
-        sloppy_script_goal,
         ..
     } = ast;
     for st in stmts.iter_mut() {
@@ -100,7 +101,7 @@ pub fn bind_this_param(ast: &mut Ast) {
         // prologue the promoted recv-first bodies carry. A body that is
         // strict — by its own directive or by the lexical inheritance
         // the parser writes in — is skipped inside the helper.
-        if *sloppy_script_goal {
+        if sloppy {
             crate::ast::sloppy_this_prologue::insert_sloppy_this_prologue(body, exprs, expr_spans);
         }
     }

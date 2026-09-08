@@ -1,7 +1,7 @@
 //! `delete <expr>` operand triage — ES §13.5.1.
 //!
 //! A property reference (obj.k / obj[k]) is the real delete; a bare
-//! name is the strict-mode SyntaxError §13.5.1.1 (modules are strict);
+//! name is the strict-mode SyntaxError §13.5.1.1 (a module, or a `"use strict"` prologue);
 //! an optional chain stays a loud boundary (spec deletes through it —
 //! silently answering true would be wrong); every other operand is not
 //! a Reference Record, so §13.5.1.2 step 2 evaluates it for its

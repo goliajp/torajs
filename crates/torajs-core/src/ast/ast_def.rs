@@ -1133,9 +1133,13 @@ pub struct Ast {
     /// RFC 20260810-sloppy-goal-arguments S1 — true when the input
     /// file compiles under the CommonJS sloppy-script goal, keyed on
     /// bun's file-extension goal mapping (`.ts` = ESM always-strict,
-    /// `.cts` = CommonJS sloppy). The arguments-object desugar family
-    /// reads it for the sloppy `callee` / mapped-aliasing faces;
-    /// every other pass keeps the strict-goal behavior regardless.
+    /// `.cts` = CommonJS sloppy).
+    ///
+    /// This is the GOAL and nothing else. Almost every rule that reads
+    /// it is written "in strict code", and a Script can be strict
+    /// without changing goal — so read [`Ast::program_is_sloppy`]
+    /// instead, unless the rule really does name the goal symbol (only
+    /// §13.1.1 `await` does).
     pub sloppy_script_goal: bool,
     /// RFC 20260814 — the parser met at least one §14.11 `with` and
     /// emitted its `{ let __with_<n> = …; body }` shape. `desugar_with`
@@ -1288,6 +1292,32 @@ pub fn early_redecl_errors(ast: &mut Ast) {
 }
 
 impl Ast {
+    /// Whether this program's code is SLOPPY — the question nearly
+    /// every reader of `sloppy_script_goal` actually means.
+    ///
+    /// Two bits, because a Script can be strict without changing goal:
+    /// `"use strict";` at the top of a `.cts` is strict Script code
+    /// (§11.2.2), and every rule phrased "in strict code" then applies
+    /// to it exactly as it does to a module — mapped `arguments` and
+    /// `callee` (§10.4.4), `delete <name>` (§13.5.1.1), `with`
+    /// (§13.11.1), duplicate parameters (§15.1.2), the §12.7.2
+    /// reserved words, legacy octal (§12.9.3), Annex B, implicit
+    /// globals, and the undefined-receiver `this` substitution
+    /// (§10.2.1.2).
+    ///
+    /// Asking the goal alone is what made `"use strict"; function f(a)
+    /// { a = 1; return arguments[0]; }` hand back a MAPPED arguments
+    /// object in a Script — and 74 test262 cases were passing only
+    /// because staging them as modules had been supplying the
+    /// strictness their own prologue was meant to.
+    ///
+    /// Per-FUNCTION strictness is a different question, answered where
+    /// it is known (`Parser::in_strict_fn`, during the parse). This one
+    /// is about the program.
+    pub fn program_is_sloppy(&self) -> bool {
+        self.sloppy_script_goal && !self.program_strict_prologue
+    }
+
     pub fn add_expr(&mut self, e: Expr) -> ExprId {
         let id = ExprId(self.exprs.len() as u32);
         self.exprs.push(e);

@@ -58,11 +58,13 @@ pub(crate) fn run(ast: &mut Ast) {
     // (k) leg — needs the whole `&Ast` (named-fn refs + the shared
     // promote verdict), so it runs before the borrow split below.
     let promoted_objlits = crate::ast_refs_any_promote::promoted_method_objlits(ast);
+    // Read before the borrow split: it is two fields, and the split
+    // hands out only one of them.
+    let sloppy = ast.program_is_sloppy();
     let Ast {
         stmts,
         exprs,
         expr_spans,
-        sloppy_script_goal,
         objlit_method_exprs,
         objlit_method_fields,
         objlit_shorthand_proto_exprs,
@@ -135,7 +137,7 @@ pub(crate) fn run(ast: &mut Ast) {
     crate::ast::objlit_nominal::run(
         stmts,
         exprs,
-        *sloppy_script_goal,
+        sloppy,
         expr_spans,
         objlit_method_exprs,
         objlit_shorthand_proto_exprs,
@@ -156,7 +158,7 @@ pub(crate) fn run(ast: &mut Ast) {
     crate::ast::fnexpr_this::run(
         stmts,
         exprs,
-        *sloppy_script_goal,
+        sloppy,
         fn_expr_exprs,
         objlit_method_exprs,
         closure_argc_locals,

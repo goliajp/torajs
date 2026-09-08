@@ -3,7 +3,7 @@
 //!
 //! The parser raised the per-function cases itself
 //! (`parser::strict_reserved`); what it could not judge is the GOAL,
-//! which `ast.sloppy_script_goal` only carries after the parse. This
+//! which `ast.program_is_sloppy()` only carries after the parse. This
 //! gate answers that half: under the strict goal every admitted site
 //! is a SyntaxError, under the sloppy goal every one of them was an
 //! ordinary identifier and nothing moves. Same three-part shape as
@@ -19,13 +19,13 @@ use super::Ast;
 /// `Some(msg)` = strict-goal SyntaxError (the caller reports it as a
 /// parse error and stops). Sloppy goal always answers `None`.
 pub fn triage_strict_reserved_idents(ast: &Ast) -> Option<String> {
-    if ast.sloppy_script_goal {
+    if ast.program_is_sloppy() {
         return None;
     }
     ast.strict_reserved_positions.first().map(|(at, name)| {
         if name == "with" {
             format!(
-                "`with` is not allowed in strict code (modules are strict) at {at} (ES §14.11.1)"
+                "`with` is not allowed in strict code (a module, or a `\"use strict\"` prologue) at {at} (ES §14.11.1)"
             )
         } else if name == "eval" || name == "arguments" {
             // One message for both clauses that park this pair: the
@@ -33,11 +33,11 @@ pub fn triage_strict_reserved_idents(ast: &Ast) -> Option<String> {
             // and §13.1.3 (assignment target) are the only two ways in.
             format!(
                 "`{name}` cannot be bound or assigned in strict code \
-                 (modules are strict) at {at} (ES §13.1.1 / §13.1.3)"
+                 (a module, or a `\"use strict\"` prologue) at {at} (ES §13.1.1 / §13.1.3)"
             )
         } else {
             format!(
-                "`{name}` is a reserved word in strict code (modules are strict) at {at} (ES §12.7.2)"
+                "`{name}` is a reserved word in strict code (a module, or a `\"use strict\"` prologue) at {at} (ES §12.7.2)"
             )
         }
     })

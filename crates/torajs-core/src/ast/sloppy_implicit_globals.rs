@@ -57,7 +57,7 @@ use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
 pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
-    if !ast.sloppy_script_goal || ast.has_with_stmt {
+    if !ast.program_is_sloppy() || ast.has_with_stmt {
         return;
     }
     let mut declared = std::collections::HashSet::new();

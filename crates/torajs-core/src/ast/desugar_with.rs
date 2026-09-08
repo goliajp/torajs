@@ -151,7 +151,7 @@ pub fn desugar_with(ast: &mut Ast) -> Option<WithReject> {
     if !ast.has_with_stmt {
         return None;
     }
-    if !ast.sloppy_script_goal {
+    if !ast.program_is_sloppy() {
         // §14.11.1 — a WithStatement is a SyntaxError in strict code,
         // and a module always is. A parser-level one never reaches
         // here (`judge_with_statement` refuses it inside a strict

@@ -2,7 +2,7 @@
 //!
 //! The parser can no longer judge this form: §13.5.1.1 makes it a
 //! SyntaxError under the STRICT goal only, and the goal bit
-//! (`ast.sloppy_script_goal`, keyed on the `.cts` extension per the
+//! (`ast.program_is_sloppy()`, keyed on the `.cts` extension per the
 //! bun mapping) is stamped after parsing. So the parser now emits a
 //! plain `Delete { Ident }` node and this gate — run in the prelude
 //! right after the eval inline and the `with` desugar — resolves it
@@ -77,9 +77,9 @@ pub fn triage_delete_bare_names(ast: &mut Ast) -> Option<String> {
     if sites.is_empty() {
         return None;
     }
-    if !ast.sloppy_script_goal {
+    if !ast.program_is_sloppy() {
         return Some(format!(
-            "`delete` on a bare name is a SyntaxError in strict code (modules are strict) — `delete {}`",
+            "`delete` on a bare name is a SyntaxError in strict code (a module, or a `\"use strict\"` prologue) — `delete {}`",
             sites[0].1
         ));
     }

@@ -167,7 +167,7 @@ fn rewrite_one_body(
     // that writes or deletes `arguments.callee` must
     // materialize: the keyed rewrite lands on the bag entry
     // the mint's defineProperty seeded (S10.6_A3_T3/T4).
-    if !needs_materialize && ast.sloppy_script_goal && body_has_callee_write(ast, body) {
+    if !needs_materialize && ast.program_is_sloppy() && body_has_callee_write(ast, body) {
         needs_materialize = true;
     }
     // S2 — a sloppy body that touches callee (any position)
@@ -184,7 +184,7 @@ fn rewrite_one_body(
     // receiver slot `undefined` (the forbidden-ext async-gen
     // family's "expected ClassRef, got Undefined"), and a
     // method's callee value is a recorded sloppy window.
-    let wants_callee_value = ast.sloppy_script_goal
+    let wants_callee_value = ast.program_is_sloppy()
         && argc_mode != ArgcMode::KeepLoud
         && !name.starts_with("__cm")
         && (needs_materialize || body_has_callee_touch(ast, body));
@@ -195,7 +195,7 @@ fn rewrite_one_body(
     };
     // How `arguments.callee` spells in this body (see
     // SloppyCallee).
-    let sloppy_callee = if !ast.sloppy_script_goal || argc_mode == ArgcMode::KeepLoud {
+    let sloppy_callee = if !ast.program_is_sloppy() || argc_mode == ArgcMode::KeepLoud {
         SloppyCallee::Strict
     } else if needs_materialize {
         SloppyCallee::Keyed

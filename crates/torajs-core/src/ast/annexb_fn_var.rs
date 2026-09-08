@@ -47,7 +47,7 @@ pub(super) struct AnnexBGoal {
 impl AnnexBGoal {
     fn of(ast: &super::Ast) -> Self {
         Self {
-            sloppy: ast.sloppy_script_goal && !ast.program_strict_prologue,
+            sloppy: ast.program_is_sloppy(),
             strict_spans: ast.strict_prologue_spans.clone(),
             async_names: ast
                 .async_fns

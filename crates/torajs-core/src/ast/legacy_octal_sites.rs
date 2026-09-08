@@ -73,7 +73,7 @@ const NUMBER: &str = "a `0`-prefixed octal-style number";
 /// gives the rest the values the lexer already produced.
 pub fn triage_legacy_octal(ast: &Ast) -> Option<String> {
     let condemned = |at: u32| {
-        !ast.sloppy_script_goal
+        !ast.program_is_sloppy()
             || ast
                 .strict_prologue_spans
                 .iter()
