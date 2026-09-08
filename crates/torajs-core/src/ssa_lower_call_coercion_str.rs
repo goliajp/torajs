@@ -229,24 +229,36 @@ pub(crate) fn emit_to_string_inner(
         // this kernel, the receiver's own spelling deciding whether
         // the program builds.
         Type::BigInt | Type::Map | Type::Set | Type::RegExp => {
-            let boxed = ctx.box_to_any(arg_op.clone());
-            let fid = if implicit_tostring {
-                ctx.intrinsics.any_to_str_box
-            } else {
-                ctx.intrinsics.any_to_display_str
-            };
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(fid, vec![boxed]),
-                Type::Str,
-                None,
-            );
-            ctx.release_owned_temp(arg_eid, &arg_op);
-            ctx.emit_throw_check(None);
-            Operand::Value(v)
+            emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring)
         }
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
     }
+}
+
+/// The any-boundary route: box the cell and call the very kernel the
+/// `any` spelling takes. Body of the arm above, lifted out so the arm
+/// is its type list and nothing else.
+fn emit_boxed_to_string(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    implicit_tostring: bool,
+) -> Operand {
+    let boxed = ctx.box_to_any(arg_op.clone());
+    let fid = if implicit_tostring {
+        ctx.intrinsics.any_to_str_box
+    } else {
+        ctx.intrinsics.any_to_display_str
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![boxed]),
+        Type::Str,
+        None,
+    );
+    ctx.release_owned_temp(arg_eid, &arg_op);
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
 }
 
 /// S137 — `String(struct)` runs OrdinaryToPrimitive at runtime (RFC
