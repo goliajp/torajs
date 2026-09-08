@@ -42,7 +42,6 @@
 //! [`super::log`] / square-root hardware instr, so no additional
 //! libc dep is introduced.
 
-use crate::exp::exp;
 use crate::log::log;
 
 /// `cbrt(x) = ∛x` — backs `Math.cbrt`.
@@ -102,23 +101,6 @@ pub extern "C" fn expm1(x: f64) -> f64 {
     if x == f64::NEG_INFINITY {
         return -1.0;
     }
-    let abs_x = x.abs();
-    if abs_x < 0.5 {
-        // Taylor: x + x²/2 + x³/6 + x⁴/24 + x⁵/120 + x⁶/720 + x⁷/5040.
-        let x2 = x * x;
-        let x3 = x2 * x;
-        let x4 = x2 * x2;
-        let x5 = x4 * x;
-        let x6 = x4 * x2;
-        let x7 = x6 * x;
-        return x
-            + x2 * 0.5
-            + x3 * (1.0 / 6.0)
-            + x4 * (1.0 / 24.0)
-            + x5 * (1.0 / 120.0)
-            + x6 * (1.0 / 720.0)
-            + x7 * (1.0 / 5040.0);
-    }
     if x >= 709.782712893383973096 {
         return f64::INFINITY;
     }
@@ -126,7 +108,116 @@ pub extern "C" fn expm1(x: f64) -> f64 {
         // e^-38 ≈ 3.14e-17 → rounds to 0 within ULP, so expm1 ≈ −1.
         return -1.0;
     }
-    exp(x) - 1.0
+    let abs_x = x.abs();
+    // A seven-term Taylor series used to cover |x| < 0.5, and its
+    // first dropped term is x⁸/40320 — 2.5e-13 at x = 0.1, which is
+    // roughly a thousand ULP of the answer and exactly the error sm's
+    // expm1-approx reported. Above that the fallback `exp(x) - 1`
+    // cancels, which is the very thing expm1 exists to avoid.
+    //
+    // The textbook answer (fdlibm) reduces the argument to
+    // |r| <= 0.5·ln2 and evaluates a rational approximation there,
+    // so neither the series tail nor the subtraction ever gets big.
+    const Q1: f64 = -3.33333333333331316428e-02;
+    const Q2: f64 = 1.58730158725481460165e-03;
+    const Q3: f64 = -7.93650757867487942473e-05;
+    const Q4: f64 = 4.00821782732936239552e-06;
+    const Q5: f64 = -2.01099218183624371326e-07;
+    const LN2_HI: f64 = 6.93147180369123816490e-01;
+    const LN2_LO: f64 = 1.90821492927058770002e-10;
+    const INV_LN2: f64 = 1.44269504088896338700e+00;
+    // Argument reduction: x = k·ln2 + r, |r| <= 0.5·ln2. Below that
+    // threshold there is nothing to reduce.
+    let (k, r, c) = if abs_x > 0.34657359027997264 {
+        let k = if x < 0.0 {
+            (INV_LN2 * x - 0.5) as i32
+        } else {
+            (INV_LN2 * x + 0.5) as i32
+        };
+        let kf = k as f64;
+        // Two-piece ln2 so the subtraction stays exact in the high
+        // part and the tail rides along as `c`.
+        let hi = x - kf * LN2_HI;
+        let lo = kf * LN2_LO;
+        (k, hi - lo, (hi - (hi - lo)) - lo)
+    } else {
+        (0, x, 0.0)
+    };
+    let hfx = 0.5 * r;
+    let hxs = r * hfx;
+    let rr = 1.0 + hxs * (Q1 + hxs * (Q2 + hxs * (Q3 + hxs * (Q4 + hxs * Q5))));
+    let t = 3.0 - rr * hfx;
+    let mut e = hxs * ((rr - t) / (6.0 - r * t));
+    if k == 0 {
+        return r - (r * e - hxs);
+    }
+    e = r * (e - c) - c;
+    e -= hxs;
+    if k == -1 {
+        return 0.5 * (r - e) - 0.5;
+    }
+    if k == 1 {
+        if r < -0.25 {
+            return -2.0 * (e - (r + 0.5));
+        }
+        return 1.0 + 2.0 * (r - e);
+    }
+    if !(0..57).contains(&k) {
+        // Outside the window where the `- 1` would cancel, form
+        // `2^k · (1 + (r - e))` and subtract at the end. The
+        // subtraction is safe here precisely because the scaled
+        // value is far from 1 — which is also why it must not be
+        // forgotten: without it `Math.expm1(-2)` answers e⁻², not
+        // e⁻² − 1.
+        let y = 1.0 - (e - r);
+        return scale_by_pow2(y, k) - 1.0;
+    }
+    if k < 20 {
+        // Subtract `1 - 2^-k` in one exact piece.
+        let t = f64::from_bits(0x3ff0000000000000 - (0x20000000000000_u64 >> k));
+        let y = t - (e - r);
+        return scale_by_pow2(y, k);
+    }
+    let t = f64::from_bits(((0x3ff - k) as u64) << 52);
+    let y = r - (e + t);
+    scale_by_pow2(y + 1.0, k)
+}
+
+/// `y · 2^k` without a transcendental step — the exponent field is
+/// where the scale belongs.
+fn scale_by_pow2(y: f64, k: i32) -> f64 {
+    let bits = y.to_bits();
+    let exp_field = ((bits >> 52) & 0x7ff) as i32;
+    let new_exp = exp_field + k;
+    if new_exp >= 0x7ff {
+        return if y < 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            f64::INFINITY
+        };
+    }
+    if new_exp <= 0 {
+        // Subnormal or underflow — let the multiply handle the
+        // gradual case rather than open-coding it.
+        return y * pow_of_two(k);
+    }
+    f64::from_bits((bits & !(0x7ffu64 << 52)) | ((new_exp as u64) << 52))
+}
+
+/// `2^k` for an exponent the field can hold, built rather than
+/// computed.
+fn pow_of_two(k: i32) -> f64 {
+    if k > 1023 {
+        return f64::INFINITY;
+    }
+    if k < -1074 {
+        return 0.0;
+    }
+    if k >= -1022 {
+        return f64::from_bits(((k + 1023) as u64) << 52);
+    }
+    // Subnormal: build 2^-1022 then step down.
+    f64::from_bits(1u64 << (52 + 1022 + k))
 }
 
 /// `log1p(x) = ln(1 + x)` — backs `Math.log1p`.
@@ -147,19 +238,26 @@ pub extern "C" fn log1p(x: f64) -> f64 {
     if x == f64::INFINITY {
         return f64::INFINITY;
     }
-    let abs_x = x.abs();
-    if abs_x < 0.5 {
-        // Taylor: x − x²/2 + x³/3 − x⁴/4 + x⁵/5 − x⁶/6 + x⁷/7.
-        let x2 = x * x;
-        let x3 = x2 * x;
-        let x4 = x2 * x2;
-        let x5 = x4 * x;
-        let x6 = x4 * x2;
-        let x7 = x6 * x;
-        return x - x2 * 0.5 + x3 * (1.0 / 3.0) - x4 * 0.25 + x5 * 0.2 - x6 * (1.0 / 6.0)
-            + x7 * (1.0 / 7.0);
+    // A seven-term Taylor series used to cover |x| < 0.5, and its
+    // first dropped term is x⁸/8 — 1.25e-9 at x = 0.1, which is a
+    // relative error of 1.3e-8 in the answer. That error reached
+    // `Math.asinh` through this function and broke the
+    // `sinh(asinh(x)) ≈ x` round-trip.
+    //
+    // The correction below is the standard one (Higham §1.14.1, and
+    // what several libms use for lack of a dedicated kernel): form
+    // `u = 1 + x` and take `log(u)`, then scale by `x / (u - 1)`.
+    // `u - 1` recovers EXACTLY the perturbation the addition
+    // introduced, so the ratio undoes it. It reuses the accurate
+    // `log` rather than growing a second polynomial to keep in step
+    // with it.
+    let u = 1.0 + x;
+    if u == 1.0 {
+        // Nothing survived the addition, so `log(1+x) == x` to
+        // within the representation.
+        return x;
     }
-    log(1.0 + x)
+    log(u) * (x / (u - 1.0))
 }
 
 /// `log2(x) = log₂(x)` — backs `Math.log2`. Fast-paths exact

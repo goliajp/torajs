@@ -35,6 +35,7 @@
 
 use crate::exp::exp;
 use crate::log::log;
+use crate::misc::{expm1, log1p};
 
 /// Tiny-x threshold below which the polynomial cancellation in
 /// `eˣ − e⁻ˣ` exceeds the linear approximation error.
@@ -61,6 +62,20 @@ pub extern "C" fn sinh(x: f64) -> f64 {
         } else {
             f64::INFINITY
         };
+    }
+    // Below 22 the direct `(e - 1/e)/2` cancels: at x = 2.3e-8 both
+    // terms are 1 to sixteen digits and the answer is what is left
+    // after they eat each other — measured 16,777,216 ULP off on
+    // sm's sinh-approx. `expm1` keeps the small part small, so
+    // nothing large is ever subtracted (fdlibm's split).
+    if abs_x < 22.0 {
+        let t = expm1(abs_x);
+        let s = if abs_x < 1.0 {
+            0.5 * (2.0 * t - t * t / (t + 1.0))
+        } else {
+            0.5 * (t + t / (t + 1.0))
+        };
+        return if neg { -s } else { s };
     }
     let e = exp(abs_x);
     let s = (e - 1.0 / e) * 0.5;
@@ -106,8 +121,16 @@ pub extern "C" fn tanh(x: f64) -> f64 {
     if abs_x >= 22.0 {
         return if neg { -1.0 } else { 1.0 };
     }
-    let e2 = exp(2.0 * abs_x);
-    let t = 1.0 - 2.0 / (e2 + 1.0);
+    // `1 - 2/(e²ˣ + 1)` cancels for small x the same way sinh does:
+    // the quotient is 1 to sixteen digits and the answer is the
+    // remainder. `expm1(-2|x|)` carries that remainder directly.
+    let t = if abs_x < 1.0 {
+        let u = expm1(-2.0 * abs_x);
+        -u / (u + 2.0)
+    } else {
+        let u = expm1(2.0 * abs_x);
+        u / (u + 2.0)
+    };
     if neg { -t } else { t }
 }
 
@@ -124,8 +147,16 @@ pub extern "C" fn asinh(x: f64) -> f64 {
     let neg = x.is_sign_negative();
     // For |x| ≫ 1 the `x + √(x² + 1) → 2x` simplification keeps
     // precision; the bare form would lose bits when `x²` rounds.
+    // `log(x + √(x²+1))` hands `log` an argument of 1 + something
+    // tiny, and `log` cannot see the tiny part once it has been
+    // added — 13,181,571 ULP off at x = 2.3e-8. `log1p` takes the
+    // tiny part as its own argument, and the algebraic rewrite
+    // `x + √(x²+1) = 1 + x + x²/(1 + √(x²+1))` produces it without
+    // ever forming the 1.
     let r = if abs_x > 1e9 {
         log(2.0 * abs_x)
+    } else if abs_x < 2.0 {
+        log1p(abs_x + abs_x * abs_x / (1.0 + (abs_x * abs_x + 1.0).sqrt()))
     } else {
         log(abs_x + (abs_x * abs_x + 1.0).sqrt())
     };
@@ -176,7 +207,16 @@ pub extern "C" fn atanh(x: f64) -> f64 {
     if abs_x < TINY {
         return x;
     }
-    0.5 * log((1.0 + x) / (1.0 - x))
+    // `(1+x)/(1-x)` is 1 plus something tiny for small x, and the
+    // division rounds the tiny part away before `log` sees it.
+    // `log1p` on the algebraically equal `2x + 2x²/(1-x)` keeps it.
+    let neg = x.is_sign_negative();
+    let r = if abs_x < 0.5 {
+        0.5 * log1p(2.0 * abs_x + 2.0 * abs_x * abs_x / (1.0 - abs_x))
+    } else {
+        0.5 * log((1.0 + abs_x) / (1.0 - abs_x))
+    };
+    if neg { -r } else { r }
 }
 
 #[cfg(test)]
