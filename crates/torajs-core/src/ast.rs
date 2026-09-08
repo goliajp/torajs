@@ -42,6 +42,7 @@ mod annexb_fn_var;
 mod annexb_names;
 pub(crate) mod arguments_object_escape_store;
 mod build_factory;
+mod builtin_global_assign;
 pub(crate) mod capturing_classes;
 mod class_globals;
 mod class_globals_register;
@@ -241,6 +242,7 @@ pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
 pub use arrow_arguments_alias::alias_arrow_arguments;
 pub(crate) use build_factory::build_factory_body;
+pub use builtin_global_assign::demote_assigned_builtin_globals;
 pub use class_globals::{
     CLASS_PROLOGUE_FN, class_display_name, rewrite_class_expr_self_names, synthesize_class_globals,
 };
