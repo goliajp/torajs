@@ -228,8 +228,9 @@ fn emit_fnsig_call(
     // coercion as the direct-call terminal: an Array-literal arg
     // into an any param used to pass its typed repr raw (elem reads
     // answered undefined).
-    let coerce_owned =
-        crate::ssa_lower_call_terminal::coerce_args_by_param_tys(ctx, &params, args, &mut argv);
+    let coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
+        ctx, &params, args, &mut argv,
+    );
     crate::ssa_lower_call_terminal::pad_undef_n(ctx, pad_n, &mut argv);
     let result = if ret_ty == Type::Void {
         ctx.f.append_void(
@@ -463,7 +464,7 @@ fn emit_closure_call(
     // coercion as the direct-call terminal (the leading env / `__this`
     // slots are ours; the user args align with the user param list).
     let user_params = site.user_params.clone();
-    let coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+    let coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
         ctx,
         &user_params,
         args,

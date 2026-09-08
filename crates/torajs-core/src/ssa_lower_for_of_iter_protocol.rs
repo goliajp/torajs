@@ -63,7 +63,7 @@ fn emit_next_call(
     // `any`-yield generator's numeric-zero placeholder default has to
     // reach an Any param boxed).
     let coerce_owned = if next_param_tys.len() == next_argv.len() {
-        crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+        crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
             ctx,
             &next_param_tys[1..],
             next_defaults,

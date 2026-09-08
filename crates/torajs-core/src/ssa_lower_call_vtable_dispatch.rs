@@ -112,7 +112,7 @@ pub(crate) fn try_lower(
     let coerce_owned = match sig_id {
         Some(sig) => {
             let param_tys = ctx.fn_sigs[sig.0 as usize].0.clone();
-            crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+            crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
                 ctx,
                 param_tys.get(1..).unwrap_or(&[]),
                 args.get(1..).unwrap_or(&[]),

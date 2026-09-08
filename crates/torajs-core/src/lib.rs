@@ -404,6 +404,7 @@ pub(crate) mod ssa_lower_call_symbol_ctor;
 pub(crate) mod ssa_lower_call_symbol_registry;
 pub(crate) mod ssa_lower_call_template_object;
 pub(crate) mod ssa_lower_call_terminal;
+pub(crate) mod ssa_lower_call_terminal_coerce;
 pub(crate) mod ssa_lower_call_terminal_headless;
 pub(crate) mod ssa_lower_call_typedarray;
 mod ssa_lower_call_uint8array_static;

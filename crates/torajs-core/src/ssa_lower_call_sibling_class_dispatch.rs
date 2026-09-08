@@ -130,7 +130,7 @@ pub(crate) fn try_lower(
     // so `g.next(42)` came through here and the generator's
     // resumption value read back as a garbage NaN-box). The sig is
     // receiver-first: user args align to params[1..].
-    let mut coerce_owned = crate::ssa_lower_call_terminal::coerce_args_by_param_tys(
+    let mut coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
         ctx,
         param_tys.get(1..).unwrap_or(&[]),
         head,
