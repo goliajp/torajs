@@ -204,7 +204,22 @@ pub(crate) fn emit_to_number(
         // and NaN. That whole ladder lives in the runtime kernel the
         // any lane already used; the typed spelling boxes the pointer
         // (a pure encode, no rc traffic) and asks the same question.
-        Type::Obj(_) => {
+        // The heap cells reach the same ladder — §7.1.4 step 8 does not
+        // care which cell it is, and the kernel reads the header tag:
+        // a Date answers its timestamp through `valueOf`, everything
+        // else falls to `toString` and NaN. `Number(d as any)` gave 0
+        // while `Number(d)` was a compile error.
+        Type::Obj(_)
+        | Type::RegExp
+        | Type::Map
+        | Type::Set
+        | Type::WeakMap
+        | Type::WeakSet
+        | Type::WeakRef
+        | Type::MapIter
+        | Type::ArrIter
+        | Type::Date
+        | Type::Promise => {
             let boxed = ctx.box_to_any(arg_op.clone());
             let n = ctx.coerce_any_to_number(boxed, Type::F64);
             // A user `valueOf` can throw.

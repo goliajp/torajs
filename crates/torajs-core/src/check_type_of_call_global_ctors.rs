@@ -216,6 +216,22 @@ fn try_primitive_coercion_ctor(
                     // (𝔽(ℝ(value))); implicit ToNumber keeps
                     // throwing.
                     | Type::BigInt
+                    // §7.1.4 step 8 again — the heap cells run the
+                    // same OrdinaryToPrimitive(number) ladder the
+                    // Struct arm above runs. A Date answers its
+                    // timestamp through `valueOf`; the rest fall to
+                    // `toString` and NaN. Same ten as the `String`
+                    // arm below, minus nothing.
+                    | Type::RegExp
+                    | Type::Map
+                    | Type::Set
+                    | Type::WeakMap
+                    | Type::WeakSet
+                    | Type::WeakRef
+                    | Type::MapIter
+                    | Type::ArrIter
+                    | Type::Date
+                    | Type::Promise(_)
             ),
             // S137 — `String(arr)` routes to arr_join (ES §22.1.3.30 same path
             // as `arr.toString`); `String(struct)` is the generic Object
