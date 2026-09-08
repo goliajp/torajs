@@ -130,7 +130,15 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
         eprintln!("error: {e}");
         ExitCode::from(2)
     })?;
-    let tokens = lexer::tokenize(&src).map_err(|e| {
+    // annexB §B.1.3 — Script-only, and the goal is knowable here (same
+    // extension mapping the AST bit is stamped from, a few lines down).
+    let sloppy_goal = sloppy_goal_for(input);
+    let lex = if sloppy_goal {
+        lexer::tokenize_script
+    } else {
+        lexer::tokenize
+    };
+    let tokens = lex(&src).map_err(|e| {
         eprintln!("lex error: {e}");
         ExitCode::from(1)
     })?;
@@ -142,7 +150,7 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     ast.warm_newline_cache();
     // RFC 20260810-sloppy-goal-arguments S1 — goal bit from the input
     // extension (bun mapping: `.cts` = CommonJS sloppy).
-    ast.sloppy_script_goal = sloppy_goal_for(input);
+    ast.sloppy_script_goal = sloppy_goal;
     // Goal-triage gates that must beat the resolver's diagnostics —
     // see ast_pipeline.rs.
     ast_pipeline::run_pre_resolve_gates(&mut ast).map_err(|()| ExitCode::from(1))?;

@@ -175,7 +175,17 @@ fn run_pipeline(file_arg: Option<&String>, stage: Stage) -> ExitCode {
 }
 
 fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> ExitCode {
-    let tokens = match lexer::tokenize(src) {
+    // annexB §B.1.3 HTML-like comments are Script-only, and the goal is
+    // knowable here — it comes from the input extension. The lexer has
+    // had the Script-goal stream all along; nothing but the eval channel
+    // was reaching it, because a whole program used to be a module by
+    // assumption.
+    let lex = if sloppy_goal {
+        lexer::tokenize_script
+    } else {
+        lexer::tokenize
+    };
+    let tokens = match lex(src) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("lex error: {e}");
