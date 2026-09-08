@@ -512,6 +512,13 @@ fn run_case(
         // shape). It compares the thrown VALUE, not its constructor,
         // which is the whole reason the sm suite reaches for it.
         "sm/assertThrowsValue.js",
+        // 2026-09-08 — sm's Math shell: `assertNear` plus the two
+        // epsilon constants. Ported faithfully, self-checks included
+        // — the helper's whole value is that it compares by
+        // representable-values-apart rather than by an absolute
+        // epsilon, so a loosened port would answer a different
+        // question than the cases ask.
+        "sm/non262-Math-shell.js",
     ];
     let unported: Vec<&str> = fm
         .includes

@@ -2131,3 +2131,84 @@ function assertThrowsValue(f: any, val: any, msg: any = undefined): void {
   }
   throw new Test262Error(fullmsg);
 }
+
+// ─── sm/non262-Math-shell.js port (2026-09-08) ───
+//
+// `assertNear(a, b, tolerance = 1)` compares two doubles by how many
+// representable values lie between them, not by an absolute epsilon —
+// which is the whole reason the sm Math suite reaches for it. The
+// port keeps that meaning exactly: the same Float64Array/Uint32Array
+// aliasing, the same endianness probe, and the same three self-checks
+// the stock shell runs at load time (they verify the bit arithmetic
+// rather than anything about the case, so dropping them would make a
+// broken `diff` look like a passing suite).
+//
+// `ONE_PLUS_EPSILON` / `ONE_MINUS_EPSILON` are the shell's own
+// constants, defined here under the same names the cases spell.
+const ONE_PLUS_EPSILON = 1 + Math.pow(2, -52);
+const ONE_MINUS_EPSILON = 1 - Math.pow(2, -53);
+
+var __t262_near_f = new Float64Array([0, 0]);
+var __t262_near_u = new Uint32Array(__t262_near_f.buffer);
+// 0 for little-endian, 1 for big-endian — settled by the probe below.
+var __t262_near_endian = 0;
+
+// The difference between the IEEE 754 bit patterns of a and b.
+// Meaningful when both are finite and share a sign: 0 when they are
+// equal, otherwise one more than the count of representable values
+// between them.
+function __t262_ulp_diff(a: number, b: number): number {
+  __t262_near_f[0] = a;
+  __t262_near_f[1] = b;
+  const hi = __t262_near_u[3 - __t262_near_endian] - __t262_near_u[1 - __t262_near_endian];
+  const lo = __t262_near_u[2 + __t262_near_endian] - __t262_near_u[0 + __t262_near_endian];
+  return Math.abs(hi * 0x100000000 + lo);
+}
+
+// The exact wrong answer a big-endian platform gives for diff(2, 4).
+if (__t262_ulp_diff(2, 4) === 0x100000) {
+  __t262_near_endian = 1;
+}
+
+function __t262_near_selfcheck(a: number, b: number, expect: number, detail: string): void {
+  const result = __t262_ulp_diff(a, b);
+  if (result === expect) {
+    return;
+  }
+  throw new Test262Error(
+    "Expected diff(" + String(a) + ", " + String(b) + ") to be " + String(expect) +
+      " but got " + String(result) + " [" + detail + "]",
+  );
+}
+
+__t262_near_selfcheck(2, 4, 0x10000000000000, "wanted 0x10000000000000");
+__t262_near_selfcheck(0, Number.MIN_VALUE, 1, "0 vs. Number.MIN_VALUE");
+__t262_near_selfcheck(1, ONE_PLUS_EPSILON, 1, "1 vs. ONE_PLUS_EPSILON");
+__t262_near_selfcheck(1, ONE_MINUS_EPSILON, 1, "1 vs. ONE_MINUS_EPSILON");
+
+function assertNear(a: number, b: number, tolerance: number = 1): void {
+  if (!Number.isFinite(b)) {
+    throw new Test262Error(
+      "second argument to assertNear (expected value) must be a finite number",
+    );
+  }
+  if (Number.isNaN(a)) {
+    throw new Test262Error("got NaN, expected a number near " + String(b));
+  }
+  if (!Number.isFinite(a)) {
+    if (b * Math.sign(a) < Number.MAX_VALUE) {
+      throw new Test262Error("got " + String(a) + ", expected a number near " + String(b));
+    }
+    return;
+  }
+  // When the two do not share a sign bit `diff` answers something
+  // huge, so a zero expectation takes the sign of what we got.
+  const target = b === 0 ? a * 0 : b;
+  const err = __t262_ulp_diff(a, target);
+  if (err > tolerance) {
+    throw new Test262Error(
+      "got " + String(a) + ", expected a number near " + String(b) +
+        " (relative error: " + String(err) + ")",
+    );
+  }
+}
