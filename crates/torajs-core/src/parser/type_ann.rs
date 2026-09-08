@@ -264,6 +264,15 @@ impl<'a> Parser<'a> {
             // there — TS only allows `this` types inside class
             // bodies anyway, so this matches the spec.
             Token::This => "this".to_string(),
+            // `null` as a type annotation — TS's null type, whose only
+            // value is `null`. It lexes as a keyword, not an Ident, so
+            // it never reached the arm above, while `undefined` (an
+            // Ident) has always resolved. Both ends of the pipeline
+            // were already waiting for the spelling: `check_type_ann`
+            // answers `Type::Null` for it and `ssa_lower_parse_type`
+            // answers the null-shaped pointer. Only the parser could
+            // not say the word.
+            Token::Null => "null".to_string(),
             t => {
                 return Err(format!("expected type name, got {t:?} at {}", self.at()));
             }
@@ -394,6 +403,23 @@ impl<'a> Parser<'a> {
             _ => false,
         };
         if !nullish {
+            // `null | number` is the same type as `number | null`, and
+            // TS accepts both orders. Reading only the trailing form
+            // made the nullish side's position load-bearing: the exact
+            // union tsc reports no error for was a parse error here.
+            // The already-parsed side IS the nullish one, so the type
+            // to wrap is the one still ahead.
+            if name == "null" || name == "undefined" {
+                let inner = self.parse_type_ann()?;
+                // `null | number | undefined` wraps once: a nullable of
+                // a nullable is the same set of values, and the marker
+                // is not recursive downstream.
+                return Ok(if inner.starts_with("__nullable(") {
+                    inner
+                } else {
+                    format!("__nullable({inner})")
+                });
+            }
             return Err(format!(
                 "only `T | null` and `T | undefined` unions are supported (no other unions yet); got {:?} at {}",
                 self.peek(),
