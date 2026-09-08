@@ -117,6 +117,32 @@ impl<'a> Parser<'a> {
         r
     }
 
+    /// Run `f` — a FormalParameters parse — with the grammar's
+    /// `[Await]` parameter set to this function's own asyncness.
+    ///
+    /// §15.8.1 gives an async function's FormalParameters `[+Await]`,
+    /// so `async function f(await) {}` and `async function f(x =
+    /// await) {}` are Syntax Errors while the same spellings under a
+    /// plain function in a Script are ordinary names. Every callable
+    /// form parses its params BEFORE swapping in the body context, so
+    /// without this wrapper the params are judged by the ENCLOSING
+    /// bit — which at a program's top level is `false`, and the early
+    /// error is silently downgraded to an unknown-identifier warning.
+    ///
+    /// The companion `in_formal_params` flag is what refuses an
+    /// AwaitExpression here; this one refuses the NAME, and only the
+    /// two together cover §15.8.1.
+    pub(super) fn with_async_params<T>(
+        &mut self,
+        is_async: bool,
+        f: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let saved = std::mem::replace(&mut self.await_reserved, is_async);
+        let r = f(self);
+        self.await_reserved = saved;
+        r
+    }
+
     /// §13.15.1 / §13.4.2-5 AssignmentTargetType early errors —
     /// every assignment / update form (`=`, compounds, `++`/`--`)
     /// routes its target through here.

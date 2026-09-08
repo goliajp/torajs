@@ -101,7 +101,7 @@ impl<'a> Parser<'a> {
             let (p, pr, dl) = self.parse_ctor_param_list()?;
             (p, pr, dl)
         } else {
-            let (mut p, dl) = self.parse_param_list()?;
+            let (mut p, dl) = self.with_async_params(is_async, |p| p.parse_param_list())?;
             self.finish_formal_params(&p, &dl, true)?;
             self.reject_accessor_arity(accessor_kind, &p, &member_name.lossy())?;
             // 刀 1b — method-position default params infer their ann

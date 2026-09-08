@@ -379,7 +379,8 @@ impl<'a> Parser<'a> {
         err_ctx: &str,
         is_async: bool,
     ) -> Result<ExprId, String> {
-        let (mut params, destr_lets) = self.parse_param_list()?;
+        let (mut params, destr_lets) =
+            self.with_async_params(is_async, |p| p.parse_param_list())?;
         // Method shorthand and accessors are method definitions.
         self.finish_formal_params(&params, &destr_lets, true)?;
         if infer_defaults {

@@ -17,7 +17,8 @@ impl<'a> Parser<'a> {
         // arrow. Gates the body's `await` legality below.
         let was_async_prefixed = std::mem::take(&mut self.pending_async_fn_expr);
         self.pos += 1;
-        let (params, param_destr_lets) = self.parse_arrow_param_list()?;
+        let (params, param_destr_lets) =
+            self.with_async_params(was_async_prefixed, |p| p.parse_arrow_param_list())?;
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             // 552-03 — the annotation between here and the body `=>`

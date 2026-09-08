@@ -70,7 +70,8 @@ impl<'a> Parser<'a> {
         // The name above stayed on the enclosing scope's bit. Error
         // paths do not restore, per the saved_super rationale below.
         let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
-        let (params, param_destr_lets) = self.parse_fn_params()?;
+        let (params, param_destr_lets) =
+            self.with_async_params(is_async, |p| p.parse_fn_params())?;
         let mut return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             Some(self.parse_type_ann()?)

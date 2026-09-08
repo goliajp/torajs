@@ -263,7 +263,8 @@ impl<'a> Parser<'a> {
         // self-name above stayed on the enclosing scope's bit). Error
         // paths do not restore (failed parse, value moot).
         let saved_gen = std::mem::replace(&mut self.in_generator, is_generator);
-        let (params, destr_lets) = self.parse_param_list()?;
+        let (params, destr_lets) =
+            self.with_async_params(was_async_prefixed, |p| p.parse_param_list())?;
         // A function *expression* takes plain FormalParameters.
         self.finish_formal_params(&params, &destr_lets, false)?;
         let mut return_type = if matches!(self.peek(), Token::Colon) {

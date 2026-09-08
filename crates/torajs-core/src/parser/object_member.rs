@@ -67,7 +67,8 @@ impl<'a> Parser<'a> {
 
         // Params — reuse the standard param parser (handles
         // destructuring + type anns).
-        let (mut params, destr_lets) = self.parse_param_list()?;
+        // This form IS the async shorthand, so its params are [+Await].
+        let (mut params, destr_lets) = self.with_async_params(true, |p| p.parse_param_list())?;
         self.finish_formal_params(&params, &destr_lets, true)?;
         // 刀 1b — method-position default params infer their ann
         // from the default (see param_list.rs).
