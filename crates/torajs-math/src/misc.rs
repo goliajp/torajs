@@ -44,7 +44,6 @@
 
 use crate::exp::exp;
 use crate::log::log;
-use core::f64::consts::{LN_2, LN_10};
 
 /// `cbrt(x) = ∛x` — backs `Math.cbrt`.
 #[unsafe(no_mangle)]
@@ -199,7 +198,17 @@ pub extern "C" fn log2(x: f64) -> f64 {
     } else if mant == 0 {
         return (exp_field - 1023) as f64;
     }
-    log(x) / LN_2
+    // `log(x) / ln2` makes the scale change fight the decomposition:
+    // `log` has already folded `k · ln2` into its answer, so dividing
+    // puts a value as large as 744 through the rounding, and what
+    // comes back has lost the low bits `k` contributed. Keeping `k`
+    // outside — `log2(x) = k + log2(m)` — sends only the mantissa
+    // through, whose own log is at most 0.5 in magnitude. fdlibm's
+    // own log2 splits it the same way. Measured against
+    // `Math.log2(Math.pow(2, i)) === i` over the whole exponent
+    // range, and on the sm suite's log2-approx.
+    let (k, m) = crate::log::decompose(x);
+    k as f64 + log(m) * core::f64::consts::LOG2_E
 }
 
 /// `log10(x) = log₁₀(x)` — backs `Math.log10`.
@@ -251,7 +260,18 @@ pub extern "C" fn log10(x: f64) -> f64 {
             return lg;
         }
     }
-    log(x) / LN_10
+    // Same recomposition as log2, one step longer: base 10 needs the
+    // scale factor `log10(2)` on `k`, and that factor is not exactly
+    // representable, so multiplying a `k` as large as 1074 by a
+    // single rounded constant puts the error straight back. fdlibm
+    // carries it in two pieces — the high part exact in the product,
+    // the low part folded in beside the mantissa term.
+    const IVLN10: f64 = 4.34294481903251816668e-01;
+    const LOG10_2HI: f64 = 3.01029995663611771306e-01;
+    const LOG10_2LO: f64 = 3.69423907715893089906e-13;
+    let (k, m) = crate::log::decompose(x);
+    let kf = k as f64;
+    kf * LOG10_2HI + (kf * LOG10_2LO + log(m) * IVLN10)
 }
 
 #[cfg(test)]

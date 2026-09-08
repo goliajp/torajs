@@ -41,20 +41,14 @@ const LG7: f64 = 1.479819860511658591e-01;
 
 /// `log(x) -> ln(x)` — backs `Math.log` and the LLVM-emitted libm
 /// `log` symbol; replaces the `f64::ln` path that linked to libc.
-#[unsafe(no_mangle)]
-pub extern "C" fn log(x: f64) -> f64 {
-    // NaN / negative → NaN; `-0` is negative (sign bit set).
-    if x.is_nan() || x < 0.0 {
-        return f64::NAN;
-    }
-    if x == 0.0 {
-        return f64::NEG_INFINITY;
-    }
-    if x.is_infinite() {
-        return f64::INFINITY;
-    }
-
-    // Decompose x = 2^k · m, m ∈ [1, 2).
+/// Split a finite positive `x` into `2^k · m` with `m ∈ [√2/2, √2)`.
+///
+/// The narrow mantissa range is what makes the fdlibm polynomial
+/// accurate, and it is also what the base-2 and base-10 logs want:
+/// with `k` kept OUTSIDE the transcendental step, only a value whose
+/// own log is at most 0.5 in magnitude passes through the scale
+/// change, so the scaling cannot amplify its error.
+pub(crate) fn decompose(x: f64) -> (i32, f64) {
     let bits = x.to_bits();
     let raw_exp = ((bits >> 52) & 0x7ff) as i32;
     let mut k: i32;
@@ -75,6 +69,23 @@ pub extern "C" fn log(x: f64) -> f64 {
         m *= 0.5;
         k += 1;
     }
+    (k, m)
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn log(x: f64) -> f64 {
+    // NaN / negative → NaN; `-0` is negative (sign bit set).
+    if x.is_nan() || x < 0.0 {
+        return f64::NAN;
+    }
+    if x == 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if x.is_infinite() {
+        return f64::INFINITY;
+    }
+
+    let (k, m) = decompose(x);
 
     // f = m - 1, s = f / (2 + f), z = s², w = z².
     let f = m - 1.0;
