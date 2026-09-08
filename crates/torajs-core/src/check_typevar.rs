@@ -198,6 +198,16 @@ fn any_absorbing_join(
         // as `X` and tr refused as a conflict the moment rotation 509
         // gave the dispatch stub its rows' return type. Unrelated
         // classes still conflict — their join is not a class.
+        // The Undefined sibling of the Null rows above, on the same
+        // reasoning and wider. `undefined` stands beside every
+        // concrete type as its absence: TS binds `T` for
+        // `sameValue(x[2], undefined)` — a read past an array's
+        // length — as `number | undefined`, and Any is tr's one repr
+        // that carries both. Null keeps its narrow measured rows;
+        // this row is the whole type domain, because a beyond-length
+        // read and an absent argument put `undefined` next to every
+        // concrete type the suite has.
+        (Type::Undefined, _) | (_, Type::Undefined) => Some(Type::Any),
         (Type::ClassRef(x), Type::ClassRef(y)) => class_join(x, y, parents),
         _ => None,
     }
