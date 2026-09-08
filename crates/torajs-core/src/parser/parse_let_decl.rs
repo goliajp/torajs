@@ -64,6 +64,10 @@ impl<'a> Parser<'a> {
                     self.ast.yield_ident_positions.push(at);
                     "yield".to_string()
                 }
+                // §13.1.1 — `await` is an ordinary BindingIdentifier
+                // outside an async body, whatever the strictness; the
+                // module-goal half is the recorded site's job.
+                Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
                 // §12.7.2 / §14.3.1.1 — `var let = 1` is an ordinary
                 // sloppy declaration, but `let let` and `const let`
                 // are Syntax Errors even in sloppy code, so only the

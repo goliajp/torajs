@@ -59,6 +59,7 @@ impl<'a> Parser<'a> {
                     self.pos += 1; // consume `=>` (lookahead-guaranteed)
                     // §15.8.1 — this IS an async body: await is legal.
                     let saved_await = std::mem::replace(&mut self.await_allowed, true);
+                    let saved_await_res = std::mem::replace(&mut self.await_reserved, true);
                     let body_result = if matches!(self.peek(), Token::LBrace) {
                         self.pos += 1;
                         let mut stmts = Vec::new();
@@ -95,6 +96,7 @@ impl<'a> Parser<'a> {
                         })
                     };
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     let body = body_result?;
                     self.ast.add_expr(Expr::ArrowFn {
                         params: vec![Param {

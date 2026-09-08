@@ -151,6 +151,17 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 n
             }
+            // §13.1.1 — `await` names a class outside an async body;
+            // the module-goal half is the recorded site's job. This
+            // arm sits ABOVE the anonymous fallback on purpose: let it
+            // fall through and `var C = class await {}` would parse as
+            // an ANONYMOUS class followed by a stray `await`, which is
+            // a silent misread rather than a reject.
+            Token::Await if self.await_reads_as_ident() => {
+                let n = self.admit_await_ident();
+                self.pos += 1;
+                n
+            }
             // P8.5 — anonymous class expression (`const F = class { ... }`,
             // `new (class { ... })()`). Mint a unique synth name that
             // `synthesize_class_globals` will expose as

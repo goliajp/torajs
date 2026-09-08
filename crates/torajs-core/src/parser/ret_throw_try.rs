@@ -87,6 +87,14 @@ impl<'a> Parser<'a> {
                         self.note_strict_binding(&s, self.in_strict_fn)?;
                         s
                     }
+                    // §13.1.1 — CatchParameter is a BindingIdentifier
+                    // [?Yield, ?Await], so `await` names one outside an
+                    // async body; the module-goal half is recorded.
+                    Token::Await if self.await_reads_as_ident() => {
+                        let n = self.admit_await_ident();
+                        self.pos += 1;
+                        n
+                    }
                     // §14.15 CatchParameter : BindingPattern
                     // (`catch ({ x = 1, ...r })`, `catch ([a, [b] = [],
                     // ...rest])`). The shared PatShape reader parses the

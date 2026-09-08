@@ -163,6 +163,10 @@ impl<'a> Parser<'a> {
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
                     }
+                    // §13.1.1 — `await` is an ordinary BindingIdentifier
+                    // outside an async body, whatever the strictness; the
+                    // module-goal half is the recorded site's job.
+                    Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
                     // §12.7.2 — a sloppy parameter may be named
                     // `let`; the site records for the goal gate.
                     Token::Let if self.let_reads_as_ident() => {
@@ -372,6 +376,10 @@ impl<'a> Parser<'a> {
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
                     }
+                    // §13.1.1 — `await` is an ordinary BindingIdentifier
+                    // outside an async body, whatever the strictness; the
+                    // module-goal half is the recorded site's job.
+                    Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
                     // §12.7.2 — a sloppy parameter may be named
                     // `let`; the site records for the goal gate.
                     Token::Let if self.let_reads_as_ident() => {

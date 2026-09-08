@@ -237,6 +237,7 @@ impl<'a> Parser<'a> {
             yield_hoist_allowed: self.yield_hoist_allowed,
             in_formal_params: self.in_formal_params,
             await_allowed: self.await_allowed,
+            await_reserved: self.await_reserved,
         };
         let result = sub.parse_expr()?;
         // Tokens vec ends with Token::Eof; anything before

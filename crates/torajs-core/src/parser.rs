@@ -292,6 +292,27 @@ struct Parser<'a> {
     /// and restores on exit; a class static block forces false
     /// (§15.7.1 ClassStaticBlockBody may not contain await).
     await_allowed: bool,
+    /// The grammar's `[Await]` parameter — whether `await` is a
+    /// reserved word HERE, which is the question a BINDING position
+    /// asks about it. True inside an async body (§15.8.1) and inside a
+    /// ClassStaticBlockBody (§15.7.1: ContainsAwait is a Syntax Error
+    /// there, even though the word is fine again inside a nested
+    /// non-async function).
+    ///
+    /// Distinct from [`Parser::await_allowed`], which answers a
+    /// different question — may an AwaitExpression appear. The two
+    /// differ in exactly two places: a program's top level (that one
+    /// is `true` so a module may top-level-await, this one `false` so
+    /// `var await = 1` stays an ordinary Script-goal declaration) and
+    /// a static block (that one `false`, this one `true`). Everywhere
+    /// else they move together, which is why each body parse replaces
+    /// them on the same line.
+    ///
+    /// The goal half of the judgement is NOT here: `await` is reserved
+    /// under the Module goal too, and the goal bit is stamped after
+    /// the parse, so admitted sites go to `ast.await_ident_positions`
+    /// for `ast::triage_await_idents`.
+    await_reserved: bool,
     /// P-SURF S2.37 — name of the class whose STATIC member body we
     /// are currently inside, or None elsewhere. While set, `this`
     /// mints `Ident(<ClassName>)` directly: per ES §15.7.14 a static

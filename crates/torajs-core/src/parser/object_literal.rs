@@ -413,6 +413,7 @@ impl<'a> Parser<'a> {
         // §15.8.1 — a non-async method/accessor body may not await;
         // an async one may.
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, is_async);
         let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -423,6 +424,7 @@ impl<'a> Parser<'a> {
                 }
                 Err(e) => {
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     self.super_call_allowed = saved_super;
                     self.super_prop_allowed = saved_super_prop;
                     return Err(e);
@@ -430,6 +432,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         self.super_call_allowed = saved_super;
         self.super_prop_allowed = saved_super_prop;
         match self.peek() {

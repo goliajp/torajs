@@ -170,6 +170,7 @@ impl<'a> Parser<'a> {
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, is_async);
         // Knife 4d — arena range for the `arguments` rename sweep
         // below (the class half does the same, see
         // parse_class_decl_generator.rs knife 2b).
@@ -184,6 +185,7 @@ impl<'a> Parser<'a> {
                 }
                 Err(e) => {
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     self.super_call_allowed = saved_super;
@@ -193,6 +195,7 @@ impl<'a> Parser<'a> {
             }
         }
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;

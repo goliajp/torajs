@@ -90,6 +90,7 @@ impl<'a> Parser<'a> {
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, is_async);
         let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -103,6 +104,7 @@ impl<'a> Parser<'a> {
                     self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     return Err(e);
                 }
             }
@@ -111,6 +113,7 @@ impl<'a> Parser<'a> {
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         self.super_call_allowed = saved_super;
         // Byte end of the MethodDefinition span (ES §20.2.3.5) — the
         // closing `}`, captured before it is consumed, same as the

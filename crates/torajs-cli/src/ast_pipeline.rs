@@ -59,6 +59,13 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // `await`-as-identifier goal triage (§13.1.1) — the yield gate's
+    // sibling, judged on the goal axis alone: the word is reserved in
+    // module code and an ordinary name in a Script, strict or not.
+    if let Some(msg) = ast::triage_await_idents(ast) {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // §12.7.2 strict-only future reserved words, goal half — same
     // reason it sits with the yield gate rather than in the prelude.
     if let Some(msg) = ast::triage_strict_reserved_idents(ast) {

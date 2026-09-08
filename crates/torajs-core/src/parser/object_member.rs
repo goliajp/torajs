@@ -93,6 +93,7 @@ impl<'a> Parser<'a> {
         }
         // §15.8.1 — this IS an async body: await is legal.
         let saved_await = std::mem::replace(&mut self.await_allowed, true);
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, true);
         let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -103,11 +104,13 @@ impl<'a> Parser<'a> {
                 }
                 Err(e) => {
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     return Err(e);
                 }
             }
         }
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

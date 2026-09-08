@@ -170,6 +170,8 @@ impl<'a> Parser<'a> {
             // asyncness (a constructor is never async).
             let saved_await =
                 std::mem::replace(&mut self.await_allowed, is_async && !is_ctor_branch);
+            let saved_await_res =
+                std::mem::replace(&mut self.await_reserved, is_async && !is_ctor_branch);
             let strict_outer = self.in_strict_fn;
             let mut body = Vec::new();
             while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -180,12 +182,14 @@ impl<'a> Parser<'a> {
                     }
                     Err(e) => {
                         self.await_allowed = saved_await;
+                        self.await_reserved = saved_await_res;
                         self.static_this_class = saved_static_this;
                         return Err(e);
                     }
                 }
             }
             self.await_allowed = saved_await;
+            self.await_reserved = saved_await_res;
             self.static_this_class = saved_static_this;
             self.super_call_allowed = saved_super;
             match self.peek() {

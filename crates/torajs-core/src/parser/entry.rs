@@ -128,6 +128,11 @@ pub fn parse_into_eval(
         yield_hoist_allowed: true,
         in_formal_params: false,
         await_allowed: true,
+        // The one place the two differ: a program's top level may
+        // top-level-await (module goal) but is not an async body, so a
+        // `await` in a BINDING position here is an ordinary Script-goal
+        // name for `ast::triage_await_idents` to judge by goal.
+        await_reserved: false,
     };
     let result = p.parse_program();
     // Private `#x` references parse to `__privu_<site>__<raw>`

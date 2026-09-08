@@ -24,6 +24,14 @@ impl<'a> Parser<'a> {
         // `await` anywhere in a ClassStaticBlockBody.
         let saved_super = std::mem::replace(&mut self.super_call_allowed, false);
         let saved_await = std::mem::replace(&mut self.await_allowed, false);
+        // §15.7.1 — the ONE place the two bits part company in the
+        // other direction: a static block may not contain an
+        // AwaitExpression (so `await_allowed` is false) AND may not
+        // spell `await` as a name (ContainsAwait covers both), so the
+        // grammar parameter stays ON. A nested non-async function
+        // inside the block turns it back off, which is what makes
+        // test262's `static { (() => { class await {} }) }` legal.
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, true);
         // 420-03 — §15.7.14 binds `this` to the class object in a
         // static block, the same binding a static method body gets.
         // Only the method arm used to say so, so a block's `this`
@@ -39,6 +47,7 @@ impl<'a> Parser<'a> {
                 Err(e) => {
                     self.static_this_class = saved_static_this;
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     self.super_call_allowed = saved_super;
                     return Err(e);
                 }
@@ -47,6 +56,7 @@ impl<'a> Parser<'a> {
         }
         self.static_this_class = saved_static_this;
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         self.super_call_allowed = saved_super;
         if !matches!(self.peek(), Token::RBrace) {
             return Err(format!(

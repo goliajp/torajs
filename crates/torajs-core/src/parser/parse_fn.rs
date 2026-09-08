@@ -41,6 +41,10 @@ impl<'a> Parser<'a> {
                 self.ast.yield_ident_positions.push(at);
                 "yield".to_string()
             }
+            // §13.1.1 — `await` is an ordinary BindingIdentifier
+            // outside an async body, whatever the strictness; the
+            // module-goal half is the recorded site's job.
+            Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
             // §12.7.2 — a sloppy function may be named `let`.
             Token::Let if self.let_reads_as_ident() => {
                 self.record_strict_goal_site("let");
@@ -150,6 +154,7 @@ impl<'a> Parser<'a> {
         let saved_static_this = self.static_this_class.take();
         let saved_async_gen = std::mem::replace(&mut self.in_async_gen, is_async && is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, is_async);
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, is_async);
         let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -158,6 +163,7 @@ impl<'a> Parser<'a> {
             body.push(s);
         }
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.super_call_allowed = saved_super;
@@ -359,6 +365,10 @@ impl<'a> Parser<'a> {
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
                     }
+                    // §13.1.1 — `await` is an ordinary BindingIdentifier
+                    // outside an async body, whatever the strictness; the
+                    // module-goal half is the recorded site's job.
+                    Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
                     // §12.7.2 — a sloppy parameter may be named `let`.
                     Token::Let if self.let_reads_as_ident() => {
                         self.record_strict_goal_site("let");

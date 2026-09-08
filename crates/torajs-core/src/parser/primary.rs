@@ -111,6 +111,19 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Ident("yield".to_string())))
             }
+            // §13.1.1 — the same shape for `await`, on the goal axis:
+            // the word reads as a name wherever the grammar's `[Await]`
+            // parameter is off, and the recorded site is what
+            // `ast::triage_await_idents` raises on under the module
+            // goal. Reached only from the two callers that already
+            // decided no AwaitExpression can stand here — `parse_unary`
+            // sends the name-only positions down `parse_postfix`, so
+            // this arm never competes with the operator reading.
+            Token::Await if self.await_reads_as_ident() => {
+                let n = self.admit_await_ident();
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::Ident(n)))
+            }
             // §12.7.2 — the same for `let` in an IdentifierReference.
             // Statement position never arrives here: the statement
             // dispatcher claims `Token::Let` as a declaration before

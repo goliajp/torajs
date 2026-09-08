@@ -195,7 +195,7 @@ impl<'a> Parser<'a> {
     /// NamedEvaluation registry (`.name` / fn-print; ES §15.5.5 — the
     /// self-name wins over a binding name). Body-scope self-binding
     /// stays out of scope for the subset.
-    fn parse_fn_expr_self_name(&mut self, is_generator: bool) -> Option<String> {
+    fn parse_fn_expr_self_name(&mut self, is_generator: bool, is_async: bool) -> Option<String> {
         if let Token::Ident(n) = self.peek() {
             let n = n.clone();
             self.pos += 1;
@@ -218,6 +218,19 @@ impl<'a> Parser<'a> {
             self.ast.yield_ident_positions.push(at);
             self.pos += 1;
             return Some("yield".to_string());
+        }
+        // §15.2 / §15.8 — the same asymmetry for `await`, on its own
+        // axis: a FunctionExpression's BindingIdentifier is [~Await],
+        // so `(function await(){})` is legal even inside an async
+        // body, while an AsyncFunctionExpression's is [+Await] and is
+        // not. That is why this reads the call's `is_async` rather
+        // than `await_reads_as_ident`, exactly as the yield clause
+        // above reads its own `is_generator`.
+        if matches!(self.peek(), Token::Await) && !is_async {
+            let at = self.at();
+            self.ast.await_ident_positions.push(at);
+            self.pos += 1;
+            return Some("await".to_string());
         }
         None
     }
@@ -244,7 +257,7 @@ impl<'a> Parser<'a> {
         if is_generator {
             self.pos += 1;
         }
-        let self_name = self.parse_fn_expr_self_name(is_generator);
+        let self_name = self.parse_fn_expr_self_name(is_generator, was_async_prefixed);
         // §15.5.1 — FormalParameters ride the fn's OWN [Yield] bit,
         // so the generator swap happens BEFORE the param list (the
         // self-name above stayed on the enclosing scope's bit). Error
@@ -287,6 +300,7 @@ impl<'a> Parser<'a> {
         let saved_async_gen =
             std::mem::replace(&mut self.in_async_gen, was_async_prefixed && is_generator);
         let saved_await = std::mem::replace(&mut self.await_allowed, was_async_prefixed);
+        let saved_await_res = std::mem::replace(&mut self.await_reserved, was_async_prefixed);
         // r295 — a generator EXPRESSION body's `this` is the factory
         // call's receiver (§27.5.1.1: OrdinaryCallBindThis on the
         // [[Call]] that mints the generator object). Ride the class
@@ -317,6 +331,7 @@ impl<'a> Parser<'a> {
                 Ok(s) => s,
                 Err(e) => {
                     self.await_allowed = saved_await;
+                    self.await_reserved = saved_await_res;
                     self.in_generator = saved_gen;
                     self.in_async_gen = saved_async_gen;
                     self.in_gen_class_method = saved_igcm;
@@ -331,6 +346,7 @@ impl<'a> Parser<'a> {
         }
         let recv_minted = self.gen_recv_minted;
         self.await_allowed = saved_await;
+        self.await_reserved = saved_await_res;
         self.in_generator = saved_gen;
         self.in_async_gen = saved_async_gen;
         self.in_gen_class_method = saved_igcm;

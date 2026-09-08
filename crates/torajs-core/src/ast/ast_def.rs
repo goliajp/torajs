@@ -1189,6 +1189,14 @@ pub struct Ast {
     /// so the parser admits and `ast::triage_yield_idents` (prelude)
     /// raises the strict-goal SyntaxError when this is non-empty.
     pub yield_ident_positions: Vec<u32>,
+    /// Byte positions where the parser admitted `await` as an ordinary
+    /// name, wherever the grammar's `[Await]` parameter was off.
+    /// Reserved under the MODULE goal only — strictness has nothing to
+    /// do with it, which is what separates this lane from
+    /// `yield_ident_positions` — and the goal bit above is stamped
+    /// after parsing, so `ast::triage_await_idents` (prelude) raises
+    /// the module-goal SyntaxError when this is non-empty.
+    pub await_ident_positions: Vec<u32>,
 }
 
 /// Thin wrapper preserving the `ast::desugar_builtin_new` public

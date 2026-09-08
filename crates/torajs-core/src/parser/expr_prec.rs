@@ -376,6 +376,17 @@ impl<'a> Parser<'a> {
         // the L.1 eager-fire model). Right-associative so chained
         // forms parse like other unary prefixes.
         if matches!(self.peek(), Token::Await) {
+            // §13.1.1 — the word reads as an IdentifierReference where
+            // no AwaitExpression can stand, and at a program's top
+            // level where the next token settles the tie. The
+            // module-goal half is the recorded site's job
+            // (`ast::triage_await_idents`), the goal bit being stamped
+            // after the parse. Checked BEFORE the two rejects below:
+            // both of them are about an AwaitExpression, and this is
+            // the branch that says there isn't one.
+            if self.await_reads_as_ref() {
+                return self.parse_postfix();
+            }
             if self.in_formal_params {
                 return Err(format!(
                     "`await` may not be used in a formal parameter list at {} (ES §15.8.1)",
@@ -383,6 +394,16 @@ impl<'a> Parser<'a> {
                 ));
             }
             if !self.await_allowed {
+                // §13.1.1 — no AwaitExpression may stand here, so under
+                // the SCRIPT goal the word is an ordinary
+                // IdentifierReference (test262 `await-in-function.js`,
+                // `await-in-generator.js`). There is no ambiguity to
+                // resolve: a position that cannot hold an
+                // AwaitExpression leaves the name reading as the only
+                // one. `await_reserved` is what still refuses it —
+                // inside an async body the two bits disagree only at a
+                // program's top level, and inside a static block the
+                // grammar parameter is on.
                 return Err(format!(
                     "`await` is only valid in async functions and at the top level of a \
                      module at {} (ES §15.8.1)",
