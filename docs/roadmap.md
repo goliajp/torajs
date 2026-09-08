@@ -1681,7 +1681,35 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `0bd2246ad`** (2026-09-08, rotation 614 — one judgement asked
+**Latest @ `baf1d2de3`** (2026-09-08, rotation 615 — one judgement asked
+twelve times: the runtime already knows how, and what refuses is a
+hand-written list above it that has copies. Six of the twelve closed a
+list that had drifted from its own siblings; three were the same
+question asked from a position nobody had wired in; one was a
+measuring device that answered by doing nothing). Gate predicate:
+**98** clusters of >= 4 holding **676** cases, register 2 · 157,
+residue 429 · 584 (41.2%), core **1417**. Coverage curve: top-100
+**56.2%**, top-200 **74.2%**, top-400 **90.0%**. Against rotation 614:
+clusters 105 -> **98 (-7)**, cases 776 -> **676 (-100)**, core 1521 ->
+**1417 (-104)** — the fifth consecutive rotation with all three moving
+the same way.
+
+Sweep passTotal 36812 -> **36895 (+83)**, pass 31146 -> **31229
+(+83)**, passNoOracle **1182 (=)**, passNegative **4484 (=)**, bug
+11507 -> **11532 (+25)**, incompatible 4855 -> **4747 (-108)**,
+trAccepted 48319 -> **48427 (+108)**; conservation exact (+108 = +83 +
++25). Verdict diff **132 changed, zero pass regressions**: **49**
+`incompatible:type error` -> `pass`, **23** `incompatible:not yet
+supported` -> `pass`, **9** `bug:exit 1` -> `pass`, **2**
+`incompatible:harness-includes` -> `pass`; **17** harness-includes ->
+`bug:exit 1` and **14** `incompatible:type error` -> `bug:exit 1`
+(programs that now compile and run and fail their own assertion —
+refusal traded for an honest wrong answer); the rest sideways inside
+`incompatible`. One new `incompatible:tr-timeout`
+(`staging/sm/destructuring/array-iterator-close.js`), a case the
+compareIterator harness port let run for the first time.
+
+**Prior @ `0bd2246ad`** (2026-09-08, rotation 614 — one judgement asked
 eight times: write the value `any`, and see whether the program runs.
 When it does, the runtime was right all along and what refused it was a
 hand-written list above it — and the same list has copies). Gate
