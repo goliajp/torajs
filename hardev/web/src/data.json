@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-07T22:10:16.021Z",
+  "generatedAt": "2026-09-08T02:31:43.988Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-07T21:49:54Z",
-    "headSha": "d9c1b3234",
-    "elapsedSec": 419.41,
+    "ranAt": "2026-09-08T02:19:38Z",
+    "headSha": "0bd2246ad",
+    "elapsedSec": 430.28,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31076,
+    "pass": 31146,
     "passNoOracle": 1182,
-    "passNegative": 4481,
-    "passTotal": 36739,
-    "bug": 11516,
-    "incompatible": 4919,
+    "passNegative": 4484,
+    "passTotal": 36812,
+    "bug": 11507,
+    "incompatible": 4855,
     "bunSkip": 2943,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48255,
-    "passRateInScope": 69.09,
-    "passRateTrAccepted": 76.14
+    "trAccepted": 48319,
+    "passRateInScope": 69.23,
+    "passRateTrAccepted": 76.19
   },
   "torajs": {
-    "commit": "9f0a238e0",
-    "commitSubject": "style(torajs-core): trim the rest-pattern comments back under the 200-line function limit",
+    "commit": "0bd2246ad",
+    "commitSubject": "fix(torajs-core): `-a ** b` is a Syntax Error, and a type refusal had been standing in for it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "9f0a238e0",
-      "subject": "style(torajs-core): trim the rest-pattern comments back under the 200-line function limit"
+      "hash": "0bd2246ad",
+      "subject": "fix(torajs-core): `-a ** b` is a Syntax Error, and a type refusal had been standing in for it"
     },
     {
-      "hash": "d9c1b3234",
-      "subject": "fix(torajs-core): six coercion sites asked whether the operand was the null LITERAL"
+      "hash": "0d3a59d77",
+      "subject": "fix(torajs-core): Object.is said false for every pair that crossed the any lane"
     },
     {
-      "hash": "d06012d45",
-      "subject": "style(torajs-core): split the callable-coercion dispatch at the ToNumber / ToString seam"
+      "hash": "3fac6961d",
+      "subject": "fix(torajs-anyvalue): `-x` in the any lane was `0 - x`, and that identity loses -0"
     },
     {
-      "hash": "71adcfa1b",
-      "subject": "fix(torajs-core): `String(10n)` was a compile error and `String(10n as any)` answered \"10\""
+      "hash": "0440fa27c",
+      "subject": "fix(torajs-core): the same ten cells, one call face over — Number() had the list too"
     },
     {
-      "hash": "5f95694b7",
-      "subject": "fix(torajs-core): the rest marker was read as a reason to stop looking for a binding pattern"
+      "hash": "5da05e390",
+      "subject": "fix(torajs-core): `\"x\" + (Symbol(\"a\") as any)` printed a pointer"
     },
     {
-      "hash": "47cdfea2d",
-      "subject": "fix(torajs-core): `1n < 2` was a type error, and the same comparison spelled `any` answered true"
+      "hash": "57faa46ea",
+      "subject": "fix(torajs-core): three ToString lists, one heap kernel, and RegExp was the only cell any of them named"
     },
     {
-      "hash": "5bf4c454a",
-      "subject": "fix(torajs-core): the read side resolved `c[1]`, and the call side crashed on `c[1]()`"
+      "hash": "173f016c2",
+      "subject": "style(torajs-core): lift the any-boundary body out of emit_to_string_inner"
     },
     {
-      "hash": "ea29837c0",
-      "subject": "fix(torajs-core): `1 += 1` is an early Syntax Error, and the parser crashed on it"
+      "hash": "390415295",
+      "subject": "style(torajs-core): split add_str at the seam between the concat dispatch and one operand's ToString"
     },
     {
-      "hash": "a44311970",
-      "subject": "fix(torajs-core): object spread admitted a struct and `any`, and called the other eleven shapes a type error"
+      "hash": "b7b7dfcae",
+      "subject": "fix(torajs-core): `null` is a type, and only the parser could not say the word"
     },
     {
-      "hash": "b58dd4a5d",
-      "subject": "fix(torajs-core): the class generator parser had no computed-name branch, so `*[k]()` was a parse error"
+      "hash": "58cbc3360",
+      "subject": "style(torajs-core): move the literal-type widening arms out of parse_type_ann_inner"
     },
     {
-      "hash": "0273595be",
-      "subject": "style(torajs-core): split the class generator parser at the name / body seam"
+      "hash": "73108c654",
+      "subject": "fix(torajs-core): the ToNumber table has two nullish rows and the operator families read one"
     },
     {
-      "hash": "2e73e6749",
-      "subject": "fix(torajs-core): a static method bound to a variable arrives spelled synthetic, and the relay skipped every synthetic name"
+      "hash": "ddc6d05e5",
+      "subject": "fix(torajs-anyvalue): a class SETTER face read as a method face said \"twin = 1\" and the dispatch jumped to address 1"
     }
   ],
-  "headSha": "9f0a238e0",
+  "headSha": "0bd2246ad",
   "autorun": {
-    "total": 916,
+    "total": 917,
     "baselineTarget": 10,
-    "bySelf": 911,
+    "bySelf": 912,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788806440-352b",
-      "at": "2026-09-07T18:40:40Z",
-      "ts": 1788806440,
+      "rotationId": "r-1788819040-1d98",
+      "at": "2026-09-07T22:10:40Z",
+      "ts": 1788819040,
       "trigger": "self",
-      "prevHead": "55248d870",
-      "handoffSha": "sha256:98c37f464e4661d268133c587c55624b63c9a2a81365e6c6d389c25bb806007e",
-      "handoffAgeSec": 9,
-      "conformanceBefore": "3790/0/4",
-      "commitsInSession": 13
+      "prevHead": "797a790f2",
+      "handoffSha": "sha256:28b462ee26c398acde6fe8036c07e754a31328774f7879e7d237f088cb105555",
+      "handoffAgeSec": 4,
+      "conformanceBefore": "3800/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1788819040-1d98",
+        "at": "2026-09-07T22:10:40Z",
+        "ts": 1788819040,
+        "trigger": "self",
+        "prevHead": "797a790f2",
+        "handoffSha": "sha256:28b462ee26c398acde6fe8036c07e754a31328774f7879e7d237f088cb105555",
+        "handoffAgeSec": 4,
+        "conformanceBefore": "3800/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1788806440-352b",
         "at": "2026-09-07T18:40:40Z",
@@ -903,17 +914,6 @@
         "prevHead": "d4cd0f553",
         "handoffSha": "sha256:0bc24a794624810c2d41286ddcdae4fa427a64d0987e1f3e7ec8c7228bafab86",
         "handoffAgeSec": 19,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788697662-6d4f",
-        "at": "2026-09-06T12:27:42Z",
-        "ts": 1788697662,
-        "trigger": "self",
-        "prevHead": "01dcd00c0",
-        "handoffSha": "sha256:6f6b5923af854e439a74170a33a6a457657d2df527430fff9088ee20730d2f34",
-        "handoffAgeSec": 32,
         "conformanceBefore": null,
         "commitsInSession": null
       }

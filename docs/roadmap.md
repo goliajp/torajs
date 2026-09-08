@@ -1681,7 +1681,31 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `767a445ad`** (2026-09-08, rotation 612 — eleven hand-written
+**Latest @ `0bd2246ad`** (2026-09-08, rotation 614 — one judgement asked
+eight times: write the value `any`, and see whether the program runs.
+When it does, the runtime was right all along and what refused it was a
+hand-written list above it — and the same list has copies). Gate
+predicate: **105** clusters of >= 4 holding **776** cases, register
+2 · 161, residue 429 · 584 (38.4%), core **1521**. Coverage curve:
+top-100 **57.3%**, top-200 **75.0%**, top-400 **90.1%**. Against
+rotation 613: clusters 117 -> **105 (-12)**, cases 829 -> **776 (-53)**,
+core 1584 -> **1521 (-63)** — the fourth consecutive rotation with all
+three moving the same way.
+
+Sweep passTotal 36739 -> **36812 (+73)**, pass 31076 -> **31146 (+70)**,
+passNoOracle **1182 (=)**, passNegative 4481 -> **4484 (+3)**, bug
+11516 -> **11507 (-9)**, incompatible 4919 -> **4855 (-64)**,
+trAccepted 48255 -> **48319 (+64)**; conservation exact (+64 = +73 +
+-9). Verdict diff **82 changed, every one forward, zero backward,
+zero pass regressions**: **64** `incompatible:type error` -> `pass`
+(the ToNumber / ToString / SameValue lists), **9** `incompatible:type
+error` -> `incompatible:not yet supported` (a refusal that moved one
+stage later), **5** `bug:exit 1` -> `pass`, **3**
+`bug:negative-phase-mismatch` -> `pass-negative` (the §13.6 `**`
+early error), and **1** `bug:exit 138` -> `pass` — the SIGBUS
+rotation 613 exposed, closed by the first commit of this one.
+
+**Prior @ `767a445ad`** (2026-09-08, rotation 612 — eleven hand-written
 copies of one question, across six crates: which shapes carry a property
 bag, and which faces are allowed to ask). Gate predicate: **126**
 clusters of >= 4 holding **919** cases, register 2 · 175, residue
