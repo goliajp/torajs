@@ -277,7 +277,22 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
         // ctor's arguments object (`new P(1)` answered
         // `arguments.length === 2`).
         let recv_slots = 1 + usize::from(params.get(1).is_some_and(|p| p.name == "__new_target"));
-        if let Some(n) = uniform_direct_call_argc(ast, name, recv_slots, &fwd_sites) {
+        // A constructor's own direct call lives inside its factory
+        // and carries only what the FACTORY declares, so voting there
+        // answers the ctor's declared arity and never the program's:
+        // `new P(1, 2, 3)` on `constructor(a)` voted 1. The arguments
+        // the program wrote are at the `new` site, which desugars to
+        // `__new_<C>(…)` — that is where the count lives, with no
+        // receiver slots in front of it.
+        let argc = match name
+            .strip_prefix("__cm_")
+            .and_then(|r| r.strip_suffix("__ctor"))
+            .filter(|_| recv_slots == 2)
+        {
+            Some(cname) => ctor_uniform_argc(ast, name, cname, &fwd_sites),
+            None => uniform_direct_call_argc(ast, name, recv_slots, &fwd_sites),
+        };
+        if let Some(n) = argc {
             out.insert(name.clone(), n);
         }
     }
@@ -448,6 +463,160 @@ pub(super) fn collect_objlit_method_static_argv(
 /// direct-call trailing-ignore drop). The rewrite param table gets
 /// the same names so `arguments[<literal>]` and the materialized
 /// array resolve them like any declared param.
+/// The constructor face's argc vote. Two kinds of site write a
+/// ctor's arguments and neither is the ctor's own name:
+///
+/// - `new C(…)`, which desugars to `__new_C(…)` — no receiver slots;
+/// - `super(…)` in a subclass ctor, which desugars to a direct
+///   `__cm_C__ctor(__this, <new-target>, …)` — two.
+///
+/// The one call that must NOT vote is the factory's own, since it
+/// carries the FACTORY's declared params rather than the program's
+/// arguments; voting there answered the declared arity for every
+/// ctor (`new P(1, 2, 3)` on `constructor(a)` voted 1). It is
+/// identified by ownership: the expressions the `__new_C` body owns.
+fn ctor_uniform_argc(
+    ast: &Ast,
+    ctor: &str,
+    cname: &str,
+    fwd_sites: &std::collections::HashSet<u32>,
+) -> Option<usize> {
+    let factory = format!("__new_{cname}");
+    let mut inner = vec![false; ast.exprs.len()];
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && *name == factory
+        {
+            super::desugar_eval::body_owned_exprs(ast, body, &mut inner);
+        }
+    }
+    let mut argcs: std::collections::HashSet<usize> = std::collections::HashSet::new();
+    let factory_used = ast
+        .exprs
+        .iter()
+        .any(|e| matches!(e, Expr::Ident(n) if *n == factory));
+    if factory_used {
+        argcs.insert(uniform_direct_call_argc(ast, &factory, 0, fwd_sites)?);
+    }
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let Expr::Call { callee, args } = e else {
+            continue;
+        };
+        if inner[i] {
+            continue;
+        }
+        if !matches!(ast.get_expr(*callee), Expr::Ident(n) if n == ctor) {
+            continue;
+        }
+        if args
+            .iter()
+            .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
+        {
+            return None;
+        }
+        argcs.insert(args.len().saturating_sub(2));
+    }
+    if argcs.len() == 1 {
+        argcs.into_iter().next()
+    } else {
+        None
+    }
+}
+
+/// The factory half of the constructor face. `inject_iife_static_params`
+/// gives the ctor its trailing `__torajs_iife_extra_*` slots, but the
+/// only site that calls a ctor is its own factory — whose parameter
+/// list is the ctor's DECLARED params, so the surplus the `new` site
+/// wrote died there and the injected slots had nothing feeding them.
+///
+/// Growing the factory by the same slots and forwarding them at the
+/// inner ctor call closes the channel end to end: the `new` site
+/// already evaluates every argument the program wrote (the terminal
+/// lowers them all and aligns down), so widening the factory is
+/// enough for them to arrive.
+pub(super) fn inject_ctor_factory_extras(
+    ast: &mut Ast,
+    face: &std::collections::HashMap<String, usize>,
+) {
+    let mut work: Vec<(String, String, Vec<String>)> = Vec::new();
+    for ctor in face.keys() {
+        let Some(cname) = ctor
+            .strip_prefix("__cm_")
+            .and_then(|r| r.strip_suffix("__ctor"))
+        else {
+            continue;
+        };
+        let prefix = format!("__torajs_iife_extra_{ctor}_");
+        let extras: Vec<String> = ast
+            .stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::FnDecl { name, params, .. } if name == ctor => Some(
+                    params
+                        .iter()
+                        .filter(|p| p.name.starts_with(&prefix))
+                        .map(|p| p.name.clone())
+                        .collect::<Vec<String>>(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default();
+        if extras.is_empty() {
+            continue;
+        }
+        work.push((format!("__new_{cname}"), ctor.clone(), extras));
+    }
+    for (factory, ctor, extras) in work {
+        // Only the FACTORY's own call forwards them. A `super(…)`
+        // site is a direct ctor call too, and it already wrote the
+        // arguments itself — they land in these same slots
+        // positionally. Forwarding there would spell a name that
+        // exists only inside the factory.
+        let mut inner = vec![false; ast.exprs.len()];
+        for s in &ast.stmts {
+            if let Stmt::FnDecl { name, body, .. } = s
+                && *name == factory
+            {
+                super::desugar_eval::body_owned_exprs(ast, body, &mut inner);
+            }
+        }
+        let sites: Vec<usize> = ast
+            .exprs
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| {
+                inner[*i]
+                    && matches!(e, Expr::Call { callee, .. }
+                        if matches!(ast.get_expr(*callee), Expr::Ident(n) if *n == ctor))
+            })
+            .map(|(i, _)| i)
+            .collect();
+        for i in sites {
+            let ids: Vec<super::ExprId> = extras
+                .iter()
+                .map(|e| ast.add_expr(Expr::Ident(e.clone())))
+                .collect();
+            if let Expr::Call { args, .. } = &mut ast.exprs[i] {
+                args.extend(ids);
+            }
+        }
+        for s in ast.stmts.iter_mut() {
+            if let Stmt::FnDecl { name, params, .. } = s
+                && *name == factory
+            {
+                for e in &extras {
+                    params.push(Param {
+                        name: e.clone(),
+                        type_ann: Some("any".into()),
+                        default: None,
+                        is_rest: false,
+                    });
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn inject_iife_static_params(
     ast: &mut Ast,
     iife_static_argv: &std::collections::HashMap<String, usize>,
