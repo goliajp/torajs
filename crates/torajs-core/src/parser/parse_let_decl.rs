@@ -53,7 +53,7 @@ impl<'a> Parser<'a> {
                     // in sloppy code and refused in strict;
                     // per-function strictness rejects here, the goal
                     // half is recorded for the prelude gate.
-                    self.note_strict_binding(&n, self.in_strict_fn)?;
+                    self.note_strict_binding(&n, self.strict_here())?;
                     n
                 }
                 // §12.7.2 — `let/var/const yield` is a valid binding

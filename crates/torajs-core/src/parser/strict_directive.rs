@@ -281,6 +281,7 @@ impl Parser<'_> {
     ) -> Result<(), String> {
         let strict = self.in_strict_fn;
         self.in_strict_fn = inherited;
+        let strict = self.strict_or_in_class(strict);
         self.reject_strict_reserved_params(params, strict)?;
         self.judge_duplicate_params_strict(params, strict)
     }
@@ -384,6 +385,7 @@ impl Parser<'_> {
     ) -> Result<(), String> {
         let strict = self.in_strict_fn;
         self.in_strict_fn = inherited;
+        let strict = self.strict_or_in_class(strict);
         self.reject_strict_reserved_params(params, strict)?;
         self.judge_duplicate_params_strict(params, strict)?;
         if !inherited {

@@ -369,7 +369,7 @@ impl<'a> Parser<'a> {
         // declaration form: `(function eval() { "use strict"; })` is
         // refused by its own body's directive, which is only known now.
         if let Some(n) = &self_name {
-            self.note_strict_binding(n, self.in_strict_fn)?;
+            self.note_strict_binding(n, self.strict_here())?;
         }
         self.finish_fn_body_strict(strict_outer, &params, &mut stmts)?;
         let destr_prefix = destr_lets.len();

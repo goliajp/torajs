@@ -129,7 +129,22 @@ impl Parser<'_> {
     /// negation, and the Annex B function-declaration site below was
     /// about to write a fifth.
     pub(super) fn strict_here(&self) -> bool {
-        self.in_strict_fn || !self.class_stack.is_empty()
+        self.strict_or_in_class(self.in_strict_fn)
+    }
+
+    /// §15.7.1 — all parts of a class are strict mode code, whatever
+    /// the goal says and whatever the enclosing function said.
+    ///
+    /// For callers holding a function's OWN strictness rather than the
+    /// parser's current bit: a directive prologue lives inside the body,
+    /// so a function's name and parameters are only judgeable once that
+    /// body is parsed, by which point `in_strict_fn` has been restored
+    /// to the enclosing answer. Those callers have the right first
+    /// operand already and were missing only this clause — which is why
+    /// `class C { m(eval) {} }` was accepted under the Script goal while
+    /// `"use strict"; function f(eval) {}` was not.
+    pub(super) fn strict_or_in_class(&self, own: bool) -> bool {
+        own || !self.class_stack.is_empty()
     }
 
     /// Whether a bare `yield` here may be read as an ordinary

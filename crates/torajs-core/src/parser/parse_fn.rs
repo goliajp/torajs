@@ -181,7 +181,7 @@ impl<'a> Parser<'a> {
         // body says `"use strict"` refuses its OWN name — `function
         // eval() { "use strict"; }` is a SyntaxError even in a sloppy
         // script, so reading the enclosing strictness would miss it.
-        self.note_strict_binding(&name, self.in_strict_fn)?;
+        self.note_strict_binding(&name, self.strict_here())?;
         self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         // V3-18 wedge — prepend per-param destructuring lets when a
         // parameter was a binding pattern. Order is preserved (lets
