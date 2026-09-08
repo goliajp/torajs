@@ -129,14 +129,29 @@ pub extern "C" fn __torajs_class_method_cell_new(
 }
 
 /// Blade 3 — the face's receiver-guard pair `(class_tag, twin)`.
-/// Only meaningful for a cell [`class_method_face_adapter`] already
-/// recognized; a `class_tag` of 0 disarms the guard (runtime-define
-/// mint sites carry no tag).
+/// A `class_tag` of 0 disarms the guard (runtime-define mint sites
+/// carry no tag), and so does every cell that is not a reified
+/// class-METHOD face.
+///
+/// The sentinel check is load-bearing, not defensive: an ACCESSOR
+/// face's cell keeps its §17 name at [`ACC_CELL_NAME_OFF`] and its ES
+/// length at [`ACC_CELL_LEN_OFF`] — the very words a METHOD face uses
+/// for `(class_tag, twin)`. Read blind, every setter face (length 1)
+/// answered `twin == 1`, and the two dynobj method-call arms below
+/// duly `blr`'d to address 1: `Object.getOwnPropertyDescriptor(
+/// C.prototype, "s").set()` was a SIGBUS. Getters (length 0) read as
+/// "no twin" and took the correct mono path all along, which is why
+/// only half the pair ever crashed.
 ///
 /// # Safety
-/// `ptr` points at a live reified class-METHOD cell.
+/// `ptr` points at a live `Tag::Closure` heap cell.
 pub(crate) unsafe fn class_method_face_guard(ptr: *mut c_void) -> (u64, u64) {
     unsafe {
+        if *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64)
+            != class_bare_entry as *const () as u64
+        {
+            return (0, 0);
+        }
         (
             *(ptr.cast::<u8>().add(CLS_CELL_TAG_OFF) as *const u64),
             *(ptr.cast::<u8>().add(CLS_CELL_TWIN_OFF) as *const u64),
