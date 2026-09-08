@@ -400,7 +400,34 @@ pub fn collection_new_ann(ast: &Ast, init: ExprId) -> Option<String> {
     else {
         return None;
     };
-    if !matches!(class_name.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
+    if !matches!(
+        class_name.as_str(),
+        "Map"
+            | "Set"
+            | "WeakMap"
+            | "WeakSet"
+            // RFC 20260823-typedarray-substrate's eleven §23.2
+            // constructors plus Float16Array. Each spells its own
+            // type, so the annotation is the constructor name — the
+            // exact string `const a: Float64Array = …` writes, which
+            // is the lane this function feeds. Without them a
+            // `const a = new Float64Array([…])` read from a named fn
+            // body answered `ReferenceError: a is not defined`,
+            // while the same program with `var`, with an explicit
+            // annotation, or with a plain array literal all worked.
+            | "Int8Array"
+            | "Uint8Array"
+            | "Uint8ClampedArray"
+            | "Int16Array"
+            | "Uint16Array"
+            | "Int32Array"
+            | "Uint32Array"
+            | "Float32Array"
+            | "Float64Array"
+            | "BigInt64Array"
+            | "BigUint64Array"
+            | "Float16Array"
+    ) {
         return None;
     }
     Some(if type_args.is_empty() {

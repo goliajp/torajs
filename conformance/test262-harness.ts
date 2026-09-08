@@ -2148,8 +2148,8 @@ function assertThrowsValue(f: any, val: any, msg: any = undefined): void {
 const ONE_PLUS_EPSILON = 1 + Math.pow(2, -52);
 const ONE_MINUS_EPSILON = 1 - Math.pow(2, -53);
 
-var __t262_near_f = new Float64Array([0, 0]);
-var __t262_near_u = new Uint32Array(__t262_near_f.buffer);
+const __t262_near_f = new Float64Array([0, 0]);
+const __t262_near_u = new Uint32Array(__t262_near_f.buffer);
 // 0 for little-endian, 1 for big-endian — settled by the probe below.
 var __t262_near_endian = 0;
 
