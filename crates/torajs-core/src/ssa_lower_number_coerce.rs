@@ -64,6 +64,31 @@ impl<'a> LowerCtx<'a> {
             // sink — the checker's arith gate turns it away first
             // (registered residue).
             Type::Ptr => Operand::ConstF64(0.0),
+            // §7.1.4 ToNumber(true) is 1 and ToNumber(false) is +0.
+            // A Bool reaches this sink only beside the undefined
+            // lane's NaN sentinel: `true + 1` folds on the integer
+            // path long before here, but `true + undefined` puts the
+            // Bool on the f64 path, and that was the panic. The
+            // undefined side already answers NaN, so the sum does
+            // too — which is what §13.15.3 asks for.
+            Type::Bool => match op {
+                Operand::ConstBool(b) => Operand::ConstF64(if b { 1.0 } else { 0.0 }),
+                _ => {
+                    let i = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::ZExtBoolToI64(op),
+                        Type::I64,
+                        None,
+                    );
+                    let v = self.f.append_inst(
+                        self.cur_block,
+                        InstKind::SiToFp(Operand::Value(i)),
+                        Type::F64,
+                        None,
+                    );
+                    Operand::Value(v)
+                }
+            },
             other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
         }
     }
