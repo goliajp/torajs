@@ -45,6 +45,10 @@ pub(crate) const SUBSTR_UNDEF_CELL_SYM: &str = "___TORAJS_SUBSTR_UNDEF_CELL";
 
 pub(crate) struct SubstrIds {
     pub object_is_f64: FuncId,
+    /// §7.2.11 SameValue over two boxed values — the any-lane twin of
+    /// `object_is_f64`. The kernel already existed for the §10.1.6.3
+    /// redefine gate; `Object.is` needed a way to call it.
+    pub object_is_any: FuncId,
     pub split_iter_init: FuncId,
     pub split_iter_next: FuncId,
     pub split_iter_drop: FuncId,
@@ -82,6 +86,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_object_is_f64",
             &[Type::F64, Type::F64],
+            Type::Bool,
+        ),
+        object_is_any: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_same_value",
+            &[Type::Any, Type::Any],
             Type::Bool,
         ),
         split_iter_init: declare_intrinsic(

@@ -81,6 +81,50 @@ pub(crate) fn try_lower(
     }
     let a_ty = ctx.operand_ty(&a_op);
     let b_ty = ctx.operand_ty(&b_op);
+    // An `any` slot is a REPRESENTATION, not a JS type — the same
+    // sentence the I64/F64 arm below already makes about the numeric
+    // split. Read as a type it made every mixed-lane pair unequal:
+    // `Object.is(5 as any, 5)` was false, and so were the String, the
+    // NaN and the object-identity spellings of the same question. Box
+    // the concrete side and ask §7.2.11 SameValue, the kernel the
+    // §10.1.6.3 redefine gate has used since it landed. It also
+    // covers the Any/Any pair, which used to take the identity
+    // compare below and could not see that an int32 5 and a double 5
+    // are the same JS number.
+    //
+    // A `Ptr` operand joins them for the reason this rotation keeps
+    // meeting: `null` and `undefined` are the SAME operand shape, so
+    // the identity compare below answered `Object.is(null, undefined)
+    // === true`. `box_to_any_from_expr` reads the checker's record of
+    // which one it was and tags ANY_NULL vs ANY_UNDEF, and the kernel
+    // tells them apart from there.
+    let nullish_pair = matches!(a_ty, Type::Ptr) || matches!(b_ty, Type::Ptr);
+    if a_ty == Type::Any || b_ty == Type::Any || nullish_pair {
+        let a_any = if a_ty == Type::Any {
+            a_op.clone()
+        } else {
+            ctx.box_to_any_from_expr(args[0], a_op.clone())
+        };
+        let b_any = if b_ty == Type::Any {
+            b_op.clone()
+        } else {
+            ctx.box_to_any_from_expr(args[1], b_op.clone())
+        };
+        let cur_block = ctx.cur_block;
+        let r = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.object_is_any, vec![a_any, b_any]),
+            Type::Bool,
+            None,
+        );
+        if !a_borrow {
+            ctx.emit_drop_value(a_op, a_ty);
+        }
+        if !b_borrow {
+            ctx.emit_drop_value(b_op, b_ty);
+        }
+        return Some(Operand::Value(r));
+    }
     if a_ty != b_ty {
         // JS Number is ONE type — the I64/F64 split is a torajs
         // internal representation detail, so a numeric cross-tag
