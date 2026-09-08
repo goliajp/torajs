@@ -184,9 +184,20 @@ pub extern "C" fn log2(x: f64) -> f64 {
     // `log(8) / ln(2)` rounds to 3.0000000000000004 and the
     // fixture's `console.log` prints the diff.
     let bits = x.to_bits();
-    if (bits & 0xfffffffffffff) == 0 {
-        let e = ((bits >> 52) & 0x7ff) as i32 - 1023;
-        return e as f64;
+    let exp_field = ((bits >> 52) & 0x7ff) as i32;
+    let mant = bits & 0xfffffffffffff;
+    if exp_field == 0 {
+        // Subnormal. Here `x = mant * 2^-1074`, so a power of two is
+        // a SINGLE mantissa bit rather than none at all — the test
+        // above only recognises the normal ones, and every subnormal
+        // power of two fell through to `log(x) / ln(2)`.
+        // `Math.log2(Math.pow(2, -1066))` answered -1065.9999999999998
+        // where the answer is exactly representable.
+        if mant.is_power_of_two() {
+            return (mant.trailing_zeros() as i32 - 1074) as f64;
+        }
+    } else if mant == 0 {
+        return (exp_field - 1023) as f64;
     }
     log(x) / LN_2
 }

@@ -166,18 +166,38 @@ fn pow_es(x: f64, y: f64) -> f64 {
 /// Integer-exponent power by repeated squaring — bit-exact for all
 /// representable results, no transcendental round-off.
 #[inline]
-fn powi(x: f64, mut n: i64) -> f64 {
+fn powi(x: f64, n: i64) -> f64 {
     // Handle the negative-exponent symmetry as `1 / x^|n|` so the
     // squaring loop only ever sees a non-negative exponent.
     let invert = n < 0;
-    if invert {
+    if invert && n == i64::MIN {
         // i64::MIN abs overflows; n=-2^63 means infinite for any
         // finite x ≠ 1, so just emulate the limit.
-        if n == i64::MIN {
-            return 0.0;
-        }
-        n = -n;
+        return 0.0;
     }
+    let m = if invert { -n } else { n };
+    let acc = powi_pos(x, m);
+    if !invert {
+        return acc;
+    }
+    if acc.is_finite() {
+        return 1.0 / acc;
+    }
+    // `x^|n|` overflowed on the way to a reciprocal that IS
+    // representable — `Math.pow(2, -1074)` is `Number.MIN_VALUE`,
+    // but `2^1074` is infinity and `1 / infinity` is 0. Splitting
+    // the exponent keeps both halves in range and multiplies their
+    // reciprocals back together: for a power of two every step is
+    // exact, and for anything else two roundings beat an answer of
+    // zero. Recursion depth is log2(|n|) — eleven for the smallest
+    // subnormal.
+    let half = m / 2;
+    powi(x, -half) * powi(x, -(m - half))
+}
+
+/// `x^n` for a non-negative exponent, by repeated squaring.
+#[inline]
+fn powi_pos(x: f64, mut n: i64) -> f64 {
     let mut acc = 1.0_f64;
     let mut base = x;
     while n > 0 {
@@ -189,7 +209,7 @@ fn powi(x: f64, mut n: i64) -> f64 {
             base *= base;
         }
     }
-    if invert { 1.0 / acc } else { acc }
+    acc
 }
 
 #[cfg(test)]
