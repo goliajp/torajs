@@ -321,6 +321,33 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
             collector.try_mark(eid);
         }
     }
+    // The member-assign twin of the same shape, and the same
+    // any-destination the walk has no axis for: `this.k =
+    // function* () {}` leaves `Ident("__genexpr_N")` as the value of
+    // an assignment into an any-typed field. The raw FnSig stored
+    // there UNBOXED (`store <fn_addr>, %__this +32`), and the field's
+    // drop then rc_dec'd a code address — SIGBUS at program exit,
+    // with the program's own output already printed. A plain
+    // function expression never got there: the collector's own axes
+    // turn it into a closure cell first.
+    let genexpr_assign_values: Vec<ExprId> = ast
+        .exprs
+        .iter()
+        .filter_map(|e| match e {
+            Expr::Assign { target, value }
+                if matches!(
+                    ast.get_expr(*target),
+                    Expr::Member { .. } | Expr::Index { .. }
+                ) && matches!(ast.get_expr(*value), Expr::Ident(n) if n.starts_with("__genexpr_")) =>
+            {
+                Some(*value)
+            }
+            _ => None,
+        })
+        .collect();
+    for eid in genexpr_assign_values {
+        collector.try_mark(eid);
+    }
     let (mut targets, mut rewrites) = (collector.targets, collector.rewrites);
 
     let mut variadic_bindings: Vec<String> = Vec::new();
