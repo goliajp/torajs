@@ -16,6 +16,7 @@ mod arguments_object_bodies;
 mod arguments_object_chain;
 mod arguments_object_collect;
 mod arguments_object_ctor_argv;
+mod arguments_object_ctor_argv_spread;
 mod arguments_object_devirt;
 mod arguments_object_headless_argv;
 mod arguments_object_inject;

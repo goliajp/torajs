@@ -73,7 +73,7 @@ pub(crate) fn emit(
         .enumerate()
         .map(|(i, a)| {
             let v = 'arg: {
-                let expected = param_tys.as_ref().and_then(|ps| ps.get(i + hidden_off));
+                let expected = param_tys.as_ref().and_then(|ps| ps.get(headless.sig_at(i)));
                 if let Some(op) = ctx.try_lower_empty_array_arg(*a, expected) {
                     break 'arg op;
                 }
@@ -137,7 +137,7 @@ pub(crate) fn emit(
         for (i, (a, op)) in args.iter().zip(argv.clone().iter()).enumerate() {
             let param_is_arr = param_tys
                 .as_ref()
-                .and_then(|ps| ps.get(i + hidden_off))
+                .and_then(|ps| ps.get(headless.sig_at(i)))
                 .is_some_and(|t| matches!(t, Type::Arr(_)));
             if param_is_arr {
                 crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, *a, op);
@@ -164,7 +164,7 @@ pub(crate) fn emit(
     // effects.
     let headless_argv_op = headless
         .argv
-        .then(|| pack_headless_argv(ctx, eid, args, &argv));
+        .then(|| pack_headless_argv(ctx, eid, args, &argv, headless.at));
     // Direct-call trailing-ignore (checker wedge mirror): the extra
     // args lowered above for §13.3.6.1 side effects; the callee's ABI
     // reads only its declared slots, so argv aligns down to the
@@ -177,7 +177,7 @@ pub(crate) fn emit(
     }
     target = maybe_swap_math_sum_precise(ctx, target, &argv);
     pad_trailing_undef(ctx, eid, &mut argv);
-    let coerce_owned = coerce_args(ctx, target, hidden_off, args, &mut argv);
+    let coerce_owned = coerce_args(ctx, target, headless, args, &mut argv);
     // The coerce-minted temps live across the callee too.
     let coerce_toks: Vec<usize> = coerce_owned
         .iter()
@@ -190,16 +190,16 @@ pub(crate) fn emit(
     // readers until H2 retires that prepend, which also removes the
     // extra arg and makes this count the true user argc).
     if let Some(op) = headless_argv_op {
-        argv.insert(0, op);
+        argv.insert(headless.at.min(argv.len()), op);
     }
     if headless.argc {
         // …minus the trailing slots `apply_default_args` materialized
         // from the callee's declared defaults: those are the callee's
         // own values, not arguments the program passed.
-        let argc_op =
-            forwarded_argc(ctx, callee)
-                .unwrap_or(Operand::ConstI64(user_argc(ctx, eid, args.len()) as i64));
-        argv.insert(0, argc_op);
+        let argc_op = forwarded_argc(ctx, callee).unwrap_or(Operand::ConstI64(
+            user_argc(ctx, eid, args.len()).saturating_sub(headless.at) as i64,
+        ));
+        argv.insert(headless.at.min(argv.len()), argc_op);
     }
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
@@ -316,10 +316,11 @@ fn canon_math_arg(ctx: &mut LowerCtx<'_>, v: Operand, arg: Option<ExprId>) -> Op
 fn coerce_args(
     ctx: &mut LowerCtx<'_>,
     target: FuncId,
-    hidden_off: usize,
+    headless: crate::ssa_lower_call_terminal_headless::HeadlessSlots,
     args: &[ExprId],
     argv: &mut [Operand],
 ) -> Vec<(Operand, Type)> {
+    let hidden_off = headless.width();
     // ToNumber(undefined) is NaN — the F64 `undefined` sentinel must
     // not reach a Math kernel, which would hand its payload back out
     // (`Math.abs` clears the sign bit and returns the pattern
@@ -345,7 +346,18 @@ fn coerce_args(
     // (param types here, dflt lits inside apply_runtime_dflt_lits)
     // so every zip below stays user-aligned; the argc operand is
     // prepended after coercion, in `emit`.
-    let param_tys = ctx.fn_sigs[sig_id.0 as usize].0[hidden_off..].to_vec();
+    // Cut the hidden pair out wherever it sits, so every zip below
+    // stays user-aligned: at the front for a head-less callee, and
+    // after the head for a ctor (rotation 616).
+    let full = &ctx.fn_sigs[sig_id.0 as usize].0;
+    let param_tys: Vec<Type> = if headless.at == 0 {
+        full[hidden_off.min(full.len())..].to_vec()
+    } else {
+        let cut = headless.at.min(full.len());
+        let mut v = full[..cut].to_vec();
+        v.extend_from_slice(&full[(cut + hidden_off).min(full.len())..]);
+        v
+    };
     apply_runtime_dflt_lits(ctx, target, hidden_off, &param_tys, argv);
     coerce_args_by_param_tys(ctx, &param_tys, args, argv)
 }

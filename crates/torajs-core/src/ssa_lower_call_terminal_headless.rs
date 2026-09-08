@@ -57,11 +57,22 @@ pub(crate) fn forwarded_argc(ctx: &mut LowerCtx<'_>, callee: ExprId) -> Option<O
 pub(crate) struct HeadlessSlots {
     pub(crate) argc: bool,
     pub(crate) argv: bool,
+    /// Where the pair sits in the callee's signature — 0 for a
+    /// head-less body, and for a constructor the width of the head
+    /// it declares (`__this` + `__new_target` = 2, rotation 616).
+    /// Also the number of leading AST arguments that are NOT user
+    /// arguments, which is what `arguments` counts.
+    pub(crate) at: usize,
 }
 
 impl HeadlessSlots {
     pub(crate) fn width(self) -> usize {
         usize::from(self.argc) + usize::from(self.argv)
+    }
+
+    /// Signature index of AST argument `i`.
+    pub(crate) fn sig_at(self, i: usize) -> usize {
+        if i < self.at { i } else { i + self.width() }
     }
 }
 
@@ -74,11 +85,22 @@ pub(crate) fn headless_slots(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) ->
         return HeadlessSlots {
             argc: false,
             argv: false,
+            at: 0,
         };
     };
+    // The this-first constructor lane carries both slots after the
+    // two head params its declaration always has.
+    if ctx.ast.ctor_argv_fns.contains(name) {
+        return HeadlessSlots {
+            argc: true,
+            argv: true,
+            at: 2,
+        };
+    }
     HeadlessSlots {
         argc: ctx.ast.headless_argc_fns.contains(name),
         argv: ctx.ast.headless_argv_fns.contains(name),
+        at: 0,
     }
 }
 
@@ -111,8 +133,13 @@ pub(crate) fn pack_headless_argv(
     eid: ExprId,
     args: &[ExprId],
     ops: &[Operand],
+    skip: usize,
 ) -> Operand {
-    let n = user_argc(ctx, eid, args.len()).min(ops.len());
+    // A ctor's leading `__this` / `__new_target` are not arguments
+    // the program wrote — the buffer starts after them.
+    let n = user_argc(ctx, eid, args.len())
+        .min(ops.len())
+        .saturating_sub(skip);
     let buf = ctx.f.append_inst(
         crate::ssa::BlockId(0),
         InstKind::AllocaBytes((n.max(1) * 8) as u64),
@@ -120,11 +147,11 @@ pub(crate) fn pack_headless_argv(
         Some("__hl_argv"),
     );
     for i in 0..n {
-        let op = ops[i].clone();
+        let op = ops[skip + i].clone();
         let slot = if ctx.operand_ty(&op) == Type::Any {
             op
         } else {
-            ctx.box_to_any_from_expr(args[i], op)
+            ctx.box_to_any_from_expr(args[skip + i], op)
         };
         ctx.f.append_void(
             ctx.cur_block,

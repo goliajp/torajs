@@ -161,6 +161,7 @@ pub(super) struct ArgcTiers<'a> {
     pub(super) value_real_argc: &'a std::collections::HashSet<String>,
     pub(super) value_argv_fns: &'a std::collections::HashSet<String>,
     pub(super) env_fns: &'a std::collections::HashSet<String>,
+    pub(super) ctor_argv_fns: &'a std::collections::HashSet<String>,
 }
 
 /// Pick a fn body's [`ArgcMode`] from its tier membership + body
@@ -211,6 +212,7 @@ pub(super) fn classify_argc_mode(
         || tiers.value_real_argc.contains(name)
         || tiers.value_argv_fns.contains(name)
         || tiers.method_argv_fns.contains(name)
+        || tiers.ctor_argv_fns.contains(name)
     {
         // S3.2 — env-first faces read the S1 hidden argc; S1-T2
         // moved the `__cm_` this-first method_argv family onto

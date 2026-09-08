@@ -121,6 +121,13 @@ fn try_lower_headless_argv_spread(
         return None;
     };
     let name = name.clone();
+    // The this-first constructor lane (rotation 616) wants the same
+    // two values, one head wider: `super(...xs)` desugars to
+    // `__cm_P__ctor(__this, __new_target, ...xs)`, so the head
+    // arguments lower as themselves and only the tail becomes argv.
+    if ctx.ast.ctor_argv_fns.contains(&name) {
+        return lower_ctor_argv_spread(ctx, &name, args);
+    }
     if !ctx.ast.headless_argv_fns.contains(&name) || !ctx.ast.headless_argc_fns.contains(&name) {
         return None;
     }
@@ -145,6 +152,47 @@ fn try_lower_headless_argv_spread(
     let argv = ctx.emit_arr_data_ptr(args_arr.clone());
     let ret_ty = ctx.f_ret_type_hint(target);
     let call_args = vec![Operand::Value(argc), argv];
+    let result = if ret_ty == Type::Void {
+        ctx.f
+            .append_void(ctx.cur_block, InstKind::Call(target, call_args));
+        Operand::ConstPtrNull
+    } else {
+        Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(target, call_args),
+            ret_ty,
+            None,
+        ))
+    };
+    ctx.emit_drop_value(args_arr, Type::Arr(arr_any_id));
+    ctx.emit_throw_check(Some(target));
+    Some(result)
+}
+
+/// `super(a, ...xs)` against a ctor on the argv face. The head the
+/// desugar wrote (`__this`, `__new_target`) lowers positionally;
+/// everything after it materializes into one `Array<Any>` whose len
+/// is the argc and whose slot base is the argv — the head-less
+/// lane's mechanism, offset by the head.
+fn lower_ctor_argv_spread(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> Option<Operand> {
+    if args.len() < 2 {
+        return None;
+    }
+    let target = *ctx.fn_table.get(name)?;
+    let head: Vec<Operand> = args[..2].iter().map(|a| ctx.lower_expr(*a)).collect();
+    let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+    let args_arr = build_args_arr(ctx, &args[2..]);
+    let argc = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, args_arr.clone(), crate::ssa_lower::ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let argv = ctx.emit_arr_data_ptr(args_arr.clone());
+    let mut call_args = head;
+    call_args.push(Operand::Value(argc));
+    call_args.push(argv);
+    let ret_ty = ctx.f_ret_type_hint(target);
     let result = if ret_ty == Type::Void {
         ctx.f
             .append_void(ctx.cur_block, InstKind::Call(target, call_args));

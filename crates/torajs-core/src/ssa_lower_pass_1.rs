@@ -35,8 +35,31 @@ use crate::ssa_lower_parse_type::parse_type;
 /// key on this one predicate — keeping it in one place is what
 /// stops the three sites drifting.
 pub(crate) fn this_first_hidden_argc(params: &[crate::ast::Param]) -> bool {
-    params.first().is_some_and(|p| p.name == "__this")
-        && params.get(1).is_some_and(|p| p.name == "__torajs_argv")
+    this_first_hidden_argc_pos(params).is_some()
+}
+
+/// Where the hidden I64 `__torajs_argc` sits in a this-first sig —
+/// right after the head, and a head is as wide as the declaration
+/// says. A method carries one slot (`__this`); a constructor carries
+/// two (`__this`, `__new_target`), so its argc lands at 2 and its
+/// injected `__torajs_argv` right after that (rotation 616).
+///
+/// The presence of `__torajs_argv` is what marks the tier: only the
+/// argv faces inject it, and `inject_argc_params` puts it directly
+/// after the head it found.
+pub(crate) fn this_first_hidden_argc_pos(params: &[crate::ast::Param]) -> Option<usize> {
+    if params.first().is_none_or(|p| p.name != "__this") {
+        return None;
+    }
+    if params.get(1).is_some_and(|p| p.name == "__torajs_argv") {
+        return Some(1);
+    }
+    if params.get(1).is_some_and(|p| p.name == "__new_target")
+        && params.get(2).is_some_and(|p| p.name == "__torajs_argv")
+    {
+        return Some(2);
+    }
+    None
 }
 
 /// S3.8 — a typed param's literal default (Number / Bool / short
@@ -62,8 +85,13 @@ fn dflt_lits_of_params(
     if !lits.iter().any(Option::is_some) {
         return None;
     }
-    if params.first().is_some_and(|p| p.name == "__env") || this_first_hidden_argc(params) {
-        lits.insert(1, None);
+    let this_argc_pos = if params.first().is_some_and(|p| p.name == "__env") {
+        Some(1)
+    } else {
+        this_first_hidden_argc_pos(params)
+    };
+    if let Some(pos) = this_argc_pos {
+        lits.insert(pos, None);
     } else if ast.headless_argc_fns.contains(name) {
         lits.insert(0, None);
     }
@@ -187,8 +215,13 @@ pub(crate) fn run(
             // `setup_fn_params` injects the def-side twin; the two
             // sites must not drift (same contract as the W1 widen
             // note above).
-            if params.first().is_some_and(|p| p.name == "__env") || this_first_hidden_argc(params) {
-                param_tys.insert(1, Type::I64);
+            let this_argc_pos = if params.first().is_some_and(|p| p.name == "__env") {
+                Some(1)
+            } else {
+                this_first_hidden_argc_pos(params)
+            };
+            if let Some(pos) = this_argc_pos {
+                param_tys.insert(pos, Type::I64);
             } else if ast.headless_argc_fns.contains(name) {
                 // H1 — the head-less tier has no head param, so
                 // "right after the head" degenerates to sig position

@@ -863,6 +863,12 @@ pub struct Ast {
     /// lie. Sites kept off that expansion land on the runtime spread
     /// lane, which either carries the true count or rejects loudly.
     pub method_arguments_touch_fns: std::collections::HashSet<String>,
+    /// Constructors admitted to the this-first runtime argv face
+    /// (module doc in `arguments_object_ctor_argv_spread`). Their
+    /// declaration carries `__torajs_argv` at position 2 — right
+    /// after `__this` and `__new_target` — and the SSA side gives
+    /// them the hidden argc slot the `__cm_` method tier gets.
+    pub ctor_argv_fns: std::collections::HashSet<String>,
     /// RFC 20260810-indirect-argc-abi H1 — head-less top-level fns
     /// on the T-31 real-argc tier (`arguments.length` readers with
     /// no `__env`/`__this` head). Their SSA sig carries the hidden

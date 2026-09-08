@@ -328,9 +328,12 @@ fn setup_fn_params(
         // Binding it through param_setup gives S2's default guard /
         // arguments.length a named local; bodies that never read it
         // leave a dead slot egraph DCE clears.
-        if param_setup.len() == 1
-            && (p.name == "__env" || crate::ssa_lower_pass_1::this_first_hidden_argc(params))
-        {
+        let this_argc_pos = if params.first().is_some_and(|q| q.name == "__env") {
+            Some(1)
+        } else {
+            crate::ssa_lower_pass_1::this_first_hidden_argc_pos(params)
+        };
+        if this_argc_pos == Some(param_setup.len()) {
             let apid = f.add_param(Type::I64, "__torajs_argc");
             param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
         }
