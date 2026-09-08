@@ -80,6 +80,21 @@ pub(super) fn snapshot_fn_params(
             if params.get(user_start).is_some_and(|p| p.name == "__this") {
                 user_start += 1;
             }
+            // A class constructor carries `__new_target` right after
+            // the receiver. §9.4.2 GetNewTarget reads a hidden
+            // channel of the execution context, not an argument, and
+            // §10.2.1.1 fills the arguments object from argumentsList
+            // alone — so leaving it in the user list made
+            // `class P { constructor() { … arguments … } }` answer
+            // `arguments.length === 1` and `arguments[0] === undefined`
+            // for `new P(1, 2, 3)`, the new-target value standing in
+            // for the first argument.
+            if params
+                .get(user_start)
+                .is_some_and(|p| p.name == "__new_target")
+            {
+                user_start += 1;
+            }
             let names: Vec<String> = params[user_start..]
                 .iter()
                 .map(|p| p.name.clone())

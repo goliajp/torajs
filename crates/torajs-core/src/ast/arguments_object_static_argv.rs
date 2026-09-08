@@ -270,7 +270,14 @@ pub(super) fn collect_method_static_argv(ast: &Ast) -> std::collections::HashMap
         {
             continue;
         }
-        if let Some(n) = uniform_direct_call_argc(ast, name, 1, &fwd_sites) {
+        // A constructor's direct call carries TWO leading slots, not
+        // one: the factory writes `__cm_C__ctor(__this,
+        // __torajs_my_class_ref("C"), …)`. Counting the new-target
+        // slot as a user argument put one phantom entry in every
+        // ctor's arguments object (`new P(1)` answered
+        // `arguments.length === 2`).
+        let recv_slots = 1 + usize::from(params.get(1).is_some_and(|p| p.name == "__new_target"));
+        if let Some(n) = uniform_direct_call_argc(ast, name, recv_slots, &fwd_sites) {
             out.insert(name.clone(), n);
         }
     }
