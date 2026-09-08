@@ -503,6 +503,15 @@ fn run_case(
         // `new Function('return class …')` capability probe becomes
         // three static class declarations in the port.
         "resizableArrayBufferUtils.js",
+        // 2026-09-08 — `assert.compareIterator`: the rewrite table
+        // had pointed at `__t262_compareIterator` all along, only the
+        // body was missing.
+        "compareIterator.js",
+        // 2026-09-08 — sm's `assertThrowsValue`, a same-name
+        // top-level definition (the decimalToHexString family's
+        // shape). It compares the thrown VALUE, not its constructor,
+        // which is the whole reason the sm suite reaches for it.
+        "sm/assertThrowsValue.js",
     ];
     let unported: Vec<&str> = fm
         .includes

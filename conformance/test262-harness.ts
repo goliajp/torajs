@@ -295,7 +295,13 @@ function __t262_isConstructor(obj: any): boolean {
   }
   return __torajs_is_constructor(obj);
 }
-function __t262_assertRelativeDateMs(_date: any, _ms: any): void {}
+// assertRelativeDateMs.js is NOT ported, so no case that calls this
+// can get past the include gate. It throws rather than doing nothing
+// anyway: a no-op assertion is the shape that turns "the gate leaked"
+// into "the case passed", and that failure looks exactly like data.
+function __t262_assertRelativeDateMs(_date: any, _ms: any): void {
+  throw new Test262Error("assertRelativeDateMs.js is not ported");
+}
 
 // ─── asyncHelpers.js port (2026-07-30) ───
 //
@@ -1298,7 +1304,6 @@ function __t262_deFormat(v: any, depth: number): string {
   return "Object {" + parts.join(", ") + "}";
 }
 
-function __t262_compareIterator(_iter: any, _vals: any, _msg: string = ""): void {}
 
 // ─── nativeFunctionMatcher.js port (2026-08-12) ───
 //
@@ -2064,4 +2069,65 @@ function TestIterationAndResize(
     }
   }
   __t262_assert(resized, "TestIterationAndResize: resize condition should have been hit");
+}
+
+// ─── compareIterator.js port (2026-09-08) ───
+//
+// `assert.compareIterator(iter, validators, message)` — the rewrite
+// table already pointed this name here; only the body was missing.
+// Verbatim shape from the stock harness: walk the validators, assert
+// the iterator has a value for each, then assert it is done and its
+// completion value is `undefined`.
+function __t262_compareIterator(iter: any, validators: any, message: any = ""): void {
+  let i = 0;
+  let result: any = undefined;
+  for (i = 0; i < validators.length; i++) {
+    result = iter.next();
+    __t262_assert(
+      !result.done,
+      "Expected " +
+        i +
+        " values(s). Instead iterator only produced " +
+        (i - 1) +
+        " value(s). " +
+        message,
+    );
+    validators[i](result.value);
+  }
+  result = iter.next();
+  __t262_assert(
+    result.done,
+    "Expected only " + i + " values(s). Instead iterator produced more. " + message,
+  );
+  __t262_sameValue(
+    result.value,
+    undefined,
+    "Expected value of `undefined` when iterator completes. " + message,
+  );
+}
+
+// ─── sm/assertThrowsValue.js port (2026-09-08) ───
+//
+// Same-name top-level definition, like the decimalToHexString family:
+// the case's bare call resolves against the prepended harness. The
+// stock body compares the THROWN VALUE (not its constructor), which
+// is the whole point of the helper — sm cases throw plain values.
+function assertThrowsValue(f: any, val: any, msg: any = undefined): void {
+  let threw = false;
+  let thrown: any = undefined;
+  try {
+    f();
+  } catch (exc: any) {
+    threw = true;
+    thrown = exc;
+  }
+  if (threw) {
+    __t262_sameValue(thrown, val, msg);
+    return;
+  }
+  let fullmsg = "Assertion failed: expected exception, no exception thrown";
+  if (msg !== undefined) {
+    fullmsg = fullmsg + " - " + String(msg);
+  }
+  throw new Test262Error(fullmsg);
 }
