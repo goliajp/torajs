@@ -64,23 +64,26 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         // any-member read's runtime-layout normalization, which
         // answers every field combination correctly. A statically-
         // typed relayout join is the ceiling — L3b.
-        (Type::Struct(tf), Type::Struct(ef)) => {
-            if tf.len() != ef.len() {
-                return None;
-            }
-            for ((tn, tt), (en, et)) in tf.iter().zip(ef.iter()) {
-                if tn != en {
-                    return None;
-                }
-                match (tt, et) {
-                    (Type::Null, o) | (o, Type::Null) if !matches!(o, Type::Null) => {}
-                    _ => {
-                        unify_ternary(tt, et)?;
-                    }
-                }
-            }
-            Some(Type::Any)
-        }
+        //
+        // The same-shape gate the rotation-233 rule carried (equal
+        // field count, equal names in order, each pair joinable) was
+        // load-bearing for a Struct join and pointless for this one:
+        // the answer is Any either way, and the paragraph above is
+        // the argument that Any is CORRECT for every field
+        // combination — the branches box by their own layouts and the
+        // any-member read normalizes at runtime. Two structs that
+        // merely differ in shape were the destructuring default's
+        // own idiom, refused for it:
+        //
+        //     const { w: { x, y, z } = { x: 4, y: 5, z: 6 } }
+        //             = { w: { x: undefined, z: 7 } };
+        //       ternary branches differ — `then` is
+        //       Struct([x: Number, y: Number, z: Number]),
+        //       `else` is Struct([x: Undefined, z: Number])
+        //
+        // TS spells that join `A | B`; Any is tr's carrier for it,
+        // the same widening the mixed-Any wedge above already makes.
+        (Type::Struct(_), Type::Struct(_)) => Some(Type::Any),
         // rotation 284 — an `Array(Any)` branch against any other
         // array joins to ANY, the S129-1 posture (`b ? [1, 2] : seq`
         // where `seq` grew from an empty literal). Both branches ride
