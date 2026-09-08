@@ -36,12 +36,26 @@ impl Frontmatter {
         self.flags.iter().any(|f| f == "async")
     }
 
-    /// RFC 20260810-sloppy-goal-arguments S1 — `flags: [noStrict]`
-    /// cases run under the sloppy goal only (official test262 host
-    /// convention). The runner stages them as `case.cts`, which maps
-    /// to the CommonJS sloppy goal for bun and tr alike.
-    pub fn is_no_strict(&self) -> bool {
-        self.flags.iter().any(|f| f == "noStrict")
+    // `noStrict` no longer needs a predicate of its own: it asks for
+    // the sloppy Script pass, which is now what every non-module case
+    // gets. What used to single it out was the `.ts` default beside
+    // it, and that default is gone.
+
+    /// `flags: [module]` — the ONLY flag that selects the Module goal.
+    /// INTERPRETING.md is explicit that everything else is Script:
+    /// "unless configured otherwise (via the noStrict, onlyStrict,
+    /// module, or raw flags), each test must be executed twice: once
+    /// in ECMAScript's non-strict mode, and again in strict mode",
+    /// and the strict transformation it describes is a `"use strict"`
+    /// prologue on the same Script — not a change of goal.
+    pub fn is_module(&self) -> bool {
+        self.flags.iter().any(|f| f == "module")
+    }
+
+    /// `flags: [onlyStrict]` — a Script run once with the prologue the
+    /// "Strict Mode" section describes.
+    pub fn is_only_strict(&self) -> bool {
+        self.flags.iter().any(|f| f == "onlyStrict")
     }
 }
 

@@ -564,15 +564,35 @@ fn run_case(
         .flat_map(|(_, names)| names.iter().copied())
         .collect();
     let harness_min = harness.minimal_for(&transformed, &gated);
-    let full = format!("{harness_min}\n{transformed}");
 
-    // RFC 20260810-sloppy-goal-arguments S1 — noStrict cases run
-    // under the sloppy goal only (official test262 host convention:
-    // the strict twin is what onlyStrict / the strict pass of an
-    // unflagged case would be). `.cts` is bun's extension-mapped
-    // CommonJS sloppy goal, and tr adopts the same mapping — one tmp
-    // file gives both runtimes the same goal.
-    let ext = if fm.is_no_strict() { "cts" } else { "ts" };
+    // GOAL. `flags: [module]` is the only thing that selects Module;
+    // INTERPRETING.md says every other case — 92% of the corpus, which
+    // carries no flags at all — is a SCRIPT, run once non-strict and
+    // once with a `"use strict"` prologue. Strictness there is a
+    // prologue on the same Script, not a change of goal.
+    //
+    // The runner used to stage everything but `noStrict` as `.ts`, so
+    // 48,953 unflagged cases ran under the Module goal their author
+    // never asked for. That is not a small mislabel: it is the goal
+    // bit itself, and the words it governs (`await` reserved, `this`
+    // at top level, Annex B, implicit globals) then answered for a
+    // grammar the case was not written against. `test/language/
+    // expressions/await/await-in-global.js` — `var await = 1` — was
+    // recorded as an incompatible parse error on that basis alone.
+    //
+    // Single pass, not two, and the reason is the corpus's own
+    // convention: an author flags a case when the two passes differ.
+    // No flags means both were expected to pass, so the sloppy one
+    // stands for the pair. The strict twin remains genuinely missing
+    // and is registered as such — it is a known gap, not a silent one.
+    let ext = if fm.is_module() { "ts" } else { "cts" };
+    // The strict transformation of INTERPRETING.md's "Strict Mode"
+    // section: a directive prologue, the same Script goal.
+    let full = if fm.is_only_strict() {
+        format!("\"use strict\";\n{harness_min}\n{transformed}")
+    } else {
+        format!("{harness_min}\n{transformed}")
+    };
 
     // `--dump-src`: persist the assembled source for runner-isomorphic
     // reproduction (byte-identical to the tmp file executed below,
@@ -635,8 +655,9 @@ fn run_case(
     // bytes behave differently as `.cts` vs `.ts` (mapped arguments,
     // callee, ...), and an unsalted key would score sloppy runs
     // against strict-goal oracle entries cached before S1.
+    let sloppy_goal = !fm.is_module();
     let salted_case: Vec<u8>;
-    let oracle_case: &[u8] = if fixture_salt.is_empty() && !fm.is_no_strict() {
+    let oracle_case: &[u8] = if fixture_salt.is_empty() && !sloppy_goal && !fm.is_only_strict() {
         transformed.as_bytes()
     } else {
         let mut v = transformed.as_bytes().to_vec();
@@ -644,8 +665,11 @@ fn run_case(
             v.push(0xff);
             v.extend_from_slice(&fixture_salt);
         }
-        if fm.is_no_strict() {
+        if sloppy_goal {
             v.extend_from_slice(b"\xfegoal:sloppy");
+        }
+        if fm.is_only_strict() {
+            v.extend_from_slice(b"\xfeprologue:use-strict");
         }
         salted_case = v;
         &salted_case
