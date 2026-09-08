@@ -57,58 +57,7 @@ impl<'a> Parser<'a> {
                     ThisParamStep::Break => break,
                     ThisParamStep::NotThis => {}
                 }
-                // Consume any TS modifiers: visibility (`public` /
-                // `private` / `protected`) and `readonly`. Order is
-                // visibility-then-readonly per TS, but we accept any
-                // combination once.
-                let mut vis: Option<ast::Visibility> = None;
-                let mut rd = false;
-                loop {
-                    let Token::Ident(s) = self.peek() else { break };
-                    match s.as_str() {
-                        "public" => {
-                            if vis.is_some() {
-                                return Err(format!(
-                                    "duplicate visibility modifier in ctor param at {}",
-                                    self.at()
-                                ));
-                            }
-                            vis = Some(ast::Visibility::Public);
-                            self.pos += 1;
-                        }
-                        "private" => {
-                            if vis.is_some() {
-                                return Err(format!(
-                                    "duplicate visibility modifier in ctor param at {}",
-                                    self.at()
-                                ));
-                            }
-                            vis = Some(ast::Visibility::Private);
-                            self.pos += 1;
-                        }
-                        "protected" => {
-                            if vis.is_some() {
-                                return Err(format!(
-                                    "duplicate visibility modifier in ctor param at {}",
-                                    self.at()
-                                ));
-                            }
-                            vis = Some(ast::Visibility::Protected);
-                            self.pos += 1;
-                        }
-                        "readonly" => {
-                            if rd {
-                                return Err(format!(
-                                    "duplicate `readonly` in ctor param at {}",
-                                    self.at()
-                                ));
-                            }
-                            rd = true;
-                            self.pos += 1;
-                        }
-                        _ => break,
-                    }
-                }
+                let (vis, rd) = self.consume_ctor_param_modifiers()?;
                 let is_rest = matches!(self.peek(), Token::DotDotDot);
                 if is_rest {
                     self.pos += 1;

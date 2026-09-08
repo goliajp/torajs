@@ -106,40 +106,8 @@ impl<'a> Parser<'a> {
         // B1). Nothing is consumed before the lookahead guards below
         // return None, so capturing it here is safe.
         let start_pos = self.pos;
-        let Some(t1) = self.tokens.get(self.pos + star_off + 1) else {
+        let Some((method_name, computed_key)) = self.read_generator_method_key(star_off)? else {
             return Ok(None);
-        };
-        // `{ *[Symbol.iterator]() {} }` — a computed key on a generator
-        // method. Both key shapes are claimed here rather than next
-        // door, because the `*` has to be consumed before the key can
-        // be read and the computed-property arm only ever sees a
-        // leading `[`. Neither arm could take this alone, which is why
-        // it used to reach neither.
-        let (method_name, computed_key) = if matches!(t1.token, Token::LBracket) {
-            let (name, key) = self.parse_computed_generator_key(star_off)?;
-            (name, Some(key))
-        } else {
-            // §12.7.6 IdentifierName — reserved words are valid
-            // property names, generator methods included
-            // (`{ *yield() {} }`, t262 yield-as-generator-method-
-            // binding-identifier). Same table every other
-            // property-name position reads.
-            let method_name = match &t1.token {
-                Token::Ident(name) => name.clone(),
-                t => match Self::keyword_property_name(t) {
-                    Some(kw) => kw.to_string(),
-                    None => return Ok(None),
-                },
-            };
-            let Some(t2) = self.tokens.get(self.pos + star_off + 2) else {
-                return Ok(None);
-            };
-            if !matches!(t2.token, Token::LParen) {
-                return Ok(None);
-            }
-            // Consume the optional `async`, the `*`, and the method name.
-            self.pos += star_off + 2;
-            (PropKey::from(method_name), None)
         };
         let mn = method_name.lossy();
 
@@ -297,5 +265,55 @@ impl<'a> Parser<'a> {
         self.pos += 1;
         let ann = self.parse_type_ann()?;
         Ok(Some(unwrap_generator_return_ann(&ann)))
+    }
+
+    /// Read a generator object-method's KEY, having already decided
+    /// there is a `*` at `star_off`. `None` means the shape is not a
+    /// generator method after all and the caller declines.
+    ///
+    /// Split out under the 200-line function rule when the `[Await]`
+    /// bit added its line to the body parse below. The cut is the
+    /// file's own seam: this answers WHICH member is being defined,
+    /// the caller answers how its body parses.
+    fn read_generator_method_key(
+        &mut self,
+        star_off: usize,
+    ) -> Result<Option<(PropKey, Option<ExprId>)>, String> {
+        let Some(t1) = self.tokens.get(self.pos + star_off + 1) else {
+            return Ok(None);
+        };
+        // `{ *[Symbol.iterator]() {} }` — a computed key on a generator
+        // method. Both key shapes are claimed here rather than next
+        // door, because the `*` has to be consumed before the key can
+        // be read and the computed-property arm only ever sees a
+        // leading `[`. Neither arm could take this alone, which is why
+        // it used to reach neither.
+        let pair = if matches!(t1.token, Token::LBracket) {
+            let (name, key) = self.parse_computed_generator_key(star_off)?;
+            (name, Some(key))
+        } else {
+            // §12.7.6 IdentifierName — reserved words are valid
+            // property names, generator methods included
+            // (`{ *yield() {} }`, t262 yield-as-generator-method-
+            // binding-identifier). Same table every other
+            // property-name position reads.
+            let method_name = match &t1.token {
+                Token::Ident(name) => name.clone(),
+                t => match Self::keyword_property_name(t) {
+                    Some(kw) => kw.to_string(),
+                    None => return Ok(None),
+                },
+            };
+            let Some(t2) = self.tokens.get(self.pos + star_off + 2) else {
+                return Ok(None);
+            };
+            if !matches!(t2.token, Token::LParen) {
+                return Ok(None);
+            }
+            // Consume the optional `async`, the `*`, and the method name.
+            self.pos += star_off + 2;
+            (PropKey::from(method_name), None)
+        };
+        Ok(Some(pair))
     }
 }
