@@ -30,6 +30,8 @@ mod arguments_object_scan;
 mod arguments_object_sloppy;
 mod arguments_object_stages;
 mod arguments_object_static_argv;
+mod arguments_object_static_argv_inject;
+mod arguments_object_static_argv_objlit;
 mod arguments_object_synth;
 mod arguments_object_walkers;
 mod arguments_object_walkers_return;

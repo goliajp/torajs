@@ -20,8 +20,11 @@ use super::arguments_object_stages::{
 };
 use super::arguments_object_static_argv::{
     collect_iife_static_argv, collect_method_static_argv, collect_named_static_argv,
-    collect_objlit_method_static_argv, inject_iife_static_params,
 };
+use super::arguments_object_static_argv_inject::{
+    inject_ctor_factory_extras, inject_iife_static_params,
+};
+use super::arguments_object_static_argv_objlit::collect_objlit_method_static_argv;
 use super::{Ast, Stmt};
 
 /// How `arguments.length` rewrites inside a given fn body (chunk 613).
@@ -190,7 +193,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     retain_escape_stored_off_static(ast, &mut static_argv, &value_argv_pre, &argv_locals);
     let iife_static_argv = static_argv;
     inject_iife_static_params(ast, &iife_static_argv, &mut fn_params);
-    super::arguments_object_static_argv::inject_ctor_factory_extras(ast, &iife_static_argv);
+    inject_ctor_factory_extras(ast, &iife_static_argv);
     // A named fn admitted to the static face must leave the T-31
     // real-argc tier (param injection + call-site argc prepend would
     // double-reshape its signature); a shadowed fn leaves every tier.
