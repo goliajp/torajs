@@ -162,9 +162,15 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                 // `function` keyword keeps the loud reject — a true
                 // arrow (`=>`) pierces `this` to the synthesized
                 // function per §8.3.4, so arrows do not disqualify.
-                // A strict-prologue body keeps the reject too (strict
-                // `this` is undefined, a different rewrite — recorded
-                // follow-up, no test262 demand measured yet).
+                // A strict-prologue body needs NO rewrite at all, and
+                // therefore no nesting judgement either: §10.2.1.2 step
+                // 3 passes the thisArg through untouched, which is what
+                // tr's substrate already does for every function it
+                // compiles (`function f() { return this }` answers
+                // `undefined` under a bare call and the receiver under
+                // `.call(o)`, matching bun). The reject that used to
+                // stand here was the whole of it — the runtime was
+                // right all along.
                 let touches_this = ast.exprs[arena_before..]
                     .iter()
                     .any(|e| matches!(e, Expr::This));
@@ -176,7 +182,7 @@ pub(super) fn rewrite_function_ctors(ast: &mut Ast) {
                         }
                     }
                 }
-                if is_the_decl && (!touches_this || this_rewritable) {
+                if is_the_decl && (!touches_this || strict_body || this_rewritable) {
                     let mut decl = parsed.pop().unwrap();
                     // The parse assigned spans relative to the
                     // ASSEMBLED text, but the fn-source registry
