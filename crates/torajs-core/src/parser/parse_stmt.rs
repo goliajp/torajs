@@ -200,15 +200,42 @@ impl<'a> Parser<'a> {
                 let e = self.parse_expr()?;
                 segs.push(self.expr_stmt_or_dstr_assign(e)?);
             }
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
+            self.expect_stmt_end()?;
             return Ok(Stmt::Multi(segs));
         }
+        self.expect_stmt_end()?;
+        self.expr_stmt_or_dstr_assign(expr)
+    }
+
+    /// §12.10 — an ExpressionStatement ends at a `;`, and otherwise
+    /// only where ASI may insert one: before a `}`, at end of input, or
+    /// where the offending token is preceded by a LineTerminator.
+    ///
+    /// Without the three clauses the parser inserted a semicolon
+    /// unconditionally, so `a b;` was two statements, `1 2;` was two,
+    /// and `1.2.3` was `1.2` followed by `.3`. Silent misparse rather
+    /// than a missing error: the program that runs is a different
+    /// program from the one on disk, and the only symptom is a
+    /// complaint about a name nobody wrote.
+    ///
+    /// `expect_decl_end` next door has spelled these three clauses
+    /// since §16.2 needed them, and its doc already names what the
+    /// tolerant reading costs — "silently accepted source no engine
+    /// does". This site is the one that never asked.
+    fn expect_stmt_end(&mut self) -> Result<(), String> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
+            return Ok(());
         }
-        self.expr_stmt_or_dstr_assign(expr)
+        if matches!(self.peek(), Token::Eof | Token::RBrace) || self.has_newline_before(self.pos) {
+            return Ok(());
+        }
+        Err(format!(
+            "expected `;` or a line break after an expression statement, got {:?} at {} \
+             (ES §12.10)",
+            self.peek(),
+            self.at()
+        ))
     }
 
     /// T-46 — labeled statement (`label: stmt`). JS spec §13.13.
