@@ -318,6 +318,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // the calling-convention mismatch that prints nothing at all. The
     // sites `synthesize_recv_cb_forwarders` wants (it runs later and
     // gives them the receiver-FIRST shim) are left for it.
+    ast::canonicalize_fn_proto_receivers(ast);
     ast::promote_this_fn_values(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
     ast::synthesize_forwarders(ast);

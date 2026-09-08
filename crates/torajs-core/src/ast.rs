@@ -105,6 +105,7 @@ mod fn_constructor;
 mod fn_constructor_argc;
 mod fn_constructor_assign;
 mod fn_ident_binding_wrap;
+mod fn_proto_recv_alias;
 mod fn_shadowed_new;
 mod fndecl_rebound;
 mod fnexpr_bind_this;
@@ -267,6 +268,7 @@ pub use expr::{BinOp, Expr, ExprId, Param, UnaryOp};
 pub use fill_optional_fields::fill_optional_fields;
 pub use fn_constructor::synthesize_fn_constructors;
 pub use fn_ident_binding_wrap::wrap_escaping_fn_ident_bindings;
+pub use fn_proto_recv_alias::canonicalize_fn_proto_receivers;
 pub use fn_shadowed_new::mark_fn_shadowed_new;
 pub use fndecl_rebound::widen_rebound_fn_decls;
 pub use fnexpr_bind_this::{
