@@ -203,8 +203,8 @@ fn scan_stmt(
     }
 }
 
-/// A member STORE target (`o.k = v`, `o.k++`) — the shape whose
-/// store can raise, whatever the receiver is.
+/// A property STORE target (`o.k = v`, `o.k++`, `xs[i] = v`, `xs[i]++`)
+/// — the shape whose store can raise, whatever the receiver is.
 ///
 /// This used to be an inclusion whitelist of receiver types, grown
 /// one entry at a time: `xs.length` (rotation 270, the §10.4.2.5
@@ -233,8 +233,14 @@ fn scan_stmt(
 /// `defineProperty`-demoted field, an accessor-only property and a
 /// primitive receiver all raise, and none of them is visible in the
 /// receiver's type. So the predicate is the position, not the shape.
-fn is_member_store(ast: &Ast, eid: ExprId) -> bool {
-    matches!(ast.get_expr(eid), Expr::Member { .. })
+/// The KEYED spelling is on the same rule for the same reason, and it
+/// is not an exotic shape either: `function w(xs) { xs[0] = 99 }` over
+/// a FROZEN array raised in the callee, which correctly left the
+/// element alone — and then the caller, having pruned its check,
+/// printed the ret sentinel. `console.log(w(a))` answered `null` where
+/// every engine throws.
+fn is_property_store(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Member { .. } | Expr::Index { .. })
 }
 
 /// The two marks that make a bare identifier read RAISE instead of
@@ -303,7 +309,7 @@ pub(crate) fn scan_expr(
             // Every member store can raise — see `is_member_store`
             // for why the receiver's type cannot tell us otherwise,
             // and for the three whitelist arms this one replaces.
-            if is_member_store(ast, *target) {
+            if is_property_store(ast, *target) {
                 *direct = true;
             }
             scan_expr(ast, *target, out, direct, fn_values, expr_types);
@@ -408,7 +414,7 @@ pub(crate) fn scan_expr(
             // lowering, one layer below this file, and is registered
             // separately. Marking is still right here: when that lane
             // does raise, the caller must not have pruned its check.
-            if is_member_store(ast, *target) {
+            if is_property_store(ast, *target) {
                 *direct = true;
             }
             scan_expr(ast, *target, out, direct, fn_values, expr_types)

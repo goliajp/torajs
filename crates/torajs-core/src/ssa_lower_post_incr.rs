@@ -405,6 +405,29 @@ fn lower_index(
     }
     let elem_ty = match arr_ty {
         Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
+        // A PRIMITIVE receiver: `n[0]++` is §13.4.4.1 over a value
+        // with no properties, so it raises the TypeError §10.1.8.1
+        // owes a strict-mode write — which is exactly what the keyed
+        // any lane above already answers. Only the typed spelling was
+        // refused, and only by the panic below: a specialized body's
+        // `n[0]++` said "not yet supported: post-incr index on
+        // non-array I64" while `const n: any = 1; n[0]++` threw.
+        //
+        // The other shapes this arm catches (Map, Set, Date, RegExp …)
+        // deliberately keep the loud refusal. Asked one at a time
+        // rather than assumed from the member ladder's list: the keyed
+        // any lane does NOT increment a Map's expando —
+        // `mm[0] = 5; mm[0]++` leaves it at 5 where bun answers 6 —
+        // so boxing them here would trade a compile-time refusal for
+        // a silent wrong answer, which is the trade rotation 608
+        // declined on the read side. They are registered against that
+        // lane instead.
+        Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Str | Type::Substr => {
+            let boxed = ctx.box_to_any(arr_val);
+            return crate::ssa_lower_post_incr_keyed::lower_index_any_keyed(
+                ctx, eid, index, boxed, is_inc,
+            );
+        }
         other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
     };
     let idx_val = ctx.lower_index_operand(index);
