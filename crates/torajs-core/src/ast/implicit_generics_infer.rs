@@ -26,7 +26,7 @@
 //! inferred return type is wanted at all — lives in the
 //! `implicit_generics_value_return` sibling.
 
-use super::{BinOp, Expr, ExprId, Param, Stmt, UnaryOp, retag_field_fn_ann};
+use super::{Expr, ExprId, Param, Stmt, UnaryOp, retag_field_fn_ann};
 
 /// Borrow-shaped view of `Ast.exprs` for the inference helper. Defined
 /// at the top of `desugar_implicit_generics` (just below) — `&[Expr]`
@@ -284,11 +284,11 @@ fn collect_return_anns_stmt(
 /// An operand annotation that does not settle whether the arithmetic
 /// answers a Number or a BigInt: `any` and the auto-generic type vars
 /// both stand for a value whose type arrives at the call site.
-fn unnameable_arith_operand(s: &str) -> bool {
+pub(crate) fn unnameable_arith_operand(s: &str) -> bool {
     s == "any" || is_typevar_ann(s)
 }
 
-fn is_typevar_ann(s: &str) -> bool {
+pub(crate) fn is_typevar_ann(s: &str) -> bool {
     s.starts_with("__T") && s.len() > 3 && s[3..].bytes().all(|b| b.is_ascii_digit())
 }
 
@@ -307,78 +307,9 @@ pub(crate) fn infer_expr_ann_with(
         Expr::BigInt { .. } => Some("bigint".into()),
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
-        Expr::BinOp { op, left, right } => match op {
-            BinOp::Lt
-            | BinOp::Gt
-            | BinOp::Le
-            | BinOp::Ge
-            | BinOp::Eq
-            | BinOp::Neq
-            | BinOp::LooseEq
-            | BinOp::LooseNeq => Some("boolean".into()),
-            // §13.13 — `a && b` IS one of its two operands, never a
-            // boolean: `a` when `a` is falsy, `b` otherwise. Claiming
-            // `boolean` here put that annotation on the enclosing
-            // function's return, and `function f(o) { return o.q && x }`
-            // then answered `false` where node answers `undefined`.
-            // Both operands agreeing is the only case with a name to
-            // give; anything else declines and lets the checker's own
-            // join (`check_type_of_binop::check_logical`) answer.
-            BinOp::LAnd | BinOp::LOr => {
-                let (l, r) = (recur(*left)?, recur(*right)?);
-                (l == r).then_some(l)
-            }
-            // §6.1.6.2 — the BigInt operators answer a BigInt, not a
-            // Number. The blanket `"number"` here stamped `: number`
-            // on the enclosing function's return, and the specialized
-            // body then handed a BigInt back through a Number-shaped
-            // slot: `function f(a, b) { return a - b }` called with
-            // `(7n, 2n)` printed the POINTER (`4344807632`), `/ % **`
-            // failed in the register allocator, and the declared
-            // spelling was refused outright ("expects Number, got
-            // BigInt"). Same shape as the LAnd/LOr answer above.
-            //
-            // A mixed pair is a TypeError (§6.1.6.1.x) and has no
-            // annotation to give, so it declines and lets the
-            // checker's own rule answer — naming it `number` is how
-            // `f(1n, 2)` came to answer 0 instead of throwing.
-            BinOp::Sub
-            | BinOp::Mul
-            | BinOp::Div
-            | BinOp::Mod
-            | BinOp::Pow
-            | BinOp::BitAnd
-            | BinOp::BitOr
-            | BinOp::BitXor
-            | BinOp::Shl
-            | BinOp::Shr
-            | BinOp::UShr => match (recur(*left), recur(*right)) {
-                (Some(l), Some(r)) if l == "bigint" || r == "bigint" => (l == r).then_some(l),
-                // An `any` or type-var operand CAN be a BigInt at run
-                // time, and then the answer is a BigInt. `+` already
-                // declines that pair (its arm reads its operands);
-                // the rest claimed `number`, which is how
-                // `function f(a, b) { return a - b }` called with
-                // `(7n, 2n)` printed the pointer. Declining lets the
-                // caller stamp `any`, which carries both.
-                (Some(l), Some(r))
-                    if unnameable_arith_operand(&l) || unnameable_arith_operand(&r) =>
-                {
-                    None
-                }
-                _ => Some("number".into()),
-            },
-            // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
-            BinOp::Add => {
-                let (l, r) = (recur(*left)?, recur(*right)?);
-                match (l.as_str(), r.as_str()) {
-                    ("string", _) | (_, "string") => Some("string".into()),
-                    ("number", "number") => Some("number".into()),
-                    (a, "number") | ("number", a) if is_typevar_ann(a) => Some("any".into()),
-                    _ => None,
-                }
-            }
-        },
+        Expr::BinOp { op, left, right } => {
+            super::implicit_generics_infer_binop::binop_ann(op, &|| recur(*left), &|| recur(*right))
+        }
         Expr::Unary { op, .. } if matches!(op, UnaryOp::Not) => Some("boolean".into()),
         // §13.5.5 / §13.5.7 — `-x` and `~x` over a BigInt answer a
         // BigInt. (`+x` on a BigInt is a TypeError per §13.5.4, so it

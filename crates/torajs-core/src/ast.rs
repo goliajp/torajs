@@ -163,6 +163,7 @@ mod hoist_nested_classes_census;
 mod hoist_nested_classes_rename;
 mod implicit_generics_cb_ret;
 mod implicit_generics_infer;
+pub(crate) mod implicit_generics_infer_binop;
 mod implicit_generics_infer_call;
 mod implicit_generics_value_return;
 mod infer_closure_lets;
