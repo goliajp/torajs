@@ -209,6 +209,9 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     // torajs-str — key mint for the walk.
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
+    // torajs-rc — the %Object.prototype% singleton every ordinary
+    // chain ends at (borrowed; program-life).
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
 }
 
 /// The generalized walk behind [`error_message_proto_pair`] — any
@@ -236,41 +239,80 @@ pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) 
 /// borrow-shaped `(tag, value)` contract; `(ANY_UNDEF, 0)` on a
 /// fully missing chain.
 ///
+/// Rotation 623 — the chain ends at %Object.prototype% (§10.1.1): an
+/// absent user chain, or one whose last prototype has no parent and no
+/// null-proto flag, hops there; stopping short fell to the per-family
+/// reify cell (`o.toString !== Object.prototype.toString`, "" on call).
+///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn struct_proto_chain_pair(ptr: *const c_void, key: *const c_void) -> (u64, u64) {
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let root = unsafe { __torajs_anyv_proto_get(class_tag as i64) };
-    // Non-cell (null / unregistered) → no chain. Cell test mirrors
+    // Non-cell (null / unregistered) → no user chain. Cell test mirrors
     // `nanbox::is_cell` consumers: top16 clear + low type bit clear.
-    if root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0 {
-        return (AnySlotTag::Undef as u64, 0);
-    }
-    let mut cur = root as *const c_void;
+    let root_is_cell = !(root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0);
+    let mut cur = if root_is_cell {
+        root as *const c_void
+    } else {
+        core::ptr::null()
+    };
     let mut out = (AnySlotTag::Undef as u64, 0);
-    loop {
+    // A user chain that ends in a null-proto prototype ends there.
+    let mut reaches_object_proto = true;
+    while !cur.is_null() {
         if unsafe { __torajs_dynobj_has(cur, key) } != 0 {
             out = (unsafe { __torajs_dynobj_get_tag(cur, key) }, unsafe {
                 __torajs_dynobj_get_value(cur, key)
             });
+            reaches_object_proto = false;
             break;
         }
         match unsafe { crate::member_get_own::user_proto_cell(cur) } {
             Some(next) => cur = next as *const c_void,
-            None => break,
+            None => {
+                let flags = unsafe { cur.cast::<u8>().add(6).cast::<u16>().read() };
+                reaches_object_proto =
+                    flags & crate::member_get_own::DYNOBJ_HDR_FLAG_NULL_PROTO == 0;
+                cur = core::ptr::null();
+            }
+        }
+    }
+    // A member READ, not an entry probe: the singleton's methods are
+    // virtual own cells `__torajs_dynobj_has` does not see.
+    if reaches_object_proto {
+        let op = unsafe { __torajs_get_builtin_prototype(OBJECT_PROTO_TAG) };
+        if !op.is_null() {
+            let parent = unsafe {
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                    AnySlotTag::Heap as i64,
+                    op as i64,
+                )
+            };
+            let t = unsafe { crate::member_get::__torajs_any_member_get_tag(parent, key) };
+            if t != AnySlotTag::Undef as u64 {
+                out = (t, unsafe {
+                    crate::member_get::__torajs_any_member_get_value(parent, key)
+                });
+            }
         }
     }
     // Release proto_get's +1 — the pair stays a borrow of the value
     // the (still-registered, immortal-for-program-life) prototype
     // object owns.
-    unsafe {
-        __torajs_anyv_rc_dec(crate::nanbox_encode::__torajs_anyv_box_from_pair(
-            AnySlotTag::Heap as i64,
-            root as i64,
-        ))
-    };
+    if root_is_cell {
+        unsafe {
+            __torajs_anyv_rc_dec(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+                AnySlotTag::Heap as i64,
+                root as i64,
+            ))
+        };
+    }
     out
 }
+
+/// torajs-rc `builtin_proto::OBJECT_PROTO_TAG` mirror.
+const OBJECT_PROTO_TAG: i64 = 1;
 
 /// Typed-tier `err.message` read — BORROWED Str pointer, mirroring
 /// the struct-field `Load` this emit replaces (the struct / the
