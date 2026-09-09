@@ -27,7 +27,6 @@
 //! - class evaluation moves to program top level: static inits /
 //!   computed keys evaluate once at startup, not per enclosing-fn
 //!   call, and every call shares one class identity;
-//! - a renamed class answers `.name` with the synth name;
 //! - block-scope visibility widens to the whole program (a name-only
 //!   inner shadow of the same identifier inside the container would
 //!   be renamed with it).
@@ -238,6 +237,19 @@ fn walk_container(
         if collides {
             let new_name = format!("__hc{}_{}", *counter, old_name);
             *counter += 1;
+            // The rename is the hoist's, not the program's: `.name`,
+            // the `[class X]` print and the instance's `X { … }` prefix
+            // keep the source spelling, through the same table a named
+            // class expression's binding uses (`class_display_name`).
+            // A class expression that already carries a display name
+            // carries it on. Before this `.name` answered `__hc0_D`.
+            let display = ast
+                .class_expr_display_names
+                .get(&old_name)
+                .cloned()
+                .unwrap_or_else(|| old_name.clone());
+            ast.class_expr_display_names
+                .insert(new_name.clone(), display);
             // The parser recorded, at the token, that a `this` in a
             // static body means THIS class — and it recorded it as the
             // NAME the source used, which `desugar_classes` pass 2

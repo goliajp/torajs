@@ -403,6 +403,14 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
         body,
     });
     ast.fn_expr_exprs.insert(ctor_eid);
+    // The class object is this function, bound under the minted name
+    // — and NamedEvaluation would hand it that mint as `.name`. The
+    // rename is the lowering's, not the program's: record the source
+    // spelling as the expression's self-name, which the fn-name
+    // registry lets win over the binding (§15.5.5). Before this
+    // `.name` answered `__cci1_C`.
+    ast.fn_expr_self_names
+        .insert(ctor_eid, src_name.to_string());
     out.push(Stmt::LetDecl {
         mutable: false,
         name: name.clone(),
