@@ -89,6 +89,22 @@ impl<'a> LowerCtx<'a> {
                     Operand::Value(v)
                 }
             },
+            // §7.1.4 ToNumber(String) is StringToNumber, and this sink
+            // is chosen by the operand's REPR, not by its static type:
+            // `Math.max(s as any, 1)` keeps a Str repr under an Any
+            // annotation and landed on the panic below, while the same
+            // value bound as `const s: any = "5"` boxes and answers 5.
+            // `str_to_number` borrows (no rc traffic), so ownership of
+            // the operand is unchanged — whoever released it still does.
+            Type::Str | Type::Substr => {
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(self.intrinsics.str_to_number, vec![op]),
+                    Type::F64,
+                    None,
+                );
+                Operand::Value(v)
+            }
             other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
         }
     }
