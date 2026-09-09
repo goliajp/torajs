@@ -38,7 +38,22 @@ STAMP="${HARDEV_SWEEP_JSON:-$PROJECT_DIR/hardev/test262-latest.json}"
 
 [ -f "$STAMP" ] || { echo "sweep_line: no sweep stamp at $STAMP" >&2; exit 2; }
 
-PREV="$(git -C "$PROJECT_DIR" log -2 --format=%H -- hardev/test262-latest.json 2>/dev/null | tail -1)"
+# The baseline is the most recent COMMITTED version whose headSha differs
+# from the one in hand — not "the second-newest commit touching the file".
+# Those differ exactly when the current sweep has not been committed yet,
+# which is every time this is run at close: `log -2 | tail -1` then reaches
+# back two rotations and reports two rotations of movement as one. The
+# conservation identity does not catch it, because a two-rotation delta is
+# just as self-consistent as a one-rotation delta — both are internally
+# fine and only an outside fact (last rotation's reported passTotal) shows
+# which one is being answered.
+CUR_SHA="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("headSha") or "")' "$STAMP" 2>/dev/null)"
+PREV=""
+for c in $(git -C "$PROJECT_DIR" log --format=%H -- hardev/test262-latest.json 2>/dev/null | head -20); do
+  h="$(git -C "$PROJECT_DIR" show "$c:hardev/test262-latest.json" 2>/dev/null \
+       | python3 -c 'import json,sys;print(json.load(sys.stdin).get("headSha") or "")' 2>/dev/null)"
+  if [ -n "$h" ] && [ "$h" != "$CUR_SHA" ]; then PREV="$c"; break; fi
+done
 # Exported, not just assigned: the python below reads it from the
 # environment. Without the export it silently sees an empty baseline and
 # prints seven bare counters with no deltas — which looks like a first
