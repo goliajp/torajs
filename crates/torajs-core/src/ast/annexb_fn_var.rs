@@ -31,7 +31,8 @@ use std::collections::HashSet;
 pub(super) struct AnnexBGoal {
     /// Script goal AND no program-level `"use strict"`.
     sloppy: bool,
-    /// Byte ranges made strict by an explicit directive prologue.
+    /// Byte ranges that are strict for a reason the goal does not
+    /// carry — an explicit directive prologue, or a class.
     strict_spans: Vec<(u32, u32)>,
     /// §B.3.3 is written for a `FunctionDeclaration`. A
     /// `GeneratorDeclaration`, an `AsyncFunctionDeclaration` and an
