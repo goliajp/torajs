@@ -56,6 +56,13 @@ use torajs_core::ssa::{FuncId, Function, InstKind, Operand, Terminator, ValueId}
 /// Array header offsets. Mirrors `torajs_core::ssa_lower`'s
 /// `ARR_LEN_OFF` / `ARR_PROPS_OFF` / `ARR_DATA_PTR_OFF` (private to
 /// that crate) and, through them, `torajs_arr::layout`.
+/// The heap header: refcount word and flags half-word. The two
+/// spellings lowering reads them with — `Load(I64, arr, 0)` then
+/// `LShr 48`, and `Load(I32, arr, 4)` then a `<< 16` mask — are the
+/// [[Extensible]] / [[Writable]] guards on push / pop / shift / fill,
+/// and a read of either says nothing about the elements.
+const ARR_HEADER_WORD_OFF: u64 = 0;
+const ARR_HEADER_FLAGS_OFF: u64 = 4;
 const ARR_LEN_OFF: u64 = 8;
 const ARR_CAP_HEAD_OFF: u64 = 16;
 const ARR_DATA_PTR_OFF: u64 = 32;
@@ -70,8 +77,14 @@ const IDENTITY_PUSH_CALLS: &[&str] = &["__torajs_arr_push"];
 /// Writes argument 1 into an element; returns nothing.
 const VOID_PUSH_CALLS: &[&str] = &["__torajs_arr_push_unchecked"];
 /// Touches the header or frees the block; no element value effect.
+/// The length-lock raisers belong here too: they read the flags and
+/// either do nothing or record a TypeError, and the one that moves
+/// elements first (`shift_guard`'s partial shift) only copies values
+/// the slots already held.
 const VOID_INERT_CALLS: &[&str] = &[
     "__torajs_arr_mark_kind",
+    "__torajs_arr_delete_tail_guard",
+    "__torajs_arr_shift_guard",
     "__torajs_arr_drop",
     "__torajs_arr_drop_scalar",
     "__torajs_arr_drop_any",
@@ -306,7 +319,8 @@ fn scan_inst(
                 if let Some(&rep) = class.get(&p) {
                     consumed.push(p);
                     match *off {
-                        ARR_LEN_OFF | ARR_CAP_HEAD_OFF => {}
+                        ARR_HEADER_WORD_OFF | ARR_HEADER_FLAGS_OFF | ARR_LEN_OFF
+                        | ARR_CAP_HEAD_OFF => {}
                         ARR_DATA_PTR_OFF if lands_in(rep, base) => {}
                         _ => kill.push(rep),
                     }
@@ -451,6 +465,7 @@ mod tests {
     const RESERVE: u32 = 1;
     const PUSH: u32 = 2;
     const OTHER: u32 = 3;
+    const TAIL_GUARD: u32 = 4;
 
     fn names() -> Vec<String> {
         vec![
@@ -458,6 +473,7 @@ mod tests {
             "__torajs_arr_reserve".into(),
             "__torajs_arr_push".into(),
             "user_fn".into(),
+            "__torajs_arr_delete_tail_guard".into(),
         ]
     }
 
@@ -593,6 +609,50 @@ mod tests {
                 v(0),
                 ARR_LEN_OFF,
             ))],
+        );
+        let facts = analyze_function_with(&f, &names());
+        assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
+    }
+
+    // The two header-read spellings of the length / extensibility
+    // guards. Rotation 623: the pre-reserve lane's frozen gate read
+    // the flags half-word and lost the array here — the sum loop that
+    // followed fell out of float demotion and the cell read +55%,
+    // which three A/B rounds had attributed to the fill loop.
+    #[test]
+    fn a_header_word_read_keeps_the_array() {
+        let f = arr_fn(
+            5,
+            200,
+            vec![inst(
+                6,
+                InstKind::Load(Type::I64, v(0), ARR_HEADER_WORD_OFF),
+            )],
+        );
+        let facts = analyze_function_with(&f, &names());
+        assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
+    }
+
+    #[test]
+    fn a_header_flags_read_keeps_the_array() {
+        let f = arr_fn(
+            5,
+            200,
+            vec![inst(
+                6,
+                InstKind::Load(Type::I32, v(0), ARR_HEADER_FLAGS_OFF),
+            )],
+        );
+        let facts = analyze_function_with(&f, &names());
+        assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
+    }
+
+    #[test]
+    fn a_length_lock_raiser_keeps_the_array() {
+        let f = arr_fn(
+            5,
+            200,
+            vec![inst(6, InstKind::Call(FuncId(TAIL_GUARD), vec![v(0)]))],
         );
         let facts = analyze_function_with(&f, &names());
         assert_eq!(facts.get(&ValueId(5)), Some(&NumFact::new(5, 200)));
