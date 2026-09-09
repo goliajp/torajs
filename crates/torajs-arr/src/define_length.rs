@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_LENGTH_RO, FLAG_FROZEN};
+use torajs_rc::{FLAG_ARR_LENGTH_RO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED};
 
 use crate::define::{
     F_CONFIGURABLE, F_ENUMERABLE, F_WRITABLE, P_CONFIGURABLE, P_ENUMERABLE, P_VALUE, P_WRITABLE,
@@ -176,6 +176,41 @@ fn refuse_length(throw_on_refusal: bool, msg: *const core::ffi::c_char) -> i64 {
 ///
 /// # Safety
 /// `arr` is a live array heap block pointer.
+/// `push` / `unshift` add a NEW index, so §10.1.9 CreateDataProperty
+/// fails when the receiver's `[[Extensible]]` slot is false — that is
+/// a TypeError, not a silent append. Returns 1 when it was recorded.
+///
+/// The predicate differs from [`__torajs_arr_len_write_guard`]'s on
+/// purpose, and it was read off node rather than assumed: `push` and
+/// `unshift` throw under `Object.preventExtensions` as well as under
+/// `seal` and `freeze`, while `pop` throws under `seal`/`freeze` but
+/// NOT under bare `preventExtensions` (its element must be
+/// configurable to be deleted, and prevent-only leaves it so). Hence
+/// two guards, each naming its own reason.
+///
+/// Six of the nine array mutators had NO guard at all and silently
+/// mutated a frozen array: `Object.freeze([3,1,2])` then `.push(9)`
+/// answered `[3,1,2,9]` where every engine throws — while `pop`,
+/// `shift` and `splice`, whose guards landed in RFC 20260713 blade 4
+/// and 刀 6 G9a, threw on the very same receiver. The callers must
+/// release any transferred rc on the reject path, the way each
+/// function's existing loud rejects already do.
+///
+/// # Safety
+/// `arr` is a live array heap block pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_extend_guard(arr: *const c_void) -> i64 {
+    let locked = unsafe { header_flags(arr as *mut c_void) }
+        & (FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE);
+    if locked == 0 {
+        return 0;
+    }
+    unsafe {
+        __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+    }
+    1
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_len_write_guard(arr: *const c_void) -> i64 {
     let locked = unsafe { header_flags(arr as *mut c_void) } & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN);

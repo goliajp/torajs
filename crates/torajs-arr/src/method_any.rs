@@ -81,6 +81,14 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
+        // Non-extensible receiver → TypeError before the first append
+        // (`__torajs_arr_extend_guard`); `argv` is borrowed, so the
+        // reject releases nothing. Checked here rather than left to
+        // the per-element kernels so a multi-arg `push(7, 8)` records
+        // one throw and stores nothing, on either block kind.
+        if crate::define_length::__torajs_arr_extend_guard(arr) != 0 {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         let mut cur = arr as *mut u8;
         for i in 0..argc {
             let av = *argv.add(i as usize);
@@ -280,6 +288,13 @@ pub unsafe extern "C" fn __torajs_arr_any_unshift(
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
+        // A new index on a non-extensible receiver is a TypeError
+        // (`__torajs_arr_extend_guard`), checked before the first
+        // prepend so nothing lands. `argv` is borrowed, so the reject
+        // releases nothing — same shape as the sparse reject above.
+        if crate::define_length::__torajs_arr_extend_guard(arr) != 0 {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         let mut cur = arr as *mut u8;
         for i in (0..argc).rev() {
             let av = *argv.add(i as usize);
@@ -349,6 +364,15 @@ pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value:
             arr as *const c_void,
             b"sparse array tail is not yet supported in Array.prototype.unshift\0".as_ptr(),
         ) {
+            return arr;
+        }
+        // push's twin — a new index on a non-extensible receiver is a
+        // TypeError (`__torajs_arr_extend_guard`). This entry ADOPTS
+        // the pair's one transferred rc, so the reject releases it.
+        // (The sparse reject above does not, which by that same
+        // contract leaks; left alone here as its own question.)
+        if crate::define_length::__torajs_arr_extend_guard(arr as *const c_void) != 0 {
+            crate::any_typed_bridge::drop_pair(tag as u64, value as u64);
             return arr;
         }
         // Chunk 628 — a typed block behind a static Arr<Any> view

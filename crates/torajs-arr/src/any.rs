@@ -101,6 +101,15 @@ pub unsafe extern "C" fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value
             }
             return arr;
         }
+        // A new index on a non-extensible receiver is a TypeError, not
+        // a silent append — see `__torajs_arr_extend_guard`. Same
+        // release as the sparse reject above.
+        if crate::define_length::__torajs_arr_extend_guard(arr as *const c_void) != 0 {
+            if tag == ANY_HEAP {
+                __torajs_value_drop_heap(value as *mut c_void);
+            }
+            return arr;
+        }
         if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
             // Chunk 622 — typed block behind the static Arr<Any>
             // view: kind-coerce and append raw (mismatch TypeError).
@@ -139,6 +148,11 @@ pub unsafe extern "C" fn __torajs_arr_push_any_boxed(arr: *mut u8, av: u64) -> *
             arr as *const c_void,
             b"sparse array tail is not yet supported in Array.prototype.push\0".as_ptr(),
         ) {
+            return arr;
+        }
+        // `av` is BORROWED by this entry (unlike the pair form above),
+        // so the reject has nothing to release.
+        if crate::define_length::__torajs_arr_extend_guard(arr as *const c_void) != 0 {
             return arr;
         }
         if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
