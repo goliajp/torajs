@@ -389,35 +389,3 @@ pub(crate) fn lower_struct_like_index(
     ctx.owned_member_reads.insert(eid);
     return Operand::Value(v);
 }
-
-/// The typed read's index, plus — for an index the SSA types F64 —
-/// the "not an integer" flag and the raw f64. §7.1.19: `xs[1.5]`
-/// names the property "1.5", never element 1, and `xs[NaN]` names
-/// "NaN"; a typed array holds neither, so the read answers
-/// `undefined` through the same exit an out-of-range index takes.
-/// Before this every F64 index was truncated (`xs[1.5]` read
-/// `xs[1]`, `xs[-0.5]` read `xs[0]`, `xs[NaN]` read `xs[0]`). The
-/// truncation stays for the integral case — the flag is one
-/// `fcvtzs` / `scvtf` / `fcmp` on top of it, on F64 indices only; an
-/// I64 counter pays nothing.
-pub(crate) fn lower_typed_read_index(
-    ctx: &mut LowerCtx<'_>,
-    index: ExprId,
-) -> (Operand, Option<(Operand, Operand)>) {
-    let raw = match &ctx.compound_key_memo {
-        Some((mid, mop)) if *mid == index => mop.clone(),
-        _ => ctx.lower_expr(index),
-    };
-    if !matches!(ctx.operand_ty(&raw), Type::F64) {
-        return (ctx.coerce_to_i64(raw), None);
-    }
-    let idx = ctx.coerce_to_i64(raw.clone());
-    let back = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::SiToFp(idx.clone()),
-        Type::F64,
-        None,
-    );
-    let nonint = ctx.fcmp(crate::ssa::FPred::Une, Operand::Value(back), raw.clone());
-    (idx, Some((nonint, raw)))
-}

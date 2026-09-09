@@ -8,8 +8,10 @@
 //! make an index special all live in the top u16 of the header, so
 //! one mask decides whether the slow block runs at all.
 
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_index_assign::WriteBack;
 
 impl<'a> LowerCtx<'a> {
     /// §10.4.2.1 — refuse a store into a non-writable index (an
@@ -131,5 +133,83 @@ impl<'a> LowerCtx<'a> {
         let rb = self.cur_block;
         self.f.set_term(rb, Terminator::Br(join_blk));
         self.cur_block = join_blk;
+    }
+
+    /// Rotation 623 — the typed store's arm for an index that is not
+    /// an integer: `xs[1.5] = v` names the property "1.5" (§7.1.19),
+    /// and the keyed kernel makes that expando the way it does for an
+    /// `any` receiver. Entered from `lower_index_assign`'s flag branch
+    /// with the value already lowered (evaluation order); leaves
+    /// `cur_block` where the typed arm's join left it.
+    pub(crate) fn emit_nonintegral_index_expando_store(
+        &mut self,
+        expando_blk: BlockId,
+        raw_key: Operand,
+        eid: ExprId,
+        value: ExprId,
+        v_raw: &Operand,
+        arr_val: &Operand,
+    ) {
+        let after = self.cur_block;
+        self.cur_block = expando_blk;
+        let v_ty = self.operand_ty(v_raw);
+        let (tag_op, value_op) = self.pack_any_slot_value_shared(value, v_raw, v_ty);
+        crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, v_raw);
+        let boxed_arr = self.box_to_any(arr_val.clone());
+        let boxed_key = self.box_to_any(raw_key);
+        crate::ssa_lower_index_any_key::AnyNumericKey::Boxed(boxed_key).emit_set(
+            self,
+            boxed_arr,
+            tag_op,
+            value_op,
+            Operand::ConstPtrNull,
+        );
+        self.emit_throw_check(None);
+        let eb = self.cur_block;
+        self.f.set_term(eb, Terminator::Br(after));
+        self.cur_block = after;
+    }
+
+    /// The store's split on a "not an integer" index (`lower_typed
+    /// _read_index`): opens the expando block and leaves `cur_block`
+    /// on the element-store block; the caller stores, branches to
+    /// the join, and hands the expando block to
+    /// `emit_nonintegral_index_expando_store`.
+    pub(crate) fn emit_nonintegral_store_split(
+        &mut self,
+        nonint: Option<(Operand, Operand)>,
+    ) -> Option<(BlockId, BlockId, Operand)> {
+        let (flag, raw) = nonint?;
+        let expando_blk = self.f.add_block();
+        let store_blk = self.f.add_block();
+        let join_blk = self.f.add_block();
+        let cb = self.cur_block;
+        self.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: flag,
+                then_blk: expando_blk,
+                else_blk: store_blk,
+            },
+        );
+        self.cur_block = store_blk;
+        Some((expando_blk, join_blk, raw))
+    }
+
+    /// bug-327 C3 — the receiver's write-back slot (the two shapes
+    /// arr_push supports): present, the growable helper; absent, the
+    /// plain entry whose OOB path is a loud RangeError.
+    pub(crate) fn resolve_index_writeback(&self, obj: ExprId) -> Option<WriteBack> {
+        if let Expr::Ident(name) = self.ast.get_expr(obj) {
+            if self.locals.contains_key(name) {
+                Some(WriteBack::Local)
+            } else if self.globals.contains_key(name) {
+                Some(WriteBack::Global)
+            } else {
+                None
+            }
+        } else {
+            None
+        }
     }
 }

@@ -34,7 +34,7 @@ mod elem_store;
 /// cell is fixed across grow); the enum survives purely as the
 /// "may grow" gate. Widening non-receiver shapes to grow too is a
 /// semantic change parked in the RFC.
-enum WriteBack {
+pub(crate) enum WriteBack {
     /// Ident bound to a mutable local.
     Local,
     /// Ident bound to a K.3 const-global array.
@@ -143,22 +143,14 @@ impl<'a> LowerCtx<'a> {
             Type::Arr(arr_id) => self.arr_layouts[arr_id.0 as usize],
             other => panic!("ssa-lower: index assign on non-array {other:?}"),
         };
-        let idx_val = self.lower_index_operand(index);
-        // bug-327 C3 — resolve the receiver's write-back slot (same
-        // two shapes arr_push supports). Present → the growable
-        // helper; absent → the plain entry whose OOB path is a loud
-        // RangeError.
-        let writeback: Option<WriteBack> = if let Expr::Ident(name) = self.ast.get_expr(obj) {
-            if self.locals.contains_key(name) {
-                Some(WriteBack::Local)
-            } else if self.globals.contains_key(name) {
-                Some(WriteBack::Global)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // Rotation 623 — an F64 index carries the "not an integer" flag
+        // (`lower_typed_read_index`): `xs[1.5] = v` names the property
+        // "1.5", never element 1 (§7.1.19), and used to overwrite
+        // `xs[1]`. The flag branches the store below to the keyed
+        // kernel, which makes the expando the spec makes.
+        let (idx_val, nonint) =
+            crate::ssa_lower_index_nonintegral::lower_typed_read_index(self, index);
+        let writeback = self.resolve_index_writeback(obj);
         // P0.10 — Array<Any>[i] = <concrete>. The Any slots are
         // 8-byte NaN-boxed AnyValues; the runtime helper boxes the
         // (tag, value) pair and writes the slot, dropping any old
@@ -178,10 +170,33 @@ impl<'a> LowerCtx<'a> {
             // inc after the call runs on a freed cell (the
             // BigInt64Array `w[i] = BigInt(x)` UAF).
             mint_index_assign_value(self, eid, &v_raw);
-            self.emit_arr_set_any(writeback, arr_val, arr_ty, idx_val, tag_op, value_op);
+            // An index that is not an integer names a property — the
+            // same expando arm the typed tier takes below.
+            let any_arm = self.emit_nonintegral_store_split(nonint);
+            self.emit_arr_set_any(
+                writeback,
+                arr_val.clone(),
+                arr_ty,
+                idx_val,
+                tag_op,
+                value_op,
+            );
             // Both entries can raise (dense-limit / temporary-receiver
             // RangeError) — propagate.
             self.emit_throw_check(None);
+            if let Some((expando_blk, join_blk, raw)) = any_arm {
+                let sb = self.cur_block;
+                self.f.set_term(sb, Terminator::Br(join_blk));
+                self.cur_block = join_blk;
+                self.emit_nonintegral_index_expando_store(
+                    expando_blk,
+                    raw,
+                    eid,
+                    value,
+                    &v_raw,
+                    &arr_val,
+                );
+            }
             return v_raw;
         }
         // Typed tier. The value lowers BEFORE the bounds guard — both
@@ -189,6 +204,8 @@ impl<'a> LowerCtx<'a> {
         // it (a write_blk-local def would be unreachable on the OOB
         // path).
         let v = self.lower_expr(value);
+        let v_raw = v.clone();
+        let expando_arm = self.emit_nonintegral_store_split(nonint);
         // Chunk 575 — an array value entering a container slot must
         // be self-describing for the cycle walker: field-store /
         // any-box boundaries chain-mark whatever is nested at that
@@ -229,6 +246,16 @@ impl<'a> LowerCtx<'a> {
             InstKind::StoreDyn(v.clone(), offset_base.clone(), offset),
         );
         self.emit_hole_revive_branch(&arr_val, &idx_val, join_blk);
+        if let Some((expando_blk, _join_unused, raw)) = expando_arm {
+            self.emit_nonintegral_index_expando_store(
+                expando_blk,
+                raw,
+                eid,
+                value,
+                &v_raw,
+                &arr_val,
+            );
+        }
         v
     }
 
