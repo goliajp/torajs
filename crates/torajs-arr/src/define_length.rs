@@ -97,29 +97,57 @@ pub(crate) unsafe fn define_length(
             c"Attempting to change writable attribute of unconfigurable property.".as_ptr(),
         );
     }
-    // Soft-flavor pre-check of the writable lock — the resize helper
-    // below records its own TypeError on a changed value, which the
-    // boolean flavor must answer as a plain refusal instead (a locked
-    // length still admits the same value; §10.4.2.4 step 12).
-    if !throw_on_refusal
-        && ro
-        && let Some(n) = converted
-    {
-        let cur =
+    if let Some(n) = converted {
+        let cur_len =
             unsafe { (arr.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read() };
-        if n as u64 != cur {
+        // §10.4.2.4 steps 11-12 — this is a DEFINE, and a non-writable
+        // `length` (a lock, or a freeze) is what OrdinaryDefineOwn-
+        // Property validates it against: the same value is admitted,
+        // a changed one refused. The Set kernel below refuses every
+        // write on a non-writable length (§10.1.9.2), which is the
+        // wrong question here — it turned a same-value redefine into
+        // a TypeError.
+        if ro || unsafe { header_flags(arr) } & FLAG_FROZEN != 0 {
+            if n as u64 != cur_len {
+                return refuse_length(
+                    throw_on_refusal,
+                    c"Attempting to change value of a readonly property.".as_ptr(),
+                );
+            }
+        } else if unsafe { define_length_value(arr, n, cur_len, flags_byte, throw_on_refusal) } == 0
+            || unsafe { __torajs_throw_check() } != 0
+        {
             return 0;
         }
     }
-    if let Some(n) = converted {
+    if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
+        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
+        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
+    }
+    1
+}
+
+/// The value half of a `length` define on a receiver whose length is
+/// writable — the shrink walk, then the resize kernel (which carries
+/// the seal's tail-delete refusal). Answers 0 when the walk refused
+/// (flavored), 1 otherwise; the kernel's own refusal is pending.
+///
+/// # Safety
+/// `arr` is a live array heap block; `n` is a validated length.
+unsafe fn define_length_value(
+    arr: *mut c_void,
+    n: i64,
+    cur_len: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    {
         // §10.4.2.4 steps 15-19 — shrinking deletes down from
         // oldLen-1; a NON-CONFIGURABLE index stops the walk, length
         // lands at that index + 1, and the whole define throws
         // TypeError. Zero cost for ordinary arrays: the walk only
         // runs when the exotic-index header bit says a shadow
         // attribute table exists.
-        let cur_len =
-            unsafe { (arr.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read() };
         if (n as u64) < cur_len
             && unsafe { crate::define::header_flags(arr) } & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
         {
@@ -141,19 +169,12 @@ pub(crate) unsafe fn define_length(
                 }
             }
         }
-        // The resize helper carries the lock (rejects a changed
-        // value, admits the same one) — pending throw short-circuits
-        // the writable drop below per the spec's fail-fast order.
+        // The resize kernel carries the seal's shrink refusal; a
+        // pending throw short-circuits the caller's writable drop per
+        // the spec's fail-fast order.
         unsafe { __torajs_arr_set_length_any(arr, 2, n) };
-        if unsafe { __torajs_throw_check() } != 0 {
-            return 0;
-        }
+        1
     }
-    if flags_byte & P_WRITABLE != 0 && flags_byte & F_WRITABLE == 0 {
-        let p = unsafe { (arr as *mut u8).add(6) as *mut u16 };
-        unsafe { p.write(p.read() | FLAG_ARR_LENGTH_RO) };
-    }
-    1
 }
 
 /// Refusal answer for the `length` arm — no [[Value]] stake to
