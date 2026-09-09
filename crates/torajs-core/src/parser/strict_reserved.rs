@@ -144,7 +144,7 @@ impl Parser<'_> {
     /// `class C { m(eval) {} }` was accepted under the Script goal while
     /// `"use strict"; function f(eval) {}` was not.
     pub(super) fn strict_or_in_class(&self, own: bool) -> bool {
-        own || !self.class_stack.is_empty()
+        own || !self.class_stack.is_empty() || self.in_class_heritage
     }
 
     /// Whether a bare `yield` here may be read as an ordinary

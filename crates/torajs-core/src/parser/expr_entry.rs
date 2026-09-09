@@ -175,6 +175,10 @@ impl<'a> Parser<'a> {
             // taken `ast`, so the site lands in the shared
             // arena directly).
             class_stack: self.class_stack.clone(),
+            // A template interpolation written in a ClassHeritage is
+            // still in the heritage, so the strictness rides along
+            // like `in_strict_fn` below.
+            in_class_heritage: self.in_class_heritage,
             // Template interpolation is a parenthesized-
             // like nesting — [In] resets.
             in_for_init: false,

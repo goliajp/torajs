@@ -182,6 +182,11 @@ struct Parser<'a> {
     /// reference so `resolve_private_refs` can walk out through the
     /// lexical nesting after the whole file has parsed.
     class_stack: Vec<u32>,
+    /// §15.7 — true while a ClassHeritage is being parsed. All parts
+    /// of a class are strict code and the heritage is one, but the
+    /// `class_stack` push that carries that answer for the BODY
+    /// happens after this clause, so it needs a bit of its own.
+    in_class_heritage: bool,
     /// §14.7.4 [In]-parameter approximation — true while parsing a
     /// C-style for-head init clause, where the `#x in o` production
     /// does not exist (relational `in` would be ambiguous with the

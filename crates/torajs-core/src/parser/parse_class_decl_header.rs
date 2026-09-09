@@ -60,7 +60,17 @@ impl<'a> Parser<'a> {
         // it at their own parse sites; arrows inherit.
         let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
         let type_params = self.parse_class_type_params()?;
-        let parent = self.parse_class_heritage()?;
+        // §15.7 — the heritage is part of the class, so it is strict
+        // code: `class C extends (function B() { with ({}); return B;
+        // }()) {}` is a SyntaxError, and so are an octal literal,
+        // duplicate parameters and an `eval` binding written there.
+        // `class_stack` says so for the body, but its push is four
+        // lines below — it carries the class's PRIVATE-NAME scope,
+        // which the heritage is deliberately outside of.
+        let saved_heritage = std::mem::replace(&mut self.in_class_heritage, true);
+        let parent = self.parse_class_heritage();
+        self.in_class_heritage = saved_heritage;
+        let parent = parent?;
         // Private-name lexical scope for the body (ES §15.7 — nested
         // classes see outer `#x` names, an inner redeclaration
         // shadows). Declarations fill the set as members parse; `#x`
