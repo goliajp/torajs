@@ -30,6 +30,8 @@
 # So each gate now owns a different question:
 #
 #   TRIG-1  the floor      — is there enough work in this session?
+#                            Two measures, because one of them is
+#                            dilutable (2026-09-09, see below).
 #   TRIG-2  both edges     — too fast to be real / too long to stay sharp
 #                            (and it is the ONLY escape hatch, see below)
 #   TRIG-3  the content    — which axis, what closed, what the gate reads
@@ -67,6 +69,27 @@
 # never happened. This is it, and the same rule applies again: run a
 # week under 12, measure, then decide whether 16-20 is earned.
 #
+# Why TRIG-1 grew a second measure (2026-09-09). Eight rotations under
+# N=12 produced commit counts of 13,13,14,13,13,13,14,13 — eight of eight
+# glued to the threshold, exactly the shape that made N=5 a quota rather
+# than a floor. Measured against the 51 rotations before the change:
+#
+#   threshold          5   ->  12    (+140%)
+#   commits/rotation   6   ->  13
+#   median commit size 127 ->  94 lines  (-26%)
+#   output per rotation ~762 -> ~1128 lines  (+48%)
+#
+# So the rotations really did get bigger — but the commit granularity got
+# finer under the門, which is what "raise the count" buys you: the quota
+# behaviour moves from closing early to slicing thin. A count of commits
+# is dilutable by construction.
+#
+# `closed:` entries are not, or not nearly as much. Each one has to name a
+# sha from this session AND say what it closed, in a sentence that has to
+# survive being read. Padding one costs an order of magnitude more than
+# padding a commit. The commit floor stays as the backstop; this is the
+# measure that cannot be met by cutting the same work into more pieces.
+#
 # Why TRIG-2 inverted: with a 12-commit floor, a rotation that spends
 # five hours on one hard problem (a decomposition, an E0-shaped
 # refactor) can be unable to close at all. `trigger.sh manual` is
@@ -99,6 +122,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ── Tunables (locked 2026-09-07; see metrics.md §6 "P5 lock") ─────────
 TRIG1_MIN_COMMITS="${HARDEV_TRIG1_MIN_COMMITS:-12}"
+TRIG1_MIN_CLOSED="${HARDEV_TRIG1_MIN_CLOSED:-3}"           # named things closed, see below
 TRIG2_MIN_WALL_SEC="${HARDEV_TRIG2_MIN_WALL_SEC:-1800}"    # 30 min floor
 TRIG2_MAX_WALL_SEC="${HARDEV_TRIG2_MAX_WALL_SEC:-18000}"   # 300 min cap → waives TRIG-1
 TRIG5_SAME_AXIS_MAX="${HARDEV_TRIG5_SAME_AXIS_MAX:-8}"     # consecutive same-axis rotations
@@ -164,7 +188,33 @@ session_range() {
   fi
 }
 
-# ── TRIG-1 — session commit count ≥ N ─────────────────────────────────
+# The `closed:` block — from the `closed:` line up to the next keyed line.
+# It wraps in practice (one entry per thing closed, each a sha plus a
+# sentence), so it cannot be read with `head -1`.
+closed_block() {
+  autorun_handoff_trigger_section | awk '
+    /^[[:space:]]*[Cc]losed:/ { inblk = 1; print; next }
+    inblk && /^[[:space:]]*[A-Za-z-]+:/ { inblk = 0 }
+    inblk { print }
+  '
+}
+
+# Shas on the closed block that really belong to this session, deduped.
+closed_session_shas() {
+  local range shas tok seen=""
+  range=$(session_range)
+  shas=$(git -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null) || return
+  [ -n "$shas" ] || return
+  for tok in $(closed_block | grep -oE '\b[0-9a-f]{7,40}\b'); do
+    case " $seen " in *" $tok "*) continue ;; esac
+    if printf '%s\n' "$shas" | grep -q "^$tok"; then
+      seen="$seen $tok"
+    fi
+  done
+  printf '%s\n' $seen
+}
+
+# ── TRIG-1 — session commit count ≥ N, and ≥ M things named closed ────
 # Cold start (no prior self row) → SKIP. Over the wall cap → WAIVED.
 check_trig1() {
   local count
@@ -173,16 +223,25 @@ check_trig1() {
     emit TRIG-1 SKIP "no prior self rotation (cold start)"
     return
   fi
-  if [ "$count" -ge "$TRIG1_MIN_COMMITS" ]; then
-    emit TRIG-1 PASS "commits=$count ≥ N=$TRIG1_MIN_COMMITS"
-    return
-  fi
+  local closed_n
+  closed_n=$(closed_session_shas | wc -w | tr -d ' ')
   if [ "$waive_trig1" -eq 1 ]; then
-    emit TRIG-1 WAIVED "commits=$count < N=$TRIG1_MIN_COMMITS but wall=${wall_sec}s ≥ cap=${TRIG2_MAX_WALL_SEC}s"
+    emit TRIG-1 WAIVED "commits=$count closed=$closed_n but wall=${wall_sec}s ≥ cap=${TRIG2_MAX_WALL_SEC}s"
     return
   fi
-  emit TRIG-1 FAIL "commits=$count < N=$TRIG1_MIN_COMMITS (need ≥$TRIG1_MIN_COMMITS, or wall ≥ $(( TRIG2_MAX_WALL_SEC / 60 ))min)"
-  failed+=(TRIG-1)
+  if [ "$count" -lt "$TRIG1_MIN_COMMITS" ]; then
+    emit TRIG-1 FAIL "commits=$count < N=$TRIG1_MIN_COMMITS (need ≥$TRIG1_MIN_COMMITS, or wall ≥ $(( TRIG2_MAX_WALL_SEC / 60 ))min)"
+    failed+=(TRIG-1)
+    return
+  fi
+  # The second measure. A commit count is met by slicing the same work
+  # thinner; a `closed:` entry has to name a sha and say what it closed.
+  if [ "$closed_n" -lt "$TRIG1_MIN_CLOSED" ]; then
+    emit TRIG-1 FAIL "commits=$count ≥ N=$TRIG1_MIN_COMMITS but only $closed_n thing(s) named on 'closed:' (need ≥$TRIG1_MIN_CLOSED from this session)"
+    failed+=(TRIG-1)
+    return
+  fi
+  emit TRIG-1 PASS "commits=$count ≥ N=$TRIG1_MIN_COMMITS, closed=$closed_n ≥ M=$TRIG1_MIN_CLOSED"
 }
 
 # ── TRIG-2 — wall time inside [floor, cap] ────────────────────────────
@@ -236,7 +295,7 @@ check_trig3() {
     return
   fi
 
-  closed_line=$(printf '%s\n' "$body" | grep -iE '^[[:space:]]*closed:' | head -1)
+  closed_line=$(closed_block)
   if [ -z "$closed_line" ]; then
     emit TRIG-3 FAIL "no 'closed: <sha> <what>' line (axis=$axis)"
     failed+=(TRIG-3)

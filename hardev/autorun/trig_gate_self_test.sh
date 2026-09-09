@@ -29,6 +29,7 @@
 #  17  the pasted sweep line               → exit 0, TRIG-7 PASS
 #  18  axis skew, review without the reading → exit 1, TRIG-5 FAIL
 #  19  axis skew, axis-B reading months old  → exit 1, TRIG-5 FAIL
+#  20  commits enough, one thing closed     → exit 1, TRIG-1 FAIL
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -44,6 +45,8 @@ fail=0
 
 # A sha that really is in this repo's recent history, and one that is not.
 REAL_SHA="$(git -C "$PROJECT_DIR" rev-parse --short HEAD)"
+REAL_SHA2="$(git -C "$PROJECT_DIR" rev-parse --short HEAD~1)"
+REAL_SHA3="$(git -C "$PROJECT_DIR" rev-parse --short HEAD~2)"
 OLD_SHA="$(git -C "$PROJECT_DIR" rev-list HEAD | tail -1 | cut -c1-9)"
 
 # Write a rotations.jsonl of self rows sitting `age` seconds back and
@@ -121,7 +124,10 @@ run_case() {
 }
 
 GOOD_AXIS="axis: A"
-GOOD_CLOSED="closed: $REAL_SHA did a thing"
+# Three entries: TRIG-1's second measure wants >= 3 things named, and a
+# fixture that only ever carries one would make the happy path depend on
+# the threshold never rising.
+GOOD_CLOSED="closed: $REAL_SHA did a thing; $REAL_SHA2 did another; $REAL_SHA3 did a third"
 GOOD_GATE="gate: 3773/0/4"
 
 mk_stamps
@@ -224,6 +230,11 @@ open(sys.argv[2],"w"))' "$REAL_SHA" "$TMP/stamps/bench-latest.json"
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" "axes-review: $BENCH_LINE"
 run_case "19 axis-B reading stale" 1 'TRIG-5 FAIL.*reading is [0-9]+d old'
 mk_stamps
+
+# 20 — the count is met by slicing thinner; the closed list is not.
+mk_log "$TMP/rot.jsonl" 7200 12
+mk_handoff "$GOOD_AXIS" "closed: $REAL_SHA one thing only" "$GOOD_GATE"
+run_case "20 twelve commits, one thing closed" 1 "TRIG-1 FAIL.*only 1 thing"
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
