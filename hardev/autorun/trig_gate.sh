@@ -37,6 +37,8 @@
 #   TRIG-5  the allocation — is one axis starving the others?
 #   TRIG-6  the evidence   — were the mechanical checks actually run,
 #                            on THIS source?
+#   TRIG-7  the transcript — does the handoff's sweep line still say what
+#                            the sweep said?
 #
 # TRIG-6 (2026-09-09) closes the structural hole the other five share:
 # every one of them reads what the handoff *says*. TRIG-3 checks the
@@ -432,6 +434,60 @@ check_trig6() {
   emit TRIG-6 PASS "4/4 stamps from this session (${fresh[*]})"
 }
 
+# ── TRIG-7 — the handoff's sweep line matches the sweep ────────────────
+# Step 0b restates seven counters and seven deltas every rotation. Both
+# halves have gone wrong while looking entirely normal — r613 computed
+# the deltas against mini's stale copy of the baseline and produced a
+# plausible, well-formed, completely false diff that took a rotation of
+# A/B to disprove.
+#
+# `sweep_line.sh` derives the line from the committed stamp, with the
+# baseline taken from git. This gate re-derives it and requires every
+# token to appear in the handoff. A pasted line cannot disagree; a
+# hand-edited one does. The cheapest way to stop transcription errors is
+# to stop transcribing, and this is the half that makes sure it happened.
+check_trig7() {
+  if [ ! -f "$HANDOFF_FILE" ]; then
+    emit TRIG-7 FAIL "handoff.md missing at $HANDOFF_FILE"
+    failed+=(TRIG-7)
+    return
+  fi
+  local want rc
+  want=$(HARDEV_SWEEP_JSON="$STAMP_DIR/test262-latest.json" \
+         bash "$SCRIPT_DIR/sweep_line.sh" 2>/dev/null)
+  rc=$?
+  if [ "$rc" -eq 2 ] || [ -z "$want" ]; then
+    emit TRIG-7 SKIP "no sweep stamp to compare against (TRIG-6 already FAIL)"
+    return
+  fi
+  if [ "$rc" -ne 0 ]; then
+    emit TRIG-7 FAIL "conservation broken in the sweep itself: ${want#sweep: }"
+    failed+=(TRIG-7)
+    return
+  fi
+  # Compare token sets, not the literal line: handoff.md is prose and the
+  # line gets wrapped. Every token the script produces must be present.
+  local handoff_body missing=() tok
+  handoff_body=$(tr '\n' ' ' < "$HANDOFF_FILE")
+  case "$handoff_body" in
+    *"sweep:"*) ;;
+    *) emit TRIG-7 FAIL "handoff carries no 'sweep:' line — paste the output of hardev/autorun/sweep_line.sh"
+       failed+=(TRIG-7); return ;;
+  esac
+  for tok in ${want#sweep: }; do
+    case "$handoff_body" in
+      *"$tok"*) ;;
+      *) missing+=("$tok") ;;
+    esac
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    emit TRIG-7 FAIL "handoff sweep line disagrees with the stamp on: ${missing[*]}"
+    failed+=(TRIG-7)
+    return
+  fi
+  emit TRIG-7 PASS "sweep line matches the stamp (${want#sweep: head=})"
+}
+
 resolve_wall
 check_trig1
 check_trig2
@@ -439,6 +495,7 @@ check_trig3
 check_trig4
 check_trig5
 check_trig6
+check_trig7
 
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "TRIG-FAILED: ${failed[*]}" >&2

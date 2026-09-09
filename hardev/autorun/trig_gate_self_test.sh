@@ -24,6 +24,9 @@
 #  12  a stamp from an earlier session    → exit 1, TRIG-6 FAIL
 #  13  a stamp written against a dirty tree → exit 1, TRIG-6 FAIL
 #  14  a stamp whose verdict is fail      → exit 1, TRIG-6 FAIL
+#  15  no sweep: line in the handoff       → exit 1, TRIG-7 FAIL
+#  16  a hand-edited sweep counter         → exit 1, TRIG-7 FAIL
+#  17  the pasted sweep line               → exit 0, TRIG-7 PASS
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -68,21 +71,35 @@ mk_log() {
 mk_stamps() {
   mkdir -p "$TMP/stamps"
   local n
-  for n in test262 determinism gmalloc file-size; do
-    printf '{"tool":"%s","headSha":"%s","verdict":"ok","harnessError":0}\n' \
+  for n in determinism gmalloc file-size; do
+    printf '{"tool":"%s","headSha":"%s","verdict":"ok"}\n' \
       "$n" "$REAL_SHA" > "$TMP/stamps/$n-latest.json"
   done
+  # The sweep stamp carries real counters: TRIG-7 re-derives its line
+  # from them. HARDEV_SWEEP_BASE_JSON is set-but-empty in run_case, so
+  # the deltas are suppressed and the fixture needs no baseline.
+  printf '{"tool":"test262","headSha":"%s","harnessError":0,"pass":31277,'\
+'"passNoOracle":1186,"passNegative":4511,"passTotal":36974,"bug":11555,'\
+'"incompatible":4645,"trAccepted":48529}\n' "$REAL_SHA" \
+    > "$TMP/stamps/test262-latest.json"
 }
+
+# The sweep line as sweep_line.sh renders the fixture above.
+SWEEP_LINE="sweep: head=REPLACED pass=31277 passNoOracle=1186 passNegative=4511 passTotal=36974 bug=11555 incompatible=4645 trAccepted=48529 harnessError=0 conservation=n/a"
 
 mk_handoff() {
   printf '%s\n' "## rotate 触发" "" "$@" > "$TMP/handoff.md"
+  # TRIG-7 reads the whole handoff, so every fixture carries the sweep
+  # line unless the case is specifically about it.
+  printf '%s\n' "${SWEEP_LINE/REPLACED/$REAL_SHA}" >> "$TMP/handoff.md"
 }
 
 run_case() {
   local name=$1 want_exit=$2 want_line=$3
   local out rc
   out=$(HARDEV_ROTATIONS_LOG="$TMP/rot.jsonl" HARDEV_HANDOFF_FILE="$TMP/handoff.md" \
-        HARDEV_STAMP_DIR="$TMP/stamps" bash "$GATE" 2>/dev/null)
+        HARDEV_STAMP_DIR="$TMP/stamps" HARDEV_SWEEP_BASE_JSON= \
+        bash "$GATE" 2>/dev/null)
   rc=$?
   if [ "$rc" -eq "$want_exit" ] && printf '%s\n' "$out" | grep -qE "$want_line"; then
     printf 'ok   %s\n' "$name"
@@ -169,6 +186,19 @@ printf '{"tool":"gmalloc_scan","headSha":"%s","verdict":"fail"}\n' "$REAL_SHA" \
   > "$TMP/stamps/gmalloc-latest.json"
 run_case "14 stamp verdict red" 1 'TRIG-6 FAIL.*red: gmalloc'
 mk_stamps
+
+# ── TRIG-7 — the sweep line ───────────────────────────────────────────
+mk_log "$TMP/rot.jsonl" 7200 12
+
+printf '%s\n' "## rotate 触发" "" "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" > "$TMP/handoff.md"
+run_case "15 no sweep line" 1 "TRIG-7 FAIL.*no 'sweep:' line"
+
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
+sed -i '' 's/passTotal=36974/passTotal=36999/' "$TMP/handoff.md"
+run_case "16 hand-edited counter" 1 'TRIG-7 FAIL.*disagrees.*passTotal=36974'
+
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
+run_case "17 pasted sweep line" 0 'TRIG-7 PASS'
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
