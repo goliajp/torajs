@@ -45,6 +45,9 @@ pub(crate) fn try_dispatch(
             Type::Arr(arr_id),
             None,
         );
+        // The kernel refuses a frozen receiver (`__torajs_arr_frozen_guard`)
+        // and is an intrinsic, so the check is forced with `None`.
+        ctx.emit_throw_check(None);
         // RFC 20260705 owned-result invariant: the chaining result
         // carries its own ref; the receiver binding keeps its own.
         ctx.emit_rc_inc(Operand::Value(v));
@@ -216,4 +219,71 @@ pub(crate) fn try_dispatch(
         return Some(Operand::Value(v));
     }
     None
+}
+
+/// The array twin of `emit_field_writable_guard`: a FROZEN receiver
+/// raises §10.1.9's TypeError before the first slot write, and nothing
+/// else does — sealed / preventExtensions keep writable elements, so
+/// this reads `FLAG_FROZEN` alone (the same two-instruction header
+/// read; the u16 flags are the high half of the u32 at +4).
+///
+/// Needed in the lowering, not only in the kernels: `fill` on a
+/// refcounted element type, `sort`'s insertion path and `copyWithin`
+/// on refcounted elements all write slots INLINE without any kernel
+/// call, the same way the pre-reserved push loop does. Emitted once at
+/// each method's entry, after its arguments are evaluated — which is
+/// where §23.1.3.7 / .30 / .4 put the failing Set — so the kernel
+/// guards behind it only ever fire for a caller that reaches a kernel
+/// directly. Leaves `cur_block` on the fall-through block.
+pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand) {
+    let hdr_word = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I32, recv_op, 4),
+        Type::I32,
+        None,
+    );
+    let frozen_bit = (torajs_rc::FLAG_FROZEN as u32) << 16;
+    let masked = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            crate::ssa::BinOp::And,
+            Operand::Value(hdr_word),
+            Operand::ConstI32(frozen_bit as i32),
+        ),
+        Type::I32,
+        None,
+    );
+    let hit = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(
+            crate::ssa::IPred::Ne,
+            Operand::Value(masked),
+            Operand::ConstI32(0),
+        ),
+        Type::Bool,
+        None,
+    );
+    let throw_blk = ctx.f.add_block();
+    let cont_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        crate::ssa::Terminator::CondBr {
+            cond: Operand::Value(hit),
+            then_blk: throw_blk,
+            else_blk: cont_blk,
+        },
+    );
+    ctx.cur_block = throw_blk;
+    let raiser = ctx.intrinsics.throw_readonly_assign;
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Call(raiser, vec![]));
+    ctx.emit_throw_check(None);
+    // The check's fall-through can never run (the raiser always arms
+    // the flag) and is terminated as such — a `Br` back to the
+    // continue block would make this a loop-body block wherever the
+    // caller sits in a loop (the pre-reserve lane measured +69% on
+    // array-sum-1m from exactly that).
+    let cb = ctx.cur_block;
+    ctx.f.set_term(cb, crate::ssa::Terminator::Unreachable);
+    ctx.cur_block = cont_blk;
 }

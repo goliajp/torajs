@@ -198,6 +198,33 @@ fn refuse_length(throw_on_refusal: bool, msg: *const core::ffi::c_char) -> i64 {
 ///
 /// # Safety
 /// `arr` is a live array heap block pointer.
+/// `sort` / `reverse` / `fill` / `copyWithin` write EXISTING slots,
+/// so the bit they answer to is §10.1.9's [[Writable]] — which only a
+/// freeze clears. A sealed or preventExtensions receiver keeps
+/// writable elements and MUST still mutate (node: `Object.seal([3,1,2])
+/// .sort()` answers `[1,2,3]`), so this is the third guard, on
+/// `FLAG_FROZEN` alone, next to the length guard (`FROZEN |
+/// LENGTH_RO`) and the extend guard (`FROZEN | SEALED |
+/// NON_EXTENSIBLE`) rather than a reuse of either. Returns 1 when the
+/// TypeError was recorded; callers store nothing after a 1.
+///
+/// Four of the nine mutators wrote straight through a freeze —
+/// `Object.freeze([3,1,2]).sort()` answered `[1,2,3]` — after push /
+/// unshift had been closed under the extend guard.
+///
+/// # Safety
+/// `arr` is a live array heap block pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_frozen_guard(arr: *const c_void) -> i64 {
+    if unsafe { header_flags(arr as *mut c_void) } & FLAG_FROZEN == 0 {
+        return 0;
+    }
+    unsafe {
+        __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+    }
+    1
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_guard(arr: *const c_void) -> i64 {
     let locked = unsafe { header_flags(arr as *mut c_void) }

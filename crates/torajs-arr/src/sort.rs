@@ -378,6 +378,13 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
     mode: i64,
 ) {
     unsafe {
+        // frozen → TypeError, order untouched (`__torajs_arr_frozen_guard`).
+        // The lowering also checks before its inline insertion path,
+        // so this fires only for a caller that reaches the kernel
+        // directly.
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
+            return;
+        }
         let len = *(arr.add(ARR_HDR_LEN_OFF) as *const u64) as usize;
         if len < 2 {
             return;
@@ -425,6 +432,10 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
             arr as *const core::ffi::c_void,
             b"sparse array tail is not yet supported in Array.prototype.sort\0".as_ptr(),
         ) {
+            return arr;
+        }
+        // frozen → TypeError, order untouched (`__torajs_arr_frozen_guard`).
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
             return arr;
         }
         let len = *(arr.add(ARR_HDR_LEN_OFF) as *const u64) as usize;

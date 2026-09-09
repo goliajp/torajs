@@ -178,6 +178,14 @@ pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
     // the §23.1.3.26 four-step MOP pair loop; the raw swap below
     // stays the clean-receiver fast path (one predictable branch,
     // header shares the len cache line).
+    // §10.1.9 [[Writable]] — a frozen receiver raises and stays as it
+    // was (`__torajs_arr_frozen_guard`); ahead of the exotic MOP walk
+    // too, since that path writes the same slots.
+    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
+        return arr;
+    }
     unsafe {
         let flags = (*(arr as *const torajs_rc::HeapHeader)).flags;
         if flags & torajs_rc::FLAG_ARR_ANY != 0 && flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
@@ -293,6 +301,12 @@ pub unsafe extern "C" fn __torajs_arr_copy_within(
     start: i64,
     end: i64,
 ) -> *mut u8 {
+    // frozen → TypeError, nothing written (`__torajs_arr_frozen_guard`).
+    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
+        return arr;
+    }
     let len = unsafe { arr_len(arr) } as i64;
     let lo = clamp(start, 0, len);
     let hi = clamp(end, 0, len);
@@ -336,6 +350,13 @@ pub unsafe extern "C" fn __torajs_arr_fill(
     start: i64,
     end: i64,
 ) -> *mut u8 {
+    // frozen → TypeError, nothing written; `value` is a Copy raw slot
+    // here (the refcounted spelling is the lowering's inline loop).
+    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
+        return arr;
+    }
     let len = unsafe { arr_len(arr) } as i64;
     let lo = clamp(start, 0, len);
     let hi = clamp(end, 0, len);

@@ -205,6 +205,10 @@ pub unsafe extern "C" fn __torajs_arr_any_copy_within(
         ) {
             return arr;
         }
+        // frozen → TypeError, nothing written (`__torajs_arr_frozen_guard`).
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const c_void) != 0 {
+            return arr;
+        }
         let len = arr_len(arr);
         let to = wrap_clamp(target, len);
         let lo = wrap_clamp(start, len);

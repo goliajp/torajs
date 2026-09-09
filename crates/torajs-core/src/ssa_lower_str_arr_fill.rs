@@ -226,6 +226,9 @@ pub(crate) fn try_dispatch(
         for &a in args.iter().skip(3) {
             let _ = ctx.lower_expr(a);
         }
+        // Arguments are evaluated; §23.1.3.7's failing Set is next —
+        // the rc loop below writes inline, so the guard is here.
+        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(ctx, recv_op.clone());
         if elem_ty.is_copy() {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
@@ -233,6 +236,7 @@ pub(crate) fn try_dispatch(
                 Type::Arr(arr_id),
                 None,
             );
+            ctx.emit_throw_check(None);
             // RFC 20260705 owned-result invariant: chaining result
             // carries its own ref.
             ctx.emit_rc_inc(Operand::Value(v));

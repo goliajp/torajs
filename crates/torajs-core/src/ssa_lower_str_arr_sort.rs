@@ -170,6 +170,9 @@ pub(crate) fn try_dispatch(
         // JSC) and stays only as the fallback for shapes the helper
         // doesn't cover (default no-comparator ToString compare,
         // Substr→Str materialization, non-{I64,F64,Str} elements).
+        // Comparator evaluated; §23.1.3.30's failing Set is next, on
+        // either path — the insertion path writes inline.
+        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(ctx, Operand::Value(arr_ptr));
         if helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, elem_ty, arr_ptr) {
             // RFC 20260705 owned-result invariant: in-place sort answers
             // the receiver — the chaining result carries its own ref.

@@ -46,6 +46,12 @@ pub unsafe extern "C" fn __torajs_arr_fill_any(
         ) {
             return arr;
         }
+        // frozen → TypeError, nothing written; the (tag, value) pair is
+        // BORROWED (the lowering settles it after the call), so the
+        // reject releases nothing — same shape as the sparse reject.
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const c_void) != 0 {
+            return arr;
+        }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64) as i64;
         let lo = if start < 0 {
             0

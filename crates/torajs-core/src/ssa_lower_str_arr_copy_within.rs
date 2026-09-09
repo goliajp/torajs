@@ -140,6 +140,9 @@ pub(crate) fn try_dispatch(
         let start = normalize_range_bound(ctx, args, 1, Operand::ConstI64(0), len_for_norm);
         let end = normalize_range_bound(ctx, args, 2, Operand::Value(len_for_norm), len_for_norm);
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        // Arguments are evaluated; §23.1.3.4's failing Set is next —
+        // the rc-ranges path below writes inline, so the guard is here.
+        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(ctx, recv_op);
         if elem_ty.is_refcounted() {
             emit_copy_within_rc_ranges(ctx, recv_op, elem_ty, target, start, end);
         }
@@ -160,6 +163,7 @@ pub(crate) fn try_dispatch(
             Type::Arr(arr_id),
             None,
         );
+        ctx.emit_throw_check(None);
         // RFC 20260705 owned-result invariant: chaining result
         // carries its own ref.
         ctx.emit_rc_inc(Operand::Value(v));
