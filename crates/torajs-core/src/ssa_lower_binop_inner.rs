@@ -223,7 +223,40 @@ fn box_object_operands_for_any_lane(
     a: Operand,
     b: Operand,
 ) -> (Operand, Operand) {
-    if !matches!(
+    let stringish = |t: &Type| matches!(t, Type::Str | Type::Substr);
+    let a_str = stringish(&ctx.operand_ty(&a));
+    let b_str = stringish(&ctx.operand_ty(&b));
+    // Which operators ToNumeric a String side, and so may box it into
+    // the any lane. This arm reached the bitwise six first (rotation
+    // 546, the 542-02 ledger entry) and was written "bitwise only" —
+    // but the reason a Str side must not box belongs to `+`, whose
+    // §13.15.3 concat lane the checker types String, and to ordering,
+    // which owns §13.10's lexicographic branch when BOTH sides are
+    // strings. `- * / %` and `**` have neither: §13.6-§13.10 call
+    // ToNumeric unconditionally, so `1 - "2"` is the same kernel call
+    // as `1 - ("2" as any)` — which already answered -1 while the
+    // typed spelling was a compile error, then, once the checker
+    // admitted it, reinterpreted the string POINTER as an f64.
+    let str_lane = match op {
+        AstBinOp::BitAnd
+        | AstBinOp::BitOr
+        | AstBinOp::BitXor
+        | AstBinOp::Shl
+        | AstBinOp::Shr
+        | AstBinOp::UShr
+        | AstBinOp::Sub
+        | AstBinOp::Mul
+        | AstBinOp::Div
+        | AstBinOp::Mod
+        | AstBinOp::Pow => true,
+        AstBinOp::Lt | AstBinOp::Le | AstBinOp::Gt | AstBinOp::Ge => !(a_str && b_str),
+        _ => false,
+    };
+    // The object side keeps its own operator set: `- * / %` stay on
+    // the static f64 lane in `coerce_object_operands` (ToNumeric on an
+    // object has no answer but a number), so widening the string lane
+    // must not drag them in.
+    let obj_lane = matches!(
         op,
         AstBinOp::Add
             | AstBinOp::Pow
@@ -237,35 +270,20 @@ fn box_object_operands_for_any_lane(
             | AstBinOp::Shl
             | AstBinOp::Shr
             | AstBinOp::UShr
-    ) {
-        return (a, b);
-    }
-    // §13.12 — the bitwise family ToNumber's a String operand like
-    // any object side (`"3" & 1` is `1`), so a Str/Substr side boxes
-    // into the any lane too (rotation 546, the 542-02 ledger entry).
-    // Everywhere else a Str side must NOT box: `+` has its concat
-    // lanes and the ordering operators own §13.10's string branch —
-    // that is what the escape below protects.
-    let bitwise = matches!(
-        op,
-        AstBinOp::BitAnd
-            | AstBinOp::BitOr
-            | AstBinOp::BitXor
-            | AstBinOp::Shl
-            | AstBinOp::Shr
-            | AstBinOp::UShr
     );
-    let stringish = |t: &Type| matches!(t, Type::Str | Type::Substr);
     let coercible = |ctx: &mut LowerCtx, v: &Operand| {
         let t = ctx.operand_ty(v);
-        crate::ssa_lower_unary::is_number_coercible_obj(t) || (bitwise && stringish(&t))
+        (obj_lane && crate::ssa_lower_unary::is_number_coercible_obj(t))
+            || (str_lane && stringish(&t))
     };
     let a_obj = coercible(ctx, &a);
     let b_obj = coercible(ctx, &b);
     if !a_obj && !b_obj {
         return (a, b);
     }
-    if !bitwise && (stringish(&ctx.operand_ty(&a)) || stringish(&ctx.operand_ty(&b))) {
+    // A String side this operator does NOT ToNumeric blocks the whole
+    // boxing — the concat / lexicographic lane owns the pair.
+    if !str_lane && (a_str || b_str) {
         return (a, b);
     }
     let a = if a_obj { ctx.box_to_any(a) } else { a };

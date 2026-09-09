@@ -191,17 +191,31 @@ fn objectish_numeric_pair(l: &Type, r: &Type) -> bool {
         && (objectish(r) || *r == Type::Number)
 }
 
-/// One side is a String and both sides are §13.12-safe primitives —
-/// the bitwise family runs ToNumeric on each operand, and ToNumeric
-/// on a String is ToNumber (never BigInt), so `"3" & 1` is `1` and
-/// `"abc" | 0` is `0`, not a compile-time refusal (rotation 542's
-/// ledger: the `"3" & 1` doc example in shape.rs could never run).
-/// BigInt on the other side stays out — §13.12 step 3's mixed-types
-/// TypeError is a runtime story the static lane doesn't carry.
-/// Bitwise ONLY: `+` keeps its concat arms, ordering keeps §13.10's
-/// string-comparison branch as its own open question.
-fn string_bitwise_pair(l: &Type, r: &Type) -> bool {
-    let ok = |t: &Type| matches!(t, Type::String | Type::Number | Type::Boolean | Type::Null);
+/// One side is a String and both sides coerce through ToNumeric —
+/// which on a String is ToNumber (never BigInt), so `"3" & 1` is `1`,
+/// `1 - "2"` is `-1`, `"abc" * 2` is `NaN` and `"2" < 3` is `true`,
+/// none of them a compile-time refusal. BigInt on the other side
+/// stays out: §13.12 step 3 / §6.1.6.1.x make a mixed pair a runtime
+/// TypeError the static lane doesn't carry.
+///
+/// This arm reached the bitwise six first and was written "bitwise
+/// ONLY", but the reason it was held back from the ARITHMETIC family
+/// belonged to `+` alone: `+` has a concat path (§13.15.3 picks it
+/// when either side is a String) and ordering has §13.10's
+/// string-comparison branch. `- * / %` and `**` have neither —
+/// §13.7-§13.10 and §13.6 step 1 call ToNumeric unconditionally.
+/// They inherited the exclusion through `js_arith_coerces_to_number`,
+/// which is `js_add_coerces_to_number` verbatim, so `"2" * 3` was a
+/// compile error while `("2" as any) * 3` answered 6 off the very
+/// kernel this arm routes to. Ordering keeps its own String/String
+/// arm above; past it, §7.2.13 is numeric on both sides.
+fn string_numeric_pair(l: &Type, r: &Type) -> bool {
+    let ok = |t: &Type| {
+        matches!(
+            t,
+            Type::String | Type::Number | Type::Boolean | Type::Null | Type::Undefined
+        )
+    };
     (*l == Type::String || *r == Type::String) && ok(l) && ok(r)
 }
 
@@ -226,6 +240,11 @@ fn check_arith(l: Type, r: Type) -> Result<Type, String> {
     // kernels instead — see `objectish_numeric_pair`.
     if objectish_numeric_pair(&l, &r) {
         return Ok(Type::Number);
+    }
+    // §13.7-§13.10 step 1 is ToNumeric on both, and a String has an
+    // answer there — the any-lane arith kernel already gives it.
+    if string_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
     }
     Err(format!(
         "arithmetic requires number or bigint operands, got {l:?} and {r:?}"
@@ -262,6 +281,10 @@ fn check_pow(l: Type, r: Type) -> Result<Type, String> {
     if objectish_numeric_pair(&l, &r) {
         return Ok(Type::Any);
     }
+    // §13.6 step 1 is the same ToNumeric call; same kernel.
+    if string_numeric_pair(&l, &r) {
+        return Ok(Type::Any);
+    }
     Err(format!(
         "`**` requires matching number or bigint operands, got {l:?} and {r:?}"
     ))
@@ -290,7 +313,7 @@ fn check_bitwise(l: Type, r: Type) -> Result<Type, String> {
         return Ok(Type::Any);
     }
     // §13.12 — a String side is ToNumber'd; same any_bitwise route.
-    if string_bitwise_pair(&l, &r) {
+    if string_numeric_pair(&l, &r) {
         return Ok(Type::Any);
     }
     Err(format!(
@@ -319,7 +342,7 @@ fn check_ushr(l: Type, r: Type) -> Result<Type, String> {
         return Ok(Type::Any);
     }
     // §13.12 — a String side is ToNumber'd; same any_bitwise route.
-    if string_bitwise_pair(&l, &r) {
+    if string_numeric_pair(&l, &r) {
         return Ok(Type::Any);
     }
     Err(format!(
@@ -359,6 +382,12 @@ fn check_compare(l: Type, r: Type) -> Result<Type, String> {
     // numeric comparison — `any_compare` carries it, same as for an
     // `any` operand.
     if objectish_numeric_pair(&l, &r) {
+        return Ok(Type::Boolean);
+    }
+    // §7.2.13 — the String/String arm above already took the
+    // lexicographic branch, so past it a String side is ToNumeric'd
+    // like every other operand; `any_compare` carries it.
+    if string_numeric_pair(&l, &r) {
         return Ok(Type::Boolean);
     }
     Err(format!(
