@@ -203,6 +203,20 @@ impl<'a> Parser<'a> {
             }
             Token::Super => self.parse_primary_super(),
             Token::New => self.parse_primary_new(),
+            // A contextual keyword here is an ordinary
+            // IdentifierReference. The forms that make `async` a
+            // keyword — `async function`, `async x =>`,
+            // `async (x) =>` — were tried and declined above
+            // (`try_parse_async_expr` returns None for exactly this
+            // case, which its doc already calls "`async` used as a
+            // plain identifier"), and `type` is TypeScript's only in
+            // declaration position, which `parse_stmt` dispatches
+            // before any expression is parsed.
+            t if Self::contextual_binding_name(t).is_some() => {
+                let name = Self::contextual_binding_name(&self.tokens[pos].token).unwrap();
+                self.pos += 1;
+                Ok(self.ast.add_expr(Expr::Ident(name.into())))
+            }
             t => Err(format!(
                 "expected expression, got {t:?} at {}",
                 self.tokens[pos].span.start

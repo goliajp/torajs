@@ -143,6 +143,28 @@ impl Parser<'_> {
     /// operand already and were missing only this clause — which is why
     /// `class C { m(eval) {} }` was accepted under the Script goal while
     /// `"use strict"; function f(eval) {}` was not.
+    /// The spelling of a token that names a valid BindingIdentifier
+    /// but does not arrive as `Token::Ident` — a CONTEXTUAL keyword.
+    ///
+    /// `async` and `type` are on nobody's reserved list: `async` is a
+    /// keyword only where the grammar looks ahead for it (`async
+    /// function`, `async (x) =>`), and `type` is TypeScript's, in
+    /// declaration position only. `var async = 1` and `{ async }` are
+    /// ordinary programs — node runs both.
+    ///
+    /// `let`, `yield` and `await` also name bindings in the right
+    /// positions, but each carries a judgement of its own
+    /// (`let_reads_as_ident` and its two siblings) and `await`'s
+    /// admitted sites have to be recorded for the module-goal gate, so
+    /// they are not folded in here.
+    pub(super) fn contextual_binding_name(t: &Token) -> Option<&'static str> {
+        match t {
+            Token::Async => Some("async"),
+            Token::Type => Some("type"),
+            _ => None,
+        }
+    }
+
     pub(super) fn strict_or_in_class(&self, own: bool) -> bool {
         own || !self.class_stack.is_empty() || self.in_class_heritage
     }

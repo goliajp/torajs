@@ -237,6 +237,15 @@ impl<'a> Parser<'a> {
                 // FIELD; like a bare keyword it still needs the
                 // explicit rename, since the BINDING cannot be one.
                 Token::EscapedIdent(n) => (PropKey::from(n), true),
+                // A contextual keyword names a valid
+                // BindingIdentifier, so it shorthands like any
+                // other name — no rename needed. Must precede the
+                // keyword arm below, which would otherwise claim
+                // it and demand one.
+                t if Self::contextual_binding_name(t).is_some() => (
+                    PropKey::from(Self::contextual_binding_name(t).unwrap()),
+                    false,
+                ),
                 t if Self::keyword_property_name(t).is_some() => {
                     (PropKey::from(Self::keyword_property_name(t).unwrap()), true)
                 }
