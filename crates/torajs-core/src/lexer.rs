@@ -43,21 +43,7 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
     // meaning postfix-decrement-then-greater.
     let mut fresh_line = true;
 
-    // ES2023 §12.5 HashbangComment — `#!` runs to the end of the line and
-    // is permitted only at the very start of the source text, so this is
-    // deliberately outside the loop rather than a `#` match arm. A `#`
-    // anywhere else is still either a private name or an error.
-    if bytes.starts_with(b"#!") {
-        // §12.3 LineTerminator has four members, and this loop used to
-        // carry a hand-written copy with two of them — so a hashbang
-        // ended by U+2028 / U+2029 swallowed the first line of the
-        // program. `line_terminator_at` is the one spelling, and its
-        // own doc records the last time these copies were consolidated;
-        // this loop was not in that sweep.
-        while i < len && util::line_terminator_at(bytes, i as usize).is_none() {
-            i += 1;
-        }
-    }
+    skip_hashbang(bytes, &mut i, len);
 
     while i < len {
         let start = i;
@@ -251,6 +237,26 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
     }
     emit(&mut out, Token::Eof, len, len);
     Ok(out)
+}
+
+/// ES2023 §12.5 HashbangComment — `#!` runs to the end of the line and
+/// is permitted only at the very start of the source text, which is why
+/// this is a prologue rather than a `#` arm of the scan loop: a `#`
+/// anywhere else is a private name or an error.
+///
+/// §12.3 LineTerminator has four members, and this used to carry a
+/// hand-written copy with two of them, so a hashbang ended by U+2028 /
+/// U+2029 swallowed the first line of the program.
+/// `line_terminator_at` is the one spelling, and its own doc records
+/// the last time these copies were consolidated; this one was not in
+/// that sweep.
+fn skip_hashbang(bytes: &[u8], i: &mut u32, len: u32) {
+    if !bytes.starts_with(b"#!") {
+        return;
+    }
+    while *i < len && util::line_terminator_at(bytes, *i as usize).is_none() {
+        *i += 1;
+    }
 }
 
 /// §12.9.3 — "The SourceCharacter immediately following a
