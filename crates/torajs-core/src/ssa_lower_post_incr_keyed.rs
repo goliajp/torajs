@@ -23,29 +23,48 @@ pub(crate) fn lower_index_any_keyed(
     is_inc: bool,
 ) -> Operand {
     let k_raw = crate::ssa_lower_index_any_key::lower_any_key(ctx, index);
-    let key_transfers = ctx.expr_transfers_ownership(index);
-    let cur_block = ctx.cur_block;
-    let kp = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw.clone()]),
-        Type::Ptr,
-        None,
-    );
-    // NULL answer = the key's ToString threw; propagate.
-    ctx.emit_throw_check(None);
-    if key_transfers {
-        ctx.emit_drop_value(k_raw, Type::Any);
-    }
-    let cur_block = ctx.cur_block;
-    let k = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(4), Operand::Value(kp)],
-        ),
-        Type::Any,
-        None,
-    );
+    // `lower_any_key` boxes only the key shapes the checker says need
+    // it — a Number key comes back as the bare I64 / F64 it was — and
+    // `anyv_to_property_key` reads an AnyValue: handed the integer 0
+    // it saw the null box and answered the Str `"null"`, so
+    // `o[0]++` read and wrote `o["null"]` (5 stayed 5, a `null` key
+    // appeared, an array receiver went on to SIGSEGV). Rotation 622
+    // registered that as "the keyed any lane does not increment a
+    // Map's expando" — it was every receiver, and it was the key. A
+    // non-`any` key is boxed and handed to the keyed kernels as is:
+    // they route an integral number to the index lane themselves and
+    // ToString the rest, which is ToPropertyKey exactly once. Only an
+    // `any` key runs the explicit coercion, whose ToString may throw.
+    let k = if matches!(ctx.operand_ty(&k_raw), Type::Any) {
+        let key_transfers = ctx.expr_transfers_ownership(index);
+        let cur_block = ctx.cur_block;
+        let kp = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.anyv_to_property_key, vec![k_raw.clone()]),
+            Type::Ptr,
+            None,
+        );
+        // NULL answer = the key's ToString threw; propagate.
+        ctx.emit_throw_check(None);
+        if key_transfers {
+            ctx.emit_drop_value(k_raw, Type::Any);
+        }
+        let cur_block = ctx.cur_block;
+        ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(4), Operand::Value(kp)],
+            ),
+            Type::Any,
+            None,
+        )
+    } else {
+        match ctx.box_to_any(k_raw) {
+            Operand::Value(v) => v,
+            _ => unreachable!("box_to_any answers a value"),
+        }
+    };
     let cur_block = ctx.cur_block;
     let old_box = ctx.f.append_inst(
         cur_block,
@@ -105,7 +124,8 @@ pub(crate) fn lower_index_any_keyed(
     );
     ctx.emit_throw_check(None);
     // The coerced cell carries the to_property_key +1 (its box is a
-    // pure encode) — release it, then the surplus new-value box.
+    // pure encode); a boxed number carries nothing — either way the
+    // drop is the balanced release. Then the surplus new-value box.
     ctx.emit_drop_value(Operand::Value(k), Type::Any);
     ctx.emit_drop_value(Operand::Value(new_v), Type::Any);
     ctx.owned_member_reads.insert(eid);

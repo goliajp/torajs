@@ -436,7 +436,7 @@ impl<'a> LowerCtx<'a> {
         {
             return self.lower_any_index_assign_any_key(eid, obj, arr_val, index, value);
         }
-        let idx_val = self.lower_index_operand(index);
+        let key = crate::ssa_lower_index_any_key::AnyNumericKey::lower(self, index);
         let v_raw = self.lower_expr(value);
         // Chunk 567 — SHARE, no consume.
         let v_ty = self.operand_ty(&v_raw);
@@ -444,14 +444,7 @@ impl<'a> LowerCtx<'a> {
         let recv_slot = self.resolve_any_recv_slot(obj);
         // Stake before the store (see the Any-slot site above).
         mint_index_assign_value(self, eid, &v_raw);
-        let cur_block = self.cur_block;
-        self.f.append_void(
-            cur_block,
-            InstKind::Call(
-                self.intrinsics.any_index_set,
-                vec![arr_val, idx_val, tag_op, value_op, recv_slot],
-            ),
-        );
+        key.emit_set(self, arr_val, tag_op, value_op, recv_slot);
         self.emit_throw_check(None);
         return v_raw;
     }

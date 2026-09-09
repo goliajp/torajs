@@ -191,13 +191,7 @@ fn lower_any_hit(ctx: &mut LowerCtx<'_>, eid: ExprId, obj_op: Operand, index: Ex
         ctx.owned_member_reads.insert(eid);
         return v;
     }
-    let idx_val = ctx.lower_index_operand(index);
-    let v = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_index_get, vec![obj_op, idx_val]),
-        Type::Any,
-        None,
-    );
+    let v = crate::ssa_lower_index_any_key::AnyNumericKey::lower(ctx, index).emit_get(ctx, obj_op);
     ctx.emit_throw_check(None);
     ctx.owned_member_reads.insert(eid);
     Operand::Value(v)

@@ -9,7 +9,7 @@
 //! is unchanged.
 
 use crate::ast::ExprId;
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Typed array receiver with a KEY that no static lane can answer —
@@ -125,6 +125,70 @@ pub(crate) fn lower_str_recv_index(
         None,
     );
     Operand::Value(v)
+}
+
+/// A Number key on an `any` receiver, split by what the SSA says
+/// about it: an I64 / I32 rides the integer index kernel; an F64 is
+/// not provably integral and goes to the keyed kernel boxed as the
+/// double it is — that kernel routes an integral double to the index
+/// lane itself and ToStrings the rest (§7.1.19). Before this every
+/// Number key took `coerce_to_i64` and `o[1.5]` read and wrote
+/// `o[1]`, a different property ("1.5" is not an array index). The
+/// double box is a pure encode with no stake to release.
+pub(crate) enum AnyNumericKey {
+    Index(Operand),
+    Boxed(Operand),
+}
+
+impl AnyNumericKey {
+    /// Lower `index` once (a compound-assign pinned key is reused —
+    /// §13.15.2 evaluates the Reference once) and pick the kernel.
+    pub(crate) fn lower(ctx: &mut LowerCtx<'_>, index: ExprId) -> Self {
+        let raw = match &ctx.compound_key_memo {
+            Some((mid, mop)) if *mid == index => mop.clone(),
+            _ => ctx.lower_expr(index),
+        };
+        if matches!(ctx.operand_ty(&raw), Type::F64) {
+            AnyNumericKey::Boxed(ctx.box_to_any(raw))
+        } else {
+            AnyNumericKey::Index(ctx.coerce_to_i64(raw))
+        }
+    }
+
+    /// `recv[key]` — a fresh owned box (both kernels answer +1).
+    pub(crate) fn emit_get(self, ctx: &mut LowerCtx<'_>, recv: Operand) -> ValueId {
+        let (fid, key) = match self {
+            AnyNumericKey::Index(i) => (ctx.intrinsics.any_index_get, i),
+            AnyNumericKey::Boxed(k) => (ctx.intrinsics.any_index_get_keyed, k),
+        };
+        let cur_block = ctx.cur_block;
+        ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(fid, vec![recv, key]),
+            Type::Any,
+            None,
+        )
+    }
+
+    /// `recv[key] = (tag, value)` — the pair transfers into the store.
+    pub(crate) fn emit_set(
+        self,
+        ctx: &mut LowerCtx<'_>,
+        recv: Operand,
+        tag: Operand,
+        value: Operand,
+        recv_slot: Operand,
+    ) {
+        let (fid, key) = match self {
+            AnyNumericKey::Index(i) => (ctx.intrinsics.any_index_set, i),
+            AnyNumericKey::Boxed(k) => (ctx.intrinsics.any_index_set_keyed, k),
+        };
+        let cur_block = ctx.cur_block;
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Call(fid, vec![recv, key, tag, value, recv_slot]),
+        );
+    }
 }
 
 /// Lower a property-key expression for the keyed kernels' §7.1.19
@@ -314,14 +378,7 @@ pub(crate) fn lower_struct_like_index(
         }
         return Operand::Value(v);
     }
-    let idx_val = ctx.lower_index_operand(index);
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.any_index_get, vec![boxed, idx_val]),
-        Type::Any,
-        None,
-    );
+    let v = AnyNumericKey::lower(ctx, index).emit_get(ctx, boxed);
     ctx.emit_throw_check(None);
     // `__torajs_arr_index_get` answers cells with an explicit +1
     // ("the returned copy takes another") — record the read as

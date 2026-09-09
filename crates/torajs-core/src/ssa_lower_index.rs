@@ -210,14 +210,8 @@ pub(crate) fn lower_from_value(
             }
             return Operand::Value(v);
         }
-        let idx_val = ctx.lower_index_operand(index);
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.any_index_get, vec![arr_val.clone(), idx_val]),
-            Type::Any,
-            None,
-        );
+        let v = crate::ssa_lower_index_any_key::AnyNumericKey::lower(ctx, index)
+            .emit_get(ctx, arr_val.clone());
         ctx.emit_throw_check(None);
         // Kernel cells answer +1 (`__torajs_arr_index_get` doc) —
         // record the read as owned so consumers release it, and
