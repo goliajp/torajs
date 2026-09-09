@@ -190,6 +190,7 @@ impl Checker {
             any_widen_mono_sites: HashMap::new(),
             fn_escape_widen_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),
+            checking_spec_body: false,
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
             expr_types: HashMap::new(),
@@ -376,6 +377,14 @@ pub(crate) struct Checker {
     /// the trailing arg positions. Typed missing params still error
     /// at the arity check above so typed code keeps strict arity.
     pub arity_pad_count: HashMap<ExprId, usize>,
+    /// True while [`crate::check_monomorph::process_one_generic`] is
+    /// checking a specialization body. Those bodies' diagnostics are
+    /// discarded (`check_monomorph_uninferred`), so a member read the
+    /// checker rejects there never reaches the user — it only stops
+    /// `type_of` from recording types, which the lowering then reads
+    /// as absent. See [`crate::check_type_of_member`]'s terminal-miss
+    /// posture for what that costs and which shape it re-opens.
+    pub(crate) checking_spec_body: bool,
     /// M3.4 — generic struct alias declarations. Maps `Pair` →
     /// `(["A","B"], [("fst","A"), ("snd","B")])` for
     /// `type Pair<A, B> = { fst: A, snd: B }`. Used by

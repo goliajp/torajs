@@ -323,7 +323,9 @@ pub(crate) fn process_one_generic(
             &id_map,
             &subst,
         );
+        let saved_spec_body = std::mem::replace(&mut c.checking_spec_body, true);
         c.check_stmt(owned_ast, &spec_decl);
+        c.checking_spec_body = saved_spec_body;
         let inner_sites = std::mem::replace(&mut c.generic_call_sites, saved_sites);
         crate::check_monomorph_uninferred::settle_body_diagnostics(
             c,

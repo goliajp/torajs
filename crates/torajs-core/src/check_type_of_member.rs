@@ -198,7 +198,14 @@ pub(crate) fn check(
     // siblings inside [`try_family_dispatch`] (chunks
     // 191-206). Anything reaching this point is genuinely
     // unknown for the obj_ty — emit a typecheck error.
-    answer_terminal_miss(ast, obj, name, &obj_ty, lenient_missing)
+    answer_terminal_miss(
+        ast,
+        obj,
+        name,
+        &obj_ty,
+        lenient_missing,
+        checker.checking_spec_body,
+    )
 }
 
 /// Terminal-miss posture — what a member read answers once every
@@ -228,6 +235,7 @@ fn answer_terminal_miss(
     name: &str,
     obj_ty: &Type,
     lenient_missing: bool,
+    spec_body: bool,
 ) -> Result<Type, String> {
     if lenient_missing {
         return Ok(Type::Any);
@@ -275,6 +283,28 @@ fn answer_terminal_miss(
     if let Type::Object(tag) = obj_ty
         && crate::check_type_of_member_global_miss::answers_undefined(tag)
     {
+        return Ok(Type::Any);
+    }
+    // A monomorph specialization body's Struct receiver is an
+    // INFERRED anchor, not a declared shape: `function f(o)` says
+    // nothing about `o`, and the anchor is whatever one call site
+    // passed. §10.1.8.1 [[Get]] on an absent property answers
+    // undefined, and the lowering already implements that here (the
+    // layout miss boxes the receiver onto the any-member probe) — so
+    // the reject was never enforced, only DISCARDED
+    // (`check_monomorph_uninferred`). A discarded error is worse than
+    // no error: `type_of` records a type only on Ok, so it left this
+    // read and every expression the `?` skipped past it with no entry
+    // in `expr_types`, and the lowering reads exactly that table to
+    // decide truthiness, `=== undefined` vs `=== null`, array element
+    // and object field types. `f({x:9})` on `o.q ? a : b` took the
+    // TRUE branch, and `o.q && x` answered false.
+    //
+    // A DECLARED `function f(o: {x: number})` keeps the loud reject —
+    // that shape is a contract, and tsc refuses `o.q` on it too. The
+    // zero-field arm above is this same posture already, unconditional
+    // because `{}` declares no surface a typo could miss.
+    if spec_body && matches!(obj_ty, Type::Struct(_)) {
         return Ok(Type::Any);
     }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
