@@ -102,6 +102,7 @@ TRIG1_MIN_COMMITS="${HARDEV_TRIG1_MIN_COMMITS:-12}"
 TRIG2_MIN_WALL_SEC="${HARDEV_TRIG2_MIN_WALL_SEC:-1800}"    # 30 min floor
 TRIG2_MAX_WALL_SEC="${HARDEV_TRIG2_MAX_WALL_SEC:-18000}"   # 300 min cap → waives TRIG-1
 TRIG5_SAME_AXIS_MAX="${HARDEV_TRIG5_SAME_AXIS_MAX:-8}"     # consecutive same-axis rotations
+TRIG5_BENCH_MAX_AGE_DAYS="${HARDEV_TRIG5_BENCH_MAX_AGE_DAYS:-14}"  # axis-B reading staleness
 STAMP_DIR="${HARDEV_STAMP_DIR:-$PROJECT_DIR/hardev}"       # where the run stamps live
 
 # Blacklist phrases (case-insensitive). Each entry = one regex; if any
@@ -373,12 +374,55 @@ PY
     emit TRIG-5 PASS "axis=$axis; prior $need = [$prior] not all the same"
     return
   fi
-  if autorun_handoff_trigger_section | grep -iqE '^[[:space:]]*axes-review:'; then
-    emit TRIG-5 PASS "axis=$axis for $TRIG5_SAME_AXIS_MAX consecutive rotations; axes-review present"
-  else
+  if ! autorun_handoff_trigger_section | grep -iqE '^[[:space:]]*axes-review:'; then
     emit TRIG-5 FAIL "axis=$axis for $TRIG5_SAME_AXIS_MAX consecutive rotations — handoff needs an 'axes-review:' line stating where the other axes stand and why they wait"
     failed+=(TRIG-5)
+    return
   fi
+  # An axes-review that says "bench 本轮未跑" is true and says nothing. The
+  # number has to stand next to it: through September every one of those
+  # sentences was individually correct while the axis-B median sat inside
+  # ±3% of where it had been fifty days earlier, and that only surfaced
+  # when a full report was asked for. So the review carries the reading
+  # itself, and the reading may not be arbitrarily old.
+  local bench_json="$STAMP_DIR/bench-latest.json"
+  if [ ! -f "$bench_json" ]; then
+    emit TRIG-5 FAIL "axes-review present but no $bench_json — run hardev/autorun/bench_latest.sh"
+    failed+=(TRIG-5)
+    return
+  fi
+  local bench_line age_days
+  bench_line=$(HARDEV_BENCH_JSON="$bench_json" bash "$SCRIPT_DIR/bench_latest_line.sh" 2>/dev/null)
+  age_days=$(python3 -c '
+import json, sys, datetime
+d = json.load(open(sys.argv[1]))
+t = d.get("benchRanAt") or d.get("ranAt")
+try:
+    when = datetime.datetime.strptime(t, "%Y-%m-%dT%H:%M:%SZ").replace(
+        tzinfo=datetime.timezone.utc)
+except (TypeError, ValueError):
+    print(9999); raise SystemExit
+print(int((datetime.datetime.now(datetime.timezone.utc) - when).total_seconds() // 86400))
+' "$bench_json" 2>/dev/null)
+  if [ -z "$age_days" ] || [ "$age_days" -gt "$TRIG5_BENCH_MAX_AGE_DAYS" ]; then
+    emit TRIG-5 FAIL "axis-B reading is ${age_days:-?}d old (max $TRIG5_BENCH_MAX_AGE_DAYS) — rerun bench, then hardev/autorun/bench_latest.sh"
+    failed+=(TRIG-5)
+    return
+  fi
+  local tok body missing=()
+  body=$(tr '\n' ' ' < "$HANDOFF_FILE")
+  for tok in ${bench_line#bench: }; do
+    case "$body" in
+      *"$tok"*) ;;
+      *) missing+=("$tok") ;;
+    esac
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    emit TRIG-5 FAIL "axes-review lacks the axis-B reading (${missing[*]}) — paste hardev/autorun/bench_latest_line.sh"
+    failed+=(TRIG-5)
+    return
+  fi
+  emit TRIG-5 PASS "axis=$axis for $TRIG5_SAME_AXIS_MAX rotations; axes-review carries the axis-B reading (${age_days}d old)"
 }
 
 # ── TRIG-6 — the mechanical checks ran, on this session's source ───────

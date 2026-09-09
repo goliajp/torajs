@@ -27,6 +27,8 @@
 #  15  no sweep: line in the handoff       → exit 1, TRIG-7 FAIL
 #  16  a hand-edited sweep counter         → exit 1, TRIG-7 FAIL
 #  17  the pasted sweep line               → exit 0, TRIG-7 PASS
+#  18  axis skew, review without the reading → exit 1, TRIG-5 FAIL
+#  19  axis skew, axis-B reading months old  → exit 1, TRIG-5 FAIL
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -78,6 +80,13 @@ mk_stamps() {
   # The sweep stamp carries real counters: TRIG-7 re-derives its line
   # from them. HARDEV_SWEEP_BASE_JSON is set-but-empty in run_case, so
   # the deltas are suppressed and the fixture needs no baseline.
+  # A bench stamp dated now: TRIG-5 rejects an axis-B reading older than 14d.
+  printf '{"tool":"bench","headSha":"%s","benchRanAt":"%s","runs":3,'\
+'"lowConfidence":false,"cells":46,"medianVsBunAot":0.5067,'\
+'"cellsSlowerThanBunAot":1,"target":0.33,"shortfallX":1.535}\n' \
+    "$REAL_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TMP/stamps/bench-latest.json"
+  BENCH_LINE=$(HARDEV_BENCH_JSON="$TMP/stamps/bench-latest.json" \
+    bash "$SCRIPT_DIR/bench_latest_line.sh")
   printf '{"tool":"test262","headSha":"%s","harnessError":0,"pass":31277,'\
 '"passNoOracle":1186,"passNegative":4511,"passTotal":36974,"bug":11555,'\
 '"incompatible":4645,"trAccepted":48529}\n' "$REAL_SHA" \
@@ -158,7 +167,7 @@ run_case "9 axis skew unsettled" 1 'TRIG-5 FAIL'
 
 # 10 — same skew, settled in writing.
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" \
-  "axes-review: B at 0.5096 untouched since 08-30; E still 0%; C closed; D framing only"
+  "axes-review: E still 0%; C closed; D framing only. $BENCH_LINE"
 run_case "10 axis skew settled" 0 'TRIG-5 PASS'
 
 # ── TRIG-6 — the stamps ───────────────────────────────────────────────
@@ -199,6 +208,22 @@ run_case "16 hand-edited counter" 1 'TRIG-7 FAIL.*disagrees.*passTotal=36974'
 
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
 run_case "17 pasted sweep line" 0 'TRIG-7 PASS'
+
+# ── TRIG-5 — the axis-B reading ─────────────────────────────────
+# "bench 本轮未跑" is a true sentence that says nothing. The gate wants the
+# number, and wants it recent.
+mk_log "$TMP/rot.jsonl" 7200 12 '"A"' '"A"' '"A"' '"A"' '"A"' '"A"' '"A"' '"A"'
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" \
+  "axes-review: B 本轮未跑;E still 0%; C closed; D framing only"
+run_case "18 review without the reading" 1 'TRIG-5 FAIL.*lacks the axis-B reading'
+
+python3 -c 'import json,sys;json.dump({"tool":"bench","headSha":sys.argv[1],\
+"benchRanAt":"2026-06-01T00:00:00Z","runs":3,"cells":46,"medianVsBunAot":0.5067,\
+"cellsSlowerThanBunAot":1,"target":0.33,"shortfallX":1.535,"lowConfidence":False},\
+open(sys.argv[2],"w"))' "$REAL_SHA" "$TMP/stamps/bench-latest.json"
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" "axes-review: $BENCH_LINE"
+run_case "19 axis-B reading stale" 1 'TRIG-5 FAIL.*reading is [0-9]+d old'
+mk_stamps
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]
