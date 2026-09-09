@@ -95,6 +95,19 @@ for label, other in (("Node", "node-v8"), ("Go", "go"), ("Rust", "rust"),
     vals = ratios(mine, other)
     if vals:
         stamp["medianVs" + label] = round(statistics.median(vals), 4)
+# The dashboard (hardev/web/scripts/snapshot.mjs, buildBench) reduces the
+# same rows the other way round: geometric mean of bun/tora, i.e. a
+# speedup, for display. The gate needs median tora/bun, because that is
+# the shape roadmap's axis-B predicate is written in ("full-matrix median
+# tr/bun-aot <= 0.33"). Both are carried so the two readings can be
+# checked against each other instead of drifting apart in two files.
+import math
+for label, other in (("BunAot", "bun-aot"), ("NodeV8", "node-v8")):
+    vals = [v for v in ratios("torajs", other) if v > 0]
+    if vals:
+        stamp["geomeanSpeedupVs" + label] = round(
+            math.exp(sum(math.log(1.0 / v) for v in vals) / len(vals)), 4)
+
 art = ratios("torajs", "bun-aot", "artifact_bytes")
 if art:
     stamp["artifactRatioVsBunAot"] = round(statistics.median(art), 6)

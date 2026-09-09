@@ -1,6 +1,6 @@
 {
   "tool": "bench",
-  "ranAt": "2026-09-09T04:51:33Z",
+  "ranAt": "2026-09-09T05:08:23Z",
   "headSha": "a48c6f3de",
   "headShaSource": "results-file",
   "verdict": "ok",
@@ -20,5 +20,7 @@
   "medianVsGo": 0.7198,
   "medianVsRust": 1.0682,
   "medianVsBunJsc": 4.0262,
+  "geomeanSpeedupVsBunAot": 2.3086,
+  "geomeanSpeedupVsNodeV8": 13.3841,
   "artifactRatioVsBunAot": 0.00083
 }
