@@ -80,45 +80,15 @@ pub(crate) fn lower(
     };
     let src_ptr_op = ctx.lower_expr(src_ref_eid);
     let src_ty = ctx.operand_ty(&src_ptr_op);
-    if matches!(
-        src_ty,
-        Type::Map | Type::Set | Type::MapIter | Type::ArrIter
+    if lower_non_array_source(
+        ctx,
+        src_ref_eid,
+        src_ptr_op.clone(),
+        src_ty.clone(),
+        (var_name, i_ident),
+        body,
+        is_await,
     ) {
-        crate::ssa_lower_for_of_map_like::lower_for_of_map_like(
-            ctx, src_ptr_op, src_ty, var_name, body,
-        );
-        return;
-    }
-    if let Type::Obj(sid) = src_ty {
-        let cname = src_class_name(ctx, src_ref_eid);
-        if let Some(cname) = cname {
-            let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
-            if let Some(&iter_fid) = ctx.fn_table.get(&iter_fn) {
-                crate::ssa_lower_for_of_iter_protocol::lower_for_of_iter_protocol(
-                    ctx, src_ptr_op, iter_fid, var_name, body, &cname, is_await,
-                );
-                return;
-            }
-            panic!(
-                "ssa-lower: for-of on class `{cname}` requires a `[Symbol.iterator](): SomeIter` method (P5.2 syntax, P5.3 Phase B dispatch) — fn `{iter_fn}` not registered"
-            );
-        }
-        panic!(
-            "ssa-lower: for-of source type Type::Obj(sid={}) is not a registered class (subset — iterator protocol only fires for user-class iterables; inline-struct iteration not yet supported)",
-            sid.0
-        );
-    }
-    if src_ty == Type::Str {
-        crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
-        return;
-    }
-    // Any-dynamic-access RFC (20260704) S5+ — `for (x of recv)` where
-    // recv is an `any` value routes through the unified runtime
-    // iteration protocol (`__torajs_any_iter_next` tag-dispatch over
-    // strings / arrays / MapIter / ArrIter; catchable TypeError for
-    // non-iterable receivers). See sibling ssa_lower_for_of_any_iter.
-    if src_ty == Type::Any {
-        crate::ssa_lower_for_of_any_iter::lower(ctx, src_ptr_op, var_name, body, is_await);
         return;
     }
     if !matches!(src_ty, Type::Arr(_)) {
@@ -375,4 +345,64 @@ pub(crate) fn close_body_scope(
     for (n, prev) in body_shadows {
         ctx.locals.insert(n, prev);
     }
+}
+
+/// The non-array sources of [`lower`], one lane each — map-likes,
+/// user-class iterables, strings, `any`, and every remaining shape
+/// boxed into the any lane. Answers `true` when the loop was lowered.
+/// Carved out of `lower` when its true extent passed 200 lines (the
+/// audit had been reading the `{cname}` / `{src_ty:?}` placeholders in
+/// its panic messages as braces — file-size lesson 19).
+fn lower_non_array_source(
+    ctx: &mut LowerCtx,
+    src_ref_eid: crate::ast::ExprId,
+    src_ptr_op: crate::ssa::Operand,
+    src_ty: Type,
+    names: (&str, &str),
+    body: &Stmt,
+    is_await: bool,
+) -> bool {
+    let (var_name, i_ident) = names;
+    if matches!(
+        src_ty,
+        Type::Map | Type::Set | Type::MapIter | Type::ArrIter
+    ) {
+        crate::ssa_lower_for_of_map_like::lower_for_of_map_like(
+            ctx, src_ptr_op, src_ty, var_name, body,
+        );
+        return true;
+    }
+    if let Type::Obj(sid) = src_ty {
+        let cname = src_class_name(ctx, src_ref_eid);
+        if let Some(cname) = cname {
+            let iter_fn = format!("__cm_{cname}____sym_Symbol_iterator__");
+            if let Some(&iter_fid) = ctx.fn_table.get(&iter_fn) {
+                crate::ssa_lower_for_of_iter_protocol::lower_for_of_iter_protocol(
+                    ctx, src_ptr_op, iter_fid, var_name, body, &cname, is_await,
+                );
+                return true;
+            }
+            panic!(
+                "ssa-lower: for-of on class `{cname}` requires a `[Symbol.iterator](): SomeIter` method (P5.2 syntax, P5.3 Phase B dispatch) — fn `{iter_fn}` not registered"
+            );
+        }
+        panic!(
+            "ssa-lower: for-of source type Type::Obj(sid={}) is not a registered class (subset — iterator protocol only fires for user-class iterables; inline-struct iteration not yet supported)",
+            sid.0
+        );
+    }
+    if src_ty == Type::Str {
+        crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
+        return true;
+    }
+    // Any-dynamic-access RFC (20260704) S5+ — `for (x of recv)` where
+    // recv is an `any` value routes through the unified runtime
+    // iteration protocol (`__torajs_any_iter_next` tag-dispatch over
+    // strings / arrays / MapIter / ArrIter; catchable TypeError for
+    // non-iterable receivers). See sibling ssa_lower_for_of_any_iter.
+    if src_ty == Type::Any {
+        crate::ssa_lower_for_of_any_iter::lower(ctx, src_ptr_op, var_name, body, is_await);
+        return true;
+    }
+    false
 }
