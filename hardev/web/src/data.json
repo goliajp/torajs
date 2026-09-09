@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T13:10:24.171Z",
+  "generatedAt": "2026-09-09T17:05:16.163Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-09T12:57:02Z",
-    "headSha": "4d2bdc019",
-    "elapsedSec": 429.83,
+    "ranAt": "2026-09-09T16:54:38Z",
+    "headSha": "1b5054779",
+    "elapsedSec": 430.82,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 76.2
   },
   "torajs": {
-    "commit": "4d2bdc019",
-    "commitSubject": "fix(ast): the __proto__ set is not a field name either",
+    "commit": "4a31f3883",
+    "commitSubject": "chore(hardev): re-stamp file size on the clean tree",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "4d2bdc019",
-      "subject": "fix(ast): the __proto__ set is not a field name either"
+      "hash": "4a31f3883",
+      "subject": "chore(hardev): re-stamp file size on the clean tree"
     },
     {
-      "hash": "542d60af1",
-      "subject": "fix(ast): the object-spread sentinel is not a field name"
+      "hash": "3b7e1530a",
+      "subject": "chore(hardev): rotation 622 stamps — sweep, determinism, Guard Malloc, file size"
     },
     {
-      "hash": "c62026d0d",
-      "subject": "refactor(ast): move the binary-operator arm of the return sniff to a sibling"
+      "hash": "1b5054779",
+      "subject": "fix(arr): a frozen receiver raises only when a slot would be written"
     },
     {
-      "hash": "d099fc565",
-      "subject": "fix(ssa-lower): indexing a primitive is a [[Get]], not a refusal"
+      "hash": "678c6468b",
+      "subject": "fix(ssa-lower): spreading a non-iterable typed source raises, not SIGSEGVs"
     },
     {
-      "hash": "fc618cbb7",
-      "subject": "refactor(ssa-lower): move the index receiver-shape predicate to a sibling"
+      "hash": "f165cf758",
+      "subject": "fix(ssa-lower): for-of over a non-iterable typed source raises, not refuses"
     },
     {
-      "hash": "3a39831c7",
-      "subject": "fix(check,ssa-lower): an inferred PRIMITIVE anchor is an anchor too"
+      "hash": "60cd3fc0f",
+      "subject": "refactor(ssa-lower): carve the non-array for-of sources out of lower"
     },
     {
-      "hash": "baacb204a",
-      "subject": "fix(ssa-lower): a property miss on a primitive receiver is undefined"
+      "hash": "cc6ffd734",
+      "subject": "fix(arr): a frozen length refuses to change, a sealed one refuses to shrink or pop"
     },
     {
-      "hash": "e4178d8f1",
-      "subject": "fix(ast): an any or type-var operand cannot promise a Number"
+      "hash": "240502820",
+      "subject": "fix(arr): re-export __torajs_arr_set_length_validate from define_length"
     },
     {
-      "hash": "b60ad8c50",
-      "subject": "test: drop the mixed-BigInt fixture whose knife was withdrawn"
+      "hash": "177f3c629",
+      "subject": "refactor(arr): move __torajs_arr_set_length_validate next to ArraySetLength"
     },
     {
-      "hash": "07c995a2e",
-      "subject": "fix(ast): the BigInt operators do not answer a Number"
+      "hash": "b5dbd89b5",
+      "subject": "fix(arr): sort / reverse / fill / copyWithin refuse a frozen receiver"
     },
     {
-      "hash": "fbf67115d",
-      "subject": "fix(ssa-lower): the ToNumber sink had no arm for a Str repr"
+      "hash": "573347602",
+      "subject": "fix(arr): the typed push/unshift lane refuses a non-extensible receiver"
     },
     {
-      "hash": "c3803a2c2",
-      "subject": "fix(check,ssa-lower): a String operand is ToNumeric everywhere but + and string ordering"
+      "hash": "bb87625ea",
+      "subject": "fix(arr): push and unshift refuse a non-extensible receiver"
     }
   ],
-  "headSha": "4d2bdc019",
+  "headSha": "4a31f3883",
   "autorun": {
-    "total": 924,
+    "total": 925,
     "baselineTarget": 10,
-    "bySelf": 919,
+    "bySelf": 920,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788950155-6e2f",
-      "at": "2026-09-09T10:35:55Z",
-      "ts": 1788950155,
+      "rotationId": "r-1788959460-2ee7",
+      "at": "2026-09-09T13:11:00Z",
+      "ts": 1788959460,
       "trigger": "self",
-      "prevHead": "0df66366b",
-      "handoffSha": "sha256:0fadfd8e7e3157dc37d9a6944fd4c9a09039dc4c828514ca3500700261b3e815",
-      "handoffAgeSec": 33,
-      "conformanceBefore": "3860/0/4",
-      "commitsInSession": 13
+      "prevHead": "9f2fa7e02",
+      "handoffSha": "sha256:3253fae33e4564e1fce72cc473c9258dbcd9ba91d2c5621674a1b62405ac4221",
+      "handoffAgeSec": 74,
+      "conformanceBefore": "3869/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1788959460-2ee7",
+        "at": "2026-09-09T13:11:00Z",
+        "ts": 1788959460,
+        "trigger": "self",
+        "prevHead": "9f2fa7e02",
+        "handoffSha": "sha256:3253fae33e4564e1fce72cc473c9258dbcd9ba91d2c5621674a1b62405ac4221",
+        "handoffAgeSec": 74,
+        "conformanceBefore": "3869/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1788950155-6e2f",
         "at": "2026-09-09T10:35:55Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:98c37f464e4661d268133c587c55624b63c9a2a81365e6c6d389c25bb806007e",
         "handoffAgeSec": 9,
         "conformanceBefore": "3790/0/4",
-        "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1788798209-3089",
-        "at": "2026-09-07T16:23:29Z",
-        "ts": 1788798209,
-        "trigger": "self",
-        "prevHead": "10e98ecaf",
-        "handoffSha": "sha256:4fdffa8e3f816c018e07414a4a8d9f00d07c98b6ff363de5b416a063eccf0c7b",
-        "handoffAgeSec": 10,
-        "conformanceBefore": "3780/0/4",
         "commitsInSession": 13
       }
     ],
