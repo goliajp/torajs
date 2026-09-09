@@ -178,11 +178,36 @@ fn lower_member(
         return lower_arr_length(ctx, obj, obj_val, obj_ty, is_inc);
     }
     if matches!(obj_ty, Type::Any) {
-        return lower_member_any(ctx, eid, target, obj, obj_val, &field, is_inc);
+        let obj_ident = match ctx.ast.get_expr(obj) {
+            Expr::Ident(n) => Some(n.clone()),
+            _ => None,
+        };
+        let recv_owned = ctx.expr_transfers_ownership(obj);
+        return lower_member_any(
+            ctx, eid, target, obj_ident, recv_owned, obj_val, &field, is_inc,
+        );
     }
     let sid = match obj_ty {
         Type::Obj(sid) => sid,
-        other => panic!("ssa-lower: post-incr field on non-obj {other:?}"),
+        // Everything else: box the cell and take the any lane, the
+        // same last lane the STORE ladder grew in rotation 527's
+        // write-side twin (`ssa_lower_assign_member`). Knowing the
+        // receiver's shape is not a licence to skip §13.4.4.1 — and
+        // this arm was a hard `panic!`, so a specialized body's
+        // `n.hit++` on a primitive answered "not yet supported:
+        // post-incr field on non-obj I64" while the very same program
+        // spelled `(n as any).hit++` ran and raised the TypeError
+        // §10.1.8.1 owes it.
+        //
+        // No write-back and no release ride this tail: a typed cell's
+        // slot holds its own pointer, not an `AnyValue`, so handing
+        // the set lane an ident to re-store would corrupt it — which
+        // is why `obj_ident` and `recv_owned` are now the caller's to
+        // supply rather than derived inside the lane.
+        _ => {
+            let boxed = ctx.box_to_any(obj_val);
+            return lower_member_any(ctx, eid, target, None, false, boxed, &field, is_inc);
+        }
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     let (idx, field_ty) = layout
@@ -242,7 +267,8 @@ fn lower_member_any(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     target: ExprId,
-    obj: ExprId,
+    obj_ident: Option<String>,
+    recv_owned: bool,
     obj_val: Operand,
     field: &str,
     is_inc: bool,
@@ -281,11 +307,6 @@ fn lower_member_any(
         Type::I64,
         None,
     );
-    let obj_ident = match ctx.ast.get_expr(obj) {
-        Expr::Ident(n) => Some(n.clone()),
-        _ => None,
-    };
-    let recv_owned = ctx.expr_transfers_ownership(obj);
     crate::ssa_lower_assign_member_any::emit_any_member_set(
         ctx,
         obj_val,
