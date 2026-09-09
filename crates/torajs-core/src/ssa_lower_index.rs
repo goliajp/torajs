@@ -246,8 +246,19 @@ pub(crate) fn lower_from_value(
         }
         other => panic!("ssa-lower: index access on non-array type {other:?}"),
     };
-    let idx_val = ctx.lower_index_operand(index);
+    let (idx_val, nonint) = crate::ssa_lower_index_any_key::lower_typed_read_index(ctx, index);
     if elem_ty == Type::Any {
+        // An index that is not an integer names a property, not an
+        // element — the keyed kernel answers it (an expando, or
+        // undefined), the way an `any` receiver already does.
+        if let Some(raw) = nonint.as_ref().map(|(_, raw)| raw.clone()) {
+            let boxed_arr = ctx.box_to_any(arr_val);
+            let boxed_key = ctx.box_to_any(raw);
+            return Operand::Value(
+                crate::ssa_lower_index_any_key::AnyNumericKey::Boxed(boxed_key)
+                    .emit_get(ctx, boxed_arr),
+            );
+        }
         return lower_array_any_index(ctx, arr_val, idx_val);
     }
     // Guard-dominated bounds elision — an enclosing `i < xs.length`
@@ -255,7 +266,16 @@ pub(crate) fn lower_from_value(
     // needs (the aliasing wall LLVM cannot hoist past the raw-pointer
     // LoadDyn) drop out. See [`crate::ssa_lower_bounds_proven`].
     let upper_proven = crate::ssa_lower_bounds_proven::is_proven(ctx, eid);
-    lower_typed_index_checked(ctx, arr_val, idx_val, is_non_deque, elem_ty, upper_proven)
+    let nonint = nonint.map(|(flag, _)| flag);
+    lower_typed_index_checked(
+        ctx,
+        arr_val,
+        idx_val,
+        is_non_deque,
+        elem_ty,
+        upper_proven,
+        nonint,
+    )
 }
 
 /// Typed-array indexed read with the OOB bounds branch (RFC
@@ -290,6 +310,7 @@ pub(crate) fn lower_typed_index_checked(
     is_non_deque: bool,
     elem_ty: Type,
     upper_proven: bool,
+    nonint: Option<Operand>,
 ) -> Operand {
     use crate::ssa::{IPred, Terminator};
     use crate::ssa_lower::ARR_LEN_OFF;
@@ -311,6 +332,21 @@ pub(crate) fn lower_typed_index_checked(
     let chk2_blk = len.map(|_| ctx.f.add_block());
     let in_blk = ctx.f.add_block();
     let merge = ctx.f.add_block();
+    // A non-integral index names a property the array does not
+    // hold — the same `undefined` exit (`lower_typed_read_index`).
+    if let Some(nonint) = nonint {
+        let int_blk = ctx.f.add_block();
+        let cb = ctx.cur_block;
+        ctx.f.set_term(
+            cb,
+            Terminator::CondBr {
+                cond: nonint,
+                then_blk: oob_blk,
+                else_blk: int_blk,
+            },
+        );
+        ctx.cur_block = int_blk;
+    }
     let neg = ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0));
     let cb = ctx.cur_block;
     ctx.f.set_term(
