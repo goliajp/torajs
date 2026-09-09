@@ -17,8 +17,27 @@ impl<'a> Parser<'a> {
         // arrow. Gates the body's `await` legality below.
         let was_async_prefixed = std::mem::take(&mut self.pending_async_fn_expr);
         self.pos += 1;
-        let (params, param_destr_lets) =
-            self.with_async_params(was_async_prefixed, |p| p.parse_arrow_param_list())?;
+        // `ArrowFunction : ArrowParameters[?Yield, ?Await] => ConciseBody`
+        // — the parameters INHERIT the grammar's `[Await]` parameter,
+        // which is what makes `await` reserved inside them wherever it
+        // was reserved outside: an async body (§15.8.1) and a class
+        // static block (§15.7.1). An `async` prefix forces it on; a
+        // plain arrow keeps what the context had, so the two are ORed
+        // rather than the context being overwritten.
+        //
+        // Every other caller of `with_async_params` passes bare
+        // asyncness on purpose: a FunctionExpression's are
+        // `FormalParameters[~Yield, ~Await]`, unparameterized, so
+        // `class C { static { (function (x = await) {}); } }` is legal
+        // where the arrow spelling of it is not.
+        //
+        // `ConciseBody` is NOT parameterized either — the restore
+        // below hands the body plain asyncness, which is why
+        // `static { () => { var await = 1; } }` stays legal.
+        let (params, param_destr_lets) = self
+            .with_async_params(was_async_prefixed || self.await_reserved, |p| {
+                p.parse_arrow_param_list()
+            })?;
         let return_type = if matches!(self.peek(), Token::Colon) {
             self.pos += 1;
             // 552-03 — the annotation between here and the body `=>`
