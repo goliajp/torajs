@@ -356,7 +356,12 @@ impl<'a> Parser<'a> {
         mutable: bool,
         is_var: bool,
     ) -> Result<Stmt, String> {
-        let pat = self.read_pattern_shape()?;
+        // §14.3.1.1 — `var { let } = o` binds, `let`/`const { let }` do
+        // not. Restored before `?` so an error does not leak the flag.
+        let saved = std::mem::replace(&mut self.pattern_binds_lexically, !is_var);
+        let pat = self.read_pattern_shape();
+        self.pattern_binds_lexically = saved;
+        let pat = pat?;
         // Optional `: T` annotation on the whole pattern — the
         // desugared bindings get their types from the source via
         // inference, so the annotation is parsed and discarded.

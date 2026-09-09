@@ -188,14 +188,24 @@ impl Parser<'_> {
     ///   `triage_await_idents` rather than answered here. That
     ///   recording is the whole reason this takes `&mut self`.
     ///
-    /// `let` is deliberately absent. It needs one thing the other three
-    /// do not: whether the enclosing declaration is a `var`. §14.3.1.1
-    /// makes `let` a Syntax Error in the BoundNames of a `let` or
-    /// `const` in sloppy code too (`const { let } = o` is rejected
-    /// while `var { let } = o` runs), and `read_pattern_shape` cannot
-    /// currently see which of the two it is inside.
+    /// - `let` — §12.7.2 like `yield`, PLUS §14.3.1.1, which refuses it
+    ///   in the BoundNames of a lexical declaration in sloppy code too.
+    ///   That second half is `pattern_binds_lexically`, and the axis it
+    ///   draws is lexical-vs-var, NOT var-vs-everything. Measured
+    ///   against node in a sloppy script, eleven cells, tr matching all
+    ///   eleven: `var { let }`, a function parameter, an arrow
+    ///   parameter, `for (var { let } of …)`, a nested pattern inside
+    ///   any of them, and the `{ let: x }` rename all bind;
+    ///   `let { let }`, `const { let }`, `for (let { let } of …)`,
+    ///   `"use strict"` and — the cell that settles the axis —
+    ///   **`catch ({ let })`** all reject, while `catch ({ yield })`
+    ///   binds.
     pub(super) fn shorthand_binding_name(&mut self) -> Option<&'static str> {
         match self.peek() {
+            // `let` needs the binding form as well as the strictness:
+            // §14.3.1.1 refuses it in the BoundNames of a lexical
+            // declaration even in sloppy code.
+            Token::Let if self.let_reads_as_ident() && !self.pattern_binds_lexically => Some("let"),
             Token::Yield if self.yield_reads_as_ident() => Some("yield"),
             Token::Await if self.await_reads_as_ident() => {
                 self.admit_await_ident();

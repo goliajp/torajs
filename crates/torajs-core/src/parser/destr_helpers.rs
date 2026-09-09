@@ -198,6 +198,22 @@ impl<'a> Parser<'a> {
         src_name: String,
         lets: &mut Vec<Stmt>,
     ) -> Result<(), String> {
+        // A formal parameter's BoundNames are not a lexical
+        // declaration's, so `function f({ let })` binds the name — node
+        // runs it. Reached from `parse_destr_param` and from its own
+        // recursion, and the flag is inherited by nested patterns,
+        // which is what `{ a: { let } }` needs.
+        let saved = std::mem::replace(&mut self.pattern_binds_lexically, false);
+        let r = self.parse_destr_into_inner(src_name, lets);
+        self.pattern_binds_lexically = saved;
+        r
+    }
+
+    fn parse_destr_into_inner(
+        &mut self,
+        src_name: String,
+        lets: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
         match self.peek() {
             Token::LBracket => self.parse_destr_array_into(src_name, lets),
             Token::LBrace => self.parse_destr_object_into(src_name, lets),

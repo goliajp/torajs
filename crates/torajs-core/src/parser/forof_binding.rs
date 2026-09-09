@@ -30,7 +30,18 @@ impl<'a> Parser<'a> {
     ) -> Option<(Option<PatShape>, String, Option<String>)> {
         let destruct_pat: Option<PatShape> =
             if matches!(self.peek(), Token::LBracket | Token::LBrace) {
-                match self.read_pattern_shape() {
+                // `for (var { let } of …)` binds; `for (let { let } of …)`
+                // does not. A bare head has no declaration at all, so its
+                // names are assignment targets rather than lexical
+                // bindings. Restored around the read alone, because the
+                // error arm below returns from the middle of it.
+                let saved_lex = std::mem::replace(
+                    &mut self.pattern_binds_lexically,
+                    matches!(is_var_decl, Some(false)),
+                );
+                let read = self.read_pattern_shape();
+                self.pattern_binds_lexically = saved_lex;
+                match read {
                     Ok(pat) => Some(pat),
                     // Not a well-formed pattern — this head is a
                     // C-style init that happens to open with `[`/`{`
