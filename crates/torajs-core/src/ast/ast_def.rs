@@ -1318,6 +1318,24 @@ impl Ast {
         self.sloppy_script_goal && !self.program_strict_prologue
     }
 
+    /// Whether `body` — one function's body — is sloppy. Strictness has
+    /// a second source below the program: §11.2.2 makes a function with
+    /// a `"use strict"` directive prologue strict even inside a sloppy
+    /// Script, and that is what decides the per-function shapes
+    /// (mapped vs unmapped `arguments`, and whether `callee` is a data
+    /// property or the `%ThrowTypeError%` accessor).
+    ///
+    /// Inherited strictness needs no propagation: the parser
+    /// materializes a directive into every strict-by-inheritance body
+    /// (`parser::strict_directive`), so reading this body is enough.
+    ///
+    /// Reach for this, not [`Self::program_is_sloppy`], whenever the
+    /// answer describes a function rather than the program.
+    pub fn body_is_sloppy(&self, body: &[Stmt]) -> bool {
+        self.program_is_sloppy()
+            && !crate::ast::sloppy_this_prologue::has_use_strict_directive(body, &self.exprs)
+    }
+
     pub fn add_expr(&mut self, e: Expr) -> ExprId {
         let id = ExprId(self.exprs.len() as u32);
         self.exprs.push(e);

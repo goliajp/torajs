@@ -192,7 +192,7 @@ pub(super) fn classify_argc_mode(
             // the substitution WITH its aliasing (that IS
             // the mapped semantics) when nothing needs the
             // materialized array (see ArgcMode::Mapped).
-            if ast.program_is_sloppy()
+            if ast.body_is_sloppy(body)
                 && !non_simple
                 && !super::arguments_object_mutation::body_has_mapped_blockers(ast, body, &params)
             {
