@@ -4,11 +4,13 @@
 // SyntaxError, and so are an octal literal, duplicate parameters and
 // an `eval` binding written there.
 //
-// None of that can appear in a fixture that runs, and the strictness
-// has no runtime tell here either (the pass that would show one —
-// writing an undeclared name — never looks inside a function
-// expression, so it answers ReferenceError with or without this).
-// What a fixture CAN hold is the other risk, which is the one a bit
+// None of that can appear in a fixture that runs. The obvious runtime
+// tell does not work either: §10.2.1.2 gives a plain call in strict
+// code `undefined` for `this`, but tr answers with the global object
+// inside a heritage (measured) — its own divergence, older than this
+// and not what this fixture is for.
+//
+// What a fixture CAN hold is the other risk, and it is the one a bit
 // like this actually creates: leaking past the clause it belongs to.
 // Every line below is sloppy-only and sits after a heritage.
 //
