@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-08T10:26:09.254Z",
+  "generatedAt": "2026-09-09T00:14:26.746Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-08T09:59:37Z",
-    "headSha": "0fd366960",
-    "elapsedSec": 428.8,
+    "ranAt": "2026-09-09T00:13:48Z",
+    "headSha": "6770c07e7",
+    "elapsedSec": 429.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31248,
-    "passNoOracle": 1182,
-    "passNegative": 4484,
-    "passTotal": 36914,
-    "bug": 11531,
-    "incompatible": 4729,
-    "bunSkip": 2945,
+    "pass": 31250,
+    "passNoOracle": 1185,
+    "passNegative": 4508,
+    "passTotal": 36943,
+    "bug": 11542,
+    "incompatible": 4689,
+    "bunSkip": 2931,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48445,
-    "passRateInScope": 69.42,
-    "passRateTrAccepted": 76.2
+    "trAccepted": 48485,
+    "passRateInScope": 69.48,
+    "passRateTrAccepted": 76.19
   },
   "torajs": {
-    "commit": "0fd366960",
-    "commitSubject": "fix(torajs-math): six functions built the answer out of cancellation",
+    "commit": "6770c07e7",
+    "commitSubject": "refactor(torajs-core): repay the lexer overrun the two §12 knives made",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "0fd366960",
-      "subject": "fix(torajs-math): six functions built the answer out of cancellation"
+      "hash": "6770c07e7",
+      "subject": "refactor(torajs-core): repay the lexer overrun the two §12 knives made"
     },
     {
-      "hash": "48e08bdd2",
-      "subject": "fix(torajs-math): log2 and log10 lost the low bits to the scale change"
+      "hash": "843c59cd7",
+      "subject": "fix(torajs-core): ASI inserted a semicolon wherever one was missing"
     },
     {
-      "hash": "beb1df5ff",
-      "subject": "fix(torajs-math): subnormal powers of two were unreachable and unnameable"
+      "hash": "2be6550de",
+      "subject": "fix(torajs-core): `123abc` lexed as two tokens and ran"
     },
     {
-      "hash": "f5acc3097",
-      "subject": "fix(torajs-core): a const typed array was invisible to named functions"
+      "hash": "688b541a7",
+      "subject": "fix(torajs-core): a class body is strict, and six binding judges asked the function instead"
     },
     {
-      "hash": "701211ab1",
-      "subject": "test(test262): port sm's Math shell, and let the precision gap show"
+      "hash": "d233074e6",
+      "subject": "fix(torajs-core): `x += 1` on an undeclared name created it instead of throwing"
     },
     {
-      "hash": "18dce6ad5",
-      "subject": "docs(torajs-core): why the this-first argv lane stops at constructors"
+      "hash": "c6355ee3e",
+      "subject": "fix(torajs-cli): the Script-goal token stream existed; nothing but eval reached it"
     },
     {
-      "hash": "f67ed8fed",
-      "subject": "test(conformance): subclasses calling super with different counts"
+      "hash": "98e2b1c42",
+      "subject": "fix(torajs-core): the hashbang scanner knew two of LineTerminator's four members"
     },
     {
-      "hash": "7a76fac8e",
-      "subject": "style(torajs-core): split argument coercion out of the call terminal"
+      "hash": "3054a3c11",
+      "subject": "fix(test262-runner): `raw` means byte 0, and 22 negative cases passed on the prefix"
     },
     {
-      "hash": "14f881ffb",
-      "subject": "feat(torajs-core): a constructor reached by a spread sees the real arguments"
+      "hash": "5d7ec7b45",
+      "subject": "fix(torajs-core): a Script can be strict, and 23 judgements only asked the goal"
     },
     {
-      "hash": "b61d28fd2",
-      "subject": "style(torajs-core): split the static-argv face along its own two seams"
+      "hash": "36ba51528",
+      "subject": "fix(test262-runner): 92% of the corpus ran under a goal its author never asked for"
     },
     {
-      "hash": "8cabd7409",
-      "subject": "fix(torajs-core): super with a spread argument lost the real argument count"
+      "hash": "2c06902f9",
+      "subject": "fix(torajs-core): an async function's parameters are judged before it becomes async"
     },
     {
-      "hash": "f8d258bdc",
-      "subject": "chore(bench): full 7-runtime matrix at a48c6f3de, runs=3"
+      "hash": "58ee47bc9",
+      "subject": "refactor(torajs-core): repay the two size overruns the await knife made"
     }
   ],
-  "headSha": "0fd366960",
+  "headSha": "6770c07e7",
   "autorun": {
-    "total": 919,
+    "total": 920,
     "baselineTarget": 10,
-    "bySelf": 914,
+    "bySelf": 915,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788847666-445f",
-      "at": "2026-09-08T06:07:46Z",
-      "ts": 1788847666,
+      "rotationId": "r-1788863770-4452",
+      "at": "2026-09-08T10:36:10Z",
+      "ts": 1788863770,
       "trigger": "self",
-      "prevHead": "a48c6f3de",
-      "handoffSha": "sha256:6e61b5a049aa031535601096f3fbfa0751d1a3e368ebeebfd72e36c45e713ed9",
-      "handoffAgeSec": 44,
-      "conformanceBefore": "3821/0/4",
+      "prevHead": "c24b57603",
+      "handoffSha": "sha256:be216b20857fa809d949552e4ac87ed3e9e093d67f161e7297af9ab903081d69",
+      "handoffAgeSec": 4,
+      "conformanceBefore": "3827/0/4",
       "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1788863770-4452",
+        "at": "2026-09-08T10:36:10Z",
+        "ts": 1788863770,
+        "trigger": "self",
+        "prevHead": "c24b57603",
+        "handoffSha": "sha256:be216b20857fa809d949552e4ac87ed3e9e093d67f161e7297af9ab903081d69",
+        "handoffAgeSec": 4,
+        "conformanceBefore": "3827/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1788847666-445f",
         "at": "2026-09-08T06:07:46Z",
@@ -903,17 +914,6 @@
         "prevHead": "84b372481",
         "handoffSha": "sha256:44c2be090a4d7e02e762862e66459f074ce4b67aac9fe3d25acb685cbbc2d694",
         "handoffAgeSec": 15,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788752093-7b01",
-        "at": "2026-09-07T03:34:53Z",
-        "ts": 1788752093,
-        "trigger": "self",
-        "prevHead": "9d5a7fcf7",
-        "handoffSha": "sha256:6929a151cf7402cd09be3fa4a9745a136d41e3283da91e52d182589caec1e65e",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
