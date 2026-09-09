@@ -421,6 +421,27 @@ pub(crate) fn infer_expr_ann_with(
             {
                 return Some("any".to_string());
             }
+            // `__proto__` is the third name in this family. §B.3.1
+            // makes `{__proto__: v}` a [[Prototype]] SET, so the
+            // object has no key by that name — and naming it a field
+            // made `function f(n) { return {__proto__: n} }` hand its
+            // caller `Struct([("__proto__", ...)])`: `f({a:2}).a` was
+            // "no member `.a`" and `f({a:1})` crashed outright.
+            //
+            // The SHORTHAND `{__proto__}` is a different production
+            // and IS an ordinary own field (node keeps it and lists
+            // it in `Object.keys`; bun drops it). This pass has no
+            // view of the Ast side table the checker consults, so it
+            // reads the spelling off the value expression — the
+            // parser writes the shorthand as an Ident of the same
+            // name. `{__proto__: __proto__}` is indistinguishable and
+            // takes the shorthand branch; that is the recorded edge.
+            if fields.iter().any(|(n, v)| {
+                n == "__proto__"
+                    && !matches!(exprs.get(v.0 as usize), Some(Expr::Ident(id)) if id == "__proto__")
+            }) {
+                return Some("any".to_string());
+            }
             fields
                 .iter()
                 .map(|(n, eid)| {
