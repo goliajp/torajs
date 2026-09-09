@@ -56,52 +56,21 @@ fn token_starts_class_member_name(t: Option<&Token>, allow_private: bool) -> boo
     if allow_private && matches!(t, Token::PrivateIdent(_)) {
         return true;
     }
+    // §12.7.6 PropertyName — an IdentifierName (every keyword
+    // included), a string or numeric literal, or the computed
+    // `[expr]` head; plus `*`, which follows `static` on a generator
+    // member (P-SURF S2.1).
+    //
+    // The hand-written token list this replaces was a second, shorter
+    // copy of `keyword_property_name`'s table — missing `let`,
+    // `const`, `type`, `await`, `var`, `import`, `export`, `null`,
+    // `true`, `false`, `extends`, `super` and `void` — so
+    // `class C { static let = 1 }` answered "expected `(` (method) or
+    // `:` (field) after `static`" while `static if = 1` was fine.
     matches!(
         t,
-        Token::Ident(_)
-            | Token::Catch
-            | Token::Finally
-            | Token::Return
-            | Token::Throw
-            | Token::If
-            | Token::Else
-            | Token::For
-            | Token::While
-            | Token::Do
-            | Token::Break
-            | Token::Continue
-            | Token::Switch
-            | Token::Case
-            | Token::Default
-            | Token::Class
-            | Token::New
-            | Token::This
-            | Token::Function
-            | Token::TypeOf
-            | Token::Delete
-            | Token::InstanceOf
-            | Token::Try
-            | Token::Yield
-            // P10.3-A3a — `static async name(...) {}` / `async name(...) {}`
-            // — `Token::Async` is a modifier keyword that legally
-            // follows `static`, so the `static` lookahead must accept
-            // it here too. The downstream async-modifier check
-            // distinguishes the modifier form from `async` as a
-            // member name via the trailing `Ident + LParen` lookahead.
-            | Token::Async
-            // P-SURF S2.1 — `static *g() {}`. `*` legally follows
-            // `static`, so without this the `static` lookahead fails and
-            // `static` is taken for the member name itself, reporting
-            // "expected `(` (method) or `:` (field) after `static`".
-            | Token::Star
-            // RFC 20260802-class-computed-member 刀 1 — §12.7.6
-            // PropertyName also admits string / numeric literals
-            // (`get 'default'()` / `static 0x10() {}`) and the
-            // ComputedPropertyName `[expr]` form (`static [k]()`).
-            | Token::String(_)
-            | Token::Number(_)
-            | Token::LBracket
-    )
+        Token::Ident(_) | Token::String(_) | Token::Number(_) | Token::LBracket | Token::Star
+    ) || Parser::keyword_property_name(t).is_some()
 }
 
 impl<'a> Parser<'a> {
@@ -266,43 +235,7 @@ impl<'a> Parser<'a> {
         // after it so `class C { get(): T { } }` (member named "get")
         // still works. Static accessors (`static get X`) go through the
         // is_static lookahead above.
-        let mut accessor_kind: Option<AccessorKind> = None;
-        if let Token::Ident(s) = self.peek()
-            && (s == "get" || s == "set")
-        {
-            let kw = s.clone();
-            let name_tok = self.tokens.get(self.pos + 1).map(|t| &t.token);
-            let after_name = self.tokens.get(self.pos + 2).map(|t| &t.token);
-            // S2.37 — `get #p()` / `set #p(v)`: a PrivateIdent is a
-            // legal accessor name (§15.4 ClassElementName includes
-            // PrivateIdentifier). No ambiguity with a member NAMED
-            // `get`: that shape is `get(` — never `get #p(`.
-            //
-            // RFC 20260802-class-computed-member 刀 1 — §13.4
-            // PropertyName widens the accessor-name slot to string /
-            // numeric literals (`get 'default'()` / `get 0x10()`) and
-            // the ComputedPropertyName `[expr]` head (`get [k]()`).
-            // A `[` after the keyword is unambiguous on its own — a
-            // member NAMED `get` is always `get(` — so no after-name
-            // lookahead applies (the key is an arbitrary expression).
-            if matches!(
-                name_tok,
-                Some(
-                    Token::Ident(_) | Token::PrivateIdent(_) | Token::String(_) | Token::Number(_)
-                )
-            ) && matches!(after_name, Some(Token::LParen))
-                || matches!(name_tok, Some(Token::LBracket))
-            {
-                accessor_kind = Some(match kw.as_str() {
-                    "get" => AccessorKind::Getter,
-                    _ => AccessorKind::Setter,
-                });
-                if member_span_start.is_none() {
-                    member_span_start = self.tokens.get(self.pos).map(|t| t.span.start);
-                }
-                self.pos += 1; // consume `get` / `set`
-            }
-        }
+        let accessor_kind = self.detect_accessor_prefix(&mut member_span_start);
 
         Ok(ClassMemberModifierPrefix {
             explicit_visibility,
@@ -383,4 +316,65 @@ impl<'a> Parser<'a> {
         }
         Ok(())
     }
+
+    /// The `get` / `set` half of
+    /// [`Self::parse_class_member_modifier_prefix`], split out when
+    /// widening its name lookahead to the full PropertyName set
+    /// pushed that function past the 200-line cap.
+    ///
+    /// `None` leaves the cursor where it was — that is the member
+    /// actually NAMED `get` or `set` (`class C { get(): T {} }`),
+    /// which is why the lookahead needs a name slot AND a `(` after
+    /// it before committing.
+    fn detect_accessor_prefix(
+        &mut self,
+        member_span_start: &mut Option<u32>,
+    ) -> Option<AccessorKind> {
+        if let Token::Ident(s) = self.peek()
+            && (s == "get" || s == "set")
+        {
+            let kw = s.clone();
+            let name_tok = self.tokens.get(self.pos + 1).map(|t| &t.token);
+            let after_name = self.tokens.get(self.pos + 2).map(|t| &t.token);
+            // S2.37 — `get #p()` / `set #p(v)`: a PrivateIdent is a
+            // legal accessor name (§15.4 ClassElementName includes
+            // PrivateIdentifier). No ambiguity with a member NAMED
+            // `get`: that shape is `get(` — never `get #p(`.
+            //
+            // RFC 20260802-class-computed-member 刀 1 — §13.4
+            // PropertyName widens the accessor-name slot to string /
+            // numeric literals (`get 'default'()` / `get 0x10()`) and
+            // the ComputedPropertyName `[expr]` head (`get [k]()`).
+            // A `[` after the keyword is unambiguous on its own — a
+            // member NAMED `get` is always `get(` — so no after-name
+            // lookahead applies (the key is an arbitrary expression).
+            // §15.4 ClassElementName is a PropertyName or a
+            // PrivateIdentifier, so a keyword names an accessor like
+            // anything else: `get if()`, `get let()`, `set type(v)`.
+            // Listing only `Ident` here left every one of them to the
+            // member-name reader, which then had no `get` / `set`
+            // prefix to make sense of.
+            let name_is_property = matches!(
+                name_tok,
+                Some(
+                    Token::Ident(_) | Token::PrivateIdent(_) | Token::String(_) | Token::Number(_)
+                )
+            ) || name_tok
+                .is_some_and(|t| Parser::keyword_property_name(t).is_some());
+            if name_is_property && matches!(after_name, Some(Token::LParen))
+                || matches!(name_tok, Some(Token::LBracket))
+            {
+                if member_span_start.is_none() {
+                    *member_span_start = self.tokens.get(self.pos).map(|t| t.span.start);
+                }
+                self.pos += 1; // consume `get` / `set`
+                return Some(match kw.as_str() {
+                    "get" => AccessorKind::Getter,
+                    _ => AccessorKind::Setter,
+                });
+            }
+        }
+        None
+    }
+
 }
