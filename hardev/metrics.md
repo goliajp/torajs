@@ -303,6 +303,39 @@ or lower. Drift flat → 16–20 becomes arguable. Drift up → back to 10.
 **This time the telemetry exists**: `commitsInSession` and `axis` are
 real values, so the next lock needs no reconstruction.
 
+### The 8-rotation reading @2026-09-09 (the measure above, run early)
+
+Eight rotations under the locked values, against the 51 before them:
+
+| Metric | before (51) | after (8) | attribution |
+|---|---:|---:|---|
+| commits/rotation (median) | 6.0 | **13.0** | by construction |
+| fixed-cost share of work wall | 21.2 % | **9.0 %** | **the change, directly** — pure arithmetic, independent of what was worked on |
+| rotations/day | 9.4 | **5.7** | the change; context is rebuilt 39 % less often |
+| commits/work-hour (median) | 4.11 | **5.08** | small sample, plausible |
+| passTotal/work-hour | 17.1 | 10.6 | **not attributable** — see below |
+| median commit size | 127 lines | **94 lines (−26 %)** | the change, and not in the intended direction |
+
+**passTotal/work-hour cannot be used to judge the gate.** Split by window
+under the *same* rule it reads 10.3 → 24.1 → 0.4 → 6.6 per hour: a 60×
+spread driven entirely by which surface a batch happened to hit. Picking
+either the adjacent window (+61 %) or the whole window (−38 %) is picking
+a number out of noise — the same discipline `perf-decomposition` §1
+demands of a control that moved on its own.
+
+**What the reading did find**: the quota behaviour survived the new
+threshold in a new shape. Commit counts came out 13,13,14,13,13,13,14,13
+— 8/8 glued to 12 — while median commit size fell 26 %. Total output per
+rotation still rose 48 % (~762 → ~1128 lines), so the change worked; but
+**a count of commits is dilutable**, and raising it moves the behaviour
+from closing early to slicing thin. Hence `TRIG1_MIN_CLOSED = 3`
+(2026-09-09): a `closed:` entry has to name a sha and say what it closed,
+which costs an order of magnitude more to pad.
+
+**Verdict on 16–20**: not yet. The drift criterion is untested at this
+sample size, and the newly-added TRIG-6/7 change what a rotation costs.
+Re-measure after the next eight.
+
 ## How to keep this file honest
 
 1. Never write an untagged number. `[M]` must cite the command/log.

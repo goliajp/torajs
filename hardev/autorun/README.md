@@ -206,9 +206,9 @@ if "$AUTORUN_DIR/check.sh" >&2; then
 fi
 ```
 
-## TRIG-1..5 spec（rotation 触发不变量,`trig_gate.sh`;P2.0 SHIPPED,2026-09-07 重设计）
+## TRIG-1..7 spec（rotation 触发不变量,`trig_gate.sh`;P2.0 SHIPPED,2026-09-07 重设计,2026-09-09 加 6/7）
 
-INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-1..5
+INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-1..7
 治 rotation _触发_(trigger.sh self 入口);两侧 gate 互相独立、机器化、
 零模型自评估。
 
@@ -239,11 +239,61 @@ INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-
 
 | ID | 不变量 | 它独有的职责 | 实现 |
 |----|--------|------------|------|
-| **TRIG-1** | `git rev-list --count <last-self-prevHead>..HEAD` ≥ **12** | **下限** — 这一轮的工作量够不够摊掉固定成本 | git rev-list(经 `autorun_commits_since_last_self`) |
+| **TRIG-1** | commit ≥ **12** **且** `closed:` 上属于本 session 的 sha ≥ **3** | **下限** — 工作量够不够摊掉固定成本;两个量,因为其中一个可被稀释 | git rev-list + `closed_session_shas` |
 | **TRIG-2** | wall ∈ [**1800s**, **18000s**];**≥ 18000s 时豁免 TRIG-1** | **两端 + 唯一的机器化出口** — 太快不真实,太长该收 | rotations.jsonl tail self filter |
 | **TRIG-3** | handoff `## rotate 触发` 段含三行:`axis:` / `closed:`(含本 session 区间内真实 sha)/ `gate: N/F/S`(F 必须 0) | **内容** — 哪条轴、闭合了什么、gate 读数多少 | grep + `git rev-list <range>` 校验 sha |
 | **TRIG-4** | 同段 grep -i 不含 13 条 blacklist 借口 phrase | **措辞** — 已知的 procrastination 话术 | grep -iE |
-| **TRIG-5** | 若前 **7** 轮 axis 与本轮相同,则同段必须含 `axes-review:` 行 | **分配** — 一条轴是不是在饿死其它轴 | rotations.jsonl 的 `axis` 字段 |
+| **TRIG-5** | 若前 **7** 轮 axis 与本轮相同,则同段必须含 `axes-review:` 行 **且带 `bench:` 读数**(≤ 14 天) | **分配** — 一条轴是不是在饿死其它轴 | rotations.jsonl `axis` + `hardev/bench-latest.json` |
+| **TRIG-6** | 四个 stamp(`test262` / `determinism` / `gmalloc` / `file-size`)的 `headSha` ∈ 本 session 区间、非 `-dirty`、`verdict=ok` | **证据** — 那些机械检查真跑了吗,跑的是这份源码吗 | `hardev/*-latest.json` |
+| **TRIG-7** | handoff 的 `sweep:` 行逐 token 等于 `sweep_line.sh` 从 stamp 重新推导的结果 | **誊写** — handoff 里的数字还是 sweep 说的那些吗 | `sweep_line.sh` + git 取基线 |
+
+### 为什么 2026-09-09 又加了两条门(TRIG-6 / TRIG-7)
+
+**前五条读的都是 handoff 写了什么,没有一条读仓库里发生了什么。** TRIG-3 检查
+`gate: N/F/S` 的 F=0,却从不问 N 是不是真数;sweep / determinism / Guard-Malloc
+三段汇报是自由文本。于是这三种失败对所有门都是隐形的:
+
+- 没跑
+- 跑在上一个 HEAD 上
+- 上一轮的结果被带到这一轮
+
+而 `rules/torajs-autorun-pipeline.md` 记着这一类至少五次 —— sweep 断线五轮
+(r220-224)期间六条 pass 回归无人知晓;r613 拿 mini 上陈旧的 gz 当基线,产出
+一份**形状完全正常**的假 diff(315 条变化 / 1 条 pass 回归 / 14 条后退),用一
+整轮 A/B 才证伪(真值:119 条、全部前进、零回归);r571 的 neq 计数跨轮比较,
+而样本集合在底下平移过。
+
+**→ 四个机械检查各留一份入库 JSON stamp,带上它测的那份源码的 sha**(与
+`hardev/test262-latest.json` 同形 —— sweep 的输出本身就是它的 stamp,不需要新
+管道)。TRIG-6 读这四个事实,TRIG-7 读 handoff 的 sweep 行是否仍等于 stamp。
+
+**stamp 治什么、不治什么**:治「看起来跟成功一模一样」的意外失败,**不治**手写
+一份假 stamp —— 那仍归 `honesty/no-fabricated-data`。
+
+**mini 上的 sha**:工作树靠 rsync 到达而 git HEAD 落在后面,所以远端本地推导的
+sha 命名的是错的源码。远端调用方必须用 `HARDEV_HEAD_SHA` 传真值(与
+`torajs-test262 --head-sha` 同一约定),stamp 记录它拿到的是哪一种
+(`headShaSource`)。
+
+### 为什么 TRIG-1 在 2026-09-09 长出第二个量
+
+N=12 之后的八轮 commit 数:**13,13,14,13,13,13,14,13** —— 8/8 紧贴阈值,正是
+让 N=5 变成配额的那个形状。与改动前 51 轮对比:
+
+| 量 | 改前 | 改后 |
+|---|---:|---:|
+| 阈值 | 5 | 12(+140%) |
+| commit/rotation | 6 | 13 |
+| commit 中位规模 | 127 行 | **94 行(−26%)** |
+| 每轮总产出 | ~762 行 | ~1128 行(+48%) |
+
+**总产出真涨了 48%,改动有效;但 commit 粒度在门下面变细了 26%** —— 这就是抬高
+一个计数买到的东西:配额行为从「早收」变成「切细」。**commit 计数天生可稀释。**
+
+`closed:` 条目不是:每条要指名本 session 的一个 sha,并用一句经得起读的话说清
+关了什么。凑一条比凑一个 commit 贵一个数量级。所以 TRIG-1 现在两个量都要:
+commit ≥ 12(兜底)+ closed 条目 ≥ 3(判据)。wall-cap 豁免同时覆盖两者不变 ——
+五小时啃一个硬问题的一轮照样能 close。
 
 ### 为什么 N 是 12 而不是 10 或 20
 
@@ -279,21 +329,33 @@ INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-
 ## rotate 触发
 
 axis: A
-closed: 8ffa78b99 键域矩阵 25→12;93df7b61b parser 折叠记下被抹掉的拼写
+closed: 8ffa78b99 键域矩阵 25→12;93df7b61b parser 折叠记下被抹掉的拼写;be4efafee 位移 510→290+199
 gate: 3773/0/4
 
 <具体 evidence,引用 commit hash / file:line / cases#xxx>
 ```
 
+handoff 正文(不限于本段)还必须含两行,**都由脚本生成、直接粘贴,不要手抄**:
+
+```
+sweep: head=… pass=…(+27) … conservation=ok base=…    ← hardev/autorun/sweep_line.sh
+bench: head=… median=0.5067 target=0.33 shortfall=1.535x …  ← hardev/autorun/bench_latest_line.sh
+```
+
+`sweep:` 每轮必需(TRIG-7);`bench:` 仅在 TRIG-5 触发时必需,但写了不亏。
+
 - **`axis:`** — `A|B|C|D|E` 之一或多个(逗号分隔),对应 roadmap `v1.0 release
   gate` 的五轴。写进 rotations.jsonl 的 `axis` 字段,TRIG-5 再读回来。
-- **`closed:`** — 至少一个 sha 必须落在 `<last-self-prevHead>..HEAD` 区间内。
-  **这是唯一无法靠措辞满足的一条**:一轮如果没有可指认的产出,就拿不出自己的
-  commit。
+- **`closed:`** — **至少 3 个** sha 必须落在 `<last-self-prevHead>..HEAD` 区间
+  内(2026-09-09 从 1 抬到 3,见上)。**这是唯一无法靠措辞满足的一条**:一轮如果
+  没有可指认的产出,就拿不出自己的 commit。整块可以跨多行 —— 解析器读的是从
+  `closed:` 到下一个带键行之间的全部内容,不是 `head -1`。
 - **`gate:`** — conformance 三元组 `N/F/S`,**F 必须为 0** —— 一轮不带红收尾。
   这一行同时是 `conformanceBefore` 遥测字段的来源(见下)。
 - **`axes-review:`** — 仅当 TRIG-5 触发(连续 8 轮同轴)时必须写:其余四轴各自
-  的当前状态 + 为什么这一轮仍不动它们。
+  的当前状态 + 为什么这一轮仍不动它们,**并带上 `bench:` 那一行的读数**。
+  「bench 本轮未跑」是一句真话,但它什么也没说 —— 整个 9 月每一轮都这么写,而
+  轴 B 的中位数在 ±3% 里停了五十天,这件事直到做整体汇报时才浮出来。
 
 `reason: <a|b|c|d>` 旧行**不再被 gate 要求**,但 `autorun_trigger_reason` 仍会
 读它、仍写进 jsonl(历史序列不断)。要写就写,不写不拒。
