@@ -44,11 +44,14 @@ unsafe extern "C" {
 /// releases it.
 ///
 /// - `null` / `undefined` receiver → catchable TypeError.
-/// - primitive receivers (numbers / bools / strings — including
-///   heap Str/Substr cells) → silent no-op, matching non-strict JS
-///   assignment-to-primitive-property semantics (§13.15.2 PutValue on
-///   a primitive base discards in sloppy mode; strings are immutable
-///   either way).
+/// - primitive receivers (numbers / bools, and a heap Str cell) →
+///   catchable TypeError. §13.15.2 PutValue on a primitive base runs
+///   [[Set]] on the wrapper, which finds no setter and refuses
+///   CreateDataProperty on a non-object receiver (a String's own
+///   index is non-writable besides); a module-strict program turns
+///   the refusal into the TypeError — the answer the member spelling
+///   (`n.x = 1`) already gave, while `n[0] = 1` silently discarded
+///   the value on the sloppy-mode reading this doc used to cite.
 /// - `Tag::Arr` cell → `__torajs_arr_index_set` (kind-aware; OOB →
 ///   catchable RangeError, kind mismatch → catchable TypeError).
 /// - `Tag::DynObj` (L3b #3, chunk 527) → the numeric key
@@ -79,7 +82,10 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         return;
     }
     if !is_cell(recv) {
-        unsafe { drop_transferred_pair(tag, value) };
+        unsafe {
+            drop_transferred_pair(tag, value);
+            __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+        }
         return;
     }
     let ptr = as_void_ptr(recv);
@@ -135,7 +141,10 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         return;
     }
     if hdr_tag == Tag::Str as u16 {
-        unsafe { drop_transferred_pair(tag, value) };
+        unsafe {
+            drop_transferred_pair(tag, value);
+            __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+        }
         return;
     }
     if hdr_tag == Tag::DynObj as u16 {
