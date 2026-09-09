@@ -144,7 +144,6 @@ unsafe fn set_obj_member(
         if crate::struct_probe::struct_field_pair(ptr, key).is_none()
             && !crate::struct_probe::struct_accessor_key(ptr, key)
         {
-            let hdr_flags = (ptr.cast::<u8>().add(6) as *const u16).read();
             let props_slot = ptr
                 .cast::<u8>()
                 .add(crate::member_get_layout::OBJ_PROPS_OFF)
@@ -172,19 +171,14 @@ unsafe fn set_obj_member(
             {
                 return Some(r);
             }
-            if hdr_flags & torajs_rc::FLAG_NON_EXTENSIBLE != 0 {
-                let key_present = !(*props_slot).is_null()
-                    && __torajs_dynobj_has(*props_slot, key as *const c_void) != 0;
-                if !key_present {
-                    drop_payload(tag, value);
-                    if throw_on_refusal {
-                        __torajs_throw_type_error(
-                            c"Attempting to define property on object that is not extensible."
-                                .as_ptr(),
-                        );
-                    }
-                    return Some(0);
-                }
+            if crate::member_set_closure::refuse_new_key_non_extensible(
+                ptr,
+                own_expando,
+                tag,
+                value,
+                throw_on_refusal,
+            ) {
+                return Some(0);
             }
             if (*props_slot).is_null() {
                 // r502 — the first attach goes through the rc entry

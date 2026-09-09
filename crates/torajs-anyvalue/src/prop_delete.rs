@@ -145,7 +145,7 @@ unsafe fn delete_expando_bag(
 unsafe fn refuse(throw_on_refusal: bool) -> i64 {
     if throw_on_refusal {
         unsafe {
-            __torajs_throw_type_error(c"cannot delete a non-configurable property".as_ptr());
+            __torajs_throw_type_error(c"Unable to delete property.".as_ptr());
         }
     }
     0

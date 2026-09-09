@@ -9,7 +9,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_NON_EXTENSIBLE, Tag};
+use torajs_rc::Tag;
 
 use crate::member_set::{
     __torajs_dynobj_alloc, __torajs_dynobj_has, __torajs_throw_type_error, STR_LEN_OFF,
@@ -55,11 +55,12 @@ pub(crate) unsafe fn set_wrapper_member(
         }
         let props_slot = ptr.cast::<u8>().add(MEMBER_SET_WRAPPER_PROPS_OFF) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        let present = !props.is_null()
+            && __torajs_dynobj_has(props as *const c_void, key as *const c_void) != 0;
         // §10.1.9.2 — an own miss consults the [[Prototype]] chain
         // before the own create. Ahead of the integrity gate: freezing
         // bars the create, not the walk.
-        if (props.is_null()
-            || __torajs_dynobj_has(props as *const c_void, key as *const c_void) == 0)
+        if !present
             && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
                 ptr,
                 crate::nanbox::box_void_ptr(ptr),
@@ -71,28 +72,14 @@ pub(crate) unsafe fn set_wrapper_member(
         {
             return handled;
         }
-        // §10.1.5.1 [[Set]] on a non-extensible wrapper rejects new
-        // keys. The wrapper cell owns the `FLAG_NON_EXTENSIBLE`
-        // bit (set by `Object.preventExtensions(w)`), not the
-        // expando dynobj it lazily allocates — so `dynobj_set`'s
-        // own gate can't cover this; check the wrapper header
-        // directly here. Update to an existing expando key
-        // (`w.foo = 2` after `w.foo = 1; preventExtensions(w)`)
-        // stays allowed — matches bun-parity, mirror of the
-        // dynobj_set / dynobj_define gates.
-        let wrapper_flags = *(ptr.cast::<u8>().add(6) as *const u16);
-        if wrapper_flags & FLAG_NON_EXTENSIBLE != 0 {
-            let key_present = !props.is_null()
-                && __torajs_dynobj_has(props as *const c_void, key as *const c_void) != 0;
-            if !key_present {
-                drop_payload(tag, value);
-                if throw_on_refusal {
-                    __torajs_throw_type_error(
-                        c"Attempting to define property on object that is not extensible.".as_ptr(),
-                    );
-                }
-                return 0;
-            }
+        if crate::member_set_closure::refuse_new_key_non_extensible(
+            ptr,
+            present,
+            tag,
+            value,
+            throw_on_refusal,
+        ) {
+            return 0;
         }
         if props.is_null() {
             props = __torajs_dynobj_alloc();

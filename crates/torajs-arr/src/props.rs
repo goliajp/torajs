@@ -35,6 +35,14 @@ unsafe extern "C" {
     /// reallocate the dynobj (linear-probing hash table), so it
     /// takes a `&mut *mut c_void` to write back the new pointer.
     fn __torajs_dynobj_set(dynobj_ptr: *mut *mut c_void, key: *const c_void, tag: u64, value: u64);
+    /// Cross-tier — the §28.1.13 Reflect.set flavor of the same
+    /// write: a refusal answers 0 instead of recording the TypeError.
+    fn __torajs_dynobj_set_soft(
+        dynobj_ptr: *mut *mut c_void,
+        key: *const c_void,
+        tag: u64,
+        value: u64,
+    ) -> i64;
 
     /// Cross-tier — §10.1.6.3 define with explicit W/E/C flags
     /// (`flags_byte` low 3 = values, bits 3-5 = present, bit 6 =
@@ -118,6 +126,31 @@ pub unsafe extern "C" fn __torajs_arrprops_set(
         note_builtin_proto_write(arr_ptr, key);
         let slot = crate::exotic_seam::__torajs_arr_props_attach(arr_ptr);
         __torajs_dynobj_set(slot, key, tag as u64, value as u64);
+    }
+}
+
+/// [`__torajs_arrprops_set`]'s §28.1.13 Reflect.set flavor — a
+/// refusal (a read-only entry, once `Object.freeze` has walked the
+/// side props) answers 0 instead of recording the strict-assignment
+/// TypeError; a write answers 1. Same pair shape as
+/// `__torajs_dynobj_set` / `__torajs_dynobj_set_soft`. Before this
+/// the Arr arm had only the throwing spelling, so
+/// `Reflect.set(frozenArr, "0.5", v)` threw where it must answer
+/// false.
+///
+/// # Safety
+/// Same contract as [`__torajs_arrprops_set`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arrprops_set_soft(
+    arr_ptr: *mut c_void,
+    key: *const c_void,
+    tag: i64,
+    value: i64,
+) -> i64 {
+    unsafe {
+        note_builtin_proto_write(arr_ptr, key);
+        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr_ptr);
+        __torajs_dynobj_set_soft(slot, key, tag as u64, value as u64)
     }
 }
 

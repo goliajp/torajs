@@ -15,6 +15,14 @@ unsafe extern "C" {
     /// torajs-arr — expando write through the lazily-allocated
     /// props dynobj.
     fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
+    /// torajs-arr — the same write in its Reflect.set flavor (a
+    /// refusal answers 0, no TypeError recorded).
+    fn __torajs_arrprops_set_soft(
+        arr_ptr: *mut c_void,
+        key: *const c_void,
+        tag: i64,
+        value: i64,
+    ) -> i64;
     /// torajs-arr — own-key membership over that same bag.
     fn __torajs_arrprops_has(arr_ptr: *mut c_void, key: *const c_void) -> i32;
     /// torajs-arr — §10.4.2.4 length setter (ToUint32 validate +
@@ -121,7 +129,8 @@ pub(crate) unsafe fn set_arr_member(
         // bars the create, not the walk.
         // The own faces above (index domain, `length`) have already
         // returned; what is left is the expando bag.
-        if __torajs_arrprops_has(ptr, key) == 0
+        let present = __torajs_arrprops_has(ptr, key) != 0;
+        if !present
             && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
                 ptr,
                 crate::nanbox::box_void_ptr(ptr),
@@ -132,6 +141,21 @@ pub(crate) unsafe fn set_arr_member(
             )
         {
             return handled;
+        }
+        // `xs[0.5] = v` and `xs.foo = v` on a frozen / sealed /
+        // non-extensible array both land here — before this the
+        // expando was created regardless.
+        if crate::member_set_closure::refuse_new_key_non_extensible(
+            ptr,
+            present,
+            tag,
+            value,
+            throw_on_refusal,
+        ) {
+            return 0;
+        }
+        if !throw_on_refusal {
+            return __torajs_arrprops_set_soft(ptr, key, tag as i64, value as i64);
         }
         __torajs_arrprops_set(ptr, key, tag as i64, value as i64);
         1

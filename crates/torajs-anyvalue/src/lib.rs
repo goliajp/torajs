@@ -1890,6 +1890,7 @@ mod tests {
         __torajs_arrprops_get_value,
         __torajs_arrprops_has,
         __torajs_arrprops_set,
+        __torajs_arrprops_set_soft,
         __torajs_bigint_to_locale_string,
         __torajs_bigint_to_string_radix,
         __torajs_bigint_to_string,

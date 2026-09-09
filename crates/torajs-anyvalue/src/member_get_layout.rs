@@ -239,6 +239,30 @@ pub(crate) unsafe fn expando_props(ptr: *const c_void, tag: u16) -> *const c_voi
     }
 }
 
+/// The dynobj holding a cell's own expando properties — the entry
+/// table §7.3.14 SetIntegrityLevel has to walk when the cell is not
+/// itself a DynObj: an Arr's side props, a struct's / a closure's /
+/// a wrapper's / a stateful bag's lazy slot. A DynObj answers itself;
+/// a cell with no bag, or one never attached, answers NULL. Before
+/// this `Object.freeze(xs)` walked nothing on an array, so `xs.foo`
+/// stayed writable and configurable behind a header that said frozen.
+///
+/// # Safety
+/// `p` is a live heap cell with the universal header.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cell_expando_bag(p: *mut c_void) -> *mut c_void {
+    unsafe {
+        let tag = (p.cast::<u8>().add(4) as *const u16).read();
+        if tag == Tag::DynObj as u16 {
+            return p;
+        }
+        if tag == Tag::Arr as u16 {
+            return *(p.cast::<u8>().add(crate::prop_has::ARR_PROPS_OFF) as *const *mut c_void);
+        }
+        expando_props(p, tag) as *mut c_void
+    }
+}
+
 /// Universal heap-header flags probe — u16 at +6 (RFC 20260711
 /// chunk C consumers test the `FLAG_FN_*_DELETED` tombstones).
 ///

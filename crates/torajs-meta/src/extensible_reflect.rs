@@ -39,6 +39,12 @@ unsafe extern "C" {
     // torajs-rc/src/freeze.rs. FLAG_STATIC_LITERAL cells short-circuit
     // inside the helper (writing to `.rodata` would SIGBUS).
     fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void;
+    // torajs-anyvalue — the dynobj a cell keeps its own expando
+    // properties in (itself for a DynObj; an Arr's side props; the
+    // lazy slot of a struct / closure / wrapper / stateful bag), NULL
+    // when it has none. §7.3.14 SetIntegrityLevel walks every own
+    // property, and for a non-DynObj cell those live in this table.
+    fn __torajs_cell_expando_bag(p: *mut c_void) -> *mut c_void;
     // DynObj entry-table walk from torajs-dynobj/src/seal.rs. Clears
     // BUCKET_FLAG_CONFIGURABLE on every live entry / checks whether
     // every live entry is already non-configurable. NULL / non-DynObj
@@ -124,11 +130,13 @@ pub unsafe extern "C" fn __torajs_anyv_is_extensible(obj_any: u64) -> bool {
 /// `[[Configurable]] = false`. tora splits the work: the header-flag
 /// pair (`FLAG_NON_EXTENSIBLE` + `FLAG_SEALED`) is set via
 /// [`__torajs_obj_seal_mark`]; the per-entry configurable walk lives
-/// in the DynObj substrate. Non-DynObj cells (typed Tag::Obj struct /
-/// Arr / Closure / …) carry only the header markers — their property
-/// table is the static field layout and has no per-entry configurable
-/// bit to flip; the SEALED bit alone faithfully encodes "user called
-/// `Object.seal` on this typed cell".
+/// in the DynObj substrate and runs over the cell's expando bag. A
+/// typed cell's layout fields (struct slots, array elements) have no
+/// per-entry bit — the SEALED marker answers for them — but the
+/// expando properties it grew through `any` are dynobj entries like
+/// any other, and before this the walk never reached them:
+/// `Object.seal(xs)` left `xs.foo` configurable and `delete xs.foo`
+/// succeeding behind a header that said sealed.
 ///
 /// # Safety
 ///
@@ -141,8 +149,8 @@ pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
     let p = obj_any as *mut c_void;
     // SAFETY: cell pointer to a valid heap object.
     unsafe { __torajs_obj_seal_mark(p) };
-    // SAFETY: non-DynObj cells short-circuit inside the helper.
-    unsafe { __torajs_dynobj_seal_entries(p) };
+    // SAFETY: a NULL bag (no expando ever written) is a no-op inside.
+    unsafe { __torajs_dynobj_seal_entries(__torajs_cell_expando_bag(p)) };
     obj_any
 }
 
@@ -157,10 +165,11 @@ pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
 /// via level implication), and `Object.isExtensible` answered true
 /// (spec: not extensible via level implication).
 ///
-/// Non-DynObj cells (typed Tag::Obj struct / Arr / Closure / …) carry
-/// only the header markers — no dynobj entry table to walk. Primitives
-/// and null / undef return unchanged (spec: SetIntegrityLevel on a
-/// non-Object is a no-op returning the value).
+/// A typed cell (Tag::Obj struct / Arr / Closure / …) carries the
+/// header markers for its layout fields and walks its expando bag
+/// for the rest (see [`__torajs_anyv_seal`]). Primitives and null /
+/// undef return unchanged (spec: SetIntegrityLevel on a non-Object
+/// is a no-op returning the value).
 ///
 /// # Safety
 /// `obj_any` must carry a valid AnyValue bit pattern.
@@ -175,10 +184,10 @@ pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
     // FLAG_SEALED + FLAG_NON_EXTENSIBLE — frozen ⇒ sealed ⇒ non-extensible.
     // SAFETY: same.
     unsafe { __torajs_obj_seal_mark(p) };
-    // DynObj entry walk — clears writable + configurable per bucket.
-    // Non-DynObj cells short-circuit inside the helper.
+    // Entry walk over the cell's expando bag — clears writable +
+    // configurable per bucket. A NULL bag is a no-op inside.
     // SAFETY: same.
-    unsafe { __torajs_dynobj_freeze_entries(p) };
+    unsafe { __torajs_dynobj_freeze_entries(__torajs_cell_expando_bag(p)) };
     obj_any
 }
 

@@ -6,7 +6,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED};
+use torajs_rc::{FLAG_FROZEN, FLAG_NON_EXTENSIBLE};
 
 use crate::member_set::{
     __torajs_dynobj_alloc, __torajs_throw_type_error, drop_payload, dynobj_set_flavored,
@@ -27,29 +27,42 @@ unsafe extern "C" {
     );
 }
 
-/// §7.3 integrity gate shared by the closure / promise expando arms.
-/// `Object.freeze` / `seal` / `preventExtensions` mark only the
-/// receiver HEADER for non-DynObj cells (`extensible_reflect` —
-/// their property surface lives here, not in a DynObj bucket), so
-/// the expando write must consult it: a frozen receiver refuses
-/// every assign (§10.1.9 — all own props non-writable, no growth);
-/// a sealed / non-extensible one refuses only NEW keys (an existing
-/// data entry stays writable under seal). Pre-fix `Object.freeze(f)`
-/// left `f.a = 1` mutating the frozen function while
-/// `Object.isFrozen(f)` answered true.
-unsafe fn expando_integrity_refuses(
+/// §10.1.9.2 step 2.b — the [[Extensible]] gate every lazy-bag arm
+/// shares (Arr side props, struct, closure, wrapper, stateful bags):
+/// a NEW key on a non-extensible receiver is refused, because the
+/// create is what `[[Extensible]] = false` forbids. An existing
+/// entry is not this gate's question — its own writable bit answers
+/// inside `dynobj_set`, and `Object.freeze` clears that bit through
+/// the bag walk (`__torajs_cell_expando_bag`). The receiver CELL
+/// owns the header bit, not the dynobj it lazily allocates, which is
+/// why `dynobj_set`'s gate cannot see it. Consumes the payload and
+/// throws (flavored) when it refuses. Before this the arms each
+/// carried their own copy: the closure one refused every key on a
+/// frozen receiver with the readonly message (right answer, wrong
+/// face for a new key), and the Arr one had no gate at all.
+pub(crate) unsafe fn refuse_new_key_non_extensible(
     recv: *const c_void,
-    props: *const c_void,
-    key: *const c_void,
+    key_present: bool,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
 ) -> bool {
+    if key_present {
+        return false;
+    }
     let hflags = unsafe { (recv.cast::<u8>().add(6) as *const u16).read() };
-    if hflags & FLAG_FROZEN != 0 {
-        return true;
+    if hflags & FLAG_NON_EXTENSIBLE == 0 {
+        return false;
     }
-    if hflags & (FLAG_SEALED | FLAG_NON_EXTENSIBLE) != 0 {
-        return props.is_null() || unsafe { __torajs_dynobj_has(props, key) } == 0;
+    unsafe {
+        drop_payload(tag, value);
+        if throw_on_refusal {
+            __torajs_throw_type_error(
+                c"Attempting to define property on object that is not extensible.".as_ptr(),
+            );
+        }
     }
-    false
+    true
 }
 
 /// Closure-cell lazy props slot — mirror of torajs-core
@@ -178,10 +191,11 @@ pub(crate) unsafe fn set_expando_member(
     unsafe {
         let props_slot = ptr.cast::<u8>().add(props_off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
+        let present = !props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0;
         // §10.1.9.2 — an own miss consults the [[Prototype]] chain
         // before the own create. Ahead of the integrity gate: freezing
         // bars the create, not the walk.
-        if (props.is_null() || __torajs_dynobj_has(props, key as *const c_void) == 0)
+        if !present
             && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
                 ptr,
                 crate::nanbox::box_void_ptr(ptr),
@@ -193,11 +207,7 @@ pub(crate) unsafe fn set_expando_member(
         {
             return handled;
         }
-        if expando_integrity_refuses(ptr, props, key) {
-            drop_payload(tag, value);
-            if throw_on_refusal {
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-            }
+        if refuse_new_key_non_extensible(ptr, present, tag, value, throw_on_refusal) {
             return 0;
         }
         if props.is_null() {
@@ -271,7 +281,8 @@ pub(crate) unsafe fn set_closure_member(
         // bars the create, not the walk.
         // A function's own faces here are the expando and the virtual
         // `prototype` pair; `name` / `length` never reach this far.
-        let own = (!props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0)
+        let in_bag = !props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0;
+        let own = in_bag
             || (crate::prop_has::key_is(key, b"prototype")
                 && crate::closure_proto::fn_prototype_pair(ptr).is_some());
         if !own
@@ -286,7 +297,14 @@ pub(crate) unsafe fn set_closure_member(
         {
             return handled;
         }
-        if expando_integrity_refuses(ptr, props, key) {
+        if refuse_new_key_non_extensible(ptr, own, tag, value, throw_on_refusal) {
+            return 0;
+        }
+        // The virtual `prototype` pair has no bag entry to carry the
+        // writable bit `Object.freeze` clears, so the header answers
+        // for it: a frozen function's `prototype` is read-only.
+        let hflags = (ptr.cast::<u8>().add(6) as *const u16).read();
+        if own && !in_bag && hflags & FLAG_FROZEN != 0 {
             drop_payload(tag, value);
             if throw_on_refusal {
                 __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
