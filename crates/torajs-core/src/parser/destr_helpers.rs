@@ -257,9 +257,10 @@ impl<'a> Parser<'a> {
                     obj: src_ref,
                     index: idx_lit,
                 });
+                let bind = self.pattern_binding_name();
                 match self.peek() {
-                    Token::Ident(n) => {
-                        let nn = n.clone();
+                    _ if bind.is_some() => {
+                        let nn = bind.unwrap();
                         self.pos += 1;
                         // P-PARSE.3 — `[a = 5]` per ES spec
                         // §13.15.5.3 IteratorBindingInitialization:
@@ -306,76 +307,8 @@ impl<'a> Parser<'a> {
                         lets.extend(nested_body_lets);
                     }
                     Token::DotDotDot => {
-                        // P-PARSE.6 / P-PARSE.7 — rest element in
-                        // array destr per ES spec §13.15.5.3 step 4i:
-                        //   `[a, b, ...rest]`         leaf rest
-                        //   `[a, ...[b, c]]`          nested array
-                        //   `[a, ...{x, y}]`          nested object
-                        // RestPattern collects remaining iterator
-                        // values into a fresh Array (`src.slice(idx)`)
-                        // and then either binds it to a name or
-                        // recursively destructures it.
-                        self.pos += 1;
                         rest_seen = true;
-                        let src_ref = self.ast.add_expr(Expr::Ident(src_name.clone()));
-                        let slice_call = {
-                            let slice_member = self.ast.add_expr(Expr::Member {
-                                obj: src_ref,
-                                name: "slice".into(),
-                            });
-                            let from_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
-                            self.ast.add_expr(Expr::Call {
-                                callee: slice_member,
-                                args: vec![from_lit],
-                            })
-                        };
-                        match self.peek() {
-                            Token::Ident(n) => {
-                                let nn = n.clone();
-                                self.pos += 1;
-                                lets.push(Stmt::LetDecl {
-                                    mutable: false,
-                                    name: nn,
-                                    type_ann: None,
-                                    init: slice_call,
-                                    is_var: false,
-                                });
-                            }
-                            Token::LBracket | Token::LBrace => {
-                                // Rest target is itself a pattern —
-                                // recurse with the slice as the new
-                                // source. P-PARSE.7.
-                                let rest_id = self.mint_desugar_id();
-                                let rest_src = format!("__rest_destr_{rest_id}");
-                                let mut rest_body_lets: Vec<Stmt> = Vec::new();
-                                self.parse_destr_into(rest_src.clone(), &mut rest_body_lets)?;
-                                lets.push(Stmt::LetDecl {
-                                    mutable: false,
-                                    name: rest_src,
-                                    type_ann: None,
-                                    init: slice_call,
-                                    is_var: false,
-                                });
-                                lets.extend(rest_body_lets);
-                            }
-                            t => {
-                                return Err(format!(
-                                    "expected identifier or pattern after `...` in array param destructuring, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
-                        // Rest must be last; expect closing `]`.
-                        match self.peek() {
-                            Token::RBracket => {}
-                            t => {
-                                return Err(format!(
-                                    "rest element must be last in array destr, got {t:?} at {}",
-                                    self.at()
-                                ));
-                            }
-                        }
-                        // Don't advance elem_idx (we'll break out on RBracket).
+                        self.parse_destr_array_rest_into(&src_name, elem_idx, lets)?;
                     }
                     Token::Comma => {
                         // P-PARSE.6 — elision in array destructuring
@@ -423,6 +356,94 @@ impl<'a> Parser<'a> {
                 is_var: false,
             },
         );
+        Ok(())
+    }
+
+    /// `[a, ...rest]` — the array pattern's BindingRestElement
+    /// (§13.15.5.3 step 4i), extracted from
+    /// [`Self::parse_destr_array_into`] when the contextual-keyword
+    /// admission pushed that function past the 200-line cap. The
+    /// remaining elements collect into a fresh array (`src.slice(i)`)
+    /// which then either binds to a name or destructures again.
+    ///
+    /// The caller owns `rest_seen` and the loop; this owns everything
+    /// from the `...` through the check that nothing may follow it.
+    fn parse_destr_array_rest_into(
+        &mut self,
+        src_name: &str,
+        elem_idx: usize,
+        lets: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
+        // P-PARSE.6 / P-PARSE.7 — rest element in
+        // array destr per ES spec §13.15.5.3 step 4i:
+        //   `[a, b, ...rest]`         leaf rest
+        //   `[a, ...[b, c]]`          nested array
+        //   `[a, ...{x, y}]`          nested object
+        // RestPattern collects remaining iterator
+        // values into a fresh Array (`src.slice(idx)`)
+        // and then either binds it to a name or
+        // recursively destructures it.
+        self.pos += 1;
+        let src_ref = self.ast.add_expr(Expr::Ident(src_name.to_string()));
+        let slice_call = {
+            let slice_member = self.ast.add_expr(Expr::Member {
+                obj: src_ref,
+                name: "slice".into(),
+            });
+            let from_lit = self.ast.add_expr(Expr::Number(elem_idx as f64));
+            self.ast.add_expr(Expr::Call {
+                callee: slice_member,
+                args: vec![from_lit],
+            })
+        };
+        let bind = self.pattern_binding_name();
+        match self.peek() {
+            _ if bind.is_some() => {
+                let nn = bind.unwrap();
+                self.pos += 1;
+                lets.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: nn,
+                    type_ann: None,
+                    init: slice_call,
+                    is_var: false,
+                });
+            }
+            Token::LBracket | Token::LBrace => {
+                // Rest target is itself a pattern —
+                // recurse with the slice as the new
+                // source. P-PARSE.7.
+                let rest_id = self.mint_desugar_id();
+                let rest_src = format!("__rest_destr_{rest_id}");
+                let mut rest_body_lets: Vec<Stmt> = Vec::new();
+                self.parse_destr_into(rest_src.clone(), &mut rest_body_lets)?;
+                lets.push(Stmt::LetDecl {
+                    mutable: false,
+                    name: rest_src,
+                    type_ann: None,
+                    init: slice_call,
+                    is_var: false,
+                });
+                lets.extend(rest_body_lets);
+            }
+            t => {
+                return Err(format!(
+                    "expected identifier or pattern after `...` in array param destructuring, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        // Rest must be last; expect closing `]`.
+        match self.peek() {
+            Token::RBracket => {}
+            t => {
+                return Err(format!(
+                    "rest element must be last in array destr, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
+        // Don't advance elem_idx (we'll break out on RBracket).
         Ok(())
     }
 }

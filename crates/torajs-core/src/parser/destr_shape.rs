@@ -154,11 +154,11 @@ impl<'a> Parser<'a> {
             }
             if matches!(self.peek(), Token::DotDotDot) {
                 self.pos += 1;
+                let bind = self.pattern_binding_name();
                 let r = match self.peek() {
-                    Token::Ident(n) => {
-                        let n = n.clone();
+                    _ if bind.is_some() => {
                         self.pos += 1;
-                        RestShape::Bind(n)
+                        RestShape::Bind(bind.unwrap())
                     }
                     // §13.3.3 BindingRestElement : ... BindingPattern
                     // (`[...[x, y]]` / `[...{ len: length }]`).
@@ -175,9 +175,10 @@ impl<'a> Parser<'a> {
                 rest = Some(r);
                 break; // rest must be last — expect `]` next
             }
+            let bind = self.pattern_binding_name();
             let elem = match self.peek() {
-                Token::Ident(n) => {
-                    let name = n.clone();
+                _ if bind.is_some() => {
+                    let name = bind.unwrap();
                     self.pos += 1;
                     let default = self.read_pattern_default()?;
                     AryElem::Bind { name, default }
@@ -220,8 +221,9 @@ impl<'a> Parser<'a> {
         while !matches!(self.peek(), Token::RBrace) {
             if matches!(self.peek(), Token::DotDotDot) {
                 self.pos += 1;
+                let bind = self.pattern_binding_name();
                 let n = match self.peek() {
-                    Token::Ident(n) => n.clone(),
+                    _ if bind.is_some() => bind.unwrap(),
                     t => {
                         return Err(format!(
                             "expected identifier after `...` in object destructuring, got {t:?} at {}",
@@ -356,9 +358,10 @@ impl<'a> Parser<'a> {
     /// optional default) or a nested pattern. Shared by the static and
     /// computed key arms of [`Self::read_obj_pattern`].
     fn read_obj_binding_target(&mut self) -> Result<ObjBinding, String> {
+        let bind = self.pattern_binding_name();
         match self.peek() {
-            Token::Ident(n) => {
-                let name = n.clone();
+            _ if bind.is_some() => {
+                let name = bind.unwrap();
                 self.pos += 1;
                 let default = self.read_pattern_default()?;
                 Ok(ObjBinding::Bind { name, default })

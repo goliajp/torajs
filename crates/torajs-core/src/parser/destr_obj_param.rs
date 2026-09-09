@@ -28,8 +28,9 @@ impl<'a> Parser<'a> {
             loop {
                 if matches!(self.peek(), Token::DotDotDot) {
                     self.pos += 1;
+                    let bind = self.pattern_binding_name();
                     let rest_name = match self.peek() {
-                        Token::Ident(n) => n.clone(),
+                        _ if bind.is_some() => bind.unwrap(),
                         t => {
                             return Err(format!(
                                 "expected identifier after `...` in object param destructuring, got {t:?} at {}",
@@ -123,9 +124,10 @@ impl<'a> Parser<'a> {
                 let mem = self.dstra_param_field_load(&src_name, &field);
                 if matches!(self.peek(), Token::Colon) {
                     self.pos += 1;
+                    let bind = self.pattern_binding_name();
                     match self.peek() {
-                        Token::Ident(n) => {
-                            let nn = n.clone();
+                        _ if bind.is_some() => {
+                            let nn = bind.unwrap();
                             self.pos += 1;
                             // P-PARSE.3 — `{ x: y = D }`.
                             let init_expr =
@@ -277,9 +279,10 @@ impl<'a> Parser<'a> {
             is_var: false,
         });
         let mem = self.dstra_computed_load(src_name, &kname, None);
+        let bind = self.pattern_binding_name();
         match self.peek() {
-            Token::Ident(n) => {
-                let nn = n.clone();
+            _ if bind.is_some() => {
+                let nn = bind.unwrap();
                 self.pos += 1;
                 let init_expr = self.maybe_parse_object_destr_default(mem, Some(&nn))?;
                 lets.push(Stmt::LetDecl {

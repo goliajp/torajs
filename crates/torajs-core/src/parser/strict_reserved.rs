@@ -205,8 +205,23 @@ impl Parser<'_> {
             // `let` needs the binding form as well as the strictness:
             // §14.3.1.1 refuses it in the BoundNames of a lexical
             // declaration even in sloppy code.
-            Token::Let if self.let_reads_as_ident() && !self.pattern_binds_lexically => Some("let"),
-            Token::Yield if self.yield_reads_as_ident() => Some("yield"),
+            Token::Let if self.let_reads_as_ident() && !self.pattern_binds_lexically => {
+                // Admitted sites park for the goal gate, same as every
+                // other `let` / `yield` admission: `let_reads_as_ident`
+                // and `yield_reads_as_ident` answer the PER-FUNCTION
+                // half of §12.7.2, and only `ast.program_is_sloppy()`
+                // — stamped after the parse — answers the goal half.
+                // Without the record, `var { let } = {}` and every
+                // pattern slot beside it bound in a MODULE, where node
+                // reports "Unexpected strict mode reserved word".
+                self.record_strict_goal_site("let");
+                Some("let")
+            }
+            Token::Yield if self.yield_reads_as_ident() => {
+                let at = self.at();
+                self.ast.yield_ident_positions.push(at);
+                Some("yield")
+            }
             Token::Await if self.await_reads_as_ident() => {
                 self.admit_await_ident();
                 Some("await")
@@ -215,6 +230,24 @@ impl Parser<'_> {
             // self`, so no arm may hold a reference from the scrutinee.
             _ => Self::contextual_binding_name(self.peek()),
         }
+    }
+
+    /// The name a BINDING POSITION reads here: an ordinary
+    /// `Ident`, or a contextual keyword this position admits as one.
+    /// Peek only — the caller advances.
+    ///
+    /// Every slot in a destructuring pattern is such a position, and
+    /// they used to disagree: the object half asked
+    /// [`Self::shorthand_binding_name`] at its shorthand slot while
+    /// the array elements, both rest slots and the rename targets
+    /// matched `Token::Ident` alone, so `var { let }` bound and
+    /// `var [ let ]`, `var { ...let }` and `var { a: let }` were
+    /// SyntaxErrors that node runs. One spelling, asked everywhere.
+    pub(super) fn pattern_binding_name(&mut self) -> Option<String> {
+        if let Token::Ident(n) = self.peek() {
+            return Some(n.clone());
+        }
+        self.shorthand_binding_name().map(|s| s.to_string())
     }
 
     pub(super) fn strict_or_in_class(&self, own: bool) -> bool {
