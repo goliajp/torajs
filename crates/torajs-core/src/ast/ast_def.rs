@@ -758,13 +758,20 @@ pub struct Ast {
     /// for the entry. Read by `desugar_eval::walk::caller_strict_exprs`
     /// as one of §11.2.2's three sources.
     pub program_strict_prologue: bool,
-    /// Byte ranges an explicit `"use strict"` directive prologue made
-    /// strict code (§11.2.2) — a function body, or the whole source at
-    /// the program level. Recorded by `parser::strict_directive`, and
-    /// read by the gates that judge after the parse: under a SLOPPY
-    /// goal these are the only regions where the Annex B legacy-octal
-    /// spellings above are still a SyntaxError.
-    pub strict_prologue_spans: Vec<(u32, u32)>,
+    /// Byte ranges that are strict code for a reason the GOAL does not
+    /// carry (§11.2.2) — read by the gates that can only judge after
+    /// the parse, for which these are the regions where a sloppy-goal
+    /// program still refuses the Annex B legacy-octal spellings above
+    /// and the §B.3.3 function-in-block hoisting.
+    ///
+    /// Two of §11.2.2's three sources land here, because both are
+    /// answerable as a byte range: an explicit `"use strict"` directive
+    /// prologue (a function body, or the whole source at the program
+    /// level — `parser::strict_directive`) and a class, every part of
+    /// which is strict code including its heritage
+    /// (`parser::parse_class_decl`). The third source is the goal
+    /// itself, which is not a range and is asked separately.
+    pub strict_code_spans: Vec<(u32, u32)>,
     /// Template-substitution `String(...)` wrappers the parser
     /// synthesizes (§13.2.8.5 hint-string order) — keyed by the
     /// synthesized CALLEE Ident's ExprId (fresh per substitution, so

@@ -260,6 +260,14 @@ impl<'a> Parser<'a> {
         // text ends at the body's closing brace.
         let class_span = self.span_from(class_start);
         self.ast.class_decl_spans.insert(name.clone(), class_span);
+        // §15.7 — every part of a class is strict code, heritage
+        // included, and the gates that judge after the parse have no
+        // other way to learn it: they see byte offsets, not parser
+        // state. Without this `class C { m() { return 010 } }` and
+        // `class C { f = "\101" }` were accepted under a sloppy goal.
+        self.ast
+            .strict_code_spans
+            .push((class_span.start, class_span.end));
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }

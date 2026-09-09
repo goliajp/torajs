@@ -68,14 +68,15 @@ const ESCAPE: &str = "an octal or `\\8` / `\\9` escape sequence";
 const NUMBER: &str = "a `0`-prefixed octal-style number";
 
 /// `Some(msg)` = SyntaxError. A strict goal condemns every recorded
-/// site; a sloppy goal condemns only those inside a body an explicit
-/// `"use strict"` made strict ([`Ast::strict_prologue_spans`]), and
-/// gives the rest the values the lexer already produced.
+/// site; a sloppy goal condemns only those inside a range that is
+/// strict for another reason ([`Ast::strict_code_spans`] — a
+/// `"use strict"` body, or a class), and gives the rest the values the
+/// lexer already produced.
 pub fn triage_legacy_octal(ast: &Ast) -> Option<String> {
     let condemned = |at: u32| {
         !ast.program_is_sloppy()
             || ast
-                .strict_prologue_spans
+                .strict_code_spans
                 .iter()
                 .any(|&(lo, hi)| at >= lo && at < hi)
     };

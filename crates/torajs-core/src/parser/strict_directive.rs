@@ -80,7 +80,7 @@ impl Parser<'_> {
         let span = self
             .enclosing_brace_span()
             .unwrap_or((0, self.source.len() as u32));
-        self.ast.strict_prologue_spans.push(span);
+        self.ast.strict_code_spans.push(span);
     }
 
     /// `(start, end)` bytes of the innermost brace pair enclosing the

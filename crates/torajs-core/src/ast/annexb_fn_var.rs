@@ -10,11 +10,17 @@
 //! tr carries three readings of strictness after the parse, all landed
 //! by rotation 579: the goal (`sloppy_script_goal`, keyed on the `.cts`
 //! extension), the program-level directive prologue
-//! (`program_strict_prologue`), and the byte ranges an explicit
-//! `"use strict"` prologue made strict (`strict_prologue_spans` — a
-//! function body, or the whole source). A declaration is in sloppy code
-//! when the goal is script, the program has no prologue, and the
-//! declaration's own span falls in none of those ranges.
+//! (`program_strict_prologue`), and the byte ranges that are strict for
+//! another reason (`strict_code_spans` — a `"use strict"` body or the
+//! whole source, and, since rotation 618, a class, every part of which
+//! is strict code). A declaration is in sloppy code when the goal is
+//! script, the program has no prologue, and the declaration's own span
+//! falls in none of those ranges.
+//!
+//! The class ranges matter here for the same reason they matter to the
+//! legacy-octal gate next door: §B.3.3 hoisting is written for source
+//! text that is not strict mode code, so a `{ function f() {} }` inside
+//! a class body does not get it.
 
 use super::annexb_names::{annexb_fn_span, lex_names_into};
 use super::{Expr, ExprId, Stmt};
@@ -48,7 +54,7 @@ impl AnnexBGoal {
     fn of(ast: &super::Ast) -> Self {
         Self {
             sloppy: ast.program_is_sloppy(),
-            strict_spans: ast.strict_prologue_spans.clone(),
+            strict_spans: ast.strict_code_spans.clone(),
             async_names: ast
                 .async_fns
                 .iter()
