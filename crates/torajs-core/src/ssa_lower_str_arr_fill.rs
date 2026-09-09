@@ -228,7 +228,17 @@ pub(crate) fn try_dispatch(
         }
         // Arguments are evaluated; §23.1.3.7's failing Set is next —
         // the rc loop below writes inline, so the guard is here.
-        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(ctx, recv_op.clone());
+        let writes = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Slt, start.clone(), end.clone()),
+            Type::Bool,
+            None,
+        );
+        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(
+            ctx,
+            recv_op.clone(),
+            Operand::Value(writes),
+        );
         if elem_ty.is_copy() {
             let v = ctx.f.append_inst(
                 ctx.cur_block,

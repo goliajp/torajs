@@ -378,15 +378,14 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
     mode: i64,
 ) {
     unsafe {
-        // frozen → TypeError, order untouched (`__torajs_arr_frozen_guard`).
-        // The lowering also checks before its inline insertion path,
-        // so this fires only for a caller that reaches the kernel
-        // directly.
-        if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
-            return;
-        }
         let len = *(arr.add(ARR_HDR_LEN_OFF) as *const u64) as usize;
         if len < 2 {
+            return;
+        }
+        // frozen → TypeError, order untouched — only past the len < 2
+        // short-circuit: engines do not Set a single element back
+        // (`Object.freeze([1]).sort()` is legal in node and bun).
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
             return;
         }
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
@@ -434,12 +433,13 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
         ) {
             return arr;
         }
-        // frozen → TypeError, order untouched (`__torajs_arr_frozen_guard`).
-        if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
-            return arr;
-        }
         let len = *(arr.add(ARR_HDR_LEN_OFF) as *const u64) as usize;
         if len < 2 {
+            return arr;
+        }
+        // frozen → TypeError only past the len < 2 short-circuit (see
+        // sort_cb).
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
             return arr;
         }
         let header = &*(arr as *const torajs_rc::HeapHeader);

@@ -172,7 +172,23 @@ pub(crate) fn try_dispatch(
         // Substr→Str materialization, non-{I64,F64,Str} elements).
         // Comparator evaluated; §23.1.3.30's failing Set is next, on
         // either path — the insertion path writes inline.
-        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(ctx, Operand::Value(arr_ptr));
+        let len_v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(arr_ptr), ARR_LEN_OFF),
+            Type::I64,
+            None,
+        );
+        let writes = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Sge, Operand::Value(len_v), Operand::ConstI64(2)),
+            Type::Bool,
+            None,
+        );
+        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(
+            ctx,
+            Operand::Value(arr_ptr),
+            Operand::Value(writes),
+        );
         if helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, elem_ty, arr_ptr) {
             // RFC 20260705 owned-result invariant: in-place sort answers
             // the receiver — the chaining result carries its own ref.

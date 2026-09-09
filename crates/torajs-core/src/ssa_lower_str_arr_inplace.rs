@@ -235,7 +235,13 @@ pub(crate) fn try_dispatch(
 /// where §23.1.3.7 / .30 / .4 put the failing Set — so the kernel
 /// guards behind it only ever fire for a caller that reaches a kernel
 /// directly. Leaves `cur_block` on the fall-through block.
-pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand) {
+/// `writes` is the caller's "a slot will actually be written" predicate
+/// — a non-empty range, a positive copy count, two or more elements to
+/// sort. §10.1.9 raises at the Set, so a frozen receiver that nothing
+/// would be written to is legal: `Object.freeze([]).fill(1)` and
+/// `Object.freeze([1]).reverse()` are test262 cases, and the first
+/// version of this guard (b5dbd89b5) failed both by raising at entry.
+pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand, writes: Operand) {
     let hdr_word = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I32, recv_op, 4),
@@ -253,13 +259,19 @@ pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand) {
         Type::I32,
         None,
     );
-    let hit = ctx.f.append_inst(
+    let frozen = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(
             crate::ssa::IPred::Ne,
             Operand::Value(masked),
             Operand::ConstI32(0),
         ),
+        Type::Bool,
+        None,
+    );
+    let hit = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(crate::ssa::BinOp::And, Operand::Value(frozen), writes),
         Type::Bool,
         None,
     );

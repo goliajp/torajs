@@ -34,3 +34,15 @@ for (const [tag, f] of [
   try { f(); console.log(tag, "NO-THROW ->", JSON.stringify(n)); }
   catch (e) { console.log(tag, "threw", (e as Error).constructor.name, JSON.stringify(n)); }
 }
+// no-write calls on a frozen any[] are legal (see the typed fixture)
+function nw(tag: string, mk: () => any[], f: (a: any) => void) {
+  const a = mk();
+  Object.freeze(a);
+  try { f(a); console.log("nowrite", tag, "NO-THROW", JSON.stringify(a)); }
+  catch (e) { console.log("nowrite", tag, "threw", (e as Error).constructor.name); }
+}
+nw("fill []", () => [], (a: any) => a.fill(1));
+nw("reverse [1]", () => [1], (a: any) => a.reverse());
+nw("sort [1]", () => [1], (a: any) => a.sort());
+nw("copyWithin [1] count0", () => [1], (a: any) => a.copyWithin(0, 1));
+nw("sort [2,1]", () => [2, 1], (a: any) => a.sort());

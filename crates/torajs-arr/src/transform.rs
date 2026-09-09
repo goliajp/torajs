@@ -173,19 +173,6 @@ pub unsafe extern "C" fn __torajs_arr_concat(a: *const u8, b: *const u8) -> *mut
 /// `arr` must be a valid Array<T> heap block (8-byte slots).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
-    // 刀 13d (RFC 20260721-array-proto-cluster) — an exotic
-    // `Array<Any>` receiver (accessor indexes / hole shadows) rides
-    // the §23.1.3.26 four-step MOP pair loop; the raw swap below
-    // stays the clean-receiver fast path (one predictable branch,
-    // header shares the len cache line).
-    // §10.1.9 [[Writable]] — a frozen receiver raises and stays as it
-    // was (`__torajs_arr_frozen_guard`); ahead of the exotic MOP walk
-    // too, since that path writes the same slots.
-    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
-        != 0
-    {
-        return arr;
-    }
     unsafe {
         let flags = (*(arr as *const torajs_rc::HeapHeader)).flags;
         if flags & torajs_rc::FLAG_ARR_ANY != 0 && flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
@@ -194,6 +181,14 @@ pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
     }
     let len = unsafe { arr_len(arr) };
     if len < 2 {
+        return arr;
+    }
+    // §10.1.9 [[Writable]] — a frozen receiver raises only when a slot
+    // would actually be written: `Object.freeze([1]).reverse()` walks
+    // zero pairs and must not throw (test262 array-has-one-entry).
+    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
         return arr;
     }
     let mut lo = 0u64;
@@ -301,12 +296,6 @@ pub unsafe extern "C" fn __torajs_arr_copy_within(
     start: i64,
     end: i64,
 ) -> *mut u8 {
-    // frozen → TypeError, nothing written (`__torajs_arr_frozen_guard`).
-    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
-        != 0
-    {
-        return arr;
-    }
     let len = unsafe { arr_len(arr) } as i64;
     let lo = clamp(start, 0, len);
     let hi = clamp(end, 0, len);
@@ -320,6 +309,13 @@ pub unsafe extern "C" fn __torajs_arr_copy_within(
         if count <= 0 {
             return arr;
         }
+    }
+    // frozen → TypeError only once a slot is about to be written
+    // (count > 0 here); a zero-count call on a frozen array is legal.
+    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
+        return arr;
     }
     unsafe {
         core::ptr::copy(
@@ -350,17 +346,21 @@ pub unsafe extern "C" fn __torajs_arr_fill(
     start: i64,
     end: i64,
 ) -> *mut u8 {
-    // frozen → TypeError, nothing written; `value` is a Copy raw slot
-    // here (the refcounted spelling is the lowering's inline loop).
-    if unsafe { crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) }
-        != 0
-    {
-        return arr;
-    }
     let len = unsafe { arr_len(arr) } as i64;
     let lo = clamp(start, 0, len);
     let hi = clamp(end, 0, len);
     if hi < lo {
+        return arr;
+    }
+    // frozen → TypeError only for a non-empty range: `Object.freeze([])
+    // .fill(1)` sets nothing and must not throw (test262
+    // return-abrupt-from-setting-property-value freezes an empty array
+    // first). `value` is a Copy raw slot on this lane.
+    if lo < hi
+        && unsafe {
+            crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void)
+        } != 0
+    {
         return arr;
     }
     for i in lo..hi {

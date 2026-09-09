@@ -205,10 +205,6 @@ pub unsafe extern "C" fn __torajs_arr_any_copy_within(
         ) {
             return arr;
         }
-        // frozen → TypeError, nothing written (`__torajs_arr_frozen_guard`).
-        if crate::define_length::__torajs_arr_frozen_guard(arr as *const c_void) != 0 {
-            return arr;
-        }
         let len = arr_len(arr);
         let to = wrap_clamp(target, len);
         let lo = wrap_clamp(start, len);
@@ -222,6 +218,10 @@ pub unsafe extern "C" fn __torajs_arr_any_copy_within(
             if count <= 0 {
                 return arr;
             }
+        }
+        // frozen → TypeError only once a slot is about to be written.
+        if crate::define_length::__torajs_arr_frozen_guard(arr as *const c_void) != 0 {
+            return arr;
         }
         let header = &*(arr as *const HeapHeader);
         let needs_rc = header.flags & FLAG_ARR_ANY != 0 || header.arr_elem_kind() == ARR_KIND_HEAP;

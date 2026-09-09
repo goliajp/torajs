@@ -13,7 +13,7 @@
 //! remaining branches.
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 use crate::ssa_lower_str_arr_fill::normalize_range_bound;
 
@@ -142,7 +142,33 @@ pub(crate) fn try_dispatch(
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         // Arguments are evaluated; §23.1.3.4's failing Set is next —
         // the rc-ranges path below writes inline, so the guard is here.
-        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(ctx, recv_op);
+        let nonempty = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Slt, start.clone(), end.clone()),
+            Type::Bool,
+            None,
+        );
+        let in_range = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Slt, target.clone(), Operand::Value(len_for_norm)),
+            Type::Bool,
+            None,
+        );
+        let writes = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::And,
+                Operand::Value(nonempty),
+                Operand::Value(in_range),
+            ),
+            Type::Bool,
+            None,
+        );
+        crate::ssa_lower_str_arr_inplace::emit_arr_frozen_guard(
+            ctx,
+            recv_op,
+            Operand::Value(writes),
+        );
         if elem_ty.is_refcounted() {
             emit_copy_within_rc_ranges(ctx, recv_op, elem_ty, target, start, end);
         }
