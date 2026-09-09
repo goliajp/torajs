@@ -130,6 +130,20 @@ pub(crate) unsafe fn bag_write(
         let props_slot = ptr.cast::<u8>().add(off) as *mut u64;
         let mut props = *props_slot as *mut c_void;
         let first = props.is_null();
+        // §10.1.9.2 step 2.b — the cell owns the [[Extensible]] bit,
+        // the bag does not; a symbol key was the one spelling that
+        // reached the bag without asking (`xs[Symbol()] = 1` on a
+        // frozen array wrote).
+        let present = !first && __torajs_dynobj_has(props, key as *const c_void) != 0;
+        if crate::member_set_closure::refuse_new_key_non_extensible(
+            ptr,
+            present,
+            tag,
+            value,
+            throw_on_refusal,
+        ) {
+            return 0;
+        }
         if first {
             props = __torajs_dynobj_alloc();
         }
