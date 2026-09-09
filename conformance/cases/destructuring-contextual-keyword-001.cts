@@ -7,8 +7,9 @@
 //
 // tr demanded the explicit `{ async: binding }` rename for them, the
 // treatment a genuinely reserved word needs because a reserved word
-// cannot be the BINDING. 45 test262 cases were refused at the pattern,
-// 40 of them on `type` alone.
+// cannot be the BINDING. 45 test262 cases were refused at the pattern;
+// 44 of them name `async` or `type` (40 `type` alone). The 45th names
+// `await`, which is a different question — see the commit.
 
 var { async, type } = { async: 1, type: 2 };
 console.log("shorthand", async, type);

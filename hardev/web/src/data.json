@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T00:14:26.746Z",
+  "generatedAt": "2026-09-09T02:50:15.480Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-09T00:13:48Z",
-    "headSha": "6770c07e7",
-    "elapsedSec": 429.21,
+    "ranAt": "2026-09-09T02:34:36Z",
+    "headSha": "5fedffcba",
+    "elapsedSec": 431.34,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31250,
-    "passNoOracle": 1185,
-    "passNegative": 4508,
-    "passTotal": 36943,
-    "bug": 11542,
-    "incompatible": 4689,
+    "pass": 31277,
+    "passNoOracle": 1186,
+    "passNegative": 4511,
+    "passTotal": 36974,
+    "bug": 11555,
+    "incompatible": 4645,
     "bunSkip": 2931,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48485,
-    "passRateInScope": 69.48,
+    "trAccepted": 48529,
+    "passRateInScope": 69.53,
     "passRateTrAccepted": 76.19
   },
   "torajs": {
-    "commit": "6770c07e7",
-    "commitSubject": "refactor(torajs-core): repay the lexer overrun the two §12 knives made",
+    "commit": "edcd149ba",
+    "commitSubject": "docs(conformance): a heritage fixture's comment named a mechanism I never checked",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "6770c07e7",
-      "subject": "refactor(torajs-core): repay the lexer overrun the two §12 knives made"
+      "hash": "edcd149ba",
+      "subject": "docs(conformance): a heritage fixture's comment named a mechanism I never checked"
     },
     {
-      "hash": "843c59cd7",
-      "subject": "fix(torajs-core): ASI inserted a semicolon wherever one was missing"
+      "hash": "5fedffcba",
+      "subject": "fix(torajs-core): strict eval text created the globals it should have thrown on"
     },
     {
-      "hash": "2be6550de",
-      "subject": "fix(torajs-core): `123abc` lexed as two tokens and ran"
+      "hash": "9d0c36015",
+      "subject": "refactor(torajs-core): move two families out, along seams their module docs already named"
     },
     {
-      "hash": "688b541a7",
-      "subject": "fix(torajs-core): a class body is strict, and six binding judges asked the function instead"
+      "hash": "231c13f12",
+      "subject": "fix(torajs-core): `async` and `type` are contextual keywords, not reserved words"
     },
     {
-      "hash": "d233074e6",
-      "subject": "fix(torajs-core): `x += 1` on an undeclared name created it instead of throwing"
+      "hash": "ca1153186",
+      "subject": "fix(torajs-core): a catch parameter and a lexical declaration of the same name in its block"
     },
     {
-      "hash": "c6355ee3e",
-      "subject": "fix(torajs-cli): the Script-goal token stream existed; nothing but eval reached it"
+      "hash": "9dfdff81d",
+      "subject": "fix(torajs-core): §15.7.1 states ContainsArguments twice; tr wired it once"
     },
     {
-      "hash": "98e2b1c42",
-      "subject": "fix(torajs-core): the hashbang scanner knew two of LineTerminator's four members"
+      "hash": "b93ea53c9",
+      "subject": "docs(torajs-core): AnnexBGoal's span doc still named one source"
     },
     {
-      "hash": "3054a3c11",
-      "subject": "fix(test262-runner): `raw` means byte 0, and 22 negative cases passed on the prefix"
+      "hash": "ab2aa7538",
+      "subject": "fix(torajs-core): the legacy-octal gate knew two of strictness's three sources"
     },
     {
-      "hash": "5d7ec7b45",
-      "subject": "fix(torajs-core): a Script can be strict, and 23 judgements only asked the goal"
+      "hash": "aa23d2318",
+      "subject": "fix(torajs-core): a ClassHeritage is part of the class, so it is strict code"
     },
     {
-      "hash": "36ba51528",
-      "subject": "fix(test262-runner): 92% of the corpus ran under a goal its author never asked for"
+      "hash": "cf3b0895a",
+      "subject": "fix(torajs-core): an arrow's parameters inherit `[Await]`; tr overwrote it"
     },
     {
-      "hash": "2c06902f9",
-      "subject": "fix(torajs-core): an async function's parameters are judged before it becomes async"
+      "hash": "a359e2d71",
+      "subject": "fix(torajs-core): strictness has a source below the program, and four judges only asked the program"
     },
     {
-      "hash": "58ee47bc9",
-      "subject": "refactor(torajs-core): repay the two size overruns the await knife made"
+      "hash": "d167cefbf",
+      "subject": "fix(torajs-core): a read one operand to the left also beats the write"
     }
   ],
-  "headSha": "6770c07e7",
+  "headSha": "edcd149ba",
   "autorun": {
-    "total": 920,
+    "total": 921,
     "baselineTarget": 10,
-    "bySelf": 915,
+    "bySelf": 916,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788863770-4452",
-      "at": "2026-09-08T10:36:10Z",
-      "ts": 1788863770,
+      "rotationId": "r-1788912995-7810",
+      "at": "2026-09-09T00:16:35Z",
+      "ts": 1788912995,
       "trigger": "self",
-      "prevHead": "c24b57603",
-      "handoffSha": "sha256:be216b20857fa809d949552e4ac87ed3e9e093d67f161e7297af9ab903081d69",
-      "handoffAgeSec": 4,
-      "conformanceBefore": "3827/0/4",
-      "commitsInSession": 13
+      "prevHead": "b99c6dd6c",
+      "handoffSha": "sha256:491b9de4129018480d9b346786b9e6e141d6711bc12256846405a61574bd6d8a",
+      "handoffAgeSec": 23,
+      "conformanceBefore": "3836/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1788912995-7810",
+        "at": "2026-09-09T00:16:35Z",
+        "ts": 1788912995,
+        "trigger": "self",
+        "prevHead": "b99c6dd6c",
+        "handoffSha": "sha256:491b9de4129018480d9b346786b9e6e141d6711bc12256846405a61574bd6d8a",
+        "handoffAgeSec": 23,
+        "conformanceBefore": "3836/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1788863770-4452",
         "at": "2026-09-08T10:36:10Z",
@@ -903,17 +914,6 @@
         "prevHead": "41f7b11e6",
         "handoffSha": "sha256:732d06032d62aa34cff12ee08435b6accf2394398d38e2f328baf7f40940e6e3",
         "handoffAgeSec": 4,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788759534-527e",
-        "at": "2026-09-07T05:38:54Z",
-        "ts": 1788759534,
-        "trigger": "self",
-        "prevHead": "84b372481",
-        "handoffSha": "sha256:44c2be090a4d7e02e762862e66459f074ce4b67aac9fe3d25acb685cbbc2d694",
-        "handoffAgeSec": 15,
         "conformanceBefore": null,
         "commitsInSession": null
       }
