@@ -100,11 +100,12 @@ pub use any::{
     __torajs_arr_set_any,
 };
 pub use any_typed_bridge::__torajs_arr_extend_typed_into_any;
+pub use define_length::__torajs_arr_set_length_validate;
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any, __torajs_arr_drop_heap};
 pub use from_string::__torajs_arr_from_string;
 pub use grow::{
     __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_truncate_scalar,
-    __torajs_arr_set_length_validate, __torajs_arr_shift,
+    __torajs_arr_shift,
 };
 pub use iter::{
     __torajs_arr_iter_create_entries, __torajs_arr_iter_create_keys,
