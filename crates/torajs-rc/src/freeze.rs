@@ -96,46 +96,10 @@ pub unsafe extern "C" fn __torajs_obj_is_frozen(p: *const c_void) -> bool {
     (h.flags & FLAG_FROZEN) != 0
 }
 
-/// `Object.isFrozen(any)` — NaN-box-aware entry. ssa_lower routes
-/// `Object.isFrozen(arg)` here when `arg` is `Type::Any` (the raw
-/// helper above takes `*const c_void` and would deref a NaN-box
-/// sentinel as a heap header — see cases#obj-is-frozen-any-segv).
-///
-/// Per ES2015+ §19.1.2.16: for non-Object input return `true`
-/// (frozen by definition); for Object input read the FROZEN bit.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_is_frozen_any(v: i64) -> bool {
-    const ANY_TAG_HEAP: i64 = 4;
-    let tag = unsafe { __torajs_anyv_unbox_tag(v) };
-    if tag != ANY_TAG_HEAP {
-        return true;
-    }
-    // A ShortStr reports Heap too, and unbox_value would MATERIALIZE
-    // an rc=1 Str this probe then abandons (546-02 M1 family) — and
-    // a string primitive is §20.1.2.14 step-1 frozen by definition
-    // (the materialized cell's unset FROZEN bit answered false).
-    if !crate::ffi::nan_box_is_cell_like(v as u64 as *mut c_void) {
-        return true;
-    }
-    let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *const c_void;
-    // A heap-shaped PRIMITIVE (Str / Symbol / BigInt cell) is step-1
-    // frozen too — pre-fix its header's unset FROZEN bit answered
-    // false (a static-literal Str happened to answer true through
-    // the rodata arm, which is why only the runtime-built shapes
-    // showed).
-    let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
-    if matches!(type_tag, t if t == crate::Tag::Str as u16 || t == crate::Tag::Symbol as u16 || t == crate::Tag::BigInt as u16)
-    {
-        return true;
-    }
-    unsafe { __torajs_obj_is_frozen(ptr) }
-}
-
 /// `Object.freeze(any)` — NaN-box-aware entry. ssa_lower routes
 /// `Object.freeze(arg)` here when `arg` is `Type::Any` (the raw
 /// helper above takes `*mut c_void` and would deref a NaN-box
-/// sentinel as a heap header — same shape as
-/// [`__torajs_obj_is_frozen_any`], see cases#obj-is-frozen-any-segv).
+/// sentinel as a heap header — see cases#obj-is-frozen-any-segv).
 ///
 /// Per ES2015+ §19.1.2.6 step 1: non-Object input is returned
 /// unchanged; Object input gets the FROZEN bit and the same box
@@ -152,7 +116,7 @@ pub unsafe extern "C" fn __torajs_obj_freeze_any(v: i64) -> i64 {
         let ptr = unsafe { __torajs_anyv_unbox_value(v) } as *mut c_void;
         // Heap-shaped primitives return unchanged too (step 1) — a
         // freeze must not stamp flags into a Str / Symbol / BigInt
-        // cell's header (mirror of the is_frozen_any arm).
+        // cell's header.
         let type_tag = unsafe { *((ptr as *const u8).add(4) as *const u16) };
         if !(type_tag == crate::Tag::Str as u16
             || type_tag == crate::Tag::Symbol as u16

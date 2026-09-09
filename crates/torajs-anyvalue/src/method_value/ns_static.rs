@@ -30,9 +30,9 @@ use crate::nanbox::{VALUE_UNDEFINED, box_double, box_int32};
 
 use super::ns_static_table::{
     __torajs_anyv_freeze, __torajs_anyv_from_entries, __torajs_anyv_get_proto_of_any,
-    __torajs_anyv_is_extensible, __torajs_anyv_is_sealed, __torajs_anyv_prevent_extensions,
-    __torajs_anyv_seal, __torajs_anyv_set_prototype_of, __torajs_date_now_static,
-    __torajs_obj_is_frozen_any, __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp,
+    __torajs_anyv_is_extensible, __torajs_anyv_is_frozen, __torajs_anyv_is_sealed,
+    __torajs_anyv_prevent_extensions, __torajs_anyv_seal, __torajs_anyv_set_prototype_of,
+    __torajs_date_now_static, __torajs_throw_check, __torajs_throw_type_error, DISPATCH, Disp,
 };
 
 use super::{
@@ -156,9 +156,7 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::OwnEnum(kind) => super::ns_static_obj::own_enum(kind, arg_at(argv, argc, 0)),
             Disp::ObjectAssign => super::ns_static_obj::object_assign(argv, argc),
             Disp::ObjectFreeze => own(__torajs_anyv_freeze(arg_at(argv, argc, 0))),
-            Disp::ObjectIsFrozen => {
-                box_bool(__torajs_obj_is_frozen_any(arg_at(argv, argc, 0) as i64))
-            }
+            Disp::ObjectIsFrozen => box_bool(__torajs_anyv_is_frozen(arg_at(argv, argc, 0))),
             // Already owned on return — inc'ing again would strand the
             // prototype cell at a refcount its owners never drop.
             Disp::ObjectGetProtoOf => __torajs_anyv_get_proto_of_any(arg_at(argv, argc, 0)),

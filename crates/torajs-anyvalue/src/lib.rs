@@ -545,7 +545,7 @@ mod tests {
         obj_any
     }
     #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_obj_is_frozen_any(_v: i64) -> bool {
+    pub unsafe extern "C" fn __torajs_anyv_is_frozen(_v: u64) -> bool {
         true
     }
     /// RFC 20260720 刀 4 — the integrity-family kernels the batch-2

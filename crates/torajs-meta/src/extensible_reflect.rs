@@ -1,12 +1,14 @@
 //! RFC C5b — `Object.preventExtensions` / `isExtensible` / `seal` /
-//! `isSealed` reflection family, split out of [`crate::reflect`]
+//! `freeze` reflection family, split out of [`crate::reflect`]
 //! (file-size). The header-flag pair (`FLAG_NON_EXTENSIBLE` +
 //! `FLAG_SEALED`) lives on the universal heap header via torajs-rc;
-//! the per-entry configurable walk lives in the DynObj substrate.
+//! the per-entry configurable walk lives in the DynObj substrate. The
+//! two predicates (`isSealed` / `isFrozen`) are §7.3.16
+//! TestIntegrityLevel in [`crate::integrity_level`].
 
 use core::ffi::c_void;
 
-use crate::reflect::{TAG_BIGINT, TAG_DYNOBJ, TAG_STR, TAG_SYMBOL, heap_type_tag, is_cell_imm};
+use crate::reflect::{TAG_BIGINT, TAG_STR, TAG_SYMBOL, heap_type_tag, is_cell_imm};
 
 /// Str / Symbol / BigInt are primitive in the spec sense — they live
 /// as heap cells for representation but §7.3.15 `Object.isExtensible`
@@ -14,7 +16,7 @@ use crate::reflect::{TAG_BIGINT, TAG_DYNOBJ, TAG_STR, TAG_SYMBOL, heap_type_tag,
 /// (Extensible → false, Sealed → true). Keep the tag list in one
 /// place so the two anyv predicates below stay in lockstep.
 #[inline]
-unsafe fn is_primitive_heap_tag(p: *const c_void) -> bool {
+pub(crate) unsafe fn is_primitive_heap_tag(p: *const c_void) -> bool {
     // SAFETY: caller has already passed is_cell_imm — `p` points at
     // a live heap block with the universal header prefix.
     let tag = unsafe { heap_type_tag(p) };
@@ -34,7 +36,6 @@ unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_obj_is_extensible(p: *const c_void) -> bool;
     fn __torajs_obj_seal_mark(p: *mut c_void) -> *mut c_void;
-    fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
     // `Object.freeze` low-level FLAG_FROZEN setter from
     // torajs-rc/src/freeze.rs. FLAG_STATIC_LITERAL cells short-circuit
     // inside the helper (writing to `.rodata` would SIGBUS).
@@ -46,13 +47,9 @@ unsafe extern "C" {
     // property, and for a non-DynObj cell those live in this table.
     fn __torajs_cell_expando_bag(p: *mut c_void) -> *mut c_void;
     // DynObj entry-table walk from torajs-dynobj/src/seal.rs. Clears
-    // BUCKET_FLAG_CONFIGURABLE on every live entry / checks whether
-    // every live entry is already non-configurable. NULL / non-DynObj
-    // input is a no-op for the setter and `true` for the predicate
-    // (the caller already gated on the FLAG_NON_EXTENSIBLE bit, so
-    // non-DynObj cells fall through to the SEALED marker check).
+    // BUCKET_FLAG_CONFIGURABLE on every live entry; NULL / non-DynObj
+    // input is a no-op.
     fn __torajs_dynobj_seal_entries(obj: *mut c_void);
-    fn __torajs_dynobj_all_entries_non_configurable(obj: *const c_void) -> bool;
     // `Object.freeze` DynObj entry-table walk from
     // torajs-dynobj/src/seal.rs — clears BUCKET_FLAG_WRITABLE +
     // BUCKET_FLAG_CONFIGURABLE (frozen = sealed + non-writable) on
@@ -189,54 +186,4 @@ pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
     // SAFETY: same.
     unsafe { __torajs_dynobj_freeze_entries(__torajs_cell_expando_bag(p)) };
     obj_any
-}
-
-/// RFC C5b — `Object.isSealed(O)`. Spec ES §20.1.2.15: `true` iff the
-/// object is not extensible AND every own property is non-configurable.
-///
-/// Primitive / null / undef report `true` (spec: non-Object inputs are
-/// trivially sealed). For cells:
-/// * extensible cell → `false` (extensible ⇒ not sealed)
-/// * sealed-marker bit set → `true` (user called `Object.seal`)
-/// * non-DynObj cell with prevent-only → `false` (typed Obj/Arr fields
-///   are spec-configurable until `seal` is explicitly invoked — bun
-///   parity for `Object.isSealed(class_instance_after_prevent)`)
-/// * DynObj cell → walk entry table for all-non-configurable (vacuously
-///   `true` on an empty dict — matches bun's
-///   `Object.isSealed({})` after `preventExtensions`).
-///
-/// # Safety
-///
-/// `obj_any` must carry a valid AnyValue bit pattern.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_is_sealed(obj_any: u64) -> bool {
-    if !is_cell_imm(obj_any) {
-        return true;
-    }
-    let p = obj_any as *const c_void;
-    // SAFETY: is_cell_imm guarantees a live heap pointer.
-    if unsafe { is_primitive_heap_tag(p) } {
-        // Str / Symbol / BigInt cells are spec-primitive — §7.3.16
-        // step 1 returns true for non-Object inputs.
-        return true;
-    }
-    // SAFETY: cell pointer.
-    if unsafe { __torajs_obj_is_extensible(p) } {
-        return false;
-    }
-    // SAFETY: same.
-    if unsafe { __torajs_obj_is_sealed_marked(p) } {
-        return true;
-    }
-    // prevent-only path. DynObj walks the entry table; typed-Obj /
-    // Arr / Closure / Map / Set / Date / Promise / RegExp / WeakRef /
-    // WeakMap / WeakSet answer false (their own properties remained
-    // configurable through preventExtensions per bun parity).
-    // SAFETY: pointer to a valid heap object with universal header.
-    let tag = unsafe { heap_type_tag(p) };
-    if tag != TAG_DYNOBJ {
-        return false;
-    }
-    // SAFETY: confirmed DynObj cell.
-    unsafe { __torajs_dynobj_all_entries_non_configurable(p) }
 }

@@ -32,10 +32,9 @@
 //!   fresh owned Str (rc=1; caller drops). For ANY_HEAP / Type::Str
 //!   inputs the helper rc-inc's the existing pointer + returns it.
 //! - **Object.freeze** (T-09.d, v0.4.0): `obj_freeze` sets FROZEN
-//!   bit; `obj_is_frozen` reads it. `obj_is_frozen_any` is the
-//!   NaN-box-aware variant (HEAP → deref + obj_is_frozen, non-HEAP →
-//!   true per ES2015 §19.1.2.16; avoids SIGSEGV from
-//!   sentinel-as-heap deref, see cases#obj-is-frozen-any-segv).
+//!   bit; `obj_is_frozen` reads it (the typed-lane header probe;
+//!   `Object.isFrozen` itself lowers through `anyv_is_frozen`, the
+//!   §7.3.16 walk in torajs-meta).
 //!   `obj_check_not_frozen` is the silent-ignore mutation guard
 //!   inline-checked by field-write codegen.
 
@@ -86,7 +85,6 @@ pub(crate) struct PrintFreezeIds {
     pub obj_freeze: FuncId,
     pub obj_freeze_any: FuncId,
     pub obj_is_frozen: FuncId,
-    pub obj_is_frozen_any: FuncId,
     pub obj_check_not_frozen: FuncId,
     /// RFC 20260806-declared-field-redefine — successor guard at the
     /// typed `instance.field = v` site: asks about the field's
@@ -304,13 +302,6 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_obj_is_frozen",
             &[Type::Ptr],
-            Type::Bool,
-        ),
-        obj_is_frozen_any: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_obj_is_frozen_any",
-            &[Type::Any],
             Type::Bool,
         ),
         obj_check_not_frozen: declare_intrinsic(

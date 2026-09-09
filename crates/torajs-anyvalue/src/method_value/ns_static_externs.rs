@@ -88,9 +88,9 @@ unsafe extern "C" {
     /// UNCHANGED and does NOT rc_inc: a borrow, so the arm owns it
     /// before handing it back.
     pub(super) fn __torajs_anyv_freeze(obj_any: u64) -> u64;
-    /// torajs-rc — §20.1.2.13 NaN-box-aware probe (non-object reads
-    /// `true` by definition). Answers a plain bool: no ownership.
-    pub(super) fn __torajs_obj_is_frozen_any(v: i64) -> bool;
+    /// torajs-meta — §20.1.2.14 TestIntegrityLevel(frozen) (non-object
+    /// reads `true` by definition). Answers a plain bool: no ownership.
+    pub(super) fn __torajs_anyv_is_frozen(obj_any: u64) -> bool;
     /// torajs-meta — §20.1.2.12. Already OWNED on return (the
     /// builtin-prototype singletons and the dynobj slot read both
     /// rc_inc before answering), so the arm must NOT inc again.

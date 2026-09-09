@@ -458,6 +458,7 @@ pub(crate) struct Intrinsics {
     pub(crate) anyv_is_extensible: FuncId,
     pub(crate) anyv_seal: FuncId,
     pub(crate) anyv_is_sealed: FuncId,
+    pub(crate) anyv_is_frozen: FuncId,
     pub(crate) anyv_freeze: FuncId,
     pub(crate) dynobj_has: FuncId,
     pub(crate) dynobj_delete: FuncId,
@@ -732,7 +733,6 @@ pub(crate) struct Intrinsics {
     pub(crate) obj_freeze: FuncId,
     pub(crate) obj_freeze_any: FuncId,
     pub(crate) obj_is_frozen: FuncId,
-    pub(crate) obj_is_frozen_any: FuncId,
     pub(crate) obj_check_not_frozen: FuncId,
     /// RFC 20260806-declared-field-redefine — the typed field-store
     /// guard that asks about writability as well as frozen.

@@ -10,12 +10,12 @@
 //! Eight arms share the `Object.<m>(obj, ...)` namespace shape:
 //!
 //! - **T-09.d (v0.4.0)** — `Object.freeze(obj)` sets `FLAG_FROZEN` and
-//!   returns the same obj; `Object.isFrozen(obj)` reads the bit.
+//!   returns the same obj; `Object.isFrozen(obj)` is §7.3.16
+//!   TestIntegrityLevel (`anyv_is_frozen`, boxed like `isSealed`).
 //!   Primitive guard (Bool / I64 / F64): freeze returns the value
 //!   unchanged; isFrozen returns `true` per ES2015 §15.2.3.9 / 12 —
 //!   the runtime helpers would otherwise deref a non-heap bit
-//!   pattern as a heap header (SIGSEGV). Any-typed receivers route
-//!   through `obj_is_frozen_any` which is NaN-box aware.
+//!   pattern as a heap header (SIGSEGV).
 //! - **2026-05-18** — `Object.create(proto[, descriptors])` allocates
 //!   a fresh dynobj-backed Any-box. Args evaluated for side effects
 //!   then discarded (descriptors arg ignored in the subset; most
@@ -207,18 +207,27 @@ fn lower_freeze_or_is_frozen(ctx: &mut LowerCtx<'_>, method: &str, args: &[ExprI
         ctx.release_owned_temp(args[0], &arg_raw);
         return Operand::Value(v);
     }
+    // `isFrozen` — §7.3.16 TestIntegrityLevel over the receiver's own
+    // properties (`anyv_is_frozen`, the `isSealed` twin); every
+    // receiver shape boxes to Any for the one ABI. Before this the
+    // typed and any lanes read the header bit alone, so a receiver
+    // made non-extensible with every property already locked (or
+    // with no properties at all) read as not frozen.
+    let any_op = if matches!(arg_ty, Type::Any) {
+        arg_op
+    } else {
+        ctx.box_to_any_from_expr(args[0], arg_op)
+    };
     for &a in args.iter().skip(1) {
         let _ = ctx.lower_expr(a);
     }
-    let (fid, ret_ty) = if arg_ty == Type::Any {
-        (ctx.intrinsics.obj_is_frozen_any, Type::Bool)
-    } else {
-        (ctx.intrinsics.obj_is_frozen, Type::Bool)
-    };
     let cur_block = ctx.cur_block;
-    let v = ctx
-        .f
-        .append_inst(cur_block, InstKind::Call(fid, vec![arg_op]), ret_ty, None);
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.anyv_is_frozen, vec![any_op]),
+        Type::Bool,
+        None,
+    );
     ctx.release_owned_temp(args[0], &arg_raw);
     Operand::Value(v)
 }

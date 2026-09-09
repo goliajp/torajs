@@ -35,6 +35,7 @@ pub mod fnprops;
 pub mod from_entries;
 pub mod genfn;
 pub mod instanceof_generic;
+pub mod integrity_level;
 pub mod iterator_proto;
 pub mod map_group_by;
 pub mod module_ns;
