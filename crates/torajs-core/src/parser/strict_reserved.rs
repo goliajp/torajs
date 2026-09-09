@@ -165,6 +165,48 @@ impl Parser<'_> {
         }
     }
 
+    /// The spelling a token binds under in a destructuring SHORTHAND
+    /// position (`var { x } = o`), or `None` when the position needs
+    /// the explicit `field: binding` rename.
+    ///
+    /// Four words arrive here that are not `Token::Ident`. `async` and
+    /// `type` are unconditional — nobody reserves them. The other two
+    /// each carry the judgement that governs that word and nothing
+    /// else, which is why they are not folded into
+    /// [`Parser::contextual_binding_name`]:
+    ///
+    /// - `yield` — reserved inside a generator, which spells a
+    ///   YieldExpression instead, and in strict code (§12.7.2).
+    ///   Sloppy non-generator code binds it, in every shorthand
+    ///   position measured: a parameter pattern, a catch parameter, an
+    ///   arrow's parameter, and `for (let { yield } of …)` — §14.3.1.1
+    ///   restricts `let` in the BoundNames of a lexical declaration,
+    ///   and says nothing about `yield`.
+    /// - `await` — reserved by the grammar's `[Await]` parameter alone
+    ///   (§15.8.1). The Module-goal half of the question is stamped
+    ///   after the parse, so an admitted site is RECORDED for
+    ///   `triage_await_idents` rather than answered here. That
+    ///   recording is the whole reason this takes `&mut self`.
+    ///
+    /// `let` is deliberately absent. It needs one thing the other three
+    /// do not: whether the enclosing declaration is a `var`. §14.3.1.1
+    /// makes `let` a Syntax Error in the BoundNames of a `let` or
+    /// `const` in sloppy code too (`const { let } = o` is rejected
+    /// while `var { let } = o` runs), and `read_pattern_shape` cannot
+    /// currently see which of the two it is inside.
+    pub(super) fn shorthand_binding_name(&mut self) -> Option<&'static str> {
+        match self.peek() {
+            Token::Yield if self.yield_reads_as_ident() => Some("yield"),
+            Token::Await if self.await_reads_as_ident() => {
+                self.admit_await_ident();
+                Some("await")
+            }
+            // Re-peeked rather than bound: an arm above needs `&mut
+            // self`, so no arm may hold a reference from the scrutinee.
+            _ => Self::contextual_binding_name(self.peek()),
+        }
+    }
+
     pub(super) fn strict_or_in_class(&self, own: bool) -> bool {
         own || !self.class_stack.is_empty() || self.in_class_heritage
     }

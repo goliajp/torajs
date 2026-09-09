@@ -83,20 +83,19 @@ impl<'a> Parser<'a> {
                     }
                     continue;
                 }
+                // See the twin in destr_shape.rs: asked before the
+                // match because admitting an `await` records the site.
+                let shorthand = self.shorthand_binding_name();
                 let (field, field_is_kw) = match self.peek() {
                     Token::Ident(n) => (PropKey::from(n), false),
                     // ES §12.7.2 — escaped ReservedWord names the
                     // FIELD; needs the rename like a bare keyword.
                     Token::EscapedIdent(n) => (PropKey::from(n), true),
-                    // A contextual keyword names a valid
-                    // BindingIdentifier, so it shorthands like any
-                    // other name — no rename needed. Must precede the
-                    // keyword arm below, which would otherwise claim
-                    // it and demand one.
-                    t if Self::contextual_binding_name(t).is_some() => (
-                        PropKey::from(Self::contextual_binding_name(t).unwrap()),
-                        false,
-                    ),
+                    // A word that binds as an ordinary name shorthands
+                    // like any other name — no rename needed. Must
+                    // precede the keyword arm below, which would
+                    // otherwise claim it and demand one.
+                    _ if shorthand.is_some() => (PropKey::from(shorthand.unwrap()), false),
                     t if Self::keyword_property_name(t).is_some() => {
                         (PropKey::from(Self::keyword_property_name(t).unwrap()), true)
                     }
