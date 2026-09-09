@@ -34,7 +34,7 @@
 //! and the generic method dispatch arms below.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
 
 /// Try to lower `<recv>.push(v)`. Returns `Some(new_len)` when one of the
@@ -85,24 +85,22 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         return Some(ctx.emit_arr_any_push_at_value(recv_val, args[0], recv_ty));
     }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val);
-    let new_arr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_push, vec![recv_val, push_arg]),
+    let push_arg = ctx.raw_slot_arg(val.clone());
+    // Chunk 733's stake dance (owned-shape arg hands its +1 to the
+    // array; probes P1 closure-push 30.5MB / P6 nested-arr 44.9MB /
+    // P7 owned-str 16MB vs 6.3MB flat) lives in the helper now, on
+    // both edges.
+    let new_arr = emit_grow_kernel_checked(
+        ctx,
+        ctx.intrinsics.arr_push,
+        recv_val,
+        push_arg,
+        args[0],
+        val,
+        elem_ty,
+        val_owned_from_substr,
         recv_ty,
-        None,
     );
-    if elem_ty.is_refcounted() && !val_owned_from_substr {
-        ctx.emit_rc_inc(val);
-        // Chunk 733 — an owned-shape arg (closure literal / call
-        // result / array literal) hands its +1 to the array: the inc
-        // above is the array's stake, so the temp's own must release
-        // (probe P1 closure-push churn 30.5MB / P6 nested-arr 44.9MB
-        // / P7 owned-str 16MB vs 6.3MB flat). Borrow shapes are a
-        // no-op through the predicate. The substr-coerce lane skips
-        // (its fresh rc=1 already IS the hand-off).
-        ctx.release_owned_temp(args[0], &val);
-    }
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
@@ -163,21 +161,18 @@ fn try_lower_ident_local(
         // as `len_next`, mirrors arr[#8]).
         return Some(Operand::Value(len_next));
     }
-    let push_arg = ctx.raw_slot_arg(val);
-    let new_arr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_push,
-            vec![Operand::Value(cur_arr), push_arg],
-        ),
+    let push_arg = ctx.raw_slot_arg(val.clone());
+    let new_arr = emit_grow_kernel_checked(
+        ctx,
+        ctx.intrinsics.arr_push,
+        Operand::Value(cur_arr),
+        push_arg,
+        args[0],
+        val,
+        elem_ty,
+        val_owned_from_substr,
         arr_ty,
-        None,
     );
-    if elem_ty.is_refcounted() && !val_owned_from_substr {
-        ctx.emit_rc_inc(val);
-        // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
-        ctx.release_owned_temp(args[0], &val);
-    }
     // B1 (RFC 20260706-arr-grow-alias-stability): the cell never
     // moves, so the historical slot write-back + captured-env mirror
     // are retired — every alias already sees the grown buffer.
@@ -232,21 +227,18 @@ fn try_lower_ident_global(
         None,
     );
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
-    let push_arg = ctx.raw_slot_arg(val);
-    let new_arr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_push,
-            vec![Operand::Value(cur_arr), push_arg],
-        ),
+    let push_arg = ctx.raw_slot_arg(val.clone());
+    let new_arr = emit_grow_kernel_checked(
+        ctx,
+        ctx.intrinsics.arr_push,
+        Operand::Value(cur_arr),
+        push_arg,
+        args[0],
+        val,
+        elem_ty,
+        val_owned_from_substr,
         arr_ty,
-        None,
     );
-    if elem_ty.is_refcounted() && !val_owned_from_substr {
-        ctx.emit_rc_inc(val);
-        // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
-        ctx.release_owned_temp(args[0], &val);
-    }
     // B1 — cell fixed across grow; global-slot write-back retired.
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
@@ -301,20 +293,17 @@ fn try_lower_field(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     // arg would have raw-written box bits into the typed slot.
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     let push_arg = ctx.raw_slot_arg(val.clone());
-    let new_arr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_push,
-            vec![Operand::Value(cur_arr), push_arg],
-        ),
+    let new_arr = emit_grow_kernel_checked(
+        ctx,
+        ctx.intrinsics.arr_push,
+        Operand::Value(cur_arr),
+        push_arg,
+        args[0],
+        val,
+        elem_ty,
+        val_owned_from_substr,
         field_ty,
-        None,
     );
-    if elem_ty.is_refcounted() && !val_owned_from_substr {
-        ctx.emit_rc_inc(val.clone());
-        // Chunk 733 — owned-shape arg hand-off (see try_lower_index).
-        ctx.release_owned_temp(args[0], &val);
-    }
     // B1 — cell fixed across grow; field write-back retired.
     let new_len = ctx.f.append_inst(
         ctx.cur_block,
@@ -417,4 +406,61 @@ pub(crate) fn coerce_push_value(
         _ => val,
     };
     (val, val_owned_from_substr)
+}
+
+/// The typed grow-kernel call (`arr_push` / `arr_unshift`) with its
+/// throw check and the value's stake settled on both edges.
+///
+/// The kernels refuse a non-extensible receiver by recording a
+/// TypeError and storing nothing (`__torajs_arr_extend_guard`). They
+/// are intrinsics, which `emit_throw_check(Some)` skips, so the check
+/// is forced with `None` — pop's precedent. Before it, a frozen
+/// `number[]`'s `push(9)` appended through the freeze and answered
+/// the new length; the any-side doors had been closed one commit
+/// earlier and this lane was left for last because of ownership:
+///
+/// At call time the raw slot value is BORROWED — the array's stake is
+/// the `emit_rc_inc` that follows the call, and an owned-shape arg's
+/// own stake is released after that. On the throw edge neither runs,
+/// so the arg's own stake (or the fresh Str the Substr-coerce lane
+/// minted) would leak; parking it on `throw_live` for the call's
+/// duration hands it to the throw path's drain instead, with the same
+/// predicate `release_owned_temp` uses on the normal edge.
+///
+/// Returns the (possibly-realloc'd) array; the caller loads the new
+/// length from it exactly as before.
+pub(crate) fn emit_grow_kernel_checked(
+    ctx: &mut LowerCtx<'_>,
+    fid: crate::ssa::FuncId,
+    recv: Operand,
+    slot_arg: Operand,
+    arg_eid: ExprId,
+    val: Operand,
+    elem_ty: Type,
+    val_owned_from_substr: bool,
+    ret_ty: Type,
+) -> ValueId {
+    let token = if val_owned_from_substr {
+        Some(ctx.push_throw_temp(val.clone(), elem_ty))
+    } else {
+        ctx.park_owned_temp(arg_eid, &val)
+    };
+    let new_arr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(fid, vec![recv, slot_arg]),
+        ret_ty,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    ctx.unpark_owned_temp(token);
+    if elem_ty.is_refcounted() && !val_owned_from_substr {
+        ctx.emit_rc_inc(val.clone());
+        // Chunk 733 — an owned-shape arg hands its +1 to the array:
+        // the inc above is the array's stake, so the temp's own must
+        // release. Borrow shapes are a no-op through the predicate;
+        // the substr-coerce lane skips (its fresh rc=1 IS the
+        // hand-off).
+        ctx.release_owned_temp(arg_eid, &val);
+    }
+    new_arr
 }

@@ -253,6 +253,18 @@ unsafe fn grow_slots_as_holes(arr: *mut u8, old: u64, new_n: u64, fill: u64) {
 /// [`crate::any`]).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8 {
+    // A new index on a non-extensible receiver is a TypeError
+    // (`__torajs_arr_extend_guard`). Nothing to release here, and that
+    // is deliberate: on this lane the raw slot value is BORROWED at
+    // call time — the lowering incs the array's stake only after the
+    // call returns — so a kernel-side drop would release a stake the
+    // array never received. The lowering's throw check right after
+    // the call (`emit_grow_kernel_checked`) is what settles the temp.
+    if unsafe { crate::define_length::__torajs_arr_extend_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
+        return arr;
+    }
     let len = unsafe { *(arr.add(ARR_HDR_LEN_OFF) as *const u64) } as i64;
     let cap = unsafe { *(arr.add(ARR_HDR_CAP_OFF) as *const u32) } as i64;
     let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as i64;

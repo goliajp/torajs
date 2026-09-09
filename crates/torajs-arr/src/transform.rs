@@ -214,6 +214,18 @@ pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
 /// in the SSA layer).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_unshift(arr: *mut u8, v: i64) -> *mut u8 {
+    // A new index on a non-extensible receiver is a TypeError
+    // (`__torajs_arr_extend_guard`). Nothing to release here, and that
+    // is deliberate: on this lane the raw slot value is BORROWED at
+    // call time — the lowering incs the array's stake only after the
+    // call returns — so a kernel-side drop would release a stake the
+    // array never received. The lowering's throw check right after
+    // the call (`emit_grow_kernel_checked`) is what settles the temp.
+    if unsafe { crate::define_length::__torajs_arr_extend_guard(arr as *const core::ffi::c_void) }
+        != 0
+    {
+        return arr;
+    }
     let head = unsafe { arr_head(arr) };
     if head > 0 {
         // Fast path: reclaim a freed front slot.

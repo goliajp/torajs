@@ -461,26 +461,22 @@ impl<'a> LowerCtx<'a> {
             // garbage.
             let (val, val_owned_from_substr) =
                 crate::ssa_lower_call_arr_push::coerce_push_value(self, args[0], elem_ty);
-            let unshift_arg = self.raw_slot_arg(val);
-            let new_arr = self.f.append_inst(
-                self.cur_block,
-                InstKind::Call(self.intrinsics.arr_unshift, vec![arr_op, unshift_arg]),
+            let unshift_arg = self.raw_slot_arg(val.clone());
+            // Chunk 742's stake dance (push twin of chunk 733; churn
+            // probes closure-unshift 30.4MB / nested-arr 44.8MB /
+            // owned-str 16MB vs 6.3MB flat) lives in the shared
+            // helper, on both edges.
+            let new_arr = crate::ssa_lower_call_arr_push::emit_grow_kernel_checked(
+                self,
+                self.intrinsics.arr_unshift,
+                arr_op,
+                unshift_arg,
+                args[0],
+                val,
+                elem_ty,
+                val_owned_from_substr,
                 arr_ty,
-                None,
             );
-            if elem_ty.is_refcounted() && !val_owned_from_substr {
-                self.emit_rc_inc(val);
-                // Chunk 742 — push twin (chunk 733): an owned-shape
-                // arg (closure literal / call result / array literal)
-                // hands its +1 to the array; the inc above is the
-                // array's stake, so the temp's own must release
-                // (churn probes: closure-unshift 30.4MB / nested-arr
-                // 44.8MB / owned-str 16MB vs 6.3MB flat). Borrow
-                // shapes are a no-op through the predicate; the
-                // substr-coerce lane skips (its fresh rc=1 already IS
-                // the hand-off — chunk 743).
-                self.release_owned_temp(args[0], &val);
-            }
             // B1 — cell fixed across grow; slot write-back +
             // captured-env mirror retired.
             // chunk 9c — JS spec: unshift returns new length.

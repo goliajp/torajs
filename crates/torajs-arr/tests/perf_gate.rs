@@ -31,6 +31,17 @@ use torajs_arr::{
     __torajs_arr_shift,
 };
 
+/// `__torajs_arr_push` / `__torajs_arr_reserve` reach
+/// `__torajs_throw_type_error` through `__torajs_arr_extend_guard` — a
+/// cross-tier extern (`torajs-throw`) that a standalone
+/// `cargo test -p torajs-arr` does not link. Every array this file
+/// builds is fresh and extensible, so the guard never fires; the stub
+/// only satisfies the linker, and panics if it ever does fire.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const std::ffi::c_char) {
+    panic!("perf_gate: a grow kernel refused an extensible array");
+}
+
 fn time_median<F: FnMut()>(mut op: F, samples: usize) -> Duration {
     let mut times = Vec::with_capacity(samples);
     for _ in 0..samples {
