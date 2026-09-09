@@ -12,6 +12,10 @@
 //! inc/hand-off, same as the push lane).
 
 use crate::layout::arr_data;
+
+unsafe extern "C" {
+    fn __torajs_value_drop_heap(p: *mut core::ffi::c_void);
+}
 use crate::transform::{
     arr_alloc_with, arr_cap, arr_head, arr_len, data_ptr, data_ptr_raw, set_arr_head, set_arr_len,
 };
@@ -111,6 +115,13 @@ pub(crate) unsafe fn splice_frozen_reject(arr: *mut u8) -> Option<*mut u8> {
 /// first element write past the old length before any mutation.
 pub(crate) unsafe fn splice_finish_len(arr: *mut u8, old_len: u64, new_len: u64) {
     unsafe {
+        // A SEALED receiver fails the tail delete after the moves: the
+        // slots past `new_len` keep the moved-from copies (staked), the
+        // length stays, and the TypeError is recorded — not the
+        // RO-length hole fill below (`sealed_refuse`).
+        if crate::sealed_refuse::splice_shrink_refuses_on_sealed(arr, old_len, new_len) {
+            return;
+        }
         if crate::define_length::__torajs_arr_len_write_guard(arr as *const _) == 0 {
             set_arr_len(arr, new_len);
             return;
@@ -129,6 +140,25 @@ pub(crate) unsafe fn splice_finish_len(arr: *mut u8, old_len: u64, new_len: u64)
 /// §23.1.3.31 steps 5-7 — clamp `start` / `delete_count` to the
 /// actual range. Shared by both splice kernels so the insert form
 /// can't drift from the shrink form's spec math.
+/// The items of a refused `splice_items` call. The lowering transfers
+/// one stake per refcounted item INTO the call (inc, then release of
+/// the temp) and the kernel adopts it by storing the slot — so on every
+/// refusal that stores nothing, the kernel is the owner and must let
+/// them go, or each caught throw strands one cell per item. Scalar
+/// lanes hold no stake.
+unsafe fn drop_transferred_items(arr: *const u8, items: *const i64, n_items: i64) {
+    let kind = unsafe { (*(arr as *const torajs_rc::HeapHeader)).arr_elem_kind() };
+    if kind != torajs_rc::ARR_KIND_HEAP {
+        return;
+    }
+    for k in 0..n_items {
+        let p = unsafe { *items.add(k as usize) };
+        if p != 0 {
+            unsafe { __torajs_value_drop_heap(p as *mut core::ffi::c_void) };
+        }
+    }
+}
+
 fn normalize_splice_range(start: i64, delete_count: i64, len: i64) -> (i64, i64) {
     let actual_start = if start < 0 {
         let s = start + len;
@@ -185,15 +215,23 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
     // site's ledger, same as the any-lane kernel's TypeError
     // rejections.
     if let Some(removed) = unsafe { splice_frozen_reject(arr) } {
+        unsafe { drop_transferred_items(arr, items, n_items) };
         return removed;
     }
     let len = unsafe { arr_len(arr) } as i64;
     let (actual_start, actual_delete) = normalize_splice_range(start, delete_count, len);
+    // Net growth adds new indexes: a locked length refuses (RO), and so
+    // does a non-extensible receiver (sealed / preventExtensions —
+    // `__torajs_arr_extend_guard`), both before anything moves.
     if n_items > actual_delete
-        && unsafe { crate::define_length::__torajs_arr_len_write_guard(arr as *const _) } != 0
+        && unsafe {
+            crate::define_length::__torajs_arr_len_write_guard(arr as *const _) != 0
+                || crate::define_length::__torajs_arr_extend_guard(arr as *const _) != 0
+        }
     {
         let removed = unsafe { arr_alloc_with(0, 0) };
         unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
+        unsafe { drop_transferred_items(arr, items, n_items) };
         return removed;
     }
 
@@ -241,6 +279,19 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
                 trailing as usize * 8,
             );
         }
+    }
+    // §23.1.3.31 step 15 fails before step 17: a SEALED receiver's tail
+    // delete refuses after the moves and before the insert, so the
+    // items never land (node/bun: `seal([3,1,2]).splice(0,2,9)` leaves
+    // `[3,2,2]`, not `[9,2,2]`). The items' transferred bits are left
+    // to the emitter's throw path, as on the other refusals above.
+    if diff < 0
+        && unsafe {
+            crate::sealed_refuse::splice_shrink_refuses_on_sealed(arr, len as u64, new_len as u64)
+        }
+    {
+        unsafe { drop_transferred_items(arr, items, n_items) };
+        return removed;
     }
     for k in 0..n_items {
         unsafe {

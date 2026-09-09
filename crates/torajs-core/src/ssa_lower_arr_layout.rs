@@ -11,14 +11,16 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_DATA_PTR_OFF, LowerCtx};
 
-/// Which length-lock a mutator answers to: `Change` is any length
-/// change (`FROZEN | LENGTH_RO`); `DeleteTail` also refuses a SEALED
-/// receiver, because `pop` deletes the last element and a sealed
+/// Which length-lock a mutator answers to. Both refuse `FROZEN |
+/// LENGTH_RO | SEALED` — `pop` deletes the last element and a sealed
 /// element is not configurable (node/bun: `Object.seal([3,1,2]).pop()`
-/// throws, `.length = 5` does not).
+/// throws, `.length = 5` does not) — and differ in what the raiser
+/// does with a seal: `DeleteTail` refuses untouched, `ShiftDown`
+/// refuses AFTER the spec's moves (`[3,1,2]` is left `[1,2,2]`) and
+/// not at all on an empty receiver.
 #[derive(Clone, Copy)]
 pub(crate) enum ArrLenLock {
-    Change,
+    ShiftDown,
     DeleteTail,
 }
 
@@ -51,14 +53,11 @@ impl<'a> LowerCtx<'a> {
     /// as the len the op reads next); the cold block calls the
     /// runtime thrower and propagates.
     pub(crate) fn emit_arr_len_lock_guard(&mut self, arr: Operand, lock: ArrLenLock) {
-        // FLAG_FROZEN | FLAG_ARR_LENGTH_RO, plus FLAG_SEALED when the
-        // shape deletes the tail (a sealed element is not configurable).
-        let lock_bits: i64 = match lock {
-            ArrLenLock::Change => 16 + 128,
-            ArrLenLock::DeleteTail => 16 + 128 + 512,
-        };
+        // FLAG_FROZEN | FLAG_ARR_LENGTH_RO | FLAG_SEALED — both shapes
+        // delete the tail, and a sealed element is not configurable.
+        let lock_bits: i64 = 16 + 128 + 512;
         let raiser = match lock {
-            ArrLenLock::Change => self.intrinsics.arr_len_write_guard,
+            ArrLenLock::ShiftDown => self.intrinsics.arr_shift_guard,
             ArrLenLock::DeleteTail => self.intrinsics.arr_delete_tail_guard,
         };
         let hdr = self.f.append_inst(

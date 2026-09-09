@@ -200,7 +200,13 @@ fn emit_splice_return(
     );
     // 刀 6 G9a — the kernel's length-lock entry guard records a
     // catchable TypeError (§23.1.3.31 step 24).
-    ctx.emit_throw_check(None);
+    // The kernel MINTS the removed array before it can refuse (a frozen
+    // or sealed receiver, a locked length), so on the throw edge that
+    // cell has no owner — every caught throw stranded one array, plus
+    // its elements when the refusal came after the delete. Measured:
+    // 300k caught frozen splices held 20.4 MB, sealed ones 48 MB, the
+    // control 1.9 MB. `_owned` drops it on both throw destinations.
+    ctx.emit_throw_check_owned(None, Operand::Value(removed), arr_ty.clone());
     Operand::Value(removed)
 }
 
@@ -270,7 +276,13 @@ pub(crate) fn emit_splice_items(
     );
     // 刀 6 G9a — the kernel's length-lock entry guard records a
     // catchable TypeError (§23.1.3.31 step 24).
-    ctx.emit_throw_check(None);
+    // The kernel MINTS the removed array before it can refuse (a frozen
+    // or sealed receiver, a locked length), so on the throw edge that
+    // cell has no owner — every caught throw stranded one array, plus
+    // its elements when the refusal came after the delete. Measured:
+    // 300k caught frozen splices held 20.4 MB, sealed ones 48 MB, the
+    // control 1.9 MB. `_owned` drops it on both throw destinations.
+    ctx.emit_throw_check_owned(None, Operand::Value(removed), arr_ty.clone());
     Operand::Value(removed)
 }
 

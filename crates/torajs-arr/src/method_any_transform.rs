@@ -294,6 +294,14 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
             crate::define_length::__torajs_arr_len_write_guard(arr as *const _);
             return crate::alloc::__torajs_arr_alloc_any(0);
         }
+        // Net growth on a non-extensible (sealed / preventExtensions)
+        // receiver refuses before anything moves — new indexes cannot
+        // be created (`__torajs_arr_extend_guard`).
+        if item_count > actual_delete
+            && crate::define_length::__torajs_arr_extend_guard(arr as *const _) != 0
+        {
+            return crate::alloc::__torajs_arr_alloc_any(0);
+        }
 
         // Typed pre-scan: every item must be storable without
         // changing the elem kind (loud TypeError, receiver + rc
@@ -375,6 +383,19 @@ pub unsafe extern "C" fn __torajs_arr_any_splice(
                 arr_data(arr).add((actual_start + item_count) as usize * 8),
                 trailing as usize * 8,
             );
+        }
+        // §23.1.3.31 step 15 fails before step 17: a SEALED receiver's
+        // tail delete refuses after the moves and before the insert, so
+        // the (borrowed) items never land — `seal([3,1,2]).splice(0,2,9)`
+        // is `[3,2,2]`, not `[9,2,2]`.
+        if diff < 0
+            && crate::sealed_refuse::splice_shrink_refuses_on_sealed(
+                arr,
+                len as u64,
+                new_len as u64,
+            )
+        {
+            return removed;
         }
         for k in 0..item_count {
             let av = *items.add(k as usize);

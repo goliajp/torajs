@@ -7,10 +7,9 @@
 // Object.freeze([3,1,2]).length = 1 gave [3]; = 5 gave
 // [3,1,2,null,null]; Object.seal([3,1,2]).pop() gave [3,1].
 //
-// seal × shift / splice are NOT here: the spec moves the elements first
-// and only then fails to delete the last one ([1,2,2]), which tr does
-// not reproduce yet — registered, and kept out of this fixture rather
-// than asserted wrong.
+// seal × shift / splice: the spec moves the elements first and only
+// then fails to delete the last one ([1,2,2]) — reproduced since the
+// sealed_refuse lane landed, so the cells are asserted here too.
 function t(tag: string, mode: string, f: (a: any) => void, typed: boolean) {
   const a: any = typed ? ([3, 1, 2] as number[]) : ([3, 1, 2] as any[]);
   if (mode === "seal") Object.seal(a); else if (mode === "ne") Object.preventExtensions(a); else Object.freeze(a);
@@ -19,10 +18,8 @@ function t(tag: string, mode: string, f: (a: any) => void, typed: boolean) {
 }
 for (const typed of [false, true]) for (const mode of ["seal", "ne", "freeze"]) {
   t("pop", mode, (a: any) => a.pop(), typed);
-  if (mode !== "seal") {
-    t("shift", mode, (a: any) => a.shift(), typed);
-    t("splice", mode, (a: any) => a.splice(0, 1), typed);
-  }
+  t("shift", mode, (a: any) => a.shift(), typed);
+  t("splice", mode, (a: any) => a.splice(0, 1), typed);
   t("len-shrink", mode, (a: any) => { a.length = 1; }, typed);
   t("len-grow", mode, (a: any) => { a.length = 5; }, typed);
 }

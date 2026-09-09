@@ -41,7 +41,7 @@ pub(crate) struct ArrIds {
     /// hook; props / subclass legs behind link seams).
     pub arr_drop_scalar: FuncId,
     pub arr_species_guard: FuncId,
-    pub arr_len_write_guard: FuncId,
+    pub arr_shift_guard: FuncId,
     pub arr_delete_tail_guard: FuncId,
     pub arr_reserve: FuncId,
     pub arr_push_unchecked: FuncId,
@@ -134,10 +134,10 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             &[Type::Ptr],
             Type::I64,
         ),
-        arr_len_write_guard: declare_intrinsic(
+        arr_shift_guard: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_arr_len_write_guard",
+            "__torajs_arr_shift_guard",
             &[Type::Ptr],
             Type::I64,
         ),

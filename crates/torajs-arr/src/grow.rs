@@ -302,6 +302,13 @@ pub unsafe extern "C" fn __torajs_arr_shift(arr: *mut u8) -> i64 {
             *(arr.add(ARR_HDR_LEN_OFF) as *const u64) > 0,
             "__torajs_arr_shift on empty array — SSA empty guard missing"
         );
+        // A sealed receiver never reaches the head bump: the lowering's
+        // lock guard (`__torajs_arr_shift_guard`) refuses it first, and
+        // the any-lane kernel checks before delegating here.
+        debug_assert!(
+            crate::define::header_flags(arr as *const c_void) & torajs_rc::FLAG_SEALED == 0,
+            "__torajs_arr_shift on a sealed array — lock guard missing"
+        );
         let head_p = arr.add(ARR_HDR_HEAD_OFF) as *mut u32;
         let head = *head_p as usize;
         let slot = arr_data(arr).add(head * 8) as *const i64;

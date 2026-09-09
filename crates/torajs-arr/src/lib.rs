@@ -77,6 +77,7 @@ mod print_props;
 mod print_typed;
 pub mod props;
 pub mod reverse_mop;
+mod sealed_refuse;
 pub mod slice;
 pub mod sort;
 pub mod sparse_gate;
@@ -121,6 +122,7 @@ pub use print::{
     __torajs_arr_print_bool, __torajs_arr_print_f64, __torajs_arr_print_i64,
     __torajs_arr_print_str, __torajs_arr_print_substr,
 };
+pub use sealed_refuse::__torajs_arr_shift_guard;
 pub use slice::__torajs_arr_slice;
 pub use sort::__torajs_arr_sort_cb;
 pub use throw_empty::{__torajs_arr_throw_reduce_empty, __torajs_arr_throw_reduce_right_empty};

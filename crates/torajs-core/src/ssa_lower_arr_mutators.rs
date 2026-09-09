@@ -365,8 +365,9 @@ impl<'a> LowerCtx<'a> {
                     _ => unreachable!(),
                 };
                 let elem_ty = self.arr_layouts[arr_id.0 as usize];
-                // RFC 20260713 blade 4 — length-write lock, pop's twin.
-                self.emit_arr_len_lock_guard(arr_op.clone(), ArrLenLock::Change);
+                // RFC 20260713 blade 4 — length-write lock, pop's twin;
+                // the sealed refusal (the spec's partial move) is the raiser's.
+                self.emit_arr_len_lock_guard(arr_op.clone(), ArrLenLock::ShiftDown);
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime shift (pop's deque twin; see the
                 // pop arm above).

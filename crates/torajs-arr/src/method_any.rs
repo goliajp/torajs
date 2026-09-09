@@ -241,6 +241,12 @@ pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
         if len == 0 {
             return __torajs_anyv_box_from_pair(5, 0);
         }
+        // A sealed receiver: the spec's moves succeed and the tail
+        // delete fails — reproduced, not short-circuited
+        // (`sealed_refuse::shift_refuses_on_sealed`).
+        if crate::sealed_refuse::shift_refuses_on_sealed(p) {
+            return __torajs_anyv_box_from_pair(5, 0);
+        }
         // Kind-aware boxed read of slot 0 — balanced (+1 for cells).
         let out = crate::index_any::__torajs_arr_index_get(arr, 0);
         let header = &*(arr as *const HeapHeader);
