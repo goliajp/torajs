@@ -48,8 +48,20 @@ pub(crate) fn check(
     left: ExprId,
     right: ExprId,
 ) -> Result<Type, String> {
-    let l = checker.type_of(ast, left)?;
-    let r = checker.type_of(ast, right)?;
+    // Both operands are TYPED before either failure propagates.
+    // `type_of` records into `expr_types` only on Ok, and the `?` on
+    // the left used to skip the right's visit entirely — so in a
+    // monomorph specialization body (whose diagnostics are discarded
+    // by design, `check_monomorph_uninferred`) a left operand the
+    // checker rejects left the right operand with NO recorded type.
+    // `lower_binop_with_ids` reads exactly that entry to tell
+    // `=== undefined` (ANY_UNDEF tag 5) from `=== null` (tag 0), so
+    // `o.missing === undefined` inside `function f(o) { ... }` packed
+    // the null tag and answered FALSE — the guard read backwards, and
+    // `!== undefined` always true.
+    let l = checker.type_of(ast, left);
+    let r = checker.type_of(ast, right);
+    let (l, r) = (l?, r?);
     match op {
         BinOp::Add => check_add(l, r),
         BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => check_arith(l, r),
