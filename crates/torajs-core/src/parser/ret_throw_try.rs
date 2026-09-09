@@ -143,6 +143,30 @@ impl<'a> Parser<'a> {
                 }
             }
             catch_body = self.parse_block_stmts("catch")?;
+            // §13.15.1 — "It is a Syntax Error if any element of the
+            // BoundNames of CatchParameter also occurs in the
+            // LexicallyDeclaredNames of Block." Annex B B.3.4 rewrites
+            // that subclause but replaces only the VarDeclaredNames
+            // clause, and only for a plain BindingIdentifier: that is
+            // what makes `catch (e) { var e }` legal. The lexical
+            // clause is never waived, so `function e() {}`, `let e`
+            // and `class e {}` written directly in the block are all
+            // SyntaxErrors — a function declaration in a Block is a
+            // LexicallyDeclaredName, in sloppy code as much as strict.
+            //
+            // Only a simple parameter is judged. A destructured one
+            // binds through a synthesized `__catch_destr_` name, so its
+            // real names are not in hand here; that face is recorded
+            // rather than half-answered.
+            if let Some(p) = &catch_param
+                && !p.starts_with("__catch_destr_")
+                && catch_block_lex_name(&catch_body, p)
+            {
+                return Err(format!(
+                    "`{p}` is a catch parameter and may not also be lexically                      declared in the block at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
             // Desugar the catch pattern: emit_pattern_binds prepends
             // the bind chain reading from the synthetic catch ident.
             // The object lane's §13.3.3.5 RequireObjectCoercible guard
@@ -208,4 +232,25 @@ impl<'a> Parser<'a> {
         }
         Ok(stmts)
     }
+}
+
+/// Whether `name` is among the LexicallyDeclaredNames of a catch
+/// Block's top level — a `let` / `const` / `class` / `function`
+/// declaration written directly in it. A nested block's declarations
+/// are its own and do not count (`catch (e) { { function e() {} } }`
+/// is legal), which is exactly the recursion this does NOT do.
+///
+/// `Stmt::Multi` is transparent: the parser spells one statement that
+/// way, so its members are still the block's own top level.
+fn catch_block_lex_name(body: &[Stmt], name: &str) -> bool {
+    body.iter().any(|st| match st {
+        Stmt::FnDecl { name: n, .. } | Stmt::ClassDecl { name: n, .. } => n == name,
+        Stmt::LetDecl {
+            name: n,
+            is_var: false,
+            ..
+        } => n == name,
+        Stmt::Multi(inner) => catch_block_lex_name(inner, name),
+        _ => false,
+    })
 }
