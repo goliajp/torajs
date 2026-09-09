@@ -260,6 +260,21 @@ fn lower_catch(
             ctx.cur_block,
             InstKind::Store(slot_v, Operand::Value(slot), 0),
         );
+        // A catch parameter shadows an outer binding of the same name
+        // and must hand it back at the clause's close, the way a `let`
+        // does (`ssa_lower_stmt_let_decl_general`). Without the save,
+        // `close_scope_frame` removed the name from `locals` and the
+        // OUTER binding went with it: after
+        // `try {} catch (e) {}` a hoisted `var e` was gone, and
+        // `var e = 3` past that point answered "ssa-lower: assign to
+        // unknown ident `e`" — a program bun runs.
+        let cur_depth = ctx.scope_stack.len() - 1;
+        if let Some(prev) = ctx.locals.get(p).copied()
+            && prev.scope_depth < cur_depth
+        {
+            let top_shadow = ctx.shadow_stack.last_mut().expect("shadow frame");
+            top_shadow.push((p.clone(), prev));
+        }
         ctx.locals.insert(
             p.clone(),
             LocalInfo {
@@ -267,7 +282,7 @@ fn lower_catch(
                 ty: e_ty,
                 moved: false,
                 borrowed: false,
-                scope_depth: ctx.scope_stack.len() - 1,
+                scope_depth: cur_depth,
             },
         );
         ctx.scope_stack.last_mut().unwrap().push(p.clone());
