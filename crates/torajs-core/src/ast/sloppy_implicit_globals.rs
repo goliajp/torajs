@@ -63,7 +63,12 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
     let mut declared = std::collections::HashSet::new();
     super::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
     let mut names: Vec<String> = Vec::new();
-    walk_block(ast, &ast.stmts, &declared, &mut names);
+    let mut walk = Walk {
+        declared: &declared,
+        out: &mut names,
+        seen: Vec::new(),
+    };
+    walk.walk_block(ast, &ast.stmts);
     let decls: Vec<Stmt> = names
         .into_iter()
         .map(|name| {
@@ -102,312 +107,269 @@ fn admit(n: &str, declared: &std::collections::HashSet<String>, out: &mut Vec<St
     out.push(n.to_string());
 }
 
-fn walk_block(
-    ast: &Ast,
-    stmts: &[Stmt],
-    declared: &std::collections::HashSet<String>,
-    out: &mut Vec<String>,
-) {
-    for s in stmts {
-        walk_stmt(ast, s, declared, out);
-    }
+/// The walk. `seen` holds the names READ so far in the expression
+/// currently being evaluated, in evaluation order — and that ordering
+/// IS the rule. §13.15.2 calls GetValue on an assignment's value
+/// before PutValue ever runs, and §13.15.1 and friends evaluate
+/// operands left to right, so a read this walk reaches before an
+/// assignment is a read that RUNS before that write. There is then
+/// nothing left for the write to create: the read threw.
+///
+/// That single question covers what used to be three separate
+/// spellings — `x += 1` (the parser desugars it, so the read sits in
+/// the value), `x = y + x` (a plain assignment reading its own
+/// target), and `x + (x = 1)` (an earlier sibling), the last of which
+/// a value-only check cannot see.
+struct Walk<'a> {
+    declared: &'a std::collections::HashSet<String>,
+    out: &'a mut Vec<String>,
+    seen: Vec<String>,
 }
 
-fn walk_stmt(
-    ast: &Ast,
-    s: &Stmt,
-    declared: &std::collections::HashSet<String>,
-    out: &mut Vec<String>,
-) {
-    match s {
-        // A strict body's assignments keep the strict posture — skip
-        // the whole subtree (strictness is contagious downward, and
-        // strict-by-inheritance bodies carry a parser-written
-        // directive of their own).
-        Stmt::FnDecl { body, .. } => {
-            if !has_use_strict_directive(body, &ast.exprs) {
-                walk_block(ast, body, declared, out);
-            }
+impl Walk<'_> {
+    fn note_read(&mut self, n: &str) {
+        if !self.seen.iter().any(|s| s == n) {
+            self.seen.push(n.to_string());
         }
-        Stmt::Expr(e) | Stmt::Yield(e) | Stmt::Throw(e) | Stmt::Return(Some(e)) => {
-            walk_expr(ast, *e, declared, out)
-        }
-        Stmt::YieldInto { value, .. } => walk_expr(ast, *value, declared, out),
-        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
-            walk_expr(ast, *init, declared, out)
-        }
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(ast, *cond, declared, out);
-            walk_stmt(ast, then_branch, declared, out);
-            if let Some(eb) = else_branch {
-                walk_stmt(ast, eb, declared, out);
-            }
-        }
-        Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
-            walk_expr(ast, *cond, declared, out);
-            walk_stmt(ast, body, declared, out);
-        }
-        Stmt::For {
-            init,
-            cond,
-            step,
-            body,
-        } => {
-            if let Some(i) = init {
-                walk_stmt(ast, i, declared, out);
-            }
-            if let Some(c) = cond {
-                walk_expr(ast, *c, declared, out);
-            }
-            if let Some(st) = step {
-                walk_expr(ast, *st, declared, out);
-            }
-            walk_stmt(ast, body, declared, out);
-        }
-        Stmt::ForOf {
-            elem_expr, body, ..
-        } => {
-            walk_expr(ast, *elem_expr, declared, out);
-            walk_stmt(ast, body, declared, out);
-        }
-        Stmt::ForOfSplitIter {
-            parent, sep, body, ..
-        } => {
-            walk_expr(ast, *parent, declared, out);
-            walk_expr(ast, *sep, declared, out);
-            walk_stmt(ast, body, declared, out);
-        }
-        Stmt::Switch {
-            scrutinee,
-            cases,
-            default,
-        } => {
-            walk_expr(ast, *scrutinee, declared, out);
-            for c in cases {
-                walk_expr(ast, c.value, declared, out);
-                walk_block(ast, &c.body, declared, out);
-            }
-            if let Some(d) = default {
-                walk_block(ast, d, declared, out);
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            walk_block(ast, body, declared, out);
-            walk_block(ast, catch_body, declared, out);
-            if let Some(fb) = finally_body {
-                walk_block(ast, fb, declared, out);
-            }
-        }
-        Stmt::Block(inner) | Stmt::Multi(inner) => walk_block(ast, inner, declared, out),
-        Stmt::Labeled { body, .. } => walk_stmt(ast, body, declared, out),
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner {
-                walk_stmt(ast, i, declared, out);
-            }
-        }
-        _ => {}
     }
-}
 
-fn walk_expr(
-    ast: &Ast,
-    eid: ExprId,
-    declared: &std::collections::HashSet<String>,
-    out: &mut Vec<String>,
-) {
-    match ast.get_expr(eid) {
-        Expr::Assign { target, value } => {
-            if let Expr::Ident(n) = ast.get_expr(*target) {
-                // §13.15.2 evaluates the RHS and calls GetValue on it
-                // BEFORE PutValue ever runs, so an assignment whose own
-                // value reads the target cannot be what creates the
-                // binding — the read throws first. That is every
-                // compound form: the parser desugars `x += 1` to
-                // `x = x + 1`, and `++x` likewise, so the read §13.15.2
-                // performs is sitting right there in the value. It is
-                // also true of a plain `x = y + x`, and for the same
-                // reason.
-                if !reads_name(ast, *value, n) {
-                    admit(n, declared, out);
+    fn already_read(&self, n: &str) -> bool {
+        self.seen.iter().any(|s| s == n)
+    }
+
+    /// A body whose evaluation is DEFERRED — every function-like. Its
+    /// assignments still create bindings (the body runs, if ever,
+    /// after the expression we are inside), but nothing outside it has
+    /// run yet when it does, so it starts with an empty record and
+    /// leaves the caller's untouched: `x = function () { return x; }`
+    /// really does create the binding.
+    fn walk_deferred(&mut self, ast: &Ast, stmts: &[Stmt]) {
+        let outer = std::mem::take(&mut self.seen);
+        self.walk_block(ast, stmts);
+        self.seen = outer;
+    }
+
+    /// A region that may not run at all — a branch, a loop body, a
+    /// `catch`. Everything before it did run, so it INHERITS the
+    /// record; but its own reads are not reads that anything after it
+    /// can count on, so they do not escape.
+    fn walk_branch(&mut self, f: impl FnOnce(&mut Self)) {
+        let outer = self.seen.clone();
+        f(self);
+        self.seen = outer;
+    }
+
+    /// A block's statements are separate statements, and whether an
+    /// earlier one ran is not a question this pass answers (it may
+    /// have thrown), so each starts over.
+    fn walk_block(&mut self, ast: &Ast, stmts: &[Stmt]) {
+        for s in stmts {
+            self.seen.clear();
+            self.walk_stmt(ast, s);
+        }
+    }
+
+    fn walk_stmt(&mut self, ast: &Ast, s: &Stmt) {
+        match s {
+            // A strict body's assignments keep the strict posture — skip
+            // the whole subtree (strictness is contagious downward, and
+            // strict-by-inheritance bodies carry a parser-written
+            // directive of their own).
+            Stmt::FnDecl { body, .. } => {
+                if !has_use_strict_directive(body, &ast.exprs) {
+                    self.walk_deferred(ast, body);
                 }
-            } else {
-                walk_expr(ast, *target, declared, out);
             }
-            walk_expr(ast, *value, declared, out);
-        }
-        // A strict arrow body keeps its assignments out, same as
-        // FnDecl above (arrows inherit strictness, and inherited
-        // strict bodies carry a parser-written directive).
-        Expr::ArrowFn { body, .. } => {
-            if !has_use_strict_directive(body, &ast.exprs) {
-                walk_block(ast, body, declared, out);
+            Stmt::Expr(e) | Stmt::Yield(e) | Stmt::Throw(e) | Stmt::Return(Some(e)) => {
+                self.walk_expr(ast, *e)
             }
-        }
-        Expr::Call { callee, args } => {
-            walk_expr(ast, *callee, declared, out);
-            for &a in args {
-                walk_expr(ast, a, declared, out);
+            Stmt::YieldInto { value, .. } => self.walk_expr(ast, *value),
+            Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => self.walk_expr(ast, *init),
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.walk_expr(ast, *cond);
+                self.walk_branch(|w| w.walk_stmt(ast, then_branch));
+                if let Some(eb) = else_branch {
+                    self.walk_branch(|w| w.walk_stmt(ast, eb));
+                }
             }
-        }
-        Expr::OptCall { callee, args, .. } => {
-            walk_expr(ast, *callee, declared, out);
-            for &a in args {
-                walk_expr(ast, a, declared, out);
+            Stmt::While { cond, body } | Stmt::DoWhile { cond, body } => {
+                self.walk_expr(ast, *cond);
+                self.walk_branch(|w| w.walk_stmt(ast, body));
             }
-        }
-        Expr::New { args, .. } => {
-            for &a in args {
-                walk_expr(ast, a, declared, out);
+            Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            } => {
+                if let Some(i) = init {
+                    self.walk_stmt(ast, i);
+                }
+                if let Some(c) = cond {
+                    self.walk_expr(ast, *c);
+                }
+                // Body before step — that is the order they run in.
+                self.walk_branch(|w| {
+                    w.walk_stmt(ast, body);
+                    if let Some(st) = step {
+                        w.walk_expr(ast, *st);
+                    }
+                });
             }
-        }
-        Expr::NewDynamic { callee, args, .. } => {
-            walk_expr(ast, *callee, declared, out);
-            for &a in args {
-                walk_expr(ast, a, declared, out);
+            Stmt::ForOf {
+                elem_expr, body, ..
+            } => {
+                self.walk_expr(ast, *elem_expr);
+                self.walk_branch(|w| w.walk_stmt(ast, body));
             }
-        }
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
-            walk_expr(ast, *obj, declared, out)
-        }
-        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
-            walk_expr(ast, *obj, declared, out);
-            walk_expr(ast, *index, declared, out);
-        }
-        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
-            walk_expr(ast, *left, declared, out);
-            walk_expr(ast, *right, declared, out);
-        }
-        Expr::Nullish { lhs, rhs } => {
-            walk_expr(ast, *lhs, declared, out);
-            walk_expr(ast, *rhs, declared, out);
-        }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Delete { expr }
-        | Expr::PostIncr { target: expr, .. }
-        | Expr::As { expr, .. }
-        | Expr::Spread { expr } => walk_expr(ast, *expr, declared, out),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            walk_expr(ast, *cond, declared, out);
-            walk_expr(ast, *then_branch, declared, out);
-            walk_expr(ast, *else_branch, declared, out);
-        }
-        Expr::Array(items) => {
-            for &el in items {
-                walk_expr(ast, el, declared, out);
+            Stmt::ForOfSplitIter {
+                parent, sep, body, ..
+            } => {
+                self.walk_expr(ast, *parent);
+                self.walk_expr(ast, *sep);
+                self.walk_branch(|w| w.walk_stmt(ast, body));
             }
-        }
-        Expr::ObjectLit { fields } => {
-            for (_, e) in fields {
-                walk_expr(ast, *e, declared, out);
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+            } => {
+                self.walk_expr(ast, *scrutinee);
+                for c in cases {
+                    self.walk_expr(ast, c.value);
+                    self.walk_branch(|w| w.walk_block(ast, &c.body));
+                }
+                if let Some(d) = default {
+                    self.walk_branch(|w| w.walk_block(ast, d));
+                }
             }
+            Stmt::Try {
+                body,
+                catch_body,
+                finally_body,
+                ..
+            } => {
+                self.walk_branch(|w| w.walk_block(ast, body));
+                self.walk_branch(|w| w.walk_block(ast, catch_body));
+                if let Some(fb) = finally_body {
+                    self.walk_block(ast, fb);
+                }
+            }
+            Stmt::Block(inner) => self.walk_block(ast, inner),
+            // Not a block: `Stmt::Multi` is how the parser spells ONE
+            // comma expression (`a, b;` / a destructuring assignment),
+            // whose segments run in order, unconditionally. Threading
+            // the record through them is the same threading
+            // `Expr::Sequence` gets in expression position.
+            Stmt::Multi(inner) => {
+                for s in inner {
+                    self.walk_stmt(ast, s);
+                }
+            }
+            Stmt::Labeled { body, .. } => self.walk_stmt(ast, body),
+            Stmt::ExportDecl { inner, .. } => {
+                if let Some(i) = inner {
+                    self.walk_stmt(ast, i);
+                }
+            }
+            _ => {}
         }
-        _ => {}
     }
-}
 
-/// Whether evaluating `eid` READS `name` — a question about what runs
-/// before the enclosing assignment's PutValue, not about what the
-/// expression mentions.
-///
-/// So it stops at every function-like boundary: `x = function () {
-/// return x; }` really does create the binding, because the read
-/// inside runs later, if ever. Object and array literals, calls,
-/// operators and the rest are evaluated on the spot and are walked.
-///
-/// A nested assignment's TARGET is a write, not a read (`x = (x = 1)`
-/// creates the binding on the inner one), so only its value is walked.
-fn reads_name(ast: &Ast, eid: ExprId, name: &str) -> bool {
-    let mut found = false;
-    reads_name_walk(ast, eid, name, &mut found);
-    found
-}
-
-fn reads_name_walk(ast: &Ast, eid: ExprId, name: &str, found: &mut bool) {
-    if *found {
-        return;
-    }
-    let mut go = |e: ExprId| reads_name_walk(ast, e, name, found);
-    match ast.get_expr(eid) {
-        Expr::Ident(n) => {
-            if n == name {
-                *found = true;
+    fn walk_expr(&mut self, ast: &Ast, eid: ExprId) {
+        match ast.get_expr(eid) {
+            Expr::Ident(n) => self.note_read(n),
+            // `typeof x` and `delete x` do NOT read an unresolvable
+            // name — §13.5.1.1 answers `"undefined"` and §13.5.1.2
+            // answers `true` rather than throwing — so a bare name
+            // under them is not a read that got there first. Anything
+            // nested under them still is.
+            Expr::TypeOf { expr } | Expr::Delete { expr } => {
+                if !matches!(ast.get_expr(*expr), Expr::Ident(_)) {
+                    self.walk_expr(ast, *expr);
+                }
             }
-        }
-        Expr::Assign { target, value } => {
-            if !matches!(ast.get_expr(*target), Expr::Ident(_)) {
-                go(*target);
+            Expr::Assign { target, value } => {
+                if let Expr::Ident(n) = ast.get_expr(*target) {
+                    // The value runs before this write, so walk it
+                    // first and then ask whether anything — the value
+                    // or an earlier sibling — has already read the
+                    // name.
+                    self.walk_expr(ast, *value);
+                    if !self.already_read(n) {
+                        admit(n, self.declared, self.out);
+                    }
+                } else {
+                    self.walk_expr(ast, *target);
+                    self.walk_expr(ast, *value);
+                }
             }
-            go(*value);
-        }
-        Expr::Call { callee, args } | Expr::OptCall { callee, args, .. } => {
-            go(*callee);
-            for &a in args {
-                go(a);
+            // A strict arrow body keeps its assignments out, same as
+            // FnDecl above (arrows inherit strictness, and inherited
+            // strict bodies carry a parser-written directive).
+            Expr::ArrowFn { body, .. } => {
+                if !has_use_strict_directive(body, &ast.exprs) {
+                    self.walk_deferred(ast, body);
+                }
             }
-        }
-        Expr::New { args, .. } => {
-            for &a in args {
-                go(a);
+            Expr::Call { callee, args } | Expr::OptCall { callee, args, .. } => {
+                self.walk_expr(ast, *callee);
+                for &a in args {
+                    self.walk_expr(ast, a);
+                }
             }
-        }
-        Expr::NewDynamic { callee, args, .. } => {
-            go(*callee);
-            for &a in args {
-                go(a);
+            Expr::New { args, .. } => {
+                for &a in args {
+                    self.walk_expr(ast, a);
+                }
             }
-        }
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => go(*obj),
-        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
-            go(*obj);
-            go(*index);
-        }
-        Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
-            go(*left);
-            go(*right);
-        }
-        Expr::Nullish { lhs, rhs } => {
-            go(*lhs);
-            go(*rhs);
-        }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Delete { expr }
-        | Expr::PostIncr { target: expr, .. }
-        | Expr::As { expr, .. }
-        | Expr::Spread { expr } => go(*expr),
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            go(*cond);
-            go(*then_branch);
-            go(*else_branch);
-        }
-        Expr::Array(items) => {
-            for &el in items {
-                go(el);
+            Expr::NewDynamic { callee, args, .. } => {
+                self.walk_expr(ast, *callee);
+                for &a in args {
+                    self.walk_expr(ast, a);
+                }
             }
-        }
-        Expr::ObjectLit { fields } => {
-            for (_, e) in fields {
-                go(*e);
+            Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(ast, *obj),
+            Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
+                self.walk_expr(ast, *obj);
+                self.walk_expr(ast, *index);
             }
+            Expr::BinOp { left, right, .. } | Expr::Sequence { left, right } => {
+                self.walk_expr(ast, *left);
+                self.walk_expr(ast, *right);
+            }
+            Expr::Nullish { lhs, rhs } => {
+                self.walk_expr(ast, *lhs);
+                self.walk_branch(|w| w.walk_expr(ast, *rhs));
+            }
+            Expr::Unary { expr, .. }
+            | Expr::PostIncr { target: expr, .. }
+            | Expr::As { expr, .. }
+            | Expr::Spread { expr } => self.walk_expr(ast, *expr),
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.walk_expr(ast, *cond);
+                self.walk_branch(|w| w.walk_expr(ast, *then_branch));
+                self.walk_branch(|w| w.walk_expr(ast, *else_branch));
+            }
+            Expr::Array(items) => {
+                for &el in items {
+                    self.walk_expr(ast, el);
+                }
+            }
+            Expr::ObjectLit { fields } => {
+                for (_, e) in fields {
+                    self.walk_expr(ast, *e);
+                }
+            }
+            _ => {}
         }
-        _ => {}
     }
 }
