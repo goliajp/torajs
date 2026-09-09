@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T06:04:57.663Z",
+  "generatedAt": "2026-09-09T10:35:25.522Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-09T05:47:54Z",
-    "headSha": "5dd512201",
-    "elapsedSec": 429.62,
+    "ranAt": "2026-09-09T10:24:11Z",
+    "headSha": "1e0a72dd0",
+    "elapsedSec": 429.4,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31280,
-    "passNoOracle": 1186,
-    "passNegative": 4511,
-    "passTotal": 36977,
-    "bug": 11558,
-    "incompatible": 4639,
+    "pass": 31299,
+    "passNoOracle": 1189,
+    "passNegative": 4512,
+    "passTotal": 37000,
+    "bug": 11578,
+    "incompatible": 4596,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48535,
-    "passRateInScope": 69.54,
-    "passRateTrAccepted": 76.19
+    "trAccepted": 48578,
+    "passRateInScope": 69.58,
+    "passRateTrAccepted": 76.17
   },
   "torajs": {
-    "commit": "5aeae8d90",
-    "commitSubject": "chore(hardev): rotation 619 stamps — sweep, determinism, Guard Malloc, file size",
+    "commit": "1e0a72dd0",
+    "commitSubject": "fix(parser): import and export clause names",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "5aeae8d90",
-      "subject": "chore(hardev): rotation 619 stamps — sweep, determinism, Guard Malloc, file size"
+      "hash": "1e0a72dd0",
+      "subject": "fix(parser): import and export clause names"
     },
     {
-      "hash": "8921ea9ca",
-      "subject": "fix(hardev): the sweep baseline reached back two rotations, and conservation did not notice"
+      "hash": "edd6c336a",
+      "subject": "fix(parser): two property-name slots read a shorter set than PropertyName"
     },
     {
-      "hash": "5dd512201",
-      "subject": "fix(hardev): the close driver ran in `/`, and a stamp could never be written clean"
+      "hash": "a0100dbd3",
+      "subject": "fix(parser): a class member may be named with any keyword"
     },
     {
-      "hash": "7b837169a",
-      "subject": "feat(hardev): fix the rotation-close sequence in a script instead of in four long commands"
+      "hash": "fd574c0f7",
+      "subject": "fix(ssa-lower): a catch parameter deleted the binding it shadowed"
     },
     {
-      "hash": "e9402a97e",
-      "subject": "fix(torajs-core): `async` and `type` name bindings, not just properties and references"
+      "hash": "8767eef13",
+      "subject": "fix(parser): the rest of the BindingIdentifier positions"
     },
     {
-      "hash": "49abe227b",
-      "subject": "fix(torajs-core): `let` shorthands where the BoundNames are not a lexical binding's"
+      "hash": "46614a597",
+      "subject": "fix(parser): a contextual keyword may label a statement"
     },
     {
-      "hash": "081bd03af",
-      "subject": "feat(hardev): carry both bench reductions in one stamp so they cannot drift"
+      "hash": "2de2421af",
+      "subject": "fix(parser): every slot of a destructuring pattern is a binding position"
     },
     {
-      "hash": "193257379",
-      "subject": "fix(torajs-core): `yield` and `await` shorthand as bindings where nothing reserves them"
+      "hash": "54728cc30",
+      "subject": "fix(ast): `&&` and `||` are not boolean-valued"
     },
     {
-      "hash": "368d18efe",
-      "subject": "docs(hardev): the TRIG spec, the pipeline protocol and the 8-rotation reading"
+      "hash": "f75ba3880",
+      "subject": "refactor(check): move the terminal-miss posture to its own file"
     },
     {
-      "hash": "79e94d07a",
-      "subject": "feat(hardev): TRIG-1 grows a measure that cannot be met by slicing thinner"
+      "hash": "692683d8d",
+      "subject": "fix(check): a specialization body's inferred Struct anchor is not a contract"
     },
     {
-      "hash": "5e77a330f",
-      "subject": "feat(hardev): axis B gets a committed number, and TRIG-5 asks for it"
+      "hash": "35ef4fdce",
+      "subject": "fix(parser): a destructured catch parameter's BoundNames were never judged"
     },
     {
-      "hash": "cb0f47e88",
-      "subject": "feat(hardev): TRIG-7 — stop transcribing the sweep, so it cannot be transcribed wrong"
+      "hash": "6bec312df",
+      "subject": "fix(check): a binop's left failure left its right operand untyped"
     }
   ],
-  "headSha": "5aeae8d90",
+  "headSha": "1e0a72dd0",
   "autorun": {
-    "total": 922,
+    "total": 923,
     "baselineTarget": 10,
-    "bySelf": 917,
+    "bySelf": 918,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788922246-6535",
-      "at": "2026-09-09T02:50:46Z",
-      "ts": 1788922246,
+      "rotationId": "r-1788933950-2ce9",
+      "at": "2026-09-09T06:05:50Z",
+      "ts": 1788933950,
       "trigger": "self",
-      "prevHead": "e4ef45b25",
-      "handoffSha": "sha256:7335e67fe79b76e677df39d3f0ca3a4fbc93866ce5f25cda636ca50e3d76411f",
-      "handoffAgeSec": 8,
-      "conformanceBefore": "3845/0/4",
-      "commitsInSession": 13
+      "prevHead": "d55fc5872",
+      "handoffSha": "sha256:f1740353cf719a487b239a666f0c35672047929444cd6fdedd1d78e40cbb1553",
+      "handoffAgeSec": 9,
+      "conformanceBefore": "3848/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1788933950-2ce9",
+        "at": "2026-09-09T06:05:50Z",
+        "ts": 1788933950,
+        "trigger": "self",
+        "prevHead": "d55fc5872",
+        "handoffSha": "sha256:f1740353cf719a487b239a666f0c35672047929444cd6fdedd1d78e40cbb1553",
+        "handoffAgeSec": 9,
+        "conformanceBefore": "3848/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1788922246-6535",
         "at": "2026-09-09T02:50:46Z",
@@ -903,17 +914,6 @@
         "prevHead": "48e7eab7a",
         "handoffSha": "sha256:6b65a541ffef4e558a66d5425145dc0fa7edb1ef35f0c0cf4df1c5d52c4838d0",
         "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788771865-3731",
-        "at": "2026-09-07T09:04:25Z",
-        "ts": 1788771865,
-        "trigger": "self",
-        "prevHead": "304390cfb",
-        "handoffSha": "sha256:e9c7d8384e5597eaef1088d8f11eb3509fb98c9c6e0a736f1125f1405331ac5a",
-        "handoffAgeSec": 0,
         "conformanceBefore": null,
         "commitsInSession": null
       }
