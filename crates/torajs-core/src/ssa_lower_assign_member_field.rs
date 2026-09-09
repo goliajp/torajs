@@ -268,7 +268,7 @@ pub(crate) fn lower_struct_field_store(
 /// every instance in a hot ctor loop — pays one load, one and, one
 /// not-taken branch instead of two cross-archive calls (~6% + ~3% of
 /// `class-method`). Leaves `cur_block` on the store block.
-fn emit_field_writable_guard(ctx: &mut LowerCtx, obj_val: Operand, field: &str) {
+pub(crate) fn emit_field_writable_guard(ctx: &mut LowerCtx, obj_val: Operand, field: &str) {
     let hdr_word = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I32, obj_val.clone(), 4),

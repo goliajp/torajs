@@ -212,8 +212,18 @@ fn lower_member(
         field_ty,
         None,
     );
+    // `o.k++` ends in PutValue (§13.4.4.1 step 5), so it owes the
+    // §10.1.9 writable gate the same as `o.k = v` does — the read and
+    // the ToNumeric step come first, then the store may raise. This
+    // lane emitted a bare `Store` at the field offset instead, so a
+    // FROZEN instance's `o.hit++` did not just swallow its TypeError:
+    // it wrote through the freeze and answered "after", while the
+    // plain-assign spelling of the same field threw. Same guard, one
+    // definition — the `Store` below rides the block it leaves us on.
+    crate::ssa_lower_assign_member_field::emit_field_writable_guard(ctx, obj_val.clone(), &field);
+    let store_block = ctx.cur_block;
     ctx.f.append_void(
-        cur_block,
+        store_block,
         InstKind::Store(Operand::Value(new_v), obj_val, offset),
     );
     Operand::Value(old)
