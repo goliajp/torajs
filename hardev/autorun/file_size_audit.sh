@@ -114,7 +114,7 @@ FILES_OUT="${HARDEV_FILES_OUT-$(audit_files)}"
 FNS_OUT="${HARDEV_FNS_OUT-$(audit_fns)}"
 EXTENTS="${HARDEV_EXTENTS_OUT-$(bash "$(dirname "$0")/fn_extents.sh" $(( FN_LIMIT / 2 )) 2>/dev/null)}"
 
-python3 -c "$(cat <<'PY'
+AUDIT_OUT="$(python3 -c "$(cat <<'PY'
 import re, sys
 
 debt_path, file_lim, fn_lim, files_raw, fns_raw = sys.argv[1:6]
@@ -258,4 +258,23 @@ if bad:
           f"the limit; a registered entry may only shrink", file=sys.stderr)
 sys.exit(1 if bad else 0)
 PY
-)" "$DEBT" "$FILE_LIMIT" "$FN_LIMIT" "$FILES_OUT" "$FNS_OUT" <<< "$EXTENTS"
+)" "$DEBT" "$FILE_LIMIT" "$FN_LIMIT" "$FILES_OUT" "$FNS_OUT" <<< "$EXTENTS")"
+RC=$?
+printf '%s\n' "$AUDIT_OUT"
+
+# Stamp the run (see write_stamp.sh). Exit 2 — the parser refusing to
+# judge — deliberately writes no stamp: a refusal is not a measurement,
+# and a stamp saying "ok" because nothing could be compared is precisely
+# the instrument-shaped-like-data failure this check exists to prevent.
+STAMP_OUT="${HARDEV_STAMP_OUT:-$ROOT/hardev/file-size-latest.json}"
+if [ "$STAMP_OUT" != "-" ] && [ "$RC" -lt 2 ]; then
+  counts=$(printf '%s\n' "$AUDIT_OUT" | grep -oE '^--- .*$' | tail -1)
+  get() { printf '%s\n' "$counts" | grep -oE "$1=[0-9]+" | cut -d= -f2; }
+  bash "$(dirname "$0")/write_stamp.sh" "$STAMP_OUT" file_size_audit \
+    "$([ "$RC" -eq 0 ] && echo ok || echo fail)" \
+    "filesNew=int:$(get files_new)" "filesGrew=int:$(get files_grew)" \
+    "fnsNew=int:$(get fns_new)" "fnsGrew=int:$(get fns_grew)" \
+    "hidden=int:$(printf '%s\n' "$AUDIT_OUT" | grep -c 'HIDDEN')" \
+    "stale=int:$(printf '%s\n' "$AUDIT_OUT" | grep -c 'STALE')" >/dev/null
+fi
+exit "$RC"

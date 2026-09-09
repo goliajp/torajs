@@ -35,6 +35,19 @@
 #   TRIG-3  the content    — which axis, what closed, what the gate reads
 #   TRIG-4  the wording    — the known procrastination phrasings
 #   TRIG-5  the allocation — is one axis starving the others?
+#   TRIG-6  the evidence   — were the mechanical checks actually run,
+#                            on THIS source?
+#
+# TRIG-6 (2026-09-09) closes the structural hole the other five share:
+# every one of them reads what the handoff *says*. TRIG-3 checks the
+# `gate:` triple for F=0 and never asks whether N is a real number; the
+# sweep / determinism / Guard-Malloc lines are free text. So "it was not
+# run", "it ran on the previous HEAD" and "last rotation's number got
+# carried forward" are all invisible — and torajs-autorun-pipeline.md
+# records that class at least five times, including a sweep that stayed
+# dark for five rotations while six pass regressions piled up. The four
+# checks now leave committed JSON stamps carrying the sha of the source
+# they measured, and the gate reads those instead.
 #
 # Why N went 5 -> 12: every rotation pays a fixed cost that does not
 # scale with commits — sweep 507s + build_determinism 197s +
@@ -87,6 +100,7 @@ TRIG1_MIN_COMMITS="${HARDEV_TRIG1_MIN_COMMITS:-12}"
 TRIG2_MIN_WALL_SEC="${HARDEV_TRIG2_MIN_WALL_SEC:-1800}"    # 30 min floor
 TRIG2_MAX_WALL_SEC="${HARDEV_TRIG2_MAX_WALL_SEC:-18000}"   # 300 min cap → waives TRIG-1
 TRIG5_SAME_AXIS_MAX="${HARDEV_TRIG5_SAME_AXIS_MAX:-8}"     # consecutive same-axis rotations
+STAMP_DIR="${HARDEV_STAMP_DIR:-$PROJECT_DIR/hardev}"       # where the run stamps live
 
 # Blacklist phrases (case-insensitive). Each entry = one regex; if any
 # matches anywhere inside the handoff "rotate 触发" section, TRIG-4 FAILs.
@@ -365,12 +379,66 @@ PY
   fi
 }
 
+# ── TRIG-6 — the mechanical checks ran, on this session's source ───────
+# Four stamps, same shape as hardev/test262-latest.json (which already
+# worked this way and is reused as the sweep's stamp):
+#
+#   test262-latest.json      the full sweep          (0b)
+#   determinism-latest.json  build determinism       (0c)
+#   gmalloc-latest.json      Guard Malloc scan       (0c-2)
+#   file-size-latest.json    file / function sizes   (pre-flight)
+#
+# A stamp counts only when its headSha is a commit in THIS session and
+# the tree was clean when it was written. A `-dirty` stamp measured
+# something that is not any commit, and a sha from an earlier session is
+# last rotation's answer wearing this rotation's label — the exact
+# carry-forward this gate exists to stop.
+check_trig6() {
+  local range shas missing=() stale=() red=() fresh=()
+  range=$(session_range)
+  shas=$(git -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null)
+  if [ -z "$shas" ]; then
+    emit TRIG-6 SKIP "git rev-list $range returned nothing"
+    return
+  fi
+  local name file sha verdict
+  for name in test262 determinism gmalloc file-size; do
+    file="$STAMP_DIR/$name-latest.json"
+    if [ ! -f "$file" ]; then
+      missing+=("$name")
+      continue
+    fi
+    sha=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("headSha") or "")' "$file" 2>/dev/null)
+    verdict=$(python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print(d.get("verdict") or ("ok" if d.get("harnessError",0)==0 else "fail"))' "$file" 2>/dev/null)
+    if [ -z "$sha" ] || [ "${sha%-dirty}" != "$sha" ]; then
+      stale+=("$name(${sha:-no-sha})")
+    elif ! printf '%s\n' "$shas" | grep -q "^$sha"; then
+      stale+=("$name($sha)")
+    elif [ "$verdict" != "ok" ]; then
+      red+=("$name($verdict)")
+    else
+      fresh+=("$name=$sha")
+    fi
+  done
+  if [ "${#missing[@]}" -gt 0 ] || [ "${#stale[@]}" -gt 0 ] || [ "${#red[@]}" -gt 0 ]; then
+    local msg=""
+    [ "${#missing[@]}" -gt 0 ] && msg="missing: ${missing[*]}; "
+    [ "${#stale[@]}" -gt 0 ] && msg="${msg}not from this session: ${stale[*]}; "
+    [ "${#red[@]}" -gt 0 ] && msg="${msg}red: ${red[*]}; "
+    emit TRIG-6 FAIL "${msg}run them on the final HEAD and commit the stamps"
+    failed+=(TRIG-6)
+    return
+  fi
+  emit TRIG-6 PASS "4/4 stamps from this session (${fresh[*]})"
+}
+
 resolve_wall
 check_trig1
 check_trig2
 check_trig3
 check_trig4
 check_trig5
+check_trig6
 
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "TRIG-FAILED: ${failed[*]}" >&2

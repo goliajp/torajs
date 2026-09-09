@@ -76,9 +76,10 @@ done
 run_case() {
   local name=$1 want_exit=$2 want_line=$3 files=$4 fns=$5 extents=${6:-}
   local out rc
+  # HARDEV_STAMP_OUT=- : a self-test must not overwrite the real stamp.
   out=$(HARDEV_DEBT_FILE="$TMP/debt.md" HARDEV_FILES_OUT="$files" \
         HARDEV_FNS_OUT="$fns" HARDEV_EXTENTS_OUT="$extents" \
-        bash "$AUDIT" 2>/dev/null)
+        HARDEV_STAMP_OUT=- bash "$AUDIT" 2>/dev/null)
   rc=$?
   if [ "$rc" -eq "$want_exit" ] && { [ -z "$want_line" ] || printf '%s\n' "$out" | grep -qE "$want_line"; }; then
     printf 'ok   %s\n' "$name"; pass=$(( pass + 1 ))

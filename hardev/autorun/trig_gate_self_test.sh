@@ -20,6 +20,10 @@
 #   8  blacklist phrase                  → exit 1, TRIG-4 FAIL
 #   9  8th consecutive same-axis, no review → exit 1, TRIG-5 FAIL
 #  10  same, with axes-review:           → exit 0, TRIG-5 PASS
+#  11  a stamp missing                    → exit 1, TRIG-6 FAIL
+#  12  a stamp from an earlier session    → exit 1, TRIG-6 FAIL
+#  13  a stamp written against a dirty tree → exit 1, TRIG-6 FAIL
+#  14  a stamp whose verdict is fail      → exit 1, TRIG-6 FAIL
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -59,6 +63,17 @@ mk_log() {
   done
 }
 
+# Four run stamps, all naming HEAD, all green — the shape TRIG-6 wants.
+# Every case below inherits these unless it deliberately breaks one.
+mk_stamps() {
+  mkdir -p "$TMP/stamps"
+  local n
+  for n in test262 determinism gmalloc file-size; do
+    printf '{"tool":"%s","headSha":"%s","verdict":"ok","harnessError":0}\n' \
+      "$n" "$REAL_SHA" > "$TMP/stamps/$n-latest.json"
+  done
+}
+
 mk_handoff() {
   printf '%s\n' "## rotate 触发" "" "$@" > "$TMP/handoff.md"
 }
@@ -67,7 +82,7 @@ run_case() {
   local name=$1 want_exit=$2 want_line=$3
   local out rc
   out=$(HARDEV_ROTATIONS_LOG="$TMP/rot.jsonl" HARDEV_HANDOFF_FILE="$TMP/handoff.md" \
-        bash "$GATE" 2>/dev/null)
+        HARDEV_STAMP_DIR="$TMP/stamps" bash "$GATE" 2>/dev/null)
   rc=$?
   if [ "$rc" -eq "$want_exit" ] && printf '%s\n' "$out" | grep -qE "$want_line"; then
     printf 'ok   %s\n' "$name"
@@ -83,7 +98,9 @@ GOOD_AXIS="axis: A"
 GOOD_CLOSED="closed: $REAL_SHA did a thing"
 GOOD_GATE="gate: 3773/0/4"
 
-# 1 — happy path: 12 commits, 2h wall, full section.
+mk_stamps
+
+# 1 — happy path: 12 commits, 2h wall, full section, four green stamps.
 mk_log "$TMP/rot.jsonl" 7200 12
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
 run_case "1 happy path" 0 'TRIG-1 PASS'
@@ -126,6 +143,32 @@ run_case "9 axis skew unsettled" 1 'TRIG-5 FAIL'
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" \
   "axes-review: B at 0.5096 untouched since 08-30; E still 0%; C closed; D framing only"
 run_case "10 axis skew settled" 0 'TRIG-5 PASS'
+
+# ── TRIG-6 — the stamps ───────────────────────────────────────────────
+mk_log "$TMP/rot.jsonl" 7200 12
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
+
+rm -f "$TMP/stamps/gmalloc-latest.json"
+run_case "11 stamp missing" 1 'TRIG-6 FAIL.*missing: gmalloc'
+mk_stamps
+
+# The carry-forward this gate exists to stop: last rotation's answer,
+# correct in itself, wearing this rotation's label.
+printf '{"tool":"determinism","headSha":"%s","verdict":"ok"}\n' "$OLD_SHA" \
+  > "$TMP/stamps/determinism-latest.json"
+run_case "12 stamp from earlier session" 1 'TRIG-6 FAIL.*not from this session'
+mk_stamps
+
+# A dirty tree measures something that is not any commit.
+printf '{"tool":"file_size_audit","headSha":"%s-dirty","verdict":"ok"}\n' "$REAL_SHA" \
+  > "$TMP/stamps/file-size-latest.json"
+run_case "13 stamp from a dirty tree" 1 'TRIG-6 FAIL.*not from this session'
+mk_stamps
+
+printf '{"tool":"gmalloc_scan","headSha":"%s","verdict":"fail"}\n' "$REAL_SHA" \
+  > "$TMP/stamps/gmalloc-latest.json"
+run_case "14 stamp verdict red" 1 'TRIG-6 FAIL.*red: gmalloc'
+mk_stamps
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

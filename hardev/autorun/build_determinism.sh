@@ -117,6 +117,19 @@ done
 
 echo "--- cases=$CASES build_failures=$FAILED nondeterministic=$NONDET N=$N profile=$PROFILE"
 
+# Stamp the run so TRIG-6 can read a fact instead of a sentence. On mini
+# the git HEAD lags the rsync'd tree, so the caller passes the real sha:
+#   ssh mini '... HARDEV_HEAD_SHA=<dev HEAD> hardev/autorun/build_determinism.sh'
+# then scp hardev/determinism-latest.json back and commit it.
+STAMP_OUT="${HARDEV_STAMP_OUT:-$PROJECT_DIR/hardev/determinism-latest.json}"
+if [ "$STAMP_OUT" != "-" ]; then
+  VERDICT=ok
+  if [ "$FAILED" -gt 0 ] || [ "$NONDET" -gt 0 ]; then VERDICT=fail; fi
+  bash "$(dirname "$0")/write_stamp.sh" "$STAMP_OUT" build_determinism "$VERDICT" \
+    "cases=int:$CASES" "buildFailures=int:$FAILED" "nondeterministic=int:$NONDET" \
+    "n=int:$N" "profile=$PROFILE" >/dev/null
+fi
+
 if [ "$FAILED" -gt 0 ] || [ "$NONDET" -gt 0 ]; then
   exit 1
 fi

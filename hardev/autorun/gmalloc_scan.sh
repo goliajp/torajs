@@ -167,6 +167,20 @@ if [ "$TIMEDOUT" -gt 0 ]; then
   echo "gmalloc_scan: $TIMEDOUT fixture(s) too heavy under the guard (timeout / jetsam), verdict unknown:"
   sort "$WORK/timeouts"
 fi
+# Stamp the run (see write_stamp.sh). Three buckets, never one: reporting
+# only the offenders would count the watchdog's own kills as data — the
+# first full run reported 12 and 11 of them were `kill -9`, and a program
+# cannot SIGKILL itself, so 137 is never a verdict.
+STAMP_OUT="${HARDEV_STAMP_OUT:-hardev/gmalloc-latest.json}"
+if [ "$STAMP_OUT" != "-" ]; then
+  VERDICT=ok
+  if [ "$COUNT" -gt 0 ]; then VERDICT=fail; fi
+  bash "$(dirname "$0")/write_stamp.sh" "$STAMP_OUT" gmalloc_scan "$VERDICT" \
+    "total=int:$TOTAL" "clean=int:$((TOTAL - SKIPPED - TIMEDOUT - COUNT))" \
+    "skipped=int:$SKIPPED" "verdictUnknown=int:$TIMEDOUT" "offenders=int:$COUNT" \
+    "workers=int:$WORKERS" >/dev/null
+fi
+
 if [ "$COUNT" -eq 0 ]; then
   echo "gmalloc_scan: $((TOTAL - SKIPPED - TIMEDOUT))/$TOTAL scanned clean"
   exit 0
