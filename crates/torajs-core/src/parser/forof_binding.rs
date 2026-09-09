@@ -59,20 +59,22 @@ impl<'a> Parser<'a> {
             let id = self.mint_desugar_id();
             format!("__forof_destr_{id}")
         } else {
-            match self.peek() {
-                Token::Ident(n) => {
-                    let nn = n.clone();
+            // The same admission the pattern head above asks, on the
+            // same axis: `for (var let of xs)` binds and
+            // `for (let let of xs)` does not (§14.3.1.1). A bare head
+            // declares nothing at all.
+            let saved_lex = std::mem::replace(
+                &mut self.pattern_binds_lexically,
+                matches!(is_var_decl, Some(false)),
+            );
+            let bind = self.pattern_binding_name();
+            self.pattern_binds_lexically = saved_lex;
+            match bind {
+                Some(nn) => {
                     self.pos += 1;
                     nn
                 }
-                // `for (var async of xs)` — a contextual keyword names
-                // the loop binding like any other identifier.
-                t if Self::contextual_binding_name(t).is_some() => {
-                    let nn = Self::contextual_binding_name(t).unwrap().to_string();
-                    self.pos += 1;
-                    nn
-                }
-                _ => {
+                None => {
                     self.pos = saved;
                     return None;
                 }

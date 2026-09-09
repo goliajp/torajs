@@ -203,42 +203,36 @@ impl<'a> Parser<'a> {
      * to the regular Ident expression. */
     pub(super) fn try_parse_bare_arrow(&mut self) -> Result<Option<ExprId>, String> {
         let pos = self.pos;
-        if let Token::Ident(n) = &self.tokens[pos].token {
-            let next_is_arrow = self
-                .tokens
-                .get(pos + 1)
-                .map(|t| matches!(t.token, Token::FatArrow))
-                .unwrap_or(false);
-            if next_is_arrow {
-                let pname = n.clone();
+        // §15.3 ArrowParameters : BindingIdentifier — a contextual
+        // keyword names one like any other word, so the FatArrow is
+        // confirmed FIRST and the admission asked second (asking it
+        // anywhere else would record an `await` site that no arrow
+        // follows).
+        // §15.3 ArrowFunction : ArrowParameters [no LineTerminator
+        // here] `=>` — a newline before the arrow is not an arrow at
+        // all, and `async \n => 0` is the shape that shows it.
+        let next_is_arrow = self
+            .tokens
+            .get(pos + 1)
+            .map(|t| matches!(t.token, Token::FatArrow))
+            .unwrap_or(false)
+            && !self.has_newline_before(pos + 1);
+        if next_is_arrow && let Some(n) = self.in_non_lexical_position(|p| p.pattern_binding_name())
+        {
+            {
+                let pname = n;
                 self.pos += 2; /* consume Ident + FatArrow */
-                let body = if matches!(self.peek(), Token::LBrace) {
-                    self.pos += 1;
-                    let mut stmts = Vec::new();
-                    while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-                        stmts.push(self.parse_stmt()?);
-                    }
-                    match self.peek() {
-                        Token::RBrace => self.pos += 1,
-                        t => {
-                            return Err(format!(
-                                "expected `}}` after arrow body, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
-                    stmts
-                } else {
-                    // Watermark drain (406-01) — a class expression
-                    // minted while this expression body parsed lands
-                    // inside the body, not in front of the enclosing
-                    // statement. Same protocol as parse_arrow_fn.
-                    let synth_mark = self.synth_classes_local.len();
-                    let e = self.parse_expr()?;
-                    let mut v = self.synth_classes_local.split_off(synth_mark);
-                    v.push(Stmt::Return(Some(e)));
-                    v
-                };
+                // §15.3 — a non-async ArrowFunction's body is
+                // [~Await], the same context `parse_arrow_fn` gives
+                // the parenthesized form. Without it `await => await
+                // + 1` read its own parameter as an AwaitExpression
+                // and answered 1 for every argument.
+                let saved_await = std::mem::replace(&mut self.await_allowed, false);
+                let saved_await_res = std::mem::replace(&mut self.await_reserved, false);
+                let body_result = self.parse_bare_arrow_body();
+                self.await_allowed = saved_await;
+                self.await_reserved = saved_await_res;
+                let body = body_result?;
                 return Ok(Some(self.add_expr_at(
                     pos,
                     Expr::ArrowFn {
@@ -255,5 +249,39 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(None)
+    }
+
+    /// The body half of [`Self::try_parse_bare_arrow`], split out so
+    /// the `[~Await]` context its caller installs is restored on the
+    /// error paths too — the same save / call / restore / `?` order
+    /// `parse_arrow_fn` uses for the parenthesized form.
+    fn parse_bare_arrow_body(&mut self) -> Result<Vec<Stmt>, String> {
+        Ok(if matches!(self.peek(), Token::LBrace) {
+            self.pos += 1;
+            let mut stmts = Vec::new();
+            while !matches!(self.peek(), Token::RBrace | Token::Eof) {
+                stmts.push(self.parse_stmt()?);
+            }
+            match self.peek() {
+                Token::RBrace => self.pos += 1,
+                t => {
+                    return Err(format!(
+                        "expected `}}` after arrow body, got {t:?} at {}",
+                        self.at()
+                    ));
+                }
+            }
+            stmts
+        } else {
+            // Watermark drain (406-01) — a class expression
+            // minted while this expression body parsed lands
+            // inside the body, not in front of the enclosing
+            // statement. Same protocol as parse_arrow_fn.
+            let synth_mark = self.synth_classes_local.len();
+            let e = self.parse_expr()?;
+            let mut v = self.synth_classes_local.split_off(synth_mark);
+            v.push(Stmt::Return(Some(e)));
+            v
+        })
     }
 }

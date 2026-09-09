@@ -232,6 +232,21 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             return Some("await".to_string());
         }
+        // §12.7.2 — a sloppy function expression may be named `let`,
+        // and `async` / `type` are on nobody's reserved list. Written
+        // out rather than routed through `pattern_binding_name`
+        // because the two arms above answer `yield` and `await` on
+        // this position's OWN axes (§15.2's [~Yield] / [~Await]),
+        // which the general predicates cannot see.
+        if matches!(self.peek(), Token::Let) && self.let_reads_as_ident() {
+            self.record_strict_goal_site("let");
+            self.pos += 1;
+            return Some("let".to_string());
+        }
+        if let Some(n) = Self::contextual_binding_name(self.peek()) {
+            self.pos += 1;
+            return Some(n.to_string());
+        }
         None
     }
 

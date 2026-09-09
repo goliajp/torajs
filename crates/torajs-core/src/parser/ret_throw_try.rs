@@ -95,6 +95,21 @@ impl<'a> Parser<'a> {
                         self.pos += 1;
                         n
                     }
+                    // §12.7.2 — a script's catch parameter may be
+                    // named `let` or `yield`; a catch clause is not a
+                    // lexical DECLARATION, which is why the pattern
+                    // spelling `catch ({ let })` still refuses.
+                    Token::Let if self.let_reads_as_ident() => {
+                        self.record_strict_goal_site("let");
+                        self.pos += 1;
+                        "let".to_string()
+                    }
+                    Token::Yield if self.yield_reads_as_ident() => {
+                        let at = self.at();
+                        self.ast.yield_ident_positions.push(at);
+                        self.pos += 1;
+                        "yield".to_string()
+                    }
                     // `async` / `type` name a CatchParameter like any
                     // other identifier — nobody reserves them.
                     t if Self::contextual_binding_name(t).is_some() => {

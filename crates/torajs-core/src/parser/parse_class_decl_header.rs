@@ -172,6 +172,18 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 n
             }
+            // `async` and `type` are on nobody's reserved list, and a
+            // class body being strict (§15.7.1) does not change that —
+            // it is what keeps `class let {}` and `class yield {}`
+            // refused here. Sits above the anonymous fallback for the
+            // reason the `await` arm does: falling through would read
+            // `var C = class async {}` as an anonymous class plus a
+            // stray `async`.
+            t if Self::contextual_binding_name(t).is_some() => {
+                let n = Self::contextual_binding_name(t).unwrap().to_string();
+                self.pos += 1;
+                n
+            }
             // P8.5 — anonymous class expression (`const F = class { ... }`,
             // `new (class { ... })()`). Mint a unique synth name that
             // `synthesize_class_globals` will expose as
