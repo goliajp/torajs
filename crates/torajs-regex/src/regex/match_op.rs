@@ -224,6 +224,11 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
 
     let global = re.flags & RE_FLAG_G != 0;
     let sticky = re.flags & RE_FLAG_Y != 0;
+    // The global walk ends on `Set(R, "lastIndex", 0)` (§22.2.6.8 via
+    // §22.2.7.2), which a non-writable lastIndex refuses.
+    if global && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        return core::ptr::null_mut();
+    }
 
     // Lazy-init Workspace — the `!global && sticky` branch below uses
     // match_anchor which builds its own Workspace, so the outer
@@ -392,6 +397,9 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     let sticky = re.flags & RE_FLAG_Y != 0;
     let global = re.flags & RE_FLAG_G != 0;
     let track = sticky || global;
+    if track && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        return core::ptr::null_mut();
+    }
     // lastIndex is spec'd in UTF-16 code units (§22.2.7.2 step 4);
     // map to a byte offset in the transcoded haystack. Out-of-range
     // maps to slen + 1 so the `start > slen` guard below fires.

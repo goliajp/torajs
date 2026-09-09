@@ -120,9 +120,42 @@ unsafe fn current_proto(dynobj: *const c_void, key: *const u8) -> u64 {
     }
 }
 
+/// Why §10.1.2.1 answered false. bun words the two differently, and
+/// the anyv faces pick the sentence by this.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProtoRefusal {
+    /// Step 5 — the receiver is not extensible and V differs.
+    NonExtensible,
+    /// Step 8 — V's chain leads back to the receiver.
+    Cycle,
+    /// §10.4.7.1 — %Object.prototype% is an immutable-prototype
+    /// exotic object.
+    ImmutableProto,
+}
+
+/// The TypeError for a refusal (bun's sentences).
+pub(crate) unsafe fn throw_proto_refusal(r: ProtoRefusal) {
+    let msg = match r {
+        ProtoRefusal::NonExtensible => c"Attempted to assign to readonly property.",
+        ProtoRefusal::Cycle => c"cyclic __proto__ value",
+        ProtoRefusal::ImmutableProto => c"Cannot set prototype of immutable prototype object",
+    };
+    unsafe { __torajs_throw_type_error(msg.as_ptr()) };
+}
+
 /// §10.1.2.1 steps 4-8 — refuse on non-extensible (unless same
-/// value) and on a chain cycle; write otherwise. `true` = done.
-pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> bool {
+/// value) and on a chain cycle; write otherwise. `obj` is the dynobj
+/// that carries the `__proto__` entry; `receiver_flags` is the header
+/// word of the RECEIVER whose [[Extensible]] the write asks about —
+/// the same cell for an ordinary object, the closure cell (not its
+/// props bag) for a function value. Before this a frozen function
+/// re-parented freely, because the bag it writes through was never
+/// the thing that got frozen.
+pub(crate) unsafe fn ordinary_set_prototype_of(
+    obj: *mut c_void,
+    proto: u64,
+    receiver_flags: u16,
+) -> Result<(), ProtoRefusal> {
     unsafe {
         let proto = if is_null_any(proto) {
             VALUE_NULL_IMM
@@ -161,7 +194,7 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
         };
         if proto == cur {
             __torajs_str_drop(key);
-            return true;
+            return Ok(());
         }
         // §10.4.7.1 — %Object.prototype% is an immutable-prototype
         // exotic object: any non-same-value write refuses (the
@@ -170,12 +203,11 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
         // null)` stays silent per spec.
         if __torajs_builtin_proto_tag_of(obj) == OBJECT_PROTO_TAG {
             __torajs_str_drop(key);
-            return false;
+            return Err(ProtoRefusal::ImmutableProto);
         }
-        let flags = obj.cast::<u8>().add(6).cast::<u16>().read();
-        if flags & HDR_FLAG_NON_EXTENSIBLE != 0 {
+        if receiver_flags & HDR_FLAG_NON_EXTENSIBLE != 0 {
             __torajs_str_drop(key);
-            return false;
+            return Err(ProtoRefusal::NonExtensible);
         }
         // Steps 6-8 — walk the would-be parent chain; finding the
         // receiver itself is the cycle refusal. A closure link hops
@@ -197,7 +229,7 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
             }
             if core::ptr::eq(cell, obj) {
                 __torajs_str_drop(key);
-                return false;
+                return Err(ProtoRefusal::Cycle);
             }
             if heap_type_tag(cell) != TAG_DYNOBJ {
                 break;
@@ -225,8 +257,59 @@ pub(crate) unsafe fn ordinary_set_prototype_of(obj: *mut c_void, proto: u64) -> 
             );
         }
         __torajs_str_drop(key);
-        true
+        Ok(())
     }
+}
+
+/// The universal header word of a cell — its [[Extensible]] bit.
+unsafe fn cell_flags(cell: *const c_void) -> u16 {
+    unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() }
+}
+
+/// A function value's re-parent: the same-value short-circuit asks
+/// the receiver's own [[GetPrototypeOf]] (its implicit chain is
+/// %Function.prototype%, which the carrier's absent-entry read would
+/// misreport as %Object.prototype% and refuse on a non-extensible
+/// receiver), then the ordinary write through the expando carrier
+/// with the CLOSURE's [[Extensible]] bit.
+unsafe fn closure_set_prototype_of(
+    obj: u64,
+    cell: *mut c_void,
+    proto: u64,
+) -> Result<(), ProtoRefusal> {
+    let proto_n = if is_null_any(proto) {
+        VALUE_NULL_IMM
+    } else {
+        proto
+    };
+    if proto_n == unsafe { crate::reflect_proto::__torajs_anyv_get_proto_of_any(obj) } {
+        return Ok(());
+    }
+    let carrier = unsafe { closure_proto_carrier(cell) };
+    unsafe { ordinary_set_prototype_of(carrier, proto, cell_flags(cell)) }
+}
+
+/// The re-parent for a receiver tr keeps on its builtin
+/// [[Prototype]] (an array, a wrapper, a Map, …): a same-value write
+/// succeeds; a non-extensible receiver refuses a different one
+/// (§10.1.2.1 step 5 — before this `Object.setPrototypeOf(frozenArr,
+/// null)` returned quietly); an extensible one keeps its builtin
+/// chain — the recorded boundary. Answers the step-5 refusal, or
+/// `Ok` for both of the other outcomes.
+unsafe fn exotic_set_prototype_of(obj: u64, proto: u64) -> Result<(), ProtoRefusal> {
+    let proto = if is_null_any(proto) {
+        VALUE_NULL_IMM
+    } else {
+        proto
+    };
+    let cur = unsafe { crate::reflect_proto::__torajs_anyv_get_proto_of_any(obj) };
+    if proto == cur {
+        return Ok(());
+    }
+    if unsafe { cell_flags(obj as *const c_void) } & HDR_FLAG_NON_EXTENSIBLE != 0 {
+        return Err(ProtoRefusal::NonExtensible);
+    }
+    Ok(())
 }
 
 /// `Object.setPrototypeOf(O, proto)` — §20.1.2.21. Invalid proto is
@@ -259,9 +342,8 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
             // its expando props bag (the extends lane's
             // `Object.setPrototypeOf(D, P)` static face).
             if heap_type_tag(cell) == TAG_CLOSURE {
-                let carrier = closure_proto_carrier(cell);
-                if !ordinary_set_prototype_of(carrier, proto) {
-                    __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
+                if let Err(r) = closure_set_prototype_of(obj, cell, proto) {
+                    throw_proto_refusal(r);
                 }
                 return;
             }
@@ -278,12 +360,13 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
                 );
                 return;
             }
-            // Recorded boundary — exotic receivers (Arr / wrapper)
-            // keep their builtin [[Prototype]].
+            if let Err(r) = exotic_set_prototype_of(obj, proto) {
+                throw_proto_refusal(r);
+            }
             return;
         }
-        if !ordinary_set_prototype_of(cell, proto) {
-            __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
+        if let Err(r) = ordinary_set_prototype_of(cell, proto, cell_flags(cell)) {
+            throw_proto_refusal(r);
         }
     }
 }
@@ -316,8 +399,7 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
             // 405-01 substrate — function values re-parent through
             // the expando carrier, same as the Object flavor.
             if heap_type_tag(cell) == TAG_CLOSURE {
-                let carrier = closure_proto_carrier(cell);
-                return i64::from(ordinary_set_prototype_of(carrier, proto));
+                return i64::from(closure_set_prototype_of(obj, cell, proto).is_ok());
             }
             // Fixed-layout struct / exotic (Arr / wrapper)
             // receivers cannot take a new [[Prototype]] in tr — the
@@ -327,7 +409,7 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
             // rotation-154 struct probe).
             return 0;
         }
-        i64::from(ordinary_set_prototype_of(cell, proto))
+        i64::from(ordinary_set_prototype_of(cell, proto, cell_flags(cell)).is_ok())
     }
 }
 
@@ -351,15 +433,18 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_set(obj: u64, proto: u64) {
             // 405-01 substrate — `D.__proto__ = P` on a function
             // value routes through the same expando carrier.
             if heap_type_tag(cell) == TAG_CLOSURE {
-                let carrier = closure_proto_carrier(cell);
-                if !ordinary_set_prototype_of(carrier, proto) {
-                    __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
+                if let Err(r) = closure_set_prototype_of(obj, cell, proto) {
+                    throw_proto_refusal(r);
                 }
+                return;
+            }
+            if let Err(r) = exotic_set_prototype_of(obj, proto) {
+                throw_proto_refusal(r);
             }
             return;
         }
-        if !ordinary_set_prototype_of(cell, proto) {
-            __torajs_throw_type_error(c"Cannot set prototype of this object".as_ptr());
+        if let Err(r) = ordinary_set_prototype_of(cell, proto, cell_flags(cell)) {
+            throw_proto_refusal(r);
         }
     }
 }

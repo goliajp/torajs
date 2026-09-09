@@ -18,6 +18,16 @@ unsafe extern "C" {
     fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
     /// torajs-dynobj — own-entry presence probe (prop_has's kernel).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    /// torajs-dynobj — §10.1.6.3 define with explicit W/E/C
+    /// (`flags_byte` low 3 = values, bits 3-5 = present, bit 6 =
+    /// value present); consumes the value stake.
+    fn __torajs_dynobj_define(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
     /// torajs-buffer — §10.4.5.5 TypedArraySetElement (coerce first,
     /// store only on a valid index).
     fn __torajs_typedarray_index_set(
@@ -315,7 +325,19 @@ pub(crate) unsafe fn set_closure_member(
         if first_attach {
             props = __torajs_dynobj_alloc();
         }
-        let wrote = dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal);
+        // §20.2.4.3 — the virtual `prototype` is {writable: true,
+        // enumerable: false, configurable: false}; its first write
+        // moves it into the bag, and OrdinarySet keeps the attributes
+        // it had (§10.1.9.2 step 2.c), so that write is a define with
+        // those bits. The plain set's all-true default made a written
+        // `prototype` enumerable and deletable.
+        let wrote = if own && !in_bag && crate::prop_has::key_is(key, b"prototype") {
+            // value present + W/E/C present + W only = 0x79.
+            __torajs_dynobj_define(&mut props, key, tag, value, 0x79);
+            1
+        } else {
+            dynobj_set_flavored(&mut props, key, tag, value, throw_on_refusal)
+        };
         // §20.2.3 makes `Function.prototype` a built-in FUNCTION
         // object, so a `Function.prototype.call = f` patch lands in
         // THIS expando — and the note hook inside the dynobj set sees

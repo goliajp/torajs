@@ -26,6 +26,9 @@ pub unsafe extern "C" fn __torajs_regex_test(re_ptr: *const c_void, str_ptr: *co
     let sticky = re.flags & RE_FLAG_Y != 0;
     let global = re.flags & RE_FLAG_G != 0;
     let track = sticky || global;
+    if track && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        return 0;
+    }
     // lastIndex is spec'd in UTF-16 code units; the engine works in
     // transcoded UTF-8 bytes — map on read (and on write below).
     // `haystack` owns the transcode; the walk is identity-valued on

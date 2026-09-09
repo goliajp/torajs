@@ -264,8 +264,12 @@ unsafe fn wire_first_class_links(
         } else {
             0
         };
+        // A class object fresh from its register is extensible and
+        // its heritage chain is acyclic by construction — the link
+        // cannot be refused, so the answer carries nothing.
+        let flags = class_cell.cast::<u8>().add(6).cast::<u16>().read();
         if is_cell_imm(parent) && heap_type_tag(parent as *const c_void) == TAG_DYNOBJ {
-            crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, parent);
+            let _ = crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, parent, flags);
         } else if builtin_parent_tag >= 0 {
             // A stripped BUILTIN parent (`class CP extends Promise`) —
             // §15.7.14 still applies: `getPrototypeOf(CP) === Promise`,
@@ -273,11 +277,15 @@ unsafe fn wire_first_class_links(
             // the ordinary member-get chain walk onto the interned
             // builtin ctor cell (immortal; the set rc_incs the link).
             let ctor = __torajs_builtin_ctor_value(builtin_parent_tag);
-            crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, ctor);
+            let _ = crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, ctor, flags);
         } else {
             let func_proto = __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG);
             if !func_proto.is_null() {
-                crate::reflect_proto_set::ordinary_set_prototype_of(class_cell, func_proto as u64);
+                let _ = crate::reflect_proto_set::ordinary_set_prototype_of(
+                    class_cell,
+                    func_proto as u64,
+                    flags,
+                );
             }
         }
         // Step 3 — define transfers the value stake, so the entry owns

@@ -251,6 +251,11 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
+    // §22.2.6.11 step 10 — see `replace_fn_inner`.
+    if re.flags & RE_FLAG_G != 0 && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        let s = unsafe { str_units(str_ptr) };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
+    }
     // Round 5 attacks str-replace #2/#4 — borrow the Str payload
     // directly when it's pure-ASCII Latin-1 (no transcode, no owned
     // Vec alloc/free per call); fall back to the owned transcode for

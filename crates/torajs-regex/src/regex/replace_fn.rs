@@ -130,6 +130,13 @@ unsafe fn replace_fn_inner(
     if re.rejected != 0 {
         abort_unsupported(re);
     }
+    // §22.2.6.11 step 10 — a global replace starts with
+    // `Set(rx, "lastIndex", 0, true)`, which a non-writable lastIndex
+    // refuses; the input comes back for the caller's throw check.
+    if global && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+        let s = unsafe { str_units(str_ptr) };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
+    }
     let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
 

@@ -40,6 +40,8 @@ unsafe extern "C" {
     // torajs-rc/src/freeze.rs. FLAG_STATIC_LITERAL cells short-circuit
     // inside the helper (writing to `.rodata` would SIGBUS).
     fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void;
+    /// torajs-buffer — a typed array's element count (§10.4.5.11).
+    fn __torajs_typedarray_length(av: u64) -> i64;
     // torajs-anyvalue — the dynobj a cell keeps its own expando
     // properties in (itself for a DynObj; an Arr's side props; the
     // lazy slot of a struct / closure / wrapper / stateful bag), NULL
@@ -144,11 +146,41 @@ pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
         return obj_any;
     }
     let p = obj_any as *mut c_void;
+    if unsafe { typed_array_elements_refuse(obj_any) } {
+        return obj_any;
+    }
     // SAFETY: cell pointer to a valid heap object.
     unsafe { __torajs_obj_seal_mark(p) };
     // SAFETY: a NULL bag (no expando ever written) is a no-op inside.
     unsafe { __torajs_dynobj_seal_entries(__torajs_cell_expando_bag(p)) };
     obj_any
+}
+
+/// §7.3.14 step 5 on a typed array: SetIntegrityLevel defines every
+/// own key `{configurable: false}`, and §10.4.5.3 refuses that for an
+/// integer index — so `Object.seal` / `Object.freeze` of a typed
+/// array with at least one element is a TypeError (bun's wording),
+/// while an empty one seals and freezes like any object. Records the
+/// throw and answers `true` when the caller must stop. Before this
+/// the typed array took the header markers and read as frozen with
+/// writable elements.
+///
+/// # Safety
+/// `obj_any` is a live cell.
+unsafe fn typed_array_elements_refuse(obj_any: u64) -> bool {
+    let p = obj_any as *const c_void;
+    if unsafe { heap_type_tag(p) } != crate::reflect_get_property_descriptor::TAG_TYPEDARRAY {
+        return false;
+    }
+    if unsafe { __torajs_typedarray_length(obj_any) } <= 0 {
+        return false;
+    }
+    unsafe {
+        __torajs_throw_type_error(
+            c"Attempting to store non-configurable property on a typed array at index: 0".as_ptr(),
+        );
+    }
+    true
 }
 
 /// `Object.freeze(O)` — spec ES §20.1.2.6 = SetIntegrityLevel(O, frozen).
@@ -176,6 +208,9 @@ pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
         return obj_any;
     }
     let p = obj_any as *mut c_void;
+    if unsafe { typed_array_elements_refuse(obj_any) } {
+        return obj_any;
+    }
     // SAFETY: cell pointer to a valid heap object.
     unsafe { __torajs_obj_freeze(p) };
     // FLAG_SEALED + FLAG_NON_EXTENSIBLE — frozen ⇒ sealed ⇒ non-extensible.

@@ -2,13 +2,22 @@
 //! split from `reflect_get_property_descriptor.rs` (file-size cap;
 //! RFC 20260823-typedarray-substrate own-property knife). Only the
 //! expando bag answers: `length` / `byteLength` etc. are PROTOTYPE
-//! accessors, absent as own, and a typed array's canonical indices
-//! as own descriptors are a recorded follow-up with the
-//! numeric-index define.
+//! accessors, absent as own; a typed array's canonical index in range
+//! is an own data property `{writable, enumerable, configurable}`
+//! (§10.4.5.1 / §10.4.5.11) — before this it answered undefined, so
+//! `Object.isSealed` on a non-extensible typed array walked past its
+//! elements and answered true.
 
 use core::ffi::c_void;
 
-use crate::reflect::{__torajs_dynobj_has, VALUE_UNDEFINED_IMM};
+use crate::reflect::{__torajs_dynobj_has, VALUE_UNDEFINED_IMM, build_data_descriptor};
+
+unsafe extern "C" {
+    /// torajs-buffer — §10.4.5.11 element count and the §10.4.5.16
+    /// element read (an owned box).
+    fn __torajs_typedarray_length(av: u64) -> i64;
+    fn __torajs_typedarray_index_get(av: u64, index: f64) -> u64;
+}
 use crate::reflect_get_property_descriptor::{
     __torajs_anyv_get_property_descriptor, ARRAYBUFFER_PROPS_OFF, TAG_TYPEDARRAY,
     TYPEDARRAY_PROPS_OFF,
@@ -57,5 +66,16 @@ pub(crate) unsafe fn buffer_cell_descriptor(
         // ArrayBuffer and DataView share +32 by construction.
         ARRAYBUFFER_PROPS_OFF
     };
+    if htag == TAG_TYPEDARRAY
+        && let Some(i) = crate::arr_reflect::canonical_index(
+            unsafe { crate::str_wtf8::StrWtf8::of(key) }.as_bytes(),
+        )
+        && (i as i64) < unsafe { __torajs_typedarray_length(dynobj as u64) }
+    {
+        let v = unsafe { __torajs_typedarray_index_get(dynobj as u64, i as f64) };
+        let tag = unsafe { crate::reflect::__torajs_anyv_unbox_tag(v) } as u64;
+        let val = unsafe { crate::reflect::__torajs_anyv_unbox_value(v) } as u64;
+        return unsafe { build_data_descriptor(tag, val, 1, 1, 1) };
+    }
     unsafe { expando_bag_descriptor(dynobj, off, key) }
 }

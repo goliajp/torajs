@@ -217,7 +217,7 @@ pub(crate) unsafe fn define_index(
         return unsafe {
             refuse(
                 throw_on_refusal,
-                c"Attempting to define property beyond a non-writable array length.".as_ptr(),
+                c"Attempting to define numeric property on array with non-writable length property.".as_ptr(),
                 tag,
                 value,
             )

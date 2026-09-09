@@ -141,12 +141,41 @@ pub unsafe extern "C" fn __torajs_regex_set_last_index(re_ptr: *mut c_void, idx:
 /// # Safety
 /// `re_ptr` is a live `*RegExp`.
 unsafe fn refuse_frozen(re_ptr: *mut c_void) -> bool {
-    if unsafe { as_regex(re_ptr) }.last_index_frozen == 0 {
+    if !last_index_locked(unsafe { as_regex(re_ptr) }) {
         return false;
     }
     unsafe {
         super::__torajs_throw_type_error(
-            c"cannot assign to read only property 'lastIndex'".as_ptr() as *const u8,
+            c"Attempted to assign to readonly property.".as_ptr() as *const u8
+        )
+    };
+    true
+}
+
+/// `torajs_rc::FLAG_FROZEN` mirror (bit 4, universal header).
+const FLAG_FROZEN: u16 = 1 << 4;
+
+/// Whether `lastIndex` is non-writable: a `defineProperty` lock, or
+/// `Object.freeze` on the RegExp (§7.3.14 clears the bit on every own
+/// property, and `lastIndex` is the one the cell keeps itself).
+/// Before this a frozen RegExp's `lastIndex` was still writable, by
+/// assignment and by a tracked exec.
+pub(crate) fn last_index_locked(re: &RegExp) -> bool {
+    re.last_index_frozen != 0 || re.header.flags & FLAG_FROZEN != 0
+}
+
+/// §22.2.7.2 step 12.a / 15 — a global or sticky exec writes
+/// `lastIndex` through `Set(R, "lastIndex", …, true)`, which a
+/// non-writable one refuses with the strict TypeError. Asked before
+/// the match runs (nothing observable happens in between); answers
+/// `true` with the throw recorded when the caller must stop.
+pub(crate) unsafe fn tracked_store_refuses(re: &RegExp) -> bool {
+    if !last_index_locked(re) {
+        return false;
+    }
+    unsafe {
+        super::__torajs_throw_type_error(
+            c"Attempted to assign to readonly property.".as_ptr() as *const u8
         )
     };
     true
@@ -222,7 +251,7 @@ pub unsafe extern "C" fn __torajs_regex_last_index_define(
         return 0;
     }
     let re = unsafe { as_regex_mut(re_ptr) };
-    let writable = re.last_index_frozen == 0;
+    let writable = !last_index_locked(re);
     // An accessor descriptor against a data property whose
     // [[Configurable]] is false — §10.1.6.3 step 3.
     if flags_byte & (DEFINE_PRESENT_GET | DEFINE_PRESENT_SET) != 0 {
@@ -321,7 +350,7 @@ pub unsafe extern "C" fn __torajs_regex_last_index_writable(re_ptr: *const c_voi
     if re_ptr.is_null() {
         return 1;
     }
-    (unsafe { as_regex(re_ptr) }.last_index_frozen == 0) as i64
+    (!last_index_locked(unsafe { as_regex(re_ptr) })) as i64
 }
 
 /// `DEFINE_*` mirrors — torajs-dynobj `layout.rs` is the source.
