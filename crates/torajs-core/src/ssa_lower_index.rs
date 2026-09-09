@@ -44,6 +44,8 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
+pub(crate) use crate::ssa_lower_index_recv_shape::shape_has_expando_bag;
+
 pub(crate) use crate::ssa_lower_index_any_key::{
     lower_any_index_str_key, lower_any_index_symbol_key, lower_any_key, lower_array_any_index,
     lower_struct_like_index, lower_typed_arr_any_key,
@@ -441,51 +443,5 @@ fn obj_is_struct_like(ctx: &LowerCtx<'_>, obj: crate::ast::ExprId) -> bool {
     matches!(
         ctx.expr_types.get(&obj),
         Some(crate::check::Type::Struct(_) | crate::check::Type::ClassRef(_))
-    )
-}
-
-/// Whether a receiver of this shape keeps an ordinary own-property bag
-/// at runtime, and therefore boxes into the any lane so its keyed read
-/// and write land in that bag.
-///
-/// The SSA-side mirror of torajs-anyvalue's
-/// `member_get_layout::expando_props_off`, which is the authority:
-/// that table decides where a shape's bag lives, this one decides
-/// which shapes get to reach it. Both keyed channels here — the read
-/// in this file and the write in `ssa_lower_index_assign` — ask this
-/// one function, because they used to spell the same four-variant list
-/// twice and a shape added to one would silently not reach the other.
-///
-/// `Date` / `Promise` / `MapIter` / `ArrIter` joined in rotation 611:
-/// the runtime table has always had a slot for them, so the refusal
-/// was this list's alone. `(new Date(0) as any)[0] = 1` died at
-/// lowering while `(new Map() as any)[0] = 1` had just started
-/// working one layer down.
-///
-/// WeakMap / WeakSet / WeakRef joined once they actually had a bag to
-/// reach: when this predicate was first written their cells carried no
-/// props slot, so admitting them would have moved the refusal one
-/// layer down into member_set's reject rather than removing it (the
-/// rotation 610-04 lesson). The following commit gave all three a
-/// slot, and only then were they admitted — the order matters, and is
-/// the whole difference between closing a seam and relocating it.
-///
-/// `Arr` is absent for a different reason: an array's expando lives
-/// behind the `arrprops_*` kernels and its index keys are elements,
-/// not bag entries — it takes the element lane above.
-pub(crate) fn shape_has_expando_bag(ty: &Type) -> bool {
-    matches!(
-        ty,
-        Type::Obj(_)
-            | Type::Map
-            | Type::Set
-            | Type::RegExp
-            | Type::Date
-            | Type::Promise
-            | Type::MapIter
-            | Type::ArrIter
-            | Type::WeakMap
-            | Type::WeakSet
-            | Type::WeakRef
     )
 }
