@@ -249,3 +249,40 @@ pub unsafe extern "C" fn __torajs_arr_len_write_guard(arr: *const c_void) -> i64
     }
     1
 }
+
+/// `arr.length = v` validator (ES §9.4.2.4: throw RangeError if `v`
+/// doesn't ToUint32-round-trip).
+///
+/// Tora's typed pack:
+/// - tag 0 = null/other → ToNumber=0 → valid (early return)
+/// - tag 1 = Bool 0/1 → valid (early return)
+/// - tag 2 = I64 → interpret raw int as length candidate
+/// - tag 3 = F64-bits → reinterpret raw bits as f64
+/// - other = heap / undefined → record RangeError + return
+///
+/// Range check: `n` must be a non-negative integer in `[0, 2^32 - 1]`.
+/// NaN, Infinity, fractional, negative, and overflow all fail.
+///
+/// After every `__torajs_throw_range_error` call we `return` so the
+/// caller's `emit_throw_check` sees the pending throw immediately (the
+/// throw is non-local via TLS, not via stack unwind — see fn-level
+/// extern doc).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_set_length_validate(tag: i64, value: i64) {
+    let n: f64 = match tag {
+        0 | 1 => return,
+        2 => value as f64,
+        3 => f64::from_bits(value as u64),
+        _ => {
+            unsafe {
+                __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+            }
+            return;
+        }
+    };
+    if n.is_nan() || n < 0.0 || n > 4_294_967_295.0 || n != (n as i64) as f64 {
+        unsafe {
+            __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
+        }
+    }
+}
