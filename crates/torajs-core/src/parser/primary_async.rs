@@ -28,9 +28,12 @@ impl<'a> Parser<'a> {
         // The `async` keyword token is distinct from Ident "async", so
         // lookahead must confirm the `=>` before committing (plain
         // `async` as an identifier falls through).
+        // §15.9 AsyncArrowFunction carries the same restriction:
+        // `async [no LineTerminator here] AsyncArrowBindingIdentifier`.
         if matches!(self.peek(), Token::Async)
             && let Some(t1) = self.tokens.get(self.pos + 1)
             && (matches!(t1.token, Token::Ident(_)) || matches!(t1.token, Token::LParen))
+            && !self.has_newline_before(self.pos + 1)
         {
             let is_arrow = if matches!(t1.token, Token::Ident(_)) {
                 self.tokens
@@ -125,9 +128,13 @@ impl<'a> Parser<'a> {
         // then delegate to parse_fn_expr (cursor on `function`), which
         // handles the optional `*`, self-name, params, return-ann
         // unwrap and body exactly as for the non-async forms.
+        // §15.8 — `async [no LineTerminator here] function`. With a
+        // newline between them the word is an ordinary identifier and
+        // the `function` starts its own statement.
         if matches!(self.peek(), Token::Async)
             && let Some(next) = self.tokens.get(self.pos + 1)
             && matches!(next.token, Token::Function)
+            && !self.has_newline_before(self.pos + 1)
         {
             let start_pos = self.pos;
             self.pos += 1; // consume `async` only

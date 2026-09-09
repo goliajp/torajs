@@ -90,6 +90,7 @@ mod single_stmt_judge;
 pub(crate) mod tagged_template;
 use parse_class_member_field::FieldMarker;
 pub(crate) use tagged_template::TEMPLATE_OBJECT_CALLEE;
+mod await_ident;
 mod dstr_assign_slot;
 mod parse_stmt;
 mod parse_yield;

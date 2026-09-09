@@ -84,18 +84,29 @@ impl<'a> Parser<'a> {
         // and we set is_async on the resulting FnDecl. desugar_async
         // (post-parse) wraps the body's return value in a Promise and
         // shifts the surface return type from T to Promise<T>.
-        if matches!(self.peek(), Token::Async) {
+        // §15.8 AsyncFunctionDeclaration is `async [no LineTerminator
+        // here] function`; anything else that starts with the word is
+        // an ordinary identifier (`async: loop`, `async = 1`,
+        // `async(x)`), so the dispatch asks rather than committing —
+        // the same shape the `interface` and `abstract` heads above
+        // already use.
+        if matches!(self.peek(), Token::Async)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Function)
+            )
+            && !self.has_newline_before(self.pos + 1)
+        {
             self.pos += 1;
-            if !matches!(self.peek(), Token::Function) {
-                return Err(format!(
-                    "expected `function` after `async`, got {:?} at {}",
-                    self.peek(),
-                    self.at()
-                ));
-            }
             return self.parse_fn(true);
         }
-        if matches!(self.peek(), Token::Type) {
+        // `type X = …` is a TS declaration; a bare `type` is a name.
+        if matches!(self.peek(), Token::Type)
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Ident(_))
+            )
+        {
             return self.parse_type_decl();
         }
         self.judge_with_statement()?;
@@ -247,11 +258,15 @@ impl<'a> Parser<'a> {
     /// literal / interface) only appears as an Expr context, not as
     /// the first two tokens of a Stmt. `None` = not a label head.
     fn try_parse_labeled(&mut self) -> Result<Option<Stmt>, String> {
-        if let Token::Ident(name) = self.peek()
-            && let Some(next) = self.tokens.get(self.pos + 1)
+        // §14.13.1 LabelIdentifier is the IdentifierReference set, so
+        // a contextual keyword names a label like any other word
+        // (`async:`, `type:`, and in sloppy code `let:` / `yield:` /
+        // `await:`). A label declares nothing lexically, hence the
+        // non-lexical wrapper.
+        if let Some(next) = self.tokens.get(self.pos + 1)
             && matches!(next.token, Token::Colon)
+            && let Some(label) = self.in_non_lexical_position(|p| p.pattern_binding_name())
         {
-            let label = name.clone();
             self.pos += 2; // consume label ident + ':'
             let body_start = self.pos;
             let body = Box::new(self.parse_stmt()?);
@@ -272,14 +287,13 @@ impl<'a> Parser<'a> {
     /// `break\n foo` is a bare `break;` followed by the expr-stmt `foo`,
     /// not a labeled break. Caller has already consumed the keyword.
     fn parse_opt_break_continue_label(&mut self) -> Option<String> {
-        if let Token::Ident(name) = self.peek()
-            && !self.has_newline_before(self.pos)
-        {
-            let label = name.clone();
-            self.pos += 1;
-            Some(label)
-        } else {
-            None
+        if self.has_newline_before(self.pos) {
+            return None;
         }
+        // Same set the label head admits — `break async` has to reach
+        // the label `async` the statement above it declared.
+        let label = self.in_non_lexical_position(|p| p.pattern_binding_name())?;
+        self.pos += 1;
+        Some(label)
     }
 }

@@ -1,0 +1,11 @@
+async-label
+type-label
+let-label
+yield-label
+await-label
+type-decl 2
+async-name 3
+type-name 4
+async-call 6
+newline-fn 7 6
+async-fn 1
