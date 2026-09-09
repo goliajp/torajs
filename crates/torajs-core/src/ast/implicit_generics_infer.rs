@@ -307,9 +307,19 @@ pub(crate) fn infer_expr_ann_with(
             | BinOp::Eq
             | BinOp::Neq
             | BinOp::LooseEq
-            | BinOp::LooseNeq
-            | BinOp::LAnd
-            | BinOp::LOr => Some("boolean".into()),
+            | BinOp::LooseNeq => Some("boolean".into()),
+            // §13.13 — `a && b` IS one of its two operands, never a
+            // boolean: `a` when `a` is falsy, `b` otherwise. Claiming
+            // `boolean` here put that annotation on the enclosing
+            // function's return, and `function f(o) { return o.q && x }`
+            // then answered `false` where node answers `undefined`.
+            // Both operands agreeing is the only case with a name to
+            // give; anything else declines and lets the checker's own
+            // join (`check_type_of_binop::check_logical`) answer.
+            BinOp::LAnd | BinOp::LOr => {
+                let (l, r) = (recur(*left)?, recur(*right)?);
+                (l == r).then_some(l)
+            }
             BinOp::Sub
             | BinOp::Mul
             | BinOp::Div
