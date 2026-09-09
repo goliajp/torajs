@@ -73,6 +73,15 @@ const ANY_HEAP: u64 = 4;
 const FLAG_FN_PROTO: u16 = 1 << 15;
 const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
 const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
+/// `torajs_rc::FLAG_FROZEN` / `FLAG_SEALED` mirrors (bits 4 / 9,
+/// universal). The virtual pair has no bag entry to carry the bits
+/// `Object.seal` / `Object.freeze` clear, so the header answers for
+/// it: sealed or frozen makes `name` / `length` non-configurable,
+/// frozen makes `prototype` non-writable (§7.3.14 on every own
+/// property). Before this a frozen function still reported
+/// `configurable: true` on `name`.
+const FLAG_FROZEN: u16 = 1 << 4;
+const FLAG_SEALED: u16 = 1 << 9;
 
 /// Closure-env layout mirror (torajs-core `ssa_lower.rs` constants):
 /// expando props-dynobj slot at +24.
@@ -111,14 +120,15 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
     //    into the descriptor (no extra inc). A chunk-C tombstone
     //    (delete fn.name / fn.length) skips the virtual answer.
     let flags = unsafe { (cell.cast::<u8>().add(6) as *const u16).read() };
+    let configurable = (flags & (FLAG_SEALED | FLAG_FROZEN) == 0) as u64;
     if unsafe { key_is(key, b"name") } && flags & FLAG_FN_NAME_DELETED == 0 {
         let s = unsafe { __torajs_closure_name_str(cell as *mut c_void) };
-        return unsafe { build_data_descriptor(ANY_HEAP, s as u64, 0, 0, 1) };
+        return unsafe { build_data_descriptor(ANY_HEAP, s as u64, 0, 0, configurable) };
     }
     if unsafe { key_is(key, b"length") } && flags & FLAG_FN_LENGTH_DELETED == 0 {
         let l = unsafe { __torajs_closure_length(cell as *mut c_void) };
         if l >= 0 {
-            return unsafe { build_data_descriptor(ANY_I64, l as u64, 0, 0, 1) };
+            return unsafe { build_data_descriptor(ANY_I64, l as u64, 0, 0, configurable) };
         }
     }
     // §20.2.4 — a plain `function` owns `prototype` {writable: true,
@@ -136,7 +146,8 @@ pub(crate) unsafe fn closure_cell_descriptor(cell: *const c_void, key: *const c_
             if t == ANY_HEAP {
                 unsafe { __torajs_rc_inc(v as *mut c_void) };
             }
-            return unsafe { build_data_descriptor(t, v, 1, 0, 0) };
+            let writable = (flags & FLAG_FROZEN == 0) as u64;
+            return unsafe { build_data_descriptor(t, v, writable, 0, 0) };
         }
     }
     // 3. ctor-static own descriptor (RFC 20260720 刀 2) — a builtin

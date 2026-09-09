@@ -264,11 +264,15 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             1
         }
         Some((ptr, t)) if t == Tag::Closure as u16 => {
-            // §22.1.2.4 family — a builtin ctor cell's `prototype`
-            // is {[[Configurable]]: false}: the delete refuses with
-            // the strict TypeError (RFC 20260721 刀 11 G11).
+            // §20.2.4.3 / §22.1.2.4 — a function's own `prototype` is
+            // {[[Configurable]]: false}, on a plain `function` (the
+            // lazily minted pair, which has no bag entry to carry the
+            // bit) and on a builtin ctor cell alike: the delete refuses
+            // with the strict TypeError. Before this only the ctor
+            // spelling refused and `delete f.prototype` answered true.
             if unsafe { crate::prop_has::key_is(key, b"prototype") }
-                && crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
+                && (crate::method_value::ctor::ctor_tag_of_cell(ptr).is_some()
+                    || unsafe { crate::closure_proto::fn_prototype_pair(ptr) }.is_some())
             {
                 return unsafe { refuse(throw_on_refusal) };
             }
