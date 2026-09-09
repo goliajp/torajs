@@ -72,3 +72,38 @@ function num(a: number, b: number) {
   return a * b - 1;
 }
 console.log(num(3, 4));
+
+// The UNANNOTATED form takes the same answer through the auto-generic
+// type vars. `a` and `b` carry `__T0` / `__T1` there, and a type var
+// CAN be a BigInt at the call site — so claiming `number` was a
+// promise the inference had no way to keep: `f(7n, 2n)` printed the
+// pointer for `- * |`, and `/ % **` failed in the register allocator.
+// `+` already declined that pair, which is why it was the one
+// operator that worked.
+function usub(a: any, b: any) {
+  return a - b;
+}
+function umul(a: any, b: any) {
+  return a * b;
+}
+function udiv(a: any, b: any) {
+  return a / b;
+}
+function urem(a: any, b: any) {
+  return a % b;
+}
+function upow(a: any, b: any) {
+  return a ** b;
+}
+function ubor(a: any, b: any) {
+  return a | b;
+}
+function uneg(a: any) {
+  return -a;
+}
+console.log(usub(7n, 2n), umul(7n, 2n), udiv(7n, 2n), urem(7n, 2n));
+console.log(upow(7n, 2n), ubor(6n, 3n), uneg(7n));
+
+// the same functions over Numbers keep answering Numbers
+console.log(usub(7, 2), umul(7, 2), udiv(7, 2), urem(7, 2));
+console.log(upow(7, 2), ubor(6, 3), uneg(7));

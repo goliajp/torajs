@@ -281,6 +281,13 @@ fn collect_return_anns_stmt(
     }
 }
 
+/// An operand annotation that does not settle whether the arithmetic
+/// answers a Number or a BigInt: `any` and the auto-generic type vars
+/// both stand for a value whose type arrives at the call site.
+fn unnameable_arith_operand(s: &str) -> bool {
+    s == "any" || is_typevar_ann(s)
+}
+
 fn is_typevar_ann(s: &str) -> bool {
     s.starts_with("__T") && s.len() > 3 && s[3..].bytes().all(|b| b.is_ascii_digit())
 }
@@ -347,6 +354,18 @@ pub(crate) fn infer_expr_ann_with(
             | BinOp::Shr
             | BinOp::UShr => match (recur(*left), recur(*right)) {
                 (Some(l), Some(r)) if l == "bigint" || r == "bigint" => (l == r).then_some(l),
+                // An `any` or type-var operand CAN be a BigInt at run
+                // time, and then the answer is a BigInt. `+` already
+                // declines that pair (its arm reads its operands);
+                // the rest claimed `number`, which is how
+                // `function f(a, b) { return a - b }` called with
+                // `(7n, 2n)` printed the pointer. Declining lets the
+                // caller stamp `any`, which carries both.
+                (Some(l), Some(r))
+                    if unnameable_arith_operand(&l) || unnameable_arith_operand(&r) =>
+                {
+                    None
+                }
                 _ => Some("number".into()),
             },
             // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
@@ -367,6 +386,7 @@ pub(crate) fn infer_expr_ann_with(
         Expr::Unary { op, expr } if matches!(op, UnaryOp::Neg | UnaryOp::BitNot) => {
             match recur(*expr) {
                 Some(t) if t == "bigint" => Some("bigint".into()),
+                Some(t) if unnameable_arith_operand(&t) => None,
                 _ => Some("number".into()),
             }
         }
