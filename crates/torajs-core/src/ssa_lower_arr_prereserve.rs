@@ -159,10 +159,71 @@ impl PreReserve {
     }
 }
 
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type, ValueId};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
+use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
+
+/// An append adds an index, which §10.1.8.1 refuses on a receiver that
+/// is not extensible — and both seal and freeze imply that.
+const EXTEND_LOCK_BITS: u16 =
+    torajs_rc::FLAG_FROZEN | torajs_rc::FLAG_SEALED | torajs_rc::FLAG_NON_EXTENSIBLE;
 
 impl LowerCtx<'_> {
+    /// The fill loop stores slots inline, so the refusal of a
+    /// non-extensible receiver (§10.1.8.1 through Set's TypeError) has
+    /// to come from the lowering. Two placements, chosen by whether a
+    /// push argument can run user code (`ssa_lower_push_loop_gate::push_args_cannot_call`). One
+    /// that cannot — a literal, a local, arithmetic over numbers, a
+    /// typed array element — can neither freeze the receiver nor
+    /// observe the order between its own evaluation and the throw, so
+    /// ONE check in the preheader, gated on `bound > 0` (a zero-trip
+    /// loop never touches the array), is exact and costs the loop
+    /// nothing: the body is untouched. An argument that can call could
+    /// freeze the receiver mid-loop and must see itself evaluated
+    /// before the throw (§23.1.3.23 step 5 runs before Set), so that
+    /// lane takes the check on every append instead
+    /// (`emit_prereserve_append_gate`). The inertness proof behind
+    /// `defer_len` is the wrong key here — it excludes `src[i]`, and
+    /// array-copy-1m paid +15% for a per-append check it never needed.
+    ///
+    /// The first version of this gate cost array-sum-1m +55% with the
+    /// loop byte-identical: its header read took the array out of the
+    /// interval analysis's element points, and the SUM loop after the
+    /// fill lost float demotion (`interval/elem.rs` admits the read
+    /// since). Measure the second loop, not only the one touched.
+    pub(crate) fn emit_prereserve_entry_gate(&mut self, reserved: ValueId, bound: Operand) {
+        let trips = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Sgt, bound, Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        emit_arr_lock_bits_guard(
+            self,
+            Operand::Value(reserved),
+            EXTEND_LOCK_BITS,
+            Some(Operand::Value(trips)),
+            None,
+        );
+    }
+
+    /// The per-append placement for a lane whose push argument is not
+    /// inert; emitted after the argument is evaluated, before the slot
+    /// store. `owned` is the coerced value when the coercion minted it.
+    pub(crate) fn emit_prereserve_append_gate(
+        &mut self,
+        st: PreReserveState,
+        owned: Option<(Operand, Type)>,
+    ) {
+        emit_arr_lock_bits_guard(
+            self,
+            Operand::Value(st.arr_ptr),
+            EXTEND_LOCK_BITS,
+            None,
+            owned,
+        );
+    }
+
     /// Read the three loop-invariant facts off an array the caller has
     /// just reserved, and mint the running-length slot. Emit this in the
     /// preheader — `reserved` is the pointer `arr_reserve` answered, and
@@ -172,6 +233,7 @@ impl LowerCtx<'_> {
         &mut self,
         reserved: ValueId,
         defer_len: bool,
+        gate_per_append: bool,
     ) -> PreReserveState {
         let head_off = match self.emit_arr_head_x8(Operand::Value(reserved)) {
             Operand::Value(v) => v,
@@ -197,6 +259,7 @@ impl LowerCtx<'_> {
             data_ptr,
             head_off,
             len_slot,
+            gate_per_append,
             defer_len,
         }
     }

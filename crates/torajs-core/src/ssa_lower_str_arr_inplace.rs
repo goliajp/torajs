@@ -242,24 +242,40 @@ pub(crate) fn try_dispatch(
 /// `Object.freeze([1]).reverse()` are test262 cases, and the first
 /// version of this guard (b5dbd89b5) failed both by raising at entry.
 pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand, writes: Operand) {
+    emit_arr_lock_bits_guard(ctx, recv_op, torajs_rc::FLAG_FROZEN, Some(writes), None);
+}
+
+/// The guard above with the bits and the conjunct as parameters: the
+/// pre-reserved fill loop refuses `FROZEN | SEALED | NON_EXTENSIBLE`
+/// (an append adds an index — §10.1.8.1) where the inline writers
+/// above refuse `FROZEN` alone. `cond` ANDs into the hit (`None` is
+/// unconditional); `owned` is a minted value the throw path must
+/// release before leaving (see `emit_throw_check_owned`).
+pub(crate) fn emit_arr_lock_bits_guard(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    bits: u16,
+    cond: Option<Operand>,
+    owned: Option<(Operand, Type)>,
+) {
     let hdr_word = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I32, recv_op, 4),
         Type::I32,
         None,
     );
-    let frozen_bit = (torajs_rc::FLAG_FROZEN as u32) << 16;
+    let lock_bits = (bits as u32) << 16;
     let masked = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::BinOp(
             crate::ssa::BinOp::And,
             Operand::Value(hdr_word),
-            Operand::ConstI32(frozen_bit as i32),
+            Operand::ConstI32(lock_bits as i32),
         ),
         Type::I32,
         None,
     );
-    let frozen = ctx.f.append_inst(
+    let locked = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(
             crate::ssa::IPred::Ne,
@@ -269,12 +285,15 @@ pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand, wr
         Type::Bool,
         None,
     );
-    let hit = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::BinOp(crate::ssa::BinOp::And, Operand::Value(frozen), writes),
-        Type::Bool,
-        None,
-    );
+    let hit = match cond {
+        Some(c) => ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(crate::ssa::BinOp::And, Operand::Value(locked), c),
+            Type::Bool,
+            None,
+        ),
+        None => locked,
+    };
     let throw_blk = ctx.f.add_block();
     let cont_blk = ctx.f.add_block();
     ctx.f.set_term(
@@ -289,7 +308,10 @@ pub(crate) fn emit_arr_frozen_guard(ctx: &mut LowerCtx<'_>, recv_op: Operand, wr
     let raiser = ctx.intrinsics.throw_readonly_assign;
     ctx.f
         .append_void(ctx.cur_block, InstKind::Call(raiser, vec![]));
-    ctx.emit_throw_check(None);
+    match owned {
+        Some((v, ty)) => ctx.emit_throw_check_owned(None, v, ty),
+        None => ctx.emit_throw_check(None),
+    }
     // The check's fall-through can never run (the raiser always arms
     // the flag) and is terminated as such — a `Br` back to the
     // continue block would make this a loop-body block wherever the

@@ -124,7 +124,7 @@ pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
 }
 
 /// The allowlist itself. See [`push_args_all_inert`].
-fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+pub(crate) fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     if !matches!(
         ctx.expr_types.get(&eid),
         Some(crate::check::Type::Number) | Some(crate::check::Type::Boolean)
@@ -142,7 +142,7 @@ fn expr_is_inert(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 
 /// Arithmetic and comparison that cannot call, read a heap cell, or
 /// throw. Shared by the push-argument allowlist and the bound's.
-fn is_inert_binop(op: crate::ast::BinOp) -> bool {
+pub(crate) fn is_inert_binop(op: crate::ast::BinOp) -> bool {
     use crate::ast::BinOp as B;
     matches!(
         op,

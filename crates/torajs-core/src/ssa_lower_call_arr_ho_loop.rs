@@ -139,7 +139,7 @@ pub(crate) fn begin_loop(
             // no user code can name until `map` / `filter` answers it,
             // so the length word may stay in a register until then —
             // see `PreReserveState::defer_len`.
-            dst_fast = Some(ctx.emit_prereserved_state(reserved, true));
+            dst_fast = Some(ctx.emit_prereserved_state(reserved, true, false));
         }
     }
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));

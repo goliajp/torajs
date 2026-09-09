@@ -151,6 +151,10 @@ fn try_lower_ident_local(
     // slot at data_ptr + head_off + len*8, bump len_slot (B1: base is
     // the hoisted data pointer; the reserve guarantees it stays valid).
     if let Some(state) = ctx.prereserve.unchecked_for.get(recv_name).copied() {
+        if state.gate_per_append {
+            let owned = val_owned_from_substr.then(|| (val.clone(), elem_ty));
+            ctx.emit_prereserve_append_gate(state, owned);
+        }
         let len_next = ctx.emit_prereserved_push(state, val.clone());
         if elem_ty.is_refcounted() && !val_owned_from_substr {
             ctx.emit_rc_inc(val);

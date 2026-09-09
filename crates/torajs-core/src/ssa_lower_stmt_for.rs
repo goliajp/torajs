@@ -391,6 +391,7 @@ fn emit_push_loop_reserve(
     // length word in a register until the loop ends — see
     // `PreReserveState::defer_len`.
     let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
+    let gate_per_append = !crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body);
     let mut reserve_emitted: Vec<String> = Vec::new();
     if let Some((bound_eid, names)) = &pushed_arrays {
         // The install gate: the bound is read once here and trusted
@@ -454,7 +455,10 @@ fn emit_push_loop_reserve(
                 None,
             );
             // B1 — reserve never moves the cell.
-            let state = ctx.emit_prereserved_state(reserved, defer_len);
+            if !gate_per_append {
+                ctx.emit_prereserve_entry_gate(reserved, bound_op.clone());
+            }
+            let state = ctx.emit_prereserved_state(reserved, defer_len, gate_per_append);
             ctx.prereserve.unchecked_for.insert(name.clone(), state);
             reserve_emitted.push(name.clone());
         }
