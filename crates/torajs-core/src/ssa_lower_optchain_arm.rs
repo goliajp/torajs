@@ -56,6 +56,18 @@ pub(crate) fn lower(
     if matches!(obj_ty, Type::Any) {
         return ctx.lower_optchain_any(eid, obj_op, name);
     }
+    // A PRIMITIVE receiver can never be nullish, so `n?.nope` is
+    // exactly `n.nope` — but the sentinel table below has no entry
+    // for these reprs and the whole chain panicked ("optional chain
+    // on receiver type I64 not yet supported") on a program bun runs.
+    // Boxing onto the any lane is the same routing the member ladder
+    // takes for them (`routes_to_any_member_lane`): the kernel's
+    // nullish test answers false for a Number / Boolean tag and the
+    // read proceeds, a miss answering undefined per §10.1.8.1.
+    if matches!(obj_ty, Type::I64 | Type::I32 | Type::F64 | Type::Bool) {
+        let boxed = ctx.box_to_any(obj_op);
+        return ctx.lower_optchain_any(eid, boxed, name);
+    }
     let res_slot = ctx.alloca_in_entry(Type::Any, Some("__optchain"));
     let cur_block = ctx.cur_block;
     let eq_null = ctx.f.append_inst(

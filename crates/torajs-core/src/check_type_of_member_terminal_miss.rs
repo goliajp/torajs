@@ -105,7 +105,27 @@ pub(crate) fn answer(
     // that shape is a contract, and tsc refuses `o.q` on it too. The
     // zero-field arm above is this same posture already, unconditional
     // because `{}` declares no surface a typo could miss.
-    if spec_body && matches!(obj_ty, Type::Struct(_)) {
+    //
+    // The same holds for a PRIMITIVE anchor, and for the same reason:
+    // `function f(n)` says nothing about `n`, and §10.1.8.1 [[Get]]
+    // on a primitive's absent property answers undefined. Only the
+    // Struct shape was admitted, so `f(1).nope` and `f(true).nope`
+    // stayed rejected — and, being a specialization body, REJECTED
+    // meant a blank in `expr_types`, which the member ladder read as
+    // "not an object" and the call cascade as "unsupported member
+    // call shape: nope". `(1 as any).nope` and `(1 as any).nope()`
+    // answered undefined and threw the right TypeError all along.
+    if spec_body
+        && matches!(
+            obj_ty,
+            Type::Struct(_)
+                | Type::Number
+                | Type::Boolean
+                | Type::BigInt
+                | Type::String
+                | Type::Symbol
+        )
+    {
         return Ok(Type::Any);
     }
     Err(format!("no member `.{name}` on type {obj_ty:?}"))
