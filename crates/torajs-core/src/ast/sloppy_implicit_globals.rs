@@ -62,6 +62,11 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
     }
     let mut declared = std::collections::HashSet::new();
     super::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
+    // Names an assignment inside STRICT eval text would have created
+    // if it were sloppy. It is not, so nothing may be synthesized for
+    // them — and `declared` is exactly the set of names this pass does
+    // not create, so they belong in it.
+    declared.extend(ast.strict_eval_assign_names.iter().cloned());
     let mut names: Vec<String> = Vec::new();
     let mut walk = Walk {
         declared: &declared,
@@ -83,6 +88,27 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
         })
         .collect();
     ast.stmts.splice(0..0, decls);
+}
+
+/// The bare names an assignment inside `stmts` would create if this
+/// code were sloppy — the same question `synthesize_sloppy_implicit_
+/// globals` asks of the whole program, asked of one fragment.
+///
+/// The eval splice needs it because a text that is STRICT must create
+/// nothing: §19.2.1.1 gives eval code its own strictness, and after
+/// the splice no later pass can tell those statements from the sloppy
+/// program around them. Answering with this walk rather than a second
+/// one keeps the two in step.
+pub(super) fn assigned_bare_names(ast: &Ast, stmts: &[Stmt]) -> Vec<String> {
+    let declared = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    let mut walk = Walk {
+        declared: &declared,
+        out: &mut out,
+        seen: Vec::new(),
+    };
+    walk.walk_block(ast, stmts);
+    out
 }
 
 fn admit(n: &str, declared: &std::collections::HashSet<String>, out: &mut Vec<String>) {

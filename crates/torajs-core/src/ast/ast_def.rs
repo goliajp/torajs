@@ -159,6 +159,16 @@ pub struct Ast {
     /// the same orphan story `parse_eval_source` records for the
     /// expressions it leaves behind.
     pub sloppy_eval_fn_names: std::collections::HashSet<String>,
+    /// The mirror of the set above, for the other direction: names that
+    /// an assignment inside STRICT eval text would create if it were
+    /// sloppy. §19.2.1.1 gives eval code its own strictness, and a
+    /// strict assignment to an unresolvable name throws rather than
+    /// creating a global — but after the splice the statements are
+    /// indistinguishable from the sloppy program around them, and the
+    /// spans were blanked, so the name is what is left to carry it.
+    /// Read by `sloppy_implicit_globals`, which folds it into the set
+    /// of names it must not synthesize.
+    pub strict_eval_assign_names: std::collections::HashSet<String>,
     /// Bindings minted by object-rest destructuring (`{a, ...rest}`,
     /// §14.3.3.1 RestBindingInitialization) — the rest object's
     /// static Struct shape is the source-minus-omit ANCHOR, but the

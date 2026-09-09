@@ -173,6 +173,17 @@ pub(super) fn parse_eval_source(
     // to catch never came.
     if !is_strict && !has_use_strict_prologue(&stmts, ast) {
         ast.sloppy_eval_fn_names.extend(blanked);
+    } else {
+        // The other half of the same sentence. Strict code creates no
+        // globals: an assignment to an unresolvable name throws
+        // instead, so `eval('"use strict"; unresolvable = null')` is a
+        // ReferenceError. Without this the sloppy-implicit-globals
+        // pass synthesized `var unresolvable` for it, because by the
+        // time that pass runs these statements are indistinguishable
+        // from the sloppy program they were spliced into — same shape,
+        // and the spans were blanked above.
+        let names = super::super::sloppy_implicit_globals::assigned_bare_names(ast, &stmts);
+        ast.strict_eval_assign_names.extend(names);
     }
     let octal_here = ast.legacy_octal_positions.len() > octal_before;
     ast.legacy_octal_positions.truncate(octal_before);
