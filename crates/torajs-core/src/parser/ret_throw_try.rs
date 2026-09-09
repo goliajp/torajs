@@ -161,14 +161,20 @@ impl<'a> Parser<'a> {
             // SyntaxErrors — a function declaration in a Block is a
             // LexicallyDeclaredName, in sloppy code as much as strict.
             //
-            // Only a simple parameter is judged. A destructured one
-            // binds through a synthesized `__catch_destr_` name, so its
-            // real names are not in hand here; that face is recorded
-            // rather than half-answered.
-            if let Some(p) = &catch_param
-                && !p.starts_with("__catch_destr_")
-                && catch_block_lex_name(&catch_body, p)
-            {
+            // A destructured parameter binds through a synthesized
+            // `__catch_destr_` holder, so the names §13.15.1 judges
+            // are the pattern's BoundNames, not the holder's spelling.
+            let mut judged: Vec<String> = Vec::new();
+            if let Some(p) = &catch_param {
+                if p.starts_with("__catch_destr_") {
+                    if let Some(pat) = &destr_pattern {
+                        pat.bound_names(&mut judged);
+                    }
+                } else {
+                    judged.push(p.clone());
+                }
+            }
+            if let Some(p) = judged.iter().find(|p| catch_block_lex_name(&catch_body, p)) {
                 return Err(format!(
                     "`{p}` is a catch parameter and may not also be lexically                      declared in the block at {} (ES §13.15.1)",
                     self.at()

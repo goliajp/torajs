@@ -83,6 +83,48 @@ pub(super) enum ObjBinding {
     },
 }
 
+impl PatShape {
+    /// §8.2.1 BoundNames of a BindingPattern — every identifier the
+    /// pattern declares, nesting and rest slots included, in source
+    /// order. A default initializer binds nothing of its own, so the
+    /// walk never enters one.
+    ///
+    /// The catch clause needs this: §13.15.1 judges the BoundNames of
+    /// the CatchParameter against the block's LexicallyDeclaredNames,
+    /// and a destructured parameter binds through a synthesized
+    /// `__catch_destr_` holder whose spelling names nothing the user
+    /// wrote.
+    pub(super) fn bound_names(&self, out: &mut Vec<String>) {
+        match self {
+            PatShape::Ary { elems, rest } => {
+                for e in elems {
+                    match e {
+                        AryElem::Elide => {}
+                        AryElem::Bind { name, .. } => out.push(name.clone()),
+                        AryElem::Nested { pat, .. } => pat.bound_names(out),
+                    }
+                }
+                match rest {
+                    Some(RestShape::Bind(n)) => out.push(n.clone()),
+                    Some(RestShape::Nested(pat)) => pat.bound_names(out),
+                    None => {}
+                }
+            }
+            PatShape::Obj { fields, rest } => {
+                for f in fields {
+                    match &f.binding {
+                        ObjBinding::Bind { name, .. } => out.push(name.clone()),
+                        ObjBinding::Nested { pat, .. } => pat.bound_names(out),
+                    }
+                }
+                if let Some(n) = rest {
+                    out.push(n.clone());
+                }
+            }
+        }
+    }
+}
+
 impl<'a> Parser<'a> {
     /// Recursive pattern reader — consumes from the opening `[` / `{`
     /// through its matching close. Err on a non-pattern shape; the
