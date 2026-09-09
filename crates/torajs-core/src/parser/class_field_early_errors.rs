@@ -23,6 +23,18 @@ pub(super) fn init_contains_arguments(ast: &Ast, eid: ExprId) -> bool {
     expr_contains(ast, eid)
 }
 
+/// ContainsArguments of a ClassStaticBlockStatementList. §15.7.1
+/// states the same early error twice — once for a field initializer,
+/// once for a static block — and one walk answers both: `arguments`
+/// spelled as an IdentifierReference is true, arrows are pierced (they
+/// inherit the outer binding), and anything that binds its own
+/// `arguments` stops it. So `static { (function () { return arguments;
+/// }) }` and a nested class's method body are both legal, while
+/// `static { ((x = arguments) => 0) }` is not.
+pub(super) fn static_block_contains_arguments(ast: &Ast, stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| stmt_contains(ast, s))
+}
+
 fn params_contain(ast: &Ast, params: &[Param]) -> bool {
     // Arrow-param defaults evaluate in the outer `arguments` scope
     // (§8.4.1 recurses on the full ArrowFunction production).

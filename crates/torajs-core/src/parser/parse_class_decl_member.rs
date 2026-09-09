@@ -65,6 +65,16 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1; // consume `}`
+        // §15.7.1 — the second of the two productions this early error
+        // is stated for (see the walk's own doc).
+        if super::class_field_early_errors::static_block_contains_arguments(&self.ast, &block_stmts)
+        {
+            return Err(format!(
+                "`arguments` is not allowed in a class static block in class \
+                 `{name}` at {} (ES §15.7.1)",
+                self.at()
+            ));
+        }
         static_init.push(StaticInit::Block(block_stmts));
         Ok(())
     }
