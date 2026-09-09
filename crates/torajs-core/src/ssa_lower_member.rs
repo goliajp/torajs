@@ -98,6 +98,51 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
 /// owned-result contract). Also the OptChain hit path's dispatch
 /// (chunk 791 — non-Obj receivers reuse the ladder instead of
 /// re-implementing per-type member reads).
+/// Receiver shapes whose member read is answered by the any lane
+/// rather than by a repr-specific load.
+///
+/// Knowing the receiver's SHAPE is not a licence to answer the read
+/// in the ladder. `(new Map() as any).zz` is an ordinary property
+/// read on an ordinary object (§24.1.6), and every one of these cells
+/// HAS a property face — own bag, then the prototype chain, then the
+/// builtin reify — so the any lane can answer it. The Promise and
+/// Closure arms are the same routing; these are the rest of the
+/// shapes, which used to reach the ladder's panic and surface as a
+/// COMPILE error on a program bun runs. `box_to_any` is rc-neutral,
+/// so the receiver binding keeps its stake either way.
+///
+/// The number and boolean reprs joined last: §10.1.8.1 makes a
+/// property MISS on a primitive receiver `undefined`, not a refusal,
+/// and the checker already says so for an INFERRED anchor (rotation
+/// 620 — the Struct a specialization body pins is an anchor, not a
+/// contract). Without them `function f(n) { return n.nope }` called
+/// with `1` panicked while the same function called with `"x"` or
+/// `{x:1}` answered undefined. A DECLARED `n: number` never arrives
+/// here: the checker refuses it first, which is what tsc does too
+/// (TS2339).
+fn routes_to_any_member_lane(obj_ty: &Type) -> bool {
+    matches!(
+        obj_ty,
+        Type::Map
+            | Type::Set
+            | Type::Date
+            | Type::RegExp
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Symbol
+            | Type::BigInt
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::Str
+            | Type::Substr
+            | Type::I64
+            | Type::I32
+            | Type::F64
+            | Type::Bool
+    )
+}
+
 pub(crate) fn lower_with_val(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
@@ -194,32 +239,7 @@ pub(crate) fn lower_with_val(
     {
         return op;
     }
-    // Knowing the receiver's SHAPE is not a licence to answer the
-    // read here. `(new Map() as any).zz` is an ordinary property read
-    // on an ordinary object (§24.1.6), and every one of these cells
-    // now HAS a property face — own bag, then the prototype chain,
-    // then the builtin reify — so the any lane can answer it. The
-    // Promise and Closure arms above are the same routing; this is
-    // the rest of the heap-cell shapes, which used to reach the panic
-    // below and surface as a COMPILE error on a program bun runs.
-    // `box_to_any` is rc-neutral, so the receiver binding keeps its
-    // stake exactly as it does on those two arms.
-    if matches!(
-        obj_ty,
-        Type::Map
-            | Type::Set
-            | Type::Date
-            | Type::RegExp
-            | Type::MapIter
-            | Type::ArrIter
-            | Type::Symbol
-            | Type::BigInt
-            | Type::WeakRef
-            | Type::WeakMap
-            | Type::WeakSet
-            | Type::Str
-            | Type::Substr
-    ) {
+    if routes_to_any_member_lane(&obj_ty) {
         let boxed = ctx.box_to_any(obj_val);
         return crate::ssa_lower_any_member::lower_any_member_read(ctx, eid, boxed, name);
     }
