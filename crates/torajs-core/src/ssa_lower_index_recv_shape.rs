@@ -52,3 +52,20 @@ pub(crate) fn shape_has_expando_bag(ty: &Type) -> bool {
             | Type::WeakRef
     )
 }
+
+/// §10.1.8.1 — indexing a PRIMITIVE is an ordinary [[Get]] through
+/// its wrapper, so `(1)[0]` and `true[0]` answer undefined rather
+/// than refusing to compile. These receivers carry no expando bag,
+/// so they are not on the list above; they still have to reach the
+/// runtime dispatcher, which answers by tag — `(1 as any)[0]` has
+/// done exactly that all along, while the typed spelling died
+/// "index access on non-array type I64".
+///
+/// Str and Substr are absent on purpose: real string indexing is
+/// claimed by an earlier arm and returns a one-character Str.
+pub(crate) fn primitive_index_receiver(ty: &Type) -> bool {
+    matches!(
+        ty,
+        Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::BigInt
+    )
+}

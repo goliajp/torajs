@@ -131,7 +131,10 @@ pub(crate) fn lower_from_value(
     // type Map". Boxing is the whole mechanism: RegExp has been on
     // this list the whole time and its non-number keys have worked
     // the whole time.
-    let (arr_val, arr_ty) = if shape_has_expando_bag(&arr_ty) || obj_is_fn {
+    let (arr_val, arr_ty) = if shape_has_expando_bag(&arr_ty)
+        || obj_is_fn
+        || crate::ssa_lower_index_recv_shape::primitive_index_receiver(&arr_ty)
+    {
         (ctx.box_to_any(arr_val), Type::Any)
     } else {
         (arr_val, arr_ty)
