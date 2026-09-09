@@ -279,7 +279,20 @@ impl<'a> Parser<'a> {
             // records the site, which needs `&mut self` — a guard
             // cannot. The answer is only consulted below, after the
             // two arms that claim a token this one never sees.
-            let shorthand = self.shorthand_binding_name();
+            // Only ASK when the word can actually shorthand-bind.
+            // `{ let: x }` names the FIELD `let` and binds `x`, so
+            // admitting the word as a BINDING there — and parking it
+            // for the goal gate — refused a module node runs. With a
+            // `:` ahead the keyword arm below claims it as a property
+            // name, which is what it is.
+            let shorthand = if matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Colon)
+            ) {
+                None
+            } else {
+                self.shorthand_binding_name()
+            };
             let (field, field_is_kw) = match self.peek() {
                 Token::Ident(n) => (PropKey::from(n), false),
                 // ES §12.7.2 — an escaped ReservedWord names the

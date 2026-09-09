@@ -52,10 +52,19 @@ impl<'a> Parser<'a> {
         let Some(t1) = self.tokens.get(self.pos + 1) else {
             return Ok(None);
         };
-        let Token::Ident(name) = &t1.token else {
-            return Ok(None);
+        // §12.7.6 PropertyName is an IdentifierName, so an async
+        // shorthand may be named with a keyword (`{ async if() {} }`,
+        // `{ async let() {} }`). Matching `Token::Ident` alone sent
+        // every one of them back to the field path, which then
+        // demanded a `:` after the word `async`. The generator
+        // spelling `{ async *if() {} }` already worked.
+        let method_name = match &t1.token {
+            Token::Ident(name) => name.clone(),
+            t => match Self::keyword_property_name(t) {
+                Some(kw) => kw.to_string(),
+                None => return Ok(None),
+            },
         };
-        let method_name = name.clone();
         let Some(t2) = self.tokens.get(self.pos + 2) else {
             return Ok(None);
         };

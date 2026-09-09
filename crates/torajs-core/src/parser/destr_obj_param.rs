@@ -26,40 +26,15 @@ impl<'a> Parser<'a> {
         let mut computed_keys: Vec<String> = Vec::new();
         if !matches!(self.peek(), Token::RBrace) {
             loop {
-                if matches!(self.peek(), Token::DotDotDot) {
-                    self.pos += 1;
-                    let bind = self.pattern_binding_name();
-                    let rest_name = match self.peek() {
-                        _ if bind.is_some() => bind.unwrap(),
-                        t => {
-                            return Err(format!(
-                                "expected identifier after `...` in object param destructuring, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    };
-                    self.pos += 1;
-                    let omit: Vec<&str> = seen_fields.iter().filter_map(|f| f.as_str()).collect();
-                    let bind = self.emit_obj_rest_let(
+                if matches!(self.peek(), Token::DotDotDot)
+                    && self.parse_destr_object_rest(
                         &src_name,
-                        &omit,
+                        &seen_fields,
                         &computed_keys,
-                        &rest_name,
-                        false,
-                        false,
-                    );
-                    lets.push(bind);
-                    // §14.3.3.1 — a rest element is always last; the
-                    // pattern must close here.
-                    match self.peek() {
-                        Token::RBrace => break,
-                        t => {
-                            return Err(format!(
-                                "rest element must be last in object param destructuring, got {t:?} at {}",
-                                self.at()
-                            ));
-                        }
-                    }
+                        lets,
+                    )?
+                {
+                    break;
                 }
                 // §14.3.3 ComputedPropertyName — `({ [expr]: binding })`.
                 // The field parses through its own method; the shared
@@ -86,7 +61,20 @@ impl<'a> Parser<'a> {
                 }
                 // See the twin in destr_shape.rs: asked before the
                 // match because admitting an `await` records the site.
-                let shorthand = self.shorthand_binding_name();
+                // Only ASK when the word can actually shorthand-bind.
+                // `{ let: x }` names the FIELD `let` and binds `x`, so
+                // admitting the word as a BINDING there — and parking it
+                // for the goal gate — refused a module node runs. With a
+                // `:` ahead the keyword arm below claims it as a property
+                // name, which is what it is.
+                let shorthand = if matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.token),
+                    Some(Token::Colon)
+                ) {
+                    None
+                } else {
+                    self.shorthand_binding_name()
+                };
                 let (field, field_is_kw) = match self.peek() {
                     Token::Ident(n) => (PropKey::from(n), false),
                     // ES §12.7.2 — escaped ReservedWord names the
@@ -319,5 +307,48 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(kname)
+    }
+
+    /// `({ a, ...rest })` — the object pattern's BindingRestProperty
+    /// in PARAMETER position, split out of
+    /// [`Self::parse_destr_object_into`] when the field-slot
+    /// admission fix pushed that function past the 200-line cap.
+    ///
+    /// Answers `true` once the rest has been emitted and the pattern
+    /// closed; the caller breaks out of its loop on it. Only reached
+    /// with the cursor on `...`.
+    fn parse_destr_object_rest(
+        &mut self,
+        src_name: &str,
+        seen_fields: &[PropKey],
+        computed_keys: &[String],
+        lets: &mut Vec<Stmt>,
+    ) -> Result<bool, String> {
+        self.pos += 1;
+        let bind = self.pattern_binding_name();
+        let rest_name = match self.peek() {
+            _ if bind.is_some() => bind.unwrap(),
+            t => {
+                return Err(format!(
+                    "expected identifier after `...` in object param destructuring, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        };
+        self.pos += 1;
+        let omit: Vec<&str> = seen_fields.iter().filter_map(|f| f.as_str()).collect();
+        let bind = self.emit_obj_rest_let(src_name, &omit, computed_keys, &rest_name, false, false);
+        lets.push(bind);
+        // §14.3.3.1 — a rest element is always last; the
+        // pattern must close here.
+        match self.peek() {
+            Token::RBrace => return Ok(true),
+            t => {
+                return Err(format!(
+                    "rest element must be last in object param destructuring, got {t:?} at {}",
+                    self.at()
+                ));
+            }
+        }
     }
 }
