@@ -26,7 +26,10 @@
 
 use core::ffi::c_void;
 
-use crate::{FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED, FLAG_STATIC_LITERAL, HeapHeader};
+use crate::{
+    FLAG_ARR_LENGTH_RO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED, FLAG_STATIC_LITERAL,
+    HeapHeader, Tag,
+};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const u8);
@@ -78,6 +81,14 @@ pub unsafe extern "C" fn __torajs_obj_freeze(p: *mut c_void) -> *mut c_void {
         return p;
     }
     h.flags |= FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE;
+    // §7.3.14 on an array's own `length`: the freeze makes it
+    // non-writable, and the length lock is the bit every reader of
+    // that attribute (the descriptor, the define validation, the
+    // writers) already consults — before this a frozen array's
+    // `length` descriptor still said writable.
+    if h.type_tag == Tag::Arr as u16 {
+        h.flags |= FLAG_ARR_LENGTH_RO;
+    }
     p
 }
 
