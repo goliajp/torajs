@@ -404,5 +404,35 @@ fn lower_non_array_source(
         crate::ssa_lower_for_of_any_iter::lower(ctx, src_ptr_op, var_name, body, is_await);
         return true;
     }
+    // Every other shape the compiler can name boxes into the any lane,
+    // which already answers it: GetIterator on a non-iterable is a
+    // TypeError (§7.4.3), and the lane raises exactly that for a
+    // number, a boolean, a Date, a function … Before this the typed
+    // spelling was a COMPILE refusal — a specialized body's
+    // `for (const q of x)` with `x` bound to `1` said "for-of source
+    // type I64 not yet supported" while `const n: any = 1` and the
+    // same loop threw. Same posture as the incr ladder (fa111f46e):
+    // knowing the shape is not a licence to skip §7.4.3.
+    if matches!(
+        src_ty,
+        Type::I64
+            | Type::I32
+            | Type::F64
+            | Type::Bool
+            | Type::FnSig(_)
+            | Type::Closure(_)
+            | Type::RegExp
+            | Type::Date
+            | Type::Symbol
+            | Type::Promise
+            | Type::BigInt
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+    ) {
+        let boxed = ctx.box_to_any(src_ptr_op);
+        crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
+        return true;
+    }
     false
 }
