@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T02:50:15.480Z",
+  "generatedAt": "2026-09-09T06:04:57.663Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-09T02:34:36Z",
-    "headSha": "5fedffcba",
-    "elapsedSec": 431.34,
+    "ranAt": "2026-09-09T05:47:54Z",
+    "headSha": "5dd512201",
+    "elapsedSec": 429.62,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31277,
+    "pass": 31280,
     "passNoOracle": 1186,
     "passNegative": 4511,
-    "passTotal": 36974,
-    "bug": 11555,
-    "incompatible": 4645,
-    "bunSkip": 2931,
+    "passTotal": 36977,
+    "bug": 11558,
+    "incompatible": 4639,
+    "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48529,
-    "passRateInScope": 69.53,
+    "trAccepted": 48535,
+    "passRateInScope": 69.54,
     "passRateTrAccepted": 76.19
   },
   "torajs": {
-    "commit": "edcd149ba",
-    "commitSubject": "docs(conformance): a heritage fixture's comment named a mechanism I never checked",
+    "commit": "5aeae8d90",
+    "commitSubject": "chore(hardev): rotation 619 stamps — sweep, determinism, Guard Malloc, file size",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "edcd149ba",
-      "subject": "docs(conformance): a heritage fixture's comment named a mechanism I never checked"
+      "hash": "5aeae8d90",
+      "subject": "chore(hardev): rotation 619 stamps — sweep, determinism, Guard Malloc, file size"
     },
     {
-      "hash": "5fedffcba",
-      "subject": "fix(torajs-core): strict eval text created the globals it should have thrown on"
+      "hash": "8921ea9ca",
+      "subject": "fix(hardev): the sweep baseline reached back two rotations, and conservation did not notice"
     },
     {
-      "hash": "9d0c36015",
-      "subject": "refactor(torajs-core): move two families out, along seams their module docs already named"
+      "hash": "5dd512201",
+      "subject": "fix(hardev): the close driver ran in `/`, and a stamp could never be written clean"
     },
     {
-      "hash": "231c13f12",
-      "subject": "fix(torajs-core): `async` and `type` are contextual keywords, not reserved words"
+      "hash": "7b837169a",
+      "subject": "feat(hardev): fix the rotation-close sequence in a script instead of in four long commands"
     },
     {
-      "hash": "ca1153186",
-      "subject": "fix(torajs-core): a catch parameter and a lexical declaration of the same name in its block"
+      "hash": "e9402a97e",
+      "subject": "fix(torajs-core): `async` and `type` name bindings, not just properties and references"
     },
     {
-      "hash": "9dfdff81d",
-      "subject": "fix(torajs-core): §15.7.1 states ContainsArguments twice; tr wired it once"
+      "hash": "49abe227b",
+      "subject": "fix(torajs-core): `let` shorthands where the BoundNames are not a lexical binding's"
     },
     {
-      "hash": "b93ea53c9",
-      "subject": "docs(torajs-core): AnnexBGoal's span doc still named one source"
+      "hash": "081bd03af",
+      "subject": "feat(hardev): carry both bench reductions in one stamp so they cannot drift"
     },
     {
-      "hash": "ab2aa7538",
-      "subject": "fix(torajs-core): the legacy-octal gate knew two of strictness's three sources"
+      "hash": "193257379",
+      "subject": "fix(torajs-core): `yield` and `await` shorthand as bindings where nothing reserves them"
     },
     {
-      "hash": "aa23d2318",
-      "subject": "fix(torajs-core): a ClassHeritage is part of the class, so it is strict code"
+      "hash": "368d18efe",
+      "subject": "docs(hardev): the TRIG spec, the pipeline protocol and the 8-rotation reading"
     },
     {
-      "hash": "cf3b0895a",
-      "subject": "fix(torajs-core): an arrow's parameters inherit `[Await]`; tr overwrote it"
+      "hash": "79e94d07a",
+      "subject": "feat(hardev): TRIG-1 grows a measure that cannot be met by slicing thinner"
     },
     {
-      "hash": "a359e2d71",
-      "subject": "fix(torajs-core): strictness has a source below the program, and four judges only asked the program"
+      "hash": "5e77a330f",
+      "subject": "feat(hardev): axis B gets a committed number, and TRIG-5 asks for it"
     },
     {
-      "hash": "d167cefbf",
-      "subject": "fix(torajs-core): a read one operand to the left also beats the write"
+      "hash": "cb0f47e88",
+      "subject": "feat(hardev): TRIG-7 — stop transcribing the sweep, so it cannot be transcribed wrong"
     }
   ],
-  "headSha": "edcd149ba",
+  "headSha": "5aeae8d90",
   "autorun": {
-    "total": 921,
+    "total": 922,
     "baselineTarget": 10,
-    "bySelf": 916,
+    "bySelf": 917,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788912995-7810",
-      "at": "2026-09-09T00:16:35Z",
-      "ts": 1788912995,
+      "rotationId": "r-1788922246-6535",
+      "at": "2026-09-09T02:50:46Z",
+      "ts": 1788922246,
       "trigger": "self",
-      "prevHead": "b99c6dd6c",
-      "handoffSha": "sha256:491b9de4129018480d9b346786b9e6e141d6711bc12256846405a61574bd6d8a",
-      "handoffAgeSec": 23,
-      "conformanceBefore": "3836/0/4",
-      "commitsInSession": 14
+      "prevHead": "e4ef45b25",
+      "handoffSha": "sha256:7335e67fe79b76e677df39d3f0ca3a4fbc93866ce5f25cda636ca50e3d76411f",
+      "handoffAgeSec": 8,
+      "conformanceBefore": "3845/0/4",
+      "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1788922246-6535",
+        "at": "2026-09-09T02:50:46Z",
+        "ts": 1788922246,
+        "trigger": "self",
+        "prevHead": "e4ef45b25",
+        "handoffSha": "sha256:7335e67fe79b76e677df39d3f0ca3a4fbc93866ce5f25cda636ca50e3d76411f",
+        "handoffAgeSec": 8,
+        "conformanceBefore": "3845/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1788912995-7810",
         "at": "2026-09-09T00:16:35Z",
@@ -903,17 +914,6 @@
         "prevHead": "304390cfb",
         "handoffSha": "sha256:e9c7d8384e5597eaef1088d8f11eb3509fb98c9c6e0a736f1125f1405331ac5a",
         "handoffAgeSec": 0,
-        "conformanceBefore": null,
-        "commitsInSession": null
-      },
-      {
-        "rotationId": "r-1788765687-39f5",
-        "at": "2026-09-07T07:21:27Z",
-        "ts": 1788765687,
-        "trigger": "self",
-        "prevHead": "41f7b11e6",
-        "handoffSha": "sha256:732d06032d62aa34cff12ee08435b6accf2394398d38e2f328baf7f40940e6e3",
-        "handoffAgeSec": 4,
         "conformanceBefore": null,
         "commitsInSession": null
       }
