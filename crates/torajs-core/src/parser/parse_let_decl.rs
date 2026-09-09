@@ -78,6 +78,13 @@ impl<'a> Parser<'a> {
                     self.record_strict_goal_site("let");
                     "let".to_string()
                 }
+                // `async` and `type` are on nobody's reserved list, so
+                // every declaration kind takes them — node runs
+                // `var async = 1`, `let async = 1` and `const type = 1`
+                // alike, with no strictness clause on any of the three.
+                t if Self::contextual_binding_name(t).is_some() => {
+                    Self::contextual_binding_name(t).unwrap().to_string()
+                }
                 t => {
                     return Err(format!(
                         "expected identifier after `{kw}`, got {t:?} at {}",

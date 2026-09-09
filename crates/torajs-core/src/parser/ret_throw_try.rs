@@ -95,6 +95,13 @@ impl<'a> Parser<'a> {
                         self.pos += 1;
                         n
                     }
+                    // `async` / `type` name a CatchParameter like any
+                    // other identifier — nobody reserves them.
+                    t if Self::contextual_binding_name(t).is_some() => {
+                        let n = Self::contextual_binding_name(t).unwrap().to_string();
+                        self.pos += 1;
+                        n
+                    }
                     // §14.15 CatchParameter : BindingPattern
                     // (`catch ({ x = 1, ...r })`, `catch ([a, [b] = [],
                     // ...rest])`). The shared PatShape reader parses the

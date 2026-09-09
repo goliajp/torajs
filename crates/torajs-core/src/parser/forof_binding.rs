@@ -65,6 +65,13 @@ impl<'a> Parser<'a> {
                     self.pos += 1;
                     nn
                 }
+                // `for (var async of xs)` — a contextual keyword names
+                // the loop binding like any other identifier.
+                t if Self::contextual_binding_name(t).is_some() => {
+                    let nn = Self::contextual_binding_name(t).unwrap().to_string();
+                    self.pos += 1;
+                    nn
+                }
                 _ => {
                     self.pos = saved;
                     return None;

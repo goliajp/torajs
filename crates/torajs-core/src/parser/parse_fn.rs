@@ -50,6 +50,13 @@ impl<'a> Parser<'a> {
                 self.record_strict_goal_site("let");
                 "let".to_string()
             }
+            // `async` and `type` are on nobody's reserved list —
+            // `async` is a keyword only where the grammar looks
+            // ahead for it and `type` only in TS declaration
+            // position, neither of which a binding position is.
+            t if Self::contextual_binding_name(t).is_some() => {
+                Self::contextual_binding_name(t).unwrap().to_string()
+            }
             t => {
                 return Err(format!(
                     "expected function name, got {t:?} at {}",
@@ -374,6 +381,13 @@ impl<'a> Parser<'a> {
                     Token::Let if self.let_reads_as_ident() => {
                         self.record_strict_goal_site("let");
                         "let".to_string()
+                    }
+                    // `async` and `type` are on nobody's reserved list —
+                    // `async` is a keyword only where the grammar looks
+                    // ahead for it and `type` only in TS declaration
+                    // position, neither of which a binding position is.
+                    t if Self::contextual_binding_name(t).is_some() => {
+                        Self::contextual_binding_name(t).unwrap().to_string()
                     }
                     t => {
                         return Err(format!(

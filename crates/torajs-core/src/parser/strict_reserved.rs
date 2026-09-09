@@ -404,7 +404,15 @@ impl Parser<'_> {
                         // of this list it read as an ExpressionStatement
                         // `let` followed by a stray `await`, which is
                         // the silent misread, not the reject.
-                        | Token::Await,
+                        | Token::Await
+                        // Same for the two words nobody reserves:
+                        // `let async = 1` is a LexicalDeclaration, and
+                        // without them here it read as `let` the name
+                        // followed by a stray `async`. `const type = 1`
+                        // never had the problem — only `let` has two
+                        // readings to choose between.
+                        | Token::Async
+                        | Token::Type,
                 )
             )
     }
