@@ -43,9 +43,8 @@ use super::super::nested_fns_idents::arrow_rebinds;
 use super::super::{Ast, BinOp, Expr, ExprId, Param, Stmt};
 use super::completion;
 use super::param_default::{declares_var_arguments, mark_defaults};
-use super::source::{
-    CallForm, eval_strictness, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
-};
+use super::recognize::literal_eval_call;
+use super::source::{CallForm, eval_strictness, first_line, parse_eval_source, syntax_error_throw};
 use super::walk;
 use std::collections::HashMap;
 

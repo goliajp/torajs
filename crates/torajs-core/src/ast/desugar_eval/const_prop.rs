@@ -30,7 +30,7 @@
 use std::collections::{HashMap, HashSet};
 
 use super::super::{Ast, Expr, ExprId, Stmt};
-use super::source::{callee_eval_form, const_string};
+use super::recognize::{callee_eval_form, const_string};
 
 pub(super) fn propagate_eval_const_args(ast: &mut Ast) {
     let mut cands: HashMap<String, String> = HashMap::new();

@@ -32,9 +32,10 @@
 //! documents in the parent module.
 
 use super::super::{Ast, Expr, ExprId, Stmt};
+use super::recognize::const_string;
 use super::scope::binds_name;
 use super::source::{
-    EvalRefusal, EvalStrictness, const_string, first_line, parse_eval_source, syntax_error_throw,
+    EvalRefusal, EvalStrictness, first_line, parse_eval_source, syntax_error_throw,
 };
 use crate::lexer::{self, Token};
 

@@ -37,9 +37,8 @@
 
 use super::super::{Ast, Expr, ExprId, Param, Stmt};
 use super::completion;
-use super::source::{
-    CallForm, eval_strictness, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
-};
+use super::recognize::literal_eval_call;
+use super::source::{CallForm, eval_strictness, first_line, parse_eval_source, syntax_error_throw};
 use super::walk;
 
 /// Rewrite every direct literal eval in non-arrow default-parameter

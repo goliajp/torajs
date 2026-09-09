@@ -318,7 +318,7 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
         Stmt::Block(b) | Stmt::Multi(b) => mark_stmts(ast, b, in_fn, mode, owned),
         Stmt::FnDecl { params, body, .. } => {
             let flag = match mode {
-                Mode::StrictOwned => in_fn || super::source::has_use_strict_prologue(body, ast),
+                Mode::StrictOwned => in_fn || super::recognize::has_use_strict_prologue(body, ast),
                 _ => fn_body_flag,
             };
             mark_params(ast, params, flag, mode, owned);
@@ -432,7 +432,7 @@ fn mark_expr(ast: &Ast, eid: ExprId, in_fn: bool, mode: Mode, owned: &mut [bool]
                 // A true arrow inherits its enclosure's strictness and
                 // a fn expression (desugared to this variant) is
                 // strict on its own prologue — one formula serves both.
-                Mode::StrictOwned => in_fn || super::source::has_use_strict_prologue(body, ast),
+                Mode::StrictOwned => in_fn || super::recognize::has_use_strict_prologue(body, ast),
             };
             mark_params(ast, params, body_flag, mode, owned);
             mark_stmts(ast, body, body_flag, mode, owned);

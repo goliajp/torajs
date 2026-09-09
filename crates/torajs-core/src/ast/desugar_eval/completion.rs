@@ -19,10 +19,9 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt, free_vars};
 use super::completion_stmt;
+use super::recognize::literal_eval_call;
 use super::rewrite_list;
-use super::source::{
-    CallForm, eval_strictness, first_line, literal_eval_call, parse_eval_source, syntax_error_throw,
-};
+use super::source::{CallForm, eval_strictness, first_line, parse_eval_source, syntax_error_throw};
 use super::walk;
 
 /// This pass runs LAST in the desugar deliberately: by then the

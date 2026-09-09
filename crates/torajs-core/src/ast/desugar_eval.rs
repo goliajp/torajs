@@ -135,6 +135,7 @@ mod foreign_spans;
 mod function_ctor;
 mod param_default;
 mod param_default_arrow;
+mod recognize;
 mod scope;
 mod source;
 mod walk;
@@ -143,10 +144,10 @@ pub(super) use walk::{body_owned_exprs, fn_owned_exprs};
 
 use super::{Ast, Expr, Stmt, free_vars};
 use collapse::{completes_empty_effect_free, decl_names, is_effect_free_decl, name_mentioned};
+use recognize::{has_use_strict_prologue, literal_eval_call, nonstring_literal_eval_arg};
 use scope::{binds_eval, seal_var_scope};
 use source::{
-    CallForm, EvalStrictness, eval_strictness, first_line, has_use_strict_prologue,
-    literal_eval_call, nonstring_literal_eval_arg, parse_eval_source, syntax_error_throw,
+    CallForm, EvalStrictness, eval_strictness, first_line, parse_eval_source, syntax_error_throw,
 };
 
 /// Resolve every literal `eval` call this pass can resolve exactly.
