@@ -368,17 +368,19 @@ unsafe fn any_unshift_adopt(p: *mut u8, av: u64) -> *mut u8 {
 pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value: i64) -> *mut u8 {
     unsafe {
         // RFC 20260810 刀 D — same loud reject as `arr_any_unshift`.
+        // This entry ADOPTS the pair's one transferred rc, so every
+        // reject releases it (`__torajs_arr_push_any`'s shape); the
+        // sparse arm used to return without doing so and leaked the
+        // value on each refused call.
         if crate::sparse_gate::sparse_tail_rejects(
             arr as *const c_void,
             b"sparse array tail is not yet supported in Array.prototype.unshift\0".as_ptr(),
         ) {
+            crate::any_typed_bridge::drop_pair(tag as u64, value as u64);
             return arr;
         }
         // push's twin — a new index on a non-extensible receiver is a
-        // TypeError (`__torajs_arr_extend_guard`). This entry ADOPTS
-        // the pair's one transferred rc, so the reject releases it.
-        // (The sparse reject above does not, which by that same
-        // contract leaks; left alone here as its own question.)
+        // TypeError (`__torajs_arr_extend_guard`).
         if crate::define_length::__torajs_arr_extend_guard(arr as *const c_void) != 0 {
             crate::any_typed_bridge::drop_pair(tag as u64, value as u64);
             return arr;
