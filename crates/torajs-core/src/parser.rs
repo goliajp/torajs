@@ -63,6 +63,7 @@ mod forof_forin_src;
 mod forof_using;
 mod gen_arguments_face;
 mod import_export;
+mod import_export_tokens;
 mod keyword_property;
 mod loops;
 mod module_item;

@@ -65,11 +65,12 @@ impl<'a> Parser<'a> {
         }
         // Default import: `import x ...` (next token is Ident).
         let mut default_comma = false;
-        if let Token::Ident(_) = self.peek() {
-            let name = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                _ => unreachable!(),
-            };
+        // §16.2.2 ImportedBinding is a BindingIdentifier, so a
+        // contextual keyword names one (`import async from "./x"`).
+        // `let` / `yield` / `await` are admitted and PARKED here; the
+        // goal gate refuses them, which is the right answer since an
+        // import clause only ever appears in a module.
+        if let Some(name) = self.pattern_binding_name() {
             self.pos += 1;
             default = Some(name);
             // Optional `, { ... }` or `, * as ns`.
@@ -95,11 +96,12 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Star) {
             self.pos += 1;
             self.expect_ident_keyword("as")?;
-            let n = match self.peek() {
-                Token::Ident(n) => n.clone(),
-                t => {
+            let n = match self.pattern_binding_name() {
+                Some(n) => n,
+                None => {
                     return Err(format!(
-                        "expected namespace ident after `* as`, got {t:?} at {}",
+                        "expected namespace ident after `* as`, got {:?} at {}",
+                        self.peek(),
                         self.at()
                     ));
                 }
@@ -111,27 +113,30 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             while !matches!(self.peek(), Token::RBrace) {
+                // §16.2.2 ImportSpecifier — ModuleExportName is an
+                // IdentifierName, so every keyword names one
+                // (`default as x` re-binds the default export).
                 let orig = match self.peek() {
                     Token::Ident(n) => n.clone(),
-                    // §16.2.2 ImportSpecifier — ModuleExportName
-                    // covers reserved words; `default as x` re-binds
-                    // the default export under a local name.
-                    Token::Default => "default".to_string(),
-                    t => {
-                        return Err(format!(
-                            "expected ident in import named clause, got {t:?} at {}",
-                            self.at()
-                        ));
-                    }
+                    t => match Self::keyword_property_name(t) {
+                        Some(kw) => kw.to_string(),
+                        None => {
+                            return Err(format!(
+                                "expected ident in import named clause, got {t:?} at {}",
+                                self.at()
+                            ));
+                        }
+                    },
                 };
                 self.pos += 1;
                 let alias = if matches!(self.peek(), Token::Ident(n) if n == "as") {
                     self.pos += 1;
-                    let a = match self.peek() {
-                        Token::Ident(n) => n.clone(),
-                        t => {
+                    let a = match self.pattern_binding_name() {
+                        Some(a) => a,
+                        None => {
                             return Err(format!(
-                                "expected alias ident after `as`, got {t:?} at {}",
+                                "expected alias ident after `as`, got {:?} at {}",
+                                self.peek(),
                                 self.at()
                             ));
                         }
@@ -321,7 +326,7 @@ impl<'a> Parser<'a> {
     ///
     /// A repeated AttributeKey is an early error (§16.2.2 static
     /// semantics), and the key may be spelled as a string literal.
-    fn parse_with_clause(&mut self) -> Result<(), String> {
+    pub(super) fn parse_with_clause(&mut self) -> Result<(), String> {
         if !matches!(self.peek(), Token::Ident(s) if s == "with") {
             return Ok(());
         }
@@ -407,92 +412,5 @@ impl<'a> Parser<'a> {
         }
         self.pos += 1;
         Ok(())
-    }
-
-    /// §16.2.3 ModuleExportName — a plain identifier, the reserved
-    /// word `default`, or a string literal. The bool answers whether
-    /// the spelling was an identifier, which is what decides whether
-    /// the name can reference a LOCAL binding (a `from`-less export
-    /// clause needs that; everything else does not care).
-    fn expect_module_export_name(&mut self, ctx: &str) -> Result<(String, bool), String> {
-        let (name, is_ident) = match self.peek() {
-            Token::Ident(n) => (n.clone(), true),
-            Token::Default => ("default".to_string(), false),
-            Token::String(s) => {
-                // §16.2.3.1 — a string-spelled export name must be
-                // well-formed Unicode; the WTF-8 value keeps a lone
-                // surrogate as itself, so the check is direct.
-                if s.has_lone_surrogates() {
-                    return Err(format!(
-                        "a string export name must be well-formed Unicode \
-                         (lone surrogate escape) at {}",
-                        self.at()
-                    ));
-                }
-                (s.to_string_lossy_owned(), false)
-            }
-            t => {
-                return Err(format!(
-                    "expected an export name after {ctx}, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        };
-        self.pos += 1;
-        Ok((name, is_ident))
-    }
-
-    /// The string literal after a `from` keyword in a re-export clause.
-    fn expect_module_source(&mut self) -> Result<String, String> {
-        match self.peek() {
-            Token::String(s) => {
-                let s = s.to_string_lossy_owned();
-                self.pos += 1;
-                Ok(s)
-            }
-            t => Err(format!(
-                "expected module source string after `from`, got {t:?} at {}",
-                self.at()
-            )),
-        }
-    }
-
-    pub(super) fn expect_ident_keyword(&mut self, kw: &str) -> Result<(), String> {
-        match self.peek() {
-            Token::Ident(n) if n == kw => {
-                self.pos += 1;
-                Ok(())
-            }
-            t => Err(format!("expected `{kw}`, got {t:?} at {}", self.at())),
-        }
-    }
-
-    pub(super) fn skip_optional_semi(&mut self) {
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-        }
-    }
-
-    /// §16.2 — an ImportDeclaration / ExportDeclaration ends at its
-    /// module source. Whatever comes next has to be able to START a
-    /// statement, which means a `;`, a `}`, end of input, or a
-    /// LineTerminator for ASI to insert the semicolon itself. So
-    /// `export * from "m" null;` is a SyntaxError rather than two
-    /// statements — the tolerant reading silently accepted source no
-    /// engine does.
-    fn expect_decl_end(&mut self, what: &str) -> Result<(), String> {
-        self.parse_with_clause()?;
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-            return Ok(());
-        }
-        if matches!(self.peek(), Token::Eof | Token::RBrace) || self.has_newline_before(self.pos) {
-            return Ok(());
-        }
-        Err(format!(
-            "expected `;` or a line break after {what}, got {:?} at {}",
-            self.peek(),
-            self.at()
-        ))
     }
 }
