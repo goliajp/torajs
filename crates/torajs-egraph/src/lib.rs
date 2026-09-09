@@ -31,6 +31,7 @@ pub mod elaborate;
 pub mod fconst_hoist;
 pub mod float_demote;
 pub mod frem_narrow;
+pub mod iconst_hoist;
 pub mod inliner;
 pub mod interval;
 pub mod late_gvn;
@@ -181,6 +182,20 @@ fn analyze_intervals(module: &Module) -> Option<Vec<HashMap<ValueId, interval::N
     })
 }
 
+/// The two loop-constant hoists: each distinct in-loop `ConstF64`
+/// operand mints one preheader Copy and body uses read the value,
+/// killing the per-iteration 3-inst rematerialization + GPR→FPR
+/// crossing (mandelbrot decomposition D1); its i64 twin does the same
+/// for a compare's non-imm12 constant (rotation 623, the fill-loop
+/// bound). After branch_fold (its folds shrink loop bodies), before
+/// select_form / cmp_sink (their formed shapes read the already-
+/// hoisted operands). `TORAJS_FCONST_HOIST_OFF=1` /
+/// `TORAJS_ICONST_HOIST_OFF=1` skip either (bisect gates).
+fn hoist_loop_consts(module: &mut Module) {
+    gated_pass("FCONST_HOIST", module, fconst_hoist::hoist_fp_consts);
+    gated_pass("ICONST_HOIST", module, iconst_hoist::hoist_int_consts);
+}
+
 pub fn transform_module(mut module: Module) -> Module {
     if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
         return module;
@@ -305,14 +320,7 @@ pub fn transform_module(mut module: Module) -> Module {
     // shape (its guard just folded above, so the bridge has one def).
     // `TORAJS_PRINT_NARROW_OFF=1` skips (bisect gate).
     gated_pass("PRINT_NARROW", &mut module, print_narrow::narrow_prints);
-    // FP-constant loop hoisting — each distinct in-loop ConstF64
-    // operand mints one preheader Copy and body uses read the value,
-    // killing the per-iteration 3-inst rematerialization + GPR→FPR
-    // crossing (mandelbrot decomposition D1). After branch_fold (its
-    // folds shrink loop bodies), before select_form / cmp_sink (their
-    // formed shapes read the already-hoisted operands).
-    // `TORAJS_FCONST_HOIST_OFF=1` skips (bisect gate).
-    gated_pass("FCONST_HOIST", &mut module, fconst_hoist::hoist_fp_consts);
+    hoist_loop_consts(&mut module);
     // Ctpop-range-sum reduction recognition — collapse a counted
     // `acc += ctpop(i)` loop into one `CtpopRangeSum` super-inst that
     // codegen expands to an 8-wide SIMD reduction (RFC
