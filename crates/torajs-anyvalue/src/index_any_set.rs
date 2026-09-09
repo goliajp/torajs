@@ -133,7 +133,7 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         {
             unsafe {
                 drop_transferred_pair(tag, value);
-                __torajs_throw_type_error(c"cannot assign to a read-only property".as_ptr());
+                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
             }
             return;
         }

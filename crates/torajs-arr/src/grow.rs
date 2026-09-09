@@ -105,6 +105,27 @@ pub(crate) unsafe fn grow_data_buffer(arr: *mut u8, new_cap: u64) {
 ///
 /// # Safety
 /// `arr` must be a live `Array<T>` heap block. Caller picks this
+/// `arr.length = v` — the refusal both lanes share, in spec order.
+/// §10.1.9.2 OrdinarySet: a non-writable `length` (a freeze, or a
+/// `defineProperty` lock) refuses EVERY write, the same value
+/// included — before this the same-value write returned early and a
+/// frozen array's `xs.length = xs.length` was silently legal. A seal
+/// keeps `length` writable and refuses only a shrink, because
+/// §10.4.2.4 step 15 deletes the tail and a sealed element cannot be
+/// deleted; bun words the two refusals differently. Records the
+/// TypeError and answers `true` when the write must not happen.
+fn length_write_refuses(flags: u16, old_len: u64, new_len: u64) -> bool {
+    if flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN) != 0 {
+        unsafe { __torajs_throw_type_error(c"Array length is not writable".as_ptr()) };
+        return true;
+    }
+    if new_len < old_len && flags & torajs_rc::FLAG_SEALED != 0 {
+        unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+        return true;
+    }
+    false
+}
+
 /// helper only when the SSA-known element type is a non-refcounted
 /// scalar (I64 / F64 / Bool).
 #[unsafe(no_mangle)]
@@ -150,9 +171,6 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     let new_n = n as u64;
     let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
     let old_len = unsafe { *len_ptr };
-    if new_n == old_len {
-        return;
-    }
     // Chunk D (RFC 20260712-arr-exotic-define) — locked length
     // rejects every change on the scalar lane too.
     // A frozen array's `length` is non-writable (freeze sets it so), and
@@ -161,13 +179,10 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     // `length` grow. Before this the frozen spelling shrank and grew
     // silently ([3,1,2] → [3] / [3,1,2,null,null]).
     let flags = unsafe { *(arr.add(6) as *const u16) };
-    let shrink_lock = if new_n < old_len {
-        torajs_rc::FLAG_SEALED
-    } else {
-        0
-    };
-    if flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN | shrink_lock) != 0 {
-        unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+    if length_write_refuses(flags, old_len, new_n) {
+        return;
+    }
+    if new_n == old_len {
         return;
     }
     if new_n < old_len {
@@ -381,22 +396,12 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
     let new_n = new_len as u64;
     let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
     let old = unsafe { *len_ptr };
-    if new_n == old {
+    let header = unsafe { &*(arr as *const torajs_rc::HeapHeader) };
+    // Chunk D — same rule as the scalar lane above.
+    if length_write_refuses(header.flags, old, new_n) {
         return;
     }
-    let header = unsafe { &*(arr as *const torajs_rc::HeapHeader) };
-    // Chunk D — a locked length (defineProperty writable: false)
-    // rejects every change; the same-value path above stays legal
-    // (SameValue redefine is not a change per §10.1.6.3).
-    // Same three-way rule as the scalar lane above: frozen refuses any
-    // change, sealed refuses a shrink, RO-length refuses both.
-    let shrink_lock = if new_n < old {
-        torajs_rc::FLAG_SEALED
-    } else {
-        0
-    };
-    if header.flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN | shrink_lock) != 0 {
-        unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+    if new_n == old {
         return;
     }
     let is_any = header.flags & torajs_rc::FLAG_ARR_ANY != 0;

@@ -227,8 +227,12 @@ pub unsafe extern "C" fn __torajs_arr_frozen_guard(arr: *const c_void) -> i64 {
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_guard(arr: *const c_void) -> i64 {
+    // A `defineProperty` lock on `length` refuses the append too —
+    // §23.1.3.23 step 5's `Set(length)` fails after the element
+    // landed; refused at entry here like the other locks (before this
+    // the push went through and the length moved).
     let locked = unsafe { header_flags(arr as *mut c_void) }
-        & (FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE);
+        & (FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE | FLAG_ARR_LENGTH_RO);
     if locked == 0 {
         return 0;
     }
@@ -252,15 +256,36 @@ pub unsafe extern "C" fn __torajs_arr_extend_guard(arr: *const c_void) -> i64 {
 /// `arr` is a live array heap block pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_delete_tail_guard(arr: *const c_void) -> i64 {
-    let locked = unsafe { header_flags(arr as *mut c_void) }
-        & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN | FLAG_SEALED);
-    if locked == 0 {
-        return 0;
+    let flags = unsafe { header_flags(arr as *mut c_void) };
+    let len = unsafe { *(arr.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64) };
+    // §23.1.3.22 pop, in order: an empty array only writes `length`
+    // (step 3.b, the same value), which a non-writable length refuses
+    // and a seal does not — before this `Object.seal([]).pop()` threw.
+    if len == 0 {
+        if flags & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN) == 0 {
+            return 0;
+        }
+        unsafe {
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+        }
+        return 1;
     }
-    unsafe {
-        __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+    // Step 4.d deletes the last element first: a sealed or frozen one
+    // is non-configurable. Only then (step 4.e) does the length write
+    // meet a `defineProperty` lock.
+    if flags & (FLAG_FROZEN | FLAG_SEALED) != 0 {
+        unsafe {
+            __torajs_throw_type_error(c"Unable to delete property.".as_ptr());
+        }
+        return 1;
     }
-    1
+    if flags & FLAG_ARR_LENGTH_RO != 0 {
+        unsafe {
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+        }
+        return 1;
+    }
+    0
 }
 
 #[unsafe(no_mangle)]

@@ -74,6 +74,17 @@ pub(crate) unsafe fn set_arr_member(
         // but reads answered the old element), and a "length"
         // key missed the resize path.
         if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
+            // §28.1.13 Reflect.set — a non-writable `length` answers
+            // false instead of recording the TypeError the kernel
+            // would. (A sealed receiver's shrink refusal is decided
+            // inside the kernel and still records; registered.)
+            if !throw_on_refusal {
+                let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
+                if flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN) != 0 {
+                    drop_payload(tag, value);
+                    return 0;
+                }
+            }
             __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
             return 1;
         }

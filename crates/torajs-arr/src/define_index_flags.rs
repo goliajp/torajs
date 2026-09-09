@@ -131,7 +131,7 @@ pub unsafe extern "C" fn __torajs_arr_index_refuses_store(arr: *const c_void, id
 pub unsafe extern "C" fn __torajs_arr_index_check_store(arr: *const c_void, idx: u64) {
     if unsafe { __torajs_arr_index_refuses_store(arr, idx) } != 0 {
         unsafe {
-            __torajs_throw_type_error(c"cannot assign to a read-only property".as_ptr());
+            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
         }
     }
 }

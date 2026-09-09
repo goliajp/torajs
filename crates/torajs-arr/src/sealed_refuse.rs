@@ -84,7 +84,7 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
         unsafe { core::ptr::copy(base.add(8), base, (len - 1) as usize * 8) };
     }
     unsafe { stake_visible_copies(arr, len - 1, len) };
-    unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+    unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
     true
 }
 
@@ -92,11 +92,14 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
 /// block `emit_arr_len_lock_guard(ShiftDown)` opens when the header
 /// carries any of `FROZEN | LENGTH_RO | SEALED` — the hot path is the
 /// inline mask on the header word it already loads, so a plain
-/// receiver pays nothing for this. A frozen or RO-length receiver
-/// refuses at entry like every other length write; a sealed one takes
-/// the partial move above — unless it is empty, where step 3.b's
-/// `Set(length, 0)` rewrites an unchanged writable `length` and the
-/// shift legally answers undefined. Non-zero means a TypeError is
+/// receiver pays nothing for this. The any lane's `shift` asks the
+/// same question. §23.1.3.29 in order: an empty array only writes
+/// `length` (step 3.b, the same value), which a non-writable length
+/// refuses and a seal does not; with one element nothing moves and
+/// step 6's delete of that element fails first on a frozen or sealed
+/// receiver; with more, the first move's Set fails on a frozen one
+/// (readonly), while a sealed one takes the partial move above and an
+/// RO-length one refuses at entry. Non-zero means a TypeError is
 /// pending.
 ///
 /// # Safety
@@ -105,11 +108,19 @@ pub(crate) unsafe fn shift_refuses_on_sealed(arr: *mut u8) -> bool {
 pub unsafe extern "C" fn __torajs_arr_shift_guard(arr: *const c_void) -> i64 {
     let arr = arr as *mut u8;
     let header = unsafe { &*(arr as *const HeapHeader) };
-    if header.flags & (FLAG_FROZEN | FLAG_ARR_LENGTH_RO) != 0 {
+    let len = unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) };
+    if len == 0 {
+        if header.flags & (FLAG_FROZEN | FLAG_ARR_LENGTH_RO) == 0 {
+            return 0;
+        }
         return unsafe { __torajs_arr_len_write_guard(arr as *const c_void) };
     }
-    if unsafe { *(arr.add(ARR_LEN_OFF) as *const u64) } == 0 {
-        return 0;
+    if header.flags & FLAG_FROZEN != 0 && len == 1 {
+        unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+        return 1;
+    }
+    if header.flags & (FLAG_FROZEN | FLAG_ARR_LENGTH_RO) != 0 {
+        return unsafe { __torajs_arr_len_write_guard(arr as *const c_void) };
     }
     unsafe { shift_refuses_on_sealed(arr) as i64 }
 }
@@ -137,6 +148,6 @@ pub(crate) unsafe fn splice_shrink_refuses_on_sealed(
         return false;
     }
     unsafe { stake_visible_copies(arr, new_len, old_len) };
-    unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
+    unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
     true
 }
