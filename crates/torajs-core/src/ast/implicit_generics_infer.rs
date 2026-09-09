@@ -297,6 +297,7 @@ pub(crate) fn infer_expr_ann_with(
     let e = exprs.get(eid.0 as usize)?;
     match e {
         Expr::Number(_) => Some("number".into()),
+        Expr::BigInt { .. } => Some("bigint".into()),
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
         Expr::BinOp { op, left, right } => match op {
@@ -320,6 +321,20 @@ pub(crate) fn infer_expr_ann_with(
                 let (l, r) = (recur(*left)?, recur(*right)?);
                 (l == r).then_some(l)
             }
+            // §6.1.6.2 — the BigInt operators answer a BigInt, not a
+            // Number. The blanket `"number"` here stamped `: number`
+            // on the enclosing function's return, and the specialized
+            // body then handed a BigInt back through a Number-shaped
+            // slot: `function f(a, b) { return a - b }` called with
+            // `(7n, 2n)` printed the POINTER (`4344807632`), `/ % **`
+            // failed in the register allocator, and the declared
+            // spelling was refused outright ("expects Number, got
+            // BigInt"). Same shape as the LAnd/LOr answer above.
+            //
+            // A mixed pair is a TypeError (§6.1.6.1.x) and has no
+            // annotation to give, so it declines and lets the
+            // checker's own rule answer — naming it `number` is how
+            // `f(1n, 2)` came to answer 0 instead of throwing.
             BinOp::Sub
             | BinOp::Mul
             | BinOp::Div
@@ -330,7 +345,10 @@ pub(crate) fn infer_expr_ann_with(
             | BinOp::BitXor
             | BinOp::Shl
             | BinOp::Shr
-            | BinOp::UShr => Some("number".into()),
+            | BinOp::UShr => match (recur(*left), recur(*right)) {
+                (Some(l), Some(r)) if l == "bigint" || r == "bigint" => (l == r).then_some(l),
+                _ => Some("number".into()),
+            },
             // `+`: string-propagates / num+num=num / TypeVar+num=`any` (else Void).
             BinOp::Add => {
                 let (l, r) = (recur(*left)?, recur(*right)?);
@@ -343,6 +361,15 @@ pub(crate) fn infer_expr_ann_with(
             }
         },
         Expr::Unary { op, .. } if matches!(op, UnaryOp::Not) => Some("boolean".into()),
+        // §13.5.5 / §13.5.7 — `-x` and `~x` over a BigInt answer a
+        // BigInt. (`+x` on a BigInt is a TypeError per §13.5.4, so it
+        // keeps the Number answer and the checker refuses the pair.)
+        Expr::Unary { op, expr } if matches!(op, UnaryOp::Neg | UnaryOp::BitNot) => {
+            match recur(*expr) {
+                Some(t) if t == "bigint" => Some("bigint".into()),
+                _ => Some("number".into()),
+            }
+        }
         Expr::Unary { .. } => Some("number".into()),
         Expr::Ident(name) => params
             .iter()
