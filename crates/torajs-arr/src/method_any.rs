@@ -180,8 +180,10 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
             return __torajs_anyv_box_from_pair(5, 0);
         }
         // RFC 20260713 blade 4 — frozen / RO-length receivers throw
-        // before the empty short-circuit (§23.1.3.20 step 3.b).
-        if crate::define_length::__torajs_arr_len_write_guard(arr) != 0 {
+        // before the empty short-circuit (§23.1.3.20 step 3.b); a
+        // SEALED one too, since the popped element must be
+        // configurable to be deleted (`__torajs_arr_delete_tail_guard`).
+        if crate::define_length::__torajs_arr_delete_tail_guard(arr) != 0 {
             return __torajs_anyv_box_from_pair(5, 0);
         }
         let p = arr as *mut u8;

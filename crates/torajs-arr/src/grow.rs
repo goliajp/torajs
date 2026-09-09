@@ -155,8 +155,18 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     }
     // Chunk D (RFC 20260712-arr-exotic-define) — locked length
     // rejects every change on the scalar lane too.
+    // A frozen array's `length` is non-writable (freeze sets it so), and
+    // a SHRINK deletes the tail, which a seal forbids too — node/bun
+    // throw on both with the array untouched, while a seal still lets
+    // `length` grow. Before this the frozen spelling shrank and grew
+    // silently ([3,1,2] → [3] / [3,1,2,null,null]).
     let flags = unsafe { *(arr.add(6) as *const u16) };
-    if flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0 {
+    let shrink_lock = if new_n < old_len {
+        torajs_rc::FLAG_SEALED
+    } else {
+        0
+    };
+    if flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN | shrink_lock) != 0 {
         unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
         return;
     }
@@ -371,7 +381,14 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
     // Chunk D — a locked length (defineProperty writable: false)
     // rejects every change; the same-value path above stays legal
     // (SameValue redefine is not a change per §10.1.6.3).
-    if header.flags & torajs_rc::FLAG_ARR_LENGTH_RO != 0 {
+    // Same three-way rule as the scalar lane above: frozen refuses any
+    // change, sealed refuses a shrink, RO-length refuses both.
+    let shrink_lock = if new_n < old {
+        torajs_rc::FLAG_SEALED
+    } else {
+        0
+    };
+    if header.flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN | shrink_lock) != 0 {
         unsafe { __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr()) };
         return;
     }

@@ -238,6 +238,31 @@ pub unsafe extern "C" fn __torajs_arr_extend_guard(arr: *const c_void) -> i64 {
     1
 }
 
+/// Deleting the LAST element — `pop`, or an ArraySetLength that
+/// shrinks — needs that element to be configurable, and a seal clears
+/// that too: node/bun throw on `Object.seal([3,1,2]).pop()` and on
+/// `.length = 1`, with the array untouched, while `preventExtensions`
+/// alone leaves both legal and a seal still lets `length` GROW. So this
+/// is the fourth guard, `FROZEN | LENGTH_RO | SEALED`, for the two
+/// tail-deleting shapes; `__torajs_arr_len_write_guard` stays what the
+/// grow path and shift/splice's length write answer to. Returns 1 when
+/// the TypeError was recorded.
+///
+/// # Safety
+/// `arr` is a live array heap block pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_delete_tail_guard(arr: *const c_void) -> i64 {
+    let locked = unsafe { header_flags(arr as *mut c_void) }
+        & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN | FLAG_SEALED);
+    if locked == 0 {
+        return 0;
+    }
+    unsafe {
+        __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+    }
+    1
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_len_write_guard(arr: *const c_void) -> i64 {
     let locked = unsafe { header_flags(arr as *mut c_void) } & (FLAG_ARR_LENGTH_RO | FLAG_FROZEN);

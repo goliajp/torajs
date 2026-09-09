@@ -11,6 +11,17 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_DATA_PTR_OFF, LowerCtx};
 
+/// Which length-lock a mutator answers to: `Change` is any length
+/// change (`FROZEN | LENGTH_RO`); `DeleteTail` also refuses a SEALED
+/// receiver, because `pop` deletes the last element and a sealed
+/// element is not configurable (node/bun: `Object.seal([3,1,2]).pop()`
+/// throws, `.length = 5` does not).
+#[derive(Clone, Copy)]
+pub(crate) enum ArrLenLock {
+    Change,
+    DeleteTail,
+}
+
 impl<'a> LowerCtx<'a> {
     /// §9.4.2.3 ArraySpeciesCreate constructor-face guard (RFC
     /// 20260713-array-proto-residual blade 3) — emitted at the head
@@ -39,8 +50,17 @@ impl<'a> LowerCtx<'a> {
     /// shift/mask/branch (the flags word rides the same cache line
     /// as the len the op reads next); the cold block calls the
     /// runtime thrower and propagates.
-    pub(crate) fn emit_arr_len_lock_guard(&mut self, arr: Operand) {
-        const LOCK_BITS: i64 = 16 + 128; // FLAG_FROZEN | FLAG_ARR_LENGTH_RO
+    pub(crate) fn emit_arr_len_lock_guard(&mut self, arr: Operand, lock: ArrLenLock) {
+        // FLAG_FROZEN | FLAG_ARR_LENGTH_RO, plus FLAG_SEALED when the
+        // shape deletes the tail (a sealed element is not configurable).
+        let lock_bits: i64 = match lock {
+            ArrLenLock::Change => 16 + 128,
+            ArrLenLock::DeleteTail => 16 + 128 + 512,
+        };
+        let raiser = match lock {
+            ArrLenLock::Change => self.intrinsics.arr_len_write_guard,
+            ArrLenLock::DeleteTail => self.intrinsics.arr_delete_tail_guard,
+        };
         let hdr = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, arr.clone(), 0),
@@ -58,7 +78,7 @@ impl<'a> LowerCtx<'a> {
             InstKind::BinOp(
                 SsaBinOp::And,
                 Operand::Value(sh),
-                Operand::ConstI64(LOCK_BITS),
+                Operand::ConstI64(lock_bits),
             ),
             Type::I64,
             None,
@@ -83,7 +103,7 @@ impl<'a> LowerCtx<'a> {
         self.cur_block = locked_blk;
         self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.arr_len_write_guard, vec![arr]),
+            InstKind::Call(raiser, vec![arr]),
             Type::I64,
             None,
         );
