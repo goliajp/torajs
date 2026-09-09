@@ -360,7 +360,7 @@ unsafe fn write_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) -> 
             // enumerable properties, so the spec's ordinary-object
             // walk answers `{}`.
             _ => {
-                push_bytes(sb, b"{}");
+                composites::write_bag_cell(sb, ptr, depth, st);
                 Wrote::Value
             }
         }

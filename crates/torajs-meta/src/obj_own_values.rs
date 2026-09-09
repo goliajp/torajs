@@ -33,7 +33,7 @@ use crate::obj_own_keys::{
     ANY_HEAP_TAG, ARR_LEN_OFF, ARR_PROPS_OFF, CLOSURE_PROPS_OFF, FLAG_ENUMERABLE, HDR_TYPE_TAG_OFF,
     KIND_CHAIN_HEAP, SHORT_STR_TOP16, TAG_ACCESSOR_PAIR, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER,
     TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER, TAG_OBJ_CELL, TAG_STR_CELL, TAG_STRING_WRAPPER,
-    WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
+    TAG_SYMBOL_WRAPPER, WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
 };
 
 unsafe extern "C" {
@@ -370,9 +370,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                     unsafe { dynobj_values_append(props, arr as *mut u8) as *mut c_void }
                 }
             }
-            // Number / Boolean wrappers carry no inherent own keys —
-            // the expando walk is the whole surface (keys-face twin).
-            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+            // Number / Boolean / Symbol wrappers carry no inherent own
+            // keys — the expando walk is the whole surface (keys-face
+            // twin).
+            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER => {
                 let props = unsafe { wrapper_props(cell) };
                 let arr = unsafe { __torajs_arr_alloc_any(0) };
                 if props.is_null() {
@@ -478,7 +479,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
                 outer as *mut c_void
             }
-            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER => {
                 let props = unsafe { wrapper_props(cell) };
                 let outer = unsafe { __torajs_arr_alloc(0) };
                 let outer = if props.is_null() {

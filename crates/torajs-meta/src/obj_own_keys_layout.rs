@@ -45,6 +45,9 @@ pub(crate) const PROMISE_PROPS_OFF: usize = 32;
 pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
 pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
 pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
+/// `torajs_rc::Tag::SymbolWrapper` — `[header:8][sym_cell:8][props:8]`,
+/// the same lazy bag at +16 as the other three.
+pub(crate) const TAG_SYMBOL_WRAPPER: u16 = 24;
 pub(crate) const WRAPPER_PROPS_OFF: usize = 16;
 /// Wrapper `[[StringData]]` inner Str-cell ptr slot
 /// (`torajs_rc::Tag::StringWrapper` layout: `[header:8][str_cell:8]`).
@@ -125,7 +128,9 @@ pub(crate) const ITER_HELPER_PROPS_OFF: usize = 56;
 pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
     match tag {
         TAG_ARR_CELL | TAG_CLOSURE_CELL | TAG_OBJ_CELL => Some(CLOSURE_PROPS_OFF),
-        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER => Some(WRAPPER_PROPS_OFF),
+        TAG_NUMBER_WRAPPER | TAG_STRING_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER => {
+            Some(WRAPPER_PROPS_OFF)
+        }
         TAG_PROMISE_CELL => Some(PROMISE_PROPS_OFF),
         TAG_TYPEDARRAY_CELL => Some(TYPEDARRAY_PROPS_OFF),
         TAG_ARRAYBUFFER_CELL | TAG_DATAVIEW_CELL => Some(ARRAYBUFFER_PROPS_OFF),

@@ -142,13 +142,17 @@ pub(crate) const TAG_REGEXP: u16 = 4;
 pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
 pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
 pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
-/// Mirror of `torajs-wrapper::WRAPPER_PROPS_OFF` — all three wrappers
+pub(crate) const TAG_SYMBOL_WRAPPER: u16 = 24;
+/// Mirror of `torajs-wrapper::WRAPPER_PROPS_OFF` — all four wrappers
 /// share `[header:8][value:8][props:8]` layout.
 pub(crate) const WRAPPER_PROPS_OFF: usize = 16;
 
 #[inline]
 pub(crate) fn is_wrapper_tag(t: u16) -> bool {
-    t == TAG_NUMBER_WRAPPER || t == TAG_STRING_WRAPPER || t == TAG_BOOLEAN_WRAPPER
+    t == TAG_NUMBER_WRAPPER
+        || t == TAG_STRING_WRAPPER
+        || t == TAG_BOOLEAN_WRAPPER
+        || t == TAG_SYMBOL_WRAPPER
 }
 /// Tag::Str / Tag::Symbol / Tag::BigInt from `torajs-rc` — primitive-in-spec
 /// heap cells. RFC C4b throws TypeError on these because `Object.defineProperty(O, ...)`

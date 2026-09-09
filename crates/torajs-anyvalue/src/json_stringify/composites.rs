@@ -16,6 +16,23 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 /// `{...}` — own enumerable entries in §10.1.11.1 order (the print
 /// walker's `iter_order` contract); a key whose value serializes to
 /// nothing is omitted entirely.
+/// §25.5.2.5 — every object not handled by a dedicated arm serializes
+/// its enumerable own string-keyed properties, and for a Map, a Set,
+/// a RegExp, a Symbol wrapper, … those are the expando bag
+/// (`Object.assign(new Map(), {a: 1})` is `{"a":1}`). A cell with no
+/// bag is `{}`, as it always was.
+///
+/// # Safety
+/// `ptr` is a live heap cell; `sb` a live string builder.
+pub(super) unsafe fn write_bag_cell(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
+    let bag = unsafe { crate::member_get_layout::__torajs_cell_expando_bag(ptr) };
+    if bag.is_null() {
+        unsafe { push_bytes(sb, b"{}") };
+    } else {
+        unsafe { write_object(sb, bag, depth, st) };
+    }
+}
+
 pub(super) unsafe fn write_object(sb: *mut c_void, ptr: *mut c_void, depth: u32, st: &St) {
     unsafe {
         // §25.5.2.4 step 5 — an array replacer replaces the own-name

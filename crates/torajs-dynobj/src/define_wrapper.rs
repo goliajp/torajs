@@ -32,6 +32,17 @@ use crate::probe::probe;
 pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
 pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
 pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
+/// `torajs_rc::Tag::SymbolWrapper` — `[header:8][sym_cell:8][props:8]`,
+/// the same +16 bag; no inherent own slots.
+pub(crate) const TAG_SYMBOL_WRAPPER: u16 = 24;
+
+/// The four primitive wrappers — one bag at +16, one define arm.
+pub(crate) fn is_wrapper_tag(htag: u16) -> bool {
+    htag == TAG_NUMBER_WRAPPER
+        || htag == TAG_STRING_WRAPPER
+        || htag == TAG_BOOLEAN_WRAPPER
+        || htag == TAG_SYMBOL_WRAPPER
+}
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const u8);

@@ -262,10 +262,7 @@ pub(crate) unsafe fn define_apply(
     // / expando define (pre-fix the wrapper layout was walked as a
     // dynobj header: silent corruption, SIGSEGV on the first define).
     // The wrapper cell never relocates, so no slot writeback.
-    if htag == crate::define_wrapper::TAG_NUMBER_WRAPPER
-        || htag == crate::define_wrapper::TAG_STRING_WRAPPER
-        || htag == crate::define_wrapper::TAG_BOOLEAN_WRAPPER
-    {
+    if crate::define_wrapper::is_wrapper_tag(htag) {
         return unsafe {
             crate::define_wrapper::wrapper_define(
                 obj,

@@ -443,9 +443,11 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             }
             // RFC 20260716 刀 5 (rotation 121 chunk 5) — wrapper
             // cells carry a lazy expando dynobj at `+16` (chunks
-            // 4/5); Number / Boolean wrappers have no inherent own
-            // keys, so the expando walk is the whole surface.
-            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER => {
+            // 4/5); Number / Boolean / Symbol wrappers have no
+            // inherent own keys, so the expando walk is the whole
+            // surface. (The Symbol wrapper was missing here, so
+            // `Object.keys(Object(sym))` lost every key it was given.)
+            TAG_NUMBER_WRAPPER | TAG_BOOLEAN_WRAPPER | TAG_SYMBOL_WRAPPER => {
                 let props =
                     unsafe { (cell.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() }
                         as *const c_void;
