@@ -290,7 +290,31 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
     // takes the same route as a Map: box the cell and let §7.4.2
     // GetIterator decide at runtime what it is. Before knife 2 there
     // was no lookup to make, so the checker refused these outright.
-    if matches!(v_ty, Type::Obj(_)) {
+    // A struct, and every other shape with no iteration of its own,
+    // materializes through the any lane, which raises §7.4.3's
+    // TypeError for a non-iterable. The primitive reprs are the ones
+    // that had no arm at all: a specialized body's `[...x]` with `x`
+    // bound to `1` fell through to the array path below and read the
+    // integer as an array pointer — SIGSEGV — while `const n: any = 1;
+    // [...n]` threw.
+    if matches!(
+        v_ty,
+        Type::Obj(_)
+            | Type::I64
+            | Type::I32
+            | Type::F64
+            | Type::Bool
+            | Type::FnSig(_)
+            | Type::Closure(_)
+            | Type::RegExp
+            | Type::Date
+            | Type::Symbol
+            | Type::Promise
+            | Type::BigInt
+            | Type::WeakRef
+            | Type::WeakMap
+            | Type::WeakSet
+    ) {
         let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
         let boxed = ctx.box_to_any(v.clone());
         let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
