@@ -445,8 +445,13 @@ pub(crate) fn check_sequence(
     left: ExprId,
     right: ExprId,
 ) -> Result<Type, String> {
-    let _ = checker.type_of(ast, left)?;
-    checker.type_of(ast, right)
+    // Both halves are visited before the left's verdict propagates —
+    // `type_of` records into `expr_types` only on Ok, and a `?` here
+    // left the right half untyped for lowering to read as a blank.
+    let l = checker.type_of(ast, left);
+    let r = checker.type_of(ast, right);
+    l?;
+    r
 }
 
 pub(crate) fn check_as(

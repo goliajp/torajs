@@ -59,19 +59,32 @@ pub(crate) fn check(
     // names the fields). Remaining fields still typecheck below for
     // side effects.
     let mut dynobj_lane = false;
+    // A rejected field must not take its SIBLINGS' visits with it —
+    // `type_of` records into `expr_types` only on Ok, so `{ m: a - b,
+    // n: o.q === undefined }` left `n`'s value untyped and lowering
+    // read that blank (the strict-eq packed the null tag). The first
+    // verdict is held and propagated after the whole field walk.
+    let mut first_err: Option<String> = None;
     for (n, eid) in fields {
         // S2.24 刀 4 — a CoverInitializedName field (`{ x = D }`)
         // reaching expression position is the §13.2.5.1 early error:
         // only a destructuring re-read (which the parser expands
         // before check ever runs) may consume it.
         if ast.objlit_cover_init_exprs.contains(eid) {
-            return Err(format!(
+            first_err.get_or_insert(format!(
                 "shorthand property initializer `{} = ...` is only valid in a destructuring pattern",
                 n.lossy()
             ));
+            continue;
         }
         if let Some(omit) = spread_omit_set(n) {
-            let src_ty = checker.type_of(ast, *eid)?;
+            let src_ty = match checker.type_of(ast, *eid) {
+                Ok(t) => t,
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                    continue;
+                }
+            };
             // Only a Struct source has a static field list to unfold.
             // EVERYTHING else goes to the dynobj lane, whose runtime
             // CopyDataProperties (§7.3.25) names the fields — and it
@@ -136,8 +149,12 @@ pub(crate) fn check(
             // `return { [Symbol.dispose]() {} }` previously panicked
             // at the struct-lane lowering.
             let key_eid = ast.objlit_computed_keys[eid];
-            checker.type_of(ast, key_eid)?;
-            checker.type_of(ast, *eid)?;
+            if let Err(e) = checker.type_of(ast, key_eid) {
+                first_err.get_or_insert(e);
+            }
+            if let Err(e) = checker.type_of(ast, *eid) {
+                first_err.get_or_insert(e);
+            }
             dynobj_lane = true;
         } else if n == "__proto__" && !ast.objlit_shorthand_proto_exprs.contains(eid) {
             // Rotation 434 — §B.3.1: a `__proto__: v` PropertyName
@@ -147,16 +164,27 @@ pub(crate) fn check(
             // answers Any, the same exit the computed-key arm takes.
             // The property SHORTHAND spelling stays an ordinary own
             // field and keeps the struct lane.
-            checker.type_of(ast, *eid)?;
+            if let Err(e) = checker.type_of(ast, *eid) {
+                first_err.get_or_insert(e);
+            }
             dynobj_lane = true;
         } else {
-            let ty = checker.type_of(ast, *eid)?;
+            let ty = match checker.type_of(ast, *eid) {
+                Ok(t) => t,
+                Err(e) => {
+                    first_err.get_or_insert(e);
+                    continue;
+                }
+            };
             if let Some(pos) = field_tys.iter().position(|(k, _)| k == n) {
                 field_tys[pos] = (n.clone(), ty);
             } else {
                 field_tys.push((n.clone(), ty));
             }
         }
+    }
+    if let Some(e) = first_err {
+        return Err(e);
     }
     if dynobj_lane {
         return Ok(Type::Any);

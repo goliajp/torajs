@@ -31,11 +31,24 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
         return Ok(Type::Array(Box::new(Type::Any)));
     }
     let ids: Vec<ExprId> = elements.to_vec();
+    // A rejected element must not take its SIBLINGS' visits with it.
+    // The walk below already knows this ("No early break" — G15); the
+    // `?` was the same hole one step earlier, and `type_of` records
+    // into `expr_types` only on Ok, so `[a - b, o.q === undefined]`
+    // left the second element untyped and the strict-eq packed the
+    // null tag. The verdict is held and propagated after the walk.
+    let mut first_err: Option<String> = None;
     let mut first_ty: Option<Type> = None;
     for &eid in &ids {
-        if let Some(t) = elem_value_ty(checker, ast, eid)? {
-            first_ty = Some(t);
-            break;
+        match elem_value_ty(checker, ast, eid) {
+            Ok(Some(t)) => {
+                first_ty = Some(t);
+                break;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                first_err.get_or_insert(e);
+            }
         }
     }
     let first_ty = match first_ty {
@@ -53,7 +66,13 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
         // reads to keep `undefined` and `null` apart (both lower to
         // ConstPtrNull — RFC 20260721 刀 12 G15: `[1, null, u]`
         // packed the unwalked `u` as null).
-        let ty = elem_value_ty(checker, ast, eid)?;
+        let ty = match elem_value_ty(checker, ast, eid) {
+            Ok(t) => t,
+            Err(e) => {
+                first_err.get_or_insert(e);
+                continue;
+            }
+        };
         if let Some(ty) = ty
             && !heterogeneous
         {
@@ -68,6 +87,9 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, elements: &[ExprId]) -> Re
                 heterogeneous = true;
             }
         }
+    }
+    if let Some(e) = first_err {
+        return Err(e);
     }
     if heterogeneous {
         Ok(Type::Array(Box::new(Type::Any)))

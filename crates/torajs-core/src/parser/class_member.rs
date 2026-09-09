@@ -376,5 +376,4 @@ impl<'a> Parser<'a> {
         }
         None
     }
-
 }

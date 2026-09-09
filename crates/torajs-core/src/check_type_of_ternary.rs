@@ -28,12 +28,21 @@ pub(crate) fn check(
     then_branch: ExprId,
     else_branch: ExprId,
 ) -> Result<Type, String> {
-    let c = checker.type_of(ast, cond)?;
-    if !js_truthy_acceptable(&c) {
-        return Err(format!(
+    // Every one of the three operands is VISITED before any verdict
+    // propagates. `type_of` records into `expr_types` only on Ok, so
+    // a `?` here left the two branches with NO recorded type — and in
+    // a monomorph specialization body (diagnostics discarded by
+    // design) lowering reads exactly that table. `(a - b) ? (o.q ===
+    // undefined) : "E"` answered FALSE because the `undefined`
+    // literal had no entry and strict-eq packed the null tag.
+    // Same shape as `check_type_of_binop::check`.
+    let cond_verdict = match checker.type_of(ast, cond) {
+        Ok(c) if js_truthy_acceptable(&c) => Ok(c),
+        Ok(c) => Err(format!(
             "ternary condition must be boolean (or coercible), got {c:?}"
-        ));
-    }
+        )),
+        Err(e) => Err(e),
+    };
     let narrow = checker.collect_null_narrow(ast, cond);
     // Chunk 782 — member-path mirror (`o.s ? o.s.length : -1`): the
     // if-stmt wedge (RFC 20260710 C5) applied to the expression
@@ -57,7 +66,11 @@ pub(crate) fn check(
     } else {
         None
     };
-    let t = checker.type_of(ast, then_branch)?;
+    // The restore below has to run even when the branch fails to
+    // type: an unbalanced `apply_narrow` leaves the binding narrowed
+    // for the REST of the check, which is checker state corruption on
+    // an error path that no diagnostic reports.
+    let t = checker.type_of(ast, then_branch);
     if let (Some((name, _, _)), Some(saved)) = (&narrow, then_saved) {
         checker.restore_narrow(name, saved);
     }
@@ -82,13 +95,15 @@ pub(crate) fn check(
     } else {
         None
     };
-    let e = checker.type_of(ast, else_branch)?;
+    let e = checker.type_of(ast, else_branch);
     if let (Some((name, _, _)), Some(saved)) = (&narrow, else_saved) {
         checker.restore_narrow(name, saved);
     }
     if let (Some((key, _, _)), Some(prev)) = (&member_narrow, else_member) {
         checker.restore_member_narrow(key, prev);
     }
+    cond_verdict?;
+    let (t, e) = (t?, e?);
     // 506-02 — two DIFFERENT class instances join to their nearest
     // common ancestor (`cond ? new Mid(i) : new Leaf(i)` types
     // ClassRef("Mid")); the lowering keeps both pointers unboxed on
