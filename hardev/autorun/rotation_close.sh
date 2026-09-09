@@ -30,17 +30,34 @@
 # exit: 0 all four green · 1 at least one red (the summary says which)
 
 set -u
-[ "$#" -ge 1 ] || { echo "usage: rotation_close.sh <head-sha>" >&2; exit 2; }
+[ "$#" -ge 1 ] || { echo "usage: rotation_close.sh <head-sha> [repo-dir]" >&2; exit 2; }
 H=$1
-cd "$(dirname "$0")/../.." || exit 2
+# The repo is NOT derivable from $0: this script is scp'd to /tmp and run
+# from there, so `dirname $0/../..` resolves to `/`. The first run of this
+# file did exactly that — every step ran in the wrong directory, and the
+# `^error` grep below answered 0 because bash's own "No such file or
+# directory" does not start with the word error. Same family as the
+# pre-flight lesson about counting warnings and missing build failures:
+# a check that reads the log has to be paired with one that reads the
+# exit code, and a path has to be proven, not assumed.
+REPO="${2:-${HARDEV_REPO:-$HOME/workspace/goliajp/torajs}}"
+cd "$REPO" 2>/dev/null || { echo "rotation_close: cannot cd $REPO" >&2; exit 2; }
+[ -f Cargo.toml ] && [ -x scripts/release-build.sh ] || {
+  echo "rotation_close: $REPO is not the torajs repo (no Cargo.toml / release-build.sh)" >&2
+  exit 2; }
+echo "repo=$REPO head=$H"
 rc=0
 note() { printf '\n=== %s ===\n' "$1"; }
 
 note "release-build (the sweep runs target/release/tr, not the gate's iter tr)"
 bash scripts/release-build.sh > /tmp/rc-rb.log 2>&1
+rb_rc=$?
 errs=$(grep -cE '^error' /tmp/rc-rb.log)
-echo "release_build_errors=$errs"
-[ "$errs" -eq 0 ] || { echo "release-build FAILED — see /tmp/rc-rb.log" >&2; exit 1; }
+echo "release_build_exit=$rb_rc release_build_errors=$errs"
+# Both, not either: release-build.sh exits 0 over a failed cargo inside it
+# (r408), and a shell-level failure never writes a line starting `error`.
+[ "$rb_rc" -eq 0 ] && [ "$errs" -eq 0 ] || {
+  echo "release-build FAILED — see /tmp/rc-rb.log" >&2; exit 1; }
 cargo build --release -p torajs-test262 > /tmp/rc-rbt.log 2>&1 || {
   echo "torajs-test262 build FAILED — see /tmp/rc-rbt.log" >&2; exit 1; }
 

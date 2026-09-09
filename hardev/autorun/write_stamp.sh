@@ -47,7 +47,13 @@ if [ -n "${HARDEV_HEAD_SHA:-}" ]; then
   SHA="$HARDEV_HEAD_SHA"; SRC=arg
 else
   SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"; SRC=local-git
-  if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+  # The stamps themselves are excluded from the dirty test. Writing a
+  # stamp makes the tree dirty, so including them means a stamp can never
+  # be written clean: the first run marks itself `-dirty`, and committing
+  # it only sets up the next run to do the same. What the flag is for is
+  # "was the SOURCE this measured a committed state", and a stamp file is
+  # not source.
+  if [ -n "$(git status --porcelain 2>/dev/null | grep -v 'hardev/[a-z0-9-]*-latest\.json')" ]; then
     SHA="$SHA-dirty"
   fi
 fi
