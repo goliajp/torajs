@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T10:35:25.522Z",
+  "generatedAt": "2026-09-09T13:10:24.171Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-09T10:24:11Z",
-    "headSha": "1e0a72dd0",
-    "elapsedSec": 429.4,
+    "ranAt": "2026-09-09T12:57:02Z",
+    "headSha": "4d2bdc019",
+    "elapsedSec": 429.83,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31299,
+    "pass": 31353,
     "passNoOracle": 1189,
     "passNegative": 4512,
-    "passTotal": 37000,
-    "bug": 11578,
-    "incompatible": 4596,
+    "passTotal": 37054,
+    "bug": 11576,
+    "incompatible": 4544,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48578,
-    "passRateInScope": 69.58,
-    "passRateTrAccepted": 76.17
+    "trAccepted": 48630,
+    "passRateInScope": 69.68,
+    "passRateTrAccepted": 76.2
   },
   "torajs": {
-    "commit": "1e0a72dd0",
-    "commitSubject": "fix(parser): import and export clause names",
+    "commit": "4d2bdc019",
+    "commitSubject": "fix(ast): the __proto__ set is not a field name either",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "1e0a72dd0",
-      "subject": "fix(parser): import and export clause names"
+      "hash": "4d2bdc019",
+      "subject": "fix(ast): the __proto__ set is not a field name either"
     },
     {
-      "hash": "edd6c336a",
-      "subject": "fix(parser): two property-name slots read a shorter set than PropertyName"
+      "hash": "542d60af1",
+      "subject": "fix(ast): the object-spread sentinel is not a field name"
     },
     {
-      "hash": "a0100dbd3",
-      "subject": "fix(parser): a class member may be named with any keyword"
+      "hash": "c62026d0d",
+      "subject": "refactor(ast): move the binary-operator arm of the return sniff to a sibling"
     },
     {
-      "hash": "fd574c0f7",
-      "subject": "fix(ssa-lower): a catch parameter deleted the binding it shadowed"
+      "hash": "d099fc565",
+      "subject": "fix(ssa-lower): indexing a primitive is a [[Get]], not a refusal"
     },
     {
-      "hash": "8767eef13",
-      "subject": "fix(parser): the rest of the BindingIdentifier positions"
+      "hash": "fc618cbb7",
+      "subject": "refactor(ssa-lower): move the index receiver-shape predicate to a sibling"
     },
     {
-      "hash": "46614a597",
-      "subject": "fix(parser): a contextual keyword may label a statement"
+      "hash": "3a39831c7",
+      "subject": "fix(check,ssa-lower): an inferred PRIMITIVE anchor is an anchor too"
     },
     {
-      "hash": "2de2421af",
-      "subject": "fix(parser): every slot of a destructuring pattern is a binding position"
+      "hash": "baacb204a",
+      "subject": "fix(ssa-lower): a property miss on a primitive receiver is undefined"
     },
     {
-      "hash": "54728cc30",
-      "subject": "fix(ast): `&&` and `||` are not boolean-valued"
+      "hash": "e4178d8f1",
+      "subject": "fix(ast): an any or type-var operand cannot promise a Number"
     },
     {
-      "hash": "f75ba3880",
-      "subject": "refactor(check): move the terminal-miss posture to its own file"
+      "hash": "b60ad8c50",
+      "subject": "test: drop the mixed-BigInt fixture whose knife was withdrawn"
     },
     {
-      "hash": "692683d8d",
-      "subject": "fix(check): a specialization body's inferred Struct anchor is not a contract"
+      "hash": "07c995a2e",
+      "subject": "fix(ast): the BigInt operators do not answer a Number"
     },
     {
-      "hash": "35ef4fdce",
-      "subject": "fix(parser): a destructured catch parameter's BoundNames were never judged"
+      "hash": "fbf67115d",
+      "subject": "fix(ssa-lower): the ToNumber sink had no arm for a Str repr"
     },
     {
-      "hash": "6bec312df",
-      "subject": "fix(check): a binop's left failure left its right operand untyped"
+      "hash": "c3803a2c2",
+      "subject": "fix(check,ssa-lower): a String operand is ToNumeric everywhere but + and string ordering"
     }
   ],
-  "headSha": "1e0a72dd0",
+  "headSha": "4d2bdc019",
   "autorun": {
-    "total": 923,
+    "total": 924,
     "baselineTarget": 10,
-    "bySelf": 918,
+    "bySelf": 919,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788933950-2ce9",
-      "at": "2026-09-09T06:05:50Z",
-      "ts": 1788933950,
+      "rotationId": "r-1788950155-6e2f",
+      "at": "2026-09-09T10:35:55Z",
+      "ts": 1788950155,
       "trigger": "self",
-      "prevHead": "d55fc5872",
-      "handoffSha": "sha256:f1740353cf719a487b239a666f0c35672047929444cd6fdedd1d78e40cbb1553",
-      "handoffAgeSec": 9,
-      "conformanceBefore": "3848/0/4",
-      "commitsInSession": 16
+      "prevHead": "0df66366b",
+      "handoffSha": "sha256:0fadfd8e7e3157dc37d9a6944fd4c9a09039dc4c828514ca3500700261b3e815",
+      "handoffAgeSec": 33,
+      "conformanceBefore": "3860/0/4",
+      "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1788950155-6e2f",
+        "at": "2026-09-09T10:35:55Z",
+        "ts": 1788950155,
+        "trigger": "self",
+        "prevHead": "0df66366b",
+        "handoffSha": "sha256:0fadfd8e7e3157dc37d9a6944fd4c9a09039dc4c828514ca3500700261b3e815",
+        "handoffAgeSec": 33,
+        "conformanceBefore": "3860/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1788933950-2ce9",
         "at": "2026-09-09T06:05:50Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 10,
         "conformanceBefore": "3780/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1788782239-201b",
-        "at": "2026-09-07T11:57:19Z",
-        "ts": 1788782239,
-        "trigger": "self",
-        "prevHead": "48e7eab7a",
-        "handoffSha": "sha256:6b65a541ffef4e558a66d5425145dc0fa7edb1ef35f0c0cf4df1c5d52c4838d0",
-        "handoffAgeSec": 5,
-        "conformanceBefore": null,
-        "commitsInSession": null
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
