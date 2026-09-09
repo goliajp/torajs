@@ -397,6 +397,30 @@ pub(crate) fn infer_expr_ann_with(
             if fields.iter().any(|(n, _)| n.starts_with("__computed_")) {
                 return Some("any".to_string());
             }
+            // A SPREAD member is the same kind of sentinel one step
+            // over: the parser writes `__spread__` (or
+            // `__spread_omit__:p,q`) where the name goes and parks the
+            // source, and what it contributes is the SOURCE's own keys
+            // — a runtime fact for anything but a statically known
+            // Struct, and not this pass's to unfold even then.
+            // Spelling the sentinel through gave the enclosing
+            // function a return annotation naming a field literally
+            // called `__spread__`, and the declared spelling said so
+            // out loud: "expects Struct([(\"__spread__\", Struct([(\"a\",
+            // Number)]))]), got Struct([(\"a\", Number)])". The
+            // unannotated spelling did not — `function f(n) { return
+            // {...n} }` answered `{"__spread__":0}` for `f(1)` and
+            // SEGFAULTED for `f({a:1})` and `f("ab")`, where the
+            // layout the caller reads and the object the callee built
+            // disagree. `any` is the exit the computed-key arm takes
+            // and the one the checker's own object-literal arm takes
+            // for a non-Struct spread source.
+            if fields
+                .iter()
+                .any(|(n, _)| n.starts_with("__spread__") || n.starts_with("__spread_omit__:"))
+            {
+                return Some("any".to_string());
+            }
             fields
                 .iter()
                 .map(|(n, eid)| {
