@@ -203,20 +203,38 @@ fn scan_stmt(
     }
 }
 
-/// `Member { obj: <Arr-or-Any receiver>, name: "length" }` in a
-/// WRITE position — the shape whose store rides the throwing
-/// §10.4.2.5 resize helper (see the Assign / PostIncr arms).
-fn is_arr_length_member(
-    ast: &Ast,
-    eid: ExprId,
-    expr_types: &HashMap<ExprId, crate::check::Type>,
-) -> bool {
-    matches!(ast.get_expr(eid), Expr::Member { obj, name }
-    if name == "length"
-        && matches!(
-            expr_types.get(obj),
-            Some(crate::check::Type::Array(_)) | Some(crate::check::Type::Any)
-        ))
+/// A member STORE target (`o.k = v`, `o.k++`) — the shape whose
+/// store can raise, whatever the receiver is.
+///
+/// This used to be an inclusion whitelist of receiver types, grown
+/// one entry at a time: `xs.length` (rotation 270, the §10.4.2.5
+/// resize helper), a `ClassRef`/`Struct` field (rotation 373, the
+/// §10.1.9 writable gate), and `Any` by way of the `Expr::Member`
+/// read arm below. Three arms, one reason — and the whitelist shape
+/// was structurally wrong, because the store ladder it is meant to
+/// mirror ends in a lane that takes EVERYTHING ELSE: a receiver with
+/// no arm of its own is boxed and routed through
+/// `__torajs_any_member_set`, which raises. So the receivers nobody
+/// had thought to name were exactly the ones whose throw went
+/// missing, and the one that surfaced it is a receiver the ladder
+/// never even had to reach for: a specialized body's parameter.
+///
+/// `function f(n) { n.nope = 1 }` called as `f(1)` types `n` as
+/// `Number` — not `Any`, because specialization already resolved it —
+/// so no arm matched, the caller pruned its check under M4.3.b, and
+/// the strict-mode TypeError §10.1.8.1 owes a primitive receiver was
+/// dropped on the floor. The callee did stop (its own throw check
+/// fired); the caller then printed the ret sentinel, so
+/// `console.log(f(1))` answered `null` and a `try`/`catch` around it
+/// caught nothing. The SAME program with `n: any`, or routed through
+/// a `const m: any = n`, threw correctly all along.
+///
+/// Nothing statically rules a store out: a frozen instance, a
+/// `defineProperty`-demoted field, an accessor-only property and a
+/// primitive receiver all raise, and none of them is visible in the
+/// receiver's type. So the predicate is the position, not the shape.
+fn is_member_store(ast: &Ast, eid: ExprId) -> bool {
+    matches!(ast.get_expr(eid), Expr::Member { .. })
 }
 
 /// The two marks that make a bare identifier read RAISE instead of
@@ -282,36 +300,10 @@ pub(crate) fn scan_expr(
             scan_expr(ast, *obj, out, direct, fn_values, expr_types)
         }
         Expr::Assign { target, value } => {
-            // Rotation 270 — `xs.length = v` routes through the
-            // §10.4.2.5 resize helper, which throws (RangeError on
-            // an invalid length value, TypeError on a locked one).
-            // Before this rule a named fn whose ONLY throw source
-            // was a length assign stayed out of may_throw, the
-            // caller pruned its check, and the pending throw was
-            // silently dropped — the callee answered the ret
-            // sentinel 0 under a try/catch that printed "no throw";
-            // the arguments LiveLength face turned that swallow into
-            // a SIGSEGV (test262 S10.6_A5_T4).
-            if is_arr_length_member(ast, *target, expr_types) {
-                *direct = true;
-            }
-            // Rotation 373 — EVERY class-instance / struct member
-            // store can throw: the §10.1.9 writable gate (frozen
-            // instance, defineProperty-demoted field) arms a
-            // TypeError on the plain typed store, and the checker-
-            // admitted dynamic lanes (expando definition, private
-            // method write, getter-only accessor) throw on their own
-            // paths. Before this rule a fn whose ONLY throw source
-            // was `this.x = v` was pruned at the caller and the
-            // pending TypeError dropped — a frozen instance's method
-            // store answered "no throw" (pre-existing silent-wrong,
-            // same family as the length-assign rule above).
-            if let Expr::Member { obj, .. } = ast.get_expr(*target)
-                && matches!(
-                    expr_types.get(obj),
-                    Some(crate::check::Type::ClassRef(_) | crate::check::Type::Struct(_))
-                )
-            {
+            // Every member store can raise — see `is_member_store`
+            // for why the receiver's type cannot tell us otherwise,
+            // and for the three whitelist arms this one replaces.
+            if is_member_store(ast, *target) {
                 *direct = true;
             }
             scan_expr(ast, *target, out, direct, fn_values, expr_types);
@@ -403,9 +395,20 @@ pub(crate) fn scan_expr(
             }
         }
         Expr::PostIncr { target, .. } => {
-            // `xs.length--` — same §10.4.2.5 resize-helper throw
-            // face as the Assign arm above.
-            if is_arr_length_member(ast, *target, expr_types) {
+            // `o.k++` reads, adds and STORES, so it is on the same
+            // rule as the Assign arm above (this arm only ever named
+            // `xs.length--`).
+            //
+            // Measured, so it is not claimed as a fix: `o.hit++` on a
+            // FROZEN class instance still answers "after" with this
+            // marking in place, while the plain `o.hit = 5` spelling
+            // of it throws. The `++` store lane does not consult the
+            // §10.1.9 writable gate at all, so there is no pending
+            // throw for a caller check to find — the gap is in the
+            // lowering, one layer below this file, and is registered
+            // separately. Marking is still right here: when that lane
+            // does raise, the caller must not have pruned its check.
+            if is_member_store(ast, *target) {
                 *direct = true;
             }
             scan_expr(ast, *target, out, direct, fn_values, expr_types)
