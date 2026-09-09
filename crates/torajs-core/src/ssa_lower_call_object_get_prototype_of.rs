@@ -8,9 +8,10 @@
 //! Object.values + Object.keys).
 //!
 //! P4.2 Phase B+C — three receiver routes:
-//! - `Type::Obj(_)`: typed-tier instance reads its runtime class tag
-//!   from `OBJ_CLASS_TAG_OFF` and looks up the registered `__proto_<C>`
-//!   Any-box via the runtime side table (`__torajs_proto_get`).
+//! - `Type::Obj(_)`: boxed and handed to the runtime classifier, which
+//!   answers the registered `__proto_<C>` for a class instance and
+//!   %Object.prototype% for a plain struct object (rotation 623 — the
+//!   class-tag shortcut it used to take answered NULL for the latter).
 //! - `Type::Any`: route through `__torajs_get_proto_of_any` which reads
 //!   the `__proto__` field from the wrapped dynobj.
 //! - Other types: return ANY_NULL Any-box (tag 0 — no prototype
@@ -36,7 +37,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::check::Type as CheckType;
 use crate::ssa::{InstKind, Operand, Type};
-use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
+use crate::ssa_lower::LowerCtx;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -140,32 +141,21 @@ pub(crate) fn try_lower(
     }
     let arg_is_ident = matches!(ctx.ast.get_expr(args[0]), Expr::Ident(_));
     let proto = match v_ty {
-        // An EMPTY struct layout is a dynobj at runtime (`{}` has no
-        // struct surface — the dynobj-certain shape), so the
-        // class-tag load below would read a dynobj header field as a
-        // tag. Route it through the runtime classifier instead — the
-        // TAG_DYNOBJ arm answers %Object.prototype% (the inline
-        // `Object.getPrototypeOf({})` spelling; a bound `{}` already
-        // arrived Any-typed and never hit this arm).
-        Type::Obj(sid) if ctx.struct_layouts[sid.0 as usize].is_empty() => {
+        // Rotation 623 — every struct-layout receiver goes through the
+        // runtime classifier, class instance or not. The class-tag
+        // load + `proto_get` this arm used to do answered the
+        // registered `__proto_<C>` for an instance and NULL for a
+        // plain struct object (`function g(v) { return { a: v } }` —
+        // `Object.getPrototypeOf(g(1))` was null where the same value
+        // read through `any` answered %Object.prototype%). The
+        // classifier's Tag::Obj arm already answers both (the `any`
+        // spelling proved it on class instances too), so the typed
+        // spelling reads the same answer off the same kernel.
+        Type::Obj(_) => {
             let boxed = ctx.box_to_any(v.clone());
             ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),
-                Type::Any,
-                None,
-            )
-        }
-        Type::Obj(_) => {
-            let tag = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, v.clone(), OBJ_CLASS_TAG_OFF),
-                Type::I64,
-                None,
-            );
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.proto_get, vec![Operand::Value(tag)]),
                 Type::Any,
                 None,
             )
