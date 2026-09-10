@@ -224,10 +224,17 @@ impl<'a> Parser<'a> {
                     // followed by the next member (`*m() {} a\nb = 42`,
                     // the t262 after-same-line-*-asi family). Only a
                     // NEWLINE triggers it (`a b` on one line stays the
-                    // loud error), and only for a plain unconsumed
-                    // name (a computed key's shape token was already
-                    // decided above).
-                    if !consumed_computed_name && self.has_newline_before(self.pos + 1) {
+                    // loud error). A computed key (`[x]` / `[10]` /
+                    // `["s"]` on its own line, rotation 628) is the
+                    // same FieldDefinition: its `]` is already consumed,
+                    // so the shape token — and the newline that
+                    // supplies the `;` — sit at `self.pos` itself.
+                    let shape_pos = if consumed_computed_name {
+                        self.pos
+                    } else {
+                        self.pos + 1
+                    };
+                    if self.has_newline_before(shape_pos) {
                         self.parse_class_member_field_dispatch(
                             &name,
                             member_name,
