@@ -85,13 +85,33 @@ pub(crate) unsafe fn any_bitwise(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) ->
     // §13.12 ToNumeric dispatch — BigInt pair rides the bigint
     // bitwise/shift kernels at full width, a mixed pair throws,
     // before ToNumber's 32-bit path (see arith_bigint).
+    // §13.15.3 steps 1-2 — ToPrimitive(number) on an object operand
+    // before the BigInt-pair verdict (see `any_arith`); the Number
+    // lane below then sees the primitive and never re-runs valueOf.
+    // SAFETY: caller invariant — propagated.
+    let (lt, lv, l_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(lt, lv) };
+    let (rt, rv, r_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(rt, rv) };
+    let release = |p: Option<AnyValue>| {
+        if let Some(b) = p {
+            unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(b) };
+        }
+    };
+    if lt == i64::MIN || rt == i64::MIN {
+        release(l_prim);
+        release(r_prim);
+        return crate::nanbox::VALUE_UNDEFINED;
+    }
     // SAFETY: caller invariant — propagated.
     if let Some(v) = unsafe { crate::arith_bigint::try_bitwise_bigint(bit_op, lt, lv, rt, rv) } {
+        release(l_prim);
+        release(r_prim);
         return v;
     }
     // SAFETY: caller invariant — propagated.
     let l = unsafe { any_to_number(lt, lv) };
     let r = unsafe { any_to_number(rt, rv) };
+    release(l_prim);
+    release(r_prim);
     let shift_count = to_uint32(r) & 31;
     match bit_op {
         BitwiseOp::BitAnd => box_int32(to_int32(l) & to_int32(r)),

@@ -186,9 +186,12 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
 /// a loud reject until someone answers it.
 fn objectish_numeric_pair(l: &Type, r: &Type) -> bool {
     let objectish = crate::check_type_of_unary::is_object_shaped;
-    (objectish(l) || objectish(r))
-        && (objectish(l) || *l == Type::Number)
-        && (objectish(r) || *r == Type::Number)
+    // Rotation 628 — a BigInt on the other side is the same ToNumeric
+    // question: `Object(5n) & 3n` / `{ valueOf() { return 5n } } * 2n`
+    // reach `valueOf` and step in the BigInt domain (§13.12 step 3 /
+    // §6.1.6.2); the any kernels already carry that pair.
+    let numeric = |t: &Type| *t == Type::Number || *t == Type::BigInt;
+    (objectish(l) || objectish(r)) && (objectish(l) || numeric(l)) && (objectish(r) || numeric(r))
 }
 
 /// One side is a String and both sides coerce through ToNumeric —
