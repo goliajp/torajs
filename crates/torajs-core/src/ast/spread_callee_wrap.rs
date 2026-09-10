@@ -79,8 +79,22 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         if relay_sites.contains(&callee.0) {
             continue;
         }
+        // Synthetic callees stay out (module doc) — except a static
+        // method's `__sm_` body on the head-less tier: it has no
+        // receiver and no factory semantics, its relay is the plain-fn
+        // relay, and the adapter enters it with the true list (argv
+        // face) or carries the true count into its hidden slot
+        // (length-only body), exactly as for a top-level fn (rotation
+        // 626: `C.m(42, ...arr)` on `static m(a) { … arguments … }`
+        // died at the callee boxing; its zero-param twin rode the
+        // direct feed all along).
         let name = match ast.get_expr(callee) {
-            Expr::Ident(n) if !n.starts_with("__") => n.clone(),
+            Expr::Ident(n)
+                if !n.starts_with("__")
+                    || (n.starts_with("__sm_") && ast.headless_argc_fns.contains(n)) =>
+            {
+                n.clone()
+            }
             _ => continue,
         };
         if !args
