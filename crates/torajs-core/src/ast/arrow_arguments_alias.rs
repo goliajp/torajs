@@ -53,6 +53,18 @@ enum Mode {
     Shadowed,
 }
 
+/// What one scope's walk collects: the arrow-interior `arguments`
+/// reads to point at the alias, and the scope's own bare
+/// `arguments = v` rebinds (§13.15.1, sloppy code), which must move
+/// the alias too — the alias is a snapshot taken at body entry, and
+/// an arrow reading it after the rebind saw the pre-rebind object
+/// (`arguments = [1, 2, 3, 4]; f()` answered the call's count).
+#[derive(Default)]
+struct Hits {
+    reads: Vec<ExprId>,
+    rebinds: Vec<ExprId>,
+}
+
 /// Does a param list bind the name `arguments`?
 fn params_shadow(params: &[Param]) -> bool {
     params.iter().any(|p| p.name == "arguments")
@@ -83,7 +95,7 @@ pub fn alias_arrow_arguments(ast: &mut Ast) {
             // arrow-interior `arguments` reads exactly as if the
             // fn-expr sat inside a FnDecl body.
             let mut s = std::mem::replace(&mut ast.stmts[i], Stmt::Multi(Vec::new()));
-            let mut hits: Vec<ExprId> = Vec::new();
+            let mut hits = Hits::default();
             scan_stmt(ast, &mut s, Mode::Shadowed, &mut hits);
             ast.stmts[i] = s;
         }
@@ -100,21 +112,36 @@ fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>, shadowed: bool) {
     } else {
         Mode::Outer
     };
-    let mut hits: Vec<ExprId> = Vec::new();
+    let mut hits = Hits::default();
     for s in body.iter_mut() {
         scan_stmt(ast, s, start, &mut hits);
     }
-    if hits.is_empty() {
+    if hits.reads.is_empty() {
         return;
     }
-    for eid in hits {
+    for eid in hits.reads {
         ast.exprs[eid.0 as usize] = Expr::Ident("__arrowargs".to_string());
+    }
+    // A rebind becomes `__arrowargs = (arguments = v)`: the inner
+    // assignment keeps its place and its single evaluation of `v`,
+    // and the alias follows the binding, so an arrow read after it
+    // sees the new value (the lifted closure captures the mutated
+    // local by reference, as any mutated capture is).
+    let rebinds = !hits.rebinds.is_empty();
+    for eid in hits.rebinds {
+        let inner = ast.exprs[eid.0 as usize].clone();
+        let inner_id = ast.add_expr(inner);
+        let alias = ast.add_expr(Expr::Ident("__arrowargs".to_string()));
+        ast.exprs[eid.0 as usize] = Expr::Assign {
+            target: alias,
+            value: inner_id,
+        };
     }
     let init = ast.add_expr(Expr::Ident("arguments".to_string()));
     body.insert(
         0,
         Stmt::LetDecl {
-            mutable: false,
+            mutable: rebinds,
             name: "__arrowargs".to_string(),
             type_ann: Some("any".to_string()),
             init,
@@ -126,7 +153,7 @@ fn process_scope(ast: &mut Ast, body: &mut Vec<Stmt>, shadowed: bool) {
 /// Statement walk within one fn scope (`mode` — see [`Mode`]). A
 /// nested `FnDecl` is its own scope — recurse through
 /// [`process_scope`] and do not extend the current one.
-fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Vec<ExprId>) {
+fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Hits) {
     match s {
         Stmt::FnDecl { params, body, .. } => {
             let shadowed = params_shadow(params);
@@ -240,7 +267,7 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Vec<ExprId>) {
 /// is taken out of the node, walked in [`Mode::Arrow`] (or
 /// [`Mode::Shadowed`] under an `arguments`-named param), and put
 /// back.
-fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Vec<ExprId>) {
+fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Hits) {
     // `Expr::ArrowFn` is a lossy encoding (see `parser/fn_expr.rs`
     // knife-1 note): a FUNCTION expression parses to the same node,
     // marked in `fn_expr_exprs` / `gen_fn_exprs` — and a fn-expr has
@@ -276,8 +303,14 @@ fn scan_expr(ast: &mut Ast, eid: ExprId, mode: Mode, hits: &mut Vec<ExprId>) {
         return;
     }
     if mode == Mode::Arrow && matches!(ast.get_expr(eid), Expr::Ident(n) if n == "arguments") {
-        hits.push(eid);
+        hits.reads.push(eid);
         return;
+    }
+    if mode == Mode::Outer
+        && let Expr::Assign { target, .. } = ast.get_expr(eid)
+        && matches!(ast.get_expr(*target), Expr::Ident(n) if n == "arguments")
+    {
+        hits.rebinds.push(eid);
     }
     let children: Vec<ExprId> = match ast.get_expr(eid) {
         Expr::BinOp { left, right, .. } => vec![*left, *right],
