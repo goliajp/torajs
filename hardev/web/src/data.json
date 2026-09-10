@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-09T21:44:25.964Z",
+  "generatedAt": "2026-09-10T01:15:27.801Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-09T21:28:31Z",
-    "headSha": "a6b16e97a",
-    "elapsedSec": 432.6,
+    "ranAt": "2026-09-10T01:04:40Z",
+    "headSha": "8bdb1ce21",
+    "elapsedSec": 432.99,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31371,
+    "pass": 31414,
     "passNoOracle": 1189,
     "passNegative": 4512,
-    "passTotal": 37072,
-    "bug": 11558,
+    "passTotal": 37115,
+    "bug": 11515,
     "incompatible": 4544,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 48630,
-    "passRateInScope": 69.72,
-    "passRateTrAccepted": 76.23
+    "passRateInScope": 69.8,
+    "passRateTrAccepted": 76.32
   },
   "torajs": {
-    "commit": "a6b16e97a",
-    "commitSubject": "perf(egraph): a compare's wide constant is minted once above the loop",
+    "commit": "26d3efaba",
+    "commitSubject": "chore(hardev): re-stamp file size on the clean tree",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "a6b16e97a",
-      "subject": "perf(egraph): a compare's wide constant is minted once above the loop"
-    },
-    {
-      "hash": "ba71ca10a",
-      "subject": "fix(core): a non-integral index on a typed array stores the property, not the truncated element"
-    },
-    {
-      "hash": "9f33dd426",
-      "subject": "fix(core): a non-integral index on a typed array reads undefined, not the truncated element"
-    },
-    {
-      "hash": "3a88bb783",
-      "subject": "fix(anyvalue): a struct object's prototype chain ends at %Object.prototype%, not in the builtin reify"
-    },
-    {
-      "hash": "d046b40a8",
-      "subject": "fix(core): Object.getPrototypeOf of a plain struct object answers %Object.prototype%"
-    },
-    {
-      "hash": "7384c3387",
-      "subject": "fix(anyvalue): a keyed store on a primitive any receiver is a TypeError"
-    },
-    {
-      "hash": "13384a9a5",
-      "subject": "fix(core): a Number key on an any receiver keeps its value — boxed in the increment lane, un-truncated in the index lanes"
-    },
-    {
-      "hash": "63389dd4d",
-      "subject": "fix(core): a named fn whose only raise is an any-lane operator is a may-throw fn"
-    },
-    {
-      "hash": "50482b2ba",
-      "subject": "fix(arr): the pre-reserved fill loop refuses a non-extensible receiver"
-    },
-    {
-      "hash": "e40730f49",
-      "subject": "fix(egraph): a header read or a length-lock raiser does not take an array out of the element-point analysis"
-    },
-    {
-      "hash": "ac4042ab5",
-      "subject": "fix(arr): shift and a shrinking splice on a sealed receiver fail the way the spec does"
-    },
-    {
-      "hash": "63dc239e2",
+      "hash": "26d3efaba",
       "subject": "chore(hardev): re-stamp file size on the clean tree"
+    },
+    {
+      "hash": "53d01b2f6",
+      "subject": "chore(hardev): rotation 624 stamps — sweep, determinism, Guard Malloc, bench"
+    },
+    {
+      "hash": "8bdb1ce21",
+      "subject": "fix(runtime): %ThrowTypeError% answers frozen, and a stopped shrink stays silent on the assignment path"
+    },
+    {
+      "hash": "1823b64ad",
+      "subject": "fix(arr): reflect.set on an array's length answers false for every refusal the kernel decides"
+    },
+    {
+      "hash": "3705aabec",
+      "subject": "refactor(arr): the length write moves out of grow.rs into set_length.rs"
+    },
+    {
+      "hash": "f2c67f3c5",
+      "subject": "fix(runtime): the symbol wrapper joins the wrapper family, and a bag-carrying cell serializes its bag"
+    },
+    {
+      "hash": "67dc65749",
+      "subject": "fix(runtime): the integrity level reaches lastIndex, the re-parent, typed arrays and a written prototype"
+    },
+    {
+      "hash": "b71dd8d1e",
+      "subject": "fix(rc): object.freeze locks an array's length"
+    },
+    {
+      "hash": "c83049e86",
+      "subject": "fix(core): a hoisted or ES5-lowered class keeps its source name"
+    },
+    {
+      "hash": "b68047f78",
+      "subject": "fix(arr): a length define validates against the non-writable length as a define, not as a set"
+    },
+    {
+      "hash": "905d3b36e",
+      "subject": "fix(arr): the mutators refuse in spec order and say which step failed"
+    },
+    {
+      "hash": "44485b838",
+      "subject": "fix(runtime): object.isSealed and isFrozen are §7.3.16 TestIntegrityLevel over the receiver's own properties"
     }
   ],
-  "headSha": "a6b16e97a",
+  "headSha": "26d3efaba",
   "autorun": {
-    "total": 926,
+    "total": 927,
     "baselineTarget": 10,
-    "bySelf": 921,
+    "bySelf": 922,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788973586-1a86",
-      "at": "2026-09-09T17:06:26Z",
-      "ts": 1788973586,
+      "rotationId": "r-1788990294-57c4",
+      "at": "2026-09-09T21:44:54Z",
+      "ts": 1788990294,
       "trigger": "self",
-      "prevHead": "63dc239e2",
-      "handoffSha": "sha256:1f8d563455585d3a7d182af34ceb0c0483d88b21a61f9141345d2dd22fe3d38e",
-      "handoffAgeSec": 39,
-      "conformanceBefore": "3880/0/4",
-      "commitsInSession": 18
+      "prevHead": "1ebe8a6dc",
+      "handoffSha": "sha256:d3c0d52c620904c194ed1b91265fa0b8066995780d2c5a29ebcb695754b6602d",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "3890/0/4",
+      "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1788990294-57c4",
+        "at": "2026-09-09T21:44:54Z",
+        "ts": 1788990294,
+        "trigger": "self",
+        "prevHead": "1ebe8a6dc",
+        "handoffSha": "sha256:d3c0d52c620904c194ed1b91265fa0b8066995780d2c5a29ebcb695754b6602d",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "3890/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1788973586-1a86",
         "at": "2026-09-09T17:06:26Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 54,
         "conformanceBefore": "3809/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1788819040-1d98",
-        "at": "2026-09-07T22:10:40Z",
-        "ts": 1788819040,
-        "trigger": "self",
-        "prevHead": "797a790f2",
-        "handoffSha": "sha256:28b462ee26c398acde6fe8036c07e754a31328774f7879e7d237f088cb105555",
-        "handoffAgeSec": 4,
-        "conformanceBefore": "3800/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
