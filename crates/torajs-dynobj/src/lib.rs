@@ -267,6 +267,17 @@ pub unsafe extern "C" fn __torajs_class_face_invoke(
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_accessor_face_invoke(
+    _face: *const core::ffi::c_void,
+    _recv: u64,
+    _argv: *const u64,
+    _argc: i64,
+) -> u64 {
+    0
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_struct_put_own_rows_at(
     _cell: *const core::ffi::c_void,
     _indent: u32,

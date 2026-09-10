@@ -44,6 +44,15 @@ unsafe extern "C" {
     /// torajs-anyvalue — invoke a class-face adapter with the
     /// receiver in the env slot.
     fn __torajs_class_face_invoke(adapter: u64, recv: u64, argv: *const u64, argc: i64) -> u64;
+    /// torajs-anyvalue — the accessor face's own receiver-guarded
+    /// invoke (629-02): mono adapter for an own instance, `__cmany_`
+    /// twin recv-first for every other receiver.
+    fn __torajs_class_accessor_face_invoke(
+        face: *const c_void,
+        recv: u64,
+        argv: *const u64,
+        argc: i64,
+    ) -> u64;
     /// torajs-value-drop — universal NaN-box-safe heap release.
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
@@ -101,11 +110,13 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_getter(
         };
     }
     // A reified class-accessor face (RFC 20260718-accessor-reify
-    // 刀 2) — invoke its boxed adapter with the receiver in the env
-    // slot (the class-method dispatch shape).
-    let cls_adapter = unsafe { __torajs_class_face_adapter(getter) };
-    if cls_adapter != 0 {
-        return unsafe { __torajs_class_face_invoke(cls_adapter, recv_anyv, core::ptr::null(), 0) };
+    // 刀 2) — the face's guarded invoke picks the mono (receiver in
+    // the env slot) or the twin (receiver-first) by who `recv` is
+    // (629-02).
+    if unsafe { __torajs_class_face_adapter(getter) } != 0 {
+        return unsafe {
+            __torajs_class_accessor_face_invoke(getter, recv_anyv, core::ptr::null(), 0)
+        };
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };
     let raw_ret = (kinds & 0xff) as u8;
@@ -222,10 +233,9 @@ pub unsafe extern "C" fn __torajs_accessor_invoke_setter(
         return 1;
     }
     // Class-accessor face — see the getter twin above.
-    let cls_adapter = unsafe { __torajs_class_face_adapter(setter) };
-    if cls_adapter != 0 {
+    if unsafe { __torajs_class_face_adapter(setter) } != 0 {
         let buf = [value_anyv];
-        unsafe { __torajs_class_face_invoke(cls_adapter, recv_anyv, buf.as_ptr(), 1) };
+        unsafe { __torajs_class_accessor_face_invoke(setter, recv_anyv, buf.as_ptr(), 1) };
         return 1;
     }
     let kinds = unsafe { *((pair as *const u8).add(ACC_KINDS_OFF) as *const u64) };

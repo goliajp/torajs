@@ -151,12 +151,13 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
     unsafe {
         let spelling = crate::str_wtf8::StrWtf8::of(name_str.cast());
         let mut slot = proto_anyv as *mut c_void;
+        let layout = __torajs_struct_layout_lookup(tag as u32);
         define_accessor_pair(
             &mut slot,
             name_str,
             spelling.as_bytes(),
-            get_adapter,
-            set_adapter,
+            super::reify::face_half(layout, tag, get_adapter),
+            super::reify::face_half(layout, tag, set_adapter),
             DEFINE_ACCESSOR_FLAGS,
         );
         PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
@@ -172,27 +173,52 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
 ///
 /// # Safety
 /// `slot` holds a live dynobj; `key` is a live Str / Symbol cell.
+/// One half of a class accessor as its reified face carries it
+/// (629-02): the boxed adapter, plus the receiver guard the invoke
+/// reads — the owning class's tag (0 = every receiver rides the
+/// twin) and the `__cmany_` twin's adapter (0 = none). [`Self::mono`]
+/// is the guard-less spelling the runtime-key and static defines use
+/// (a static body binds no receiver; a computed member's twin is not
+/// resolvable by row here).
+#[derive(Clone, Copy)]
+pub(super) struct FaceHalf {
+    pub adapter: u64,
+    pub tag: u64,
+    pub twin: u64,
+}
+
+impl FaceHalf {
+    pub(super) fn mono(adapter: u64) -> Self {
+        Self {
+            adapter,
+            tag: 0,
+            twin: 0,
+        }
+    }
+}
+
 pub(super) unsafe fn define_accessor_pair(
     slot: &mut *mut c_void,
     key: *const u8,
     prop: &[u8],
-    get_adapter: u64,
-    set_adapter: u64,
+    get: FaceHalf,
+    set: FaceHalf,
     flags: u64,
 ) {
     unsafe {
-        let mint_face = |adapter: u64, prefix: &[u8], length: u64| -> *mut c_void {
-            if adapter == 0 {
+        let mint_face = |half: FaceHalf, prefix: &[u8], length: u64| -> *mut c_void {
+            if half.adapter == 0 {
                 return core::ptr::null_mut();
             }
             let mut full = Vec::with_capacity(prefix.len() + prop.len());
             full.extend_from_slice(prefix);
             full.extend_from_slice(prop);
             let face_name = alloc_str_key(&full);
-            __torajs_class_accessor_cell_new(adapter, face_name, length) as *mut c_void
+            __torajs_class_accessor_cell_new(half.adapter, face_name, length, half.tag, half.twin)
+                as *mut c_void
         };
-        let get_cell = mint_face(get_adapter, b"get ", 0);
-        let set_cell = mint_face(set_adapter, b"set ", 1);
+        let get_cell = mint_face(get, b"get ", 0);
+        let set_cell = mint_face(set, b"set ", 1);
         let pair = __torajs_accessor_pair_new(get_cell, set_cell, ACC_KINDS_BOXED_BOTH);
         __torajs_dynobj_define_plain(slot, key, ANY_HEAP as u64, pair as u64, flags);
     }
@@ -346,7 +372,14 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
             flags |= 1 << 8;
         }
         let mut slot = target_anyv as *mut c_void;
-        define_accessor_pair(&mut slot, key, prop, get_adapter, set_adapter, flags);
+        define_accessor_pair(
+            &mut slot,
+            key,
+            prop,
+            FaceHalf::mono(get_adapter),
+            FaceHalf::mono(set_adapter),
+            flags,
+        );
         if is_static != 0 {
             CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
         } else {
@@ -397,8 +430,8 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
             &mut slot,
             name_str,
             spelling.as_bytes(),
-            get_adapter,
-            set_adapter,
+            FaceHalf::mono(get_adapter),
+            FaceHalf::mono(set_adapter),
             DEFINE_ACCESSOR_FLAGS,
         );
         CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;

@@ -80,7 +80,13 @@ unsafe extern "C" {
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-anyvalue — reified class-accessor face (RFC
     /// 20260718-accessor-reify 刀 2; name transfers).
-    fn __torajs_class_accessor_cell_new(adapter: u64, name: *mut u8, length: u64) -> *mut u8;
+    fn __torajs_class_accessor_cell_new(
+        adapter: u64,
+        name: *mut u8,
+        length: u64,
+        class_tag: u64,
+        twin: u64,
+    ) -> *mut u8;
     /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer).
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
 }

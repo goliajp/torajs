@@ -148,8 +148,8 @@ unsafe fn define_row(
                         slot,
                         key,
                         prop,
-                        get_adapter,
-                        set_adapter,
+                        face_half(layout, tag, get_adapter),
+                        face_half(layout, tag, set_adapter),
                         DEFINE_ACCESSOR_FLAGS,
                     );
                     __torajs_str_drop(key);
@@ -292,4 +292,45 @@ unsafe fn accessor_row_before(layout: *const c_void, upto: u32, prop: &[u8]) -> 
         }
     }
     false
+}
+
+/// The reified face half for `adapter` on class `tag` (629-02): the
+/// row's `__cmany_` twin and the guard tag it rides. A twin-primary
+/// row (a GENERIC class's accessor — its adapter IS the twin, recv-
+/// first) takes the static-face encoding `(tag 0, twin = adapter)`
+/// so every receiver rides the twin, the same encoding the method
+/// faces use; a mono row carries its class tag and whatever twin
+/// blade 2 minted (0 for a this-free body). An adapter no row owns
+/// (NULL, or a define kernel handed one the table does not carry) is
+/// a guard-less mono.
+///
+/// # Safety
+/// `layout` is NULL or the live layout entry of class `tag`.
+pub(super) unsafe fn face_half(
+    layout: *const c_void,
+    tag: i64,
+    adapter: u64,
+) -> super::define::FaceHalf {
+    let mut half = super::define::FaceHalf::mono(adapter);
+    if adapter == 0 || layout.is_null() {
+        return half;
+    }
+    let n = unsafe { __torajs_struct_method_count(layout) };
+    for j in 0..n {
+        let mut np: *const u8 = core::ptr::null();
+        let mut nl: u32 = 0;
+        let row = unsafe { __torajs_struct_method_at(layout, j, &mut np, &mut nl) };
+        if row as u64 != adapter {
+            continue;
+        }
+        let flags = unsafe { __torajs_struct_method_flags_at(layout, j) };
+        if flags & 2 != 0 {
+            half.twin = adapter;
+        } else {
+            half.tag = tag as u64;
+            half.twin = unsafe { __torajs_struct_method_twin_at(layout, j) } as u64;
+        }
+        return half;
+    }
+    half
 }
