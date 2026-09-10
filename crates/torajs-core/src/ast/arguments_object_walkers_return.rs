@@ -13,7 +13,10 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// as / assign value) WITHOUT a consuming node in between: the
 /// return-root retain can't see through those, so the box would
 /// leave borrowing the materialized array's stake (UAF once the
-/// array scope-drops). Such bodies stay KeepLoud. A root
+/// array scope-drops). Since rotation 626 such a return is bound to
+/// a local first (`arguments_object_return_passthrough`, the first
+/// step of the pass) and the faces never see it; the walk remains
+/// the trigger for that rewrite and the guard behind it. A root
 /// `arguments[i]` return is fine (the return lowering retains) and
 /// any read under a consuming node (BinOp / call arg / literal /
 /// member / index position) produces a fresh result.

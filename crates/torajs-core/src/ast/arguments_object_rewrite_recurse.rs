@@ -33,6 +33,7 @@ pub(super) fn rewrite_recurse_arm(
         | Expr::Spread { .. }
         | Expr::Ternary { .. }
         | Expr::Nullish { .. }
+        | Expr::Sequence { .. }
         | Expr::OptChain { .. }
         | Expr::OptIndex { .. }
         | Expr::OptCall { .. } => {
@@ -245,6 +246,21 @@ fn recurse_optional(
                 return eid;
             }
             ast.add_expr(Expr::Nullish { lhs: l, rhs: r })
+        }
+        // A comma expression's right operand is its value — `return
+        // (a, arguments[1])` was refused as a pass-through return and
+        // never reached the rewrite; bound to a local first (rotation
+        // 626) it does, and an unrewritten ident here is an unknown
+        // identifier at check.
+        Expr::Sequence { left, right } => {
+            let l =
+                rewrite_arguments_in_expr(ast, left, params, argc_mode, is_argv_fn, sloppy_callee);
+            let r =
+                rewrite_arguments_in_expr(ast, right, params, argc_mode, is_argv_fn, sloppy_callee);
+            if l == left && r == right {
+                return eid;
+            }
+            ast.add_expr(Expr::Sequence { left: l, right: r })
         }
         Expr::OptChain { obj, name } => {
             let o =

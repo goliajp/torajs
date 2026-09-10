@@ -156,6 +156,11 @@ fn retain_escape_stored_off_static(
 }
 
 pub fn desugar_arguments_object(ast: &mut Ast) {
+    // Pre-pass — a pass-through return of an `arguments` element is
+    // bound to a local first, so the face scans below see a return
+    // root they can take (module doc in
+    // arguments_object_return_passthrough).
+    super::arguments_object_return_passthrough::bind_passthrough_returns(ast);
     // Pre-pass — rewrite exclusively-called fn-value aliases into
     // direct calls so the face analyses below see their sites (and
     // the forwarder relay's arg drop is bypassed). See the module

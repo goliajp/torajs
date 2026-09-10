@@ -243,9 +243,11 @@ pub(super) fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
                 || expr_uses_dynamic_arguments(ast, *then_branch)
                 || expr_uses_dynamic_arguments(ast, *else_branch)
         }
-        Expr::Nullish { lhs, rhs } => {
-            expr_uses_dynamic_arguments(ast, *lhs) || expr_uses_dynamic_arguments(ast, *rhs)
-        }
+        Expr::Nullish { lhs, rhs }
+        | Expr::Sequence {
+            left: lhs,
+            right: rhs,
+        } => expr_uses_dynamic_arguments(ast, *lhs) || expr_uses_dynamic_arguments(ast, *rhs),
         Expr::OptChain { obj, .. } => expr_uses_dynamic_arguments(ast, *obj),
         Expr::OptIndex { obj, index } => {
             expr_uses_dynamic_arguments(ast, *obj) || expr_uses_dynamic_arguments(ast, *index)

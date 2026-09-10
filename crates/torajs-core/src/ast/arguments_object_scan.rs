@@ -243,7 +243,11 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
                 || expr_scan(ast, *then_branch, what)
                 || expr_scan(ast, *else_branch, what)
         }
-        Expr::Nullish { lhs, rhs } => expr_scan(ast, *lhs, what) || expr_scan(ast, *rhs, what),
+        Expr::Nullish { lhs, rhs }
+        | Expr::Sequence {
+            left: lhs,
+            right: rhs,
+        } => expr_scan(ast, *lhs, what) || expr_scan(ast, *rhs, what),
         Expr::OptChain { obj, .. } => expr_scan(ast, *obj, what),
         Expr::OptIndex { obj, index } => expr_scan(ast, *obj, what) || expr_scan(ast, *index, what),
         Expr::OptCall { callee, args } => {
