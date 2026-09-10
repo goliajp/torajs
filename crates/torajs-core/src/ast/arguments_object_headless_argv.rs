@@ -35,6 +35,11 @@
 //!   also refuses (`return arguments[i]` would borrow the array's
 //!   stake past its scope drop);
 //! - EVERY arena reference to the fn's name is a call callee. A
+//!   spread call site is fine: the zero-declared shape is fed
+//!   straight off the materialized list
+//!   (`try_lower_headless_argv_spread`), and a declared-parameter
+//!   shape wraps into its relay (`wrap_dynamic_spread_callees`),
+//!   whose adapter enters the body with the true list. A
 //!   value escape reaches sites that know nothing of the argv slot;
 //!   those escapes are already relayed through `__forward_` shims by
 //!   the time this pass runs (pipeline: `synthesize_forwarders` and
@@ -168,54 +173,7 @@ pub(super) fn collect_headless_argv(
         })
     });
     admitted.retain(|name| name_only_called_directly(ast, name));
-    retain_off_spread_sites(ast, &mut admitted);
     (admitted, touched)
-}
-
-/// Drop any candidate with a spread call site the spread lowering
-/// cannot feed. `f(1, ...arr)` passes a count only the runtime
-/// knows, and the terminal's packer works from the statically
-/// lowered operand list — it would answer the spread's single arena
-/// node as one argument.
-///
-/// The owed blade landed for the ZERO-DECLARED shape
-/// (`ssa_lower_call_spread::try_lower_headless_argv_spread`): that
-/// lane already materializes the whole list into an `Array<Any>`,
-/// whose slots are the contiguous NaN-boxes the argv channel wants,
-/// so it feeds argc and the slot base directly. A callee with
-/// declared parameters still has no path — its slots would have to
-/// be unpacked back out of that array and coerced — so those keep
-/// the old refusal.
-fn retain_off_spread_sites(ast: &Ast, candidates: &mut std::collections::HashSet<String>) {
-    let zero_declared: std::collections::HashSet<&String> = ast
-        .stmts
-        .iter()
-        .filter_map(|s| match s {
-            Stmt::FnDecl { name, params, .. }
-                if !params.iter().any(|p| !p.name.starts_with("__")) =>
-            {
-                Some(name)
-            }
-            _ => None,
-        })
-        .collect();
-    for e in &ast.exprs {
-        let Expr::Call { callee, args } = e else {
-            continue;
-        };
-        let Expr::Ident(n) = ast.get_expr(*callee) else {
-            continue;
-        };
-        if candidates.contains(n)
-            && !zero_declared.contains(n)
-            && args
-                .iter()
-                .any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. }))
-        {
-            let n = n.clone();
-            candidates.remove(&n);
-        }
-    }
 }
 
 /// Every arena `Ident(name)` occurrence must sit in a call's callee

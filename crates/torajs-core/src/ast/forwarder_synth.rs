@@ -26,6 +26,8 @@
 //!   re-packed by `apply_rest_args` (which runs after every one of
 //!   these passes) into `target([args])`. `target(...args)` rides that
 //!   pass's single-spread arm instead.
+//! - **A `__torajs_argv` never enters the face either.** The relay's
+//!   own routes supply the target's argv (see the synthesizer body).
 //! - **A trailing `GEN_ARGV_PARAM` never enters the face.** An
 //!   argv-consuming generator factory takes its argv from the
 //!   forwarder's own `[...arguments]`, so the true call-site argv
@@ -56,7 +58,22 @@ pub(crate) fn synth_forwarder_decl(
     target_span: crate::lexer::Span,
 ) -> Stmt {
     let takes_this = params.first().is_some_and(|p| p.name == "__this");
-    let user_params = if takes_this { &params[1..] } else { params };
+    // A relay minted after `desugar_arguments_object` sees the
+    // target's injected `__torajs_argv` (head-less: position 0;
+    // this-first: right after `__this`). It never enters the face
+    // and is never forwarded: the forwarding call's terminal packs
+    // the callee's argv itself, and the relay's boxed adapter enters
+    // the target with its own (`ssa_lower_boxed_entry::relay`).
+    let peeled: Vec<Param> = params
+        .iter()
+        .filter(|p| p.name != "__torajs_argv")
+        .cloned()
+        .collect();
+    let user_params = if takes_this {
+        &peeled[1..]
+    } else {
+        &peeled[..]
+    };
     let (user_params, takes_gen_argv) = split_gen_argv_tail(user_params);
     let user_params = user_params.to_vec();
 

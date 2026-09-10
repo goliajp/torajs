@@ -21,9 +21,10 @@
 //!
 //! Ordering is load-bearing three ways:
 //! - AFTER `desugar_arguments_object`: a callee that reads argument
-//!   VALUES must NOT wrap (the forwarder relays only the declared
-//!   params, so those values die in the relay — the ba9095b4
-//!   lesson); the side-tables consulted here are filled by that pass.
+//!   VALUES wraps only when that pass admitted it to the argv face
+//!   (its relay's adapter then carries the values; an unadmitted one
+//!   would lose them in the relay — the ba9095b4 lesson); the
+//!   side-tables consulted here are filled by that pass.
 //!   A LENGTH-only head-less callee does wrap since rotation 416: the
 //!   relay carries its own runtime argc into the callee's hidden slot
 //!   (RFC 20260815 blade 5), so the count survives the hop, and the
@@ -89,21 +90,34 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         let Some((params, _, _)) = fn_sigs.get(&name) else {
             continue;
         };
-        // Argument VALUES still have no channel through the
-        // forwarder's declared-param relay, so those callees keep the
-        // loud reject. The head-less argc tier no longer does: since
-        // the `__forward_` relay carries its OWN runtime argc into a
-        // head-less callee's hidden slot (RFC 20260815 blade 5), a
-        // spread site's true count reaches the body — the relay is
-        // fed by the boxed adapter, which knows it.
-        if ast.closure_argv_fns.contains(&name)
-            || ast.headless_argv_touch_fns.contains(&name)
-            || ast.closure_argc_locals.contains(&name)
-            || ast.closure_argv_locals.contains(&name)
+        let user = peel_hidden_params(params);
+        // A head-less callee the argv face ADMITTED does wrap: its
+        // relay's boxed adapter enters it with the true argc and argv
+        // (`ssa_lower_boxed_entry::relay`), so the runtime spread
+        // lane feeds the whole list — `g(1, ...xs)` on `function
+        // g(a) { arguments[2] }` was a loud `box_to_any(FnSig)`
+        // before (test262 top cluster ②). Its zero-declared shape
+        // stays bare: `try_lower_headless_argv_spread` feeds that one
+        // straight off the list, no relay hop.
+        let argv_admitted = ast.headless_argv_fns.contains(&name);
+        if argv_admitted && user.is_empty() {
+            continue;
+        }
+        // Argument VALUES a face did NOT admit have no channel
+        // through the relay, so those callees keep the loud reject.
+        // The head-less argc tier does not: the `__forward_` relay
+        // carries its OWN runtime argc into a head-less callee's
+        // hidden slot (RFC 20260815 blade 5), so a spread site's true
+        // count reaches the body — the relay is fed by the boxed
+        // adapter, which knows it.
+        if !argv_admitted
+            && (ast.closure_argv_fns.contains(&name)
+                || ast.headless_argv_touch_fns.contains(&name)
+                || ast.closure_argc_locals.contains(&name)
+                || ast.closure_argv_locals.contains(&name))
         {
             continue;
         }
-        let user = peel_hidden_params(params);
         // A default the CALL SITE still has to substitute is one the
         // dynamic lane cannot replay, and such a shape keeps the loud
         // reject. One that already moved INTO the body does not:
@@ -150,10 +164,19 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
 /// default in. A default that `materialize_expr_defaults` already
 /// moved into the body leaves the `undefined` literal in its place,
 /// and the guard spliced there fires on exactly what the relay pads —
-/// so the dynamic lane replays it for free.
+/// so the dynamic lane replays it for free. A self-contained literal
+/// default (`a = 5`, `b = "x"`) is replayed by the boxed adapter
+/// itself (S2.39 `dflt_lits`, the same table the relay redirect
+/// hands the target), so it does not need the site either. Only an
+/// expression default — one that may read a prior parameter — does.
 fn needs_call_site_default(ast: &Ast, user: &[super::Param]) -> bool {
-    user.iter()
-        .any(|p| p.default.is_some_and(|d| !is_undefined(ast, d)))
+    user.iter().any(|p| {
+        p.default.is_some_and(|d| {
+            let e = ast.get_expr(d);
+            !is_undefined(ast, d)
+                && crate::ssa_lower_boxed_entry::DfltLit::of_default_expr(e).is_none()
+        })
+    })
 }
 
 /// The pad value `materialize_expr_defaults` leaves behind.
@@ -233,10 +256,25 @@ mod tests {
     }
 
     #[test]
-    fn a_default_still_spelled_out_wants_the_call_site() {
+    fn an_expression_default_wants_the_call_site() {
+        let mut ast = Ast::default();
+        let prior = ast.add_expr(Expr::Ident("y".into()));
+        assert!(needs_call_site_default(
+            &ast,
+            &[defaulted("x", Some(prior))]
+        ));
+    }
+
+    /// The adapter replays a literal itself (S2.39), so the site is
+    /// not needed for it.
+    #[test]
+    fn a_literal_default_is_the_adapters_to_replay() {
         let mut ast = Ast::default();
         let five = ast.add_expr(Expr::Number(5.0));
-        assert!(needs_call_site_default(&ast, &[defaulted("x", Some(five))]));
+        assert!(!needs_call_site_default(
+            &ast,
+            &[defaulted("x", Some(five))]
+        ));
     }
 
     #[test]
@@ -254,10 +292,10 @@ mod tests {
     fn one_unconverted_default_speaks_for_the_whole_row() {
         let mut ast = Ast::default();
         let undef = ast.add_expr(Expr::Ident("undefined".into()));
-        let five = ast.add_expr(Expr::Number(5.0));
+        let prior = ast.add_expr(Expr::Ident("x".into()));
         assert!(needs_call_site_default(
             &ast,
-            &[defaulted("x", Some(undef)), defaulted("y", Some(five))]
+            &[defaulted("x", Some(undef)), defaulted("y", Some(prior))]
         ));
     }
 

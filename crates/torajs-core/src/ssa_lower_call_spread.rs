@@ -105,13 +105,14 @@ pub(crate) fn lower_bare_spread(
 /// instructions ago and only pushed into, so logical[0] is slot 0
 /// (a deque head only moves under `shift` / `unshift`).
 ///
-/// Restricted to callees with no declared user parameter. A declared
-/// slot would have to be unpacked back out of the same array and
-/// coerced to its param type — the next blade — while the
-/// zero-declared shape is exactly what the arguments-object family
-/// writes (`function f() { … arguments[i] … }`) and what a
-/// `constructor() { … arguments … }` parent takes from
-/// `super(...xs)`.
+/// Restricted to callees with no declared user parameter — exactly
+/// what the arguments-object family writes (`function f() { …
+/// arguments[i] … }`) and what a `constructor() { … arguments … }`
+/// parent takes from `super(...xs)`. A declared-parameter callee
+/// never reaches here: `wrap_dynamic_spread_callees` turned it into
+/// its relay closure, whose boxed adapter unboxes the declared slots
+/// per type and enters the body with the same argc / argv pair
+/// (`ssa_lower_boxed_entry::relay`).
 fn try_lower_headless_argv_spread(
     ctx: &mut LowerCtx<'_>,
     callee: ExprId,
