@@ -360,6 +360,14 @@ fn try_match_buffer(ns: &str, name: &str) -> Option<Type> {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }
         ("Uint8Array", "fromHex") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        // §23.2.2.1 / .2 `from` / `of` — %TypedArray%'s statics on
+        // every concrete constructor; rest-shaped because the
+        // lowering packs every argument into the any-lane argv and
+        // the kernel's own steps decide what each one is (a
+        // non-callable mapfn is its TypeError, not a type error).
+        (_, "from" | "of") if ns != "ArrayBuffer" => {
+            Type::Function(vec![Type::Rest(Box::new(Type::Any))], Box::new(Type::Any))
+        }
         _ => return None,
     })
 }

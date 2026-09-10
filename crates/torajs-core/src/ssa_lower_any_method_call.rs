@@ -64,11 +64,6 @@ pub(crate) fn try_lower(
     }
     let obj = *obj;
     let name = name.clone();
-    let mid = any_method_id(&name);
-    // C3a-2 — the method name rides along as an interned static Str
-    // (rc no-op) so the runtime's dynobj arm can probe user
-    // properties by key; built-in ids keep the integer fast path.
-    let name_str = ctx.intern_string_literal(&name);
 
     let recv = ctx.lower_expr(obj);
     // Backfill chunk 2 — an `xs as any` receiver reaches here as a
@@ -114,16 +109,48 @@ pub(crate) fn try_lower(
         Operand::ConstPtrNull
     };
 
+    let result = emit_any_method_call(ctx, recv.clone(), &name, recv_slot, args);
+    ctx.unpark_owned_temp(recv_tok);
+    // A Call-shaped receiver (`s.bold().italics()`) is an owned Any
+    // temp the runtime only borrowed — release it or every chained
+    // hop leaks its intermediate (the optcall sibling already keeps
+    // this account). Borrow shapes (Ident / Member) self-gate false.
+    ctx.release_owned_temp(obj, &recv);
+    // The result is an OWNED Any already in hand — the throw path
+    // must release it (mint-and-throw kernels like non-`g` matchAll
+    // answer a fresh cell alongside the pending TypeError; the
+    // catch can't know about it).
+    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
+    Some(Operand::Value(result))
+}
+
+/// The dispatcher call itself over an already-boxed receiver — the
+/// method-call arm above and the typed constructor-static lane
+/// (`ssa_lower_call_typedarray_static`, whose receiver is the boxed
+/// interned ctor cell) share it. `recv` is borrowed by the kernel;
+/// the answer is an OWNED Any the caller's throw check releases on
+/// the propagate edge.
+pub(crate) fn emit_any_method_call(
+    ctx: &mut LowerCtx<'_>,
+    recv: Operand,
+    name: &str,
+    recv_slot: Operand,
+    args: &[ExprId],
+) -> crate::ssa::ValueId {
+    let mid = any_method_id(name);
+    // C3a-2 — the method name rides along as an interned static Str
+    // (rc no-op) so the runtime's dynobj arm can probe user
+    // properties by key; built-in ids keep the integer fast path.
+    let name_str = ctx.intern_string_literal(name);
     let packed = pack_any_argv(ctx, args);
     let argv = packed.argv;
     let argc = args.len();
-
     let result = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
             ctx.intrinsics.any_method_call,
             vec![
-                recv.clone(),
+                recv,
                 Operand::ConstI64(mid),
                 Operand::Value(name_str),
                 Operand::ConstI64(0),
@@ -140,18 +167,7 @@ pub(crate) fn try_lower(
     // throw-propagate branch must not leak the boxes). The runtime
     // borrowed argv; per-method glue inc'd whatever it stored.
     packed.release(ctx);
-    ctx.unpark_owned_temp(recv_tok);
-    // A Call-shaped receiver (`s.bold().italics()`) is an owned Any
-    // temp the runtime only borrowed — release it or every chained
-    // hop leaks its intermediate (the optcall sibling already keeps
-    // this account). Borrow shapes (Ident / Member) self-gate false.
-    ctx.release_owned_temp(obj, &recv);
-    // The result is an OWNED Any already in hand — the throw path
-    // must release it (mint-and-throw kernels like non-`g` matchAll
-    // answer a fresh cell alongside the pending TypeError; the
-    // catch can't know about it).
-    ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
-    Some(Operand::Value(result))
+    result
 }
 
 /// Whether a NON-Any receiver still rides the any-method lane — the

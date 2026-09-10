@@ -408,6 +408,7 @@ pub(crate) mod ssa_lower_call_terminal;
 pub(crate) mod ssa_lower_call_terminal_coerce;
 pub(crate) mod ssa_lower_call_terminal_headless;
 pub(crate) mod ssa_lower_call_typedarray;
+mod ssa_lower_call_typedarray_static;
 mod ssa_lower_call_uint8array_static;
 pub(crate) mod ssa_lower_call_uncallable;
 pub(crate) mod ssa_lower_call_universal_methods;

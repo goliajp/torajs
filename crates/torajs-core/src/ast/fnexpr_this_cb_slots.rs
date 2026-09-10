@@ -171,6 +171,10 @@ pub(super) fn collect_call_apply_face(
 /// runtime ctor-static dispatch, whose `%TypedArray%.from` /
 /// `Array.from` kernels both hand `thisArg` to every mapfn call on
 /// the receiver channel — the same seed the `Array` spelling gets.
+/// A TYPED TypedArray constructor ident (`Uint8Array.from(src,
+/// mapfn, thisArg)`) is the same lane one step earlier: its lowering
+/// boxes the ctor cell and rides the any-method call
+/// (`ssa_lower_call_typedarray_static`).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn collect_array_from_face(
     stmts: &[Stmt],
@@ -183,8 +187,9 @@ pub(super) fn collect_array_from_face(
     ident_cands: &mut Vec<(String, ExprId)>,
 ) {
     let recv = super::fnexpr_this_faces::peel_any_cast(exprs, obj);
-    let any_lane =
-        recv != obj || matches!(&exprs[recv.0 as usize], Expr::Ident(n) if any_recvs.contains(n));
+    let any_lane = recv != obj
+        || matches!(&exprs[recv.0 as usize], Expr::Ident(n) if any_recvs.contains(n)
+            || crate::ssa_lower_call_typedarray::bytes_per_element(n).is_some());
     if !any_lane && !matches!(&exprs[recv.0 as usize], Expr::Ident(n) if n == "Array") {
         return;
     }
