@@ -103,6 +103,12 @@ pub(super) fn global_coercion_compatible(ctx: &LowerCtx<'_>, slot_ty: Type, v_ty
         || v_ty == Type::Ptr
         || (matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
         || (slot_ty == Type::Str && v_ty == Type::Any)
+        // rotation 630 — a Bool slot takes an `any` value through
+        // ToBoolean-shaped unboxing (`__torajs_anyv_to_bool`), the
+        // same typed-lane posture as the Number / Str arms above:
+        // `let done = false; ({ value, done } = it.next())` over an
+        // any-lane iterator result.
+        || (slot_ty == Type::Bool && v_ty == Type::Any)
         // L3b #4 — shorter-arity closures fit wider fn-typed slots
         // (see check_local_coercion's Closure arm).
         || (matches!(slot_ty, Type::Closure(_)) && matches!(v_ty, Type::Closure(_)))
@@ -121,6 +127,8 @@ pub(super) fn coerce_for_global(
         ctx.coerce_to_f64(v)
     } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
         ctx.coerce_any_to_number(v, slot_ty)
+    } else if slot_ty == Type::Bool && v_ty == Type::Any {
+        ctx.coerce_to_bool(v)
     } else if slot_ty == Type::Str && v_ty == Type::Any {
         ctx.coerce_to_str(v, Type::Any)
     } else {
@@ -136,6 +144,7 @@ pub(super) fn check_local_coercion(ctx: &LowerCtx<'_>, name: &str, snap_ty: Type
         || (snap_ty == Type::F64 && v_ty == Type::I64)
         || (matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any)
         || (snap_ty == Type::Str && v_ty == Type::Any)
+        || (snap_ty == Type::Bool && v_ty == Type::Any)
         || (snap_ty == Type::Str && v_ty == Type::Substr)
         || arr_views_into_owned_slot(ctx, snap_ty, v_ty);
     if direct_compatible {
@@ -203,6 +212,8 @@ pub(super) fn coerce_for_local(
         ctx.coerce_to_f64(v)
     } else if matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
         ctx.coerce_any_to_number(v, snap_ty)
+    } else if snap_ty == Type::Bool && v_ty == Type::Any {
+        ctx.coerce_to_bool(v)
     } else if snap_ty == Type::Str && v_ty == Type::Any {
         ctx.coerce_to_str(v, Type::Any)
     } else if snap_ty == Type::Str && v_ty == Type::Substr {
