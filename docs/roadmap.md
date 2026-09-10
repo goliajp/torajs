@@ -1621,13 +1621,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `8e8efc7e0` (53174
+**Where the numbers come from.** Full sweep @ `1f5a56a55` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 8e8efc7e0`, never as a constant (the two shas this
+snapshot stamped `@ 1f5a56a55`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1681,7 +1681,52 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `8e8efc7e0`** (2026-09-10, rotation 627 — ten knives along
+**Latest @ `1f5a56a55`** (2026-09-11, rotation 628 — twelve knives and
+one fix-forward along four seams: the %TypedArray% statics (`from` /
+`of` on an any-valued constructor through one interned cell per
+name, then on the typed constructor ident through the same kernels;
+the any census admitting function parameters), the class element
+(a static field replaces a same-named static accessor once its
+initializer has run — the rotation-627 positional window as one
+shared helper), the SuperProperty (static blocks, static field
+initializers and a base class's `Function.prototype` base; the
+`super.x++` family through one update kernel that coerces the key
+once; dynamic-base writes through the set kernel so a null base
+throws and the live chain's setter runs; `super.m?.()`; the ES5
+value-parent lane running the same rewrite over every body), and a
+run of general-language holes the clusters led to (a top-level
+binding holding a class value visible from named-fn bodies — the
+whole dynamic-import default-class cluster; `export default`'s
+anonymous name; an object operand beside a BigInt reaching
+ToPrimitive first, with the left operand's ToNumeric completing
+before the right is touched; ASI on a bare computed-key class field;
+a sloppy write to `eval`). Gate predicate: **67** clusters of >= 4
+holding **460** cases, register 2 · 142, residue 408 · 549 (47.7%),
+core **1151**. Coverage curve: top-100 **58.7%**, top-200 **75.1%**,
+top-400 **92.4%**. Against rotation 627: clusters 73 -> **67 (-6)**,
+cases 505 -> **460 (-45)**, core 1201 -> **1151 (-50)** — the
+`__superbase__` (13), `__nsdefault___dyn_ns_c0` (12),
+bigint-non-primitive (10) and computed-key-field (9) clusters left
+the table; `unknown ident __gshadow_eval` (11) entered it, the
+`eval` knife's own residue (628-07).
+
+Sweep passTotal 37265 -> **37359 (+94)**, pass 31544 -> **31618
+(+74)**, passNoOracle 1202 -> **1222 (+20)**, passNegative 4519 ->
+**4519 (+0)**, bug 11442 -> **11407 (-35)**, incompatible 4467 ->
+**4408 (-59)**, trAccepted 48707 -> **48766 (+59)**; conservation
+exact. Verdict diff 133 lines: 98 forward to pass (TypedArray
+`from` x37 / `of` x12, dynamic-import x9, the bitwise / shift
+families x15, super x2, class x4, addition / assignment /
+exponentiation x6), 31 forward moves short of pass, **4 pass
+regressions that are a re-baseline, not a rollback**: the four
+`TypedArrayConstructors/{from,of}/[BigInt/]inherited.js` cases had
+passed on `undefined === undefined` — tr has no %TypedArray%
+intrinsic (`Object.getPrototypeOf(Int8Array)` answers
+`Function.prototype`), which a real `TA.from` now exposes (628-06).
+The rotation's first close sweep had eleven more (the
+order-of-evaluation family), fixed forward and re-swept.
+
+**Prior @ `8e8efc7e0`** (2026-09-10, rotation 627 — ten knives along
 three seams: the receiver (a this-first body's direct-call argv
 channel, the ctor lane widened to a one-slot head; a this-reading
 static method's escaped value binding the receiver its call site
