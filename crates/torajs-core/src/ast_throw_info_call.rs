@@ -181,3 +181,33 @@ pub(crate) fn scan_call(
         scan_expr(ast, *a, out, direct, fn_values, expr_types);
     }
 }
+
+/// Rotation 625 — a spread over a source the checker does not type as
+/// one of the static-iterable shapes runs the §7.4.2 iteration
+/// protocol at runtime: `GetIterator` reads and calls
+/// `[Symbol.iterator]`, then `next` — user code, any of which may
+/// throw, and the lowering checks right after. A named fn whose only
+/// raise was that one was M4.3.b-skipped at its caller: `constructor()
+/// { super(...bad) }` with a throwing `[Symbol.iterator]` unwound the
+/// ctor body, the factory's check was elided, and `new C()` completed
+/// as if nothing had happened (the test262
+/// super/call-spread-err-*-itr-* family). Typed array / string / Map /
+/// Set / iterator-cell sources walk their own lanes with no user code
+/// in the loop and stay unmarked.
+pub(crate) fn scan_spread(
+    ast: &Ast,
+    expr: ExprId,
+    out: &mut Vec<String>,
+    direct: &mut bool,
+    fn_values: &HashSet<String>,
+    expr_types: &HashMap<ExprId, crate::check::Type>,
+) {
+    use crate::check::Type;
+    if !matches!(
+        expr_types.get(&expr),
+        Some(Type::Array(_) | Type::String | Type::Map | Type::Set | Type::MapIter | Type::ArrIter)
+    ) {
+        *direct = true;
+    }
+    crate::ast_throw_info::scan_expr(ast, expr, out, direct, fn_values, expr_types);
+}

@@ -417,10 +417,12 @@ pub(crate) fn scan_expr(
             scan_expr(ast, *then_branch, out, direct, fn_values, expr_types);
             scan_expr(ast, *else_branch, out, direct, fn_values, expr_types);
         }
-        Expr::TypeOf { expr }
-        | Expr::Delete { expr }
-        | Expr::Spread { expr }
-        | Expr::As { expr, .. } => scan_expr(ast, *expr, out, direct, fn_values, expr_types),
+        Expr::Spread { expr } => {
+            crate::ast_throw_info_call::scan_spread(ast, *expr, out, direct, fn_values, expr_types)
+        }
+        Expr::TypeOf { expr } | Expr::Delete { expr } | Expr::As { expr, .. } => {
+            scan_expr(ast, *expr, out, direct, fn_values, expr_types)
+        }
         Expr::InstanceOf { expr, rhs } => {
             scan_expr(ast, *expr, out, direct, fn_values, expr_types);
             scan_expr(ast, *rhs, out, direct, fn_values, expr_types);
