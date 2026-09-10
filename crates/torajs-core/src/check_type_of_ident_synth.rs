@@ -160,6 +160,17 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::Any, Type::Any, Type::Any],
             Box::new(Type::Any),
         )),
+        // §13.4.4–13.4.7 update through a Super Reference — four
+        // spellings (inc / dec × postfix / prefix), one kernel; the
+        // flags ride the callee name, so the value operands are the
+        // read's three.
+        "__torajs_super_prop_incr_post"
+        | "__torajs_super_prop_incr_pre"
+        | "__torajs_super_prop_decr_post"
+        | "__torajs_super_prop_decr_pre" => Ok(Type::Function(
+            vec![Type::Any, Type::Any, Type::Any],
+            Box::new(Type::Any),
+        )),
         "__torajs_static_method_reify" => Ok(Type::Function(
             vec![Type::String, Type::String],
             Box::new(Type::Void),

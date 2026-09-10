@@ -24,6 +24,10 @@ pub(crate) struct SuperPropIds {
     pub super_prop_set: FuncId,
     /// §13.3.6 call off a Super Reference.
     pub super_prop_call: FuncId,
+    /// §13.4.4–13.4.7 update (`super[k]++` family) through a Super
+    /// Reference: the read's three operands plus the `is_inc` /
+    /// `is_prefix` flags.
+    pub super_prop_update: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> SuperPropIds {
@@ -47,6 +51,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_anyv_super_prop_call",
             &[Type::Any, Type::Any, Type::Any, Type::Any],
+            Type::Any,
+        ),
+        super_prop_update: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_super_prop_update",
+            &[Type::Any, Type::Any, Type::Any, Type::I64, Type::I64],
             Type::Any,
         ),
     }

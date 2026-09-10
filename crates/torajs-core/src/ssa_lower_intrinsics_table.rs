@@ -561,6 +561,7 @@ pub(crate) fn build(
         super_prop_get: init_c.super_prop.super_prop_get,
         super_prop_set: init_c.super_prop.super_prop_set,
         super_prop_call: init_c.super_prop.super_prop_call,
+        super_prop_update: init_c.super_prop.super_prop_update,
         heritage_check: init_c.ctorany.heritage_check,
         any_method_call: init_c.any_substrate.any_method_call,
         any_method_call_opt: init_c.any_substrate.any_method_call_opt,

@@ -37,9 +37,16 @@
 //!     `this`, which is why the call form does not travel the
 //!     `IndexRead` path.
 //!
+//!   - update `super.x++` / `++super[k]` / `--` → the whole node
+//!     becomes `__torajs_super_prop_{incr,decr}_{post,pre}(<base>, k,
+//!     <receiver>)`: one kernel reads with the receiver, steps per
+//!     ToNumeric, writes onto the receiver and answers the old / new
+//!     value (rotation 628; the fused read/write was a recorded loud
+//!     boundary before).
+//!
 //! Recorded approximation boundaries (loud, not silent — the marker
 //! survives to the checker as an unknown ident): `super.x?.()`
-//! optional calls, `super.x++` (fused read/write).
+//! optional calls.
 //! Recorded silent boundaries: a RUNTIME-defined accessor on the base
 //! (defineProperty after class definition) reads through the plain
 //! member path with the prototype as receiver — for the NAME form
@@ -289,10 +296,46 @@ fn rewrite_sites(
                 let recv = mint_receiver(ast, cname, is_static);
                 ast.exprs[target_index.0 as usize] = Expr::Index { obj: recv, index };
             }
+            SuperPropSite::Update {
+                node,
+                target,
+                is_inc,
+                is_prefix,
+            } => {
+                let key = match ast.get_expr(target) {
+                    Expr::Member { name, .. } => {
+                        let name = name.clone();
+                        ast.add_expr(Expr::String(name.into()))
+                    }
+                    Expr::Index { index, .. } => *index,
+                    _ => continue,
+                };
+                let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                let recv = mint_receiver(ast, cname, is_static);
+                let callee = ast.add_expr(Expr::Ident(update_fn(is_inc, is_prefix).to_string()));
+                ast.exprs[node.0 as usize] = Expr::Call {
+                    callee,
+                    args: vec![base, key, recv],
+                };
+                // The Member / Index the marker hung off is orphaned
+                // — same posture as the markers themselves.
+                ast.exprs[target.0 as usize] = Expr::Null;
+            }
         }
     }
     for m in found.markers {
         ast.exprs[m.0 as usize] = Expr::Null;
+    }
+}
+
+/// The update kernel's four spellings — the flags ride the callee
+/// name so the call lowering appends them as constants.
+fn update_fn(is_inc: bool, is_prefix: bool) -> &'static str {
+    match (is_inc, is_prefix) {
+        (true, false) => "__torajs_super_prop_incr_post",
+        (true, true) => "__torajs_super_prop_incr_pre",
+        (false, false) => "__torajs_super_prop_decr_post",
+        (false, true) => "__torajs_super_prop_decr_pre",
     }
 }
 

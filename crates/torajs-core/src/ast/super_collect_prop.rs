@@ -78,6 +78,20 @@ pub(super) enum SuperPropSite {
     AssignIndex {
         target_index: ExprId,
     },
+    /// `super.x++` / `super[k]++` and the prefix / `--` spellings —
+    /// the whole UpdateExpression travels as one site: the read is
+    /// off the base with `this` as receiver and the write lands on
+    /// `this`, fused in one node that must answer the old value
+    /// (postfix) or the new one (prefix) — a kernel's job, not a
+    /// rewrite of the Member alone.
+    Update {
+        node: ExprId,
+        /// The `super.x` / `super[k]` Member or Index the marker hangs
+        /// off — orphaned once the node becomes the kernel call.
+        target: ExprId,
+        is_inc: bool,
+        is_prefix: bool,
+    },
     CallIndex {
         call: ExprId,
         index_expr: ExprId,
@@ -299,16 +313,28 @@ fn walk_expr(ast: &Ast, eid: ExprId, out: &mut SuperPropSites, stmt_pos: bool) {
             }
         }
         // `super.x++` — read from the base but write to `this`, fused
-        // in one node. Not representable by rewriting the single
-        // Member; leave the marker for a loud checker error.
-        Expr::PostIncr { target, .. } => {
-            if !matches!(
-                ast.get_expr(*target),
-                Expr::Member { obj, .. } | Expr::Index { obj, .. } if is_marker(ast, *obj)
-            ) {
-                walk_expr(ast, *target, out, false);
+        // in one node: the whole UpdateExpression is the site (the
+        // `_update` kernel). A computed key's expression is walked
+        // for sites of its own.
+        Expr::PostIncr {
+            target,
+            is_inc,
+            is_prefix,
+        } => match ast.get_expr(*target) {
+            Expr::Member { obj, .. } | Expr::Index { obj, .. } if is_marker(ast, *obj) => {
+                out.markers.push(*obj);
+                out.sites.push(SuperPropSite::Update {
+                    node: eid,
+                    target: *target,
+                    is_inc: *is_inc,
+                    is_prefix: *is_prefix,
+                });
+                if let Expr::Index { index, .. } = ast.get_expr(*target) {
+                    walk_expr(ast, *index, out, false);
+                }
             }
-        }
+            _ => walk_expr(ast, *target, out, false),
+        },
         Expr::BinOp { left, right, .. } => {
             walk_expr(ast, *left, out, false);
             walk_expr(ast, *right, out, false);

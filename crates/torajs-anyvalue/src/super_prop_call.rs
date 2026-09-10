@@ -66,15 +66,95 @@ unsafe fn super_get(base: AnyValue, key: AnyValue, this_arg: AnyValue) -> Option
         if kp.is_null() {
             return None;
         }
+        let v = super_get_kp(base, kp, this_arg);
+        crate::index_any_keyed::__torajs_anyv_property_key_drop(kp);
+        v
+    }
+}
+
+/// The receiver-aware [[Get]] over an already-coerced key — the
+/// update kernel coerces once and reads and writes through the same
+/// key (§13.4.4.1 evaluates the reference once).
+///
+/// # Safety
+/// `kp` is a live property key; cell operands are valid heap pointers.
+unsafe fn super_get_kp(base: AnyValue, kp: *const c_void, this_arg: AnyValue) -> Option<AnyValue> {
+    unsafe {
         let v =
             crate::member_get_receiver::__torajs_any_member_get_with_receiver(base, kp, this_arg);
-        crate::index_any_keyed::__torajs_anyv_property_key_drop(kp);
         // A getter on the base can throw; its answer is undefined and
         // must not be mistaken for the property's value.
         if __torajs_throw_check() != 0 {
             return None;
         }
         Some(v)
+    }
+}
+
+/// `super[k]++` / `++super[k]` / the `--` pair — §13.4.4–13.4.7
+/// UpdateExpression on a Super Reference, one kernel: the read
+/// carries §13.3.7's receiver into any getter the base declares,
+/// ToNumeric + one step in the operand's own numeric domain
+/// (`__torajs_anyv_incr_value`, the same step `x++` on an any slot
+/// runs), then §9.1.9 OrdinarySet against the base storing onto the
+/// receiver — and the answer is the coerced OLD value (postfix) or
+/// the NEW one (prefix). Fused because the two-kernel spelling has
+/// no expression-level way to answer the old value without a temp,
+/// and because the spec's order is the reference's: the base is
+/// coercibility-checked BEFORE the key is coerced, and the key is
+/// coerced ONCE for both the read and the write.
+///
+/// # Safety
+/// Cell operands are valid heap pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_super_prop_update(
+    base: AnyValue,
+    key: AnyValue,
+    this_arg: AnyValue,
+    is_inc: i64,
+    is_prefix: i64,
+) -> AnyValue {
+    unsafe {
+        if is_undefined(base) || is_null(base) {
+            __torajs_throw_type_error(
+                c"Cannot read properties of null or undefined (super property)".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        let kp = crate::index_any_keyed::__torajs_anyv_to_property_key(key);
+        if kp.is_null() {
+            return VALUE_UNDEFINED;
+        }
+        let Some(cur) = super_get_kp(base, kp, this_arg) else {
+            crate::index_any_keyed::__torajs_anyv_property_key_drop(kp);
+            return VALUE_UNDEFINED;
+        };
+        let mut old: AnyValue = VALUE_UNDEFINED;
+        let new = crate::nanbox_encode::__torajs_anyv_incr_value(cur, is_inc, &mut old);
+        __torajs_anyv_rc_dec(cur);
+        // The owned unbox mints the +1 the entry write consumes; `new`
+        // stays ours for the prefix answer.
+        let tag = crate::nanbox_encode::__torajs_anyv_unbox_tag(new);
+        let payload = crate::nanbox_encode::__torajs_anyv_unbox_value_owned(new);
+        let mut recv = this_arg;
+        let wrote = crate::member_set_receiver::__torajs_any_member_set_with_receiver(
+            base,
+            kp as *mut c_void,
+            tag as u64,
+            payload as u64,
+            &mut recv as *mut AnyValue,
+        );
+        crate::index_any_keyed::__torajs_anyv_property_key_drop(kp);
+        if wrote == 0 && __torajs_throw_check() == 0 {
+            __torajs_throw_type_error(c"cannot assign to a super property".as_ptr());
+        }
+        if is_prefix != 0 {
+            __torajs_anyv_rc_dec(old);
+            new
+        } else {
+            __torajs_anyv_rc_dec(new);
+            old
+        }
     }
 }
 
