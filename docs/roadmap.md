@@ -1621,13 +1621,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `1f5a56a55` (53174
+**Where the numbers come from.** Full sweep @ `5109034b3` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 1f5a56a55`, never as a constant (the two shas this
+snapshot stamped `@ 5109034b3`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1681,7 +1681,57 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `1f5a56a55`** (2026-09-11, rotation 628 — twelve knives and
+**Latest @ `5109034b3`** (2026-09-11, rotation 629 — thirteen knives and
+one fix-forward, the first eight driven by probes off the 628 handoff and
+the rest by the cluster table: an inline object literal in a
+prototype-source position (`Object.setPrototypeOf` / `Reflect.
+setPrototypeOf` argument 1, `Object.create` argument 0) takes the dynobj
+lane — the registered "super write through a struct accessor" gap was
+a lane gap, not a probe gap; a runtime-computed class field sits at its
+declaration position in every own-key walk (a per-class anchor table
+in torajs-meta, an `ExpandoLane` on the six walks, the static store in
+the static-init sequence); a sloppy write to `eval` inside a function
+body reaches the demoted global, and a program that writes `eval`
+declines the direct-eval desugar; a holey top-level array literal is an
+`any[]` global; an object operand beside a BigInt (and under unary
+minus) is typed by the any lane, `any_unary_neg` runs ToPrimitive
+first, and ToObject's runtime-minted wrappers keep the num / str arms;
+an exotic subclass's mono factory (`constructor(d)` untyped → `$$`
+suffix) mints under its class's tag; a reified class-accessor face
+carries `(class_tag, twin)` like a method face so `Reflect.get` /
+`Reflect.set` with a foreign receiver take the twin, and a Reflect
+target under a spelled receiver takes the dynobj lane; `Object.values`
+over a computed-field class walks at run time; every statement head
+that spells `Expression` takes the comma list; a non-Number
+`fromIndex` coerces; an array literal assigned to an `any[]` binding is
+typed by the slot; a `/` after a block's `}` is a regex — with the
+function-EXPRESSION body kept as division by the fix-forward the close
+sweep demanded). Gate predicate: **61** clusters of >= 4 holding
+**405** cases, register 2 · 139, residue 390 · 527 (49.2%), core
+**1071**. Coverage curve: top-100 **59.5%**, top-200 **75.5%**,
+top-400 **94.2%**. Against rotation 628: clusters 67 -> **61 (-6)**,
+cases 460 -> **405 (-55)**, core 1151 -> **1071 (-80)** — `__gshadow_
+eval` (11), the Number/BigInt generic conflict (9), `index assign on
+non-array Ptr` (8), the Arr slot mismatch (8), `got Comma` (8), `got
+Slash` (8) and the two fromIndex clusters (7 + 7) left the table; the
+`unknown function` cluster lost its five exotic-subclass cases.
+
+Sweep passTotal 37359 -> **37422 (+63)**, pass 31618 -> **31681
+(+63)**, passNoOracle 1222 -> **1222 (+0)**, passNegative 4519 ->
+**4519 (+0)**, bug 11407 -> **11424 (+17)**, incompatible 4408 ->
+**4328 (-80)**, trAccepted 48766 -> **48846 (+80)**; conservation
+exact. Verdict diff 93 lines: 63 forward to pass (statementList x16,
+indexOf x7 / lastIndexOf x5 / includes x2, sm/strict x6,
+statements/function x3, the arithmetic families x8, the Array
+callback family x6, Array/length x1 …), 27 `incompatible` -> `bug`
+(accepted now, still failing at run time), 3 sideways, **0 pass
+regressions** (the first close sweep had one — `division/
+S11.5.2_A3_T1.5`, a function expression's body brace read as a
+statement end — fixed forward and re-swept) and one new crash:
+`call/tco-non-eval-global` compiles now and recurses 100k deep with no
+tail-call elimination (exit 139; 629-08).
+
+**Prior @ `1f5a56a55`** (2026-09-11, rotation 628 — twelve knives and
 one fix-forward along four seams: the %TypedArray% statics (`from` /
 `of` on an any-valued constructor through one interned cell per
 name, then on the typed constructor ident through the same kernels;
