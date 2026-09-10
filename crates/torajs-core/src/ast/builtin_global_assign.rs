@@ -47,10 +47,13 @@ const SHADOW_PREFIX: &str = "__gshadow_";
 pub fn demote_assigned_builtin_globals(ast: &mut Ast) {
     let mut names: HashSet<String> = HashSet::new();
     for e in &ast.exprs {
-        let Expr::Assign { target, .. } = e else {
-            continue;
+        // An update expression writes its target too (`eval--`, the
+        // t262 postfix-decrement/eval-nostrict shape) — rotation 628.
+        let target = match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => *target,
+            _ => continue,
         };
-        let Expr::Ident(n) = ast.get_expr(*target) else {
+        let Expr::Ident(n) = ast.get_expr(target) else {
             continue;
         };
         if is_demotable(n) {
@@ -111,12 +114,16 @@ pub fn demote_assigned_builtin_globals(ast: &mut Ast) {
 }
 
 /// A built-in global whose property is writable — the constructors and
-/// namespace objects. The value globals §10.2.4 marks non-writable are
-/// excluded by name.
+/// namespace objects, and `eval` (§19.2.1 is an ordinary writable
+/// function property; a sloppy `eval = 1` is a plain global write,
+/// and the direct-call desugar has already run by the time this pass
+/// walks, so what is left of the name is its value). The value
+/// globals §10.2.4 marks non-writable are excluded by name;
+/// `arguments` is never a global.
 fn is_demotable(name: &str) -> bool {
     if matches!(
         name,
-        "undefined" | "NaN" | "Infinity" | "globalThis" | "eval" | "arguments"
+        "undefined" | "NaN" | "Infinity" | "globalThis" | "arguments"
     ) {
         return false;
     }
