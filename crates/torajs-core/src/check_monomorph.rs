@@ -87,6 +87,8 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
         }
     }
     let generics = collect_generics(&owned_ast);
+    // L3b ③, statement-position half — see `record_stmt_expr_escapes`.
+    crate::check_monomorph_any_widen::record_stmt_expr_escapes(c, &owned_ast, &generics);
     // Also collects the original lifted-closure names whose per-spec
     // clones replace them (RFC 20260731-mono-closure-clone) — lower
     // skips those decls exactly like the generic originals: their only
