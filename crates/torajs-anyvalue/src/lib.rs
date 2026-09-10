@@ -1882,6 +1882,7 @@ mod tests {
         __torajs_arr_reverse,
         __torajs_arr_set_any,
         __torajs_arr_set_length_any,
+        __torajs_arr_set_length_any_soft,
         __torajs_arr_species_guard,
         __torajs_arr_throw_reduce_empty,
         __torajs_arr_throw_reduce_right_empty,

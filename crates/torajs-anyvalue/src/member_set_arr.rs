@@ -28,6 +28,9 @@ unsafe extern "C" {
     /// torajs-arr — §10.4.2.4 length setter (ToUint32 validate +
     /// real resize) for the dynamic-string-key `o[k] = v` form.
     fn __torajs_arr_set_length_any(arr: *mut c_void, tag: i64, value: i64);
+    /// torajs-arr — the same write in its Reflect.set flavor (a
+    /// refusal answers 0, no TypeError recorded).
+    fn __torajs_arr_set_length_any_soft(arr: *mut c_void, tag: i64, value: i64) -> i64;
     /// torajs-arr — kind-aware element store (consumes a tag-4 rc).
     fn __torajs_arr_index_set(arr: *mut c_void, idx: i64, tag: u64, value: u64);
     /// torajs-arr — element store's growing twin (§10.4.2.1
@@ -74,16 +77,11 @@ pub(crate) unsafe fn set_arr_member(
         // but reads answered the old element), and a "length"
         // key missed the resize path.
         if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
-            // §28.1.13 Reflect.set — a non-writable `length` answers
-            // false instead of recording the TypeError the kernel
-            // would. (A sealed receiver's shrink refusal is decided
-            // inside the kernel and still records; registered.)
+            // §28.1.13 Reflect.set — every refusal the kernel decides
+            // (a non-writable length, a seal's shrink, a stopped shrink)
+            // answers false through the soft flavor.
             if !throw_on_refusal {
-                let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
-                if flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN) != 0 {
-                    drop_payload(tag, value);
-                    return 0;
-                }
+                return __torajs_arr_set_length_any_soft(ptr, tag as i64, value as i64);
             }
             __torajs_arr_set_length_any(ptr, tag as i64, value as i64);
             return 1;

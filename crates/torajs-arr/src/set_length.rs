@@ -33,12 +33,27 @@ unsafe extern "C" {
 /// deleted; bun words the two refusals differently. Records the
 /// TypeError and answers `true` when the write must not happen.
 fn length_write_refuses(flags: u16, old_len: u64, new_len: u64) -> bool {
+    length_write_refuses_flavored(flags, old_len, new_len, true)
+}
+
+/// [`length_write_refuses`] with the §28.1.13 Reflect.set flavor: the
+/// same decision, recorded as a TypeError only when `throw_on_refusal`.
+fn length_write_refuses_flavored(
+    flags: u16,
+    old_len: u64,
+    new_len: u64,
+    throw_on_refusal: bool,
+) -> bool {
     if flags & (torajs_rc::FLAG_ARR_LENGTH_RO | torajs_rc::FLAG_FROZEN) != 0 {
-        unsafe { __torajs_throw_type_error(c"Array length is not writable".as_ptr()) };
+        if throw_on_refusal {
+            unsafe { __torajs_throw_type_error(c"Array length is not writable".as_ptr()) };
+        }
         return true;
     }
     if new_len < old_len && flags & torajs_rc::FLAG_SEALED != 0 {
-        unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+        if throw_on_refusal {
+            unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+        }
         return true;
     }
     false
@@ -150,6 +165,31 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
 /// AnySlotTag pair. Caller must check for pending throw after return.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, value: i64) {
+    unsafe { set_length_any_impl(arr, tag, value, true) };
+}
+
+/// [`__torajs_arr_set_length_any`]'s §28.1.13 Reflect.set flavor — a
+/// refusal (non-writable length, a seal's shrink, a non-configurable
+/// index stopping the shrink) answers 0 instead of recording the
+/// TypeError; a write answers 1. The RangeError of an invalid length
+/// is not a refusal and records in both flavors. Same pair shape as
+/// `__torajs_dynobj_set` / `_soft`. Before this `Reflect.set(sealed,
+/// "length", 0)` threw where it must answer false.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_set_length_any`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_set_length_any_soft(
+    arr: *mut u8,
+    tag: i64,
+    value: i64,
+) -> i64 {
+    unsafe { set_length_any_impl(arr, tag, value, false) }
+}
+
+/// Flavor-carrying core of the two shells above; 1 = written (or
+/// nothing to write), 0 = refused.
+unsafe fn set_length_any_impl(arr: *mut u8, tag: i64, value: i64, throw_on_refusal: bool) -> i64 {
     // §10.4.2.4 steps 3-5 (刀 6 G9c, `define_length` twin) —
     // `newLen = ToUint32(v)` then `numberLen = ToNumber(v)`: the spec
     // really runs a side-effecting valueOf TWICE (observable hook
@@ -158,29 +198,29 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
     let anyv = unsafe { __torajs_anyv_box_from_pair(tag, value) };
     let n1 = unsafe { __torajs_anyv_to_number(anyv) };
     if unsafe { __torajs_throw_check() } != 0 {
-        return;
+        return 0;
     }
     let n2 = unsafe { __torajs_anyv_to_number(anyv) };
     if unsafe { __torajs_throw_check() } != 0 {
-        return;
+        return 0;
     }
     let new_len = crate::define_length::to_uint32(n1);
     if new_len as f64 != n2 {
         unsafe {
             __torajs_throw_range_error(b"Invalid array length\0".as_ptr());
         }
-        return;
+        return 0;
     }
     let new_n = new_len as u64;
     let len_ptr = unsafe { arr.add(ARR_HDR_LEN_OFF) as *mut u64 };
     let old = unsafe { *len_ptr };
     let header = unsafe { &*(arr as *const torajs_rc::HeapHeader) };
     // Chunk D — same rule as the scalar lane above.
-    if length_write_refuses(header.flags, old, new_n) {
-        return;
+    if length_write_refuses_flavored(header.flags, old, new_n, throw_on_refusal) {
+        return 0;
     }
     if new_n == old {
-        return;
+        return 1;
     }
     let is_any = header.flags & torajs_rc::FLAG_ARR_ANY != 0;
     let head = unsafe { *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) } as usize;
@@ -223,7 +263,17 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
                 }
             }
         }
-        return;
+        // §10.4.2.4 step 19 — a non-configurable index stopped the
+        // walk short of the requested length: the write landed as far
+        // as it could and the operation answers false (a strict
+        // assignment: the delete's TypeError).
+        if land != new_n {
+            if throw_on_refusal {
+                unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
+            }
+            return 0;
+        }
+        return 1;
     }
     // RFC 20260810 刀 E — a giant grow on an `Array<Any>` cell goes
     // SPARSE instead of materializing: `len` moves, `cap` stays the
@@ -249,7 +299,7 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
         // Already-sparse: `cap` is the live extent — only `len`
         // moves.
         unsafe { *len_ptr = new_n };
-        return;
+        return 1;
     }
     // Grow — every kind grows now (RFC 20260721 刀 5 G3): NaN-box
     // slots fill with the undefined immediate (0x0A), raw-kind slots
@@ -257,4 +307,5 @@ pub unsafe extern "C" fn __torajs_arr_set_length_any(arr: *mut u8, tag: i64, val
     // fill value is never an own property answer.
     let fill = if is_any { 0x0A } else { 0 };
     unsafe { grow_slots_as_holes(arr, old, new_n, fill) };
+    1
 }
