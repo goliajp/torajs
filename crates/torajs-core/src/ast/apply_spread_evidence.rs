@@ -49,6 +49,16 @@ pub(super) fn collect_array_evident(ast: &Ast) -> HashSet<String> {
         _ => {}
     });
     evident.retain(|n| !tainted.contains(n));
+    // The arguments object itself: its `@@iterator` is
+    // `%Array.prototype.values%` (§10.4.4.6/7 step 21), so reading it
+    // by index IS its iteration — and the static faces leave a
+    // `...arguments` spread for the expander to index-expand (the
+    // rewrite to params / `__torajs_arguments` follows). A user
+    // binding of that name (the sloppy shadow) is an ordinary local
+    // and taints it like any other.
+    if !tainted.contains("arguments") {
+        evident.insert("arguments".to_string());
+    }
     evident
 }
 
