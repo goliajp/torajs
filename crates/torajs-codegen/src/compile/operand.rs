@@ -4,7 +4,7 @@
 use torajs_core::ssa::Operand;
 
 use super::write_u32;
-use crate::enc::{fmov_d_from_x, ldr_d_imm12, ldr_x_imm12, movk_imm, movz_imm};
+use crate::enc::{fmov_d_from_x, movk_imm, movz_imm};
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
 
@@ -44,7 +44,7 @@ pub fn materialize_operand_gpr(
         Operand::Value(v) => match alloc.of(*v) {
             Reg::Gpr(g) => g,
             Reg::SpillGpr(off) => {
-                write_u32(bytes, ldr_x_imm12(scratch, Gpr::SP, off));
+                super::slot::sp_ldr_x(bytes, scratch, off);
                 scratch
             }
             other => panic!(
@@ -88,7 +88,7 @@ pub fn materialize_operand_fpr(
         Operand::Value(v) => match alloc.of(*v) {
             Reg::Fpr(f) => f,
             Reg::SpillFpr(off) => {
-                write_u32(bytes, ldr_d_imm12(fpr_scratch, Gpr::SP, off));
+                super::slot::sp_ldr_d(bytes, fpr_scratch, off);
                 fpr_scratch
             }
             other => panic!(

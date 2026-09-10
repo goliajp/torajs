@@ -223,10 +223,10 @@ fn route_call_ret(bytes: &mut Vec<u8>, alloc: &Assignment, result_vid: torajs_co
     match alloc.of(result_vid) {
         Reg::Gpr(Gpr::X0) => {}
         Reg::Gpr(dst) => write_u32(bytes, mov_x_reg(dst, Gpr::X0)),
-        Reg::SpillGpr(off) => write_u32(bytes, str_x_imm12(Gpr::X0, Gpr::SP, off)),
+        Reg::SpillGpr(off) => super::slot::sp_str_x(bytes, Gpr::X0, off),
         Reg::Fpr(Fpr::V0) => {}
         Reg::Fpr(dst) => write_u32(bytes, mov_d_reg(dst, Fpr::V0)),
-        Reg::SpillFpr(off) => write_u32(bytes, str_d_imm12(Fpr::V0, Gpr::SP, off)),
+        Reg::SpillFpr(off) => super::slot::sp_str_d(bytes, Fpr::V0, off),
     }
 }
 

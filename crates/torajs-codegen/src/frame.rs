@@ -37,10 +37,8 @@
 //! with full Linear Scan; this S3-A2 implementation only covers the
 //! Alloca-region carve-out.
 
-use crate::enc::{
-    add_imm, add_imm_lsl12, ldp_post_index, ldr_d_imm12, ldr_x_imm12, stp_pre_index, str_d_imm12,
-    str_x_imm12, sub_imm, sub_imm_lsl12,
-};
+use crate::compile::slot;
+use crate::enc::{add_imm, add_imm_lsl12, ldp_post_index, stp_pre_index, sub_imm, sub_imm_lsl12};
 use crate::reg::{Gpr, aapcs64};
 
 /// Layout descriptor for a function's stack frame.
@@ -150,23 +148,21 @@ impl FrameLayout {
         let mut off = self.alloca_bytes;
         for &g in aapcs64::CALLEE_SAVED_SCRATCH.iter() {
             if self.callee_saved_gpr_mask & (1 << g.idx()) != 0 {
-                let w = if restore {
-                    ldr_x_imm12(g, Gpr::SP, off)
+                if restore {
+                    slot::sp_ldr_x(bytes, g, off);
                 } else {
-                    str_x_imm12(g, Gpr::SP, off)
-                };
-                write_word(bytes, w);
+                    slot::sp_str_x(bytes, g, off);
+                }
                 off += 8;
             }
         }
         for &v in aapcs64::FP_CALLEE_SAVED_SCRATCH.iter() {
             if self.callee_saved_fpr_mask & (1 << v.idx()) != 0 {
-                let w = if restore {
-                    ldr_d_imm12(v, Gpr::SP, off)
+                if restore {
+                    slot::sp_ldr_d(bytes, v, off);
                 } else {
-                    str_d_imm12(v, Gpr::SP, off)
-                };
-                write_word(bytes, w);
+                    slot::sp_str_d(bytes, v, off);
+                }
                 off += 8;
             }
         }
@@ -183,14 +179,16 @@ impl FrameLayout {
         write_word(bytes, add_imm(Gpr::X29, Gpr::SP, 0));
         // SUB sp, sp, #frame_size  — carve alloca + spill + callee-save.
         // Sizes past imm12 split into a shifted-imm pair
-        // (SUB #hi, LSL #12 + SUB #lo). Hard cap stays at 32 KiB:
-        // spill / callee-save STR/LDR use scaled-imm12 addressing
-        // (byte offset < 32768); past that needs a scratch-reg path.
+        // (SUB #hi, LSL #12 + SUB #lo). Slot accesses past the
+        // scaled-imm12 range take the IP0-based form (`compile::slot`,
+        // rotation 626 — the 32 KiB cap that stood here refused a
+        // class body with five thousand private fields); what remains
+        // is the pair's own 16 MiB.
         let total = self.frame_size();
         if total > 0 {
             assert!(
-                total < (1 << 15),
-                "frame size {total} exceeds the 32 KiB scaled-imm12 slot-addressing cap; scratch-reg path lands later"
+                total < crate::compile::slot::FRAME_BYTES_MAX,
+                "frame size {total} exceeds the 16 MiB shifted-immediate frame bound"
             );
             let hi = total >> 12;
             let lo = total & 0xFFF;
@@ -240,6 +238,7 @@ fn write_word(bytes: &mut Vec<u8>, word: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::enc::{ldr_x_imm12, str_d_imm12, str_x_imm12};
     use crate::reg::Fpr;
 
     #[test]

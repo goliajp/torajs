@@ -40,6 +40,7 @@ mod mem;
 mod operand;
 mod refs;
 mod selinc;
+pub(crate) mod slot;
 mod terminator;
 
 #[cfg(test)]
@@ -49,7 +50,7 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Type};
 
-use crate::enc::{ldr_d_imm12, ldr_x_imm12, mov_d_reg, mov_x_reg, str_d_imm12, str_x_imm12};
+use crate::enc::{mov_d_reg, mov_x_reg};
 use crate::frame::FrameLayout;
 use crate::reg::{Fpr, Gpr, Reg};
 use crate::regalloc::Assignment;
@@ -330,14 +331,14 @@ pub(crate) fn write_u32(bytes: &mut Vec<u8>, word: u32) {
 /// in a real GPR (`spill_off == None`).
 pub(crate) fn write_def_spill_gpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, scratch: Gpr) {
     if let Some(off) = spill_off {
-        write_u32(bytes, crate::enc::str_x_imm12(scratch, Gpr::SP, off));
+        slot::sp_str_x(bytes, scratch, off);
     }
 }
 
 /// FPR-class mirror of [`write_def_spill_gpr`].
 pub(crate) fn write_def_spill_fpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, scratch: Fpr) {
     if let Some(off) = spill_off {
-        write_u32(bytes, crate::enc::str_d_imm12(scratch, Gpr::SP, off));
+        slot::sp_str_d(bytes, scratch, off);
     }
 }
 
@@ -360,15 +361,15 @@ fn emit_stack_param_loads(bytes: &mut Vec<u8>, alloc: &Assignment, frame: &Frame
     for &(slot, dst) in &alloc.stack_param_entry_loads {
         let off = base + slot * 8;
         match dst {
-            Reg::Gpr(d) => write_u32(bytes, ldr_x_imm12(d, Gpr::SP, off)),
-            Reg::Fpr(d) => write_u32(bytes, ldr_d_imm12(d, Gpr::SP, off)),
+            Reg::Gpr(d) => slot::sp_ldr_x(bytes, d, off),
+            Reg::Fpr(d) => slot::sp_ldr_d(bytes, d, off),
             Reg::SpillGpr(soff) => {
-                write_u32(bytes, ldr_x_imm12(OP_SCRATCH_LHS, Gpr::SP, off));
-                write_u32(bytes, str_x_imm12(OP_SCRATCH_LHS, Gpr::SP, soff));
+                slot::sp_ldr_x(bytes, OP_SCRATCH_LHS, off);
+                slot::sp_str_x(bytes, OP_SCRATCH_LHS, soff);
             }
             Reg::SpillFpr(soff) => {
-                write_u32(bytes, ldr_d_imm12(FP_SCRATCH_LHS, Gpr::SP, off));
-                write_u32(bytes, str_d_imm12(FP_SCRATCH_LHS, Gpr::SP, soff));
+                slot::sp_ldr_d(bytes, FP_SCRATCH_LHS, off);
+                slot::sp_str_d(bytes, FP_SCRATCH_LHS, soff);
             }
         }
     }
@@ -383,8 +384,8 @@ fn emit_param_entry_moves(bytes: &mut Vec<u8>, alloc: &Assignment) {
         match (src, dst) {
             (Reg::Gpr(s), Reg::Gpr(d)) => write_u32(bytes, mov_x_reg(d, s)),
             (Reg::Fpr(s), Reg::Fpr(d)) => write_u32(bytes, mov_d_reg(d, s)),
-            (Reg::Gpr(s), Reg::SpillGpr(off)) => write_u32(bytes, str_x_imm12(s, Gpr::SP, off)),
-            (Reg::Fpr(s), Reg::SpillFpr(off)) => write_u32(bytes, str_d_imm12(s, Gpr::SP, off)),
+            (Reg::Gpr(s), Reg::SpillGpr(off)) => slot::sp_str_x(bytes, s, off),
+            (Reg::Fpr(s), Reg::SpillFpr(off)) => slot::sp_str_d(bytes, s, off),
             other => unreachable!("param entry move with mismatched reg classes: {other:?}"),
         }
     }

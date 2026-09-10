@@ -17,24 +17,21 @@ use super::{
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3,
-    ldrb_w_reg, ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_x_imm12, str_x_reg,
-    str_x_reg_lsl3, stur_x_imm9,
+    ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3, ldrb_w_reg,
+    ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_x_imm12, str_x_reg, str_x_reg_lsl3,
+    stur_x_imm9,
 };
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
 
 /// Emit `ADD Xrd, SP, #slot_offset` — materialize the alloca's stack
-/// slot address into the GPR the allocator assigned to the result.
+/// slot address into the GPR the allocator assigned to the result
+/// (two ADDs past the immediate's 4 KiB, see `slot::sp_add`).
 pub fn emit_alloca(bytes: &mut Vec<u8>, inst: &Inst, alloc: &Assignment) {
     let result_vid = inst.result.expect("Alloca must have result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
     let slot_offset = alloc.alloca_offset_of(result_vid);
-    assert!(
-        slot_offset < 4096,
-        "S3-A2 slot offset {slot_offset} must fit ADD imm12 (larger frames land in S3-B with shifted-imm or scratch path)",
-    );
-    write_u32(bytes, add_imm(dst, Gpr::SP, slot_offset as u16));
+    super::slot::sp_add(bytes, dst, slot_offset);
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
