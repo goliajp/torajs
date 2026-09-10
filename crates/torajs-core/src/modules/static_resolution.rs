@@ -113,6 +113,10 @@ pub(super) struct EntrySeed {
     /// nested request only a candidate reaches poisons that
     /// candidate's namespace instead of failing the build.
     pub(super) dyn_roots: Vec<(PathBuf, String)>,
+    /// The entry file's canonical path when it has one (stdin has
+    /// none) — a side-effect request naming it evaluates nothing
+    /// extra, the entry IS the program (`repeat_request`).
+    pub(super) entry_path: Option<PathBuf>,
 }
 
 pub(super) fn seed_entry_requests(
@@ -182,6 +186,17 @@ pub(super) fn seed_entry_requests(
                 source: Some(src),
                 named,
                 ..
+            } if named.is_empty() && !is_builtin_module_source(src) => {
+                // `export {} from "m"` binds nothing, but §16.2.2.5
+                // ModuleRequests still lists m — it loads (and its
+                // parse errors are this program's) and evaluates.
+                queue_nested_import(work, base_dir, src, Vec::new(), None, None)?;
+            }
+            Stmt::ExportDecl {
+                star: None,
+                source: Some(src),
+                named,
+                ..
             } if !named.is_empty() && !is_builtin_module_source(src) => {
                 let mut nested_named: Vec<(String, Option<String>)> = Vec::new();
                 let mut default_binding: Option<String> = None;
@@ -209,6 +224,7 @@ pub(super) fn seed_entry_requests(
         entry_expr_len,
         static_roots: Vec::new(),
         dyn_roots: Vec::new(),
+        entry_path: None,
     })
 }
 

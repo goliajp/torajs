@@ -278,7 +278,7 @@ pub(crate) use desugar_generators_walkers::expand_yield_into_in_stmt;
 pub use desugar_objlit_super::desugar_objlit_super;
 pub use desugar_using::desugar_using;
 pub use desugar_variadic_push::desugar_variadic_push;
-pub use early_label_errors::early_label_errors;
+pub use early_label_errors::{early_label_errors, early_label_errors_in};
 pub use escape_analyze::escape_analyze_array_literals;
 pub use export_names::triage_duplicate_exports;
 pub use expr::{BinOp, Expr, ExprId, Param, UnaryOp};

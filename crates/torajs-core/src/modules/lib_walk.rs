@@ -92,6 +92,18 @@ fn inject_side_effect_stmt(
         // module of the module being evaluated, star clauses included.
         return queue_nested_import(work, target_dir, star_source, Vec::new(), None, None);
     }
+    if let Stmt::ExportDecl {
+        inner: None,
+        star: None,
+        source: Some(src),
+        ..
+    } = &s
+    {
+        // `export { … } from "m"` under a side-effect walk exposes no
+        // face anyone can see, but m is a requested module
+        // (§16.2.2.5) and evaluates like every other one.
+        return queue_nested_import(work, target_dir, src, Vec::new(), None, None);
+    }
     let stmt = if let Stmt::ExportDecl {
         inner: Some(boxed), ..
     } = s

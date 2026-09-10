@@ -155,7 +155,8 @@ pub(crate) fn lower_to_ssa(input: &str) -> Result<Module, ExitCode> {
     // see ast_pipeline.rs.
     ast_pipeline::run_pre_resolve_gates(&mut ast).map_err(|()| ExitCode::from(1))?;
     let base_dir = base_dir_for(input);
-    modules::resolve_imports(&mut ast, &base_dir).map_err(|e| {
+    let entry = (input != "-").then(|| std::path::Path::new(input));
+    modules::resolve_imports(&mut ast, &base_dir, entry).map_err(|e| {
         eprintln!("import error: {e}");
         ExitCode::from(1)
     })?;

@@ -195,10 +195,13 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         // Resolve cross-file imports relative to the document's
         // directory if it's a file:// URL. Failures here surface
         // as a single import-error diagnostic.
-        let base_dir = uri_to_file_path(uri)
+        let entry = uri_to_file_path(uri);
+        let base_dir = entry
+            .as_ref()
             .and_then(|p| p.parent().map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("."));
-        if let Err(e) = torajs_core::modules::resolve_imports(&mut ast, &base_dir) {
+        if let Err(e) = torajs_core::modules::resolve_imports(&mut ast, &base_dir, entry.as_deref())
+        {
             return vec![error_at_origin(format!("import error: {e}"))];
         }
 

@@ -55,11 +55,20 @@ struct Enclosing {
 }
 
 pub fn early_label_errors(ast: &Ast) -> Option<String> {
+    early_label_errors_in(&ast.stmts, &ast.exprs)
+}
+
+/// The same verdict over one module's statements and the arena
+/// slice its parse appended — the resolver runs it per requested
+/// module right after the parse (`modules::load_lib_section`), so a
+/// lib's `break;` is that module's SyntaxError at link time rather
+/// than a whole-program parse error after the splice.
+pub fn early_label_errors_in(stmts: &[Stmt], exprs: &[Expr]) -> Option<String> {
     let mut err = None;
-    walk_block(&ast.stmts, &mut Vec::new(), Enclosing::default(), &mut err);
+    walk_block(stmts, &mut Vec::new(), Enclosing::default(), &mut err);
     // Every function body, wherever it sits: the label set resets at
     // the boundary, so the context it is reached through is irrelevant.
-    for e in &ast.exprs {
+    for e in exprs {
         if let Expr::ArrowFn { body, .. } = e {
             walk_block(body, &mut Vec::new(), Enclosing::default(), &mut err);
         }

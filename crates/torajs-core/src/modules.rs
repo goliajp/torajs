@@ -68,8 +68,6 @@
 //!     by reference.
 
 use crate::ast::{Ast, Stmt};
-use crate::lexer;
-use crate::parser;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
@@ -111,10 +109,12 @@ type WorkItem = (
 fn seed_requests(
     ast: &mut Ast,
     base_dir: &Path,
+    entry: Option<&Path>,
     work: &mut VecDeque<WorkItem>,
     graph: &mut ModuleGraph,
 ) -> Result<(static_resolution::EntrySeed, Vec<(String, String)>), String> {
     let mut entry_seed = static_resolution::seed_entry_requests(ast, base_dir, work)?;
+    entry_seed.entry_path = entry.and_then(|p| p.canonicalize().ok());
     entry_seed.static_roots = graph.edges_since(work, 0);
     let static_len = work.len();
     let dyn_table = dyn_import::seed_candidates(ast, base_dir, work);
@@ -136,7 +136,17 @@ fn seed_requests(
 /// visited (BFS order, deduplicated). `tr run`'s cache key includes
 /// every entry so an edit to a transitively-imported file invalidates
 /// the cache slot for the main file.
-pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+///
+/// `entry` is the entry file itself when it has one (stdin has none):
+/// a request that names it on the side-effect lane (`import
+/// "./self"`, or a lib's `export { x } from "./entry"`) evaluates
+/// nothing extra — the entry IS the program — where a lib walk would
+/// splice a second copy of its whole body in front of it.
+pub fn resolve_imports(
+    ast: &mut Ast,
+    base_dir: &Path,
+    entry: Option<&Path>,
+) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let mut closure_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
     // Per-path "already injected" tracking. The set holds importer-
     // visible names (= alias if Some, else orig) plus the sentinels
@@ -169,7 +179,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     let mut hidden_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
     let mut mangle_seq: usize = 0;
 
-    let (entry_seed, dyn_table) = seed_requests(ast, base_dir, &mut work, &mut graph)?;
+    let (entry_seed, dyn_table) = seed_requests(ast, base_dir, entry, &mut work, &mut graph)?;
 
     // Statements injected on behalf of one module, keyed by its path
     // so the dependency-order splice below can reassemble them. A path
@@ -202,7 +212,6 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // the `let <alias> = <expr>` and every later alias binds to the
     // first — re-walking would re-lower the same ExprId.
     let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
-    // §16.2.1.6.4 step 7 per lib — see `static_resolution::NestedRequest`.
     let mut nested_requests: Vec<static_resolution::NestedRequest> = Vec::new();
 
     while let Some((
@@ -212,7 +221,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         side_effect_only,
         namespace_alias,
         ns_star_feed,
-    )) = work.pop_front()
+    )) = pop_next(&mut work)
     {
         // Repeat-visit alignment + per-path filter + mangle-memory
         // realignment — see [`repeat_request::align_and_filter`].
@@ -220,6 +229,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             repeat_request::align_and_filter(
                 ast,
                 &target_path,
+                entry_seed.entry_path.as_deref(),
                 named,
                 default_alias,
                 namespace_alias,
@@ -304,10 +314,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
             walk_lib_stmt(ast, &mut work, &target_dir, &mut injections, s, &mut req)?;
         }
 
-        let deps = graph.edges_since(&work, work_mark);
-        graph.record(target_path.clone(), deps);
+        graph.record(target_path.clone(), graph.edges_since(&work, work_mark));
         injections_by_path.insert(target_path.clone(), injections);
-
         repeat_request::record_ns_walk(
             &namespace_alias,
             repeat_default_field,
@@ -335,52 +343,6 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     Ok(closure_files)
 }
 
-/// Read, tokenize, and parse one module file into the shared arena,
-/// recording it for the compile-closure cache key; answers the
-/// drained lib section, the arena offset its expressions start at,
-/// and the directory its own imports resolve against.
-fn load_lib_section(
-    ast: &mut Ast,
-    target_path: &Path,
-    base_dir: &Path,
-    closure_paths: &mut HashSet<PathBuf>,
-    closure_files: &mut Vec<(PathBuf, Vec<u8>)>,
-) -> Result<(Vec<Stmt>, usize, PathBuf, deconflict::LibTableDelta), String> {
-    let src_text = std::fs::read_to_string(target_path)
-        .map_err(|e| format!("import {}: {e}", target_path.display()))?;
-    let tokens = lexer::tokenize(&src_text)
-        .map_err(|e| format!("import {} lex: {e}", target_path.display()))?;
-    let lib_expr_offset = ast.exprs.len();
-    // Knife D — snapshot the name-keyed class tables around the lib's
-    // parse: the diff tells the census which rows THIS file wrote, so
-    // a class rename can split rows that a same-named entry class
-    // merged into (see `class_rename`'s module doc).
-    let table_snap = deconflict::snapshot_class_tables(ast);
-    let lib_offset = parser::parse_into(&src_text, &tokens, ast)
-        .map_err(|e| format!("import {} parse: {e}", target_path.display()))?;
-    let table_delta = deconflict::diff_class_tables(ast, &table_snap);
-    // A lib expression's recorded span indexes the LIB file's text,
-    // but every span consumer slices the MAIN file's `ast.source`
-    // (`splice_injections` clears the Stmt-side spans for the same
-    // reason). The arrow / fn-expr spans ride per-ExprId, and a
-    // lifted closure decl inherits its arrow's span (B1b) — reset
-    // the lib slice to the (0,0) "no user source" sentinel so
-    // `intern_fn_source` answers the native form instead of slicing
-    // out of bounds (or silently wrong text) on the entry's source.
-    for sp in ast.expr_spans[lib_expr_offset..].iter_mut() {
-        *sp = lexer::Span { start: 0, end: 0 };
-    }
-    if closure_paths.insert(target_path.to_path_buf()) {
-        closure_files.push((target_path.to_path_buf(), src_text.into_bytes()));
-    }
-    let target_dir = target_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| base_dir.to_path_buf());
-    let lib_section: Vec<Stmt> = ast.stmts.drain(lib_offset..).collect();
-    Ok((lib_section, lib_expr_offset, target_dir, table_delta))
-}
-
 mod dead_lib_exprs;
 mod deconflict;
 mod default_binding;
@@ -388,6 +350,7 @@ mod dyn_import;
 mod graph;
 mod inject_export;
 mod lib_walk;
+mod load_lib;
 mod namespace_objlit;
 mod repeat_request;
 mod resolve_helpers;
@@ -396,6 +359,7 @@ mod static_resolution;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
+use load_lib::{load_lib_section, pop_next};
 use resolve_helpers::{NsAccum, queue_reexport, queue_star_reexport};
 
 fn check_k2_form(

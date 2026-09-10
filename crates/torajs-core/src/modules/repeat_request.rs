@@ -15,11 +15,16 @@ use super::{NamedImport, default_binding};
 /// The whole pre-walk alignment for one dequeued request: the
 /// repeat-visit shortcuts, the per-path injected-state filter, and
 /// the mangle-memory realignment of the named list. `None` = the
-/// request filtered to nothing (everything it wants already landed).
+/// request filtered to nothing (everything it wants already landed)
+/// — or a side-effect request for the ENTRY itself (`import
+/// "./self"`, a lib's `export { x } from "./entry"`), which
+/// evaluates nothing extra: the entry is the program, and a walk
+/// would splice a second copy of its whole body in front of it.
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn align_and_filter(
     ast: &mut Ast,
     target_path: &Path,
+    entry_path: Option<&Path>,
     named: Vec<NamedImport>,
     mut default_alias: Option<String>,
     mut namespace_alias: Option<String>,
@@ -31,6 +36,9 @@ pub(super) fn align_and_filter(
     injected_names: &mut HashMap<PathBuf, HashSet<String>>,
     mangled_by_path: &HashMap<PathBuf, HashMap<String, String>>,
 ) -> Option<(Vec<NamedImport>, Option<String>, Option<String>, bool)> {
+    if side_effect_only && entry_path == Some(target_path) {
+        return None;
+    }
     align_repeat_request(
         ast,
         target_path,

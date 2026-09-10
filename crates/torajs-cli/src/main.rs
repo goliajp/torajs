@@ -171,10 +171,17 @@ fn run_pipeline(file_arg: Option<&String>, stage: Stage) -> ExitCode {
         }
     };
     let base_dir = base_dir_for(path);
-    pipeline(&src, &base_dir, stage, util::sloppy_goal_for(path))
+    let entry = (path != "-").then(|| Path::new(path));
+    pipeline(&src, &base_dir, entry, stage, util::sloppy_goal_for(path))
 }
 
-fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> ExitCode {
+fn pipeline(
+    src: &str,
+    base_dir: &Path,
+    entry: Option<&Path>,
+    stage: Stage,
+    sloppy_goal: bool,
+) -> ExitCode {
     // annexB §B.1.3 HTML-like comments are Script-only, and the goal is
     // knowable here — it comes from the input extension. The lexer has
     // had the Script-goal stream all along; nothing but the eval channel
@@ -222,7 +229,7 @@ fn pipeline(src: &str, base_dir: &Path, stage: Stage, sloppy_goal: bool) -> Exit
     // K.2 — resolve cross-file imports BEFORE the desugar pipeline so
     // imported decls go through the same downstream passes (class
     // desugar, arrow lift, etc.) as same-file decls.
-    if let Err(e) = modules::resolve_imports(&mut ast, base_dir) {
+    if let Err(e) = modules::resolve_imports(&mut ast, base_dir, entry) {
         eprintln!("import error: {e}");
         return ExitCode::from(1);
     }

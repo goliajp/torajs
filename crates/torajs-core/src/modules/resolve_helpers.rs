@@ -165,6 +165,12 @@ pub(super) fn queue_reexport(
         return Ok(());
     }
     let path = resolve_path(target_dir, lib_source)?;
+    if lib_named.is_empty() {
+        // `export {} from "m"` — nothing to forward, but m is still a
+        // requested module (§16.2.2.5): it loads and evaluates.
+        work.push_back((path, Vec::new(), None, true, None, false));
+        return Ok(());
+    }
     // A namespace request sees each re-exported FACE as one of this
     // lib's own exports (§16.2.3): the field claims the face spelling
     // and binds to a synthetic `__reex_<ns>_<face>` the nested load
