@@ -155,6 +155,20 @@ pub(super) fn parse_eval_source(
     let mut stmts = stmts;
     let mut blanked: Vec<String> = Vec::new();
     super::foreign_spans::blank_fn_spans(&mut stmts, &mut blanked);
+    // The EXPRESSION half of the same defect: an arrow / function
+    // expression the eval text wrote carries a per-ExprId span into
+    // that text (a lifted closure decl inherits its arrow's span —
+    // B1b), and `intern_fn_source` slices the program's own source
+    // with it. `eval("() => new.target")` inside a class field
+    // therefore sliced byte 33 of the FILE, which in the test262
+    // harness is the middle of an em dash: the compiler panicked
+    // ("end byte index N is not a char boundary"). The module
+    // resolver blanks its lib slice for exactly this reason
+    // (`modules::load_lib_section`); every expression this parse
+    // appended is just as foreign.
+    for sp in ast.expr_spans[exprs_before..].iter_mut() {
+        *sp = crate::lexer::Span { start: 0, end: 0 };
+    }
     // §19.2.1.1 — the eval code's strictness is its OWN, and this is
     // the only place that knows it. Annex B §B.3.3 gives a block-nested
     // declaration in sloppy code a var binding, and after the blank
