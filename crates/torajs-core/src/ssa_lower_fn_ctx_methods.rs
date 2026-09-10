@@ -11,11 +11,19 @@ use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, LocalInfo, LowerCtx, decode_env_ann
 /// The lifter's synthetic param names — never user ARGUMENTS, so the
 /// S2 missing-argument normalization below skips them and they don't
 /// advance the user-argument index the argc compare counts against.
-const SYNTHETIC_PARAMS: [&str; 5] = [
+const SYNTHETIC_PARAMS: [&str; 6] = [
     "__env",
     "__torajs_argc",
     "__this",
     "__torajs_argv",
+    // A constructor's second head slot (rotation 616): not an
+    // argument the program passed, so it neither counts toward the
+    // §10.2.1.4 position nor binds undefined on a short call — left
+    // in, every declared ctor param sat one position too far and
+    // the last one read undefined (`constructor(a, b, c)` on the
+    // ctor argv lane, rotation 625), and `super()` with no argument
+    // cleared the new.target itself.
+    "__new_target",
     "__yield_arg",
 ];
 
