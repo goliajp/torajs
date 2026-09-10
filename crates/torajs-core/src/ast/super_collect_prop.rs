@@ -76,7 +76,18 @@ pub(super) enum SuperPropSite {
         stmt_pos: bool,
     },
     AssignIndex {
+        assign: ExprId,
         target_index: ExprId,
+    },
+    /// `super.m?.(…)` / `super[k]?.(…)` — §13.3.9.1 OptionalChain over
+    /// the reference: the same whole-site shape as `CallIndex` (the
+    /// receiver is the call site's `this`), with the nullish
+    /// short-circuit inside the kernel. Both key spellings travel
+    /// here — the name form has no `__supercall__` marker under `?.`.
+    CallOpt {
+        call: ExprId,
+        /// The Member / Index the marker hangs off (orphaned after).
+        callee: ExprId,
     },
     /// `super.x++` / `super[k]++` and the prefix / `--` spellings —
     /// the whole UpdateExpression travels as one site: the read is
@@ -264,6 +275,7 @@ fn walk_expr(ast: &Ast, eid: ExprId, out: &mut SuperPropSites, stmt_pos: bool) {
                 Expr::Index { obj, index } if is_marker(ast, *obj) => {
                     out.markers.push(*obj);
                     out.sites.push(SuperPropSite::AssignIndex {
+                        assign: eid,
                         target_index: target,
                     });
                     walk_expr(ast, *index, out, false);
@@ -300,13 +312,27 @@ fn walk_expr(ast: &Ast, eid: ExprId, out: &mut SuperPropSites, stmt_pos: bool) {
                 walk_expr(ast, *a, out, false);
             }
         }
+        // `super.m?.()` / `super[k]?.()` — the whole site, like
+        // `CallIndex`, into the optional-call kernel (a computed
+        // key's expression is walked for sites of its own).
         Expr::OptCall { callee, args } => {
-            let skip_callee = matches!(
-                ast.get_expr(*callee),
-                Expr::Index { obj, .. } | Expr::Member { obj, .. } if is_marker(ast, *obj)
-            );
-            if !skip_callee {
-                walk_expr(ast, *callee, out, false);
+            match ast.get_expr(*callee) {
+                Expr::Index { obj, index } if is_marker(ast, *obj) => {
+                    out.markers.push(*obj);
+                    out.sites.push(SuperPropSite::CallOpt {
+                        call: eid,
+                        callee: *callee,
+                    });
+                    walk_expr(ast, *index, out, false);
+                }
+                Expr::Member { obj, .. } if is_marker(ast, *obj) => {
+                    out.markers.push(*obj);
+                    out.sites.push(SuperPropSite::CallOpt {
+                        call: eid,
+                        callee: *callee,
+                    });
+                }
+                _ => walk_expr(ast, *callee, out, false),
             }
             for a in args {
                 walk_expr(ast, *a, out, false);

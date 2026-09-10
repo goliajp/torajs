@@ -27,6 +27,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
         "__torajs_super_prop_get" => (ctx.intrinsics.super_prop_get, 3, None),
         "__torajs_super_prop_set" => (ctx.intrinsics.super_prop_set, 4, None),
         "__torajs_super_prop_call" => (ctx.intrinsics.super_prop_call, 4, None),
+        "__torajs_super_prop_opt_call" => (ctx.intrinsics.super_prop_opt_call, 4, None),
         "__torajs_super_prop_incr_post" => (ctx.intrinsics.super_prop_update, 3, Some((1, 0))),
         "__torajs_super_prop_incr_pre" => (ctx.intrinsics.super_prop_update, 3, Some((1, 1))),
         "__torajs_super_prop_decr_post" => (ctx.intrinsics.super_prop_update, 3, Some((0, 0))),

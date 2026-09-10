@@ -44,9 +44,15 @@
 //!     value (rotation 628; the fused read/write was a recorded loud
 //!     boundary before).
 //!
-//! Recorded approximation boundaries (loud, not silent — the marker
-//! survives to the checker as an unknown ident): `super.x?.()`
-//! optional calls.
+//!   - optional call `super.m?.(args)` / `super[k]?.(args)` → the
+//!     whole site becomes `__torajs_super_prop_opt_call(<base>, k,
+//!     <receiver>, [args…])` — the call kernel with §13.3.9.1's
+//!     nullish short-circuit inside (rotation 628).
+//!   - under a RUNTIME base (`dynamic`), every write takes
+//!     `__torajs_super_prop_set(<base>, k, v, <receiver>)` — the
+//!     live chain's setter runs, a null base is the TypeError, the
+//!     store lands on the receiver (rotation 628; the receiver-write
+//!     fallback stays for the static lane).
 //! Recorded silent boundaries: a RUNTIME-defined accessor on the base
 //! (defineProperty after class definition) reads through the plain
 //! member path with the prototype as receiver — for the NAME form
@@ -59,18 +65,13 @@
 //! arena-scanning passes to trip over (rotation 333 blade 7 posture).
 
 use super::desugar_classes_super::ClassIndexEntry;
+use super::desugar_classes_super_prop_call as call_sites;
+use super::desugar_classes_super_prop_mint::{SiteCtx, accessor_fn, nearest_declaring_shape};
 use super::super_collect_prop::{
     SuperPropSite, SuperPropSites, collect_superprop_in_expr, collect_superprop_in_stmt,
     delete_operands,
 };
-use super::{AccessorKind, Ast, ClassMethod, Expr, ExprId, StaticInit};
-
-/// What the first chain class declaring `name` says about it.
-struct DeclaredShape {
-    owner: String,
-    has_getter: bool,
-    has_setter: bool,
-}
+use super::{Ast, Expr, StaticInit};
 
 pub(super) fn rewrite_super_prop_sites(
     ast: &mut Ast,
@@ -155,6 +156,12 @@ fn rewrite_sites(
     dynamic: bool,
     found: SuperPropSites,
 ) {
+    let cx = SiteCtx {
+        parent_name,
+        cname,
+        is_static,
+        dynamic,
+    };
     let deletes = delete_operands(ast);
     for site in found.sites {
         match site {
@@ -184,21 +191,21 @@ fn rewrite_sites(
                     // §13.5.1.2 step 4.b — recorded for the lowering,
                     // which no longer sees the `__superbase__` marker.
                     ast.super_delete_operands.insert(member);
-                    let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                    let base = cx.base(ast);
                     ast.exprs[member.0 as usize] = Expr::Member { obj: base, name };
                 } else if dynamic {
                     // See `delete_operands`: a delete operand must stay
                     // a property reference, so it keeps the plain read.
-                    let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                    let base = cx.base(ast);
                     let key = ast.add_expr(Expr::String(name.into()));
-                    let recv = mint_receiver(ast, cname, is_static);
+                    let recv = cx.receiver(ast);
                     let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_get".to_string()));
                     ast.exprs[member.0 as usize] = Expr::Call {
                         callee,
                         args: vec![base, key, recv],
                     };
                 } else {
-                    let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                    let base = cx.base(ast);
                     ast.exprs[member.0 as usize] = Expr::Member { obj: base, name };
                 }
             }
@@ -207,7 +214,7 @@ fn rewrite_sites(
                     continue;
                 };
                 let key = *index;
-                let base = mint_base(ast, parent_name, cname, is_static, dynamic);
+                let base = cx.base(ast);
                 if deletes.contains(&index_expr) {
                     // See `delete_operands` — the plain index stays,
                     // and §13.5.1.2 step 4.b is recorded for lowering.
@@ -218,7 +225,7 @@ fn rewrite_sites(
                     };
                     continue;
                 }
-                let recv = mint_receiver(ast, cname, is_static);
+                let recv = cx.receiver(ast);
                 let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_get".to_string()));
                 ast.exprs[index_expr.0 as usize] = Expr::Call {
                     callee,
@@ -258,170 +265,57 @@ fn rewrite_sites(
                         vec![this, value]
                     };
                     ast.exprs[assign.0 as usize] = Expr::Call { callee, args };
+                } else if dynamic {
+                    // Rotation 628 — under a runtime base the write
+                    // takes the §9.1.9 kernel: the base's LIVE chain
+                    // decides whether a setter runs (a prototype
+                    // relinked after the class definition included),
+                    // a null base is the §13.3.7 TypeError after the
+                    // value has been evaluated, and the store still
+                    // lands on the receiver. The receiver-write
+                    // fallback below could do none of the three.
+                    let key = ast.add_expr(Expr::String(name.into()));
+                    call_sites::rewrite_dynamic_write(ast, &cx, assign, key, value);
                 } else {
-                    let recv = mint_receiver(ast, cname, is_static);
+                    let recv = cx.receiver(ast);
                     ast.exprs[target.0 as usize] = Expr::Member { obj: recv, name };
                 }
             }
             SuperPropSite::CallIndex { call, index_expr } => {
-                let Expr::Call { args, .. } = ast.get_expr(call) else {
-                    continue;
-                };
-                let args = args.clone();
-                let Expr::Index { index, .. } = ast.get_expr(index_expr) else {
-                    continue;
-                };
-                let key = *index;
-                let base = mint_base(ast, parent_name, cname, is_static, dynamic);
-                let recv = mint_receiver(ast, cname, is_static);
-                // The pack is an array literal, the protocol
-                // `__torajs_super_value` already uses: one dense
-                // `Arr<Any>` carries a spread element without the
-                // kernel needing a spread protocol of its own.
-                let pack = ast.add_expr(Expr::Array(args));
-                let callee = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
-                ast.exprs[call.0 as usize] = Expr::Call {
-                    callee,
-                    args: vec![base, key, recv, pack],
-                };
-                // The Index node the marker hung off is now orphaned
-                // — same posture as the markers themselves.
-                ast.exprs[index_expr.0 as usize] = Expr::Null;
+                call_sites::rewrite_call_index(ast, &cx, call, index_expr);
             }
-            SuperPropSite::AssignIndex { target_index } => {
+            SuperPropSite::AssignIndex {
+                assign,
+                target_index,
+            } => {
                 let Expr::Index { index, .. } = ast.get_expr(target_index) else {
                     continue;
                 };
                 let index = *index;
-                let recv = mint_receiver(ast, cname, is_static);
+                if dynamic {
+                    let Expr::Assign { value, .. } = ast.get_expr(assign) else {
+                        continue;
+                    };
+                    let value = *value;
+                    call_sites::rewrite_dynamic_write(ast, &cx, assign, index, value);
+                    ast.exprs[target_index.0 as usize] = Expr::Null;
+                    continue;
+                }
+                let recv = cx.receiver(ast);
                 ast.exprs[target_index.0 as usize] = Expr::Index { obj: recv, index };
+            }
+            SuperPropSite::CallOpt { call, callee } => {
+                call_sites::rewrite_call_opt(ast, &cx, call, callee);
             }
             SuperPropSite::Update {
                 node,
                 target,
                 is_inc,
                 is_prefix,
-            } => {
-                let key = match ast.get_expr(target) {
-                    Expr::Member { name, .. } => {
-                        let name = name.clone();
-                        ast.add_expr(Expr::String(name.into()))
-                    }
-                    Expr::Index { index, .. } => *index,
-                    _ => continue,
-                };
-                let base = mint_base(ast, parent_name, cname, is_static, dynamic);
-                let recv = mint_receiver(ast, cname, is_static);
-                let callee = ast.add_expr(Expr::Ident(update_fn(is_inc, is_prefix).to_string()));
-                ast.exprs[node.0 as usize] = Expr::Call {
-                    callee,
-                    args: vec![base, key, recv],
-                };
-                // The Member / Index the marker hung off is orphaned
-                // — same posture as the markers themselves.
-                ast.exprs[target.0 as usize] = Expr::Null;
-            }
+            } => call_sites::rewrite_update(ast, &cx, node, target, is_inc, is_prefix),
         }
     }
     for m in found.markers {
         ast.exprs[m.0 as usize] = Expr::Null;
     }
-}
-
-/// The update kernel's four spellings — the flags ride the callee
-/// name so the call lowering appends them as constants.
-fn update_fn(is_inc: bool, is_prefix: bool) -> &'static str {
-    match (is_inc, is_prefix) {
-        (true, false) => "__torajs_super_prop_incr_post",
-        (true, true) => "__torajs_super_prop_incr_pre",
-        (false, false) => "__torajs_super_prop_decr_post",
-        (false, true) => "__torajs_super_prop_decr_pre",
-    }
-}
-
-fn accessor_fn(is_static: bool, owner: &str, name: &str, suffix: &str) -> String {
-    if is_static {
-        format!("__sm_{owner}__{name}{suffix}")
-    } else {
-        format!("__cm_{owner}__{name}{suffix}")
-    }
-}
-
-fn mint_base(
-    ast: &mut Ast,
-    parent_name: Option<&str>,
-    cname: &str,
-    is_static: bool,
-    dynamic: bool,
-) -> ExprId {
-    // 507-03 — the parent is only the home object's prototype while
-    // nothing re-links it; when the program can, the base is read from
-    // the home object itself. That also covers the no-extends case
-    // uniformly: `Object.getPrototypeOf(C.prototype)` IS
-    // %Object.prototype% there.
-    if dynamic {
-        return super::super_home_dynamic::mint_home_proto(ast, cname, is_static);
-    }
-    // No extends clause → the instance super base is %Object.prototype%
-    // and the static one %Function.prototype% (both read as the
-    // builtin prototype singleton off the namespace).
-    match (parent_name, is_static) {
-        (Some(p), true) => ast.add_expr(Expr::Ident(p.to_string())),
-        (Some(p), false) => {
-            let parent = ast.add_expr(Expr::Ident(p.to_string()));
-            ast.add_expr(Expr::Member {
-                obj: parent,
-                name: "prototype".to_string(),
-            })
-        }
-        (None, is_static) => {
-            let ns = ast.add_expr(Expr::Ident(
-                if is_static { "Function" } else { "Object" }.to_string(),
-            ));
-            ast.add_expr(Expr::Member {
-                obj: ns,
-                name: "prototype".to_string(),
-            })
-        }
-    }
-}
-
-fn mint_receiver(ast: &mut Ast, cname: &str, is_static: bool) -> ExprId {
-    if is_static {
-        ast.add_expr(Expr::Ident(cname.to_string()))
-    } else {
-        ast.add_expr(Expr::This)
-    }
-}
-
-/// Walk `start` and its ancestors for the first class declaring `name`
-/// in the relevant member list (instance methods or statics), and
-/// report whether that declaration carries a getter / setter face.
-/// The FIRST declaring class decides — a plain method there shadows
-/// any accessor further up, exactly like the runtime chain would.
-fn nearest_declaring_shape(
-    class_index: &[ClassIndexEntry],
-    start: Option<&str>,
-    name: &str,
-    is_static: bool,
-) -> Option<DeclaredShape> {
-    let mut cur = start?.to_string();
-    for _ in 0..64 {
-        let entry = class_index.iter().find(|e| e.1 == cur)?;
-        let list: &[ClassMethod] = if is_static { &entry.8 } else { &entry.7 };
-        let declared: Vec<&ClassMethod> = list.iter().filter(|m| m.name == name).collect();
-        if !declared.is_empty() {
-            return Some(DeclaredShape {
-                owner: cur,
-                has_getter: declared
-                    .iter()
-                    .any(|m| m.accessor_kind == Some(AccessorKind::Getter)),
-                has_setter: declared
-                    .iter()
-                    .any(|m| m.accessor_kind == Some(AccessorKind::Setter)),
-            });
-        }
-        cur = entry.3.clone()?;
-    }
-    None
 }

@@ -28,6 +28,9 @@ pub(crate) struct SuperPropIds {
     /// Reference: the read's three operands plus the `is_inc` /
     /// `is_prefix` flags.
     pub super_prop_update: FuncId,
+    /// §13.3.9.1 optional call off a Super Reference — the call's
+    /// operands, a nullish callee answering undefined.
+    pub super_prop_opt_call: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> SuperPropIds {
@@ -58,6 +61,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_anyv_super_prop_update",
             &[Type::Any, Type::Any, Type::Any, Type::I64, Type::I64],
+            Type::Any,
+        ),
+        super_prop_opt_call: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_super_prop_opt_call",
+            &[Type::Any, Type::Any, Type::Any, Type::Any],
             Type::Any,
         ),
     }

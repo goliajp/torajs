@@ -668,6 +668,7 @@ pub(crate) struct Intrinsics {
     /// §13.3.6 call off a Super Reference (base, key, receiver, args).
     pub(crate) super_prop_call: FuncId,
     pub(crate) super_prop_update: FuncId,
+    pub(crate) super_prop_opt_call: FuncId,
     pub(crate) heritage_check: FuncId,
     pub(crate) any_method_call: FuncId,
     pub(crate) any_method_call_opt: FuncId,

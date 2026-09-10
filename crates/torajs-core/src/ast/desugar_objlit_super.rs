@@ -245,7 +245,7 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
                 value,
                 ..
             } => Some((*assign, KeyPlan::Name(name.clone()), *value)),
-            SuperPropSite::AssignIndex { target_index } => None.or_else(|| {
+            SuperPropSite::AssignIndex { target_index, .. } => None.or_else(|| {
                 let Expr::Index { index, .. } = ast.get_expr(*target_index) else {
                     return None;
                 };

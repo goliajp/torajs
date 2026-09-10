@@ -98,6 +98,7 @@ pub(crate) fn try_lower(
         "__torajs_super_prop_get"
         | "__torajs_super_prop_set"
         | "__torajs_super_prop_call"
+        | "__torajs_super_prop_opt_call"
         | "__torajs_super_prop_incr_post"
         | "__torajs_super_prop_incr_pre"
         | "__torajs_super_prop_decr_post"

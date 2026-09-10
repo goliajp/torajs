@@ -207,6 +207,43 @@ pub unsafe extern "C" fn __torajs_anyv_super_prop_call(
     }
 }
 
+/// `super[k]?.(…)` — §13.3.9.1 OptionalChain over a Super Reference:
+/// the read carries the receiver like the plain call's, and a
+/// nullish answer short-circuits to `undefined` instead of the
+/// not-a-function TypeError (any other non-callable still throws).
+///
+/// # Safety
+/// Cell operands are valid heap pointers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_super_prop_opt_call(
+    base: AnyValue,
+    key: AnyValue,
+    this_arg: AnyValue,
+    list: AnyValue,
+) -> AnyValue {
+    unsafe {
+        let Some(f) = super_get(base, key, this_arg) else {
+            return VALUE_UNDEFINED;
+        };
+        if is_undefined(f) || is_null(f) {
+            return VALUE_UNDEFINED;
+        }
+        let target = if is_cell(f) {
+            call_target(as_void_ptr(f))
+        } else {
+            None
+        };
+        let Some(target) = target else {
+            __torajs_anyv_rc_dec(f);
+            __torajs_throw_type_error(c"super property is not a function".as_ptr());
+            return VALUE_UNDEFINED;
+        };
+        let out = apply_list(&target, this_arg, list);
+        __torajs_anyv_rc_dec(f);
+        out
+    }
+}
+
 /// `super[k] = v` — §9.1.9 OrdinarySet with the receiver §13.3.7
 /// names: the base's chain decides whether a setter runs, the
 /// receiver is what a data write lands on. Answers the assignment's

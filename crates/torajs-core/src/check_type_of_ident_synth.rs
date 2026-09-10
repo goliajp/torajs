@@ -156,7 +156,7 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::Any, Type::Any, Type::Any],
             Box::new(Type::Any),
         )),
-        "__torajs_super_prop_call" => Ok(Type::Function(
+        "__torajs_super_prop_call" | "__torajs_super_prop_opt_call" => Ok(Type::Function(
             vec![Type::Any, Type::Any, Type::Any, Type::Any],
             Box::new(Type::Any),
         )),
