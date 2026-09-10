@@ -191,22 +191,23 @@ pub(super) fn build_static_member_rewrites(
     (static_member_rewrites, accessor_rewrites, inherited_owners)
 }
 
-/// The `C.g` sites where a name that is BOTH a static method and a
-/// static field of `C` still means the METHOD — site ExprId → the
-/// `__sm_` name. §15.7.14 defines every method (step 24) before any
-/// static initializer runs (step 31), and the field's DefineField
-/// replaces the method only once the field's own initializer has been
-/// evaluated: inside the static initializers and blocks up to and
-/// including that field's, `this.g` / `C.g` is the method
-/// (`static g() { return 45 } static g = this.g()` answers 45);
-/// everywhere else it is the field. The ranges come from the parser
-/// (`Ast::class_static_init_expr_ranges`); the flat rewrite reads
-/// this table before the name table.
-pub(super) fn positional_static_method_sites(
+/// §15.7.14 — for every static name that is BOTH a method or an
+/// accessor AND a field of `C`, the arena-id ranges of the static
+/// initializers and blocks up to and including the field's own.
+/// Every method and accessor is defined (step 24) before any static
+/// initializer runs (step 31), and the field's DefineField replaces
+/// it only once the field's own initializer has been evaluated: inside
+/// those ranges `this.g` / `C.g` still means the method or accessor
+/// (`static g() { return 45 } static g = this.g()` answers 45; `static
+/// get x() {…} static y = this.x; static x = "f"` reads the getter
+/// into `y`), everywhere else it is the field. The ranges come from
+/// the parser (`Ast::class_static_init_expr_ranges`); the method flat
+/// rewrite and the accessor face rewrite both read them.
+pub(super) fn static_field_shadow_windows(
     ast: &Ast,
     class_index: &[ClassIndexEntry],
-) -> HashMap<u32, String> {
-    let mut out: HashMap<u32, String> = HashMap::new();
+) -> HashMap<(String, PropKey), Vec<(u32, u32)>> {
+    let mut out = HashMap::new();
     for (_, cname, _, _, _, sis, _, _, sms) in class_index {
         let mut first_field_idx: HashMap<&PropKey, usize> = HashMap::new();
         for (idx, si) in sis.iter().enumerate() {
@@ -214,7 +215,7 @@ pub(super) fn positional_static_method_sites(
                 first_field_idx.entry(&sf.name).or_insert(idx);
             }
         }
-        for sm in sms.iter().filter(|sm| sm.accessor_kind.is_none()) {
+        for sm in sms {
             let Some(&cutoff) = first_field_idx.get(&sm.name) else {
                 continue;
             };
@@ -224,6 +225,27 @@ pub(super) fn positional_static_method_sites(
                 .filter(|(c, idx, _, _)| c == cname && *idx <= cutoff)
                 .map(|(_, _, lo, hi)| (*lo, *hi))
                 .collect();
+            out.insert((cname.clone(), sm.name.clone()), ranges);
+        }
+    }
+    out
+}
+
+/// The `C.g` sites where a name that is BOTH a static method and a
+/// static field of `C` still means the METHOD — site ExprId → the
+/// `__sm_` name (the [`static_field_shadow_windows`] rule; the flat
+/// rewrite reads this table before the name table).
+pub(super) fn positional_static_method_sites(
+    ast: &Ast,
+    class_index: &[ClassIndexEntry],
+) -> HashMap<u32, String> {
+    let windows = static_field_shadow_windows(ast, class_index);
+    let mut out: HashMap<u32, String> = HashMap::new();
+    for (_, cname, _, _, _, _, _, _, sms) in class_index {
+        for sm in sms.iter().filter(|sm| sm.accessor_kind.is_none()) {
+            let Some(ranges) = windows.get(&(cname.clone(), sm.name.clone())) else {
+                continue;
+            };
             let method = format!("__sm_{cname}__{}", mangle_key(&sm.name));
             for (i, e) in ast.exprs.iter().enumerate() {
                 let Expr::Member { obj, name } = e else {

@@ -207,7 +207,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // whole `C.p = v` nodes (setter call), then the read walk turns
     // the remaining `C.p` Members into getter calls; neither shape
     // survives into the Ident rewrite below.
-    rewrite_static_accessor_accesses(ast, &static_accessor_rewrites);
+    rewrite_static_accessor_accesses(ast, &static_accessor_rewrites, &class_index);
     super::desugar_classes_static_route::route_inherited_static_calls(
         ast,
         &inherited_static_owners,
@@ -296,13 +296,23 @@ fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::Clas
 /// un-rewritten Member — same posture as an unknown static).
 /// Compound assigns (`C.p += v`) desugar to `C.p = C.p + v` upstream,
 /// so the simple shape covers them.
+///
+/// §15.7.14 — an accessor whose name is ALSO a static field is the
+/// accessor only inside the static initializers up to and including
+/// the field's own (`static_field_shadow_windows`); every other site
+/// keeps its Member and falls to the data rewrite, where the field's
+/// `__sf_` entry answers — the same positional rule the method case
+/// takes, and the class object's own entry follows (the field define
+/// lands after the accessor reify).
 fn rewrite_static_accessor_accesses(
     ast: &mut Ast,
     accessor_rewrites: &super::desugar_classes_statics::StaticAccessorRewrites,
+    class_index: &[super::desugar_classes_super::ClassIndexEntry],
 ) {
     if accessor_rewrites.is_empty() {
         return;
     }
+    let windows = super::desugar_classes_statics::static_field_shadow_windows(ast, class_index);
     let member_face = |ast: &Ast, eid: ExprId, want_get: bool| -> Option<String> {
         let Expr::Member { obj, name } = ast.get_expr(eid) else {
             return None;
@@ -310,7 +320,13 @@ fn rewrite_static_accessor_accesses(
         let Expr::Ident(class_name) = ast.get_expr(*obj) else {
             return None;
         };
-        let (g, s) = accessor_rewrites.get(&(class_name.clone(), PropKey::from(name)))?;
+        let key = (class_name.clone(), PropKey::from(name));
+        if let Some(ranges) = windows.get(&key)
+            && !ranges.iter().any(|(lo, hi)| *lo <= eid.0 && eid.0 < *hi)
+        {
+            return None;
+        }
+        let (g, s) = accessor_rewrites.get(&key)?;
         if want_get { g.clone() } else { s.clone() }
     };
     // Write pass — whole-Assign nodes first.
