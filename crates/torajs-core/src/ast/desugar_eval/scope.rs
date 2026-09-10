@@ -109,8 +109,30 @@ pub(super) fn seal_var_scope(stmts: &mut [Stmt]) {
 /// reaching something else entirely, and this pass runs before the
 /// scope resolution that could tell which. Declining wholesale is the
 /// answer that cannot be wrong.
+///
+/// A WRITE to the global counts the same way (628-07 / test262
+/// `call/tco-non-eval-global`: `eval = f; … return eval(n - 1)`):
+/// §13.3.6.1 makes the call direct only while `SameValue(func, %eval%)`
+/// holds at run time, and after `eval = f` it does not. The write
+/// demotes the name to an ordinary `any` binding
+/// (`builtin_global_assign`), so every `eval(…)` left standing here
+/// becomes a plain call through that binding. A program that direct-
+/// evals BEFORE it rebinds `eval` loses the direct form too — the
+/// recorded price of a static answer to a runtime question.
 pub(super) fn binds_eval(ast: &Ast) -> bool {
-    binds_name(ast, "eval")
+    binds_name(ast, "eval") || writes_eval(ast)
+}
+
+/// Any assignment or update expression whose target is the bare name
+/// `eval` — the same census `builtin_global_assign` demotes on.
+fn writes_eval(ast: &Ast) -> bool {
+    ast.exprs.iter().any(|e| {
+        let target = match e {
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => *target,
+            _ => return false,
+        };
+        matches!(ast.get_expr(target), Expr::Ident(n) if n == "eval")
+    })
 }
 
 /// The same wholesale-decline question for any global this family

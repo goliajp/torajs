@@ -264,6 +264,15 @@ fn slot_type_supported(
             // resolver, holds the user's default export, and its
             // reader is the dynamic-import dispatcher — a named fn.
             || name.starts_with("__nsdefault_")
+            // …and the demoted built-in global (628-07): `__gshadow_<G>`
+            // is minted by `builtin_global_assign`, holds the user's
+            // rebinding of `eval` / `Array` / …, and the writers and
+            // readers are the user's named fns (`function f() { eval =
+            // 42 }`, `new Function("eval = 42;")`). Its seed is `let
+            // __gshadow_G: any = G`, so the annotation path above
+            // types the slot; only this provenance clause stood
+            // between it and the named-fn-visible home.
+            || name.starts_with("__gshadow_")
             || crate::ssa_lower_inner::body_passes_fn_name::strip_module_mangle(name) != name
             // …and the ES5 class binding (rotation 417): the name is
             // minted, but what it holds is the user's class, and the
