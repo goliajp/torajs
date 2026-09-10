@@ -259,6 +259,11 @@ fn slot_type_supported(
             // user's too. Same category as the ES5 class binding
             // below.
             || name.starts_with("__reex_")
+            // …and the namespace object's `default` field binding
+            // (rotation 628): `__nsdefault_<ns>` is minted by the
+            // resolver, holds the user's default export, and its
+            // reader is the dynamic-import dispatcher — a named fn.
+            || name.starts_with("__nsdefault_")
             || crate::ssa_lower_inner::body_passes_fn_name::strip_module_mangle(name) != name
             // …and the ES5 class binding (rotation 417): the name is
             // minted, but what it holds is the user's class, and the

@@ -53,6 +53,30 @@ pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
     if let Expr::ObjectLit { .. } = ast.get_expr(init) {
         return any_slot_safe_value(ast, init);
     }
+    // Rotation 628 — a CLASS VALUE init (`const alias = C`; the
+    // module walk's `__nsdefault_<ns>` binding of an `export default
+    // class`, which the dynamic-import dispatcher reads from a named
+    // fn body). The class object is an any-lane cell already (the
+    // class register hands it out boxed), so the boxed slot is its
+    // natural home; without this arm the binding stayed main-local
+    // and every named-fn read answered "unknown identifier" while
+    // the `const alias: any = C` spelling worked. By the time both
+    // consumers ask, the class desugar's P4.5 sentinel rewrite has
+    // spelled the value read `__class_<C>`; `class_parents` is the
+    // post-desugar census of every class the program declares,
+    // expression-position synths included.
+    if let Expr::Ident(n) = ast.get_expr(init) {
+        if is_class_value_ident(ast, n) {
+            return true;
+        }
+        // An alias of an any-promoted top-level binding (`const b =
+        // a` where `a` promoted here) holds the same boxed value —
+        // the rotation-592 closure-alias rule, generalized to this
+        // verdict. Bounded: a top-level let names one init.
+        if let Some(inner) = toplevel_let_init(ast, n) {
+            return any_promote_init(ast, inner);
+        }
+    }
     let Expr::Call { callee, .. } = ast.get_expr(init) else {
         return false;
     };
@@ -64,6 +88,37 @@ pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
     // the named-fn-visibility problem of a different wall; never
     // promote them here.
     !matches!(ast.get_expr(*callee), Expr::Ident(n) if n.starts_with("__new_"))
+}
+
+/// The P4.5 sentinel spelling of a class read as a VALUE — what the
+/// class desugar leaves where a program wrote `C` in expression
+/// position. Every class the program declares is in `class_parents`
+/// (expression-position synths included).
+pub(crate) fn is_class_value_ident(ast: &Ast, n: &str) -> bool {
+    n.strip_prefix("__class_")
+        .is_some_and(|c| ast.class_parents.contains_key(c))
+}
+
+/// The init of the top-level (non-`var`) let named `n`, when there is
+/// exactly one such declaration in the flat top-level view.
+fn toplevel_let_init(ast: &Ast, n: &str) -> Option<ExprId> {
+    let mut found: Option<ExprId> = None;
+    for s in crate::ast::toplevel_stmts_flat(ast) {
+        if let crate::ast::Stmt::LetDecl {
+            name,
+            init,
+            is_var: false,
+            ..
+        } = s
+            && name == n
+        {
+            if found.is_some() {
+                return None;
+            }
+            found = Some(*init);
+        }
+    }
+    found
 }
 
 /// True iff `e` is safe to evaluate and box on the Any-slot init
@@ -97,6 +152,8 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         // shadow is a silent no-op in sloppy mode, so the spelling is
         // unambiguous at this position.
         Expr::Ident(n) if n == "undefined" => true,
+        // A class value (rotation 628) — an any-lane cell already.
+        Expr::Ident(n) if is_class_value_ident(ast, n) => true,
         Expr::ObjectLit { fields } => fields.iter().all(|(name, val)| {
             let Some(name) = name.as_str() else {
                 return false;
