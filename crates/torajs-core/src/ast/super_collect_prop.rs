@@ -94,6 +94,14 @@ fn is_marker(ast: &Ast, eid: ExprId) -> bool {
     matches!(ast.get_expr(eid), Expr::Ident(n) if n == SUPER_BASE_MARKER)
 }
 
+/// An expression position with no statement around it — a static
+/// field's initializer (`static f = super.x`), whose `super` sites
+/// belong to the class's static context (§15.7.14 step 31 evaluates
+/// it with the class as `this` and the class as the home object).
+pub(super) fn collect_superprop_in_expr(ast: &Ast, eid: ExprId, out: &mut SuperPropSites) {
+    walk_expr(ast, eid, out, false);
+}
+
 pub(super) fn collect_superprop_in_stmt(ast: &Ast, s: &Stmt, out: &mut SuperPropSites) {
     match s {
         // An expression statement whose whole expression is the Assign

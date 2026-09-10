@@ -53,9 +53,10 @@
 
 use super::desugar_classes_super::ClassIndexEntry;
 use super::super_collect_prop::{
-    SuperPropSite, SuperPropSites, collect_superprop_in_stmt, delete_operands,
+    SuperPropSite, SuperPropSites, collect_superprop_in_expr, collect_superprop_in_stmt,
+    delete_operands,
 };
-use super::{AccessorKind, Ast, ClassMethod, Expr, ExprId};
+use super::{AccessorKind, Ast, ClassMethod, Expr, ExprId, StaticInit};
 
 /// What the first chain class declaring `name` says about it.
 struct DeclaredShape {
@@ -69,7 +70,7 @@ pub(super) fn rewrite_super_prop_sites(
     class_index: &[ClassIndexEntry],
     dynamic: bool,
 ) {
-    for (_, cname, _tp, parent, _, _, ctor, methods, static_methods) in class_index {
+    for (_, cname, _tp, parent, _, static_inits, ctor, methods, static_methods) in class_index {
         // Instance context: ctor body (field inits are folded in) +
         // instance methods. Super base = <Parent>.prototype, receiver
         // spelling = `this` (Pass 2 rewrites it to `__this`). A class
@@ -108,27 +109,33 @@ pub(super) fn rewrite_super_prop_sites(
         let dyn_here = dynamic && !ast.exotic_parent.contains_key(cname);
         rewrite_sites(ast, class_index, parent_name, cname, false, dyn_here, inst);
 
-        // Static context: super base = the <Parent> class object.
-        // A base class's static super base would be
-        // %Function.prototype% — a read channel tr does not have yet,
-        // so those markers stay put and fail loud at the checker.
-        if let Some(parent_name) = parent_name {
-            let mut stat = SuperPropSites::default();
-            for m in static_methods {
-                for s in &m.body {
-                    collect_superprop_in_stmt(ast, s, &mut stat);
+        // Static context: super base = the <Parent> class object, or
+        // %Function.prototype% for a base class (§10.2.4: the static
+        // home object is C itself, whose [[Prototype]] is
+        // %Function.prototype% — `Function.prototype` reads it, and a
+        // write lands on the class object either way). Static blocks
+        // and static field initializers run in the SAME context
+        // (§15.7.14 step 31, `this` = C), so their sites join the
+        // static methods' — rotation 628; before it only the method
+        // bodies were walked and `static { v = super.x }` reached the
+        // checker as an unknown ident.
+        let mut stat = SuperPropSites::default();
+        for m in static_methods {
+            for s in &m.body {
+                collect_superprop_in_stmt(ast, s, &mut stat);
+            }
+        }
+        for si in static_inits {
+            match si {
+                StaticInit::Field(sf) => collect_superprop_in_expr(ast, sf.init, &mut stat),
+                StaticInit::Block(stmts) => {
+                    for s in stmts {
+                        collect_superprop_in_stmt(ast, s, &mut stat);
+                    }
                 }
             }
-            rewrite_sites(
-                ast,
-                class_index,
-                Some(parent_name),
-                cname,
-                true,
-                dyn_here,
-                stat,
-            );
         }
+        rewrite_sites(ast, class_index, parent_name, cname, true, dyn_here, stat);
     }
 }
 
@@ -313,15 +320,26 @@ fn mint_base(
         return super::super_home_dynamic::mint_home_proto(ast, cname, is_static);
     }
     // No extends clause → the instance super base is %Object.prototype%
-    // (the caller never reaches here for a base class's statics).
-    let parent = ast.add_expr(Expr::Ident(parent_name.unwrap_or("Object").to_string()));
-    if is_static {
-        parent
-    } else {
-        ast.add_expr(Expr::Member {
-            obj: parent,
-            name: "prototype".to_string(),
-        })
+    // and the static one %Function.prototype% (both read as the
+    // builtin prototype singleton off the namespace).
+    match (parent_name, is_static) {
+        (Some(p), true) => ast.add_expr(Expr::Ident(p.to_string())),
+        (Some(p), false) => {
+            let parent = ast.add_expr(Expr::Ident(p.to_string()));
+            ast.add_expr(Expr::Member {
+                obj: parent,
+                name: "prototype".to_string(),
+            })
+        }
+        (None, is_static) => {
+            let ns = ast.add_expr(Expr::Ident(
+                if is_static { "Function" } else { "Object" }.to_string(),
+            ));
+            ast.add_expr(Expr::Member {
+                obj: ns,
+                name: "prototype".to_string(),
+            })
+        }
     }
 }
 
