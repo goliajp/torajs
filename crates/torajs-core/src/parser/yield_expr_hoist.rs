@@ -216,6 +216,25 @@ impl<'a> Parser<'a> {
         Ok(())
     }
 
+    /// §13.4.1 early error — an UpdateExpression's operand must have
+    /// simple AssignmentTargetType: an identifier reference or a
+    /// property access (`x`, `o.f`, `a[i]`, parenthesized or not). A
+    /// literal, a call, an operator expression, an optional chain
+    /// (§13.4 forbids `a?.b++`) is a SyntaxError at parse time. The
+    /// prefix form desugared to `x = x + 1` until rotation 626 and
+    /// took its reject from the compound clone's own refusal; both
+    /// forms are one node now and ask this once, after the
+    /// assignment-target check the two share.
+    pub(super) fn reject_invalid_update_target(&self, target: ExprId) -> Result<(), String> {
+        match self.ast.get_expr(target) {
+            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. } => Ok(()),
+            _ => Err(format!(
+                "expression is not a valid update target at {} (ES §13.4.1)",
+                self.at()
+            )),
+        }
+    }
+
     /// Drain wrapper around the statement dispatcher — see module doc.
     ///
     /// Also drains `synth_classes_local` (393-01): a class expression

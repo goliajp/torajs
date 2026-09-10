@@ -434,6 +434,7 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             let target = self.parse_unary()?;
             self.reject_invalid_assignment_target(target)?;
+            self.reject_invalid_update_target(target)?;
             return Ok(self.ast.add_expr(Expr::PostIncr {
                 target,
                 is_inc,

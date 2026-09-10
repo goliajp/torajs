@@ -120,6 +120,7 @@ impl<'a> Parser<'a> {
                     let is_inc = matches!(self.peek(), Token::PlusPlus);
                     self.pos += 1;
                     self.reject_invalid_assignment_target(node)?;
+                    self.reject_invalid_update_target(node)?;
                     node = self.ast.add_expr(Expr::PostIncr {
                         target: node,
                         is_inc,
