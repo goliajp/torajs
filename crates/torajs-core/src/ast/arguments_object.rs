@@ -57,20 +57,24 @@ pub(super) enum ArgcMode {
     /// slots into a typed literal). Any mutation / escape / non-
     /// simple param routes to Unmapped instead.
     FoldTo(usize),
-    /// Length-write knife (rotation 270) — a static-argv-face body
-    /// that WRITES `arguments.length`: a static fold would (a)
-    /// mint a literal in the write target ("invalid assignment
-    /// target") and (b) keep answering the stale constant on every
-    /// later read. Length reads AND writes ride the materialized
-    /// `__torajs_arguments.length` instead — the array resize is
-    /// the §10.4.2.4 approximation on this face (expansion fills
-    /// holes, truncation drops slots), which is what the
-    /// arguments-iterator tests observe. The payload still carries
-    /// the static argc for the materialize take-count, and
-    /// `...arguments` spreads swap to the live array rather than
-    /// inline-expanding a stale prefix. Element indices ride the
-    /// array too — see Unmapped below for why no mode may alias.
-    LiveLength(usize),
+    /// A body whose `arguments.length` is not a constant: it WRITES
+    /// `arguments.length` (length-write knife, rotation 270), or it
+    /// rebinds `arguments` itself (§13.15.1 sloppy `arguments = v`,
+    /// rotation 626 — after the rebind `.length` is whatever the new
+    /// value's is). A static fold would (a) mint a literal in the
+    /// write target ("invalid assignment target") and (b) keep
+    /// answering the stale constant on every later read; the hidden
+    /// argc read has the same staleness after a rebind. Length reads
+    /// AND writes ride the materialized `__torajs_arguments.length`
+    /// instead — the array resize is the §10.4.2.4 approximation on
+    /// this face (expansion fills holes, truncation drops slots),
+    /// which is what the arguments-iterator tests observe. The
+    /// payload says where the array's initial length comes from
+    /// (see [`LiveSeed`]), and `...arguments` spreads swap to the
+    /// live array rather than inline-expanding a stale prefix.
+    /// Element indices ride the array too — see Unmapped below for
+    /// why no mode may alias.
+    LiveLength(LiveSeed),
     /// The static-argv face's standard mode (rotation 271 introduced
     /// it for default / rest / destructured params per ES
     /// §10.4.4.6/7; rotation 272 made it the whole face's mode):
@@ -100,6 +104,25 @@ pub(super) enum ArgcMode {
     /// closure VALUE's real argc needs the ABI face (recorded);
     /// folding the declared arity would be silent-wrong.
     KeepLoud,
+}
+
+/// Where a [`ArgcMode::LiveLength`] body's materialized array gets
+/// its initial `.length` — the count a read before any write /
+/// rebind must answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum LiveSeed {
+    /// The static call-site argc: the mint takes the leading `n`
+    /// injected params, so the array is born with length `n`. Also
+    /// the FoldArity tier's declared arity (declared == actual is
+    /// that tier's standing assumption).
+    Static(usize),
+    /// The S1 hidden-ABI `__torajs_argc`. On the argv face the mint
+    /// already takes that many slots from the adapter's argv; off it
+    /// the mint is the declared-params builder and the prologue
+    /// seeds `__torajs_arguments.length = __torajs_argc` right after
+    /// the mark — beyond-declared slots are holes (the same undefined
+    /// the declared builder answered before), but the count is true.
+    HiddenArgc,
 }
 
 /// RFC 20260808 escape-store profile — a fn whose binding is stored

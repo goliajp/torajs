@@ -9,7 +9,7 @@
 //! materialize / FLAG_ARR_ARGUMENTS-mark / sloppy-callee prologue,
 //! and the `__forward_` shims the sloppy goal mints along the way.
 
-use super::arguments_object::ArgcMode;
+use super::arguments_object::{ArgcMode, LiveSeed};
 use super::arguments_object_rewrite::SloppyCallee;
 use super::arguments_object_sloppy::{CalleeSpelling, PendingFwds, callee_value_fn};
 use super::arguments_object_synth::{
@@ -227,58 +227,93 @@ fn rewrite_one_body(
             )
         })
         .collect();
-    // Synthesize the local OUTSIDE the &mut ast.stmts borrow
-    // (synth_arguments_local also takes &mut ast for add_expr).
-    let argc_len_opt = (argc_mode == ArgcMode::RealLocal)
-        .then(|| super::arguments_object_synth::synth_argc_len_local(ast));
-    let synth_opt = if argv_reads {
+    // Build the prologue OUTSIDE the &mut ast.stmts borrow (every
+    // synth_* builder takes &mut ast for add_expr).
+    let mut prologue = body_prologue(
+        ast,
+        MintInputs {
+            decl_params,
+            params: &params,
+            body,
+            argc_mode,
+            argv_reads,
+            needs_materialize,
+            spelling: spelling_opt.as_ref(),
+        },
+    );
+    if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
+        if prologue.is_empty() {
+            *b = new_body;
+        } else {
+            prologue.extend(new_body);
+            *b = prologue;
+        }
+    }
+}
+
+/// What [`body_prologue`] needs to know about one body — bundled so
+/// the builder keeps a two-param signature (the split kept
+/// [`rewrite_one_body`] inside the 200-line limit, rotation 626).
+struct MintInputs<'a> {
+    decl_params: &'a [super::Param],
+    params: &'a [String],
+    body: &'a [Stmt],
+    argc_mode: ArgcMode,
+    argv_reads: bool,
+    needs_materialize: bool,
+    spelling: Option<&'a CalleeSpelling>,
+}
+
+/// The statements prepended to a rewritten body, in order: the
+/// `__torajs_argc_len` local (RealLocal), the `__torajs_arguments`
+/// mint, its FLAG_ARR_ARGUMENTS mark, the live-length seed
+/// (LiveLength(HiddenArgc) off the argv face), and the sloppy goal's
+/// callee define. Empty when the body materializes nothing.
+fn body_prologue(ast: &mut Ast, m: MintInputs<'_>) -> Vec<Stmt> {
+    let mut out = Vec::with_capacity(5);
+    if m.argc_mode == ArgcMode::RealLocal {
+        out.push(super::arguments_object_synth::synth_argc_len_local(ast));
+    }
+    let synth = if m.argv_reads {
         // S3.3 — the materialize take-count is the S1 hidden
         // argc; since S1-T2 both argv faces own the slot.
         Some(synth_arguments_local_argv(ast))
-    } else if needs_materialize && argc_mode != ArgcMode::KeepLoud {
+    } else if m.needs_materialize && m.argc_mode != ArgcMode::KeepLoud {
         Some(synth_materialized_arguments(
             ast,
-            decl_params,
-            &params,
-            argc_mode,
+            m.decl_params,
+            m.params,
+            m.argc_mode,
         ))
     } else {
         None
     };
-    let synth_opt = synth_opt.map(|s| writable_if_assigned(ast, body, s));
+    let Some(synth) = synth else {
+        return out;
+    };
+    out.push(writable_if_assigned(ast, m.body, synth));
     // The FLAG_ARR_ARGUMENTS stamp rides a synthetic call
     // statement right after the mint — one mechanism for
     // both the literal and argv lanes (checker ident
     // special-case + class-synth lowering arm).
-    let mark_opt = synth_opt
-        .is_some()
-        .then(|| super::arguments_object_synth::synth_arguments_mark(ast));
+    out.push(super::arguments_object_synth::synth_arguments_mark(ast));
+    // Off the argv face a LiveLength(HiddenArgc) body's mint is the
+    // declared-params builder; the array's `.length` is seeded from
+    // the hidden argc so a read before the rebind answers the true
+    // count (see LiveSeed::HiddenArgc). The argv mint already took
+    // that many slots.
+    if !m.argv_reads && m.argc_mode == ArgcMode::LiveLength(LiveSeed::HiddenArgc) {
+        out.push(super::arguments_object_synth::synth_live_length_seed(ast));
+    }
     // S2 — the sloppy goal seeds `callee` into the bag right
     // after the mark, through the ordinary defineProperty
     // pipeline (keyed reads / writes / deletes / gOPD all
     // ride the existing expando machinery). The value is the
     // `__forward_` closure shim ensured above.
-    let sloppy_define_opt = match (&synth_opt, &spelling_opt) {
-        (Some(_), Some(spelling)) => Some(
-            super::arguments_object_synth::synth_sloppy_callee_define(ast, spelling),
-        ),
-        _ => None,
-    };
-    if let Stmt::FnDecl { body: b, .. } = &mut ast.stmts[idx] {
-        if argc_len_opt.is_some() || synth_opt.is_some() {
-            let mut full = Vec::with_capacity(new_body.len() + 4);
-            full.extend(argc_len_opt);
-            full.extend(synth_opt);
-            if let Some(mark) = mark_opt {
-                full.push(mark);
-            }
-            if let Some(dp) = sloppy_define_opt {
-                full.push(dp);
-            }
-            full.extend(new_body);
-            *b = full;
-        } else {
-            *b = new_body;
-        }
+    if let Some(spelling) = m.spelling {
+        out.push(super::arguments_object_synth::synth_sloppy_callee_define(
+            ast, spelling,
+        ));
     }
+    out
 }

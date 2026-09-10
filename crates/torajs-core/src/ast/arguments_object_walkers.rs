@@ -36,11 +36,11 @@ pub(super) fn body_has_arguments_length_write(ast: &Ast, body: &[Stmt]) -> bool 
 
 /// True if the body ASSIGNS the bare `arguments` binding itself
 /// (`arguments = v`, destructuring-default desugar included, or
-/// `arguments++`). Such a fn must leave every swapping face: the
-/// materialized `__torajs_arguments` local is const, so the swap
-/// turned the assignment into a type error — pre-face these bodies
-/// rode the undeclared-ident lane (sloppy auto-global write + read),
-/// which is the behavior the for-await-of dstr tests observe.
+/// `arguments++`). Such a body materializes on whichever face fits
+/// it, receives a writable `any` local (`writable_if_assigned`), and
+/// classifies as [`super::arguments_object::ArgcMode::LiveLength`]:
+/// after the rebind every touch — `.length` included — is a touch of
+/// the new value, so nothing about the body may fold statically.
 pub(super) fn body_has_bare_arguments_assign(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::BareAssign))
 }

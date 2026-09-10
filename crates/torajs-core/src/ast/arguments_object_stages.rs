@@ -5,7 +5,7 @@
 //! 20260810-sloppy-goal-arguments) pushed the main pass past the
 //! 500-line file limit (verbatim move).
 
-use super::arguments_object::ArgcMode;
+use super::arguments_object::{ArgcMode, LiveSeed};
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_arguments_length_write, body_has_non_length_arguments_touch,
 };
@@ -176,15 +176,18 @@ pub(super) fn classify_argc_mode(
     tiers: ArgcTiers<'_>,
 ) -> ArgcMode {
     if let Some(&n) = tiers.iife_static_argv.get(name) {
-        // Length-write bodies additionally ride the array's
-        // live `.length` (see ArgcMode::LiveLength);
-        // everything else on the face is Unmapped — strict
-        // (module) code never maps arguments to params.
+        // Length-write bodies and bodies that rebind `arguments`
+        // additionally ride the array's live `.length` (see
+        // ArgcMode::LiveLength); everything else on the face is
+        // Unmapped — strict (module) code never maps arguments to
+        // params.
         let non_simple = decl_params
             .iter()
             .any(|p| p.default.is_some() || p.is_rest || p.name.starts_with("__param_destr_"));
-        if body_has_arguments_length_write(ast, body) {
-            ArgcMode::LiveLength(n)
+        if body_has_arguments_length_write(ast, body)
+            || super::arguments_object_walkers::body_has_bare_arguments_assign(ast, body)
+        {
+            ArgcMode::LiveLength(LiveSeed::Static(n))
         } else if non_simple
             || super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
         {
@@ -221,8 +224,14 @@ pub(super) fn classify_argc_mode(
         // mutable home (the hidden param is an SSA value): it
         // rides a synthesized `__torajs_argc_len` local seeded
         // from the hidden argc — the exact semantics the injected
-        // (writable) `injected argc` param used to give.
-        if body_has_arguments_length_write(ast, body) {
+        // (writable) `injected argc` param used to give. A body that
+        // REBINDS `arguments` (§13.15.1) reads the hidden argc only
+        // until the rebind: every touch rides the materialized local
+        // and its live `.length`, seeded from the hidden argc (see
+        // LiveSeed::HiddenArgc).
+        if super::arguments_object_walkers::body_has_bare_arguments_assign(ast, body) {
+            ArgcMode::LiveLength(LiveSeed::HiddenArgc)
+        } else if body_has_arguments_length_write(ast, body) {
             ArgcMode::RealLocal
         } else {
             ArgcMode::Real
@@ -250,15 +259,18 @@ pub(super) fn classify_argc_mode(
         && (body_has_arguments_length(ast, body) || body_has_non_length_arguments_touch(ast, body))
     {
         ArgcMode::KeepLoud
+    } else if super::arguments_object_walkers::body_has_bare_arguments_assign(ast, body) {
+        // §13.15.1 — a sloppy body that assigns to `arguments`
+        // ITSELF rebinds it; the fold has no binding to rebind, so
+        // it materializes (`writable_if_assigned` makes the local a
+        // writable `any` slot) and, since the rebind replaces the
+        // array, `.length` reads ride the local too. `arguments =
+        // 42` was a ReferenceError, and a body that also read it a
+        // "cannot assign to const" — nine test262 cases. The seed
+        // is the declared arity: this tier has no argc to read.
+        ArgcMode::LiveLength(LiveSeed::Static(params.len()))
     } else if super::arguments_object_walkers::body_has_any_arguments_touch(ast, body)
-        && (super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
-            // §13.15.1 — a sloppy body that assigns to `arguments`
-            // ITSELF rebinds it; the fold has no binding to rebind,
-            // so it materializes too (`writable_if_assigned` makes
-            // the local a writable `any` slot). `arguments = 42` was
-            // a ReferenceError, and a body that also read it a
-            // "cannot assign to const" — nine test262 cases.
-            || super::arguments_object_walkers::body_has_bare_arguments_assign(ast, body))
+        && super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
     {
         // FoldArity tier (no static argc), mutating body —
         // the literal-index substitution wrote through

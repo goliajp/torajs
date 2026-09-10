@@ -5,7 +5,7 @@
 //! walkers were always two identities sharing one file (its own
 //! header said so).
 
-use super::arguments_object::ArgcMode;
+use super::arguments_object::{ArgcMode, LiveSeed};
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// T-11 — synthesize `let __torajs_arguments: any[] = [p0, p1, ...]`
@@ -96,6 +96,23 @@ pub(super) fn synth_argc_len_local(ast: &mut Ast) -> Stmt {
         init,
         is_var: false,
     }
+}
+
+/// [`LiveSeed::HiddenArgc`] off the argv face — synthesize
+/// `__torajs_arguments.length = __torajs_argc;` for a body whose
+/// mint is the declared-params builder: the S1 hidden argc is the
+/// true count, the builder's length is the declared arity, and a
+/// `.length` read before the rebind must answer the former. The
+/// resize fills beyond-declared slots with holes — the same
+/// undefined the declared builder answered for them before.
+pub(super) fn synth_live_length_seed(ast: &mut Ast) -> Stmt {
+    let arr = ast.add_expr(Expr::Ident("__torajs_arguments".into()));
+    let target = ast.add_expr(Expr::Member {
+        obj: arr,
+        name: "length".into(),
+    });
+    let value = ast.add_expr(Expr::Ident("__torajs_argc".into()));
+    Stmt::Expr(ast.add_expr(Expr::Assign { target, value }))
 }
 
 /// The `FLAG_ARR_ARGUMENTS` stamp statement —
@@ -193,17 +210,17 @@ pub(super) fn synth_materialized_arguments(
         && let Some((rest_name, fixed)) = params.split_last()
     {
         let take = match argc_mode {
-            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
-                n.min(fixed.len())
-            }
+            ArgcMode::FoldTo(n)
+            | ArgcMode::LiveLength(LiveSeed::Static(n))
+            | ArgcMode::Unmapped(n) => n.min(fixed.len()),
             _ => fixed.len(),
         };
         synth_arguments_local_rest(ast, &fixed[..take], rest_name)
     } else {
         let take = match argc_mode {
-            ArgcMode::FoldTo(n) | ArgcMode::LiveLength(n) | ArgcMode::Unmapped(n) => {
-                n.min(params.len())
-            }
+            ArgcMode::FoldTo(n)
+            | ArgcMode::LiveLength(LiveSeed::Static(n))
+            | ArgcMode::Unmapped(n) => n.min(params.len()),
             _ => params.len(),
         };
         synth_arguments_local(ast, &params[..take])
