@@ -45,25 +45,25 @@ pub(super) fn body_has_bare_arguments_assign(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::BareAssign))
 }
 
-/// The face-admission exclusion set: the shadowed fns plus every
-/// bare-assign body (see [`body_has_bare_arguments_assign`] — those
-/// still take the default FoldArity rewrite; only the face
-/// admissions are gated, so this set feeds the collectors while
-/// `shadowed` alone skips the rewrite loop).
+/// The face-admission exclusion set — the shadowed fns (a binding
+/// named `arguments` in the body resolves the ident, not the object).
+///
+/// Until rotation 625 a body with a bare `arguments = v` /
+/// `arguments++` was excluded too, on the ground that the
+/// materialized `__torajs_arguments` local was const and the swap
+/// turned the assignment into a type error. The local a body that
+/// assigns receives is writable now (`writable_if_assigned`), so
+/// such a body takes whichever face fits it like any other — the
+/// static fold with its injected extras, the argv face, the
+/// unmapped materialize — and the assignment rebinds that local.
+/// Left excluded, `function m(a) { const b = arguments[1];
+/// arguments = 7; … }` fell to the declared-params builder and read
+/// `b` as undefined.
 pub(super) fn collect_face_excluded_fns(
-    ast: &Ast,
+    _ast: &Ast,
     shadowed: &std::collections::HashSet<String>,
 ) -> std::collections::HashSet<String> {
-    let mut excluded = shadowed.clone();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = s
-            && !excluded.contains(name)
-            && body_has_bare_arguments_assign(ast, body)
-        {
-            excluded.insert(name.clone());
-        }
-    }
-    excluded
+    shadowed.clone()
 }
 
 /// True if the body touches `arguments` in any form other than

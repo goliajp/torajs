@@ -12,7 +12,9 @@
 use super::arguments_object::ArgcMode;
 use super::arguments_object_rewrite::SloppyCallee;
 use super::arguments_object_sloppy::{CalleeSpelling, PendingFwds, callee_value_fn};
-use super::arguments_object_synth::{synth_arguments_local_argv, synth_materialized_arguments};
+use super::arguments_object_synth::{
+    synth_arguments_local_argv, synth_materialized_arguments, writable_if_assigned,
+};
 use super::arguments_object_walkers::{
     body_has_callee_touch, body_has_callee_write, stmt_uses_dynamic_arguments,
 };
@@ -239,6 +241,7 @@ fn rewrite_one_body(
     } else {
         None
     };
+    let synth_opt = synth_opt.map(|s| writable_if_assigned(ast, body, s));
     // The FLAG_ARR_ARGUMENTS stamp rides a synthetic call
     // statement right after the mint — one mechanism for
     // both the literal and argv lanes (checker ident

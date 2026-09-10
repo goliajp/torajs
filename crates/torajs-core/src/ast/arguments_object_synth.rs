@@ -209,3 +209,29 @@ pub(super) fn synth_materialized_arguments(
         synth_arguments_local(ast, &params[..take])
     }
 }
+
+/// §13.15.1 — sloppy code may assign to `arguments` itself
+/// (`arguments = 42`, `++arguments`, a destructuring target
+/// `[arguments = 4]`), and the assignment rebinds the local. The
+/// materialized `__torajs_arguments` was a const `any[]`, so every
+/// such body was a type error ("cannot assign to const") — nine
+/// test262 cases. A body that assigns gets a writable `any` slot
+/// instead: the reads it still does (`arguments[i]`, `.length`)
+/// ride the any lanes, and the write lands on the slot like any
+/// other rebinding. A strict body never reaches here — the parser
+/// rejects the assignment as an early error.
+pub(super) fn writable_if_assigned(ast: &Ast, body: &[Stmt], local: Stmt) -> Stmt {
+    if !super::arguments_object_walkers::body_has_bare_arguments_assign(ast, body) {
+        return local;
+    }
+    match local {
+        Stmt::LetDecl { name, init, .. } => Stmt::LetDecl {
+            mutable: true,
+            name,
+            type_ann: Some("any".into()),
+            init,
+            is_var: false,
+        },
+        other => other,
+    }
+}

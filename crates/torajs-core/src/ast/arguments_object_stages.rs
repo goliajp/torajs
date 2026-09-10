@@ -251,7 +251,14 @@ pub(super) fn classify_argc_mode(
     {
         ArgcMode::KeepLoud
     } else if super::arguments_object_walkers::body_has_any_arguments_touch(ast, body)
-        && super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+        && (super::arguments_object_mutation::body_mutates_args_view(ast, body, &params)
+            // §13.15.1 — a sloppy body that assigns to `arguments`
+            // ITSELF rebinds it; the fold has no binding to rebind,
+            // so it materializes too (`writable_if_assigned` makes
+            // the local a writable `any` slot). `arguments = 42` was
+            // a ReferenceError, and a body that also read it a
+            // "cannot assign to const" — nine test262 cases.
+            || super::arguments_object_walkers::body_has_bare_arguments_assign(ast, body))
     {
         // FoldArity tier (no static argc), mutating body —
         // the literal-index substitution wrote through
