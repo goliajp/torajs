@@ -925,6 +925,15 @@ pub struct Ast {
     /// `function a1(x?: number)` answer `arguments.length === 1`.
     /// The face collectors are unaffected (they run before the pad).
     pub default_padded_argc: std::collections::HashMap<ExprId, usize>,
+    /// Call ExprId → how many FIXED parameters the source filled,
+    /// for calls `apply_rest_args` packed. The pack rewrites the
+    /// arena node to `f(fixed…, [tail])`, so by lowering time the
+    /// arg list is one slot wide past the prefix whatever the source
+    /// wrote; the true count is this number plus the packed array's
+    /// runtime length (a spread tail has no static length at all).
+    /// `gr(1, 2)` on `function gr(...xs) { arguments.length }`
+    /// answered 1 — the packed list's width.
+    pub rest_packed_sites: std::collections::HashMap<ExprId, usize>,
     /// The `undefined` idents `apply_default_args` mints for an
     /// ARITY HOLE — a parameter with no default sitting in front of
     /// one that has it, so the pad has to write something to reach

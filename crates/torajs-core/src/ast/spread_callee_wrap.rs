@@ -59,11 +59,23 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
     }
     let mut targets: HashSet<String> = HashSet::new();
     let mut rewrites: Vec<(ExprId, String)> = Vec::new();
+    let relay_sites = super::arguments_object_static_argv::forwarder_call_callee_eids(ast);
     for i in 0..ast.exprs.len() {
         let Expr::Call { callee, args } = &ast.exprs[i] else {
             continue;
         };
         let callee = *callee;
+        // A relay's own forwarding call (`__forward_<t>` returning
+        // `t(...xs)`) is the static route by construction. Wrapping
+        // it hands the relay a closure over ITSELF: `(gr as any)(1)`
+        // on a rest fn that reads `arguments.length` then recursed
+        // at compile time until the stack ran out — the target sat
+        // in `headless_argc_fns` (so the static-expander stand-aside
+        // below did not fire) and in no touch set (the value read
+        // was excluded, not registered).
+        if relay_sites.contains(&callee.0) {
+            continue;
+        }
         let name = match ast.get_expr(callee) {
             Expr::Ident(n) if !n.starts_with("__") => n.clone(),
             _ => continue,

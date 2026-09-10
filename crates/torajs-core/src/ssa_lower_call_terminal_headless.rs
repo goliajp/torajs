@@ -29,7 +29,24 @@ use crate::ssa_lower::LowerCtx;
 /// the relay's declared arity — `(f as any)(1, 2, 3)` reaches `f`
 /// through the relay and `arguments.length` must answer 3. Any
 /// other caller keeps the static count (`args.len()`).
-pub(crate) fn forwarded_argc(ctx: &mut LowerCtx<'_>, callee: ExprId) -> Option<Operand> {
+///
+/// `packed` — how many argv slots this call packed for an argv-face
+/// callee. The relay's forwarding call packs exactly its declared
+/// arguments, so a runtime argc above that count names slots the
+/// buffer does not hold: the count clamps to `packed`, or the body's
+/// materialize would read past the stack slab. (The clamp changes
+/// nothing on the routes that matter — an any-world call never
+/// reaches the relay body since rotation 625, its adapter enters the
+/// target directly with the true list, and a typed direct call's
+/// argc is the declared count by construction — but the checker
+/// admits `[n][0](12)` on a zero-param closure face, and that site
+/// printed a garbage string.) A length-only callee has no buffer and
+/// keeps the true count.
+pub(crate) fn forwarded_argc(
+    ctx: &mut LowerCtx<'_>,
+    callee: ExprId,
+    packed: Option<usize>,
+) -> Option<Operand> {
     let crate::ast::Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
@@ -45,7 +62,41 @@ pub(crate) fn forwarded_argc(ctx: &mut LowerCtx<'_>, callee: ExprId) -> Option<O
         ty,
         None,
     );
-    Some(Operand::Value(v))
+    let Some(n) = packed else {
+        return Some(Operand::Value(v));
+    };
+    Some(Operand::Value(emit_min_const(ctx, v, n as i64)))
+}
+
+/// `min(v, n)` without a select: `n + ((v - n) & ((v - n) >> 63))`
+/// — the difference's sign mask keeps it only when negative.
+fn emit_min_const(ctx: &mut LowerCtx<'_>, v: crate::ssa::ValueId, n: i64) -> crate::ssa::ValueId {
+    use crate::ssa::BinOp;
+    let b = ctx.cur_block;
+    let d = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::Sub, Operand::Value(v), Operand::ConstI64(n)),
+        Type::I64,
+        None,
+    );
+    let mask = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::AShr, Operand::Value(d), Operand::ConstI64(63)),
+        Type::I64,
+        None,
+    );
+    let neg = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::And, Operand::Value(d), Operand::Value(mask)),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_inst(
+        b,
+        InstKind::BinOp(BinOp::Add, Operand::ConstI64(n), Operand::Value(neg)),
+        Type::I64,
+        None,
+    )
 }
 
 /// The head-less callee's synthetic leading slots: the H1 hidden
@@ -116,8 +167,9 @@ pub(crate) fn user_argc(ctx: &LowerCtx<'_>, eid: ExprId, lowered: usize) -> usiz
 }
 
 /// RFC 20260816-headless-argv-face — box the call's argument
-/// operands into a stack `AnyValue[]` and answer its pointer, the
-/// value that rides the callee's synthetic `__torajs_argv` param.
+/// operands into a stack `AnyValue[]` and answer its pointer (the
+/// value that rides the callee's synthetic `__torajs_argv` param)
+/// with the number of slots it holds.
 ///
 /// The slots are BORROWS, matching the boxed adapter's ledger: the
 /// body's `__torajs_arguments_materialize` expansion incs every heap
@@ -134,7 +186,7 @@ pub(crate) fn pack_headless_argv(
     args: &[ExprId],
     ops: &[Operand],
     skip: usize,
-) -> Operand {
+) -> (Operand, usize) {
     // A ctor's leading `__this` / `__new_target` are not arguments
     // the program wrote — the buffer starts after them.
     let n = user_argc(ctx, eid, args.len())
@@ -158,5 +210,76 @@ pub(crate) fn pack_headless_argv(
             InstKind::Store(slot, Operand::Value(buf), (i * 8) as u64),
         );
     }
-    Operand::Value(buf)
+    (Operand::Value(buf), n)
+}
+
+/// The argc of a call `apply_rest_args` packed: the fixed slots the
+/// source filled plus the packed array's runtime length (see
+/// `Ast::rest_packed_sites`). `argv` is the user-aligned operand
+/// list, whose last operand IS that array. `None` for any other
+/// call, which keeps the static count.
+pub(crate) fn rest_packed_argc(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    argv: &[Operand],
+) -> Option<Operand> {
+    let given = *ctx.ast.rest_packed_sites.get(&eid)?;
+    let arr = argv.last()?.clone();
+    let b = ctx.cur_block;
+    let len = ctx.f.append_inst(
+        b,
+        InstKind::Load(Type::I64, arr, crate::ssa_lower::ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let n = ctx.f.append_inst(
+        b,
+        InstKind::BinOp(
+            crate::ssa::BinOp::Add,
+            Operand::ConstI64(given as i64),
+            Operand::Value(len),
+        ),
+        Type::I64,
+        None,
+    );
+    Some(Operand::Value(n))
+}
+
+/// Move the synthetic leading slots into the user-aligned `argv`:
+/// the argv pointer (when packed) and then the argc, so the pair
+/// sits at `headless.at` in signature order. The count is the call's
+/// argument-expression count, minus the trailing slots
+/// `apply_default_args` materialized from the callee's declared
+/// defaults (those are the callee's own values, not arguments the
+/// program passed) — unless a relay's own runtime count or a
+/// rest-packed site's runtime length names it instead.
+pub(crate) fn insert_headless_slots(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee: ExprId,
+    headless: HeadlessSlots,
+    args: &[ExprId],
+    argv: &mut Vec<Operand>,
+    headless_argv: Option<(Operand, usize)>,
+) {
+    let packed = headless_argv.as_ref().map(|(_, n)| *n);
+    // A rest-packed site's count is a runtime value (the packed
+    // array's length) — read it off the user-aligned list before the
+    // synthetic slots move in.
+    let rest_argc = headless
+        .argc
+        .then(|| rest_packed_argc(ctx, eid, argv))
+        .flatten();
+    if let Some((op, _)) = headless_argv {
+        argv.insert(headless.at.min(argv.len()), op);
+    }
+    if headless.argc {
+        let argc_op =
+            forwarded_argc(ctx, callee, packed)
+                .or(rest_argc)
+                .unwrap_or(Operand::ConstI64(
+                    user_argc(ctx, eid, args.len()).saturating_sub(headless.at) as i64,
+                ));
+        argv.insert(headless.at.min(argv.len()), argc_op);
+    }
 }

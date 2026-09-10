@@ -224,7 +224,7 @@ pub(crate) fn synthesize_boxed_entries(
                 obj_tags: &obj_tags,
             },
             &t.name,
-            t.fid,
+            t.body_fid,
             &t.user_tys,
             t.ret_ty,
             t.has_argv,
@@ -426,14 +426,22 @@ fn collect_boxed_targets(
         // false). A `__cm_` this-first head never reaches ast_skip
         // (env_count consumes it) and twins are not env-first.
         let recv_slot = first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+        // The relay redirect (module doc in `relay`): the adapter of
+        // a `__forward_<t>` enters `t` with its own argc / argv.
+        let relay_fid = (first_is_env && !rest)
+            .then(|| {
+                relay::headless_target(ast, name, fn_table, fn_sigs, fn_sig_ids, &user_tys, &ret_ty)
+            })
+            .flatten();
         targets.push(BoxedEntryTarget {
             name: name.clone(),
             fid,
+            body_fid: relay_fid.unwrap_or(fid),
             user_tys,
             ret_ty,
-            has_argv,
+            has_argv: has_argv || relay_fid.is_some(),
             recv_slot,
-            feeds_env,
+            feeds_env: feeds_env && relay_fid.is_none(),
             hidden_argc: first_is_env || this_hidden,
             dflt_lits,
             rest,
@@ -451,7 +459,12 @@ pub(crate) use dflt_lit::{DfltLit, FnDfltLits};
 /// loop collects before any adapter is built.
 struct BoxedEntryTarget {
     name: String,
+    /// The closure body this adapter is registered for (the
+    /// construction site's lookup key).
     fid: FuncId,
+    /// The fn the adapter CALLS — `fid` itself, except for a relay
+    /// redirected to its head-less argv target (see `relay`).
+    body_fid: FuncId,
     user_tys: Vec<Type>,
     ret_ty: Type,
     has_argv: bool,
@@ -479,3 +492,4 @@ struct BoxedEntryTarget {
 
 mod build;
 use build::build_boxed_entry;
+mod relay;

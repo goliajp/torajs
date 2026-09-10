@@ -205,9 +205,10 @@ pub(super) fn expr_uses_dynamic_arguments(ast: &Ast, eid: ExprId) -> bool {
         Expr::BinOp { left, right, .. } => {
             expr_uses_dynamic_arguments(ast, *left) || expr_uses_dynamic_arguments(ast, *right)
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::PostIncr { target: expr, .. } => {
-            expr_uses_dynamic_arguments(ast, *expr)
-        }
+        Expr::Unary { expr, .. }
+        | Expr::TypeOf { expr }
+        | Expr::As { expr, .. }
+        | Expr::PostIncr { target: expr, .. } => expr_uses_dynamic_arguments(ast, *expr),
         Expr::Assign { target, value } => {
             expr_uses_dynamic_arguments(ast, *target) || expr_uses_dynamic_arguments(ast, *value)
         }

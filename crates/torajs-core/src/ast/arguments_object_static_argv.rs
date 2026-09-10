@@ -203,7 +203,7 @@ fn uniform_direct_call_argc(
 /// Collect the relay-call callee eids inside synthesized
 /// `__forward_<target>` bodies (single `return target(args...)` —
 /// see forwarders_object::synthesize_forwarder_decls).
-fn forwarder_call_callee_eids(ast: &Ast) -> std::collections::HashSet<u32> {
+pub(super) fn forwarder_call_callee_eids(ast: &Ast) -> std::collections::HashSet<u32> {
     let mut out = std::collections::HashSet::new();
     for s in &ast.stmts {
         if let Stmt::FnDecl { name, body, .. } = s

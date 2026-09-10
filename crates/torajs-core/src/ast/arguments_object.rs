@@ -173,6 +173,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
     // collect_arguments_shadowed_fns) and bare-assign fns never
     // join any face.
     static_argv.retain(|n, _| !excluded.contains(n));
+    // A head-less fn a `__forward_` relay reaches takes the argv face
+    // when that face would admit it — the relay's calls carry counts
+    // the static fold cannot see (fn doc in the headless sibling).
+    let relayed_argv = super::arguments_object_headless_argv::relayed_argv_fns(
+        ast, &shadowed, &excluded, &env_fns,
+    );
+    static_argv.retain(|n, _| !relayed_argv.contains(n));
     // Knife 4c — escape-vs-static resolution: when the escaped
     // alias qualifies for the argv face (exclusively-called safe
     // chain), that face wins — it answers the TRUE per-call argc,

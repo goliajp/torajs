@@ -38,7 +38,7 @@ use crate::ssa::{FuncId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_call_terminal_coerce::coerce_args;
 use crate::ssa_lower_call_terminal_headless::{
-    forwarded_argc, headless_slots, pack_headless_argv, user_argc,
+    headless_slots, insert_headless_slots, pack_headless_argv,
 };
 
 pub(crate) fn emit(
@@ -163,7 +163,7 @@ pub(crate) fn emit(
     // Packing here also reuses the operands already lowered above —
     // re-lowering the arg expressions would double their side
     // effects.
-    let headless_argv_op = headless
+    let headless_argv = headless
         .argv
         .then(|| pack_headless_argv(ctx, eid, args, &argv, headless.at));
     // Direct-call trailing-ignore (checker wedge mirror): the extra
@@ -184,24 +184,9 @@ pub(crate) fn emit(
         .iter()
         .map(|(op, ty)| ctx.push_throw_temp(op.clone(), ty.clone()))
         .collect();
-    // H1 — prepend the argc operand LAST, after every positional zip
-    // above has run against the user-aligned argv. The count is the
-    // call's argument-expression count (during the H1 double-feed
-    // the AST-prepended argc arg rides in it — the slot has no
-    // readers until H2 retires that prepend, which also removes the
-    // extra arg and makes this count the true user argc).
-    if let Some(op) = headless_argv_op {
-        argv.insert(headless.at.min(argv.len()), op);
-    }
-    if headless.argc {
-        // …minus the trailing slots `apply_default_args` materialized
-        // from the callee's declared defaults: those are the callee's
-        // own values, not arguments the program passed.
-        let argc_op = forwarded_argc(ctx, callee).unwrap_or(Operand::ConstI64(
-            user_argc(ctx, eid, args.len()).saturating_sub(headless.at) as i64,
-        ));
-        argv.insert(headless.at.min(argv.len()), argc_op);
-    }
+    // H1 — the synthetic slots move in LAST, after every positional
+    // zip above has run against the user-aligned argv.
+    insert_headless_slots(ctx, eid, callee, headless, args, &mut argv, headless_argv);
     let ret_ty = ctx.f_ret_type_hint(target);
     let cur_block = ctx.cur_block;
     // Chunk 806 — a void callee has no return value; consuming the

@@ -87,6 +87,16 @@ fn recurse_operator(
             }
             ast.add_expr(Expr::TypeOf { expr: e2 })
         }
+        // `arguments as any` — the cast keeps its annotation and the
+        // operand takes the same rewrite as anywhere else.
+        Expr::As { expr, ty_ann } => {
+            let e2 =
+                rewrite_arguments_in_expr(ast, expr, params, argc_mode, is_argv_fn, sloppy_callee);
+            if e2 == expr {
+                return eid;
+            }
+            ast.add_expr(Expr::As { expr: e2, ty_ann })
+        }
         // `delete arguments[i]` — §10.4.4.6 unmapped elements are
         // plain data properties, so the delete rides the
         // materialized array's index-delete (hole shadow entry). The

@@ -199,6 +199,7 @@ pub fn apply_rest_args(ast: &mut Ast) {
                 ast.add_expr(Expr::Array(rest_elems))
             };
             new_args.push(rest_arr);
+            ast.rest_packed_sites.insert(ExprId(i as u32), given);
             ast.exprs[i] = Expr::Call {
                 callee,
                 args: new_args,

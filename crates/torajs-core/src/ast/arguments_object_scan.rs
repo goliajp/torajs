@@ -178,7 +178,13 @@ fn expr_scan(ast: &Ast, eid: ExprId, what: ScanFor) -> bool {
         Expr::BinOp { left, right, .. } => {
             expr_scan(ast, *left, what) || expr_scan(ast, *right, what)
         }
-        Expr::Unary { expr, .. } | Expr::TypeOf { expr } => expr_scan(ast, *expr, what),
+        // `arguments as any` — the cast is transparent to every
+        // scan; without this arm the touch went unseen, no face
+        // seeded, and the raw ident reached the checker
+        // (`Array.from(arguments as any)` was a ReferenceError).
+        Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::As { expr, .. } => {
+            expr_scan(ast, *expr, what)
+        }
         Expr::PostIncr { target, .. } => {
             if what == ScanFor::LengthWrite && is_arguments_length(ast, *target) {
                 return true;

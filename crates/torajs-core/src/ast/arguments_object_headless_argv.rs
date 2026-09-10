@@ -39,7 +39,11 @@
 //!   those escapes are already relayed through `__forward_` shims by
 //!   the time this pass runs (pipeline: `synthesize_forwarders` and
 //!   friends precede `desugar_arguments_object`), so what remains is
-//!   genuinely unrewritable and stays on the old face.
+//!   genuinely unrewritable and stays on the old face. The relay
+//!   itself is transparent on both of its routes: its boxed adapter
+//!   enters the target with the adapter's own argc / argv
+//!   (`ssa_lower_boxed_entry::relay`), and its forwarding call is a
+//!   direct call like any other.
 
 use super::arguments_object_walkers::{
     body_has_non_length_arguments_touch, body_has_unsafe_return_arguments,
@@ -120,24 +124,16 @@ pub(super) fn collect_headless_argv(
         // `.claude/tasks/2026-09-07/generator-arguments-spread.md`
         // for the eleven probes that pin the trigger to
         // generator × reads-arguments × spread-call.
-        // A `__forward_` relay already exists for this name — the
-        // forwarder passes (pipeline 195, ahead of this one) minted
-        // one for a value escape. Its forwarding call carries the
-        // relay's RUNTIME argc into the callee's hidden slot, while
-        // the terminal's packer can only fill a buffer of the
-        // statically written argument count: the body would then
-        // materialize argv[0..argc] off the end of a shorter stack
-        // slab. Such a fn keeps the declared-params face until the
-        // relay can hand its own argv down (registered residue,
-        // plan-state L3b).
-        let relay = format!("__forward_{name}");
-        if ast
-            .stmts
-            .iter()
-            .any(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == relay))
-        {
-            continue;
-        }
+        // A `__forward_` relay for this name (a value escape the
+        // forwarder passes rerouted) is no bar: the relay's boxed
+        // adapter enters the target DIRECTLY with its own argc and
+        // argv (`ssa_lower_boxed_entry::relay`), so every any-world
+        // call reaches the body with the true list, and the relay's
+        // forwarding call — the only route a typed direct call
+        // takes — packs exactly its declared arguments, which on
+        // that route ARE the whole list. Until rotation 625 such a
+        // fn kept the declared-params face and `(g as any)(7)` on
+        // `function g() { return arguments[0] }` answered undefined.
         if body_has_non_length_arguments_touch(ast, body) {
             candidates.insert(name.clone());
         }
@@ -249,4 +245,45 @@ fn name_only_called_directly(ast: &Ast, name: &str) -> bool {
         }
     }
     occurrences.difference(&callee_slots).next().is_none()
+}
+
+/// The head-less fns a `__forward_` relay reaches AND the argv face
+/// would admit on its own terms. The static face must yield these:
+/// a relay's call sites are runtime calls the static count cannot
+/// see (its forwarding call does not vote — see
+/// `uniform_direct_call_argc`), so a fn with one direct `g0(7)` and
+/// an escape `(g0 as any)(9)` folded to the direct site's count and
+/// answered the escape's `arguments[0]` undefined. Asked with an
+/// empty static map: the question is what the argv face would take
+/// if the static face stood aside, which is exactly the decision
+/// being made. A fn the argv face would refuse anyway (a rest tail,
+/// a bare `return arguments[i]`) stays where it was.
+pub(super) fn relayed_argv_fns(
+    ast: &Ast,
+    shadowed: &std::collections::HashSet<String>,
+    excluded: &std::collections::HashSet<String>,
+    env_fns: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let relayed: std::collections::HashSet<&str> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => name.strip_prefix("__forward_"),
+            _ => None,
+        })
+        .collect();
+    if relayed.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    let (admitted, _) = collect_headless_argv(
+        ast,
+        shadowed,
+        excluded,
+        &std::collections::HashMap::new(),
+        env_fns,
+    );
+    admitted
+        .into_iter()
+        .filter(|n| relayed.contains(n.as_str()))
+        .collect()
 }
