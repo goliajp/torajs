@@ -55,11 +55,14 @@ pub(super) use super::objlit_nominal_widen::{
 ///
 /// - (l) the PROTOTYPE argument — `Object.setPrototypeOf` /
 ///   `Reflect.setPrototypeOf` argument 1, `Object.create` argument 0
-///   (`lower_anylane_object_arg` at each of the three lowerings). A
+///   — and the Reflect RECEIVER forms' target: `Reflect.get(o, k,
+///   receiver)` / `Reflect.set(o, k, v, receiver)` argument 0
+///   (`lower_anylane_object_arg` at each of the five lowerings). A
 ///   literal on a prototype chain is read with EVERY inheritor as
-///   its receiver, so its faces must take `__this: any`; the bare-
-///   Ident spelling of the same position is
-///   [`super::objlit_nominal_proto_source`]'s widen.
+///   its receiver, and a Reflect target with the spelled receiver,
+///   so its faces must take `__this: any`; the bare-Ident spelling of
+///   the same positions is [`super::objlit_nominal_proto_source`]'s
+///   widen.
 ///
 /// - (j) both arguments of `new Proxy(t, h)` — a proxy reaches its
 ///   target and its handler only through the any lane, and a
@@ -142,6 +145,11 @@ pub(super) fn collect_anylane_objlits(
                         ("Object", "defineProperty" | "defineProperties") => args.first(),
                         ("Object" | "Reflect", "setPrototypeOf") => args.get(1),
                         ("Object", "create") => args.first(),
+                        // The Reflect receiver forms (629-02): the
+                        // target's accessors run with the spelled
+                        // receiver as `this`.
+                        ("Reflect", "get") if args.len() >= 3 => args.first(),
+                        ("Reflect", "set") if args.len() >= 4 => args.first(),
                         _ => None,
                     };
                     if let Some(r) = root {

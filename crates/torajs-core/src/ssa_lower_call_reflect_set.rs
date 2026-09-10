@@ -32,7 +32,14 @@ pub(crate) fn lower_reflect_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Oper
     } else {
         None
     };
-    let obj_op = ctx.lower_expr(args[0]);
+    // 629-02 — with a receiver argument an inline literal target
+    // promotes to the dynobj lane (anylane leg (l)): its setter runs
+    // with that receiver as `this`.
+    let obj_op = if args.len() >= 4 {
+        crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, args[0])
+    } else {
+        ctx.lower_expr(args[0])
+    };
     let obj_ty = ctx.operand_ty(&obj_op);
     crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, args[0], &obj_op, obj_ty.clone());
     let any_op = if matches!(obj_ty, Type::Any) {

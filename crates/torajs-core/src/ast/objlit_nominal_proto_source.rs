@@ -30,7 +30,12 @@
 //!   * `{ __proto__: o }` — §B.3.1 makes the field a [[Prototype]]
 //!     set, which is why the anylane (h) leg already routes the
 //!     CONTAINING literal to the dynobj lane; this leg is about the
-//!     literal on the other side of the colon.
+//!     literal on the other side of the colon;
+//!   * `Reflect.get(o, k, receiver)` / `Reflect.set(o, k, v,
+//!     receiver)` — argument 0 when the receiver argument is
+//!     spelled (629-02): §28.1.6 / §28.1.13 read `o`'s accessors
+//!     with `receiver` as `this`, the same foreign-receiver promise
+//!     a prototype breaks.
 //!
 //! WIDENING, not marking — the distinction
 //! `widen_detached_method_objlits` states: marking alone gives the
@@ -88,6 +93,10 @@ fn prototype_source_names(exprs: &[Expr]) -> HashSet<String> {
                             note(a, &mut out);
                         }
                     }
+                    // The receiver forms only: without a receiver
+                    // argument the target is its own `this`.
+                    "get" if args.len() >= 3 => note(&args[0], &mut out),
+                    "set" if args.len() >= 4 => note(&args[0], &mut out),
                     _ => {}
                 }
             }

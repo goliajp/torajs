@@ -62,7 +62,14 @@ pub(crate) fn try_lower(
         Expr::String(k) => Some(k.to_string_lossy_owned()),
         _ => None,
     };
-    let obj_op = ctx.lower_expr(args[0]);
+    // 629-02 — with a receiver argument an inline literal target
+    // promotes to the dynobj lane (anylane leg (l)): its accessors
+    // run with that receiver as `this`.
+    let obj_op = if args.len() >= 3 {
+        crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, args[0])
+    } else {
+        ctx.lower_expr(args[0])
+    };
     let obj_ty_probe = ctx.operand_ty(&obj_op);
     // The fold needs BOTH halves: a struct layout to read out of and a
     // name to read. Anything else is the general lane.
