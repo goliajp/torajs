@@ -315,6 +315,7 @@ pub(super) fn emit_static_inits(
     // first one declared instead of declaring it again.
     let mut declared: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
     for (block_idx, si) in static_init.iter().enumerate() {
+        emit_computed_static_stores_at(ast, cname, block_idx, own_statics);
         match si {
             StaticInit::Field(sf) if !declared.insert(sf.name.clone()) => {
                 let slot = ast.add_expr(Expr::Ident(format!(
@@ -379,6 +380,7 @@ pub(super) fn emit_static_inits(
             }
         }
     }
+    emit_computed_static_stores_at(ast, cname, static_init.len(), own_statics);
 }
 
 /// The class object's own data entry for a static field, defined
@@ -401,4 +403,56 @@ fn push_static_field_reify(
         args: vec![cname_str, fname_str, val_ident],
     });
     own_statics.push(Stmt::Expr(call));
+}
+
+/// 628-05 — the keyed stores of the computed STATIC fields declared
+/// at `static_init` position `pos` (`(C as any)[__ccmk_<C>_<n>] =
+/// init`), in sentinel order. The key global was let-bound by the
+/// class-decl patch, which precedes this sequence; the store itself
+/// used to ride that patch and so ran ahead of every named static
+/// field declared above it (`static foo = 1; static [k] = 42` listed
+/// `k` first). Called before each step and once past the end.
+pub(super) fn emit_computed_static_stores_at(
+    ast: &mut Ast,
+    cname: &str,
+    pos: usize,
+    own_statics: &mut Vec<Stmt>,
+) {
+    let mut due: Vec<(usize, ExprId)> = ast
+        .class_computed_static_fields
+        .iter()
+        .filter(|(c, s, _)| {
+            c == cname
+                && ast
+                    .class_computed_static_field_pos
+                    .get(&(c.clone(), s.clone()))
+                    .is_some_and(|p| *p == pos)
+        })
+        .filter_map(|(_, s, init)| {
+            let n = s
+                .strip_prefix("__ccm_")?
+                .trim_end_matches('_')
+                .parse::<usize>()
+                .ok()?;
+            Some((n, *init))
+        })
+        .collect();
+    due.sort_by_key(|(n, _)| *n);
+    for (n, init) in due {
+        let cls_ref = ast.add_expr(Expr::Ident(cname.to_string()));
+        let cls_any = ast.add_expr(Expr::As {
+            expr: cls_ref,
+            ty_ann: "any".into(),
+        });
+        let key_ref = ast.add_expr(Expr::Ident(format!("__ccmk_{cname}_{n}")));
+        let lhs = ast.add_expr(Expr::Index {
+            obj: cls_any,
+            index: key_ref,
+        });
+        let assign = ast.add_expr(Expr::Assign {
+            target: lhs,
+            value: init,
+        });
+        own_statics.push(Stmt::Expr(assign));
+    }
 }

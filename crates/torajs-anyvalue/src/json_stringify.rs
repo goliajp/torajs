@@ -34,6 +34,7 @@ use torajs_rc::Tag;
 mod composites;
 pub(crate) mod gap;
 pub(crate) mod replacer;
+mod struct_expando;
 
 use replacer::St;
 

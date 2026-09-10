@@ -18,12 +18,19 @@ impl<'a> Parser<'a> {
     /// ride `field_inits` under the sentinel (the ctor-prefix
     /// injection rewrites them to keyed writes); static ones go to
     /// the `class_computed_static_fields` side table.
+    ///
+    /// `position` is the field's place among its siblings (628-05):
+    /// the own named instance field declared just before it, and the
+    /// `static_init` index a static one would have taken — the two
+    /// order anchors the layout / static-init sequences cannot carry
+    /// for a member that never enters them.
     pub(super) fn parse_computed_field_tail(
         &mut self,
         name: &str,
         member_name: String,
         is_static: bool,
         field_inits: &mut Vec<(PropKey, ExprId)>,
+        position: (Option<PropKey>, usize),
     ) -> Result<(), String> {
         if matches!(self.peek(), Token::Colon) {
             self.pos += 1; // consume `:`
@@ -55,11 +62,20 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
+        let (after, static_pos) = position;
         if is_static {
+            self.ast
+                .class_computed_static_field_pos
+                .insert((name.to_string(), member_name.clone()), static_pos);
             self.ast
                 .class_computed_static_fields
                 .push((name.to_string(), member_name, init));
         } else {
+            self.ast.class_computed_instance_fields.push((
+                name.to_string(),
+                member_name.clone(),
+                after,
+            ));
             field_inits.push((PropKey::from(member_name), init));
         }
         Ok(())

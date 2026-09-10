@@ -79,6 +79,9 @@ pub(crate) fn try_lower(
             reify::try_lower_static_own_move_to_end(ctx, args)
         }
         "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
+        "__torajs_class_computed_field_register" => {
+            crate::ssa_lower_call_class_synth_computed_field::try_lower_register(ctx, args)
+        }
         "__torajs_class_computed_key" | "__torajs_to_property_key" => {
             reify::try_lower_class_computed_key(ctx, args)
         }

@@ -15,15 +15,29 @@
 //!
 //! A NULL props slot short-circuits to the static list untouched, so
 //! the no-expando path stays allocation-free.
+//!
+//! 628-05 — a runtime-computed instance field is an expando with a
+//! DECLARATION position among the layout rows
+//! (`classmeta::computed_fields`). Every walk here takes an
+//! [`ExpandoLane`]: the entries that go before row `i`, the ones
+//! after the last row, and the rest — so `class C { foo = 1; [x] =
+//! 42; bar = 2 }` lists `foo,b,bar`, not `foo,bar,b`.
 
 use core::ffi::c_void;
 
 use crate::obj_own_keys::FLAG_ENUMERABLE;
 use crate::obj_own_keys_key_shape::{key_canonical_index, key_is_proto_slot};
 
+use crate::classmeta::computed_fields::{BEFORE_EVERY_ROW, ComputedField, computed_fields, key_eq};
+
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
+    fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
+    fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
+    fn __torajs_struct_layout_lookup(class_tag: u32) -> *const c_void;
+    fn __torajs_struct_field_count(layout: *const c_void) -> u32;
+    fn __torajs_struct_field_find(layout: *const c_void, name: *const u8, name_len: u32) -> u32;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_dynobj_iter_len(obj: *const c_void) -> u64;
@@ -35,6 +49,10 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const u8) -> u64;
 }
 
+/// `torajs-anyvalue` AnySlotTag::Heap mirror — the value tag of a heap
+/// payload in an expando pair (`struct_enum` carries the same twin).
+const ANY_HEAP: u64 = 4;
+
 /// `torajs-core ssa_lower::OBJ_PROPS_OFF` mirror — the struct cell's
 /// lazily-allocated expando dict (blade 1).
 pub(crate) const OBJ_PROPS_OFF: usize = 24;
@@ -44,26 +62,124 @@ pub(crate) unsafe fn struct_props(cell: *const c_void) -> *const c_void {
     unsafe { *(cell.cast::<u8>().add(OBJ_PROPS_OFF) as *const u64) as *const c_void }
 }
 
-/// Walk the struct cell's ENUMERABLE expando entries in insertion
-/// order, handing each `(key Str cell, value tag, value payload)` to
-/// `f`. Every handed pointer/pair is a BORROW — the callback takes
-/// its own shares. NULL / empty props is a no-op. Shared by the
-/// values / entries walks (torajs-meta `struct_enum`).
+/// Which expando entries a walk wants at one point of its layout-row
+/// loop (628-05).
+#[derive(Clone, Copy)]
+pub(crate) enum ExpandoLane {
+    /// The computed fields declared right before row `i` (before
+    /// every row for `i == 0`). Called at the top of each row.
+    Before(u32),
+    /// The computed fields declared after the last row. Called once
+    /// past the loop.
+    Tail,
+    /// Every other expando, in insertion order.
+    Rest,
+}
+
+/// The expando dict iteration indices `lane` selects, in dict order —
+/// a class with no computed fields answers nothing for `Before` /
+/// `Tail` and the whole dict for `Rest`, so the common path is one
+/// empty-slice test.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell whose props dict is non-NULL.
+unsafe fn lane_order(cell: *const c_void, props: *const c_void, lane: ExpandoLane) -> Vec<u64> {
+    let n_props = unsafe { __torajs_dynobj_iter_len(props) };
+    let mut order = vec![0u64; n_props as usize];
+    let n = unsafe { __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props) };
+    order.truncate(n as usize);
+    let fields = unsafe { computed_fields(cell) };
+    if fields.is_empty() && !matches!(lane, ExpandoLane::Before(0) | ExpandoLane::Rest) {
+        return Vec::new();
+    }
+    let key_at = |i: u64| unsafe { __torajs_dynobj_iter_key(props, i) };
+    // §10.1.11.1 step 1 — an integer-like key comes before every
+    // string key, ascending, wherever it was declared or inserted;
+    // the keys walk merges them the same way, and once a computed
+    // field can be one (`[5] = 6`), the row-interleaved walks have
+    // to as well.
+    let int_of = |i: u64| {
+        let k = key_at(i);
+        if k.is_null() {
+            None
+        } else {
+            unsafe { key_canonical_index(k) }
+        }
+    };
+    let anchor = match lane {
+        ExpandoLane::Before(0) => {
+            let mut ints: Vec<(u64, u64)> = order
+                .iter()
+                .filter_map(|&i| int_of(i).map(|v| (v, i)))
+                .collect();
+            ints.sort_by_key(|(v, _)| *v);
+            let mut out: Vec<u64> = ints.into_iter().map(|(_, i)| i).collect();
+            out.extend(
+                anchored(fields, BEFORE_EVERY_ROW, &order, key_at)
+                    .into_iter()
+                    .filter(|&i| int_of(i).is_none()),
+            );
+            return out;
+        }
+        ExpandoLane::Before(i) => i - 1,
+        ExpandoLane::Tail => {
+            let class_tag = unsafe { cell.cast::<u8>().add(8).cast::<u32>().read() };
+            let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+            match unsafe { __torajs_struct_field_count(layout) } {
+                0 => BEFORE_EVERY_ROW,
+                n => n - 1,
+            }
+        }
+        ExpandoLane::Rest => {
+            order.retain(|&i| {
+                let k = key_at(i);
+                k.is_null()
+                    || (int_of(i).is_none() && !fields.iter().any(|f| unsafe { key_eq(f.key, k) }))
+            });
+            return order;
+        }
+    };
+    anchored(fields, anchor, &order, key_at)
+        .into_iter()
+        .filter(|&i| int_of(i).is_none())
+        .collect()
+}
+
+/// The dict indices of the computed fields anchored at `anchor`, in
+/// declaration order, that the dict currently holds.
+fn anchored(
+    fields: &[ComputedField],
+    anchor: u32,
+    order: &[u64],
+    key_at: impl Fn(u64) -> *mut c_void,
+) -> Vec<u64> {
+    fields
+        .iter()
+        .filter(|f| f.after_row == anchor)
+        .filter_map(|f| {
+            order.iter().copied().find(|&i| {
+                let k = key_at(i);
+                !k.is_null() && unsafe { key_eq(f.key, k) }
+            })
+        })
+        .collect()
+}
+
+/// Walk the struct cell's ENUMERABLE expando entries `lane` selects,
+/// in insertion order, handing each `(key Str cell, value tag, value
+/// payload)` to `f`. Every handed pointer/pair is a BORROW — the
+/// callback takes its own shares. NULL / empty props is a no-op.
+/// Shared by the values / entries walks (torajs-meta `struct_enum`).
 pub(crate) unsafe fn for_each_enumerable_expando(
     cell: *const c_void,
+    lane: ExpandoLane,
     mut f: impl FnMut(*mut c_void, u64, u64),
 ) {
     let props = unsafe { struct_props(cell) };
     if props.is_null() {
         return;
     }
-    let n_props = unsafe { __torajs_dynobj_iter_len(props) };
-    if n_props == 0 {
-        return;
-    }
-    let mut order = vec![0u64; n_props as usize];
-    let n = unsafe { __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props) };
-    for &i in order.iter().take(n as usize) {
+    for i in unsafe { lane_order(cell, props, lane) } {
         if unsafe { __torajs_dynobj_iter_flags(props, i) } & FLAG_ENUMERABLE == 0 {
             continue;
         }
@@ -180,6 +296,13 @@ pub(crate) unsafe fn struct_keys_with_expandos(
     if exp_ints.is_empty() && exp_tail.is_empty() && !dropped_static {
         return static_names;
     }
+    // 628-05 — a computed field sits right behind the row it was
+    // declared after; whatever finds no row (the row filtered out
+    // above) stays where the insertion order put it.
+    let fields = unsafe { computed_fields(cell) };
+    if !fields.is_empty() {
+        static_tail = unsafe { interleave_computed(cell, fields, static_tail, &mut exp_tail) };
+    }
     int_keys.extend(exp_ints);
     int_keys.sort_by_key(|(v, _)| *v);
     let total = int_keys.len() + static_tail.len() + exp_tail.len();
@@ -195,4 +318,119 @@ pub(crate) unsafe fn struct_keys_with_expandos(
     }
     unsafe { __torajs_value_drop_heap(static_names) };
     out as *mut c_void
+}
+
+/// The keys walk's row-anchored merge (628-05): `static_tail` (the
+/// non-integer layout names, declaration order) with each computed
+/// field pulled out of `exp_tail` and placed behind the name of its
+/// anchor row — leading fields first. `exp_tail` keeps what was not
+/// placed.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell; every pointer is a live Str cell.
+unsafe fn interleave_computed(
+    cell: *const c_void,
+    fields: &[ComputedField],
+    static_tail: Vec<*mut c_void>,
+    exp_tail: &mut Vec<*mut c_void>,
+) -> Vec<*mut c_void> {
+    let class_tag = unsafe { cell.cast::<u8>().add(8).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    let mut take = |anchor: u32, out: &mut Vec<*mut c_void>| {
+        for f in fields.iter().filter(|f| f.after_row == anchor) {
+            if let Some(pos) = exp_tail.iter().position(|&k| unsafe { key_eq(f.key, k) }) {
+                out.push(exp_tail.remove(pos));
+            }
+        }
+    };
+    let mut out: Vec<*mut c_void> = Vec::with_capacity(static_tail.len() + fields.len());
+    take(BEFORE_EVERY_ROW, &mut out);
+    for name in static_tail {
+        out.push(name);
+        let view = unsafe { crate::str_wtf8::StrWtf8::of(name) };
+        let bytes = view.as_bytes();
+        let row = unsafe { __torajs_struct_field_find(layout, bytes.as_ptr(), bytes.len() as u32) };
+        if row != u32::MAX {
+            take(row, &mut out);
+        }
+    }
+    out
+}
+
+/// Append the expando VALUES `lane` selects to an `Arr<Any>` (the
+/// values walk's pusher; the array takes a fresh share of a heap
+/// value).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell; `out` an owned `Arr<Any>`.
+pub(crate) unsafe fn push_expando_values(
+    cell: *const c_void,
+    lane: ExpandoLane,
+    out: &mut *mut u8,
+) {
+    unsafe {
+        for_each_enumerable_expando(cell, lane, |_key, tag, val| {
+            if tag == ANY_HEAP {
+                __torajs_rc_inc(val as *mut c_void);
+            }
+            *out = __torajs_arr_push_any((*out).cast::<c_void>(), tag, val);
+        })
+    }
+}
+
+/// Append the expando `[key, value]` PAIRS `lane` selects to an
+/// `Arr<Arr<Any>>` (the entries walk's pusher; both reads borrow, the
+/// inner array takes fresh shares).
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell; `outer` an owned `Arr<Arr<Any>>`.
+pub(crate) unsafe fn push_expando_entries(
+    cell: *const c_void,
+    lane: ExpandoLane,
+    outer: &mut *mut u8,
+) {
+    unsafe {
+        for_each_enumerable_expando(cell, lane, |key, tag, val| {
+            __torajs_rc_inc(key);
+            if tag == ANY_HEAP {
+                __torajs_rc_inc(val as *mut c_void);
+            }
+            let inner = __torajs_arr_alloc_any(2);
+            let inner = __torajs_arr_push_any(inner.cast::<c_void>(), ANY_HEAP, key as u64);
+            let inner = __torajs_arr_push_any(inner.cast::<c_void>(), tag, val);
+            *outer = __torajs_arr_push(*outer, inner as i64);
+        })
+    }
+}
+
+/// JSON.stringify's spelling of [`lane_order`] (torajs-anyvalue
+/// `json_stringify::struct_expando`): `lane` is `-1` for the rest,
+/// `-2` for the tail, a row index for the entries before that row.
+/// Fills `out` with dict iteration indices and answers the count
+/// (capped at `cap`); NULL props answers 0.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell; `out` has `cap` writable slots.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_struct_expando_order(
+    cell: *const c_void,
+    lane: i64,
+    out: *mut u64,
+    cap: u64,
+) -> u64 {
+    let props = unsafe { struct_props(cell) };
+    if props.is_null() {
+        return 0;
+    }
+    let lane = match lane {
+        -1 => ExpandoLane::Rest,
+        -2 => ExpandoLane::Tail,
+        i => ExpandoLane::Before(i as u32),
+    };
+    let order = unsafe { lane_order(cell, props, lane) };
+    let n = order.len().min(cap as usize);
+    for (i, &pi) in order.iter().take(n).enumerate() {
+        unsafe { out.add(i).write(pi) };
+    }
+    n as u64
 }

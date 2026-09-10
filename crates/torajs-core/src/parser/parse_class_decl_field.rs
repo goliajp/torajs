@@ -30,11 +30,14 @@ impl<'a> Parser<'a> {
         // RFC 20260802 刀 3 后半 — runtime computed FIELD; tail parse
         // in the `parse_class_decl_computed_field.rs` sibling.
         if let Some(sentinel) = member_name.as_str().filter(|s| s.starts_with("__ccm_")) {
+            let after = fields.last().map(|(k, _)| k.clone());
+            let static_pos = static_init.len();
             return self.parse_computed_field_tail(
                 name,
                 sentinel.to_string(),
                 is_static,
                 field_inits,
+                (after, static_pos),
             );
         }
         // §15.7.1 ClassElementName, field half. The literal fold above

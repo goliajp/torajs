@@ -516,6 +516,17 @@ mod tests {
     pub unsafe extern "C" fn __torajs_anyv_own_keys_all(_v: u64) -> *mut c_void {
         core::ptr::null_mut()
     }
+    // 628-05 — the struct expando lane order (shipped binary resolves
+    // libtorajs_meta.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_struct_expando_order(
+        _cell: *const c_void,
+        _lane: i64,
+        _out: *mut u64,
+        _cap: u64,
+    ) -> u64 {
+        0
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_assign(_target: u64, _source: u64) {}
     #[unsafe(no_mangle)]

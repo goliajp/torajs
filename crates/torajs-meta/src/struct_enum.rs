@@ -29,7 +29,8 @@
 //! documented A1 anon-stamp coverage gap, not a regression introduced
 //! here.
 
-use crate::reflect::{__torajs_rc_inc, TAG_OBJ, heap_type_tag, is_cell_imm};
+use crate::obj_own_keys_struct::{ExpandoLane, push_expando_entries, push_expando_values};
+use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
 use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair_owned, slot_key};
 use core::ffi::{c_char, c_void};
 
@@ -371,6 +372,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
     let mut out = unsafe { __torajs_arr_alloc_any(n as u64) };
     let mut i = 0;
     while i < n {
+        unsafe { push_expando_values(cell, ExpandoLane::Before(i), &mut out) };
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         // A get/set pair is ONE own property: skip the second slot, the
         // same dedup the keys walk does (pre-blade-6 the values walk had
@@ -388,17 +390,13 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
         i += 1;
     }
     // Blade 3 — expando values after the layout fields (insertion
-    // order; the pair read is a borrow, the array takes a fresh
-    // share). Numeric-key ordering interleave is a recorded
-    // boundary: keys merges integers first, values/entries append.
+    // order; a computed field rides its declaration row, 628-05).
+    // Numeric-key ordering interleave is a recorded boundary: keys
+    // merges integers first, values/entries append.
     unsafe {
-        crate::obj_own_keys_struct::for_each_enumerable_expando(cell, |_key, tag, val| {
-            if tag == ANY_HEAP {
-                __torajs_rc_inc(val as *mut c_void);
-            }
-            out = __torajs_arr_push_any(out as *mut c_void, tag, val);
-        })
-    };
+        push_expando_values(cell, ExpandoLane::Tail, &mut out);
+        push_expando_values(cell, ExpandoLane::Rest, &mut out);
+    }
     out as *mut c_void
 }
 
@@ -435,6 +433,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
     let mut outer = unsafe { __torajs_arr_alloc(n as u64) };
     let mut i = 0;
     while i < n {
+        unsafe { push_expando_entries(cell, ExpandoLane::Before(i), &mut outer) };
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         // The freshly minted name Str (rc=1) is consumed by push_any.
         // An accessor slot pairs under its plain property name, and its
@@ -458,19 +457,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         i += 1;
     }
     // Blade 3 — expando `[key, value]` pairs after the layout fields
-    // (same boundary note as the values walk; both reads borrow, the
-    // inner array takes fresh shares).
+    // (same boundary note as the values walk).
     unsafe {
-        crate::obj_own_keys_struct::for_each_enumerable_expando(cell, |key, tag, val| {
-            __torajs_rc_inc(key);
-            if tag == ANY_HEAP {
-                __torajs_rc_inc(val as *mut c_void);
-            }
-            let inner = __torajs_arr_alloc_any(2);
-            let inner = __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP, key as u64);
-            let inner = __torajs_arr_push_any(inner as *mut c_void, tag, val);
-            outer = __torajs_arr_push(outer, inner as i64);
-        })
-    };
+        push_expando_entries(cell, ExpandoLane::Tail, &mut outer);
+        push_expando_entries(cell, ExpandoLane::Rest, &mut outer);
+    }
     outer as *mut c_void
 }

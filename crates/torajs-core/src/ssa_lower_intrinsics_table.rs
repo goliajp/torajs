@@ -507,6 +507,7 @@ pub(crate) fn build(
         class_accessor_define: init_c.any_substrate.class_accessor_define,
         class_static_accessor_define: init_c.any_substrate.class_static_accessor_define,
         class_static_own_move_to_end: init_c.any_substrate.class_static_own_move_to_end,
+        class_computed_field_register: init_c.any_substrate.class_computed_field_register,
         any_typeof: init_c.any_substrate.any_typeof,
         any_to_bool: init_c.any_substrate.any_to_bool,
         any_to_number: init_c.any_substrate.any_to_number,

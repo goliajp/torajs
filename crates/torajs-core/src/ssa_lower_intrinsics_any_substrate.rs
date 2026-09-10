@@ -176,6 +176,9 @@ pub(crate) struct AnySubstrateIds {
     /// its insertion order (`tag, name Str`), so a computed static
     /// member's key sits at its declaration position.
     pub class_static_own_move_to_end: FuncId,
+    /// 628-05 — `(class tag, anchor row name, key)`: a computed
+    /// instance field's own-key order anchor.
+    pub class_computed_field_register: FuncId,
     pub any_index_get: FuncId,
     /// Cluster #1 blade 3 — `recv[key]` where both sides are `any`:
     /// runtime ToPropertyKey dispatch (numeric lane / Str / Symbol
@@ -344,6 +347,11 @@ pub(crate) fn declare(
         class_static_own_move_to_end: decl!(
             "__torajs_class_static_own_move_to_end",
             [I64, Str],
+            Void
+        ),
+        class_computed_field_register: decl!(
+            "__torajs_class_computed_field_register",
+            [I64, Str, Any],
             Void
         ),
         class_get: decl!("__torajs_anyv_class_get", [I64], Any),

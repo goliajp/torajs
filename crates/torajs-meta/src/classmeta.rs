@@ -26,6 +26,7 @@ use core::ffi::c_void;
 
 use crate::reflect::{ANY_HEAP, TAG_DYNOBJ, alloc_str_key, heap_type_tag};
 
+pub(crate) mod computed_fields;
 mod define;
 mod error_family;
 mod generic_alias;

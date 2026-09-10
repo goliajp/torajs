@@ -609,6 +609,24 @@ pub struct Ast {
     /// fields ride `field_inits` under their sentinel name instead
     /// (the ctor-prefix injection rewrites them to keyed writes).
     pub class_computed_static_fields: Vec<(String, String, ExprId)>,
+    /// 628-05 — INSTANCE runtime-computed class fields in declaration
+    /// order: `(class, `__ccm_<n>__` sentinel, the own named field
+    /// declared just before it — None when it leads its class)`. The
+    /// layout has no row for such a field (its value lands in the +24
+    /// expando dict), so this is the only record of WHERE among the
+    /// named fields it was declared; pass 3 hands that anchor to the
+    /// runtime (`__torajs_class_computed_field_register`), which is
+    /// what lets `Object.keys` answer §10.1.11.1 declaration order.
+    pub class_computed_instance_fields: Vec<(String, String, Option<PropKey>)>,
+    /// 628-05 — a STATIC computed field's position in its class's
+    /// `static_init` sequence (the index the next `StaticInit` step
+    /// took when the field was parsed), keyed like
+    /// [`Self::class_computed_keys`]. `emit_static_inits` runs the
+    /// keyed store at that position among the named static fields —
+    /// §15.7.14 defines the static elements in one ordered pass, and
+    /// the class-decl-position patch ran the store ahead of every
+    /// named static field declared above it.
+    pub class_computed_static_field_pos: std::collections::HashMap<(String, String), usize>,
     /// §15.7.14 — the arena ids the parser allocated while parsing
     /// each static element, `(class name, static_init index, lo, hi)`
     /// for `lo..hi`. A static name that is BOTH a method and a field

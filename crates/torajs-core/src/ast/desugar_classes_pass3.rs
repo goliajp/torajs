@@ -252,13 +252,11 @@ pub(super) fn rewrite_classdecls_pass3(
 
         // §15.7.14 evaluates every ClassElementName (step 27) before
         // running any static initializer (step 29), so the reifies —
-        // which carry the name evaluations — lead. The one residual
-        // gap: a computed STATIC FIELD's initializer rides its own
-        // name patch, so it runs ahead of a named static field
-        // declared above it. Both are at the class now, which is the
-        // half that was wrong.
+        // which carry the name evaluations — lead; a computed STATIC
+        // FIELD's store rides the static-init sequence at its own
+        // position (628-05), only its key global is minted here.
         let mut patch: Vec<Stmt> = Vec::new();
-        emit_computed_member_reifies(ast, cname, methods, static_methods, &mut patch);
+        emit_computed_member_reifies(ast, cname, methods, static_methods, &mut patch, full_fields);
         patch.extend(own_statics);
         if !patch.is_empty() {
             computed_patches.push((*idx, patch));
@@ -282,6 +280,7 @@ fn emit_computed_member_reifies(
     methods: &[ClassMethod],
     static_methods: &[ClassMethod],
     patch: &mut Vec<Stmt>,
+    full_fields: &HashMap<String, Vec<(PropKey, String)>>,
 ) {
     // kind: 0 = method, 1 = getter, 2 = setter (reify call);
     // 3 = instance FIELD (key-global let only — the ctor prefix does
@@ -413,23 +412,10 @@ fn emit_computed_member_reifies(
                 init: key_any,
                 is_var: false,
             });
-            if kind == 4 {
-                let cls_ref = ast.add_expr(Expr::Ident(cname.to_string()));
-                let cls_any = ast.add_expr(Expr::As {
-                    expr: cls_ref,
-                    ty_ann: "any".into(),
-                });
-                let key_ref = ast.add_expr(Expr::Ident(format!("__ccmk_{cname}_{n}")));
-                let lhs = ast.add_expr(Expr::Index {
-                    obj: cls_any,
-                    index: key_ref,
-                });
-                let assign = ast.add_expr(Expr::Assign {
-                    target: lhs,
-                    value: init.expect("static computed field carries its init"),
-                });
-                patch.push(Stmt::Expr(assign));
-            }
+            // A static field's keyed store runs in the static-init
+            // sequence at its declaration position (628-05 —
+            // `emit_static_inits`), not here at the name's.
+            debug_assert!(kind != 4 || init.is_some());
             continue;
         }
         let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
@@ -457,4 +443,13 @@ fn emit_computed_member_reifies(
             }
         }
     }
+    // 628-05 — the own-key ORDER anchors of this class's computed
+    // instance fields, inherited ones included (the key globals were
+    // let-bound above / in the ancestor's patch).
+    super::desugar_classes_computed_fields::emit_instance_field_registers(
+        ast,
+        cname,
+        full_fields,
+        patch,
+    );
 }

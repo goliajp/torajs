@@ -213,6 +213,12 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         "__torajs_class_computed_key" | "__torajs_to_property_key" => {
             Ok(Type::Function(vec![Type::Any], Box::new(Type::Any)))
         }
+        // 628-05 — (class, the named field the computed one follows,
+        // its key global): the own-key order anchor register.
+        "__torajs_class_computed_field_register" => Ok(Type::Function(
+            vec![Type::String, Type::String, Type::Any],
+            Box::new(Type::Void),
+        )),
         // §13.15.5.4 — object rest whose excluded set has a computed
         // key in it: (source, spelled names, computed keys) -> the
         // rest object. `any`, because the shape is not a static
