@@ -1,4 +1,4 @@
-//! `Expr::PostIncr { target, is_inc }` lowering pulled out of
+//! `Expr::PostIncr { target, is_inc, is_prefix }` lowering pulled out of
 //! [`crate::ssa_lower::lower_expr_inner`]'s match arm as chunk-74
 //! of the decomp (chunks 1-73 = ... + `Expr::Nullish` 4-layer
 //! dispatch).
@@ -45,7 +45,19 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 
-pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, target: ExprId, is_inc: bool) -> Operand {
+/// `eid` is the `Expr::PostIncr` node. `is_prefix` picks the answer:
+/// the postfix form yields the coerced OLD value, the prefix form
+/// (`++x`, rotation 626) the NEW one — same ToNumeric, same step,
+/// same store on every lane.
+pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
+    let Expr::PostIncr {
+        target,
+        is_inc,
+        is_prefix,
+    } = *ctx.ast.get_expr(eid)
+    else {
+        panic!("ssa-lower: post-incr lowering entered on a non-update node");
+    };
     match ctx.ast.get_expr(target).clone() {
         // RFC 20260730-undeclared-ident, write position — §13.4.4.1
         // step 1 is GetValue on the target, so an update expression
@@ -63,25 +75,40 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, target: ExprId, is_inc:
             ctx.emit_throw_check(None);
             return Operand::ConstPtrNull;
         }
-        Expr::Ident(name) => lower_ident(ctx, name, is_inc),
-        Expr::Member { obj, name: field } => lower_member(ctx, eid, target, obj, field, is_inc),
-        Expr::Index { obj, index } => lower_index(ctx, eid, obj, index, is_inc),
+        Expr::Ident(name) => lower_ident(ctx, eid, name, Step { is_inc, is_prefix }),
+        Expr::Member { obj, name: field } => {
+            lower_member(ctx, eid, target, obj, field, Step { is_inc, is_prefix })
+        }
+        Expr::Index { obj, index } => lower_index(ctx, eid, obj, index, Step { is_inc, is_prefix }),
         other => panic!("ssa-lower: post-incr target shape not supported: {other:?}"),
     }
 }
 
-fn lower_ident(ctx: &mut LowerCtx<'_>, name: String, is_inc: bool) -> Operand {
+/// One update's two switches, carried together so the lanes take one
+/// argument instead of two bare bools.
+#[derive(Clone, Copy)]
+pub(crate) struct Step {
+    pub(crate) is_inc: bool,
+    pub(crate) is_prefix: bool,
+}
+
+fn lower_ident(ctx: &mut LowerCtx<'_>, eid: ExprId, name: String, step: Step) -> Operand {
     if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()
     {
-        return lower_ident_global(ctx, name, slot_ty, is_inc);
+        return lower_ident_global(ctx, eid, name, slot_ty, step);
     }
     let info = match ctx.locals.get(&name) {
         Some(i) => *i,
         None => panic!("ssa-lower: post-incr on unknown ident `{name}`"),
     };
     if info.ty == Type::Any {
-        return lower_any_slot(ctx, Operand::Value(info.slot), is_inc);
+        return crate::ssa_lower_post_incr_any::lower_any_slot(
+            ctx,
+            eid,
+            Operand::Value(info.slot),
+            step,
+        );
     }
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
@@ -90,7 +117,7 @@ fn lower_ident(ctx: &mut LowerCtx<'_>, name: String, is_inc: bool) -> Operand {
         info.ty,
         None,
     );
-    let (one, op) = incr_op_one(info.ty, is_inc);
+    let (one, op) = incr_op_one(info.ty, step.is_inc);
     let cur_block = ctx.cur_block;
     let new_v = ctx.f.append_inst(
         cur_block,
@@ -102,21 +129,26 @@ fn lower_ident(ctx: &mut LowerCtx<'_>, name: String, is_inc: bool) -> Operand {
         cur_block,
         InstKind::Store(Operand::Value(new_v), Operand::Value(info.slot), 0),
     );
-    Operand::Value(old)
+    if step.is_prefix {
+        Operand::Value(new_v)
+    } else {
+        Operand::Value(old)
+    }
 }
 
 fn lower_ident_global(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     name: String,
     slot_ty: Type,
-    is_inc: bool,
+    step: Step,
 ) -> Operand {
     let cur_block = ctx.cur_block;
     let ptr = ctx
         .f
         .append_inst(cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
     if slot_ty == Type::Any {
-        return lower_any_slot(ctx, Operand::Value(ptr), is_inc);
+        return crate::ssa_lower_post_incr_any::lower_any_slot(ctx, eid, Operand::Value(ptr), step);
     }
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
@@ -125,7 +157,7 @@ fn lower_ident_global(
         slot_ty,
         None,
     );
-    let (one, op) = incr_op_one(slot_ty, is_inc);
+    let (one, op) = incr_op_one(slot_ty, step.is_inc);
     let cur_block = ctx.cur_block;
     let new_v = ctx.f.append_inst(
         cur_block,
@@ -137,25 +169,11 @@ fn lower_ident_global(
         cur_block,
         InstKind::Store(Operand::Value(new_v), Operand::Value(ptr), 0),
     );
-    Operand::Value(old)
-}
-
-/// The `any`-slot lane — one call carrying the whole §13.4.4.1 step
-/// (load, ToNumeric, add one in the operand's own numeric domain,
-/// release the replaced value, store) and answering the coerced old
-/// value. See `Intrinsics::any_incr_slot` for why the runtime takes
-/// the slot pointer instead of the loaded value.
-fn lower_any_slot(ctx: &mut LowerCtx<'_>, slot: Operand, is_inc: bool) -> Operand {
-    let fid = ctx.intrinsics.any_incr_slot;
-    let flag = Operand::ConstI64(if is_inc { 1 } else { 0 });
-    let cur_block = ctx.cur_block;
-    let old = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(fid, vec![slot, flag]),
-        Type::Any,
-        None,
-    );
-    Operand::Value(old)
+    if step.is_prefix {
+        Operand::Value(new_v)
+    } else {
+        Operand::Value(old)
+    }
 }
 
 fn lower_member(
@@ -164,7 +182,7 @@ fn lower_member(
     target: ExprId,
     obj: ExprId,
     field: String,
-    is_inc: bool,
+    step: Step,
 ) -> Operand {
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
@@ -175,7 +193,7 @@ fn lower_member(
     // value. Surfaced by LiveLength arguments bodies decrementing
     // `arguments.length`, but serves plain arrays the same.
     if matches!(obj_ty, Type::Arr(_)) && field == "length" {
-        return lower_arr_length(ctx, obj, obj_val, obj_ty, is_inc);
+        return lower_arr_length(ctx, obj, obj_val, obj_ty, step);
     }
     if matches!(obj_ty, Type::Any) {
         let obj_ident = match ctx.ast.get_expr(obj) {
@@ -183,8 +201,8 @@ fn lower_member(
             _ => None,
         };
         let recv_owned = ctx.expr_transfers_ownership(obj);
-        return lower_member_any(
-            ctx, eid, target, obj_ident, recv_owned, obj_val, &field, is_inc,
+        return crate::ssa_lower_post_incr_any::lower_member_any(
+            ctx, eid, target, obj_ident, recv_owned, obj_val, &field, step,
         );
     }
     let sid = match obj_ty {
@@ -206,7 +224,9 @@ fn lower_member(
         // supply rather than derived inside the lane.
         _ => {
             let boxed = ctx.box_to_any(obj_val);
-            return lower_member_any(ctx, eid, target, None, false, boxed, &field, is_inc);
+            return crate::ssa_lower_post_incr_any::lower_member_any(
+                ctx, eid, target, None, false, boxed, &field, step,
+            );
         }
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
@@ -229,7 +249,7 @@ fn lower_member(
         field_ty,
         None,
     );
-    let (one, op) = incr_op_one(field_ty, is_inc);
+    let (one, op) = incr_op_one(field_ty, step.is_inc);
     let cur_block = ctx.cur_block;
     let new_v = ctx.f.append_inst(
         cur_block,
@@ -251,81 +271,11 @@ fn lower_member(
         store_block,
         InstKind::Store(Operand::Value(new_v), obj_val, offset),
     );
-    Operand::Value(old)
-}
-
-/// The `any`-receiver lane of [`lower_member`] — §13.4.4.1 over a
-/// receiver whose shape is a runtime question. Three existing lanes
-/// compose: the accessor-aware any-member read answers the current
-/// value (GetV), `anyv_incr_value` runs ToNumeric exactly once and
-/// steps in the operand's own numeric domain, and the tag-gated
-/// member-set tail stores the new value with the full setter /
-/// refusal semantics (write-back included for a named Any receiver).
-/// The expression answers the coerced OLD value — owned, so the
-/// PostIncr eid joins `owned_member_reads` and consumers release it.
-fn lower_member_any(
-    ctx: &mut LowerCtx<'_>,
-    eid: ExprId,
-    target: ExprId,
-    obj_ident: Option<String>,
-    recv_owned: bool,
-    obj_val: Operand,
-    field: &str,
-    is_inc: bool,
-) -> Operand {
-    let old_box =
-        crate::ssa_lower_any_member::lower_any_member_read(ctx, target, obj_val.clone(), field);
-    let old_slot = ctx.alloca(Type::Any, Some("__incr_old"));
-    let flag = Operand::ConstI64(if is_inc { 1 } else { 0 });
-    let cur_block = ctx.cur_block;
-    let new_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.anyv_incr_value,
-            vec![old_box.clone(), flag, Operand::Value(old_slot)],
-        ),
-        Type::Any,
-        None,
-    );
-    ctx.emit_drop_value(old_box, Type::Any);
-    // Owned unbox (tag, payload+1) feeds the member-set kernel; the
-    // surplus box stake releases after the store — the
-    // `lower_dynobj_assign_any_payload` contract.
-    let cur_block = ctx.cur_block;
-    let tag_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![Operand::Value(new_v)]),
-        Type::I64,
-        None,
-    );
-    let val_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_unbox_value_owned,
-            vec![Operand::Value(new_v)],
-        ),
-        Type::I64,
-        None,
-    );
-    crate::ssa_lower_assign_member_any::emit_any_member_set(
-        ctx,
-        obj_val,
-        field,
-        Operand::Value(tag_v),
-        Operand::Value(val_v),
-        &obj_ident,
-        recv_owned,
-    );
-    ctx.emit_drop_value(Operand::Value(new_v), Type::Any);
-    ctx.owned_member_reads.insert(eid);
-    let cur_block = ctx.cur_block;
-    let old = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(Type::Any, Operand::Value(old_slot), 0),
-        Type::Any,
-        None,
-    );
-    Operand::Value(old)
+    if step.is_prefix {
+        Operand::Value(new_v)
+    } else {
+        Operand::Value(old)
+    }
 }
 
 /// The Arr-length lane of [`lower_member`] — old len loads inline
@@ -340,7 +290,7 @@ fn lower_arr_length(
     obj: ExprId,
     obj_val: Operand,
     obj_ty: Type,
-    is_inc: bool,
+    step: Step,
 ) -> Operand {
     crate::ssa_lower_nullable_guard::emit_nullable_arr_guard(ctx, obj, &obj_val);
     let cur_block = ctx.cur_block;
@@ -350,7 +300,7 @@ fn lower_arr_length(
         Type::I64,
         None,
     );
-    let (one, op) = incr_op_one(Type::I64, is_inc);
+    let (one, op) = incr_op_one(Type::I64, step.is_inc);
     let cur_block = ctx.cur_block;
     let new_v = ctx.f.append_inst(
         cur_block,
@@ -376,7 +326,11 @@ fn lower_arr_length(
         ),
     );
     ctx.emit_throw_check(None);
-    Operand::Value(old)
+    if step.is_prefix {
+        Operand::Value(new_v)
+    } else {
+        Operand::Value(old)
+    }
 }
 
 fn lower_index(
@@ -384,7 +338,7 @@ fn lower_index(
     eid: ExprId,
     obj: ExprId,
     index: ExprId,
-    is_inc: bool,
+    step: Step,
 ) -> Operand {
     let is_non_deque = ctx.arr_expr_is_non_deque(obj);
     let arr_val = ctx.lower_expr(obj);
@@ -400,7 +354,7 @@ fn lower_index(
             arr_val
         };
         return crate::ssa_lower_post_incr_keyed::lower_index_any_keyed(
-            ctx, eid, index, recv, is_inc,
+            ctx, eid, index, recv, step,
         );
     }
     let elem_ty = match arr_ty {
@@ -425,7 +379,7 @@ fn lower_index(
         Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Str | Type::Substr => {
             let boxed = ctx.box_to_any(arr_val);
             return crate::ssa_lower_post_incr_keyed::lower_index_any_keyed(
-                ctx, eid, index, boxed, is_inc,
+                ctx, eid, index, boxed, step,
             );
         }
         other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
@@ -440,7 +394,7 @@ fn lower_index(
         elem_ty,
         None,
     );
-    let (one, op) = incr_op_one(elem_ty, is_inc);
+    let (one, op) = incr_op_one(elem_ty, step.is_inc);
     let cur_block = ctx.cur_block;
     let new_v = ctx.f.append_inst(
         cur_block,
@@ -452,7 +406,11 @@ fn lower_index(
         cur_block,
         InstKind::StoreDyn(Operand::Value(new_v), offset_base.clone(), offset),
     );
-    Operand::Value(old)
+    if step.is_prefix {
+        Operand::Value(new_v)
+    } else {
+        Operand::Value(old)
+    }
 }
 
 fn incr_op_one(slot_ty: Type, is_inc: bool) -> (Operand, SsaBinOp) {

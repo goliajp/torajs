@@ -294,9 +294,17 @@ fn sfi_rewrite_expr(
                 .collect();
             ast.add_expr(Expr::ObjectLit { fields: new_fields })
         }
-        Expr::PostIncr { target, is_inc } => {
+        Expr::PostIncr {
+            target,
+            is_inc,
+            is_prefix,
+        } => {
             let t = sfi_rewrite_expr(ast, target, x_name, i_name, v_name);
-            ast.add_expr(Expr::PostIncr { target: t, is_inc })
+            ast.add_expr(Expr::PostIncr {
+                target: t,
+                is_inc,
+                is_prefix,
+            })
         }
         Expr::OptChain { obj, name } => {
             let o = sfi_rewrite_expr(ast, obj, x_name, i_name, v_name);

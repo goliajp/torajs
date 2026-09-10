@@ -255,7 +255,7 @@ fn expr_steps(ast: &Ast, eid: ExprId, i: &str, seen: &mut HashSet<ExprId>) -> bo
             Expr::Ident(_) => expr_steps(ast, *value, i, seen),
             _ => expr_steps(ast, *target, i, seen) && expr_steps(ast, *value, i, seen),
         },
-        Expr::PostIncr { target, is_inc } => match ast.get_expr(*target) {
+        Expr::PostIncr { target, is_inc, .. } => match ast.get_expr(*target) {
             Expr::Ident(n) if n == i => {
                 if *is_inc {
                     seen.insert(eid);

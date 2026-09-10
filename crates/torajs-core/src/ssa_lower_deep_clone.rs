@@ -356,12 +356,17 @@ fn clone_tail_expr(ast: &mut Ast, map: &mut Vec<(ExprId, ExprId)>, eid: ExprId) 
                     .collect(),
             }
         }
-        Expr::PostIncr { target, is_inc } => {
+        Expr::PostIncr {
+            target,
+            is_inc,
+            is_prefix,
+        } => {
             let t = *target;
-            let is_inc = *is_inc;
+            let (is_inc, is_prefix) = (*is_inc, *is_prefix);
             Expr::PostIncr {
                 target: deep_clone_expr(ast, map, t),
                 is_inc,
+                is_prefix,
             }
         }
         Expr::As { expr, ty_ann } => {

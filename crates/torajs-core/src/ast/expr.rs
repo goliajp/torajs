@@ -305,14 +305,18 @@ pub enum Expr {
         callee: ExprId,
         args: Vec<ExprId>,
     },
-    /// `x++` / `x--` — JS-spec-compliant post-increment / post-decrement.
-    /// Yields the OLD value, then mutates the target. ssa_lower captures
-    /// `target`'s value into a temp SSA value, computes new = old ± 1,
-    /// stores new into target, and returns the temp.  Pre-increment is
-    /// the simpler `x = x + 1` shape and is already handled by Assign.
+    /// `x++` / `x--` / `++x` / `--x` — §13.4.4–13.4.7 UpdateExpression.
+    /// ToNumeric on the target's value, then one step in that value's
+    /// own numeric domain, stored back; the postfix form answers the
+    /// coerced OLD value, the prefix form the NEW one. Until rotation
+    /// 626 the prefix form desugared to `x = x + 1` in the parser —
+    /// which is `+`, not ToNumeric: `++x` on an `any` holding `"1"`
+    /// concatenated to `"11"`.
     PostIncr {
         target: ExprId,
         is_inc: bool,
+        /// `++x` (answer the new value) vs `x++` (the old one).
+        is_prefix: bool,
     },
 }
 

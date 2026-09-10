@@ -156,8 +156,12 @@ pub(crate) fn print_expr(ast: &Ast, id: ExprId, indent: usize) {
                 print_expr(ast, *a, indent + 2);
             }
         }
-        Expr::PostIncr { target, is_inc } => {
-            println!("{pad}PostIncr is_inc={is_inc}");
+        Expr::PostIncr {
+            target,
+            is_inc,
+            is_prefix,
+        } => {
+            println!("{pad}PostIncr is_inc={is_inc} is_prefix={is_prefix}");
             print_expr(ast, *target, indent + 1);
         }
         Expr::As { expr, ty_ann } => {

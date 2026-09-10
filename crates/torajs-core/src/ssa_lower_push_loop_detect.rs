@@ -424,7 +424,7 @@ fn is_counter_step_stmt(ast: &Ast, s: &Stmt, counter_name: &str) -> bool {
 /// step. `i--` is not, hence the `is_inc` test.
 fn is_counter_step_expr(ast: &Ast, eid: ExprId, counter_name: &str) -> bool {
     match ast.get_expr(eid) {
-        Expr::PostIncr { target, is_inc } => {
+        Expr::PostIncr { target, is_inc, .. } => {
             *is_inc && matches!(ast.get_expr(*target), Expr::Ident(n) if n == counter_name)
         }
         Expr::Assign { target, value } => {

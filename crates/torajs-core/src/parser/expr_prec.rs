@@ -424,24 +424,21 @@ impl<'a> Parser<'a> {
             self.ast.await_value_reads.insert(read);
             return Ok(read);
         }
-        // Pre-increment / pre-decrement: `++x` desugars to `x = x + 1`,
-        // value is the new x. We emit an Assign whose target is the
-        // ident binding; the result of an Assign expression in the
-        // existing AST already evaluates to the new value.
+        // Pre-increment / pre-decrement — the same UpdateExpression
+        // node as the postfix form, answering the new value. It used
+        // to desugar to `x = x + 1`, which is `+` rather than
+        // ToNumeric: `++x` on an `any` holding `"1"` concatenated to
+        // `"11"` (§13.4.6 says 2).
         if matches!(self.peek(), Token::PlusPlus | Token::MinusMinus) {
             let is_inc = matches!(self.peek(), Token::PlusPlus);
             self.pos += 1;
             let target = self.parse_unary()?;
             self.reject_invalid_assignment_target(target)?;
-            let lhs_clone = self.clone_expr_for_compound(target)?;
-            let one = self.ast.add_expr(Expr::Number(1.0));
-            let op = if is_inc { BinOp::Add } else { BinOp::Sub };
-            let rhs = self.ast.add_expr(Expr::BinOp {
-                op,
-                left: lhs_clone,
-                right: one,
-            });
-            return Ok(self.ast.add_expr(Expr::Assign { target, value: rhs }));
+            return Ok(self.ast.add_expr(Expr::PostIncr {
+                target,
+                is_inc,
+                is_prefix: true,
+            }));
         }
         self.parse_postfix()
     }

@@ -167,9 +167,19 @@ impl<'a> Formatter<'a> {
                 self.write(" ?? ");
                 self.fmt_expr(*rhs);
             }
-            Expr::PostIncr { target, is_inc } => {
-                self.fmt_expr(*target);
-                self.write(if *is_inc { "++" } else { "--" });
+            Expr::PostIncr {
+                target,
+                is_inc,
+                is_prefix,
+            } => {
+                let op = if *is_inc { "++" } else { "--" };
+                if *is_prefix {
+                    self.write(op);
+                    self.fmt_expr(*target);
+                } else {
+                    self.fmt_expr(*target);
+                    self.write(op);
+                }
             }
             Expr::As { expr, ty_ann } => {
                 self.fmt_expr(*expr);

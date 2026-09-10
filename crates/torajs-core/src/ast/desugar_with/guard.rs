@@ -119,16 +119,20 @@ pub(super) fn rewrite_wrapping(ast: &mut Ast, outer: ExprId, w: &str, n: &str) {
                 expr: plain_operand,
             },
         ),
-        Expr::PostIncr { is_inc, .. } => {
-            let is_inc = *is_inc;
+        Expr::PostIncr {
+            is_inc, is_prefix, ..
+        } => {
+            let (is_inc, is_prefix) = (*is_inc, *is_prefix);
             (
                 Expr::PostIncr {
                     target: obj_operand,
                     is_inc,
+                    is_prefix,
                 },
                 Expr::PostIncr {
                     target: plain_operand,
                     is_inc,
+                    is_prefix,
                 },
             )
         }

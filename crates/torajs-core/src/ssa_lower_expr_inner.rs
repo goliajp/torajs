@@ -366,13 +366,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             // dispatcher). See [`crate::ssa_lower_optcall::lower`].
             crate::ssa_lower_optcall::lower(ctx, eid, *callee, args)
         }
-        Expr::PostIncr { target, is_inc } => {
-            // JS spec: yield OLD value, then mutate. 3 target
-            // shapes (Ident global/local + Member + Index)
-            // share incr-by-1 pattern. See
-            // [`crate::ssa_lower_post_incr::lower`].
-            crate::ssa_lower_post_incr::lower(ctx, eid, *target, *is_inc)
-        }
+        // JS spec: ToNumeric, step, store; postfix yields the OLD
+        // value, prefix the new one. 3 target shapes (Ident
+        // global/local + Member + Index) share the incr-by-1 pattern.
+        Expr::PostIncr { .. } => crate::ssa_lower_post_incr::lower(ctx, eid),
         // V3-07 — `expr as T`. At SSA, most casts are identity:
         // typecheck has already widened/narrowed the surrounding
         // slot's expected type and any required Any-box / unbox

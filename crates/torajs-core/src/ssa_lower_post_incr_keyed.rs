@@ -20,7 +20,7 @@ pub(crate) fn lower_index_any_keyed(
     eid: ExprId,
     index: ExprId,
     recv: Operand,
-    is_inc: bool,
+    step: crate::ssa_lower_post_incr::Step,
 ) -> Operand {
     let k_raw = crate::ssa_lower_index_any_key::lower_any_key(ctx, index);
     // `lower_any_key` boxes only the key shapes the checker says need
@@ -77,7 +77,7 @@ pub(crate) fn lower_index_any_keyed(
     );
     ctx.emit_throw_check(None);
     let old_slot = ctx.alloca(Type::Any, Some("__incr_old"));
-    let flag = Operand::ConstI64(if is_inc { 1 } else { 0 });
+    let flag = Operand::ConstI64(if step.is_inc { 1 } else { 0 });
     let cur_block = ctx.cur_block;
     let new_v = ctx.f.append_inst(
         cur_block,
@@ -129,8 +129,13 @@ pub(crate) fn lower_index_any_keyed(
     // pure encode); a boxed number carries nothing — either way the
     // drop is the balanced release. Then the surplus new-value box.
     ctx.emit_drop_value(Operand::Value(k), Type::Any);
-    ctx.emit_drop_value(Operand::Value(new_v), Type::Any);
     ctx.owned_member_reads.insert(eid);
+    if step.is_prefix {
+        // Prefix answers the stepped value with the stake the drop
+        // below would have released (see `lower_member_any`).
+        return Operand::Value(new_v);
+    }
+    ctx.emit_drop_value(Operand::Value(new_v), Type::Any);
     let cur_block = ctx.cur_block;
     let old = ctx.f.append_inst(
         cur_block,

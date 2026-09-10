@@ -123,6 +123,7 @@ impl<'a> Parser<'a> {
                     node = self.ast.add_expr(Expr::PostIncr {
                         target: node,
                         is_inc,
+                        is_prefix: false,
                     });
                 }
                 Token::Template { parts } => {

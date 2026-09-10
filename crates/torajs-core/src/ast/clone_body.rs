@@ -175,9 +175,14 @@ impl<'a> BodyCloner<'a> {
                 callee: self.clone_expr(callee),
                 args: self.clone_exprs(args),
             },
-            Expr::PostIncr { target, is_inc } => Expr::PostIncr {
+            Expr::PostIncr {
+                target,
+                is_inc,
+                is_prefix,
+            } => Expr::PostIncr {
                 target: self.clone_expr(target),
                 is_inc,
+                is_prefix,
             },
         };
         let new = self.ast.add_expr(cloned);

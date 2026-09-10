@@ -174,7 +174,11 @@ fn recurse_optional(
     sloppy_callee: SloppyCallee<'_>,
 ) -> ExprId {
     match e {
-        Expr::PostIncr { target, is_inc } => {
+        Expr::PostIncr {
+            target,
+            is_inc,
+            is_prefix,
+        } => {
             let t = rewrite_arguments_in_expr(
                 ast,
                 target,
@@ -186,7 +190,11 @@ fn recurse_optional(
             if t == target {
                 return eid;
             }
-            ast.add_expr(Expr::PostIncr { target: t, is_inc })
+            ast.add_expr(Expr::PostIncr {
+                target: t,
+                is_inc,
+                is_prefix,
+            })
         }
         Expr::Spread { expr } => {
             let e2 =
