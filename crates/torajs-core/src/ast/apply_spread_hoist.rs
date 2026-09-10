@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! console.log(sum2(...mk()));
-//!   ⇒ Multi[ let __sps_N = mk();
+//!   ⇒ Multi[ let __sps_N = [...mk()];
 //!            console.log(sum2(...__sps_N)); ]
 //! ```
 //!
@@ -90,11 +90,21 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
     *counter += 1;
     let temp_ref = ast.add_expr(Expr::Ident(temp.clone()));
     ast.exprs[spread_eid.0 as usize] = Expr::Spread { expr: temp_ref };
+    // The temp holds `[...src]`, not `src`: the expansions this hoist
+    // feeds read the temp by INDEX, which is only the spread's
+    // meaning for an array. A generator or any other iterable source
+    // was hoisted as itself and then indexed — its body never ran,
+    // its throw never surfaced, and every slot read undefined
+    // (`f(...gen())` on `function f(a, b)`, rotation 625). The array
+    // literal spread runs §7.4 once, here, in the source's own
+    // position; an array source pays one copy for it.
+    let src_spread = ast.add_expr(Expr::Spread { expr: src_eid });
+    let materialized = ast.add_expr(Expr::Array(vec![src_spread]));
     let hoist = Stmt::LetDecl {
         mutable: false,
         name: temp,
         type_ann: None,
-        init: src_eid,
+        init: materialized,
         is_var: false,
     };
     let original = std::mem::replace(s, Stmt::Multi(Vec::new()));
