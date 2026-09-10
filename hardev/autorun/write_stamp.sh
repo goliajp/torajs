@@ -53,7 +53,7 @@ else
   # it only sets up the next run to do the same. What the flag is for is
   # "was the SOURCE this measured a committed state", and a stamp file is
   # not source.
-  if [ -n "$(git status --porcelain 2>/dev/null | grep -v 'hardev/[a-z0-9-]*-latest\.json')" ]; then
+  if [ -n "$(git status --porcelain 2>/dev/null | grep -vE 'hardev/[a-z0-9-]*-latest\.(json|txt\.gz)')" ]; then
     SHA="$SHA-dirty"
   fi
 fi
