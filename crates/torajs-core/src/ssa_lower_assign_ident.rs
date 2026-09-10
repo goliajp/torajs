@@ -328,6 +328,28 @@ fn lower_local_assign(ctx: &mut LowerCtx<'_>, name: String, value: ExprId) -> Op
 /// needs the dynobj shape. The init and reassign forms of the same
 /// expression must land in the same lane.
 fn lower_assign_rhs(ctx: &mut LowerCtx<'_>, slot_ty: Type, value: ExprId) -> Operand {
+    // Rotation 630 — an EMPTY array literal mints its block at the
+    // SLOT's layout: the assignment face of the anchored empty mint
+    // in `ssa_lower_array::lower_no_spread_element`. `lower_empty`
+    // otherwise answers an any-flavored block whose ArrId is not the
+    // slot's, and the coercion check refused the store outright —
+    // `var x = [1, 2]; x = []; x[0] = 5;` (the test262
+    // Array/prototype/{join,pop,shift,toString} A1.2 shape) died
+    // where bun runs it. An empty block holds no element, so there is
+    // no element type to disagree about; a NON-empty literal keeps
+    // the loud reject, since its elements are the question.
+    if let Type::Arr(sid) = slot_ty
+        && matches!(ctx.ast.get_expr(value), Expr::Array(els) if els.is_empty())
+    {
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            Type::Arr(sid),
+            None,
+        );
+        return Operand::Value(v);
+    }
     if slot_ty == Type::Any && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. }) {
         let dynobj = ctx.lower_dynobj_init(value);
         return ctx.box_to_any(dynobj);
