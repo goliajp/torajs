@@ -388,6 +388,15 @@ impl Parser<'_> {
         let strict = self.strict_or_in_class(strict);
         self.reject_strict_reserved_params(params, strict)?;
         self.judge_duplicate_params_strict(params, strict)?;
+        // §11.2.2 — a class body is strict code whatever the goal, so
+        // a method (and anything nested in it) is strict by
+        // inheritance from the CLASS, a source `inherited` — the
+        // enclosing function's bit — does not carry. Without this the
+        // body reached the lowering with no directive, and a class
+        // method's [[Set]] refusal in a sloppy Script took the sloppy
+        // kernel (rotation 625: `class C { m() { frozen.a = 1 } }`
+        // ran through where every other strict body threw).
+        let inherited = inherited || !self.class_stack.is_empty();
         if !inherited {
             // Sloppy here, or strict by this body's own directive —
             // which is what the probe downstream already reads.

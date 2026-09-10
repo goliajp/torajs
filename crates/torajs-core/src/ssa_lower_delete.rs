@@ -161,13 +161,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
 /// The nullish-receiver TypeError is unaffected: that one is ToObject
 /// on the reference base, not the refusal, and both flavours record
 /// it. Hence the throw check stays either way.
+///
+/// Rotation 625 — the goal is the FUNCTION's, not the program's
+/// (`cur_fn_is_sloppy`): a `"use strict"` body and every class body
+/// are strict inside a sloppy Script.
 fn finish(
     ctx: &mut LowerCtx<'_>,
     recv: Operand,
     key_v: crate::ssa::ValueId,
     release_key: bool,
 ) -> Operand {
-    let kernel = if ctx.ast.program_is_sloppy() {
+    let kernel = if crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx) {
         ctx.intrinsics.any_prop_delete_soft
     } else {
         ctx.intrinsics.any_prop_delete
