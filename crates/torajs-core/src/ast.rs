@@ -77,6 +77,7 @@ mod desugar_classes_generic_twin;
 mod desugar_classes_method_owners;
 mod desugar_classes_pass2;
 mod desugar_classes_pass3;
+mod desugar_classes_static_route;
 mod desugar_classes_statics;
 mod desugar_classes_super;
 mod desugar_classes_super_prop;
