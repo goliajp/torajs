@@ -70,6 +70,7 @@ mod desugar_classes_builtin_heritage_rest;
 mod desugar_classes_ctor_return;
 mod desugar_classes_default_ctor;
 mod desugar_classes_dispatch;
+mod desugar_classes_elements;
 mod desugar_classes_emit;
 mod desugar_classes_field_inits;
 mod desugar_classes_fields;

@@ -68,6 +68,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // 20260825-injection-reachability skip shape) lost them — every
     // this-reading fn died with "bare `this` reached check.rs". Each
     // sub-pass already no-ops its class-keyed half on an empty index.
+    super::desugar_classes_elements::dedupe_class_elements(ast);
     let mut class_index = snapshot_class_index(ast);
     // M5.N — a builtin parent (`extends Object`) strips to base-class
     // shape before any pass keyed on `parent` runs (see the sibling's

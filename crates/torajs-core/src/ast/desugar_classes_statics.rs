@@ -230,8 +230,26 @@ pub(super) fn emit_static_inits(
     appended: &mut Vec<Stmt>,
     own_statics: &mut Vec<Stmt>,
 ) {
+    // §15.7.14 — a static field declared twice is ONE slot on the
+    // class object written twice, in order (`static f = 'test';
+    // static f = this.f + '262'` reads the first write through
+    // `this.f`); the later declarations assign into the slot the
+    // first one declared instead of declaring it again.
+    let mut declared: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
     for (block_idx, si) in static_init.iter().enumerate() {
         match si {
+            StaticInit::Field(sf) if !declared.insert(sf.name.clone()) => {
+                let slot = ast.add_expr(Expr::Ident(format!(
+                    "__sf_{cname}__{}",
+                    mangle_key(&sf.name)
+                )));
+                let assign = ast.add_expr(Expr::Assign {
+                    target: slot,
+                    value: sf.init,
+                });
+                own_statics.push(Stmt::Expr(assign));
+                push_static_field_reify(ast, cname, sf, own_statics);
+            }
             StaticInit::Field(sf) => {
                 // V3-18 m1.h.26 — static fields are mutable by
                 // default (`Counter.value = 5` is valid TS). The
@@ -261,18 +279,7 @@ pub(super) fn emit_static_inits(
                 // stmts prepend runs ahead of any class patch). The
                 // value rides as the `__sf_` Ident so lowering reuses
                 // the plain global-read path.
-                let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
-                let fname_str = ast.add_expr(Expr::String(sf.name.clone().into()));
-                let val_ident = ast.add_expr(Expr::Ident(format!(
-                    "__sf_{cname}__{}",
-                    mangle_key(&sf.name)
-                )));
-                let callee = ast.add_expr(Expr::Ident("__torajs_static_field_reify".to_string()));
-                let call = ast.add_expr(Expr::Call {
-                    callee,
-                    args: vec![cname_str, fname_str, val_ident],
-                });
-                own_statics.push(Stmt::Expr(call));
+                push_static_field_reify(ast, cname, sf, own_statics);
             }
             StaticInit::Block(stmts) => {
                 let fn_name = format!("__sb_{cname}__{block_idx}");
@@ -294,4 +301,26 @@ pub(super) fn emit_static_inits(
             }
         }
     }
+}
+
+/// The class object's own data entry for a static field, defined
+/// right after the slot's write (value ready).
+fn push_static_field_reify(
+    ast: &mut Ast,
+    cname: &str,
+    sf: &StaticField,
+    own_statics: &mut Vec<Stmt>,
+) {
+    let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
+    let fname_str = ast.add_expr(Expr::String(sf.name.clone().into()));
+    let val_ident = ast.add_expr(Expr::Ident(format!(
+        "__sf_{cname}__{}",
+        mangle_key(&sf.name)
+    )));
+    let callee = ast.add_expr(Expr::Ident("__torajs_static_field_reify".to_string()));
+    let call = ast.add_expr(Expr::Call {
+        callee,
+        args: vec![cname_str, fname_str, val_ident],
+    });
+    own_statics.push(Stmt::Expr(call));
 }
