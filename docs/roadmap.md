@@ -1621,13 +1621,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `040ec68bc` (53174
+**Where the numbers come from.** Full sweep @ `db7ba0105` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ b96b7deb1`, never as a constant (the two shas this
+snapshot stamped `@ db7ba0105`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1681,7 +1681,36 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `baf1d2de3`** (2026-09-08, rotation 615 — one judgement asked
+**Latest @ `db7ba0105`** (2026-09-10, rotation 626 — twelve knives, each
+opened by a probe matrix: what a spread's source is (only a syntactic
+array is index-expanded; a generator / Set / string source is iterated),
+what a relay's target is called (read off its forwarding call, mono
+retarget included — every untyped-param target had fallen back to the
+declared-only pack), where a static generator's `this` is registered
+(one parser line: three symptoms, one root), prefix `++x` as the
+UpdateExpression node with ToNumeric, frames past 32 KiB addressed
+through IP0 (the backend's own cap, not the hardware's), a
+pass-through `return arguments[i]` bound to a local, duplicate
+`function` declarations in a Script keeping the last). Gate predicate:
+**75** clusters of >= 4 holding **522** cases, register 2 · 149,
+residue 410 · 550 (45.0%), core **1221**. Coverage curve: top-100
+**59.0%**, top-200 **75.7%**, top-400 **92.1%**. Against rotation 625:
+clusters 79 -> **75 (-4)**, cases 561 -> **522 (-39)**, core 1257 ->
+**1221 (-36)** — the frame-size cluster (16) and the function
+redeclaration cluster (14) left the table.
+
+Sweep passTotal 37176 -> **37241 (+65)**, pass 31468 -> **31522
+(+54)**, passNoOracle 1196 -> **1200 (+4)**, passNegative 4512 ->
+**4519 (+7)**, bug 11469 -> **11440 (-29)**, incompatible 4529 ->
+**4493 (-36)**, trAccepted 48645 -> **48681 (+36)**; conservation
+exact. Verdict diff 76 lines: 65 forward to pass (static generator
+methods x24, `start-unicode-*-class` x16, class x9, `++`/`--` x8,
+function redeclaration x5), 4 `incompatible -> bug:exit 1` (the
+redeclaration idiom now compiles; the runtime answer is the next
+question), 2 Temporal `killed -> exit 1`, 5 wording moves, **zero pass
+regressions**.
+
+**Prior @ `baf1d2de3`** (2026-09-08, rotation 615 — one judgement asked
 twelve times: the runtime already knows how, and what refuses is a
 hand-written list above it that has copies. Six of the twelve closed a
 list that had drifted from its own siblings; three were the same
