@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T01:15:27.801Z",
+  "generatedAt": "2026-09-10T04:54:37.893Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,28 +9,28 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-10T01:04:40Z",
-    "headSha": "8bdb1ce21",
-    "elapsedSec": 432.99,
+    "ranAt": "2026-09-10T04:44:01Z",
+    "headSha": "73d1b8a7c",
+    "elapsedSec": 427.95,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31414,
-    "passNoOracle": 1189,
+    "pass": 31468,
+    "passNoOracle": 1196,
     "passNegative": 4512,
-    "passTotal": 37115,
-    "bug": 11515,
-    "incompatible": 4544,
+    "passTotal": 37176,
+    "bug": 11469,
+    "incompatible": 4529,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48630,
-    "passRateInScope": 69.8,
-    "passRateTrAccepted": 76.32
+    "trAccepted": 48645,
+    "passRateInScope": 69.91,
+    "passRateTrAccepted": 76.42
   },
   "torajs": {
-    "commit": "26d3efaba",
+    "commit": "43c7efaa3",
     "commitSubject": "chore(hardev): re-stamp file size on the clean tree",
     "phase": null,
     "phaseTitle": null,
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "26d3efaba",
+      "hash": "43c7efaa3",
       "subject": "chore(hardev): re-stamp file size on the clean tree"
     },
     {
-      "hash": "53d01b2f6",
-      "subject": "chore(hardev): rotation 624 stamps — sweep, determinism, Guard Malloc, bench"
+      "hash": "9295f7db3",
+      "subject": "chore(hardev): rotation 625 stamps — sweep, determinism, Guard Malloc, bench"
     },
     {
-      "hash": "8bdb1ce21",
-      "subject": "fix(runtime): %ThrowTypeError% answers frozen, and a stopped shrink stays silent on the assignment path"
+      "hash": "73d1b8a7c",
+      "subject": "test(conformance): delete-strict-fn-sloppy-goal-001 carries the spec answer"
     },
     {
-      "hash": "1823b64ad",
-      "subject": "fix(arr): reflect.set on an array's length answers false for every refusal the kernel decides"
+      "hash": "fe0fdba60",
+      "subject": "fix(torajs-core): DisposableStack methods check their receiver's brand"
     },
     {
-      "hash": "3705aabec",
-      "subject": "refactor(arr): the length write moves out of grow.rs into set_length.rs"
+      "hash": "3ae187514",
+      "subject": "fix(torajs-core): a constructor's new.target head slot is not an argument position"
     },
     {
-      "hash": "f2c67f3c5",
-      "subject": "fix(runtime): the symbol wrapper joins the wrapper family, and a bag-carrying cell serializes its bag"
+      "hash": "bc3e1bf57",
+      "subject": "fix(torajs-core): the [[Set]] and delete flavors follow the function's goal, not the program's"
     },
     {
-      "hash": "67dc65749",
-      "subject": "fix(runtime): the integrity level reaches lastIndex, the re-parent, typed arrays and a written prototype"
+      "hash": "6199e3ee2",
+      "subject": "feat(torajs-core): for..of over an inline struct takes the any lane"
     },
     {
-      "hash": "b71dd8d1e",
-      "subject": "fix(rc): object.freeze locks an array's length"
+      "hash": "28f42fb20",
+      "subject": "fix(torajs-core): an object literal's computed key that is an `any` holding a Symbol stays a Symbol"
     },
     {
-      "hash": "c83049e86",
-      "subject": "fix(core): a hoisted or ES5-lowered class keeps its source name"
+      "hash": "ede585560",
+      "subject": "fix(torajs-core): a hoisted spread source is iterated once, not indexed as if it were an array"
     },
     {
-      "hash": "b68047f78",
-      "subject": "fix(arr): a length define validates against the non-writable length as a define, not as a set"
+      "hash": "92416b20b",
+      "subject": "fix(torajs-core): the checker strips a constructor's argv slot, and only a constructor's"
     },
     {
-      "hash": "905d3b36e",
-      "subject": "fix(arr): the mutators refuse in spec order and say which step failed"
+      "hash": "2d3c585a1",
+      "subject": "feat(torajs-core): a spread `super(...)` reaches a parent constructor with declared parameters"
     },
     {
-      "hash": "44485b838",
-      "subject": "fix(runtime): object.isSealed and isFrozen are §7.3.16 TestIntegrityLevel over the receiver's own properties"
+      "hash": "5007bfd45",
+      "subject": "fix(torajs-core): a for..of over a runtime-iterated source counts as a throw shape"
     }
   ],
-  "headSha": "26d3efaba",
+  "headSha": "43c7efaa3",
   "autorun": {
-    "total": 927,
+    "total": 928,
     "baselineTarget": 10,
-    "bySelf": 922,
+    "bySelf": 923,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1788990294-57c4",
-      "at": "2026-09-09T21:44:54Z",
-      "ts": 1788990294,
+      "rotationId": "r-1789002936-63b7",
+      "at": "2026-09-10T01:15:36Z",
+      "ts": 1789002936,
       "trigger": "self",
-      "prevHead": "1ebe8a6dc",
-      "handoffSha": "sha256:d3c0d52c620904c194ed1b91265fa0b8066995780d2c5a29ebcb695754b6602d",
+      "prevHead": "6c8e37ac5",
+      "handoffSha": "sha256:6f6291c609aced9f555175dc888f56baf1d2fa4e8afdc2d2a37905ce2ae65c86",
       "handoffAgeSec": 1,
-      "conformanceBefore": "3890/0/4",
-      "commitsInSession": 13
+      "conformanceBefore": "3900/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1789002936-63b7",
+        "at": "2026-09-10T01:15:36Z",
+        "ts": 1789002936,
+        "trigger": "self",
+        "prevHead": "6c8e37ac5",
+        "handoffSha": "sha256:6f6291c609aced9f555175dc888f56baf1d2fa4e8afdc2d2a37905ce2ae65c86",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "3900/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1788990294-57c4",
         "at": "2026-09-09T21:44:54Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:6e61b5a049aa031535601096f3fbfa0751d1a3e368ebeebfd72e36c45e713ed9",
         "handoffAgeSec": 44,
         "conformanceBefore": "3821/0/4",
-        "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1788834854-5afd",
-        "at": "2026-09-08T02:34:14Z",
-        "ts": 1788834854,
-        "trigger": "self",
-        "prevHead": "6c970ee18",
-        "handoffSha": "sha256:7d7d82abab5833787e04bd9786cb37d8cd85b97224f8638a82fbd5a11e01dff5",
-        "handoffAgeSec": 54,
-        "conformanceBefore": "3809/0/4",
         "commitsInSession": 13
       }
     ],
