@@ -265,12 +265,14 @@ unsafe fn set_length_any_impl(arr: *mut u8, tag: i64, value: i64, throw_on_refus
         }
         // §10.4.2.4 step 19 — a non-configurable index stopped the
         // walk short of the requested length: the write landed as far
-        // as it could and the operation answers false (a strict
-        // assignment: the delete's TypeError).
+        // as it could and the operation answers false. The strict
+        // assignment's TypeError is NOT recorded here: the kernel
+        // cannot tell a sloppy program's write (silent, §13.15.2 with
+        // strict false) from a strict one, and test262's sloppy
+        // `indexOf/15.4.4.14-9-a-19` shrinks exactly this way inside a
+        // getter — the assignment path keeps its silent landing
+        // (registered: strict / sloppy [[Set]] refusal flavors).
         if land != new_n {
-            if throw_on_refusal {
-                unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
-            }
             return 0;
         }
         return 1;

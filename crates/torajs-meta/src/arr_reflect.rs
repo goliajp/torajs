@@ -69,7 +69,7 @@ const ARR_FLAG_LENGTH_RO: u16 = 1 << 7;
 
 /// Mirror of `torajs_rc::ANY_METHOD_THROW_TYPE_ERROR` (the
 /// `object_proto_install` sibling keeps the same local mirror).
-const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
+use crate::reflect::ANY_METHOD_THROW_TYPE_ERROR_MID;
 
 /// Canonical array-index parse — ES §10.4.2 array index: a canonical
 /// numeric string (`"0"`, or nonzero-leading all-digits) whose value

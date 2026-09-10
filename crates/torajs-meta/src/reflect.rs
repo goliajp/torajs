@@ -143,6 +143,10 @@ pub(crate) const TAG_NUMBER_WRAPPER: u16 = 21;
 pub(crate) const TAG_STRING_WRAPPER: u16 = 22;
 pub(crate) const TAG_BOOLEAN_WRAPPER: u16 = 23;
 pub(crate) const TAG_SYMBOL_WRAPPER: u16 = 24;
+/// The interned §10.2.4 %ThrowTypeError% method id (torajs-rc's
+/// `any_method_id` table) — the one builtin function the spec makes
+/// frozen; its cell is looked up by this id wherever a face needs it.
+pub(crate) const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
 /// Mirror of `torajs-wrapper::WRAPPER_PROPS_OFF` — all four wrappers
 /// share `[header:8][value:8][props:8]` layout.
 pub(crate) const WRAPPER_PROPS_OFF: usize = 16;

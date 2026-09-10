@@ -91,7 +91,7 @@ pub unsafe extern "C" fn __torajs_object_proto_install(proto: *mut c_void) {
 }
 
 /// Mirror of `torajs_rc::ANY_METHOD_THROW_TYPE_ERROR`.
-const ANY_METHOD_THROW_TYPE_ERROR_MID: i64 = 155;
+use crate::reflect::ANY_METHOD_THROW_TYPE_ERROR_MID;
 
 /// §10.2.4 AddRestrictedFunctionProperties — `caller` / `arguments`
 /// accessor own entries on a fresh %Function.prototype% dynobj.

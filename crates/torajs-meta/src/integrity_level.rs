@@ -29,6 +29,8 @@ use crate::obj_own_keys::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
 use crate::reflect::{ANY_BOOL, TAG_PROXY, VALUE_UNDEFINED_IMM, heap_type_tag, is_cell_imm};
 
 unsafe extern "C" {
+    /// torajs-rc — the interned %ThrowTypeError% method cell.
+    fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-rc — the header markers `Object.seal` / `Object.freeze`
     /// set, and the [[Extensible]] bit.
     fn __torajs_obj_is_sealed_marked(p: *const c_void) -> bool;
@@ -79,6 +81,17 @@ unsafe fn test_integrity_level(obj_any: u64, level: Level) -> bool {
     let p = obj_any as *const c_void;
     // SAFETY: is_cell_imm guarantees a live heap pointer.
     if unsafe { crate::extensible_reflect::is_primitive_heap_tag(p) } {
+        return true;
+    }
+    // §10.2.4 — %ThrowTypeError% is the one builtin function the spec
+    // makes frozen, and its cell is `.rodata`: the [[Extensible]] bit
+    // is never written (`extensible.rs`), so the walk below would read
+    // it as extensible. Every other reified method cell IS extensible
+    // (`Object.isExtensible(Set.prototype.difference)` is true) and
+    // takes the walk.
+    if p == unsafe { __torajs_builtin_method_cell(crate::reflect::ANY_METHOD_THROW_TYPE_ERROR_MID) }
+        as *const c_void
+    {
         return true;
     }
     // Step 1 — `[[IsExtensible]]`; the anyv face also answers a Proxy.
