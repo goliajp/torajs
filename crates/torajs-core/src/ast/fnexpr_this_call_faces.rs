@@ -171,6 +171,27 @@ pub(super) fn collect_call_position_face(
                 collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
             }
         }
+        // Rotation 627 — the callbacks the spec calls with NO
+        // receiver at all, over an any-lane receiver: `reduce` /
+        // `reduceRight` (§23.1.3.24 / §23.2.3.24 — argv[1] is the
+        // initialValue, never a thisArg) and the `sort` / `toSorted`
+        // comparator (§23.1.3.30 / §23.2.3.29 SortCompare's
+        // `Call(comparator, undefined, «x, y»)`). The any-Arr and
+        // TypedArray kernels read the closure flag and leave slot 0
+        // as the buffer's undefined, so the promoted body's `__this`
+        // is exactly the spec's. Typed array-literal receivers stay
+        // out: their inlined reduce lowering has no receiver slot.
+        Expr::Member { obj, name }
+            if matches!(
+                name.as_str(),
+                "reduce" | "reduceRight" | "sort" | "toSorted"
+            ) && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if any_recvs.contains(n)) =>
+        {
+            if let Some(cb) = args.first() {
+                collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
+                collect_ident_face(exprs, *cb, ident_cands);
+            }
+        }
         Expr::Member { obj, name } if is_hof_method(name) => {
             collect_hof_cb_face(
                 stmts,
@@ -259,9 +280,10 @@ fn collect_hof_cb_face(
 }
 
 /// The array HOF methods whose any-lane kernels carry the
-/// receiver-first channel (knife 4). `reduce` / `reduceRight` take
-/// no thisArg per §23.1.3.24 and stay out. Shared with the named-fn
-/// callback mirror ([`super::namedfn_recv_cb`]).
+/// receiver-first channel (knife 4) AND take a thisArg. `reduce` /
+/// `reduceRight` / `sort` / `toSorted` take none per §23.1.3.24 /
+/// §23.1.3.30 and have their own any-receiver arm above. Shared with
+/// the named-fn callback mirror ([`super::namedfn_recv_cb`]).
 pub(super) fn is_hof_method(name: &str) -> bool {
     matches!(
         name,

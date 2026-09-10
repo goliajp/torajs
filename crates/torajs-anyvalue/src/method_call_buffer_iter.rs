@@ -304,11 +304,15 @@ unsafe fn walk_reduce(
         while step < len {
             let k = if right { len - 1 - step } else { step };
             let v = __torajs_typedarray_index_get(recv, k as f64);
+            // §23.2.3.24 step 9.b.iv — `Call(callbackfn, undefined,
+            // «accumulator, kValue, k, O»)`: reduce has no thisArg
+            // (argv[1] is the initialValue), so a receiver-first
+            // callback reads the buffer's undefined at slot 0. The
+            // walk used to seed `cb.this_arg` there, which for this
+            // walk IS the initial value — unreachable while the
+            // compile side kept reduce off the receiver channel.
             let s = cb.shift;
             let mut args = [VALUE_UNDEFINED; 8];
-            if s == 1 {
-                args[0] = cb.this_arg;
-            }
             args[s] = acc;
             args[s + 1] = v;
             args[s + 2] = box_double(k as f64);

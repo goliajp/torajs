@@ -27,6 +27,16 @@ use super::{Expr, Stmt};
 /// and every expando-stored method call rides the runtime any-method
 /// dispatch — the same receiver-seeding lane the `: any` spelling
 /// uses (test262's dominant custom-matcher receiver shape).
+///
+/// So does a dynamic construction (`var sample = new TA(3)` where
+/// `TA` is a parameter — `Expr::NewDynamic`, the shape
+/// `desugar_classes` pass 2 leaves for a `new` whose callee is no
+/// declared class): the checker types that value `any` by
+/// construction, and every method call on the binding rides the
+/// same runtime dispatch. test262's `testWithTypedArrayConstructors`
+/// bodies spell every TypedArray receiver this way, and a `this`-
+/// reading callback handed to `sample.reduce` / `.sort` / `.forEach`
+/// on such a binding was an unclaimed-receiver refusal.
 pub(super) fn collect_any_binding_names(
     stmts: &[Stmt],
     exprs: &[Expr],
@@ -53,7 +63,12 @@ fn collect_binding_names_inner(
                 ..
             } => {
                 let dynobj_certain = type_ann.is_none()
-                    && matches!(&exprs[init.0 as usize], Expr::ObjectLit { fields } if fields.is_empty());
+                    && matches!(
+                        &exprs[init.0 as usize],
+                        Expr::ObjectLit { fields } if fields.is_empty()
+                    )
+                    || type_ann.is_none()
+                        && matches!(&exprs[init.0 as usize], Expr::NewDynamic { .. });
                 if type_ann.as_deref() == Some("any") || dynobj_certain {
                     any_names.insert(name.clone());
                 } else {
