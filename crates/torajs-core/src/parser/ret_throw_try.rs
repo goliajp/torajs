@@ -30,7 +30,9 @@ impl<'a> Parser<'a> {
         let expr = match self.peek() {
             Token::Semi | Token::RBrace | Token::Eof => None,
             _ if self.has_newline_before(self.pos) => None,
-            _ => Some(self.parse_expr()?),
+            // §14.10 spells `Expression`, the comma list — `return 0,
+            // f(n - 1)` (test262 comma/tco-final, rotation 629).
+            _ => Some(self.parse_expr_list()?),
         };
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
@@ -40,7 +42,8 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_throw(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `throw`
-        let expr = self.parse_expr()?;
+        // §14.14 `throw Expression` — the comma list, like `return`.
+        let expr = self.parse_expr_list()?;
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }

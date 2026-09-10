@@ -53,7 +53,7 @@ impl Parser<'_> {
                 ));
             }
         }
-        let obj = self.parse_expr()?;
+        let obj = self.parse_expr_list()?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {

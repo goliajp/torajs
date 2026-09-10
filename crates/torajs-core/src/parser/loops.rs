@@ -32,7 +32,7 @@ impl<'a> Parser<'a> {
         }
         // Re-evaluated every iteration — hoisting a yield out of it
         // would run the yield exactly once.
-        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
+        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -82,7 +82,7 @@ impl<'a> Parser<'a> {
             }
         }
         // Per-iteration position, same as the while condition.
-        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr())?;
+        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -297,7 +297,7 @@ impl<'a> Parser<'a> {
         let cond = if matches!(self.peek(), Token::Semi) {
             None
         } else {
-            Some(self.with_yield_hoist_disallowed(|p| p.parse_expr())?)
+            Some(self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?)
         };
         match self.peek() {
             Token::Semi => self.pos += 1,
