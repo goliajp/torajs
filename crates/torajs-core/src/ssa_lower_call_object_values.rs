@@ -87,9 +87,7 @@ pub(crate) fn try_lower(
     // keys lane's arm. An Error-family receiver boxes for the same
     // reason with different non-enumerables (§20.5.6.1.1 `message` /
     // `stack` — see `error_family_receiver`).
-    let arg_op = if matches!(ctx.operand_ty(&arg_op), Type::Closure(_))
-        || crate::ssa_lower_call_object_entries::error_family_receiver(ctx, args[0])
-    {
+    let arg_op = if boxes_for_own_walk(ctx, &arg_op, args[0]) {
         ctx.box_to_any(arg_op)
     } else {
         arg_op
@@ -342,4 +340,24 @@ fn emit_values_unfold(
         }
     }
     Operand::Value(arr_ptr)
+}
+
+/// Receivers the typed lane hands to the runtime own-values walk
+/// boxed: a closure (its expando props), an Error-family instance
+/// (`error_family_receiver`), and an instance of a class with a
+/// runtime-computed field (629-03 — the checker answers `Array<Any>`
+/// through the same `class_has_computed_instance_fields` verdict, so
+/// the two lanes agree on the slot).
+fn boxes_for_own_walk(ctx: &LowerCtx<'_>, arg_op: &Operand, recv: ExprId) -> bool {
+    if matches!(ctx.operand_ty(arg_op), Type::Closure(_))
+        || crate::ssa_lower_call_object_entries::error_family_receiver(ctx, recv)
+    {
+        return true;
+    }
+    match ctx.expr_types.get(&recv) {
+        Some(crate::check::Type::ClassRef(name)) => {
+            crate::ast::class_has_computed_instance_fields(ctx.ast, name)
+        }
+        _ => false,
+    }
 }

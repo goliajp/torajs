@@ -269,6 +269,7 @@ pub use delete_bare_name::triage_delete_bare_names;
 pub(crate) use desugar_async::UNDEF_SLOT_MARKER;
 pub use desugar_async::desugar_async;
 pub use desugar_classes::desugar_classes;
+pub(crate) use desugar_classes_computed_fields::class_has_computed_instance_fields;
 pub use desugar_classes_pass2::route_non_class_new;
 pub use desugar_eval::desugar_eval;
 pub use desugar_generators::desugar_generators;

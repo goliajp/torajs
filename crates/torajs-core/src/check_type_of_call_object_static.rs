@@ -171,6 +171,15 @@ pub(crate) fn try_match(
         {
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
+        // 629-03 — a runtime-computed instance field is an expando the
+        // layout does not enumerate, so the typed unfold would drop
+        // its value (`class C { foo = 1; [x] = 42 }` answered `[1]`);
+        // the runtime own-walk lists it at its declaration position.
+        if let Type::ClassRef(n) = &raw_ty
+            && crate::ast::class_has_computed_instance_fields(ast, n)
+        {
+            return Some(Ok(Type::Array(Box::new(Type::Any))));
+        }
         let arg_ty = unwrap_class(checker, raw_ty);
         // W-O — Array receiver: bun returns a fresh shallow
         // array of slot values (spec §20.1.2.20); SSA-lower

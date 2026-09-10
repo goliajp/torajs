@@ -5,7 +5,7 @@
 const x = "b";
 class C { foo = 1; [x] = 42; bar = 2 }
 const c = new C();
-console.log(Object.keys(c).join(","), JSON.stringify(c));
+console.log(Object.keys(c).join(","), Object.values(c).join(","), JSON.stringify(c));
 console.log(Object.entries(c).map(([k, v]) => k + "=" + v).join(","));
 const seen: string[] = [];
 for (const k in c) seen.push(k);
@@ -20,7 +20,7 @@ console.log(Object.keys(new D()).join(","), JSON.stringify(new D()));
 // A subclass carries the parent's order, its own fields after.
 class B { p = 0; [k2] = 9 }
 class E extends B { foo = 1; [x] = 42; bar = 2 }
-console.log(Object.keys(new E()).join(","), JSON.stringify(new E()));
+console.log(Object.keys(new E()).join(","), Object.values(new E()).join(","), JSON.stringify(new E()));
 class F extends B { [x] = 42; foo = 1 }
 console.log(Object.keys(new F()).join(","));
 

@@ -103,3 +103,26 @@ fn inherited_last_of(
         .and_then(|f| f.last())
         .map(|(k, _)| k.clone())
 }
+
+/// Does `class` — or any ancestor — declare a runtime-computed
+/// instance field? Such a field is an expando the layout cannot
+/// enumerate, so a typed own-value walk over the layout (the
+/// `Object.values` unfold) would drop it: the checker answers
+/// `Array<Any>` for the call and the lowering routes the runtime
+/// own-walk, both through this one predicate (629-03).
+pub(crate) fn class_has_computed_instance_fields(ast: &Ast, class: &str) -> bool {
+    let mut cur = class.to_string();
+    loop {
+        if ast
+            .class_computed_instance_fields
+            .iter()
+            .any(|(c, _, _)| *c == cur)
+        {
+            return true;
+        }
+        match ast.class_parents.get(&cur) {
+            Some(Some(p)) => cur = p.clone(),
+            _ => return false,
+        }
+    }
+}
