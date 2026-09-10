@@ -114,8 +114,15 @@ fn seed_requests(
     work: &mut VecDeque<WorkItem>,
     graph: &mut ModuleGraph,
 ) -> Result<(static_resolution::EntrySeed, Vec<(String, String)>), String> {
-    let entry_seed = static_resolution::seed_entry_requests(ast, base_dir, work)?;
+    let mut entry_seed = static_resolution::seed_entry_requests(ast, base_dir, work)?;
+    entry_seed.static_roots = graph.edges_since(work, 0);
+    let static_len = work.len();
     let dyn_table = dyn_import::seed_candidates(ast, base_dir, work);
+    entry_seed.dyn_roots = work
+        .iter()
+        .skip(static_len)
+        .filter_map(|(path, _, _, _, ns, _)| ns.as_ref().map(|n| (path.clone(), n.clone())))
+        .collect();
     graph.roots = graph.edges_since(work, 0);
     Ok((entry_seed, dyn_table))
 }
@@ -195,6 +202,8 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
     // the `let <alias> = <expr>` and every later alias binds to the
     // first — re-walking would re-lower the same ExprId.
     let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
+    // §16.2.1.6.4 step 7 per lib — see `static_resolution::NestedRequest`.
+    let mut nested_requests: Vec<static_resolution::NestedRequest> = Vec::new();
 
     while let Some((
         target_path,
@@ -286,6 +295,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
                 first: &mut landing_first,
                 ambiguous: &mut ambiguous_locals,
             },
+            nested: &mut nested_requests,
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
@@ -320,6 +330,7 @@ pub fn resolve_imports(ast: &mut Ast, base_dir: &Path) -> Result<Vec<(PathBuf, V
         &mut dyn_ns_inline,
         &ambiguous_locals,
         &entry_seed,
+        &nested_requests,
     )?;
     Ok(closure_files)
 }

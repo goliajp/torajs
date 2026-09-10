@@ -17,8 +17,10 @@
 //!   already census-exempt and promote-gate-known — and can never
 //!   collide with a user declaration.
 //!
-//! After the BFS drains, [`check`] applies ResolveExport's two
-//! failure verdicts to every seeded binding (§16.2.1.6.2 "does not
+//! After the BFS drains, [`finalize`] applies ResolveExport's two
+//! failure verdicts ([`check`]) to every seeded binding — the
+//! entry's and, since rotation 630, every lib's ImportEntry
+//! ([`NestedRequest`], §16.2.1.6.4 step 7 runs per module) — (§16.2.1.6.2 "does not
 //! resolve" — circular or missing — and §16.2.1.6.3 "ambiguous"),
 //! turning what used to be a silent pick-one / silent skip into the
 //! spec-mandated SyntaxError. The dyn-import lane keeps its own
@@ -29,13 +31,63 @@ use crate::ast::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use super::graph::ModuleGraph;
 use super::resolve_helpers::{NsAccum, queue_nested_import};
-use super::{WorkItem, is_builtin_module_source};
+use super::{NamedImport, WorkItem, is_builtin_module_source};
 use std::collections::VecDeque;
 
 /// One entry-side static request: the user-facing spelling (for the
 /// error message) and the binding name its declaration lands under.
 pub(super) type StaticRequest = (String, String);
+
+/// One LIB-side ImportEntry (§16.2.1.6.4 step 7 runs for every
+/// module in the graph, not just the entry): the module that wrote
+/// the clause, the export name it asked for, and the binding its
+/// declaration lands under. Recorded by the walk that queued the
+/// request, judged by [`finalize`] once the BFS drained — a
+/// requester the entry's static clauses cannot reach belongs to a
+/// dynamic candidate, whose promise rejects instead of the build.
+pub(super) struct NestedRequest {
+    pub(super) requester: PathBuf,
+    pub(super) face: String,
+    pub(super) binding: String,
+}
+
+/// Record a lib's `import` clause on the nested ledger. A requested
+/// spelling always lands importer-visible under `alias ?? orig`
+/// (`inject_export_inner` injects per visible spelling; the 427-02
+/// class-alias census rename lands on the alias too), and the
+/// default lane materializes `let <alias>` (a repeat request binds
+/// `let <second> = <first>`), so the binding IS the visible name.
+/// Only ImportDecls record — a request `queue_star_reexport`
+/// forwards lands from whichever star provides it, so recording the
+/// forwarded copy would misreport a name a later star supplies.
+pub(super) fn record_import_requests(
+    out: &mut Vec<NestedRequest>,
+    requester: &Path,
+    source: &str,
+    named: &[NamedImport],
+    default: &Option<String>,
+) {
+    if is_builtin_module_source(source) {
+        return;
+    }
+    for (orig, alias) in named {
+        let binding = alias.as_deref().unwrap_or(orig).to_string();
+        out.push(NestedRequest {
+            requester: requester.to_path_buf(),
+            face: orig.clone(),
+            binding,
+        });
+    }
+    if let Some(d) = default {
+        out.push(NestedRequest {
+            requester: requester.to_path_buf(),
+            face: "default".to_string(),
+            binding: d.clone(),
+        });
+    }
+}
 
 /// The modules the ENTRY file requests, in clause order, onto the
 /// worklist; answers the static-request ledger [`check`] verifies
@@ -53,6 +105,14 @@ pub(super) struct EntrySeed {
     /// (`dead_lib_exprs`) reads it as the tombstone floor: entry
     /// arena is never a candidate.
     pub(super) entry_expr_len: usize,
+    /// The modules the entry's STATIC clauses name — the roots the
+    /// nested ledger's build-failing half is reachable from. Filled
+    /// by `seed_requests` once the static seed has queued.
+    pub(super) static_roots: Vec<PathBuf>,
+    /// (candidate path, `__dyn_ns_c<k>`) per §13.3.10 candidate — a
+    /// nested request only a candidate reaches poisons that
+    /// candidate's namespace instead of failing the build.
+    pub(super) dyn_roots: Vec<(PathBuf, String)>,
 }
 
 pub(super) fn seed_entry_requests(
@@ -89,8 +149,16 @@ pub(super) fn seed_entry_requests(
                 // must not enter the resolution ledger.
                 if !is_builtin_module_source(source) {
                     for (orig, alias) in named {
-                        let face = alias.as_deref().unwrap_or(orig).to_string();
-                        requests.push((face.clone(), face));
+                        let binding = alias.as_deref().unwrap_or(orig).to_string();
+                        requests.push((orig.clone(), binding));
+                    }
+                    // `import x from` / `import { default as x }` —
+                    // ResolveExport("default") is null when the module
+                    // never wrote one, and §16.2.1.6.3 step 6 says a
+                    // star cannot supply it (the star pour never
+                    // forwards the default lane, so nothing lands).
+                    if let Some(d) = default {
+                        requests.push(("default".to_string(), d.clone()));
                     }
                 }
                 queue_nested_import(
@@ -139,28 +207,57 @@ pub(super) fn seed_entry_requests(
         requests,
         import_bindings,
         entry_expr_len,
+        static_roots: Vec::new(),
+        dyn_roots: Vec::new(),
     })
 }
 
-/// Post-BFS judgment on everything the seed recorded: every static
-/// request must have resolved ([`check`]), and every entry-side
-/// write to an import binding rewrites into its runtime TypeError
+/// Post-BFS judgment on everything the seed and the walks recorded:
+/// every static request must have resolved ([`check`]) — the
+/// entry's own, and every lib request the entry's static clauses can
+/// reach; a lib request only a dynamic candidate reaches poisons
+/// that candidate (returned, for the dispatcher's SyntaxError
+/// reject) — and every entry-side write to an import binding
+/// rewrites into its runtime TypeError
 /// ([`reject_import_binding_writes`]).
 pub(super) fn finalize(
     ast: &mut Ast,
     seed: &EntrySeed,
+    graph: &ModuleGraph,
+    nested: &[NestedRequest],
     injections_by_path: &HashMap<PathBuf, Vec<Stmt>>,
     ns_accums: &HashMap<String, NsAccum>,
     ambiguous_locals: &HashSet<String>,
-) -> Result<(), String> {
-    check(
-        &seed.requests,
-        injections_by_path,
-        ns_accums,
-        ambiguous_locals,
-    )?;
+) -> Result<HashSet<String>, String> {
+    let mut declared: HashSet<String> = HashSet::new();
+    for stmts in injections_by_path.values() {
+        super::dyn_import::collect_decl_names(stmts, &mut declared);
+    }
+    let verdict =
+        |face: &str, binding: &str| check(face, binding, &declared, ns_accums, ambiguous_locals);
+    for (face, binding) in &seed.requests {
+        verdict(face, binding)?;
+    }
+    let static_reach = graph.reachable(&seed.static_roots);
+    let mut poisoned: HashSet<String> = HashSet::new();
+    for r in nested {
+        let Err(e) = verdict(&r.face, &r.binding) else {
+            continue;
+        };
+        if static_reach.contains(&r.requester) {
+            return Err(e);
+        }
+        for (root, ns) in &seed.dyn_roots {
+            if graph
+                .reachable(std::slice::from_ref(root))
+                .contains(&r.requester)
+            {
+                poisoned.insert(ns.clone());
+            }
+        }
+    }
     reject_import_binding_writes(ast, &seed.import_bindings, seed.entry_expr_len);
-    Ok(())
+    Ok(poisoned)
 }
 
 /// §16.2.1.5 CreateImportBinding — assignment to an import binding is
@@ -213,7 +310,7 @@ fn reject_import_binding_writes(ast: &mut Ast, bindings: &HashSet<String>, entry
     }
 }
 
-/// §16.2.1.6.2/.3 — the entry's static requests, judged after the BFS
+/// §16.2.1.6.2/.3 — one static request, judged after the BFS
 /// drained. A binding resolves when a declaration landed under it
 /// (any decl kind — the default lane materializes a `let`, type
 /// requests a `TypeDecl`) or a namespace accumulator claimed it
@@ -225,29 +322,21 @@ fn reject_import_binding_writes(ast: &mut Ast, bindings: &HashSet<String>, entry
 /// CLI's `import error:` prefix composes into a recognizable
 /// resolution reject.
 fn check(
-    requests: &[StaticRequest],
-    injections_by_path: &HashMap<PathBuf, Vec<Stmt>>,
+    face: &str,
+    binding: &str,
+    declared: &HashSet<String>,
     ns_accums: &HashMap<String, NsAccum>,
     ambiguous_locals: &HashSet<String>,
 ) -> Result<(), String> {
-    if requests.is_empty() {
-        return Ok(());
+    if ambiguous_locals.contains(binding) {
+        return Err(format!(
+            "module resolution failure (SyntaxError): requested binding '{face}' is ambiguous — multiple star exports provide it"
+        ));
     }
-    let mut declared: HashSet<String> = HashSet::new();
-    for stmts in injections_by_path.values() {
-        super::dyn_import::collect_decl_names(stmts, &mut declared);
-    }
-    for (face, binding) in requests {
-        if ambiguous_locals.contains(binding) {
-            return Err(format!(
-                "module resolution failure (SyntaxError): requested binding '{face}' is ambiguous — multiple star exports provide it"
-            ));
-        }
-        if !declared.contains(binding) && !ns_accums.contains_key(binding) {
-            return Err(format!(
-                "module resolution failure (SyntaxError): requested binding '{face}' does not resolve (missing or circular export)"
-            ));
-        }
+    if !declared.contains(binding) && !ns_accums.contains_key(binding) {
+        return Err(format!(
+            "module resolution failure (SyntaxError): requested binding '{face}' does not resolve (missing or circular export)"
+        ));
     }
     Ok(())
 }

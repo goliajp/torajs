@@ -29,10 +29,13 @@ pub(super) fn settle_and_splice(
     dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
     ambiguous_locals: &HashSet<String>,
     entry_seed: &static_resolution::EntrySeed,
+    nested: &[static_resolution::NestedRequest],
 ) -> Result<(), String> {
-    static_resolution::finalize(
+    let lib_poisoned = static_resolution::finalize(
         ast,
         entry_seed,
+        graph,
+        nested,
         &injections_by_path,
         ns_accums,
         ambiguous_locals,
@@ -47,6 +50,7 @@ pub(super) fn settle_and_splice(
         ns_accums,
         dyn_ns_inline,
         ambiguous_locals,
+        &lib_poisoned,
     );
     dead_lib_exprs::sweep(ast, entry_expr_len);
     Ok(())
@@ -56,7 +60,8 @@ pub(super) fn settle_and_splice(
 /// its function budget ran out: order the per-path injections by
 /// dependency post-order (§16.2.1.5), append the dyn-import
 /// dispatcher (426-01 poison verdicts computed here — after every
-/// injection is known), materialize the pending namespace objects,
+/// injection is known — joined by the nested-ledger verdicts
+/// `finalize` handed over), materialize the pending namespace objects,
 /// inline the dyn-ns object literals, and splice the lot into the
 /// entry.
 #[allow(clippy::too_many_arguments)]
@@ -69,6 +74,7 @@ pub(super) fn assemble_and_splice(
     ns_accums: &HashMap<String, NsAccum>,
     dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
     ambiguous_locals: &HashSet<String>,
+    lib_poisoned: &HashSet<String>,
 ) {
     let mut injections: Vec<Stmt> = Vec::new();
     for path in graph.evaluation_order() {
@@ -78,8 +84,11 @@ pub(super) fn assemble_and_splice(
     }
     // Dispatcher before `inline_dyn_ns_objlits` — see `synth_dispatcher`.
     if ast.dyn_import_present {
-        let poisoned =
+        let mut poisoned =
             dyn_import::poisoned_candidates(dyn_table, ns_accums, &injections, ambiguous_locals);
+        // A candidate whose graph carries an unresolvable lib
+        // ImportEntry (§16.2.1.6.4 step 7) rejects the same way.
+        poisoned.extend(lib_poisoned.iter().cloned());
         injections.push(dyn_import::synth_dispatcher(ast, dyn_table, &poisoned));
     }
     // The synthetic `let ns = { … }` bindings only reference decls, so

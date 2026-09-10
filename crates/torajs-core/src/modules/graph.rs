@@ -72,6 +72,20 @@ impl ModuleGraph {
         order
     }
 
+    /// Every module reachable from `roots` through recorded requests
+    /// (roots included) — the nested ledger's split between "fails
+    /// the build" (a static clause reaches the requester) and
+    /// "rejects one candidate's promise" (only a §13.3.10 candidate
+    /// does).
+    pub(super) fn reachable(&self, roots: &[PathBuf]) -> HashSet<PathBuf> {
+        let mut seen: HashSet<PathBuf> = HashSet::new();
+        let mut order: Vec<PathBuf> = Vec::new();
+        for root in roots {
+            self.visit(root, &mut seen, &mut order);
+        }
+        seen
+    }
+
     fn visit(&self, node: &PathBuf, seen: &mut HashSet<PathBuf>, order: &mut Vec<PathBuf>) {
         if !seen.insert(node.clone()) {
             return;

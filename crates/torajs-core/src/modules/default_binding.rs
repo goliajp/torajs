@@ -106,14 +106,22 @@ fn synth_ns_default_binding(
     if let Some(first) = default_bound_as.get(target_path) {
         return Some(first.clone());
     }
-    let has_default = lib_section.iter().any(|s| {
-        matches!(
-            s,
-            Stmt::ExportDecl {
-                default_expr: Some(_),
-                ..
-            }
-        )
+    // `export default <expr>` — or a bare `export { x as default }`
+    // face (§16.2.3.2), which the walk injects on the same lane.
+    let has_default = lib_section.iter().any(|s| match s {
+        Stmt::ExportDecl {
+            default_expr: Some(_),
+            ..
+        } => true,
+        Stmt::ExportDecl {
+            inner: None,
+            named,
+            source: None,
+            ..
+        } => named
+            .iter()
+            .any(|(_, alias)| alias.as_deref() == Some("default")),
+        _ => false,
     });
     if has_default {
         *default_alias = Some(format!("__nsdefault_{ns_alias}"));

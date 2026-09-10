@@ -213,10 +213,15 @@ pub(super) fn inject_export_inner(
 
 /// P13-S4b — a top-level decl a bare named export lists injects
 /// under its EXPORTED name (then the importer's own alias applies
-/// inside `inject_export_inner`). Everything else is a lib-level
-/// non-export statement — dropped, unless the hidden-dependency
-/// census marked its spelling (423-01 knife C), in which case it
-/// injects as a plain top-level decl.
+/// inside `inject_export_inner`). A face spelled `default`
+/// (`export { x as default }`, §16.2.3.2) IS the module's default
+/// export: it answers the default lane only — the requested alias
+/// becomes the decl's name, exactly as `export default <expr>`
+/// materializes `let <alias>` — and claims the namespace `default`
+/// field. Everything else is a lib-level non-export statement —
+/// dropped, unless the hidden-dependency census marked its spelling
+/// (423-01 knife C), in which case it injects as a plain top-level
+/// decl.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn inject_bare_exported_decl(
     ast: &mut Ast,
@@ -225,6 +230,7 @@ pub(super) fn inject_bare_exported_decl(
     bare_exports: &HashMap<String, String>,
     want: &HashSet<&str>,
     rename: &HashMap<&str, Vec<&str>>,
+    default_alias: &Option<String>,
     ns: Option<&mut NsAccum>,
     injected: &mut HashSet<String>,
     demangle: &HashMap<String, String>,
@@ -235,6 +241,19 @@ pub(super) fn inject_bare_exported_decl(
         && let Some(exported) = bare_exports.get(&dname)
     {
         let mut inner = other;
+        if exported == "default" {
+            let Some(alias) = default_alias else {
+                return;
+            };
+            crate::ast::rename_fn_self_refs(ast, &mut inner, &dname, alias);
+            copy_fn_name_tables(ast, &dname, alias);
+            rename_decl(&mut inner, alias.clone());
+            if let Some(ns) = ns {
+                ns.claim("default", alias);
+            }
+            injections.push(inner);
+            return;
+        }
         if *exported != dname {
             // K.2 closure — same self-reference follow as the alias
             // rename inside `inject_export_inner`.

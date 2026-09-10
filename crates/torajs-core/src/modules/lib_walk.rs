@@ -12,6 +12,7 @@ use std::path::Path;
 
 use super::inject_export::Landings;
 use super::resolve_helpers::queue_nested_import;
+use super::static_resolution::{NestedRequest, record_import_requests};
 use super::{
     NsAccum, WorkItem, decl_name, inject_bare_exported_decl, inject_export_inner, queue_reexport,
     queue_star_reexport,
@@ -47,6 +48,9 @@ pub(super) struct LibRequest<'a> {
     pub(super) hidden: &'a HashSet<String>,
     /// §16.2.1.6.3 ambiguity ledger — see [`Landings`].
     pub(super) landings: Landings<'a>,
+    /// §16.2.1.6.4 step 7 — this lib's own `import` clauses, judged
+    /// after the BFS like the entry's (see [`NestedRequest`]).
+    pub(super) nested: &'a mut Vec<NestedRequest>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -62,6 +66,8 @@ fn inject_side_effect_stmt(
     injections: &mut Vec<Stmt>,
     s: Stmt,
     injected: &mut HashSet<String>,
+    nested: &mut Vec<NestedRequest>,
+    requester: &Path,
 ) -> Result<(), String> {
     if let Stmt::ImportDecl {
         source,
@@ -70,6 +76,7 @@ fn inject_side_effect_stmt(
         namespace,
     } = s
     {
+        record_import_requests(nested, requester, &source, &named, &default);
         queue_nested_import(work, target_dir, &source, named, default, namespace)?;
         return Ok(());
     }
@@ -123,7 +130,15 @@ pub(super) fn walk_lib_stmt(
 ) -> Result<(), String> {
     // Side-effect-only import — see [`inject_side_effect_stmt`].
     if req.side_effect_only {
-        return inject_side_effect_stmt(work, target_dir, injections, s, req.injected);
+        return inject_side_effect_stmt(
+            work,
+            target_dir,
+            injections,
+            s,
+            req.injected,
+            req.nested,
+            req.landings.path,
+        );
     }
     match s {
         Stmt::ImportDecl {
@@ -132,6 +147,7 @@ pub(super) fn walk_lib_stmt(
             default,
             namespace,
         } => {
+            record_import_requests(req.nested, req.landings.path, &source, &named, &default);
             queue_nested_import(work, target_dir, &source, named, default, namespace)?;
         }
         Stmt::ExportDecl {
@@ -225,6 +241,7 @@ pub(super) fn walk_lib_stmt(
                 req.bare_exports,
                 req.want,
                 req.rename,
+                req.default_alias,
                 req.ns.as_deref_mut(),
                 req.injected,
                 req.demangle,
