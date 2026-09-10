@@ -13,6 +13,7 @@ pub(super) fn scan_slash(
     out: &mut Vec<Spanned>,
     start: u32,
     len: u32,
+    rbrace_closed_block: bool,
 ) -> Result<(), String> {
     // `//` line comment, `/* */` block comment, regex
     // literal, or division. Disambiguation between regex
@@ -49,7 +50,13 @@ pub(super) fn scan_slash(
                 *i += 1;
             }
         }
-        _ if regex_context(out.last().map(|s| &s.token)) => {
+        // A `}` that closed a BLOCK is a statement boundary, and the
+        // `/` after it starts a regex literal (§12.9; the lexer's
+        // brace stack says which kind the `}` closed).
+        _ if regex_context(out.last().map(|s| &s.token))
+            || (matches!(out.last().map(|s| &s.token), Some(Token::RBrace))
+                && rbrace_closed_block) =>
+        {
             // Scan a regex literal: `/pattern/flags`.
             // Pattern body: read until an unescaped `/`,
             // honoring `\\.` escapes and `[...]` character

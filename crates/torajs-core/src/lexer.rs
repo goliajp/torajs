@@ -42,6 +42,12 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
     // that contains one), never mid-expression, which keeps `a --> b`
     // meaning postfix-decrement-then-greater.
     let mut fresh_line = true;
+    // §12.9 — which `{`s open a block (true) and which an object
+    // literal, so the `}` closing one can say whether a `/` after it
+    // is a regex literal; `rbrace_closed_block` is that answer for
+    // the most recent `}` (read only when `}` is the previous token).
+    let mut brace_kinds: Vec<bool> = Vec::new();
+    let mut rbrace_closed_block = false;
 
     skip_hashbang(bytes, &mut i, len);
 
@@ -97,8 +103,17 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
             b';' => emit(&mut out, Token::Semi, start, advance(&mut i)),
             b'(' => emit(&mut out, Token::LParen, start, advance(&mut i)),
             b')' => emit(&mut out, Token::RParen, start, advance(&mut i)),
-            b'{' => emit(&mut out, Token::LBrace, start, advance(&mut i)),
-            b'}' => emit(&mut out, Token::RBrace, start, advance(&mut i)),
+            b'{' => {
+                brace_kinds.push(util::block_brace_opens(
+                    out.last().map(|s| &s.token),
+                    brace_kinds.last().copied(),
+                ));
+                emit(&mut out, Token::LBrace, start, advance(&mut i));
+            }
+            b'}' => {
+                rbrace_closed_block = brace_kinds.pop().unwrap_or(true);
+                emit(&mut out, Token::RBrace, start, advance(&mut i));
+            }
             b'[' => emit(&mut out, Token::LBracket, start, advance(&mut i)),
             b']' => emit(&mut out, Token::RBracket, start, advance(&mut i)),
             b'+' => {
@@ -160,7 +175,9 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
                     emit(&mut out, Token::Question, start, advance(&mut i));
                 }
             }
-            b'/' => scan_slash::scan_slash(bytes, &mut i, &mut out, start, len)?,
+            b'/' => {
+                scan_slash::scan_slash(bytes, &mut i, &mut out, start, len, rbrace_closed_block)?
+            }
             b'%' => {
                 i += 1;
                 if peek(bytes, i) == Some(b'=') {

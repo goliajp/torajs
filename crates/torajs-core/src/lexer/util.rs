@@ -88,6 +88,48 @@ pub(super) fn regex_context(prev: Option<&Token>) -> bool {
     )
 }
 
+/// Does a `{` after `prev` open a BLOCK (a statement body, a class
+/// body, a function body) rather than an object literal? The lexer
+/// keeps the answer on a stack so that the `}` closing it can say
+/// whether a `/` right after it starts a regex literal (`{} /foo/g` —
+/// §12.9: after a block the `/` is InputElementRegExp, after an
+/// object literal it is division; test262 statementList/block-regexp-
+/// literal-*, rotation 629). `regex_context` alone answers "division"
+/// for every `}`, which was right for `x = {} / 2` and wrong for a
+/// block.
+///
+/// The judgment is the classic token-lookback one: a block follows a
+/// `)` (an `if` / `for` / `while` / `switch` / `catch` / function
+/// head), a `=>`, a statement boundary (`;` `{` `}` or the program
+/// start), the block keywords, and an identifier (a class body:
+/// `class A {`, `extends B {`, `static {`; a `>` closing a TS type
+/// argument list and a `]` closing an array type are the same
+/// position). A `:` is a block after a label or a `case` and an
+/// object literal inside one — `enclosing_is_block` tells which side
+/// the enclosing brace is on. Everything else (`=` `(` `[` `,` `?`
+/// `return` …) is an object literal.
+pub(super) fn block_brace_opens(prev: Option<&Token>, enclosing_is_block: Option<bool>) -> bool {
+    match prev {
+        None => true,
+        Some(
+            Token::RParen
+            | Token::FatArrow
+            | Token::Semi
+            | Token::LBrace
+            | Token::RBrace
+            | Token::Else
+            | Token::Do
+            | Token::Try
+            | Token::Finally
+            | Token::Ident(_)
+            | Token::Gt
+            | Token::RBracket,
+        ) => true,
+        Some(Token::Colon) => enclosing_is_block.unwrap_or(true),
+        Some(_) => false,
+    }
+}
+
 /// §12.3 LineTerminator — LF, CR, and the UTF-8 spellings of U+2028
 /// LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR. Returns the width in
 /// bytes of the one starting at `i` (a CR LF pair counts as one, two
