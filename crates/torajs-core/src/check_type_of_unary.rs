@@ -58,6 +58,13 @@ fn check_neg(t: Type) -> Result<Type, String> {
         Ok(Type::Number)
     } else if t == Type::BigInt {
         Ok(Type::BigInt)
+    } else if is_object_shaped(&t) {
+        // §13.5.5 step 2 is ToNumeric, and an object's answer may be
+        // a BigInt (`-Object(1n)` is `-1n`, `-{ valueOf() { return 1n
+        // } }` too — rotation 629, test262 unary-minus/bigint-non-
+        // primitive), so the promise is the any lane's, whose negate
+        // kernel steps in whichever domain ToNumeric lands in.
+        Ok(Type::Any)
     } else if is_number_coercible(&t) {
         Ok(Type::Number)
     } else if rides_any_lane(&t) {

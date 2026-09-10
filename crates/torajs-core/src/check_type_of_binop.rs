@@ -36,10 +36,12 @@
 
 use crate::ast::{Ast, BinOp, ExprId};
 use crate::check::{
-    Checker, Type, js_add_coerces_to_number, js_arith_coerces_to_number, js_loose_eq_supported,
-    rides_any_lane,
+    Checker, Type, js_add_coerces_to_number, js_arith_coerces_to_number, rides_any_lane,
 };
 use crate::check_js_semantics::nullable_ptr_shaped;
+
+mod eq_logical;
+use eq_logical::{check_equality, check_logical};
 
 pub(crate) fn check(
     checker: &mut Checker,
@@ -237,12 +239,23 @@ fn check_arith(l: Type, r: Type) -> Result<Type, String> {
     }
     // §13.7-§13.10 call ToNumeric on each operand unconditionally, so
     // an object side runs its `valueOf` and answers NaN when it has
-    // none. This arm can promise Number because ToNumeric has no other
-    // answer; the operators whose ToPrimitive can hand back a string
-    // (`+`) or needs a string branch (ordering) route to the any-lane
-    // kernels instead — see `objectish_numeric_pair`.
+    // none. Beside a Number the promise is Number (a BigInt answer
+    // from the object is the mixed-types TypeError, never a value);
+    // beside a BigInt or another object the value the runtime answers
+    // may be a BigInt (`{ valueOf() { return 2n } } / 2n` is `1n` —
+    // rotation 629, test262 `expressions/division/bigint-toprimitive`
+    // and its family, which reach `assert.sameValue(obj / 2n, 1n)`
+    // and died on the generic's Number-vs-BigInt conflict), so the
+    // static answer is the any lane's, which is the kernel these
+    // pairs already ride. The operators whose ToPrimitive can hand
+    // back a string (`+`) or need a string branch (ordering) route
+    // there too — see `objectish_numeric_pair`.
     if objectish_numeric_pair(&l, &r) {
-        return Ok(Type::Number);
+        return Ok(if l == Type::Number || r == Type::Number {
+            Type::Number
+        } else {
+            Type::Any
+        });
     }
     // §13.7-§13.10 step 1 is ToNumeric on both, and a String has an
     // answer there — the any-lane arith kernel already gives it.
@@ -396,99 +409,4 @@ fn check_compare(l: Type, r: Type) -> Result<Type, String> {
     Err(format!(
         "ordering comparison requires number or bigint operands, got {l:?} and {r:?}"
     ))
-}
-
-fn check_equality(op: BinOp, l: Type, r: Type) -> Result<Type, String> {
-    if l == r
-        && matches!(
-            l,
-            Type::Number | Type::String | Type::Boolean | Type::BigInt
-        )
-    {
-        return Ok(Type::Boolean);
-    }
-    // T-13.a — Symbol === Symbol is pointer identity.
-    if l == r && matches!(l, Type::Symbol) {
-        return Ok(Type::Boolean);
-    }
-    // Nullable/Null cross-pair.
-    let l_is_null = matches!(l, Type::Null | Type::Undefined);
-    let r_is_null = matches!(r, Type::Null | Type::Undefined);
-    let l_is_nullable = matches!(l, Type::Nullable(_));
-    let r_is_nullable = matches!(r, Type::Nullable(_));
-    if (l_is_null || l_is_nullable) && (r_is_null || r_is_nullable) {
-        return Ok(Type::Boolean);
-    }
-    // V3-18 m3 — LooseEq cross-type coercion family.
-    if matches!(op, BinOp::LooseEq | BinOp::LooseNeq) && js_loose_eq_supported(&l, &r) {
-        return Ok(Type::Boolean);
-    }
-    // V3-18 m3.b — Eq/Neq cross-type per §7.2.15: different types →
-    // false (no throw). Accept any pair; ssa_lower static-folds.
-    if matches!(op, BinOp::Eq | BinOp::Neq) {
-        return Ok(Type::Boolean);
-    }
-    Err(format!(
-        "strict equality requires same primitive type, got {l:?} and {r:?}"
-    ))
-}
-
-fn check_logical(ast: &Ast, op: BinOp, l: Type, r: Type) -> Result<Type, String> {
-    if l == r {
-        return Ok(l);
-    }
-    if matches!(l, Type::Any) || matches!(r, Type::Any) {
-        return Ok(Type::Any);
-    }
-    if matches!(l, Type::Null | Type::Undefined) {
-        // S138 — statically falsy lhs.
-        return Ok(match op {
-            BinOp::LOr => r,
-            BinOp::LAnd => l,
-            _ => unreachable!(),
-        });
-    }
-    if matches!(&l, Type::Nullable(linner) if **linner == r) {
-        // `Nullable<T> || T` per §13.13 (and `&&` mirror).
-        return Ok(match op {
-            BinOp::LOr => r,
-            BinOp::LAnd => l,
-            _ => unreachable!(),
-        });
-    }
-    if matches!(&r, Type::Nullable(rinner) if **rinner == l) {
-        // `T || Nullable<T>` per §13.13 (and `&&` mirror).
-        return Ok(match op {
-            BinOp::LOr | BinOp::LAnd => r,
-            _ => unreachable!(),
-        });
-    }
-    // Rotation 507 — two DIFFERENT class instances meet at their
-    // nearest common ancestor, the ternary / `??` join (`m || new
-    // Leaf(2)` with `m: Mid | null` used to reject where bun runs
-    // it). Either side unwraps its `Nullable` first: `||` answers the
-    // rhs exactly when the lhs is falsy, so the join is over what
-    // each side can BE.
-    let core = |t: &Type| match t {
-        Type::Nullable(i) => (**i).clone(),
-        other => other.clone(),
-    };
-    if let Some(joined) = crate::check_type_compare::class_join(ast, &core(&l), &core(&r)) {
-        return Ok(joined);
-    }
-    // §13.13 — `a && b` IS one of its two operands: `a` when `a` is
-    // falsy, `b` otherwise. Every pair of types is therefore legal,
-    // and what the rejected ones needed was a name for the join. With
-    // no general union type to spell `A | B`, that name is Any --
-    // which is what `Nullable<T> || T` above already settles for in
-    // its own small way. Refusing instead meant `flag && count`,
-    // `s || 0`, `xs.length && xs[0]` -- shapes JS is written in --
-    // did not compile, with a message about "matching operand types"
-    // that no rule of the language asks for.
-    //
-    // Only the previously-rejected pairs land here: every arm above
-    // still answers its exact type, so nothing that compiled before
-    // loses precision. `ssa_lower_logical` widens the join slot to
-    // Any on the same condition and boxes both arms into it.
-    Ok(Type::Any)
 }

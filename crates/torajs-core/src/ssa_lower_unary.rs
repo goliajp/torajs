@@ -58,6 +58,15 @@ impl LowerCtx<'_> {
         {
             return self.lower_unary_any_arith(op, v);
         }
+        // §13.5.5 — `-obj` is ToNumeric on the object, whose answer
+        // may be a BigInt (`-Object(1n)`); the checker types it Any
+        // (rotation 629), so the boxed object takes the same negate
+        // kernel an `any` operand does instead of the ToNumber
+        // coercion `+obj` keeps.
+        if matches!(op, crate::ast::UnaryOp::Neg) && is_number_coercible_obj(self.operand_ty(&v)) {
+            let boxed = self.box_to_any(v);
+            return self.lower_unary_any_arith(op, boxed);
+        }
         // RFC 20260716 刀 7 — Any operand on unary `~`: route
         // through any_bitnot (ToNumber → ToInt32 → xor -1). Mirror
         // of the Neg/Plus P0.9 pattern above.

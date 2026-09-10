@@ -155,11 +155,32 @@ pub(crate) unsafe fn try_unary_neg_bigint(tag: i64, value: i64) -> Option<AnyVal
 /// question about `-("0" as any)` and `-(new Date(0) as any)`, while
 /// the typed `-0` had been right all along.
 pub(crate) unsafe fn any_unary_neg(tag: i64, value: i64) -> AnyValue {
+    // §13.5.5 step 2 is ToNumeric, whose ToPrimitive(number) runs
+    // FIRST: an object answering a BigInt from its `valueOf` /
+    // `@@toPrimitive` (`-{ valueOf() { return 5n } }` is `-5n`,
+    // rotation 629) is a BigInt operand, not a ToNumber mixed-types
+    // reject. The same one-shot the arith kernel takes, so the hook
+    // never runs twice. A throwing ToPrimitive, or a Symbol it
+    // answered, leaves the TypeError pending and answers undefined.
     // SAFETY: caller invariant — propagated.
-    if let Some(v) = unsafe { try_unary_neg_bigint(tag, value) } {
-        return v;
+    let (t, v, prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(tag, value) };
+    let release = |p: Option<AnyValue>| {
+        if let Some(b) = p {
+            // SAFETY: an owned prim box the ToPrimitive minted.
+            unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(b) };
+        }
+    };
+    if t == i64::MIN || unsafe { crate::arith_operand::symbol_refuses_to_numeric(t, v) } {
+        release(prim);
+        return crate::nanbox::VALUE_UNDEFINED;
+    }
+    // SAFETY: caller invariant — propagated.
+    if let Some(out) = unsafe { try_unary_neg_bigint(t, v) } {
+        release(prim);
+        return out;
     }
     // SAFETY: same contract — Heap tags carry a live cell pointer.
-    let n = unsafe { crate::coerce::any_to_number(tag, value) };
-    crate::arith::box_arith_result(-n, crate::arith::tag_is_i64_shaped(tag))
+    let n = unsafe { crate::coerce::any_to_number(t, v) };
+    release(prim);
+    crate::arith::box_arith_result(-n, crate::arith::tag_is_i64_shaped(t))
 }

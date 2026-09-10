@@ -200,7 +200,7 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 30] = [
+const PREFIX_FAMILIES: [(&str, u16); 31] = [
     // the array toLocaleString kernels walk Invoke(elem,
     // "toLocaleString") over ANY element value — the any-lane walk
     // directly, the typed kernels once the receiver is exotic (an
@@ -245,6 +245,12 @@ const PREFIX_FAMILIES: [(&str, u16); 30] = [
     // needs no arm — its gate fixtures pass fully stubbed).
     ("__torajs_number_wrapper", fam::FAM_NUM),
     ("__torajs_string_wrapper", fam::FAM_STR),
+    // §7.1.18 ToObject of an any primitive (`Object(3)`, rotation
+    // 629) mints the same wrappers INSIDE the runtime kernel, so the
+    // two prefixes above never appear in the user `.o` — only this
+    // one does; its coercion (`Object(3) * 2`, `-Object(3)`) views
+    // through to the num / str arm like a spelled-out wrapper's.
+    ("__torajs_any_to_object", fam::FAM_NUM | fam::FAM_STR),
     ("__torajs_genfn_", fam::FAM_CLOSURE | fam::FAM_ITER),
     (
         "__torajs_closure_install_gen_proto",
