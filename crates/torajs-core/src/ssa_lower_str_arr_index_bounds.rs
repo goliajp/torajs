@@ -34,16 +34,26 @@ pub(crate) fn normalize_from_index(
             ctx.expr_types.get(&args[1]),
             Some(crate::check::Type::Undefined)
         );
-        let arg1_any = matches!(ctx.expr_types.get(&args[1]), Some(crate::check::Type::Any));
+        let arg1_number = matches!(
+            ctx.expr_types.get(&args[1]),
+            None | Some(crate::check::Type::Number)
+        );
         let raw = if arg1_undef {
             Operand::ConstI64(0)
-        } else if arg1_any {
+        } else if !arg1_number {
             // S331 — `Array.{indexOf,lastIndexOf,includes}(needle,
             // Any fromIndex)` per ES §23.1.3.{14,17,18} step 4.
             // Decode Any via anyv_to_number → coerce_to_i64 below
             // (raw_i coerce sees F64 -> i64 fast path). Mirrors
-            // S327 parseInt-Any-radix dispatch.
+            // S327 parseInt-Any-radix dispatch. Every other non-Number
+            // spelling (`"2"`, `true`, an object — rotation 629) is the
+            // same ToNumber question once boxed.
             let v = ctx.lower_expr(args[1]);
+            let v = if matches!(ctx.operand_ty(&v), Type::Any) {
+                v
+            } else {
+                ctx.box_to_any_from_expr(args[1], v)
+            };
             let f = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.any_to_number, vec![v]),

@@ -70,16 +70,12 @@ pub(crate) fn try_match(
     if needle_ty == *elem {
         return None;
     }
-    if args.len() == 2 {
-        let from_ty = match checker.type_of(ast, args[1]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(from_ty, Type::Number | Type::Undefined | Type::Any) {
-            return Some(Err(format!(
-                "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-            )));
-        }
+    // fromIndex coerces (ToIntegerOrInfinity, rotation 629) — see
+    // `check_type_of_call_array_index_2arg`; only the arg must type.
+    if args.len() == 2
+        && let Err(e) = checker.type_of(ast, args[1])
+    {
+        return Some(Err(e));
     }
     Some(Ok(if m_name == "includes" {
         Type::Boolean

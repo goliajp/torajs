@@ -63,14 +63,12 @@ pub(crate) fn try_match(
             **elem
         )));
     }
-    let from_ty = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if from_ty != Type::Number && from_ty != Type::Undefined && from_ty != Type::Any {
-        return Some(Err(format!(
-            "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-        )));
+    // §23.1.3.{14,17,18} step 4 is ToIntegerOrInfinity(fromIndex) —
+    // any value coerces (`a.indexOf(2, "2")` is `a.indexOf(2, 2)`,
+    // `"one"` is 0; test262 indexOf/15.4.4.14-5-*, rotation 629); the
+    // lowering runs a non-Number through the any lane's ToNumber.
+    if let Err(e) = checker.type_of(ast, args[1]) {
+        return Some(Err(e));
     }
     Some(Ok(if m_name == "includes" {
         Type::Boolean

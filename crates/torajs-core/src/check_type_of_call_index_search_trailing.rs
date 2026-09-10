@@ -103,18 +103,10 @@ pub(crate) fn try_match(
                 **elem
             )));
         }
-        let from_ty = match checker.type_of(ast, args[1]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        // Rotation 545 — the trailing spelling carried a narrower
-        // gate than its 2-arg siblings (`array_index_2arg` /
-        // `index_search_any` both admit Any); the lowering is shared,
-        // so the two spellings must agree.
-        if !matches!(from_ty, Type::Number | Type::Undefined | Type::Any) {
-            return Some(Err(format!(
-                "Array.{m_name} arg 1 (fromIndex) must be number, got {from_ty:?}"
-            )));
+        // fromIndex coerces (ToIntegerOrInfinity, rotation 629) — the
+        // three spellings agree; the arg only has to type.
+        if let Err(e) = checker.type_of(ast, args[1]) {
+            return Some(Err(e));
         }
         for &a in args.iter().skip(2) {
             if let Err(e) = checker.type_of(ast, a) {
