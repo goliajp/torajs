@@ -179,14 +179,23 @@ impl AnyNumericKey {
         value: Operand,
         recv_slot: Operand,
     ) {
-        let (fid, key) = match self {
-            AnyNumericKey::Index(i) => (ctx.intrinsics.any_index_set, i),
-            AnyNumericKey::Boxed(k) => (ctx.intrinsics.any_index_set_keyed, k),
+        let (fid, soft, key) = match self {
+            AnyNumericKey::Index(i) => (
+                ctx.intrinsics.any_index_set,
+                ctx.intrinsics.any_index_set_soft,
+                i,
+            ),
+            AnyNumericKey::Boxed(k) => (
+                ctx.intrinsics.any_index_set_keyed,
+                ctx.intrinsics.any_index_set_keyed_soft,
+                k,
+            ),
         };
-        let cur_block = ctx.cur_block;
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Call(fid, vec![recv, key, tag, value, recv_slot]),
+        crate::ssa_lower_set_flavor::emit_any_set(
+            ctx,
+            fid,
+            soft,
+            vec![recv, key, tag, value, recv_slot],
         );
     }
 }

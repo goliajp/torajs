@@ -108,19 +108,21 @@ pub(crate) fn lower_index_any_keyed(
         Type::I64,
         None,
     );
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_index_set_keyed,
-            vec![
-                recv,
-                Operand::Value(k),
-                Operand::Value(tag_v),
-                Operand::Value(val_v),
-                Operand::ConstPtrNull,
-            ],
-        ),
+    let (strict, soft) = (
+        ctx.intrinsics.any_index_set_keyed,
+        ctx.intrinsics.any_index_set_keyed_soft,
+    );
+    crate::ssa_lower_set_flavor::emit_any_set(
+        ctx,
+        strict,
+        soft,
+        vec![
+            recv,
+            Operand::Value(k),
+            Operand::Value(tag_v),
+            Operand::Value(val_v),
+            Operand::ConstPtrNull,
+        ],
     );
     ctx.emit_throw_check(None);
     // The coerced cell carries the to_property_key +1 (its box is a

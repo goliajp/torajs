@@ -675,6 +675,8 @@ pub(crate) struct Intrinsics {
     pub(crate) any_prop_delete: FuncId,
     pub(crate) any_prop_delete_soft: FuncId,
     pub(crate) any_member_set_soft: FuncId,
+    pub(crate) any_index_set_soft: FuncId,
+    pub(crate) any_index_set_keyed_soft: FuncId,
     pub(crate) any_member_set_with_receiver: FuncId,
     pub(crate) any_member_get_with_receiver: FuncId,
     pub(crate) reflect_set_prototype_of: FuncId,

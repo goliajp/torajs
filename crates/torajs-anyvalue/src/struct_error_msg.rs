@@ -386,7 +386,8 @@ unsafe fn error_slot_get(obj: *const c_void, field: &[u8]) -> *mut u8 {
 /// rejected wholesale. Consumes the `(tag, value)` payload on
 /// success (true); an absent field / accessor spelling / mismatched
 /// payload type answers false with the payload untouched so the
-/// caller's reject stays loud.
+/// caller's reject stays loud. The caller has already run the
+/// frozen gate (see the body).
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str
@@ -410,22 +411,10 @@ pub(crate) unsafe fn struct_data_field_set(
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
     let slot = unsafe { ptr.cast::<u8>().add(info.field_byte_offset as usize) } as *mut u64;
-    // ES §7.3.14 — a frozen struct's data properties are all
-    // non-writable; module code is strict so the refused [[Set]]
-    // throws. Checked only after the field resolves: a miss stays
-    // the caller's (different) reject.
-    if unsafe { __torajs_obj_is_frozen(ptr) } {
-        unsafe {
-            if tag == AnySlotTag::Heap as u64 {
-                __torajs_anyv_rc_dec(crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                    tag as i64,
-                    value as i64,
-                ));
-            }
-            __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
-        }
-        return true;
-    }
+    // The frozen gate is the CALLER's (`struct_field_ffi::
+    // frozen_data_field_refuses`): it flavors the refusal — §13.15.2
+    // strict throws, sloppy and Reflect.set answer false — and this
+    // arm only ever sees a writable field.
     match info.type_tag {
         // Any slot — the NaN-box stores verbatim; the old box's
         // stake is released, the payload's transferred +1 becomes

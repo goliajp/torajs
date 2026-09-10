@@ -128,6 +128,15 @@ unsafe fn set_obj_member(
         // slot's type (Any / Str / I64 / F64 / Bool; frozen gate
         // inside). A mismatch falls through to the loud reject —
         // a typed slot never silently coerces.
+        if crate::struct_field_ffi::frozen_data_field_refuses(
+            ptr,
+            key,
+            tag,
+            value,
+            throw_on_refusal,
+        ) {
+            return Some(0);
+        }
         if crate::struct_error_msg::struct_data_field_set(ptr, key, tag, value) {
             return Some(1);
         }
@@ -288,7 +297,7 @@ pub unsafe extern "C" fn __torajs_any_member_set_soft(
 /// picks §13.15.2 strict-assignment (record the TypeError) or
 /// §28.1.13 Reflect.set (answer false). Returns 1 = written / setter
 /// ran, 0 = refused.
-unsafe fn any_member_set_impl(
+pub(crate) unsafe fn any_member_set_impl(
     recv_slot: *mut AnyValue,
     key: *mut c_void,
     tag: u64,
@@ -299,7 +308,13 @@ unsafe fn any_member_set_impl(
     unsafe {
         let recv = *recv_slot;
         if !is_cell(recv) {
-            return reject(tag, value, throw_on_refusal);
+            // §13.15.2 step 1.b — ToObject on a nullish base throws in
+            // every goal (and §28.1.13 Reflect.set on one is a
+            // TypeError too), so that refusal is never soft; a
+            // primitive base's refusal is the flavored kind (sloppy
+            // assignment discards it).
+            let nullish = crate::nanbox::is_null(recv) || crate::nanbox::is_undefined(recv);
+            return reject(tag, value, throw_on_refusal || nullish);
         }
         let ptr = as_void_ptr(recv);
         let cell_tag = (ptr.cast::<u8>().add(4) as *const u16).read();

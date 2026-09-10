@@ -74,27 +74,65 @@ pub unsafe extern "C" fn __torajs_any_index_set(
     value: u64,
     recv_slot: *mut u64,
 ) {
+    unsafe { any_index_set_impl(recv, idx, tag, value, recv_slot, true) };
+}
+
+/// §13.15.2 sloppy-assignment flavor — a [[Set]] refusal (a
+/// non-writable index, a non-extensible receiver, a primitive base,
+/// a falsish proxy trap) answers `0` instead of recording the strict
+/// TypeError; a handled write answers `1`. Same parameterization as
+/// `__torajs_any_member_set_soft`. The nullish-base TypeError is not
+/// a refusal (§13.15.2 step 1.b ToObject throws in every goal) and
+/// both flavors record it.
+///
+/// # Safety
+/// Same contract as [`__torajs_any_index_set`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_index_set_soft(
+    recv: AnyValue,
+    idx: i64,
+    tag: u64,
+    value: u64,
+    recv_slot: *mut u64,
+) -> i64 {
+    unsafe { any_index_set_impl(recv, idx, tag, value, recv_slot, false) }
+}
+
+/// Flavor-carrying core of the two shells above — `throw_on_refusal`
+/// picks strict assignment (record the TypeError) or the sloppy /
+/// Reflect.set answer (`0`). Returns 1 = written, 0 = refused.
+pub(crate) unsafe fn any_index_set_impl(
+    recv: AnyValue,
+    idx: i64,
+    tag: u64,
+    value: u64,
+    recv_slot: *mut u64,
+    throw_on_refusal: bool,
+) -> i64 {
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             drop_transferred_pair(tag, value);
             __torajs_throw_type_error(c"cannot set properties of null or undefined".as_ptr());
         }
-        return;
+        return 0;
     }
     if !is_cell(recv) {
         unsafe {
             drop_transferred_pair(tag, value);
-            __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+            if throw_on_refusal {
+                __torajs_throw_type_error(
+                    c"cannot assign to a property of this any value".as_ptr(),
+                );
+            }
         }
-        return;
+        return 0;
     }
     let ptr = as_void_ptr(recv);
     let hdr_tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
     // §6.1.7 — a Proxy sees `p[0] = v` spelled `"0"`, and the write
     // is its [[Set]] (RFC 20260823-proxy-substrate 刀 2).
     if hdr_tag == Tag::Proxy as u16 {
-        unsafe { proxy_index_set(recv, ptr, idx, tag, value) };
-        return;
+        return unsafe { proxy_index_set(recv, ptr, idx, tag, value, throw_on_refusal) };
     }
     // §10.4.5.5 TypedArraySetElement — the coercion runs first and
     // unconditionally, and the store only happens when the index is
@@ -106,7 +144,7 @@ pub unsafe extern "C" fn __torajs_any_index_set(
             __torajs_typedarray_index_set(recv, idx as f64, boxed);
             crate::__torajs_anyv_rc_dec(boxed);
         }
-        return;
+        return 1;
     }
     if hdr_tag == Tag::Arr as u16 {
         // §10.4.2.1 / OrdinarySetWithOwnDescriptor — a non-writable
@@ -126,26 +164,50 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         // shadow (the exotic bit) or an integrity level, and a plain
         // array carries neither.
         let hflags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
-        if idx >= 0
-            && hflags & (FLAG_ARR_EXOTIC_INDEX | FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE)
-                != 0
-            && unsafe { __torajs_arr_index_refuses_store(ptr, idx as u64) } != 0
+        // §10.4.2.1 step 1.c / §10.1.9.2 — an index PAST the length of a
+        // non-extensible array is a new key, and a new key on a
+        // non-extensible receiver is refused before the element domain
+        // is asked (pre-fix it fell through to the kernel's RangeError,
+        // which no goal may discard).
+        let past_end = idx >= 0
+            && hflags & (FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE) != 0
+            && (idx as u64)
+                >= unsafe {
+                    ptr.cast::<u8>()
+                        .add(crate::index_any::MIRROR_ARR_LEN_OFF)
+                        .cast::<u64>()
+                        .read()
+                };
+        if past_end
+            || (idx >= 0
+                && hflags
+                    & (FLAG_ARR_EXOTIC_INDEX | FLAG_FROZEN | FLAG_SEALED | FLAG_NON_EXTENSIBLE)
+                    != 0
+                && unsafe { __torajs_arr_index_refuses_store(ptr, idx as u64) } != 0)
         {
             unsafe {
                 drop_transferred_pair(tag, value);
-                __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
+                if throw_on_refusal {
+                    __torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
             }
-            return;
+            return 0;
         }
         unsafe { __torajs_arr_index_set(ptr, idx, tag, value) };
-        return;
+        return 1;
     }
     if hdr_tag == Tag::Str as u16 {
         unsafe {
             drop_transferred_pair(tag, value);
-            __torajs_throw_type_error(c"cannot assign to a property of this any value".as_ptr());
+            if throw_on_refusal {
+                __torajs_throw_type_error(
+                    c"cannot assign to a property of this any value".as_ptr(),
+                );
+            }
         }
-        return;
+        return 0;
     }
     if hdr_tag == Tag::DynObj as u16 {
         let mut buf = [0u8; 20];
@@ -153,7 +215,13 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         unsafe {
             let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
             let mut obj = ptr;
-            __torajs_dynobj_set(&mut obj, key as *mut c_void, tag, value);
+            let wrote = crate::member_set::dynobj_set_flavored(
+                &mut obj,
+                key as *mut c_void,
+                tag,
+                value,
+                throw_on_refusal,
+            );
             __torajs_str_drop(key as *mut c_void);
             if obj != ptr && !recv_slot.is_null() {
                 // Resize relocated the block — the NaN-box cell
@@ -161,8 +229,8 @@ pub unsafe extern "C" fn __torajs_any_index_set(
                 // traffic (same identity, moved storage).
                 *recv_slot = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
             }
+            return wrote;
         }
-        return;
     }
     // RFC 20260721 刀 9 G2c — primitive-wrapper indexed write: the
     // decimal key stores through the member-set wrapper arm (lazy
@@ -213,16 +281,17 @@ pub unsafe extern "C" fn __torajs_any_index_set(
         unsafe {
             let key = __torajs_str_alloc(buf[start..].as_ptr(), len as i64);
             let mut recv_local = recv;
-            crate::member_set::__torajs_any_member_set(
+            let wrote = crate::member_set::any_member_set_impl(
                 &mut recv_local,
                 key as *mut c_void,
                 tag,
                 value,
                 0,
+                throw_on_refusal,
             );
             __torajs_str_drop(key as *mut c_void);
+            return wrote;
         }
-        return;
     }
     unsafe {
         drop_transferred_pair(tag, value);
@@ -230,6 +299,7 @@ pub unsafe extern "C" fn __torajs_any_index_set(
             c"indexed write on this receiver through any is not yet implemented".as_ptr(),
         );
     }
+    0
 }
 
 /// Release a transferred `tag == 4` rc (no-op for immediates).
@@ -240,19 +310,30 @@ unsafe fn drop_transferred_pair(tag: u64, value: u64) {
 }
 
 /// The Proxy arm of [`__torajs_any_index_set`] — mint the canonical
-/// decimal key, run [[Set]], and turn a refusal into the strict
-/// assignment TypeError (the index lane has no Reflect flavor).
+/// decimal key, run [[Set]], and answer a refusal in the caller's
+/// flavor (the strict assignment TypeError, or `0`).
 ///
 /// # Safety
 /// `recv` boxes `ptr`, a live Proxy cell; the `(tag, value)` pair
 /// transfers in.
-unsafe fn proxy_index_set(recv: AnyValue, ptr: *mut c_void, idx: i64, tag: u64, value: u64) {
+unsafe fn proxy_index_set(
+    recv: AnyValue,
+    ptr: *mut c_void,
+    idx: i64,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         let key = __torajs_i64_to_str(idx);
         let r = crate::proxy_ops::set(ptr, key, tag, value, recv);
         __torajs_str_drop(key);
         if let Ok(false) = r {
-            __torajs_throw_type_error(c"proxy 'set' trap returned falsish".as_ptr());
+            if throw_on_refusal {
+                __torajs_throw_type_error(c"proxy 'set' trap returned falsish".as_ptr());
+            }
+            return 0;
         }
+        1
     }
 }

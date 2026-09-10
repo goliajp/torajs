@@ -569,6 +569,8 @@ pub(crate) fn build(
         any_prop_delete: init_c.any_substrate.any_prop_delete,
         any_prop_delete_soft: init_b.object.any_prop_delete_soft,
         any_member_set_soft: init_b.object.any_member_set_soft,
+        any_index_set_soft: init_b.object.any_index_set_soft,
+        any_index_set_keyed_soft: init_b.object.any_index_set_keyed_soft,
         any_member_set_with_receiver: init_b.object.any_member_set_with_receiver,
         any_member_get_with_receiver: init_b.object.any_member_get_with_receiver,
         reflect_set_prototype_of: init_b.object.reflect_set_prototype_of,

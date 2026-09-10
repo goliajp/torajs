@@ -146,8 +146,13 @@ pub(crate) struct ObjectIds {
     pub any_prop_delete_soft: FuncId,
     /// §28.1.13 Reflect.set — the [[Set]] kernel's no-throw flavor
     /// (refusal answers 0 with no pending throw; setter throws
-    /// still propagate).
+    /// still propagate). §13.15.2 sloppy assignment rides the same
+    /// flavor (`ssa_lower_set_flavor`).
     pub any_member_set_soft: FuncId,
+    /// The index-key twins of `any_member_set_soft` — the sloppy
+    /// goal's `o[i] = v` / `o[k] = v`.
+    pub any_index_set_soft: FuncId,
+    pub any_index_set_keyed_soft: FuncId,
     /// §10.1.9.2 OrdinarySet with the lookup object and the write
     /// object pulled apart — `Reflect.set`'s four-argument form. The
     /// receiver rides a slot so a DynObj relocation writes back.
@@ -287,6 +292,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         any_member_set_soft: decl!(
             "__torajs_any_member_set_soft",
             [Ptr, Ptr, I64, I64, I64],
+            I64
+        ),
+        any_index_set_soft: decl!(
+            "__torajs_any_index_set_soft",
+            [Any, I64, I64, I64, Ptr],
+            I64
+        ),
+        any_index_set_keyed_soft: decl!(
+            "__torajs_any_index_set_keyed_soft",
+            [Any, Any, I64, I64, Ptr],
             I64
         ),
         any_member_set_with_receiver: decl!(

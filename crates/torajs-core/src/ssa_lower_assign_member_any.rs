@@ -247,20 +247,22 @@ pub(crate) fn emit_any_member_set_dyn(
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(obj_val, Operand::Value(slot), 0));
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            kernel,
-            vec![
-                Operand::Value(slot),
-                Operand::Value(key_str),
-                tag_op,
-                val_op,
-                Operand::ConstI64(hint),
-            ],
-        ),
-    );
+    let args = vec![
+        Operand::Value(slot),
+        Operand::Value(key_str),
+        tag_op,
+        val_op,
+        Operand::ConstI64(hint),
+    ];
+    // The ordinary kernel has a sloppy-goal twin; the private-brand
+    // one does not (a brand miss is a TypeError in every goal).
+    if kernel == ctx.intrinsics.any_member_set {
+        let soft = ctx.intrinsics.any_member_set_soft;
+        crate::ssa_lower_set_flavor::emit_any_set(ctx, kernel, soft, args);
+    } else {
+        let cur_block = ctx.cur_block;
+        ctx.f.append_void(cur_block, InstKind::Call(kernel, args));
+    }
     // P3.attribute-flag-tracking + the tag-gate boundary TypeErrors.
     ctx.emit_throw_check(None);
     if recv_owned {

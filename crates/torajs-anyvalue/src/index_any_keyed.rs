@@ -132,21 +132,56 @@ pub unsafe extern "C" fn __torajs_any_index_set_keyed(
     value: u64,
     recv_slot: *mut u64,
 ) {
+    unsafe { any_index_set_keyed_impl(recv, key, tag, value, recv_slot, true) };
+}
+
+/// §13.15.2 sloppy-assignment flavor of the keyed write — a [[Set]]
+/// refusal answers `0` instead of recording the strict TypeError
+/// (the `__torajs_any_index_set_soft` / `__torajs_any_member_set_soft`
+/// twins, one key dispatch up).
+///
+/// # Safety
+/// Same contract as [`__torajs_any_index_set_keyed`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_index_set_keyed_soft(
+    recv: AnyValue,
+    key: AnyValue,
+    tag: u64,
+    value: u64,
+    recv_slot: *mut u64,
+) -> i64 {
+    unsafe { any_index_set_keyed_impl(recv, key, tag, value, recv_slot, false) }
+}
+
+unsafe fn any_index_set_keyed_impl(
+    recv: AnyValue,
+    key: AnyValue,
+    tag: u64,
+    value: u64,
+    recv_slot: *mut u64,
+    throw_on_refusal: bool,
+) -> i64 {
     unsafe {
         if is_int32(key) {
-            return crate::index_any_set::__torajs_any_index_set(
+            return crate::index_any_set::any_index_set_impl(
                 recv,
                 as_int32(key) as i64,
                 tag,
                 value,
                 recv_slot,
+                throw_on_refusal,
             );
         }
         if is_double(key) {
             let d = as_double(key);
             if d.is_finite() && d.trunc() == d && d.abs() <= 9007199254740991.0 {
-                return crate::index_any_set::__torajs_any_index_set(
-                    recv, d as i64, tag, value, recv_slot,
+                return crate::index_any_set::any_index_set_impl(
+                    recv,
+                    d as i64,
+                    tag,
+                    value,
+                    recv_slot,
+                    throw_on_refusal,
                 );
             }
         }
@@ -160,21 +195,24 @@ pub unsafe extern "C" fn __torajs_any_index_set_keyed(
             let ptr = as_void_ptr(key);
             let ktag = (ptr as *const u8).add(4).cast::<u16>().read();
             if ktag == Tag::Symbol as u16 || ktag == Tag::Str as u16 {
-                return crate::member_set::__torajs_any_member_set(
+                return crate::member_set::any_member_set_impl(
                     slot,
                     ptr as *mut c_void,
                     tag,
                     value,
                     -1,
+                    throw_on_refusal,
                 );
             }
         }
         let kstr = crate::nanbox_ffi::__torajs_anyv_to_str(key);
         if kstr.is_null() {
-            return;
+            return 0;
         }
-        crate::member_set::__torajs_any_member_set(slot, kstr, tag, value, -1);
+        let wrote =
+            crate::member_set::any_member_set_impl(slot, kstr, tag, value, -1, throw_on_refusal);
         __torajs_str_drop(kstr);
+        wrote
     }
 }
 

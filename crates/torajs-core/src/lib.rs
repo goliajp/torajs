@@ -582,6 +582,7 @@ pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_relative_index;
 pub(crate) mod ssa_lower_resolve_callee;
 pub(crate) mod ssa_lower_scope_exit;
+pub mod ssa_lower_set_flavor;
 pub(crate) mod ssa_lower_splice;
 pub(crate) mod ssa_lower_stmt_block;
 pub(crate) mod ssa_lower_stmt_break_continue;

@@ -212,13 +212,15 @@ impl<'a> LowerCtx<'a> {
             // Stake before the store (consuming receivers release
             // the transferred pair inside the kernel).
             crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
-            let cur_block = self.cur_block;
-            self.f.append_void(
-                cur_block,
-                crate::ssa::InstKind::Call(
-                    self.intrinsics.any_index_set_keyed,
-                    vec![obj_val, k, tag_op, value_op, recv_slot],
-                ),
+            let (strict, soft) = (
+                self.intrinsics.any_index_set_keyed,
+                self.intrinsics.any_index_set_keyed_soft,
+            );
+            crate::ssa_lower_set_flavor::emit_any_set(
+                self,
+                strict,
+                soft,
+                vec![obj_val, k, tag_op, value_op, recv_slot],
             );
             self.emit_throw_check(None);
             return v_raw;
@@ -283,13 +285,15 @@ impl<'a> LowerCtx<'a> {
         // Stake before the store (consuming receivers release the
         // transferred pair inside the kernel).
         crate::ssa_lower_index_assign::mint_index_assign_value(self, eid, &v_raw);
-        let cur_block = self.cur_block;
-        self.f.append_void(
-            cur_block,
-            crate::ssa::InstKind::Call(
-                self.intrinsics.any_index_set_keyed,
-                vec![obj_val, k_final.clone(), tag_op, value_op, recv_slot],
-            ),
+        let (strict, soft) = (
+            self.intrinsics.any_index_set_keyed,
+            self.intrinsics.any_index_set_keyed_soft,
+        );
+        crate::ssa_lower_set_flavor::emit_any_set(
+            self,
+            strict,
+            soft,
+            vec![obj_val, k_final.clone(), tag_op, value_op, recv_slot],
         );
         self.emit_throw_check(None);
         // The coerced cell carries the to_property_key +1 (its box is
