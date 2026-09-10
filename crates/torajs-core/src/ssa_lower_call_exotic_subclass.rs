@@ -154,11 +154,7 @@ fn lower_alloc_self_with_kind(
         return None;
     };
     let kind = *kind;
-    let tag = ctx
-        .f
-        .name
-        .strip_prefix("__new_")
-        .and_then(|cname| ctx.class_name_to_tag.get(cname).copied())?;
+    let tag = factory_class_tag(ctx)?;
     let call_args = vec![
         Operand::ConstI64(tag as i64),
         Operand::ConstI64(kind as i64),
@@ -187,11 +183,7 @@ fn lower_alloc_self(
     if !args.is_empty() {
         return None;
     }
-    let tag = ctx
-        .f
-        .name
-        .strip_prefix("__new_")
-        .and_then(|cname| ctx.class_name_to_tag.get(cname).copied())?;
+    let tag = factory_class_tag(ctx)?;
     let mut call_args = vec![Operand::ConstI64(tag as i64)];
     if with_len {
         call_args.push(Operand::ConstI64(0));
@@ -243,4 +235,25 @@ fn lower_super_boxed(ctx: &mut LowerCtx<'_>, args: &[ExprId], kernel: FuncId) ->
         .f
         .append_inst(cur_block, InstKind::Call(kernel, ops), Type::Any, None);
     Some(Operand::Value(v))
+}
+
+/// The class tag the enclosing `__new_<C>` factory mints under. A
+/// mono factory (`__new_D2$$anywv` — an UNTYPED ctor parameter makes
+/// the ctor an implicit generic, so `class D2 extends Date {
+/// constructor(d) { super(d) } }` lowers through one per arg
+/// specialization) names the same class: an exotic cell has no
+/// per-specialization layout, its identity is the base class's
+/// registration (`instanceof`, the prototype link, the method
+/// table), so the base tag is the answer. Pre-fix the exact-name
+/// lookup missed the mono spelling and the magic fell through to
+/// "unknown function" (test262 subclass/builtin-objects/{Array,Date,
+/// Promise}, rotation 629). `None` = not a factory of a registered
+/// class (the class-synth dispatcher keeps walking).
+fn factory_class_tag(ctx: &LowerCtx<'_>) -> Option<u32> {
+    let rest = ctx.f.name.strip_prefix("__new_")?;
+    if let Some(tag) = ctx.class_name_to_tag.get(rest) {
+        return Some(*tag);
+    }
+    let (base, _mono) = rest.split_once("$$")?;
+    ctx.class_name_to_tag.get(base).copied()
 }
