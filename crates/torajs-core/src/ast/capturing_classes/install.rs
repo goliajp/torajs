@@ -40,6 +40,7 @@ pub(super) fn install_static_inits(
                 StaticInit::Block(stmts) => stmts.clone(),
             };
             super::extends::rewrite_super_sites(ast, &body_view, p, true, name);
+            super::extends::rewrite_super_prop_sites(ast, &body_view, p, true, name);
         }
         match si {
             StaticInit::Field(sf) => {

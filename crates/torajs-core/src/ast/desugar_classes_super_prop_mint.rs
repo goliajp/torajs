@@ -16,6 +16,12 @@ pub(super) struct SiteCtx<'a> {
     pub(super) cname: &'a str,
     pub(super) is_static: bool,
     pub(super) dynamic: bool,
+    /// The static receiver is spelled `this` rather than the class
+    /// binding — the ES5 capturing lane binds a static body's `this`
+    /// to the class object (`.call(K)` / the defineProperty install)
+    /// and rewrites the binding's own name inside its bodies, so the
+    /// name would not survive there while `this` does.
+    pub(super) this_receiver: bool,
 }
 
 impl SiteCtx<'_> {
@@ -56,7 +62,7 @@ impl SiteCtx<'_> {
     /// §13.3.7's receiver — `this`, or the class object in static
     /// context.
     pub(super) fn receiver(&self, ast: &mut Ast) -> ExprId {
-        if self.is_static {
+        if self.is_static && !self.this_receiver {
             ast.add_expr(Expr::Ident(self.cname.to_string()))
         } else {
             ast.add_expr(Expr::This)

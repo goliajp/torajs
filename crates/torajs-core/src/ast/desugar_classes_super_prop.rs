@@ -115,7 +115,18 @@ pub(super) fn rewrite_super_prop_sites(
         // cannot read a method off in the first place, so re-spelling
         // it would only move an already-recorded failure.
         let dyn_here = dynamic && !ast.exotic_parent.contains_key(cname);
-        rewrite_sites(ast, class_index, parent_name, cname, false, dyn_here, inst);
+        rewrite_sites(
+            ast,
+            class_index,
+            SiteCtx {
+                parent_name,
+                cname,
+                is_static: false,
+                dynamic: dyn_here,
+                this_receiver: false,
+            },
+            inst,
+        );
 
         // Static context: super base = the <Parent> class object, or
         // %Function.prototype% for a base class (§10.2.4: the static
@@ -143,25 +154,28 @@ pub(super) fn rewrite_super_prop_sites(
                 }
             }
         }
-        rewrite_sites(ast, class_index, parent_name, cname, true, dyn_here, stat);
+        rewrite_sites(
+            ast,
+            class_index,
+            SiteCtx {
+                parent_name,
+                cname,
+                is_static: true,
+                dynamic: dyn_here,
+                this_receiver: false,
+            },
+            stat,
+        );
     }
 }
 
-fn rewrite_sites(
+pub(super) fn rewrite_sites(
     ast: &mut Ast,
     class_index: &[ClassIndexEntry],
-    parent_name: Option<&str>,
-    cname: &str,
-    is_static: bool,
-    dynamic: bool,
+    cx: SiteCtx<'_>,
     found: SuperPropSites,
 ) {
-    let cx = SiteCtx {
-        parent_name,
-        cname,
-        is_static,
-        dynamic,
-    };
+    let (parent_name, is_static, dynamic) = (cx.parent_name, cx.is_static, cx.dynamic);
     let deletes = delete_operands(ast);
     for site in found.sites {
         match site {

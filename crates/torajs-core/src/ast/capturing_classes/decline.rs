@@ -218,9 +218,10 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     let synthetic_free = |params: &[Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
-        free_vars_of_body(ast, &bound, body)
-            .iter()
-            .any(|n| n.starts_with("__") && !(allow_supercall && n.starts_with("__supercall__")))
+        free_vars_of_body(ast, &bound, body).iter().any(|n| {
+            n.starts_with("__")
+                && !(allow_supercall && (n.starts_with("__supercall__") || n == "__superbase__"))
+        })
     };
     let ctor_synthetic = ctor
         .as_ref()

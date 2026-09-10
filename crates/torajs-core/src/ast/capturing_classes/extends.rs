@@ -172,6 +172,39 @@ pub(super) fn rewrite_super_sites(
     }
 }
 
+/// The SuperProperty sites of one body on this lane (rotation 628) —
+/// `super.x` / `super[k]` / `super.x = v` / `super.x++` / `super.m?.()`
+/// — through the class desugar's own rewrite in its runtime-base
+/// form: `Object.getPrototypeOf(<K>.prototype)` (instance) or
+/// `Object.getPrototypeOf(<K>)` (static) is the parent this lane
+/// linked with `proto_chain_stmts`, so a function-valued parent
+/// (`function Parent() {}`) reads exactly like a class one, and every
+/// kernel carries the body's `this` as the §13.3.7 receiver.
+pub(super) fn rewrite_super_prop_sites(
+    ast: &mut Ast,
+    body: &[Stmt],
+    parent: &str,
+    static_home: bool,
+    class_binding: &str,
+) {
+    let mut sites = super::super::super_collect_prop::SuperPropSites::default();
+    for s in body {
+        super::super::super_collect_prop::collect_superprop_in_stmt(ast, s, &mut sites);
+    }
+    super::super::desugar_classes_super_prop::rewrite_sites(
+        ast,
+        &[],
+        super::super::desugar_classes_super_prop_mint::SiteCtx {
+            parent_name: Some(parent),
+            cname: class_binding,
+            is_static: static_home,
+            dynamic: true,
+            this_receiver: true,
+        },
+        sites,
+    );
+}
+
 /// Where `super(…)` against `parent` actually lands (405-01) — the
 /// nearest ancestor with an explicit ctor, itself included; an
 /// unrecorded parent answers itself (defensive identity, not a

@@ -396,6 +396,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     };
     if let Some(p) = &parent {
         extends::rewrite_super_sites(ast, &body, p, false, &name);
+        extends::rewrite_super_prop_sites(ast, &body, p, false, &name);
     }
     let ctor_eid = ast.add_expr(Expr::ArrowFn {
         params,
@@ -434,6 +435,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
         // so its super base is the parent CLASS (405-01 face 3).
         if let Some(p) = &parent {
             extends::rewrite_super_sites(ast, &m.body, p, !on_prototype, &name);
+            extends::rewrite_super_prop_sites(ast, &m.body, p, !on_prototype, &name);
         }
         let eid = ast.add_expr(Expr::ArrowFn {
             params: m.params,
