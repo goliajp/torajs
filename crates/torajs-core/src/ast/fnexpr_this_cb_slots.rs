@@ -163,16 +163,29 @@ pub(super) fn collect_call_apply_face(
 /// `Array.fromAsync` rides the same face (rotation 435): its mapped
 /// dyn kernel takes the §2.1.1 step 3.j.ii.6.a receiver as a third
 /// operand and hands it to every mapfn call.
+///
+/// Rotation 628 — the receiver may also be an any-lane value: a
+/// `: any` binding / parameter (`TA.from(src, mapfn, thisArg)`,
+/// test262's `testWithTypedArrayConstructors` body) or an `as any`
+/// cast (`(Uint8Array as any).from(…)`). Such a call rides the
+/// runtime ctor-static dispatch, whose `%TypedArray%.from` /
+/// `Array.from` kernels both hand `thisArg` to every mapfn call on
+/// the receiver channel — the same seed the `Array` spelling gets.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn collect_array_from_face(
     stmts: &[Stmt],
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    any_recvs: &std::collections::HashSet<String>,
     obj: ExprId,
     args: &[ExprId],
     patches: &mut Vec<FacePatch>,
     ident_cands: &mut Vec<(String, ExprId)>,
 ) {
-    if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Array") {
+    let recv = super::fnexpr_this_faces::peel_any_cast(exprs, obj);
+    let any_lane =
+        recv != obj || matches!(&exprs[recv.0 as usize], Expr::Ident(n) if any_recvs.contains(n));
+    if !any_lane && !matches!(&exprs[recv.0 as usize], Expr::Ident(n) if n == "Array") {
         return;
     }
     if let Some(cb) = args.get(1) {

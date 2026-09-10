@@ -252,6 +252,8 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
                 crate::json_raw::__torajs_json_is_raw_json(arg_at(argv, argc, 0))
             }
             Disp::StringRaw => super::ns_static_argv::string_raw_value(argv, argc),
+            Disp::TypedArrayFrom => crate::typed_array_from::typed_array_from_value(argv, argc),
+            Disp::TypedArrayOf => crate::typed_array_from::typed_array_of_value(argv, argc),
             Disp::JsonParse => super::ns_static_argv::json_parse_value(argv, argc),
             Disp::JsonStringify => super::ns_static_argv::json_stringify_value(argv, argc),
             Disp::ReflectGet => super::ns_static_reflect::reflect_get(argv, argc),
@@ -300,6 +302,8 @@ fn this_aware_id(id: i64) -> bool {
                 Disp::ArrayFromFace
                     | Disp::FromAsyncDyn
                     | Disp::ArrayOf
+                    | Disp::TypedArrayFrom
+                    | Disp::TypedArrayOf
                     | Disp::PromiseSettleFn { .. }
                     | Disp::PromiseCombinator { .. }
                     | Disp::PromiseTryFn

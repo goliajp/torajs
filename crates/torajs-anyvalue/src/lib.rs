@@ -258,6 +258,7 @@ mod to_bigint;
 mod to_callable;
 mod to_object;
 mod to_primitive;
+mod typed_array_from;
 mod wrapper_view_through;
 
 pub mod inspect;

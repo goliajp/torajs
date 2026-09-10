@@ -265,6 +265,13 @@ pub(super) enum Disp {
     /// the cell exists for identity / typeof / the reflection
     /// surfaces).
     EvalDyn,
+    /// §23.2.2.1 %TypedArray%.from — recv-first: argv[0] is the
+    /// constructor the call came off; the same-crate kernel drains
+    /// the source, `TypedArrayCreate(C, «len»)`, then map / Set.
+    TypedArrayFrom,
+    /// §23.2.2.2 %TypedArray%.of — recv-first; `TypedArrayCreate(C,
+    /// «argc»)` then one Set per item.
+    TypedArrayOf,
     /// §19.2.2/.3 the global `isFinite` / `isNaN` — ToNumber
     /// coercion first (may throw on Symbol / BigInt), then the
     /// float test. The Number.* `NumPredicate` arms never coerce.
@@ -449,4 +456,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::PromiseKeyed { settled: false }, // Promise.allKeyed — recv-first, await-dictionary
     Disp::PromiseKeyed { settled: true }, // Promise.allSettledKeyed — recv-first, await-dictionary
     Disp::StringRaw,
+    Disp::TypedArrayFrom, // TypedArray.from — recv-first, §23.2.2.1
+    Disp::TypedArrayOf,   // TypedArray.of — recv-first, §23.2.2.2
 ];

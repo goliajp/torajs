@@ -53,7 +53,7 @@ unsafe extern "C" {
 
 /// The mapfn face after the step-2 gate: `None` = no mapping,
 /// `Some((env, entry))` = the boxed callable pair.
-type MapPair = Option<(*mut c_void, u64)>;
+pub(crate) type MapPair = Option<(*mut c_void, u64)>;
 
 /// The typed lowering's escape route (B6 刀 3 —
 /// `from_mapfn_routes_kernel` shapes): a direct `Array.from(src,
@@ -85,7 +85,7 @@ pub unsafe extern "C" fn __torajs_array_from_dyn(
 /// for callers with no constructor `this`.
 unsafe fn from_plain_gated(items: AnyValue, mapfn: AnyValue, this_arg: AnyValue) -> AnyValue {
     unsafe {
-        let Ok(map_pair) = mapping_gate(mapfn) else {
+        let Ok(map_pair) = mapping_gate(mapfn, c"Array.from: mapfn is not a function") else {
             return VALUE_UNDEFINED;
         };
         from_plain(items, map_pair, this_arg)
@@ -93,8 +93,10 @@ unsafe fn from_plain_gated(items: AnyValue, mapfn: AnyValue, this_arg: AnyValue)
 }
 
 /// Step 2 — mapping + IsCallable BEFORE any iteration. `Err` = the
-/// non-callable TypeError is recorded pending.
-unsafe fn mapping_gate(mapfn: AnyValue) -> Result<MapPair, ()> {
+/// non-callable TypeError (`msg`) is recorded pending. Shared with
+/// the %TypedArray%.from kernel (`typed_array_from.rs`), whose step 3
+/// is the same gate under its own message.
+pub(crate) unsafe fn mapping_gate(mapfn: AnyValue, msg: &core::ffi::CStr) -> Result<MapPair, ()> {
     unsafe {
         if is_undefined(mapfn) {
             return Ok(None);
@@ -102,7 +104,7 @@ unsafe fn mapping_gate(mapfn: AnyValue) -> Result<MapPair, ()> {
         match closure_boxed_entry(mapfn) {
             Some(pair) => Ok(Some(pair)),
             None => {
-                __torajs_throw_type_error(c"Array.from: mapfn is not a function".as_ptr());
+                __torajs_throw_type_error(msg.as_ptr());
                 Err(())
             }
         }
@@ -126,7 +128,7 @@ pub(crate) unsafe fn array_from_this(
     this_arg: AnyValue,
 ) -> AnyValue {
     unsafe {
-        let Ok(map_pair) = mapping_gate(mapfn) else {
+        let Ok(map_pair) = mapping_gate(mapfn, c"Array.from: mapfn is not a function") else {
             return VALUE_UNDEFINED;
         };
         if !crate::construct::__torajs_is_constructor(this_c) {
@@ -157,8 +159,9 @@ pub(crate) unsafe fn array_from_this(
 /// args whatever the declared arity (the boxed lane materializes
 /// `arguments` off the real argc), thisArg on the receiver channel.
 /// Consumes `owned` (the callee borrows argv; released here). `Err`
-/// = the mapfn threw (pending recorded).
-unsafe fn map_elem(
+/// = the mapfn threw (pending recorded). Shared with the
+/// %TypedArray%.from kernel (`typed_array_from.rs`, step 5.e.iii).
+pub(crate) unsafe fn map_elem(
     map_pair: MapPair,
     this_arg: AnyValue,
     owned: AnyValue,

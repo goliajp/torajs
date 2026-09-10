@@ -116,6 +116,10 @@ fn ctor_ns_name(proto_tag: i64) -> &'static str {
         11 => "Map",
         12 => "Set",
         13 => "Function",
+        // The twelve concrete TypedArray constructors share the
+        // abstract %TypedArray%'s statics (§23.2.2 — `from` / `of`
+        // are inherited, one interned cell each).
+        20..=31 => "TypedArray",
         _ => "",
     }
 }

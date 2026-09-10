@@ -37,6 +37,16 @@ use super::{Expr, Stmt};
 /// bodies spell every TypedArray receiver this way, and a `this`-
 /// reading callback handed to `sample.reduce` / `.sort` / `.forEach`
 /// on such a binding was an unclaimed-receiver refusal.
+///
+/// A PARAMETER joins on the same terms (rotation 628): `: any`
+/// spelled, or unannotated with no default — `infer_anonymous_closure_params`
+/// has already run by the time this census walks, so an annotation
+/// it left empty is the implicit `any` the checker types the slot
+/// with. test262's `testWithTypedArrayConstructors(function (TA) {
+/// … TA.from(src, mapfn, thisArg) … })` spells its receiver this
+/// way, and every method call on `TA` rides the runtime dispatch. A
+/// defaulted or otherwise-annotated parameter is a non-any
+/// declaration of the name and removes it, like any other.
 pub(super) fn collect_any_binding_names(
     stmts: &[Stmt],
     exprs: &[Expr],
@@ -73,6 +83,16 @@ fn collect_binding_names_inner(
                     any_names.insert(name.clone());
                 } else {
                     other_names.insert(name.clone());
+                }
+            }
+            Stmt::FnDecl { params, .. } => {
+                for p in params {
+                    let implicit_any = p.type_ann.is_none() && p.default.is_none() && !p.is_rest;
+                    if p.type_ann.as_deref() == Some("any") || implicit_any {
+                        any_names.insert(p.name.clone());
+                    } else {
+                        other_names.insert(p.name.clone());
+                    }
                 }
             }
             _ => {}

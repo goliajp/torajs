@@ -123,6 +123,7 @@ pub(super) fn collect_call_position_face(
                 stmts,
                 exprs,
                 fn_expr_exprs,
+                any_recvs,
                 *obj,
                 args,
                 patches,

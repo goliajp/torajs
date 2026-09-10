@@ -49,7 +49,7 @@ pub(super) unsafe fn own(v: u64) -> u64 {
 }
 
 /// argv[i], missing → undefined.
-pub(super) unsafe fn arg_at(argv: *const u64, argc: i64, i: i64) -> u64 {
+pub(crate) unsafe fn arg_at(argv: *const u64, argc: i64, i: i64) -> u64 {
     if i < argc {
         unsafe { *argv.add(i as usize) }
     } else {

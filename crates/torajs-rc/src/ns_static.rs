@@ -312,6 +312,15 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // dispatch arm runs the same torajs-meta kernel for a detached
     // call (`const r = String.raw; r({raw:["a"]})`).
     row("String", "raw", 1),
+    // §23.2.2.1 / §23.2.2.2 %TypedArray%.from / .of — ONE row each
+    // for all twelve concrete constructors (the statics live on the
+    // abstract %TypedArray%, so `Uint8Array.from === Int8Array.from`);
+    // torajs-anyvalue's ctor-static lookup keys every TypedArray
+    // proto tag to this "TypedArray" namespace. Both are recv-first
+    // (the constructor C is the |this| the call came off). Lengths
+    // per spec (`of` is rest-shaped).
+    row("TypedArray", "from", 1),
+    row("TypedArray", "of", 0),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time
