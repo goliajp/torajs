@@ -341,10 +341,21 @@ fn lower_assign_rhs(ctx: &mut LowerCtx<'_>, slot_ty: Type, value: ExprId) -> Ope
     if let Type::Arr(sid) = slot_ty
         && matches!(ctx.ast.get_expr(value), Expr::Array(els) if els.is_empty())
     {
+        // The FLAVOR follows the layout, not just the ArrId: an
+        // `any`-element block has to be minted any-flavored, or the
+        // first store through it meets "push through an any[] view
+        // would change the typed array's element kind" (`var x = new
+        // Array(); x = []; x[0] = 1` — rotation 630's first cut took
+        // the typed mint unconditionally and regressed 20 Array cases).
+        let alloc = if ctx.arr_layouts[sid.0 as usize] == Type::Any {
+            ctx.intrinsics.arr_alloc_any
+        } else {
+            ctx.intrinsics.arr_alloc
+        };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+            InstKind::Call(alloc, vec![Operand::ConstI64(0)]),
             Type::Arr(sid),
             None,
         );
