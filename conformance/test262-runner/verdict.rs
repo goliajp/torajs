@@ -156,6 +156,25 @@ fn first_stderr_line(out: &std::process::Output) -> String {
         .to_string()
 }
 
+/// The line a BUG is attributed to.
+///
+/// tr prints its compile diagnostics before it runs the program, and
+/// `warning: unknown identifier <n>` is a routine one: a case that
+/// reads a deliberately-undeclared name (every `assert.throws(
+/// ReferenceError, () => { u; })`) emits it and then fails for some
+/// completely different reason. Recording the FIRST line put 6193 of
+/// the bug rows under that warning with their real cause invisible —
+/// a measurement device reporting its own noise. The classification
+/// above still reads the first line, where a compile reject always
+/// is; only the recorded message prefers the first `error:` line.
+fn failure_line(out: &std::process::Output) -> String {
+    String::from_utf8_lossy(&out.stderr)
+        .lines()
+        .find(|l| l.trim_start().starts_with("error:"))
+        .map(str::to_string)
+        .unwrap_or_else(|| first_stderr_line(out))
+}
+
 /// Judge a `negative:` case — the expected-error phase is the oracle.
 pub fn judge_negative(phase: &str, expected_type: &str, out: &std::process::Output) -> Outcome {
     if out.status.success() {
@@ -177,7 +196,10 @@ pub fn judge_negative(phase: &str, expected_type: &str, out: &std::process::Outp
             // accepted source it should have rejected.
             None => Outcome::Bug {
                 kind: "negative-phase-mismatch".to_string(),
-                msg: format!("expected {phase}-phase reject, got runtime failure: {first_line}"),
+                msg: format!(
+                    "expected {phase}-phase reject, got runtime failure: {}",
+                    failure_line(out)
+                ),
             },
         },
         "runtime" => match compile_kind {
@@ -269,7 +291,7 @@ pub fn judge_no_oracle(out: &std::process::Output, is_async: bool) -> Outcome {
     };
     Outcome::Bug {
         kind,
-        msg: first_line,
+        msg: failure_line(out),
     }
 }
 
@@ -296,7 +318,7 @@ pub fn judge_oracle(out: &std::process::Output, bun_stdout: &[u8]) -> Outcome {
     };
     Outcome::Bug {
         kind,
-        msg: first_line,
+        msg: failure_line(out),
     }
 }
 
@@ -312,6 +334,27 @@ mod tests {
             stdout: Vec::new(),
             stderr: stderr.as_bytes().to_vec(),
         }
+    }
+
+    #[test]
+    fn bug_message_skips_a_leading_warning() {
+        // The routine shape: a compile warning about a name the
+        // program deliberately leaves undeclared, then the real
+        // failure. The row must carry the failure.
+        let o = out(
+            1,
+            "warning: unknown identifier `u`\nerror: uncaught TypeError: nope\n",
+        );
+        assert!(matches!(
+            judge_oracle(&o, b""),
+            Outcome::Bug { msg, .. } if msg == "error: uncaught TypeError: nope"
+        ));
+    }
+
+    #[test]
+    fn bug_message_falls_back_to_the_first_line() {
+        let o = out(139, "");
+        assert!(matches!(judge_oracle(&o, b""), Outcome::Bug { msg, .. } if msg == "(no stderr)"));
     }
 
     #[test]
