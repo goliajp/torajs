@@ -19,32 +19,40 @@
 //! keeps the checker's loud reject — the loop shape has no value
 //! position.
 
+use super::apply_spread_evidence::collect_array_evident;
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
+use std::collections::HashSet;
 
 pub fn apply_spread_push(ast: &mut Ast) {
+    // Rotation 626 — the loop below indexes the source; only an
+    // evident array is desugared (see `apply_spread_evidence`). A
+    // generator source so looped pushed nothing: its `.length` is
+    // undefined and the loop never entered. The rest ride the
+    // runtime method-spread lane, which iterates.
+    let evident = collect_array_evident(ast);
     let mut counter = 0usize;
     let mut stmts = std::mem::take(&mut ast.stmts);
     for s in &mut stmts {
-        rewrite_stmt(ast, s, &mut counter);
+        rewrite_stmt(ast, s, &mut counter, &evident);
     }
     ast.stmts = stmts;
 }
 
-fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
+fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize, evident: &HashSet<String>) {
     match s {
         Stmt::Expr(eid) => {
-            if let Some(replacement) = try_desugar_push_spread(ast, *eid, counter) {
+            if let Some(replacement) = try_desugar_push_spread(ast, *eid, counter, evident) {
                 *s = replacement;
             }
         }
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
             for c in stmts {
-                rewrite_stmt(ast, c, counter);
+                rewrite_stmt(ast, c, counter, evident);
             }
         }
         Stmt::FnDecl { body, .. } => {
             for c in body {
-                rewrite_stmt(ast, c, counter);
+                rewrite_stmt(ast, c, counter, evident);
             }
         }
         Stmt::If {
@@ -52,22 +60,22 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             else_branch,
             ..
         } => {
-            rewrite_stmt(ast, then_branch, counter);
+            rewrite_stmt(ast, then_branch, counter, evident);
             if let Some(eb) = else_branch {
-                rewrite_stmt(ast, eb, counter);
+                rewrite_stmt(ast, eb, counter, evident);
             }
         }
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } => {
-            rewrite_stmt(ast, body, counter);
+            rewrite_stmt(ast, body, counter, evident);
         }
         Stmt::Labeled { body, .. } => {
-            rewrite_stmt(ast, body, counter);
+            rewrite_stmt(ast, body, counter, evident);
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                rewrite_stmt(ast, i, counter);
+                rewrite_stmt(ast, i, counter, evident);
             }
-            rewrite_stmt(ast, body, counter);
+            rewrite_stmt(ast, body, counter, evident);
         }
         _ => {}
     }
@@ -76,7 +84,12 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
 /// `Stmt::Expr(xs.push(prefix…, ...ys))` → the block replacement,
 /// or None when the shape doesn't match (multiple spreads,
 /// non-trailing spread, non-Ident receiver/source, other callees).
-fn try_desugar_push_spread(ast: &mut Ast, eid: ExprId, counter: &mut usize) -> Option<Stmt> {
+fn try_desugar_push_spread(
+    ast: &mut Ast,
+    eid: ExprId,
+    counter: &mut usize,
+    evident: &HashSet<String>,
+) -> Option<Stmt> {
     let Expr::Call { callee, args } = ast.get_expr(eid) else {
         return None;
     };
@@ -103,6 +116,9 @@ fn try_desugar_push_spread(ast: &mut Ast, eid: ExprId, counter: &mut usize) -> O
     let Expr::Ident(src) = ast.get_expr(*expr) else {
         return None;
     };
+    if !evident.contains(src) {
+        return None;
+    }
     let recv = recv.clone();
     let src = src.clone();
     let prefix: Vec<ExprId> = prefix.to_vec();

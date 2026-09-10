@@ -25,8 +25,10 @@
 //! 688). Shapes deliberately left alone (the checker's existing
 //! loud reject — "spread `...` is only valid inside an array
 //! literal" — covers them): other Member/builtin callees,
-//! non-trailing or multiple spreads, non-Ident spread sources,
-//! unknown callees, rest-param callees (consumed earlier by
+//! non-trailing or multiple spreads, spread sources that are not
+//! syntactically an array (`apply_spread_evidence` — the hoist
+//! materializes those, and what it cannot reach rides the runtime
+//! spread lane, which iterates), unknown callees, rest-param callees (consumed earlier by
 //! `apply_rest_args`), pre-spread fixed args already exceeding the
 //! declared arity, and defaulted-param-before-required shapes.
 //!
@@ -126,6 +128,11 @@ pub fn apply_spread_args(ast: &mut Ast) {
     // trigger the default here (JS would) — the probe is
     // length-based.
     let fn_defaults = collect_fn_defaults(ast);
+    // Rotation 626 — the expansion below reads the source by index,
+    // which is only what a spread means for an ARRAY; a generator /
+    // Set / string Ident so expanded never iterated (undefined per
+    // slot, body never run). Only an evident array is expanded.
+    let evident = super::apply_spread_evidence::collect_array_evident(ast);
     // Collect rewrites first (see `Rewrite`), then expand.
     let mut rewrites: Vec<Rewrite> = Vec::new();
     for i in 0..ast.exprs.len() {
@@ -201,6 +208,9 @@ pub fn apply_spread_args(ast: &mut Ast) {
         let Expr::Ident(src_name) = ast.get_expr(*expr) else {
             continue;
         };
+        if !evident.contains(src_name) {
+            continue;
+        }
         let k = prefix.len();
         if k > arity {
             continue;

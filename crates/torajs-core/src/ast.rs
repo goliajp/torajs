@@ -8,6 +8,7 @@ mod apply_args_materialize;
 mod apply_args_recv;
 mod apply_rest_args;
 mod apply_spread;
+mod apply_spread_evidence;
 mod apply_spread_hoist;
 mod apply_spread_math;
 mod apply_spread_push;

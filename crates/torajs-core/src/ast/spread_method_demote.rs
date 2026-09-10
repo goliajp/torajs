@@ -64,6 +64,7 @@
 //! it is rather than trading its answer for a worse one.
 
 use super::apply_args::peel_hidden_params;
+use super::apply_spread_evidence::collect_array_evident;
 use super::arguments_object_method_argv::{decl_admits, old_signature_lane};
 use super::arguments_object_walkers::{
     body_has_any_arguments_touch, body_has_bare_arguments_assign,
@@ -77,6 +78,7 @@ pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
         return;
     }
     let (fn_sigs, _, _) = snapshot_fn_sigs(ast);
+    let evident = collect_array_evident(ast);
     // (call node, restored shape, callee node to clear, callee name)
     let mut restores: Vec<(usize, ExprId, usize, String)> = Vec::new();
     for i in 0..ast.exprs.len() {
@@ -115,7 +117,7 @@ pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
         // trimmed tail (`c.m(...[1,2,3])` on `m(a)` answered
         // `arguments.length` 1). So the expander's claim is not
         // consulted for those sites — the face decides them below.
-        if !body_reads_arguments(ast, name) && static_expander_takes(ast, args, user) {
+        if !body_reads_arguments(ast, name) && static_expander_takes(ast, args, user, &evident) {
             continue;
         }
         // A default the CALL SITE still has to write in is one the

@@ -49,6 +49,7 @@
 //! silently-uninitialized fields.
 
 use super::apply_args::peel_hidden_params;
+use super::apply_spread_evidence::collect_array_evident;
 use super::forwarders_object::{snapshot_fn_sigs, synthesize_forwarder_decls};
 use super::{Ast, Expr, ExprId};
 use std::collections::HashSet;
@@ -58,6 +59,7 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
     if fn_sigs.is_empty() {
         return;
     }
+    let evident = collect_array_evident(ast);
     let mut targets: HashSet<String> = HashSet::new();
     let mut rewrites: Vec<(ExprId, String)> = Vec::new();
     let relay_sites = super::arguments_object_static_argv::forwarder_call_callee_eids(ast);
@@ -138,7 +140,9 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         // runtime spread lane, which cannot box it — a loud
         // "box_to_any element type FnSig" where the two passes each
         // assumed the other had it.
-        if !ast.headless_argc_fns.contains(&name) && static_expander_takes(ast, args, user) {
+        if !ast.headless_argc_fns.contains(&name)
+            && static_expander_takes(ast, args, user, &evident)
+        {
             continue;
         }
         targets.insert(name.clone());
@@ -186,7 +190,17 @@ fn is_undefined(ast: &Ast, d: ExprId) -> bool {
 
 /// Mirror of the static expanders' accept conditions — `true` means
 /// a later pass will consume this site, so the wrap stands aside.
-pub(super) fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::Param]) -> bool {
+/// `evident` is `apply_spread_evidence::collect_array_evident`: the
+/// fixed-arity expander index-reads its source, so it takes an Ident
+/// only when that Ident is syntactically an array (rotation 626); a
+/// generator / Set / string Ident is this pass's to wrap, and the
+/// runtime lane iterates it.
+pub(super) fn static_expander_takes(
+    ast: &Ast,
+    args: &[ExprId],
+    user: &[super::Param],
+    evident: &HashSet<String>,
+) -> bool {
     if user.last().is_some_and(|p| p.is_rest) {
         // `apply_rest_args` packs a site whose required prefix is
         // covered (its trailing args bundle into the rest array,
@@ -208,8 +222,8 @@ pub(super) fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::P
         return settled >= user.len() - 1;
     }
     // `apply_spread_args` takes exactly one spread, at the last
-    // position, over an Ident source, with the fixed prefix inside
-    // the declared arity.
+    // position, over an evident-array Ident source, with the fixed
+    // prefix inside the declared arity.
     let spread_count = args
         .iter()
         .filter(|a| matches!(ast.get_expr(**a), Expr::Spread { .. }))
@@ -223,7 +237,8 @@ pub(super) fn static_expander_takes(ast: &Ast, args: &[ExprId], user: &[super::P
     let Expr::Spread { expr } = ast.get_expr(last) else {
         return false;
     };
-    matches!(ast.get_expr(*expr), Expr::Ident(_)) && prefix.len() <= user.len()
+    matches!(ast.get_expr(*expr), Expr::Ident(n) if evident.contains(n))
+        && prefix.len() <= user.len()
 }
 
 #[cfg(test)]
@@ -323,7 +338,7 @@ mod tests {
     fn a_leading_spread_settles_no_required_parameter() {
         let (ast, args) = call_args(&[true]);
         let user = [param("x", false), param("r", true)];
-        assert!(!static_expander_takes(&ast, &args, &user));
+        assert!(!static_expander_takes(&ast, &args, &user, &HashSet::new()));
     }
 
     /// Once the prefix IS settled by real arguments, the static
@@ -332,7 +347,7 @@ mod tests {
     fn a_settled_prefix_leaves_the_site_to_the_static_expander() {
         let (ast, args) = call_args(&[false, true]);
         let user = [param("x", false), param("r", true)];
-        assert!(static_expander_takes(&ast, &args, &user));
+        assert!(static_expander_takes(&ast, &args, &user, &HashSet::new()));
     }
 
     /// A callee that is nothing but a tail has no prefix to settle.
@@ -340,7 +355,7 @@ mod tests {
     fn a_tail_only_callee_needs_nothing_settled() {
         let (ast, args) = call_args(&[true]);
         let user = [param("r", true)];
-        assert!(static_expander_takes(&ast, &args, &user));
+        assert!(static_expander_takes(&ast, &args, &user, &HashSet::new()));
     }
 
     /// Two required parameters, one spread: still unsettled.
@@ -348,6 +363,17 @@ mod tests {
     fn one_settled_argument_is_not_two() {
         let (ast, args) = call_args(&[false, true]);
         let user = [param("x", false), param("y", false), param("r", true)];
-        assert!(!static_expander_takes(&ast, &args, &user));
+        assert!(!static_expander_takes(&ast, &args, &user, &HashSet::new()));
+    }
+
+    /// The fixed-arity expander index-reads its source, so it takes
+    /// an Ident only when that Ident is syntactically an array.
+    #[test]
+    fn a_fixed_arity_site_is_taken_only_over_an_evident_array() {
+        let (ast, args) = call_args(&[false, true]);
+        let user = [param("x", false), param("y", false)];
+        let evident: HashSet<String> = ["xs".to_string()].into_iter().collect();
+        assert!(static_expander_takes(&ast, &args, &user, &evident));
+        assert!(!static_expander_takes(&ast, &args, &user, &HashSet::new()));
     }
 }
