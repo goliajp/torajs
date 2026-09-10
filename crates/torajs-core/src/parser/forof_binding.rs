@@ -27,7 +27,41 @@ impl<'a> Parser<'a> {
         saved: usize,
         is_var_decl: Option<bool>,
         bare_form: bool,
-    ) -> Option<(Option<PatShape>, String, Option<String>)> {
+    ) -> Option<(Option<PatShape>, String, Option<String>, Option<ExprId>)> {
+        // §14.7.5 — a bare head is a LeftHandSideExpression, not only
+        // a name: `for (x.y of …)`, `for (o[k] in …)`, `for ((x) of …)`
+        // (the parenthesized cover), `for (this.#p of …)`,
+        // `for (super.x in …)`. Parsed under [~In] so the head's own
+        // `in` is not taken as the operator. A name (the cover form
+        // too) takes the bare-name path below; a member / index
+        // target is assigned per iteration from the fresh loop-local
+        // (`wrap_assign_expr_form`); anything else is not a valid
+        // assignment target and the for-of attempt is surrendered.
+        let ident_head = matches!(self.peek(), Token::Ident(_))
+            && matches!(
+                self.tokens.get(self.pos + 1).map(|t| &t.token),
+                Some(Token::Ident(n)) if n == "of" || n == "in"
+            );
+        if bare_form && !ident_head && !matches!(self.peek(), Token::LBracket | Token::LBrace) {
+            let saved_no_in = std::mem::replace(&mut self.in_for_init, true);
+            let lhs = self.parse_assign();
+            self.in_for_init = saved_no_in;
+            let Ok(lhs) = lhs else {
+                self.pos = saved;
+                return None;
+            };
+            let id = self.mint_desugar_id();
+            return match self.ast.get_expr(lhs) {
+                Expr::Ident(n) => Some((None, format!("__forvar_{id}"), Some(n.clone()), None)),
+                Expr::Member { .. } | Expr::Index { .. } => {
+                    Some((None, format!("__forvar_{id}"), None, Some(lhs)))
+                }
+                _ => {
+                    self.pos = saved;
+                    None
+                }
+            };
+        }
         let destruct_pat: Option<PatShape> =
             if matches!(self.peek(), Token::LBracket | Token::LBrace) {
                 // `for (var { let } of …)` binds; `for (let { let } of …)`
@@ -96,7 +130,80 @@ impl<'a> Parser<'a> {
         } else {
             var_name
         };
-        Some((destruct_pat, var_name, assign_target))
+        Some((destruct_pat, var_name, assign_target, None))
+    }
+
+    /// Does a depth-0 contextual `of` / `in` close this head before
+    /// any `;` — the shape of an expression LHS (`for (x.y of …)`)?
+    /// A C-style init meets its `;` first (an `in` there is refused
+    /// by [~In] anyway), and a head that ends at `)` is neither. The
+    /// token at the cursor itself is excluded, so `for (of of xs)`
+    /// keeps its bare-name reading.
+    pub(super) fn forof_expr_head_ahead(&self) -> bool {
+        let mut depth = 0i32;
+        let mut k = self.pos;
+        while let Some(t) = self.tokens.get(k) {
+            match &t.token {
+                Token::LParen | Token::LBracket | Token::LBrace => depth += 1,
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    if depth == 0 {
+                        return false;
+                    }
+                    depth -= 1;
+                }
+                Token::Semi if depth == 0 => return false,
+                Token::Ident(n) if depth == 0 && k > self.pos && (n == "of" || n == "in") => {
+                    return true;
+                }
+                _ => {}
+            }
+            k += 1;
+        }
+        false
+    }
+
+    /// The per-iteration write-back a non-declaration head asks for,
+    /// prepended to the body: a bare NAME is assigned from the fresh
+    /// loop-local (chunk B2, `var` and bare forms); an expression LHS
+    /// is evaluated and assigned there (§14.7.5.7 ForIn/OfBodyEvaluation
+    /// step 6.g — the reference lives in the body); a bare assignment
+    /// PATTERN is destructured into the existing bindings (S2.24 刀 2,
+    /// `desugar_dstr_assign` hoists the local into its own temp, then
+    /// assigns per slot). A declaration head writes nothing here.
+    pub(super) fn wrap_forof_head_writes(
+        &mut self,
+        assign_target: &Option<String>,
+        lhs_expr: Option<ExprId>,
+        destruct_assign: Option<ExprId>,
+        var_name: &str,
+        body: Stmt,
+    ) -> Result<Stmt, String> {
+        let body = if let Some(target) = assign_target {
+            self.wrap_assign_form(target, var_name, body)
+        } else if let Some(lhs) = lhs_expr {
+            self.wrap_assign_expr_form(lhs, var_name, body)
+        } else {
+            body
+        };
+        if let Some(pat) = destruct_assign {
+            let var_ref = self.ast.add_expr(Expr::Ident(var_name.to_string()));
+            let mut pre = self.desugar_dstr_assign(pat, var_ref)?;
+            pre.push(body);
+            return Ok(Stmt::Block(pre));
+        }
+        Ok(body)
+    }
+
+    /// `{ <lhs> = __forvar_N; body }` — the expression-LHS twin of
+    /// `wrap_assign_form`: the head's reference is evaluated and
+    /// written at the top of every iteration.
+    pub(super) fn wrap_assign_expr_form(&mut self, lhs: ExprId, fresh: &str, body: Stmt) -> Stmt {
+        let fresh_ref = self.ast.add_expr(Expr::Ident(fresh.to_string()));
+        let assign = self.ast.add_expr(Expr::Assign {
+            target: lhs,
+            value: fresh_ref,
+        });
+        Stmt::Block(vec![Stmt::Expr(assign), body])
     }
 
     /// Prepend the recursive pattern binds when the loop var was a

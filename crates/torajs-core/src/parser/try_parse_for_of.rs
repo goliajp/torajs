@@ -36,7 +36,10 @@ impl<'a> Parser<'a> {
     ///   iteration.
     /// - bare `for (k in o)` / `for (k of a)` (`None`, true): assigns
     ///   an existing binding per iteration (no declaration). Gated on
-    ///   IDENT immediately followed by contextual `of` / `in` so
+    ///   IDENT immediately followed by contextual `of` / `in`, or on
+    ///   a longer head that a depth-0 `of` / `in` closes before any
+    ///   `;` (`for (x.y of …)`, `for ((x) in …)` — §14.7.5 takes a
+    ///   LeftHandSideExpression there; `forof_binding` parses it), so
     ///   C-style inits and destructuring pattern heads fall through.
     ///
     /// Consumes the decl keyword on the decl forms. `None` = not a
@@ -64,7 +67,8 @@ impl<'a> Parser<'a> {
                 self.tokens.get(self.pos + 1).map(|t| &t.token),
                 Some(Token::Ident(n)) if n == "of" || n == "in"
             );
-            if !matches!(self.peek(), Token::Ident(_)) || !next_is_of_in {
+            let ident_head = matches!(self.peek(), Token::Ident(_)) && next_is_of_in;
+            if !ident_head && !self.forof_expr_head_ahead() {
                 return None;
             }
         } else {
@@ -157,7 +161,7 @@ impl<'a> Parser<'a> {
     /// chunk B2 — assignment-form body wrap: `{ k = __forvar_N; body }`
     /// so the user's binding tracks the fresh loop-local each
     /// iteration (`var` and bare head forms).
-    fn wrap_assign_form(&mut self, target: &str, fresh: &str, body: Stmt) -> Stmt {
+    pub(super) fn wrap_assign_form(&mut self, target: &str, fresh: &str, body: Stmt) -> Stmt {
         let target_ref = self.ast.add_expr(Expr::Ident(target.to_string()));
         let fresh_ref = self.ast.add_expr(Expr::Ident(fresh.to_string()));
         let assign = self.ast.add_expr(Expr::Assign {
@@ -177,7 +181,7 @@ impl<'a> Parser<'a> {
         // local receives each element; the body prepends the same
         // pattern-assignment expansion the statement form uses.
         let mut destruct_assign: Option<ExprId> = None;
-        let (destruct_pat, var_name, assign_target) = if bare_form
+        let (destruct_pat, var_name, assign_target, lhs_expr) = if bare_form
             && matches!(self.peek(), Token::LBracket | Token::LBrace)
         {
             let Some(pat) = self.scan_forof_assign_pattern() else {
@@ -186,7 +190,7 @@ impl<'a> Parser<'a> {
             };
             destruct_assign = Some(pat);
             let id = self.mint_desugar_id();
-            (None, format!("__forvar_{id}"), None)
+            (None, format!("__forvar_{id}"), None, None)
         } else {
             let Some(head) = self.parse_forof_binding_and_pattern(saved, is_var_decl, bare_form)
             else {
@@ -279,25 +283,15 @@ impl<'a> Parser<'a> {
         // RFC 20260727-dstr-decl-shape 刀 B — prepend the recursive
         // pattern binds when the loop var was a decl-head pattern.
         let body = self.wrap_forof_pattern_body(&destruct_pat, &var_name, body);
-        // chunk B2 — `var` / bare forms: assign the user's binding
-        // from the fresh loop-local at the top of each iteration.
-        let body = if let Some(target) = &assign_target {
-            self.wrap_assign_form(target, &var_name, body)
-        } else {
-            body
-        };
-        // S2.24 刀 2 — bare pattern head: destructure the fresh
-        // loop-local into the existing bindings at the top of each
-        // iteration (desugar_dstr_assign hoists it into its own temp,
-        // then assigns per slot).
-        let body = if let Some(pat) = destruct_assign {
-            let var_ref = self.ast.add_expr(Expr::Ident(var_name.clone()));
-            let mut pre = self.desugar_dstr_assign(pat, var_ref)?;
-            pre.push(body);
-            Stmt::Block(pre)
-        } else {
-            body
-        };
+        // chunk B2 / S2.24 — the head's write-back, whichever shape
+        // the head took (`forof_binding::wrap_forof_head_writes`).
+        let body = self.wrap_forof_head_writes(
+            &assign_target,
+            lhs_expr,
+            destruct_assign,
+            &var_name,
+            body,
+        )?;
         let var_decl = self.make_forof_var_decl(is_var_decl, &assign_target);
         // Prelude order: the fn-scoped `var k;` first, then the
         // for-in object hoist (its init may reference `k`-free exprs
