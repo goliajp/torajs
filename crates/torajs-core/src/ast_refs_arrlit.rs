@@ -45,10 +45,16 @@ pub(crate) fn arrlit_literal_elem_ann(ast: &Ast, init: ExprId) -> Option<String>
     // results, shaped operators) — the tb2 any-index-call hazard the
     // old data-literal-only gate guarded is closed; see the shared
     // fn's doc.
-    if elems
-        .iter()
-        .all(|e| crate::ast_refs_any_promote::any_slot_safe_value(ast, *e))
-    {
+    // An elision (`[1, 2, , 4]`) takes the Arr<Any> lane in every
+    // lowering (§13.2.4 — the hole marking only exists there;
+    // `ssa_lower_array`), so the slot spelling is the same wide
+    // `any[]`; without this the binding stayed main-local and a named
+    // fn's `arr[2] = 3` died at "index assign on non-array Ptr"
+    // (test262 Array.prototype.every/…/15.4.4.16-7-1, eight cases).
+    if elems.iter().all(|e| {
+        matches!(ast.get_expr(*e), Expr::Elision)
+            || crate::ast_refs_any_promote::any_slot_safe_value(ast, *e)
+    }) {
         return Some("any[]".to_string());
     }
     None
