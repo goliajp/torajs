@@ -73,6 +73,11 @@ pub(crate) fn check(
                 "type mismatch assigning to global `{name}`: declared {global_ty:?}, value is {value_ty:?}"
             ));
         }
+        // An array literal takes the slot's element type (rotation 629
+        // — `var x = []; x = [0]` minted a `number[]` for an `any[]`
+        // slot and died at lowering), the contextual typing a declared
+        // `any[]` gives its initializer.
+        crate::check_stmt_let_decl::apply_contextual_array_ann(checker, ast, value, &global_ty);
         return Ok(global_ty);
     }
     let info = match checker.lookup(&name) {
@@ -188,6 +193,8 @@ pub(crate) fn check(
             "type mismatch assigning to `{name}`: declared {target_ty:?}, value is {value_ty:?}"
         ));
     }
+    // See the global arm above — the literal is typed by the slot.
+    crate::check_stmt_let_decl::apply_contextual_array_ann(checker, ast, value, &target_ty);
     // A possibly-null value kills an existing narrow right here
     // (expression-level assigns included); minting a narrow stays
     // statement-level (check_stmt's Assign hook).
