@@ -64,12 +64,14 @@ pub(crate) fn lower_reflect_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[Exp
     } else {
         ctx.box_to_any_from_expr(args[0], obj_op)
     };
-    let proto_op = ctx.lower_expr(args[1]);
+    // An inline literal proto promotes to the dynobj lane (rotation
+    // 629, the `Object.setPrototypeOf` twin).
+    let proto_op = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, args[1]);
     let proto_ty = ctx.operand_ty(&proto_op);
     let proto_any = if matches!(proto_ty, Type::Any) {
-        proto_op
+        proto_op.clone()
     } else {
-        ctx.box_to_any_from_expr(args[1], proto_op)
+        ctx.box_to_any_from_expr(args[1], proto_op.clone())
     };
     for a in args.iter().skip(2) {
         let _ = ctx.lower_expr(*a);
@@ -84,6 +86,11 @@ pub(crate) fn lower_reflect_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[Exp
         Type::I64,
         None,
     );
+    // The kernel borrows the proto (the link takes its own stake), so
+    // an owned proto temp — the promoted literal, a fresh call product
+    // — is released here, before the throw check like the Object
+    // flavor does.
+    ctx.release_owned_temp(args[1], &proto_op);
     ctx.emit_throw_check(None);
     let cur_block = ctx.cur_block;
     let b = ctx.f.append_inst(
@@ -231,7 +238,7 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
     } else {
         None
     };
-    let obj_op = crate::ssa_lower_object_define::lower_define_receiver(ctx, args[0]);
+    let obj_op = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, args[0]);
     let obj_ty = ctx.operand_ty(&obj_op);
     // Rotation 549 — an owned-temp receiver stays alive across every
     // may-throw point below (receiver gate, key coerce, desc gate,

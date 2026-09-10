@@ -53,6 +53,14 @@ pub(super) use super::objlit_nominal_widen::{
 ///   SHORTHAND spelling (`{ __proto__ }`) is an ordinary own field
 ///   (`objlit_shorthand_proto_exprs`) and keeps the nominal stamp.
 ///
+/// - (l) the PROTOTYPE argument — `Object.setPrototypeOf` /
+///   `Reflect.setPrototypeOf` argument 1, `Object.create` argument 0
+///   (`lower_anylane_object_arg` at each of the three lowerings). A
+///   literal on a prototype chain is read with EVERY inheritor as
+///   its receiver, so its faces must take `__this: any`; the bare-
+///   Ident spelling of the same position is
+///   [`super::objlit_nominal_proto_source`]'s widen.
+///
 /// - (j) both arguments of `new Proxy(t, h)` — a proxy reaches its
 ///   target and its handler only through the any lane, and a
 ///   nominal struct answers differently there (its fields are not
@@ -124,14 +132,21 @@ pub(super) fn collect_anylane_objlits(
             Expr::As { expr, ty_ann } if ty_ann == "any" => {
                 roots.push(*expr);
             }
-            // (e) — define-family receiver argument.
+            // (e) — define-family receiver argument; (l) — the
+            // prototype-source argument.
             Expr::Call { callee, args } => {
                 if let Expr::Member { obj, name } = &exprs[callee.0 as usize]
-                    && (name == "defineProperty" || name == "defineProperties")
-                    && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object")
-                    && let Some(recv) = args.first()
+                    && let Expr::Ident(ns) = &exprs[obj.0 as usize]
                 {
-                    roots.push(*recv);
+                    let root = match (ns.as_str(), name.as_str()) {
+                        ("Object", "defineProperty" | "defineProperties") => args.first(),
+                        ("Object" | "Reflect", "setPrototypeOf") => args.get(1),
+                        ("Object", "create") => args.first(),
+                        _ => None,
+                    };
+                    if let Some(r) = root {
+                        roots.push(*r);
+                    }
                 }
                 // (f) — arg into an explicitly-any FnDecl param.
                 if let Expr::Ident(f) = &exprs[callee.0 as usize]

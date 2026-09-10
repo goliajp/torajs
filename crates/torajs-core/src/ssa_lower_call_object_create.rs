@@ -15,6 +15,14 @@ fn resolve_proto_link(
 ) -> Option<(ExprId, Operand, Operand, bool)> {
     let mut proto_link: Option<(ExprId, Operand, Operand, bool)> = None;
     if let Some(&proto_eid) = args.first() {
+        // An inline literal proto promotes to the dynobj lane
+        // (rotation 629): it is an object, so the check-proto helper
+        // has nothing to ask, and the fresh cell is an owned temp the
+        // link below releases.
+        if matches!(ctx.ast.get_expr(proto_eid), Expr::ObjectLit { .. }) {
+            let boxed = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, proto_eid);
+            return Some((proto_eid, boxed.clone(), boxed, true));
+        }
         let proto_op = ctx.lower_expr(proto_eid);
         let proto_ty = ctx.operand_ty(&proto_op);
         let proto_owned = (ctx.expr_owned_shape(proto_eid)

@@ -192,15 +192,24 @@ pub(crate) fn emit_key_release(ctx: &mut LowerCtx, key_op: Operand, key_owned: b
     );
 }
 
-/// Lower a define-family receiver. An inline ObjectLit receiver
-/// promotes to the dynobj lane and answers an ANY_HEAP face (twin of
-/// the direct-ObjectLit call-arg route in `ssa_lower_call_terminal`
-/// and the `{} as any` promote in `ssa_lower_any_cast`): the struct
-/// lane has no dynobj backing store, so `Object.defineProperty({},
-/// k, { get })` silently no-opped the accessor install and every
+/// Lower an object argument the ANY lane consumes — a define-family
+/// receiver, or a literal installed as somebody's [[Prototype]]
+/// (`Object.setPrototypeOf(_, {…})` / `Reflect.setPrototypeOf` arg 1,
+/// `Object.create({…})` arg 0). An inline ObjectLit promotes to the
+/// dynobj lane and answers an ANY_HEAP face (twin of the
+/// direct-ObjectLit call-arg route in `ssa_lower_call_terminal` and
+/// the `{} as any` promote in `ssa_lower_any_cast`): the struct lane
+/// has no dynobj backing store, so `Object.defineProperty({}, k, {
+/// get })` silently no-opped the accessor install and every
 /// subsequent read answered undefined (test262 dstr poisoned-getter
-/// cluster, exposed once §20.1.2.5 started returning O).
-pub(crate) fn lower_define_receiver(ctx: &mut LowerCtx, obj_eid: ExprId) -> Operand {
+/// cluster, exposed once §20.1.2.5 started returning O); and a struct
+/// literal on a prototype chain is a level the chain walks do not
+/// model — its methods threw not-a-function, its accessors ran
+/// against the literal instead of the receiver, its data fields read
+/// undefined (rotation 629, `super.s = v` through an inline proto).
+/// The AST-side mirror is `objlit_nominal_anylane` legs (e) and (l):
+/// the literal's receiver faces take `__this: any` because of it.
+pub(crate) fn lower_anylane_object_arg(ctx: &mut LowerCtx, obj_eid: ExprId) -> Operand {
     if matches!(ctx.ast.get_expr(obj_eid), Expr::ObjectLit { .. }) {
         let dynobj = ctx.lower_dynobj_init(obj_eid);
         return ctx.box_to_any(dynobj);
@@ -231,7 +240,7 @@ pub(crate) fn emit_define_one(
     } else {
         None
     };
-    let obj_op = lower_define_receiver(ctx, obj_eid);
+    let obj_op = lower_anylane_object_arg(ctx, obj_eid);
     let obj_ty = ctx.operand_ty(&obj_op);
 
     // Rotation 549 — an owned-temp receiver ({} literal promote,

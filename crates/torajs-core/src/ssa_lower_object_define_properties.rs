@@ -43,7 +43,7 @@ pub(crate) fn try_lower_define_properties(
         // shape (incl. non-Ident / non-ObjectLit) so a primitive receiver
         // throws even when the prior fall-through to the Object no-op arm
         // would have silently eval-dropped the args.
-        let obj_raw = crate::ssa_lower_object_define::lower_define_receiver(ctx, args[0]);
+        let obj_raw = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, args[0]);
         let obj_ty = ctx.operand_ty(&obj_raw);
         // Rotation 549 — an owned-temp receiver stays alive across
         // every may-throw point below (receiver gate, per-field

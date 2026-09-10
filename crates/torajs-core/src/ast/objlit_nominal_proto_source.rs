@@ -58,8 +58,8 @@ pub(super) fn widen_prototype_source_objlits(stmts: &mut [Stmt], exprs: &mut Vec
 }
 
 /// Binding names standing in a prototype-source position. Only a bare
-/// `Ident` counts — an inline literal at the same spot is already a
-/// root of the anylane collector's own legs.
+/// `Ident` counts — an inline literal at the same spot is a root of
+/// the anylane collector's own leg (l).
 fn prototype_source_names(exprs: &[Expr]) -> HashSet<String> {
     let mut out = HashSet::new();
     let note = |eid: &ExprId, out: &mut HashSet<String>| {

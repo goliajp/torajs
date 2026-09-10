@@ -427,9 +427,11 @@ fn lower_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     };
     // A missing proto arg is `undefined` — the runtime core answers
     // the spec TypeError for it.
+    // An inline literal PROTO promotes too (rotation 629): a struct
+    // literal on the chain is a level the walks do not model.
     let (proto_eid, proto_op, proto_boxed) = match args.get(1) {
         Some(&p_eid) => {
-            let p_op = ctx.lower_expr(p_eid);
+            let p_op = crate::ssa_lower_object_define::lower_anylane_object_arg(ctx, p_eid);
             let p_ty = ctx.operand_ty(&p_op);
             let boxed = if matches!(p_ty, Type::Any) {
                 p_op.clone()
