@@ -24,6 +24,7 @@ use crate::ssa::{FuncId, Module};
 /// adapter-free is fine (their FnAddr refs carry their own sig).
 pub(super) fn build_intrinsics_and_boxed_entries(
     ast: &Ast,
+    call_retargets: &crate::ssa_lower::CallRetargets,
     module: &mut Module,
     fn_table: &mut HashMap<String, FuncId>,
     fn_sigs: &mut Vec<(Vec<crate::ssa::Type>, crate::ssa::Type)>,
@@ -50,6 +51,7 @@ pub(super) fn build_intrinsics_and_boxed_entries(
     );
     let boxed_entries = crate::ssa_lower_boxed_entry::synthesize_boxed_entries(
         ast,
+        call_retargets,
         module,
         fn_table,
         fn_sigs,

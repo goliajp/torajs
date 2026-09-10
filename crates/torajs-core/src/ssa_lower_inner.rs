@@ -160,6 +160,7 @@ pub(crate) fn lower_inner(
     // output (globals registration is data-slot work).
     let (intrinsics, boxed_entries) = build_intrinsics_and_boxed_entries(
         ast,
+        call_retargets,
         &mut module,
         &mut fn_table,
         &mut fn_sigs,
