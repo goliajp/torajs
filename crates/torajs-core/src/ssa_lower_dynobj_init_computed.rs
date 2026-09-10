@@ -160,8 +160,8 @@ impl LowerCtx<'_> {
     }
 
     /// One computed-key field: evaluate the key expr, coerce through
-    /// the implicit ToString kernel, then store the value under the
-    /// runtime key. Field order preserves the spec's evaluation
+    /// ToPropertyKey (a Symbol stays a Symbol), then store the value
+    /// under the runtime key. Field order preserves the spec's evaluation
     /// order: key before value, both in literal position.
     pub(crate) fn emit_dynobj_computed_field(
         &mut self,
@@ -185,16 +185,28 @@ impl LowerCtx<'_> {
         } else {
             self.box_to_any_from_expr(key_eid, k_raw.clone())
         };
-        let key_str = self.f.append_inst(
+        // §7.1.19 ToPropertyKey on the boxed key: a Symbol answers
+        // itself, everything else its string. The set kernel takes
+        // either cell (the static-Symbol face above hands it one).
+        // Before rotation 625 this was ToString, and an `any` holding
+        // a Symbol threw "Cannot convert a symbol to a string".
+        let key_cell = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(self.intrinsics.any_to_str_box, vec![k_boxed]),
-            Type::Str,
+            InstKind::Call(self.intrinsics.anyv_to_property_key, vec![k_boxed]),
+            Type::Ptr,
             None,
         );
         self.release_owned_temp(key_eid, &k_raw);
         self.emit_throw_check(None);
-        self.emit_dynobj_field_value(slot, Wtf8::new(""), fval_eid, Some(key_str), fresh);
-        self.emit_drop_value(Operand::Value(key_str), Type::Str);
+        self.emit_dynobj_field_value(slot, Wtf8::new(""), fval_eid, Some(key_cell), fresh);
+        let cur_block = self.cur_block;
+        self.f.append_void(
+            cur_block,
+            InstKind::Call(
+                self.intrinsics.anyv_property_key_drop,
+                vec![Operand::Value(key_cell)],
+            ),
+        );
     }
 
     /// 565-03 — §10.2.9 SetFunctionName for a computed field whose
