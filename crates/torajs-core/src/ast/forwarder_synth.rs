@@ -57,6 +57,11 @@ pub(crate) fn synth_forwarder_decl(
     return_type: Option<String>,
     target_span: crate::lexer::Span,
 ) -> Stmt {
+    let twin = static_twin_target(ast, target);
+    let (target, params, return_type) = match &twin {
+        Some((name, params, ret)) => (name.as_str(), params.as_slice(), ret.clone()),
+        None => (target, params, return_type),
+    };
     let takes_this = params.first().is_some_and(|p| p.name == "__this");
     // A relay minted after `desugar_arguments_object` sees the
     // target's injected `__torajs_argv` (head-less: position 0;
@@ -116,4 +121,36 @@ pub(crate) fn synth_forwarder_decl(
         is_generator: false,
         span: target_span,
     }
+}
+
+/// A `this`-reading STATIC method's relay forwards to its
+/// receiver-polymorphic twin, not to the mono.
+///
+/// The mono body `__sm_<C>__<m>` has no receiver channel: desugar
+/// pass 2 resolved every `this` in it to `Ident(<C>)`, which is the
+/// right answer for the direct `C.m()` call and the wrong one for
+/// every escape — `var r = C.m; r()` binds undefined per §10.2.1.2
+/// (a class body is strict code), and a relay that enters the mono
+/// answered `this === C` true, `this.x` the class's field where the
+/// spec throws. Knife 3a (RFC 20260804-fn-this-channel) minted
+/// `__smany_<C>__<m>` beside such a mono with the receiver as its
+/// leading `__this`; the relay forwards there, and the `undefined`
+/// the caller seeds into a `__this` head is exactly the plain-call
+/// receiver. The forwarder keeps the mono's `__forward_` name, so the
+/// escaped value's identity, `.name` and `.length` are unchanged.
+///
+/// `None` for anything that is not a twin-bearing static: a this-free
+/// static never observes its receiver, and a mint residue (super
+/// route) keeps the recorded mono behavior.
+fn static_twin_target(ast: &Ast, target: &str) -> Option<(String, Vec<Param>, Option<String>)> {
+    let twin = ast.smany_twins.get(target)?;
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            ..
+        } if name == twin => Some((name.clone(), params.clone(), return_type.clone())),
+        _ => None,
+    })
 }

@@ -41,17 +41,17 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
         if !captures.is_empty() {
             continue;
         }
-        let Some(target) = fn_name.strip_prefix("__forward_") else {
+        let Some(target) = relay_target(ast, fn_name) else {
             continue;
         };
         let touches = ast.stmts.iter().any(|s| {
             matches!(s, Stmt::FnDecl { name: n, body, .. }
-                if n == target
+                if *n == target
                     && (body_has_arguments_length(ast, body)
                         || body_has_non_length_arguments_touch(ast, body)))
         });
         if touches {
-            aliases.insert(name.clone(), (si, target.to_string()));
+            aliases.insert(name.clone(), (si, target));
         }
     }
     if aliases.is_empty() {
@@ -80,9 +80,10 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
             continue;
         }
         // Knife 5 (rotation 273) — a `__this`-first target (a
-        // static-method forwarder: `__sm_<C>__<m>(__this: any, …)`)
-        // is called through the relay's PUBLIC face, which skips the
-        // receiver slot and feeds `undefined`. Bypassing the relay
+        // this-reading static's `__smany_<C>__<m>(__this: any, …)`
+        // twin, or a `bind_this_param` declaration) is called through
+        // the relay's PUBLIC face, which skips the receiver slot and
+        // feeds `undefined`. Bypassing the relay
         // must do the same, or the first user argument lands in the
         // receiver slot (probe: `ref(9, "z")` fed 9 into `__this`
         // and dropped "z", and the shifted argc broke the static
@@ -107,4 +108,30 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
     for si in drop_idxs {
         ast.stmts.remove(si);
     }
+}
+
+/// The fn a `__forward_` relay's body calls — read off the forwarding
+/// call, not off the prefix (the `ssa_lower_boxed_entry::relay`
+/// account, rotation 626). The two differ for a `this`-reading STATIC
+/// method: its relay forwards to the receiver-polymorphic `__smany_`
+/// twin with an `undefined` receiver (`ast/forwarder_synth.rs`), and
+/// a bypass that read `__sm_<C>__<m>` off the prefix entered the
+/// mono instead — whose `this` is the class object by compile-time
+/// mint — so `var r = C.m; r(1, 2)` answered `this === C` true for
+/// exactly the bodies that also read `arguments`.
+fn relay_target(ast: &Ast, fn_name: &str) -> Option<String> {
+    fn_name.strip_prefix("__forward_")?;
+    ast.stmts.iter().find_map(|s| match s {
+        Stmt::FnDecl { name, body, .. } if name == fn_name => match body.as_slice() {
+            [Stmt::Return(Some(eid))] => match ast.get_expr(*eid) {
+                Expr::Call { callee, .. } => match ast.get_expr(*callee) {
+                    Expr::Ident(target) => Some(target.clone()),
+                    _ => None,
+                },
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    })
 }

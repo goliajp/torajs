@@ -211,6 +211,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         ast,
         &inherited_static_owners,
     );
+    super::desugar_classes_static_route::route_cast_static_calls(ast, &inherited_static_owners);
     rewrite_static_member_accesses(ast, &static_member_rewrites);
     reject_abstract_new(ast, &abstract_classes);
     finalize_side_tables(

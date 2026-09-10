@@ -43,6 +43,15 @@
 //! alike — and must never be assigned to. Anything else keeps
 //! today's behavior.
 //!
+//! A STATIC method value is admitted on the same terms. `var r = C.m`
+//! spells `Ident("__sm_C__m")` by the time this pass runs, and
+//! `r.call(o)` through the escaped value's relay reached the mono
+//! body — whose `this` is the class object by compile-time mint — so
+//! `r.call({}) === C` answered true. The twin-bearing statics (the
+//! ones whose bodies read `this`, `ast.smany_twins`) are respelled
+//! exactly like the promoted declarations; the this-free ones keep
+//! today's drop for the same evaluation-order reason.
+//!
 //! Pipeline: immediately before `promote_this_fn_values`, which is
 //! the pass whose rewrite this one has to precede.
 
@@ -57,11 +66,24 @@ pub fn canonicalize_fn_proto_receivers(ast: &mut Ast) {
     // `f.call(withEffect(), 1, 2)` would lose the effect. The bug
     // being fixed is the thisArg going missing on the declarations
     // that DO read it.
+    //
+    // A `this`-reading STATIC method is the same question in a
+    // second spelling: `C.m` already arrived as `Ident("__sm_C__m")`,
+    // its mono has no receiver channel, and the twin-bearing statics
+    // are exactly the ones whose bodies read `this` (knife 3a minted
+    // `__smany_` for those alone). Respelled to the declaration's
+    // name, `r.call(o)` reaches `desugar_function_prototype_methods`
+    // in the shape its knife 3c devirtualizes to the twin — the same
+    // route `C.m.call(o)` takes today.
     let fn_names: HashSet<String> = ast
         .stmts
         .iter()
         .filter_map(|s| match s {
-            Stmt::FnDecl { name, .. } if ast.this_param_fns.contains(name) => Some(name.clone()),
+            Stmt::FnDecl { name, .. }
+                if ast.this_param_fns.contains(name) || ast.smany_twins.contains_key(name) =>
+            {
+                Some(name.clone())
+            }
             _ => None,
         })
         .collect();
