@@ -267,7 +267,24 @@ impl<'a> Parser<'a> {
         // forwarder this-free.
         let callee = self.ast.add_expr(Expr::Ident(synth_name));
         let recv_arg = if body_reads_recv {
-            self.ast.add_expr(Expr::This)
+            let this_eid = self.ast.add_expr(Expr::This);
+            // A static forwarder's receiver is the constructor object
+            // (ES §15.7.14), spelled the way a user-written `this` in
+            // a static body is (`primary.rs`): registered as a static
+            // this site so pass 2 mints the class name, not `__this`.
+            // Unregistered, pass 2 gave the forwarder a promoted
+            // `__this: any` head: `this === C` inside the generator
+            // answered false, and the head kept the forwarder off the
+            // head-less argv face — every spread call site of a static
+            // generator method died at the callee boxing, and a value
+            // escape (`var ref = C.method`) killed the static face so
+            // `arguments.length` answered 0 (rotation 626).
+            if is_static {
+                self.ast
+                    .static_this_sites
+                    .insert(this_eid, class_name.to_string());
+            }
+            this_eid
         } else {
             self.ast.add_expr(Expr::Ident("undefined".into()))
         };
