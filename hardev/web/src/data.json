@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T07:36:29.003Z",
+  "generatedAt": "2026-09-10T12:58:59.359Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-10T07:25:56Z",
-    "headSha": "db7ba0105",
-    "elapsedSec": 434.29,
+    "ranAt": "2026-09-10T12:47:33Z",
+    "headSha": "8e8efc7e0",
+    "elapsedSec": 453.2,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31522,
-    "passNoOracle": 1200,
+    "pass": 31544,
+    "passNoOracle": 1202,
     "passNegative": 4519,
-    "passTotal": 37241,
-    "bug": 11440,
-    "incompatible": 4493,
+    "passTotal": 37265,
+    "bug": 11442,
+    "incompatible": 4467,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48681,
-    "passRateInScope": 70.04,
-    "passRateTrAccepted": 76.5
+    "trAccepted": 48707,
+    "passRateInScope": 70.08,
+    "passRateTrAccepted": 76.51
   },
   "torajs": {
-    "commit": "3f6bae714",
-    "commitSubject": "chore(hardev): rotation 626 stamps — sweep, determinism, Guard Malloc; roadmap P-SURF snapshot @ db7ba0105",
+    "commit": "28c6cb548",
+    "commitSubject": "chore(hardev): rotation 627 stamps — sweep, determinism, Guard Malloc, file size; roadmap P-SURF snapshot @ 8e8efc7e0",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "3f6bae714",
-      "subject": "chore(hardev): rotation 626 stamps — sweep, determinism, Guard Malloc; roadmap P-SURF snapshot @ db7ba0105"
+      "hash": "28c6cb548",
+      "subject": "chore(hardev): rotation 627 stamps — sweep, determinism, Guard Malloc, file size; roadmap P-SURF snapshot @ 8e8efc7e0"
     },
     {
-      "hash": "db7ba0105",
-      "subject": "chore(hardev): re-stamp file size on the clean tree"
+      "hash": "27460031e",
+      "subject": "chore(hardev): the stamp dirty-test also excludes the verdicts gz stamp"
     },
     {
-      "hash": "0daf031bc",
-      "subject": "fix(torajs-core): duplicate function declarations in a Script keep the last one (§16.1.7)"
+      "hash": "8e8efc7e0",
+      "subject": "fix(torajs-core): a bare async head before of is the SyntaxError §14.7.5's lookahead spells"
     },
     {
-      "hash": "8b58babe5",
-      "subject": "fix(torajs-core): a pass-through return of an arguments element is bound to a local before the faces look"
+      "hash": "3a0e7e122",
+      "subject": "fix(torajs-core): a call expression as a sloppy for-in / for-of head is evaluated, then throws (Annex B §B.3.6.1)"
     },
     {
-      "hash": "e11e2a773",
-      "subject": "fix(torajs-core): a sloppy rebind of arguments moves the arrow alias with it"
+      "hash": "e3cfd88ec",
+      "subject": "fix(torajs-core): a this-reading function expression handed to reduce / sort on an any receiver, and to any method on a dynamically constructed one"
     },
     {
-      "hash": "b6c9fb956",
-      "subject": "feat(torajs-codegen): frames past 32 KiB and allocas past 4 KiB address their slots through IP0"
+      "hash": "bc7db8da7",
+      "subject": "fix(torajs-core): a for-in / for-of head takes any LeftHandSideExpression, not only a name (§14.7.5)"
     },
     {
-      "hash": "00a9a47d9",
-      "subject": "fix(torajs-core): an update expression's operand must be a simple assignment target (§13.4.1)"
+      "hash": "b751ba1b0",
+      "subject": "fix(torajs-core): a static field replaces a same-named static method once its initializer has run (§15.7.14)"
     },
     {
-      "hash": "edf76002c",
-      "subject": "fix(torajs-core): prefix ++x / --x are the UpdateExpression node, ToNumeric included"
+      "hash": "1802256e7",
+      "subject": "fix(torajs-core): duplicate class elements — the last definition wins (§15.7.14)"
     },
     {
-      "hash": "b6b3e50c1",
-      "subject": "fix(torajs-core): a static method on the head-less tier wraps at a spread site like a top-level fn"
+      "hash": "657234542",
+      "subject": "fix(torajs-core): a this-reading static method's escaped value binds the receiver its call site gives"
     },
     {
-      "hash": "b78f51417",
-      "subject": "fix(torajs-core): a relay's adapter finds its head-less target through the forwarding call, retarget included"
+      "hash": "be8545c62",
+      "subject": "feat(torajs-core): this-first bodies reading arguments take a direct-call argv channel"
     },
     {
-      "hash": "5c343b171",
-      "subject": "fix(torajs-core): a static generator method's forwarder receiver is a registered static this site"
+      "hash": "846e908d7",
+      "subject": "refactor(torajs-core): move the boxed adapter's rest-slot half to its own module"
     },
     {
-      "hash": "2e0a7fd0a",
-      "subject": "fix(torajs-core): the arguments object is array evidence for the spread expanders"
+      "hash": "1993c3143",
+      "subject": "refactor(torajs-core): move the pre-rewrite static-call routing walk to its own module"
     }
   ],
-  "headSha": "3f6bae714",
+  "headSha": "28c6cb548",
   "autorun": {
-    "total": 929,
+    "total": 930,
     "baselineTarget": 10,
-    "bySelf": 924,
+    "bySelf": 925,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789016187-2424",
-      "at": "2026-09-10T04:56:27Z",
-      "ts": 1789016187,
+      "rotationId": "r-1789025799-3dab",
+      "at": "2026-09-10T07:36:39Z",
+      "ts": 1789025799,
       "trigger": "self",
-      "prevHead": "bfb1dbb69",
-      "handoffSha": "sha256:930a43e664aaf925594afd333731ce7e6eed6e32be8760ccd163e38bba76fe2d",
-      "handoffAgeSec": 97,
-      "conformanceBefore": "3914/0/4",
-      "commitsInSession": 19
+      "prevHead": "e0ed10c65",
+      "handoffSha": "sha256:3c0cb8d8a4fa8ad70aa8603bb36dd77645543d48b47540208b9dccb0b62b081e",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "3924/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789025799-3dab",
+        "at": "2026-09-10T07:36:39Z",
+        "ts": 1789025799,
+        "trigger": "self",
+        "prevHead": "e0ed10c65",
+        "handoffSha": "sha256:3c0cb8d8a4fa8ad70aa8603bb36dd77645543d48b47540208b9dccb0b62b081e",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "3924/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789016187-2424",
         "at": "2026-09-10T04:56:27Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 23,
         "conformanceBefore": "3836/0/4",
         "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1788863770-4452",
-        "at": "2026-09-08T10:36:10Z",
-        "ts": 1788863770,
-        "trigger": "self",
-        "prevHead": "c24b57603",
-        "handoffSha": "sha256:be216b20857fa809d949552e4ac87ed3e9e093d67f161e7297af9ab903081d69",
-        "handoffAgeSec": 4,
-        "conformanceBefore": "3827/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
