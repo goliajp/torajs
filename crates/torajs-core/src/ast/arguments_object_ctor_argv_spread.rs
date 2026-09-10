@@ -93,9 +93,11 @@ pub(super) fn collect_ctor_argv(
         if params.iter().any(|p| p.default.is_some() || p.is_rest) {
             continue;
         }
-        if params.iter().any(|p| !p.name.starts_with("__")) {
-            continue;
-        }
+        // Declared parameters are fine on this lane: a direct super
+        // site feeds them positionally next to the two slots, and a
+        // spread site unpacks them off the materialized list
+        // (`lower_ctor_argv_spread`, rotation 625 — the lane used to
+        // admit the zero-declared shape only, before that unpack).
         // A ctor that never reads `arguments` still wants the channel
         // when some `super(...xs)` site carries a spread: the runtime
         // width has no other lane to a zero-declared ctor, and the

@@ -73,7 +73,10 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     // the body's real names went unbound ("unknown identifier `a`").
     // It still needs a binding of its own — the synthesized
     // `__torajs_arguments_materialize` call reads it.
-    let params = if params.first().is_some_and(|p| p.name == "__torajs_argv") {
+    // A ctor on the argv lane carries the slot at position 2, after
+    // its head (rotation 616) — stripped by name, wherever it sits.
+    let stripped: Vec<Param>;
+    let params: &[Param] = if params.iter().any(|p| p.name == "__torajs_argv") {
         checker
             .declare(
                 "__torajs_argv".to_string(),
@@ -87,7 +90,12 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
                 },
             )
             .ok();
-        &params[1..]
+        stripped = params
+            .iter()
+            .filter(|p| p.name != "__torajs_argv")
+            .cloned()
+            .collect();
+        &stripped
     } else {
         params
     };

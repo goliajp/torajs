@@ -176,11 +176,17 @@ pub(crate) fn pass_1_hoist_fn_signatures(c: &mut Checker, ast: &Ast) {
             // the head"). It is an ABI slot the direct-call terminal
             // fills, never a user argument, so the caller-visible
             // signature drops it exactly as the env slot drops above.
-            if user_params
-                .first()
-                .is_some_and(|p| p.name == "__torajs_argv")
-            {
-                user_params = &user_params[1..];
+            // A ctor on the argv lane carries it at position 2, after
+            // its `__this` / `__new_target` head (rotation 616), so the
+            // strip is by name, wherever the slot sits.
+            let stripped: Vec<Param>;
+            if user_params.iter().any(|p| p.name == "__torajs_argv") {
+                stripped = user_params
+                    .iter()
+                    .filter(|p| p.name != "__torajs_argv")
+                    .cloned()
+                    .collect();
+                user_params = &stripped;
             }
             match build_fn_type_full(
                 name,
