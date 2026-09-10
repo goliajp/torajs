@@ -48,6 +48,22 @@ impl<'a> Parser<'a> {
                 Some(Token::Ident(n)) if n == "of" || n == "in"
             );
         if bare_form && !ident_head && !matches!(self.peek(), Token::LBracket | Token::LBrace) {
+            // §14.7.5 ForInOfStatement: `for ( [lookahead ∉ { let, async
+            // of }] LeftHandSideExpression of …` — a bare `async` head
+            // followed by `of` is a SyntaxError (test262 head-lhs-async-
+            // invalid), while `(async) of` (the cover) and `async.x of`
+            // are fine. `async` is its own token, so it never took the
+            // bare-name path; surrendering here keeps the C-style parse's
+            // refusal.
+            if matches!(self.peek(), Token::Async)
+                && matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.token),
+                    Some(Token::Ident(n)) if n == "of"
+                )
+            {
+                self.pos = saved;
+                return None;
+            }
             let saved_no_in = std::mem::replace(&mut self.in_for_init, true);
             let lhs = self.parse_assign();
             self.in_for_init = saved_no_in;
