@@ -273,9 +273,29 @@ fn collect_return_anns_stmt(
             }
             true
         }
-        // Switch / nested FnDecl etc. — conservative: treat as opaque,
-        // make the whole inference bail (returns are uncommon inside
-        // these shapes for our test262 surface).
+        // Rotation 630 — the iteration statements the `_` arm used to
+        // swallow. A `return` inside them is a return like any other,
+        // and losing it typed the whole function `Void`: the
+        // `(function () { for (var x of it) { return 34; } throw … })()`
+        // shape (test262 for-of/return*, Iterator helpers, the JSON
+        // replacer) was rejected with "function expects Void, got
+        // Number" — while the same loop written C-style or as a
+        // `while` inferred Number, because those arms exist.
+        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => {
+            collect_return_anns_stmt(exprs, body, binds, fn_sigs, acc)
+        }
+        Stmt::Switch { cases, default, .. } => {
+            for c in cases {
+                if !collect_return_anns(exprs, &c.body, binds, fn_sigs, acc) {
+                    return false;
+                }
+            }
+            match default {
+                Some(d) => collect_return_anns(exprs, d, binds, fn_sigs, acc),
+                None => true,
+            }
+        }
+        // A nested declaration owns its own returns.
         Stmt::FnDecl { .. } => true,
         _ => true,
     }

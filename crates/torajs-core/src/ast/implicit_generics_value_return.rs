@@ -44,6 +44,15 @@ fn stmt_has_value_return(s: &Stmt) -> bool {
                 || body_has_value_return(catch_body)
                 || finally_body.as_deref().is_some_and(body_has_value_return)
         }
+        // Rotation 630 — the iteration statements this arm used to
+        // swallow, in step with `collect_return_anns_stmt` (the two
+        // walks must answer the same shapes or a body gets an
+        // inferred type it was never asked for, and vice versa).
+        Stmt::ForOf { body, .. } | Stmt::ForOfSplitIter { body, .. } => stmt_has_value_return(body),
+        Stmt::Switch { cases, default, .. } => {
+            cases.iter().any(|c| body_has_value_return(&c.body))
+                || default.as_deref().is_some_and(body_has_value_return)
+        }
         // Nested FnDecl returns are scoped to the inner fn — skip.
         Stmt::FnDecl { .. } => false,
         _ => false,
