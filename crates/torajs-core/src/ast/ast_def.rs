@@ -609,6 +609,18 @@ pub struct Ast {
     /// fields ride `field_inits` under their sentinel name instead
     /// (the ctor-prefix injection rewrites them to keyed writes).
     pub class_computed_static_fields: Vec<(String, String, ExprId)>,
+    /// §15.7.14 — the arena ids the parser allocated while parsing
+    /// each static element, `(class name, static_init index, lo, hi)`
+    /// for `lo..hi`. A static name that is BOTH a method and a field
+    /// is the method inside the static initializers and blocks up to
+    /// and including the field's own (every method is defined before
+    /// any static initializer runs; the field's DefineField replaces
+    /// it only once its initializer has been evaluated), and the
+    /// field everywhere else — `desugar_classes_statics::
+    /// positional_static_method_sites` tells the two apart by these
+    /// ranges. Source ids only: a node minted by a later pass never
+    /// lands in one.
+    pub class_static_init_expr_ranges: Vec<(String, usize, u32, u32)>,
     /// RFC 20260814-capturing-nested-class blade 3 — why the
     /// capturing-nested-class lane turned a given class down,
     /// recorded WHERE THE DECISION IS MADE (the nested-class hoist),

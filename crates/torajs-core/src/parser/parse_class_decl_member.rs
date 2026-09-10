@@ -21,6 +21,7 @@ impl<'a> Parser<'a> {
         static_init: &mut Vec<StaticInit>,
     ) -> Result<(), String> {
         self.pos += 2; // consume `static` + `{`
+        let expr_mark = self.ast.exprs.len() as u32;
         // S2.9 — a static block is not a constructor, so `super()` in it
         // is an early SyntaxError (ES §15.7.1). §15.7.1 also forbids
         // `await` anywhere in a ClassStaticBlockBody.
@@ -77,6 +78,12 @@ impl<'a> Parser<'a> {
                 self.at()
             ));
         }
+        self.ast.class_static_init_expr_ranges.push((
+            name.to_string(),
+            static_init.len(),
+            expr_mark,
+            self.ast.exprs.len() as u32,
+        ));
         static_init.push(StaticInit::Block(block_stmts));
         Ok(())
     }

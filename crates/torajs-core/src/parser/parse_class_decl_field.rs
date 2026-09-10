@@ -51,6 +51,7 @@ impl<'a> Parser<'a> {
         )?;
         let field_inits_mark = field_inits.len();
         let static_init_mark = static_init.len();
+        let expr_mark = self.ast.exprs.len() as u32;
         // Same lookahead the member loop matched on: the member name
         // is still unconsumed unless the computed-name path already
         // ate it (`name + ]`), so the shape token sits one ahead.
@@ -125,6 +126,16 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+        }
+        // The ids this static element's initializer occupies — the
+        // positional record `class_static_init_expr_ranges` documents.
+        if static_init.len() > static_init_mark {
+            self.ast.class_static_init_expr_ranges.push((
+                name.to_string(),
+                static_init_mark,
+                expr_mark,
+                self.ast.exprs.len() as u32,
+            ));
         }
         Ok(())
     }

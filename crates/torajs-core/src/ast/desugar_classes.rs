@@ -213,7 +213,7 @@ pub fn desugar_classes(ast: &mut Ast) {
         &inherited_static_owners,
     );
     super::desugar_classes_static_route::route_cast_static_calls(ast, &inherited_static_owners);
-    rewrite_static_member_accesses(ast, &static_member_rewrites);
+    rewrite_static_member_accesses(ast, &static_member_rewrites, &class_index);
     reject_abstract_new(ast, &abstract_classes);
     finalize_side_tables(
         ast,
@@ -350,14 +350,22 @@ fn rewrite_static_accessor_accesses(
 fn rewrite_static_member_accesses(
     ast: &mut Ast,
     static_member_rewrites: &std::collections::HashMap<(String, PropKey), String>,
+    class_index: &[super::desugar_classes_super::ClassIndexEntry],
 ) {
     if static_member_rewrites.is_empty() {
         return;
     }
+    // A name that is both a static method and a static field: the
+    // sites inside the static initializers up to the field's own
+    // still mean the method (§15.7.14; sibling doc).
+    let positional =
+        super::desugar_classes_statics::positional_static_method_sites(ast, class_index);
     for i in 0..ast.exprs.len() {
         let replacement = match &ast.exprs[i] {
             Expr::Member { obj, name } => {
-                if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
+                if let Some(method) = positional.get(&(i as u32)) {
+                    Some(method.clone())
+                } else if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
                     let key = (class_name.clone(), PropKey::from(name));
                     static_member_rewrites.get(&key).cloned()
                 } else {

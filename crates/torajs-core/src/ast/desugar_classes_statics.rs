@@ -97,11 +97,14 @@ pub(super) fn build_static_member_rewrites(
                         .or_insert((None, None))
                         .1 = Some(format!("__sm_{cname}__{}_set", mangle_key(&sm.name)));
                 }
+                // §15.7.14 — a static FIELD of the same name replaces
+                // the method once its initializer has run; the field
+                // entry above stays, and `positional_static_method_sites`
+                // hands the sites that still mean the method back.
                 None => {
-                    static_member_rewrites.insert(
-                        (cname.clone(), sm.name.clone()),
-                        format!("__sm_{cname}__{}", mangle_key(&sm.name)),
-                    );
+                    static_member_rewrites
+                        .entry((cname.clone(), sm.name.clone()))
+                        .or_insert_with(|| format!("__sm_{cname}__{}", mangle_key(&sm.name)));
                 }
             }
         }
@@ -186,6 +189,59 @@ pub(super) fn build_static_member_rewrites(
         }
     }
     (static_member_rewrites, accessor_rewrites, inherited_owners)
+}
+
+/// The `C.g` sites where a name that is BOTH a static method and a
+/// static field of `C` still means the METHOD — site ExprId → the
+/// `__sm_` name. §15.7.14 defines every method (step 24) before any
+/// static initializer runs (step 31), and the field's DefineField
+/// replaces the method only once the field's own initializer has been
+/// evaluated: inside the static initializers and blocks up to and
+/// including that field's, `this.g` / `C.g` is the method
+/// (`static g() { return 45 } static g = this.g()` answers 45);
+/// everywhere else it is the field. The ranges come from the parser
+/// (`Ast::class_static_init_expr_ranges`); the flat rewrite reads
+/// this table before the name table.
+pub(super) fn positional_static_method_sites(
+    ast: &Ast,
+    class_index: &[ClassIndexEntry],
+) -> HashMap<u32, String> {
+    let mut out: HashMap<u32, String> = HashMap::new();
+    for (_, cname, _, _, _, sis, _, _, sms) in class_index {
+        let mut first_field_idx: HashMap<&PropKey, usize> = HashMap::new();
+        for (idx, si) in sis.iter().enumerate() {
+            if let StaticInit::Field(sf) = si {
+                first_field_idx.entry(&sf.name).or_insert(idx);
+            }
+        }
+        for sm in sms.iter().filter(|sm| sm.accessor_kind.is_none()) {
+            let Some(&cutoff) = first_field_idx.get(&sm.name) else {
+                continue;
+            };
+            let ranges: Vec<(u32, u32)> = ast
+                .class_static_init_expr_ranges
+                .iter()
+                .filter(|(c, idx, _, _)| c == cname && *idx <= cutoff)
+                .map(|(_, _, lo, hi)| (*lo, *hi))
+                .collect();
+            let method = format!("__sm_{cname}__{}", mangle_key(&sm.name));
+            for (i, e) in ast.exprs.iter().enumerate() {
+                let Expr::Member { obj, name } = e else {
+                    continue;
+                };
+                if PropKey::from(name) != sm.name
+                    || !matches!(ast.get_expr(*obj), Expr::Ident(c) if c == cname)
+                {
+                    continue;
+                }
+                let eid = i as u32;
+                if ranges.iter().any(|(lo, hi)| *lo <= eid && eid < *hi) {
+                    out.insert(eid, method.clone());
+                }
+            }
+        }
+    }
+    out
 }
 
 /// M-OO.4 — emit `let __sf_<C>__<name>: T = init;` for each static
