@@ -213,6 +213,7 @@ mod dflt_lit;
 pub(crate) use dflt_lit::{DfltLit, FnDfltLits};
 
 mod build;
+mod build_rest;
 use build::build_boxed_entry;
 mod relay;
 mod targets;
