@@ -1,13 +1,13 @@
 {
   "tool": "file_size_audit",
-  "ranAt": "2026-09-10T16:16:14Z",
-  "headSha": "ff548a6ae",
+  "ranAt": "2026-09-10T19:44:44Z",
+  "headSha": "cd65ae365",
   "headShaSource": "local-git",
   "verdict": "ok",
   "filesNew": 0,
   "filesGrew": 0,
   "fnsNew": 0,
   "fnsGrew": 0,
-  "hidden": 2,
+  "hidden": 3,
   "stale": 0
 }
