@@ -165,9 +165,18 @@ fn scan_stmt(
             scan_expr(ast, *sep, called, direct, fn_values, expr_types);
             scan_stmt(ast, body, direct, called, fn_values, expr_types);
         }
+        // A `for..of` iterates its source under the same §7.4.2
+        // protocol a spread does and has the same blind spot
+        // (`scan_spread`'s doc). The source is the receiver of the
+        // parser-minted element read (`src[i]`, see the variant doc).
         Stmt::ForOf {
             elem_expr, body, ..
         } => {
+            if let Expr::Index { obj, .. } = ast.get_expr(*elem_expr) {
+                crate::ast_throw_info_call::scan_spread(
+                    ast, *obj, called, direct, fn_values, expr_types,
+                );
+            }
             scan_expr(ast, *elem_expr, called, direct, fn_values, expr_types);
             scan_stmt(ast, body, direct, called, fn_values, expr_types);
         }
