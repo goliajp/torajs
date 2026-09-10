@@ -208,6 +208,13 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Default) {
             self.pos += 1;
             let e = self.parse_expr()?;
+            // §16.2.3.7 — `export default` of an anonymous function or
+            // class definition is a NamedEvaluation with "default":
+            // `(await import(m)).default.name === "default"`. The
+            // destructuring-default registry already knows both
+            // spellings (an ArrowFn and a `__ClassExpr_` synth); a
+            // definition with its own name keeps it.
+            self.record_dstr_default_name(e, "default");
             self.skip_optional_semi();
             return Ok(Stmt::ExportDecl {
                 inner: None,
