@@ -139,14 +139,22 @@ pub(crate) unsafe fn any_arith(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) -> A
     // valueOf. Primitives and BigInt / Str / Symbol cells pass
     // untouched.
     // SAFETY: caller invariant — propagated.
-    let (lt, lv, l_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(lt, lv) };
-    let (rt, rv, r_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(rt, rv) };
     let release = |p: Option<AnyValue>| {
         if let Some(b) = p {
             unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(b) };
         }
     };
-    if lt == i64::MIN || rt == i64::MIN {
+    let (lt, lv, l_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(lt, lv) };
+    // A throwing left ToNumeric — its ToPrimitive, or a Symbol it
+    // answered — ends the expression before the right operand's
+    // hooks are consulted (the order-of-evaluation family: trace
+    // "123", never "1234").
+    if lt == i64::MIN || unsafe { crate::arith_operand::symbol_refuses_to_numeric(lt, lv) } {
+        release(l_prim);
+        return crate::nanbox::VALUE_UNDEFINED;
+    }
+    let (rt, rv, r_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(rt, rv) };
+    if rt == i64::MIN || unsafe { crate::arith_operand::symbol_refuses_to_numeric(rt, rv) } {
         release(l_prim);
         release(r_prim);
         return crate::nanbox::VALUE_UNDEFINED;
@@ -230,18 +238,21 @@ pub(crate) unsafe fn any_add(lt: i64, lv: i64, rt: i64, rv: i64) -> AnyValue {
     // primitive replaces the pair; its owned box releases at the
     // end (primitives are immediates except Str, whose stake the
     // concat path's ToString covers with its own inc).
-    let (lt, lv, l_prim) = unsafe { crate::arith_operand::add_operand_to_primitive(lt, lv) };
-    let (rt, rv, r_prim) = unsafe { crate::arith_operand::add_operand_to_primitive(rt, rv) };
     let release = |p: Option<AnyValue>| {
         if let Some(b) = p {
             unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(b) };
         }
     };
-    // A double-object ToPrimitive failure recorded the TypeError —
-    // answer undefined for the caller's throw check.
-    if lt == i64::MIN || rt == i64::MIN {
+    let (lt, lv, l_prim) = unsafe { crate::arith_operand::add_operand_to_primitive(lt, lv) };
+    // A ToPrimitive failure recorded the TypeError — answer undefined
+    // for the caller's throw check; a throwing LEFT operand ends the
+    // expression before the right one's hooks run (§13.15.3 order).
+    if lt == i64::MIN {
+        return crate::nanbox::VALUE_UNDEFINED;
+    }
+    let (rt, rv, r_prim) = unsafe { crate::arith_operand::add_operand_to_primitive(rt, rv) };
+    if rt == i64::MIN {
         release(l_prim);
-        release(r_prim);
         return crate::nanbox::VALUE_UNDEFINED;
     }
     // SAFETY: caller invariant — propagated.

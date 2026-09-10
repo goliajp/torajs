@@ -90,3 +90,28 @@ pub(crate) unsafe fn numeric_operand_to_primitive(
         None => (i64::MIN, 0, None),
     }
 }
+
+/// ToNumeric's one refusal on a PRIMITIVE (§7.1.3 → §7.1.4 step 5 —
+/// a Symbol has no numeric value): records the TypeError and answers
+/// `true`. Consulted right after each operand's ToPrimitive in the
+/// numeric family, so a Symbol-yielding LEFT operand throws before
+/// the right operand's hooks run (the order-of-evaluation family's
+/// `?ToNumeric(lhs) throws` step).
+///
+/// # Safety
+/// A Heap `tag` carries a live cell in `value`.
+pub(crate) unsafe fn symbol_refuses_to_numeric(tag: i64, value: i64) -> bool {
+    if tag != AnySlotTag::Heap as i64 || value == 0 {
+        return false;
+    }
+    let h = unsafe { &*(value as *const torajs_rc::HeapHeader) };
+    if !matches!(h.tag(), torajs_rc::Tag::Symbol) {
+        return false;
+    }
+    unsafe {
+        crate::member_set::__torajs_throw_type_error(
+            c"Cannot convert a symbol to a number".as_ptr(),
+        );
+    }
+    true
+}

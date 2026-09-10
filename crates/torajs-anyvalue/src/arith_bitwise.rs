@@ -89,14 +89,21 @@ pub(crate) unsafe fn any_bitwise(op: i64, lt: i64, lv: i64, rt: i64, rv: i64) ->
     // before the BigInt-pair verdict (see `any_arith`); the Number
     // lane below then sees the primitive and never re-runs valueOf.
     // SAFETY: caller invariant — propagated.
-    let (lt, lv, l_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(lt, lv) };
-    let (rt, rv, r_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(rt, rv) };
     let release = |p: Option<AnyValue>| {
         if let Some(b) = p {
             unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(b) };
         }
     };
-    if lt == i64::MIN || rt == i64::MIN {
+    let (lt, lv, l_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(lt, lv) };
+    // A throwing left ToNumeric — its ToPrimitive, or a Symbol it
+    // answered — ends the expression before the right operand's hooks
+    // run (§13.15.3 order; see `any_arith`).
+    if lt == i64::MIN || unsafe { crate::arith_operand::symbol_refuses_to_numeric(lt, lv) } {
+        release(l_prim);
+        return crate::nanbox::VALUE_UNDEFINED;
+    }
+    let (rt, rv, r_prim) = unsafe { crate::arith_operand::numeric_operand_to_primitive(rt, rv) };
+    if rt == i64::MIN || unsafe { crate::arith_operand::symbol_refuses_to_numeric(rt, rv) } {
         release(l_prim);
         release(r_prim);
         return crate::nanbox::VALUE_UNDEFINED;
