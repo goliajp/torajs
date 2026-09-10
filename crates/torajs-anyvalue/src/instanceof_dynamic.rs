@@ -53,6 +53,10 @@ unsafe extern "C" {
 
 /// `AnySlotTag::Heap` in the member-pair protocol.
 const TAG_HEAP: u64 = 4;
+/// The two tags §7.3.11 GetMethod reads as "no method": `null` and
+/// `undefined` (an absent property answers the latter).
+const TAG_NULL: u64 = 0;
+const TAG_UNDEF: u64 = 5;
 
 /// §6.1.5.1 well-known index of `@@hasInstance` — the table is
 /// alphabetical by property name (torajs-str `WELL_KNOWN_DESCS`).
@@ -85,6 +89,17 @@ pub unsafe extern "C" fn __torajs_instanceof_dynamic(v: AnyValue, target: AnyVal
             // A getter-produced handler is ours once the call is done,
             // which is what `handler` outliving the call says.
             return call_has_instance(v, target, value as *mut c_void);
+        }
+        // §7.3.11 GetMethod step 4 — a handler that is neither
+        // `undefined` nor `null` must be CALLABLE, and a primitive
+        // never is: `Object.defineProperty(C, Symbol.hasInstance,
+        // { value: 1 })` used to fall through to the ordinary walk
+        // and answer `false` where every engine throws. The
+        // non-callable OBJECT case already raises inside
+        // `call_has_instance`, so only the inline tags reach here.
+        if !matches!(tag, TAG_NULL | TAG_UNDEF) {
+            __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
+            return false;
         }
         // Steps 4-5 — no handler found anywhere on the chain, which
         // since §20.2.3.6 landed means the target is not a function
