@@ -96,7 +96,15 @@ pub(super) fn collect_ctor_argv(
         if params.iter().any(|p| !p.name.starts_with("__")) {
             continue;
         }
-        if !body_has_any_arguments_touch(ast, body) {
+        // A ctor that never reads `arguments` still wants the channel
+        // when some `super(...xs)` site carries a spread: the runtime
+        // width has no other lane to a zero-declared ctor, and the
+        // bare fn name died loud at the spread lane's callee boxing
+        // (`super(0, ...gen())` on `constructor() {}` — the six
+        // test262 `call-spread-err-mult-err-*` cases). Its body does
+        // not materialize (`rewrite_one_body` gates that on a touch),
+        // so the slots ride along unread.
+        if !body_has_any_arguments_touch(ast, body) && !has_spread_call_site(ast, name) {
             continue;
         }
         if !name_only_called_directly(ast, name) {
@@ -105,6 +113,15 @@ pub(super) fn collect_ctor_argv(
         out.insert(name.clone());
     }
     out
+}
+
+/// Some call of `name` carries a `...spread` argument.
+fn has_spread_call_site(ast: &Ast, name: &str) -> bool {
+    ast.exprs.iter().any(|e| {
+        matches!(e, Expr::Call { callee, args }
+            if matches!(ast.get_expr(*callee), Expr::Ident(n) if n == name)
+                && args.iter().any(|a| matches!(ast.get_expr(*a), Expr::Spread { .. })))
+    })
 }
 
 /// Every arena `Ident` naming the fn is a call callee (the head-less

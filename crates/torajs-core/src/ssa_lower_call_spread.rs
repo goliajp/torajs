@@ -144,6 +144,12 @@ fn try_lower_headless_argv_spread(
     let target = *ctx.fn_table.get(&name)?;
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let args_arr = build_args_arr(ctx, args);
+    // The list's own iteration may have thrown (§7.4.5 — a generator
+    // source, an iterator getter); that throw is pending BEFORE the
+    // call, and the post-call check keyed on the target may be
+    // elided for a target that cannot throw. Check here, releasing
+    // the list on the way out.
+    ctx.emit_throw_check_owned(None, args_arr.clone(), Type::Arr(arr_any_id));
     let argc = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, args_arr.clone(), crate::ssa_lower::ARR_LEN_OFF),
@@ -183,6 +189,11 @@ fn lower_ctor_argv_spread(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
     let head: Vec<Operand> = args[..2].iter().map(|a| ctx.lower_expr(*a)).collect();
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
     let args_arr = build_args_arr(ctx, &args[2..]);
+    // Same pre-call check as the head-less lane: a parent that
+    // declares and reads nothing cannot throw, so the post-call check
+    // is elided for it — and `super(...gen())`'s own throw was lost
+    // (the test262 call-spread-err-mult-err family).
+    ctx.emit_throw_check_owned(None, args_arr.clone(), Type::Arr(arr_any_id));
     let argc = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, args_arr.clone(), crate::ssa_lower::ARR_LEN_OFF),

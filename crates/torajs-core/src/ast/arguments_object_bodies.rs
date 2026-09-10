@@ -155,8 +155,12 @@ fn rewrite_one_body(
     // adapter's argv — beyond-declared values included);
     // named-fn bodies keep the declared-params builder,
     // gated on a dynamic use.
+    // A ctor admitted to the argv face for a spread `super` site
+    // alone never reads `arguments` — nothing to materialize.
+    let argv_reads =
+        is_argv_fn && super::arguments_object_walkers::body_has_any_arguments_touch(ast, body);
     let mut needs_materialize =
-        is_argv_fn || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_));
+        argv_reads || matches!(argc_mode, ArgcMode::LiveLength(_) | ArgcMode::Unmapped(_));
     if !needs_materialize {
         for s in body {
             if stmt_uses_dynamic_arguments(ast, s) {
@@ -227,7 +231,7 @@ fn rewrite_one_body(
     // (synth_arguments_local also takes &mut ast for add_expr).
     let argc_len_opt = (argc_mode == ArgcMode::RealLocal)
         .then(|| super::arguments_object_synth::synth_argc_len_local(ast));
-    let synth_opt = if is_argv_fn {
+    let synth_opt = if argv_reads {
         // S3.3 — the materialize take-count is the S1 hidden
         // argc; since S1-T2 both argv faces own the slot.
         Some(synth_arguments_local_argv(ast))
