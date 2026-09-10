@@ -78,6 +78,7 @@ mod print_typed;
 pub mod props;
 pub mod reverse_mop;
 mod sealed_refuse;
+pub mod set_length;
 pub mod slice;
 pub mod sort;
 pub mod sparse_gate;
@@ -104,10 +105,7 @@ pub use any_typed_bridge::__torajs_arr_extend_typed_into_any;
 pub use define_length::__torajs_arr_set_length_validate;
 pub use drop::{__torajs_arr_drop, __torajs_arr_drop_any, __torajs_arr_drop_heap};
 pub use from_string::__torajs_arr_from_string;
-pub use grow::{
-    __torajs_arr_push, __torajs_arr_reserve, __torajs_arr_set_length_truncate_scalar,
-    __torajs_arr_shift,
-};
+pub use grow::{__torajs_arr_push, __torajs_arr_reserve, __torajs_arr_shift};
 pub use iter::{
     __torajs_arr_iter_create_entries, __torajs_arr_iter_create_keys,
     __torajs_arr_iter_create_values, __torajs_arr_iter_drop, __torajs_arr_iter_step,
@@ -123,6 +121,7 @@ pub use print::{
     __torajs_arr_print_str, __torajs_arr_print_substr,
 };
 pub use sealed_refuse::__torajs_arr_shift_guard;
+pub use set_length::__torajs_arr_set_length_truncate_scalar;
 pub use slice::__torajs_arr_slice;
 pub use sort::__torajs_arr_sort_cb;
 pub use throw_empty::{__torajs_arr_throw_reduce_empty, __torajs_arr_throw_reduce_right_empty};
