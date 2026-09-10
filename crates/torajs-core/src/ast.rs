@@ -39,6 +39,7 @@ mod arguments_object_synth;
 mod arguments_object_walkers;
 mod arguments_object_walkers_return;
 mod arrow_arguments_alias;
+mod dedupe_fn_decls;
 pub(crate) use arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
@@ -257,6 +258,7 @@ pub(crate) use clone_body::clone_toplevel_stmt;
 pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
 pub(crate) use closure_capture_anns_outer::collect_outer_binds;
 pub(crate) use control_flow::body_always_terminates;
+pub use dedupe_fn_decls::dedupe_fn_decls;
 pub use delete_arr_widen::widen_deleted_array_bindings;
 pub use delete_bare_name::triage_delete_bare_names;
 pub(crate) use desugar_async::UNDEF_SLOT_MARKER;

@@ -205,6 +205,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         // Block/CaseBlock redeclaration early errors — raw-AST pass,
         // mirrors main.rs (run before any desugar rewrites decls).
         torajs_core::ast::early_redecl_errors(&mut ast);
+        torajs_core::ast::dedupe_fn_decls(&mut ast);
         if !ast.redecl_parse_errors.is_empty() {
             return ast
                 .redecl_parse_errors

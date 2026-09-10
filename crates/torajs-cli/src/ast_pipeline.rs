@@ -115,6 +115,9 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // AST before the generator / async / var-hoist desugars move one
     // side of a conflict away.
     ast::early_redecl_errors(ast);
+    // A Script's duplicate `function` declarations: the last one wins
+    // (§16.1.7), dropped here so the checker registers one binding.
+    ast::dedupe_fn_decls(ast);
     // §14.8.1 / §14.9.1 `break` / `continue` early errors — same RAW-AST
     // reason as the redeclaration gate above: the generator / async /
     // for-of desugars rewrite loops, and a rewritten loop is not the
