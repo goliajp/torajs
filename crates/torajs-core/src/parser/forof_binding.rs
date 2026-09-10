@@ -35,8 +35,13 @@ impl<'a> Parser<'a> {
         // `in` is not taken as the operator. A name (the cover form
         // too) takes the bare-name path below; a member / index
         // target is assigned per iteration from the fresh loop-local
-        // (`wrap_assign_expr_form`); anything else is not a valid
-        // assignment target and the for-of attempt is surrendered.
+        // (`wrap_assign_expr_form`); a CALL is Annex B §B.3.6.1's
+        // sloppy-only AssignmentTargetType `web-compat`: the head is
+        // evaluated and the PutValue on a non-reference throws a
+        // ReferenceError (test262 callexpression-as-for-{in,of}-lhs
+        // — the call runs, its result's valueOf never does); anything
+        // else is not a valid assignment target and the for-of
+        // attempt is surrendered.
         let ident_head = matches!(self.peek(), Token::Ident(_))
             && matches!(
                 self.tokens.get(self.pos + 1).map(|t| &t.token),
@@ -54,6 +59,9 @@ impl<'a> Parser<'a> {
             return match self.ast.get_expr(lhs) {
                 Expr::Ident(n) => Some((None, format!("__forvar_{id}"), Some(n.clone()), None)),
                 Expr::Member { .. } | Expr::Index { .. } => {
+                    Some((None, format!("__forvar_{id}"), None, Some(lhs)))
+                }
+                Expr::Call { .. } if !self.strict_here() => {
                     Some((None, format!("__forvar_{id}"), None, Some(lhs)))
                 }
                 _ => {
@@ -196,8 +204,24 @@ impl<'a> Parser<'a> {
 
     /// `{ <lhs> = __forvar_N; body }` — the expression-LHS twin of
     /// `wrap_assign_form`: the head's reference is evaluated and
-    /// written at the top of every iteration.
+    /// written at the top of every iteration. A CALL head (Annex B,
+    /// sloppy) is `{ <call>; throw new ReferenceError(…); body }`:
+    /// §14.7.5.7 step 6.g evaluates the LHS, then PutValue on the
+    /// non-reference it answers throws (§6.2.5.6 step 3).
     pub(super) fn wrap_assign_expr_form(&mut self, lhs: ExprId, fresh: &str, body: Stmt) -> Stmt {
+        if matches!(self.ast.get_expr(lhs), Expr::Call { .. }) {
+            let msg = self.ast.add_expr(Expr::String(
+                "Invalid left-hand side in for-in/of loop"
+                    .to_string()
+                    .into(),
+            ));
+            let err = self.ast.add_expr(Expr::New {
+                class_name: "ReferenceError".to_string(),
+                args: vec![msg],
+                type_args: Vec::new(),
+            });
+            return Stmt::Block(vec![Stmt::Expr(lhs), Stmt::Throw(err), body]);
+        }
         let fresh_ref = self.ast.add_expr(Expr::Ident(fresh.to_string()));
         let assign = self.ast.add_expr(Expr::Assign {
             target: lhs,
