@@ -177,10 +177,18 @@ pub(crate) fn pass_1_hoist_fn_signatures(c: &mut Checker, ast: &Ast) {
             // fills, never a user argument, so the caller-visible
             // signature drops it exactly as the env slot drops above.
             // A ctor on the argv lane carries it at position 2, after
-            // its `__this` / `__new_target` head (rotation 616), so the
-            // strip is by name, wherever the slot sits.
+            // its `__this` / `__new_target` head (rotation 616), so for
+            // a ctor the strip is by name. A METHOD on the argv lane
+            // (position 1) keeps its slot visible: the private-method
+            // machinery reads that face (`arguments-method-value-argv`
+            // went red when the strip was widened to every shape).
             let stripped: Vec<Param>;
-            if user_params.iter().any(|p| p.name == "__torajs_argv") {
+            if user_params
+                .first()
+                .is_some_and(|p| p.name == "__torajs_argv")
+                || (name.ends_with("__ctor")
+                    && user_params.iter().any(|p| p.name == "__torajs_argv"))
+            {
                 stripped = user_params
                     .iter()
                     .filter(|p| p.name != "__torajs_argv")

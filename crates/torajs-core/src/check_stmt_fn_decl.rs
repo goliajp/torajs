@@ -74,9 +74,13 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     // It still needs a binding of its own — the synthesized
     // `__torajs_arguments_materialize` call reads it.
     // A ctor on the argv lane carries the slot at position 2, after
-    // its head (rotation 616) — stripped by name, wherever it sits.
+    // its head (rotation 616) — for a ctor it is stripped by name; a
+    // method's slot (position 1) stays, as the signature hoist keeps
+    // it (see `check_pipeline`).
     let stripped: Vec<Param>;
-    let params: &[Param] = if params.iter().any(|p| p.name == "__torajs_argv") {
+    let strip = params.first().is_some_and(|p| p.name == "__torajs_argv")
+        || (name.ends_with("__ctor") && params.iter().any(|p| p.name == "__torajs_argv"));
+    let params: &[Param] = if strip {
         checker
             .declare(
                 "__torajs_argv".to_string(),
