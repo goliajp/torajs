@@ -48,6 +48,15 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
     // the most recent `}` (read only when `}` is the previous token).
     let mut brace_kinds: Vec<bool> = Vec::new();
     let mut rbrace_closed_block = false;
+    // The `(` stack's function-head entries: `Some(v)` when the `(`
+    // opened a `function` parameter list, `v` = whether a `/` after
+    // that function's body `}` is a regex — true for a declaration
+    // (statement position), false for a function EXPRESSION
+    // (`function(){} / 2` is division; test262 division/
+    // S11.5.2_A3_T1.5). `last_rparen_fn` is the entry the most
+    // recent `)` popped, read by the `{` right after it.
+    let mut paren_fn_heads: Vec<Option<bool>> = Vec::new();
+    let mut last_rparen_fn: Option<bool> = None;
 
     skip_hashbang(bytes, &mut i, len);
 
@@ -101,13 +110,23 @@ fn tokenize_goal(src: &str, html_comments: bool) -> Result<Vec<Spanned>, String>
             b',' => emit(&mut out, Token::Comma, start, advance(&mut i)),
             b':' => emit(&mut out, Token::Colon, start, advance(&mut i)),
             b';' => emit(&mut out, Token::Semi, start, advance(&mut i)),
-            b'(' => emit(&mut out, Token::LParen, start, advance(&mut i)),
-            b')' => emit(&mut out, Token::RParen, start, advance(&mut i)),
+            b'(' => {
+                paren_fn_heads.push(util::function_head_regex_after(&out));
+                emit(&mut out, Token::LParen, start, advance(&mut i));
+            }
+            b')' => {
+                last_rparen_fn = paren_fn_heads.pop().flatten();
+                emit(&mut out, Token::RParen, start, advance(&mut i));
+            }
             b'{' => {
-                brace_kinds.push(util::block_brace_opens(
-                    out.last().map(|s| &s.token),
-                    brace_kinds.last().copied(),
-                ));
+                let prev = out.last().map(|s| &s.token);
+                // A function body: the `}` follows the function's own
+                // position, not the `)` before it.
+                let kind = match (prev, last_rparen_fn) {
+                    (Some(Token::RParen), Some(v)) => v,
+                    _ => util::block_brace_opens(prev, brace_kinds.last().copied()),
+                };
+                brace_kinds.push(kind);
                 emit(&mut out, Token::LBrace, start, advance(&mut i));
             }
             b'}' => {

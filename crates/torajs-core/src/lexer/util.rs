@@ -130,6 +130,44 @@ pub(super) fn block_brace_opens(prev: Option<&Token>, enclosing_is_block: Option
     }
 }
 
+/// Does the `(` about to be emitted open a `function` parameter list,
+/// and if so, is a `/` after that function's body `}` a regex? Looks
+/// back over the head spellings `function (`, `function f (`,
+/// `function* (`, `function* f (`, `async function …(`: the token
+/// BEFORE the `function` keyword (or its `async`) decides — a
+/// statement boundary (program start, `;`, `{`, `}`, `export`,
+/// `default`) makes it a declaration whose body ends a statement
+/// (regex after), anything else makes it a function expression
+/// (`x = function(){} / 2`, `f(function(){}) / 2` — division after).
+/// `None` = not a function head; the brace rule reads the `)` as an
+/// ordinary head (`if` / `for` / a method's parameter list).
+pub(super) fn function_head_regex_after(out: &[Spanned]) -> Option<bool> {
+    let mut k = out.len();
+    // Optional name, optional `*`, then the keyword.
+    if k > 0 && matches!(out[k - 1].token, Token::Ident(_)) {
+        k -= 1;
+    }
+    if k > 0 && matches!(out[k - 1].token, Token::Star) {
+        k -= 1;
+    }
+    if k == 0 || !matches!(out[k - 1].token, Token::Function) {
+        return None;
+    }
+    k -= 1;
+    if k > 0 && matches!(out[k - 1].token, Token::Async) {
+        k -= 1;
+    }
+    let before = if k == 0 {
+        None
+    } else {
+        Some(&out[k - 1].token)
+    };
+    Some(matches!(
+        before,
+        None | Some(Token::Semi | Token::LBrace | Token::RBrace | Token::Export | Token::Default)
+    ))
+}
+
 /// §12.3 LineTerminator — LF, CR, and the UTF-8 spellings of U+2028
 /// LINE SEPARATOR / U+2029 PARAGRAPH SEPARATOR. Returns the width in
 /// bytes of the one starting at `i` (a CR LF pair counts as one, two
