@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T12:58:59.359Z",
+  "generatedAt": "2026-09-10T16:16:14.400Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-10T12:47:33Z",
-    "headSha": "8e8efc7e0",
-    "elapsedSec": 453.2,
+    "ranAt": "2026-09-10T16:05:04Z",
+    "headSha": "1f5a56a55",
+    "elapsedSec": 428.1,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31544,
-    "passNoOracle": 1202,
+    "pass": 31618,
+    "passNoOracle": 1222,
     "passNegative": 4519,
-    "passTotal": 37265,
-    "bug": 11442,
-    "incompatible": 4467,
+    "passTotal": 37359,
+    "bug": 11407,
+    "incompatible": 4408,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48707,
-    "passRateInScope": 70.08,
-    "passRateTrAccepted": 76.51
+    "trAccepted": 48766,
+    "passRateInScope": 70.26,
+    "passRateTrAccepted": 76.61
   },
   "torajs": {
-    "commit": "28c6cb548",
-    "commitSubject": "chore(hardev): rotation 627 stamps — sweep, determinism, Guard Malloc, file size; roadmap P-SURF snapshot @ 8e8efc7e0",
+    "commit": "be76ae275",
+    "commitSubject": "chore(hardev): rotation 628 file-size stamp @ 1f5a56a55",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "28c6cb548",
-      "subject": "chore(hardev): rotation 627 stamps — sweep, determinism, Guard Malloc, file size; roadmap P-SURF snapshot @ 8e8efc7e0"
+      "hash": "be76ae275",
+      "subject": "chore(hardev): rotation 628 file-size stamp @ 1f5a56a55"
     },
     {
-      "hash": "27460031e",
-      "subject": "chore(hardev): the stamp dirty-test also excludes the verdicts gz stamp"
+      "hash": "ff548a6ae",
+      "subject": "chore(hardev): rotation 628 stamps — sweep, determinism, Guard Malloc; roadmap P-SURF snapshot @ 1f5a56a55"
     },
     {
-      "hash": "8e8efc7e0",
-      "subject": "fix(torajs-core): a bare async head before of is the SyntaxError §14.7.5's lookahead spells"
+      "hash": "1f5a56a55",
+      "subject": "fix(torajs-anyvalue): ToNumeric of the left operand completes before the right operand is touched (§13.15.3)"
     },
     {
-      "hash": "3a0e7e122",
-      "subject": "fix(torajs-core): a call expression as a sloppy for-in / for-of head is evaluated, then throws (Annex B §B.3.6.1)"
+      "hash": "40d86b285",
+      "subject": "fix(torajs-core): a sloppy assignment or update to eval is an ordinary global write (§19.2.1)"
     },
     {
-      "hash": "e3cfd88ec",
-      "subject": "fix(torajs-core): a this-reading function expression handed to reduce / sort on an any receiver, and to any method on a dynamically constructed one"
+      "hash": "33f55fb61",
+      "subject": "fix(torajs-core): ASI supplies the semicolon of a bare computed-key class field (§12.10)"
     },
     {
-      "hash": "bc7db8da7",
-      "subject": "fix(torajs-core): a for-in / for-of head takes any LeftHandSideExpression, not only a name (§14.7.5)"
+      "hash": "9404b43e3",
+      "subject": "fix(torajs-anyvalue): an object operand beside a BigInt reaches ToPrimitive before the mixed-types verdict (§13.15.3)"
     },
     {
-      "hash": "b751ba1b0",
-      "subject": "fix(torajs-core): a static field replaces a same-named static method once its initializer has run (§15.7.14)"
+      "hash": "1f9b8db16",
+      "subject": "fix(torajs-core): super property sites on the ES5 value-parent lane (§13.3.7 over a function parent)"
     },
     {
-      "hash": "1802256e7",
-      "subject": "fix(torajs-core): duplicate class elements — the last definition wins (§15.7.14)"
+      "hash": "5b2a957ae",
+      "subject": "fix(torajs-core): export default of an anonymous class or function is named \"default\" (§16.2.3.7)"
     },
     {
-      "hash": "657234542",
-      "subject": "fix(torajs-core): a this-reading static method's escaped value binds the receiver its call site gives"
+      "hash": "3834b4458",
+      "subject": "fix(torajs-core): a top-level binding holding a class value is a named-fn-visible Any global (K.3b)"
     },
     {
-      "hash": "be8545c62",
-      "subject": "feat(torajs-core): this-first bodies reading arguments take a direct-call argv channel"
+      "hash": "272258af1",
+      "subject": "fix(torajs-core): super writes under a runtime base take the set kernel; super.m?.() is an optional call (§13.3.7 / §13.3.9.1)"
     },
     {
-      "hash": "846e908d7",
-      "subject": "refactor(torajs-core): move the boxed adapter's rest-slot half to its own module"
+      "hash": "36c3a7319",
+      "subject": "feat(torajs-core): super.x++ and its prefix / decrement spellings through one update kernel (§13.4.4-13.4.7)"
     },
     {
-      "hash": "1993c3143",
-      "subject": "refactor(torajs-core): move the pre-rewrite static-call routing walk to its own module"
+      "hash": "223ec7b00",
+      "subject": "fix(torajs-core): super property sites in static blocks, static field initializers and a base class's static context (§15.7.14)"
     }
   ],
-  "headSha": "28c6cb548",
+  "headSha": "be76ae275",
   "autorun": {
-    "total": 930,
+    "total": 931,
     "baselineTarget": 10,
-    "bySelf": 925,
+    "bySelf": 926,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789025799-3dab",
-      "at": "2026-09-10T07:36:39Z",
-      "ts": 1789025799,
+      "rotationId": "r-1789045152-11ad",
+      "at": "2026-09-10T12:59:12Z",
+      "ts": 1789045152,
       "trigger": "self",
-      "prevHead": "e0ed10c65",
-      "handoffSha": "sha256:3c0cb8d8a4fa8ad70aa8603bb36dd77645543d48b47540208b9dccb0b62b081e",
+      "prevHead": "d508c7f93",
+      "handoffSha": "sha256:9685b4beaa3ad63576abf87e0fa80b348bb4398bc942050f9f67406880b28dd8",
       "handoffAgeSec": 1,
-      "conformanceBefore": "3924/0/4",
-      "commitsInSession": 15
+      "conformanceBefore": "3931/0/4",
+      "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1789045152-11ad",
+        "at": "2026-09-10T12:59:12Z",
+        "ts": 1789045152,
+        "trigger": "self",
+        "prevHead": "d508c7f93",
+        "handoffSha": "sha256:9685b4beaa3ad63576abf87e0fa80b348bb4398bc942050f9f67406880b28dd8",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "3931/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1789025799-3dab",
         "at": "2026-09-10T07:36:39Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 8,
         "conformanceBefore": "3845/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1788912995-7810",
-        "at": "2026-09-09T00:16:35Z",
-        "ts": 1788912995,
-        "trigger": "self",
-        "prevHead": "b99c6dd6c",
-        "handoffSha": "sha256:491b9de4129018480d9b346786b9e6e141d6711bc12256846405a61574bd6d8a",
-        "handoffAgeSec": 23,
-        "conformanceBefore": "3836/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
