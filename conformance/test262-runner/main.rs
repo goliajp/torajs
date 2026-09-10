@@ -215,6 +215,23 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
             }
             continue;
         }
+        // `$262.evalScript(src)` — the host object's "evaluate this
+        // source in the global scope as a Script". That is exactly
+        // INDIRECT eval (§19.2.1: an indirect call is always global,
+        // always non-strict Script code), which tr's eval channel
+        // already recognizes in the `(0, eval)("…")` spelling — and
+        // the string it takes goes through the same eval-argument
+        // transform as any other, so the asserts inside it rewrite
+        // too. Without this the whole `$262` object is an unknown
+        // identifier and 31 cases die before their first assertion.
+        // The other members ($262.createRealm / .gc / .IsHTMLDDA /
+        // .AbstractModuleSource) have no tr equivalent and keep the
+        // loud unknown-identifier reject.
+        if starts_with_at(bytes, i, b"$262.evalScript(") {
+            out.push_str("(0,eval)(");
+            i += b"$262.evalScript(".len();
+            continue;
+        }
         // `assert.<method>(` rewrites.
         if starts_with_at(bytes, i, b"assert.") {
             // Try the longest-match-first rewrites.
