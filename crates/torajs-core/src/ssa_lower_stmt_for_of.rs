@@ -386,10 +386,18 @@ fn lower_non_array_source(
                 "ssa-lower: for-of on class `{cname}` requires a `[Symbol.iterator](): SomeIter` method (P5.2 syntax, P5.3 Phase B dispatch) — fn `{iter_fn}` not registered"
             );
         }
-        panic!(
-            "ssa-lower: for-of source type Type::Obj(sid={}) is not a registered class (subset — iterator protocol only fires for user-class iterables; inline-struct iteration not yet supported)",
-            sid.0
-        );
+        // An inline struct (an object literal that reached a typed
+        // slot — a specialized `src: any` param bound to `{
+        // [Symbol.iterator]() {…} }`) has no class to look a method
+        // up on, but the any lane's runtime GetIterator reads its
+        // symbol-keyed field like any other own property, and answers
+        // §7.4.3's TypeError for a literal that has none. Boxing is
+        // the whole route; before rotation 625 this was a compile
+        // refusal ("inline-struct iteration not yet supported").
+        let _ = sid;
+        let boxed = ctx.box_to_any(src_ptr_op);
+        crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
+        return true;
     }
     if src_ty == Type::Str {
         crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
