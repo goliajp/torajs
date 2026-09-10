@@ -8,6 +8,7 @@ use crate::ast::{ExportStar, Stmt};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
+use super::static_resolution::RequestLedger;
 use super::{
     NamedImport, WorkItem, check_k2_form, decl_name, is_builtin_module_source, resolve_path,
 };
@@ -151,6 +152,13 @@ pub(super) fn queue_nested_import(
 /// fetch the other module's default export — a named request for a
 /// binding literally called `default` would miss it — so it queues on
 /// the default lane under the final caller-visible name.
+///
+/// Every face the clause names has to resolve whether or not anyone
+/// asked for it (§16.2.1.6.4 step 9 runs per module): a forwarded
+/// face records the binding its lane queued, and the rest queue a
+/// synthetic `__reex_lie<k>_<face>` request the post-BFS judgment
+/// checks like any other ([`queue_indirect_export_checks`]).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn queue_reexport(
     work: &mut VecDeque<WorkItem>,
     target_dir: &Path,
@@ -160,6 +168,7 @@ pub(super) fn queue_reexport(
     rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
     ns: Option<&mut NsAccum>,
+    ledger: &mut RequestLedger<'_>,
 ) -> Result<(), String> {
     if is_builtin_module_source(lib_source) {
         return Ok(());
@@ -171,6 +180,9 @@ pub(super) fn queue_reexport(
         work.push_back((path, Vec::new(), None, true, None, false));
         return Ok(());
     }
+    // The faces this lane forwarded; the rest go through the
+    // synthetic check below.
+    let mut forwarded: HashSet<&str> = HashSet::new();
     // A namespace request sees each re-exported FACE as one of this
     // lib's own exports (§16.2.3): the field claims the face spelling
     // and binds to a synthetic `__reex_<ns>_<face>` the nested load
@@ -181,9 +193,11 @@ pub(super) fn queue_reexport(
         for (orig, alias) in lib_named {
             let face = alias.as_deref().unwrap_or(orig);
             let binding = format!("__reex_{}_{}", ns.alias(), face);
+            forwarded.insert(face);
             if !ns.claim(face, &binding) {
-                continue; // an earlier walk already owns this field
+                continue; // an earlier walk already owns (and recorded) this field
             }
+            ledger.record(orig, &binding);
             if orig == "default" {
                 // The source's default export only answers on the
                 // default lane — a named request for a binding
@@ -200,6 +214,7 @@ pub(super) fn queue_reexport(
                 ));
             }
         }
+        queue_indirect_export_checks(work, &path, lib_named, &forwarded, ledger);
         return Ok(());
     }
     // For each (orig, alias) in the lib's re-export
@@ -224,7 +239,9 @@ pub(super) fn queue_reexport(
         } else {
             continue;
         };
+        forwarded.insert(lib_visible);
         for final_name in final_names {
+            ledger.record(orig, &final_name);
             if orig == "default" {
                 work.push_back((
                     path.clone(),
@@ -250,8 +267,71 @@ pub(super) fn queue_reexport(
         }
     }
     if !nested_named.is_empty() {
-        work.push_back((path, nested_named, None, false, None, false));
+        work.push_back((path.clone(), nested_named, None, false, None, false));
     }
+    queue_indirect_export_checks(work, &path, lib_named, &forwarded, ledger);
+    Ok(())
+}
+
+/// §16.2.1.6.4 step 9 for the faces no lane forwarded: each queues
+/// its own load under a synthetic binding (the default lane when the
+/// source-side name is `default`) and records the request, so a
+/// `export { x } from "m"` whose x never lands is the module's
+/// SyntaxError even when nobody imported x.
+fn queue_indirect_export_checks(
+    work: &mut VecDeque<WorkItem>,
+    path: &Path,
+    lib_named: &[NamedImport],
+    forwarded: &HashSet<&str>,
+    ledger: &mut RequestLedger<'_>,
+) {
+    for (orig, alias) in lib_named {
+        let face = alias.as_deref().unwrap_or(orig);
+        if forwarded.contains(face) {
+            continue;
+        }
+        let Some(binding) = ledger.synth_binding(face) else {
+            continue;
+        };
+        ledger.record(orig, &binding);
+        if orig == "default" {
+            work.push_back((
+                path.to_path_buf(),
+                Vec::new(),
+                Some(binding),
+                false,
+                None,
+                false,
+            ));
+        } else {
+            work.push_back((
+                path.to_path_buf(),
+                vec![(orig.clone(), Some(binding))],
+                None,
+                false,
+                None,
+                false,
+            ));
+        }
+    }
+}
+
+/// `export { … } from "m"` met under a side-effect walk: m loads and
+/// evaluates (§16.2.2.5), and every forwarded face resolves
+/// (§16.2.1.6.4 step 9) — no lane forwarded any of them.
+pub(super) fn queue_side_effect_reexport(
+    work: &mut VecDeque<WorkItem>,
+    target_dir: &Path,
+    lib_named: &[NamedImport],
+    lib_source: &str,
+    ledger: &mut RequestLedger<'_>,
+) -> Result<(), String> {
+    if is_builtin_module_source(lib_source) {
+        return Ok(());
+    }
+    let path = resolve_path(target_dir, lib_source)?;
+    work.push_back((path.clone(), Vec::new(), None, true, None, false));
+    queue_indirect_export_checks(work, &path, lib_named, &HashSet::new(), ledger);
     Ok(())
 }
 

@@ -212,7 +212,7 @@ pub fn resolve_imports(
     // the `let <alias> = <expr>` and every later alias binds to the
     // first — re-walking would re-lower the same ExprId.
     let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
-    let mut nested_requests: Vec<static_resolution::NestedRequest> = Vec::new();
+    let mut ledger = static_resolution::LedgerState::default();
 
     while let Some((
         target_path,
@@ -305,7 +305,7 @@ pub fn resolve_imports(
                 first: &mut landing_first,
                 ambiguous: &mut ambiguous_locals,
             },
-            nested: &mut nested_requests,
+            ledger: ledger.ledger(&target_path),
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
@@ -338,7 +338,7 @@ pub fn resolve_imports(
         &mut dyn_ns_inline,
         &ambiguous_locals,
         &entry_seed,
-        &nested_requests,
+        &ledger.nested,
     )?;
     Ok(closure_files)
 }

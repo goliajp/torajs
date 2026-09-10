@@ -11,8 +11,8 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use super::inject_export::Landings;
-use super::resolve_helpers::queue_nested_import;
-use super::static_resolution::{NestedRequest, record_import_requests};
+use super::resolve_helpers::{queue_nested_import, queue_side_effect_reexport};
+use super::static_resolution::RequestLedger;
 use super::{
     NsAccum, WorkItem, decl_name, inject_bare_exported_decl, inject_export_inner, queue_reexport,
     queue_star_reexport,
@@ -48,9 +48,10 @@ pub(super) struct LibRequest<'a> {
     pub(super) hidden: &'a HashSet<String>,
     /// §16.2.1.6.3 ambiguity ledger — see [`Landings`].
     pub(super) landings: Landings<'a>,
-    /// §16.2.1.6.4 step 7 — this lib's own `import` clauses, judged
-    /// after the BFS like the entry's (see [`NestedRequest`]).
-    pub(super) nested: &'a mut Vec<NestedRequest>,
+    /// §16.2.1.6.4 steps 7 and 9 — this lib's own `import` clauses
+    /// and indirect exports, judged after the BFS like the entry's
+    /// (see [`RequestLedger`]).
+    pub(super) ledger: RequestLedger<'a>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -65,9 +66,7 @@ fn inject_side_effect_stmt(
     target_dir: &Path,
     injections: &mut Vec<Stmt>,
     s: Stmt,
-    injected: &mut HashSet<String>,
-    nested: &mut Vec<NestedRequest>,
-    requester: &Path,
+    req: &mut LibRequest<'_>,
 ) -> Result<(), String> {
     if let Stmt::ImportDecl {
         source,
@@ -76,7 +75,7 @@ fn inject_side_effect_stmt(
         namespace,
     } = s
     {
-        record_import_requests(nested, requester, &source, &named, &default);
+        req.ledger.import_clause(&source, &named, &default);
         queue_nested_import(work, target_dir, &source, named, default, namespace)?;
         return Ok(());
     }
@@ -96,13 +95,15 @@ fn inject_side_effect_stmt(
         inner: None,
         star: None,
         source: Some(src),
+        named,
         ..
     } = &s
     {
         // `export { … } from "m"` under a side-effect walk exposes no
         // face anyone can see, but m is a requested module
-        // (§16.2.2.5) and evaluates like every other one.
-        return queue_nested_import(work, target_dir, src, Vec::new(), None, None);
+        // (§16.2.2.5) that evaluates, and every name the clause
+        // forwards still has to resolve (§16.2.1.6.4 step 9).
+        return queue_side_effect_reexport(work, target_dir, named, src, &mut req.ledger);
     }
     let stmt = if let Stmt::ExportDecl {
         inner: Some(boxed), ..
@@ -122,7 +123,7 @@ fn inject_side_effect_stmt(
     // request already materialized (or that a later one will ask for
     // by name) goes through the ledger like every other lane's.
     if let Some(n) = decl_name(&stmt)
-        && !injected.insert(n)
+        && !req.injected.insert(n)
     {
         return Ok(());
     }
@@ -142,15 +143,7 @@ pub(super) fn walk_lib_stmt(
 ) -> Result<(), String> {
     // Side-effect-only import — see [`inject_side_effect_stmt`].
     if req.side_effect_only {
-        return inject_side_effect_stmt(
-            work,
-            target_dir,
-            injections,
-            s,
-            req.injected,
-            req.nested,
-            req.landings.path,
-        );
+        return inject_side_effect_stmt(work, target_dir, injections, s, req);
     }
     match s {
         Stmt::ImportDecl {
@@ -159,7 +152,7 @@ pub(super) fn walk_lib_stmt(
             default,
             namespace,
         } => {
-            record_import_requests(req.nested, req.landings.path, &source, &named, &default);
+            req.ledger.import_clause(&source, &named, &default);
             queue_nested_import(work, target_dir, &source, named, default, namespace)?;
         }
         Stmt::ExportDecl {
@@ -238,6 +231,7 @@ pub(super) fn walk_lib_stmt(
                 req.rename,
                 req.default_alias,
                 req.ns.as_deref_mut(),
+                &mut req.ledger,
             )?;
         }
         Stmt::ExportDecl { inner: None, .. } => {

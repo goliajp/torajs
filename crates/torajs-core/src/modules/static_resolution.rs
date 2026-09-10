@@ -53,39 +53,97 @@ pub(super) struct NestedRequest {
     pub(super) binding: String,
 }
 
-/// Record a lib's `import` clause on the nested ledger. A requested
-/// spelling always lands importer-visible under `alias ?? orig`
-/// (`inject_export_inner` injects per visible spelling; the 427-02
-/// class-alias census rename lands on the alias too), and the
-/// default lane materializes `let <alias>` (a repeat request binds
-/// `let <second> = <first>`), so the binding IS the visible name.
-/// Only ImportDecls record — a request `queue_star_reexport`
-/// forwards lands from whichever star provides it, so recording the
-/// forwarded copy would misreport a name a later star supplies.
-pub(super) fn record_import_requests(
-    out: &mut Vec<NestedRequest>,
-    requester: &Path,
-    source: &str,
-    named: &[NamedImport],
-    default: &Option<String>,
-) {
-    if is_builtin_module_source(source) {
-        return;
+/// The walk's handle on the nested ledger: which module is asking,
+/// where the requests go, and the sequence the synthetic
+/// `__reex_lie<k>_<face>` bindings draw from (one counter per
+/// resolver run — the entry's own indirect exports use `__reex_iee`,
+/// a namespace field uses `__reex_<ns>_`; the family is census-exempt
+/// and promote-gate-known by prefix).
+pub(super) struct RequestLedger<'a> {
+    pub(super) requester: &'a Path,
+    pub(super) nested: &'a mut Vec<NestedRequest>,
+    pub(super) lie_seq: &'a mut usize,
+    /// (module, face) pairs that already minted a synthetic binding.
+    /// A module walks once per request shape, and a fresh name per
+    /// walk would re-queue the same clause forever through a
+    /// re-export cycle (A: `export { x } from "./B"`, B the reverse) —
+    /// the per-path injected ledger only deduplicates a SPELLING.
+    pub(super) lie_seen: &'a mut HashSet<(PathBuf, String)>,
+}
+
+/// The resolver-wide half of the nested ledger — every request the
+/// walks recorded, the synthetic-binding sequence, and its (module,
+/// face) memo. One per `resolve_imports` run; each walk borrows a
+/// [`RequestLedger`] view of it for the module it is walking.
+#[derive(Default)]
+pub(super) struct LedgerState {
+    pub(super) nested: Vec<NestedRequest>,
+    lie_seq: usize,
+    lie_seen: HashSet<(PathBuf, String)>,
+}
+
+impl LedgerState {
+    pub(super) fn ledger<'a>(&'a mut self, requester: &'a Path) -> RequestLedger<'a> {
+        RequestLedger {
+            requester,
+            nested: &mut self.nested,
+            lie_seq: &mut self.lie_seq,
+            lie_seen: &mut self.lie_seen,
+        }
     }
-    for (orig, alias) in named {
-        let binding = alias.as_deref().unwrap_or(orig).to_string();
-        out.push(NestedRequest {
-            requester: requester.to_path_buf(),
-            face: orig.clone(),
-            binding,
+}
+
+impl RequestLedger<'_> {
+    /// One request: the export name asked for (for the message) and
+    /// the binding its declaration lands under.
+    pub(super) fn record(&mut self, face: &str, binding: &str) {
+        self.nested.push(NestedRequest {
+            requester: self.requester.to_path_buf(),
+            face: face.to_string(),
+            binding: binding.to_string(),
         });
     }
-    if let Some(d) = default {
-        out.push(NestedRequest {
-            requester: requester.to_path_buf(),
-            face: "default".to_string(),
-            binding: d.clone(),
-        });
+
+    /// A lib's `import` clause (§16.2.1.6.4 step 7). A requested
+    /// spelling always lands importer-visible under `alias ?? orig`
+    /// (`inject_export_inner` injects per visible spelling; the
+    /// 427-02 class-alias census rename lands on the alias too), and
+    /// the default lane materializes `let <alias>` (a repeat request
+    /// binds `let <second> = <first>`), so the binding IS the visible
+    /// name. Only ImportDecls record — a request `queue_star_reexport`
+    /// forwards lands from whichever star provides it, so recording
+    /// the forwarded copy would misreport a name a later star
+    /// supplies.
+    pub(super) fn import_clause(
+        &mut self,
+        source: &str,
+        named: &[NamedImport],
+        default: &Option<String>,
+    ) {
+        if is_builtin_module_source(source) {
+            return;
+        }
+        for (orig, alias) in named {
+            let binding = alias.as_deref().unwrap_or(orig).to_string();
+            self.record(orig, &binding);
+        }
+        if let Some(d) = default {
+            self.record("default", d);
+        }
+    }
+
+    /// A fresh binding for an indirect export nobody requested
+    /// (§16.2.1.6.4 step 9 still has to resolve it) — `None` when
+    /// this module's clause already minted one.
+    pub(super) fn synth_binding(&mut self, face: &str) -> Option<String> {
+        if !self
+            .lie_seen
+            .insert((self.requester.to_path_buf(), face.to_string()))
+        {
+            return None;
+        }
+        *self.lie_seq += 1;
+        Some(format!("__reex_lie{}_{face}", *self.lie_seq))
     }
 }
 
