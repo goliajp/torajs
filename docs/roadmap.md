@@ -1621,13 +1621,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `db7ba0105` (53174
+**Where the numbers come from.** Full sweep @ `8e8efc7e0` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ db7ba0105`, never as a constant (the two shas this
+snapshot stamped `@ 8e8efc7e0`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1681,7 +1681,41 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `db7ba0105`** (2026-09-10, rotation 626 — twelve knives, each
+**Latest @ `8e8efc7e0`** (2026-09-10, rotation 627 — ten knives along
+three seams: the receiver (a this-first body's direct-call argv
+channel, the ctor lane widened to a one-slot head; a this-reading
+static method's escaped value binding the receiver its call site
+gives; a this-reading function expression admitted to reduce / sort
+on an any receiver and to any method of a dynamically constructed
+one), the class element (duplicates keep the last definition per
+§15.7.14; a static field replaces a same-named method once its
+initializer has run, positionally), and the for-in / for-of head (any
+LeftHandSideExpression, the Annex B call head with its runtime
+ReferenceError — node as oracle where bun skips Annex B). Gate
+predicate: **73** clusters of >= 4 holding **505** cases, register
+2 · 147, residue 411 · 549 (45.7%), core **1201**. Coverage curve:
+top-100 **59.0%**, top-200 **75.4%**, top-400 **92.0%**. Against
+rotation 626: clusters 75 -> **73 (-2)**, cases 522 -> **505 (-17)**,
+core 1221 -> **1201 (-20)** — the ASI-shaped for-head cluster (13)
+left the table and the unclaimed-receiver cluster halved (27 -> 13);
+`unknown ident __superbase__` (13) entered it, which is the same
+for-head knife letting `super.x` heads parse as far as pass 1.7.
+
+Sweep passTotal 37241 -> **37265 (+24)**, pass 31522 -> **31544
+(+22)**, passNoOracle 1200 -> **1202 (+2)**, passNegative 4519 ->
+**4519 (+0)**, bug 11440 -> **11442 (+2)**, incompatible 4493 ->
+**4467 (-26)**, trAccepted 48681 -> **48707 (+26)**; conservation
+exact. Verdict diff 29 lines: 24 forward to pass (TypedArray
+reduce / sort callbackfn-this x6, class x7, for-of / for-in x6,
+annexB call heads x2, accessor duplicates x2, Array.from x1), 5
+forward moves short of pass (two `super.x` for-heads now parse and
+stop at the checker; body-put-error and the two field
+redeclaration cases now compile and answer wrong at runtime), **zero
+pass regressions** — the first sweep of the rotation had one
+(`head-lhs-async-invalid`, `async of` taken as an identifier head),
+fixed forward and re-swept.
+
+**Prior @ `db7ba0105`** (2026-09-10, rotation 626 — twelve knives, each
 opened by a probe matrix: what a spread's source is (only a syntactic
 array is index-expanded; a generator / Set / string source is iterated),
 what a relay's target is called (read off its forwarding call, mono
