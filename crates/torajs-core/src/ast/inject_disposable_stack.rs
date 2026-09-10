@@ -82,9 +82,15 @@ class DisposableStack {
   __s: any = [];
   __d: boolean = false;
   get disposed(): boolean {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     return this.__d;
   }
   use(value: any): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("DisposableStack already disposed");
     }
@@ -99,6 +105,9 @@ class DisposableStack {
     return value;
   }
   adopt(value: any, onDispose: any): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("DisposableStack already disposed");
     }
@@ -109,6 +118,9 @@ class DisposableStack {
     return value;
   }
   defer(onDispose: any): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("DisposableStack already disposed");
     }
@@ -119,6 +131,9 @@ class DisposableStack {
     return undefined;
   }
   move(): DisposableStack {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("DisposableStack already disposed");
     }
@@ -129,6 +144,9 @@ class DisposableStack {
     return n;
   }
   dispose(): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       return undefined;
     }
@@ -139,6 +157,9 @@ class DisposableStack {
     return undefined;
   }
   [Symbol.dispose](): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("DisposableStack method called on incompatible receiver");
+    }
     return this.dispose();
   }
 }
@@ -185,9 +206,15 @@ class AsyncDisposableStack {
   __s: any = [];
   __d: boolean = false;
   get disposed(): boolean {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("AsyncDisposableStack method called on incompatible receiver");
+    }
     return this.__d;
   }
   use(value: any): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("AsyncDisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("AsyncDisposableStack already disposed");
     }
@@ -211,6 +238,9 @@ class AsyncDisposableStack {
     return value;
   }
   adopt(value: any, onDispose: any): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("AsyncDisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("AsyncDisposableStack already disposed");
     }
@@ -221,6 +251,9 @@ class AsyncDisposableStack {
     return value;
   }
   defer(onDispose: any): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("AsyncDisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("AsyncDisposableStack already disposed");
     }
@@ -231,6 +264,9 @@ class AsyncDisposableStack {
     return undefined;
   }
   move(): AsyncDisposableStack {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("AsyncDisposableStack method called on incompatible receiver");
+    }
     if (this.__d) {
       throw new ReferenceError("AsyncDisposableStack already disposed");
     }
@@ -250,6 +286,9 @@ class AsyncDisposableStack {
     return __torajs_adstack_walk(st);
   }
   [Symbol.asyncDispose](): any {
+    if ((this as any) === null || typeof this !== "object" || !("__d" in (this as any))) {
+      throw new TypeError("AsyncDisposableStack method called on incompatible receiver");
+    }
     return this.disposeAsync();
   }
 }
