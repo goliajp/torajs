@@ -122,12 +122,13 @@ fn try_lower_headless_argv_spread(
         return None;
     };
     let name = name.clone();
-    // The this-first constructor lane (rotation 616) wants the same
-    // two values, one head wider: `super(...xs)` desugars to
-    // `__cm_P__ctor(__this, __new_target, ...xs)`, so the head
+    // The this-first lane (rotation 616 / 627) wants the same two
+    // values, a head wider: `super(...xs)` desugars to
+    // `__cm_P__ctor(__this, __new_target, ...xs)`, a twin's
+    // `C.m.apply(o, xs)` to `__smany_C__m(o, ...xs)`, so the head
     // arguments lower as themselves and only the tail becomes argv.
-    if ctx.ast.ctor_argv_fns.contains(&name) {
-        return lower_ctor_argv_spread(ctx, &name, args);
+    if let Some(&head) = ctx.ast.this_first_argv_fns.get(&name) {
+        return lower_this_first_argv_spread(ctx, &name, args, head);
     }
     if !ctx.ast.headless_argv_fns.contains(&name) || !ctx.ast.headless_argc_fns.contains(&name) {
         return None;
@@ -181,8 +182,13 @@ fn try_lower_headless_argv_spread(
 /// everything after it materializes into one `Array<Any>` whose len
 /// is the argc and whose slot base is the argv — the head-less
 /// lane's mechanism, offset by the head.
-fn lower_ctor_argv_spread(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> Option<Operand> {
-    if args.len() < 2 {
+fn lower_this_first_argv_spread(
+    ctx: &mut LowerCtx<'_>,
+    name: &str,
+    args: &[ExprId],
+    head: usize,
+) -> Option<Operand> {
+    if args.len() < head {
         return None;
     }
     let target = *ctx.fn_table.get(name)?;
@@ -192,7 +198,7 @@ fn lower_ctor_argv_spread(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
     // so that shape keeps the loud refusal (decided before anything
     // is emitted — a `None` here must leave no half-lowered call).
     let sig_id = *ctx.fn_sig_ids.get(&target)?;
-    let declared: Vec<Type> = ctx.fn_sigs[sig_id.0 as usize].0[4..].to_vec();
+    let declared: Vec<Type> = ctx.fn_sigs[sig_id.0 as usize].0[head + 2..].to_vec();
     if !declared.iter().all(|t| {
         matches!(
             t,
@@ -201,9 +207,9 @@ fn lower_ctor_argv_spread(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
     }) {
         return None;
     }
-    let head: Vec<Operand> = args[..2].iter().map(|a| ctx.lower_expr(*a)).collect();
+    let head_ops: Vec<Operand> = args[..head].iter().map(|a| ctx.lower_expr(*a)).collect();
     let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-    let args_arr = build_args_arr(ctx, &args[2..]);
+    let args_arr = build_args_arr(ctx, &args[head..]);
     // Same pre-call check as the head-less lane: a parent that
     // declares and reads nothing cannot throw, so the post-call check
     // is elided for it — and `super(...gen())`'s own throw was lost
@@ -216,19 +222,19 @@ fn lower_ctor_argv_spread(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -
         None,
     );
     let argv = ctx.emit_arr_data_ptr(args_arr.clone());
-    let mut call_args = head;
+    let mut call_args = head_ops;
     call_args.push(Operand::Value(argc));
     call_args.push(argv);
     // The declared parameters, unpacked off the same list: slot `i`
     // read boxed (past the end answers undefined, §10.2.11's missing
     // argument), then converted to the parameter's own SSA type the
-    // way a positional argument is. `[__this, __new_target, argc,
-    // argv, …declared]` is the ctor argv signature (`inject_argc_params`).
-    let spread_eid = args[2..]
+    // way a positional argument is. `[…head, argc, argv, …declared]`
+    // is the this-first argv signature (`inject_argc_params`).
+    let spread_eid = args[head..]
         .iter()
         .copied()
         .find(|a| matches!(ctx.ast.get_expr(*a), Expr::Spread { .. }))
-        .expect("ctor argv spread lane entered without a spread argument");
+        .expect("this-first argv spread lane entered without a spread argument");
     let mut owned: Vec<(Operand, Type)> = Vec::new();
     for (i, pty) in declared.into_iter().enumerate() {
         let slot = ctx.f.append_inst(

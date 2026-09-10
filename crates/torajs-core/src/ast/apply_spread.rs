@@ -175,8 +175,8 @@ pub fn apply_spread_args(ast: &mut Ast) {
         // so nothing downstream was left holding the count and the
         // expansion below trimmed it to the declared arity —
         // `arguments.length` answered 0 where bun answered 3.
-        // A constructor on the ctor argv lane (rotation 616 / 625)
-        // is fed the whole list at runtime by `lower_ctor_argv_spread`
+        // A body on the this-first argv lane (rotation 616 / 625 / 627)
+        // is fed the whole list at runtime by `lower_this_first_argv_spread`
         // — the index expansion would read a parent-arity prefix off
         // a source that may not even be an array (a generator is
         // iterated lazily: expanded away, its body never ran and its
@@ -185,7 +185,7 @@ pub fn apply_spread_args(ast: &mut Ast) {
         if ast.closure_argv_fns.contains(&resolved)
             || ast.headless_argc_fns.contains(&resolved)
             || ast.method_arguments_touch_fns.contains(&resolved)
-            || ast.ctor_argv_fns.contains(&resolved)
+            || ast.this_first_argv_fns.contains_key(&resolved)
             || ast.closure_argc_locals.contains(name)
             || ast.closure_argv_locals.contains(name)
         {

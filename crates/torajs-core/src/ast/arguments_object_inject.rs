@@ -20,7 +20,7 @@ use super::{Ast, Param, Stmt};
 /// - `value_argv_fns` (env-first argv face): at the first user slot
 ///   after `__env`.
 /// - `method_argv_fns` (`__cm_` this-first): right after `__this`.
-/// - `ctor_argv_fns` (this-first ctor spread lane, rotation 616):
+/// - `this_first_argv_fns` (this-first direct-call lane, rotation 616 / 627):
 ///   after `__this` AND `__new_target`, both of which a ctor
 ///   declaration always carries.
 /// - `headless_argv_fns` (RFC 20260816-headless-argv-face): at
@@ -32,12 +32,12 @@ pub(super) fn inject_argc_params(
     value_argv_fns: &std::collections::HashSet<String>,
     method_argv_fns: &std::collections::HashSet<String>,
     headless_argv_fns: &std::collections::HashSet<String>,
-    ctor_argv_fns: &std::collections::HashSet<String>,
+    this_first_argv_fns: &std::collections::HashMap<String, usize>,
 ) {
     if value_argv_fns.is_empty()
         && method_argv_fns.is_empty()
         && headless_argv_fns.is_empty()
-        && ctor_argv_fns.is_empty()
+        && this_first_argv_fns.is_empty()
     {
         return;
     }
@@ -49,10 +49,12 @@ pub(super) fn inject_argc_params(
     };
     for s in ast.stmts.iter_mut() {
         if let Stmt::FnDecl { name, params, .. } = s {
-            if ctor_argv_fns.contains(name) {
-                // A ctor's head is two slots wide (`__this`,
-                // `__new_target`), so "right after the head" is 2.
-                params.insert(2, argv());
+            if let Some(&head) = this_first_argv_fns.get(name) {
+                // "Right after the head", and the head is as wide as
+                // the declaration says: one slot for a twin or a
+                // promoted declaration, two for a ctor (`__this`,
+                // `__new_target`).
+                params.insert(head, argv());
             } else if value_argv_fns.contains(name) || method_argv_fns.contains(name) {
                 params.insert(1, argv());
             } else if headless_argv_fns.contains(name) {

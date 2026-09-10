@@ -109,8 +109,10 @@ pub(crate) struct HeadlessSlots {
     pub(crate) argc: bool,
     pub(crate) argv: bool,
     /// Where the pair sits in the callee's signature — 0 for a
-    /// head-less body, and for a constructor the width of the head
-    /// it declares (`__this` + `__new_target` = 2, rotation 616).
+    /// head-less body, and for a this-first body the width of the
+    /// head it declares (`__this` = 1 for a twin or a promoted
+    /// declaration, `__this` + `__new_target` = 2 for a constructor;
+    /// rotation 616 / 627).
     /// Also the number of leading AST arguments that are NOT user
     /// arguments, which is what `arguments` counts.
     pub(crate) at: usize,
@@ -139,13 +141,13 @@ pub(crate) fn headless_slots(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) ->
             at: 0,
         };
     };
-    // The this-first constructor lane carries both slots after the
-    // two head params its declaration always has.
-    if ctx.ast.ctor_argv_fns.contains(name) {
+    // The this-first lane carries both slots right after the head
+    // its declaration has.
+    if let Some(&head) = ctx.ast.this_first_argv_fns.get(name) {
         return HeadlessSlots {
             argc: true,
             argv: true,
-            at: 2,
+            at: head,
         };
     }
     HeadlessSlots {

@@ -46,9 +46,10 @@ fn boxable(ty: &Type) -> bool {
 /// channel (the env ptr's raw bits are not a nanbox) — it maps as an
 /// ordinary user param instead, and the guard-fail path calls the
 /// adapter recv-first (receiver prepended in argv[0], any→any
-/// pass-through). An argv-face twin (synthetic `__torajs_argv`
-/// head) would mis-map that slot, so it synthesizes nothing (twin
-/// stays 0 in the face; recorded RFC residue).
+/// pass-through). An argv-face twin (`__torajs_argv` right after
+/// `__this`, the this-first argv lane) maps the same way, with the
+/// receiver read off argv[0] ahead of the hidden slots and the
+/// window shifted past it for the rest (`recv_leads`).
 fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
     let head_is_this = params.first().is_some_and(|p| p.name == "__this");
     (
@@ -64,8 +65,7 @@ fn head_shape(name: &str, params: &[crate::ast::Param]) -> (bool, bool, bool) {
             // this adapter.
             && (name.starts_with("__cmany_")
                 || name.starts_with("__smany_")
-                || name.starts_with("__ctorany_"))
-            && !params.iter().any(|p| p.name == "__torajs_argv"),
+                || name.starts_with("__ctorany_")),
     )
 }
 
@@ -161,9 +161,19 @@ fn target_facts(
     // carries the raw argv pointer right after its head param
     // (the argc channel is the S1 hidden sig slot on every tier
     // since the T/H blades — no injected argc param remains).
-    let has_argv = params
-        .get(env_count)
-        .is_some_and(|p| p.name == "__torajs_argv");
+    // A twin on the this-first argv lane (`__this` then
+    // `__torajs_argv`, rotation 627): its sig is `[__this: Any, argc:
+    // I64, argv: Ptr, …user]`; the receiver rides argv[0] like any
+    // recv-first cell and is user param 0 of the body — fed from
+    // argv[0] BEFORE the hidden slots, the window then shifted past
+    // it for the rest (`recv_leads`).
+    let twin_argv = !feeds_env
+        && params.first().is_some_and(|p| p.name == "__this")
+        && params.get(1).is_some_and(|p| p.name == "__torajs_argv");
+    let has_argv = twin_argv
+        || params
+            .get(env_count)
+            .is_some_and(|p| p.name == "__torajs_argv");
     // param 0 is the env Ptr (when the body carries one); the
     // boxed surface covers the rest (minus the argv slot, which
     // never consumes argv positions). Two skip counts since
@@ -177,7 +187,13 @@ fn target_facts(
     let this_hidden = crate::ssa_lower_pass_1::this_first_hidden_argc(params);
     let ast_skip = env_count + usize::from(has_argv);
     let sig_skip = ast_skip + usize::from(first_is_env) + usize::from(this_hidden);
-    let user_tys = param_tys[sig_skip..].to_vec();
+    let user_tys: Vec<Type> = if twin_argv {
+        std::iter::once(param_tys[0].clone())
+            .chain(param_tys[3..].iter().cloned())
+            .collect()
+    } else {
+        param_tys[sig_skip..].to_vec()
+    };
     if user_tys.len() > MAX_BOXED_PARAMS {
         return None;
     }
@@ -245,7 +261,15 @@ fn target_facts(
     // §10.2.1.3 treats both alike), which a runtime call cannot
     // get from the caller-side default injection. Qualifying
     // literals per [`DfltLit::of_default_expr`].
-    let dflt_lits: Vec<Option<DfltLit>> = params[ast_skip..]
+    let dflt_params: Vec<&crate::ast::Param> = if twin_argv {
+        params
+            .iter()
+            .filter(|p| p.name != "__torajs_argv")
+            .collect()
+    } else {
+        params[ast_skip..].iter().collect()
+    };
+    let dflt_lits: Vec<Option<DfltLit>> = dflt_params
         .iter()
         .map(|p| {
             p.default
@@ -267,10 +291,11 @@ fn target_facts(
     // arguments.length === 1 when the slot-keyed predicate went
     // false). A `__cm_` this-first head never reaches ast_skip
     // (env_count consumes it) and twins are not env-first.
-    let recv_slot = first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
+    let recv_slot =
+        twin_argv || first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
     // The relay redirect (module doc in `relay`): the adapter of
     // a `__forward_<t>` enters `t` with its own argc / argv.
-    let relay_fid = (first_is_env && !rest)
+    let relay = (first_is_env && !rest)
         .then(|| {
             relay::headless_target(
                 ast,
@@ -287,12 +312,14 @@ fn target_facts(
     Some(BoxedEntryTarget {
         name: name.to_string(),
         fid,
-        body_fid: relay_fid.unwrap_or(fid),
+        body_fid: relay.map_or(fid, |(t, _)| t),
         user_tys,
         ret_ty,
-        has_argv: has_argv || relay_fid.is_some(),
+        has_argv: has_argv || relay.is_some(),
         recv_slot,
-        feeds_env: feeds_env && relay_fid.is_none(),
+        recv_leads: twin_argv,
+        lead_undef: relay.is_some_and(|(_, this_first)| this_first),
+        feeds_env: feeds_env && relay.is_none(),
         hidden_argc: first_is_env || this_hidden,
         dflt_lits,
         rest,
@@ -315,6 +342,15 @@ pub(super) struct BoxedEntryTarget {
     pub(super) ret_ty: Type,
     pub(super) has_argv: bool,
     pub(super) recv_slot: bool,
+    /// The receiver in argv[0] is the body's user param 0 and
+    /// precedes the hidden argc / argv slots in its sig (a twin on
+    /// the this-first argv lane): unboxed first, the window then
+    /// shifted for the rest.
+    pub(super) recv_leads: bool,
+    /// A relay redirected to a one-slot this-first target: the body's
+    /// leading `__this` takes the `undefined` receiver the relay's own
+    /// forwarding call would have seeded.
+    pub(super) lead_undef: bool,
     pub(super) feeds_env: bool,
     /// RFC 20260810-indirect-argc-abi S1 — the body's SSA sig
     /// carries the hidden I64 `__torajs_argc` at position 1 (every

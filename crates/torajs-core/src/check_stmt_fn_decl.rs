@@ -78,8 +78,13 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     // method's slot (position 1) stays, as the signature hoist keeps
     // it (see `check_pipeline`).
     let stripped: Vec<Param>;
+    // A one-slot this-first body on the argv lane (a static twin or a
+    // promoted declaration, rotation 627) carries it at position 1
+    // and is called directly, so it strips like a ctor's; a `__cm_`
+    // method's slot at the same position stays.
     let strip = params.first().is_some_and(|p| p.name == "__torajs_argv")
-        || (name.ends_with("__ctor") && params.iter().any(|p| p.name == "__torajs_argv"));
+        || (name.ends_with("__ctor") && params.iter().any(|p| p.name == "__torajs_argv"))
+        || (!name.starts_with("__cm_") && params.get(1).is_some_and(|p| p.name == "__torajs_argv"));
     let params: &[Param] = if strip {
         checker
             .declare(

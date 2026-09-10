@@ -290,17 +290,18 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         }
     }
     ast.method_arguments_touch_fns = method_arguments_touch;
-    // Rotation 616 — the this-first ctor argv lane. Collected
-    // after the static face has settled: a ctor the static face
-    // took is already answered at zero cost, and only the ones it
-    // abstained on (a spread site, or two subclasses calling
-    // `super` with different counts) want a runtime channel.
-    let ctor_argv_fns = super::arguments_object_ctor_argv_spread::collect_ctor_argv(
+    // Rotation 616 / 627 — the this-first direct-call argv lane
+    // (ctors, static twins, promoted declarations). Collected after
+    // the static face has settled: a body the static face took is
+    // already answered at zero cost, and only the ones it abstained
+    // on (a spread site, or two sites with different counts) want a
+    // runtime channel.
+    let this_first_argv_fns = super::arguments_object_this_first_argv::collect_this_first_argv(
         ast,
         &excluded,
         &iife_static_argv,
     );
-    ast.ctor_argv_fns = ctor_argv_fns.clone();
+    ast.this_first_argv_fns = this_first_argv_fns.clone();
     // RFC 20260816-headless-argv-face — the head-less tier's runtime
     // VALUE channel (module doc in arguments_object_headless_argv).
     // Its bodies read `__torajs_argc` too (the materialize take-count
@@ -329,7 +330,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         &value_argv_fns,
         &method_argv_fns,
         &headless_argv_fns,
-        &ctor_argv_fns,
+        &this_first_argv_fns,
     );
 
     // The per-FnDecl body rewrite (mode classification, the
@@ -350,7 +351,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             value_argv_fns: &value_argv_fns,
             env_fns: &env_fns,
             headless_argv_fns: &headless_argv_fns,
-            ctor_argv_fns: &ctor_argv_fns,
+            this_first_argv_fns: &this_first_argv_fns,
         },
     );
 }

@@ -183,11 +183,18 @@ pub(crate) fn pass_1_hoist_fn_signatures(c: &mut Checker, ast: &Ast) {
             // machinery reads that face (`arguments-method-value-argv`
             // went red when the strip was widened to every shape).
             let stripped: Vec<Param>;
+            // A one-slot this-first body on the argv lane (a static
+            // twin or a promoted declaration, rotation 627) strips
+            // like a ctor: it is called directly.
             if user_params
                 .first()
                 .is_some_and(|p| p.name == "__torajs_argv")
                 || (name.ends_with("__ctor")
                     && user_params.iter().any(|p| p.name == "__torajs_argv"))
+                || (!name.starts_with("__cm_")
+                    && user_params
+                        .get(1)
+                        .is_some_and(|p| p.name == "__torajs_argv"))
             {
                 stripped = user_params
                     .iter()

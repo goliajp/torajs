@@ -33,7 +33,7 @@ pub(super) struct BodyTiers<'a> {
     pub(super) value_argv_fns: &'a HashSet<String>,
     pub(super) env_fns: &'a HashSet<String>,
     pub(super) headless_argv_fns: &'a HashSet<String>,
-    pub(super) ctor_argv_fns: &'a HashSet<String>,
+    pub(super) this_first_argv_fns: &'a HashMap<String, usize>,
 }
 
 pub(super) fn rewrite_fn_bodies(
@@ -104,7 +104,7 @@ fn rewrite_one_body(
         value_argv_fns,
         env_fns,
         headless_argv_fns,
-        ctor_argv_fns,
+        this_first_argv_fns,
     } = t;
     // A shadowed fn's `arguments` idents refer to its OWN
     // `var arguments` local — leave the body untouched (the
@@ -119,7 +119,7 @@ fn rewrite_one_body(
     let is_argv_fn = value_argv_fns.contains(name)
         || method_argv_fns.contains(name)
         || headless_argv_fns.contains(name)
-        || ctor_argv_fns.contains(name);
+        || this_first_argv_fns.contains_key(name);
     // RFC 20260708-closure-argv-face chunk 2 — an env
     // closure that did NOT qualify for the argv face (killed
     // binding chain / escaping touch / unsafe return) stays
@@ -142,7 +142,7 @@ fn rewrite_one_body(
             value_real_argc: value_real_argc,
             value_argv_fns: value_argv_fns,
             env_fns: env_fns,
-            ctor_argv_fns: ctor_argv_fns,
+            this_first_argv_fns: this_first_argv_fns,
         },
     );
     // T-11 — pre-pass: detect any dynamic `arguments[<non-

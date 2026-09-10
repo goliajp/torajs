@@ -43,10 +43,14 @@ use std::collections::HashMap;
 use crate::ast::{Ast, Expr, Stmt};
 use crate::ssa::{self, FuncId, Type};
 
-/// `Some(fid of t)` when `name` is a `__forward_` relay whose
-/// forwarding call names `t`, `t` is on the head-less argv face, and
-/// `t`'s signature is `[I64, Ptr, …]` with exactly the relay's user
-/// types and return type behind the two synthetic slots.
+/// `Some((fid of t, this_first))` when `name` is a `__forward_` relay
+/// whose forwarding call names `t`, `t` is on the head-less argv face
+/// (`[I64, Ptr, …]`) or the one-slot this-first argv face (`[Any,
+/// I64, Ptr, …]`, rotation 627 — a static twin or a promoted
+/// declaration; the adapter leads with the `undefined` receiver the
+/// relay's own forwarding call would have seeded), and `t`'s
+/// signature carries exactly the relay's user types and return type
+/// behind the synthetic slots.
 pub(super) fn headless_target(
     ast: &Ast,
     call_retargets: &crate::ssa_lower::CallRetargets,
@@ -56,20 +60,29 @@ pub(super) fn headless_target(
     fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
     user_tys: &[Type],
     ret_ty: &Type,
-) -> Option<FuncId> {
+) -> Option<(FuncId, bool)> {
     name.strip_prefix("__forward_")?;
     let target = forwarding_call_target(ast, call_retargets, name)?;
+    let fid = *fn_table.get(&target)?;
+    let (tys, ret) = &fn_sigs[fn_sig_ids.get(&fid)?.0 as usize];
+    if ast.this_first_argv_fns.get(&target) == Some(&1) {
+        let face_matches = tys.len() == user_tys.len() + 3
+            && tys[0] == Type::Any
+            && tys[1] == Type::I64
+            && tys[2] == Type::Ptr
+            && tys[3..] == *user_tys
+            && ret == ret_ty;
+        return face_matches.then_some((fid, true));
+    }
     if !ast.headless_argv_fns.contains(&target) || !ast.headless_argc_fns.contains(&target) {
         return None;
     }
-    let fid = *fn_table.get(&target)?;
-    let (tys, ret) = &fn_sigs[fn_sig_ids.get(&fid)?.0 as usize];
     let face_matches = tys.len() == user_tys.len() + 2
         && tys[0] == Type::I64
         && tys[1] == Type::Ptr
         && tys[2..] == *user_tys
         && ret == ret_ty;
-    face_matches.then_some(fid)
+    face_matches.then_some((fid, false))
 }
 
 /// The fn the relay's body calls — `return t(…)` as

@@ -30,6 +30,8 @@ pub(super) fn build_boxed_entry(
     ret_ty: Type,
     has_argv: bool,
     recv_slot: bool,
+    recv_leads: bool,
+    lead_undef: bool,
     feeds_env: bool,
     hidden_argc: bool,
     dflt_lits: &[Option<DfltLit>],
@@ -67,6 +69,43 @@ pub(super) fn build_boxed_entry(
     if feeds_env {
         args.push(Operand::Value(env));
     }
+    // A relay entering a one-slot this-first target directly: the
+    // body's `__this` is the plain-call `undefined` (tag 5) the
+    // relay's forwarding call would have seeded.
+    if lead_undef {
+        args.push(Operand::Value(f.append_inst(
+            entry,
+            InstKind::Call(
+                intr.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        )));
+    }
+    let shifted = recv_slot.then(|| shifted_argv(&mut f, entry, argv));
+    // A twin on the this-first argv lane: its `__this` is user param
+    // 0 and sits BEFORE the hidden slots in the sig, so the receiver
+    // in argv[0] is unboxed here and the rest of the user params
+    // come off the shifted window below.
+    let lead = usize::from(recv_leads);
+    if recv_leads {
+        unbox_args(
+            &mut f,
+            module,
+            entry,
+            argv,
+            &user_tys[..1],
+            intr,
+            anyv_to_str,
+            &coerce,
+            &mut args,
+            &mut str_temps,
+            &mut obj_temps,
+            &mut settle_temps,
+            &dflt_lits[..1.min(dflt_lits.len())],
+        );
+    }
     // User-argument count the body-side slots receive: a recv-slot
     // body (RFC 20260808 knife 2) gets the window SHIFTED past
     // argv[0] — the receiver riding there feeds `__this`, not
@@ -91,11 +130,7 @@ pub(super) fn build_boxed_entry(
         args.push(user_argc);
     }
     if has_argv {
-        if recv_slot {
-            args.push(Operand::Value(shifted_argv(&mut f, entry, argv)));
-        } else {
-            args.push(Operand::Value(argv));
-        }
+        args.push(Operand::Value(shifted.unwrap_or(argv)));
     }
     // Rest split — the fixed prefix unboxes positionally; the rest
     // slot itself is fed below from the trailing argv window.
@@ -104,12 +139,17 @@ pub(super) fn build_boxed_entry(
     } else {
         user_tys.len()
     };
+    let base = if recv_leads {
+        shifted.expect("recv_leads implies recv_slot, which minted the shifted window")
+    } else {
+        argv
+    };
     unbox_args(
         &mut f,
         module,
         entry,
-        argv,
-        &user_tys[..n_fixed],
+        base,
+        &user_tys[lead..n_fixed],
         intr,
         anyv_to_str,
         &coerce,
@@ -117,7 +157,7 @@ pub(super) fn build_boxed_entry(
         &mut str_temps,
         &mut obj_temps,
         &mut settle_temps,
-        &dflt_lits[..n_fixed.min(dflt_lits.len())],
+        &dflt_lits[lead.min(dflt_lits.len())..n_fixed.min(dflt_lits.len())],
     );
     if rest {
         let (arr, new_entry) = emit_rest_slot(
