@@ -22,6 +22,32 @@ use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::ssa::FuncId;
 use std::collections::{HashMap, HashSet};
 
+/// T-15.g.5 extension: closure construction can also live at module
+/// top-level (`let cb = function(v) { return v + cap }` directly in
+/// implicit main). Top-level construction only runs when synthesize_
+/// main lowers, so closure bodies that depend on top-level captures
+/// must lower AFTER main, not just after user fns. Pipeline now:
+/// Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
+pub(crate) fn partition_closure_decls(
+    ast: &Ast,
+    decl_indices: Vec<(usize, FuncId)>,
+) -> (Vec<(usize, FuncId)>, Vec<(usize, FuncId)>) {
+    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) =
+        decl_indices
+            .into_iter()
+            .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
+                Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
+                _ => true,
+            });
+    closure_decls.reverse();
+    // Reverse append equals parent-before-child only for parser-shaped
+    // nesting; a closure minted by the capturing-nested-fn route sits
+    // at the arena tail and needs the topological pass to lower after
+    // the closure that constructs it.
+    let closure_decls = order_closure_bodies(ast, closure_decls);
+    (user_decls, closure_decls)
+}
+
 /// Reorder `closure_decls` (already reverse-append) so every closure
 /// lowers after the closure whose body holds its construction site.
 /// Construction sites in user fns or implicit main need nothing: those

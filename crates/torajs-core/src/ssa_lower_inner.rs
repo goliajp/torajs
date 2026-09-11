@@ -43,7 +43,7 @@ use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entr
 
 use std::collections::HashMap;
 
-use crate::ast::{Ast, Stmt};
+use crate::ast::Ast;
 use crate::check_monomorph::MonoOutput;
 use crate::ssa::{self, FuncId, Module, Type};
 
@@ -109,7 +109,8 @@ pub(crate) fn lower_inner(
         generic_fn_names,
     );
     let mut fn_sig_ids = pass1.fn_sig_ids;
-    let (decl_indices, closure_decls) = partition_closure_decls(ast, pass1.decl_indices);
+    let (decl_indices, closure_decls) =
+        crate::ssa_lower_closure_order::partition_closure_decls(ast, pass1.decl_indices);
 
     let (env_drop_fids, env_drop_trivial_fid, env_trace_fids, promise_thunks, signatures) =
         setup_callable_infra(
@@ -237,32 +238,6 @@ pub(crate) fn lower_inner(
 /// is appended first by lift_arrow_fns and would lower first, but its
 /// captures are populated by __closure_1 (outer)'s body lowering.
 ///
-/// T-15.g.5 extension: closure construction can also live at module
-/// top-level (`let cb = function(v) { return v + cap }` directly in
-/// implicit main). Top-level construction only runs when synthesize_
-/// main lowers, so closure bodies that depend on top-level captures
-/// must lower AFTER main, not just after user fns. Pipeline now:
-/// Pass 2A user fns → Pass 3 main → Pass 2B closure bodies (reverse).
-fn partition_closure_decls(
-    ast: &Ast,
-    decl_indices: Vec<(usize, FuncId)>,
-) -> (Vec<(usize, FuncId)>, Vec<(usize, FuncId)>) {
-    let (user_decls, mut closure_decls): (Vec<_>, Vec<_>) =
-        decl_indices
-            .into_iter()
-            .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
-                Stmt::FnDecl { name, .. } => !name.starts_with("__closure_"),
-                _ => true,
-            });
-    closure_decls.reverse();
-    // Reverse append equals parent-before-child only for parser-shaped
-    // nesting; a closure minted by the capturing-nested-fn route sits
-    // at the arena tail and needs the topological pass to lower after
-    // the closure that constructs it.
-    let closure_decls = crate::ssa_lower_closure_order::order_closure_bodies(ast, closure_decls);
-    (user_decls, closure_decls)
-}
-
 /// Pass 0 — the four intrinsic-declare batches (A/B/C/D aggregator
 /// siblings). Split 2026-07-03 (fn-debt decomp); bodies verbatim.
 fn declare_intrinsic_batches(
