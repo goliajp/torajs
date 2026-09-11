@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T06:29:07.871Z",
+  "generatedAt": "2026-09-11T11:47:19.251Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-11T06:16:43Z",
-    "headSha": "2b617e905",
-    "elapsedSec": 444.68,
+    "ranAt": "2026-09-11T11:36:00Z",
+    "headSha": "eeb54968f",
+    "elapsedSec": 437.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31722,
-    "passNoOracle": 1477,
+    "pass": 31759,
+    "passNoOracle": 1530,
     "passNegative": 4538,
-    "passTotal": 37737,
-    "bug": 11171,
-    "incompatible": 4266,
+    "passTotal": 37827,
+    "bug": 11083,
+    "incompatible": 4264,
     "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48908,
-    "passRateInScope": 70.97,
-    "passRateTrAccepted": 77.16
+    "trAccepted": 48910,
+    "passRateInScope": 71.14,
+    "passRateTrAccepted": 77.34
   },
   "torajs": {
-    "commit": "f07f2700f",
-    "commitSubject": "chore(hardev): rotation 631 file-size stamp @ 69b63c941",
+    "commit": "eeb54968f",
+    "commitSubject": "fix(torajs-core): an async body's strictness survives the promise wrap",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "f07f2700f",
-      "subject": "chore(hardev): rotation 631 file-size stamp @ 69b63c941"
+      "hash": "eeb54968f",
+      "subject": "fix(torajs-core): an async body's strictness survives the promise wrap"
     },
     {
-      "hash": "69b63c941",
-      "subject": "chore(hardev): rotation 631 stamps — sweep, determinism, Guard Malloc @ 2b617e905"
+      "hash": "38c7cf2df",
+      "subject": "test(conformance): lock the Reflect.apply target shapes"
     },
     {
-      "hash": "2b617e905",
-      "subject": "revert(torajs-anyvalue): the write half of the global object record — the strictness question is not answered yet"
+      "hash": "6640492a5",
+      "subject": "fix(torajs-core): Reflect.apply claims the call at any arity"
     },
     {
-      "hash": "dc543d71e",
-      "subject": "revert(torajs-core): keep the synthesized-var stand-in for implicit globals, for now"
+      "hash": "68aa76e68",
+      "subject": "feat(torajs-core): Reflect.apply's target is a receiver-honoring position"
     },
     {
-      "hash": "63372535d",
-      "subject": "fix(torajs-core): strictness is per-body, and `++` over an unresolvable name asks the object too"
+      "hash": "817a841f4",
+      "subject": "refactor(torajs-core): move the property-descriptor arms out of the call cascade"
     },
     {
-      "hash": "cbec95b01",
-      "subject": "refactor(torajs-core): retire the synthesized-var stand-in for implicit globals"
+      "hash": "4c42324cd",
+      "subject": "refactor(torajs-core): name the fourth receiver-safe shape for its channel"
     },
     {
-      "hash": "ad0726fe2",
-      "subject": "feat(torajs-anyvalue): the write half — an unresolvable assignment creates the property on the global object"
+      "hash": "bbd6bca99",
+      "subject": "fix(torajs-core): the global-object write lane, with its blocker removed"
     },
     {
-      "hash": "fc552ce26",
-      "subject": "feat(torajs-core): `typeof` on an unresolvable name asks the global object too"
+      "hash": "f772df1fe",
+      "subject": "fix(torajs-core): the fn-address lane yields a binding a closure will box"
     },
     {
-      "hash": "21eaae548",
-      "subject": "feat(torajs-anyvalue): an unresolvable bare name consults the global object before it throws"
+      "hash": "0f84e16fe",
+      "subject": "fix(torajs-core): the two generator METHOD sites write their inherited strictness"
     },
     {
-      "hash": "36a107975",
-      "subject": "revert(torajs-core): the bare-name half of the global object record — the free-name judgement was not sound"
+      "hash": "f832dd8e5",
+      "subject": "fix(torajs-core): a generator body's strictness survives the state machine"
     },
     {
-      "hash": "0a96703e7",
-      "subject": "Revert \"feat(torajs-core): the write half too — an unresolvable name's assignment lands on the global object, not a synthesized var\""
+      "hash": "3bfbac448",
+      "subject": "fix(torajs-core): an arrow body inherits strictness through its directive"
     },
     {
-      "hash": "095136e04",
-      "subject": "feat(torajs-core): the write half too — an unresolvable name's assignment lands on the global object, not a synthesized var"
+      "hash": "3ff9ea160",
+      "subject": "chore(hardev): dashboard snapshot for rotation 631"
     }
   ],
-  "headSha": "f07f2700f",
+  "headSha": "eeb54968f",
   "autorun": {
-    "total": 934,
+    "total": 935,
     "baselineTarget": 10,
-    "bySelf": 929,
+    "bySelf": 930,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789089281-48ad",
-      "at": "2026-09-11T01:14:41Z",
-      "ts": 1789089281,
+      "rotationId": "r-1789108161-3bd6",
+      "at": "2026-09-11T06:29:21Z",
+      "ts": 1789108161,
       "trigger": "self",
-      "prevHead": "f3d3d8b00",
-      "handoffSha": "sha256:43573349bb298832cef5172c4134f2ea802751090f5c6ff39c02593c51bbbe7e",
-      "handoffAgeSec": 4,
-      "conformanceBefore": "3967/0/4",
+      "prevHead": "3ff9ea160",
+      "handoffSha": "sha256:42386e7d4b681ad5aeefcf2dd008a9354abc548e148708b942d30a8427f7b402",
+      "handoffAgeSec": 9,
+      "conformanceBefore": "3970/0/4",
       "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789108161-3bd6",
+        "at": "2026-09-11T06:29:21Z",
+        "ts": 1789108161,
+        "trigger": "self",
+        "prevHead": "3ff9ea160",
+        "handoffSha": "sha256:42386e7d4b681ad5aeefcf2dd008a9354abc548e148708b942d30a8427f7b402",
+        "handoffAgeSec": 9,
+        "conformanceBefore": "3970/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789089281-48ad",
         "at": "2026-09-11T01:14:41Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 39,
         "conformanceBefore": "3880/0/4",
         "commitsInSession": 18
-      },
-      {
-        "rotationId": "r-1788959460-2ee7",
-        "at": "2026-09-09T13:11:00Z",
-        "ts": 1788959460,
-        "trigger": "self",
-        "prevHead": "9f2fa7e02",
-        "handoffSha": "sha256:3253fae33e4564e1fce72cc473c9258dbcd9ba91d2c5621674a1b62405ac4221",
-        "handoffAgeSec": 74,
-        "conformanceBefore": "3869/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
