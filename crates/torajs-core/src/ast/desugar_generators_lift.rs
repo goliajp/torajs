@@ -42,6 +42,16 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
     let ast_async_gens = ast.async_generator_fns.clone();
     let mut top = std::mem::take(&mut ast.stmts);
     let mut all_lifted: Vec<Stmt> = Vec::new();
+    // The mangled names of lifted ASYNC generators. `async_generator_fns`
+    // is keyed by NAME, and a dozen sites read it to tell an async
+    // generator from a plain one — the factory must not be
+    // Promise-wrapped, its `.constructor` answers a different kind,
+    // and the fn-value lanes leave it alone. Lifting without carrying
+    // the entry left the mangled decl looking like a SYNC generator to
+    // every one of them, which is the SIGSEGV the previous attempt
+    // recorded. Same carry `check_monomorph_closures` makes when it
+    // clones a generic body.
+    let mut lifted_async: Vec<String> = Vec::new();
     for stmt in top.iter_mut() {
         let parent = match stmt {
             Stmt::FnDecl { name, .. } => name.clone(),
@@ -56,6 +66,7 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
             &ast_async_gens,
             &mut renames,
             &mut lifted,
+            &mut lifted_async,
         );
         if !renames.is_empty() {
             // The stmt rewriter has no FnDecl arm (the general
@@ -96,6 +107,7 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
             &ast_async_gens,
             &mut renames,
             &mut lifted,
+            &mut lifted_async,
         );
         if !renames.is_empty() {
             rewrite_idents_in_stmt(ast, &mut block, &renames, true);
@@ -118,6 +130,9 @@ pub(super) fn lift_nested_generators(ast: &mut Ast) {
     }
     top.extend(all_lifted);
     ast.stmts = top;
+    for m in lifted_async {
+        ast.async_generator_fns.insert(m);
+    }
 }
 
 /// The shared claim walk — every nested `function*` decl under
@@ -130,6 +145,7 @@ fn claim_generators_in(
     async_gens: &HashSet<String>,
     renames: &mut HashMap<String, String>,
     lifted: &mut Vec<Stmt>,
+    lifted_async: &mut Vec<String>,
 ) {
     for_each_nested_vec_mut(stmt, &mut |list| {
         for slot in list.iter_mut() {
@@ -144,17 +160,17 @@ fn claim_generators_in(
             if name.starts_with("__nestedgen_") {
                 continue;
             }
-            // A nested ASYNC generator stays put: its channel
-            // (the parser's `async_generator_fns` registry + the
-            // async desugar's drive) is keyed by the original
-            // name and does not survive the rename — lifting it
-            // turned the pre-existing loud compile error into a
-            // SIGSEGV (A/B probed). It keeps today's loud reject.
-            if async_gens.contains(name.as_str()) {
-                continue;
-            }
+            // A nested ASYNC generator lifts like any other now; what
+            // used to stop it is that its channel is keyed by the
+            // ORIGINAL name in `async_generator_fns`, so the mangled
+            // decl read as a SYNC generator everywhere downstream.
+            // The mangled name is recorded and the caller registers it.
+            let is_async = async_gens.contains(name.as_str());
             let mangled = format!("__nestedgen_{parent}_{name}_{counter}");
             *counter += 1;
+            if is_async {
+                lifted_async.push(mangled.clone());
+            }
             renames.insert(name.clone(), mangled.clone());
             let taken = std::mem::replace(slot, Stmt::Block(Vec::new()));
             let Stmt::FnDecl {
