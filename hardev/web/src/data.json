@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T01:12:45.927Z",
+  "generatedAt": "2026-09-11T06:29:07.871Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-11T00:05:43Z",
-    "headSha": "51da7dc32",
-    "elapsedSec": 430.71,
+    "ranAt": "2026-09-11T06:16:43Z",
+    "headSha": "2b617e905",
+    "elapsedSec": 444.68,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31720,
-    "passNoOracle": 1226,
+    "pass": 31722,
+    "passNoOracle": 1477,
     "passNegative": 4538,
-    "passTotal": 37484,
-    "bug": 11422,
-    "incompatible": 4268,
+    "passTotal": 37737,
+    "bug": 11171,
+    "incompatible": 4266,
     "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48906,
-    "passRateInScope": 70.49,
-    "passRateTrAccepted": 76.64
+    "trAccepted": 48908,
+    "passRateInScope": 70.97,
+    "passRateTrAccepted": 77.16
   },
   "torajs": {
-    "commit": "563958e5c",
-    "commitSubject": "chore(hardev): rotation 630 file-size stamp @ b6dda2ecc",
+    "commit": "f07f2700f",
+    "commitSubject": "chore(hardev): rotation 631 file-size stamp @ 69b63c941",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "563958e5c",
-      "subject": "chore(hardev): rotation 630 file-size stamp @ b6dda2ecc"
+      "hash": "f07f2700f",
+      "subject": "chore(hardev): rotation 631 file-size stamp @ 69b63c941"
     },
     {
-      "hash": "b6dda2ecc",
-      "subject": "chore(hardev): rotation 630 stamps — sweep, determinism, Guard Malloc; roadmap P-SURF snapshot @ 51da7dc32"
+      "hash": "69b63c941",
+      "subject": "chore(hardev): rotation 631 stamps — sweep, determinism, Guard Malloc @ 2b617e905"
     },
     {
-      "hash": "51da7dc32",
-      "subject": "fix(torajs-core): the empty-literal slot mint takes the slot's element FLAVOR, not just its ArrId"
+      "hash": "2b617e905",
+      "subject": "revert(torajs-anyvalue): the write half of the global object record — the strictness question is not answered yet"
     },
     {
-      "hash": "5b5af2025",
-      "subject": "feat(test262-runner): `$262.evalScript(src)` rewrites to indirect eval"
+      "hash": "dc543d71e",
+      "subject": "revert(torajs-core): keep the synthesized-var stand-in for implicit globals, for now"
     },
     {
-      "hash": "6468554c3",
-      "subject": "fix(torajs-anyvalue): a non-callable `@@hasInstance` handler is a TypeError, not a silent fall-through"
+      "hash": "63372535d",
+      "subject": "fix(torajs-core): strictness is per-body, and `++` over an unresolvable name asks the object too"
     },
     {
-      "hash": "f8a6a7f35",
-      "subject": "fix(test262-runner): a bug row carries the failure line, not a leading compile warning"
+      "hash": "cbec95b01",
+      "subject": "refactor(torajs-core): retire the synthesized-var stand-in for implicit globals"
     },
     {
-      "hash": "e9dfa0ec6",
-      "subject": "fix(torajs-core): an empty array literal assigned into a typed array slot mints at the slot's layout"
+      "hash": "ad0726fe2",
+      "subject": "feat(torajs-anyvalue): the write half — an unresolvable assignment creates the property on the global object"
     },
     {
-      "hash": "73d151efa",
-      "subject": "fix(torajs-core): a `return` inside a for-of / for-in / switch body counts toward the inferred return type"
+      "hash": "fc552ce26",
+      "subject": "feat(torajs-core): `typeof` on an unresolvable name asks the global object too"
     },
     {
-      "hash": "2ba7ff277",
-      "subject": "fix(torajs-core): an eval text's expression spans are foreign too, so blank them with the statement ones"
+      "hash": "21eaae548",
+      "subject": "feat(torajs-anyvalue): an unresolvable bare name consults the global object before it throws"
     },
     {
-      "hash": "5d944ea80",
-      "subject": "fix(torajs-core): a generic fn read as a bare expression statement escapes to its all-`any` clone (L3b ③)"
+      "hash": "36a107975",
+      "subject": "revert(torajs-core): the bare-name half of the global object record — the free-name judgement was not sound"
     },
     {
-      "hash": "d4c3553ba",
-      "subject": "fix(torajs-core): a Bool slot takes an `any` value through ToBoolean, like every other primitive slot"
+      "hash": "0a96703e7",
+      "subject": "Revert \"feat(torajs-core): the write half too — an unresolvable name's assignment lands on the global object, not a synthesized var\""
     },
     {
-      "hash": "73b9dd95b",
-      "subject": "fix(torajs-core): every module's indirect export is judged at link time (§16.2.1.6.4 step 9)"
+      "hash": "095136e04",
+      "subject": "feat(torajs-core): the write half too — an unresolvable name's assignment lands on the global object, not a synthesized var"
     }
   ],
-  "headSha": "563958e5c",
+  "headSha": "f07f2700f",
   "autorun": {
-    "total": 933,
+    "total": 934,
     "baselineTarget": 10,
-    "bySelf": 928,
+    "bySelf": 929,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789069498-6181",
-      "at": "2026-09-10T19:44:58Z",
-      "ts": 1789069498,
+      "rotationId": "r-1789089281-48ad",
+      "at": "2026-09-11T01:14:41Z",
+      "ts": 1789089281,
       "trigger": "self",
-      "prevHead": "44550e5cc",
-      "handoffSha": "sha256:7cc72e57bce30fd78c2e312ac3267b4b61124e3c61782ac28d4dca6e26f1f2e0",
-      "handoffAgeSec": 0,
-      "conformanceBefore": "3957/0/4",
-      "commitsInSession": 17
+      "prevHead": "f3d3d8b00",
+      "handoffSha": "sha256:43573349bb298832cef5172c4134f2ea802751090f5c6ff39c02593c51bbbe7e",
+      "handoffAgeSec": 4,
+      "conformanceBefore": "3967/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789089281-48ad",
+        "at": "2026-09-11T01:14:41Z",
+        "ts": 1789089281,
+        "trigger": "self",
+        "prevHead": "f3d3d8b00",
+        "handoffSha": "sha256:43573349bb298832cef5172c4134f2ea802751090f5c6ff39c02593c51bbbe7e",
+        "handoffAgeSec": 4,
+        "conformanceBefore": "3967/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789069498-6181",
         "at": "2026-09-10T19:44:58Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 74,
         "conformanceBefore": "3869/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1788950155-6e2f",
-        "at": "2026-09-09T10:35:55Z",
-        "ts": 1788950155,
-        "trigger": "self",
-        "prevHead": "0df66366b",
-        "handoffSha": "sha256:0fadfd8e7e3157dc37d9a6944fd4c9a09039dc4c828514ca3500700261b3e815",
-        "handoffAgeSec": 33,
-        "conformanceBefore": "3860/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
