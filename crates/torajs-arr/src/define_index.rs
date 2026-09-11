@@ -17,6 +17,10 @@ use crate::define_index_flags::index_flags_with_key;
 use crate::layout::ARR_LEN_OFF;
 
 unsafe extern "C" {
+    /// torajs-throw — the dense-storage limit's RangeError (records
+    /// for either flavor, like the length RangeError: a conversion
+    /// verdict, not a §10.1.6.3 refusal).
+    fn __torajs_throw_range_error(msg: *const u8);
     /// torajs-dynobj — entry removal (drops key + value; the
     /// accessor→data transition deletes the pair-owning shadow entry).
     fn __torajs_dynobj_delete(dynobj: *mut c_void, key: *const c_void) -> i32;
@@ -211,6 +215,27 @@ pub(crate) unsafe fn define_index(
         return 1;
     }
 
+    unsafe { define_fresh_index(arr, key, idx, len, tag, value, flags_byte, throw_on_refusal) }
+}
+
+/// The past-the-end half of [`define_index`] — §10.4.2.1 step 2's
+/// length-lock and extensible gates, the dense-storage limit, then
+/// the hole-filled grow to `idx` and the fresh define with its
+/// completed flags.
+///
+/// # Safety
+/// As [`define_index`]; `len` is the array's current length.
+unsafe fn define_fresh_index(
+    arr: *mut c_void,
+    key: *mut c_void,
+    idx: u64,
+    len: u64,
+    tag: u64,
+    value: u64,
+    flags_byte: u64,
+    throw_on_refusal: bool,
+) -> i64 {
+    let has_value = flags_byte & P_VALUE != 0;
     // Fresh index — §10.4.2.1 step 2: a locked length (chunk D)
     // rejects the implicit length bump before the extensible check.
     if unsafe { header_flags(arr) } & FLAG_ARR_LENGTH_RO != 0 {
@@ -232,6 +257,24 @@ pub(crate) unsafe fn define_index(
                 value,
             )
         };
+    }
+    // The same dense-storage limit every indexed WRITE lane gates on
+    // (`any.rs` / `grow_store.rs`): past it the fill below would
+    // materialize hundreds of millions of hole slots — a
+    // `defineProperty(arr, 987654321, …)` ran for minutes where the
+    // set lane answers its loud RangeError at once (rotation 634,
+    // sm/Array/length-truncate-nonconfigurable-sparse). Sparse
+    // storage is the registered follow-up; until then both lanes
+    // refuse the same way.
+    if idx >= crate::any::ARR_DENSE_LIMIT {
+        unsafe {
+            crate::define::drop_owned(tag, value);
+            __torajs_throw_range_error(
+                b"array index beyond the dense-storage limit (sparse arrays are not yet supported)\0"
+                    .as_ptr(),
+            );
+        }
+        return 0;
     }
     // Dense model: fill the gap with undefined elements, then append
     // the defined value — and mark the fill a hole range, because
