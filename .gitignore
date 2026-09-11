@@ -30,3 +30,8 @@ hardev/autorun/rotations.jsonl
 # python bytecode caches (cluster_incompat.py et al)
 __pycache__/
 *.pyc
+
+# per-rotation probe scratch (plan-state cites `scratchpad/pNNN/` as the
+# local record of a rotation's probes; the files themselves are throwaway
+# and their presence would mark every stamp `-dirty`)
+scratchpad/
