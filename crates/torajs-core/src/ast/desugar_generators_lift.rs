@@ -11,9 +11,10 @@
 //! (and so break) every capturing nested fn. Generators never reach
 //! that stage at all (the desugar in the parse-time pipeline
 //! consumes them), so a generator-only lift here competes with no
-//! one. A nested generator that CAPTURES an enclosing local still
-//! fails loud after the lift (unknown identifier at the top-level
-//! body) — same waterline as before, now past the yield gate.
+//! one. A nested generator that CAPTURES an enclosing local never
+//! reaches this lift: `hoist_gen_fn_exprs_decls` (rotation 634)
+//! has already turned it into a marked generator expression, and
+//! the expression hoist gave it the wrapper route.
 
 use std::collections::{HashMap, HashSet};
 

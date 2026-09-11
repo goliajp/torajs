@@ -134,18 +134,15 @@ fn captures_snapshot_safe(ast: &Ast, captures: &[String]) -> bool {
     true
 }
 
-pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
-    if ast.gen_fn_exprs.is_empty() {
-        return;
-    }
-    // Module-level value bindings pre-bind as globals for the
-    // free-variable check: fn / let / var / class names. (Classes are
-    // still Stmt::ClassDecl here — this pass runs before
-    // desugar_classes.)
-    // `var a, b, c;` parses to a Stmt::Multi of LetDecls — without
-    // unwrapping it, the trailing names read as free variables and a
-    // genexpr writing one gets refused as a reassigned capture (the
-    // test262 dstr-yield cases all declare `var iter, x;` this way).
+/// Module-level value bindings pre-bind as globals for the
+/// free-variable check: fn / let / var / class names. (Classes are
+/// still Stmt::ClassDecl here — this pass runs before
+/// desugar_classes.)
+/// `var a, b, c;` parses to a Stmt::Multi of LetDecls — without
+/// unwrapping it, the trailing names read as free variables and a
+/// genexpr writing one gets refused as a reassigned capture (the
+/// test262 dstr-yield cases all declare `var iter, x;` this way).
+fn module_global_names(ast: &Ast) -> Vec<String> {
     let mut global_names: Vec<String> = Vec::new();
     let collect = |s: &Stmt, names: &mut Vec<String>| match s {
         Stmt::FnDecl { name, .. } | Stmt::LetDecl { name, .. } | Stmt::ClassDecl { name, .. } => {
@@ -161,6 +158,18 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
         } else {
             collect(s, &mut global_names);
         }
+    }
+    global_names
+}
+
+pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
+    let mut global_names = module_global_names(ast);
+    // A nested generator DECLARATION that captures joins the marked
+    // set here, so the loop below treats it like a written expression
+    // (rotation 634; rationale in the `_decls` sibling).
+    super::hoist_gen_fn_exprs_decls::route_capturing_nested_gen_decls(ast, &global_names);
+    if ast.gen_fn_exprs.is_empty() {
+        return;
     }
 
     // RFC 20260729-fn-value-any V4 刀 2 — NamedEvaluation has to be
