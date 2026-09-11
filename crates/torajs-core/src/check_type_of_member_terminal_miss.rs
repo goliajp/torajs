@@ -30,14 +30,31 @@ use crate::check::Type;
 /// - NON-empty anonymous Struct keeps the loud reject: its fields ARE
 ///   statically known, so a miss is overwhelmingly a typo (recorded
 ///   diagnostic-posture boundary).
+/// The three yes/no facts the terminal answer needs from the checker.
+/// One struct rather than three bools: the call takes four arguments
+/// instead of six, and a caller cannot transpose them.
+pub(crate) struct MissFacts {
+    /// The receiver's family says a miss is not an error here.
+    pub(crate) lenient_missing: bool,
+    /// We are checking a synthesized spec body.
+    pub(crate) spec_body: bool,
+    /// `name` is a `__priv_` reference some class body really
+    /// declares — see [`crate::check_private_name`].
+    pub(crate) declared_private: bool,
+}
+
 pub(crate) fn answer(
     ast: &Ast,
     obj: &ExprId,
     name: &str,
     obj_ty: &Type,
-    lenient_missing: bool,
-    spec_body: bool,
+    facts: &MissFacts,
 ) -> Result<Type, String> {
+    let MissFacts {
+        lenient_missing,
+        spec_body,
+        declared_private,
+    } = *facts;
     if lenient_missing {
         return Ok(Type::Any);
     }
@@ -50,8 +67,16 @@ pub(crate) fn answer(
         return Ok(Type::Any);
     }
     if matches!(obj_ty, Type::ClassRef(_)) {
-        if let Some(rest) = name.strip_prefix("__priv_") {
-            let field = rest.split_once("__").map(|(_, f)| f).unwrap_or(rest);
+        if name.starts_with("__priv_") {
+            // A STATIC private reached through an instance receiver is
+            // legal code whose brand check fails at RUN time (§7.3.32)
+            // — it misses the instance member list for the same reason
+            // an undeclared name does, so the list is not the question
+            // to ask. See `check_private_name`.
+            if declared_private {
+                return Ok(Type::Any);
+            }
+            let field = crate::check_private_name::raw_private_name(name);
             return Err(format!(
                 "private field `#{field}` is not declared in this class"
             ));

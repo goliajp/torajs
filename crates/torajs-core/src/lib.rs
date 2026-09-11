@@ -58,6 +58,7 @@ pub(crate) mod check_monomorph_closures;
 pub(crate) mod check_monomorph_uninferred;
 pub(crate) mod check_monomorph_vtable_seed;
 pub(crate) mod check_pipeline;
+pub(crate) mod check_private_name;
 pub(crate) mod check_resolve_class_ref;
 pub(crate) mod check_stmt_diverges;
 pub(crate) mod check_stmt_fn_decl;

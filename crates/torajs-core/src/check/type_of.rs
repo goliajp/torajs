@@ -331,11 +331,16 @@ impl Checker {
             // again. A private name keeps the loud reject the ladder
             // gives it: `#x` is not a miss, it is a violation.
             (Type::ClassRef(_), n) => {
-                if let Some(rest) = n.strip_prefix("__priv_") {
-                    let field = rest.split_once("__").map(|(_, f)| f).unwrap_or(rest);
-                    return Err(format!(
-                        "private field `#{field}` is not declared in this class"
-                    ));
+                if n.starts_with("__priv_") {
+                    // Declared-but-static reaches the runtime brand
+                    // check; declared nowhere is the early error.
+                    if !self.declared_privates.contains(n) {
+                        let field = crate::check_private_name::raw_private_name(n);
+                        return Err(format!(
+                            "private field `#{field}` is not declared in this class"
+                        ));
+                    }
+                    return Ok(Type::Any);
                 }
                 let resolved = crate::check_resolve_class_ref::resolve_class_ref(
                     obj_ty,

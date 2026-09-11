@@ -203,8 +203,11 @@ pub(crate) fn check(
         obj,
         name,
         &obj_ty,
-        lenient_missing,
-        checker.checking_spec_body,
+        &crate::check_type_of_member_terminal_miss::MissFacts {
+            lenient_missing,
+            spec_body: checker.checking_spec_body,
+            declared_private: checker.declared_privates.contains(name),
+        },
     )
 }
 

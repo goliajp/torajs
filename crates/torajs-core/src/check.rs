@@ -183,6 +183,7 @@ impl Checker {
             dynobj_degraded: std::collections::HashSet::new(),
             tdz_reads: std::collections::HashSet::new(),
             proto_shadow: Default::default(),
+            declared_privates: Default::default(),
             cross_type_widened: std::collections::HashSet::new(),
             any_promoted_inits: std::collections::HashSet::new(),
             generic_type_params: HashMap::new(),
@@ -224,6 +225,7 @@ impl Checker {
         // prototype, so a member read of such a method answers Any and
         // the call takes the dispatcher lane instead of a kernel.
         self.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast);
+        self.declared_privates = crate::check_private_name::declared_private_names(ast);
         // RFC 20260804-mutable-let-widen — cross-family reassigned
         // mutable lets type `any` from declaration (same shared-set
         // architecture; the lowerer recomputes from its own snapshot).
@@ -246,6 +248,9 @@ pub(crate) struct Checker {
     /// names a builtin prototype, which is the common case and costs
     /// one bool at each member read.
     pub(crate) proto_shadow: crate::builtin_proto_shadow::ShadowSet,
+    /// Built by [`crate::check_private_name`], whose module doc says
+    /// what the set means and why a member list cannot answer it.
+    pub(crate) declared_privates: std::collections::HashSet<String>,
     pub(crate) globals: HashMap<String, Type>,
     pub(crate) scopes: Vec<HashMap<String, LocalInfo>>,
     /// Closure bindings a peer closure in the same statement list
