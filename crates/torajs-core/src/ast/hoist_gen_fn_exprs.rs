@@ -159,6 +159,15 @@ fn module_global_names(ast: &Ast) -> Vec<String> {
             collect(s, &mut global_names);
         }
     }
+    // A `var` declared inside a top-level block / loop / try is a
+    // global too (§8.2 VarScopedDeclarations hoist to the function or
+    // script scope); `desugar_var_hoist` moves it there, but that pass
+    // runs after this one, so the walk that reads the spine must
+    // descend the same way. The test262 `unscopables-with` family
+    // declares `var callCount` inside a block and writes it from the
+    // generator — read from the spine alone it looked like a
+    // reassigned capture (rotation 635).
+    super::free_vars_hoisted_names::hoist_var_names(&ast.stmts, &mut global_names);
     global_names
 }
 
