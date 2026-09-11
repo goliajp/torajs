@@ -8,7 +8,7 @@
 //! `is_hof_method` table (re-exported through the parent so
 //! `namedfn_recv_cb`'s import face is unchanged).
 
-use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
+use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face};
 use super::{Expr, ExprId, Stmt};
 
 /// The CALL-position arms of the walk above — one match over the
@@ -50,46 +50,29 @@ pub(super) fn collect_call_position_face(
         Expr::Closure { .. } => {
             collect_face(stmts, exprs, callee, fn_expr_exprs, patches);
         }
-        // `recv.__defineGetter__(k, face)` / `__defineSetter__`.
-        Expr::Member { name, .. } if name == "__defineGetter__" || name == "__defineSetter__" => {
-            if let Some(face) = args.get(1) {
-                collect_face(stmts, exprs, *face, fn_expr_exprs, patches);
-                collect_ident_face(exprs, *face, ident_cands);
-            }
-        }
-        // `Object.defineProperty(o, k, { get: face, set: face })` —
-        // the descriptor must be an INLINE object literal; a
-        // variable-routed descriptor aliases its faces (knife 2).
-        Expr::Member { obj, name } if name == "defineProperty" => {
-            if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") {
-                return;
-            }
-            let Some(desc) = args.get(2) else { return };
-            for face in literal_desc_faces(exprs, *desc) {
-                collect_face(stmts, exprs, face, fn_expr_exprs, patches);
-                collect_ident_face(exprs, face, ident_cands);
-            }
-        }
-        // Knife 5 — `Object.defineProperties(o, { k: { get: face } })`
-        // / `Object.create(proto, { k: { get: face } })`: the nested
-        // descriptor-of-descriptors form. Both layers must be INLINE
-        // object literals so every face keeps zero aliases (same
-        // narrow-surface bar as the flat descriptor above).
-        Expr::Member { obj, name } if name == "defineProperties" || name == "create" => {
-            if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") {
-                return;
-            }
-            let Some(props) = args.get(1) else { return };
-            let Expr::ObjectLit { fields } = &exprs[props.0 as usize] else {
-                return;
-            };
-            let descs: Vec<ExprId> = fields.iter().map(|(_, deid)| *deid).collect();
-            for desc in descs {
-                for face in literal_desc_faces(exprs, desc) {
-                    collect_face(stmts, exprs, face, fn_expr_exprs, patches);
-                    collect_ident_face(exprs, face, ident_cands);
-                }
-            }
+        // The property-descriptor spellings — body in sibling
+        // `fnexpr_this_cb_slots::collect_property_definition_face`,
+        // which carries each one's narrow-surface reading.
+        Expr::Member { obj, name }
+            if matches!(
+                name.as_str(),
+                "__defineGetter__"
+                    | "__defineSetter__"
+                    | "defineProperty"
+                    | "defineProperties"
+                    | "create"
+            ) =>
+        {
+            super::fnexpr_this_cb_slots::collect_property_definition_face(
+                stmts,
+                exprs,
+                fn_expr_exprs,
+                *obj,
+                name,
+                args,
+                patches,
+                ident_cands,
+            );
         }
         // Builtin callback-slot arms — bodies (and their receiver
         // checks, fall-through-safe: no later arm matches these

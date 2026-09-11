@@ -1,11 +1,15 @@
-//! Builtin callback-slot face collectors — carved out of
-//! `fnexpr_this.rs`'s position walk (file-size hard limit: the
-//! rotation-375 replace arm pushed the file to 517 and the walk fn
-//! to 226). Verbatim moves; each arm's receiver check moved from the
-//! match guard into the collector body, which is fall-through-safe
-//! because no later cascade arm matches the same member name.
+//! Face collectors for the call-position cascade — the BODIES of
+//! `fnexpr_this_call_faces`'s arms, carved out of them under the
+//! file-size hard limit (rotation 375 moved the builtin
+//! callback-slot arms when the replace arm pushed the file to 517
+//! and the walk fn to 226; rotation 632 moved the
+//! property-definition arms when the same fn reached 199 and the
+//! next arm had nowhere to go). Verbatim moves; each arm's receiver
+//! check moved from the match guard into the collector body, which
+//! is fall-through-safe because no later cascade arm matches the
+//! same member name.
 
-use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face};
+use super::fnexpr_this_faces::{FacePatch, collect_face, collect_ident_face, literal_desc_faces};
 use super::{Expr, ExprId, Stmt};
 
 /// RFC 20260808-json-parse-any blade 4 — `JSON.parse(text,
@@ -232,5 +236,68 @@ pub(super) fn collect_symbol_replace_face(
     if let Some(cb) = args.get(1) {
         collect_face(stmts, exprs, *cb, fn_expr_exprs, patches);
         collect_ident_face(exprs, *cb, ident_cands);
+    }
+}
+
+/// The property-definition faces — one collector for the three
+/// spellings that hand a function into a property descriptor. Split
+/// from the cascade in rotation 632: the walk fn stood at 199 lines
+/// and the next arm had nowhere to go.
+///
+/// * `recv.__defineGetter__(k, face)` / `__defineSetter__` — the
+///   face is argument 1 and the receiver is anything.
+/// * `Object.defineProperty(o, k, { get: face, set: face })` — the
+///   descriptor must be an INLINE object literal; a variable-routed
+///   descriptor aliases its faces (knife 2).
+/// * `Object.defineProperties(o, { k: { get: face } })` /
+///   `Object.create(proto, { k: { get: face } })` — the nested
+///   descriptor-of-descriptors form (knife 5). Both layers must be
+///   inline object literals so every face keeps zero aliases, the
+///   same narrow-surface bar the flat descriptor carries.
+///
+/// The two `Object.*` families answer nothing when the receiver is
+/// not the `Object` ident, which is what the guard did in the
+/// cascade: no later arm matches these member names, so declining
+/// here and ending the walk are the same thing.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn collect_property_definition_face(
+    stmts: &[Stmt],
+    exprs: &[Expr],
+    fn_expr_exprs: &std::collections::HashSet<ExprId>,
+    obj: ExprId,
+    name: &str,
+    args: &[ExprId],
+    patches: &mut Vec<FacePatch>,
+    ident_cands: &mut Vec<(String, ExprId)>,
+) {
+    let take = |face: ExprId, patches: &mut Vec<FacePatch>, cands: &mut Vec<(String, ExprId)>| {
+        collect_face(stmts, exprs, face, fn_expr_exprs, patches);
+        collect_ident_face(exprs, face, cands);
+    };
+    if name == "__defineGetter__" || name == "__defineSetter__" {
+        if let Some(&face) = args.get(1) {
+            take(face, patches, ident_cands);
+        }
+        return;
+    }
+    if !matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Object") {
+        return;
+    }
+    if name == "defineProperty" {
+        let Some(&desc) = args.get(2) else { return };
+        for face in literal_desc_faces(exprs, desc) {
+            take(face, patches, ident_cands);
+        }
+        return;
+    }
+    let Some(&props) = args.get(1) else { return };
+    let Expr::ObjectLit { fields } = &exprs[props.0 as usize] else {
+        return;
+    };
+    let descs: Vec<ExprId> = fields.iter().map(|(_, deid)| *deid).collect();
+    for desc in descs {
+        for face in literal_desc_faces(exprs, desc) {
+            take(face, patches, ident_cands);
+        }
     }
 }
