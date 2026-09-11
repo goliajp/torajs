@@ -157,6 +157,13 @@ pub(crate) fn lower_reflect_delete_property(ctx: &mut LowerCtx<'_>, args: &[Expr
 /// operand boxes to Any for the kernel ABI; the kernel carries the
 /// IsCallable gate, the no-amnesty nullish-argumentsList TypeError
 /// and the shared CreateListFromArrayLike + invoke walk.
+///
+/// Claimed at ANY arity. §28.1.1 reads three arguments and a missing
+/// one is `undefined`, which the kernel already answers for — a
+/// non-callable target is step 1's TypeError, a nullish
+/// argumentsList step 2's. The arity gate this site used to carry
+/// sent `Reflect.apply(x)` to the generic member-call lane instead,
+/// which refuses the shape outright.
 pub(crate) fn lower_reflect_apply(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let mut boxed = Vec::with_capacity(3);
     for &a in args.iter().take(3) {
@@ -171,6 +178,25 @@ pub(crate) fn lower_reflect_apply(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
     }
     for a in args.iter().skip(3) {
         let _ = ctx.lower_expr(*a);
+    }
+    // A call site that named fewer than three arguments still reaches
+    // the three-operand kernel ABI; the missing ones are `undefined`,
+    // which is exactly what §28.1.1 reads there — a non-callable
+    // target is step 1's TypeError, a nullish argumentsList step 2's.
+    // ANY_UNDEF=5 through `__torajs_anyv_box_from_pair`, the same
+    // immediate every other undefined-in-an-Any-slot site mints.
+    while boxed.len() < 3 {
+        let cb = ctx.cur_block;
+        let undef = ctx.f.append_inst(
+            cb,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        boxed.push(Operand::Value(undef));
     }
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(

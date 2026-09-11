@@ -95,7 +95,8 @@ pub(crate) fn try_lower(
             "defineProperty" if args.len() >= 3 => Some(
                 crate::ssa_lower_call_reflect_integrity::lower_reflect_define_property(ctx, args),
             ),
-            "apply" if args.len() >= 3 => {
+            // No arity gate — see `lower_reflect_apply`.
+            "apply" => {
                 Some(crate::ssa_lower_call_reflect_integrity::lower_reflect_apply(ctx, args))
             }
             "construct" if args.len() >= 2 => {
