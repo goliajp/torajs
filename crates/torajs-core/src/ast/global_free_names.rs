@@ -28,26 +28,8 @@
 //! intrinsic:
 //!
 //! ```text
-//! p           ->   __torajs_global_get("p")
-//! p = v       ->   __torajs_global_set("p", v)
-//! typeof p    ->   __torajs_global_typeof("p")
+//! p   ->   __torajs_global_get("p")
 //! ```
-//!
-//! The write half replaces what [`super::sloppy_implicit_globals`] did
-//! by synthesizing a hoisted `var` per assignment target. That
-//! synthesis is UNCONDITIONAL where the write is not, and the two are
-//! not distinguishable statically:
-//!
-//! ```js
-//! var o = {};        with (o) { zz = 5 }   // creates zz      -> 5
-//! var o = {foo:1};   with (o) { foo = 42 } // creates nothing -> ReferenceError
-//! ```
-//!
-//! Both bodies read the same after `desugar_with` splits them; only
-//! the object decides which arm runs. A synthesized `var` answers the
-//! second with `undefined` (measured: t262 `12.10-0-7` flipped to a
-//! failure the one time this was tried statically), which is why the
-//! write lands on the object at run time instead.
 //!
 //! The scan is over the ARENA, not the tree: an `Ident` node carries no
 //! context of its own, so the only thing the walk has to know is which
@@ -65,16 +47,17 @@
 //! - **known builtin globals** — `is_known_builtin_global` is the
 //!   checker's own table, so this pass and the checker agree by
 //!   construction on which names have a static lane;
-//! - **assignments inside STRICT eval text** — §19.2.1.1 gives eval
-//!   code its own strictness and strict code creates no globals, so
-//!   the names `desugar_eval` parked in `strict_eval_assign_names`
-//!   keep today's answer;
-//! - **`delete`** — the goal triage (`triage_delete_bare_names`) has
-//!   already folded every `delete <bare name>` to a constant by the
-//!   time this runs, so no such site reaches here;
-//! - **`++` / `--`** — the read half of one throws on an unresolvable
-//!   name (§13.15.2 evaluates it before any binding can exist), which
-//!   is what the un-rewritten site already answers.
+//! - **writes** (`p = 1`) — an assignment to an unresolvable name
+//!   CREATES the binding, and [`super::sloppy_implicit_globals`]
+//!   already synthesizes a hoisted `var` for it. That pass runs FIRST
+//!   and its synthesized names land in `declared`, so a name with a
+//!   write keeps one storage for both its write and its read. Splitting
+//!   them — write to the var, read through the object — is the one
+//!   outcome this pass may not produce;
+//! - **`typeof` / `delete` / `++`** — §13.5.1.1 and §13.5.1.2 answer
+//!   an unresolvable name without throwing, so the guarded read is the
+//!   wrong shape for them; they keep today's answer until the sibling
+//!   knife covers them.
 
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -90,32 +73,9 @@ function __torajs_global_get(__tglob_n: any): any {
   if (__tglob_n in __tglob_g) { return __tglob_g[__tglob_n]; }
   throw new ReferenceError(__tglob_n + " is not defined");
 }
-function __torajs_global_set(__tglob_n: any, __tglob_v: any): any {
-  const __tglob_g: any = globalThis;
-  __tglob_g[__tglob_n] = __tglob_v;
-  return __tglob_v;
-}
-function __torajs_global_typeof(__tglob_n: any): any {
-  const __tglob_g: any = globalThis;
-  if (__tglob_n in __tglob_g) { return typeof __tglob_g[__tglob_n]; }
-  return "undefined";
-}
 "#;
 
-const GET_FN: &str = "__torajs_global_get";
-
-/// §9.1.1.4.6 SetMutableBinding with `S` = false — an assignment to an
-/// unresolvable name CREATES the property on the global object. The
-/// helper answers the assigned value, because an assignment IS an
-/// expression (§13.15.2 step 5).
-const SET_FN: &str = "__torajs_global_set";
-
-/// §13.5.1.1 — `typeof` on an unresolvable name answers `"undefined"`
-/// rather than throwing, so it asks the object the same question the
-/// getter does and falls back to the string instead of the throw.
-/// It cannot be folded at compile time once writes land on the object:
-/// `p = 1; typeof p` has to answer `"number"`.
-const TYPEOF_FN: &str = "__torajs_global_typeof";
+const HELPER_FN: &str = "__torajs_global_get";
 
 pub fn resolve_global_free_names(ast: &mut Ast) {
     if !ast.program_is_sloppy() {
@@ -123,39 +83,19 @@ pub fn resolve_global_free_names(ast: &mut Ast) {
     }
     let declared = declared_anywhere(ast);
 
-    // Positions that are not plain reads. Collected from the arena
-    // itself — every one of them is a parent node naming its own
-    // child. The `Assign` targets come back out below as WRITES; the
-    // other three keep today's answer (see the module doc).
-    let mut writes: Vec<(ExprId, String, ExprId)> = Vec::new();
-    let mut typeofs: Vec<(ExprId, String)> = Vec::new();
+    // Positions that are not reads. Collected from the arena itself —
+    // every one of them is a parent node naming its own child.
     let mut not_a_read: std::collections::HashSet<u32> = std::collections::HashSet::new();
-    for (i, e) in ast.exprs.iter().enumerate() {
+    for e in &ast.exprs {
         let child = match e {
-            Expr::Assign { target, value } => {
-                if let Expr::Ident(n) = ast.get_expr(*target) {
-                    if is_free(n, &declared) && !ast.strict_eval_assign_names.contains(n) {
-                        writes.push((ExprId(i as u32), n.clone(), *value));
-                    }
-                }
-                *target
-            }
-            Expr::PostIncr { target, .. } => *target,
-            Expr::TypeOf { expr } => {
-                if let Expr::Ident(n) = ast.get_expr(*expr) {
-                    if is_free(n, &declared) {
-                        typeofs.push((ExprId(i as u32), n.clone()));
-                    }
-                }
-                *expr
-            }
-            Expr::Delete { expr } => *expr,
+            Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => *target,
+            Expr::TypeOf { expr } | Expr::Delete { expr } => *expr,
             _ => continue,
         };
         not_a_read.insert(child.0);
     }
 
-    let reads: Vec<(ExprId, String)> = ast
+    let hits: Vec<(ExprId, String)> = ast
         .exprs
         .iter()
         .enumerate()
@@ -166,28 +106,12 @@ pub fn resolve_global_free_names(ast: &mut Ast) {
             _ => None,
         })
         .collect();
-    if reads.is_empty() && writes.is_empty() && typeofs.is_empty() {
+    if hits.is_empty() {
         return;
     }
     inject_helper(ast);
-    for (eid, name) in reads {
-        let callee = ast.add_expr(Expr::Ident(GET_FN.to_string()));
-        let arg = ast.add_expr(Expr::String(name.as_str().into()));
-        ast.exprs[eid.0 as usize] = Expr::Call {
-            callee,
-            args: vec![arg],
-        };
-    }
-    for (eid, name, value) in writes {
-        let callee = ast.add_expr(Expr::Ident(SET_FN.to_string()));
-        let key = ast.add_expr(Expr::String(name.as_str().into()));
-        ast.exprs[eid.0 as usize] = Expr::Call {
-            callee,
-            args: vec![key, value],
-        };
-    }
-    for (eid, name) in typeofs {
-        let callee = ast.add_expr(Expr::Ident(TYPEOF_FN.to_string()));
+    for (eid, name) in hits {
+        let callee = ast.add_expr(Expr::Ident(HELPER_FN.to_string()));
         let arg = ast.add_expr(Expr::String(name.as_str().into()));
         ast.exprs[eid.0 as usize] = Expr::Call {
             callee,
@@ -202,17 +126,9 @@ pub fn resolve_global_free_names(ast: &mut Ast) {
 /// asking the same question about the same names, one for writes and
 /// one for reads, and they must not disagree.
 fn is_free(n: &str, declared: &std::collections::HashSet<String>) -> bool {
-    // The carve-out is tr's OWN namespace, not every `__` spelling.
-    // Most synthesized names carry a declaration (the `with` helpers
-    // and the harness ports are FnDecls, lifted bindings are
-    // LetDecls) and `declared` covers those; a few are minted as bare
-    // calls that only the lowering resolves — `__torajs_in_op` is one,
-    // and sending it to the global object cost 6 gate fixtures. A user
-    // name like `__ig1` must still resolve, so the rule is the prefix
-    // tr reserves, not the two underscores (gate measured both
-    // directions: `sloppy-implicit-global-001` needs `__ig1` through,
-    // `with-logical-assign-001` needs `__torajs_in_op` out).
-    if n.starts_with("__torajs_") {
+    if n.starts_with("__") {
+        // Compiler-synthesized spellings (`__this`, the with helpers,
+        // the harness ports). None of them is a user global.
         return false;
     }
     !(declared.contains(n)
