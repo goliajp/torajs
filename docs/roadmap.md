@@ -1621,13 +1621,13 @@ not the surface a TS runtime has to present. P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
-**Where the numbers come from.** Full sweep @ `5109034b3` (53174
+**Where the numbers come from.** Full sweep @ `51da7dc32` (53174
 cases, `hardev/test262-latest.json`), then the `incompatible` bucket
 dumped per case (`--incompat-ndjson`) and clustered by
 `hardev/autorun/cluster_incompat.py`. **The script is the authority** —
 every count below is its output for that sweep, and the next sweep
 re-derives them mechanically. Treat every number in this section as a
-snapshot stamped `@ 5109034b3`, never as a constant (the two shas this
+snapshot stamped `@ 51da7dc32`, never as a constant (the two shas this
 paragraph used to carry were four rotations stale, which is exactly
 what "never a constant" is warning about. The same failure wore a
 label instead of a sha until 2026-09-05: fourteen blocks in this
@@ -1681,7 +1681,60 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `5109034b3`** (2026-09-11, rotation 629 — thirteen knives and
+**Latest @ `51da7dc32`** (2026-09-11, rotation 630 — eleven knives and
+one fix-forward along three seams. **Module linking** (RFC
+`20260911-module-link-errors`, three knives): §16.2.1.6.4 step 7 now
+runs for EVERY module in the graph, not just the entry, and step 9 for
+every indirect export; a requested module that fails to parse — or
+trips the `break` / `continue` early errors — is the link phase's
+SyntaxError rather than the entry's parse error; `export {} from`
+loads the module it names; a side-effect request for the ENTRY itself
+no longer splices a second copy of the program in front of it; and a
+bare `export { x as default }` answers the default lane. **Typed-lane
+slots**: a Bool slot takes an `any` value through ToBoolean like every
+other primitive width; an empty array literal assigned into a typed
+array slot mints at the slot's layout AND its element flavor (the
+fix-forward — the first cut took the typed mint unconditionally and
+the close sweep caught 35 pass regressions from it); a `return` inside
+a for-of / for-in / switch body counts toward the inferred return type
+(both walks of the pair, or a body gets a type nothing asked for). **The
+long tail**: a generic fn read as a bare expression statement escapes
+to its `$$anywv` clone; an eval text's EXPRESSION spans are blanked
+with its statement ones (a class field's `eval("… () => …")` sliced the
+program at a byte that was not a char boundary and panicked the
+compiler); a non-callable `@@hasInstance` handler is a TypeError.
+**Two instrument fixes**: a bug row carries the first `error:` line
+instead of a leading compile warning (6193 of 11424 rows had been
+filed under `warning: unknown identifier`, and the three "largest
+levers" read off that table were all already passing), and
+`$262.evalScript(src)` rewrites to indirect eval so 32 cases reach
+their own assertions). Gate predicate: **55** clusters of >= 4 holding
+**358** cases, register 2 · 139, residue 378 · 516 (50.9%), core
+**1013**. Coverage curve: top-100 **59.7%**, top-200 **75.9%**,
+top-400 **95.7%**. Against rotation 629: clusters 61 -> **55 (-6)**,
+cases 405 -> **358 (-47)**, core 1071 -> **1013 (-58)** — the
+`This statement should not be evaluated` cluster (12), `got Slash`
+(8), the Arr slot mismatch (7), the Void-return mismatch (7), the
+char-boundary panic (8) and `slot is Bool but value is Any` (7) left
+the table; `unknown function Function` shed its seven
+`15.3.2.1-11-*` cases.
+
+Sweep passTotal 37422 -> **37484 (+62)**, pass 31681 -> **31720
+(+39)**, passNoOracle 1222 -> **1226 (+4)**, passNegative 4519 ->
+**4538 (+19)**, bug 11424 -> **11422 (-2)**, incompatible 4328 ->
+**4268 (-60)**, trAccepted 48846 -> **48906 (+60)**; conservation
+exact. Verdict diff 75 lines: **62 forward to pass** (23
+`incompatible` -> pass, 19 -> pass-negative, 9 compile-reject -> pass,
+4 + 3 bug -> pass / pass-no-oracle), 10 `incompatible` -> `bug`
+(accepted now, failing at run time — the honest verdict), 2 sideways,
+1 `bug` -> `incompatible` (`global-code/import.js`: an `import`
+declaration in Script code wants a PARSE-phase SyntaxError and now
+gets the resolution-phase one — 630-07), and **0 pass regressions**
+(the first close sweep had 35, all from the empty-literal mint's
+flavor; the fix-forward brought every one back and the re-sweep is
+what this paragraph reports).
+
+**Prior @ `5109034b3`** (2026-09-11, rotation 629 — thirteen knives and
 one fix-forward, the first eight driven by probes off the 628 handoff and
 the rest by the cluster table: an inline object literal in a
 prototype-source position (`Object.setPrototypeOf` / `Reflect.
