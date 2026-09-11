@@ -61,7 +61,7 @@ pub(super) fn collect_escape_arg_positions(
     argv_locals: &std::collections::HashSet<String>,
 ) -> std::collections::HashSet<String> {
     let mut arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
-    arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
+    arg_sites.extend(super::fnexpr_this_args::receiver_honoring_arg_idents(
         &ast.exprs,
     ));
     let mut out: std::collections::HashSet<String> = std::collections::HashSet::new();

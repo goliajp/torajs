@@ -209,7 +209,7 @@ fn collect_position_faces(
         // `__torajs_anyv_construct`'s plain-fn kernel invokes through
         // `invoke_with_this` with the freshly allocated `this`, which
         // shifts argv on FLAG_CLOSURE_RECV_FIRST). The Ident-callee
-        // spelling already rides `construct_channel_arg_idents`; this
+        // spelling already rides `receiver_honoring_arg_idents`; this
         // arm is its inline twin.
         if let Expr::NewDynamic { callee, .. } = &exprs[i] {
             collect_face(stmts, exprs, *callee, fn_expr_exprs, patches);

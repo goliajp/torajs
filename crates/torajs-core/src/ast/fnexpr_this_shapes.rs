@@ -38,9 +38,9 @@
 //! shape-adder to do first.
 
 use super::fnexpr_this_args::{
-    any_param_arg_idents, any_param_assign_value_idents, construct_channel_arg_idents,
-    define_property_target_idents, eq_operand_idents, export_default_idents,
-    instanceof_name_idents, typeof_operand_idents,
+    any_param_arg_idents, any_param_assign_value_idents, define_property_target_idents,
+    eq_operand_idents, export_default_idents, instanceof_name_idents, receiver_honoring_arg_idents,
+    typeof_operand_idents,
 };
 use super::fnexpr_this_names::peel_as;
 use super::fnexpr_this_recvs::{collect_any_binding_names, collect_arraylit_binding_names};
@@ -60,9 +60,9 @@ pub(super) struct UseShapes {
     /// method is spelled once a class lowers to the ES5 constructor
     /// pattern — `Ctor.s()` calls what the property HOLDS.
     pub(super) member_obj: std::collections::HashSet<ExprId>,
-    /// An argument to a construct-channel builtin, and the
+    /// An argument to a receiver-honoring builtin, and the
     /// `NewDynamic` callee.
-    pub(super) construct_arg: std::collections::HashSet<ExprId>,
+    pub(super) recv_honoring_arg: std::collections::HashSet<ExprId>,
     /// An equality operand.
     pub(super) eq_operand: std::collections::HashSet<ExprId>,
     /// An argument in an explicitly-`any` (or proven-safe generic)
@@ -188,7 +188,7 @@ impl UseShapes {
                     _ => None,
                 })
                 .collect(),
-            construct_arg: construct_channel_arg_idents(exprs),
+            recv_honoring_arg: receiver_honoring_arg_idents(exprs),
             eq_operand: eq_operand_idents(exprs),
             any_arg: any_param_arg_idents(stmts, exprs),
             any_param_assign: any_param_assign_value_idents(stmts, exprs),
@@ -221,7 +221,7 @@ impl UseShapes {
     pub(super) fn admits(&self, e: ExprId, name: &str) -> bool {
         self.callee.contains(&e)
             || self.member_obj.contains(&e)
-            || self.construct_arg.contains(&e)
+            || self.recv_honoring_arg.contains(&e)
             || self.eq_operand.contains(&e)
             || self.any_arg.contains(&e)
             || self.any_param_assign.contains(&e)

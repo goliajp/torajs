@@ -151,7 +151,7 @@ fn seed_objlit_aliases(
 /// a chain binding is legal because the consumer enters the boxed
 /// dual entry with REAL argc/argv, never the declared static sig:
 /// * rotation 345 — explicit-`any` / proven-generic param args and
-///   construct-channel builtin args (any lane / construct kernel);
+///   receiver-honoring builtin args (any lane / construct kernel);
 /// * an equality operand (`r.constructor === C`) compares the cell
 ///   pointer — no call lane at all;
 /// * rotation 391 — the bare name on the right of `instanceof`
@@ -174,7 +174,7 @@ fn seed_objlit_aliases(
 ///   the SECOND slot (§23.1.2.1); instance methods carry it first.
 fn collect_boxed_arg_sites(ast: &Ast) -> std::collections::HashSet<ExprId> {
     let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
-    boxed_arg_sites.extend(super::fnexpr_this_args::construct_channel_arg_idents(
+    boxed_arg_sites.extend(super::fnexpr_this_args::receiver_honoring_arg_idents(
         &ast.exprs,
     ));
     boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));

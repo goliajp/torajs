@@ -1,7 +1,7 @@
 //! Rotation 345 — the boxed-consumption POSITION classifiers shared
 //! by knife-2 promotion (`fnexpr_this_routed`) and the
 //! arguments-object faces (`arguments_object_escape_store`): the
-//! construct-channel callee whitelist, equality / value-op operand
+//! receiver-honoring callee whitelist, equality / value-op operand
 //! sets, and the explicit-`any` / proven-generic param argument
 //! positions with their greatest-fixpoint safety proof. Split from
 //! `fnexpr_this_routed.rs` under the 500-line file rule.
@@ -15,11 +15,17 @@ pub(super) use super::fnexpr_this_args_valueops::{
     instanceof_name_idents, typeof_operand_idents,
 };
 
-/// The construct-channel callee whitelist backing the fourth
-/// receiver-safe use shape: `Reflect.construct` and the
-/// `Array.from` / `Array.fromAsync` / `Array.of` statics re-dispatched
-/// through `.call` / `.apply` (their ns-static cells are recv-first,
-/// so the thisArg rides argv[0] into the kernel's Construct split).
+/// The callee whitelist backing the fourth receiver-safe use shape:
+/// builtins that reach a function argument ONLY through a
+/// receiver-honoring channel. Named for the channel, not for
+/// "construct" — the set was construct-only when it was written
+/// (rotation 345) and the proof each entry carries is about the
+/// receiver, which is why `Reflect.apply` belongs in it too.
+///
+/// Today: `Reflect.construct` and the `Array.from` / `Array.fromAsync`
+/// / `Array.of` statics re-dispatched through `.call` / `.apply`
+/// (their ns-static cells are recv-first, so the thisArg rides argv[0]
+/// into the kernel's Construct split).
 ///
 /// `of` joins in rotation 417 on the same reading as `from`: §23.1.2.3
 /// step 4.a does `Construct(C, «len»)` with the `.call` thisArg as C,
@@ -27,7 +33,7 @@ pub(super) use super::fnexpr_this_args_valueops::{
 /// spelling for "does the array-like allocation go through `A` as a
 /// constructor" — is how it shows up, and `A` there is normally a
 /// `this`-writing function expression.
-fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
+fn receiver_honoring_callee(exprs: &[Expr], callee: ExprId) -> bool {
     match &exprs[callee.0 as usize] {
         // Rotation 410 — the value-shaped-parent synthetics: the
         // super dispatch reaches a closure only through
@@ -48,7 +54,7 @@ fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
 }
 
 /// RFC 20260808-construct-channel B6 刀 2 — an argument handed to a
-/// CONSTRUCT-CHANNEL builtin (`Reflect.construct(C, …)`,
+/// RECEIVER-HONORING builtin (`Reflect.construct(C, …)`,
 /// `Array.from.call(C, …)` / `.apply`, fromAsync same) is the
 /// fourth receiver-safe use shape: those builtins reach the closure
 /// only through receiver-honoring channels (construct →
@@ -60,11 +66,11 @@ fn construct_channel_callee(exprs: &[Expr], callee: ExprId) -> bool {
 /// same channels deliver REAL argc/argv through the boxed dual
 /// entry, so such an argument position must not evict the fn from
 /// the argv face either.
-pub(super) fn construct_channel_arg_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
+pub(super) fn receiver_honoring_arg_idents(exprs: &[Expr]) -> std::collections::HashSet<ExprId> {
     let mut out: std::collections::HashSet<ExprId> = exprs
         .iter()
         .filter_map(|e| match e {
-            Expr::Call { callee, args } if construct_channel_callee(exprs, *callee) => Some(
+            Expr::Call { callee, args } if receiver_honoring_callee(exprs, *callee) => Some(
                 args.iter()
                     .copied()
                     .filter(|a| matches!(&exprs[a.0 as usize], Expr::Ident(_))),
