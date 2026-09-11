@@ -215,13 +215,6 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // After the readonly sibling (its folds already consumed the §19.1
     // names), before the checker.
     ast::synthesize_sloppy_implicit_globals(ast);
-    // …and its READ half (§9.1.1.4 GetBindingValue on the global
-    // object): a bare name with no static lane left reads the global
-    // object at run time instead of being refused at compile time.
-    // AFTER the write half on purpose — that pass's synthesized `var`s
-    // land in the declared set, so a name with a write keeps ONE
-    // storage for its write and its read.
-    ast::resolve_global_free_names(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::desugar_using(ast);

@@ -162,7 +162,6 @@ mod free_vars_expr;
 mod free_vars_globals;
 mod free_vars_hoisted_names;
 mod gen_fn_expr;
-mod global_free_names;
 mod globalthis_member;
 mod heritage;
 mod hoist_gen_fn_exprs;
@@ -302,7 +301,6 @@ pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_fiel
 pub(crate) use free_vars::free_idents_of_stmt;
 pub(crate) use free_vars::is_global_name as free_vars_is_global_name;
 pub use gen_fn_expr::{GenFnExprInfo, GenFnExprKind};
-pub use global_free_names::resolve_global_free_names;
 pub use globalthis_member::desugar_globalthis_members;
 pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;
 pub(crate) use implicit_generics_infer::{
