@@ -255,8 +255,7 @@ pub(super) fn carry_strictness_to_next(ast: &mut Ast, next: &mut ClassMethod, st
     if !strict {
         return;
     }
-    let e = ast.add_expr(Expr::String("use strict".to_string().into()));
-    ast.synth_strict_directives.insert(e);
+    let e = crate::ast::sloppy_this_prologue::mint_use_strict_directive(ast);
     next.body.insert(0, Stmt::Expr(e));
 }
 

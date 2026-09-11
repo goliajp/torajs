@@ -398,10 +398,7 @@ impl Parser<'_> {
         if !simple {
             return Ok(());
         }
-        let e = self
-            .ast
-            .add_expr(Expr::String("use strict".to_string().into()));
-        self.ast.synth_strict_directives.insert(e);
+        let e = crate::ast::sloppy_this_prologue::mint_use_strict_directive(&mut self.ast);
         body.insert(0, Stmt::Expr(e));
         Ok(())
     }

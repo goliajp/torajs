@@ -283,8 +283,7 @@ pub(super) fn build_async_body(
     let strict = crate::ast::sloppy_this_prologue::has_use_strict_directive(&new_body, &ast.exprs);
     let mut wrapped_body = Vec::with_capacity(2);
     if strict {
-        let e = ast.add_expr(Expr::String("use strict".to_string().into()));
-        ast.synth_strict_directives.insert(e);
+        let e = crate::ast::sloppy_this_prologue::mint_use_strict_directive(ast);
         wrapped_body.push(Stmt::Expr(e));
     }
     wrapped_body.push(Stmt::Try {
