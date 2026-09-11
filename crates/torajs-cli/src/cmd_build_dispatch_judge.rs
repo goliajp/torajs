@@ -200,7 +200,7 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 31] = [
+const PREFIX_FAMILIES: [(&str, u16); 32] = [
     // the array toLocaleString kernels walk Invoke(elem,
     // "toLocaleString") over ANY element value — the any-lane walk
     // directly, the typed kernels once the receiver is exotic (an
@@ -213,13 +213,23 @@ const PREFIX_FAMILIES: [(&str, u16); 31] = [
     ("__torajs_map_", fam::FAM_MAPSET | fam::FAM_ITER),
     ("__torajs_set_", fam::FAM_MAPSET | fam::FAM_ITER),
     ("__torajs_arr_iter_", fam::FAM_ITER),
-    ("__torajs_any_iter", fam::FAM_ITER),
-    ("__torajs_iter_", fam::FAM_ITER),
+    // The user-facing iteration protocol re-dispatches `next` /
+    // `return` / `throw` INSIDE the runtime against whatever the
+    // receiver's `@@iterator` answered — an object literal's method,
+    // a dynobj field, a closure — so the mids never appear in the
+    // user `.o`. Rotation 634: `var [a, b] = iterable` over a
+    // hand-written iterator object reached the struct arm's loud
+    // reject because nothing else in the program named that
+    // family. Same reason the destructuring drain and fromAsync
+    // kernels keep the obj world.
+    ("__torajs_any_iter", fam::FAM_ITER | fam::FAM_OBJ_WORLD),
+    ("__torajs_iter_", fam::FAM_ITER | fam::FAM_OBJ_WORLD),
+    ("__torajs_dstr_", fam::FAM_ITER | fam::FAM_OBJ_WORLD),
     ("__torajs_promise_", fam::FAM_PROMISE),
     ("__torajs_queue_microtask", fam::FAM_PROMISE),
     (
         "__torajs_array_from_async",
-        fam::FAM_PROMISE | fam::FAM_ITER,
+        fam::FAM_PROMISE | fam::FAM_ITER | fam::FAM_OBJ_WORLD,
     ),
     ("__torajs_regex", fam::FAM_REGEXP),
     ("__torajs_str_match", fam::FAM_REGEXP),
