@@ -73,6 +73,7 @@ mod desugar_classes_default_ctor;
 mod desugar_classes_dispatch;
 mod desugar_classes_elements;
 mod desugar_classes_emit;
+mod desugar_classes_factory_params;
 mod desugar_classes_field_inits;
 mod desugar_classes_fields;
 mod desugar_classes_generic_twin;

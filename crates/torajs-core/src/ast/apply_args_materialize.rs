@@ -251,7 +251,13 @@ fn patch_params(params: &mut [super::Param], pads: Vec<(usize, ExprId, Option<St
 /// splice. (Generators — sync AND async — are unaffected: their
 /// factory body is never async-wrapped, and instantiation abrupt
 /// completions there propagate synchronously per §27.3/§27.6.)
-pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>) {
+///
+/// `at` is where the guards go in the (unwrapped) body — 0 for every
+/// function but a class constructor, whose parser-prepended field
+/// initializers must run first (§10.2.2 initializes the instance's
+/// fields before FunctionDeclarationInstantiation evaluates the
+/// defaults; `constructor(o = this.x)` reads the initialized field).
+pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>, at: usize) {
     let into_try = matches!(
         &body[..],
         [Stmt::Try {
@@ -263,10 +269,20 @@ pub(super) fn splice_guards(body: &mut Vec<Stmt>, guards: Vec<Stmt>) {
         let Stmt::Try { body: tb, .. } = &mut body[0] else {
             unreachable!()
         };
-        tb.splice(0..0, guards);
+        tb.splice(at..at, guards);
     } else {
-        body.splice(0..0, guards);
+        let at = at.min(body.len());
+        body.splice(at..at, guards);
     }
+}
+
+/// Where a FnDecl's guards splice in: a class constructor's recorded
+/// field-initializer end, the head for everything else.
+fn guard_offset(ast: &Ast, name: &str) -> usize {
+    name.strip_prefix("__cm_")
+        .and_then(|rest| rest.strip_suffix("__ctor"))
+        .and_then(|cname| ast.ctor_field_init_end.get(cname).copied())
+        .unwrap_or(0)
 }
 
 /// See module doc. Walks every top-level FnDecl (all function forms
@@ -331,11 +347,15 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
     for (si, mut conv) in by_stmt {
         conv.sort_by_key(|(pi, _, _)| *pi);
         let (guards, pads) = build_guards_and_pads(ast, conv);
+        let at = match &ast.stmts[si] {
+            Stmt::FnDecl { name, .. } => guard_offset(ast, name),
+            _ => 0,
+        };
         let Stmt::FnDecl { params, body, .. } = &mut ast.stmts[si] else {
             unreachable!()
         };
         patch_params(params, pads);
-        splice_guards(body, guards);
+        splice_guards(body, guards, at);
     }
     // Phase B' — same conversion for arrow-fn / fn-expression values
     // still living in the expr arena (nested arrows included: the
@@ -352,7 +372,7 @@ pub fn materialize_expr_defaults(ast: &mut Ast) {
             unreachable!()
         };
         patch_params(params, pads);
-        splice_guards(body, guards);
+        splice_guards(body, guards, 0);
     }
     // Phase C (424-04) — nested `function` declarations, in the
     // child module (see its doc for why the spine walk exists).

@@ -63,6 +63,11 @@ impl<'a> Parser<'a> {
                 // for the first and moot for the second.
                 let at = self.super_stmt_index(&c.body).map_or(0, |i| i + 1);
                 let mut body = c.body;
+                // The default-materialization guards belong past the
+                // initializers (§10.2.2 order); the pass reads this.
+                self.ast
+                    .ctor_field_init_end
+                    .insert(class_name.to_string(), at + prefix.len());
                 body.splice(at..at, prefix);
                 ClassCtor {
                     params: c.params,

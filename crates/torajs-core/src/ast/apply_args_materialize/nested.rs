@@ -28,7 +28,7 @@ pub(super) fn materialize_nested(ast: &mut Ast, global_fns: &[String]) {
                 }
                 let (guards, pads) = build_guards_and_pads(ast, conv);
                 patch_params(params, pads);
-                splice_guards(body, guards);
+                splice_guards(body, guards, 0);
             }
         });
     }

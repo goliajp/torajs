@@ -425,7 +425,7 @@ fn apply_param_plan(ast: &mut Ast, mut plan: HashMap<String, RowPlan>) {
                             *body = b;
                         }
                         if let Some(g) = head.remove(name.as_str()) {
-                            super::super::apply_args_materialize::splice_guards(body, g);
+                            super::super::apply_args_materialize::splice_guards(body, g, 0);
                         }
                     }
                 }

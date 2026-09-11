@@ -204,6 +204,13 @@ pub struct Ast {
     /// needs this table (sibling-class dispatch) resolves the receiver
     /// itself and never carries it in the argument list.
     pub rest_arg_prefix: std::collections::HashMap<String, usize>,
+    /// Class name → index in the constructor body just past the
+    /// parser-prepended field initializers (`this.x = init`, after
+    /// the `super()` when there is one). §10.2.2 [[Construct]]
+    /// initializes the fields BEFORE FunctionDeclarationInstantiation
+    /// runs the parameter defaults, so the default-materialization
+    /// guards for `__cm_<C>__ctor` splice in here, not at the head.
+    pub ctor_field_init_end: std::collections::HashMap<String, usize>,
     /// RFC 20260730-undeclared-ident — expression-position occurrences
     /// of identifiers that resolve nowhere (§6.2.5.5 GetValue /
     /// §6.2.5.6 PutValue on an unresolvable Reference), ExprId → name.

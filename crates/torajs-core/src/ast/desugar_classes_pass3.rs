@@ -26,6 +26,7 @@
 //! (`ast.stmts.extend(appended)`).
 
 use super::desugar_classes_emit::{emit_class_instance_methods, emit_class_static_methods};
+use super::desugar_classes_factory_params::factory_params;
 use super::desugar_classes_super::ClassIndexEntry;
 use super::*;
 use std::collections::HashMap;
@@ -60,7 +61,7 @@ fn emit_ctor_fn(
 ) -> Vec<Param> {
     let mut ctor_params_for_factory: Vec<Param> = Vec::new();
     let (ctor_body, ctor_user_params): (Vec<Stmt>, Vec<Param>) = if let Some(c) = ctor {
-        ctor_params_for_factory = c.params.clone();
+        ctor_params_for_factory = factory_params(ast, &c.params);
         (c.body.clone(), c.params.clone())
     } else {
         (Vec::new(), Vec::new())
