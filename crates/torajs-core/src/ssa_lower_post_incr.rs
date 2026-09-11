@@ -65,17 +65,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
         // ReferenceError before any numeric step; nothing else here
         // is reachable.
         Expr::Ident(name) if ctx.ast.undeclared_reads.contains_key(&target) => {
-            // …unless the global object carries the name. §13.4.4.1
-            // step 1 is GetValue, which under the sloppy goal consults
-            // the object half of the global environment record before
-            // it throws (RFC 20260911-global-object-record) — and a
-            // `for (i = 0; …; i++)` whose `i` the first clause just
-            // created is exactly that shape.
-            if crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx)
-                && !ctx.ast.strict_eval_assign_names.contains(&name)
-            {
-                return lower_global_ident_update(ctx, &name, Step { is_inc, is_prefix });
-            }
             let name_str = ctx.intern_string_literal(&name);
             let raiser = ctx.intrinsics.throw_reference_error_name;
             let cur_block = ctx.cur_block;
@@ -92,55 +81,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
         }
         Expr::Index { obj, index } => lower_index(ctx, eid, obj, index, Step { is_inc, is_prefix }),
         other => panic!("ssa-lower: post-incr target shape not supported: {other:?}"),
-    }
-}
-
-/// §13.4.4 over the global object: read it, ToNumber, write it back,
-/// and answer the old or the new value. The read throws if the object
-/// does not carry the name — which is what §13.4.4.1 step 1 wants,
-/// since GetValue runs before any numeric step.
-fn lower_global_ident_update(ctx: &mut LowerCtx<'_>, name: &str, step: Step) -> Operand {
-    let name_str = ctx.intern_string_literal(name);
-    let getter = ctx.intrinsics.global_ident_get;
-    let cur_block = ctx.cur_block;
-    let old = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(getter, vec![Operand::Value(name_str)]),
-        Type::Any,
-        None,
-    );
-    ctx.emit_throw_check(None);
-    let conv = ctx.intrinsics.any_to_number;
-    let cur_block = ctx.cur_block;
-    let old_num = Operand::Value(ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(conv, vec![Operand::Value(old)]),
-        Type::F64,
-        None,
-    ));
-    let (one, op) = incr_op_one(Type::F64, step.is_inc);
-    let cur_block = ctx.cur_block;
-    let new = ctx.f.append_inst(
-        cur_block,
-        InstKind::BinOp(op, old_num.clone(), one),
-        Type::F64,
-        None,
-    );
-    let boxed = ctx.box_to_any(Operand::Value(new));
-    let name_str = ctx.intern_string_literal(name);
-    let setter = ctx.intrinsics.global_ident_set;
-    let cur_block = ctx.cur_block;
-    let stored = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(setter, vec![Operand::Value(name_str), boxed]),
-        Type::Any,
-        None,
-    );
-    ctx.emit_throw_check(None);
-    if step.is_prefix {
-        Operand::Value(stored)
-    } else {
-        old_num
     }
 }
 

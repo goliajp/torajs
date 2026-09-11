@@ -20,7 +20,6 @@ use std::collections::HashMap;
 
 pub(crate) struct InitC {
     pub any_substrate: crate::ssa_lower_intrinsics_any_substrate::AnySubstrateIds,
-    pub global_object: crate::ssa_lower_intrinsics_global_object::GlobalObjectIds,
     pub error_slots: crate::ssa_lower_intrinsics_error_slots::ErrorSlotIds,
     pub struct_expando: crate::ssa_lower_intrinsics_struct_expando::StructExpandoIds,
     pub subclass: crate::ssa_lower_intrinsics_subclass::ExoticSubclassIds,
@@ -46,7 +45,6 @@ pub(crate) struct InitC {
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> InitC {
     let any_substrate = crate::ssa_lower_intrinsics_any_substrate::declare(module, fn_table);
-    let global_object = crate::ssa_lower_intrinsics_global_object::declare(module, fn_table);
     let error_slots = crate::ssa_lower_intrinsics_error_slots::declare(module, fn_table);
     let struct_expando = crate::ssa_lower_intrinsics_struct_expando::declare(module, fn_table);
     let subclass = crate::ssa_lower_intrinsics_subclass::declare(module, fn_table);
@@ -76,7 +74,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     crate::ssa_lower_process_on::declare(module, fn_table);
     InitC {
         any_substrate,
-        global_object,
         error_slots,
         struct_expando,
         subclass,
