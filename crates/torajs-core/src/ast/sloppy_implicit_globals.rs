@@ -80,6 +80,14 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
     // them — and `declared` is exactly the set of names this pass does
     // not create, so they belong in it.
     declared.extend(ast.strict_eval_assign_names.iter().cloned());
+    // A named function expression's self-name is bound by its own
+    // function env (§15.5.5), declared nowhere: a write to it inside
+    // the body is a write to an immutable binding — ignored in sloppy
+    // code, a TypeError in strict — never an implicit global. Read
+    // from the declarations alone, `B = 1` inside `function B() {}`
+    // invented a global `B` next to the real binding and the write
+    // landed there (rotation 635; test262 no-strict-reassign-fn-name).
+    declared.extend(ast.fn_expr_self_names.values().cloned());
     let mut names: Vec<String> = Vec::new();
     let mut walk = Walk {
         declared: &declared,

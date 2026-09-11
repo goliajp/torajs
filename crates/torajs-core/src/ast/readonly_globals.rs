@@ -31,7 +31,7 @@
 //! Runs after the eval inline (an inlined `NaN = 12` is a site like
 //! any other) and before the checker.
 
-use super::{Ast, Expr, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 
 /// §19.1 — value properties of the global object with
 /// `[[Writable]]: false`. `globalThis` is writable and stays out.
@@ -155,6 +155,20 @@ pub fn resolve_readonly_ns_prop_writes(ast: &mut Ast) {
 /// The strict arm both passes share — replace the arena slot with a
 /// `(() => { throw new TypeError(...) })()` carrier.
 fn rewrite_to_throw_iife(ast: &mut Ast, i: usize) {
+    ast.exprs[i] = readonly_throw_call(ast);
+}
+
+/// The same carrier in a slot of its own — for a rewrite that keeps
+/// the RHS alive next to the throw (a generator expression's self-name
+/// write, `hoist_gen_fn_exprs_self_write`).
+pub(super) fn mint_readonly_throw(ast: &mut Ast) -> ExprId {
+    let call = readonly_throw_call(ast);
+    ast.add_expr(call)
+}
+
+/// `(() => { throw new TypeError("Attempted to assign to readonly
+/// property.") })()` — the message is bun's (JSC).
+fn readonly_throw_call(ast: &mut Ast) -> Expr {
     let msg = ast.add_expr(Expr::String(
         "Attempted to assign to readonly property."
             .to_string()
@@ -170,8 +184,8 @@ fn rewrite_to_throw_iife(ast: &mut Ast, i: usize) {
         return_type: None,
         body: vec![Stmt::Throw(exc)],
     });
-    ast.exprs[i] = Expr::Call {
+    Expr::Call {
         callee: arrow,
         args: Vec::new(),
-    };
+    }
 }

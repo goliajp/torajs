@@ -132,9 +132,19 @@ pub(crate) fn lower(
     if ctx.ast.self_name_writes.contains(&target) {
         // §15.5.5 (RFC 20260810) — write to the enclosing
         // fn-expression's self-name: an immutable function-env
-        // binding, so a strict-mode write (module code always is)
-        // raises TypeError. Same kernel and message as bun's JSC
-        // ("Attempted to assign to readonly property.").
+        // binding, so a strict-mode write raises TypeError. Same
+        // kernel and message as bun's JSC ("Attempted to assign to
+        // readonly property."). Under a SLOPPY function (§11.2.2 —
+        // the function's own strictness, not the program's) PutValue
+        // with S = false on an immutable binding is a no-op: the RHS
+        // is evaluated and is the expression's value, nothing is
+        // stored (rotation 635; test262 no-strict-reassign-fn-name).
+        if crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx) {
+            let v = ctx.lower_expr(value);
+            mint_consumer_stake(ctx, eid, &v);
+            ctx.release_owned_temp(value, &v);
+            return v;
+        }
         return lower_self_name_write_throw(ctx, value);
     }
     let v = if ctx.locals.get(&name).is_none()

@@ -125,9 +125,8 @@ pub(super) fn route_wrapper(
     // already names it and the knife-1 self-slot binds the name
     // inside the wrapper — which then forwards its own cell as a
     // leading argument the prep pass moves onto `this.<name>`. A
-    // body that WRITES it stays refused: after the prep rewrite a
-    // write would be a silent `this` field store, not the §15.5.5
-    // strict TypeError.
+    // body that WRITES it has those writes rewritten below before
+    // the prep can turn them into field stores.
     let self_name = ast.fn_expr_self_names.get(&eid).cloned();
     let mut captures =
         crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names, None);
@@ -136,14 +135,15 @@ pub(super) fn route_wrapper(
         .is_some_and(|sn| captures.iter().any(|c| c == sn));
     if self_ref {
         let sn = self_name.as_ref().unwrap();
+        // §15.5.5 — a write to the self-name is a strict TypeError or
+        // a sloppy no-op, and after the prep rewrite it would lower to
+        // a silent `this` field store: rewrite the body's write sites
+        // first (`hoist_gen_fn_exprs_self_write`). A same-named write
+        // in an unrelated scope finds no site here, and the snapshot
+        // is then exactly right.
         if !captures_snapshot_safe(ast, std::slice::from_ref(sn)) {
-            panic!(
-                "generator expression whose self-name `{sn}` is reassigned in the \
-                 body is not yet supported (RFC 20260810: the factory receives the \
-                 wrapper cell through a param the generator prep rewrites onto \
-                 `this.{sn}`, so a write would be a silent field store instead of \
-                 the strict-mode TypeError)"
-            );
+            let strict = !ast.body_is_sloppy(body);
+            super::hoist_gen_fn_exprs_self_write::rewrite_self_name_writes(ast, body, sn, strict);
         }
         captures.retain(|c| c != sn);
     }

@@ -169,6 +169,7 @@ mod heritage;
 mod hoist_gen_fn_exprs;
 mod hoist_gen_fn_exprs_decls;
 mod hoist_gen_fn_exprs_names;
+mod hoist_gen_fn_exprs_self_write;
 mod hoist_gen_fn_exprs_wrapper;
 mod hoist_nested_classes;
 mod hoist_nested_classes_admit;
