@@ -39,3 +39,22 @@ pub(crate) fn try_lower_drain_rest(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> O
     ctx.emit_throw_check(None);
     Some(Operand::Value(out))
 }
+
+/// `__torajs_dstr_park_take(it)` — the rest element's OWNED copy of
+/// the park before the slot clears. The park slot lives outside the
+/// close wrap's try block and the copy inside it, so the copy would
+/// otherwise be a cross-scope alias with no stake of its own and the
+/// clear would free the iterator under the drain. A retain (cell +1,
+/// immediates untouched) is exactly the stake the copy's own scope
+/// drop settles.
+pub(crate) fn try_lower_park_take(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    let it = ctx.lower_expr(args[0]);
+    let cur_block = ctx.cur_block;
+    let out = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.anyv_retain, vec![it]),
+        crate::ssa::Type::Any,
+        None,
+    );
+    Some(Operand::Value(out))
+}

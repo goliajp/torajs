@@ -237,6 +237,9 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::Any],
             Box::new(Type::Any),
         )),
+        // 刀 D — the OWNED copy of the park the rest element takes
+        // before clearing the slot (a retain; see the lowering).
+        "__torajs_dstr_park_take" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Any))),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),

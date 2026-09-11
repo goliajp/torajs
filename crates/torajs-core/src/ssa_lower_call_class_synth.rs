@@ -94,6 +94,9 @@ pub(crate) fn try_lower(
         "__torajs_dstr_drain_rest" => {
             crate::ssa_lower_call_class_synth_dstr::try_lower_drain_rest(ctx, args)
         }
+        "__torajs_dstr_park_take" => {
+            crate::ssa_lower_call_class_synth_dstr::try_lower_park_take(ctx, args)
+        }
         "__torajs_register_native_error" => {
             crate::ssa_lower_call_class_synth_error::try_lower_register_native_error(ctx, args)
         }

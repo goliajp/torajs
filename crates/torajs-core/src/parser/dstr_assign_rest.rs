@@ -9,19 +9,22 @@
 use super::*;
 
 impl<'a> Parser<'a> {
-    /// 刀 D — does this pattern take the deferred-rest shape? A rest
-    /// element AND a yield somewhere in the pattern (`expr_yield_temps`
-    /// sees the hoisted `__yx_` reads, so this is a pure AST question
-    /// and agrees with whatever the per-slot recovery later consumes).
+    /// 刀 D — does this pattern take the deferred-rest shape? Every
+    /// pattern with a rest element does (rotation 634): §13.15.5.5
+    /// AssignmentRestElement evaluates the rest TARGET's reference
+    /// before the drain, whether or not anything suspends — a target
+    /// that throws (`[...{}[f()]] = it`) must see the iterator closed
+    /// and never drained, and the slice-of-a-prefetched-array shape
+    /// drained first (forever, on an infinite iterator). The shape
+    /// was built for the suspending case; it is simply the spec order.
     pub(super) fn detect_deferred_rest(&self, target: ExprId) -> bool {
         let Expr::Array(elems) = self.ast.get_expr(target) else {
             return false;
         };
-        let has_rest = elems
+        elems
             .last()
             .map(|&e| matches!(self.ast.get_expr(e), Expr::Spread { .. }))
-            .unwrap_or(false);
-        has_rest && !super::yield_hoist_events::expr_yield_temps(&self.ast, target).is_empty()
+            .unwrap_or(false)
     }
 
     /// 刀 D — §13.15.5.5 AssignmentRestElement, target-first: the
@@ -33,9 +36,16 @@ impl<'a> Parser<'a> {
     /// 2. the target's object / key hoist — a throw here leaves the
     ///    park slot intact, so the pattern's finally still closes
     ///    (lref abrupt → [[done]] false → IteratorClose);
-    /// 3. take the park into a fresh temp and CLEAR the slot — from
-    ///    here [[done]] is true: a throw out of the drain (a `next()`
-    ///    that throws) must NOT re-close (the thrw-close-skip family);
+    /// 3. take the park into a fresh temp — an OWNED copy through
+    ///    `__torajs_dstr_park_take`, because the temp sits inside the
+    ///    close wrap's try block while the slot is declared outside
+    ///    it, so a plain `let rest = it` is a cross-scope ALIAS (no
+    ///    stake of its own) and the clear right after would free the
+    ///    iterator under the drain (rotation 634: the drain then read
+    ///    a recycled cell — the walk's own result array) — and CLEAR
+    ///    the slot: from here [[done]] is true, a throw out of the
+    ///    drain (a `next()` that throws) must NOT re-close (the
+    ///    thrw-close-skip family);
     /// 4. `target = __torajs_dstr_drain_rest(taken, raw)` — the drain
     ///    runs in value position, after the (already-hoisted)
     ///    reference, before PutValue.
@@ -59,11 +69,18 @@ impl<'a> Parser<'a> {
         let id2 = self.mint_desugar_id();
         let rest_name = format!("__dstra_rest_{id2}");
         let it_read = self.ast.add_expr(Expr::Ident(format!("__dstra_it_{id}")));
+        let take_callee = self
+            .ast
+            .add_expr(Expr::Ident("__torajs_dstr_park_take".into()));
+        let take = self.ast.add_expr(Expr::Call {
+            callee: take_callee,
+            args: vec![it_read],
+        });
         out.push(Stmt::LetDecl {
             mutable: false,
             name: rest_name.clone(),
             type_ann: Some("any".into()),
-            init: it_read,
+            init: take,
             is_var: false,
         });
         let it_w = self.ast.add_expr(Expr::Ident(format!("__dstra_it_{id}")));
