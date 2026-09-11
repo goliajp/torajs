@@ -642,6 +642,7 @@ pub(crate) fn build(
         promise_drop: init_d.promise.promise_drop,
         promise_get_value: init_d.promise.promise_get_value,
         promise_get_value_as: init_d.promise.promise_get_value_as,
+        promise_get_value_heap: init_d.promise.promise_get_value_heap,
         anyv_await: init_d.promise.anyv_await,
         promise_then_simple: init_d.promise.promise_then_simple,
         promise_then_passthrough: init_d.promise.promise_then_passthrough,

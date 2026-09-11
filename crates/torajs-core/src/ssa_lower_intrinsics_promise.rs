@@ -72,6 +72,7 @@ pub(crate) struct PromiseIds {
     pub promise_drop: FuncId,
     pub promise_get_value: FuncId,
     pub promise_get_value_as: FuncId,
+    pub promise_get_value_heap: FuncId,
     pub anyv_await: FuncId,
     pub promise_then_simple: FuncId,
     pub promise_then_passthrough: FuncId,
@@ -228,6 +229,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_promise_get_value_as",
+            &[Type::Promise, Type::I64],
+            Type::I64,
+        ),
+        // rotation 635 — the same read for a HEAP-typed awaiting slot:
+        // a still-pending cell raises instead of answering the null
+        // the slot would dereference.
+        promise_get_value_heap: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_get_value_heap",
             &[Type::Promise, Type::I64],
             Type::I64,
         ),

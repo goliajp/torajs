@@ -174,6 +174,37 @@ pub unsafe extern "C" fn __torajs_promise_get_value(p: *const c_void) -> i64 {
 /// wants the slot as-is.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_get_value_as(p: *const c_void, want_repr: i64) -> i64 {
+    unsafe { get_value_as_inner(p, want_repr, false) }
+}
+
+/// The typed HEAP lane's read (rotation 635): a still-pending cell
+/// answers 0 from [`__torajs_promise_get_value`], and 0 cast into a
+/// heap-typed slot is a null pointer the awaiting site dereferences
+/// (`await Promise.all([pending])` into an array binding: SIGSEGV).
+/// The sync-resolve model cannot suspend here, so this lane raises a
+/// TypeError instead — loud, catchable, the same throw slot a
+/// rejection uses. Primitive lanes and the `any` lane keep the model's
+/// undefined answer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_get_value_heap(p: *const c_void, want_repr: i64) -> i64 {
+    unsafe { get_value_as_inner(p, want_repr, true) }
+}
+
+unsafe fn get_value_as_inner(p: *const c_void, want_repr: i64, pending_throws: bool) -> i64 {
+    unsafe extern "C" {
+        fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    }
+    if pending_throws && !p.is_null() && unsafe { (*(p as *const Promise)).state } == STATE_PENDING
+    {
+        unsafe {
+            __torajs_throw_type_error(
+                c"await on a promise that is still pending: a value of this type cannot be read \
+                  before it settles (the runtime does not suspend here yet)"
+                    .as_ptr(),
+            );
+        }
+        return 0;
+    }
     let v = unsafe { __torajs_promise_get_value(p) };
     if p.is_null() || want_repr == 0 {
         return v;
