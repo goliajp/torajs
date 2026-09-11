@@ -16,7 +16,7 @@
 
 use core::ffi::c_void;
 
-use crate::iter_any::{MethodOutcome, call_obj_method_0};
+use crate::iter_any_call::{MethodOutcome, call_obj_method_0};
 use crate::iter_any_get_method::{GetIterator, get_iterator};
 use crate::iter_helper::{
     ALIVE_OFF, COUNTER_OFF, FN_OFF, INNER_OFF, UNDERLYING_OFF, iter_helper_mint_wrap,

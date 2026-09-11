@@ -27,9 +27,8 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::iter_any::{
-    MethodOutcome, SYM_ITERATOR_METHOD, USER_ITERATOR_LANE, call_obj_method_0, iter_next_inner,
-};
+use crate::iter_any::{SYM_ITERATOR_METHOD, USER_ITERATOR_LANE, iter_next_inner};
+use crate::iter_any_call::{MethodOutcome, call_obj_method_0};
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_int32, as_void_ptr, box_int32, box_void_ptr, is_cell, is_int32,
     is_short_str,

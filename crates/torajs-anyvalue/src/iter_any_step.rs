@@ -5,7 +5,7 @@
 
 use core::ffi::c_void;
 
-use crate::iter_any::{MethodOutcome, call_obj_method_0};
+use crate::iter_any_call::{MethodOutcome, call_obj_method_0};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use torajs_rc::Tag;

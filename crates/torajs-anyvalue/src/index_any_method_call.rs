@@ -301,12 +301,14 @@ unsafe fn obj_symbol_iterator_call(recv: AnyValue, key: *const c_void) -> Option
     if unsafe { (obj.cast::<u8>().add(4) as *const u16).read() } != Tag::Obj as u16 {
         return None;
     }
-    match unsafe { crate::iter_any::call_obj_method_0(obj, crate::iter_any::SYM_ITERATOR_METHOD) } {
-        crate::iter_any::MethodOutcome::Ok(v) => Some(v),
+    match unsafe {
+        crate::iter_any_call::call_obj_method_0(obj, crate::iter_any::SYM_ITERATOR_METHOD)
+    } {
+        crate::iter_any_call::MethodOutcome::Ok(v) => Some(v),
         // The user body's throw is in flight — the caller's throw
         // check propagates it; the sentinel must not be read.
-        crate::iter_any::MethodOutcome::Threw => Some(VALUE_UNDEFINED),
-        crate::iter_any::MethodOutcome::Missing => {
+        crate::iter_any_call::MethodOutcome::Threw => Some(VALUE_UNDEFINED),
+        crate::iter_any_call::MethodOutcome::Missing => {
             let class_tag = unsafe { obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
             let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
             if layout.is_null() {
