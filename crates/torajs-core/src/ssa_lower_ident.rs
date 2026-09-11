@@ -262,14 +262,24 @@ fn try_undeclared_read_throw(
         return None;
     }
     let name_str = ctx.intern_string_literal(name);
-    let raiser = ctx.intrinsics.throw_reference_error_name;
+    // §9.1.1.4 GetBindingValue with `S` = false — the global
+    // environment record's OBJECT half answers first, and only a name
+    // the global object does not carry reaches the ReferenceError.
+    // `this.p = 1` in global code writes through that object
+    // (`ast::toplevel_this` binds top-level `this` to the singleton
+    // under the sloppy goal), so `p` reads it back; the kernel records
+    // the throw rather than raising it, which is what lets one call
+    // site serve both outcomes.
+    let getter = ctx.intrinsics.global_ident_get;
     let cur_block = ctx.cur_block;
-    ctx.f.append_void(
+    let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(raiser, vec![Operand::Value(name_str)]),
+        InstKind::Call(getter, vec![Operand::Value(name_str)]),
+        Type::Any,
+        None,
     );
     ctx.emit_throw_check(None);
-    Some(Operand::ConstPtrNull)
+    Some(Operand::Value(v))
 }
 
 /// The `__undef_slot__<T>` marker `desugar_async` plants where an async

@@ -58,7 +58,19 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_throw_reference_error_name(name: *mut c_void);
 }
+
+/// The `__torajs_anyv_box_from_pair` tag for a heap payload — the one
+/// tag whose value the dynobj bag hands out as a BORROW.
+const PAIR_TAG_HEAP: u64 = 4;
+
+/// The `__torajs_anyv_box_from_pair` tag for `undefined`.
+const PAIR_TAG_UNDEFINED: u64 = 5;
 
 const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
 const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
@@ -324,4 +336,63 @@ pub(crate) fn globalthis_missing_known(ptr: *const c_void, key: *const c_void) -
     MISSING_KNOWN
         .iter()
         .any(|name| unsafe { crate::prop_has::key_is(key, name) })
+}
+
+/// §9.1.1.4 GetBindingValue on the OBJECT half of the global
+/// environment record, with `S` = false.
+///
+/// A bare name that resolves to no binding is not automatically a
+/// ReferenceError under the script goal: the global environment
+/// record's object record is consulted first, and only a name the
+/// global object does not carry throws. `this.p = 1` in global code
+/// writes THROUGH that object (`ast::toplevel_this` binds top-level
+/// `this` to this singleton under the sloppy goal), so `p` has to read
+/// it back.
+///
+/// The caller is `ssa_lower_ident::try_undeclared_read_throw`, and the
+/// name it passes is the checker's own verdict — an ExprId recorded in
+/// `undeclared_reads` (RFC 20260730). That record is exact by
+/// construction, which is the whole reason the lookup lives here
+/// rather than in an AST pass guessing at the same question ahead of
+/// the checker.
+///
+/// The throw is RECORDED, not raised: `__torajs_throw_reference_error_
+/// name` parks a pending throw and returns, and the caller's
+/// `emit_throw_check` propagates it. The `undefined` handed back on
+/// that path is never used.
+///
+/// # Safety
+///
+/// `key` must be a valid Str block pointer, borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_global_ident_get(key: *mut c_void) -> AnyValue {
+    // Read the singleton, do NOT mint it. Minting drags in the whole
+    // ns-static world (the `Math` / `JSON` / console singletons and
+    // the interned ctor cells the fill list needs), and the linker
+    // strips that world from a program with no `globalThis` in it —
+    // so minting HERE, from a site every undeclared read reaches,
+    // answered `namespace-static world stripped (dispatch judgment
+    // bug)` instead of a ReferenceError. Not minting also happens to
+    // be the right semantics: a program that never wrote through the
+    // global object has nothing there for a bare name to find, and
+    // every name that IS pre-filled (`Array`, `Math`, …) has a static
+    // lane and never reaches this kernel.
+    let obj = GLOBALTHIS_OBJECT.load(Ordering::Acquire) as *mut c_void;
+    // SAFETY: `obj` is the singleton or null (checked); `key` is a Str
+    // block per the caller invariant, and every callee below borrows
+    // both.
+    unsafe {
+        if !obj.is_null() && __torajs_dynobj_has(obj, key) != 0 {
+            let tag = __torajs_dynobj_get_tag(obj, key);
+            let value = __torajs_dynobj_get_value(obj, key);
+            // The bag hands out a borrow; the value escapes into the
+            // program, so a heap payload needs a stake of its own.
+            if tag == PAIR_TAG_HEAP {
+                __torajs_rc_inc(value as *mut c_void);
+            }
+            return crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+        }
+        __torajs_throw_reference_error_name(key);
+        crate::nanbox_encode::__torajs_anyv_box_from_pair(PAIR_TAG_UNDEFINED as i64, 0)
+    }
 }

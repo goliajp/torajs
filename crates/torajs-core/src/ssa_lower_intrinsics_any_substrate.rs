@@ -147,6 +147,8 @@ pub(crate) struct AnySubstrateIds {
     /// unresolvable Reference: raises `<name> is not defined` as a
     /// catchable ReferenceError. `name` is the identifier Str.
     pub throw_reference_error_name: FuncId,
+    /// §9.1.1.4 GetBindingValue on the global object (else the throw).
+    pub global_ident_get: FuncId,
     /// §8.1.1.1 — GetValue on a `let` / `const` still in its
     /// temporal dead zone: raises `Cannot access '<name>' before
     /// initialization.` as a catchable ReferenceError. `name` is
@@ -361,6 +363,7 @@ pub(crate) fn declare(
         error_tostring_dispatch: decl!("__torajs_error_tostring_dispatch", [Ptr], Str),
         ctor_no_super_throw: decl!("__torajs_ctor_no_super_throw", [], Void),
         throw_reference_error_name: decl!("__torajs_throw_reference_error_name", [Str], Void),
+        global_ident_get: decl!("__torajs_global_ident_get", [Str], Any),
         throw_reference_error_tdz: decl!("__torajs_throw_reference_error_tdz", [Str], Void),
         throw_reference_error_super_delete: decl!(
             "__torajs_throw_reference_error_super_delete",
