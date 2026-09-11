@@ -304,6 +304,28 @@ fn rewrite_params_in_expr(
             rewrite_params_in_expr(ast, then_branch, pset, visited);
             rewrite_params_in_expr(ast, else_branch, pset, visited);
         }
+        // r633 — the three composite shapes this walk never had an arm
+        // for. A generator's locals move onto `this`, and a reference
+        // the walk does not reach keeps naming a binding that no longer
+        // exists ("unknown identifier", then a ReferenceError at run
+        // time) — the same failure the ArrowFn note below records, just
+        // reached through a different node. Found from `var x =
+        // (log.push("a"), 1)` inside a generator; the other two are its
+        // siblings, and a walk that answers for one operand shape has
+        // to answer for every one that holds an operand.
+        Expr::Sequence { left, right } => {
+            rewrite_params_in_expr(ast, left, pset, visited);
+            rewrite_params_in_expr(ast, right, pset, visited);
+        }
+        Expr::Delete { expr } => {
+            rewrite_params_in_expr(ast, expr, pset, visited);
+        }
+        Expr::NewDynamic { callee, args } => {
+            rewrite_params_in_expr(ast, callee, pset, visited);
+            for e in args {
+                rewrite_params_in_expr(ast, e, pset, visited);
+            }
+        }
         Expr::Nullish { lhs, rhs } => {
             rewrite_params_in_expr(ast, lhs, pset, visited);
             rewrite_params_in_expr(ast, rhs, pset, visited);
