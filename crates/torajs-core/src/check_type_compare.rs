@@ -136,6 +136,20 @@ pub(crate) fn unify_ternary(t: &Type, e: &Type) -> Option<Type> {
         (Type::String, Type::Number | Type::Boolean)
         | (Type::Number, Type::String | Type::Boolean)
         | (Type::Boolean, Type::String | Type::Number) => Some(Type::Any),
+        // 633-01 — two DIFFERENT builtin constructors read as VALUES
+        // join to ANY, the S129-1 posture. `Type::Object(name)` is the
+        // constructor itself, not an instance of it, so there is no
+        // layout to reconcile: both branches box the interned ctor
+        // cell, and every consumer an any-carried constructor has —
+        // `new C(n)`, a static call, `.name` / `.length`, instanceof —
+        // already runs off that cell (a boxed `ArrayBuffer` reaches
+        // its statics through `ns_static_ctor::ctor_ns_name`). TS
+        // spells the join as a union of the two constructor types.
+        //
+        // test262's typed-array harness is built out of this shape
+        // (`const C = float ? Float64Array : Float32Array`), which is
+        // why it is 25 rows of the incompatible bucket by itself.
+        (Type::Object(_), Type::Object(_)) => Some(Type::Any),
         (Type::Null, other) | (other, Type::Null) => Some(Type::Nullable(Box::new(other.clone()))),
         (Type::Nullable(inner), other) | (other, Type::Nullable(inner)) => {
             if inner.as_ref() == other {
