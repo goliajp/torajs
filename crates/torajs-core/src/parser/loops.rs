@@ -32,7 +32,10 @@ impl<'a> Parser<'a> {
         }
         // Re-evaluated every iteration — hoisting a yield out of it
         // would run the yield exactly once.
-        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?;
+        // A yield in the condition runs per iteration, so its hoisted
+        // statements go to the top of the body, not in front of the
+        // loop (rotation 635; `loop_body_with_hoisted_cond`).
+        let (cond, hoisted) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -50,7 +53,15 @@ impl<'a> Parser<'a> {
             "a while loop",
             super::single_stmt_judge::SingleStmtPos::LoopBody,
         )?;
-        Ok(Stmt::While { cond, body })
+        if hoisted.is_empty() {
+            return Ok(Stmt::While { cond, body });
+        }
+        let tru = self.ast.add_expr(Expr::Bool(true));
+        let body = self.loop_body_with_hoisted_cond(hoisted, cond, *body);
+        Ok(Stmt::While {
+            cond: tru,
+            body: Box::new(body),
+        })
     }
 
     pub(super) fn parse_do_while(&mut self) -> Result<Stmt, String> {
@@ -293,11 +304,16 @@ impl<'a> Parser<'a> {
             Some(Box::new(s))
         };
         // cond clause — empty means infinite-loop (true). Empty is `;`.
-        // Per-iteration position: no yield hoist (see parse_while).
-        let cond = if matches!(self.peek(), Token::Semi) {
-            None
+        // A yield in the condition runs per iteration: its hoisted
+        // statements go to the top of the body and the clause empties
+        // (rotation 635; `loop_body_with_hoisted_cond`). A yield in
+        // the step stays refused — `continue` would skip a step moved
+        // into the body.
+        let (cond, hoisted) = if matches!(self.peek(), Token::Semi) {
+            (None, Vec::new())
         } else {
-            Some(self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?)
+            let (c, h) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
+            (Some(c), h)
         };
         match self.peek() {
             Token::Semi => self.pos += 1,
@@ -335,11 +351,21 @@ impl<'a> Parser<'a> {
             "a for loop",
             super::single_stmt_judge::SingleStmtPos::LoopBody,
         )?;
+        if hoisted.is_empty() {
+            return Ok(Stmt::For {
+                init,
+                cond,
+                step,
+                body,
+            });
+        }
+        let cond = cond.expect("a hoisted yield came out of a present condition");
+        let body = self.loop_body_with_hoisted_cond(hoisted, cond, *body);
         Ok(Stmt::For {
             init,
-            cond,
+            cond: None,
             step,
-            body,
+            body: Box::new(body),
         })
     }
 }

@@ -64,8 +64,8 @@ impl<'a> Parser<'a> {
         if !self.yield_hoist_allowed {
             return Err(format!(
                 "not yet supported: `yield` in a conditional expression position \
-                 (loop condition, short-circuit rhs, ternary branch, optional call, \
-                 default value) at {}",
+                 (do-while condition, for step, short-circuit rhs, ternary branch, \
+                 optional call, default value) at {}",
                 self.at()
             ));
         }
@@ -93,6 +93,48 @@ impl<'a> Parser<'a> {
     /// on exit, so nesting back into an allowed position (a fresh
     /// statement inside an arrow body, say) re-enables via the
     /// `parse_stmt` wrapper instead.
+    /// Parse `f` with hoisting allowed but into a buffer of its OWN,
+    /// handed back next to the result: the caller decides where those
+    /// statements go. A `while` / `for` condition (rotation 635) puts
+    /// them at the top of the loop body, so they run per iteration —
+    /// draining them in front of the statement would run the yield
+    /// once, which is why conditions used to reject.
+    pub(super) fn with_yield_hoist_captured<T>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<(T, Vec<Stmt>), String> {
+        let saved_buf = std::mem::take(&mut self.yield_hoist_buf);
+        let saved_allowed = std::mem::replace(&mut self.yield_hoist_allowed, true);
+        let r = f(self);
+        let captured = std::mem::replace(&mut self.yield_hoist_buf, saved_buf);
+        self.yield_hoist_allowed = saved_allowed;
+        r.map(|v| (v, captured))
+    }
+
+    /// A loop whose condition hoisted yields: `while (C) S` becomes
+    /// `while (true) { <hoisted>; if (!C') break; S }` — the condition
+    /// re-evaluates (and re-yields) per iteration, `continue` reaches
+    /// it, `break` still leaves the loop. Answers the rewritten body.
+    pub(super) fn loop_body_with_hoisted_cond(
+        &mut self,
+        hoisted: Vec<Stmt>,
+        cond: ExprId,
+        body: Stmt,
+    ) -> Stmt {
+        let not_cond = self.ast.add_expr(Expr::Unary {
+            op: crate::ast::UnaryOp::Not,
+            expr: cond,
+        });
+        let mut block = hoisted;
+        block.push(Stmt::If {
+            cond: not_cond,
+            then_branch: Box::new(Stmt::Break(None)),
+            else_branch: None,
+        });
+        block.push(body);
+        Stmt::Block(block)
+    }
+
     pub(super) fn with_yield_hoist_disallowed<T>(
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, String>,
