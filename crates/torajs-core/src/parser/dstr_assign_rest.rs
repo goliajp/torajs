@@ -110,11 +110,11 @@ impl<'a> Parser<'a> {
     fn hoist_rest_lref(&mut self, target: ExprId, out: &mut Vec<Stmt>) -> Result<ExprId, String> {
         match self.ast.get_expr(target).clone() {
             Expr::Member { obj, name } => {
-                let t = self.hoist_lref_part(obj, out);
+                let t = self.hoist_lref_obj(obj, out);
                 Ok(self.ast.add_expr(Expr::Member { obj: t, name }))
             }
             Expr::Index { obj, index } => {
-                let t = self.hoist_lref_part(obj, out);
+                let t = self.hoist_lref_obj(obj, out);
                 let k = self.hoist_lref_part(index, out);
                 Ok(self.ast.add_expr(Expr::Index { obj: t, index: k }))
             }
@@ -122,17 +122,24 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// A bare identifier stays in place: reading it has no effect to
-    /// order before the drain, and the PutValue through it is what
-    /// widens its binding — `[...x.y] = src` on `var x = {}` lands
-    /// `y` as an expando on `x`, which a typed alias temp cannot do
-    /// (rotation 634: the alias read as `Struct([])` and the write
-    /// was refused, two pass regressions). Anything else evaluates
-    /// into a temp so its own throw lands before the park clears.
-    fn hoist_lref_part(&mut self, part: ExprId, out: &mut Vec<Stmt>) -> ExprId {
-        if matches!(self.ast.get_expr(part), Expr::Ident(_)) {
-            return part;
+    /// The OBJECT half: a bare identifier stays in place. Reading it
+    /// has no effect to order before the drain, and the PutValue
+    /// through it is what widens its binding — `[...x.y] = src` on
+    /// `var x = {}` lands `y` as an expando on `x`, which a typed
+    /// alias temp cannot do (rotation 634: the alias read as
+    /// `Struct([])` and the write was refused, two pass regressions).
+    /// A recovered yield's `__yx_` read is an identifier too, and it
+    /// has to land in its temp at this position (`(yield)[k]` as the
+    /// target, gen-dstr-rest-defer-002) — only a USER name stays put.
+    /// The KEY half never takes the shortcut.
+    fn hoist_lref_obj(&mut self, obj: ExprId, out: &mut Vec<Stmt>) -> ExprId {
+        if matches!(self.ast.get_expr(obj), Expr::Ident(n) if !n.starts_with("__yx_")) {
+            return obj;
         }
+        self.hoist_lref_part(obj, out)
+    }
+
+    fn hoist_lref_part(&mut self, part: ExprId, out: &mut Vec<Stmt>) -> ExprId {
         let id = self.mint_desugar_id();
         let name = format!("__dstra_tref_{id}");
         out.push(Stmt::LetDecl {
