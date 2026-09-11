@@ -98,6 +98,11 @@ pub(crate) unsafe fn array_like_length(recv: AnyValue) -> i32 {
 /// OWNED element (the indexed lane's contract — `__torajs_any_index_get`
 /// hands back a fresh reference), 0 when the walk is done.
 ///
+/// `await_mode` is proposal-array-from-async §2.1.1 step 3.k.v.4:
+/// the async walk awaits every indexed element before it joins the
+/// result, exactly as `for await`'s indexed lane does. `Array.from`
+/// passes false — its walk is sync end to end.
+///
 /// # Safety
 /// `recv` is a live AnyValue; `idx_slot` / `iter_slot` / `out` are
 /// valid writable pointers owned by the caller's loop.
@@ -106,6 +111,7 @@ pub(crate) unsafe fn step(
     idx_slot: *mut i64,
     iter_slot: *mut AnyValue,
     out: *mut AnyValue,
+    await_mode: bool,
 ) -> i64 {
     unsafe {
         let len = if is_int32(*iter_slot) {
@@ -124,6 +130,9 @@ pub(crate) unsafe fn step(
         // Every absent index answers undefined, which is exactly what
         // §23.1.2.1 step 3.e.iv's Get produces for a hole.
         *out = __torajs_any_index_get(recv, idx);
+        if await_mode {
+            return crate::iter_any_await::settle_out(out);
+        }
         1
     }
 }

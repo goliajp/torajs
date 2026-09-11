@@ -27,9 +27,13 @@
 //! undefined under the sync-resolve model. The lower emits a
 //! microtask drain before each step call, mirroring the typed await
 //! route.
+//!
+//! `Array.fromAsync` drives the same two taps through the second
+//! entry below — it is the one consumer that needs the async
+//! GetIterator AND the array-like tail at once.
 
 use crate::method_call_promise::__torajs_anyv_await;
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_int32};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use torajs_rc::Tag;
 
@@ -105,4 +109,33 @@ pub unsafe extern "C" fn __torajs_any_iter_next_await(
     out: *mut AnyValue,
 ) -> i64 {
     unsafe { crate::iter_any::iter_next_inner(recv, idx_slot, iter_slot, out, false, true) }
+}
+
+/// `Array.fromAsync`'s drive — the only entry that asks the cascade
+/// for BOTH halves. proposal-array-from-async §2.1.1 step 3.a runs
+/// GetIterator with hint=async (so an async generator object and a
+/// user `@@asyncIterator` are consulted, and a sync-only source
+/// rides the Async-from-Sync value await), and step 3.k keeps the
+/// §23.1.2.1 array-like walk for a source with no iterator at all —
+/// awaiting each indexed element per 3.k.v.4.
+///
+/// Re-entry is told apart the same way the sync twin tells it:
+/// an immediate integer in `iter_slot` is the parked array-like
+/// length, a shape no other lane produces.
+///
+/// # Safety
+/// As `__torajs_any_iter_next`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_iter_next_async_array_like(
+    recv: AnyValue,
+    idx_slot: *mut i64,
+    iter_slot: *mut AnyValue,
+    out: *mut AnyValue,
+) -> i64 {
+    unsafe {
+        if is_int32(*iter_slot) {
+            return crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out, true);
+        }
+        crate::iter_any::iter_next_inner(recv, idx_slot, iter_slot, out, true, true)
+    }
 }

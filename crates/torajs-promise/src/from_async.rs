@@ -1,11 +1,14 @@
 //! `Array.fromAsync(items)` — proposal-array-from-async §2.1.1,
 //! sync-source MVP.
 //!
-//! The dynamic entry drives `__torajs_any_iter_next_array_like`
-//! (the `Array.from` step kernel: a spec-iterable walks its
-//! GetIterator protocol, anything else takes the §23.1.2.1 step-3
-//! array-like branch — `length` + index keys, so a plain number
-//! answers `[]` and `null` throws the length-read TypeError), then
+//! The dynamic entry drives `__torajs_any_iter_next_async_array_like`
+//! (the async-iterate step kernel: §2.1.1 step 3.a asks for
+//! `@@asyncIterator` — an async generator object, a user async
+//! iterator — and a sync-only source falls to `@@iterator` under the
+//! §27.1.4.4 Async-from-Sync value await; anything with no iterator
+//! at all takes the §23.1.2.1 step-3 array-like branch — `length` +
+//! index keys, so a plain number answers `[]` and `null` throws the
+//! length-read TypeError), then
 //! settles each collected element: spec step 5.e awaits every
 //! element, so a settled promise element unwraps to its value per
 //! its repr stamp and a rejected one rejects the whole result. The
@@ -17,11 +20,13 @@
 //! the mapped result; step 2's IsCallable check precedes iteration.
 //!
 //! Recorded MVP boundaries (registered, spec-strict forms follow):
-//! a real async iterator (`Symbol.asyncIterator`) is not consulted —
-//! the sync step protocol answers for it; a PENDING or UNSTAMPED
-//! promise element takes the combinator placeholder-reject posture;
-//! non-promise thenables store verbatim (no generic `then` await);
-//! `thisArg` typecheck-and-drops (tr closures don't bind `this`).
+//! a PENDING element answers `undefined` rather than suspending —
+//! that is what `await` does everywhere under tr's sync-resolve
+//! model (`await p` and `for await (v of [p])` answer the same), so
+//! the step tap settles it before the local UNSTAMPED
+//! placeholder-reject below can see it; non-promise thenables store
+//! verbatim (no generic `then` await); `thisArg` typecheck-and-drops
+//! (tr closures don't bind `this`).
 
 use core::ffi::c_void;
 
@@ -36,7 +41,10 @@ unsafe extern "C" {
     /// torajs-rc — the one boxed-entry reader (link-judged; see
     /// `torajs_rc::closure_entry`).
     fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
-    fn __torajs_any_iter_next_array_like(
+    /// torajs-anyvalue — §2.1.1 step 3's drive: hint=async
+    /// GetIterator over the whole cascade, array-like tail when the
+    /// source has no iterator, each element awaited on the way out.
+    fn __torajs_any_iter_next_async_array_like(
         recv: u64,
         idx_slot: *mut i64,
         iter_slot: *mut u64,
@@ -99,7 +107,7 @@ unsafe fn callback_shaped(bits: u64) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_array_from_async_dyn(v: u64) -> *mut c_void {
     unsafe {
-        let items = match collect_items(v, __torajs_any_iter_next_array_like) {
+        let items = match collect_items(v, __torajs_any_iter_next_async_array_like) {
             Err(rejected) => return rejected,
             Ok(items) => items,
         };
@@ -174,7 +182,7 @@ pub unsafe extern "C" fn __torajs_array_from_async_this_dyn(this_c: u64, v: u64)
         if !__torajs_is_constructor(this_c) {
             return __torajs_array_from_async_dyn(v);
         }
-        let items = match collect_items(v, __torajs_any_iter_next_array_like) {
+        let items = match collect_items(v, __torajs_any_iter_next_async_array_like) {
             Err(rejected) => return rejected,
             Ok(items) => items,
         };
@@ -312,7 +320,8 @@ pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(
         let mut verdict: Option<*mut c_void> = None;
         let mut i: usize = 0;
         loop {
-            let has = __torajs_any_iter_next_array_like(v, &mut idx, &mut iter_slot, &mut out_v);
+            let has =
+                __torajs_any_iter_next_async_array_like(v, &mut idx, &mut iter_slot, &mut out_v);
             if __torajs_throw_check() != 0 {
                 // The step's own abrupt — [[Done]] is true, no close.
                 verdict = Some(crate::combinator_dyn::reject_with_pending_throw());

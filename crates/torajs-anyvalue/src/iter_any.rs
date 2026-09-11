@@ -257,7 +257,7 @@ pub unsafe extern "C" fn __torajs_any_iter_next_array_like(
 ) -> i64 {
     unsafe {
         if is_int32(*iter_slot) {
-            return crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out);
+            return crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out, false);
         }
         iter_next_inner(recv, idx_slot, iter_slot, out, true, false)
     }
@@ -265,8 +265,10 @@ pub unsafe extern "C" fn __torajs_any_iter_next_array_like(
 
 /// The shared cascade. `array_like_fallback` decides only what the
 /// tail does when nothing in it claimed the receiver; `await_mode`
-/// is the §14.7.5.6 async-iterate drive (`for await`) — the two are
-/// never both set (Array.from is sync).
+/// is the §14.7.5.6 async-iterate drive (`for await`). `Array.from`
+/// sets only the first, `for await` only the second, and
+/// `Array.fromAsync` both — proposal-array-from-async §2.1.1 asks
+/// `@@asyncIterator` first AND keeps the array-like tail.
 ///
 /// # Safety
 /// As [`__torajs_any_iter_next`].
@@ -430,7 +432,9 @@ pub(crate) unsafe fn iter_next_inner(
     // walk, which is what `Array.from(5)` means); every other consumer
     // of the protocol says the value is not iterable.
     if array_like_fallback {
-        return unsafe { crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out) };
+        return unsafe {
+            crate::iter_any_array_like::step(recv, idx_slot, iter_slot, out, await_mode)
+        };
     }
     unsafe {
         __torajs_throw_type_error(c"value is not iterable".as_ptr());
