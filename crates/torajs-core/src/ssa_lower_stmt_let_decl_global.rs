@@ -216,6 +216,19 @@ pub(crate) fn try_lower_global_let(
 /// M2 Phase B Stage 4 — `let f = global_fn`: FnSig slot with FnAddr
 /// store. Returns false when init is not a bare global-fn ident.
 pub(crate) fn try_lower_fn_addr_let(ctx: &mut LowerCtx, name: &str, init: ExprId) -> bool {
+    // A closure capturing this name will inc and drop the slot as a
+    // capture box (`ssa_lower_closure::write_captures` — a `FnSig` is
+    // Copy, so it takes that arm unconditionally), and a capture box
+    // keeps its refcount at `slot - 8`. The slot below is a bare
+    // alloca, so that word is the callee frame's saved `lr`: the
+    // closure's env drop decremented a return address and the program
+    // died of `EXC_ARM_DA_ALIGN` with `pc == lr == <return addr> - 1`.
+    // Let the general path claim the declaration instead — it is the
+    // one that knows to heap-promote an escape-captured binding, the
+    // same reason `try_sub_siblings` yields on `forward_capture_boxes`.
+    if ctx.escape_captured_lets.contains(name) {
+        return false;
+    }
     let Expr::Ident(src_name) = ctx.ast.get_expr(init) else {
         return false;
     };
