@@ -113,18 +113,24 @@ pub(super) fn collect_call_position_face(
                 ident_cands,
             );
         }
-        // Rotation 261 — `f.call` / `f.apply` faces (doc on the
-        // collector in sibling `fnexpr_this_cb_slots.rs`).
+        // Rotation 261 — `f.call` / `f.apply` faces, and §28.1.1
+        // `Reflect.apply(target, …)`, which names its target in
+        // argument 0 instead. `call_apply_face_node` picks which; doc
+        // on both is in sibling `fnexpr_this_cb_slots.rs`.
         Expr::Member { obj, name } if name == "call" || name == "apply" => {
-            super::fnexpr_this_cb_slots::collect_call_apply_face(
-                stmts,
-                exprs,
-                fn_expr_exprs,
-                *obj,
-                patches,
-                ident_cands,
-                call_faces,
-            );
+            if let Some(face) =
+                super::fnexpr_this_cb_slots::call_apply_face_node(exprs, *obj, name, args)
+            {
+                super::fnexpr_this_cb_slots::collect_call_apply_face(
+                    stmts,
+                    exprs,
+                    fn_expr_exprs,
+                    face,
+                    patches,
+                    ident_cands,
+                    call_faces,
+                );
+            }
         }
         // Knife 4 — array HOF callback position over a
         // syntactically-certain `any` receiver

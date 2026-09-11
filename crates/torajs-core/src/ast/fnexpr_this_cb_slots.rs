@@ -134,6 +134,29 @@ fn is_str_pattern_literal(exprs: &[Expr], p: ExprId) -> bool {
 /// fn-expr callee (`(function () { …this… }).apply(obj)`) promotes
 /// directly — zero aliases by construction, the call is its only
 /// consumer.
+/// Which node is the FACE of a `call` / `apply` call — the member's
+/// object for `f.call(o)` / `f.apply(o, …)`, argument 0 for §28.1.1
+/// `Reflect.apply(target, thisArg, argumentsList)`.
+///
+/// Both spellings reach the target through
+/// `method_call_closure_apply_like::apply_list`, one dispatch that
+/// shifts argv on FLAG_CLOSURE_RECV_FIRST, so the promoted body's
+/// `__this` is exactly the thisArg either way. Only the node holding
+/// the function differs — and reading the member's object for
+/// `Reflect.apply` would collect `Reflect` itself, which is how that
+/// spelling stayed outside every admitted shape until rotation 632.
+pub(super) fn call_apply_face_node(
+    exprs: &[Expr],
+    obj: ExprId,
+    name: &str,
+    args: &[ExprId],
+) -> Option<ExprId> {
+    if name == "apply" && matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Reflect") {
+        return args.first().copied();
+    }
+    Some(obj)
+}
+
 pub(super) fn collect_call_apply_face(
     stmts: &[Stmt],
     exprs: &[Expr],

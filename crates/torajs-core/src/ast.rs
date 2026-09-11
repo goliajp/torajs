@@ -143,6 +143,7 @@ mod fnexpr_this_member_ret;
 mod fnexpr_this_names;
 mod fnexpr_this_objlit;
 mod fnexpr_this_pairing;
+mod fnexpr_this_recv_channel;
 pub(crate) mod fnexpr_this_recvs;
 mod fnexpr_this_recvs_props;
 mod fnexpr_this_ret_boundary;

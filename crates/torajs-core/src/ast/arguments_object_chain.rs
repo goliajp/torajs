@@ -174,9 +174,8 @@ fn seed_objlit_aliases(
 ///   the SECOND slot (§23.1.2.1); instance methods carry it first.
 fn collect_boxed_arg_sites(ast: &Ast) -> std::collections::HashSet<ExprId> {
     let mut boxed_arg_sites = super::fnexpr_this_args::any_param_arg_idents(&ast.stmts, &ast.exprs);
-    boxed_arg_sites.extend(super::fnexpr_this_args::receiver_honoring_arg_idents(
-        &ast.exprs,
-    ));
+    boxed_arg_sites
+        .extend(super::fnexpr_this_recv_channel::receiver_honoring_arg_idents(&ast.exprs));
     boxed_arg_sites.extend(super::fnexpr_this_args::eq_operand_idents(&ast.exprs));
     boxed_arg_sites.extend(super::fnexpr_this_args::instanceof_name_idents(&ast.exprs));
     for e in &ast.exprs {
