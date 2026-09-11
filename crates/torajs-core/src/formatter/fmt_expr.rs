@@ -107,8 +107,19 @@ impl<'a> Formatter<'a> {
                     self.write(ret);
                 }
                 self.write(" => ");
-                if body.len() == 1
-                    && let Stmt::Return(Some(eid)) = &body[0]
+                // The concise-body shape is `[Stmt::Return]`, but a
+                // strict-by-inheritance arrow carries a synthetic
+                // `"use strict"` in front of it (rotation 632 — the
+                // directive is what tells the lowering which [[Set]]
+                // kernel this body takes). That statement is never
+                // printed, so it must not decide the shape either:
+                // probe what will actually be emitted.
+                let shown: Vec<&Stmt> = body
+                    .iter()
+                    .filter(|s| !self.is_synth_strict_directive(s))
+                    .collect();
+                if shown.len() == 1
+                    && let Stmt::Return(Some(eid)) = shown[0]
                 {
                     self.fmt_expr(*eid);
                 } else {

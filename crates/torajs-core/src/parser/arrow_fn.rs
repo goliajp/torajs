@@ -92,19 +92,28 @@ impl<'a> Parser<'a> {
         };
         self.await_allowed = saved_await;
         self.await_reserved = saved_await_res;
-        let body = body_result?;
+        let mut body = body_result?;
         self.reject_lexical_shadowing_param(&params, &param_destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        // Restore only — an arrow takes the LEXICAL `this` (§15.3), so
-        // no receiver decision downstream ever asks this body whether
-        // it is strict; the enclosing function already answered. It
-        // still had to ARM the bit above, because `() => { "use
-        // strict"; function f() {} }` makes `f` strict. Writing the
-        // directive in here would also cost real ground: an
-        // expression-bodied arrow is `[Stmt::Return]` (plus any
-        // drained class synths in front — the Return still closes the
-        // body), a shape the formatter probes for.
-        self.restore_fn_strict(strict_outer, &params)?;
+        // §11.2.2 — an arrow body inside strict code IS strict code,
+        // and the directive is how that fact survives the desugar
+        // chain (`parser::strict_directive`). This site restored the
+        // bit without writing it until rotation 632, on the reasoning
+        // that an arrow takes the LEXICAL `this` so nothing downstream
+        // would ask this body whether it is strict. Something does:
+        // §13.15.2 picks the [[Set]] kernel per FUNCTION
+        // (`ssa_lower_set_flavor::cur_fn_is_sloppy`), and it reads the
+        // directive off the lifted body — the only carrier left by
+        // then. Without one, `function o() { "use strict"; (() => {
+        // frozen.a = 1 })() }` took the soft kernel and ran through
+        // where node throws.
+        //
+        // The formatter cost the old note named is paid there instead:
+        // an expression-bodied arrow is `[Stmt::Return]`, and
+        // `fmt_expr` now skips a synthetic directive before probing
+        // for that shape, the same way every other printer site
+        // already skips one.
+        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         // V3-18 wedge — prepend destr-param lets to the body, matching
         // the parse_fn wedge.
         let body = if param_destr_lets.is_empty() {
