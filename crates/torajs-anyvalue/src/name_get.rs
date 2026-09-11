@@ -239,11 +239,44 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
 /// the typed tier the registry answer matches bun exactly (the
 /// Any-tier expando-first order stays the recorded divergence).
 ///
+/// The REMOVAL is a different question, and this face has to answer
+/// it: §20.2.3 makes `name` non-writable but CONFIGURABLE, so
+/// `delete f.name` succeeds and the read that follows continues along
+/// [[Prototype]] to %Function.prototype%'s own `name` "". The
+/// divergence above is about a write being ignored; a tombstone is
+/// not a write. Without this a typed `f.name` kept answering the
+/// declaration after the delete while the same cell spelled `any`
+/// answered "" — one cell, two stories.
+///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8 {
-    unsafe { closure_name_str(ptr) }
+    unsafe {
+        if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED)
+            && !expando_name_present(ptr)
+        {
+            return __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
+        }
+        closure_name_str(ptr)
+    }
+}
+
+/// Does the cell's own property bag carry a `name` entry? A delete
+/// sets the tombstone; a later `defineProperty(f, "name", …)` puts a
+/// real entry back, and then the tombstone no longer describes the
+/// cell — `closure_name` probes the bag first for the same reason.
+unsafe fn expando_name_present(ptr: *mut c_void) -> bool {
+    unsafe {
+        let props = *(ptr.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64) as *const c_void;
+        if props.is_null() {
+            return false;
+        }
+        let key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
+        let present = __torajs_dynobj_has(props, key as *const c_void) != 0;
+        __torajs_str_drop(key as *mut c_void);
+        present
+    }
 }
 
 /// `toString` source of a closure-tagged cell (RFC

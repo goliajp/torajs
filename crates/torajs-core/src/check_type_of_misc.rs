@@ -127,6 +127,15 @@ fn receiver_admits_delete(obj_ty: &Type) -> bool {
         // configurable, so `delete Math[Symbol.toStringTag]` has to
         // both succeed and take the badge with it.
         Type::Object(_) => true,
+        // 633-02 — a function object's own `length` and `name` are
+        // configurable (§20.2.4), and at runtime it is a closure cell
+        // with a props bag, so a slot CAN say no-longer-here: the any
+        // lane already answered `delete f.length` exactly as bun does.
+        // What kept this out was not the storage but the lowering — a
+        // named fn read as a value is a bare address with no cell to
+        // box; `ssa_lower_delete::lower_receiver` reifies it through
+        // the canonical singleton the accessor face mints.
+        Type::Function(_, _) => true,
         _ => false,
     }
 }

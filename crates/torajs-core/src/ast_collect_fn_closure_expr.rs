@@ -66,7 +66,7 @@ impl<'a> FnToClosureCollector<'a> {
         if let Expr::Ident(tname) = self.ast.get_expr(*target)
             && (self.any_bindings.contains(tname)
                 || self.closure_bindings.contains(tname)
-                || self.eq_operand_names.contains(tname))
+                || self.ident_census.eq_operands.contains(tname))
         {
             self.try_mark(*value);
         }
@@ -171,6 +171,115 @@ impl<'a> FnToClosureCollector<'a> {
         }
     }
 
+    /// The `Expr::Delete` arm of [`Self::walk_expr`] — `delete f.k`
+    /// has to reach the fn OBJECT, and on the FnSig lane a bare fn
+    /// name is a raw vaddr with no cell at all. Marking the base
+    /// routes it through the canonical `__fncell_` singleton, the
+    /// SAME object every other value site answers, so the reads that
+    /// follow see the removal. Minting a second cell here instead
+    /// would answer `true` and change nothing observable.
+    ///
+    /// The base only. A key expression inside the operand (`delete
+    /// o[f]`) is not walked today either, and pulling that in is a
+    /// separate axis with its own faces.
+    pub(crate) fn mark_delete_receiver(&mut self, operand: ExprId) {
+        let base = match self.ast.get_expr(operand) {
+            Expr::Member { obj, .. } | Expr::Index { obj, .. } => *obj,
+            _ => return,
+        };
+        self.try_mark(self.strip_as(base));
+    }
+
+    /// `obj` when it names a fn whose properties this module deletes
+    /// — the base then wraps at EVERY read, `name` / `length`
+    /// included: those two fold statically off a raw base and would
+    /// keep answering the declaration after the removal. Through the
+    /// cell they stay right, since the length read carries the
+    /// declared arity as its fallback (`f(a, b = 39).length` is still
+    /// 1) and the name read walks the cell-aware chain the `any`
+    /// spelling already walked correctly.
+    ///
+    /// Looks through `as` layers, which the sibling axes do not:
+    /// `(g as any).name` is still a read of `g` and the cast is
+    /// identity at run time. The generator / async forms stay raw for
+    /// the reason the prototype axis gives — their faces ride
+    /// dedicated static arms.
+    pub(crate) fn deleted_fn_base(&self, obj: ExprId) -> Option<ExprId> {
+        let base = self.strip_as(obj);
+        match self.ast.get_expr(base) {
+            Expr::Ident(n)
+                if self.ident_census.delete_bases.contains(n)
+                    && !self.ast.generator_factory_classes.contains_key(n)
+                    && !self.ast.async_fns.contains(n)
+                    && !self.ast.async_generator_fns.contains(n) =>
+            {
+                Some(base)
+            }
+            _ => None,
+        }
+    }
+
+    /// `e` with every `as` layer peeled — a cast is identity at run
+    /// time, so a value question about `(x as T)` is a question
+    /// about `x`.
+    pub(crate) fn strip_as(&self, mut e: ExprId) -> ExprId {
+        while let Expr::As { expr, .. } = self.ast.get_expr(e) {
+            e = *expr;
+        }
+        e
+    }
+
+    /// The `Expr::Member` arm of [`Self::walk_expr`] — the member-BASE
+    /// axis. Extracted the way `walk_let_decl` was (rotation 434): it
+    /// is the walker's biggest arm, and the delete-receiver axis
+    /// pushed the walker past the 200-line cap.
+    fn walk_member_base(&mut self, obj: ExprId, name: &str) {
+        // G9 (rotation 178) — the member-BASE axis, prototype
+        // face only: `decl.prototype` on the FnSig lane is a
+        // raw vaddr with no cell identity, so the read must
+        // ride the canonical `__fncell_` closure singleton
+        // (expando writes on it survive; `a.prototype` through
+        // an any binding sees the same cell). name/length keep
+        // their static reflection arms — the base stays raw.
+        // Generator factories and async forms stay raw too:
+        // their `.prototype` rides dedicated static arms
+        // (`__proto___Gen_<name>` / no own prototype) that
+        // only fire on a bare Ident base.
+        let plain_fn_base = matches!(self.ast.get_expr(obj), Expr::Ident(n)
+                if !self.ast.generator_factory_classes.contains_key(n)
+                    && !self.ast.async_fns.contains(n)
+                    && !self.ast.async_generator_fns.contains(n));
+        // Rotation 459 — an implicit-generic decl (any
+        // un-annotated param) has NO lowered original: the
+        // `desugar_implicit_generics` pass gives it `__T<N>`
+        // TypeVars and only per-call monos are emitted, so a
+        // bare-Ident base of ANY property died with
+        // `ssa-lower: unknown ident`. Its forwarder cell is
+        // the fn object (`typeof` / `name` / `length` all
+        // answer through it), so the base wraps whatever the
+        // property is — that is the whole reason the
+        // prototype-only restriction above can stay narrow
+        // for the fns that DO have a lowered original.
+        // `name` / `length` are the exception even here: their
+        // static arms read the DECL (so `f(a, b = 39).length`
+        // is 1 per §20.2.4.1), while the forwarder shim has
+        // lost the default and answers its own arity — gate
+        // fn-length-dflt-001 caught exactly that.
+        let no_original_base = plain_fn_base
+            && name != "name"
+            && name != "length"
+            && self.is_no_original_fn_ident(obj);
+        // 633-02 — a fn whose properties are deleted anywhere
+        // in the module wraps at EVERY read (see
+        // `deleted_fn_base`), `name` / `length` included.
+        if let Some(b) = self.deleted_fn_base(obj)
+            && self.try_mark(b)
+        {
+        } else if (name != "prototype" && !no_original_base) || !self.try_mark(obj) {
+            self.walk_expr(obj);
+        }
+    }
+
     pub(crate) fn walk_expr(&mut self, eid: ExprId) {
         match self.ast.get_expr(eid) {
             Expr::Call { callee, args } => {
@@ -178,46 +287,10 @@ impl<'a> FnToClosureCollector<'a> {
                 self.walk_call(&callee, &args);
             }
             Expr::Member { obj, name } => {
-                // G9 (rotation 178) — the member-BASE axis, prototype
-                // face only: `decl.prototype` on the FnSig lane is a
-                // raw vaddr with no cell identity, so the read must
-                // ride the canonical `__fncell_` closure singleton
-                // (expando writes on it survive; `a.prototype` through
-                // an any binding sees the same cell). name/length keep
-                // their static reflection arms — the base stays raw.
-                // Generator factories and async forms stay raw too:
-                // their `.prototype` rides dedicated static arms
-                // (`__proto___Gen_<name>` / no own prototype) that
-                // only fire on a bare Ident base.
                 let (obj, name) = (*obj, name.clone());
-                let plain_fn_base = matches!(self.ast.get_expr(obj), Expr::Ident(n)
-                    if !self.ast.generator_factory_classes.contains_key(n)
-                        && !self.ast.async_fns.contains(n)
-                        && !self.ast.async_generator_fns.contains(n));
-                // Rotation 459 — an implicit-generic decl (any
-                // un-annotated param) has NO lowered original: the
-                // `desugar_implicit_generics` pass gives it `__T<N>`
-                // TypeVars and only per-call monos are emitted, so a
-                // bare-Ident base of ANY property died with
-                // `ssa-lower: unknown ident`. Its forwarder cell is
-                // the fn object (`typeof` / `name` / `length` all
-                // answer through it), so the base wraps whatever the
-                // property is — that is the whole reason the
-                // prototype-only restriction above can stay narrow
-                // for the fns that DO have a lowered original.
-                // `name` / `length` are the exception even here: their
-                // static arms read the DECL (so `f(a, b = 39).length`
-                // is 1 per §20.2.4.1), while the forwarder shim has
-                // lost the default and answers its own arity — gate
-                // fn-length-dflt-001 caught exactly that.
-                let no_original_base = plain_fn_base
-                    && name != "name"
-                    && name != "length"
-                    && self.is_no_original_fn_ident(obj);
-                if (name != "prototype" && !no_original_base) || !self.try_mark(obj) {
-                    self.walk_expr(obj);
-                }
+                self.walk_member_base(obj, &name);
             }
+            Expr::Delete { expr } => self.mark_delete_receiver(*expr),
             Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::OptIndex { obj, index } => {
                 self.walk_expr(*obj);

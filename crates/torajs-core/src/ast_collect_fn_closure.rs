@@ -121,7 +121,7 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// for direct dispatch, which is a DIFFERENT representation from
     /// the canonical `__fncell_*` cell every value site answers, and
     /// `===` is the one observer that can tell them apart.
-    pub(crate) eq_operand_names: &'a HashSet<String>,
+    pub(crate) ident_census: &'a crate::ast_collect_fn_closure_init::IdentCensus,
     pub(crate) targets: HashSet<String>,
     pub(crate) rewrites: Vec<(ExprId, String)>,
     /// Per-fn shadow stack (rotation 128) — names bound as a param or
@@ -238,7 +238,7 @@ impl<'a> FnToClosureCollector<'a> {
         // applied to every immutable fn binding, because the wrap
         // costs the direct-dispatch lane and only a comparison can
         // observe the difference.
-        if self.eq_operand_names.contains(name) {
+        if self.ident_census.eq_operands.contains(name) {
             self.try_mark(init);
         }
         self.walk_expr(init);

@@ -222,6 +222,11 @@ impl<'a> FnToClosureCollector<'a> {
 /// Binding names that are an operand of `===` / `!==` / `==` / `!=`
 /// somewhere in the program.
 ///
+/// Two name censuses over the expression arena, taken in one walk —
+/// both ask "is this bare name in a position that can tell the two
+/// representations of a function apart", and the answer decides
+/// whether the forwarder wrap happens.
+///
 /// A top-level `function t` used as a value has TWO representations:
 /// the canonical `__fncell_*` singleton every value SITE answers
 /// (`t === t`, `[t]`, `{ m: t }`, `eq(t, t)`), and the raw FnSig code
@@ -239,10 +244,28 @@ impl<'a> FnToClosureCollector<'a> {
 /// lane away from every program, identity-observing or not. This is
 /// the census that keeps the wrap where the difference is observable:
 /// the name is compared, so it must be the cell.
-pub(crate) fn eq_operand_ident_names(ast: &Ast) -> std::collections::HashSet<String> {
-    let mut out = std::collections::HashSet::new();
+pub(crate) struct IdentCensus {
+    /// Names compared with `===` / `==` on either side.
+    pub(crate) eq_operands: std::collections::HashSet<String>,
+    /// Names appearing as the BASE of a `delete` property reference
+    /// (`delete f.length`). Module-wide rather than per-site, because
+    /// the observer is a read somewhere ELSE: `delete f.name` then
+    /// `f.name` has to answer "". A `.name` / `.length` read off a raw
+    /// base folds statically and would keep answering the declaration
+    /// forever, so a function whose properties are deleted anywhere
+    /// loses the static-fold face at every site — the all-or-nothing
+    /// posture `proto_shadow` already takes for a patched builtin.
+    pub(crate) delete_bases: std::collections::HashSet<String>,
+}
+
+pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
+    let mut out = IdentCensus {
+        eq_operands: std::collections::HashSet::new(),
+        delete_bases: std::collections::HashSet::new(),
+    };
     // `as` layers are value pass-throughs — `(h as any) === t` is
-    // still a comparison of `h`.
+    // still a comparison of `h`, and `delete (g as any).name` is
+    // still a delete off `g`.
     let strip_as = |mut e: ExprId| {
         while let Expr::As { expr, .. } = ast.get_expr(e) {
             e = *expr;
@@ -250,19 +273,29 @@ pub(crate) fn eq_operand_ident_names(ast: &Ast) -> std::collections::HashSet<Str
         e
     };
     for e in &ast.exprs {
-        let Expr::BinOp { op, left, right } = e else {
-            continue;
-        };
-        if !matches!(
-            op,
-            BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq
-        ) {
-            continue;
-        }
-        for side in [*left, *right] {
-            if let Expr::Ident(n) = ast.get_expr(strip_as(side)) {
-                out.insert(n.clone());
+        match e {
+            Expr::BinOp { op, left, right }
+                if matches!(
+                    op,
+                    BinOp::Eq | BinOp::Neq | BinOp::LooseEq | BinOp::LooseNeq
+                ) =>
+            {
+                for side in [*left, *right] {
+                    if let Expr::Ident(n) = ast.get_expr(strip_as(side)) {
+                        out.eq_operands.insert(n.clone());
+                    }
+                }
             }
+            Expr::Delete { expr } => {
+                let base = match ast.get_expr(*expr) {
+                    Expr::Member { obj, .. } | Expr::Index { obj, .. } => *obj,
+                    _ => continue,
+                };
+                if let Expr::Ident(n) = ast.get_expr(strip_as(base)) {
+                    out.delete_bases.insert(n.clone());
+                }
+            }
+            _ => {}
         }
     }
     out
