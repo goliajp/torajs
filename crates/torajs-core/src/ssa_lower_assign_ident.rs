@@ -109,7 +109,16 @@ pub(crate) fn lower(
         // sloppy program around them, so the name is what carries the
         // verdict (`ast.strict_eval_assign_names`, filled there for
         // exactly this).
-        if ctx.ast.program_is_sloppy() && !ctx.ast.strict_eval_assign_names.contains(&name) {
+        // `cur_fn_is_sloppy`, not the PROGRAM's goal: §11.2.2 gives a
+        // `"use strict"` body its own strictness inside a sloppy
+        // Script, and class code is always strict. Keying on the
+        // program alone sent a strict function's unresolvable write to
+        // the object, and 14 cases that assert the ReferenceError went
+        // from pass to bug in one sweep — the same cut the [[Set]]
+        // flavor lane records next door.
+        if crate::ssa_lower_set_flavor::cur_fn_is_sloppy(ctx)
+            && !ctx.ast.strict_eval_assign_names.contains(&name)
+        {
             return lower_global_ident_set(ctx, &name, value);
         }
         // The throw makes the value unobservable and the lane past
