@@ -124,7 +124,15 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
     {
         return None;
     }
-    match name.as_str() {
+    builtin_global_typeof(name)
+}
+
+/// The static `typeof` of a builtin global's bare name — what §9.3's
+/// global object exposes under that name, so the same table answers
+/// `typeof globalThis.<name>` (rotation 635; `ssa_lower_typeof_ns`).
+/// A name outside it is not decidable here.
+pub(crate) fn builtin_global_typeof(name: &str) -> Option<&'static str> {
+    match name {
         "undefined" => Some("undefined"),
         "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
         "Number" | "String" | "Boolean" | "Symbol" | "Date" | "Array" | "Object" | "RegExp"

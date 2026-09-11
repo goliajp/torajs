@@ -83,6 +83,14 @@ pub(crate) fn try_member_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'st
     if !is_known_ns(ns) {
         return None;
     }
+    // The global object's members are run-time facts (RFC 20260807
+    // G2's bag: `this.p = 1` in global code puts `p` there), so only
+    // a KNOWN builtin global is decidable here — with the bare
+    // name's answer. Guessing "function" for the rest made `typeof
+    // globalThis.B` answer function for any name (rotation 635).
+    if ns == "globalThis" {
+        return crate::ssa_lower_typeof::builtin_global_typeof(member_name);
+    }
     if let Some(s) = classify_ns_member(ns, member_name) {
         return Some(s);
     }
