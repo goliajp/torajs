@@ -247,9 +247,18 @@ pub(crate) fn lift_lets_in_stmt(
                             // this way (`var vals = value;` inside
                             // the generator), and number pinned the
                             // field against its own store.
-                            if n.starts_with("__dstra_src_")
-                                || matches!(ast.get_expr(*init), Expr::Ident(_))
-                            {
+                            //
+                            //
+                            // r633, third face, same argument: a CALL
+                            // reaching here is one the sniff could not
+                            // type (a top-level fn answers through
+                            // `fn_sigs`, a local closure and a class
+                            // generator method through
+                            // `call_result_ann`), so what is left is a
+                            // builtin result. `var b = JSON.parse(s)`
+                            // was pinned to Number and every read off
+                            // it refused.
+                            if n.starts_with("__dstra_src_") || init_unsniffable(ast, *init) {
                                 "any".into()
                             } else {
                                 "number".into()
@@ -334,4 +343,10 @@ pub(crate) fn lift_lets_in_stmt(
         // so their inner lets stay as plain locals — no lift needed.
         _ => {}
     }
+}
+
+/// An initializer shape the field sniff declines that must NOT fall
+/// back to `number` — the fallback's own note says why each is here.
+fn init_unsniffable(ast: &Ast, init: super::ExprId) -> bool {
+    matches!(ast.get_expr(init), Expr::Ident(_) | Expr::Call { .. })
 }
