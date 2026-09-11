@@ -96,8 +96,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {
     if let Some(s) = crate::ssa_lower_typeof_ns::try_member_typeof(ctx, expr) {
         return Operand::Value(ctx.intern_string_literal(s));
     }
-    if let Some(s) = try_undeclared_ident_typeof(ctx, expr) {
-        return Operand::Value(ctx.intern_string_literal(s));
+    if let Some(op) = try_undeclared_ident_typeof(ctx, expr) {
+        return op;
     }
     lower_by_ssa_type(ctx, expr)
 }
@@ -144,7 +144,15 @@ fn try_ident_global_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static 
     }
 }
 
-fn try_undeclared_ident_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'static str> {
+/// §13.5.1.1 — `typeof` on a name that resolves to no binding.
+///
+/// Not the constant `"undefined"` any more: the object half of the
+/// global environment record can carry the name (`this.p = 1` in
+/// global code writes through it), and then the answer is that value's
+/// type. The kernel asks the object and falls back to the string, so
+/// one call site serves both — and it does not throw, which is the
+/// whole difference between this operator and a bare read.
+fn try_undeclared_ident_typeof(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Option<Operand> {
     let Expr::Ident(name) = ctx.ast.get_expr(expr) else {
         return None;
     };
@@ -155,7 +163,17 @@ fn try_undeclared_ident_typeof(ctx: &LowerCtx<'_>, expr: ExprId) -> Option<&'sta
     {
         return None;
     }
-    Some("undefined")
+    let name = name.clone();
+    let key = ctx.intern_string_literal(&name);
+    let f = ctx.intrinsics.global_ident_typeof;
+    let cur_block = ctx.cur_block;
+    let v = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(f, vec![Operand::Value(key)]),
+        Type::Str,
+        None,
+    );
+    Some(Operand::Value(v))
 }
 
 fn lower_by_ssa_type(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Operand {

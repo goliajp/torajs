@@ -445,6 +445,7 @@ pub(crate) fn build(
         ctor_no_super_throw: init_c.any_substrate.ctor_no_super_throw,
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         global_ident_get: init_c.any_substrate.global_ident_get,
+        global_ident_typeof: init_c.any_substrate.global_ident_typeof,
         throw_reference_error_tdz: init_c.any_substrate.throw_reference_error_tdz,
         throw_reference_error_super_delete: init_c.any_substrate.throw_reference_error_super_delete,
         class_computed_method_define: init_c.class_computed.computed_method_define,

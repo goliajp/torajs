@@ -63,6 +63,7 @@ unsafe extern "C" {
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_reference_error_name(name: *mut c_void);
+    fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
 }
 
 /// The `__torajs_anyv_box_from_pair` tag for a heap payload — the one
@@ -394,5 +395,37 @@ pub unsafe extern "C" fn __torajs_global_ident_get(key: *mut c_void) -> AnyValue
         }
         __torajs_throw_reference_error_name(key);
         crate::nanbox_encode::__torajs_anyv_box_from_pair(PAIR_TAG_UNDEFINED as i64, 0)
+    }
+}
+
+/// §13.5.1.1 — `typeof` on a name that resolves to no binding answers
+/// `"undefined"` instead of throwing, so it asks the object half of
+/// the record the same question [`__torajs_global_ident_get`] does and
+/// falls back to the string rather than the throw.
+///
+/// Folding it to the constant at compile time was right while nothing
+/// could write through the global object; it stops being right the
+/// moment `this.p = 1` in global code can, because then `typeof p` has
+/// to answer `"number"`.
+///
+/// Does not mint, for the reason the getter does not — see there.
+///
+/// # Safety
+///
+/// `key` must be a valid Str block pointer, borrowed. The returned Str
+/// is owned by the caller.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_global_ident_typeof(key: *mut c_void) -> *mut u8 {
+    let obj = GLOBALTHIS_OBJECT.load(Ordering::Acquire) as *mut c_void;
+    // SAFETY: `obj` is the singleton or null (checked); `key` is a Str
+    // block per the caller invariant, borrowed by every callee.
+    unsafe {
+        if !obj.is_null() && __torajs_dynobj_has(obj, key) != 0 {
+            let tag = __torajs_dynobj_get_tag(obj, key);
+            let value = __torajs_dynobj_get_value(obj, key);
+            let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+            return crate::inspect::typeof_any::__torajs_anyv_typeof(boxed);
+        }
+        __torajs_str_alloc(b"undefined".as_ptr(), 9)
     }
 }
