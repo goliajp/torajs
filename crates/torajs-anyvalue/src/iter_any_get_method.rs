@@ -64,6 +64,7 @@ unsafe extern "C" {
 
 /// `WELL_KNOWN_DESCS` index of `Symbol.iterator`.
 const WK_ITERATOR: i64 = 5;
+const WK_ASYNC_ITERATOR: i64 = 1;
 
 /// `AnySlotTag::Undef` — an absent property.
 const TAG_UNDEF: u64 = 5;
@@ -158,6 +159,24 @@ pub(crate) unsafe fn get_iterator(recv: AnyValue) -> GetIterator {
             WK_ITERATOR,
             c"Symbol.iterator is not a function",
             false,
+        )
+    }
+}
+
+/// §7.4.2 hint=async step 2.a — the `@@asyncIterator` probe `for
+/// await` and `Array.fromAsync` run before falling back to
+/// [`get_iterator`]. A null `@@asyncIterator` is absent here (there
+/// IS a fallback), which is the one place the two probes differ.
+///
+/// # Safety
+/// `recv` is a live AnyValue.
+pub(crate) unsafe fn get_async_iterator(recv: AnyValue) -> GetIterator {
+    unsafe {
+        get_iterator_wk(
+            recv,
+            WK_ASYNC_ITERATOR,
+            c"Symbol.asyncIterator is not a function",
+            true,
         )
     }
 }

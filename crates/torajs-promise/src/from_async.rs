@@ -64,16 +64,23 @@ unsafe extern "C" {
     fn __torajs_any_call_with_this(recv: u64, this_arg: u64, argv: *const u64, argc: i64) -> u64;
     /// torajs-anyvalue — §7.2.4 IsConstructor over an any box.
     fn __torajs_is_constructor(v: u64) -> bool;
-    fn __torajs_anyv_rc_inc(v: u64);
-    /// torajs-anyvalue — the constructor-`this` finish kernel:
-    /// Construct + define walk + length over the settled boxes
-    /// (OWNED, transferred in). Undefined + pending throw on abrupt.
-    fn __torajs_from_async_construct_finish(
+    /// torajs-anyvalue — the constructor-`this` kernels, in spec
+    /// order: `begin` resolves the source (hint=async GetIterator,
+    /// parked in the step slots) and Constructs; `define` is one
+    /// CreateDataPropertyOrThrow over an OWNED element (0 = refused,
+    /// throw pending); `finish_length` is the final `Set(A,
+    /// "length", k, true)`.
+    fn __torajs_from_async_construct_begin(
         this_c: u64,
         items: u64,
-        elems: *const u64,
-        n: i64,
+        idx_slot: *mut i64,
+        iter_slot: *mut u64,
     ) -> u64;
+    fn __torajs_from_async_define(product: *mut u64, k: i64, elem: u64) -> i64;
+    fn __torajs_from_async_finish_length(product: *mut u64, k: i64);
+    /// torajs-anyvalue — §7.4.9 IteratorClose under a pending throw
+    /// (the original completion wins over anything `return()` does).
+    fn __torajs_iter_close_abrupt(iter: u64);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
 }
@@ -166,12 +173,15 @@ pub unsafe extern "C" fn __torajs_array_from_async_dyn(v: u64) -> *mut c_void {
 }
 
 /// `Array.fromAsync.call(C, items)` — the constructor-`this` face
-/// (proposal §2.1.1 steps 3.j / 3.k.iv; RFC 20260808 B6 刀 4). A
+/// (proposal §2.1.1 steps 3.f / 3.g; RFC 20260808 B6 刀 4). A
 /// non-constructor `this` (undefined on a bare call) takes the plain
-/// ArrayCreate kernel unchanged; a constructor settles every element
-/// exactly like the plain form, then hands the owned boxes to the
-/// anyvalue finish kernel (Construct + CreateDataPropertyOrThrow walk
-/// + `length`) and fulfills with its product.
+/// ArrayCreate kernel unchanged; a constructor builds its product in
+/// the spec's order — GetIterator and Construct before the first
+/// step, then per element: step, await, CreateDataPropertyOrThrow.
+/// A define that is refused (a non-configurable index the
+/// constructor pre-planted) CLOSES the iterator under the pending
+/// throw (3.j.ii.11) — which is what ends an infinite one — and the
+/// element await's own abrupt closes the same way (3.j.ii.5).
 ///
 /// # Safety
 /// `this_c` and `v` are live any-boxed values the caller owns for
@@ -182,47 +192,54 @@ pub unsafe extern "C" fn __torajs_array_from_async_this_dyn(this_c: u64, v: u64)
         if !__torajs_is_constructor(this_c) {
             return __torajs_array_from_async_dyn(v);
         }
-        let items = match collect_items(v, __torajs_any_iter_next_async_array_like) {
-            Err(rejected) => return rejected,
-            Ok(items) => items,
-        };
-        let mut settled: Vec<u64> = Vec::with_capacity(items.len());
-        let mut verdict: Option<*mut c_void> = None;
-        for &bits in &items {
-            match settle_slot(bits) {
-                Ok((elem, owned)) => {
-                    // The finish kernel consumes OWNED boxes; a plain
-                    // element's collected stake transfers below (the
-                    // items loop skips its release), an unwrapped one
-                    // is already fresh.
-                    settled.push(elem);
-                    if !owned {
-                        // Transferred verbatim — do not release with
-                        // the items sweep. Mark by leaking the items
-                        // stake: swap in a second stake instead.
-                        __torajs_anyv_rc_inc(bits);
-                    }
-                }
-                Err(rejected) => {
-                    verdict = Some(rejected);
-                    break;
-                }
-            }
-        }
-        for it in items {
-            __torajs_anyv_rc_dec(it);
-        }
-        if let Some(rejected) = verdict {
-            for s in settled {
-                __torajs_anyv_rc_dec(s);
-            }
-            return rejected;
-        }
-        let n = settled.len() as i64;
-        let product = __torajs_from_async_construct_finish(this_c, v, settled.as_ptr(), n);
+        let undef = __torajs_anyv_box_from_pair(5, 0);
+        let mut idx: i64 = 0;
+        let mut iter_slot: u64 = undef;
+        let mut out_v: u64 = undef;
+        let mut product = __torajs_from_async_construct_begin(this_c, v, &mut idx, &mut iter_slot);
         if __torajs_throw_check() != 0 {
+            __torajs_anyv_rc_dec(iter_slot);
             return crate::combinator_dyn::reject_with_pending_throw();
         }
+        let mut k: i64 = 0;
+        let verdict = loop {
+            let has =
+                __torajs_any_iter_next_async_array_like(v, &mut idx, &mut iter_slot, &mut out_v);
+            if __torajs_throw_check() != 0 {
+                // The step's own abrupt — [[Done]] is true, no close.
+                break Some(crate::combinator_dyn::reject_with_pending_throw());
+            }
+            if has == 0 {
+                break None;
+            }
+            let bits = out_v;
+            let elem = match settle_slot(bits) {
+                // A plain element IS its collected stake — it
+                // transfers into the define; an unwrapped one is
+                // fresh and the collected promise reference releases.
+                Ok((elem, false)) => elem,
+                Ok((elem, true)) => {
+                    __torajs_anyv_rc_dec(bits);
+                    elem
+                }
+                Err(rejected) => {
+                    __torajs_anyv_rc_dec(bits);
+                    close_swallow(iter_slot);
+                    break Some(rejected);
+                }
+            };
+            if __torajs_from_async_define(&mut product, k, elem) == 0 {
+                __torajs_iter_close_abrupt(iter_slot);
+                break Some(crate::combinator_dyn::reject_with_pending_throw());
+            }
+            k += 1;
+        };
+        __torajs_anyv_rc_dec(iter_slot);
+        if let Some(rejected) = verdict {
+            __torajs_anyv_rc_dec(product);
+            return rejected;
+        }
+        __torajs_from_async_finish_length(&mut product, k);
         crate::combinator::defer_settle(STATE_FULFILLED, product as i64, 1, REPR_ANY)
     }
 }
@@ -304,9 +321,6 @@ pub unsafe extern "C" fn __torajs_array_from_async_map_dyn(
     this_arg: u64,
 ) -> *mut c_void {
     unsafe {
-        unsafe extern "C" {
-            fn __torajs_iter_close_abrupt(iter: u64);
-        }
         // §2.1.1 step 2 — IsCallable precedes iteration.
         if !callback_shaped(cb) {
             __torajs_throw_type_error(c"mapfn is not a function".as_ptr());

@@ -300,12 +300,7 @@ pub(crate) unsafe fn iter_next_inner(
             // the sync `@@iterator` below and rides the
             // Async-from-Sync value-await in the step tier.
             if await_mode {
-                match crate::iter_any_get_method::get_iterator_wk(
-                    recv,
-                    1,
-                    c"Symbol.asyncIterator is not a function",
-                    true,
-                ) {
+                match crate::iter_any_get_method::get_async_iterator(recv) {
                     crate::iter_any_get_method::GetIterator::Iterator(iter) => {
                         *iter_slot = iter;
                         *idx_slot = USER_ITERATOR_LANE;
