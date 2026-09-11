@@ -104,7 +104,8 @@ fn captures_snapshot_safe(ast: &Ast, captures: &[String]) -> bool {
 /// body has captures or reads its self-name: the expression slot `i`
 /// becomes `(orig params) => __genexpr_N(<caps>, orig params)` and
 /// `params` gains the captured names as leading params. A body with
-/// neither leaves both untouched.
+/// neither leaves both untouched. `bound` is every name the program
+/// binds anywhere — a free name outside it is not a capture.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn route_wrapper(
     ast: &mut Ast,
@@ -115,6 +116,7 @@ pub(super) fn route_wrapper(
     params: &mut Vec<Param>,
     body: &[Stmt],
     global_names: &[String],
+    bound: &std::collections::HashSet<String>,
 ) {
     // §15.5.5 (RFC 20260810 knife 3) — the self-name binds inside
     // the body, never a capture the enclosing scope must supply. A
@@ -145,6 +147,13 @@ pub(super) fn route_wrapper(
         }
         captures.retain(|c| c != sn);
     }
+    // A free name no scope in the program binds is not a capture:
+    // it is an implicit global or an undeclared reference, and the
+    // hoisted body's own lanes answer those — the same way the
+    // declaration form does (`hoist_gen_fn_exprs_names`, rotation
+    // 635). Asked after the self-name is settled: that name is
+    // bound by the function env, not by any declaration.
+    captures.retain(|c| bound.contains(c));
     if !captures.is_empty() || self_ref {
         // Wrapper route (module doc "Capture policy") — refuse
         // the combinations whose plumbing is unproven, and any

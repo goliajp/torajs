@@ -93,6 +93,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
     // still uses) would find nothing left to name. Collected once over
     // the pre-hoist tree.
     let positions = crate::ast::collect_named_eval_positions(ast);
+    let bound = super::hoist_gen_fn_exprs_names::bound_names_anywhere(ast);
 
     let mut counter: usize = 0;
     for i in 0..ast.exprs.len() {
@@ -145,6 +146,7 @@ pub fn hoist_gen_fn_exprs(ast: &mut Ast) {
             &mut params,
             &body,
             &global_names,
+            &bound,
         );
         // Param-destructuring prefix carries over under the hoisted
         // name so desugar_generators moves it into the __Gen ctor
