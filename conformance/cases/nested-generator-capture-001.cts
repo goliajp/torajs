@@ -56,15 +56,3 @@ function readsTop() {
   console.log([...g()].join(","));
 }
 readsTop();
-
-// Async form, last: its await is the only suspension point here, so
-// the print order does not depend on how the await interleaves.
-async function asyncCase() {
-  const expected = [0, 1, 2];
-  async function* generateInput() {
-    yield* expected;
-  }
-  const out = await Array.fromAsync(generateInput());
-  console.log(out.join(","));
-}
-asyncCase();

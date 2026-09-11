@@ -122,7 +122,17 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// A bare identifier stays in place: reading it has no effect to
+    /// order before the drain, and the PutValue through it is what
+    /// widens its binding — `[...x.y] = src` on `var x = {}` lands
+    /// `y` as an expando on `x`, which a typed alias temp cannot do
+    /// (rotation 634: the alias read as `Struct([])` and the write
+    /// was refused, two pass regressions). Anything else evaluates
+    /// into a temp so its own throw lands before the park clears.
     fn hoist_lref_part(&mut self, part: ExprId, out: &mut Vec<Stmt>) -> ExprId {
+        if matches!(self.ast.get_expr(part), Expr::Ident(_)) {
+            return part;
+        }
         let id = self.mint_desugar_id();
         let name = format!("__dstra_tref_{id}");
         out.push(Stmt::LetDecl {

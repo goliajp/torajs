@@ -102,8 +102,20 @@ fn convert_slot(ast: &mut Ast, slot: &mut Stmt, global_names: &[String]) -> Opti
         return None;
     };
     // A generic generator has no expression form to take; the lift's
-    // own mangled products are not user nesting.
-    if !type_params.is_empty() || name.starts_with("__nestedgen_") {
+    // own mangled products are not user nesting. An ASYNC generator
+    // declaration stays on the lift lane too (rotation 634 close):
+    // converted, `using _ = r; yield; await pending` disposed `r`
+    // during the await where the lifted form keeps it alive — the
+    // two lanes disagree about that suspension, and the sweep moved
+    // three passing `using`-in-asyncgeneratorbody cases to red.
+    // Which lane is right is open (the expression lane matches a
+    // TOP-LEVEL async generator declaration's answer, and that one
+    // is wrong against bun); until it is settled the async form
+    // keeps the behaviour it had.
+    if !type_params.is_empty()
+        || name.starts_with("__nestedgen_")
+        || ast.async_generator_fns.contains(name)
+    {
         return None;
     }
     let captures =

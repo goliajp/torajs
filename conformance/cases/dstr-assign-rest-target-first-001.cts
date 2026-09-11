@@ -48,3 +48,11 @@ const src: any = {
 [holder[key()]] = [7];
 [...holder[key()]] = src;
 console.log(holder.rest.join(","), log.join(","));
+
+// A member target rooted at a plain binding still widens that
+// binding: `y` lands on `x` itself, not on an alias of it.
+var x: any = {};
+var result: any;
+var vals = [4, 3, 2];
+result = [...x.y] = vals;
+console.log(x.y.length, x.y.join(","), result === vals);
