@@ -23,8 +23,22 @@
 //! instead — the same trade the prologue has always taken on
 //! `globalThis`.
 
-use super::{Expr, ExprId, Stmt};
+use super::{Ast, Expr, ExprId, Stmt};
 use crate::lexer::Span;
+
+/// Mint a synthetic `"use strict"` directive expression, recorded in
+/// `Ast::synth_strict_directives` so `tr fmt` knows not to print it.
+/// The write half of the contract [`has_use_strict_directive`] reads:
+/// §11.2.2 hands a body its strictness by INHERITANCE, and the
+/// directive prologue is the only carrier that survives the desugar
+/// chain, so every site that mints a strict-by-inheritance body — or
+/// re-wraps one and pushes the original prologue a level down — says
+/// so here rather than spelling the two steps itself.
+pub(crate) fn mint_use_strict_directive(ast: &mut Ast) -> ExprId {
+    let e = ast.add_expr(Expr::String("use strict".to_string().into()));
+    ast.synth_strict_directives.insert(e);
+    e
+}
 
 /// `true` when `body`'s directive prologue — the leading run of
 /// string-literal expression statements — says `"use strict"`. Shared

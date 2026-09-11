@@ -1,0 +1,6 @@
+static-block    TypeError
+static-method   TypeError
+block-delete    TypeError
+block-nested-fn TypeError
+sloppy-plain    no throw
+final 1

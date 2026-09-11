@@ -84,6 +84,27 @@ impl<'a> Parser<'a> {
             expr_mark,
             self.ast.exprs.len() as u32,
         ));
+        // §15.7 — a ClassStaticBlockBody is class code, so it is
+        // strict whatever the goal, and `desugar_classes_statics` turns
+        // it into a top-level `__sb_<C>__<idx>` FnDecl whose strictness
+        // nothing else carries. Methods get theirs from
+        // `finish_fn_body_strict`; a static block has no parameter list
+        // and no enclosing-strictness bit to restore, so it mints the
+        // directive directly. Without it `class K { static { frozen.a =
+        // 1 } }` took the soft [[Set]] kernel inside a sloppy Script and
+        // ran through where every other class body threw — the fifth
+        // and last of rotation 632's inherited-strictness leaks.
+        //
+        // Minted AFTER the range push on purpose: the window records
+        // the expressions the USER wrote in this initializer, and a
+        // synthetic directive is not one of them.
+        if !crate::ast::sloppy_this_prologue::has_use_strict_directive(
+            &block_stmts,
+            &self.ast.exprs,
+        ) {
+            let e = crate::ast::sloppy_this_prologue::mint_use_strict_directive(&mut self.ast);
+            block_stmts.insert(0, Stmt::Expr(e));
+        }
         static_init.push(StaticInit::Block(block_stmts));
         Ok(())
     }
