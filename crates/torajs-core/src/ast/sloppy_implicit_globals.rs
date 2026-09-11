@@ -56,40 +56,6 @@
 use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
 
-pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
-    if !ast.program_is_sloppy() || ast.has_with_stmt {
-        return;
-    }
-    let mut declared = std::collections::HashSet::new();
-    super::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
-    // Names an assignment inside STRICT eval text would have created
-    // if it were sloppy. It is not, so nothing may be synthesized for
-    // them — and `declared` is exactly the set of names this pass does
-    // not create, so they belong in it.
-    declared.extend(ast.strict_eval_assign_names.iter().cloned());
-    let mut names: Vec<String> = Vec::new();
-    let mut walk = Walk {
-        declared: &declared,
-        out: &mut names,
-        seen: Vec::new(),
-    };
-    walk.walk_block(ast, &ast.stmts);
-    let decls: Vec<Stmt> = names
-        .into_iter()
-        .map(|name| {
-            let init = ast.add_expr(Expr::Uninit);
-            Stmt::LetDecl {
-                mutable: true,
-                name,
-                type_ann: None,
-                init,
-                is_var: true,
-            }
-        })
-        .collect();
-    ast.stmts.splice(0..0, decls);
-}
-
 /// The bare names an assignment inside `stmts` would create if this
 /// code were sloppy — the same question `synthesize_sloppy_implicit_
 /// globals` asks of the whole program, asked of one fragment.

@@ -209,18 +209,12 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // their §13.3.6.2 runtime TypeError — no goal split, both goals
     // throw. Same placement rationale.
     ast::resolve_uncallable_builtin_calls(ast);
-    // Sloppy-goal implicit globals (§9.1.1.4.6) — synthesize a hoisted
-    // `var <name>;` per never-declared assignment target, so the write
-    // creates the binding instead of the checker rejecting the program.
-    // After the readonly sibling (its folds already consumed the §19.1
+    // Sloppy-goal unresolvable bare names (§9.1.1.4 GetBindingValue /
+    // §9.1.1.4.6 SetMutableBinding): both halves read and write the
+    // global OBJECT at run time, rather than the write synthesizing a
+    // hoisted `var` and the read being refused at compile time. After
+    // the readonly sibling (its folds already consumed the §19.1
     // names), before the checker.
-    ast::synthesize_sloppy_implicit_globals(ast);
-    // …and its READ half (§9.1.1.4 GetBindingValue on the global
-    // object): a bare name with no static lane left reads the global
-    // object at run time instead of being refused at compile time.
-    // AFTER the write half on purpose — that pass's synthesized `var`s
-    // land in the declared set, so a name with a write keeps ONE
-    // storage for its write and its read.
     ast::resolve_global_free_names(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
