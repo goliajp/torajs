@@ -196,7 +196,7 @@ pub(super) fn parse_eval_source(
         // time that pass runs these statements are indistinguishable
         // from the sloppy program they were spliced into — same shape,
         // and the spans were blanked above.
-        let names = super::super::sloppy_implicit_globals::assigned_bare_names(ast, &stmts);
+        let names = super::super::sloppy_assigned_names::assigned_bare_names(ast, &stmts);
         ast.strict_eval_assign_names.extend(names);
     }
     let octal_here = ast.legacy_octal_positions.len() > octal_before;

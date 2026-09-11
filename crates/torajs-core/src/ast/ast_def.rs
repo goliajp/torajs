@@ -166,8 +166,8 @@ pub struct Ast {
     /// creating a global — but after the splice the statements are
     /// indistinguishable from the sloppy program around them, and the
     /// spans were blanked, so the name is what is left to carry it.
-    /// Read by `sloppy_implicit_globals`, which folds it into the set
-    /// of names it must not synthesize.
+    /// Read by `ssa_lower_assign_ident`, which leaves those writes on the
+    /// §6.2.5.6 throw instead of sending them to the global object.
     pub strict_eval_assign_names: std::collections::HashSet<String>,
     /// Bindings minted by object-rest destructuring (`{a, ...rest}`,
     /// §14.3.3.1 RestBindingInitialization) — the rest object's

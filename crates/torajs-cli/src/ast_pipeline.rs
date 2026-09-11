@@ -209,12 +209,18 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // their §13.3.6.2 runtime TypeError — no goal split, both goals
     // throw. Same placement rationale.
     ast::resolve_uncallable_builtin_calls(ast);
-    // Sloppy-goal implicit globals (§9.1.1.4.6) — synthesize a hoisted
+    // (WAS: `synthesize_sloppy_implicit_globals` — a hoisted
     // `var <name>;` per never-declared assignment target, so the write
-    // creates the binding instead of the checker rejecting the program.
-    // After the readonly sibling (its folds already consumed the §19.1
-    // names), before the checker.
-    ast::synthesize_sloppy_implicit_globals(ast);
+    // created a binding instead of the checker rejecting the program.
+    // §9.1.1.4.6 creates a property on the GLOBAL OBJECT instead, and
+    // the lowering does that now (`ssa_lower_assign_ident` →
+    // `__torajs_global_ident_set`, RFC 20260911-global-object-record).
+    // The synthesis was unconditional where the write is not — only
+    // the scope object decides whether `with (o) { foo = 42 }` creates
+    // anything — and it also gave the property the wrong attributes:
+    // a `var` binding is non-configurable, an implicit global is
+    // configurable. The walk that pass owned stays, for the one
+    // question `desugar_eval` still asks it.)
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
     ast::desugar_using(ast);

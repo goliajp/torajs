@@ -1,94 +1,43 @@
-//! Sloppy-goal implicit globals — the third member of the goal-triage
-//! family (`delete <bare name>` / readonly-global writes next door).
+//! Which bare-name assignments in a fragment WOULD create a global
+//! binding — §9.1.1.4.6 SetMutableBinding with `S` = false, asked
+//! statically of one piece of a program.
 //!
-//! §9.1.1.4.6 SetMutableBinding + §6.2.5.6 PutValue: in sloppy code an
-//! assignment to an unresolvable name CREATES a global binding at run
-//! time (`__x = 1` then `typeof __x` is `"number"`); before the write
-//! runs, the name simply does not resolve (`typeof __x` is
-//! `"undefined"`). The checker hard-rejects such writes for
-//! names it takes for compiler-synthesized and would give the strict
-//! runtime-ReferenceError posture to the rest — both wrong under the
-//! sloppy goal.
+//! This file used to answer that for the WHOLE program and act on the
+//! answer, by synthesizing a hoisted `var <name>;` per never-declared
+//! assignment target. That retired in rotation 631 (RFC
+//! 20260911-global-object-record): §9.1.1.4.6 creates a property on
+//! the GLOBAL OBJECT, at run time, and the synthesis got two things
+//! wrong about that. It was unconditional where the write is not —
+//! `with (o) { foo = 42 }` creates `foo` only when the object does not
+//! already carry it, which is a fact about the run — and a `var`
+//! binding is non-configurable where an implicit global is
+//! configurable. The lowering does it now
+//! (`ssa_lower_assign_ident` → `__torajs_global_ident_set`), off the
+//! checker's own `undeclared_reads` verdict.
 //!
-//! Statically decidable here, same as the siblings: walk the program
-//! for assignments whose target is an identifier it never declares,
-//! and synthesize one hoisted `var <name>;` per name at the top
-//! level. A hoisted uninitialized var IS the observable shape of the
-//! not-yet-written implicit global (`undefined` on read, `typeof`
-//! answers `"undefined"`), and after the write both agree.
+//! What remains is the walk, for its one remaining consumer:
+//! `desugar_eval` needs the names a STRICT eval text assigns to, so
+//! the lowering can leave them on the throw. §19.2.1.1 gives eval code
+//! its own strictness and strict code creates no globals, so
+//! `eval('"use strict"; unresolvable = null')` is a ReferenceError —
+//! and after the splice no later pass can tell those statements from
+//! the sloppy program they landed in. Answering with THIS walk rather
+//! than a second one is what keeps the two in step.
 //!
 //! The walk is a TREE walk, not an arena scan, because strictness is
-//! positional: a function whose directive prologue says `"use
-//! strict"` gives its assignments the strict posture (runtime
-//! ReferenceError — `assert.throws(ReferenceError, fun)` over a
-//! prologue'd body is a measured shape), so sites inside a strict
-//! body must not seed a binding. Inherited strictness needs no
+//! positional: a function whose directive prologue says `"use strict"`
+//! gives its assignments the strict posture, so sites inside a strict
+//! body are not evidence of anything. Inherited strictness needs no
 //! propagation here — the parser materializes a directive into every
 //! strict-by-inheritance body (`parser::strict_directive`).
 //!
-//! Declines and exclusions (each measured, none speculative):
-//! - a program with `with` keeps the reject — §14.11 resolves a
-//!   body's names through the scope object, so an assignment there
-//!   is not evidence of an implicit global (`with (o) { foo = 42 }`
-//!   must NOT create `foo`);
-//! - (WAS: a name the program also `delete`s stayed out, so that
-//!   `x = 1; delete x; x` could reach the ReferenceError a real delete
-//!   leaves behind. It bought that at the cost of the ASSIGNMENT: with
-//!   no binding synthesized, `x = 1` was an unresolvable write, so the
-//!   ASSIGNMENT ITSELF threw the ReferenceError and neither the delete
-//!   nor the read was ever reached. That made `S11.4.1_A3.3_T1` "pass"
-//!   off its very first statement, three of its four steps skipped —
-//!   water, not an answer (measured by A/B in rotation 608: with the
-//!   exclusion restored the program prints no step marker at all and
-//!   the catch still sees a ReferenceError). The name is admitted now,
-//!   and what remains is the approximation `delete_bare_name` already
-//!   records for its own configurable-builtin lane: the answer is
-//!   right, the property is not actually removed.);
-//! - known builtin globals keep the recorded reject next to
-//!   `check_assign_ident`'s carve-out, the §19.1 readonly names never
-//!   reach this pass (the sibling already folded their writes), and
-//!   the contextual keywords (`let` / `yield` / `await` / `static`)
-//!   stay out — a synthesized `var let;` is not a spelling the rest
-//!   of the pipeline accepts.
-//!
-//! Runs right after the readonly sibling, before the checker.
+//! Names it will not name (each measured, none speculative): the
+//! §19.1 readonly value properties (`undefined` / `NaN` / `Infinity`),
+//! `eval` / `arguments`, the contextual keywords (`let` / `yield` /
+//! `await` / `static`), and any known builtin global.
 
 use super::sloppy_this_prologue::has_use_strict_directive;
 use super::{Ast, Expr, ExprId, Stmt};
-
-pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
-    if !ast.program_is_sloppy() || ast.has_with_stmt {
-        return;
-    }
-    let mut declared = std::collections::HashSet::new();
-    super::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
-    // Names an assignment inside STRICT eval text would have created
-    // if it were sloppy. It is not, so nothing may be synthesized for
-    // them — and `declared` is exactly the set of names this pass does
-    // not create, so they belong in it.
-    declared.extend(ast.strict_eval_assign_names.iter().cloned());
-    let mut names: Vec<String> = Vec::new();
-    let mut walk = Walk {
-        declared: &declared,
-        out: &mut names,
-        seen: Vec::new(),
-    };
-    walk.walk_block(ast, &ast.stmts);
-    let decls: Vec<Stmt> = names
-        .into_iter()
-        .map(|name| {
-            let init = ast.add_expr(Expr::Uninit);
-            Stmt::LetDecl {
-                mutable: true,
-                name,
-                type_ann: None,
-                init,
-                is_var: true,
-            }
-        })
-        .collect();
-    ast.stmts.splice(0..0, decls);
-}
 
 /// The bare names an assignment inside `stmts` would create if this
 /// code were sloppy — the same question `synthesize_sloppy_implicit_
