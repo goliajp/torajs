@@ -62,6 +62,41 @@ impl<'a> Parser<'a> {
             return Ok(self.emit_yieldstar_generic(src));
         }
         let v = self.parse_yield_operand()?;
+        // §15.5.5 — the operand is an AssignmentExpression, so a comma
+        // after it belongs to an enclosing SequenceExpression and not
+        // to the yield: `yield 1, 2` is `(yield 1), 2`, and a bare
+        // `yield, yield` is two of them. The statement form stopped at
+        // the comma ("expected expression, got Comma") because it
+        // assumed a yield statement is the WHOLE statement.
+        //
+        // A sequence in statement position discards every value, so
+        // the elements are just statements in order — which is also
+        // what lets the first one stay a `Stmt::Yield` (the state
+        // machine's own form) instead of needing an expression-position
+        // hoist. The block is a scope, and no element can declare
+        // anything, so it adds nothing.
+        if matches!(self.peek(), Token::Comma) {
+            let mut stmts = vec![Stmt::Yield(v)];
+            while matches!(self.peek(), Token::Comma) {
+                self.pos += 1;
+                // An element that is ITSELF a yield stays a yield
+                // statement. Routing it through the expression-position
+                // hoist would park it ahead of the elements already
+                // collected — and a sequence's order is observable, so
+                // `yield, yield 4` answered 4 first. The recursive call
+                // consumes the rest of the sequence and its semicolon.
+                if matches!(self.peek(), Token::Yield) && self.in_generator {
+                    stmts.push(self.parse_yield_stmt()?);
+                    return Ok(Stmt::Block(stmts));
+                }
+                let e = self.parse_assign()?;
+                stmts.push(Stmt::Expr(e));
+            }
+            if matches!(self.peek(), Token::Semi) {
+                self.pos += 1;
+            }
+            return Ok(Stmt::Block(stmts));
+        }
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
