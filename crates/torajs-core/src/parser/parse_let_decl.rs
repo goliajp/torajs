@@ -59,7 +59,11 @@ impl<'a> Parser<'a> {
                 // §12.7.2 — `let/var/const yield` is a valid binding
                 // wherever the predicate still admits the name; the
                 // recorded site is what the strict-GOAL gate raises on.
-                Token::Yield if self.yield_reads_as_ident() => {
+                // The escaped spelling is judged the same way (§12.7.2
+                // decides on StringValue, and the escape only means the
+                // token is never the keyword) — `Self::reserved_word_of`
+                // is the one place the two spellings meet.
+                t if self.yield_names_here(t) => {
                     let at = self.at();
                     self.ast.yield_ident_positions.push(at);
                     "yield".to_string()
@@ -67,14 +71,17 @@ impl<'a> Parser<'a> {
                 // §13.1.1 — `await` is an ordinary BindingIdentifier
                 // outside an async body, whatever the strictness; the
                 // module-goal half is the recorded site's job.
-                Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
+                t if self.await_names_here(t) => self.admit_await_ident(),
                 // §12.7.2 / §14.3.1.1 — `var let = 1` is an ordinary
                 // sloppy declaration, but `let let` and `const let`
                 // are Syntax Errors even in sloppy code, so only the
                 // `var` spelling asks the predicate. The other two
                 // fall through to the reject below, which is what
                 // the spec wants there.
-                Token::Let if kw == "var" && self.let_reads_as_ident() => {
+                t if Self::reserved_word_of(t) == Some("let")
+                    && kw == "var"
+                    && self.let_reads_as_ident() =>
+                {
                     self.record_strict_goal_site("let");
                     "let".to_string()
                 }

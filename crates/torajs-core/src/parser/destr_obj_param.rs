@@ -77,14 +77,17 @@ impl<'a> Parser<'a> {
                 };
                 let (field, field_is_kw) = match self.peek() {
                     Token::Ident(n) => (PropKey::from(n), false),
-                    // ES §12.7.2 — escaped ReservedWord names the
-                    // FIELD; needs the rename like a bare keyword.
-                    Token::EscapedIdent(n) => (PropKey::from(n), true),
                     // A word that binds as an ordinary name shorthands
                     // like any other name — no rename needed. Must
-                    // precede the keyword arm below, which would
-                    // otherwise claim it and demand one.
+                    // precede BOTH keyword arms below, which would
+                    // otherwise claim it and demand one. Sibling note
+                    // in `destr_shape` says why the escaped spelling
+                    // reaches here too.
                     _ if shorthand.is_some() => (PropKey::from(shorthand.unwrap()), false),
+                    // ES §12.7.2 — an escaped ReservedWord this
+                    // position does NOT admit names the FIELD; needs
+                    // the rename like a bare keyword.
+                    Token::EscapedIdent(n) => (PropKey::from(n), true),
                     t if Self::keyword_property_name(t).is_some() => {
                         (PropKey::from(Self::keyword_property_name(t).unwrap()), true)
                     }

@@ -167,7 +167,7 @@ impl<'a> Parser<'a> {
             // fall through and `var C = class await {}` would parse as
             // an ANONYMOUS class followed by a stray `await`, which is
             // a silent misread rather than a reject.
-            Token::Await if self.await_reads_as_ident() => {
+            t if self.await_names_here(t) => {
                 let n = self.admit_await_ident();
                 self.pos += 1;
                 n

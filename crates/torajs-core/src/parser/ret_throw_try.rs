@@ -93,7 +93,7 @@ impl<'a> Parser<'a> {
                     // §13.1.1 — CatchParameter is a BindingIdentifier
                     // [?Yield, ?Await], so `await` names one outside an
                     // async body; the module-goal half is recorded.
-                    Token::Await if self.await_reads_as_ident() => {
+                    tk if self.await_names_here(tk) => {
                         let n = self.admit_await_ident();
                         self.pos += 1;
                         n
@@ -107,7 +107,7 @@ impl<'a> Parser<'a> {
                         self.pos += 1;
                         "let".to_string()
                     }
-                    Token::Yield if self.yield_reads_as_ident() => {
+                    tk if self.yield_names_here(tk) => {
                         let at = self.at();
                         self.ast.yield_ident_positions.push(at);
                         self.pos += 1;

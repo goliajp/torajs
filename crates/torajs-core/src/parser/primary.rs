@@ -105,7 +105,7 @@ impl<'a> Parser<'a> {
             // gate (`ast::triage_yield_idents`), the goal bit being
             // stamped after the parse. What reserves it instead is the
             // one predicate every admission site shares.
-            Token::Yield if self.yield_reads_as_ident() => {
+            tk if self.yield_names_here(tk) => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 self.pos += 1;
@@ -119,7 +119,7 @@ impl<'a> Parser<'a> {
             // decided no AwaitExpression can stand here — `parse_unary`
             // sends the name-only positions down `parse_postfix`, so
             // this arm never competes with the operator reading.
-            Token::Await if self.await_reads_as_ident() => {
+            tk if self.await_names_here(tk) => {
                 let n = self.admit_await_ident();
                 self.pos += 1;
                 Ok(self.ast.add_expr(Expr::Ident(n)))

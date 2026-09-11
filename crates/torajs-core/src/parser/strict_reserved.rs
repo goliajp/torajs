@@ -200,12 +200,43 @@ impl Parser<'_> {
     ///   `"use strict"` and — the cell that settles the axis —
     ///   **`catch ({ let })`** all reject, while `catch ({ yield })`
     ///   binds.
+    /// The reserved word a token SPELLS — bare, or written with a
+    /// unicode escape. §12.7.2 makes the escaped form never the
+    /// keyword, but a BindingIdentifier is judged on its StringValue,
+    /// so `\u0079ield` may name something exactly where `yield` may
+    /// and `\u0069f` may nowhere. Every admission site asks through
+    /// here so the two spellings cannot drift apart.
+    pub(super) fn reserved_word_of(t: &Token) -> Option<&str> {
+        match t {
+            Token::Let => Some("let"),
+            Token::Yield => Some("yield"),
+            Token::Await => Some("await"),
+            Token::EscapedIdent(n) => Some(n.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Does `t` spell `yield` — bare or escaped — where this position
+    /// reads it as an ordinary name? The two halves always travel
+    /// together, so every admission site asks one question.
+    pub(super) fn yield_names_here(&self, t: &Token) -> bool {
+        Self::reserved_word_of(t) == Some("yield") && self.yield_reads_as_ident()
+    }
+
+    /// The `await` twin of [`Self::yield_names_here`].
+    pub(super) fn await_names_here(&self, t: &Token) -> bool {
+        Self::reserved_word_of(t) == Some("await") && self.await_reads_as_ident()
+    }
+
     pub(super) fn shorthand_binding_name(&mut self) -> Option<&'static str> {
         match self.peek() {
             // `let` needs the binding form as well as the strictness:
             // §14.3.1.1 refuses it in the BoundNames of a lexical
             // declaration even in sloppy code.
-            Token::Let if self.let_reads_as_ident() && !self.pattern_binds_lexically => {
+            t if Self::reserved_word_of(t) == Some("let")
+                && self.let_reads_as_ident()
+                && !self.pattern_binds_lexically =>
+            {
                 // Admitted sites park for the goal gate, same as every
                 // other `let` / `yield` admission: `let_reads_as_ident`
                 // and `yield_reads_as_ident` answer the PER-FUNCTION
@@ -217,12 +248,12 @@ impl Parser<'_> {
                 self.record_strict_goal_site("let");
                 Some("let")
             }
-            Token::Yield if self.yield_reads_as_ident() => {
+            t if self.yield_names_here(t) => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 Some("yield")
             }
-            Token::Await if self.await_reads_as_ident() => {
+            t if self.await_names_here(t) => {
                 self.admit_await_ident();
                 Some("await")
             }

@@ -36,7 +36,7 @@ impl<'a> Parser<'a> {
             // the ENCLOSING [Yield] parameter, so the swap to this fn's
             // own generator context happens at the body and the
             // predicate still reads the enclosing scope here.
-            Token::Yield if self.yield_reads_as_ident() => {
+            tk if self.yield_names_here(tk) => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 "yield".to_string()
@@ -44,7 +44,7 @@ impl<'a> Parser<'a> {
             // §13.1.1 — `await` is an ordinary BindingIdentifier
             // outside an async body, whatever the strictness; the
             // module-goal half is the recorded site's job.
-            Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
+            tk if self.await_names_here(tk) => self.admit_await_ident(),
             // §12.7.2 — a sloppy function may be named `let`.
             Token::Let if self.let_reads_as_ident() => {
                 self.record_strict_goal_site("let");
@@ -368,7 +368,7 @@ impl<'a> Parser<'a> {
                     Token::Ident(n) => n.clone(),
                     // §15.1.2 — a parameter name rides the fn's own
                     // [Yield] bit, swapped in before this list.
-                    Token::Yield if self.yield_reads_as_ident() => {
+                    tk if self.yield_names_here(tk) => {
                         let at = self.at();
                         self.ast.yield_ident_positions.push(at);
                         "yield".to_string()
@@ -376,7 +376,7 @@ impl<'a> Parser<'a> {
                     // §13.1.1 — `await` is an ordinary BindingIdentifier
                     // outside an async body, whatever the strictness; the
                     // module-goal half is the recorded site's job.
-                    Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
+                    tk if self.await_names_here(tk) => self.admit_await_ident(),
                     // §12.7.2 — a sloppy parameter may be named `let`.
                     Token::Let if self.let_reads_as_ident() => {
                         self.record_strict_goal_site("let");

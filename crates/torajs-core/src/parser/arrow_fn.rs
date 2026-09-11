@@ -341,7 +341,7 @@ impl<'a> Parser<'a> {
     fn expect_arrow_param_name(&mut self) -> Result<String, String> {
         let pname = match self.peek() {
             Token::Ident(n) => n.clone(),
-            Token::Yield if self.yield_reads_as_ident() => {
+            tk if self.yield_names_here(tk) => {
                 let at = self.at();
                 self.ast.yield_ident_positions.push(at);
                 "yield".to_string()
@@ -349,7 +349,7 @@ impl<'a> Parser<'a> {
             // §13.1.1 — `await` is an ordinary BindingIdentifier
             // outside an async body, whatever the strictness; the
             // module-goal half is the recorded site's job.
-            Token::Await if self.await_reads_as_ident() => self.admit_await_ident(),
+            tk if self.await_names_here(tk) => self.admit_await_ident(),
             // §12.7.2 — a sloppy arrow parameter may be named `let`.
             Token::Let if self.let_reads_as_ident() => {
                 self.record_strict_goal_site("let");
