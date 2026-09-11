@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-10T19:44:44.214Z",
+  "generatedAt": "2026-09-11T01:12:45.927Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-10T19:33:41Z",
-    "headSha": "5109034b3",
-    "elapsedSec": 444.07,
+    "ranAt": "2026-09-11T00:05:43Z",
+    "headSha": "51da7dc32",
+    "elapsedSec": 430.71,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31681,
-    "passNoOracle": 1222,
-    "passNegative": 4519,
-    "passTotal": 37422,
-    "bug": 11424,
-    "incompatible": 4328,
-    "bunSkip": 2930,
+    "pass": 31720,
+    "passNoOracle": 1226,
+    "passNegative": 4538,
+    "passTotal": 37484,
+    "bug": 11422,
+    "incompatible": 4268,
+    "bunSkip": 2929,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48846,
-    "passRateInScope": 70.38,
-    "passRateTrAccepted": 76.61
+    "trAccepted": 48906,
+    "passRateInScope": 70.49,
+    "passRateTrAccepted": 76.64
   },
   "torajs": {
-    "commit": "bdd5b6dae",
-    "commitSubject": "chore(hardev): rotation 629 file-size stamp @ cd65ae365",
+    "commit": "563958e5c",
+    "commitSubject": "chore(hardev): rotation 630 file-size stamp @ b6dda2ecc",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "bdd5b6dae",
-      "subject": "chore(hardev): rotation 629 file-size stamp @ cd65ae365"
+      "hash": "563958e5c",
+      "subject": "chore(hardev): rotation 630 file-size stamp @ b6dda2ecc"
     },
     {
-      "hash": "cd65ae365",
-      "subject": "chore(hardev): rotation 629 stamps — sweep, determinism, Guard Malloc; roadmap P-SURF snapshot @ 5109034b3"
+      "hash": "b6dda2ecc",
+      "subject": "chore(hardev): rotation 630 stamps — sweep, determinism, Guard Malloc; roadmap P-SURF snapshot @ 51da7dc32"
     },
     {
-      "hash": "5109034b3",
-      "subject": "fix(torajs-core): a function expression's body brace keeps division after it (§12.9)"
+      "hash": "51da7dc32",
+      "subject": "fix(torajs-core): the empty-literal slot mint takes the slot's element FLAVOR, not just its ArrId"
     },
     {
-      "hash": "da73b7d20",
-      "subject": "fix(torajs-core): a `/` after a block's closing brace starts a regex literal (§12.9)"
+      "hash": "5b5af2025",
+      "subject": "feat(test262-runner): `$262.evalScript(src)` rewrites to indirect eval"
     },
     {
-      "hash": "9360748ff",
-      "subject": "fix(torajs-core): an array literal assigned to an any[] binding is typed by the slot (§13.15.2)"
+      "hash": "6468554c3",
+      "subject": "fix(torajs-anyvalue): a non-callable `@@hasInstance` handler is a TypeError, not a silent fall-through"
     },
     {
-      "hash": "5cdd769e8",
-      "subject": "fix(torajs-core): Array indexOf / lastIndexOf / includes coerce a non-Number fromIndex (§23.1.3.14 / §23.1.3.17 / §23.1.3.18)"
+      "hash": "f8a6a7f35",
+      "subject": "fix(test262-runner): a bug row carries the failure line, not a leading compile warning"
     },
     {
-      "hash": "ef9bbcdea",
-      "subject": "fix(torajs-core): every statement head that spells Expression takes the comma list (§13.16)"
+      "hash": "e9dfa0ec6",
+      "subject": "fix(torajs-core): an empty array literal assigned into a typed array slot mints at the slot's layout"
     },
     {
-      "hash": "0342c30dc",
-      "subject": "fix(torajs-core): Object.values over a class with a runtime-computed field walks its own properties at run time (§20.1.2.23)"
+      "hash": "73d151efa",
+      "subject": "fix(torajs-core): a `return` inside a for-of / for-in / switch body counts toward the inferred return type"
     },
     {
-      "hash": "aa2820db5",
-      "subject": "fix(torajs-core): a Reflect.get / Reflect.set target under a spelled receiver takes the dynobj lane (§28.1.6 / §28.1.13)"
+      "hash": "2ba7ff277",
+      "subject": "fix(torajs-core): an eval text's expression spans are foreign too, so blank them with the statement ones"
     },
     {
-      "hash": "420660b81",
-      "subject": "fix(torajs-anyvalue): a reified class-accessor face guards its receiver like a method face (§28.1.6 / §28.1.13)"
+      "hash": "5d944ea80",
+      "subject": "fix(torajs-core): a generic fn read as a bare expression statement escapes to its all-`any` clone (L3b ③)"
     },
     {
-      "hash": "f243ee2e5",
-      "subject": "fix(torajs-core): an exotic subclass's mono factory mints under its class's tag (§10.1.13 / §23.1.1.1 / §21.4.2.1)"
+      "hash": "d4c3553ba",
+      "subject": "fix(torajs-core): a Bool slot takes an `any` value through ToBoolean, like every other primitive slot"
     },
     {
-      "hash": "2d6f72bc8",
-      "subject": "fix(torajs-core): an object operand beside a BigInt, or under unary minus, is typed by the any lane (§13.7-§13.10 / §13.5.5)"
+      "hash": "73b9dd95b",
+      "subject": "fix(torajs-core): every module's indirect export is judged at link time (§16.2.1.6.4 step 9)"
     }
   ],
-  "headSha": "bdd5b6dae",
+  "headSha": "563958e5c",
   "autorun": {
-    "total": 932,
+    "total": 933,
     "baselineTarget": 10,
-    "bySelf": 927,
+    "bySelf": 928,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789056989-1e08",
-      "at": "2026-09-10T16:16:29Z",
-      "ts": 1789056989,
+      "rotationId": "r-1789069498-6181",
+      "at": "2026-09-10T19:44:58Z",
+      "ts": 1789069498,
       "trigger": "self",
-      "prevHead": "7758fb452",
-      "handoffSha": "sha256:be763b4eda73d5194e280196f27779be14280698dddbd9e6f9d07e5c67fe5dcd",
-      "handoffAgeSec": 2,
-      "conformanceBefore": "3945/0/4",
-      "commitsInSession": 16
+      "prevHead": "44550e5cc",
+      "handoffSha": "sha256:7cc72e57bce30fd78c2e312ac3267b4b61124e3c61782ac28d4dca6e26f1f2e0",
+      "handoffAgeSec": 0,
+      "conformanceBefore": "3957/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1789069498-6181",
+        "at": "2026-09-10T19:44:58Z",
+        "ts": 1789069498,
+        "trigger": "self",
+        "prevHead": "44550e5cc",
+        "handoffSha": "sha256:7cc72e57bce30fd78c2e312ac3267b4b61124e3c61782ac28d4dca6e26f1f2e0",
+        "handoffAgeSec": 0,
+        "conformanceBefore": "3957/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1789056989-1e08",
         "at": "2026-09-10T16:16:29Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 33,
         "conformanceBefore": "3860/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1788933950-2ce9",
-        "at": "2026-09-09T06:05:50Z",
-        "ts": 1788933950,
-        "trigger": "self",
-        "prevHead": "d55fc5872",
-        "handoffSha": "sha256:f1740353cf719a487b239a666f0c35672047929444cd6fdedd1d78e40cbb1553",
-        "handoffAgeSec": 9,
-        "conformanceBefore": "3848/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
