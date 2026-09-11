@@ -8,6 +8,16 @@ use crate::ast;
 use crate::ssa::{InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{CLOSURE_CAP_BASE_OFF, LocalInfo, LowerCtx, decode_env_ann};
 
+/// Where a capture-binding preamble reads its env pointer from.
+#[derive(Clone, Copy)]
+pub(crate) enum EnvSource {
+    /// The `__env` param's local slot — loaded per capture, as the
+    /// closure preamble always did.
+    Slot(ValueId),
+    /// An env pointer already computed.
+    Ptr(ValueId),
+}
+
 /// The lifter's synthetic param names — never user ARGUMENTS, so the
 /// S2 missing-argument normalization below skips them and they don't
 /// advance the user-argument index the argc compare counts against.
@@ -303,15 +313,81 @@ impl<'a> LowerCtx<'a> {
             .copied()
             .expect("__env param materialized as local")
             .slot;
+        self.bind_env_captures(EnvSource::Slot(env_slot), &cap_meta, &variadic_caps, None);
+        // Self-name binding — the trailing slot after the captures
+        // holds the cell (mint-site self-store; borrowed edge, no
+        // stake to release at exit). A same-named param shadows the
+        // binding (§15.5.5), so an existing local wins.
+        if let Some(sn) = self_name {
+            if !self.locals.contains_key(&sn) {
+                let closure_ty = crate::ssa_lower_closure::closure_value_ty(self, fn_name);
+                let env_ptr = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
+                    Type::Ptr,
+                    None,
+                );
+                let offset = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
+                let v = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(closure_ty, Operand::Value(env_ptr), offset),
+                    closure_ty,
+                    None,
+                );
+                let local = self.alloca(closure_ty, Some(&sn));
+                self.f.append_void(
+                    self.cur_block,
+                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
+                );
+                self.locals.insert(
+                    sn.clone(),
+                    LocalInfo {
+                        slot: local,
+                        ty: closure_ty,
+                        moved: true,
+                        borrowed: true,
+                        scope_depth: 0,
+                    },
+                );
+                // 403-02 — the call lane's self-recursion proof reads
+                // this slot identity (see the field doc).
+                self.self_name_slot = Some(local);
+                self.scope_stack[0].push(sn);
+            }
+        }
+    }
+
+    /// Bind each capture of a layout under its name, as a closure body
+    /// does: a byref slot holds a capture-box pointer and IS the
+    /// binding's slot (reads and writes hit the shared live binding);
+    /// a by-value slot copies into a fresh local. `env` is where the
+    /// env pointer comes from — the `__env` param slot for a closure
+    /// body, a value already in hand for a generator's iterator method
+    /// (RFC 20260912, `emit_gen_env_preamble`). `only` restricts the
+    /// binding to some of the layout's names; offsets always follow
+    /// the full layout.
+    pub(crate) fn bind_env_captures(
+        &mut self,
+        env: EnvSource,
+        cap_meta: &[(String, Type, bool)],
+        variadic_caps: &[String],
+        only: Option<&[String]>,
+    ) {
         for (i, (cap_name, cap_ty, is_byref)) in cap_meta.iter().enumerate() {
             let cap_ty = *cap_ty;
             let is_byref = *is_byref;
-            let env_ptr = self.f.append_inst(
-                self.cur_block,
-                InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                Type::Ptr,
-                None,
-            );
+            if only.is_some_and(|names| !names.iter().any(|n| n == cap_name)) {
+                continue;
+            }
+            let env_ptr = match env {
+                EnvSource::Slot(slot) => self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Load(Type::Ptr, Operand::Value(slot), 0),
+                    Type::Ptr,
+                    None,
+                ),
+                EnvSource::Ptr(ptr) => ptr,
+            };
             let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
             // A byref slot holds a capture-box pointer — bind the box
             // value slot directly so body reads AND writes hit the
@@ -357,47 +433,6 @@ impl<'a> LowerCtx<'a> {
                 self.variadic_locals.insert(cap_name.clone());
             }
             self.scope_stack[0].push(cap_name.clone());
-        }
-        // Self-name binding — the trailing slot after the captures
-        // holds the cell (mint-site self-store; borrowed edge, no
-        // stake to release at exit). A same-named param shadows the
-        // binding (§15.5.5), so an existing local wins.
-        if let Some(sn) = self_name {
-            if !self.locals.contains_key(&sn) {
-                let closure_ty = crate::ssa_lower_closure::closure_value_ty(self, fn_name);
-                let env_ptr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Ptr, Operand::Value(env_slot), 0),
-                    Type::Ptr,
-                    None,
-                );
-                let offset = CLOSURE_CAP_BASE_OFF + (cap_meta.len() as u64) * 8;
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(closure_ty, Operand::Value(env_ptr), offset),
-                    closure_ty,
-                    None,
-                );
-                let local = self.alloca(closure_ty, Some(&sn));
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(v), Operand::Value(local), 0),
-                );
-                self.locals.insert(
-                    sn.clone(),
-                    LocalInfo {
-                        slot: local,
-                        ty: closure_ty,
-                        moved: true,
-                        borrowed: true,
-                        scope_depth: 0,
-                    },
-                );
-                // 403-02 — the call lane's self-recursion proof reads
-                // this slot identity (see the field doc).
-                self.self_name_slot = Some(local);
-                self.scope_stack[0].push(sn);
-            }
         }
     }
 }

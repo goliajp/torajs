@@ -232,6 +232,12 @@ pub(crate) fn mirror_name_keyed_tables(ast: &mut Ast, orig: &str, clone: &str) {
     if let Some(v) = ast.closure_self_names.get(orig).cloned() {
         ast.closure_self_names.insert(clone.to_string(), v);
     }
+    // RFC 20260912 — a clone of a generator's iterator method reads
+    // the same wrapper env: the checker seeds its scope and the
+    // lowering emits its preamble from this entry.
+    if let Some(v) = ast.gen_env_methods.get(orig).cloned() {
+        ast.gen_env_methods.insert(clone.to_string(), v);
+    }
     if let Some(v) = ast.closure_dstr_names.get(orig).cloned() {
         ast.closure_dstr_names.insert(clone.to_string(), v);
     }

@@ -38,7 +38,9 @@ pub(crate) mod body_passes_fn_name;
 mod setup;
 
 use crate::ast::PropKey;
-pub(crate) use body_passes_fn_name::{intern_fn_source, strip_static_method_name};
+pub(crate) use body_passes_fn_name::{
+    intern_fn_source, register_fn_name, strip_static_method_name,
+};
 use setup::{build_anon_stamp_pool_with_snapshot, build_intrinsics_and_boxed_entries};
 
 use std::collections::HashMap;

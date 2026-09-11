@@ -207,6 +207,7 @@ pub(crate) fn lower_fn(
 
     ctx.materialize_fn_params(name, param_setup, &assigned_in_body);
     ctx.emit_closure_env_preamble(name, params);
+    ctx.emit_gen_env_preamble(name);
 
     seed_undef_sentinel_params(&mut ctx, name, params);
 

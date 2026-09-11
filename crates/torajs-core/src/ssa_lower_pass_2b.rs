@@ -55,6 +55,12 @@ fn collect_named_eval(ast: &Ast) -> HashMap<String, String> {
     // every syntactic-position name (ES §15.5.5: NamedEvaluation
     // applies only to ANONYMOUS definitions), so overlay it last.
     for (cn, sn) in &ast.closure_self_names {
+        // RFC 20260912 — a `__genenv_` self-name is the hoist's own
+        // handle on the wrapper cell, not a name the program wrote;
+        // the wrapper keeps its NamedEvaluation name.
+        if sn.starts_with("__genenv_") {
+            continue;
+        }
         map.insert(cn.clone(), sn.clone());
     }
     map
@@ -155,6 +161,20 @@ pub(crate) fn run(
                         .and_then(crate::ssa_lower_free_helpers::decode_env_ann)
                         .is_some_and(|caps| !caps.is_empty())
             }) && !closure_captures.contains_key(layout_of);
+            // RFC 20260912 — a generator's iterator method that reads
+            // captures through its wrapper's env lowers here, in the
+            // closure order (after the body that constructs the
+            // wrapper, before the closures its own body constructs). A
+            // wrapper never constructed leaves it unreachable: stub it
+            // like an orphan closure.
+            let gen_env_wrapper = ast
+                .gen_env_methods
+                .get(name)
+                .map(|info| info.wrapper_fn_name(ast));
+            let dead_orphan = dead_orphan
+                || gen_env_wrapper
+                    .as_ref()
+                    .is_some_and(|w| !closure_captures.contains_key(w));
             if dead_orphan {
                 // The definition must still exist — the boxed-entry
                 // adapter (synthesized for every lifted closure)
@@ -201,6 +221,20 @@ pub(crate) fn run(
             module.funcs[fid.0 as usize] = f;
             for s in new_strings {
                 module.strings.push(s);
+            }
+            // A gen-env iterator method is a class method: its registry
+            // row is the Pass 2 fn-decl row, not a closure's.
+            if gen_env_wrapper.is_some() {
+                crate::ssa_lower_inner::register_fn_name(
+                    module,
+                    name,
+                    params,
+                    fid,
+                    ast,
+                    *span,
+                    boxed_entries,
+                );
+                continue;
             }
             // Chunk 720 — NamedEvaluation registry row: a let-bound
             // arrow answers its binding name / arity through the

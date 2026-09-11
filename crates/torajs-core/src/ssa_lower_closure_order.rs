@@ -40,6 +40,19 @@ pub(crate) fn partition_closure_decls(
                 _ => true,
             });
     closure_decls.reverse();
+    // RFC 20260912 — a generator's iterator methods that read captures
+    // through the wrapper's env depend on the body that constructs the
+    // wrapper (its `closure_captures` entry) and are depended on by the
+    // closures their own bodies construct: they take their place in the
+    // closure order, resolved by the topological pass below.
+    let (gen_env_methods, user_decls): (Vec<_>, Vec<_>) =
+        user_decls
+            .into_iter()
+            .partition(|(stmt_idx, _)| match &ast.stmts[*stmt_idx] {
+                Stmt::FnDecl { name, .. } => ast.gen_env_methods.contains_key(name),
+                _ => false,
+            });
+    closure_decls.extend(gen_env_methods);
     // Reverse append equals parent-before-child only for parser-shaped
     // nesting; a closure minted by the capturing-nested-fn route sits
     // at the arena tail and needs the topological pass to lower after
@@ -68,6 +81,21 @@ pub(crate) fn order_closure_bodies(
         }
         for c in constructed {
             parent.insert(c, name.clone());
+        }
+    }
+    // RFC 20260912 — a gen-env iterator method's parent is whichever
+    // closure body constructs its wrapper (none when a user fn or main
+    // does: those lowered already). Its own body was scanned above, so
+    // the closures it constructs already name it as their parent.
+    for (stmt_idx, _) in &closure_decls {
+        let Stmt::FnDecl { name, .. } = &ast.stmts[*stmt_idx] else {
+            continue;
+        };
+        let Some(info) = ast.gen_env_methods.get(name) else {
+            continue;
+        };
+        if let Some(p) = parent.get(&info.wrapper_fn_name(ast)).cloned() {
+            parent.insert(name.clone(), p);
         }
     }
     let names: Vec<Option<&str>> = closure_decls

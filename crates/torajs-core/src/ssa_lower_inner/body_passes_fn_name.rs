@@ -84,7 +84,7 @@ fn es_arity(params: &[crate::ast::Param]) -> u32 {
         .count() as u32
 }
 
-pub(super) fn register_fn_name(
+pub(crate) fn register_fn_name(
     module: &mut Module,
     name: &str,
     params: &[crate::ast::Param],

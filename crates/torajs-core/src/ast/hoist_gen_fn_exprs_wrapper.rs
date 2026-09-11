@@ -166,45 +166,72 @@ pub(super) fn route_wrapper(
                  (RFC 20260713-generator-fn-value-substrate residual)"
             );
         }
-        if !captures_snapshot_safe(ast, &captures) {
-            panic!(
-                "generator expression capturing outer binding(s) {captures:?} where a \
-                 captured name is reassigned is not yet supported (RFC \
-                 20260713-generator-fn-value-substrate: the hoisted body reads a \
-                 call-time snapshot, and a later reassignment would be observable — \
-                 move the generator to a declaration or pass the value as a parameter)"
+        // RFC 20260912 — a capture that is written somewhere cannot
+        // ride a call-time snapshot: it is read BY REFERENCE through
+        // the wrapper's env instead. The wrapper hands its own cell to
+        // the factory (a self-name, real or minted) and the body keeps
+        // the bare name; `desugar_generators` and the lowering do the
+        // rest (`GenEnvInfo`).
+        let (byref, snap): (Vec<String>, Vec<String>) = captures
+            .iter()
+            .cloned()
+            .partition(|c| !captures_snapshot_safe(ast, std::slice::from_ref(c)));
+        let cell = if self_ref || !byref.is_empty() {
+            Some(self_name.clone().unwrap_or_else(|| {
+                let minted = format!("__genenv_{}", eid.0);
+                ast.fn_expr_self_names.insert(eid, minted.clone());
+                minted
+            }))
+        } else {
+            None
+        };
+        if !byref.is_empty() {
+            ast.gen_env_captures.insert(
+                name.to_string(),
+                super::GenEnvInfo {
+                    wrapper: eid,
+                    cell_field: cell.clone().expect("a byref capture always has a cell"),
+                    names: byref.clone(),
+                    class: String::new(),
+                },
             );
         }
         // The expression slot becomes `(orig params) =>
-        // __genexpr_N(<caps>, orig params)`; lift_arrow_fns turns
-        // it into a closure carrying the real env. The factory
-        // gains the captured names as leading params, which the
-        // generator prep moves onto `this.<name>` — the body
-        // compiles untouched.
+        // __genexpr_N(<cell>, <snap caps>, orig params)`; lift_arrow_fns
+        // turns it into a closure carrying the real env. The factory
+        // gains the cell and the snapshot captures as leading params,
+        // which the generator prep moves onto `this.<name>` — the body
+        // compiles untouched. A by-reference capture is read in the
+        // wrapper body only so the wrapper CAPTURES it (its env holds
+        // the box the iterator methods bind).
         let callee = ast.add_expr(Expr::Ident(name.to_string()));
         let mut args: Vec<ExprId> =
-            Vec::with_capacity(usize::from(self_ref) + captures.len() + params.len());
+            Vec::with_capacity(usize::from(cell.is_some()) + snap.len() + params.len());
         // The wrapper's own cell rides first — inside the wrapper
         // the self-name resolves through the knife-1 self-slot.
-        if let Some(sn) = self_name.as_ref().filter(|_| self_ref) {
-            args.push(ast.add_expr(Expr::Ident(sn.clone())));
+        if let Some(c) = cell.as_ref() {
+            args.push(ast.add_expr(Expr::Ident(c.clone())));
         }
-        for c in &captures {
+        for c in &snap {
             args.push(ast.add_expr(Expr::Ident(c.clone())));
         }
         for p in params.iter() {
             args.push(ast.add_expr(Expr::Ident(p.name.clone())));
         }
         let call = ast.add_expr(Expr::Call { callee, args });
+        let mut wrapper_body: Vec<Stmt> = byref
+            .iter()
+            .map(|c| Stmt::Expr(ast.add_expr(Expr::Ident(c.clone()))))
+            .collect();
+        wrapper_body.push(Stmt::Return(Some(call)));
         ast.exprs[i] = Expr::ArrowFn {
             params: params.clone(),
             return_type: None,
-            body: vec![Stmt::Return(Some(call))],
+            body: wrapper_body,
         };
-        let lead_params: Vec<Param> = self_name
+        let lead_params: Vec<Param> = cell
             .iter()
-            .filter(|_| self_ref)
-            .chain(captures.iter())
+            .chain(snap.iter())
             .map(|c| Param {
                 name: c.clone(),
                 type_ann: Some("any".to_string()),

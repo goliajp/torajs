@@ -1098,6 +1098,16 @@ pub struct Ast {
     /// the ~24 files matching Expr::ArrowFn (precedent:
     /// `stack_array_literals`, `fn_expr_self_names`).
     pub gen_fn_exprs: std::collections::HashMap<ExprId, GenFnExprInfo>,
+    /// RFC 20260912 — generator expressions whose body captures an
+    /// enclosing local by reference, keyed by the hoisted factory name
+    /// (`__genexpr_N`). Written by `hoist_gen_fn_exprs_wrapper`, read
+    /// once by `desugar_generators` to fill `gen_env_methods`.
+    pub gen_env_captures: std::collections::HashMap<String, GenEnvInfo>,
+    /// The `__cm___Gen_*__{next,return,throw}` methods of those
+    /// generators, keyed by method fn name: the checker seeds their
+    /// scope and the lowerer their env preamble from the wrapper's
+    /// capture layout (`GenEnvInfo::wrapper_fn_name`).
+    pub gen_env_methods: std::collections::HashMap<String, GenEnvInfo>,
     /// Async function-VALUE expressions that stay in expression
     /// position (RFC 20260713 blade 3): `async () => ...` /
     /// `async x => ...` / `async function(){}`. The parser parses

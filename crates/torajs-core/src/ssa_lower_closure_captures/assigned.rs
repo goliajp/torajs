@@ -40,9 +40,16 @@ pub(crate) fn collect_assigned_names_scoped<'s>(
     }
     let mut visited: HashSet<String> = HashSet::new();
     let mut pending: Vec<String> = seed_fns.to_vec();
+    // RFC 20260912 — a generator's iterator methods write the captures
+    // of its wrapper closure (they read them through its env), so a
+    // wrapper's bodies include those methods.
+    let gen_env_methods = crate::ast::gen_env_methods_by_wrapper(ast);
     while let Some(name) = pending.pop() {
         if !visited.insert(name.clone()) {
             continue;
+        }
+        if let Some(methods) = gen_env_methods.get(&name) {
+            pending.extend(methods.iter().cloned());
         }
         let Some(fn_body) = ast.stmts.iter().find_map(|s| match s {
             Stmt::FnDecl { name: n, body, .. } if *n == name => Some(body),

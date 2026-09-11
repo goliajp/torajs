@@ -11,24 +11,24 @@
 //! `let f = function*(){}` flows through the M2 fn-addr let →
 //! CallIndirect machinery unchanged.
 //!
-//! Capture policy (rotation 348): a body capturing enclosing locals
-//! compiles through the WRAPPER route when a call-time snapshot is
-//! provably equivalent to live by-reference capture — the captured
-//! names are prepended as factory params (the generator prep already
-//! moves params onto `this.<name>`, so the body compiles untouched)
-//! and the expression slot becomes an ordinary arrow
-//! `(orig params) => __genexpr_N(<caps>, orig params)`, which
-//! `lift_arrow_fns` turns into a closure carrying the real env. The
-//! wrapper reads each captured name at CALL time, so the only
-//! observable divergence from by-reference capture is a reassignment
-//! — [`captures_snapshot_safe`] therefore refuses any captured name
-//! that is ever reassigned (Assign / PostIncr) or rebound by a
-//! for-of/for-in head anywhere in the program (conservative:
-//! same-named bindings in unrelated scopes also refuse). Unsafe
-//! captures — and captures combined with a rest param or a
-//! `__genrecv` receiver — keep the loud panic instead of silently
-//! mis-binding. A destructuring-param prefix composes fine: the
-//! prefix counts BODY stmts, which the prepended params don't touch.
+//! Capture policy (rotation 348, RFC 20260912): a body capturing
+//! enclosing locals compiles through the WRAPPER route — the
+//! expression slot becomes an ordinary arrow
+//! `(orig params) => __genexpr_N(<cell>, <caps>, orig params)`, which
+//! `lift_arrow_fns` turns into a closure carrying the real env. A
+//! captured name that is never reassigned (Assign / PostIncr /
+//! for-of head, anywhere in the program — conservative by name) rides
+//! a call-time SNAPSHOT: it is prepended as a factory param, which the
+//! generator prep moves onto `this.<name>`, so the body compiles
+//! untouched. A name that IS reassigned somewhere is read BY
+//! REFERENCE instead: the wrapper captures it like any closure (its
+//! env holds the capture box) and hands its own cell to the factory,
+//! and the iterator methods bind the name from that env
+//! (`GenEnvInfo`; the wrapper file has the mechanics). Captures
+//! combined with a rest param or a `__genrecv` receiver keep the loud
+//! panic instead of silently mis-binding. A destructuring-param
+//! prefix composes fine: the prefix counts BODY stmts, which the
+//! prepended params don't touch.
 //!
 //! NamedEvaluation: resolved in this pass and parked in
 //! `ast.genexpr_names` for the fn-name registry (V4 刀 2). It cannot

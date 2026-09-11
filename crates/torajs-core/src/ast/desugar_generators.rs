@@ -232,6 +232,7 @@ fn desugar_one_generator(
 
     // Class name + struct return type for next().
     let class_name = format!("__Gen_{gen_name}");
+    super::gen_fn_expr::register_gen_env_methods(ast, &gen_name, &class_name);
     let step_ann = format!("__step_{gen_name}");
     // Async generator (RFC 20260713 blade 4): the factory itself
     // stays un-wrapped (parser kept the name out of async_fns —
