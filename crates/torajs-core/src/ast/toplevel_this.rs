@@ -15,6 +15,23 @@
 //! route (or stays loud), and the `__` prefix keeps the binding out
 //! of the K.3b global lane.
 //!
+//! Under the SLOPPY goal that object is the wrong one. §16.1.7
+//! (ParseScript / GlobalDeclarationInstantiation) gives global code a
+//! global environment record whose `[[GlobalThisValue]]` IS the global
+//! object, so `this.p = 1` there creates a global property and the
+//! bare name `p` reads it back — a shape 76 `language/statements/with`
+//! cases and the annexB `global-code` family are built on. The
+//! binding therefore initialises to the `globalThis` singleton (RFC
+//! 20260807 G2, already live) rather than a fresh `{}` when
+//! `program_is_sloppy()`. Everything else about the pass is unchanged:
+//! it is still one binding, still `__module_this`, and `this === this`
+//! still holds — the difference is WHICH object it names.
+//!
+//! The bare-name half of that equivalence (an unresolvable `p` reading
+//! the global object instead of being refused at compile time) is the
+//! sibling pass `global_free_names`; this one only puts the right
+//! object behind `this`.
+//!
 //! The walk is positional, not name-based: only `Ident("__this")`
 //! reachable from top-level statements WITHOUT crossing a function
 //! boundary rewrites. A true arrow inherits the lexical top-level
@@ -42,7 +59,13 @@ pub fn rewrite_toplevel_this(ast: &mut Ast) {
     if hits.is_empty() {
         return;
     }
-    let obj = ast.add_expr(Expr::ObjectLit { fields: vec![] });
+    // Sloppy = global code: `this` is the global object, not a fresh
+    // exports object (see the module doc).
+    let obj = if ast.program_is_sloppy() {
+        ast.add_expr(Expr::Ident("globalThis".into()))
+    } else {
+        ast.add_expr(Expr::ObjectLit { fields: vec![] })
+    };
     ast.stmts.insert(
         0,
         Stmt::LetDecl {
