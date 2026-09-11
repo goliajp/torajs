@@ -1,0 +1,5 @@
+own TypeError
+inherited TypeError
+after-yield TypeError
+in-finally TypeError
+sloppy 1

@@ -237,6 +237,29 @@ pub(super) fn build_throw_method(
 /// (built via `default_init_for_type` at the caller — kept caller-
 /// side so this sibling doesn't need to import that ast-internal
 /// helper just to forward an ExprId).
+/// Carry a generator body's strictness onto the `next()` the state
+/// machine becomes. §11.2.2 makes the body strict code, and the
+/// directive prologue is the only carrier that survives this far
+/// (`parser::strict_directive`) — but `build_state_machine_next_body`
+/// lowers the whole body through `GenSm`, so a directive at its head
+/// ends up inside `while (true) { if (st == 0) { … } }`, where the
+/// per-function probe that reads it
+/// (`ssa_lower_set_flavor::cur_fn_is_sloppy`) cannot see it. Every
+/// generator therefore answered "sloppy", and a refused [[Set]] in a
+/// strict one ran through.
+///
+/// Re-minted rather than moved: the original statement is a pure
+/// string expression, harmless where the state machine left it, and
+/// moving it would renumber the arms it was lowered into.
+pub(super) fn carry_strictness_to_next(ast: &mut Ast, next: &mut ClassMethod, strict: bool) {
+    if !strict {
+        return;
+    }
+    let e = ast.add_expr(Expr::String("use strict".to_string().into()));
+    ast.synth_strict_directives.insert(e);
+    next.body.insert(0, Stmt::Expr(e));
+}
+
 pub(super) fn build_next_method(
     ast: &mut Ast,
     yield_arg_default_id: ExprId,

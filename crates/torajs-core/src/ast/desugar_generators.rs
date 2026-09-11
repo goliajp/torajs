@@ -259,6 +259,10 @@ fn desugar_one_generator(
     // Yields close an arm with `return {value:e, done:false}`;
     // control-flow gotos close with `state = N; continue;` and the
     // `while(true)` loop re-enters the if-chain at the new state.
+    // Read the body's strictness BEFORE the state machine consumes it
+    // — see `carry_strictness_to_next`.
+    let body_is_strict =
+        crate::ast::sloppy_this_prologue::has_use_strict_directive(&gen_body, &ast.exprs);
     let (next_body, gen_hoisted, has_try_regions, has_finally_ret) =
         crate::ast::desugar_generators_assemble::build_state_machine_next_body(
             ast,
@@ -287,7 +291,7 @@ fn desugar_one_generator(
             })
         })],
     };
-    let (next_method, return_method, throw_method) = build_iterator_method_trio(
+    let (mut next_method, return_method, throw_method) = build_iterator_method_trio(
         ast,
         &yield_ty,
         &step_ann,
@@ -295,6 +299,11 @@ fn desugar_one_generator(
         has_try_regions,
         has_finally_ret,
         is_async_gen,
+    );
+    crate::ast::desugar_generators_methods::carry_strictness_to_next(
+        ast,
+        &mut next_method,
+        body_is_strict,
     );
     // For Phase J MVP, generator parameters are stored as fields on
     // the iterator object so the body can reference them through
