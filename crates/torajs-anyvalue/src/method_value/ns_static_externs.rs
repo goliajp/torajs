@@ -160,4 +160,7 @@ unsafe extern "C" {
     /// torajs-meta — §10.1.11.1 string buckets followed by the symbol
     /// bucket; the one walk `Reflect.ownKeys` needs.
     pub(super) fn __torajs_anyv_own_keys_all(obj_any: u64) -> *mut c_void;
+    /// §25.1.5.1 — true for a TypedArray or a DataView (a question
+    /// about the argument's tag, not about any buffer).
+    pub(crate) fn __torajs_arraybuffer_is_view(av: u64) -> i64;
 }

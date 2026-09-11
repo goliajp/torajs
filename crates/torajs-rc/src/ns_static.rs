@@ -321,6 +321,12 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // per spec (`of` is rest-shaped).
     row("TypedArray", "from", 1),
     row("TypedArray", "of", 0),
+    // §25.1.5.1 ArrayBuffer.isView — the family's ONLY table static
+    // (the other own property is the @@species accessor). The direct
+    // call lowers per-shape through `ssa_lower_call_arraybuffer_static`;
+    // this row is the VALUE face, and the dispatch arm runs the same
+    // torajs-buffer kernel so a detached call agrees. Length 1.
+    row("ArrayBuffer", "isView", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

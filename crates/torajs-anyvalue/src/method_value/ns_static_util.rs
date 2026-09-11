@@ -14,6 +14,19 @@ pub(super) fn putc_out(c: u8) {
     torajs_io::__torajs_io_putc_out(i32::from(c));
 }
 
+/// Does `v` box a live heap cell carrying `tag`? §23.1.2.2
+/// `Array.isArray` is the whole of its own semantics, and the spec
+/// answers it without coercing: a non-cell is simply `false`.
+/// (`ArrayBuffer.isView` asks the same question of two tags, but
+/// keeps delegating to its torajs-buffer kernel — that kernel is
+/// what the direct-call lane lowers to, and one answer beats two.)
+pub(super) fn is_tag(v: u64, tag: torajs_rc::Tag) -> bool {
+    crate::nanbox::is_cell(v)
+        && unsafe {
+            (crate::nanbox::as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() == tag as u16
+        }
+}
+
 /// ToNumber(argv[i]) with the spec's abrupt-completion contract: a
 /// pending throw recorded during coercion (poisoned valueOf) aborts
 /// the caller's remaining coercions. Missing args coerce undefined.

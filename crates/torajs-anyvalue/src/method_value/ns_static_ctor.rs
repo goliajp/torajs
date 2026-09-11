@@ -120,6 +120,10 @@ fn ctor_ns_name(proto_tag: i64) -> &'static str {
         // abstract %TypedArray%'s statics (§23.2.2 — `from` / `of`
         // are inherited, one interned cell each).
         20..=31 => "TypedArray",
+        // §25.1.5.1 — ArrayBuffer's one table static. DataView (32)
+        // stays out: the spec gives it no statics, so it answers
+        // through `ns_static_id`'s natural miss.
+        19 => "ArrayBuffer",
         _ => "",
     }
 }

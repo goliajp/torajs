@@ -62,6 +62,8 @@ pub(super) enum Disp {
     NumPredicate(NumPred),
     /// §23.1.2.2 Array.isArray — heap-tag probe.
     ArrayIsArray,
+    /// §25.1.5.1 ArrayBuffer.isView — the torajs-buffer tag probe.
+    ArrayBufferIsView,
     /// §20.1.2.14 Object.is — the §7.2.10 same-value kernel.
     ObjectIs,
     /// §20.1.2.{17,23,5} own-enumeration — the kernel answers a
@@ -456,6 +458,7 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::PromiseKeyed { settled: false }, // Promise.allKeyed — recv-first, await-dictionary
     Disp::PromiseKeyed { settled: true }, // Promise.allSettledKeyed — recv-first, await-dictionary
     Disp::StringRaw,
-    Disp::TypedArrayFrom, // TypedArray.from — recv-first, §23.2.2.1
-    Disp::TypedArrayOf,   // TypedArray.of — recv-first, §23.2.2.2
+    Disp::TypedArrayFrom,    // TypedArray.from — recv-first, §23.2.2.1
+    Disp::TypedArrayOf,      // TypedArray.of — recv-first, §23.2.2.2
+    Disp::ArrayBufferIsView, // ArrayBuffer.isView — §25.1.5.1
 ];

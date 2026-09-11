@@ -44,7 +44,7 @@ use super::{
 /// [`super::ns_static_util`] (rotation 268 mechanical move);
 /// re-exported so sibling arms keep their `super::ns_static::` path.
 pub(super) use super::ns_static_util::{arg_at, arg_num, own, to_i64_mod32};
-use super::ns_static_util::{box_bool, num_predicate, putc_out};
+use super::ns_static_util::{box_bool, is_tag, num_predicate, putc_out};
 
 /// Per-id interned cells + `.name` Str cells — same immortal
 /// atomic-static shape as `METHOD_CELLS` (headroom bound shared with
@@ -141,14 +141,10 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ParseInt => super::ns_static_coerce::parse_int_value(argv, argc),
             Disp::ParseFloat => super::ns_static_coerce::parse_float_value(argv, argc),
             Disp::NumPredicate(p) => box_bool(num_predicate(p, arg_at(argv, argc, 0))),
-            Disp::ArrayIsArray => {
-                let v = arg_at(argv, argc, 0);
-                let hit = crate::nanbox::is_cell(v) && {
-                    let ptr = crate::nanbox::as_void_ptr(v);
-                    (ptr.cast::<u8>().add(4) as *const u16).read() == Tag::Arr as u16
-                };
-                box_bool(hit)
-            }
+            Disp::ArrayIsArray => box_bool(is_tag(arg_at(argv, argc, 0), Tag::Arr)),
+            Disp::ArrayBufferIsView => box_bool(
+                super::ns_static_table::__torajs_arraybuffer_is_view(arg_at(argv, argc, 0)) != 0,
+            ),
             Disp::ObjectIs => box_bool(crate::nanbox_ffi::__torajs_anyv_same_value(
                 arg_at(argv, argc, 0),
                 arg_at(argv, argc, 1),
