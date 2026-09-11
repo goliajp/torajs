@@ -272,14 +272,29 @@ pub(super) fn build_async_body(
     // (see `Ast::synth_promise_static_calls`).
     ast.synth_promise_static_calls.insert(reject_call);
     let catch_body = vec![Stmt::Return(Some(reject_call))];
-    let wrapped_body = vec![Stmt::Try {
+    // §11.2.2 — the body's strictness has to survive being wrapped.
+    // Everything downstream reads it off the directive prologue
+    // (`parser::strict_directive`), and the prologue is now one level
+    // down, inside the Try: `cur_fn_is_sloppy` looked at the head of
+    // the body it was lowering, found a `Stmt::Try`, and answered
+    // "sloppy" for every async function — including one carrying its
+    // own `"use strict"`. Re-minted at the head rather than moved:
+    // the original is a pure string expression, harmless where it is.
+    let strict = crate::ast::sloppy_this_prologue::has_use_strict_directive(&new_body, &ast.exprs);
+    let mut wrapped_body = Vec::with_capacity(2);
+    if strict {
+        let e = ast.add_expr(Expr::String("use strict".to_string().into()));
+        ast.synth_strict_directives.insert(e);
+        wrapped_body.push(Stmt::Expr(e));
+    }
+    wrapped_body.push(Stmt::Try {
         body: new_body,
         had_catch: true,
         catch_param: Some("__async_err".into()),
         catch_type: Some("any".into()),
         catch_body,
         finally_body: None,
-    }];
+    });
     (wrapped_body, promise_ty)
 }
 

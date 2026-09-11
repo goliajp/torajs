@@ -1,0 +1,5 @@
+own-arrow       TypeError
+own-fn          TypeError
+inherited-arrow TypeError
+inherited-fn    TypeError
+sloppy-arrow    no throw
