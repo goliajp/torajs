@@ -206,6 +206,74 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_get(v: u64) -> u64 {
     unsafe { __torajs_anyv_get_proto_of_any(v) }
 }
 
+/// The builtin-tagged cell → `<Ctor>.prototype` slot table (RFC
+/// 20260713-array-proto-residual blade 3): §10.1.1 says a builtin
+/// cell's [[Prototype]] IS its constructor's `.prototype`. Tags with
+/// no proto singleton (struct / iterator internals) answer `-1` and
+/// keep the null answer (recorded boundary). Cells whose slot is not
+/// a function of the tag alone (iterator cells, typed arrays) read
+/// their discriminant off `dynobj`.
+///
+/// # Safety
+/// `dynobj` is a live heap cell whose header tag is `tag`.
+unsafe fn builtin_cell_proto_tag(dynobj: *const c_void, tag: u16) -> i64 {
+    match tag {
+        TAG_ARR => 2,
+        0 => 3, // Str / Substr view
+        TAG_CLOSURE => 13,
+        4 => 7, // RegExp
+        5 => 8, // Date
+        7 => 5, // Symbol
+        // A Promise cell's [[Prototype]] is %Promise.prototype%
+        // (§27.2.4.2 et al. — every mint path: the constructor,
+        // resolve, the combinators, an async function's return).
+        // The arm was simply missing, so `getPrototypeOf(p)`
+        // answered null for every promise while `p instanceof
+        // Promise` answered true (rotation 634).
+        8 => 10,  // Promise
+        10 => 6,  // BigInt
+        15 => 11, // Map
+        19 => 12, // Set
+        12 => 16, // WeakMap
+        13 => 17, // WeakSet
+        11 => 18, // WeakRef
+        // RFC 20260716 刀 15 — primitive-wrapper cells (刀 2 alloc
+        // tags 21/22/23) return the corresponding
+        // `<Ctor>.prototype` singleton per §10.1.1: the wrapper's
+        // [[Prototype]] IS the ctor's `.prototype`, matching bun's
+        // `Object.getPrototypeOf(new String()) === String.prototype`.
+        21 => 0, // NumberWrapper  → Number.prototype
+        22 => 3, // StringWrapper  → String.prototype
+        23 => 4, // BooleanWrapper → Boolean.prototype
+        24 => 5, // SymbolWrapper  → Symbol.prototype
+        // The five per-family iterator prototypes, one link below
+        // %Iterator.prototype% — `iter_cell_proto_tag` is what
+        // knows how to get from three cell tags to five slots.
+        // This used to answer %Iterator.prototype% flatly, a
+        // recorded one-hop-shorter chain; the missing link is also
+        // where §23.1.5.2 keeps `@@toStringTag`, so `[1].values()`
+        // badged "[object Object]".
+        16 | 17 | 25 => unsafe { __torajs_iter_cell_proto_tag(dynobj, tag as i64) },
+        // RFC 20260823-typedarray-substrate — the buffer family:
+        // ArrayBuffer at 19, DataView after the per-kind block,
+        // and a typed array at 20 + its element kind (the 刀 4
+        // slot layout), read off the cell since a static match
+        // cannot see the discriminant. Recorded boundary: the
+        // chain above a per-kind prototype is %Object.prototype%
+        // — no %TypedArray%.prototype intermediate exists yet,
+        // the same one-hop-shorter shape as the iterator protos.
+        27 => 19, // ArrayBuffer → ArrayBuffer.prototype
+        28 => {
+            // Kind byte at +32 (torajs-buffer
+            // `typedarray.rs::KIND_OFF` mirror).
+            let kind = unsafe { dynobj.cast::<u8>().add(32).read() } as i64;
+            20 + kind
+        }
+        29 => 32, // DataView → DataView.prototype
+        _ => -1,
+    }
+}
+
 /// AnyValue-immediate `Object.getPrototypeOf(any)` — reads the
 /// `__proto__` slot from the wrapped dynobj and returns a NaN-box
 /// `AnyValue` immediate. Identity-preserving (the returned cell
@@ -345,53 +413,7 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
                 return unsafe { proto_singleton(OBJECT_PROTO_TAG) };
             }
         }
-        let proto_tag = match tag {
-            TAG_ARR => 2,
-            0 => 3, // Str / Substr view
-            TAG_CLOSURE => 13,
-            4 => 7,   // RegExp
-            5 => 8,   // Date
-            7 => 5,   // Symbol
-            10 => 6,  // BigInt
-            15 => 11, // Map
-            19 => 12, // Set
-            12 => 16, // WeakMap
-            13 => 17, // WeakSet
-            11 => 18, // WeakRef
-            // RFC 20260716 刀 15 — primitive-wrapper cells (刀 2 alloc
-            // tags 21/22/23) return the corresponding
-            // `<Ctor>.prototype` singleton per §10.1.1: the wrapper's
-            // [[Prototype]] IS the ctor's `.prototype`, matching bun's
-            // `Object.getPrototypeOf(new String()) === String.prototype`.
-            21 => 0, // NumberWrapper  → Number.prototype
-            22 => 3, // StringWrapper  → String.prototype
-            23 => 4, // BooleanWrapper → Boolean.prototype
-            // The five per-family iterator prototypes, one link below
-            // %Iterator.prototype% — `iter_cell_proto_tag` is what
-            // knows how to get from three cell tags to five slots.
-            // This used to answer %Iterator.prototype% flatly, a
-            // recorded one-hop-shorter chain; the missing link is also
-            // where §23.1.5.2 keeps `@@toStringTag`, so `[1].values()`
-            // badged "[object Object]".
-            16 | 17 | 25 => unsafe { __torajs_iter_cell_proto_tag(dynobj, tag as i64) },
-            // RFC 20260823-typedarray-substrate — the buffer family:
-            // ArrayBuffer at 19, DataView after the per-kind block,
-            // and a typed array at 20 + its element kind (the 刀 4
-            // slot layout), read off the cell since a static match
-            // cannot see the discriminant. Recorded boundary: the
-            // chain above a per-kind prototype is %Object.prototype%
-            // — no %TypedArray%.prototype intermediate exists yet,
-            // the same one-hop-shorter shape as the iterator protos.
-            27 => 19, // ArrayBuffer → ArrayBuffer.prototype
-            28 => {
-                // Kind byte at +32 (torajs-buffer
-                // `typedarray.rs::KIND_OFF` mirror).
-                let kind = unsafe { dynobj.cast::<u8>().add(32).read() } as i64;
-                20 + kind
-            }
-            29 => 32, // DataView → DataView.prototype
-            _ => -1,
-        };
+        let proto_tag = unsafe { builtin_cell_proto_tag(dynobj, tag) };
         if proto_tag >= 0 {
             return unsafe { proto_singleton(proto_tag) };
         }
