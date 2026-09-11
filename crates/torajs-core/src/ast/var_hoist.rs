@@ -32,11 +32,15 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
     // &mut Vec<Stmt> to the recursive helpers without aliasing.
     let mut top = std::mem::take(&mut ast.stmts);
     // Top-level script: hoist over `top` itself.
-    hoist_vars_in_block(&mut top, &mut ast.exprs);
-    // Each top-level FnDecl: hoist over its body.
+    hoist_vars_in_block(&mut top, &mut ast.exprs, &[]);
+    // Each top-level FnDecl: hoist over its body. The parameter names
+    // ride along — §10.2.11 step 28 gives a `var` that re-declares a
+    // parameter the parameter's own binding (initialized from it),
+    // so `function f(a = 0) { var a; }` declares nothing new.
     for stmt in top.iter_mut() {
-        if let Stmt::FnDecl { body, .. } = stmt {
-            hoist_vars_in_block(body, &mut ast.exprs);
+        if let Stmt::FnDecl { body, params, .. } = stmt {
+            let names: Vec<String> = params.iter().map(|p| p.name.clone()).collect();
+            hoist_vars_in_block(body, &mut ast.exprs, &names);
         }
     }
     ast.stmts = top;
@@ -46,7 +50,7 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
 /// (name, type_ann), and rewrites the original site to either an
 /// assignment (if the decl had an init) or a no-op. Returned hoisted
 /// decls are inserted at the top of `body`.
-fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
+fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>, params: &[String]) {
     use std::collections::BTreeMap;
     // Cluster #11 (rotation 442) — pre-scan the whole fn scope for
     // names `var`-declared more than once. The typed escape hatch is
@@ -62,8 +66,16 @@ fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>) {
         .filter(|(_, c)| *c > 1)
         .map(|(n, _)| n)
         .collect();
-    let mut hoisted: BTreeMap<String, Option<String>> = BTreeMap::new();
+    // A parameter name is already the fn's binding: the `var` site
+    // becomes an assignment onto it (or nothing, for a bare `var a;`),
+    // and no prelude slot is minted — a second declaration of the
+    // name in the same scope is what the checker refuses.
+    let mut hoisted: BTreeMap<String, Option<String>> =
+        params.iter().map(|p| (p.clone(), None)).collect();
     collect_and_rewrite_var(body, &mut hoisted, exprs, false, &multi);
+    for p in params {
+        hoisted.remove(p);
+    }
     if hoisted.is_empty() {
         return;
     }
