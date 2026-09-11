@@ -188,8 +188,11 @@ impl<'a> Parser<'a> {
         // against a field that was never created.
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        // Restore only, same reading as the class generator method.
-        self.restore_fn_strict(strict_outer, &params)?;
+        // Write the inherited strictness in, same reading as the class
+        // generator method — including why `destr_prefix` below is
+        // safe. An object literal is not itself strict code, so a
+        // sloppy enclosing function still yields a sloppy body.
+        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body

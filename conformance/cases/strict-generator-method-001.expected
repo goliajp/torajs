@@ -1,0 +1,4 @@
+class-gen TypeError
+objlit-sloppy 1
+objlit-strict TypeError
+objlit-after-yield TypeError

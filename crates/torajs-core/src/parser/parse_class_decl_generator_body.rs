@@ -143,12 +143,21 @@ impl<'a> Parser<'a> {
         // does not enter into it.
         self.reject_lexical_shadowing_param(&params, &destr_lets, &body)?;
         self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        // Restore only — see `restore_fn_strict`. A generator body is
-        // rewritten into a state-machine class whose `next()` carries
-        // the receiver, so no promoted-body prologue reads its
-        // strictness; and `destr_prefix` below counts leading
-        // statements, which a written-in directive would shift.
-        self.restore_fn_strict(strict_outer, &params)?;
+        // §11.2.2 — a class body is strict code whatever the goal, so
+        // this body needs the directive written in like every other
+        // method's (`finish_fn_body_strict`); rotation 632's generator
+        // knife then carries it onto the `next()` the state machine
+        // becomes, which is where the per-function probe reads it.
+        //
+        // `destr_prefix` below counts leading statements, and a
+        // written-in directive would shift it — but the two are
+        // mutually exclusive: destructuring lets exist only for a
+        // non-simple parameter list, which is exactly the shape
+        // §15.1.3 forbids from carrying a directive, so
+        // `finish_fn_body_strict` writes nothing there. Such a
+        // generator keeps answering sloppy — recorded residue, the
+        // same one the function-expression site has always had.
+        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
         let destr_prefix = destr_lets.len();
         let body = if destr_lets.is_empty() {
             body

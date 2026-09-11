@@ -268,24 +268,6 @@ impl Parser<'_> {
         }
     }
 
-    /// Pop back to the enclosing function's strictness, for the body
-    /// sites that only need the bit scoped — arrows, whose `this` is
-    /// lexical, and generator bodies, whose receiver comes from the
-    /// state-machine class rather than a promoted prologue. Judges the
-    /// parameter names on the way out, for the reason
-    /// `finish_fn_body_strict` gives.
-    pub(super) fn restore_fn_strict(
-        &mut self,
-        inherited: bool,
-        params: &[Param],
-    ) -> Result<(), String> {
-        let strict = self.in_strict_fn;
-        self.in_strict_fn = inherited;
-        let strict = self.strict_or_in_class(strict);
-        self.reject_strict_reserved_params(params, strict)?;
-        self.judge_duplicate_params_strict(params, strict)
-    }
-
     /// §12.7.2 and §13.1.1 in a parameter list. This runs at the END
     /// of the function-body parse, not where the names were read,
     /// because a function's own `"use strict"` sits INSIDE the body it
