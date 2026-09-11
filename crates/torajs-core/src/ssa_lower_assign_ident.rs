@@ -95,6 +95,23 @@ pub(crate) fn lower(
         return lower_undeclared_write_throw(ctx, &name, value, true);
     }
     if ctx.ast.undeclared_reads.contains_key(&target) {
+        // §9.1.1.4.6 SetMutableBinding with `S` = false — under the
+        // SLOPPY goal an assignment to an unresolvable name CREATES
+        // the property on the global object rather than throwing, and
+        // whether the name is already there is a runtime fact (after
+        // `desugar_with` splits a body reference, only the scope
+        // object decides which arm runs). Strict / module code keeps
+        // the throw: §6.2.5.6 PutValue with `S` = true raises.
+        // …except where the statements came out of STRICT eval text.
+        // §19.2.1.1 gives eval code its own strictness, and strict code
+        // creates no globals; after `desugar_eval` splices those
+        // statements in, nothing downstream can tell them from the
+        // sloppy program around them, so the name is what carries the
+        // verdict (`ast.strict_eval_assign_names`, filled there for
+        // exactly this).
+        if ctx.ast.program_is_sloppy() && !ctx.ast.strict_eval_assign_names.contains(&name) {
+            return lower_global_ident_set(ctx, &name, value);
+        }
         // The throw makes the value unobservable and the lane past
         // the check is unreachable — nothing to hand a consumer.
         return lower_undeclared_write_throw(ctx, &name, value, false);
@@ -186,6 +203,26 @@ fn lower_undeclared_write_throw(
     );
     ctx.emit_throw_check(None);
     Operand::ConstPtrNull
+}
+
+/// §9.1.1.4.6 SetMutableBinding, sloppy — the write lands on the
+/// global object, and the assignment still answers the value it wrote
+/// (§13.15.2 step 5). The kernel mints the singleton if it has to;
+/// that is the one operation in this family that does.
+fn lower_global_ident_set(ctx: &mut LowerCtx<'_>, name: &str, value: ExprId) -> Operand {
+    let v = ctx.lower_expr(value);
+    let boxed = ctx.box_to_any(v);
+    let name_str = ctx.intern_string_literal(name);
+    let f = ctx.intrinsics.global_ident_set;
+    let cur_block = ctx.cur_block;
+    let out = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(f, vec![Operand::Value(name_str), boxed]),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Operand::Value(out)
 }
 
 fn lower_global_assign(

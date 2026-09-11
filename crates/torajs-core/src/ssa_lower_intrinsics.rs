@@ -519,6 +519,8 @@ pub(crate) struct Intrinsics {
     pub(crate) global_ident_get: FuncId,
     /// §13.5.1.1 `typeof` over the same lookup (else `"undefined"`).
     pub(crate) global_ident_typeof: FuncId,
+    /// §9.1.1.4.6 SetMutableBinding — creates the property.
+    pub(crate) global_ident_set: FuncId,
     pub(crate) throw_reference_error_tdz: FuncId,
     pub(crate) throw_reference_error_super_delete: FuncId,
     pub(crate) class_computed_method_define: FuncId,

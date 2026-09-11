@@ -486,6 +486,7 @@ pub(crate) mod ssa_lower_intrinsics_ctorret;
 pub(crate) mod ssa_lower_intrinsics_date;
 pub(crate) mod ssa_lower_intrinsics_error_slots;
 pub(crate) mod ssa_lower_intrinsics_fs;
+pub(crate) mod ssa_lower_intrinsics_global_object;
 pub(crate) mod ssa_lower_intrinsics_init_a;
 pub(crate) mod ssa_lower_intrinsics_init_b;
 pub(crate) mod ssa_lower_intrinsics_init_c;

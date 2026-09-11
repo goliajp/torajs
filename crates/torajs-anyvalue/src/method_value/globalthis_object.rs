@@ -58,20 +58,7 @@ unsafe extern "C" {
         value: u64,
         flags_byte: u64,
     );
-    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
-    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_rc_inc(p: *mut c_void);
-    fn __torajs_throw_reference_error_name(name: *mut c_void);
-    fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
 }
-
-/// The `__torajs_anyv_box_from_pair` tag for a heap payload — the one
-/// tag whose value the dynobj bag hands out as a BORROW.
-const PAIR_TAG_HEAP: u64 = 4;
-
-/// The `__torajs_anyv_box_from_pair` tag for `undefined`.
-const PAIR_TAG_UNDEFINED: u64 = 5;
 
 const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
 const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
@@ -98,7 +85,7 @@ const REF_PROP_FLAGS: u64 = DEFINE_FLAG_WRITABLE
     | DEFINE_PRESENT_VALUE;
 
 /// The interned globalThis singleton — 0 until first minted.
-static GLOBALTHIS_OBJECT: AtomicU64 = AtomicU64::new(0);
+pub(crate) static GLOBALTHIS_OBJECT: AtomicU64 = AtomicU64::new(0);
 
 /// The builtin constructors whose interned ctor cell exists —
 /// `(name, proto tag)`, tags per the compiler's `builtin_proto_tag`
@@ -144,21 +131,58 @@ const MISSING_KNOWN: &[&[u8]] = &[
     b"queueMicrotask",
 ];
 
-/// The globalThis singleton's dynobj pointer — mints on first use
-/// (compare-exchange identity, multi-thread-ready shape; a losing
-/// racer leaks one inert pre-filled object).
-pub(crate) fn globalthis_object_ptr() -> *mut c_void {
+/// 0 until the fill list below has run once.
+static GLOBALTHIS_FILLED: AtomicU64 = AtomicU64::new(0);
+
+/// The singleton's dynobj, WITHOUT the fill list — somewhere to put a
+/// property, and nothing more.
+///
+/// Split out from [`globalthis_object_ptr`] because the fill list
+/// reaches the whole ns-static world (the `Math` / `JSON` / console
+/// singletons, the interned ctor cells), and the linker strips that
+/// world from a program with no `globalThis` in it. An implicit
+/// global — `zz = 5` with no declaration anywhere — needs the bag and
+/// not one row of the list, so making it mint the filled object
+/// answered `namespace-static world stripped (dispatch judgment bug)`
+/// instead of writing the property.
+pub(crate) fn globalthis_bag_ptr() -> *mut c_void {
     let p = GLOBALTHIS_OBJECT.load(Ordering::Acquire);
     if p != 0 {
         return p as *mut c_void;
     }
-    // SAFETY: fresh dynobj filled with immortal cells; the object
-    // takes the static flag so rc traffic no-ops. The `globalThis`
-    // self-reference defines LAST: `__torajs_dynobj_define` may move
-    // the object on growth (it updates `obj` through the slot), and
-    // a self-pointer stored before a move would go stale.
+    // SAFETY: a fresh dynobj; the static flag makes rc traffic no-op,
+    // which is what every entry of the fill list assumes.
     unsafe {
-        let mut obj = __torajs_dynobj_alloc();
+        let obj = __torajs_dynobj_alloc();
+        *(obj.cast::<u8>().add(6) as *mut u16) |= FLAG_STATIC_LITERAL;
+        match GLOBALTHIS_OBJECT.compare_exchange(0, obj as u64, Ordering::AcqRel, Ordering::Acquire)
+        {
+            Ok(_) => obj,
+            Err(winner) => winner as *mut c_void,
+        }
+    }
+}
+
+/// The singleton with §19.1-§19.4 filled in — what `globalThis` in a
+/// value position answers (compare-exchange identity, multi-thread-
+/// ready shape; a losing racer leaks one inert object).
+pub(crate) fn globalthis_object_ptr() -> *mut c_void {
+    let bag = globalthis_bag_ptr();
+    if GLOBALTHIS_FILLED
+        .compare_exchange(0, 1, Ordering::AcqRel, Ordering::Acquire)
+        .is_err()
+    {
+        // Someone else filled it (or is filling it); the slot below is
+        // where the final address lands.
+        return GLOBALTHIS_OBJECT.load(Ordering::Acquire) as *mut c_void;
+    }
+    // SAFETY: the bag is a live dynobj filled with immortal cells. The
+    // `globalThis` self-reference defines LAST: `__torajs_dynobj_
+    // define` may move the object on growth (it updates `obj` through
+    // the slot), and a self-pointer stored before a move would go
+    // stale.
+    unsafe {
+        let mut obj = bag;
         for (name, tag) in CTOR_PROPS {
             let key = mint_immortal_str(name);
             __torajs_dynobj_define_plain(
@@ -310,12 +334,10 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             REF_PROP_FLAGS,
         );
         debug_assert!(core::ptr::eq(obj, self_ptr));
-        *(obj.cast::<u8>().add(6) as *mut u16) |= FLAG_STATIC_LITERAL;
-        match GLOBALTHIS_OBJECT.compare_exchange(0, obj as u64, Ordering::AcqRel, Ordering::Acquire)
-        {
-            Ok(_) => obj,
-            Err(winner) => winner as *mut c_void,
-        }
+        // The defines may have moved it; the slot is the address of
+        // record from here on.
+        GLOBALTHIS_OBJECT.store(obj as u64, Ordering::Release);
+        obj
     }
 }
 
@@ -337,95 +359,4 @@ pub(crate) fn globalthis_missing_known(ptr: *const c_void, key: *const c_void) -
     MISSING_KNOWN
         .iter()
         .any(|name| unsafe { crate::prop_has::key_is(key, name) })
-}
-
-/// §9.1.1.4 GetBindingValue on the OBJECT half of the global
-/// environment record, with `S` = false.
-///
-/// A bare name that resolves to no binding is not automatically a
-/// ReferenceError under the script goal: the global environment
-/// record's object record is consulted first, and only a name the
-/// global object does not carry throws. `this.p = 1` in global code
-/// writes THROUGH that object (`ast::toplevel_this` binds top-level
-/// `this` to this singleton under the sloppy goal), so `p` has to read
-/// it back.
-///
-/// The caller is `ssa_lower_ident::try_undeclared_read_throw`, and the
-/// name it passes is the checker's own verdict — an ExprId recorded in
-/// `undeclared_reads` (RFC 20260730). That record is exact by
-/// construction, which is the whole reason the lookup lives here
-/// rather than in an AST pass guessing at the same question ahead of
-/// the checker.
-///
-/// The throw is RECORDED, not raised: `__torajs_throw_reference_error_
-/// name` parks a pending throw and returns, and the caller's
-/// `emit_throw_check` propagates it. The `undefined` handed back on
-/// that path is never used.
-///
-/// # Safety
-///
-/// `key` must be a valid Str block pointer, borrowed.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_global_ident_get(key: *mut c_void) -> AnyValue {
-    // Read the singleton, do NOT mint it. Minting drags in the whole
-    // ns-static world (the `Math` / `JSON` / console singletons and
-    // the interned ctor cells the fill list needs), and the linker
-    // strips that world from a program with no `globalThis` in it —
-    // so minting HERE, from a site every undeclared read reaches,
-    // answered `namespace-static world stripped (dispatch judgment
-    // bug)` instead of a ReferenceError. Not minting also happens to
-    // be the right semantics: a program that never wrote through the
-    // global object has nothing there for a bare name to find, and
-    // every name that IS pre-filled (`Array`, `Math`, …) has a static
-    // lane and never reaches this kernel.
-    let obj = GLOBALTHIS_OBJECT.load(Ordering::Acquire) as *mut c_void;
-    // SAFETY: `obj` is the singleton or null (checked); `key` is a Str
-    // block per the caller invariant, and every callee below borrows
-    // both.
-    unsafe {
-        if !obj.is_null() && __torajs_dynobj_has(obj, key) != 0 {
-            let tag = __torajs_dynobj_get_tag(obj, key);
-            let value = __torajs_dynobj_get_value(obj, key);
-            // The bag hands out a borrow; the value escapes into the
-            // program, so a heap payload needs a stake of its own.
-            if tag == PAIR_TAG_HEAP {
-                __torajs_rc_inc(value as *mut c_void);
-            }
-            return crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
-        }
-        __torajs_throw_reference_error_name(key);
-        crate::nanbox_encode::__torajs_anyv_box_from_pair(PAIR_TAG_UNDEFINED as i64, 0)
-    }
-}
-
-/// §13.5.1.1 — `typeof` on a name that resolves to no binding answers
-/// `"undefined"` instead of throwing, so it asks the object half of
-/// the record the same question [`__torajs_global_ident_get`] does and
-/// falls back to the string rather than the throw.
-///
-/// Folding it to the constant at compile time was right while nothing
-/// could write through the global object; it stops being right the
-/// moment `this.p = 1` in global code can, because then `typeof p` has
-/// to answer `"number"`.
-///
-/// Does not mint, for the reason the getter does not — see there.
-///
-/// # Safety
-///
-/// `key` must be a valid Str block pointer, borrowed. The returned Str
-/// is owned by the caller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_global_ident_typeof(key: *mut c_void) -> *mut u8 {
-    let obj = GLOBALTHIS_OBJECT.load(Ordering::Acquire) as *mut c_void;
-    // SAFETY: `obj` is the singleton or null (checked); `key` is a Str
-    // block per the caller invariant, borrowed by every callee.
-    unsafe {
-        if !obj.is_null() && __torajs_dynobj_has(obj, key) != 0 {
-            let tag = __torajs_dynobj_get_tag(obj, key);
-            let value = __torajs_dynobj_get_value(obj, key);
-            let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
-            return crate::inspect::typeof_any::__torajs_anyv_typeof(boxed);
-        }
-        __torajs_str_alloc(b"undefined".as_ptr(), 9)
-    }
 }
