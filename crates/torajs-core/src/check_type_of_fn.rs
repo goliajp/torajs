@@ -142,6 +142,9 @@ pub(crate) fn check_closure(
     captures: &[String],
 ) -> Result<Type, String> {
     let fn_name = fn_name.to_string();
+    if let Some(t) = checker.closure_walk_memo.get(&(eid, fn_name.clone())) {
+        return Ok(t.clone());
+    }
     let captures = captures.to_vec();
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
     for cap in &captures {
@@ -301,5 +304,10 @@ pub(crate) fn check_closure(
     checker.expected_return = saved_return;
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
+    if checker.speculative_depth == 0 {
+        checker
+            .closure_walk_memo
+            .insert((eid, fn_name), value_ty.clone());
+    }
     Ok(value_ty)
 }

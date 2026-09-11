@@ -37,6 +37,8 @@ impl Checker {
             fn_escape_widen_sites: HashMap::new(),
             arity_pad_count: HashMap::new(),
             checking_spec_body: false,
+            closure_walk_memo: HashMap::new(),
+            speculative_depth: 0,
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
             expr_types: HashMap::new(),

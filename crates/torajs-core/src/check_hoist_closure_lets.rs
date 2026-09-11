@@ -73,7 +73,16 @@ pub(crate) fn enter(checker: &mut Checker, ast: &Ast, stmts: &[Stmt]) -> HashMap
                 &[],
                 &checker.generic_alias_decls,
             ),
-            None => checker.type_of(ast, init).ok(),
+            None => {
+                // Speculative: the list's own earlier declarations are
+                // not in scope yet, so a closure walked here must be
+                // walked again by the statement itself
+                // (`closure_walk_memo` stays empty for it).
+                checker.speculative_depth += 1;
+                let t = checker.type_of(ast, init).ok();
+                checker.speculative_depth -= 1;
+                t
+            }
         };
         checker
             .hoisted_closure_lets

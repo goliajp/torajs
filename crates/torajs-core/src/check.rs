@@ -316,6 +316,16 @@ pub(crate) struct Checker {
     /// as absent. See [`crate::check_type_of_member`]'s terminal-miss
     /// posture for what that costs and which shape it re-opens.
     pub(crate) checking_spec_body: bool,
+    /// Rotation 635 — closure sites already walked, with the value
+    /// type answered. A call site types its callee more than once and
+    /// each `type_of` of a closure walked its body anew: nested IIFEs
+    /// cost k^depth walks. Keyed by (site, lifted name) — a monomorph
+    /// clone re-walks the site under its own name.
+    pub(crate) closure_walk_memo: HashMap<(ExprId, String), Type>,
+    /// Non-zero while the hoisted-closure-let pre-pass types an
+    /// initializer before its list is in scope: that walk is redone
+    /// by the statement itself, so it is never memoized.
+    pub(crate) speculative_depth: u32,
     /// M3.4 — generic struct alias declarations. Maps `Pair` →
     /// `(["A","B"], [("fst","A"), ("snd","B")])` for
     /// `type Pair<A, B> = { fst: A, snd: B }`. Used by
