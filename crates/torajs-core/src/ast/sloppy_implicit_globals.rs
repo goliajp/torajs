@@ -62,6 +62,19 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
     }
     let mut declared = std::collections::HashSet::new();
     super::delete_bare_name::collect_declared_names(&ast.stmts, &mut declared);
+    // Function EXPRESSION bodies hang off the arena, not the stmt
+    // spine, and the walk below reaches their assignments — so their
+    // declarations have to count too, or an IIFE's `let x` written
+    // after a nested `x = 1` reads as an unresolvable write and a
+    // global `var x` is invented next to the real binding (rotation
+    // 634: test262's function-local-closure-set-before-initialization
+    // died on the redeclaration). Scope-blind like the rest of the set.
+    for e in &ast.exprs {
+        if let Expr::ArrowFn { params, body, .. } = e {
+            declared.extend(params.iter().map(|p| p.name.clone()));
+            super::delete_bare_name::collect_declared_names(body, &mut declared);
+        }
+    }
     // Names an assignment inside STRICT eval text would have created
     // if it were sloppy. It is not, so nothing may be synthesized for
     // them — and `declared` is exactly the set of names this pass does
