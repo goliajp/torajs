@@ -96,6 +96,14 @@ P0 ship 的：
 
 rotation 收尾 gate（`torajs-autorun-pipeline.md` 收尾 sequence 引用）：
 - `hardev/autorun/wait_mini_gate.sh <log>` — 阻塞到 mini conformance gate 出摘要行
+- `hardev/autorun/preflight_mini.sh [-c crate]... [-F fixture]...` — **A 轨 pre-flight 一键版**(rotation 639):把 dev 上
+  `git status` 的 crates/ + conformance/cases/ 改动逐文件 rsync 到 mini,在 login zsh 里跑 `cargo fmt`(触及的 crate)/
+  `cargo fmt --all -- --check`(文件名列表,不截断)/ iter 与四目标 release 两次 build(各自 exit 码 + warning 计数)/ 触及 crate 的 nextest /
+  `staticlib_freshness.sh iter` / 每条触及 fixture 的 EQ·DIFF(`.cts` 对 `.expected`,`.ts` 对 bun),再按内容取回 fmt 改动、跑本地
+  `file_size_audit.sh`,最后一行 `PREFLIGHT PASS` 或 `PREFLIGHT FAIL: <原因>`(exit 1)。**能红**:rotation 639 用一条 expected 写错的临时
+  fixture 验过 `PREFLIGHT FAIL: fixture: …`。
+- `hardev/autorun/fmt_takeback.sh [file...]` — 按**内容**(dev/mini md5 逐文件比对,一次 ssh)取回 mini 上被 `cargo fmt` 改写的文件;
+  无参数时取 `git status` 里 crates/ 下的改动集。mini 的 `git status` 对 rsync 树列出几百个 `M`,不能用来找 fmt 改动(rotation 639)。
 - `hardev/autorun/build_determinism.sh [N]` — **步骤 0c 的 gate**。全部 bench case
   各建 1+N 次，答两个问题：还编译得过吗、重复构建是不是只出一个 artifact。
   CSV 到 stdout + 带 N 的摘要行；任一 build 失败或任一 case 多于一个 sha → exit 1。
