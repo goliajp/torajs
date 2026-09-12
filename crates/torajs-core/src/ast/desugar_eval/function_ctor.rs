@@ -403,7 +403,7 @@ fn wrap_throw_iife(i: usize, throw: Stmt, ast: &mut Ast) {
 /// call whose arguments are ALL compile-time strings — the last is the
 /// body text, the rest are parameter texts. `None` for anything else,
 /// including the zero-argument shape (owned elsewhere, see above).
-fn function_ctor_args(eid: ExprId, ast: &Ast) -> Option<Vec<String>> {
+pub(super) fn function_ctor_args(eid: ExprId, ast: &Ast) -> Option<Vec<String>> {
     let args: &[ExprId] = match ast.exprs.get(eid.0 as usize)? {
         Expr::Call { callee, args } if !args.is_empty() => {
             match ast.exprs.get(callee.0 as usize)? {

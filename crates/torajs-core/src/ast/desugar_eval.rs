@@ -308,7 +308,10 @@ fn rewrite_value_position_evals(ast: &mut Ast) {
                 && {
                     let mut names = Vec::new();
                     decl_names(tail, &mut names);
-                    !names.is_empty() && names.iter().all(|n| !name_mentioned(ast, n, arena_before))
+                    !names.is_empty()
+                        && names
+                            .iter()
+                            .all(|n| !name_mentioned(ast, n, arena_before, eid))
                 };
             if tail_dead || tail_empty || tail_dead_sloppy {
                 ast.exprs[i] = if prologue {

@@ -3,7 +3,9 @@
 //! completion value without running anything. Moved verbatim from
 //! `desugar_eval.rs` (r334 blade 6 sibling split).
 
-use super::super::{Ast, Expr, Stmt};
+use super::super::{Ast, Expr, ExprId, Stmt};
+use super::function_ctor::function_ctor_args;
+use super::recognize::literal_eval_call;
 
 /// A declaration whose evaluation nothing can observe **in a strict
 /// direct eval**: a `let` / `var` whose initializer is an identifier
@@ -117,18 +119,78 @@ pub(super) fn decl_names(stmts: &[Stmt], out: &mut Vec<String>) {
 /// Could the program reach a global binding of this name? Any
 /// identifier spelling it, any member access naming it (`this.x`), or
 /// any string literal equal to it (`'x' in this`,
-/// `getOwnPropertyDescriptor(this, "x")`) counts. The scan stops at
-/// `limit` — the arena length before the current eval source was
-/// parsed in — so the source's own uses of its own names do not veto
-/// the collapse. Garbage expressions left by earlier collapses are
-/// scanned too, which can only over-decline: the safe direction.
-pub(super) fn name_mentioned(ast: &Ast, name: &str, limit: usize) -> bool {
-    ast.exprs[..limit.min(ast.exprs.len())]
+/// `getOwnPropertyDescriptor(this, "x")`) counts. So does the name
+/// appearing as an identifier token inside the literal SOURCE of
+/// another eval-like call — `eval('var keep = 5');
+/// $262.evalScript('console.log(keep)')` reads `keep` from text this
+/// pass will parse later, and the read is as real as one written in
+/// the program body. The scan stops at `limit` — the arena length
+/// before the current eval source was parsed in — so the source's own
+/// uses of its own names do not veto the collapse; `self_call` is the
+/// call being collapsed, whose text declares the name and is skipped
+/// for the same reason. Garbage expressions left by earlier collapses
+/// are scanned too, which can only over-decline: the safe direction.
+pub(super) fn name_mentioned(ast: &Ast, name: &str, limit: usize, self_call: ExprId) -> bool {
+    let scanned = &ast.exprs[..limit.min(ast.exprs.len())];
+    scanned.iter().any(|e| match e {
+        Expr::Ident(n) => n == name,
+        Expr::Member { name: n, .. } | Expr::OptChain { name: n, .. } => n == name,
+        Expr::String(s) => s == name,
+        _ => false,
+    }) || (0..scanned.len()).any(|i| {
+        let eid = ExprId(i as u32);
+        eid != self_call && eval_like_source_mentions(eid, ast, name)
+    })
+}
+
+/// Does the literal source text of an eval-like call at `eid` spell
+/// `name` as an identifier token? Covers the three eval call forms
+/// and the `Function(...)` constructor family; anything else answers
+/// `false`. A property spelled the same way (`o.keep`) counts too —
+/// over-declining is the safe direction, and telling the two apart
+/// would mean parsing the text here.
+fn eval_like_source_mentions(eid: ExprId, ast: &Ast, name: &str) -> bool {
+    if let Some((src, _)) = literal_eval_call(eid, ast) {
+        return text_mentions_ident(&src, name);
+    }
+    function_ctor_args(eid, ast)
+        .is_some_and(|texts| texts.iter().any(|t| text_mentions_ident(t, name)))
+}
+
+/// `name` occurs in `text` as an identifier token that is not the
+/// binding position of a declaration. `function err() {}` /
+/// `function* err() {}` / `var err;` in a sibling eval's text DECLARE
+/// the name and read nothing — test262's catch-parameter
+/// redeclaration family writes exactly that row of texts, and every
+/// one of them is unobservable when no text READS the name. An
+/// initializer, a call, a `typeof`, a `delete` operand all leave the
+/// name with no declaration keyword in front of it and count.
+fn text_mentions_ident(text: &str, name: &str) -> bool {
+    let is_id = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    text.match_indices(name).any(|(at, _)| {
+        let before = &text[..at];
+        before.chars().next_back().is_none_or(|c| !is_id(c))
+            && text[at + name.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| !is_id(c))
+            && !in_declaration_position(before)
+    })
+}
+
+/// Does `before` end in a declaration keyword (with an optional
+/// generator star), so the identifier that follows is being bound
+/// rather than read?
+fn in_declaration_position(before: &str) -> bool {
+    let trimmed = before.trim_end();
+    let trimmed = trimmed.strip_suffix('*').map_or(trimmed, str::trim_end);
+    ["var", "let", "const", "function", "class"]
         .iter()
-        .any(|e| match e {
-            Expr::Ident(n) => n == name,
-            Expr::Member { name: n, .. } | Expr::OptChain { name: n, .. } => n == name,
-            Expr::String(s) => s == name,
-            _ => false,
+        .any(|kw| {
+            trimmed.strip_suffix(kw).is_some_and(|rest| {
+                rest.chars()
+                    .next_back()
+                    .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$'))
+            })
         })
 }

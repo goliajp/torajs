@@ -1,0 +1,4 @@
+script-reads 5
+script-calls fn
+eval-reads 6
+function-reads 7
