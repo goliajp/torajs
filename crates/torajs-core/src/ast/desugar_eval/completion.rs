@@ -19,9 +19,12 @@
 
 use super::super::{Ast, Expr, ExprId, Stmt, free_vars};
 use super::completion_stmt;
+use super::recognize::has_use_strict_prologue;
 use super::recognize::literal_eval_call;
 use super::rewrite_list;
-use super::source::{CallForm, eval_strictness, first_line, parse_eval_source, syntax_error_throw};
+use super::source::{
+    CallForm, EvalStrictness, eval_strictness, first_line, parse_eval_source, syntax_error_throw,
+};
 use super::walk;
 
 /// This pass runs LAST in the desugar deliberately: by then the
@@ -81,6 +84,14 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 // an eval like any other; the statement walk no longer
                 // runs, so give the new body its own pass.
                 rewrite_list(&mut body, ast, true, super_ok, &caller_strict);
+                let top_level = !fn_owned.get(i).copied().unwrap_or(false);
+                if form == CallForm::Direct
+                    && strict != EvalStrictness::Strict
+                    && !has_use_strict_prologue(&body, ast)
+                    && top_level
+                {
+                    hoist_sloppy_vars_to_script(&mut body, ast);
+                }
                 body.push(Stmt::Return(Some(tail)));
                 wrap_iife(i, body, ast);
             }
@@ -93,6 +104,14 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                         || scope_transparent(&body, ast, i, &fn_owned, &nested_lexical)) =>
             {
                 rewrite_list(&mut body, ast, true, super_ok, &caller_strict);
+                let top_level = !fn_owned.get(i).copied().unwrap_or(false);
+                if form == CallForm::Direct
+                    && strict != EvalStrictness::Strict
+                    && !has_use_strict_prologue(&body, ast)
+                    && top_level
+                {
+                    hoist_sloppy_vars_to_script(&mut body, ast);
+                }
                 let body = completion_stmt::rewrite_trailing_stmt_completion(body, ast);
                 wrap_iife(i, body, ast);
             }
@@ -182,4 +201,88 @@ pub(super) fn wrap_iife(i: usize, body: Vec<Stmt>, ast: &mut Ast) {
         callee: arrow,
         args: Vec::new(),
     };
+}
+
+/// A SLOPPY direct eval's `var` belongs to the CALLER's variable
+/// environment (§19.2.1.3 steps 8-10), and at a top-level call site
+/// that is the global one — the IIFE's own frame, which the module
+/// doc describes, is the strict rule only. `eval('var x = 2')` in a
+/// `for…in` head's object literal left `x` as the arrow's local and
+/// the program's `x` at 1 (test262 `scope-head-var-none`, rotation
+/// 640). Every `var` site of the source becomes an assignment (an
+/// init-less one is dropped), so the write lands on the program's
+/// binding; a name the program declares nowhere gets a `var` of its
+/// own at the head of the script, filed as an eval-declared site so
+/// the hoist gives it the eval flavour (§19.2.1.3: a deletable global).
+/// A call site inside a function keeps the sealed frame — the
+/// function's own var scope is not reachable from here (registered).
+fn hoist_sloppy_vars_to_script(body: &mut Vec<Stmt>, ast: &mut Ast) {
+    let mut counts = std::collections::HashMap::new();
+    super::super::var_hoist::count_var_names(body, &mut counts);
+    if counts.is_empty() {
+        return;
+    }
+    let mut declared = std::collections::HashMap::new();
+    super::super::var_hoist::count_var_names(&ast.stmts, &mut declared);
+    let fn_names: std::collections::HashSet<String> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
+    let mut names: Vec<String> = counts.into_keys().collect();
+    names.sort();
+    for name in names {
+        if declared.contains_key(&name) || fn_names.contains(&name) {
+            continue;
+        }
+        let init = ast.add_expr(Expr::Uninit);
+        ast.eval_var_sites
+            .insert(init, super::super::var_hoist::ScriptGlobalVar::EvalVar);
+        ast.stmts.insert(
+            0,
+            Stmt::LetDecl {
+                mutable: true,
+                name,
+                type_ann: None,
+                init,
+                is_var: true,
+            },
+        );
+    }
+    for s in body.iter_mut() {
+        vars_to_assignments(s, ast);
+    }
+}
+
+/// `var x = e` → `x = e`; `var x;` → nothing. Every position the var
+/// hoist walks (blocks and branches, not function bodies).
+fn vars_to_assignments(s: &mut Stmt, ast: &mut Ast) {
+    if let Stmt::LetDecl {
+        name,
+        init,
+        is_var: true,
+        ..
+    } = s
+    {
+        if matches!(ast.get_expr(*init), Expr::Uninit) {
+            *s = Stmt::Block(Vec::new());
+            return;
+        }
+        let target = ast.add_expr(Expr::Ident(name.clone()));
+        let assign = ast.add_expr(Expr::Assign {
+            target,
+            value: *init,
+        });
+        *s = Stmt::Expr(assign);
+        return;
+    }
+    if matches!(s, Stmt::FnDecl { .. }) {
+        return;
+    }
+    for c in super::super::desugar_with::walk::stmt_children(s) {
+        vars_to_assignments(c, ast);
+    }
 }
