@@ -38,8 +38,8 @@
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
 
+use torajs_rc::AnySlotTag;
 use torajs_rc::builtin_proto::native_error_class;
-use torajs_rc::{AnySlotTag, FLAG_STATIC_LITERAL};
 
 use crate::AnyValue;
 use crate::nanbox::box_void_ptr;
@@ -150,11 +150,18 @@ pub(crate) fn globalthis_bag_ptr() -> *mut c_void {
     if p != 0 {
         return p as *mut c_void;
     }
-    // SAFETY: a fresh dynobj; the static flag makes rc traffic no-op,
-    // which is what every entry of the fill list assumes.
+    // A plain MORTAL cell, rooted by `GLOBALTHIS_OBJECT` (the
+    // allocation's own stake is the root's) and never released. It
+    // was marked `FLAG_STATIC_LITERAL` for rc-immortality once, but
+    // that flag also carries the `.rodata` posture the integrity
+    // kernels honour — `Object.preventExtensions(this)` was a silent
+    // no-op and `Object.isFrozen(this)` answered true (rotation 639;
+    // `builtin_proto` records the same lesson for `Object.prototype`).
+    // Every value face takes its own stake instead
+    // (`__torajs_globalthis_object`, the `globalThis` self-entry).
+    // SAFETY: a fresh dynobj; the CAS publishes it once.
     unsafe {
         let obj = __torajs_dynobj_alloc();
-        *(obj.cast::<u8>().add(6) as *mut u16) |= FLAG_STATIC_LITERAL;
         match GLOBALTHIS_OBJECT.compare_exchange(0, obj as u64, Ordering::AcqRel, Ordering::Acquire)
         {
             Ok(_) => obj,
@@ -326,6 +333,9 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
         );
         let key = mint_immortal_str(b"globalThis");
         let self_ptr = obj;
+        // The entry owns a stake on its value like any other; the
+        // self-reference is a cycle the root keeps alive.
+        torajs_rc::__torajs_rc_inc(self_ptr);
         __torajs_dynobj_define_plain(
             &mut obj,
             key as *mut c_void,
@@ -341,10 +351,14 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
     }
 }
 
-/// Compiler face — `globalThis` lowered in a value position.
+/// Compiler face — `globalThis` lowered in a value position: an OWNED
+/// Any (the caller releases it), so it takes a stake.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_globalthis_object() -> AnyValue {
-    box_void_ptr(globalthis_object_ptr())
+    let p = globalthis_object_ptr();
+    // SAFETY: `p` is the live singleton.
+    unsafe { torajs_rc::__torajs_rc_inc(p) };
+    box_void_ptr(p)
 }
 
 /// Miss-lane probe: true only when `ptr` is the minted singleton AND

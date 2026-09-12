@@ -47,8 +47,11 @@ unsafe extern "C" {
         value: u64,
     );
     fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    fn __torajs_anyv_unbox_value(v: u64) -> i64;
 }
 
 /// `torajs_dynobj::layout` mirrors — the header flag a
@@ -64,8 +67,10 @@ const DEFINE_PRESENT_WRITABLE: u64 = 1 << 3;
 const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
 const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
 const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
-/// `AnySlotTag::Heap` / the get_tag accessor sentinel.
+/// `AnySlotTag::Heap` / `AnySlotTag::Undef` / the get_tag accessor
+/// sentinel.
 const ANY_HEAP: u64 = 4;
+const ANY_UNDEF: u64 = 5;
 const ANY_ACCESSOR: u64 = 6;
 /// `torajs_dynobj::global_cell::KIND_ANY`.
 const KIND_ANY: u64 = 0;
@@ -82,7 +87,9 @@ const KIND_FLAG_WRITERLESS: u64 = 1 << 8;
 /// 9 says the binding has no bare compiled writer (see
 /// `global_cell::KIND_FLAG_WRITERLESS`); bit 11 says the slot already
 /// holds the value being written (an assignment site, not the `x = x`
-/// an init-less eval `var` hoists to).
+/// an init-less eval `var` hoists to); bit 12 says the binding is an
+/// implicit global — a [[Set]]'s creation, which a non-extensible
+/// object refuses silently rather than with the `var` TypeError.
 ///
 /// - Absent: define `{[[Value]]: <slot>, W: true, E: true, C: <bit 8>}`
 ///   — a `GlobalCell` over the slot — unless the object is not
@@ -119,6 +126,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
     let writerless = kind & (1 << 9) != 0;
     let function = kind & (1 << 10) != 0;
     let assigned = kind & (1 << 11) != 0;
+    let implicit = kind & (1 << 12) != 0;
     let kind = kind & 0xff;
     let cell_kind = kind | if writerless { KIND_FLAG_WRITERLESS } else { 0 };
     let mut obj = globalthis_bag_ptr();
@@ -204,6 +212,20 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
         } else {
             let header_flags = *(obj.cast::<u8>().add(6) as *const u16);
             if header_flags & HDR_FLAG_NON_EXTENSIBLE != 0 {
+                if implicit && kind == KIND_ANY {
+                    // §9.1.1.4.6 SetMutableBinding → §10.1.9.2 step 2.c:
+                    // CreateDataProperty on a non-extensible object is
+                    // false, and sloppy code (the only code that reaches
+                    // an implicit write) discards it: NO binding. The
+                    // slot the store just filled goes back to undefined,
+                    // so `typeof zz` keeps answering "undefined".
+                    let stored = *(slot_ptr as *const u64);
+                    if __torajs_anyv_unbox_tag(stored) as u64 == ANY_HEAP {
+                        __torajs_rc_dec(__torajs_anyv_unbox_value(stored) as *mut c_void);
+                    }
+                    *(slot_ptr as *mut u64) = __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
+                    return;
+                }
                 __torajs_throw_type_error(
                     c"Cannot declare a global variable: the global object is not extensible."
                         .as_ptr(),

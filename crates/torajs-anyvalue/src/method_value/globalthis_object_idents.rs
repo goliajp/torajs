@@ -27,8 +27,14 @@ unsafe extern "C" {
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_dynobj_set(obj_slot: *mut *mut c_void, key: *mut c_void, tag: u64, value: u64);
+    fn __torajs_dynobj_set_soft(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    ) -> i64;
     fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_rc_dec(p: *mut c_void) -> i32;
     fn __torajs_throw_reference_error_name(name: *mut c_void);
     fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
     fn __torajs_anyv_unbox_tag(v: AnyValue) -> i64;
@@ -187,7 +193,15 @@ pub unsafe extern "C" fn __torajs_global_ident_set(key: *mut c_void, v: AnyValue
         if tag == PAIR_TAG_HEAP {
             __torajs_rc_inc(value as *mut c_void);
         }
-        __torajs_dynobj_set(&mut obj, key, tag, value);
+        // Only SLOPPY code reaches this kernel (a strict unresolvable
+        // write is the ReferenceError at the site), and §6.2.5.6
+        // PutValue with `S` = false discards a refused [[Set]] — a
+        // non-extensible global object, a read-only property — rather
+        // than throwing. A refusal leaves the stake with nobody, so it
+        // is released here.
+        if __torajs_dynobj_set_soft(&mut obj, key, tag, value) == 0 && tag == PAIR_TAG_HEAP {
+            __torajs_rc_dec(value as *mut c_void);
+        }
     }
     GLOBALTHIS_OBJECT.store(obj as u64, Ordering::Release);
     v

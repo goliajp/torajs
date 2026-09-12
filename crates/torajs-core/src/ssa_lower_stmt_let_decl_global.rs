@@ -304,7 +304,8 @@ pub(crate) fn emit_script_global_var_bind(
     // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
     // configurable property, bit 9 marks a binding with no bare
     // compiled writer, bit 10 a function binding, bit 11 a store
-    // whose value the slot already holds (the kernel's contract).
+    // whose value the slot already holds, bit 12 an implicit global
+    // (the kernel's contract).
     let configurable: i64 = match flavor {
         crate::ast::ScriptGlobalVar::Declared
         | crate::ast::ScriptGlobalVar::Function
@@ -329,10 +330,19 @@ pub(crate) fn emit_script_global_var_bind(
     } else {
         0
     };
+    // Bit 12: the binding a [[Set]] creates (§9.1.1.4.6), which a
+    // non-extensible object refuses SILENTLY in sloppy code — unlike a
+    // `var` declaration's CanDeclareGlobalVar (TypeError).
+    let implicit: i64 = if flavor == crate::ast::ScriptGlobalVar::Implicit {
+        1 << 12
+    } else {
+        0
+    };
     let kind: i64 = configurable
         | writerless
         | function
         | assigned
+        | implicit
         | match slot_ty {
             Type::Any => 0,
             Type::I64 | Type::I32 => 1,
