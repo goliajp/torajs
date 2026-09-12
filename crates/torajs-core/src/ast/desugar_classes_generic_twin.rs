@@ -76,7 +76,7 @@ pub(in crate::ast) fn mint_generic_twin(
     // HomeObject, receiver-independent) but the mono target's ClassRef
     // receiver param still rejects `any`, so such a method minting no
     // twin is the recorded RFC residue (super-route follow-up blade).
-    if !restore_dynamic_calls(&mut cloner) {
+    if !restore_dynamic_calls(&mut cloner, params, body) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -137,7 +137,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
     // static body's `this.#f()` recorded its intact Member as a
     // speculative-demote alt — see `restore_dynamic_calls`). A form
     // with no record (the super rewrite) drops the mint.
-    if !restore_dynamic_calls(&mut cloner) {
+    if !restore_dynamic_calls(&mut cloner, params, body) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -209,7 +209,7 @@ pub(in crate::ast) fn mint_ctor_generic_twin(
     let cloned_body = cloner.clone_stmts(&body);
     super::clone_body_tables::migrate(&mut cloner);
     retarget_super_ctor_twin_calls(&mut cloner);
-    if !restore_dynamic_calls(&mut cloner) {
+    if !restore_dynamic_calls(&mut cloner, &user_params, &body) {
         neutralize_clone(&mut cloner);
         return;
     }
@@ -347,7 +347,7 @@ fn neutralize_clone(cloner: &mut BodyCloner<'_>) {
 /// = every static form restored; `false` = a form with no restore
 /// entry (the super rewrite) — the caller neutralizes the clone and
 /// drops the mint.
-fn restore_dynamic_calls(cloner: &mut BodyCloner<'_>) -> bool {
+fn restore_dynamic_calls(cloner: &mut BodyCloner<'_>, params: &[Param], body: &[Stmt]) -> bool {
     let new_ids: Vec<crate::ast::ExprId> = cloner.map.values().copied().collect();
     for id in new_ids {
         let Expr::Call { callee, args } = cloner.ast.get_expr(id) else {
@@ -381,6 +381,21 @@ fn restore_dynamic_calls(cloner: &mut BodyCloner<'_>) -> bool {
                 else {
                     return false;
                 };
+                // The twin retypes only what flows from its receiver
+                // and its parameters. A receiver the method never
+                // binds — a module-level `let g = new Box()` read from
+                // the body — keeps its static class in the twin too,
+                // and the member-call shape has no lane for a typed
+                // receiver (every lane past the static one expects
+                // `any`): `class K { m() { this.x; return g.get() } }`
+                // died in lowering with "unsupported member call
+                // shape", and so did every generator body doing the
+                // same, since `__Gen_<f>.next` always reads `this`.
+                // Static dispatch is exactly right for such a
+                // receiver, so the rewrite stands.
+                if receiver_keeps_static_type(cloner.ast, alt_callee, params, body) {
+                    continue;
+                }
                 cloner.ast.exprs[id.0 as usize] = Expr::Call {
                     callee: alt_callee,
                     args: alt_args,
@@ -398,4 +413,34 @@ fn restore_dynamic_calls(cloner: &mut BodyCloner<'_>) -> bool {
         };
     }
     true
+}
+
+/// Is the member call's receiver a bare name the method neither takes
+/// as a parameter nor binds anywhere in its body — a free variable
+/// whose static type the twin leaves alone? `this`, `__this` and
+/// every parameter are retyped `any` in the twin; a local may inherit
+/// that through its initializer, so any name the body binds answers
+/// `false` (the conservative direction: restoring keeps today's path).
+fn receiver_keeps_static_type(
+    ast: &Ast,
+    callee: crate::ast::ExprId,
+    params: &[Param],
+    body: &[Stmt],
+) -> bool {
+    let Expr::Member { obj, .. } = ast.get_expr(callee) else {
+        return false;
+    };
+    let Expr::Ident(name) = ast.get_expr(*obj) else {
+        return false;
+    };
+    // A static body's `this.h()` reached pass 2 already spelled as
+    // `<Class>.h()` (knife 2), so its alt's receiver is the class
+    // name — the one free name the twin DOES rebind (`rebind_this_sites`
+    // turns it into `__this` after this step).
+    name != "__this"
+        && !ast.class_parents.contains_key(name)
+        && !params.iter().any(|p| p.name == *name)
+        && !body
+            .iter()
+            .any(|s| super::desugar_generators_alpha::rebinds_in_stmt(s, name))
 }
