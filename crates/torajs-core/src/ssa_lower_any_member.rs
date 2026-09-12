@@ -202,8 +202,14 @@ pub(crate) fn lower_any_member_read(
         // the generic undefined cell (a `{r: undefined}` Ptr slot, an
         // optional heap field): normalize to ANY_UNDEF, mirroring the
         // runtime probe (`struct_field_pair_bytes`).
+        // A `number` slot some write handed the F64 undefined sentinel
+        // (a generator step's completion value, rotation 640): the
+        // bits compare, gated by the field-name set every consumer of
+        // the sentinel reads — mirroring the runtime probe's F64 arm.
         let boxed = if field_ty.spells_undef_with_generic_cell() {
             ctx.box_heap_slot_or_undef(Operand::Value(field_v))
+        } else if *field_ty == Type::F64 && ctx.undefable_f64_fields.contains(name) {
+            ctx.box_f64_or_undef(Operand::Value(field_v))
         } else {
             ctx.box_to_any(Operand::Value(field_v))
         };

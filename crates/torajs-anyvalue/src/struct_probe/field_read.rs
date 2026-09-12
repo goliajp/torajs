@@ -60,6 +60,10 @@ pub(crate) unsafe fn struct_field_pair_bytes(ptr: *mut c_void, name: &[u8]) -> O
             )
         }
         1 => (AnySlotTag::I64 as u64, raw),
+        // A `number` slot holding the F64 undefined sentinel (a
+        // generator step's completion value, rotation 640) is
+        // `undefined` to the any world, as the heap arm's cells are.
+        2 if raw == torajs_rc::F64_UNDEF_SENTINEL_BITS => (AnySlotTag::Undef as u64, 0),
         2 => (AnySlotTag::F64 as u64, raw),
         3 => (AnySlotTag::Bool as u64, raw),
         // Heap slot — undefined sentinels normalize to JS
@@ -147,6 +151,9 @@ pub unsafe extern "C" fn __torajs_struct_field_read_anyv(
     };
     let anyv = if type_tag == 0 {
         raw
+    } else if type_tag == 2 && raw == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+        // Same normalization as `struct_field_pair_bytes`' F64 arm.
+        unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(AnySlotTag::Undef as i64, 0) }
     } else {
         let slot_tag = match type_tag {
             1 => AnySlotTag::I64,

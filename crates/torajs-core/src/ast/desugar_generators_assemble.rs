@@ -7,7 +7,7 @@
 //! dispatch wrap (C1) has room to land here next to the assembly
 //! it extends.
 
-use super::{Ast, BinOp, Expr, Stmt, default_init_for_type};
+use super::{Ast, BinOp, Expr, Stmt};
 
 /// Build the next()'s state-machine body: lower `gen_body` through
 /// GenSm into `arms`, then assemble `[while(true) { if(state==0){arm0}
@@ -38,7 +38,7 @@ pub(super) fn build_state_machine_next_body(
     let mut sm = super::desugar_generators_sm::GenSm::new(ast, yield_ty.to_string(), is_async_gen);
     sm.lower_seq(gen_body);
     // After the last body stmt, the natural exit is "done forever".
-    let zero = default_init_for_type(yield_ty);
+    let zero = crate::ast::desugar_generators_methods::completion_undefined(yield_ty);
     let zero_id = sm.ast.add_expr(zero);
     let done_lit = sm.ast.add_expr(Expr::Bool(true));
     let final_obj = sm.ast.add_expr(Expr::ObjectLit {
@@ -70,7 +70,7 @@ pub(super) fn build_state_machine_next_body(
     // Catch-all for any state past the last allocated arm (covers
     // unreachable dead-states from break/continue and any "fell off
     // the end" case that didn't return inside the if-chain).
-    let zero_tail = default_init_for_type(yield_ty);
+    let zero_tail = crate::ast::desugar_generators_methods::completion_undefined(yield_ty);
     let zero_tail_id = ast.add_expr(zero_tail);
     let done_tail = ast.add_expr(Expr::Bool(true));
     let final_tail = ast.add_expr(Expr::ObjectLit {
@@ -109,7 +109,7 @@ pub(super) fn build_state_machine_next_body(
     // a `cond=true` while never falls out, so without this the
     // function's tail path looks indeterminate. Cheap to emit, no
     // runtime cost (LLVM dead-code-eliminates it).
-    let zero_after = default_init_for_type(yield_ty);
+    let zero_after = crate::ast::desugar_generators_methods::completion_undefined(yield_ty);
     let zero_after_id = ast.add_expr(zero_after);
     let done_after = ast.add_expr(Expr::Bool(true));
     let final_after = ast.add_expr(Expr::ObjectLit {

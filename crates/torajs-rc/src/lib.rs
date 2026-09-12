@@ -106,6 +106,8 @@ use std::ffi::c_void;
 
 pub mod builtin_proto;
 pub mod extensible;
+mod undef_f64;
+pub use undef_f64::F64_UNDEF_SENTINEL_BITS;
 pub mod freeze;
 pub mod in_op_any;
 mod in_op_family;

@@ -43,7 +43,11 @@ pub(crate) const F64_UNDEF_SENTINEL_BITS: u64 = 0x7FFC_0000_0000_000A;
 /// never wrong.
 pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     match ctx.ast.get_expr(eid) {
-        Expr::Ident(n) => ctx.undefable_f64_lets.contains(n),
+        // The `__undef_slot__<T>` marker IS the sentinel, spelled at
+        // the source (a generator's completion value, rotation 640).
+        Expr::Ident(n) => {
+            ctx.undefable_f64_lets.contains(n) || n.starts_with(crate::ast::UNDEF_SLOT_MARKER)
+        }
         // `xs?.[i]` takes the same checked-index exit as `xs[i]` — the
         // `?.` only guards the receiver — so it answers the same
         // sentinel. The sibling predicate in

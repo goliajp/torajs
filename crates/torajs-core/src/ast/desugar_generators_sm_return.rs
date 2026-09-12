@@ -16,9 +16,16 @@ impl GenSm<'_> {
     /// `As any`). No state store: entry already stamped the dead
     /// sentinel (RESUME_LOCAL doc), so any non-yield exit completes.
     pub(super) fn make_done_step(&mut self, v: Option<ExprId>) -> ExprId {
+        // A bare `return;` completes with `undefined` in the step's own
+        // spelling (`completion_undefined`); the plain ident could not
+        // sit in a `value: number` field, and `function* g(): number {
+        // yield 1; return; }` did not compile.
         let val = match v {
             Some(e) => e,
-            None => self.ast.add_expr(Expr::Ident("undefined".into())),
+            None => {
+                let e = super::desugar_generators_methods::completion_undefined(&self.yield_ty);
+                self.ast.add_expr(e)
+            }
         };
         let val_for_step = if self.yield_ty == "any" {
             self.ast.add_expr(Expr::As {

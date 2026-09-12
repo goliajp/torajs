@@ -247,6 +247,31 @@ pub(super) fn sent_slot_ann(yield_ty: &str) -> String {
     format!("__nullable({yield_ty})")
 }
 
+/// RFC 20260805, the body → caller half: the completion value of an
+/// exhausted generator (`{value: undefined, done: true}`, §27.5.1.2 —
+/// and so the result of `yield*` over it), spelled the way the step's
+/// `value: <yield_ty>` slot holds it WITHOUT widening the slot: the
+/// plain ident for an `any`-shaped slot, otherwise the
+/// `__undef_slot__<T>` marker, which types as `T` and lowers to that
+/// width's own `undefined` — the F64 sentinel bits for `number` (the
+/// spelling a `number[]` read past the end answers), the per-type
+/// sentinel cell for a pointer-shaped `T`. The yield path is untouched
+/// (design principle 1: the blunt fix, boxing the step's value, cost
+/// +14.7% on `generator-yield-100k`); the consumers that tell
+/// `undefined` from a number are the ones the sentinel already has
+/// (`is_undef_f64_source`, `undef_f64_fields`). Before this the
+/// completion value was `T`'s zero: `yield*` answered `0`.
+pub(super) fn completion_undefined(yield_ty: &str) -> Expr {
+    let inner = yield_ty
+        .strip_prefix("__nullable(")
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(yield_ty);
+    if matches!(inner, "any" | "void" | "undefined") {
+        return Expr::Ident("undefined".into());
+    }
+    Expr::Ident(format!("{}{inner}", crate::ast::UNDEF_SLOT_MARKER))
+}
+
 /// The value a bare `next()` sends, spelled the way [`sent_slot_ann`]'s
 /// slot holds it — the rule `parser::param_optional_default` fixes for
 /// `p?: T`: the plain ident for a slot that materializes as `any`
