@@ -282,7 +282,8 @@ impl<'a> Parser<'a> {
         };
         // RFC 20260727-dstr-decl-shape 刀 B — prepend the recursive
         // pattern binds when the loop var was a decl-head pattern.
-        let body = self.wrap_forof_pattern_body(&destruct_pat, &var_name, body);
+        let body =
+            self.wrap_forof_pattern_body(&destruct_pat, &var_name, body, is_var_decl == Some(true));
         // chunk B2 / S2.24 — the head's write-back, whichever shape
         // the head took (`forof_binding::wrap_forof_head_writes`).
         let body = self.wrap_forof_head_writes(

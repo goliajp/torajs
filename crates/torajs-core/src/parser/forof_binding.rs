@@ -250,18 +250,26 @@ impl<'a> Parser<'a> {
     /// decl-head pattern — the original `body` is wrapped in a block
     /// so block-close drops still fire normally. Replaces the flat
     /// per-name/per-field wrap (wrap_forof_destr_body).
+    ///
+    /// A `var` head binds `var`s (§14.7.5.7 ForIn/OfBodyEvaluation
+    /// with `varBinding`): the binds are function-scoped, so the
+    /// hoist lifts them and the loop assigns — `for (var [a] of xs)`
+    /// leaves `a` readable after the loop (rotation 636; it used to
+    /// bind a block-local `let` and the read after was "unknown
+    /// identifier"). A `let` / `const` head keeps the block binding.
     pub(super) fn wrap_forof_pattern_body(
         &mut self,
         destruct_pat: &Option<PatShape>,
         var_name: &str,
         body: Stmt,
+        var_head: bool,
     ) -> Stmt {
         let Some(pat) = destruct_pat else {
             return body;
         };
         let src_ref = self.ast.add_expr(Expr::Ident(var_name.to_string()));
         let mut pre: Vec<Stmt> = Vec::new();
-        self.emit_pattern_binds(pat, src_ref, false, false, &mut pre);
+        self.emit_pattern_binds(pat, src_ref, var_head, var_head, &mut pre);
         pre.push(body);
         Stmt::Block(pre)
     }
