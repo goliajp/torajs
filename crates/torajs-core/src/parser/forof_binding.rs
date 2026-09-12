@@ -301,6 +301,18 @@ impl<'a> Parser<'a> {
     /// self-name pass share (rotation 636; test262
     /// `const/syntax/const-invalid-assignment-*`). Until then
     /// `for (const x of xs) { x++ }` stored silently.
+    /// The head's source, after the contextual keyword. §14.7.5 — a
+    /// for-in head takes an Expression (`for (x in a, b)` walks `b`),
+    /// a for-of head an AssignmentExpression: the comma form is a
+    /// SyntaxError there, which the caller's `)` check still answers.
+    pub(super) fn parse_forof_source(&mut self, kind: &str) -> Result<ExprId, String> {
+        if kind == "in" {
+            self.parse_expr_list()
+        } else {
+            self.parse_expr()
+        }
+    }
+
     pub(super) fn throw_on_const_loop_var_writes(&mut self, name: &str, body: Stmt) -> Stmt {
         let mut list = vec![body];
         crate::ast::rewrite_self_name_writes(&mut self.ast, &list, name, true);

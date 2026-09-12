@@ -246,7 +246,7 @@ impl<'a> Parser<'a> {
         self.pos += 1; // consume "of" / "in"
         self.reject_forof_using_misuse(is_using, Some(kind))?;
         let _ = have_type_ann; // not yet propagated; suppress unused warning
-        let raw_src = self.parse_expr()?;
+        let raw_src = self.parse_forof_source(kind)?;
         let (src, forin_obj, forin_obj_hoist) = if kind == "in" {
             let (s, o, h) = self.make_forin_src(raw_src);
             (s, Some(o), Some(h))
