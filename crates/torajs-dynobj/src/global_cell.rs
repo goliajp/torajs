@@ -219,6 +219,16 @@ pub(crate) unsafe fn global_cell_write(cell: *const c_void, tag: u64, value: u64
     true
 }
 
+/// The outcome of a value/attribute redefine over a global-cell entry.
+pub(crate) enum CellRedefine {
+    /// Value (if any) written through; the entry keeps its flags.
+    Done,
+    /// Value (if any) written through, and the caller must repack the
+    /// entry's flags — a `configurable`/`enumerable` change on a
+    /// configurable binding (§10.1.6.3).
+    RepackFlags,
+}
+
 /// The `define_redefine` arm for a global-cell entry — §10.1.6.3 over
 /// one storage. A [[Value]]-only redefine writes THROUGH to the
 /// binding; a change of attributes, or an accessor coming in, is
@@ -232,31 +242,42 @@ pub(crate) unsafe fn redefine_through_cell(
     tag: u64,
     value: u64,
     flags_byte: u64,
-) -> Result<(), *const u8> {
+) -> Result<CellRedefine, *const u8> {
     let differs = |present: u64, desc: u64, cur: u64| {
         flags_byte & present != 0 && (flags_byte & desc != 0) != (cur_flags & cur != 0)
     };
-    let flags_change = differs(
+    let writable_change = differs(
         DEFINE_PRESENT_WRITABLE,
         DEFINE_FLAG_WRITABLE,
         BUCKET_FLAG_WRITABLE,
-    ) || differs(
+    );
+    let enum_change = differs(
         DEFINE_PRESENT_ENUMERABLE,
         DEFINE_FLAG_ENUMERABLE,
         BUCKET_FLAG_ENUMERABLE,
-    ) || differs(
+    );
+    let config_change = differs(
         DEFINE_PRESENT_CONFIGURABLE,
         DEFINE_FLAG_CONFIGURABLE,
         BUCKET_FLAG_CONFIGURABLE,
     );
+    let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
     let has_value = flags_byte & DEFINE_PRESENT_VALUE != 0;
     let incoming_accessor = has_value
         && tag == ANY_HEAP
         && value != 0
         && unsafe { *((value as *const u8).add(4) as *const u16) }
             == crate::accessor::TAG_ACCESSOR_PAIR;
-    if flags_change || incoming_accessor {
+    // `writable: false` on a slot the bare compiled writes go straight
+    // into cannot be honoured; an accessor replacing the value slot
+    // likewise. Both stay loud (registered tr limitation).
+    if writable_change || incoming_accessor {
         return Err(c"Cannot change the attributes of a global variable binding through the global object (not yet supported).".as_ptr() as *const u8);
+    }
+    // §10.1.6.3 — a non-configurable binding refuses an enumerable /
+    // configurable change (the non-cell arm makes the same rejection).
+    if (enum_change || config_change) && !cur_configurable {
+        return Err(c"Cannot change the attributes of a non-configurable global variable binding through the global object.".as_ptr() as *const u8);
     }
     if has_value {
         let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
@@ -264,7 +285,11 @@ pub(crate) unsafe fn redefine_through_cell(
             return Err(c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported).".as_ptr() as *const u8);
         }
     }
-    Ok(())
+    if enum_change || config_change {
+        Ok(CellRedefine::RepackFlags)
+    } else {
+        Ok(CellRedefine::Done)
+    }
 }
 
 /// `__torajs_global_var_bind`'s "is this name already a cell" probe —

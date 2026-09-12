@@ -6,7 +6,7 @@
 use core::ffi::c_void;
 
 use crate::define::refuse;
-use crate::global_cell::{redefine_through_cell, value_is_global_cell};
+use crate::global_cell::{CellRedefine, redefine_through_cell, value_is_global_cell};
 use crate::layout::{
     ANY_HEAP, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
     BUCKET_KEY_PTR_MASK, BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
@@ -229,7 +229,19 @@ pub(crate) unsafe fn redefine_entry(
                 flags_byte,
             )
         } {
-            Ok(()) => 1,
+            // A configurable binding took an enumerable / configurable
+            // change: repack the entry's flags in place, keeping the
+            // cell as the value (any value write-through already landed
+            // in the slot).
+            Ok(CellRedefine::RepackFlags) => {
+                let cur_key_ptr = (cur_kp_tagged & BUCKET_KEY_PTR_MASK) as *mut c_void;
+                unsafe {
+                    (*e).key_ptr_tagged =
+                        bucket_make_key_tagged(cur_key_ptr, fold_flags(flags_byte, cur_flags));
+                }
+                1
+            }
+            Ok(CellRedefine::Done) => 1,
             Err(msg) => unsafe { refuse(throw_on_refusal, msg, has_value, tag, value) },
         };
     }
