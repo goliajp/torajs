@@ -32,7 +32,7 @@ struct Site {
 }
 
 /// Rewrite every write to `sn` inside `body`; answers how many.
-pub(super) fn rewrite_self_name_writes(
+pub(crate) fn rewrite_self_name_writes(
     ast: &mut Ast,
     body: &[Stmt],
     sn: &str,

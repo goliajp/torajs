@@ -173,6 +173,10 @@ impl<'a> Parser<'a> {
 
     pub(super) fn try_parse_for_of(&mut self, is_async: bool) -> Result<Option<Stmt>, String> {
         let saved = self.pos;
+        // §14.7.5.7 — a `const` head's per-iteration binding is
+        // immutable; a write to it in the body throws (rotation 636,
+        // `throw_on_const_loop_var_writes`).
+        let head_is_const = matches!(self.peek(), Token::Const);
         let Some((is_var_decl, bare_form, is_using)) = self.scan_forof_head() else {
             return Ok(None);
         };
@@ -284,6 +288,11 @@ impl<'a> Parser<'a> {
         // pattern binds when the loop var was a decl-head pattern.
         let body =
             self.wrap_forof_pattern_body(&destruct_pat, &var_name, body, is_var_decl == Some(true));
+        let body = if head_is_const && destruct_pat.is_none() && assign_target.is_none() {
+            self.throw_on_const_loop_var_writes(&var_name, body)
+        } else {
+            body
+        };
         // chunk B2 / S2.24 — the head's write-back, whichever shape
         // the head took (`forof_binding::wrap_forof_head_writes`).
         let body = self.wrap_forof_head_writes(

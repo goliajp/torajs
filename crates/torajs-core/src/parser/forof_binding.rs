@@ -292,3 +292,18 @@ impl<'a> Parser<'a> {
         next_is_of_in.then_some(pat)
     }
 }
+
+impl<'a> Parser<'a> {
+    /// §9.1.1.1.5 on a loop head's `const` binding: every write to
+    /// `name` inside `body` — a nested function's included, a
+    /// rebinding scope's excluded — becomes `(rhs, throw TypeError)`,
+    /// the rewrite the top-level const pass and the generator
+    /// self-name pass share (rotation 636; test262
+    /// `const/syntax/const-invalid-assignment-*`). Until then
+    /// `for (const x of xs) { x++ }` stored silently.
+    pub(super) fn throw_on_const_loop_var_writes(&mut self, name: &str, body: Stmt) -> Stmt {
+        let mut list = vec![body];
+        crate::ast::rewrite_self_name_writes(&mut self.ast, &list, name, true);
+        list.pop().expect("the body pushed above")
+    }
+}

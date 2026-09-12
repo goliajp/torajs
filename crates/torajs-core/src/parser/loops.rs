@@ -375,6 +375,23 @@ impl<'a> Parser<'a> {
             "a for loop",
             super::single_stmt_judge::SingleStmtPos::LoopBody,
         )?;
+        // A `const` init's binding is immutable in the test, the step
+        // and the body (§14.7.4.2 / §9.1.1.1.5; rotation 636).
+        let body = if let Some(Stmt::LetDecl {
+            mutable: false,
+            is_var: false,
+            name,
+            ..
+        }) = init.as_deref()
+        {
+            let name = name.clone();
+            let mut list: Vec<Stmt> = cond.into_iter().chain(step).map(Stmt::Expr).collect();
+            list.push(*body);
+            crate::ast::rewrite_self_name_writes(&mut self.ast, &list, &name, true);
+            Box::new(list.pop().expect("the body pushed above"))
+        } else {
+            body
+        };
         if !hoisted_step.is_empty() {
             let mut head = hoisted_step;
             head.push(Stmt::Expr(
