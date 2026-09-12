@@ -9,7 +9,7 @@
 //! identifier can sit, which is *both* halves of the tree: statements
 //! and the statement lists that hang off arena expressions.
 
-use crate::ast::{Ast, Expr, ExprId, Stmt};
+use crate::ast::{Ast, Expr, ExprId, StaticInit, Stmt};
 
 /// The `&mut Stmt` children the depth-first rewrite descends into,
 /// so an inner `with` is finished before the outer one starts.
@@ -64,6 +64,34 @@ pub(crate) fn stmt_children(s: &mut Stmt) -> Vec<&mut Stmt> {
             v
         }
         Stmt::FnDecl { body, .. } => body.iter_mut().collect(),
+        Stmt::ExportDecl { inner, .. } => inner.as_deref_mut().into_iter().collect(),
+        // Every body a class carries is a function scope: the ctor,
+        // each method, each static block. They stay inside the
+        // ClassDecl until `desugar_classes` runs, late in the
+        // pipeline — a pass that stops here never sees a declaration
+        // written in a method body, nor the whole generator body that
+        // `desugar_generators` parks inside `__Gen_<name>.next`.
+        Stmt::ClassDecl {
+            ctor,
+            methods,
+            static_methods,
+            static_init,
+            ..
+        } => {
+            let mut v: Vec<&mut Stmt> = Vec::new();
+            if let Some(c) = ctor.as_mut() {
+                v.extend(c.body.iter_mut());
+            }
+            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
+                v.extend(m.body.iter_mut());
+            }
+            for i in static_init.iter_mut() {
+                if let StaticInit::Block(b) = i {
+                    v.extend(b.iter_mut());
+                }
+            }
+            v
+        }
         _ => Vec::new(),
     }
 }

@@ -53,75 +53,13 @@ pub fn desugar_async(ast: &mut Ast) {
 /// descends into a nested FnDecl — returns attribute to their own
 /// fn — so the outer rebuild leaves the finished inner wrap alone).
 fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
-    match s {
-        Stmt::FnDecl { body, .. } => {
-            for c in body {
-                rewrite_async_decls(ast, c);
-            }
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            rewrite_async_decls(ast, then_branch);
-            if let Some(eb) = else_branch.as_deref_mut() {
-                rewrite_async_decls(ast, eb);
-            }
-        }
-        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
-            rewrite_async_decls(ast, body);
-        }
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init.as_deref_mut() {
-                rewrite_async_decls(ast, i);
-            }
-            rewrite_async_decls(ast, body);
-        }
-        Stmt::ForOfSplitIter { body, .. } | Stmt::ForOf { body, .. } => {
-            rewrite_async_decls(ast, body);
-        }
-        Stmt::Switch { cases, default, .. } => {
-            for c in cases {
-                for cs in &mut c.body {
-                    rewrite_async_decls(ast, cs);
-                }
-            }
-            if let Some(d) = default {
-                for ds in d {
-                    rewrite_async_decls(ast, ds);
-                }
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            for bs in body {
-                rewrite_async_decls(ast, bs);
-            }
-            for cs in catch_body {
-                rewrite_async_decls(ast, cs);
-            }
-            if let Some(fb) = finally_body {
-                for fs in fb {
-                    rewrite_async_decls(ast, fs);
-                }
-            }
-        }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            for bs in stmts {
-                rewrite_async_decls(ast, bs);
-            }
-        }
-        Stmt::ExportDecl { inner, .. } => {
-            if let Some(i) = inner.as_deref_mut() {
-                rewrite_async_decls(ast, i);
-            }
-        }
-        _ => {}
+    // `stmt_children` descends into FnDecl bodies, exported decls and
+    // every body a ClassDecl carries — the last matters twice: a
+    // method body is not a FnDecl until `desugar_classes` runs (after
+    // this pass), and `desugar_generators` parks a generator's whole
+    // body, nested declarations included, inside `__Gen_<name>.next`.
+    for c in super::desugar_with::walk::stmt_children(s) {
+        rewrite_async_decls(ast, c);
     }
     let Stmt::FnDecl { name, .. } = s else {
         return;
