@@ -44,7 +44,31 @@ pub(super) fn rewrite_self_name_writes(
             collect_stmt(ast, s, sn, &mut sites);
         }
     }
-    for site in &sites {
+    apply_sites(ast, &sites, strict);
+    sites.len()
+}
+
+/// Rewrite every write to `name` that sits INSIDE a function of
+/// `stmts` — a declaration's body, a function expression's, an
+/// arrow's — and leave writes at `stmts`' own level alone. The
+/// const-write pass uses it (rotation 636): a top-level `const`
+/// written from a nested function is a runtime TypeError (§9.1.1.1.5
+/// SetMutableBinding on an immutable binding, strict or sloppy),
+/// while the same write at the top level stays the checker's
+/// compile-time refusal. Answers how many.
+pub(super) fn rewrite_writes_inside_functions(ast: &mut Ast, stmts: &[Stmt], name: &str) -> usize {
+    // `stmts` is the list that DECLARES the name (the premise, not
+    // a shadow), so no same-level declaration check here.
+    let mut sites: Vec<Site> = Vec::new();
+    for s in stmts {
+        collect_stmt_fns_only(ast, s, name, &mut sites);
+    }
+    apply_sites(ast, &sites, true);
+    sites.len()
+}
+
+fn apply_sites(ast: &mut Ast, sites: &[Site], strict: bool) {
+    for site in sites {
         let i = site.eid.0 as usize;
         ast.exprs[i] = match (strict, site.value) {
             (true, Some(rhs)) => {
@@ -63,7 +87,47 @@ pub(super) fn rewrite_self_name_writes(
             },
         };
     }
-    sites.len()
+}
+
+/// `collect_stmt`'s scope rules, but a write only counts once the
+/// walk is inside a function: the same-level shadow arms apply, and
+/// every function boundary hands over to the full collector.
+fn collect_stmt_fns_only(ast: &Ast, s: &Stmt, sn: &str, out: &mut Vec<Site>) {
+    match s {
+        Stmt::FnDecl { .. } => {
+            collect_stmt(ast, s, sn, out);
+            return;
+        }
+        Stmt::Block(list) | Stmt::Multi(list) => {
+            if list_declares(list, sn) {
+                return;
+            }
+        }
+        Stmt::ForOf { var_name, .. } | Stmt::ForOfSplitIter { var_name, .. } if var_name == sn => {
+            return;
+        }
+        Stmt::Try {
+            catch_param: Some(c),
+            ..
+        } if c == sn => return,
+        _ => {}
+    }
+    for e in stmt_exprs(s) {
+        collect_expr_fns_only(ast, e, sn, out);
+    }
+    for c in stmt_children_ref(s) {
+        collect_stmt_fns_only(ast, c, sn, out);
+    }
+}
+
+fn collect_expr_fns_only(ast: &Ast, eid: ExprId, sn: &str, out: &mut Vec<Site>) {
+    if matches!(ast.get_expr(eid), Expr::ArrowFn { .. }) {
+        collect_expr(ast, eid, sn, out);
+        return;
+    }
+    for c in expr_children(ast, eid) {
+        collect_expr_fns_only(ast, c, sn, out);
+    }
 }
 
 fn is_sn(ast: &Ast, eid: ExprId, sn: &str) -> bool {
