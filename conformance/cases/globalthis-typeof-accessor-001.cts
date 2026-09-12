@@ -11,3 +11,5 @@ function f() { return typeof acc; }
 console.log(f(), calls);
 Object.defineProperty(this, "boom", { get: function () { throw new RangeError("g"); }, configurable: true });
 try { console.log(typeof boom); } catch (e) { console.log(e.constructor.name); }
+function g() { return typeof boom; }
+try { g(); } catch (e) { console.log("inner", e.constructor.name); }

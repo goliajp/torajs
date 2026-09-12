@@ -2,3 +2,4 @@ number 1
 string undefined
 number 2
 RangeError
+inner RangeError

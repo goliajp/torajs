@@ -38,6 +38,16 @@ pub(crate) fn check_typeof(checker: &mut Checker, ast: &Ast, expr: ExprId) -> Re
     if let Expr::Ident(name) = ast.get_expr(expr)
         && (checker.lookup(name).is_none() || is_known_builtin_global(name))
     {
+        // §13.5.3 step 2 — `typeof` takes GetValue, and on a name with
+        // no binding the lowering asks the global object at run time,
+        // where an ACCESSOR runs its getter (which may throw). The ident
+        // checker's own verdict marks the operand an undeclared read
+        // when it truly is one (a function or global name resolves
+        // there and takes no mark), and that mark is what the throw
+        // analysis reads; the answer is String either way.
+        if !is_known_builtin_global(name) {
+            let _ = crate::check_type_of_ident::check(checker, expr, name);
+        }
         return Ok(Type::String);
     }
     if let Expr::Member { obj, .. } = ast.get_expr(expr)
