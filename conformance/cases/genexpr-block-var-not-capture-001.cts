@@ -1,3 +1,7 @@
+// Oracle pinned in `.expected` (node's script goal): `globalThis.v` is
+// 1 — a top-level `var` is the global object's property (RFC
+// 20260912-global-var-cell) — where bun's CommonJS `.cts` answers
+// undefined.
 // A `var` declared inside a top-level block is a global (§8.2 var
 // scoping), so a generator expression that writes it captures
 // nothing — the hoist must read block-nested vars as globals, not

@@ -53,7 +53,13 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
     if ast.sloppy_script_goal {
         let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
         count_var_names(&top, &mut counts);
+        // A name tr minted (`__dstr_<n>` for a destructuring head, a
+        // for-of temp) is no program binding: it neither reaches the
+        // object nor takes the global home the object needs.
         for name in counts.into_keys() {
+            if super::is_synthesized_dunder(ast, &name) {
+                continue;
+            }
             ast.script_global_var_names
                 .entry(name)
                 .or_insert(ScriptGlobalVar::Declared);

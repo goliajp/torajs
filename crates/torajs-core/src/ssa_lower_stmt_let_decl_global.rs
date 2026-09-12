@@ -29,55 +29,20 @@ pub(crate) fn try_lower_global_let(
     if !ctx.is_main_fn {
         return false;
     }
+    // Only a TOP-LEVEL declaration is the global's own (`scope_stack`
+    // holds the function frame alone there); a `let` of the same name
+    // inside a block / catch / loop body is a distinct binding
+    // (§14.3.1), and taking it here wrote the block's value into the
+    // global slot — `var e: any = 1; { let e = "blk" } e` answered
+    // "blk" (rotation 636; the `.cts` gate met it through the
+    // global-var cell, which binds every top-level `var`).
+    if ctx.scope_stack.len() > 1 {
+        return false;
+    }
     let Some(slot_ty) = ctx.globals.get(name).copied() else {
         return false;
     };
-    let init_val = if let Expr::Array(els) = ctx.ast.get_expr(init)
-        && els.is_empty()
-        && matches!(slot_ty, Type::Arr(_))
-    {
-        let alloc_fn = if let Type::Arr(arr_id) = slot_ty
-            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-        {
-            ctx.intrinsics.arr_alloc_any
-        } else {
-            ctx.intrinsics.arr_alloc
-        };
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
-            slot_ty,
-            None,
-        );
-        Operand::Value(v)
-    } else if let Expr::Array(els) = ctx.ast.get_expr(init)
-        && let Type::Arr(arr_id) = slot_ty
-        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
-    {
-        let ids: Vec<ExprId> = els.clone();
-        ctx.lower_array_any_literal(&ids)
-    } else if slot_ty == Type::Any && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. }) {
-        // Rotation 204 — mirror of the fn-scope P3.2 arm
-        // (`lower_let_init_val`): an ObjectLit init in an Any slot
-        // lowers through the dynobj lane, NOT the anon-struct lane —
-        // the define/expando write-back contract requires a dynobj
-        // cell. The raw Ptr result rides the chunk-809 box station
-        // below (Ptr is not refcounted at the SSA level, so no
-        // borrow-inc fires; the fresh dynobj's +1 transfers into the
-        // tag-4 box and K.4's fresh-heap-init holds).
-        ctx.lower_dynobj_init(init)
-    } else {
-        // Chunk 780 — pin the declared struct layout for a direct
-        // ObjectLit init (global-lane mirror of the fn-scope hint;
-        // see `let_declared_obj_layout` field doc). Consumed by
-        // `resolve_objlit_layout` via take-once.
-        if let Type::Obj(sid) = slot_ty
-            && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
-        {
-            ctx.let_declared_obj_layout = Some(sid);
-        }
-        ctx.lower_expr(init)
-    };
+    let init_val = lower_global_init_val(ctx, init, slot_ty);
     // Chunk 698 — general-path mirror: an `Array<Any>` init bound
     // to a typed `Array<T>` global decode-copies into a fresh typed
     // block (the global slot takes the fresh cell's only stake, so
@@ -212,6 +177,60 @@ pub(crate) fn try_lower_global_let(
     );
     emit_script_global_var_bind(ctx, name, slot_ty, ptr);
     true
+}
+
+/// The init value of a top-level data global, by shape: the K.6
+/// empty-array fast path, an `Array<Any>` literal, an ObjectLit into
+/// an `any` slot (dynobj lane), or the general expression — the head
+/// of [`try_lower_global_let`], split at the function cap (rotation
+/// 636); body verbatim.
+fn lower_global_init_val(ctx: &mut LowerCtx, init: ExprId, slot_ty: Type) -> Operand {
+    if let Expr::Array(els) = ctx.ast.get_expr(init)
+        && els.is_empty()
+        && matches!(slot_ty, Type::Arr(_))
+    {
+        let alloc_fn = if let Type::Arr(arr_id) = slot_ty
+            && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+        {
+            ctx.intrinsics.arr_alloc_any
+        } else {
+            ctx.intrinsics.arr_alloc
+        };
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(alloc_fn, vec![Operand::ConstI64(0)]),
+            slot_ty,
+            None,
+        );
+        Operand::Value(v)
+    } else if let Expr::Array(els) = ctx.ast.get_expr(init)
+        && let Type::Arr(arr_id) = slot_ty
+        && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
+    {
+        let ids: Vec<ExprId> = els.clone();
+        ctx.lower_array_any_literal(&ids)
+    } else if slot_ty == Type::Any && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. }) {
+        // Rotation 204 — mirror of the fn-scope P3.2 arm
+        // (`lower_let_init_val`): an ObjectLit init in an Any slot
+        // lowers through the dynobj lane, NOT the anon-struct lane —
+        // the define/expando write-back contract requires a dynobj
+        // cell. The raw Ptr result rides the chunk-809 box station
+        // below (Ptr is not refcounted at the SSA level, so no
+        // borrow-inc fires; the fresh dynobj's +1 transfers into the
+        // tag-4 box and K.4's fresh-heap-init holds).
+        ctx.lower_dynobj_init(init)
+    } else {
+        // Chunk 780 — pin the declared struct layout for a direct
+        // ObjectLit init (global-lane mirror of the fn-scope hint;
+        // see `let_declared_obj_layout` field doc). Consumed by
+        // `resolve_objlit_layout` via take-once.
+        if let Type::Obj(sid) = slot_ty
+            && matches!(ctx.ast.get_expr(init), Expr::ObjectLit { .. })
+        {
+            ctx.let_declared_obj_layout = Some(sid);
+        }
+        ctx.lower_expr(init)
+    }
 }
 
 /// RFC 20260912-global-var-cell — §16.1.7 step 17: a script's

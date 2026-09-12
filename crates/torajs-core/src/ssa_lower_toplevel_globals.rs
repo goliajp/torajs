@@ -127,18 +127,17 @@ pub(crate) fn collect_toplevel_globals(
             };
             // RFC 20260912-global-var-cell — a script's top-level `var`
             // is the global object's property over the same storage,
-            // and the cell that makes it so needs a stable address:
-            // every such name takes a data global, readers or not.
-            // Only the slot shapes the cell can spell (FnSig is a code
-            // address, not a value).
-            if ast.script_global_var_names.contains_key(name) {
-                if matches!(
-                    ty,
-                    Type::I64 | Type::F64 | Type::Bool | Type::I32 | Type::Any
-                ) || ty.is_refcounted()
-                {
-                    globals.insert(name.clone(), ty);
-                }
+            // and the cell that makes it so needs a stable address.
+            // Only the `any` slot — what every hoisted `var` is — takes
+            // the global home unconditionally. A typed escape-hatch
+            // `var` (`var log: string[] = []`) keeps the gates below:
+            // promoting one with no named-fn reader moves it onto the
+            // global lane whose member-call lane does not carry it
+            // (rotation 514's finding; the first gate of 636 put
+            // `log.push` on "value is not a function"), so those bind
+            // only when the checker promotes them anyway.
+            if ast.script_global_var_names.contains_key(name) && ty == Type::Any {
+                globals.insert(name.clone(), ty);
                 continue;
             }
             // Localize — the data-global slot exists solely so
