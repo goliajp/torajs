@@ -64,6 +64,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
         &mut top,
         &ast.exprs,
         ast.sloppy_script_goal,
+        &ast.source_dunder_idents,
         &mut ctx,
     );
     // The module scope's own function declarations, read before the

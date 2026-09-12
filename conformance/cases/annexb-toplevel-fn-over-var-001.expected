@@ -8,3 +8,5 @@ blk-after 3
 blk-desc true true false true
 noinit function k
 var-first 1
+dunder-before function
+dunder-after 1

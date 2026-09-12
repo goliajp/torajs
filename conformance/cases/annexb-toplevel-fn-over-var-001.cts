@@ -41,3 +41,10 @@ function k() { return 'k'; }
 var m = 1;
 function m() {}
 console.log("var-first", m);
+
+// a user's own `__`-prefixed name is not a compiler-minted one
+// (sputnik's `__decl`): the `var` over it takes the same binding
+console.log("dunder-before", typeof __decl);
+var __decl = 1;
+console.log("dunder-after", __decl);
+function __decl() { return 1; }

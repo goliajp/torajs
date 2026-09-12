@@ -52,10 +52,18 @@ use std::collections::HashSet;
 /// `script_goal`: a `var` over a `function` is one binding only under
 /// the Script goal (§16.1.7 step 8); a module names it twice, and the
 /// checker's duplicate-declaration reject must still see both.
+///
+/// `source_dunders`: the `__`-prefixed names the PROGRAM wrote
+/// (`Ast::source_dunder_idents`). A compiler-minted declaration is
+/// never a user's, but the prefix alone is not provenance — sputnik's
+/// `__decl` / `__ref` are user identifiers (`S13_A19_T1`: `var __decl
+/// = 1` over `function __decl`), so the judge is
+/// `is_synthesized_dunder`'s, not `starts_with`.
 pub(super) fn lift_top_fns_over_block_fns(
     top: &mut [Stmt],
     exprs: &[Expr],
     script_goal: bool,
+    source_dunders: &HashSet<String>,
     ctx: &mut LiftCtx,
 ) -> (Vec<Stmt>, HashSet<String>) {
     let nested = block_nested_fn_names(top);
@@ -70,7 +78,7 @@ pub(super) fn lift_top_fns_over_block_fns(
         let Stmt::FnDecl { name, span, .. } = stmt else {
             continue;
         };
-        if name.starts_with("__") {
+        if name.starts_with("__") && !source_dunders.contains(name.as_str()) {
             continue;
         }
         let block_fn = nested.contains(name) && ctx.applies(name, *span);
