@@ -53,11 +53,26 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
     if ast.sloppy_script_goal {
         let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
         count_var_names(&top, &mut counts);
+        // `function f() {} var f;` — the `var` re-declares the function's
+        // binding (§16.1.7 step 8: a var name that is also a function
+        // name is the function's), so the name is the FUNCTION's and
+        // takes no data global: giving it one put a `GlobalRef("f")`
+        // next to the function symbol `f` and the program died of
+        // SIGBUS (rotation 636 close sweep: 43 dynamic-import /
+        // redeclaration-global / RegExp cases). The function's own
+        // property on the object is the RFC's knife 3.
+        let fn_names: std::collections::HashSet<&str> = top
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::FnDecl { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
         // A name tr minted (`__dstr_<n>` for a destructuring head, a
         // for-of temp) is no program binding: it neither reaches the
         // object nor takes the global home the object needs.
         for name in counts.into_keys() {
-            if super::is_synthesized_dunder(ast, &name) {
+            if super::is_synthesized_dunder(ast, &name) || fn_names.contains(name.as_str()) {
                 continue;
             }
             ast.script_global_var_names
