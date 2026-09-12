@@ -35,6 +35,7 @@ unsafe extern "C" {
     ) -> i64;
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_throw_reference_error_name(name: *mut c_void);
     fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
     fn __torajs_anyv_unbox_tag(v: AnyValue) -> i64;
@@ -145,6 +146,25 @@ pub unsafe extern "C" fn __torajs_global_ident_typeof(key: *mut c_void) -> *mut 
         if !obj.is_null() && __torajs_dynobj_has(obj, key) != 0 {
             let tag = __torajs_dynobj_get_tag(obj, key);
             let value = __torajs_dynobj_get_value(obj, key);
+            // §13.5.3 step 2: `typeof` takes GetValue, so an accessor's
+            // getter runs (with the global object as `this`) and the
+            // answer is its RESULT's type — not "object" for the
+            // AccessorPair cell (rotation 639). The result is owned;
+            // released once its tag is read.
+            if tag == PAIR_TAG_ACCESSOR {
+                let got = __torajs_accessor_invoke_getter(
+                    value as *const c_void,
+                    crate::nanbox::box_void_ptr(obj),
+                );
+                let out = crate::inspect::typeof_any::__torajs_anyv_typeof(got);
+                if __torajs_anyv_unbox_tag(got) as u64 == PAIR_TAG_HEAP {
+                    let p = __torajs_anyv_unbox_value(got) as *mut c_void;
+                    if __torajs_rc_dec(p) == 1 {
+                        __torajs_value_drop_heap(p);
+                    }
+                }
+                return out;
+            }
             let boxed = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
             return crate::inspect::typeof_any::__torajs_anyv_typeof(boxed);
         }

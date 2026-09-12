@@ -181,6 +181,9 @@ fn try_undeclared_ident_typeof(ctx: &mut LowerCtx<'_>, expr: ExprId) -> Option<O
         Type::Str,
         None,
     );
+    // An accessor property's getter runs under `typeof` (§13.5.3) and
+    // may throw; the owned Str answer is released on that path.
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Str);
     Some(Operand::Value(v))
 }
 
