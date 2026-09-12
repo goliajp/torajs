@@ -167,6 +167,20 @@ fn array_ann(ast: &Ast, elems: &[super::ExprId], ctx: &LiftCtx) -> Option<String
 /// fn-valued field slot is a mutable position that can hold a
 /// capturing closure, so `__fn(` becomes `__cls(`.
 fn objlit_ann(ast: &Ast, fields: &[(PropKey, super::ExprId)], ctx: &LiftCtx) -> Option<String> {
+    // The checker's own verdict for these two shapes (`check_type_of_
+    // object_lit`): a computed key has no static name and a `__proto__:
+    // v` field is a [[Prototype]] set, so the literal is a dynobj and
+    // types Any. A struct annotation here pinned the lifted field to a
+    // layout the value never had: `const k = yield 10; let o = { [k]:
+    // 1, a: 'a' }` stored a dynobj in an `__inlobj(a:string)` field and
+    // the factory's drop walk read `a` off it as a Str (SIGSEGV at
+    // program end, rotation 640).
+    if fields.iter().any(|(n, eid)| {
+        ast.objlit_computed_keys.contains_key(eid)
+            || (n.as_str() == Some("__proto__") && !ast.objlit_shorthand_proto_exprs.contains(eid))
+    }) {
+        return Some("any".into());
+    }
     let parts: Vec<String> = fields
         .iter()
         .map(|(n, eid)| {
