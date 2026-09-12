@@ -362,6 +362,11 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // its default gate reads.
     ast::demote_dynamic_spread_method_calls(ast);
     ast::desugar_arguments_object(ast);
+    // RFC 20260912-global-var-cell knife 3 — a script's top-level
+    // function declarations reach the global object. After the argv
+    // injection (see the pass doc), before `desugar_implicit_generics`
+    // (the forwarders it mints call generic targets).
+    ast::synthesize_script_global_fns(ast);
     ast::rewrite_split_for_i_to_iter(ast);
     ast::escape_analyze_array_literals(ast);
     ast::desugar_implicit_generics(ast);

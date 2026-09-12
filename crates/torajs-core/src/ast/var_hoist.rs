@@ -21,6 +21,12 @@ pub enum ScriptGlobalVar {
     /// assignment to an undeclared name: the property a [[Set]] would
     /// have created, so configurable too.
     Implicit,
+    /// The hidden `any` slot holding a top-level `function`
+    /// declaration's value (`script_global_fns`): the property is the
+    /// function's — `{writable, enumerable}`, not configurable
+    /// (§9.1.1.4.18 with D = false) — and its name is the slot's
+    /// without [`super::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX`].
+    Function,
 }
 
 /// P2.1 — `var` hoisting pass per ES spec §14.3.2.1
@@ -53,7 +59,8 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
     // the sites away. The GOAL, not strictness: a strict Script still
     // instantiates its `var`s on the global object.
     if ast.sloppy_script_goal {
-        let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        let mut counts: std::collections::HashMap<String, Vec<ExprId>> =
+            std::collections::HashMap::new();
         count_var_names(&top, &mut counts);
         // `function f() {} var f;` — the `var` re-declares the function's
         // binding (§16.1.7 step 8: a var name that is also a function
@@ -63,27 +70,47 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
         // SIGBUS (rotation 636 close sweep: 43 dynamic-import /
         // redeclaration-global / RegExp cases). The function's own
         // property on the object is the RFC's knife 3.
-        let fn_names: std::collections::HashSet<&str> = top
-            .iter()
-            .filter_map(|s| match s {
-                Stmt::FnDecl { name, .. } => Some(name.as_str()),
-                _ => None,
-            })
-            .collect();
+        let fn_names = super::script_global_fns::toplevel_fn_decl_names(&top);
         // A name tr minted (`__dstr_<n>` for a destructuring head, a
         // for-of temp) is no program binding: it neither reaches the
         // object nor takes the global home the object needs.
-        for name in counts.into_keys() {
-            if super::is_synthesized_dunder(ast, &name) || fn_names.contains(name.as_str()) {
+        // A `var f = v;` over `function f() {}` keeps today's prelude
+        // slot (the assignment needs a binding the checker lets it
+        // write; widening the declaration is `fndecl_rebound`'s job,
+        // registered). Only an init-less re-declaration rides the
+        // parameter route below.
+        let mut fn_names_with_init: Vec<String> = Vec::new();
+        for (name, sites) in counts {
+            if super::is_synthesized_dunder(ast, &name) {
+                continue;
+            }
+            if fn_names.contains(&name) {
+                if sites
+                    .iter()
+                    .any(|e| !matches!(ast.exprs[e.0 as usize], Expr::Uninit))
+                {
+                    fn_names_with_init.push(name);
+                }
                 continue;
             }
             ast.script_global_var_names
                 .entry(name)
                 .or_insert(ScriptGlobalVar::Declared);
         }
+        // Top-level script: hoist over `top` itself. The function names
+        // ride as the pre-existing bindings a parameter list does: a
+        // `var f;` over `function f() {}` mints no prelude slot (it
+        // shadowed the function — `typeof f` answered `undefined` and
+        // `f()` was "not a function", rotation 637).
+        let pre_bound: Vec<String> = fn_names
+            .iter()
+            .filter(|n| !fn_names_with_init.contains(n))
+            .cloned()
+            .collect();
+        hoist_vars_in_block(&mut top, &mut ast.exprs, &pre_bound);
+    } else {
+        hoist_vars_in_block(&mut top, &mut ast.exprs, &[]);
     }
-    // Top-level script: hoist over `top` itself.
-    hoist_vars_in_block(&mut top, &mut ast.exprs, &[]);
     // Each top-level FnDecl: hoist over its body. The parameter names
     // ride along — §10.2.11 step 28 gives a `var` that re-declares a
     // parameter the parameter's own binding (initialized from it),
@@ -110,11 +137,12 @@ fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>, params: &[St
     // with a different shape (`var o = {a:1}; var o = {b:"x"}`) must
     // land in a slot both shapes fit — the Any prelude — not in the
     // first shape's pinned `let`.
-    let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut counts: std::collections::HashMap<String, Vec<ExprId>> =
+        std::collections::HashMap::new();
     count_var_names(body, &mut counts);
     let multi: std::collections::HashSet<String> = counts
         .into_iter()
-        .filter(|(_, c)| *c > 1)
+        .filter(|(_, sites)| sites.len() > 1)
         .map(|(n, _)| n)
         .collect();
     // A parameter name is already the fn's binding: the `var` site
@@ -162,17 +190,20 @@ fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>, params: &[St
 /// same nested positions the rewrite walks (FnDecl bodies excluded —
 /// their own hoist pass counts separately). Feeds the multi-decl
 /// escape-hatch gate in [`hoist_vars_in_block`].
-fn count_var_names(stmts: &[Stmt], counts: &mut std::collections::HashMap<String, u32>) {
+fn count_var_names(stmts: &[Stmt], counts: &mut std::collections::HashMap<String, Vec<ExprId>>) {
     for s in stmts {
         count_var_names_stmt(s, counts);
     }
 }
 
-fn count_var_names_stmt(s: &Stmt, counts: &mut std::collections::HashMap<String, u32>) {
+fn count_var_names_stmt(s: &Stmt, counts: &mut std::collections::HashMap<String, Vec<ExprId>>) {
     match s {
         Stmt::LetDecl {
-            name, is_var: true, ..
-        } => *counts.entry(name.clone()).or_insert(0) += 1,
+            name,
+            init,
+            is_var: true,
+            ..
+        } => counts.entry(name.clone()).or_default().push(*init),
         Stmt::If {
             then_branch,
             else_branch,
@@ -352,6 +383,7 @@ pub(super) fn collect_and_rewrite_var(
     }
     *stmts = new_stmts;
 }
+
 #[cfg(test)]
 mod tests {
     use super::super::Ast;

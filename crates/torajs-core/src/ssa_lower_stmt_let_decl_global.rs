@@ -263,16 +263,26 @@ pub(crate) fn emit_script_global_var_bind(
         return;
     };
     let binds_here = match flavor {
-        crate::ast::ScriptGlobalVar::Declared => site == BindSite::Declaration,
+        crate::ast::ScriptGlobalVar::Declared | crate::ast::ScriptGlobalVar::Function => {
+            site == BindSite::Declaration
+        }
         crate::ast::ScriptGlobalVar::Implicit => site == BindSite::Write,
     };
     if !binds_here {
         return;
     }
+    // A function declaration's hidden slot binds under the FUNCTION's
+    // name (knife 3 of the RFC; `script_global_fns`).
+    let name = match flavor {
+        crate::ast::ScriptGlobalVar::Function => name
+            .strip_prefix(crate::ast::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX)
+            .expect("a Function-flavoured slot carries the prefix"),
+        _ => name,
+    };
     // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
     // configurable property (the kernel's contract).
     let configurable: i64 = match flavor {
-        crate::ast::ScriptGlobalVar::Declared => 0,
+        crate::ast::ScriptGlobalVar::Declared | crate::ast::ScriptGlobalVar::Function => 0,
         crate::ast::ScriptGlobalVar::Implicit => 1 << 8,
     };
     let kind: i64 = configurable
