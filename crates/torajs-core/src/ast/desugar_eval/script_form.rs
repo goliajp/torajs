@@ -47,6 +47,10 @@ use super::source::{CallForm, EvalStrictness, parse_eval_source, syntax_error_th
 struct Names {
     lex: HashSet<String>,
     vars: HashSet<String>,
+    /// The program's own top-level function declarations, as written —
+    /// never absorbed: a text re-declaring one of these re-binds a
+    /// property the program already instantiated (knife 4-3).
+    program_fns: HashSet<String>,
 }
 
 impl Names {
@@ -107,6 +111,14 @@ impl Names {
 /// the inlining walk, on the program as parsed.
 pub(super) fn throw_colliding_scripts(ast: &mut Ast) {
     let mut reg = Names::of(&ast.stmts);
+    reg.program_fns = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => Some(name.clone()),
+            _ => None,
+        })
+        .collect();
     let mut stmts = std::mem::take(&mut ast.stmts);
     for s in stmts.iter_mut() {
         visit(s, ast, &mut reg, false);
@@ -172,18 +184,34 @@ fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool) {
                 format!("Identifier '{clash}' has already been declared"),
                 ast,
             );
-        } else if in_fn && redeclares_only {
+        } else if !in_fn {
+            // Knife 4-3: a function the text declares (and the program
+            // does not) binds its property where the text ran, deletable
+            // for an eval (§19.2.1.3), not for a Script (§16.1.7).
+            let fn_flavor = match form {
+                CallForm::Script => ScriptGlobalVar::ScriptFn,
+                CallForm::Direct | CallForm::Indirect => ScriptGlobalVar::EvalFn,
+            };
+            for st in &parsed {
+                if let Stmt::FnDecl { name, .. } = st
+                    && !reg.program_fns.contains(name)
+                {
+                    ast.eval_fn_names.entry(name.clone()).or_insert(fn_flavor);
+                }
+            }
+            if form == CallForm::Script {
+                // A Script's declarations join the global environment
+                // for the Scripts after it; an eval's `var`s do not
+                // block a later Script's lexical declaration
+                // (`script-decl-lex-var-declared-via-eval`).
+                reg.absorb(names);
+            }
+        } else if redeclares_only {
             // Global code the inlining walk cannot place (it sits in a
             // function) whose every declaration re-declares an existing
             // global `var`: §16.1.7 CanDeclareGlobalVar says do nothing,
             // so the call completes with `undefined` and nothing else.
             ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
-        } else if !in_fn && form == CallForm::Script {
-            // A Script's declarations join the global environment for
-            // the Scripts after it; an eval's `var`s do not block a
-            // later Script's lexical declaration (`script-decl-lex-var-
-            // declared-via-eval`).
-            reg.absorb(names);
         }
         return;
     }

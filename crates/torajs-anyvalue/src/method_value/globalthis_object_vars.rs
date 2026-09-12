@@ -39,6 +39,7 @@ unsafe extern "C" {
         flags_byte: u64,
     );
     fn __torajs_global_cell_alloc(slot_ptr: *mut c_void, kind: u64) -> *mut c_void;
+    fn __torajs_dynobj_set_entry_flags(obj_slot: *mut *mut c_void, key: *mut c_void, flags: u64);
     fn __torajs_dynobj_set_entry_value_raw(
         obj_slot: *mut *mut c_void,
         key: *mut c_void,
@@ -55,6 +56,7 @@ unsafe extern "C" {
 /// define descriptor bits.
 const HDR_FLAG_NON_EXTENSIBLE: u16 = 1 << 8;
 const GET_FLAG_WRITABLE: u64 = 1 << 0;
+const GET_FLAG_CONFIGURABLE: u64 = 1 << 2;
 const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
 const DEFINE_FLAG_ENUMERABLE: u64 = 1 << 1;
 const DEFINE_FLAG_CONFIGURABLE: u64 = 1 << 2;
@@ -109,6 +111,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
 ) {
     let configurable = kind & (1 << 8) != 0;
     let writerless = kind & (1 << 9) != 0;
+    let function = kind & (1 << 10) != 0;
     let kind = kind & 0xff;
     let cell_kind = kind | if writerless { KIND_FLAG_WRITERLESS } else { 0 };
     let mut obj = globalthis_bag_ptr();
@@ -129,7 +132,43 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
             }
             let cur_tag = __torajs_dynobj_get_tag(obj, key);
             let cur_value = __torajs_dynobj_get_value(obj, key);
-            let writable = __torajs_dynobj_get_flags(obj, key) & GET_FLAG_WRITABLE != 0;
+            let cur_flags = __torajs_dynobj_get_flags(obj, key);
+            let writable = cur_flags & GET_FLAG_WRITABLE != 0;
+            if function {
+                // §9.1.1.4.18 steps 5-6: the function value wins (the
+                // slot already holds it). A configurable property is
+                // redefined to the function attributes; a non-
+                // configurable writable data property keeps its
+                // attributes and takes the value; anything else cannot
+                // take it — DefinePropertyOrThrow's TypeError.
+                let cur_configurable = cur_flags & GET_FLAG_CONFIGURABLE != 0;
+                if !cur_configurable && (cur_tag == ANY_ACCESSOR || !writable) {
+                    __torajs_throw_type_error(
+                        c"Cannot declare a global function over a non-configurable property that is an accessor or read-only."
+                            .as_ptr(),
+                    );
+                    return;
+                }
+                let cell = __torajs_global_cell_alloc(slot_ptr, kind);
+                if cur_configurable {
+                    // The flags upsert resets the value slot (it revives
+                    // holes); the cell lands after it.
+                    __torajs_dynobj_set_entry_flags(
+                        &mut obj,
+                        key,
+                        DEFINE_FLAG_WRITABLE
+                            | DEFINE_FLAG_ENUMERABLE
+                            | if configurable {
+                                DEFINE_FLAG_CONFIGURABLE
+                            } else {
+                                0
+                            },
+                    );
+                }
+                __torajs_dynobj_set_entry_value_raw(&mut obj, key, ANY_HEAP, cell as u64);
+                GLOBALTHIS_OBJECT.store(obj as u64, Ordering::Release);
+                return;
+            }
             if cur_tag == ANY_ACCESSOR || (!writable && !writerless) || kind != KIND_ANY {
                 __torajs_throw_type_error(
                     c"A `var` declaration over an existing global property that is an accessor, read-only, or typed is not yet supported."

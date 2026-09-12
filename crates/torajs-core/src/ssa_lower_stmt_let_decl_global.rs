@@ -270,35 +270,53 @@ pub(crate) fn emit_script_global_var_bind(
         }
         crate::ast::ScriptGlobalVar::Implicit
         | crate::ast::ScriptGlobalVar::EvalVar
-        | crate::ast::ScriptGlobalVar::ScriptVar => site == BindSite::Write,
+        | crate::ast::ScriptGlobalVar::ScriptVar
+        | crate::ast::ScriptGlobalVar::EvalFn
+        | crate::ast::ScriptGlobalVar::ScriptFn => site == BindSite::Write,
     };
     if !binds_here {
         return;
     }
     // A function declaration's hidden slot binds under the FUNCTION's
     // name (knife 3 of the RFC; `script_global_fns`).
-    let name = match flavor {
-        crate::ast::ScriptGlobalVar::Function => name
-            .strip_prefix(crate::ast::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX)
-            .expect("a Function-flavoured slot carries the prefix"),
-        _ => name,
+    let is_function = matches!(
+        flavor,
+        crate::ast::ScriptGlobalVar::Function
+            | crate::ast::ScriptGlobalVar::EvalFn
+            | crate::ast::ScriptGlobalVar::ScriptFn
+    );
+    let name = if is_function {
+        name.strip_prefix(crate::ast::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX)
+            .expect("a function-flavoured slot carries the prefix")
+    } else {
+        name
     };
     // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
     // configurable property, bit 9 marks a binding with no bare
-    // compiled writer (the kernel's contract).
+    // compiled writer, bit 10 a function binding (the kernel's
+    // contract).
     let configurable: i64 = match flavor {
         crate::ast::ScriptGlobalVar::Declared
         | crate::ast::ScriptGlobalVar::Function
-        | crate::ast::ScriptGlobalVar::ScriptVar => 0,
-        crate::ast::ScriptGlobalVar::Implicit | crate::ast::ScriptGlobalVar::EvalVar => 1 << 8,
+        | crate::ast::ScriptGlobalVar::ScriptVar
+        | crate::ast::ScriptGlobalVar::ScriptFn => 0,
+        crate::ast::ScriptGlobalVar::Implicit
+        | crate::ast::ScriptGlobalVar::EvalVar
+        | crate::ast::ScriptGlobalVar::EvalFn => 1 << 8,
     };
     let writerless: i64 = if ctx.ast.script_global_writerless.contains(name) {
         1 << 9
     } else {
         0
     };
+    // Bit 10: §9.1.1.4.18 CreateGlobalFunctionBinding rather than
+    // CreateGlobalVarBinding — over an existing property the function
+    // VALUE wins (the slot already holds it), attributes per the
+    // property's configurability.
+    let function: i64 = if is_function { 1 << 10 } else { 0 };
     let kind: i64 = configurable
         | writerless
+        | function
         | match slot_ty {
             Type::Any => 0,
             Type::I64 | Type::I32 => 1,

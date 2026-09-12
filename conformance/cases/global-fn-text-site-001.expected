@@ -1,0 +1,5 @@
+before false false
+eval-fn 1 function,true,true,true true false
+script-fn 2 2 function,true,true,false false true
+over-configurable 3 3 function,true,true,false
+over-non-configurable 4 4 function,true,true,false

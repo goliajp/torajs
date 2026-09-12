@@ -113,6 +113,11 @@ pub fn synthesize_script_global_fns(ast: &mut Ast) {
         &existing_forwarders,
     );
     let mut prelude: Vec<Stmt> = Vec::with_capacity(names.len() * 2);
+    // Knife 4-3: a function declared by eval / Script text binds its
+    // property where the text ran — the slot's assignment goes right
+    // after the (spliced-in) declaration, and the let-decl lane binds
+    // on that write. The slot itself still opens in the prelude.
+    let mut at_site: Vec<(String, Stmt)> = Vec::new();
     for name in names {
         let slot = format!("{SCRIPT_GLOBAL_FN_SLOT_PREFIX}{name}");
         let value = ast.add_expr(Expr::Closure {
@@ -129,9 +134,25 @@ pub fn synthesize_script_global_fns(ast: &mut Ast) {
         });
         let target = ast.add_expr(Expr::Ident(slot.clone()));
         let assign = ast.add_expr(Expr::Assign { target, value });
-        prelude.push(Stmt::Expr(assign));
-        ast.script_global_var_names
-            .insert(slot, super::var_hoist::ScriptGlobalVar::Function);
+        let flavor = ast
+            .eval_fn_names
+            .get(&name)
+            .copied()
+            .unwrap_or(super::var_hoist::ScriptGlobalVar::Function);
+        if flavor == super::var_hoist::ScriptGlobalVar::Function {
+            prelude.push(Stmt::Expr(assign));
+        } else {
+            at_site.push((name, Stmt::Expr(assign)));
+        }
+        ast.script_global_var_names.insert(slot, flavor);
+    }
+    for (name, assign) in at_site {
+        let pos = ast
+            .stmts
+            .iter()
+            .rposition(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == name))
+            .expect("a text-declared function is a top-level declaration");
+        ast.stmts.insert(pos + 1, assign);
     }
     // After the synthesized head — the hoisted `var` prelude (inert
     // `Uninit` inits), the class globals and the `__cprologue()` call

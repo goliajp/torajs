@@ -1251,6 +1251,13 @@ pub struct Ast {
     /// bind kernel may keep a read-only property and a redefine may set
     /// `writable: false` (`global_cell::KIND_FLAG_WRITERLESS`).
     pub script_global_writerless: std::collections::BTreeSet<String>,
+    /// RFC 20260912-global-var-cell knife 4-3 — the top-level function
+    /// declarations that came out of eval / Script text and are not
+    /// also the program's own: `EvalFn` (deletable, §19.2.1.3) or
+    /// `ScriptFn` (not, §16.1.7); both bind their property where the
+    /// text ran (`script_global_fns` places the slot's assignment at
+    /// the declaration's position instead of the prelude).
+    pub eval_fn_names: std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
     /// RFC 20260825-injection-reachability — the parser met at least
     /// one `try` or `throw` statement, at ANY nesting depth. The
     /// injection reachability gate's catch-face door reads this flag:

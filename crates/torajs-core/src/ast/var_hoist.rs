@@ -36,6 +36,14 @@ pub enum ScriptGlobalVar {
     /// (`$262.evalScript("var x")`): the written-`var` attributes
     /// (§16.1.7 step 17, not configurable), bound where the Script ran.
     ScriptVar,
+    /// The hidden slot of a `function` declared only by eval text:
+    /// §9.1.1.4.18 CreateGlobalFunctionBinding with D = true —
+    /// configurable — bound where the eval ran.
+    EvalFn,
+    /// The hidden slot of a `function` declared only by a Script
+    /// evaluated from the program: the function attributes (not
+    /// configurable), bound where the Script ran.
+    ScriptFn,
 }
 
 /// P2.1 — `var` hoisting pass per ES spec §14.3.2.1
