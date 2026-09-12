@@ -228,13 +228,24 @@ impl<'a> GenSm<'a> {
         // Explicit-T generators (`yield_ty != "any"`) keep their
         // direct write — both branches still produce the same
         // step shape from the user's perspective.
+        // Rotation 640 — a typed lane casts too: the value of a `yield`
+        // expression is `T | undefined` now (`sent_slot_ann`, an `any`
+        // for a scalar `T`), and yielding it back (`let v = yield e;
+        // yield v`) has to land in the step's `value: T` slot — the
+        // checker refused the struct otherwise ("expects Struct value:
+        // Number, got Nullable(Number)"). TypeScript's own type for
+        // that value is `any`, so the assertion adds nothing the
+        // program did not already claim.
         let val_for_step = if self.yield_ty == "any" {
             self.ast.add_expr(Expr::As {
                 expr: val,
                 ty_ann: "any".into(),
             })
         } else {
-            val
+            self.ast.add_expr(Expr::As {
+                expr: val,
+                ty_ann: self.yield_ty.clone(),
+            })
         };
         let done = self.ast.add_expr(Expr::Bool(false));
         let obj = self.ast.add_expr(Expr::ObjectLit {
