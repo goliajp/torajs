@@ -261,6 +261,15 @@ fn lower_global_assign(
         Type::Ptr,
         None,
     );
+    // The `x = x` the `var` hoist mints for an init-less eval /
+    // Script `var` stores nothing the program meant, so over an
+    // existing property the property's value is the binding's; any
+    // other store IS the value (`BindSite`).
+    let site = if matches!(ctx.ast.get_expr(value), Expr::Ident(n) if *n == name) {
+        crate::ssa_lower_stmt_let_decl_global::BindSite::Write
+    } else {
+        crate::ssa_lower_stmt_let_decl_global::BindSite::WriteAssigned
+    };
     if drop_old_slot {
         let cur_block = ctx.cur_block;
         let old = ctx.f.append_inst(
@@ -274,13 +283,9 @@ fn lower_global_assign(
             .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
         ctx.emit_drop_value(Operand::Value(old), slot_ty);
         // A synthesized implicit global's property is created by the
-        // write (RFC 20260912-global-var-cell, `BindSite::Write`).
+        // write (RFC 20260912-global-var-cell, `BindSite`).
         crate::ssa_lower_stmt_let_decl_global::emit_script_global_var_bind(
-            ctx,
-            &name,
-            slot_ty,
-            ptr,
-            crate::ssa_lower_stmt_let_decl_global::BindSite::Write,
+            ctx, &name, slot_ty, ptr, site,
         );
         return v;
     }
@@ -288,11 +293,7 @@ fn lower_global_assign(
     ctx.f
         .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
     crate::ssa_lower_stmt_let_decl_global::emit_script_global_var_bind(
-        ctx,
-        &name,
-        slot_ty,
-        ptr,
-        crate::ssa_lower_stmt_let_decl_global::BindSite::Write,
+        ctx, &name, slot_ty, ptr, site,
     );
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(

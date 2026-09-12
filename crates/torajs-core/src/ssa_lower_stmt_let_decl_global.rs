@@ -188,8 +188,18 @@ pub(crate) enum BindSite {
     /// An assignment to the global slot — a synthesized implicit
     /// global binds here, so the property exists from the first write
     /// (§9.1.1.4.6 creates it then, and a `delete this.x` between two
-    /// writes sees it created again).
+    /// writes sees it created again). The slot holds nothing the
+    /// program meant: this is the `x = x` self-assignment the `var`
+    /// hoist mints for an init-less eval / Script `var`, so over an
+    /// existing property the PROPERTY's value is the binding's.
     Write,
+    /// An assignment whose value the slot already holds — a real
+    /// `x = e`. Over an existing data property the binding takes the
+    /// property (attributes kept) but NOT its value: the kernel used
+    /// to copy the property's value back into the slot after the
+    /// store, so `defineProperty(this, "q", {value: 0, writable:
+    /// true, …}); q = 3` read back 0 (rotation 639).
+    WriteAssigned,
 }
 
 /// The init value of a top-level data global, by shape: the K.6
@@ -272,7 +282,7 @@ pub(crate) fn emit_script_global_var_bind(
         | crate::ast::ScriptGlobalVar::EvalVar
         | crate::ast::ScriptGlobalVar::ScriptVar
         | crate::ast::ScriptGlobalVar::EvalFn
-        | crate::ast::ScriptGlobalVar::ScriptFn => site == BindSite::Write,
+        | crate::ast::ScriptGlobalVar::ScriptFn => site != BindSite::Declaration,
     };
     if !binds_here {
         return;
@@ -293,8 +303,8 @@ pub(crate) fn emit_script_global_var_bind(
     };
     // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
     // configurable property, bit 9 marks a binding with no bare
-    // compiled writer, bit 10 a function binding (the kernel's
-    // contract).
+    // compiled writer, bit 10 a function binding, bit 11 a store
+    // whose value the slot already holds (the kernel's contract).
     let configurable: i64 = match flavor {
         crate::ast::ScriptGlobalVar::Declared
         | crate::ast::ScriptGlobalVar::Function
@@ -314,9 +324,15 @@ pub(crate) fn emit_script_global_var_bind(
     // VALUE wins (the slot already holds it), attributes per the
     // property's configurability.
     let function: i64 = if is_function { 1 << 10 } else { 0 };
+    let assigned: i64 = if site == BindSite::WriteAssigned {
+        1 << 11
+    } else {
+        0
+    };
     let kind: i64 = configurable
         | writerless
         | function
+        | assigned
         | match slot_ty {
             Type::Any => 0,
             Type::I64 | Type::I32 => 1,

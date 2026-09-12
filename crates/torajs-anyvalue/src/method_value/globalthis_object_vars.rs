@@ -80,7 +80,9 @@ const KIND_FLAG_WRITERLESS: u64 = 1 << 8;
 /// not, a synthesized implicit global (the property a [[Set]] would
 /// have created, §9.1.1.4.6) and an eval's `var` (§19.2.1.3) are; bit
 /// 9 says the binding has no bare compiled writer (see
-/// `global_cell::KIND_FLAG_WRITERLESS`).
+/// `global_cell::KIND_FLAG_WRITERLESS`); bit 11 says the slot already
+/// holds the value being written (an assignment site, not the `x = x`
+/// an init-less eval `var` hoists to).
 ///
 /// - Absent: define `{[[Value]]: <slot>, W: true, E: true, C: <bit 8>}`
 ///   — a `GlobalCell` over the slot — unless the object is not
@@ -89,7 +91,11 @@ const KIND_FLAG_WRITERLESS: u64 = 1 << 8;
 ///   `Object.defineProperty(this, "v", …)` did): the property is kept
 ///   and the binding takes its value (§16.1.7 CanDeclareGlobalVar says
 ///   "do nothing", which for one storage means the slot now holds
-///   what the object held). Only an `any` slot can take an arbitrary
+///   what the object held) — UNLESS bit 11 says the slot already
+///   holds the value being written (a real `x = e`: §9.1.1.4.6
+///   [[Set]] on the existing property), in which case the property
+///   keeps its attributes and the slot's value is the binding's.
+///   Only an `any` slot can take an arbitrary
 ///   value; a typed slot refuses loudly. A READ-ONLY property is kept
 ///   only over a writerless binding (bit 9) — the compiled bare writes
 ///   could not honour it otherwise — and its value lands through the
@@ -112,6 +118,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
     let configurable = kind & (1 << 8) != 0;
     let writerless = kind & (1 << 9) != 0;
     let function = kind & (1 << 10) != 0;
+    let assigned = kind & (1 << 11) != 0;
     let kind = kind & 0xff;
     let cell_kind = kind | if writerless { KIND_FLAG_WRITERLESS } else { 0 };
     let mut obj = globalthis_bag_ptr();
@@ -178,10 +185,16 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
             }
             // The slot takes its own stake on a heap payload; the
             // entry keeps its own until the cell swaps in and drops it.
-            if cur_tag == ANY_HEAP {
-                __torajs_rc_inc(cur_value as *mut c_void);
+            // A store the slot already holds (bit 11) IS the value —
+            // copying the property's back over it is what read `0`
+            // after `q = 3` (rotation 639).
+            if !assigned {
+                if cur_tag == ANY_HEAP {
+                    __torajs_rc_inc(cur_value as *mut c_void);
+                }
+                *(slot_ptr as *mut u64) =
+                    __torajs_anyv_box_from_pair(cur_tag as i64, cur_value as i64);
             }
-            *(slot_ptr as *mut u64) = __torajs_anyv_box_from_pair(cur_tag as i64, cur_value as i64);
             let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind);
             if writable {
                 __torajs_dynobj_set(&mut obj, key, ANY_HEAP, cell as u64);
