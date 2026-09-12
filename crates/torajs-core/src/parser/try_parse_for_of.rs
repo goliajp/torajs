@@ -265,7 +265,7 @@ impl<'a> Parser<'a> {
             }
         }
         let body_start = self.pos;
-        let body = self.parse_stmt()?;
+        let body = self.parse_single_stmt_body()?;
         // §14.7.5 ForIn/OfStatement takes a Statement, not a
         // Declaration — same gate every other single-stmt body has
         // (r294 刀 4; test262 for-of/decl-cls family).

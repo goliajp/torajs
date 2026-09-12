@@ -43,7 +43,7 @@ impl Parser<'_> {
             }
         }
         let then_start = self.pos;
-        let mut then_branch = Box::new(self.parse_stmt()?);
+        let mut then_branch = Box::new(self.parse_single_stmt_body()?);
         self.reject_decl_in_single_stmt(
             &then_branch,
             then_start,
@@ -54,7 +54,7 @@ impl Parser<'_> {
         let else_branch = if matches!(self.peek(), Token::Else) {
             self.pos += 1;
             let else_start = self.pos;
-            let mut e = Box::new(self.parse_stmt()?);
+            let mut e = Box::new(self.parse_single_stmt_body()?);
             self.reject_decl_in_single_stmt(
                 &e,
                 else_start,

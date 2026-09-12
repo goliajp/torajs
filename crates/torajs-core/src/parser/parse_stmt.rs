@@ -269,7 +269,7 @@ impl<'a> Parser<'a> {
         {
             self.pos += 2; // consume label ident + ':'
             let body_start = self.pos;
-            let body = Box::new(self.parse_stmt()?);
+            let body = Box::new(self.parse_single_stmt_body()?);
             self.reject_decl_in_single_stmt(
                 &body,
                 body_start,

@@ -44,6 +44,29 @@ pub(super) enum SingleStmtPos {
 }
 
 impl Parser<'_> {
+    /// The body of an `if` / `else`, a loop, a labelled statement or a
+    /// `with` — a Statement, never a Declaration. One reading follows
+    /// from that alone: in sloppy code a `let` on a line of its own
+    /// before `{` is the IDENTIFIER `let` as an ExpressionStatement,
+    /// closed by ASI, because no LexicalDeclaration can stand here
+    /// (test262 let-block-with-newline, eight positions). In a
+    /// statement list the same text is the destructuring declaration
+    /// `let {` with its initializer missing, which stays the error it
+    /// is.
+    pub(super) fn parse_single_stmt_body(&mut self) -> Result<Stmt, String> {
+        if self.let_reads_as_ident()
+            && let (Some(a), Some(b)) = (self.tokens.get(self.pos), self.tokens.get(self.pos + 1))
+            && matches!(a.token, Token::Let)
+            && matches!(b.token, Token::LBrace)
+            && self.source[a.span.end as usize..b.span.start as usize].contains('\n')
+        {
+            self.pos += 1;
+            let id = self.ast.add_expr(Expr::Ident("let".to_string()));
+            return Ok(Stmt::Expr(id));
+        }
+        self.parse_stmt()
+    }
+
     /// §14.6 / §14.7 / §14.13 early error — a single-statement
     /// position (if/else branch, loop body, labeled body) admits a
     /// Statement, not a Declaration. Lexical declarations (let /
@@ -243,8 +266,11 @@ impl Parser<'_> {
         else {
             return false;
         };
+        // `let \n {` is the same identifier-plus-ASI pair in a
+        // single-statement position (`parse_single_stmt_body` reads
+        // it so; the `with` body judge asks here before parsing).
         matches!(a.token, Token::Let)
-            && matches!(b.token, Token::Ident(_))
+            && matches!(b.token, Token::Ident(_) | Token::LBrace)
             && self.source[a.span.end as usize..b.span.start as usize].contains('\n')
     }
 }

@@ -46,7 +46,7 @@ impl<'a> Parser<'a> {
             }
         }
         let body_start = self.pos;
-        let body = Box::new(self.parse_stmt()?);
+        let body = Box::new(self.parse_single_stmt_body()?);
         self.reject_decl_in_single_stmt(
             &body,
             body_start,
@@ -67,7 +67,7 @@ impl<'a> Parser<'a> {
     pub(super) fn parse_do_while(&mut self) -> Result<Stmt, String> {
         self.pos += 1; // consume `do`
         let body_start = self.pos;
-        let body = Box::new(self.parse_stmt()?);
+        let body = Box::new(self.parse_single_stmt_body()?);
         self.reject_decl_in_single_stmt(
             &body,
             body_start,
@@ -368,7 +368,7 @@ impl<'a> Parser<'a> {
             }
         }
         let body_start = self.pos;
-        let body = Box::new(self.parse_stmt()?);
+        let body = Box::new(self.parse_single_stmt_body()?);
         self.reject_decl_in_single_stmt(
             &body,
             body_start,

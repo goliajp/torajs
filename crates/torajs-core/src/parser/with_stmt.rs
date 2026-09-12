@@ -63,7 +63,7 @@ impl Parser<'_> {
                 ));
             }
         }
-        let body = self.parse_stmt()?;
+        let body = self.parse_single_stmt_body()?;
 
         // Fresh per site off the arena length — nested `with`s and
         // repeated ones in a body each get their own binding, and the
