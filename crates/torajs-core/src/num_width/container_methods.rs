@@ -348,9 +348,6 @@ impl<'a> Analysis<'a> {
         for a in write_args {
             let w = self.width_of(a, scope);
             self.add_container_constraint(ek.clone(), w);
-            // A function value written into the element slot wires the
-            // slot's signature projections onto its own (F5; 638-13).
-            self.fn_value_flow(&ek, a, scope);
             // F2-fix — nested-reference alias only when the written
             // value is itself a container (candidate-side evidence);
             // scalar args contribute the one-way width edge above.

@@ -56,7 +56,7 @@ pub(crate) fn widen_container_ty(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match parsed {
-        Type::Arr(_) => widen_arr_elem(parsed, ann, key, table, arr_layouts, fn_sigs),
+        Type::Arr(_) => widen_arr_elem(parsed, ann, key, table, arr_layouts),
         Type::Obj(_) => {
             widen_struct_fields(parsed, key, table, arr_layouts, struct_layouts, fn_sigs)
         }
@@ -89,7 +89,7 @@ fn widen_face(
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     match ty {
-        Type::Arr(_) => widen_arr_elem(ty, ann, key, table, arr_layouts, fn_sigs),
+        Type::Arr(_) => widen_arr_elem(ty, ann, key, table, arr_layouts),
         // A fn-typed param is itself a signature whose faces live on
         // the projections of THIS key — the flow site glued them onto
         // the resident's Ret / Param classes the same way. Without
@@ -324,7 +324,7 @@ pub(crate) fn widen_struct_fields(
         let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
         let new_fty = match *fty {
             Type::I64 if table.field_is_f64(key, fname.clone()) => Type::F64,
-            Type::Arr(_) => widen_arr_elem(*fty, None, &fkey, table, arr_layouts, fn_sigs),
+            Type::Arr(_) => widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
             Type::Obj(_) => {
                 widen_struct_fields(*fty, &fkey, table, arr_layouts, struct_layouts, fn_sigs)
             }
@@ -372,7 +372,7 @@ fn widen_struct_fields_in_place(
         let fkey = SlotKey::Field(Box::new(key.clone()), fname.clone());
         match *fty {
             Type::I64 if table.field_is_f64(key, fname.clone()) => *fty = Type::F64,
-            Type::Arr(_) => *fty = widen_arr_elem(*fty, None, &fkey, table, arr_layouts, fn_sigs),
+            Type::Arr(_) => *fty = widen_arr_elem(*fty, None, &fkey, table, arr_layouts),
             Type::Obj(inner) => {
                 let mut seen = Vec::new();
                 if struct_layouts[inner.0 as usize]
@@ -422,7 +422,6 @@ pub(crate) fn widen_arr_elem(
     key: &SlotKey,
     table: &WidthTable,
     arr_layouts: &mut Vec<Type>,
-    fn_sigs: &mut Vec<(Vec<Type>, Type)>,
 ) -> Type {
     let Type::Arr(id) = parsed else {
         return parsed;
@@ -466,17 +465,7 @@ pub(crate) fn widen_arr_elem(
         Type::I64 if number_elem && table.elem_is_f64(key) => Type::F64,
         Type::Arr(_) => {
             let elem_key = SlotKey::Elem(Box::new(key.clone()));
-            widen_arr_elem(elem, elem_ann, &elem_key, table, arr_layouts, fn_sigs)
-        }
-        // A fn-typed element (`(() => number)[]`, Closure-repr per
-        // `parse_arr_suffix`): its signature faces widen like any
-        // other fn-typed slot's — by the element spelling's class when
-        // annotated, by the element key's projections otherwise
-        // (638-13: the element signature never widened, and a
-        // resident returning f64 was read off the integer lane).
-        Type::Closure(_) | Type::FnSig(_) => {
-            let elem_key = SlotKey::Elem(Box::new(key.clone()));
-            widen_fn_sig(elem, elem_ann, &elem_key, table, arr_layouts, fn_sigs)
+            widen_arr_elem(elem, elem_ann, &elem_key, table, arr_layouts)
         }
         _ => elem,
     };
