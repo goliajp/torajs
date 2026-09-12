@@ -107,6 +107,15 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // §16.1.1 / §16.2.1.1 — `new.target` in global code (arrows
+    // included) is an early error; a function's own body binds its
+    // [[NewTarget]] and stops the walk.
+    if torajs_core::parser::global_code_contains_new_target(ast) {
+        eprintln!(
+            "parse error: `new.target` is only valid inside a function body, not in global code (ES §16.1.1)"
+        );
+        return Err(());
+    }
     Ok(())
 }
 
