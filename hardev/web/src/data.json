@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-11T20:59:17.507Z",
+  "generatedAt": "2026-09-12T00:08:47.259Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-11T20:47:52Z",
-    "headSha": "66d36ffbf",
-    "elapsedSec": 428.64,
+    "ranAt": "2026-09-11T23:57:42Z",
+    "headSha": "65b827026",
+    "elapsedSec": 426.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31847,
-    "passNoOracle": 1542,
+    "pass": 31930,
+    "passNoOracle": 1543,
     "passNegative": 4538,
-    "passTotal": 37927,
-    "bug": 11044,
-    "incompatible": 4203,
+    "passTotal": 38011,
+    "bug": 10979,
+    "incompatible": 4184,
     "bunSkip": 2930,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 48971,
-    "passRateInScope": 71.33,
-    "passRateTrAccepted": 77.45
+    "trAccepted": 48990,
+    "passRateInScope": 71.48,
+    "passRateTrAccepted": 77.59
   },
   "torajs": {
-    "commit": "96101a9cb",
-    "commitSubject": "chore(hardev): rotation 634 stamps — sweep, determinism, Guard Malloc @ 66d36ffbf",
+    "commit": "35bda4bb0",
+    "commitSubject": "chore(hardev): rotation 635 stamps — sweep, determinism, Guard Malloc @ 65b827026",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "96101a9cb",
-      "subject": "chore(hardev): rotation 634 stamps — sweep, determinism, Guard Malloc @ 66d36ffbf"
+      "hash": "35bda4bb0",
+      "subject": "chore(hardev): rotation 635 stamps — sweep, determinism, Guard Malloc @ 65b827026"
     },
     {
-      "hash": "66d36ffbf",
-      "subject": "fix(torajs-core): a rest target's recovered-yield read still goes through its temp"
+      "hash": "65b827026",
+      "subject": "fix(torajs-core): typeof globalThis.<name> is static only for a known builtin global"
     },
     {
-      "hash": "8c77642e4",
-      "subject": "fix(torajs-core): rest targets keep their root binding, async generator declarations keep the lift lane"
+      "hash": "017cb97a7",
+      "subject": "feat(torajs-core): a yield in a while or for condition runs per iteration"
     },
     {
-      "hash": "6a38a0f66",
-      "subject": "fix(torajs-core): a constructor parameter default may read this"
+      "hash": "fa59c9fe1",
+      "subject": "fix(torajs-promise): a heap-typed await on a still-pending promise raises instead of dereferencing null"
     },
     {
-      "hash": "a662c428f",
-      "subject": "fix(torajs-meta): a Promise cell's [[Prototype]] is Promise.prototype"
+      "hash": "13c2836af",
+      "subject": "perf(torajs-core): a closure site's body is walked once, however many times its call site types the callee"
     },
     {
-      "hash": "2b7993d56",
-      "subject": "fix(torajs-arr): defineProperty on a far array index refuses at the dense-storage limit like every write lane"
+      "hash": "917befab0",
+      "subject": "refactor(torajs-core): the checker's constructor and pipeline driver move to a child module"
     },
     {
-      "hash": "a3e283a5d",
-      "subject": "fix(torajs-core): implicit-global synthesis sees the declarations inside function expressions"
+      "hash": "e55c9a2cf",
+      "subject": "feat(torajs-core): a generator expression captures a reassigned enclosing local by reference"
     },
     {
-      "hash": "0e7f5c177",
-      "subject": "fix(torajs-core): rest destructuring assignment evaluates its target before the drain, for every pattern"
+      "hash": "4785d823b",
+      "subject": "refactor(torajs-core): the decl / closure partition moves next to the closure order it feeds"
     },
     {
-      "hash": "539ea80af",
-      "subject": "fix(torajs-cli): the iteration protocol keeps the obj-world dispatch families"
+      "hash": "69b274cbd",
+      "subject": "fix(torajs-core): a write to a function expression's own self-name is a strict TypeError and a sloppy no-op, in generators too"
     },
     {
-      "hash": "d07a9f2c5",
-      "subject": "fix(torajs-core): a var that re-declares a parameter is the parameter's binding"
+      "hash": "19868e80b",
+      "subject": "refactor(torajs-core): the two throwing ident-write lanes move to a child module"
     },
     {
-      "hash": "1ffe334cf",
-      "subject": "fix(torajs-anyvalue): the value-cell Array.fromAsync passes the mapped form its thisArg"
+      "hash": "113892023",
+      "subject": "fix(torajs-core): a free name no scope binds is not a capture of a generator expression"
     },
     {
-      "hash": "fb334716b",
-      "subject": "fix(torajs-core): a nested generator declaration that captures takes the generator-expression route"
+      "hash": "8a4375965",
+      "subject": "refactor(torajs-core): the generator-expression wrapper route moves to its own file"
     }
   ],
-  "headSha": "96101a9cb",
+  "headSha": "35bda4bb0",
   "autorun": {
-    "total": 937,
+    "total": 938,
     "baselineTarget": 10,
-    "bySelf": 932,
+    "bySelf": 933,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789136979-2ab8",
-      "at": "2026-09-11T14:29:39Z",
-      "ts": 1789136979,
+      "rotationId": "r-1789160394-2efd",
+      "at": "2026-09-11T20:59:54Z",
+      "ts": 1789160394,
       "trigger": "self",
-      "prevHead": "8012d5876",
-      "handoffSha": "sha256:109eae7153421b70a30fa8ba6530656a9b4762ee83b56de290dd4c999191bd39",
-      "handoffAgeSec": 34,
-      "conformanceBefore": "3990/0/4",
-      "commitsInSession": 13
+      "prevHead": "7184e2bf3",
+      "handoffSha": "sha256:a550a3c3ea592a487124e85e9b677d983ed59e0b0277118c43a57f844c52fbe5",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "3999/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1789160394-2efd",
+        "at": "2026-09-11T20:59:54Z",
+        "ts": 1789160394,
+        "trigger": "self",
+        "prevHead": "7184e2bf3",
+        "handoffSha": "sha256:a550a3c3ea592a487124e85e9b677d983ed59e0b0277118c43a57f844c52fbe5",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "3999/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1789136979-2ab8",
         "at": "2026-09-11T14:29:39Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 97,
         "conformanceBefore": "3914/0/4",
         "commitsInSession": 19
-      },
-      {
-        "rotationId": "r-1789002936-63b7",
-        "at": "2026-09-10T01:15:36Z",
-        "ts": 1789002936,
-        "trigger": "self",
-        "prevHead": "6c8e37ac5",
-        "handoffSha": "sha256:6f6291c609aced9f555175dc888f56baf1d2fa4e8afdc2d2a37905ce2ae65c86",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "3900/0/4",
-        "commitsInSession": 17
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
