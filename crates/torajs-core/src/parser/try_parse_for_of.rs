@@ -51,6 +51,21 @@ impl<'a> Parser<'a> {
             return Some((Some(false), false, Some(hint)));
         }
         let is_var_decl = match self.peek() {
+            // §14.7.5 — `for (let in obj)`: in sloppy code a `let`
+            // followed by `in` is the IDENTIFIER as the head's
+            // LeftHandSideExpression (test262 head-lhs-let), read by the
+            // expression parser below; `let` before `of` keeps the
+            // declaration reading the `[lookahead ≠ let]` restriction
+            // gives it.
+            Token::Let
+                if self.let_reads_as_ident()
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.token),
+                        Some(Token::Ident(n)) if n == "in"
+                    ) =>
+            {
+                None
+            }
             Token::Let | Token::Const => Some(false),
             Token::Var => Some(true),
             _ => None,
