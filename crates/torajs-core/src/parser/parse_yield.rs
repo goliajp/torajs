@@ -35,7 +35,11 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1;
-        if matches!(self.peek(), Token::Star) {
+        // §15.5.5 `yield [no LineTerminator here] * AssignmentExpression`:
+        // a `*` on the next line is not this production, so the yield
+        // ends here (operand-less) and the `*` is left to fail as the
+        // head of the next statement (rotation 636).
+        if matches!(self.peek(), Token::Star) && !self.has_newline_before(self.pos) {
             self.pos += 1;
             let src = self.parse_expr()?;
             if matches!(self.peek(), Token::Semi) {
@@ -110,10 +114,15 @@ impl<'a> Parser<'a> {
     /// with `yield;`). The pre-S2.41 parse handed the terminator to
     /// `parse_expr` — "expected expression, got Semi".
     pub(super) fn parse_yield_operand(&mut self) -> Result<ExprId, String> {
-        if matches!(
-            self.peek(),
-            Token::Semi | Token::RBrace | Token::RParen | Token::RBracket | Token::Comma
-        ) {
+        // [no LineTerminator here] — a line break ends the yield
+        // (rotation 636, with the `*` twin above): `yield\n foo` is
+        // `yield;` followed by the statement `foo`, never `yield foo`.
+        if self.has_newline_before(self.pos)
+            || matches!(
+                self.peek(),
+                Token::Semi | Token::RBrace | Token::RParen | Token::RBracket | Token::Comma
+            )
+        {
             return Ok(self.ast.add_expr(Expr::Ident("undefined".into())));
         }
         self.parse_expr()

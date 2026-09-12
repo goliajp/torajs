@@ -69,7 +69,9 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1; // consume `yield`
-        if matches!(self.peek(), Token::Star) {
+        // §15.5.5 — no line terminator between `yield` and `*` (the
+        // statement twin in `parse_yield.rs` says why).
+        if matches!(self.peek(), Token::Star) && !self.has_newline_before(self.pos) {
             self.pos += 1; // consume `*`
             let src = self.parse_expr()?;
             return Ok(self.emit_yieldstar_expr_hoist(src));
