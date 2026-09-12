@@ -252,6 +252,7 @@ mod toplevel_this;
 mod uncallable_builtins;
 mod uninit_let;
 mod var_hoist;
+mod var_hoist_recurse;
 mod variadic_closure_bindings;
 mod vtable_slot;
 mod yield_ident_goal;
