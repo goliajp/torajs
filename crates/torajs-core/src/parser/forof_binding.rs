@@ -281,8 +281,39 @@ impl<'a> Parser<'a> {
     /// statement form); a non-of/in follow means this was a C-style
     /// init that happens to open with `[` — the caller restores its
     /// saved position and falls through.
+    /// A bare head opening with `[` / `{`: normally an assignment
+    /// pattern (S2.24 刀 2 — a fresh loop local receives each element
+    /// and the body prepends the pattern-assignment expansion), but a
+    /// literal that is INDEXED or a member of — `[let][1]`, `{ a: o }
+    /// .a` (test262 head-lhs-let) — is a LeftHandSideExpression
+    /// assigned per iteration. Answers the head tuple the caller binds
+    /// plus the pattern to expand, if it was one; `None` surrenders.
+    #[allow(clippy::type_complexity)]
+    pub(super) fn parse_bare_bracket_head(
+        &mut self,
+    ) -> Option<(
+        (Option<PatShape>, String, Option<String>, Option<ExprId>),
+        Option<ExprId>,
+    )> {
+        let pat = self.scan_forof_assign_pattern()?;
+        let name = format!("__forvar_{}", self.mint_desugar_id());
+        if matches!(
+            self.ast.get_expr(pat),
+            Expr::Member { .. } | Expr::Index { .. }
+        ) {
+            Some(((None, name, None, Some(pat)), None))
+        } else {
+            Some(((None, name, None, None), Some(pat)))
+        }
+    }
+
     pub(super) fn scan_forof_assign_pattern(&mut self) -> Option<ExprId> {
-        let Ok(pat) = self.parse_expr() else {
+        // Under [~In], as the bare-name head is: `[a][0] in obj` must
+        // leave `in` to the loop, not to the relational operator.
+        let saved_no_in = std::mem::replace(&mut self.in_for_init, true);
+        let pat = self.parse_expr();
+        self.in_for_init = saved_no_in;
+        let Ok(pat) = pat else {
             return None;
         };
         let next_is_of_in = matches!(

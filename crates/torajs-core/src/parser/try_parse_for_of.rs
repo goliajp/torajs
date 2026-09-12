@@ -203,13 +203,12 @@ impl<'a> Parser<'a> {
         let (destruct_pat, var_name, assign_target, lhs_expr) = if bare_form
             && matches!(self.peek(), Token::LBracket | Token::LBrace)
         {
-            let Some(pat) = self.scan_forof_assign_pattern() else {
+            let Some((head, pattern)) = self.parse_bare_bracket_head() else {
                 self.pos = saved;
                 return Ok(None);
             };
-            destruct_assign = Some(pat);
-            let id = self.mint_desugar_id();
-            (None, format!("__forvar_{id}"), None, None)
+            destruct_assign = pattern;
+            head
         } else {
             let Some(head) = self.parse_forof_binding_and_pattern(saved, is_var_decl, bare_form)
             else {
