@@ -388,6 +388,13 @@ pub(crate) fn bind_let_slot(
     };
     if boxed_noncopy {
         ctx.boxed_noncopy_lets.insert(name.to_string());
+    } else {
+        // A plain slot: the mark, if present, belongs to an OUTER
+        // binding of the same name this one shadows. Leaving it made
+        // the capture write and the frame drop treat this alloca as a
+        // box (rotation 639); `close_scope_frame` reinstates the
+        // outer's mark from its own `LocalInfo::boxed`.
+        ctx.boxed_noncopy_lets.remove(name);
     }
     if let Some(prev) = ctx.locals.get(name).copied()
         && prev.scope_depth < cur_depth
@@ -407,6 +414,7 @@ pub(crate) fn bind_let_slot(
             // A boxed non-Copy binding owns its box stake even when
             // the init was an alias (the box inc'd its own share).
             borrowed: is_alias_init && !boxed_any && !boxed_noncopy,
+            boxed: escape_captured,
             scope_depth: cur_depth,
         },
     );

@@ -413,6 +413,7 @@ pub(crate) fn try_lower_fn_addr_let(ctx: &mut LowerCtx, name: &str, init: ExprId
             ty,
             moved: false,
             borrowed: false,
+            boxed: false,
             scope_depth: cur_depth,
         },
     );

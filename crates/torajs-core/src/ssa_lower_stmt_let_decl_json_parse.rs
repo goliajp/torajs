@@ -84,6 +84,7 @@ pub(crate) fn try_lower(
             ty: slot_ty_for_parse,
             moved: false,
             borrowed: false,
+            boxed: false,
             scope_depth: cur_depth,
         },
     );

@@ -88,7 +88,15 @@ pub(crate) fn lower(
     // every way out (the exit block, a throw into an enclosing catch,
     // a labeled jump, a `return`), and the teardown record below only
     // ever owes it the §7.4.9 `return()` call.
-    bind_scoped_local(ctx, "__forof_any_iter", iter_slot, Type::Any, false, false);
+    bind_scoped_local(
+        ctx,
+        "__forof_any_iter",
+        iter_slot,
+        Type::Any,
+        false,
+        false,
+        false,
+    );
     let out_slot = ctx.alloca(Type::Any, Some("__forof_any_out"));
 
     // ES §7.4.9 — the loop owes the iterator a `return()` only when it

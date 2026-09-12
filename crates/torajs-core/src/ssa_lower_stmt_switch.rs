@@ -64,6 +64,7 @@ pub(crate) fn lower(
                 ty: scrut_ty,
                 moved: false,
                 borrowed: false,
+                boxed: false,
                 scope_depth: ctx.scope_stack.len() - 1,
             },
         );

@@ -17,13 +17,13 @@ impl LowerCtx<'_> {
     /// promotion predicate — the scope-close set cleanup removes the
     /// inner name, and the restore re-inserts iff the OUTER binding
     /// was itself boxed (owner-marked: moved, not borrowed).
-    pub(crate) fn binding_is_boxed_noncopy(&self, name: &str, info: &LocalInfo) -> bool {
-        info.moved
-            && !info.borrowed
-            && !info.ty.is_copy()
-            && info.ty != Type::Substr
-            && self.escape_captured_lets.contains(name)
-            && self.mutated_captured_lets.contains(name)
+    pub(crate) fn binding_is_boxed_noncopy(&self, _name: &str, info: &LocalInfo) -> bool {
+        // The binding's own record, not the name-keyed sets: a
+        // forward-opened box (`open_box`), a for-of or param box is
+        // boxed without the name being in `mutated_captured_lets`, and
+        // the sets cannot tell a shadowing plain binding from the boxed
+        // one it shadows (rotation 639).
+        info.boxed && !info.ty.is_copy() && info.ty != Type::Substr
     }
 
     /// RFC 20260710 — the box-release intrinsic matching a promoted

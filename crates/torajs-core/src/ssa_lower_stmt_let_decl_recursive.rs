@@ -67,6 +67,7 @@ fn open_box(ctx: &mut LowerCtx, name: &str, ty: Type) -> crate::ssa::ValueId {
             // `boxed_noncopy_lets` arm of the drop walk releases it).
             moved: true,
             borrowed: false,
+            boxed: true,
             scope_depth: cur_depth,
         },
     );

@@ -105,7 +105,7 @@ pub(crate) fn lower(
         ctx.cur_block,
         InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
     );
-    bind_scoped_local(ctx, i_ident, i_slot, Type::I64, false, false);
+    bind_scoped_local(ctx, i_ident, i_slot, Type::I64, false, false, false);
 
     let src_ptr = match src_ptr_op {
         Operand::Value(v) => v,
@@ -299,6 +299,7 @@ pub(crate) fn bind_scoped_local(
     ty: Type,
     moved: bool,
     borrowed: bool,
+    boxed: bool,
 ) {
     let cur_depth = ctx.scope_stack.len() - 1;
     if let Some(prev) = ctx.locals.get(name).copied()
@@ -316,6 +317,7 @@ pub(crate) fn bind_scoped_local(
             ty,
             moved,
             borrowed,
+            boxed,
             scope_depth: cur_depth,
         },
     );

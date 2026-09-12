@@ -78,7 +78,7 @@ pub(crate) fn bind_loop_var(
         if boxed_noncopy {
             ctx.boxed_noncopy_lets.insert(var_name.to_string());
         }
-        bind_scoped_local(ctx, var_name, slot, v_ty, true, false);
+        bind_scoped_local(ctx, var_name, slot, v_ty, true, false, true);
         return;
     }
     let borrowed = alias && !body_writes_var(ctx, body, var_name);
@@ -89,5 +89,5 @@ pub(crate) fn bind_loop_var(
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(v_val, Operand::Value(slot), 0));
-    bind_scoped_local(ctx, var_name, slot, v_ty, borrowed, borrowed);
+    bind_scoped_local(ctx, var_name, slot, v_ty, borrowed, borrowed, false);
 }

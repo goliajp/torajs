@@ -104,6 +104,7 @@ pub(crate) fn lower(
                 ty: Type::Substr,
                 moved: false,
                 borrowed: false,
+                boxed: false,
                 scope_depth: cur_depth,
             },
         );

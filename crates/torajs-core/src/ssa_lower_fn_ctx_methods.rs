@@ -238,6 +238,7 @@ impl<'a> LowerCtx<'a> {
                     // A boxed param owns its box stake — the fn-exit
                     // boxed walk releases it (`!borrowed` gate).
                     borrowed: borrows_caller && !boxed_noncopy,
+                    boxed: escape_captured,
                     scope_depth: 0,
                 },
             );
@@ -346,6 +347,7 @@ impl<'a> LowerCtx<'a> {
                         ty: closure_ty,
                         moved: true,
                         borrowed: true,
+                        boxed: false,
                         scope_depth: 0,
                     },
                 );
@@ -426,6 +428,7 @@ impl<'a> LowerCtx<'a> {
                     ty: cap_ty,
                     moved: true,
                     borrowed: true,
+                    boxed: is_byref,
                     scope_depth: 0,
                 },
             );

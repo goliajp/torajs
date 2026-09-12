@@ -68,6 +68,7 @@ pub(crate) fn lower(
                 ty: Type::I64,
                 moved: false,
                 borrowed: false,
+                boxed: false,
                 scope_depth: cur_depth,
             },
         );
@@ -150,6 +151,7 @@ pub(crate) fn lower(
                 ty: Type::Substr,
                 moved: false,
                 borrowed: false,
+                boxed: false,
                 scope_depth: cur_depth,
             },
         );

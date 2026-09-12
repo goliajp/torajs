@@ -284,6 +284,7 @@ fn mint_per_iter_boxes(ctx: &mut LowerCtx, per_iter: &mut [PerIterVar]) {
                 ty: pv.outer.ty,
                 moved: true,
                 borrowed: false,
+                boxed: true,
                 scope_depth: pv.outer.scope_depth,
             },
         );

@@ -282,6 +282,7 @@ fn lower_catch(
                 ty: e_ty,
                 moved: false,
                 borrowed: false,
+                boxed: false,
                 scope_depth: cur_depth,
             },
         );

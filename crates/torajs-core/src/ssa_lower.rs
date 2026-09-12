@@ -190,6 +190,14 @@ pub(crate) struct LocalInfo {
     /// scope `let n = s` from transferring ownership (would dangle the
     /// outer-scope reference); see LetDecl in lower_stmt for the rule.
     pub(crate) scope_depth: usize,
+    /// True when `slot` is a CAPTURE BOX (a byref cell the env shares),
+    /// not a plain alloca. Per binding, because the name-keyed
+    /// `boxed_noncopy_lets` mark could not tell an inner plain `let x`
+    /// from the boxed outer `x` it shadows: the inner binding inherited
+    /// the mark, its capture write took the byref path on a bare alloca,
+    /// and the program died with EXC_ARM_DA_ALIGN before its first line
+    /// (rotation 639, test262 `for-in/for-of scope-body-lex-open`).
+    pub(crate) boxed: bool,
 }
 
 pub(crate) use crate::ssa_lower_free_helpers::{count_capture_groups, decode_env_ann};

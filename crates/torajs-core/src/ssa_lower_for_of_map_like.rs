@@ -170,7 +170,15 @@ pub(crate) fn lower_for_of_map_like(
     // stranded the MapIter and its +1 on the Map (fo4 / fo5: 445MB per
     // 600k iterations).
     if should_drop_iter {
-        bind_scoped_local(ctx, "__forof_map_it", iter_slot, iter_ty, false, false);
+        bind_scoped_local(
+            ctx,
+            "__forof_map_it",
+            iter_slot,
+            iter_ty,
+            false,
+            false,
+            false,
+        );
     }
 
     let tag_slot = ctx.alloca(Type::I64, Some("__forof_map_tag"));

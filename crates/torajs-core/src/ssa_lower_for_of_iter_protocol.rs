@@ -197,7 +197,15 @@ pub(crate) fn lower_for_of_iter_protocol(
     // way out (the exit block, a throw into an enclosing catch, a
     // labeled jump, a `return`); the teardown record only owes it the
     // §7.4.9 `return()` call.
-    bind_scoped_local(ctx, "__forof_it", iter_slot, iter_ret_ty, false, false);
+    bind_scoped_local(
+        ctx,
+        "__forof_it",
+        iter_slot,
+        iter_ret_ty,
+        false,
+        false,
+        false,
+    );
 
     // ES §7.4.9 — a `return()` is owed only on an EARLY stop. Both
     // exits share `after`, so the natural one records itself and the
@@ -268,7 +276,15 @@ pub(crate) fn lower_for_of_iter_protocol(
         ctx.cur_block,
         InstKind::Store(Operand::Value(step_val), Operand::Value(step_slot), 0),
     );
-    bind_scoped_local(ctx, "__forof_step", step_slot, step_ret_ty, false, false);
+    bind_scoped_local(
+        ctx,
+        "__forof_step",
+        step_slot,
+        step_ret_ty,
+        false,
+        false,
+        false,
+    );
     let v_val = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(value_ty, Operand::Value(step_val), value_off),

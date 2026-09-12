@@ -315,6 +315,7 @@ pub(crate) fn resolve_closure_binding(
         ty: Type::Closure(sig),
         moved: false,
         borrowed: true,
+        boxed: false,
         scope_depth: 0,
     })
 }
