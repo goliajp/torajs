@@ -124,4 +124,10 @@ pub enum Tag {
     /// `DataView` — `{ header:8 | buffer:8 (AnyValue) |
     /// byte_offset:8 | byte_len:8 }`.
     DataView = 29,
+    /// RFC 20260912-global-var-cell — a global-object property whose
+    /// storage is a top-level binding's data-global slot:
+    /// `[header:8][slot_ptr:8][kind:8]`. Stored as the entry's
+    /// `value_anyv` cell and seen through by the dynobj kernels
+    /// (the AccessorPair model, resolved by this tag).
+    GlobalCell = 30,
 }

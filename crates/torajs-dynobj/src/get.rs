@@ -12,6 +12,7 @@
 use core::ffi::c_void;
 
 use crate::accessor::TAG_ACCESSOR_PAIR;
+use crate::global_cell::deref_global_cell;
 use crate::layout::{
     ANY_ACCESSOR, ANY_HEAP, ANY_UNDEF, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE,
     BUCKET_FLAG_WRITABLE, TAG_DYNOBJ,
@@ -61,6 +62,9 @@ pub unsafe extern "C" fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const
     if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
         return ANY_UNDEF;
     }
+    // A global-variable cell answers the binding's current value
+    // (RFC 20260912-global-var-cell); every other value is itself.
+    let v = unsafe { deref_global_cell(v) };
     let tag = unsafe { __torajs_anyv_unbox_tag(v) } as u64;
     // Accessor entries store an `AccessorPair` cell — surface the
     // synthetic ANY_ACCESSOR sentinel so the SSA GET path dispatches
@@ -99,6 +103,7 @@ pub unsafe extern "C" fn __torajs_dynobj_get_value(obj: *const c_void, key: *con
     if v == crate::layout::DYNOBJ_HOLE_SENTINEL {
         return 0;
     }
+    let v = unsafe { deref_global_cell(v) };
     unsafe { __torajs_anyv_unbox_value(v) as u64 }
 }
 

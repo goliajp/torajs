@@ -111,6 +111,7 @@ unsafe extern "C" {
     fn __torajs_dataview_drop(p: *mut c_void);
     fn __torajs_dynobj_drop(p: *mut c_void);
     fn __torajs_accessor_drop(p: *mut c_void);
+    fn __torajs_global_cell_drop(p: *mut c_void);
     fn __torajs_regex_drop(p: *mut c_void);
     fn __torajs_date_drop(p: *mut c_void);
     fn __torajs_symbol_drop(p: *mut c_void);
@@ -240,6 +241,7 @@ pub unsafe extern "C" fn __torajs_value_drop_heap(child: *mut c_void) {
         t if t == Tag::DataView as u16 => unsafe { __torajs_dataview_drop(child) },
         t if t == Tag::DynObj as u16 => unsafe { __torajs_dynobj_drop(child) },
         t if t == Tag::AccessorPair as u16 => unsafe { __torajs_accessor_drop(child) },
+        t if t == Tag::GlobalCell as u16 => unsafe { __torajs_global_cell_drop(child) },
         t if t == Tag::RegExp as u16 => unsafe { __torajs_regex_drop(child) },
         t if t == Tag::Date as u16 => unsafe { __torajs_date_drop(child) },
         t if t == Tag::Symbol as u16 => unsafe { __torajs_symbol_drop(child) },

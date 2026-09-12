@@ -6,6 +6,7 @@
 use core::ffi::c_void;
 
 use crate::define::refuse;
+use crate::global_cell::{redefine_through_cell, value_is_global_cell};
 use crate::layout::{
     ANY_HEAP, BUCKET_FLAG_CONFIGURABLE, BUCKET_FLAG_ENUMERABLE, BUCKET_FLAG_WRITABLE,
     BUCKET_KEY_PTR_MASK, BUCKET_TAG_MASK, DEFINE_FLAG_CONFIGURABLE, DEFINE_FLAG_ENUMERABLE,
@@ -215,6 +216,24 @@ pub(crate) unsafe fn redefine_entry(
         return 0;
     }
 
+    // RFC 20260912-global-var-cell — the entry is a top-level
+    // binding's slot: a [[Value]]-only redefine writes THROUGH, an
+    // attribute change is refused (see `redefine_through_cell`).
+    if unsafe { value_is_global_cell(cur_value_anyv) } {
+        return match unsafe {
+            redefine_through_cell(
+                cur_value_anyv,
+                cur_flags,
+                tag & BUCKET_TAG_MASK,
+                value,
+                flags_byte,
+            )
+        } {
+            Ok(()) => 1,
+            Err(msg) => unsafe { refuse(throw_on_refusal, msg, has_value, tag, value) },
+        };
+    }
+
     // Validation passed — apply. Drop the old heap value first if
     // the new descriptor brings a fresh [[Value]] over an ANY_HEAP slot.
     if has_value && cur_value_tag == ANY_HEAP {
@@ -223,41 +242,7 @@ pub(crate) unsafe fn redefine_entry(
         }
     }
 
-    // Per-flag fold: present → take desc value; absent → preserve current.
-    let mut new_flags: u64 = 0;
-    new_flags |= if has_writable {
-        if desc_writable {
-            BUCKET_FLAG_WRITABLE
-        } else {
-            0
-        }
-    } else if cur_writable {
-        BUCKET_FLAG_WRITABLE
-    } else {
-        0
-    };
-    new_flags |= if has_enumerable {
-        if desc_enumerable {
-            BUCKET_FLAG_ENUMERABLE
-        } else {
-            0
-        }
-    } else if cur_enumerable {
-        BUCKET_FLAG_ENUMERABLE
-    } else {
-        0
-    };
-    new_flags |= if has_configurable {
-        if desc_configurable {
-            BUCKET_FLAG_CONFIGURABLE
-        } else {
-            0
-        }
-    } else if cur_configurable {
-        BUCKET_FLAG_CONFIGURABLE
-    } else {
-        0
-    };
+    let new_flags = fold_flags(flags_byte, cur_flags);
 
     let new_value_tag = if has_value {
         tag & BUCKET_TAG_MASK
@@ -336,4 +321,30 @@ unsafe fn merge_accessor_redefine(
         }
     }
     true
+}
+
+/// §10.1.6.3 per-attribute fold: a flag PRESENT in the descriptor
+/// takes the descriptor's value, an absent one keeps the entry's.
+fn fold_flags(flags_byte: u64, cur_flags: u64) -> u64 {
+    let pick = |present: u64, desc: u64, cur: u64| -> u64 {
+        let on = if flags_byte & present != 0 {
+            flags_byte & desc != 0
+        } else {
+            cur_flags & cur != 0
+        };
+        if on { cur } else { 0 }
+    };
+    pick(
+        DEFINE_PRESENT_WRITABLE,
+        DEFINE_FLAG_WRITABLE,
+        BUCKET_FLAG_WRITABLE,
+    ) | pick(
+        DEFINE_PRESENT_ENUMERABLE,
+        DEFINE_FLAG_ENUMERABLE,
+        BUCKET_FLAG_ENUMERABLE,
+    ) | pick(
+        DEFINE_PRESENT_CONFIGURABLE,
+        DEFINE_FLAG_CONFIGURABLE,
+        BUCKET_FLAG_CONFIGURABLE,
+    )
 }

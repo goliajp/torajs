@@ -210,7 +210,55 @@ pub(crate) fn try_lower_global_let(
         ctx.cur_block,
         InstKind::Store(coerced, Operand::Value(ptr), 0),
     );
+    emit_script_global_var_bind(ctx, name, slot_ty, ptr);
     true
+}
+
+/// RFC 20260912-global-var-cell — §16.1.7 step 17: a script's
+/// top-level `var` becomes an own property of the global object over
+/// the slot just stored. The hoisted `: any` prelude runs before the
+/// first user statement, so the property exists from instantiation;
+/// an escape-hatch typed `var` binds where its declaration runs (a
+/// typed slot has no reflectable value before its init).
+fn emit_script_global_var_bind(
+    ctx: &mut LowerCtx,
+    name: &str,
+    slot_ty: Type,
+    ptr: crate::ssa::ValueId,
+) {
+    let Some(flavor) = ctx.ast.script_global_var_names.get(name).copied() else {
+        return;
+    };
+    // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
+    // configurable property (the kernel's contract).
+    let configurable: i64 = match flavor {
+        crate::ast::ScriptGlobalVar::Declared => 0,
+        crate::ast::ScriptGlobalVar::Implicit => 1 << 8,
+    };
+    let kind: i64 = configurable
+        | match slot_ty {
+            Type::Any => 0,
+            Type::I64 | Type::I32 => 1,
+            Type::F64 => 2,
+            Type::Bool => 3,
+            Type::Str => 4,
+            ref t if t.is_refcounted() => 5,
+            _ => return,
+        };
+    let name_str = ctx.intern_string_literal(name);
+    let f = ctx.intrinsics.global_var_bind;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            f,
+            vec![
+                Operand::Value(name_str),
+                Operand::Value(ptr),
+                Operand::ConstI64(kind),
+            ],
+        ),
+    );
+    ctx.emit_throw_check(None);
 }
 
 /// M2 Phase B Stage 4 — `let f = global_fn`: FnSig slot with FnAddr

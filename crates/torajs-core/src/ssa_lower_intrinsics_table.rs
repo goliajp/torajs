@@ -447,6 +447,7 @@ pub(crate) fn build(
         global_ident_get: init_c.global_object.global_ident_get,
         global_ident_typeof: init_c.global_object.global_ident_typeof,
         global_ident_set: init_c.global_object.global_ident_set,
+        global_var_bind: init_c.global_object.global_var_bind,
         throw_reference_error_tdz: init_c.any_substrate.throw_reference_error_tdz,
         throw_reference_error_super_delete: init_c.any_substrate.throw_reference_error_super_delete,
         class_computed_method_define: init_c.class_computed.computed_method_define,

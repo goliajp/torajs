@@ -1225,6 +1225,17 @@ pub struct Ast {
     /// walk for every program; `with` is sloppy-goal-only and rare, so
     /// the flag buys the common case out of it entirely.
     pub has_with_stmt: bool,
+    /// RFC 20260912-global-var-cell — the names a script's top level
+    /// declares with `var` (hoisted and escape-hatch forms alike),
+    /// recorded by `var_hoist` under the script goal. §16.1.7 makes
+    /// each an own property of the global object over the SAME
+    /// storage: `collect_toplevel_globals` gives every one a data
+    /// global (a cell needs a stable address) and the let-decl lane
+    /// binds the slot to the object right after its store. The value
+    /// says which attributes the property gets — a written `var` is
+    /// not configurable, a synthesized implicit global is.
+    pub script_global_var_names:
+        std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
     /// RFC 20260825-injection-reachability — the parser met at least
     /// one `try` or `throw` statement, at ANY nesting depth. The
     /// injection reachability gate's catch-face door reads this flag:

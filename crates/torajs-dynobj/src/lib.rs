@@ -40,6 +40,7 @@ pub mod define_wrapper;
 pub mod delete;
 pub mod drop;
 pub mod get;
+pub mod global_cell;
 pub mod has;
 pub mod iter;
 pub mod iter_print_order;
@@ -54,6 +55,7 @@ pub mod proto_chain;
 pub mod resize;
 pub mod seal;
 pub mod set;
+pub mod set_entry_flags;
 
 pub use accessor::{
     __torajs_accessor_drop, __torajs_accessor_get_getter, __torajs_accessor_get_kinds,
@@ -226,6 +228,19 @@ pub unsafe extern "C" fn __torajs_anyv_unbox_tag(v: u64) -> i64 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_unbox_value(v: u64) -> i64 {
     (v & 0x0000_FFFF_FFFF_FFFF) as i64
+}
+
+// Third member of the faithful pair above: a heap-tagged box (tag 4)
+// answers its pointer bits, every immediate answers 0 — the borrow-
+// shaped read the global-cell and accessor predicates gate on.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_cell_ptr(v: u64) -> i64 {
+    if (v >> 48) == 4 {
+        (v & 0x0000_FFFF_FFFF_FFFF) as i64
+    } else {
+        0
+    }
 }
 
 // Accessor-pair builtin-face probe stubs — unit tests exercise

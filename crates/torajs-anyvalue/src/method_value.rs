@@ -78,6 +78,7 @@ pub(crate) use ns_static_util::arg_at;
 // immortal pre-filled dynobj lane.
 pub(crate) mod globalthis_object;
 pub(crate) mod globalthis_object_idents;
+pub(crate) mod globalthis_object_vars;
 pub(crate) mod ns_object;
 mod ns_static;
 mod ns_static_argv;

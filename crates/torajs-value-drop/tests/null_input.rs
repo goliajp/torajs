@@ -55,6 +55,8 @@ per_tag_drop_stub!(
     __torajs_dataview_drop,
     __torajs_dynobj_drop,
     __torajs_accessor_drop,
+    // RFC 20260912-global-var-cell
+    __torajs_global_cell_drop,
     __torajs_response_drop,
     __torajs_regex_drop,
     __torajs_date_drop,

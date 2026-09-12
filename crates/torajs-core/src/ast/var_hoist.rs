@@ -7,6 +7,20 @@
 
 use super::{Expr, ExprId, Stmt};
 
+/// RFC 20260912-global-var-cell — how a script's top-level `var` name
+/// reached the global object, which decides the property's
+/// attributes (§9.1.1.4.17 vs §9.1.1.4.6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptGlobalVar {
+    /// A `var` the program wrote: `{writable, enumerable}`, NOT
+    /// configurable (`delete this.v` answers false).
+    Declared,
+    /// A `var` `synthesize_sloppy_implicit_globals` invented for an
+    /// assignment to an undeclared name: the property a [[Set]] would
+    /// have created, so configurable too.
+    Implicit,
+}
+
 /// P2.1 — `var` hoisting pass per ES spec §14.3.2.1
 /// VariableStatement. Walks every fn body + the top-level script
 /// (taken as the implicit `main` body for hoisting purposes), finds
@@ -31,6 +45,20 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
     // Take stmts out so we can pass &mut ast.exprs and a separate
     // &mut Vec<Stmt> to the recursive helpers without aliasing.
     let mut top = std::mem::take(&mut ast.stmts);
+    // RFC 20260912-global-var-cell — under the script goal every
+    // top-level `var` is also an own property of the global object
+    // (§16.1.7), so the names are recorded before the hoist rewrites
+    // the sites away. The GOAL, not strictness: a strict Script still
+    // instantiates its `var`s on the global object.
+    if ast.sloppy_script_goal {
+        let mut counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+        count_var_names(&top, &mut counts);
+        for name in counts.into_keys() {
+            ast.script_global_var_names
+                .entry(name)
+                .or_insert(ScriptGlobalVar::Declared);
+        }
+    }
     // Top-level script: hoist over `top` itself.
     hoist_vars_in_block(&mut top, &mut ast.exprs, &[]);
     // Each top-level FnDecl: hoist over its body. The parameter names

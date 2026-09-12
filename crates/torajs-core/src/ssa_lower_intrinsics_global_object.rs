@@ -28,6 +28,7 @@ pub(crate) struct GlobalObjectIds {
     pub global_ident_get: FuncId,
     pub global_ident_typeof: FuncId,
     pub global_ident_set: FuncId,
+    pub global_var_bind: FuncId,
 }
 
 pub(crate) fn declare(
@@ -60,6 +61,15 @@ pub(crate) fn declare(
             "__torajs_global_ident_set",
             &[Type::Str, Type::Any],
             Type::Any,
+        ),
+        // (name Str borrowed, slot Ptr, kind I64) → nothing; may
+        // record a TypeError (RFC 20260912-global-var-cell).
+        global_var_bind: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_global_var_bind",
+            &[Type::Str, Type::Ptr, Type::I64],
+            Type::Void,
         ),
     }
 }

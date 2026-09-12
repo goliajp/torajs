@@ -23,6 +23,7 @@
 use core::ffi::c_void;
 
 use crate::get::type_tag;
+use crate::global_cell::deref_global_cell;
 use crate::layout::{DYNOBJ_KEY_HOLE, TAG_DYNOBJ};
 use crate::probe::{
     KEY_HDR_FLAGS_OFF, KEY_STR_FLAG_IS_LATIN1, bucket_flags, bucket_key_ptr, entries, entries_len,
@@ -90,7 +91,9 @@ pub unsafe extern "C" fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) 
     if unsafe { (*e).key_ptr_tagged } == DYNOBJ_KEY_HOLE {
         return 0;
     }
-    unsafe { (*e).value_anyv }
+    // A global-variable cell answers the binding's current value
+    // (RFC 20260912-global-var-cell).
+    unsafe { deref_global_cell((*e).value_anyv) }
 }
 
 /// Str-cell layout mirror for the array-index key scan (same

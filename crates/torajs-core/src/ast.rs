@@ -368,7 +368,7 @@ pub use tdz_reads::mark_tdz_reads;
 pub use this_param::bind_this_param;
 pub use toplevel_this::rewrite_toplevel_this;
 pub use uninit_let::desugar_uninit_let;
-pub use var_hoist::desugar_var_hoist;
+pub use var_hoist::{ScriptGlobalVar, desugar_var_hoist};
 pub use vtable_slot::{hierarchy_root, join_vtable_slot_params, join_vtable_slot_returns};
 pub use with_object_widen::widen_with_object_bindings;
 pub use yield_ident_goal::triage_yield_idents;

@@ -95,6 +95,14 @@ pub fn synthesize_sloppy_implicit_globals(ast: &mut Ast) {
         seen: Vec::new(),
     };
     walk.walk_block(ast, &ast.stmts);
+    // RFC 20260912-global-var-cell — the synthesized `var` reaches the
+    // global object like every other top-level `var`, but as the
+    // property a [[Set]] creates: configurable (`delete this.x` after
+    // `x = 1` answers true, S10.4.1_A1_T2).
+    for name in &names {
+        ast.script_global_var_names
+            .insert(name.clone(), super::var_hoist::ScriptGlobalVar::Implicit);
+    }
     let decls: Vec<Stmt> = names
         .into_iter()
         .map(|name| {
