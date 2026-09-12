@@ -431,6 +431,7 @@ pub(crate) mod ssa_lower_container_width;
 pub(crate) mod ssa_lower_ctx_state;
 pub(crate) mod ssa_lower_ctx_struct;
 pub(crate) mod ssa_lower_deep_clone;
+pub(crate) mod ssa_lower_deep_clone_expr;
 pub mod ssa_lower_delete;
 pub mod ssa_lower_deque_escape;
 pub(crate) mod ssa_lower_drops;
