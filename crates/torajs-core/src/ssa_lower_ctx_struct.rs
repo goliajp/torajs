@@ -419,6 +419,8 @@ pub(crate) struct LowerCtx<'a> {
     /// Field names some write fills with a value the F64 sentinel
     /// gate recognises — see [`crate::undef_f64_fields`].
     pub(crate) undefable_f64_fields: std::collections::HashSet<PropKey>,
+    /// Same, for the Str undefined sentinel (rotation 640).
+    pub(crate) nullable_str_fields: std::collections::HashSet<PropKey>,
     /// RFC 20260707 residual chunk — binding names whose let-init
     /// is a string INDEX read (`const c = s[i]`) or an alias of
     /// such a binding. The Substr slot may hold the Substr-shaped

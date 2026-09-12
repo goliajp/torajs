@@ -185,6 +185,7 @@ pub(crate) fn lower_fn(
         nullable_str_lets: std::collections::HashSet::new(),
         undefable_f64_lets: std::collections::HashSet::new(),
         undefable_f64_fields: std::collections::HashSet::new(),
+        nullable_str_fields: std::collections::HashSet::new(),
         undefable_substr_lets: std::collections::HashSet::new(),
         undefable_heap_lets: std::collections::HashSet::new(),
         stack_alloced_locals: std::collections::HashSet::new(),

@@ -132,7 +132,12 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         return true;
     }
     match ctx.ast.get_expr(eid) {
-        Expr::Ident(n) => ctx.nullable_str_lets.contains(n),
+        // The `__undef_slot__string` marker IS the sentinel, spelled at
+        // the source (a generator's completion value, rotation 640).
+        Expr::Ident(n) => {
+            ctx.nullable_str_lets.contains(n)
+                || n.strip_prefix(crate::ast::UNDEF_SLOT_MARKER) == Some("string")
+        }
         // 660 residual — a `string[]` element slot may hold the Str
         // sentinel (an OOB string-index read pushed/stored into the
         // array), so any Str-array index read routes the same as a
@@ -157,6 +162,14 @@ pub(crate) fn is_nullable_str_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         Expr::Member { obj, name } => {
             if name == "description"
                 && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Symbol))
+            {
+                return true;
+            }
+            // A field some write handed the Str sentinel — the name
+            // set `undef_f64_fields` collects for this predicate.
+            if ctx
+                .nullable_str_fields
+                .contains(torajs_wtf8::Wtf8::new(name))
             {
                 return true;
             }

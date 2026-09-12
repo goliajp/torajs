@@ -18,7 +18,7 @@ const ie = e(); ie.next(); const se = ie.next(); console.log("bare-return", se.v
 function* f(): number { yield 1; return 7; }
 const iff = f(); iff.next(); console.log("return-7", iff.next().value);
 function* st(): string { yield "a"; }
-const ist = st(); ist.next(); const ss = ist.next(); console.log("str-exhausted", ss.value, ss.done, ss.value === undefined);
+const ist = st(); ist.next(); const ss = ist.next(); console.log("str-exhausted", ss.value, typeof ss.value, ss.done, ss.value === undefined);
 function* an(): any { yield 1; }
 const ian = an(); ian.next(); console.log("any-exhausted", ian.next().value);
 let total = 0;

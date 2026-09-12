@@ -64,12 +64,19 @@ use std::collections::HashSet;
 /// context exists and before its body is lowered.
 pub(crate) fn prime(ctx: &mut LowerCtx<'_>) {
     loop {
-        let fields = collect(ctx);
+        let fields = collect(ctx, crate::ssa_lower_undef_f64_source::is_undef_f64_source);
+        // The Str sentinel's field set, collected by the same walk
+        // against ITS predicate (rotation 640): a generator step's
+        // `value: string` completion is the `__undef_slot__string`
+        // marker, and `typeof step.value` answered "string" for it.
+        let str_fields = collect(ctx, crate::ssa_lower_nullable_guard::is_nullable_str_source);
         let mut lets = collect_assigned_idents(ctx);
         lets.extend(collect_declared_idents(ctx));
         let grew = !fields.is_subset(&ctx.undefable_f64_fields)
+            || !str_fields.is_subset(&ctx.nullable_str_fields)
             || !lets.is_subset(&ctx.undefable_f64_lets);
         ctx.undefable_f64_fields.extend(fields);
+        ctx.nullable_str_fields.extend(str_fields);
         ctx.undefable_f64_lets.extend(lets);
         if !grew {
             return;
@@ -112,21 +119,24 @@ fn collect_declared_idents(ctx: &LowerCtx<'_>) -> HashSet<String> {
 /// Field names that some object literal or member assignment fills
 /// with a value the sentinel gate recognises. Arena order, so the
 /// result does not depend on how anything is hashed.
-fn collect(ctx: &LowerCtx<'_>) -> HashSet<PropKey> {
+fn collect(
+    ctx: &LowerCtx<'_>,
+    is_source: fn(&LowerCtx<'_>, crate::ast::ExprId) -> bool,
+) -> HashSet<PropKey> {
     let mut out = HashSet::new();
     for id in 0..ctx.ast.exprs.len() {
         let eid = crate::ast::ExprId(id as u32);
         match ctx.ast.get_expr(eid) {
             Expr::ObjectLit { fields } => {
                 for (name, value) in fields {
-                    if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, *value) {
+                    if is_source(ctx, *value) {
                         out.insert(name.clone());
                     }
                 }
             }
             Expr::Assign { target, value } => {
                 if let Expr::Member { name, .. } = ctx.ast.get_expr(*target) {
-                    if crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, *value) {
+                    if is_source(ctx, *value) {
                         out.insert(PropKey::from(name));
                     }
                 }
