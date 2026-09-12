@@ -1,0 +1,7 @@
+s1 x string
+s1 false true true
+s3 inner declaration function true
+s3 false true true
+q1 qx string
+q3 qx
+q3 false true true

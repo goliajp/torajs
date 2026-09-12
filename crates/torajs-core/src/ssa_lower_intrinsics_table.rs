@@ -446,6 +446,7 @@ pub(crate) fn build(
         throw_reference_error_name: init_c.any_substrate.throw_reference_error_name,
         global_ident_get: init_c.global_object.global_ident_get,
         global_ident_typeof: init_c.global_object.global_ident_typeof,
+        global_var_sync: init_c.global_object.global_var_sync,
         global_ident_set: init_c.global_object.global_ident_set,
         global_var_bind: init_c.global_object.global_var_bind,
         script_preflight: init_c.global_object.script_preflight,

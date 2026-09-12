@@ -381,4 +381,10 @@ pub(super) fn record_eval_var_sites(inlined: &[Stmt], ast: &mut Ast, form: CallF
             ast.eval_var_sites.insert(init, flavor);
         }
     }
+    // A block-nested `function` of sloppy text is a `var` of the text
+    // too (§B.3.3.3), one that does not exist yet: the lift mints it
+    // later and files its site from this map (`Ast::eval_annexb_fn_names`).
+    for name in super::super::annexb_names::block_nested_fn_names(inlined) {
+        ast.eval_annexb_fn_names.entry(name).or_insert(flavor);
+    }
 }

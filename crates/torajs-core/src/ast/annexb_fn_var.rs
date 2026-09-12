@@ -201,6 +201,17 @@ pub(super) struct LiftCtx {
     /// Collected here because the walk cannot borrow the `Ast`; the
     /// rewrite half applies them.
     pub(super) catch_renames: Vec<(String, String)>,
+    /// `Ast::eval_annexb_fn_names`, snapshotted: a block function of
+    /// eval / Script text whose §B.3.3 `var` is that text's, bound where
+    /// the text ran. The `var` this pass mints for such a name is filed
+    /// as an eval site at the flush, so `desugar_var_hoist` gives the
+    /// name the text's flavour instead of a written `var`'s (which
+    /// bound the property in the prelude, non-configurable, and the
+    /// program's own later `Object.defineProperty(this, "f", …)` threw).
+    eval_annexb: std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
+    /// The `init` slots minted for those names, drained into
+    /// `Ast::eval_var_sites` on the next flush.
+    eval_var_inits: Vec<(ExprId, super::var_hoist::ScriptGlobalVar)>,
     /// Names lexically declared by the scopes between the var scope and
     /// the declaration, innermost last. §B.3.3.1 step 1.a.ii applies
     /// Annex B only when replacing the declaration with `var F` would
@@ -223,6 +234,8 @@ impl LiftCtx {
             shadowed: HashSet::new(),
             params: HashSet::new(),
             catch_renames: Vec::new(),
+            eval_annexb: ast.eval_annexb_fn_names.clone(),
+            eval_var_inits: Vec::new(),
             lex: Vec::new(),
         }
     }
@@ -331,6 +344,9 @@ impl LiftCtx {
         for (mangled, source) in std::mem::take(&mut self.source_names) {
             ast.nested_fn_names.insert(mangled, source);
         }
+        for (init, flavor) in std::mem::take(&mut self.eval_var_inits) {
+            ast.eval_var_sites.insert(init, flavor);
+        }
         self.base = ast.exprs.len() as u32;
     }
 
@@ -382,6 +398,9 @@ impl LiftCtx {
     /// `var <name>: any = <mangled>` — the binding starts here.
     pub(super) fn mint_var_decl(&mut self, name: &str, mangled: &str) -> Stmt {
         let init = self.mint(Expr::Ident(mangled.to_string()));
+        if let Some(flavor) = self.eval_annexb.get(name) {
+            self.eval_var_inits.push((init, *flavor));
+        }
         Stmt::LetDecl {
             mutable: true,
             name: name.to_string(),

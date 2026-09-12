@@ -48,6 +48,8 @@ unsafe extern "C" {
     );
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_rc_dec(p: *mut c_void) -> i32;
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
@@ -248,4 +250,60 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
         }
     }
     GLOBALTHIS_OBJECT.store(obj as u64, Ordering::Release);
+}
+
+/// `__torajs_global_var_sync(key, slot_ptr)` — §9.1.1.4 GetBindingValue
+/// for a name that only a LATER eval / Script declares (`EvalVar` /
+/// `ScriptVar`: the property binds where the text runs, see
+/// `ssa_lower_ident_site_bound`). Until then the compiled slot is not
+/// the binding — the name resolves on the object half of the record —
+/// so a read refreshes the slot from the object's own property first:
+/// an accessor's getter runs (§7.3.2, `this` = the global object, and
+/// its throw is recorded for the caller's check); a data property's
+/// value is copied, with a stake of its own on a heap payload. Once
+/// the text has bound the property, the entry is a cell over this slot
+/// and nothing moves. An absent property leaves the slot as it is: its
+/// `undefined`, or a value the program stored.
+///
+/// The slot owns what it holds, so the payload it held is released.
+///
+/// # Safety
+///
+/// `key` is a live Str cell (borrowed); `slot_ptr` is the address of a
+/// live `any` data global that outlives the program.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_global_var_sync(key: *mut c_void, slot_ptr: *mut c_void) {
+    let obj = GLOBALTHIS_OBJECT.load(Ordering::Acquire) as *mut c_void;
+    // SAFETY: `obj` is the singleton or null (checked); `key` a Str
+    // cell and `slot_ptr` a live slot per the caller invariant; every
+    // callee borrows what it is handed.
+    unsafe {
+        if obj.is_null()
+            || __torajs_dynobj_has(obj, key) == 0
+            || __torajs_dynobj_entry_is_global_cell(obj, key) != 0
+        {
+            return;
+        }
+        let tag = __torajs_dynobj_get_tag(obj, key);
+        let value = __torajs_dynobj_get_value(obj, key);
+        let fresh = if tag == ANY_ACCESSOR {
+            __torajs_accessor_invoke_getter(
+                value as *const c_void,
+                crate::nanbox::box_void_ptr(obj),
+            )
+        } else {
+            if tag == ANY_HEAP {
+                __torajs_rc_inc(value as *mut c_void);
+            }
+            __torajs_anyv_box_from_pair(tag as i64, value as i64)
+        };
+        let old = *(slot_ptr as *const u64);
+        *(slot_ptr as *mut u64) = fresh;
+        if __torajs_anyv_unbox_tag(old) as u64 == ANY_HEAP {
+            let p = __torajs_anyv_unbox_value(old) as *mut c_void;
+            if __torajs_rc_dec(p) == 1 {
+                __torajs_value_drop_heap(p);
+            }
+        }
+    }
 }

@@ -426,6 +426,9 @@ fn try_k3_global_data(ctx: &mut LowerCtx<'_>, name: &str) -> Option<Operand> {
         Type::Ptr,
         None,
     );
+    // A name a LATER eval / Script declares reads the object's own
+    // property until the text has run (rotation 640).
+    crate::ssa_lower_ident_site_bound::emit_sync(ctx, name, ptr);
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,

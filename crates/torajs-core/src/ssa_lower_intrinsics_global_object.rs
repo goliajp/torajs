@@ -29,6 +29,7 @@ pub(crate) struct GlobalObjectIds {
     pub global_ident_typeof: FuncId,
     pub global_ident_set: FuncId,
     pub global_var_bind: FuncId,
+    pub global_var_sync: FuncId,
     pub script_preflight: FuncId,
     pub global_var_declare: FuncId,
     pub global_fn_declare: FuncId,
@@ -72,6 +73,16 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_global_var_bind",
             &[Type::Str, Type::Ptr, Type::I64],
+            Type::Void,
+        ),
+        // (name Str borrowed, slot Ptr) → nothing; may record a getter's
+        // throw. A read of a name a LATER eval / Script declares
+        // (rotation 640, `ssa_lower_ident_site_bound`).
+        global_var_sync: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_global_var_sync",
+            &[Type::Str, Type::Ptr],
             Type::Void,
         ),
         // A Script evaluated inside a function (RFC 20260912 knife 5,

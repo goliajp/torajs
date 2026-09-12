@@ -1258,6 +1258,16 @@ pub struct Ast {
     /// text ran (`script_global_fns` places the slot's assignment at
     /// the declaration's position instead of the prelude).
     pub eval_fn_names: std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
+    /// Rotation 640 — the block-nested `function` names of eval / Script
+    /// text, each with the flavour its Annex B §B.3.3 `var` binding
+    /// takes (`EvalVar` / `ScriptVar`: site-bound, like every `var` of
+    /// that text). The binding is minted by `desugar_nested_fns` long
+    /// after the text was inlined, so its `init` cannot reach
+    /// `eval_var_sites` from the inline; the lift files it there from
+    /// this map. A name the program's own text also declares in a
+    /// block is filed too and is harmless: its program-side `var` site
+    /// keeps the name a written `var`.
+    pub eval_annexb_fn_names: std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
     /// RFC 20260825-injection-reachability — the parser met at least
     /// one `try` or `throw` statement, at ANY nesting depth. The
     /// injection reachability gate's catch-face door reads this flag:

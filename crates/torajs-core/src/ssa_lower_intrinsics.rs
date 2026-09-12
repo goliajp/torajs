@@ -519,6 +519,7 @@ pub(crate) struct Intrinsics {
     pub(crate) global_ident_get: FuncId,
     /// §13.5.1.1 `typeof` over the same lookup (else `"undefined"`).
     pub(crate) global_ident_typeof: FuncId,
+    pub(crate) global_var_sync: FuncId,
     /// §9.1.1.4.6 SetMutableBinding — creates the property.
     pub(crate) global_ident_set: FuncId,
     /// §16.1.7 step 17 — a top-level `var` slot becomes the property.
