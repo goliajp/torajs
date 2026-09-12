@@ -176,12 +176,14 @@ pub(crate) fn lower(
     if let Some(obj_eid) = forin_obj {
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);
     }
-    let v_slot = ctx.alloca(v_ty, Some(var_name));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(v_val, Operand::Value(v_slot), 0),
+    crate::ssa_lower_for_of_written::bind_loop_var(
+        ctx,
+        var_name,
+        v_val,
+        v_ty,
+        body,
+        crate::ssa_lower_for_of_written::LoopVarInit::Alias,
     );
-    bind_scoped_local(ctx, var_name, v_slot, v_ty, true, true);
     // RFC 20260901-scope-exit-drops — the body frame (already pushed,
     // holding the loop variable) is only closed by `close_body_scope`
     // on fall-through, so a jump out owes it too: depth = its index.
@@ -400,7 +402,15 @@ fn lower_non_array_source(
         return true;
     }
     if src_ty == Type::Str {
-        crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
+        // The string lane binds a Substr view, which a body write
+        // cannot replace; a written loop variable takes the any lane,
+        // whose slot owns each character string.
+        if crate::ssa_lower_for_of_written::body_writes_var(ctx, body, var_name) {
+            let boxed = ctx.box_to_any(src_ptr_op);
+            crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
+        } else {
+            crate::ssa_lower_for_of_str::lower(ctx, src_ptr_op, i_ident, var_name, body);
+        }
         return true;
     }
     // Any-dynamic-access RFC (20260704) S5+ — `for (x of recv)` where

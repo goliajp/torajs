@@ -168,12 +168,14 @@ pub(crate) fn lower(
         Type::Any,
         None,
     );
-    let v_slot = ctx.alloca(Type::Any, Some(var_name));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
+    crate::ssa_lower_for_of_written::bind_loop_var(
+        ctx,
+        var_name,
+        Operand::Value(v_val),
+        Type::Any,
+        body,
+        crate::ssa_lower_for_of_written::LoopVarInit::Owned,
     );
-    bind_scoped_local(ctx, var_name, v_slot, Type::Any, false, false);
     let teardown = crate::ssa_lower_for_of_teardown::ForOfTeardown::Any {
         src: src_op.clone(),
         iter_slot,

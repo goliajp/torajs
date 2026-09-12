@@ -458,6 +458,7 @@ pub(crate) mod ssa_lower_for_of_iter_protocol_plan;
 pub(crate) mod ssa_lower_for_of_map_like;
 pub(crate) mod ssa_lower_for_of_str;
 pub(crate) mod ssa_lower_for_of_teardown;
+pub(crate) mod ssa_lower_for_of_written;
 pub(crate) mod ssa_lower_free_helpers;
 pub(crate) mod ssa_lower_gen_env;
 pub(crate) mod ssa_lower_generics_mono_shapes;

@@ -30,7 +30,7 @@
 
 use crate::ast::{ExprId, Stmt};
 use crate::ssa::{FuncId, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{LocalInfo, LowerCtx};
+use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_for_of_iter_protocol_plan::{IterPlan, resolve_iter_plan};
 use crate::ssa_lower_stmt_for_of::{bind_scoped_local, close_body_scope};
 
@@ -275,36 +275,14 @@ pub(crate) fn lower_for_of_iter_protocol(
         value_ty,
         None,
     );
-    let v_slot = ctx.alloca(value_ty, Some(var_name));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
+    crate::ssa_lower_for_of_written::bind_loop_var(
+        ctx,
+        var_name,
+        Operand::Value(v_val),
+        value_ty,
+        body,
+        crate::ssa_lower_for_of_written::LoopVarInit::Alias,
     );
-    {
-        let cur_depth = ctx.scope_stack.len() - 1;
-        if let Some(prev) = ctx.locals.get(var_name).copied()
-            && prev.scope_depth < cur_depth
-        {
-            ctx.shadow_stack
-                .last_mut()
-                .expect("shadow frame")
-                .push((var_name.to_string(), prev));
-        }
-        ctx.locals.insert(
-            var_name.to_string(),
-            LocalInfo {
-                slot: v_slot,
-                ty: value_ty,
-                moved: true,
-                borrowed: true,
-                scope_depth: cur_depth,
-            },
-        );
-        ctx.scope_stack
-            .last_mut()
-            .expect("scope frame")
-            .push(var_name.to_string());
-    }
     ctx.for_of_teardown_stack
         .push(crate::ssa_lower_for_of_teardown::ForOfTeardown::Typed {
             iter_slot,

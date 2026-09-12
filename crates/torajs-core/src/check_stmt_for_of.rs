@@ -154,11 +154,16 @@ pub(crate) fn check(
     } else {
         elem_ty
     };
+    // §14.7.5.7 — a `let` head's per-iteration binding is mutable; a
+    // `const` head's writes were already rewritten into throws by the
+    // parser (`throw_on_const_loop_var_writes`), so nothing here has
+    // to refuse them. Ownership of a written variable is the
+    // lowering's business (`ssa_lower_for_of_written`).
     let _ = checker.declare(
         var_name.to_string(),
         LocalInfo {
             ty: var_ty,
-            mutable: false,
+            mutable: true,
             moved: false,
             borrowed: false,
             declared_class: None,

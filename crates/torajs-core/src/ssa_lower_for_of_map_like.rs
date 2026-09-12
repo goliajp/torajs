@@ -220,12 +220,14 @@ pub(crate) fn lower_for_of_map_like(
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
     let v_val = load_loop_value(ctx, src_ty, var_ty, tag_slot, val_slot);
-    let v_slot = ctx.alloca(var_ty, Some(var_name));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(v_val), Operand::Value(v_slot), 0),
+    crate::ssa_lower_for_of_written::bind_loop_var(
+        ctx,
+        var_name,
+        Operand::Value(v_val),
+        var_ty,
+        body,
+        crate::ssa_lower_for_of_written::LoopVarInit::Owned,
     );
-    bind_scoped_local(ctx, var_name, v_slot, var_ty, false, false);
     // RFC 20260901-scope-exit-drops — body frame already pushed and
     // only closed on fall-through: a jump out owes it (depth = index).
     ctx.loop_stack
