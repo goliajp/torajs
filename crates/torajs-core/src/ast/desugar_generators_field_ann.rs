@@ -292,6 +292,12 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         }
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
+        // `x as T` says what the local IS; nothing else here could
+        // read through the cast, so `const a = (Promise as any).all`
+        // fell to the `number` fallback and the first `a.call(…)`
+        // failed check ("no member `.call` on type Number") — the
+        // shape every `Promise.<static>.call(Promise, …)` test writes.
+        Expr::As { ty_ann, .. } => return Some(ty_ann.clone()),
         // `null` is the same case as `undefined` one line up: JS's
         // untyped slot is `any`, and `number` made the difference
         // observable — a local holding `null` did not compile at all
