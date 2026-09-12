@@ -312,6 +312,14 @@ pub(crate) fn is_typevar_ann(s: &str) -> bool {
     s.starts_with("__T") && s.len() > 3 && s[3..].bytes().all(|b| b.is_ascii_digit())
 }
 
+/// Does a (possibly compound) annotation mention an auto-generic type
+/// var anywhere — `__inlobj(many:__T1|few:string)` as much as a bare
+/// `__T1`?
+pub(crate) fn mentions_typevar(ann: &str) -> bool {
+    ann.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(is_typevar_ann)
+}
+
 /// Statically infer the type-annotation string for an expression (best-effort).
 pub(crate) fn infer_expr_ann_with(
     exprs: AstExprsView,

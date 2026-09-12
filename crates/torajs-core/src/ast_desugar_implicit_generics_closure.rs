@@ -47,7 +47,23 @@ pub(crate) fn desugar_closure_shape_fn(
         if let Some(inferred) =
             infer_return_ann_seeded(ast_exprs_view, body, params, &seeded, fn_sigs)
         {
-            *return_type = Some(inferred);
+            // A forwarder's body is one call to its target; when the
+            // target is auto-generic and returns an object literal
+            // over a parameter, the sniff answers the TEMPLATE's
+            // spelling (`__inlobj(many:__T1|few:string)`), and no
+            // instantiation ever binds `__T1` for a closure-shaped
+            // decl — the checker rejects the face ("unknown return
+            // type"). The `any` floor the other arms take is the
+            // right answer here too: the forwarding call boxes.
+            *return_type = Some(
+                if is_synth_closure_name(name)
+                    && crate::ast::implicit_generics_infer::mentions_typevar(&inferred)
+                {
+                    "any".to_string()
+                } else {
+                    inferred
+                },
+            );
         } else if is_synth_closure_name(name) {
             // RC-4 — a value return the static sniff can't
             // type (any-param method call / any arith) must
