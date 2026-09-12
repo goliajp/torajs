@@ -1268,6 +1268,14 @@ pub struct Ast {
     /// block is filed too and is harmless: its program-side `var` site
     /// keeps the name a written `var`.
     pub eval_annexb_fn_names: std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
+    /// Rotation 640 — the names the program's top-level Scripts
+    /// (`$262.evalScript`) declare lexically. §16.1.7 step 5.c: a
+    /// binding an eval introduced is configurable, not a restricted
+    /// global property, so a later Script's `let` / `const` of the name
+    /// is legal and shadows it. The eval inliner drops such a
+    /// declaration (`drop_script_shadowed_decls`) — flat, the two would
+    /// be one name declared twice to the checker.
+    pub script_lex_names: std::collections::HashSet<String>,
     /// RFC 20260825-injection-reachability — the parser met at least
     /// one `try` or `throw` statement, at ANY nesting depth. The
     /// injection reachability gate's catch-face door reads this flag:

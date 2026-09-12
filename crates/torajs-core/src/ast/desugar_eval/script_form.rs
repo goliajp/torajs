@@ -235,7 +235,10 @@ fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool, sink: &mut V
                 // A Script's declarations join the global environment
                 // for the Scripts after it; an eval's `var`s do not
                 // block a later Script's lexical declaration
-                // (`script-decl-lex-var-declared-via-eval`).
+                // (`script-decl-lex-var-declared-via-eval`) — and the
+                // inliner drops the eval's declaration the Script
+                // shadows (`Ast::script_lex_names`).
+                ast.script_lex_names.extend(names.lex.iter().cloned());
                 reg.absorb(names);
             }
         } else if redeclares_only {
@@ -387,4 +390,32 @@ pub(super) fn record_eval_var_sites(inlined: &[Stmt], ast: &mut Ast, form: CallF
     for name in super::super::annexb_names::block_nested_fn_names(inlined) {
         ast.eval_annexb_fn_names.entry(name).or_insert(flavor);
     }
+}
+
+/// §16.1.7 step 5.c — a binding an eval introduced is configurable,
+/// not a restricted global property, so a later Script's `let` /
+/// `const` of the same name is legal and shadows it
+/// (`script-decl-lex-var-declared-via-eval`). Inlined flat, the eval's
+/// declaration and the Script's would be one name declared twice to
+/// the checker; the eval's is dropped — an init-less `var` (a `var x
+/// = e` keeps its write) and a `function` declaration at the text's
+/// top level. Registered residue: the global object's property the
+/// eval created is gone with it.
+pub(super) fn drop_script_shadowed_decls(inlined: &mut Vec<Stmt>, ast: &Ast) {
+    if ast.script_lex_names.is_empty() {
+        return;
+    }
+    inlined.retain(|s| match s {
+        Stmt::LetDecl {
+            name,
+            init,
+            is_var: true,
+            ..
+        } => {
+            !(ast.script_lex_names.contains(name)
+                && matches!(ast.exprs[init.0 as usize], Expr::Uninit))
+        }
+        Stmt::FnDecl { name, .. } => !ast.script_lex_names.contains(name),
+        _ => true,
+    });
 }

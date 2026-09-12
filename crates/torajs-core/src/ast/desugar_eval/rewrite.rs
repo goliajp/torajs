@@ -78,6 +78,9 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     if sealed {
                         seal_var_scope(&mut inlined);
                     } else {
+                        if form != CallForm::Script {
+                            super::script_form::drop_script_shadowed_decls(&mut inlined, ast);
+                        }
                         super::script_form::record_eval_var_sites(&inlined, ast, form);
                     }
                     // Blank the consumed Call: an orphan still shaped

@@ -1,0 +1,3 @@
+var-shadowed 1
+fn-shadowed 2 number
+kept 5
