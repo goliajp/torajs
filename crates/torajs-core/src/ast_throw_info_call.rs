@@ -130,6 +130,11 @@ pub(crate) fn scan_call(
             if name == "__torajs_in_op" || name == "__torajs_priv_in_op" {
                 *direct = true;
             }
+            // RFC 20260805 blade 1 — the driver's intrinsic PromiseResolve
+            // reads a thenable's `then` (user code), so it may throw.
+            if name == crate::ssa_lower_call_await_resolve::NAME {
+                *direct = true;
+            }
             // RFC 20260912-global-var-cell knife 5 — a Script inside
             // a function: its preflight kernels record §16.1.7's
             // SyntaxError / TypeError and its declare kernels the

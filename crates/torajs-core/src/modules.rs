@@ -354,7 +354,7 @@ mod load_lib;
 mod namespace_objlit;
 mod repeat_request;
 mod resolve_helpers;
-mod splice;
+pub(crate) mod splice;
 mod static_resolution;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};

@@ -318,6 +318,7 @@ pub(crate) mod ssa_lower_call_array_from_loop;
 pub(crate) mod ssa_lower_call_array_is_array;
 pub(crate) mod ssa_lower_call_array_of;
 pub(crate) mod ssa_lower_call_arraybuffer_static;
+pub(crate) mod ssa_lower_call_await_resolve;
 pub(crate) mod ssa_lower_call_bare_globals;
 pub(crate) mod ssa_lower_call_bigint_as_int_n;
 pub(crate) mod ssa_lower_call_bigint_ctor;

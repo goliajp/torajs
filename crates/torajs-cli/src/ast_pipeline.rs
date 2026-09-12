@@ -236,6 +236,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // fns the ordinary async desugar state-machines).
     ast::inject_disposable_stack(ast);
     ast::hoist_gen_fn_exprs(ast);
+    // RFC 20260805-async-fn-state-machine blade 1 (re-applied for a
+    // measurement, rotation 640): an async function suspends at its
+    // first await — the body becomes a generator driven by a promise.
+    // Before `desugar_generators`, which lowers the `function*` it mints.
+    ast::desugar_async_state_machine(ast);
     ast::desugar_generators(ast);
     ast::desugar_async(ast);
     ast::desugar_builtin_imports(ast);

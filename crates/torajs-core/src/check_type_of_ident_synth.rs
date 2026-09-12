@@ -110,6 +110,17 @@ fn error_synth_ty(name: &str) -> Option<Type> {
 
 pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
     let t = match name {
+        // RFC 20260805-async-fn-state-machine blade 1 — the injected
+        // driver's PromiseResolve(%Promise%, v) (§27.7.5.3 step 2).
+        // Registered here so the bare callee read types as a function
+        // instead of landing in `undeclared_reads` (which lowers to a
+        // global-object read and a runtime ReferenceError); the call
+        // itself is typed off this function type by the general call
+        // path and lowered by `ssa_lower_call_await_resolve`.
+        crate::ssa_lower_call_await_resolve::NAME => Ok(Type::Function(
+            vec![Type::Any],
+            Box::new(Type::Promise(Box::new(Type::Any))),
+        )),
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
         "__torajs_date_from_value" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Date))),

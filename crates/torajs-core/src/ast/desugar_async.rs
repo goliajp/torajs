@@ -67,6 +67,11 @@ fn rewrite_async_decls(ast: &mut Ast, s: &mut Stmt) {
     if !ast.async_fns.contains(name) {
         return;
     }
+    // Blade 1 moved this body into a generator; the wrapper's `return
+    // __async_drive(...)` already IS the promise.
+    if ast.async_sm_fns.contains(name) {
+        return;
+    }
     // Rebuild this async FnDecl in place.
     let (name, type_params, params, return_type, body, span) =
         match std::mem::replace(s, Stmt::Block(Vec::new())) {

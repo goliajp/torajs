@@ -84,6 +84,13 @@ pub(crate) fn dispatch(
     if let Some(op) = crate::ssa_lower_call_spread::try_lower(ctx, callee, args) {
         return op;
     }
+    // RFC 20260805 blade 1 — the async driver's intrinsic PromiseResolve.
+    // Ahead of the any-call layer: its callee is a synthetic name no
+    // declaration binds, which that layer would otherwise read as an
+    // unknown global and call (`ReferenceError` at runtime).
+    if let Some(op) = crate::ssa_lower_call_await_resolve::try_lower(ctx, callee, args) {
+        return op;
+    }
     // Any-method-call RFC 20260704 — an `any`-typed receiver claims
     // the call before every typed dispatcher (their name matches
     // assume concrete receiver types).

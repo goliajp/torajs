@@ -1047,6 +1047,16 @@ pub struct Ast {
     /// (desugar_classes_emit) gives the step methods their
     /// Promise<__step_*> shape.
     pub async_generator_fns: std::collections::HashSet<String>,
+    /// RFC 20260805-async-fn-state-machine blade 1 — async functions
+    /// whose body now lives in a `__async_gen__<name>` generator driven
+    /// by `__async_drive`. They STAY in `async_fns`: every "is this an
+    /// async function" reader keeps its answer (the fnexpr-this receiver
+    /// rule, any-widening, the async flavour bit on the fn value, the
+    /// §15.8.4 param-throw posture). Only `desugar_async` consults this
+    /// set, to leave the wrapper's `return __async_drive(...)` alone —
+    /// the driver's `resolve` settles the result, a second
+    /// `Promise.resolve` wrap would nest it.
+    pub async_sm_fns: std::collections::HashSet<String>,
     /// Expression-position `yield*` done-value routing (§27.5.3.2:
     /// the YieldExpression's value is the inner iterator's final
     /// `.value`). The parser hoists `v = yield* src` into a mutable

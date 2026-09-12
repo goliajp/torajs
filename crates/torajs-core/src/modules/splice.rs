@@ -121,7 +121,7 @@ pub(super) fn splice_injections(ast: &mut Ast, injections: Vec<Stmt>) {
 /// See the injection-splice comment in [`resolve_imports`] — recurse
 /// through nested fn bodies so every registry-visible declaration
 /// carries the sentinel.
-fn clear_injected_spans(s: &mut Stmt) {
+pub(crate) fn clear_injected_spans(s: &mut Stmt) {
     match s {
         Stmt::FnDecl { span, body, .. } => {
             *span = crate::lexer::Span { start: 0, end: 0 };
