@@ -185,10 +185,9 @@ pub fn desugar_eval(ast: &mut Ast) {
         let caller_strict = walk::caller_strict_exprs(ast);
         let mut stmts = std::mem::take(&mut ast.stmts);
         rewrite_list(&mut stmts, ast, false, false, &caller_strict);
-        // A Script inlines as a Multi so its lexical declarations are
-        // global; spliced flat, its function declarations are top-level
-        // declarations to every pass that reads the list.
-        let mut stmts = script_form::flatten_top_multi(stmts);
+        // The eval / Script inlines were spliced flat by `rewrite_list`;
+        // under the Script goal the last of several same-named
+        // top-level functions is the one instantiated.
         if ast.sloppy_script_goal {
             script_form::keep_last_fn_decls(&mut stmts);
         }

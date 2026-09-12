@@ -19,8 +19,28 @@ pub(super) fn rewrite_list(
     home: bool,
     strict: &[bool],
 ) {
-    for s in stmts.iter_mut() {
-        rewrite_stmt(s, ast, in_fn, home, strict);
+    // An eval / Script inlined as a `Multi` is spliced flat into the
+    // list it sits in, so a Script's `let` / `const` / `class` are the
+    // list's own lexical bindings and its function declarations are
+    // top-level declarations to every pass that reads the top-level
+    // list (`script_global_fns`, the `var` hoist's function
+    // pre-binding). Only the Multis THIS pass produced: a top-level
+    // Multi also comes out of the parse-time destructuring desugar,
+    // and flattening that one turned its `__dstr` temporaries into
+    // top-level bindings the checker then typed a `var` from
+    // (rotation 638, `assignment/dstr/obj-rest-*`).
+    let mut spliced: Vec<usize> = Vec::new();
+    for i in 0..stmts.len() {
+        let was_eval = matches!(&stmts[i], Stmt::Expr(e) if literal_eval_call(*e, ast).is_some());
+        rewrite_stmt(&mut stmts[i], ast, in_fn, home, strict);
+        if was_eval && matches!(stmts[i], Stmt::Multi(_)) {
+            spliced.push(i);
+        }
+    }
+    for i in spliced.into_iter().rev() {
+        if let Stmt::Multi(v) = std::mem::replace(&mut stmts[i], Stmt::Multi(Vec::new())) {
+            stmts.splice(i..=i, super::script_form::flatten_top_multi(v));
+        }
     }
 }
 

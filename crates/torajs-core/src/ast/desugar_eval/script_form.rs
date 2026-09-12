@@ -242,12 +242,14 @@ fn neutralize(ast: &mut Ast, exprs_before: usize) {
     }
 }
 
-/// Splice every top-level `Stmt::Multi` into the list it sits in. A
+/// The statements of an inlined eval / Script `Multi`, nested Multis
+/// (a sloppy eval's `hoist_fn_decls_out` shape) opened as well — what
+/// `rewrite_list` splices into the list in place of the call. A
 /// Multi's children share the surrounding scope by definition, so the
 /// program means the same; what changes is that the passes reading the
 /// top-level list directly — `toplevel_fn_decl_names`, the `var`
-/// hoist's function pre-binding, `script_global_fns` — now see a
-/// Script's (or a sloppy eval's) function declarations as the top-level
+/// hoist's function pre-binding, `script_global_fns` — see a Script's
+/// (or a sloppy eval's) function declarations as the top-level
 /// declarations they are.
 pub(super) fn flatten_top_multi(stmts: Vec<Stmt>) -> Vec<Stmt> {
     let mut out = Vec::with_capacity(stmts.len());
