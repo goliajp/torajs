@@ -57,6 +57,8 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                         && (sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast));
                     if sealed {
                         seal_var_scope(&mut inlined);
+                    } else {
+                        super::script_form::record_eval_var_sites(&inlined, ast, form);
                     }
                     // Blank the consumed Call: an orphan still shaped
                     // like an eval call would get an IIFE nobody

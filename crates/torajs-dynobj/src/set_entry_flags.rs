@@ -68,6 +68,43 @@ pub unsafe extern "C" fn __torajs_dynobj_set_entry_flags(
     }
 }
 
+/// Raw value swap on an EXISTING entry, attributes untouched — RFC
+/// 20260912-global-var-cell knife 4: `__torajs_global_var_bind`
+/// declaring a `var` over a pre-existing READ-ONLY data property (the
+/// §16.1.7 "already an own property: do nothing" branch, which for
+/// one storage means the entry's value becomes the cell over the slot
+/// that now holds the property's value). `set` would refuse the
+/// non-writable entry and `define` would run §10.1.6.3 against the
+/// new value; both are right for a program's write and wrong for this
+/// re-plumbing, which changes what the entry IS, not what the program
+/// sees. The old payload is dropped; `value` is the caller's
+/// transferred reference. A miss does nothing.
+///
+/// # Safety
+/// Same contract as [`__torajs_dynobj_set_entry_flags`]; `(tag,
+/// value)` is a live entry payload the caller hands over.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_set_entry_value_raw(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) {
+    let obj = unsafe { *obj_slot };
+    if obj.is_null() {
+        return;
+    }
+    let pr = unsafe { probe(obj, key as *const c_void) };
+    if !pr.found {
+        return;
+    }
+    let e = unsafe { entries(obj).add(pr.entry as usize) };
+    unsafe {
+        __torajs_value_drop_heap((*e).value_anyv as *mut c_void);
+        (*e).value_anyv = __torajs_anyv_box_from_pair(tag as i64, value as i64);
+    }
+}
+
 /// Shadow-entry HOLE sentinel (RFC 20260713-defprop-tpd-cluster
 /// chunk C) — `delete arr[i]` marks the index absent while element
 /// storage stays dense. A hole entry is a shadow entry whose dead

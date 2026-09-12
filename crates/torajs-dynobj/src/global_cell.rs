@@ -55,6 +55,8 @@ unsafe extern "C" {
     fn __torajs_anyv_cell_ptr(v: u64) -> i64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
+    /// torajs-anyvalue — §7.2.10 SameValue over two boxed values.
+    fn __torajs_anyv_same_value(l: u64, r: u64) -> bool;
 }
 
 /// `type_tag` of a `GlobalCell` block (mirrors `torajs_rc::Tag::GlobalCell`).
@@ -78,6 +80,16 @@ pub const KIND_STR: u64 = 4;
 /// The slot holds an owned pointer to some other heap cell (Arr / Obj
 /// / Closure / …): readable, never writable through the object.
 pub const KIND_HEAP: u64 = 5;
+/// Low byte of the cell's kind word: the slot representation above.
+const KIND_MASK: u64 = 0xff;
+/// Bit 8 of the cell's kind word — the binding has NO bare compiled
+/// writer: no assignment or update names it anywhere in the program,
+/// and every `var` site of it is init-less. On such a binding the
+/// object's attributes are the whole truth about writes, so a
+/// `writable: false` (or a pre-existing read-only property the `var`
+/// declares over) can be honoured exactly; on any other binding it
+/// would be a silent wrong at every compiled write.
+pub const KIND_FLAG_WRITERLESS: u64 = 1 << 8;
 
 /// `AnySlotTag` mirrors (`torajs_rc::AnySlotTag`, stable wire format).
 const ANY_BOOL: u64 = 1;
@@ -110,6 +122,8 @@ pub(crate) unsafe fn deref_global_cell(v_anyv: u64) -> u64 {
 
 /// `__torajs_global_cell_alloc(slot_ptr, kind)` — mint a cell over a
 /// data-global slot. Refcount 1, owned by the entry it is stored into.
+/// `kind` is a `KIND_*` representation, optionally `|
+/// KIND_FLAG_WRITERLESS`; any other bit is dropped.
 ///
 /// # Safety
 /// `slot_ptr` is the address of a live data global that outlives the
@@ -125,7 +139,7 @@ pub unsafe extern "C" fn __torajs_global_cell_alloc(
         *(p as *mut u32) = 1;
         *(p.add(4) as *mut u16) = TAG_GLOBAL_CELL;
         *(p.add(SLOT_OFF) as *mut u64) = slot_ptr as u64;
-        *(p.add(KIND_OFF) as *mut u64) = kind;
+        *(p.add(KIND_OFF) as *mut u64) = kind & (KIND_MASK | KIND_FLAG_WRITERLESS);
     }
     p as *mut c_void
 }
@@ -146,13 +160,28 @@ pub unsafe extern "C" fn __torajs_global_cell_drop(cell: *mut c_void) {
     unsafe { free(cell, GLOBAL_CELL_SIZE) };
 }
 
+/// The slot representation of `cell` — its kind word's low byte.
+#[inline]
+unsafe fn cell_kind(cell: *const c_void) -> u64 {
+    let word = unsafe { *((cell as *const u8).add(KIND_OFF) as *const u64) };
+    word & KIND_MASK
+}
+
+/// Whether `cell`'s binding has no bare compiled writer
+/// ([`KIND_FLAG_WRITERLESS`]).
+#[inline]
+pub(crate) unsafe fn cell_is_writerless(cell: *const c_void) -> bool {
+    let word = unsafe { *((cell as *const u8).add(KIND_OFF) as *const u64) };
+    word & KIND_FLAG_WRITERLESS != 0
+}
+
 /// The slot's current value as a NaN-box, per the cell's kind. Heap
 /// payloads are borrowed. A null heap slot (a typed binding read
 /// through the object before its declaration ran) answers `undefined`
 /// rather than a null pointer.
 pub(crate) unsafe fn global_cell_read(cell: *const c_void) -> u64 {
     let slot = unsafe { *((cell as *const u8).add(SLOT_OFF) as *const u64) } as *const u64;
-    let kind = unsafe { *((cell as *const u8).add(KIND_OFF) as *const u64) };
+    let kind = unsafe { cell_kind(cell) };
     let word = unsafe { *slot };
     match kind {
         KIND_ANY => word,
@@ -176,7 +205,7 @@ pub(crate) unsafe fn global_cell_read(cell: *const c_void) -> u64 {
 /// `false` nothing was written and the caller still owns `value`.
 pub(crate) unsafe fn global_cell_write(cell: *const c_void, tag: u64, value: u64) -> bool {
     let slot = unsafe { *((cell as *const u8).add(SLOT_OFF) as *const u64) } as *mut u64;
-    let kind = unsafe { *((cell as *const u8).add(KIND_OFF) as *const u64) };
+    let kind = unsafe { cell_kind(cell) };
     let new_word = match kind {
         KIND_ANY => {
             let old = unsafe { *slot };
@@ -231,11 +260,13 @@ pub(crate) enum CellRedefine {
 
 /// The `define_redefine` arm for a global-cell entry — §10.1.6.3 over
 /// one storage. A [[Value]]-only redefine writes THROUGH to the
-/// binding; a change of attributes, or an accessor coming in, is
-/// refused: the compiled bare writes would not see a `writable:
-/// false`, so honouring it here would be a silent wrong at every one
-/// of them. `Err` carries the refusal message; nothing was written
-/// and the caller still owns `value`.
+/// binding; `configurable` / `enumerable` follow §10.1.6.3; `writable:
+/// false` is honoured only on a WRITERLESS binding (no compiled bare
+/// write exists to bypass it — [`KIND_FLAG_WRITERLESS`]) and refused
+/// on any other, as is an accessor coming in: honouring either there
+/// would be a silent wrong at every compiled write / read. `Err`
+/// carries the refusal message; nothing was written and the caller
+/// still owns `value`.
 pub(crate) unsafe fn redefine_through_cell(
     cur_value_anyv: u64,
     cur_flags: u64,
@@ -262,30 +293,41 @@ pub(crate) unsafe fn redefine_through_cell(
         BUCKET_FLAG_CONFIGURABLE,
     );
     let cur_configurable = cur_flags & BUCKET_FLAG_CONFIGURABLE != 0;
+    let cur_writable = cur_flags & BUCKET_FLAG_WRITABLE != 0;
     let has_value = flags_byte & DEFINE_PRESENT_VALUE != 0;
     let incoming_accessor = has_value
         && tag == ANY_HEAP
         && value != 0
         && unsafe { *((value as *const u8).add(4) as *const u16) }
             == crate::accessor::TAG_ACCESSOR_PAIR;
+    let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
     // `writable: false` on a slot the bare compiled writes go straight
     // into cannot be honoured; an accessor replacing the value slot
     // likewise. Both stay loud (registered tr limitation).
-    if writable_change || incoming_accessor {
+    if (writable_change && !unsafe { cell_is_writerless(cell) }) || incoming_accessor {
         return Err(c"Cannot change the attributes of a global variable binding through the global object (not yet supported).".as_ptr() as *const u8);
     }
     // §10.1.6.3 — a non-configurable binding refuses an enumerable /
-    // configurable change (the non-cell arm makes the same rejection).
+    // configurable change (the non-cell arm makes the same rejection),
+    // and a non-configurable read-only one refuses to become writable
+    // (step 4.a) or to take a different value (step 4.a.ii).
     if (enum_change || config_change) && !cur_configurable {
         return Err(c"Cannot change the attributes of a non-configurable global variable binding through the global object.".as_ptr() as *const u8);
     }
-    if has_value {
-        let cell = unsafe { __torajs_anyv_cell_ptr(cur_value_anyv) } as *const c_void;
-        if !unsafe { global_cell_write(cell, tag, value) } {
-            return Err(c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported).".as_ptr() as *const u8);
+    if !cur_configurable && !cur_writable {
+        let becomes_writable = writable_change && flags_byte & DEFINE_FLAG_WRITABLE != 0;
+        let other_value = has_value && {
+            let boxed = unsafe { __torajs_anyv_box_from_pair(tag as i64, value as i64) };
+            !unsafe { __torajs_anyv_same_value(global_cell_read(cell), boxed) }
+        };
+        if becomes_writable || other_value {
+            return Err(c"Cannot redefine a non-configurable, read-only global variable binding through the global object.".as_ptr() as *const u8);
         }
     }
-    if enum_change || config_change {
+    if has_value && !unsafe { global_cell_write(cell, tag, value) } {
+        return Err(c"Cannot store a value of this type into a typed global variable binding through the global object (not yet supported).".as_ptr() as *const u8);
+    }
+    if enum_change || config_change || writable_change {
         Ok(CellRedefine::RepackFlags)
     } else {
         Ok(CellRedefine::Done)

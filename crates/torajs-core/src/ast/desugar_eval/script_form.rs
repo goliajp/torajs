@@ -36,6 +36,7 @@
 use std::collections::HashSet;
 
 use super::super::desugar_with::walk;
+use super::super::var_hoist::ScriptGlobalVar;
 use super::super::{Ast, Expr, Stmt};
 use super::recognize::{has_use_strict_prologue, literal_eval_call};
 use super::source::{CallForm, EvalStrictness, parse_eval_source, syntax_error_throw};
@@ -255,4 +256,23 @@ pub(super) fn keep_last_fn_decls(stmts: &mut Vec<Stmt>) {
         i += 1;
         k
     });
+}
+
+/// Record the `var` sites an inlined (unsealed) text declares, by the
+/// declaration's `init` slot — fresh per site, so a name the program
+/// also declares keeps its own sites apart. An eval's `var` is a
+/// deletable global (§19.2.1.3), a Script's is not (§16.1.7); both bind
+/// their property where the text ran (`var_hoist_eval_sites`).
+pub(super) fn record_eval_var_sites(inlined: &[Stmt], ast: &mut Ast, form: CallForm) {
+    let flavor = match form {
+        CallForm::Script => ScriptGlobalVar::ScriptVar,
+        CallForm::Direct | CallForm::Indirect => ScriptGlobalVar::EvalVar,
+    };
+    let mut counts = std::collections::HashMap::new();
+    super::super::var_hoist::count_var_names(inlined, &mut counts);
+    for sites in counts.into_values() {
+        for init in sites {
+            ast.eval_var_sites.insert(init, flavor);
+        }
+    }
 }

@@ -27,6 +27,15 @@ pub enum ScriptGlobalVar {
     /// (§9.1.1.4.18 with D = false) — and its name is the slot's
     /// without [`super::script_global_fns::SCRIPT_GLOBAL_FN_SLOT_PREFIX`].
     Function,
+    /// A `var` declared only by eval text (`(0, eval)("var x")`, a
+    /// sloppy direct eval at the top level): §19.2.1.3 CreateGlobalVar-
+    /// Binding with D = true — `{writable, enumerable, configurable}` —
+    /// bound where the eval ran (the property does not exist before).
+    EvalVar,
+    /// A `var` declared only by a Script evaluated from the program
+    /// (`$262.evalScript("var x")`): the written-`var` attributes
+    /// (§16.1.7 step 17, not configurable), bound where the Script ran.
+    ScriptVar,
 }
 
 /// P2.1 — `var` hoisting pass per ES spec §14.3.2.1
@@ -62,6 +71,13 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
         let mut counts: std::collections::HashMap<String, Vec<ExprId>> =
             std::collections::HashMap::new();
         count_var_names(&top, &mut counts);
+        // Before the hoist rewrites sites (and before the eval-site
+        // markers below add self-assignments): which names does the
+        // program write at all? `ast.stmts` is taken, so the walk is
+        // over `top`; no seed functions — the top-level list already
+        // holds every lifted body.
+        let assigned =
+            crate::ssa_lower_closure_captures::collect_assigned_names_scoped(ast, top.iter(), &[]);
         // `function f() {} var f;` — the `var` re-declares the function's
         // binding (§16.1.7 step 8: a var name that is also a function
         // name is the function's), so the name is the FUNCTION's and
@@ -93,10 +109,21 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
                 }
                 continue;
             }
-            ast.script_global_var_names
-                .entry(name)
-                .or_insert(ScriptGlobalVar::Declared);
+            // A name every site of which came out of eval / Script text
+            // takes that text's flavour and binds at its site; a name
+            // the program wrote anywhere is a written `var`.
+            let flavor = super::var_hoist_eval_sites::eval_flavor(&sites, &ast.eval_var_sites)
+                .unwrap_or(ScriptGlobalVar::Declared);
+            if !assigned.contains(&name)
+                && sites
+                    .iter()
+                    .all(|e| matches!(ast.exprs[e.0 as usize], Expr::Uninit))
+            {
+                ast.script_global_writerless.insert(name.clone());
+            }
+            ast.script_global_var_names.entry(name).or_insert(flavor);
         }
+        super::var_hoist_eval_sites::mark_eval_var_sites(&mut top, ast);
         // Top-level script: hoist over `top` itself. The function names
         // ride as the pre-existing bindings a parameter list does: a
         // `var f;` over `function f() {}` mints no prelude slot (it

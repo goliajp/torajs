@@ -1236,6 +1236,21 @@ pub struct Ast {
     /// not configurable, a synthesized implicit global is.
     pub script_global_var_names:
         std::collections::BTreeMap<String, super::var_hoist::ScriptGlobalVar>,
+    /// RFC 20260912-global-var-cell knife 4 — the `var` sites the eval
+    /// desugar inlined, by the declaration's `init` slot (fresh per
+    /// site), each with the flavour its text gives it: an eval's `var`
+    /// is a deletable global (§19.2.1.3), a Script's is not (§16.1.7),
+    /// and both bind their property where the text ran, not at program
+    /// start. A name the program itself also declares stays a written
+    /// `var` — its sites are not all in here.
+    pub eval_var_sites: std::collections::HashMap<ExprId, super::var_hoist::ScriptGlobalVar>,
+    /// RFC 20260912-global-var-cell knife 4 — the script-global names
+    /// with NO bare compiled writer: no assignment / update names them
+    /// anywhere and every `var` site is init-less. Over such a binding
+    /// the object's attributes are the whole truth about writes, so the
+    /// bind kernel may keep a read-only property and a redefine may set
+    /// `writable: false` (`global_cell::KIND_FLAG_WRITERLESS`).
+    pub script_global_writerless: std::collections::BTreeSet<String>,
     /// RFC 20260825-injection-reachability — the parser met at least
     /// one `try` or `throw` statement, at ANY nesting depth. The
     /// injection reachability gate's catch-face door reads this flag:

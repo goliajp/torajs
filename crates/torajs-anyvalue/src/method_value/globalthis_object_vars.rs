@@ -39,6 +39,12 @@ unsafe extern "C" {
         flags_byte: u64,
     );
     fn __torajs_global_cell_alloc(slot_ptr: *mut c_void, kind: u64) -> *mut c_void;
+    fn __torajs_dynobj_set_entry_value_raw(
+        obj_slot: *mut *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    );
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
@@ -61,27 +67,35 @@ const ANY_HEAP: u64 = 4;
 const ANY_ACCESSOR: u64 = 6;
 /// `torajs_dynobj::global_cell::KIND_ANY`.
 const KIND_ANY: u64 = 0;
+/// `torajs_dynobj::global_cell::KIND_FLAG_WRITERLESS` — bit 8 of the
+/// cell's kind word; bit 9 of this kernel's `kind` argument.
+const KIND_FLAG_WRITERLESS: u64 = 1 << 8;
 
 /// `__torajs_global_var_bind(key, slot_ptr, kind)` — §9.1.1.4.17
 /// CreateGlobalVarBinding, for the slot the compiled program keeps
-/// the binding in. `kind` carries the cell kind in its low byte and,
-/// in bit 8, whether the property is configurable — a written `var`
-/// is not, a synthesized implicit global (the property a [[Set]]
-/// would have created, §9.1.1.4.6) is.
+/// the binding in. `kind` carries the cell kind in its low byte; bit
+/// 8 says whether the property is configurable — a written `var` is
+/// not, a synthesized implicit global (the property a [[Set]] would
+/// have created, §9.1.1.4.6) and an eval's `var` (§19.2.1.3) are; bit
+/// 9 says the binding has no bare compiled writer (see
+/// `global_cell::KIND_FLAG_WRITERLESS`).
 ///
 /// - Absent: define `{[[Value]]: <slot>, W: true, E: true, C: <bit 8>}`
 ///   — a `GlobalCell` over the slot — unless the object is not
 ///   extensible (§16.1.7 step 12.b: TypeError).
-/// - Present as a writable data property (`this.v = 1` ran before
-///   `var v`, or `Object.defineProperty(this, "v", …)` did): the
-///   property is kept and the binding takes its value (§16.1.7
-///   CanDeclareGlobalVar says "do nothing", which for one storage
-///   means the slot now holds what the object held). Only an `any`
-///   slot can take an arbitrary value; a typed slot refuses loudly.
+/// - Present as a data property (`this.v = 1` ran before `var v`, or
+///   `Object.defineProperty(this, "v", …)` did): the property is kept
+///   and the binding takes its value (§16.1.7 CanDeclareGlobalVar says
+///   "do nothing", which for one storage means the slot now holds
+///   what the object held). Only an `any` slot can take an arbitrary
+///   value; a typed slot refuses loudly. A READ-ONLY property is kept
+///   only over a writerless binding (bit 9) — the compiled bare writes
+///   could not honour it otherwise — and its value lands through the
+///   raw entry swap, since `set` rightly refuses a read-only entry.
 /// - Present as a cell already: nothing to do (the same binding,
 ///   declared twice).
-/// - Present as an accessor or a non-writable data property: refused
-///   loudly — the compiled bare writes could not honour either.
+/// - Present as an accessor, or read-only over a binding that is
+///   written: refused loudly.
 ///
 /// # Safety
 ///
@@ -94,7 +108,9 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
     kind: u64,
 ) {
     let configurable = kind & (1 << 8) != 0;
+    let writerless = kind & (1 << 9) != 0;
     let kind = kind & 0xff;
+    let cell_kind = kind | if writerless { KIND_FLAG_WRITERLESS } else { 0 };
     let mut obj = globalthis_bag_ptr();
     // SAFETY: `obj` is the minted singleton; `key` a Str cell per the
     // caller invariant; every callee borrows both. The cell minted
@@ -114,7 +130,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
             let cur_tag = __torajs_dynobj_get_tag(obj, key);
             let cur_value = __torajs_dynobj_get_value(obj, key);
             let writable = __torajs_dynobj_get_flags(obj, key) & GET_FLAG_WRITABLE != 0;
-            if cur_tag == ANY_ACCESSOR || !writable || kind != KIND_ANY {
+            if cur_tag == ANY_ACCESSOR || (!writable && !writerless) || kind != KIND_ANY {
                 __torajs_throw_type_error(
                     c"A `var` declaration over an existing global property that is an accessor, read-only, or typed is not yet supported."
                         .as_ptr(),
@@ -122,14 +138,17 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
                 return;
             }
             // The slot takes its own stake on a heap payload; the
-            // entry keeps its own until `set` swaps the cell in and
-            // drops it.
+            // entry keeps its own until the cell swaps in and drops it.
             if cur_tag == ANY_HEAP {
                 __torajs_rc_inc(cur_value as *mut c_void);
             }
             *(slot_ptr as *mut u64) = __torajs_anyv_box_from_pair(cur_tag as i64, cur_value as i64);
-            let cell = __torajs_global_cell_alloc(slot_ptr, kind);
-            __torajs_dynobj_set(&mut obj, key, ANY_HEAP, cell as u64);
+            let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind);
+            if writable {
+                __torajs_dynobj_set(&mut obj, key, ANY_HEAP, cell as u64);
+            } else {
+                __torajs_dynobj_set_entry_value_raw(&mut obj, key, ANY_HEAP, cell as u64);
+            }
         } else {
             let header_flags = *(obj.cast::<u8>().add(6) as *const u16);
             if header_flags & HDR_FLAG_NON_EXTENSIBLE != 0 {
@@ -139,7 +158,7 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
                 );
                 return;
             }
-            let cell = __torajs_global_cell_alloc(slot_ptr, kind);
+            let cell = __torajs_global_cell_alloc(slot_ptr, cell_kind);
             let flags = DEFINE_PRESENT_VALUE
                 | DEFINE_PRESENT_WRITABLE
                 | DEFINE_FLAG_WRITABLE

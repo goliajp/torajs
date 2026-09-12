@@ -262,11 +262,15 @@ pub(crate) fn emit_script_global_var_bind(
     let Some(flavor) = ctx.ast.script_global_var_names.get(name).copied() else {
         return;
     };
+    // An eval's / Script's `var` binds where its text ran: the hoist
+    // left a write at that site (`var_hoist_eval_sites`).
     let binds_here = match flavor {
         crate::ast::ScriptGlobalVar::Declared | crate::ast::ScriptGlobalVar::Function => {
             site == BindSite::Declaration
         }
-        crate::ast::ScriptGlobalVar::Implicit => site == BindSite::Write,
+        crate::ast::ScriptGlobalVar::Implicit
+        | crate::ast::ScriptGlobalVar::EvalVar
+        | crate::ast::ScriptGlobalVar::ScriptVar => site == BindSite::Write,
     };
     if !binds_here {
         return;
@@ -280,12 +284,21 @@ pub(crate) fn emit_script_global_var_bind(
         _ => name,
     };
     // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
-    // configurable property (the kernel's contract).
+    // configurable property, bit 9 marks a binding with no bare
+    // compiled writer (the kernel's contract).
     let configurable: i64 = match flavor {
-        crate::ast::ScriptGlobalVar::Declared | crate::ast::ScriptGlobalVar::Function => 0,
-        crate::ast::ScriptGlobalVar::Implicit => 1 << 8,
+        crate::ast::ScriptGlobalVar::Declared
+        | crate::ast::ScriptGlobalVar::Function
+        | crate::ast::ScriptGlobalVar::ScriptVar => 0,
+        crate::ast::ScriptGlobalVar::Implicit | crate::ast::ScriptGlobalVar::EvalVar => 1 << 8,
+    };
+    let writerless: i64 = if ctx.ast.script_global_writerless.contains(name) {
+        1 << 9
+    } else {
+        0
     };
     let kind: i64 = configurable
+        | writerless
         | match slot_ty {
             Type::Any => 0,
             Type::I64 | Type::I32 => 1,

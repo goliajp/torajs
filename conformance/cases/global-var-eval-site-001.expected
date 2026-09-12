@@ -1,0 +1,8 @@
+before false absent
+eval-var undefined true ,true,true,true
+delete true false
+script-var 5 5,true,true,false false true
+kept 5 5 5,true,true,true
+read-only kept 0 1 0,false,false,true 1,false,false,false
+still 0 1 0 1
+writerless undefined ,false,true,false
