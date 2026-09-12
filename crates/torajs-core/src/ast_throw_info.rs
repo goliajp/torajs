@@ -294,7 +294,7 @@ fn is_property_store(ast: &Ast, eid: ExprId) -> bool {
 /// (`ast::mark_tdz_reads`, §8.1.1.1). Either way the enclosing
 /// fn must enter `may_throw`, or callers prune the check and the throw
 /// is silently swallowed across the fn boundary.
-fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
+pub(crate) fn ident_read_raises(ast: &Ast, eid: ExprId) -> bool {
     ast.undeclared_reads.contains_key(&eid) || ast.tdz_reads.contains(&eid)
 }
 

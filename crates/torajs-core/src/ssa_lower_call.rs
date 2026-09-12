@@ -59,14 +59,17 @@ pub(crate) fn dispatch(
 ) -> Operand {
     // RFC 20260730-undeclared-ident — a call whose callee is a
     // marked unresolvable Ident (`ff()` with `ff` declared nowhere)
-    // raises the ReferenceError at the callee read (§6.2.5.5
-    // GetValue precedes the call). Claimed before every dispatcher
-    // so no name-keyed lane can misroute it; lowering the callee
-    // emits the throw (ssa_lower_ident::try_undeclared_read_throw).
+    // reads the callee first (§6.2.5.5 GetValue precedes the call):
+    // the global object's answer, or the recorded ReferenceError
+    // (ssa_lower_ident::try_undeclared_read_throw). Claimed before
+    // every dispatcher so no name-keyed lane can misroute it; the
+    // value the object answers is then CALLED (RFC 20260911: `this.f
+    // = …` in global code puts `f` there, and `f(4)` must call it —
+    // returning the read alone handed back the function).
     if matches!(ctx.ast.get_expr(callee), Expr::Ident(_))
         && ctx.ast.undeclared_reads.contains_key(&callee)
     {
-        return ctx.lower_expr(callee);
+        return crate::ssa_lower_any_call::lower(ctx, callee, args);
     }
     // Rotation 371 — `__superbuiltin__<m>` is the desugared
     // `super.m()` of a builtin-heritage subclass method; claim the

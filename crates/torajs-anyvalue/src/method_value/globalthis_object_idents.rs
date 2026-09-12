@@ -33,6 +33,7 @@ unsafe extern "C" {
     fn __torajs_str_alloc(p: *const u8, len: i64) -> *mut u8;
     fn __torajs_anyv_unbox_tag(v: AnyValue) -> i64;
     fn __torajs_anyv_unbox_value(v: AnyValue) -> i64;
+    fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
 }
 
 /// The `__torajs_anyv_box_from_pair` tag for a heap payload — the one
@@ -41,6 +42,10 @@ const PAIR_TAG_HEAP: u64 = 4;
 
 /// The `__torajs_anyv_box_from_pair` tag for `undefined`.
 const PAIR_TAG_UNDEFINED: u64 = 5;
+
+/// The `get_tag` sentinel for an accessor entry: the value is the
+/// `AccessorPair` cell, not a value.
+const PAIR_TAG_ACCESSOR: u64 = 6;
 
 /// §9.1.1.4 GetBindingValue on the OBJECT half of the global
 /// environment record, with `S` = false.
@@ -89,6 +94,14 @@ pub unsafe extern "C" fn __torajs_global_ident_get(key: *mut c_void) -> AnyValue
         if !obj.is_null() && __torajs_dynobj_has(obj, key) != 0 {
             let tag = __torajs_dynobj_get_tag(obj, key);
             let value = __torajs_dynobj_get_value(obj, key);
+            // §7.3.2 Get: an accessor's getter runs, with the global
+            // object as `this` (borrowed); its result is owned.
+            if tag == PAIR_TAG_ACCESSOR {
+                return __torajs_accessor_invoke_getter(
+                    value as *const c_void,
+                    crate::nanbox::box_void_ptr(obj),
+                );
+            }
             // The bag hands out a borrow; the value escapes into the
             // program, so a heap payload needs a stake of its own.
             if tag == PAIR_TAG_HEAP {

@@ -53,6 +53,22 @@ pub(crate) fn try_lower(
     {
         return None;
     }
+    Some(lower(ctx, callee, args))
+}
+
+/// Lower `callee(args…)` through the runtime any-call dispatch,
+/// whatever the callee's static type — the callee's VALUE is what
+/// gets called. Also the lane for a call whose callee is an
+/// unresolvable name (`ssa_lower_call::dispatch`): §6.2.5.5 GetValue
+/// first — the global object's answer, or the recorded ReferenceError
+/// — then §13.3.6.2 on whatever it answered. Returning the read alone
+/// there handed `dyn(4)` the function itself when the object carried
+/// `dyn` (rotation 639).
+pub(crate) fn lower(
+    ctx: &mut LowerCtx<'_>,
+    callee: crate::ast::ExprId,
+    args: &[crate::ast::ExprId],
+) -> Operand {
     let recv = ctx.lower_expr(callee);
     // Rotation 550 — an owned callee temp (`f(1)(boom())`) is live
     // across the arguments' lowers; park it for their throw paths.
@@ -83,5 +99,5 @@ pub(crate) fn try_lower(
     // release it (mirrors the method-call arm; see
     // emit_throw_check_owned).
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
-    Some(Operand::Value(result))
+    Operand::Value(result)
 }

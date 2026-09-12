@@ -27,6 +27,23 @@ pub(crate) fn scan_call(
             if !out.contains(name) {
                 out.push(name.clone());
             }
+            // A callee that is an unresolvable / TDZ name raises at the
+            // read (§6.2.5.5), and what the global object answers for
+            // it goes through the any-call dispatch, whose non-callable
+            // arm raises too (`ssa_lower_call::dispatch`). Without this
+            // bit `function u() { hh() }` was judged never-throwing and
+            // its caller's catch never ran (rotation 639).
+            if crate::ast_throw_info::ident_read_raises(ast, callee) {
+                *direct = true;
+            }
+            // A call through an `any`-typed callee is the runtime
+            // any-call dispatch (`ssa_lower_any_call`): the value may
+            // not be callable (TypeError), and whatever it is may
+            // throw. `function u() { hh() }` with `hh` an implicit
+            // global was judged never-throwing (rotation 639).
+            if matches!(expr_types.get(&callee), Some(crate::check::Type::Any)) {
+                *direct = true;
+            }
             // P7.4-a-b — `BigInt(x)` throws a real RangeError on a
             // non-integer / non-finite argument (runtime_bigint.c →
             // __torajs_throw_range_error). Conservatively flag every
