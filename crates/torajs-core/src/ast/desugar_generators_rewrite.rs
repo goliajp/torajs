@@ -9,6 +9,32 @@
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
+/// The generator object, aliased as a METHOD LOCAL at the top of the
+/// state machine's `next` body (`desugar_generators_assemble`). A
+/// function expression's `this` is its own (§10.2.1.2), so a
+/// generator local read from inside one cannot spell `this.<field>`;
+/// it spells `__gself.<field>` and the closure lift captures the
+/// alias like any other enclosing local.
+pub(crate) const GEN_SELF_ALIAS: &str = "__gself";
+
+/// What a rewritten reference reaches the generator object through.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RefBase {
+    /// `this.<field>` — the generator's own body and the arrows in it
+    /// (an arrow's `this` is lexical, §8.3.4).
+    This,
+    /// `__gself.<field>` — inside a function expression or an
+    /// object-literal method, whose `this` is not the generator's.
+    SelfAlias,
+}
+
+/// The name → field map the walk carries, plus how it spells the base.
+#[derive(Clone)]
+struct ParamMap {
+    fields: std::collections::HashMap<String, String>,
+    base: RefBase,
+}
+
 /// Walk every Expr reachable from `body` and rewrite param-name
 /// idents in-place into `this.<name>` field accesses. The same
 /// ExprId keeps its semantic meaning; only its kind changes from
@@ -17,10 +43,13 @@ pub(super) fn rewrite_params_to_this(ast: &mut Ast, body: &[Stmt], params: &[Par
     // Identity map: each name rewrites to a this-field of the SAME
     // name. RFC 20260802 generalized the walker to a name→field map
     // so the catch-param slot rewrite below can share it.
-    let map: std::collections::HashMap<String, String> = params
-        .iter()
-        .map(|p| (p.name.clone(), p.name.clone()))
-        .collect();
+    let map = ParamMap {
+        fields: params
+            .iter()
+            .map(|p| (p.name.clone(), p.name.clone()))
+            .collect(),
+        base: RefBase::This,
+    };
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for s in body {
         rewrite_params_in_stmt(ast, s, &map, &mut visited);
@@ -31,8 +60,12 @@ pub(super) fn rewrite_params_to_this(ast: &mut Ast, body: &[Stmt], params: &[Par
 /// into `this.<slot>`. Used by the generator try-region arm to point
 /// catch-param references at the hoisted exception field.
 pub(super) fn rewrite_ident_to_this_slot(ast: &mut Ast, body: &[Stmt], from: &str, slot: &str) {
-    let mut map = std::collections::HashMap::new();
-    map.insert(from.to_string(), slot.to_string());
+    let mut fields = std::collections::HashMap::new();
+    fields.insert(from.to_string(), slot.to_string());
+    let map = ParamMap {
+        fields,
+        base: RefBase::This,
+    };
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for s in body {
         rewrite_params_in_stmt(ast, s, &map, &mut visited);
@@ -42,7 +75,7 @@ pub(super) fn rewrite_ident_to_this_slot(ast: &mut Ast, body: &[Stmt], from: &st
 fn rewrite_params_in_stmt(
     ast: &mut Ast,
     s: &Stmt,
-    pset: &std::collections::HashMap<String, String>,
+    pset: &ParamMap,
     visited: &mut std::collections::HashSet<u32>,
 ) {
     match s {
@@ -165,9 +198,9 @@ fn rewrite_params_in_stmt(
             }
             let reduced;
             let catch_set = match catch_param {
-                Some(p) if pset.contains_key(p) => {
+                Some(p) if pset.fields.contains_key(p) => {
                     let mut c = pset.clone();
-                    c.remove(p);
+                    c.fields.remove(p);
                     reduced = c;
                     &reduced
                 }
@@ -219,7 +252,7 @@ fn rewrite_params_in_stmt(
 fn rewrite_params_in_expr(
     ast: &mut Ast,
     eid: ExprId,
-    pset: &std::collections::HashMap<String, String>,
+    pset: &ParamMap,
     visited: &mut std::collections::HashSet<u32>,
 ) {
     if !visited.insert(eid.0) {
@@ -227,11 +260,14 @@ fn rewrite_params_in_expr(
     }
     let kind = ast.exprs[eid.0 as usize].clone();
     match kind {
-        Expr::Ident(name) if pset.contains_key(&name) => {
-            let field = pset[&name].clone();
-            let this_id = ast.add_expr(Expr::This);
+        Expr::Ident(name) if pset.fields.contains_key(&name) => {
+            let field = pset.fields[&name].clone();
+            let base = match pset.base {
+                RefBase::This => ast.add_expr(Expr::This),
+                RefBase::SelfAlias => ast.add_expr(Expr::Ident(GEN_SELF_ALIAS.into())),
+            };
             ast.exprs[eid.0 as usize] = Expr::Member {
-                obj: this_id,
+                obj: base,
                 name: field,
             };
         }
@@ -352,13 +388,33 @@ fn rewrite_params_in_expr(
         // hence the shared `arrow_rebinds`, which drops the names the
         // arrow rebinds itself so a shadowing reference keeps its own
         // meaning.
+        //
+        // A function EXPRESSION (or an object-literal method — the
+        // parser parks both in ArrowFn) owns its `this`, so its body
+        // reaches the generator through the `__gself` alias instead
+        // (rotation 636: `(function () { return x })()` and
+        // `xs.forEach(function () { … x … })` inside `function* g(x)`
+        // read `undefined` — the receiver-less call had bound their
+        // `this` to undefined, and `this.x` dutifully read nothing).
+        // Once inside one, everything below it — arrows included,
+        // their `this` being that function's — stays on the alias.
         Expr::ArrowFn { params, body, .. } => {
-            let sub: std::collections::HashMap<String, String> = pset
-                .iter()
-                .filter(|(k, _)| !super::nested_fns_idents::arrow_rebinds(&params, &body, k))
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
-            if !sub.is_empty() {
+            let owns_this =
+                ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid);
+            let sub = ParamMap {
+                fields: pset
+                    .fields
+                    .iter()
+                    .filter(|(k, _)| !super::nested_fns_idents::arrow_rebinds(&params, &body, k))
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect(),
+                base: if owns_this {
+                    RefBase::SelfAlias
+                } else {
+                    pset.base
+                },
+            };
+            if !sub.fields.is_empty() {
                 for s in &body {
                     rewrite_params_in_stmt(ast, s, &sub, visited);
                 }

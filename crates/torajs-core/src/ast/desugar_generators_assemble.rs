@@ -145,6 +145,19 @@ pub(super) fn build_state_machine_next_body(
         value: dead_lit,
     });
     let mut body = vec![seed_local, Stmt::Expr(kill)];
+    // The generator object as a METHOD LOCAL, for the function
+    // expressions in the body whose `this` is their own (see
+    // `desugar_generators_rewrite::GEN_SELF_ALIAS`). A local, not a
+    // field: the closure lift captures it at the mint site like any
+    // enclosing binding, which `this.<field>` cannot be from there.
+    let self_read = ast.add_expr(Expr::This);
+    body.push(Stmt::LetDecl {
+        mutable: false,
+        name: super::desugar_generators_rewrite::GEN_SELF_ALIAS.into(),
+        type_ann: Some("any".into()),
+        init: self_read,
+        is_var: false,
+    });
     body.extend(inject_prologue);
     // The dispatch loop carries the goto label: every SM goto is a
     // `continue __sm;`, which reaches the dispatch from any nesting
