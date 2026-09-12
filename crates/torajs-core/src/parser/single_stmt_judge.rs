@@ -62,6 +62,19 @@ impl Parser<'_> {
         ctx: &'static str,
         pos: SingleStmtPos,
     ) -> Result<(), String> {
+        // §14.5 — a Statement in this position may be an
+        // ExpressionStatement, whose lookahead excludes `let [`; and a
+        // LexicalDeclaration is not a Statement at all. So `let` `[`
+        // here is a SyntaxError under every goal, newline or not — the
+        // ASI exemption below is for `let \n x`, where sloppy code
+        // reads `let` as an identifier (test262 let-array-with-newline
+        // family, seven positions).
+        if self.let_bracket_form(body_start) {
+            return Err(format!(
+                "`let [` cannot begin the body of {ctx} at {} (ES §14.5)",
+                self.at()
+            ));
+        }
         if !matches!(pos, SingleStmtPos::LabelledItem)
             && let Some(kind) = Self::labelled_fn_kind(body)
         {
@@ -214,6 +227,17 @@ impl Parser<'_> {
     /// identifier — the ASI-identifier spelling the reject above
     /// exempts. (`var` shares `Token::Let` at the token level but
     /// its LetDecl carries `is_var: true` and never reaches this.)
+    /// `let` followed by `[` at the body's first token — the one
+    /// spelling §14.5 refuses in a single-statement position whatever
+    /// sits between them.
+    fn let_bracket_form(&self, body_start: usize) -> bool {
+        let (Some(a), Some(b)) = (self.tokens.get(body_start), self.tokens.get(body_start + 1))
+        else {
+            return false;
+        };
+        matches!(a.token, Token::Let) && matches!(b.token, Token::LBracket)
+    }
+
     pub(super) fn let_newline_asi_form(&self, body_start: usize) -> bool {
         let (Some(a), Some(b)) = (self.tokens.get(body_start), self.tokens.get(body_start + 1))
         else {

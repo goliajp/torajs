@@ -81,13 +81,35 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
                 walk_stmt(e, ast, errors);
             }
         }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => walk_stmt(body, ast, errors),
+        Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::Labeled { body, .. } => {
+            walk_stmt(body, ast, errors)
+        }
+        // §14.7.5.1 / §14.7.4.1 — a loop head's lexical BoundNames may
+        // not recur in the body's VarDeclaredNames (`for (let x of xs)
+        // { var x }`). A `let` / `const` head keeps the user's name as
+        // `var_name`; a `var` or bare head, and a destructuring one,
+        // carry a minted `__` name and bind elsewhere (a pattern's
+        // names are the body block's own lexicals, which the block
+        // check above already holds against its nested `var`s).
+        Stmt::ForOfSplitIter { var_name, body, .. } | Stmt::ForOf { var_name, body, .. } => {
+            if !var_name.starts_with("__") {
+                check_loop_head(std::iter::once(var_name.as_str()), body, errors);
+            }
+            walk_stmt(body, ast, errors)
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
+                let mut flat: Vec<&Stmt> = Vec::new();
+                flatten_multi(i, &mut flat);
+                let names = flat.iter().filter_map(|s| match s {
+                    Stmt::LetDecl {
+                        name,
+                        is_var: false,
+                        ..
+                    } if !name.starts_with("__") => Some(name.as_str()),
+                    _ => None,
+                });
+                check_loop_head(names, body, errors);
                 walk_stmt(i, ast, errors);
             }
             walk_stmt(body, ast, errors);
@@ -200,6 +222,21 @@ fn check_list<'a>(list: impl Iterator<Item = &'a Stmt>, ast: &Ast, errors: &mut 
     for v in vars {
         if lexical.contains_key(v) {
             errors.push(format!("\"{v}\" has already been declared"));
+        }
+    }
+}
+
+/// A loop head's lexical names against the body's VarDeclaredNames.
+fn check_loop_head<'a>(
+    names: impl Iterator<Item = &'a str>,
+    body: &Stmt,
+    errors: &mut Vec<String>,
+) {
+    let mut vars: Vec<&str> = Vec::new();
+    collect_nested_vars(body, &mut vars);
+    for n in names {
+        if vars.contains(&n) {
+            errors.push(format!("\"{n}\" has already been declared"));
         }
     }
 }

@@ -301,6 +301,30 @@ impl<'a> Parser<'a> {
     /// self-name pass share (rotation 636; test262
     /// `const/syntax/const-invalid-assignment-*`). Until then
     /// `for (const x of xs) { x++ }` stored silently.
+    /// §13.1.1 for a declaration head's plain binding name — `for (var
+    /// eval in …)` / `for (let arguments of …)` are SyntaxErrors in
+    /// strict code like any other binding of those names. A `let` /
+    /// `const` head keeps the name in `var_name`; a `var` head's lives
+    /// in `assign_target` (its `var_name` is the minted loop-local).
+    pub(super) fn judge_forof_head_binding(
+        &self,
+        is_var_decl: Option<bool>,
+        var_name: &str,
+        assign_target: Option<&str>,
+    ) -> Result<(), String> {
+        let bound = match is_var_decl {
+            Some(true) => assign_target,
+            Some(false) => Some(var_name),
+            None => None,
+        };
+        match bound {
+            Some(name) if !name.starts_with("__") => {
+                self.reject_if_strict_binding(name, self.strict_here())
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// The head's source, after the contextual keyword. §14.7.5 — a
     /// for-in head takes an Expression (`for (x in a, b)` walks `b`),
     /// a for-of head an AssignmentExpression: the comma form is a

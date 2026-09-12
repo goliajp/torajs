@@ -213,6 +213,7 @@ impl<'a> Parser<'a> {
             None
         };
         let have_type_ann = var_type_ann.is_some();
+        self.judge_forof_head_binding(is_var_decl, &var_name, assign_target.as_deref())?;
         // annexB §B.3.5 — `for (var x = 5 in o)`. Only the `var` form
         // with a plain BindingIdentifier takes it: a `let` / `const`
         // head, a destructuring one, and the `of` spelling all have
