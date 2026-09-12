@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T14:06:12.056Z",
+  "generatedAt": "2026-09-12T17:20:41.472Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-12T13:54:38Z",
-    "headSha": "8e50dc162",
-    "elapsedSec": 449.7,
+    "ranAt": "2026-09-12T17:09:33Z",
+    "headSha": "61dc657cb",
+    "elapsedSec": 460.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
     "pass": 31980,
-    "passNoOracle": 1656,
-    "passNegative": 4565,
-    "passTotal": 38201,
-    "bug": 10825,
+    "passNoOracle": 1675,
+    "passNegative": 4566,
+    "passTotal": 38221,
+    "bug": 10805,
     "incompatible": 4148,
     "bunSkip": 2932,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49026,
-    "passRateInScope": 71.84,
-    "passRateTrAccepted": 77.92
+    "passRateInScope": 71.88,
+    "passRateTrAccepted": 77.96
   },
   "torajs": {
-    "commit": "8e50dc162",
-    "commitSubject": "fix(torajs-core): splice only the Multis the eval desugar produced, not every top-level Multi",
+    "commit": "55283d39a",
+    "commitSubject": "chore(hardev): rotation 639 stamps — sweep, determinism, Guard Malloc @ 61dc657cb",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "8e50dc162",
-      "subject": "fix(torajs-core): splice only the Multis the eval desugar produced, not every top-level Multi"
+      "hash": "55283d39a",
+      "subject": "chore(hardev): rotation 639 stamps — sweep, determinism, Guard Malloc @ 61dc657cb"
     },
     {
-      "hash": "4e034facb",
-      "subject": "fix(torajs-core): a bare for-in / for-of head opening with `[` / `{` that is indexed is a member target, parsed under [~In]"
+      "hash": "61dc657cb",
+      "subject": "chore(hardev): preflight_mini.sh — the A-track pre-flight from dev in one command, verdict decided by the script"
     },
     {
-      "hash": "db1eeef0c",
-      "subject": "fix(torajs-core): sloppy `for (let in obj)` takes `let` as the head's identifier (§14.7.5)"
+      "hash": "9c17c399e",
+      "subject": "chore(hardev): fmt_takeback.sh — take back the files cargo fmt rewrote on mini, judged by content"
     },
     {
-      "hash": "2319427f0",
-      "subject": "fix(torajs-core): sloppy `let` on its own line before `{` in a single-statement position is the identifier (§14.5)"
+      "hash": "a16aa297d",
+      "subject": "fix(torajs-core): a typeof operand with no binding is an undeclared read"
     },
     {
-      "hash": "d90a1ef3a",
-      "subject": "fix(torajs-core): a for-in / for-of head's lexical names are in their dead zone while the source evaluates (§14.7.5.6)"
+      "hash": "a991600f4",
+      "subject": "fix(torajs-anyvalue): typeof on a global accessor name runs the getter"
     },
     {
-      "hash": "8c2d9b0ab",
-      "subject": "fix(torajs-core): three loop-head early errors — `let [` in a single-statement position, head names re-declared by a body `var`, strict `eval` / `arguments` as a for-in/of binding"
+      "hash": "90b2ea57d",
+      "subject": "fix(torajs-core): a script's lexical declaration of a restricted global is a SyntaxError"
     },
     {
-      "hash": "763f7de93",
-      "subject": "fix(torajs-core): a for-in head's source is an Expression (§14.7.5)"
+      "hash": "aa4ae5fbb",
+      "subject": "fix(torajs-core): a capture box is a property of the binding, not of its name"
     },
     {
-      "hash": "467aa50fd",
-      "subject": "fix(torajs-core): a for-of `let` loop variable is mutable (§14.7.5.7); a written one is bound owned or boxed"
+      "hash": "d6ec11bf0",
+      "subject": "Revert \"fix(torajs-core): a closure stored into a fn-typed array element widens the element signature\""
     },
     {
-      "hash": "94e0cb231",
-      "subject": "feat(torajs-core): text-declared functions bind their global property where the text ran (RFC 20260912 knife 4-3)"
+      "hash": "483056097",
+      "subject": "fix(torajs-core): a closure stored into a fn-typed array element widens the element signature"
     },
     {
-      "hash": "d2cb25e68",
-      "subject": "feat(torajs-core): eval / Script `var`s bind at their site; writerless bindings honour read-only (RFC 20260912 knife 4-2)"
+      "hash": "a7ed7e407",
+      "subject": "fix(torajs-anyvalue): the global object is a mortal cell, so preventExtensions / isFrozen see it"
     },
     {
-      "hash": "a7a97bab8",
-      "subject": "feat(torajs-core): $262.evalScript is a Script, not an indirect eval (RFC 20260912 knife 4-1)"
+      "hash": "df40cfe32",
+      "subject": "fix(torajs-core): a call through an unresolvable name calls what the global object answers"
     },
     {
-      "hash": "b591eb53c",
-      "subject": "refactor(torajs-core): move the eval statement rewrite to desugar_eval/rewrite.rs"
+      "hash": "3ec1c5ff5",
+      "subject": "fix(torajs-core): an implicit global's first write over a defined property keeps the written value"
     }
   ],
-  "headSha": "8e50dc162",
+  "headSha": "55283d39a",
   "autorun": {
-    "total": 941,
+    "total": 942,
     "baselineTarget": 10,
-    "bySelf": 936,
+    "bySelf": 937,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789206520-4ae8",
-      "at": "2026-09-12T09:48:40Z",
-      "ts": 1789206520,
+      "rotationId": "r-1789222029-2a17",
+      "at": "2026-09-12T14:07:09Z",
+      "ts": 1789222029,
       "trigger": "self",
-      "prevHead": "ebd9a8100",
-      "handoffSha": "sha256:4fbc9f31f151dec3f4a11989ae96e34f8040586d5c45aaaeb6d25ee6c1ee509a",
-      "handoffAgeSec": 17,
-      "conformanceBefore": "4024/0/4",
-      "commitsInSession": 13
+      "prevHead": "5929b1c07",
+      "handoffSha": "sha256:cdf3eac1e465b6c22c2a99c1dfebecaab7a257ddd320e8af0d463f944bbe06fe",
+      "handoffAgeSec": 6,
+      "conformanceBefore": "4033/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789222029-2a17",
+        "at": "2026-09-12T14:07:09Z",
+        "ts": 1789222029,
+        "trigger": "self",
+        "prevHead": "5929b1c07",
+        "handoffSha": "sha256:cdf3eac1e465b6c22c2a99c1dfebecaab7a257ddd320e8af0d463f944bbe06fe",
+        "handoffAgeSec": 6,
+        "conformanceBefore": "4033/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789206520-4ae8",
         "at": "2026-09-12T09:48:40Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 0,
         "conformanceBefore": "3957/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789056989-1e08",
-        "at": "2026-09-10T16:16:29Z",
-        "ts": 1789056989,
-        "trigger": "self",
-        "prevHead": "7758fb452",
-        "handoffSha": "sha256:be763b4eda73d5194e280196f27779be14280698dddbd9e6f9d07e5c67fe5dcd",
-        "handoffAgeSec": 2,
-        "conformanceBefore": "3945/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
