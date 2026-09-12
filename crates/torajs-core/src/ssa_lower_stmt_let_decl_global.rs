@@ -175,8 +175,21 @@ pub(crate) fn try_lower_global_let(
         ctx.cur_block,
         InstKind::Store(coerced, Operand::Value(ptr), 0),
     );
-    emit_script_global_var_bind(ctx, name, slot_ty, ptr);
+    emit_script_global_var_bind(ctx, name, slot_ty, ptr, BindSite::Declaration);
     true
+}
+
+/// Where a global-var cell bind is being emitted from.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BindSite {
+    /// The top-level declaration's store — a written `var` binds here,
+    /// so the property exists from instantiation (§16.1.7).
+    Declaration,
+    /// An assignment to the global slot — a synthesized implicit
+    /// global binds here, so the property exists from the first write
+    /// (§9.1.1.4.6 creates it then, and a `delete this.x` between two
+    /// writes sees it created again).
+    Write,
 }
 
 /// The init value of a top-level data global, by shape: the K.6
@@ -239,15 +252,23 @@ fn lower_global_init_val(ctx: &mut LowerCtx, init: ExprId, slot_ty: Type) -> Ope
 /// first user statement, so the property exists from instantiation;
 /// an escape-hatch typed `var` binds where its declaration runs (a
 /// typed slot has no reflectable value before its init).
-fn emit_script_global_var_bind(
+pub(crate) fn emit_script_global_var_bind(
     ctx: &mut LowerCtx,
     name: &str,
     slot_ty: Type,
     ptr: crate::ssa::ValueId,
+    site: BindSite,
 ) {
     let Some(flavor) = ctx.ast.script_global_var_names.get(name).copied() else {
         return;
     };
+    let binds_here = match flavor {
+        crate::ast::ScriptGlobalVar::Declared => site == BindSite::Declaration,
+        crate::ast::ScriptGlobalVar::Implicit => site == BindSite::Write,
+    };
+    if !binds_here {
+        return;
+    }
     // `torajs_dynobj::global_cell::KIND_*`; bit 8 asks for a
     // configurable property (the kernel's contract).
     let configurable: i64 = match flavor {

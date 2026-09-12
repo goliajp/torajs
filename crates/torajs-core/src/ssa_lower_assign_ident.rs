@@ -255,9 +255,12 @@ fn lower_global_assign(
         coerce_for_global(ctx, slot_ty, v_ty, v, value)
     };
     let cur_block = ctx.cur_block;
-    let ptr = ctx
-        .f
-        .append_inst(cur_block, InstKind::GlobalRef(name), Type::Ptr, None);
+    let ptr = ctx.f.append_inst(
+        cur_block,
+        InstKind::GlobalRef(name.clone()),
+        Type::Ptr,
+        None,
+    );
     if drop_old_slot {
         let cur_block = ctx.cur_block;
         let old = ctx.f.append_inst(
@@ -270,11 +273,27 @@ fn lower_global_assign(
         ctx.f
             .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
         ctx.emit_drop_value(Operand::Value(old), slot_ty);
+        // A synthesized implicit global's property is created by the
+        // write (RFC 20260912-global-var-cell, `BindSite::Write`).
+        crate::ssa_lower_stmt_let_decl_global::emit_script_global_var_bind(
+            ctx,
+            &name,
+            slot_ty,
+            ptr,
+            crate::ssa_lower_stmt_let_decl_global::BindSite::Write,
+        );
         return v;
     }
     let cur_block = ctx.cur_block;
     ctx.f
         .append_void(cur_block, InstKind::Store(v, Operand::Value(ptr), 0));
+    crate::ssa_lower_stmt_let_decl_global::emit_script_global_var_bind(
+        ctx,
+        &name,
+        slot_ty,
+        ptr,
+        crate::ssa_lower_stmt_let_decl_global::BindSite::Write,
+    );
     let cur_block = ctx.cur_block;
     let r = ctx.f.append_inst(
         cur_block,
