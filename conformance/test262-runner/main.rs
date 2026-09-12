@@ -591,7 +591,10 @@ fn run_case(
         .filter(|(inc, _)| !fm.includes.iter().any(|i| i == inc))
         .flat_map(|(_, names)| names.iter().copied())
         .collect();
-    let harness_min = harness.minimal_for(&transformed, &gated);
+    // `$DONE` is doneprintHandle.js, which a host includes only for
+    // `flags: [async]` (see `minimal_for`).
+    let excluded: &[&str] = if fm.is_async() { &[] } else { &["$DONE"] };
+    let harness_min = harness.minimal_for(&transformed, &gated, excluded);
 
     // GOAL. `flags: [module]` is the only thing that selects Module;
     // INTERPRETING.md says every other case — 92% of the corpus, which
