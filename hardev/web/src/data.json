@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T09:12:27.054Z",
+  "generatedAt": "2026-09-12T09:47:37.682Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-12T08:50:06Z",
-    "headSha": "2ec0f936e",
-    "elapsedSec": 515.94,
+    "ranAt": "2026-09-12T09:35:02Z",
+    "headSha": "65711a9e5",
+    "elapsedSec": 454.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 77.8
   },
   "torajs": {
-    "commit": "877bcda94",
-    "commitSubject": "chore(hardev): rotation 637 stamps — sweep, determinism, Guard Malloc @ 2ec0f936e",
+    "commit": "246713873",
+    "commitSubject": "chore(hardev): rotation 637 stamps — sweep + determinism @ 65711a9e5",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,6 +740,18 @@
   },
   "commits": [
     {
+      "hash": "246713873",
+      "subject": "chore(hardev): rotation 637 stamps — sweep + determinism @ 65711a9e5"
+    },
+    {
+      "hash": "65711a9e5",
+      "subject": "fix(torajs-dynobj): a configurable global binding accepts an enumerable/configurable redefine through the object"
+    },
+    {
+      "hash": "a7f436539",
+      "subject": "chore(hardev): rotation 637 dashboard snapshot + file-size/bench stamps @ 877bcda94"
+    },
+    {
       "hash": "877bcda94",
       "subject": "chore(hardev): rotation 637 stamps — sweep, determinism, Guard Malloc @ 2ec0f936e"
     },
@@ -774,21 +786,9 @@
     {
       "hash": "660bc22f8",
       "subject": "refactor(torajs-core): the var hoist's nested-statement descent moves to a sibling file"
-    },
-    {
-      "hash": "14d8ce53c",
-      "subject": "chore(hardev): rotation 636 file-size stamp @ e52ebabbf"
-    },
-    {
-      "hash": "e52ebabbf",
-      "subject": "chore(hardev): dashboard snapshot @ rotation 636"
-    },
-    {
-      "hash": "6a31bfe87",
-      "subject": "chore(hardev): rotation 636 stamps — sweep, determinism, Guard Malloc @ 7becbed1a"
     }
   ],
-  "headSha": "877bcda94",
+  "headSha": "246713873",
   "autorun": {
     "total": 940,
     "baselineTarget": 10,
