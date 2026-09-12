@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T17:20:41.472Z",
+  "generatedAt": "2026-09-12T21:37:32.775Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-12T17:09:33Z",
-    "headSha": "61dc657cb",
-    "elapsedSec": 460.96,
+    "ranAt": "2026-09-12T21:26:43Z",
+    "headSha": "03a7853b4",
+    "elapsedSec": 460.8,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31980,
-    "passNoOracle": 1675,
+    "pass": 31999,
+    "passNoOracle": 1700,
     "passNegative": 4566,
-    "passTotal": 38221,
-    "bug": 10805,
-    "incompatible": 4148,
+    "passTotal": 38265,
+    "bug": 10762,
+    "incompatible": 4147,
     "bunSkip": 2932,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49026,
-    "passRateInScope": 71.88,
-    "passRateTrAccepted": 77.96
+    "trAccepted": 49027,
+    "passRateInScope": 71.96,
+    "passRateTrAccepted": 78.05
   },
   "torajs": {
-    "commit": "55283d39a",
-    "commitSubject": "chore(hardev): rotation 639 stamps — sweep, determinism, Guard Malloc @ 61dc657cb",
+    "commit": "672fe0720",
+    "commitSubject": "chore(hardev): rotation 640 stamps — sweep, determinism, Guard Malloc, bench @ 03a7853b4",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "55283d39a",
-      "subject": "chore(hardev): rotation 639 stamps — sweep, determinism, Guard Malloc @ 61dc657cb"
+      "hash": "672fe0720",
+      "subject": "chore(hardev): rotation 640 stamps — sweep, determinism, Guard Malloc, bench @ 03a7853b4"
     },
     {
-      "hash": "61dc657cb",
-      "subject": "chore(hardev): preflight_mini.sh — the A-track pre-flight from dev in one command, verdict decided by the script"
+      "hash": "03a7853b4",
+      "subject": "fix(torajs-core): the module-top pre-scan judges a synthetic name by provenance, not by prefix"
     },
     {
-      "hash": "9c17c399e",
-      "subject": "chore(hardev): fmt_takeback.sh — take back the files cargo fmt rewrote on mini, judged by content"
+      "hash": "fcca7c3c6",
+      "subject": "fix(torajs-core): a string field written the Str undefined sentinel reads as nullable"
     },
     {
-      "hash": "a16aa297d",
-      "subject": "fix(torajs-core): a typeof operand with no binding is an undeclared read"
+      "hash": "13d5198b1",
+      "subject": "fix(torajs-core): a Script's let or const shadows the binding an earlier eval declared"
     },
     {
-      "hash": "a991600f4",
-      "subject": "fix(torajs-anyvalue): typeof on a global accessor name runs the getter"
+      "hash": "84de64f3d",
+      "subject": "fix(torajs-core): a value-position eval's var still completes empty after its hoist"
     },
     {
-      "hash": "90b2ea57d",
-      "subject": "fix(torajs-core): a script's lexical declaration of a restricted global is a SyntaxError"
+      "hash": "070f230b6",
+      "subject": "fix(torajs-core): a sloppy direct eval in value position declares its var in the script"
     },
     {
-      "hash": "aa4ae5fbb",
-      "subject": "fix(torajs-core): a capture box is a property of the binding, not of its name"
+      "hash": "76317e2cc",
+      "subject": "feat(torajs-core): an exhausted generator's completion value is undefined, unboxed"
     },
     {
-      "hash": "d6ec11bf0",
-      "subject": "Revert \"fix(torajs-core): a closure stored into a fn-typed array element widens the element signature\""
+      "hash": "ac9c97340",
+      "subject": "fix(torajs-core): a typed generator lane casts the yielded value to its yield type"
     },
     {
-      "hash": "483056097",
-      "subject": "fix(torajs-core): a closure stored into a fn-typed array element widens the element signature"
+      "hash": "9930c9831",
+      "subject": "feat(torajs-core): a bare next() sends undefined — the generator resume channel carries it"
     },
     {
-      "hash": "a7ed7e407",
-      "subject": "fix(torajs-anyvalue): the global object is a mortal cell, so preventExtensions / isFrozen see it"
+      "hash": "d98d709ad",
+      "subject": "fix(torajs-core): a generator local holding a computed-key object literal lifts as any"
     },
     {
-      "hash": "df40cfe32",
-      "subject": "fix(torajs-core): a call through an unresolvable name calls what the global object answers"
+      "hash": "e0958fc00",
+      "subject": "fix(torajs-core): a var with an initializer over a module-top function shares the function's binding"
     },
     {
-      "hash": "3ec1c5ff5",
-      "subject": "fix(torajs-core): an implicit global's first write over a defined property keeps the written value"
+      "hash": "69f4f9e88",
+      "subject": "fix(torajs-core): a Script's block function over a defined global keeps the property, and a name a later text declares reads the object until then"
     }
   ],
-  "headSha": "55283d39a",
+  "headSha": "672fe0720",
   "autorun": {
-    "total": 942,
+    "total": 943,
     "baselineTarget": 10,
-    "bySelf": 937,
+    "bySelf": 938,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789222029-2a17",
-      "at": "2026-09-12T14:07:09Z",
-      "ts": 1789222029,
+      "rotationId": "r-1789233678-28fa",
+      "at": "2026-09-12T17:21:18Z",
+      "ts": 1789233678,
       "trigger": "self",
-      "prevHead": "5929b1c07",
-      "handoffSha": "sha256:cdf3eac1e465b6c22c2a99c1dfebecaab7a257ddd320e8af0d463f944bbe06fe",
-      "handoffAgeSec": 6,
-      "conformanceBefore": "4033/0/4",
+      "prevHead": "9aac4fd66",
+      "handoffSha": "sha256:02e25f6a2aa5bdf24d57c19a500a1aa163a942afd979ab701433465a3204c9b1",
+      "handoffAgeSec": 9,
+      "conformanceBefore": "4040/0/4",
       "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789233678-28fa",
+        "at": "2026-09-12T17:21:18Z",
+        "ts": 1789233678,
+        "trigger": "self",
+        "prevHead": "9aac4fd66",
+        "handoffSha": "sha256:02e25f6a2aa5bdf24d57c19a500a1aa163a942afd979ab701433465a3204c9b1",
+        "handoffAgeSec": 9,
+        "conformanceBefore": "4040/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789222029-2a17",
         "at": "2026-09-12T14:07:09Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 4,
         "conformanceBefore": "3967/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789069498-6181",
-        "at": "2026-09-10T19:44:58Z",
-        "ts": 1789069498,
-        "trigger": "self",
-        "prevHead": "44550e5cc",
-        "handoffSha": "sha256:7cc72e57bce30fd78c2e312ac3267b4b61124e3c61782ac28d4dca6e26f1f2e0",
-        "handoffAgeSec": 0,
-        "conformanceBefore": "3957/0/4",
-        "commitsInSession": 17
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
