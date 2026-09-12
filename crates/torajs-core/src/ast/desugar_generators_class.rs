@@ -49,7 +49,10 @@ pub(super) fn assemble_generator_class_and_factory(
             "number".into(),
         ),
         ("__state".into(), "number".into()),
-        ("__sent".into(), yield_ty.into()),
+        (
+            "__sent".into(),
+            crate::ast::desugar_generators_methods::sent_slot_ann(yield_ty),
+        ),
     ];
     // Lifted locals as class fields. Their initial values are zero
     // (computed from the type ann) — actual initialization happens

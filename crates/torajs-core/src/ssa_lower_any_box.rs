@@ -25,10 +25,18 @@ impl<'a> LowerCtx<'a> {
     /// the spec distinction downstream.
     #[track_caller]
     pub(crate) fn box_to_any_from_expr(&mut self, eid: ExprId, val: Operand) -> Operand {
+        // By the checker's type, or by the spelling: an expression the
+        // checker never visited — a parameter's default the for-of
+        // protocol lowers straight at SSA (`emit_next_call`) — has no
+        // entry in the table, and the bare `undefined` it is boxed as
+        // Null there (rotation 640: a generator read `null` from the
+        // `next()` a `for…of` sends). A local of that name shadows the
+        // global, and would not lower to the null pointer anyway.
         let is_undef = matches!(
             self.expr_types.get(&eid),
             Some(crate::check::Type::Undefined)
-        );
+        ) || (matches!(self.ast.get_expr(eid), Expr::Ident(n) if n == "undefined")
+            && self.locals.get("undefined").is_none());
         let val_ty = self.operand_ty(&val);
         if is_undef && matches!(val_ty, Type::Ptr) {
             // ANY_UNDEF=5, payload 0.

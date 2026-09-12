@@ -63,7 +63,14 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
             value,
         } => {
             let var = std::mem::take(var);
-            let ty = type_ann.clone().or_else(|| Some(yield_ty.to_string()));
+            // Unannotated by the user: the resume channel's own type
+            // (`sent_slot_ann`), which can hold the `undefined` a bare
+            // `next()` sends. A written annotation is kept as written.
+            let ty = type_ann.clone().or_else(|| {
+                Some(crate::ast::desugar_generators_methods::sent_slot_ann(
+                    yield_ty,
+                ))
+            });
             let value = *value;
             let yield_stmt = Stmt::Yield(value);
             let this_id = ast.add_expr(Expr::This);

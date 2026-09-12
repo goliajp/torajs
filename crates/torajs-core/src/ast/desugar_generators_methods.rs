@@ -6,7 +6,7 @@
 //! prototype methods (`.return`, `.throw`, future iterator-
 //! protocol surface).
 
-use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility, default_init_for_type};
+use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
 const RET_VAL_PARAM: &str = "__ret_val";
 const THROW_ERR_PARAM: &str = "__err";
@@ -46,7 +46,7 @@ fn emit_close_state(ast: &mut Ast) -> Stmt {
 /// the compiler wrote itself. The value handed over is identical
 /// either way; what goes away is the dependency on a global table.
 fn emit_self_next_call(ast: &mut Ast, yield_ty: &str) -> ExprId {
-    let arg = ast.add_expr(default_init_for_type(yield_ty));
+    let arg = ast.add_expr(yield_arg_undefined(yield_ty));
     let this_recv = ast.add_expr(Expr::This);
     let next_callee = ast.add_expr(Expr::Member {
         obj: this_recv,
@@ -227,16 +227,59 @@ pub(super) fn build_throw_method(
     }
 }
 
+/// RFC 20260805-generator-value-channels, the caller → body half.
+/// The type of the resume channel — the `next(__yield_arg)`
+/// parameter, the `__sent` field it is stashed in, and the `let v =
+/// this.__sent` a `yield` expression reads — for a generator whose
+/// yield type is `yield_ty`. §27.5.1.1.1 sends `undefined` for a bare
+/// `next()`, and a `T` slot cannot hold it; `T | undefined` can, and
+/// is what the parser already gives a `p?: T` parameter: a scalar
+/// materializes as `any` (ANY_UNDEF), a pointer-shaped slot keeps its
+/// per-type sentinel cell. TypeScript types the value of a `yield`
+/// expression `any` unless the generator declares `TNext`, so the
+/// widening costs the program nothing it was promised. Before this
+/// the channel was `T` end to end and a bare `next()` sent `T`'s
+/// zero: `const a = yield 1` read `0`.
+pub(super) fn sent_slot_ann(yield_ty: &str) -> String {
+    if matches!(yield_ty, "any" | "void" | "undefined") || yield_ty.starts_with("__nullable(") {
+        return yield_ty.to_string();
+    }
+    format!("__nullable({yield_ty})")
+}
+
+/// The value a bare `next()` sends, spelled the way [`sent_slot_ann`]'s
+/// slot holds it — the rule `parser::param_optional_default` fixes for
+/// `p?: T`: the plain ident for a slot that materializes as `any`
+/// (the any lane, and a `number` / `boolean` `T | undefined`), the
+/// `__undef_slot__<T>` marker for a pointer-shaped one, which asks the
+/// SSA lowering for that type's sentinel cell. Every lane whose slot
+/// is `any`-shaped spells the same ident, so `apply_default_args`' by-
+/// name table keeps one `next` entry across them — the constraint RFC
+/// 20260805 records (rotations 305 / 306 evicted it by moving one lane
+/// alone). Before this the default was the yield type's ZERO (`0` for
+/// the any lane too, to stay uniform).
+pub(super) fn yield_arg_undefined(yield_ty: &str) -> Expr {
+    let inner = yield_ty
+        .strip_prefix("__nullable(")
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(yield_ty);
+    if crate::ssa_lower_parse_type::nullable_inner_boxes(inner)
+        || matches!(inner, "any" | "void" | "undefined")
+    {
+        return Expr::Ident("undefined".into());
+    }
+    Expr::Ident(format!("{}{inner}", crate::ast::UNDEF_SLOT_MARKER))
+}
+
 /// Build the `Generator.prototype.next(arg)` method. Prepends a
 /// `this.__sent = __yield_arg;` stash so YieldInto-expanded reads
 /// of `this.__sent` see whatever the caller passed to `g.next(arg)`
 /// on the resume; the rest of the method body is the caller-built
 /// state-machine `while(true) { ... }` + tail return.
 ///
-/// `yield_arg_default_id` carries the type-driven default value
-/// (built via `default_init_for_type` at the caller — kept caller-
-/// side so this sibling doesn't need to import that ast-internal
-/// helper just to forward an ExprId).
+/// `yield_arg_default_id` carries the resume default — `undefined`
+/// in the channel's own spelling (`yield_arg_undefined`), minted by
+/// the caller so it can forward one ExprId.
 /// Carry a generator body's strictness onto the `next()` the state
 /// machine becomes. §11.2.2 makes the body strict code, and the
 /// directive prologue is the only carrier that survives this far
@@ -268,7 +311,7 @@ pub(super) fn build_next_method(
 ) -> ClassMethod {
     let yield_arg_param = Param {
         name: YIELD_ARG_PARAM.into(),
-        type_ann: Some(yield_ty.into()),
+        type_ann: Some(sent_slot_ann(yield_ty)),
         default: Some(yield_arg_default_id),
         is_rest: false,
     };
@@ -286,7 +329,16 @@ pub(super) fn build_next_method(
         Stmt::Expr(assign)
     };
     let mut body: Vec<Stmt> = Vec::with_capacity(state_machine_body.len() + 1);
-    body.push(stash_sent);
+    // Only a body that READS the channel pays for the stash: the slot
+    // is `T | undefined` — an `any` for a scalar `T` — so the store is
+    // an rc-accounted field write on every resume, and
+    // `generator-yield-100k` (a `yield i` statement, nothing reads what
+    // `next()` sends) measured +12% run_ms with it unconditional
+    // (rotation 640, same-round A/B, bun-aot control flat). The
+    // parameter itself is a +0 borrow the callee never touches.
+    if body_reads_sent(ast, &state_machine_body) {
+        body.push(stash_sent);
+    }
     body.extend(state_machine_body);
     ClassMethod {
         name: "next".into(),
@@ -299,4 +351,30 @@ pub(super) fn build_next_method(
         accessor_kind: None,
         span: crate::lexer::Span { start: 0, end: 0 },
     }
+}
+
+/// Does the state machine read `this.__sent` anywhere — a `yield`
+/// used as an expression (`expand_yield_into_in_stmt`'s `let v =
+/// this.__sent`)? Every statement list the body owns, every
+/// expression under it.
+fn body_reads_sent(ast: &Ast, body: &[Stmt]) -> bool {
+    use crate::ast::desugar_with::walk;
+    fn expr_reads(ast: &Ast, eid: ExprId) -> bool {
+        if let Expr::Member { obj, name } = ast.get_expr(eid)
+            && name == "__sent"
+            && matches!(ast.get_expr(*obj), Expr::This)
+        {
+            return true;
+        }
+        walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| expr_reads(ast, c))
+    }
+    fn stmt_reads(ast: &Ast, s: &Stmt) -> bool {
+        walk::stmt_exprs(s).into_iter().any(|e| expr_reads(ast, e))
+            || walk::stmt_children_ref(s)
+                .into_iter()
+                .any(|c| stmt_reads(ast, c))
+    }
+    body.iter().any(|s| stmt_reads(ast, s))
 }

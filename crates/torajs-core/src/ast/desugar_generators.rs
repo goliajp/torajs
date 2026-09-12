@@ -382,12 +382,9 @@ fn build_iterator_method_trio(
     has_finally_ret: bool,
     is_async_gen: bool,
 ) -> (ClassMethod, ClassMethod, ClassMethod) {
-    let yield_arg_default = if yield_ty == "any" {
-        Expr::Number(0.0)
-    } else {
-        default_init_for_type(yield_ty)
-    };
-    let yield_arg_default_id = ast.add_expr(yield_arg_default);
+    let yield_arg_default_id = ast.add_expr(
+        crate::ast::desugar_generators_methods::yield_arg_undefined(yield_ty),
+    );
     let next_method = crate::ast::desugar_generators_methods::build_next_method(
         ast,
         yield_arg_default_id,
