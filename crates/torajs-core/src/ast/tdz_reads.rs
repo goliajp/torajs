@@ -104,7 +104,10 @@ pub fn mark_tdz_reads(ast: &mut Ast) {
     for s in &ast.stmts {
         descend_lists(ast, s, &mut marks);
     }
-    ast.tdz_reads = marks;
+    // Extend, not replace: the parser already marked the reads a
+    // for-in / for-of head puts in its own dead zone
+    // (`forof_binding::mark_forof_head_tdz`).
+    ast.tdz_reads.extend(marks);
 }
 
 /// `Multi` shares the surrounding scope, so it is spliced rather than

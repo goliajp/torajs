@@ -325,6 +325,36 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// §14.7.5.6 ForIn/OfHeadEvaluation step 2 — a `let` / `const`
+    /// head's names are in their dead zone while the source is
+    /// evaluated: `for (let x in { x })` raises the ReferenceError, and
+    /// a function written in the source (`for (let x in { i: probe =
+    /// function () { typeof x } })`) captures that never-initialized
+    /// environment, so it raises whenever it is called. Every read of
+    /// a head name in the source is marked as a `tdz_reads` entry —
+    /// the lane the ident lowering already raises on — through
+    /// nested function bodies, stopping at one that re-declares the
+    /// name as a parameter.
+    pub(super) fn mark_forof_head_tdz(
+        &mut self,
+        is_var_decl: Option<bool>,
+        destruct_pat: &Option<PatShape>,
+        var_name: &str,
+        src: ExprId,
+    ) {
+        if is_var_decl != Some(false) {
+            return;
+        }
+        let mut names = Vec::new();
+        match destruct_pat {
+            Some(pat) => pat.bound_names(&mut names),
+            None => names.push(var_name.to_string()),
+        }
+        if !names.is_empty() {
+            mark_dead_reads(&mut self.ast, src, &names);
+        }
+    }
+
     /// The head's source, after the contextual keyword. §14.7.5 — a
     /// for-in head takes an Expression (`for (x in a, b)` walks `b`),
     /// a for-of head an AssignmentExpression: the comma form is a
@@ -341,5 +371,44 @@ impl<'a> Parser<'a> {
         let mut list = vec![body];
         crate::ast::rewrite_self_name_writes(&mut self.ast, &list, name, true);
         list.pop().expect("the body pushed above")
+    }
+}
+
+/// Mark every `Ident` read of one of `names` under `eid` — including
+/// inside a function expression's body — as a dead-zone read.
+fn mark_dead_reads(ast: &mut Ast, eid: ExprId, names: &[String]) {
+    match ast.get_expr(eid) {
+        Expr::Ident(n) if names.iter().any(|m| m == n) => {
+            ast.tdz_reads.insert(eid);
+            return;
+        }
+        Expr::ArrowFn { params, body, .. } => {
+            if params.iter().any(|p| names.contains(&p.name)) {
+                return;
+            }
+            let mut roots = Vec::new();
+            for s in body {
+                stmt_expr_roots(s, &mut roots);
+            }
+            for r in roots {
+                mark_dead_reads(ast, r, names);
+            }
+            return;
+        }
+        _ => {}
+    }
+    for c in crate::ast::desugar_with::walk::expr_children(ast, eid) {
+        mark_dead_reads(ast, c, names);
+    }
+}
+
+/// Every expression a statement roots, recursively through nested
+/// statements (a function body's own nested functions are reached as
+/// arrow expressions by the caller).
+fn stmt_expr_roots(s: &Stmt, out: &mut Vec<ExprId>) {
+    use crate::ast::desugar_with::walk;
+    out.extend(walk::stmt_exprs(s));
+    for c in walk::stmt_children_ref(s) {
+        stmt_expr_roots(c, out);
     }
 }
