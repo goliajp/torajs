@@ -114,6 +114,7 @@ mod type_ann_literal;
 mod type_decl;
 mod using_decl;
 mod with_stmt;
+mod yield_cond_hoist;
 mod yield_expr_hoist;
 mod yield_hoist_events;
 use class_member::ClassMemberModifierPrefix;

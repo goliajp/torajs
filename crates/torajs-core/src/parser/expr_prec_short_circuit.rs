@@ -6,6 +6,7 @@
 //! that spans them is that a `??` may not be mixed with the other two
 //! without parentheses.
 
+use super::yield_cond_hoist::ShortCircuit;
 use super::*;
 
 impl<'a> Parser<'a> {
@@ -43,12 +44,17 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             // The operand is a BitwiseORExpression — reading it at the
             // logical level is what silently accepted `a ?? b || c`.
-            // `??` rhs is conditionally evaluated — no yield hoist.
-            let right = self.with_yield_hoist_disallowed(|p| p.parse_bit_or())?;
-            left = self.ast.add_expr(Expr::Nullish {
-                lhs: left,
-                rhs: right,
-            });
+            // `??` rhs is conditionally evaluated — a yield in it
+            // folds the operator into a temp (`yield_cond_hoist`).
+            let (right, hoisted) = self.with_yield_hoist_captured(|p| p.parse_bit_or())?;
+            left = if hoisted.is_empty() {
+                self.ast.add_expr(Expr::Nullish {
+                    lhs: left,
+                    rhs: right,
+                })
+            } else {
+                self.short_circuit_yield_temp(ShortCircuit::Nullish, left, hoisted, right)
+            };
         }
         // `||=` / `&&=` after a `??` is an invalid assignment TARGET,
         // not this production — leave that error to `parse_assign`,
@@ -92,13 +98,18 @@ impl<'a> Parser<'a> {
             )
         {
             self.pos += 1;
-            // `||` rhs is conditionally evaluated — no yield hoist.
-            let right = self.with_yield_hoist_disallowed(|p| p.parse_logical_and())?;
-            left = self.ast.add_expr(Expr::BinOp {
-                op: BinOp::LOr,
-                left,
-                right,
-            });
+            // `||` rhs is conditionally evaluated — a yield in it
+            // folds the operator into a temp (`yield_cond_hoist`).
+            let (right, hoisted) = self.with_yield_hoist_captured(|p| p.parse_logical_and())?;
+            left = if hoisted.is_empty() {
+                self.ast.add_expr(Expr::BinOp {
+                    op: BinOp::LOr,
+                    left,
+                    right,
+                })
+            } else {
+                self.short_circuit_yield_temp(ShortCircuit::Or, left, hoisted, right)
+            };
             bare = true;
         }
         self.bare_logical = bare;
@@ -117,13 +128,18 @@ impl<'a> Parser<'a> {
             )
         {
             self.pos += 1;
-            // `&&` rhs is conditionally evaluated — no yield hoist.
-            let right = self.with_yield_hoist_disallowed(|p| p.parse_bit_or())?;
-            left = self.ast.add_expr(Expr::BinOp {
-                op: BinOp::LAnd,
-                left,
-                right,
-            });
+            // `&&` rhs is conditionally evaluated — a yield in it
+            // folds the operator into a temp (`yield_cond_hoist`).
+            let (right, hoisted) = self.with_yield_hoist_captured(|p| p.parse_bit_or())?;
+            left = if hoisted.is_empty() {
+                self.ast.add_expr(Expr::BinOp {
+                    op: BinOp::LAnd,
+                    left,
+                    right,
+                })
+            } else {
+                self.short_circuit_yield_temp(ShortCircuit::And, left, hoisted, right)
+            };
             bare = true;
         }
         self.bare_logical = bare;

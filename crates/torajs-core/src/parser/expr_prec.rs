@@ -28,8 +28,10 @@ impl<'a> Parser<'a> {
         // whatever the surrounding context, so a for-head init's
         // [~In] restriction lifts here; the ELSE branch inherits
         // [?In] and keeps it (the relational `in` arm refuses there).
+        // A yield in either branch folds the ternary into a temp whose
+        // arms run the branch's yields (`yield_cond_hoist`).
         let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
-        let then_branch = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
+        let (then_branch, then_hoisted) = self.with_yield_hoist_captured(|p| p.parse_assign())?;
         self.in_for_init = saved_in_for_init;
         if !matches!(self.peek(), Token::Colon) {
             return Err(format!(
@@ -38,12 +40,19 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1;
-        let else_branch = self.with_yield_hoist_disallowed(|p| p.parse_assign())?;
-        Ok(self.ast.add_expr(Expr::Ternary {
+        let (else_branch, else_hoisted) = self.with_yield_hoist_captured(|p| p.parse_assign())?;
+        if then_hoisted.is_empty() && else_hoisted.is_empty() {
+            return Ok(self.ast.add_expr(Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            }));
+        }
+        Ok(self.ternary_yield_temp(
             cond,
-            then_branch,
-            else_branch,
-        }))
+            (then_hoisted, then_branch),
+            (else_hoisted, else_branch),
+        ))
     }
 
     pub(super) fn parse_bit_or(&mut self) -> Result<ExprId, String> {

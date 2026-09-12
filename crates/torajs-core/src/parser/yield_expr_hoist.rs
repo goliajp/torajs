@@ -64,7 +64,7 @@ impl<'a> Parser<'a> {
         if !self.yield_hoist_allowed {
             return Err(format!(
                 "not yet supported: `yield` in a conditional expression position \
-                 (short-circuit rhs, ternary branch, optional call, default value) at {}",
+                 (optional call argument, default value) at {}",
                 self.at()
             ));
         }
@@ -102,11 +102,13 @@ impl<'a> Parser<'a> {
         &mut self,
         f: impl FnOnce(&mut Self) -> Result<T, String>,
     ) -> Result<(T, Vec<Stmt>), String> {
+        // The allowed flag is inherited, not forced: a captured
+        // position nested inside a refused one (a `&&` rhs inside a
+        // destructuring default, say) must stay refused — its
+        // statements would land in the refused position's buffer.
         let saved_buf = std::mem::take(&mut self.yield_hoist_buf);
-        let saved_allowed = std::mem::replace(&mut self.yield_hoist_allowed, true);
         let r = f(self);
         let captured = std::mem::replace(&mut self.yield_hoist_buf, saved_buf);
-        self.yield_hoist_allowed = saved_allowed;
         r.map(|v| (v, captured))
     }
 
