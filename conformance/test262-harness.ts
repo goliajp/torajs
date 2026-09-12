@@ -100,7 +100,13 @@ function __t262_assert(actual: boolean, msg: any = ""): void {
 // runs this same assembled source so the markers compare
 // byte-for-byte. The truthiness gate mirrors the stock harness —
 // `$DONE(null)` / `$DONE(0)` count as success there too.
-function $DONE(error: any = undefined): void {
+// The definition lives under an internal name so the harness's own
+// references (`__t262_asyncTest`) never spell `$DONE`: a host defines
+// `$DONE` only for `flags: [async]` (doneprintHandle.js), the runner
+// includes the alias below only for those cases, and a flag-less case
+// must neither see `Object.hasOwn(globalThis, "$DONE")` nor carry a
+// dangling reference to it.
+function __t262_done(error: any = undefined): void {
   if (error) {
     const e: any = error;
     if (typeof e === "object" && e.name !== undefined) {
@@ -111,6 +117,13 @@ function $DONE(error: any = undefined): void {
   } else {
     console.log("Test262:AsyncTestComplete");
   }
+}
+
+// doneprintHandle.js's `$DONE` — the async completion entry the case
+// calls. Selected by the shake only for cases that spell it (and
+// excluded outright without `flags: [async]`, see the runner).
+function $DONE(error: any = undefined): void {
+  __t262_done(error);
 }
 
 // SameValue (§7.2.11), not strict equality: NaN equals NaN, and
@@ -328,21 +341,21 @@ function __t262_asyncTest(testFunc: any): void {
     throw new Test262Error("asyncTest called without async flag");
   }
   if (typeof testFunc !== "function") {
-    $DONE(new Test262Error("asyncTest called with non-function argument"));
+    __t262_done(new Test262Error("asyncTest called with non-function argument"));
     return;
   }
   try {
     const p: any = testFunc();
     p.then(
       function (): void {
-        $DONE();
+        __t262_done();
       },
       function (error: any): void {
-        $DONE(error);
+        __t262_done(error);
       }
     );
   } catch (syncError) {
-    $DONE(syncError);
+    __t262_done(syncError);
   }
 }
 
