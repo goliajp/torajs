@@ -190,7 +190,10 @@ fn hoist_vars_in_block(body: &mut Vec<Stmt>, exprs: &mut Vec<Expr>, params: &[St
 /// same nested positions the rewrite walks (FnDecl bodies excluded —
 /// their own hoist pass counts separately). Feeds the multi-decl
 /// escape-hatch gate in [`hoist_vars_in_block`].
-fn count_var_names(stmts: &[Stmt], counts: &mut std::collections::HashMap<String, Vec<ExprId>>) {
+pub(super) fn count_var_names(
+    stmts: &[Stmt],
+    counts: &mut std::collections::HashMap<String, Vec<ExprId>>,
+) {
     for s in stmts {
         count_var_names_stmt(s, counts);
     }

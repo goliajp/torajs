@@ -138,6 +138,7 @@ mod param_default_arrow;
 mod recognize;
 mod rewrite;
 mod scope;
+mod script_form;
 mod source;
 mod walk;
 // fnexpr-bind promotion shares the fn-ownership walk (shadow-use aware)
@@ -171,6 +172,11 @@ pub fn desugar_eval(ast: &mut Ast) {
         // `arguments`. Must also run before the value collapse, for
         // the same swallowed-throw reason.
         param_default_arrow::rewrite_arrow_param_default_arguments_evals(ast);
+        // §16.1.7 steps 3-5 for `$262.evalScript`: a Script whose
+        // declarations collide with the bindings in force throws when
+        // evaluated — decided on the program as written, before any
+        // inlining or collapse could move a declaration.
+        script_form::throw_colliding_scripts(ast);
         // Value-position collapses first: a collapsed call is no
         // longer an eval call, so the statement walks below see only
         // the sources that need inlining.
@@ -179,6 +185,13 @@ pub fn desugar_eval(ast: &mut Ast) {
         let caller_strict = walk::caller_strict_exprs(ast);
         let mut stmts = std::mem::take(&mut ast.stmts);
         rewrite_list(&mut stmts, ast, false, false, &caller_strict);
+        // A Script inlines as a Multi so its lexical declarations are
+        // global; spliced flat, its function declarations are top-level
+        // declarations to every pass that reads the list.
+        let mut stmts = script_form::flatten_top_multi(stmts);
+        if ast.sloppy_script_goal {
+            script_form::keep_last_fn_decls(&mut stmts);
+        }
         ast.stmts = stmts;
         rewrite_arrow_bodies(ast);
         completion::rewrite_completion_value_evals(ast);

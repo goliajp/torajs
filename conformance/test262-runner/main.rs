@@ -162,7 +162,11 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
         if quotes_open_strings && (b == b'"' || b == b'\'' || b == b'`') {
             let quote = b;
             let trimmed = out.trim_end();
-            let eval_arg = trimmed.ends_with("eval(") || trimmed.ends_with("eval)(");
+            // `eval(`, `(0, eval)(`, and the Script form the
+            // `$262.evalScript(` rewrite below produces.
+            let eval_arg = trimmed.ends_with("eval(")
+                || trimmed.ends_with("eval)(")
+                || trimmed.ends_with("__t262_evalScript(");
             out.push(quote as char);
             i += 1;
             let mut body = String::new();
@@ -216,19 +220,20 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
             continue;
         }
         // `$262.evalScript(src)` — the host object's "evaluate this
-        // source in the global scope as a Script". That is exactly
-        // INDIRECT eval (§19.2.1: an indirect call is always global,
-        // always non-strict Script code), which tr's eval channel
-        // already recognizes in the `(0, eval)("…")` spelling — and
-        // the string it takes goes through the same eval-argument
-        // transform as any other, so the asserts inside it rewrite
-        // too. Without this the whole `$262` object is an unknown
-        // identifier and 31 cases die before their first assertion.
+        // source in the global scope as a Script". Spelled as the
+        // `__t262_evalScript("…")` call tr's eval channel recognizes as
+        // its Script form (§16.1.7, not §19.2.1.3: global lexical
+        // declarations, non-deletable `var`s, a declaration collision
+        // is a SyntaxError at evaluation) — and the string it takes
+        // goes through the same eval-argument transform as any other,
+        // so the asserts inside it rewrite too. Without this the whole
+        // `$262` object is an unknown identifier and 31 cases die
+        // before their first assertion.
         // The other members ($262.createRealm / .gc / .IsHTMLDDA /
         // .AbstractModuleSource) have no tr equivalent and keep the
         // loud unknown-identifier reject.
         if starts_with_at(bytes, i, b"$262.evalScript(") {
-            out.push_str("(0,eval)(");
+            out.push_str("__t262_evalScript(");
             i += b"$262.evalScript(".len();
             continue;
         }

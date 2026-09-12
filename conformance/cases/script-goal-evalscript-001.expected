@@ -1,0 +1,14 @@
+lex 11 20 function false false
+var 5 5 true true false
+fn 7 function
+var-on-let SyntaxError
+let-on-var SyntaxError
+let-on-fn SyntaxError
+let-on-let SyntaxError
+fn-on-let SyntaxError
+let-on-script-let SyntaxError
+var-on-var ok
+eval-var-on-let SyntaxError
+eval-var-on-var ok
+no bindings ReferenceError ReferenceError ReferenceError ReferenceError ReferenceError ReferenceError ReferenceError
+after 1 number function

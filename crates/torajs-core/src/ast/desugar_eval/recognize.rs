@@ -80,6 +80,7 @@ pub(super) fn nonstring_literal_eval_arg(eid: ExprId, ast: &Ast) -> Option<Expr>
 pub(super) fn callee_eval_form(callee: ExprId, ast: &Ast) -> Option<CallForm> {
     match ast.exprs.get(callee.0 as usize)? {
         Expr::Ident(n) if n == "eval" => Some(CallForm::Direct),
+        Expr::Ident(n) if n == "__t262_evalScript" => Some(CallForm::Script),
         Expr::Sequence { left, right } => {
             let is_lit = matches!(
                 ast.exprs.get(left.0 as usize)?,

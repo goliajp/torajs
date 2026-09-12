@@ -22,6 +22,13 @@ pub(super) enum CallForm {
     /// eval does not inherit the caller's strictness) land on the
     /// global.
     Indirect,
+    /// `__t262_evalScript("…")` — the test262 host's "evaluate this text
+    /// as a Script in the global scope" (`$262.evalScript`, spelled by
+    /// the runner). Global like the indirect form, but §16.1.7 rather
+    /// than §19.2.1.3: its lexical declarations are global too, its
+    /// `var`s are not deletable, and a declaration collision is a
+    /// SyntaxError at evaluation (see `script_form`).
+    Script,
 }
 
 /// Parse eval's source text into the caller's arena. `parse_into`

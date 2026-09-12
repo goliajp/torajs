@@ -51,8 +51,10 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     // strict" prologue in the text arms it from the
                     // other side, which is how an indirect eval — never
                     // strict by inheritance — can still seal.
-                    let sealed =
-                        sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast);
+                    // A Script's `var`s are global whatever its
+                    // strictness (§16.1.7 has no strict branch).
+                    let sealed = form != CallForm::Script
+                        && (sw == EvalStrictness::Strict || has_use_strict_prologue(&inlined, ast));
                     if sealed {
                         seal_var_scope(&mut inlined);
                     }
@@ -63,6 +65,10 @@ fn rewrite_stmt(s: &mut Stmt, ast: &mut Ast, in_fn: bool, home: bool, strict: &[
                     ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
                     *s = if sealed {
                         Stmt::Block(inlined)
+                    } else if form == CallForm::Script {
+                        // Flat: a Script's `let` / `const` / `class` are
+                        // global lexical bindings (`script_form`).
+                        Stmt::Multi(inlined)
                     } else {
                         scope::hoist_fn_decls_out(inlined)
                     };
