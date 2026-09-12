@@ -17,3 +17,8 @@ var r = (eval('var fresh = 5; fresh + 1'), fresh);
 console.log("fresh", r, typeof fresh, "fresh" in globalThis, Object.getOwnPropertyDescriptor(globalThis, "fresh").configurable);
 var q = (eval('var a1 = 3, b1; b1 = a1 * 2; b1'), a1 + b1);
 console.log("two-vars", q, a1, b1);
+// a `var` statement completes empty (§14.3.2.1): the eval answers
+// undefined, so a destructuring default beside it still fires
+var pd; var ho = 1;
+for (let [_ = pd = function() { return ho; }] of [[eval('var ho = 2;'), 0]]) ;
+console.log("empty-completion", pd(), ho, eval('var ho = 3;'));

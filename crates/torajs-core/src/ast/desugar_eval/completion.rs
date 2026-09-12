@@ -105,6 +105,11 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
             {
                 rewrite_list(&mut body, ast, true, super_ok, &caller_strict);
                 let top_level = !fn_owned.get(i).copied().unwrap_or(false);
+                let mut body = completion_stmt::rewrite_trailing_stmt_completion(body, ast);
+                // AFTER the completion rewrite: a `var x = 2` completes
+                // EMPTY (§14.3.2.1) and the assignment it becomes would
+                // complete 2 — `eval('var x = 2;')` answered 2 where the
+                // spec, and node, answer undefined.
                 if form == CallForm::Direct
                     && strict != EvalStrictness::Strict
                     && !has_use_strict_prologue(&body, ast)
@@ -112,7 +117,6 @@ pub(super) fn rewrite_completion_value_evals(ast: &mut Ast) {
                 {
                     hoist_sloppy_vars_to_script(&mut body, ast);
                 }
-                let body = completion_stmt::rewrite_trailing_stmt_completion(body, ast);
                 wrap_iife(i, body, ast);
             }
             Ok(_) => {}
