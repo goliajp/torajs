@@ -140,6 +140,9 @@ impl<'a> Analysis<'a> {
                     }
                     let w = self.width_of(el, scope);
                     self.add_container_constraint(ek.clone(), w);
+                    // A function value as a literal element: same
+                    // projection wiring as a `push` (638-13).
+                    self.fn_value_flow(&ek, el, scope);
                     if let Some(ik) = self.container_key_of(el, scope) {
                         // F2-fix — a container stored as an element is
                         // aliased by the slot; a scalar element keeps
@@ -214,15 +217,27 @@ impl<'a> Analysis<'a> {
     /// `is_undef_f64_source` routes every `number[]` index read through
     /// the sentinel compare.
     pub(super) fn seed_index_read_elem(&mut self, obj: ExprId, scope: &Scope, in_bounds: bool) {
-        if !matches!(
+        let number_elems = matches!(
             self.expr_types.get(&obj),
             Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
-        ) {
+        );
+        // A method product read in place (`xs.concat([…])[1](3)`) has
+        // no binding whose init resolves its key, and resolving it is
+        // what fires the result-key wiring (`method_result_key`): the
+        // concat arm joins the argument literal's element class onto
+        // the receiver's, so a closure in that literal takes the
+        // receiver's widened signature. Unresolved, the closure
+        // compiled with integer faces while the product's element
+        // slot — the receiver's layout — was called with float ones
+        // (638-13, rotation 640). The read is the product's consumer,
+        // so the read resolves it.
+        let product_read = matches!(self.ast.get_expr(obj), Expr::Call { .. });
+        if !number_elems && !product_read {
             return;
         }
         if let Some(rk) = self.container_key_of(obj, scope) {
             self.mark_containerish(&rk);
-            if !in_bounds {
+            if number_elems && !in_bounds {
                 self.c_seeds.push(SlotKey::Elem(Box::new(rk)));
             }
         }
@@ -240,6 +255,9 @@ impl<'a> Analysis<'a> {
                     let ek = SlotKey::Elem(Box::new(rk));
                     let w = self.width_of(value, scope);
                     self.add_container_constraint(ek.clone(), w);
+                    // A function value assigned into an element: same
+                    // projection wiring as a `push` (638-13).
+                    self.fn_value_flow(&ek, value, scope);
                     if let Some(vk) = self.container_key_of(value, scope) {
                         self.uf.union(&ek, &vk);
                     }
