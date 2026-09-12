@@ -127,7 +127,66 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, map: &mut Vec<(ExprId, ExprId)>, s:
                 .as_ref()
                 .map(|fb| fb.iter().map(|s| deep_clone_stmt(ast, map, s)).collect()),
         },
-        // Stmts that don't carry ExprIds — clone trivially.
+        // Rotation 637 (637-06) — these carried nested ExprIds through a
+        // shallow `.clone()`: a spec's for-of body kept the TEMPLATE's
+        // ids, so a closure constructed inside it was never found by
+        // `clone_spec_closures` (the id_map is what it scans) and stayed
+        // ONE lifted decl shared by every specialization, its captures
+        // typed by whichever spec checked last — `typeof thisv` inside
+        // `for (var key of …) callIt(() => …)` answered `key`'s type.
+        Stmt::ForOfSplitIter {
+            var_name,
+            parent,
+            sep,
+            body,
+        } => Stmt::ForOfSplitIter {
+            var_name: var_name.clone(),
+            parent: deep_clone_expr(ast, map, *parent),
+            sep: deep_clone_expr(ast, map, *sep),
+            body: Box::new(deep_clone_stmt(ast, map, body)),
+        },
+        Stmt::ForOf {
+            var_name,
+            var_type_ann,
+            src_ident,
+            i_ident,
+            elem_expr,
+            body,
+            forin_obj,
+            is_await,
+        } => Stmt::ForOf {
+            var_name: var_name.clone(),
+            var_type_ann: var_type_ann.clone(),
+            src_ident: src_ident.clone(),
+            i_ident: i_ident.clone(),
+            elem_expr: deep_clone_expr(ast, map, *elem_expr),
+            body: Box::new(deep_clone_stmt(ast, map, body)),
+            forin_obj: forin_obj.map(|e| deep_clone_expr(ast, map, e)),
+            is_await: *is_await,
+        },
+        Stmt::UsingDecl {
+            name,
+            type_ann,
+            init,
+            is_await,
+        } => Stmt::UsingDecl {
+            name: name.clone(),
+            type_ann: type_ann.clone(),
+            init: deep_clone_expr(ast, map, *init),
+            is_await: *is_await,
+        },
+        Stmt::Yield(eid) => Stmt::Yield(deep_clone_expr(ast, map, *eid)),
+        Stmt::YieldInto {
+            var,
+            type_ann,
+            value,
+        } => Stmt::YieldInto {
+            var: var.clone(),
+            type_ann: type_ann.clone(),
+            value: deep_clone_expr(ast, map, *value),
+        },
+        // Declarations and jumps carry no expression of the body's own
+        // (a nested `FnDecl` is lifted long before a spec is cloned).
         other => other.clone(),
     }
 }
