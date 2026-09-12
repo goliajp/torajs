@@ -26,6 +26,7 @@ use super::globalthis_object::{GLOBALTHIS_OBJECT, globalthis_bag_ptr};
 
 unsafe extern "C" {
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_entry_is_global_cell(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_flags(obj: *const c_void, key: *const c_void) -> u64;
@@ -60,8 +61,6 @@ const ANY_HEAP: u64 = 4;
 const ANY_ACCESSOR: u64 = 6;
 /// `torajs_dynobj::global_cell::KIND_ANY`.
 const KIND_ANY: u64 = 0;
-/// `torajs_rc::Tag::GlobalCell`.
-const TAG_GLOBAL_CELL: u16 = 30;
 
 /// `__torajs_global_var_bind(key, slot_ptr, kind)` — §9.1.1.4.17
 /// CreateGlobalVarBinding, for the slot the compiled program keeps
@@ -103,14 +102,17 @@ pub unsafe extern "C" fn __torajs_global_var_bind(
     // the entry through `define_plain` / `set`.
     unsafe {
         if __torajs_dynobj_has(obj, key) != 0 {
-            let cur_tag = __torajs_dynobj_get_tag(obj, key);
-            let cur_value = __torajs_dynobj_get_value(obj, key);
-            if cur_tag == ANY_HEAP
-                && cur_value != 0
-                && *((cur_value as *const u8).add(4) as *const u16) == TAG_GLOBAL_CELL
-            {
+            // The RAW entry, not `get_tag` / `get_value`: those see
+            // through a cell to the binding's value, so asking them
+            // "is it a cell" answered no on every second write and
+            // minted a cell over a cell — the slot then held the new
+            // cell's pointer as its value (rotation 636, `x += "s"`
+            // on an implicit global printed `[object]`).
+            if __torajs_dynobj_entry_is_global_cell(obj, key) != 0 {
                 return;
             }
+            let cur_tag = __torajs_dynobj_get_tag(obj, key);
+            let cur_value = __torajs_dynobj_get_value(obj, key);
             let writable = __torajs_dynobj_get_flags(obj, key) & GET_FLAG_WRITABLE != 0;
             if cur_tag == ANY_ACCESSOR || !writable || kind != KIND_ANY {
                 __torajs_throw_type_error(

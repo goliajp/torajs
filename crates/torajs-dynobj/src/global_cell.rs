@@ -266,3 +266,28 @@ pub(crate) unsafe fn redefine_through_cell(
     }
     Ok(())
 }
+
+/// `__torajs_global_var_bind`'s "is this name already a cell" probe —
+/// the RAW entry value, which `get_tag` / `get_value` no longer show
+/// (they see through the cell to the binding's value, which is the
+/// point). Answers 0 for an absent key, a non-dynobj, or a plain
+/// entry.
+///
+/// # Safety
+/// `obj` is null or a live heap pointer with a universal header;
+/// `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_dynobj_entry_is_global_cell(
+    obj: *const c_void,
+    key: *const c_void,
+) -> i32 {
+    if obj.is_null() || unsafe { crate::get::type_tag(obj) } != crate::layout::TAG_DYNOBJ {
+        return 0;
+    }
+    let p = unsafe { crate::probe::probe(obj, key) };
+    if !p.found {
+        return 0;
+    }
+    let v = unsafe { (*crate::probe::entries(obj).add(p.entry as usize)).value_anyv };
+    unsafe { value_is_global_cell(v) as i32 }
+}
