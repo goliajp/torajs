@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T09:47:37.682Z",
+  "generatedAt": "2026-09-12T14:06:12.056Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-12T09:35:02Z",
-    "headSha": "65711a9e5",
-    "elapsedSec": 454.9,
+    "ranAt": "2026-09-12T13:54:38Z",
+    "headSha": "8e50dc162",
+    "elapsedSec": 449.7,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31954,
-    "passNoOracle": 1630,
-    "passNegative": 4546,
-    "passTotal": 38130,
-    "bug": 10882,
-    "incompatible": 4162,
-    "bunSkip": 2931,
+    "pass": 31980,
+    "passNoOracle": 1656,
+    "passNegative": 4565,
+    "passTotal": 38201,
+    "bug": 10825,
+    "incompatible": 4148,
+    "bunSkip": 2932,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49012,
-    "passRateInScope": 71.71,
-    "passRateTrAccepted": 77.8
+    "trAccepted": 49026,
+    "passRateInScope": 71.84,
+    "passRateTrAccepted": 77.92
   },
   "torajs": {
-    "commit": "246713873",
-    "commitSubject": "chore(hardev): rotation 637 stamps — sweep + determinism @ 65711a9e5",
+    "commit": "8e50dc162",
+    "commitSubject": "fix(torajs-core): splice only the Multis the eval desugar produced, not every top-level Multi",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "246713873",
-      "subject": "chore(hardev): rotation 637 stamps — sweep + determinism @ 65711a9e5"
+      "hash": "8e50dc162",
+      "subject": "fix(torajs-core): splice only the Multis the eval desugar produced, not every top-level Multi"
     },
     {
-      "hash": "65711a9e5",
-      "subject": "fix(torajs-dynobj): a configurable global binding accepts an enumerable/configurable redefine through the object"
+      "hash": "4e034facb",
+      "subject": "fix(torajs-core): a bare for-in / for-of head opening with `[` / `{` that is indexed is a member target, parsed under [~In]"
     },
     {
-      "hash": "a7f436539",
-      "subject": "chore(hardev): rotation 637 dashboard snapshot + file-size/bench stamps @ 877bcda94"
+      "hash": "db1eeef0c",
+      "subject": "fix(torajs-core): sloppy `for (let in obj)` takes `let` as the head's identifier (§14.7.5)"
     },
     {
-      "hash": "877bcda94",
-      "subject": "chore(hardev): rotation 637 stamps — sweep, determinism, Guard Malloc @ 2ec0f936e"
+      "hash": "2319427f0",
+      "subject": "fix(torajs-core): sloppy `let` on its own line before `{` in a single-statement position is the identifier (§14.5)"
     },
     {
-      "hash": "2ec0f936e",
-      "subject": "fix(torajs-core): a specialization's for-of, using and yield statements clone their expressions too"
+      "hash": "d90a1ef3a",
+      "subject": "fix(torajs-core): a for-in / for-of head's lexical names are in their dead zone while the source evaluates (§14.7.5.6)"
     },
     {
-      "hash": "8b251ace8",
-      "subject": "fix(test262-harness): the harness's own completion calls go through an internal name, $DONE is a thin alias"
+      "hash": "8c2d9b0ab",
+      "subject": "fix(torajs-core): three loop-head early errors — `let [` in a single-statement position, head names re-declared by a body `var`, strict `eval` / `arguments` as a for-in/of binding"
     },
     {
-      "hash": "9b94e83dc",
-      "subject": "refactor(torajs-core): the deep-clone Expr half moves to a sibling file"
+      "hash": "763f7de93",
+      "subject": "fix(torajs-core): a for-in head's source is an Expression (§14.7.5)"
     },
     {
-      "hash": "681b13174",
-      "subject": "feat(torajs-core): a script's top-level function declaration is the global object's property over its canonical value"
+      "hash": "467aa50fd",
+      "subject": "fix(torajs-core): a for-of `let` loop variable is mutable (§14.7.5.7); a written one is bound owned or boxed"
     },
     {
-      "hash": "ca0a628a5",
-      "subject": "fix(test262-runner): $DONE enters the harness only for flags: [async]"
+      "hash": "94e0cb231",
+      "subject": "feat(torajs-core): text-declared functions bind their global property where the text ran (RFC 20260912 knife 4-3)"
     },
     {
-      "hash": "887d912aa",
-      "subject": "fix(torajs-core): a forwarder whose sniffed return mentions a type variable floors to any"
+      "hash": "d2cb25e68",
+      "subject": "feat(torajs-core): eval / Script `var`s bind at their site; writerless bindings honour read-only (RFC 20260912 knife 4-2)"
     },
     {
-      "hash": "1417be9e6",
-      "subject": "fix(torajs-meta): a property written on a function after its cell was minted lands in the cell's bag"
+      "hash": "a7a97bab8",
+      "subject": "feat(torajs-core): $262.evalScript is a Script, not an indirect eval (RFC 20260912 knife 4-1)"
     },
     {
-      "hash": "660bc22f8",
-      "subject": "refactor(torajs-core): the var hoist's nested-statement descent moves to a sibling file"
+      "hash": "b591eb53c",
+      "subject": "refactor(torajs-core): move the eval statement rewrite to desugar_eval/rewrite.rs"
     }
   ],
-  "headSha": "246713873",
+  "headSha": "8e50dc162",
   "autorun": {
-    "total": 940,
+    "total": 941,
     "baselineTarget": 10,
-    "bySelf": 935,
+    "bySelf": 936,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789191436-23b2",
-      "at": "2026-09-12T05:37:16Z",
-      "ts": 1789191436,
+      "rotationId": "r-1789206520-4ae8",
+      "at": "2026-09-12T09:48:40Z",
+      "ts": 1789206520,
       "trigger": "self",
-      "prevHead": "14d8ce53c",
-      "handoffSha": "sha256:2d20d946356f42ee8ad7837815a18e7322d729f301fa3bc63bca09095e439109",
-      "handoffAgeSec": 1,
-      "conformanceBefore": "4019/0/4",
-      "commitsInSession": 17
+      "prevHead": "ebd9a8100",
+      "handoffSha": "sha256:4fbc9f31f151dec3f4a11989ae96e34f8040586d5c45aaaeb6d25ee6c1ee509a",
+      "handoffAgeSec": 17,
+      "conformanceBefore": "4024/0/4",
+      "commitsInSession": 13
     },
     "recent": [
+      {
+        "rotationId": "r-1789206520-4ae8",
+        "at": "2026-09-12T09:48:40Z",
+        "ts": 1789206520,
+        "trigger": "self",
+        "prevHead": "ebd9a8100",
+        "handoffSha": "sha256:4fbc9f31f151dec3f4a11989ae96e34f8040586d5c45aaaeb6d25ee6c1ee509a",
+        "handoffAgeSec": 17,
+        "conformanceBefore": "4024/0/4",
+        "commitsInSession": 13
+      },
       {
         "rotationId": "r-1789191436-23b2",
         "at": "2026-09-12T05:37:16Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 2,
         "conformanceBefore": "3945/0/4",
         "commitsInSession": 16
-      },
-      {
-        "rotationId": "r-1789045152-11ad",
-        "at": "2026-09-10T12:59:12Z",
-        "ts": 1789045152,
-        "trigger": "self",
-        "prevHead": "d508c7f93",
-        "handoffSha": "sha256:9685b4beaa3ad63576abf87e0fa80b348bb4398bc942050f9f67406880b28dd8",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "3931/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"

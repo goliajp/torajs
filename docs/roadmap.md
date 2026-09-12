@@ -1681,7 +1681,28 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `51da7dc32`** (2026-09-11, rotation 630 — eleven knives and
+**Latest @ `8e50dc162`** (2026-09-12, rotation 638 — RFC 20260912-global-var-cell
+knife 4 in three halves: `$262.evalScript` is a Script (§16.1.7: flat
+inline, global lexicals, a declaration collision is a SyntaxError at
+evaluation, last same-named top-level function wins), an eval's / a
+Script's `var` and `function` bind their global property where the text
+ran (deletable for an eval), and a writerless binding honours a read-only
+property; the for-of `let` loop variable is mutable (§14.7.5.7, owned or
+boxed when written); and a for-in / for-of head family — Expression
+source, three early errors, head-name dead zone during the source, sloppy
+`let \n {` / `let in obj` / indexed-literal heads). Gate predicate:
+**48** clusters of >= 4 holding **313** cases, register 2 · 118 (SR-1
+30 / SR-2 92), residue 358 · 488 (53.1%), core **919**, unattributed
+**801**. Sweep passTotal 38130 → **38201 (+71)**, bug 10882 → 10825,
+incompatible 4162 → 4148; 74 forward (for-in 15, for-of 10, annexB
+eval-code 17, global-code 7, eval-code 8, for 4), 3 re-baseline
+(`script-decl-var-err` / `-func-err-non-*`: the prior pass was a
+non-inlined in-function indirect eval's TypeError), 1 pre-existing crash
+newly reached (`for-of/scope-body-lex-open` exit 138). The first close
+sweep caught 3 true regressions from an over-broad top-level Multi
+splice; fixed forward in `8e50dc162`.)
+
+**Prior @ `51da7dc32`** (2026-09-11, rotation 630 — eleven knives and
 one fix-forward along three seams. **Module linking** (RFC
 `20260911-module-link-errors`, three knives): §16.2.1.6.4 step 7 now
 runs for EVERY module in the graph, not just the entry, and step 9 for
