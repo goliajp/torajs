@@ -60,8 +60,12 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     // the name as declared and the block's declaration takes the write
     // form. Before the walk, because the block may precede the
     // declaration.
-    let (top_hoisted, top_hoisted_names) =
-        super::nested_fns_top::lift_top_fns_over_block_fns(&mut top, &mut ctx);
+    let (top_hoisted, top_hoisted_names) = super::nested_fns_top::lift_top_fns_over_block_fns(
+        &mut top,
+        &ast.exprs,
+        ast.sloppy_script_goal,
+        &mut ctx,
+    );
     // The module scope's own function declarations, read before the
     // walk starts mutating their bodies.
     let top_declared = own_fn_names(&top);

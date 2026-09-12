@@ -395,6 +395,28 @@ impl LiftCtx {
         }
     }
 
+    /// `var <name>: any;` and `<name> = <mangled>` — the pair the var
+    /// hoist makes of `var <name>: any = <mangled>`, minted apart for
+    /// the head of a module (`nested_fns_top`). Init-less and `any` on
+    /// purpose: initialized with the function value, the hoist keeps
+    /// the `var` as a lexical `let` typed by that value (its escape
+    /// hatch), and unannotated, the checker types the slot by its one
+    /// kind of writer — either way a TYPED slot, which the global
+    /// object never sees. `any` is the slot the global object binds
+    /// (`emit_script_global_var_bind`), and it is the width a `var` of
+    /// the same name in a block shares (§14.3.2.1: one binding).
+    pub(super) fn mint_var_slot_and_write(&mut self, name: &str, mangled: &str) -> [Stmt; 2] {
+        let init = self.mint(Expr::Uninit);
+        let slot = Stmt::LetDecl {
+            mutable: true,
+            name: name.to_string(),
+            type_ann: Some("any".to_string()),
+            init,
+            is_var: true,
+        };
+        [slot, self.mint_write(name, mangled)]
+    }
+
     /// `var <name>: any = <mangled>` — the binding starts here.
     pub(super) fn mint_var_decl(&mut self, name: &str, mangled: &str) -> Stmt {
         let init = self.mint(Expr::Ident(mangled.to_string()));

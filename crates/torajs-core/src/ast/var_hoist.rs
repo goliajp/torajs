@@ -98,23 +98,17 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
         // A name tr minted (`__dstr_<n>` for a destructuring head, a
         // for-of temp) is no program binding: it neither reaches the
         // object nor takes the global home the object needs.
-        // A `var f = v;` over `function f() {}` keeps today's prelude
-        // slot (the assignment needs a binding the checker lets it
-        // write; widening the declaration is `fndecl_rebound`'s job,
-        // registered). Only an init-less re-declaration rides the
+        // A `var f = v;` over `function f() {}` no longer reaches here:
+        // `nested_fns_top` (rotation 640) gave that declaration a
+        // mangled name and a head `var` of its own, so `f` is an
+        // ordinary written `var` by now. What is left under a function
+        // name is the init-less re-declaration, which rides the
         // parameter route below.
-        let mut fn_names_with_init: Vec<String> = Vec::new();
         for (name, sites) in counts {
             if super::is_synthesized_dunder(ast, &name) {
                 continue;
             }
             if fn_names.contains(&name) {
-                if sites
-                    .iter()
-                    .any(|e| !matches!(ast.exprs[e.0 as usize], Expr::Uninit))
-                {
-                    fn_names_with_init.push(name);
-                }
                 continue;
             }
             // A name every site of which came out of eval / Script text
@@ -137,12 +131,7 @@ pub fn desugar_var_hoist(ast: &mut super::Ast) {
         // `var f;` over `function f() {}` mints no prelude slot (it
         // shadowed the function — `typeof f` answered `undefined` and
         // `f()` was "not a function", rotation 637).
-        let pre_bound: Vec<String> = fn_names
-            .iter()
-            .filter(|n| !fn_names_with_init.contains(n))
-            .cloned()
-            .collect();
-        hoist_vars_in_block(&mut top, &mut ast.exprs, &pre_bound);
+        hoist_vars_in_block(&mut top, &mut ast.exprs, &fn_names);
     } else {
         hoist_vars_in_block(&mut top, &mut ast.exprs, &[]);
     }
@@ -383,9 +372,15 @@ pub(super) fn collect_and_rewrite_var(
                 // Cluster #11 (rotation 442) — a multiply-declared
                 // name never escapes: the second declarator's shape
                 // may differ, and §14.3.2's one shared binding must
-                // fit both. An explicit annotation keeps its escape
-                // (the writer pinned the type on purpose).
-                if (type_ann.is_some() || (init_keeps_type && !multi.contains(&name)))
+                // fit both. An explicit annotation used to keep its
+                // escape; with a `var` of the name in a NESTED block —
+                // which always hoists to the prelude (rotation 264) —
+                // that made two declarations of one name, and the
+                // checker rejected a legal program (`var x: any; { var
+                // x = 3 }`, rotation 640). The annotation now rides the
+                // prelude slot like any other site's (last one wins).
+                if (type_ann.is_some() || init_keeps_type)
+                    && !multi.contains(&name)
                     && !redeclared
                     && !nested
                 {

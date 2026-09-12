@@ -1,0 +1,10 @@
+cap-before outer
+cap-after inner-cap
+var-before function 1
+var-after number 2
+var-end 2
+blk-before h
+blk-after 3
+blk-desc true true false true
+noinit function k
+var-first 1
