@@ -203,12 +203,21 @@ pub unsafe extern "C" fn __torajs_fnprops_set(
     let node = unsafe { intern_node(buckets, fn_ptr as usize) };
     unsafe {
         if (*node).cell != 0 {
-            __torajs_dynobj_set(
-                cell_props_slot((*node).cell),
-                key as *const u8,
-                tag as u64,
-                value as u64,
-            );
+            // A cell minted BEFORE the fn's first property write has
+            // an empty props slot, and `dynobj_set` on a null bag
+            // writes nothing: `var z: any = foo; foo.x = 1; foo.x`
+            // answered undefined (rotation 637 — every top-level
+            // function's cell now mints at program start, so this was
+            // every `f.prop = v` in a script). Attach a fresh bag
+            // first, through the same entry the migrate path uses.
+            let slot = cell_props_slot((*node).cell);
+            if (*slot).is_null() {
+                __torajs_closure_props_attach(
+                    (*node).cell as *mut u8,
+                    __torajs_dynobj_alloc() as *mut c_void,
+                );
+            }
+            __torajs_dynobj_set(slot, key as *const u8, tag as u64, value as u64);
         } else {
             if (*node).dynobj == 0 {
                 (*node).dynobj = __torajs_dynobj_alloc() as usize;
