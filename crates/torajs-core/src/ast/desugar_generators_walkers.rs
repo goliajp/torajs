@@ -25,6 +25,13 @@ use super::{Ast, Expr, Param, Stmt};
 /// be a second inference disagreeing with the checker's.
 pub(crate) struct LiftCtx<'a> {
     pub(crate) params: &'a [Param],
+    /// Names the generator's own fields already own before any `let`
+    /// lifts — its params and its own name (rotation 636). A block
+    /// `let` of one of these is a distinct binding (§14.3.1), and
+    /// lifting it under the same field name made every read of the
+    /// param / self-name outside the block read the block's value;
+    /// the duplicate-let rename (J.2.b) now sees them as taken.
+    pub(crate) reserved: Vec<(String, String)>,
     pub(crate) fn_sigs: &'a std::collections::HashMap<String, String>,
     pub(crate) binds: std::collections::HashMap<String, String>,
     /// Classes DECLARED inside this generator's body. A `new C()`
@@ -135,7 +142,8 @@ pub(crate) fn lift_lets_in_list(
     ctx: &mut LiftCtx,
 ) {
     for i in 0..list.len() {
-        super::desugar_generators_alpha::resolve_duplicate_let(ast, &mut list[i..], lifted);
+        let taken = taken_names(ctx, lifted);
+        super::desugar_generators_alpha::resolve_duplicate_let(ast, &mut list[i..], &taken);
         lift_lets_in_stmt(ast, &mut list[i], lifted, ctx);
     }
 }
@@ -155,7 +163,8 @@ pub(crate) fn lift_lets_in_stmt(
     // already claims is renamed across the whole loop first; the
     // declaration is about to stop being one. A no-op for every other
     // statement, and for a `for` whose name is still free.
-    super::desugar_generators_alpha::resolve_duplicate_for_let(ast, s, lifted);
+    let taken = taken_names(ctx, lifted);
+    super::desugar_generators_alpha::resolve_duplicate_for_let(ast, s, &taken);
     match s {
         Stmt::LetDecl {
             name,
@@ -349,4 +358,15 @@ pub(crate) fn lift_lets_in_stmt(
 /// back to `number` — the fallback's own note says why each is here.
 fn init_unsniffable(ast: &Ast, init: super::ExprId) -> bool {
     matches!(ast.get_expr(init), Expr::Ident(_) | Expr::Call { .. })
+}
+
+/// What a `let` about to lift may not be called: the fields the
+/// generator owns from the start (`LiftCtx::reserved`) plus what the
+/// lift has claimed so far.
+fn taken_names(ctx: &LiftCtx, lifted: &[(String, String)]) -> Vec<(String, String)> {
+    ctx.reserved
+        .iter()
+        .cloned()
+        .chain(lifted.iter().cloned())
+        .collect()
 }

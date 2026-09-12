@@ -78,6 +78,11 @@ pub(super) fn prep_generator_body(
     }
     let mut lift_ctx = LiftCtx {
         params: gen_params,
+        reserved: gen_params
+            .iter()
+            .map(|p| (p.name.clone(), String::new()))
+            .chain(std::iter::once((gen_name.to_string(), String::new())))
+            .collect(),
         fn_sigs,
         binds: gen_params
             .iter()
