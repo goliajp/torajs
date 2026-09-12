@@ -36,6 +36,7 @@
 use std::collections::HashSet;
 
 use super::super::desugar_with::walk;
+use super::super::readonly_globals::READONLY_GLOBALS;
 use super::super::var_hoist::ScriptGlobalVar;
 use super::super::{Ast, Expr, Stmt};
 use super::recognize::{has_use_strict_prologue, literal_eval_call};
@@ -86,10 +87,16 @@ impl Names {
     /// against the lexical ones; an eval (§19.2.1.3 step 5) has no
     /// global lexical names of its own — only its `var`s can collide.
     fn collision_for(&self, form: CallForm, code: &Names) -> Option<String> {
+        // Step 5.c HasRestrictedGlobalProperty for the three names whose
+        // global descriptor the spec fixes non-configurable (§19.1):
+        // `let undefined;` in a Script is a SyntaxError however the
+        // program spells the rest (`decl-lex-restricted-global`).
         let lex_clash = || {
-            code.lex
-                .iter()
-                .find(|n| self.vars.contains(*n) || self.lex.contains(*n))
+            code.lex.iter().find(|n| {
+                self.vars.contains(*n)
+                    || self.lex.contains(*n)
+                    || READONLY_GLOBALS.contains(&n.as_str())
+            })
         };
         let var_clash = || code.vars.iter().find(|n| self.lex.contains(*n));
         match form {
@@ -111,6 +118,24 @@ impl Names {
 /// the inlining walk, on the program as parsed.
 pub(super) fn throw_colliding_scripts(ast: &mut Ast) {
     let mut reg = Names::of(&ast.stmts);
+    // The program is itself a Script under the script goal: §16.1.7
+    // step 5.c on ITS lexical names, before any of it runs. The whole
+    // program becomes the throw — GlobalDeclarationInstantiation fails
+    // before the first statement (test262 `decl-lex-restricted-global`,
+    // a runtime-phase negative).
+    if ast.sloppy_script_goal
+        && let Some(restricted) = reg
+            .lex
+            .iter()
+            .find(|n| READONLY_GLOBALS.contains(&n.as_str()))
+    {
+        let throw = syntax_error_throw(
+            format!("Identifier '{restricted}' has already been declared"),
+            ast,
+        );
+        ast.stmts = vec![throw];
+        return;
+    }
     reg.program_fns = ast
         .stmts
         .iter()

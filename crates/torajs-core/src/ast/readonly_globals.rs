@@ -35,7 +35,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 
 /// §19.1 — value properties of the global object with
 /// `[[Writable]]: false`. `globalThis` is writable and stays out.
-const READONLY_GLOBALS: &[&str] = &["NaN", "Infinity", "undefined"];
+pub(super) const READONLY_GLOBALS: &[&str] = &["NaN", "Infinity", "undefined"];
 
 /// Builtin-namespace properties with `[[Writable]]: false` — the
 /// member-write mirror of [`READONLY_GLOBALS`] (family fourth
