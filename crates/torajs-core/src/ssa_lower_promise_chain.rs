@@ -86,6 +86,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
                         &pv,
                         self.num_f64_slots,
                         self.arr_layouts,
+                        self.fn_sigs,
                     );
                 }
                 Some(t)

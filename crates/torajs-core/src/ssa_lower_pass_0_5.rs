@@ -152,6 +152,7 @@ pub(crate) fn run(
                             &fkey,
                             num_f64_slots,
                             &mut arr_layouts,
+                            &mut fn_sigs,
                         ),
                         // F5 mirror of `widen_struct_fields` — an
                         // fn-typed field's sig widens by its own field

@@ -140,6 +140,9 @@ impl<'a> Analysis<'a> {
                     }
                     let w = self.width_of(el, scope);
                     self.add_container_constraint(ek.clone(), w);
+                    // A function value as a literal element: same
+                    // projection wiring as a `push` (638-13).
+                    self.fn_value_flow(&ek, el, scope);
                     if let Some(ik) = self.container_key_of(el, scope) {
                         // F2-fix — a container stored as an element is
                         // aliased by the slot; a scalar element keeps
@@ -240,6 +243,9 @@ impl<'a> Analysis<'a> {
                     let ek = SlotKey::Elem(Box::new(rk));
                     let w = self.width_of(value, scope);
                     self.add_container_constraint(ek.clone(), w);
+                    // A function value assigned into an element: same
+                    // projection wiring as a `push` (638-13).
+                    self.fn_value_flow(&ek, value, scope);
                     if let Some(vk) = self.container_key_of(value, scope) {
                         self.uf.union(&ek, &vk);
                     }

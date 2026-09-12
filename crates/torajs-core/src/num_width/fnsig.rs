@@ -103,14 +103,27 @@ pub(crate) fn split_fn_type(canon: &str) -> Option<(Vec<&str>, &str)> {
 impl<'a> Analysis<'a> {
     /// Union an fn-type-annotated slot onto the spelling's nominal
     /// class (no-op for every other annotation).
+    ///
+    /// An array spelling `T[]` (any depth) carries the fn-type on its
+    /// ELEMENT, so the element key is what joins the class: `let fs:
+    /// (() => number)[]` used to canonicalize the whole `__fn(…)->(…)[]`
+    /// string into a class of its own that no resident ever joined,
+    /// and `fs[0]()` read an f64 return off the integer lane
+    /// (rotation 639, 638-13).
     pub(super) fn fnsig_ann_union(&mut self, key: &SlotKey, ann: &str) {
-        let Some(canon) = fn_type_canon(ann) else {
+        let mut spelling = ann.trim();
+        let mut k = key.clone();
+        while let Some(inner) = spelling.strip_suffix("[]") {
+            spelling = inner.trim();
+            k = SlotKey::Elem(Box::new(k));
+        }
+        let Some(canon) = fn_type_canon(spelling) else {
             return;
         };
         let ck = SlotKey::Class(canon);
         self.mark_containerish(&ck);
-        self.mark_containerish(key);
-        self.uf.union(&ck, key);
+        self.mark_containerish(&k);
+        self.uf.union(&ck, &k);
     }
 
     /// Annotation-driven nominal hookups for fn-type spellings, the
