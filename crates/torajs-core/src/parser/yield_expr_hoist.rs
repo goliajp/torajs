@@ -64,8 +64,7 @@ impl<'a> Parser<'a> {
         if !self.yield_hoist_allowed {
             return Err(format!(
                 "not yet supported: `yield` in a conditional expression position \
-                 (do-while condition, for step, short-circuit rhs, ternary branch, \
-                 optional call, default value) at {}",
+                 (short-circuit rhs, ternary branch, optional call, default value) at {}",
                 self.at()
             ));
         }
@@ -133,6 +132,78 @@ impl<'a> Parser<'a> {
         });
         block.push(body);
         Stmt::Block(block)
+    }
+
+    /// A loop whose STEP (or a do-while's condition) hoisted yields —
+    /// positions a `continue` must still reach, which the body-top
+    /// rewrite above cannot give them. Rotated instead (rotation 636):
+    ///
+    /// ```text
+    /// do S while (C)         →  for (let f = true; ;) { if (!f) { <hC>; if (!C') break; } f = false; S }
+    /// for (I; C; T) S        →  for (I, let f = true; ;) { if (!f) { <hT>; T' } f = false; <hC>; if (!C') break; S }
+    /// ```
+    ///
+    /// The first pass skips the head, every later pass — a `continue`
+    /// lands on the loop head, labeled or not — runs the step and
+    /// re-evaluates (and re-yields) the condition in source order.
+    /// The flag rides the `for` INIT so a label on the source loop
+    /// wraps a plain iteration statement and every label reader
+    /// (lowering, generator state machine) sees the loop it names.
+    /// Answers `(init, body)` for a `Stmt::For` with no cond / step.
+    pub(super) fn rotated_loop(
+        &mut self,
+        init: Option<Box<Stmt>>,
+        head: Vec<Stmt>,
+        cond: Option<(Vec<Stmt>, ExprId)>,
+        body: Stmt,
+    ) -> (Option<Box<Stmt>>, Stmt) {
+        let id = self.mint_desugar_id();
+        let flag = format!("__lrot_{id}");
+        let tru = self.ast.add_expr(Expr::Bool(true));
+        let flag_decl = Stmt::LetDecl {
+            mutable: true,
+            name: flag.clone(),
+            type_ann: Some("boolean".into()),
+            init: tru,
+            is_var: false,
+        };
+        let init = Some(Box::new(match init {
+            Some(i) => Stmt::Multi(vec![*i, flag_decl]),
+            None => flag_decl,
+        }));
+        let flag_read = self.ast.add_expr(Expr::Ident(flag.clone()));
+        let not_flag = self.ast.add_expr(Expr::Unary {
+            op: crate::ast::UnaryOp::Not,
+            expr: flag_read,
+        });
+        let flag_target = self.ast.add_expr(Expr::Ident(flag));
+        let fals = self.ast.add_expr(Expr::Bool(false));
+        let clear = self.ast.add_expr(Expr::Assign {
+            target: flag_target,
+            value: fals,
+        });
+        let mut block = vec![
+            Stmt::If {
+                cond: not_flag,
+                then_branch: Box::new(Stmt::Block(head)),
+                else_branch: None,
+            },
+            Stmt::Expr(clear),
+        ];
+        if let Some((hoisted, c)) = cond {
+            let not_cond = self.ast.add_expr(Expr::Unary {
+                op: crate::ast::UnaryOp::Not,
+                expr: c,
+            });
+            block.extend(hoisted);
+            block.push(Stmt::If {
+                cond: not_cond,
+                then_branch: Box::new(Stmt::Break(None)),
+                else_branch: None,
+            });
+        }
+        block.push(body);
+        (init, Stmt::Block(block))
     }
 
     pub(super) fn with_yield_hoist_disallowed<T>(

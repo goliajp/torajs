@@ -92,8 +92,10 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        // Per-iteration position, same as the while condition.
-        let cond = self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?;
+        // Per-iteration position, evaluated AFTER the body — a
+        // `continue` must reach it, so a hoisted yield rotates the
+        // loop (rotation 636; `rotated_loop`).
+        let (cond, hoisted) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
         match self.peek() {
             Token::RParen => self.pos += 1,
             t => {
@@ -107,7 +109,26 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::Semi) {
             self.pos += 1;
         }
-        Ok(Stmt::DoWhile { body, cond })
+        if hoisted.is_empty() {
+            return Ok(Stmt::DoWhile { body, cond });
+        }
+        let not_cond = self.ast.add_expr(Expr::Unary {
+            op: crate::ast::UnaryOp::Not,
+            expr: cond,
+        });
+        let mut head = hoisted;
+        head.push(Stmt::If {
+            cond: not_cond,
+            then_branch: Box::new(Stmt::Break(None)),
+            else_branch: None,
+        });
+        let (init, body) = self.rotated_loop(None, head, None, *body);
+        Ok(Stmt::For {
+            init,
+            cond: None,
+            step: None,
+            body: Box::new(body),
+        })
     }
 
     pub(super) fn parse_switch(&mut self) -> Result<Stmt, String> {
@@ -328,11 +349,14 @@ impl<'a> Parser<'a> {
         // V3-18 m1.h.31 — JS allows comma-separated step expressions
         // (`for (...; ...; i++, j--)`): §13.16 Expression, the same
         // production the switch scrutinee and the case value spell.
-        // Per-iteration position: no yield hoist.
-        let step = if matches!(self.peek(), Token::RParen) {
-            None
+        // Per-iteration position that a `continue` must reach: a
+        // hoisted yield rotates the loop (rotation 636;
+        // `rotated_loop`).
+        let (step, hoisted_step) = if matches!(self.peek(), Token::RParen) {
+            (None, Vec::new())
         } else {
-            Some(self.with_yield_hoist_disallowed(|p| p.parse_expr_list())?)
+            let (s, h) = self.with_yield_hoist_captured(|p| p.parse_expr_list())?;
+            (Some(s), h)
         };
         match self.peek() {
             Token::RParen => self.pos += 1,
@@ -351,6 +375,19 @@ impl<'a> Parser<'a> {
             "a for loop",
             super::single_stmt_judge::SingleStmtPos::LoopBody,
         )?;
+        if !hoisted_step.is_empty() {
+            let mut head = hoisted_step;
+            head.push(Stmt::Expr(
+                step.expect("a hoisted yield came out of a present step"),
+            ));
+            let (init, body) = self.rotated_loop(init, head, cond.map(|c| (hoisted, c)), *body);
+            return Ok(Stmt::For {
+                init,
+                cond: None,
+                step: None,
+                body: Box::new(body),
+            });
+        }
         if hoisted.is_empty() {
             return Ok(Stmt::For {
                 init,
