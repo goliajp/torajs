@@ -84,9 +84,11 @@ mk_stamps() {
   # from them. HARDEV_SWEEP_BASE_JSON is set-but-empty in run_case, so
   # the deltas are suppressed and the fixture needs no baseline.
   # A bench stamp dated now: TRIG-5 rejects an axis-B reading older than 14d.
+  # bunStamped equals the pinned HARDEV_BUN_UPSTREAM (set in run_case) so
+  # the fixture is "current" without asking GitHub; case 21 breaks that.
   printf '{"tool":"bench","headSha":"%s","benchRanAt":"%s","runs":3,'\
 '"lowConfidence":false,"cells":46,"medianVsBunAot":0.5067,'\
-'"cellsSlowerThanBunAot":1,"target":0.33,"shortfallX":1.535}\n' \
+'"cellsSlowerThanBunAot":1,"target":0.33,"shortfallX":1.535,"bunStamped":"1.4.2"}\n' \
     "$REAL_SHA" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$TMP/stamps/bench-latest.json"
   BENCH_LINE=$(HARDEV_BENCH_JSON="$TMP/stamps/bench-latest.json" \
     bash "$SCRIPT_DIR/bench_latest_line.sh")
@@ -111,6 +113,7 @@ run_case() {
   local out rc
   out=$(HARDEV_ROTATIONS_LOG="$TMP/rot.jsonl" HARDEV_HANDOFF_FILE="$TMP/handoff.md" \
         HARDEV_STAMP_DIR="$TMP/stamps" HARDEV_SWEEP_BASE_JSON= \
+        HARDEV_BUN_UPSTREAM=1.4.2 \
         bash "$GATE" 2>/dev/null)
   rc=$?
   if [ "$rc" -eq "$want_exit" ] && printf '%s\n' "$out" | grep -qE "$want_line"; then
@@ -225,10 +228,27 @@ run_case "18 review without the reading" 1 'TRIG-5 FAIL.*lacks the axis-B readin
 
 python3 -c 'import json,sys;json.dump({"tool":"bench","headSha":sys.argv[1],\
 "benchRanAt":"2026-06-01T00:00:00Z","runs":3,"cells":46,"medianVsBunAot":0.5067,\
-"cellsSlowerThanBunAot":1,"target":0.33,"shortfallX":1.535,"lowConfidence":False},\
-open(sys.argv[2],"w"))' "$REAL_SHA" "$TMP/stamps/bench-latest.json"
+"cellsSlowerThanBunAot":1,"target":0.33,"shortfallX":1.535,"lowConfidence":False,\
+"bunStamped":"1.4.2"},open(sys.argv[2],"w"))' "$REAL_SHA" "$TMP/stamps/bench-latest.json"
 mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" "axes-review: $BENCH_LINE"
 run_case "19 axis-B reading stale" 1 'TRIG-5 FAIL.*reading is [0-9]+d old'
+mk_stamps
+
+# 21 — the reading is recent and pasted, but it was taken against a bun
+# one release behind upstream. A ratio against last week's competitor.
+python3 -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d["bunStamped"]="1.4.1";\
+json.dump(d,open(p,"w"))' "$TMP/stamps/bench-latest.json"
+OLD_BUN_LINE=$(HARDEV_BENCH_JSON="$TMP/stamps/bench-latest.json" bash "$SCRIPT_DIR/bench_latest_line.sh")
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" "axes-review: $OLD_BUN_LINE"
+run_case "21 bench against a stale bun" 1 'TRIG-5 FAIL.*bun is not upstream-latest.*stamped=1.4.1'
+mk_stamps
+
+# 22 — the stamp has no bun version at all: unknown is not current.
+python3 -c 'import json,sys;p=sys.argv[1];d=json.load(open(p));d.pop("bunStamped");\
+json.dump(d,open(p,"w"))' "$TMP/stamps/bench-latest.json"
+NO_BUN_LINE=$(HARDEV_BENCH_JSON="$TMP/stamps/bench-latest.json" bash "$SCRIPT_DIR/bench_latest_line.sh")
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE" "axes-review: $NO_BUN_LINE"
+run_case "22 bench stamp without a bun version" 1 'TRIG-5 FAIL.*bun is not upstream-latest.*status=unknown'
 mk_stamps
 
 # 20 — the count is met by slicing thinner; the closed list is not.

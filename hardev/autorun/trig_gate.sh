@@ -468,6 +468,20 @@ print(int((datetime.datetime.now(datetime.timezone.utc) - when).total_seconds() 
     failed+=(TRIG-5)
     return
   fi
+  # The reading must be against the bun that exists today. A stamp whose
+  # bun is one release behind upstream is a ratio against a competitor
+  # that has since moved (takagi 2026-09-12: 「一定要保持更新」). Hosts are
+  # not consulted here — that is bun_latest_check.sh's default mode, run
+  # before a bench — only the stamped version against the upstream tag.
+  local bun_line bun_rc
+  bun_line=$(HARDEV_BENCH_JSON="$bench_json" HARDEV_BUN_HOSTS=none \
+    bash "$SCRIPT_DIR/bun_latest_check.sh" 2>/dev/null)
+  bun_rc=$?
+  if [ "$bun_rc" -ne 0 ]; then
+    emit TRIG-5 FAIL "bench stamp's bun is not upstream-latest: ${bun_line:-bun_latest_check.sh gave no output} — bun upgrade on dev+mini, rerun bench, then hardev/autorun/bench_latest.sh"
+    failed+=(TRIG-5)
+    return
+  fi
   local tok body missing=()
   body=$(tr '\n' ' ' < "$HANDOFF_FILE")
   for tok in ${bench_line#bench: }; do
@@ -481,7 +495,7 @@ print(int((datetime.datetime.now(datetime.timezone.utc) - when).total_seconds() 
     failed+=(TRIG-5)
     return
   fi
-  emit TRIG-5 PASS "axis=$axis for $TRIG5_SAME_AXIS_MAX rotations; axes-review carries the axis-B reading (${age_days}d old)"
+  emit TRIG-5 PASS "axis=$axis for $TRIG5_SAME_AXIS_MAX rotations; axes-review carries the axis-B reading (${age_days}d old; ${bun_line#bun: })"
 }
 
 # ── TRIG-6 — the mechanical checks ran, on this session's source ───────

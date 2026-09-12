@@ -1,6 +1,6 @@
 {
   "tool": "bench",
-  "ranAt": "2026-09-12T09:11:43Z",
+  "ranAt": "2026-09-12T10:02:09Z",
   "headSha": "a6b16e97a",
   "headShaSource": "results-file",
   "verdict": "ok",
@@ -16,6 +16,7 @@
   "worstVsBunAot": 1.4561,
   "target": 0.33,
   "shortfallX": 1.532,
+  "bunStamped": "1.4.2",
   "medianVsRust": 1.0255,
   "geomeanSpeedupVsBunAot": 2.322,
   "artifactRatioVsBunAot": 0.000956

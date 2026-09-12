@@ -88,6 +88,11 @@ stamp = {
     "worstVsBunAot": round(main[-1], 4),
     "target": target,
     "shortfallX": round(statistics.median(main) / target, 3),
+    # The competitor's version, verbatim from the rows. bun_latest_check.sh
+    # holds it against the upstream tag: a ratio measured against last
+    # week's bun is a ratio against a competitor that no longer exists.
+    "bunStamped": next((r.get("runtime_version") for r in doc.get("rows", [])
+                        if r.get("runtime") == "bun-aot"), None),
 }
 for label, other in (("Node", "node-v8"), ("Go", "go"), ("Rust", "rust"),
                      ("BunJsc", "bun-jsc")):
@@ -119,6 +124,6 @@ with open(out, "w") as f:
 
 print("bench: head={headSha} median={medianVsBunAot} target={target} "
       "shortfall={shortfallX}x cells={cells} slower={cellsSlowerThanBunAot} "
-      "runs={runs} lowConfidence={lc} ran={benchRanAt}".format(
+      "runs={runs} lowConfidence={lc} bun={bunStamped} ran={benchRanAt}".format(
           lc=str(stamp["lowConfidence"]).lower(), **stamp))
 PY

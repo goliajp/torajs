@@ -243,7 +243,7 @@ INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-
 | **TRIG-2** | wall ∈ [**1800s**, **18000s**];**≥ 18000s 时豁免 TRIG-1** | **两端 + 唯一的机器化出口** — 太快不真实,太长该收 | rotations.jsonl tail self filter |
 | **TRIG-3** | handoff `## rotate 触发` 段含三行:`axis:` / `closed:`(含本 session 区间内真实 sha)/ `gate: N/F/S`(F 必须 0) | **内容** — 哪条轴、闭合了什么、gate 读数多少 | grep + `git rev-list <range>` 校验 sha |
 | **TRIG-4** | 同段 grep -i 不含 13 条 blacklist 借口 phrase | **措辞** — 已知的 procrastination 话术 | grep -iE |
-| **TRIG-5** | 若前 **7** 轮 axis 与本轮相同,则同段必须含 `axes-review:` 行 **且带 `bench:` 读数**(≤ 14 天) | **分配** — 一条轴是不是在饿死其它轴 | rotations.jsonl `axis` + `hardev/bench-latest.json` |
+| **TRIG-5** | 若前 **7** 轮 axis 与本轮相同,则同段必须含 `axes-review:` 行 **且带 `bench:` 读数**(≤ 14 天,**且 stamp 的 `bunStamped` == GitHub 最新 release**) | **分配** — 一条轴是不是在饿死其它轴;读数是不是对着今天的 bun | rotations.jsonl `axis` + `hardev/bench-latest.json` + `bun_latest_check.sh` |
 | **TRIG-6** | 四个 stamp(`test262` / `determinism` / `gmalloc` / `file-size`)的 `headSha` ∈ 本 session 区间、非 `-dirty`、`verdict=ok` | **证据** — 那些机械检查真跑了吗,跑的是这份源码吗 | `hardev/*-latest.json` |
 | **TRIG-7** | handoff 的 `sweep:` 行逐 token 等于 `sweep_line.sh` 从 stamp 重新推导的结果 | **誊写** — handoff 里的数字还是 sweep 说的那些吗 | `sweep_line.sh` + git 取基线 |
 
