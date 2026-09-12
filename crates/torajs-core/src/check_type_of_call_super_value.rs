@@ -25,6 +25,11 @@ pub(crate) fn try_match(
     let Expr::Ident(n) = ast.get_expr(*callee) else {
         return None;
     };
+    // §16.1.7 for a Script inside a function (RFC 20260912 knife 5)
+    // — the same synthetic family, its own module.
+    if let Some(r) = crate::check_type_of_call_script_decl::try_match(checker, ast, callee, args) {
+        return Some(r);
+    }
     // `__torajs_heritage_check(P)` (rotation 410) — the §15.7.14
     // step 5 class-definition-time gate; same synthetic family, one
     // any-world operand.

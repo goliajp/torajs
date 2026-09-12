@@ -138,6 +138,7 @@ mod param_default_arrow;
 mod recognize;
 mod rewrite;
 mod scope;
+mod script_fn_position;
 mod script_form;
 mod source;
 mod walk;

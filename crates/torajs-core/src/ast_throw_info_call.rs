@@ -113,6 +113,16 @@ pub(crate) fn scan_call(
             if name == "__torajs_in_op" || name == "__torajs_priv_in_op" {
                 *direct = true;
             }
+            // RFC 20260912-global-var-cell knife 5 — a Script inside
+            // a function: its preflight kernels record §16.1.7's
+            // SyntaxError / TypeError and its declare kernels the
+            // DefinePropertyOrThrow one. Without this bit the
+            // synthesized `__script_<id>` is judged never-throwing,
+            // every caller prunes its check, and the refusal strands
+            // (probe: `try { v() } catch` printed nothing, exit 0).
+            if crate::check_type_of_call_script_decl::is_script_decl_synthetic(name, args.len()) {
+                *direct = true;
+            }
             // bug-327 C2.5 — indirect call through a fn-valued
             // binding: the target is statically unknown, so the
             // fn must conservatively count as may-throw.

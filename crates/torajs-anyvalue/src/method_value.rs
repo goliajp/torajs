@@ -77,6 +77,7 @@ pub(crate) use ns_static_util::arg_at;
 // globalThis singleton (RFC 20260807-global-object G2) — the same
 // immortal pre-filled dynobj lane.
 pub(crate) mod globalthis_object;
+pub(crate) mod globalthis_object_decls;
 pub(crate) mod globalthis_object_idents;
 pub(crate) mod globalthis_object_vars;
 pub(crate) mod ns_object;

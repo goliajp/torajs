@@ -119,9 +119,13 @@ pub(super) fn throw_colliding_scripts(ast: &mut Ast) {
             _ => None,
         })
         .collect();
+    // The top-level functions `script_fn_position` synthesizes for
+    // the Scripts inside functions; appended after the walk (a
+    // function declaration's position in the list is immaterial).
+    let mut synthesized: Vec<Stmt> = Vec::new();
     let mut stmts = std::mem::take(&mut ast.stmts);
     for s in stmts.iter_mut() {
-        visit(s, ast, &mut reg, false);
+        visit(s, ast, &mut reg, false, &mut synthesized);
     }
     ast.stmts = stmts;
     // Function bodies written in expression position park their
@@ -135,16 +139,17 @@ pub(super) fn throw_colliding_scripts(ast: &mut Ast) {
         };
         let mut taken = std::mem::take(body);
         for s in taken.iter_mut() {
-            visit(s, ast, &mut reg, true);
+            visit(s, ast, &mut reg, true, &mut synthesized);
         }
         if let Some(Expr::ArrowFn { body, .. }) = ast.exprs.get_mut(i) {
             *body = taken;
         }
         i += 1;
     }
+    ast.stmts.extend(synthesized);
 }
 
-fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool) {
+fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool, sink: &mut Vec<Stmt>) {
     if let Stmt::Expr(eid) = s
         && let Some((src, form)) = literal_eval_call(*eid, ast)
         && global_var_code(form, in_fn, ast)
@@ -174,17 +179,19 @@ fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool) {
                 } => reg.vars.contains(name) && matches!(ast.exprs[init.0 as usize], Expr::Uninit),
                 _ => false,
             });
-        // The parse was for its names only: the statements are dropped
-        // and their expressions must not stay in the arena for the
+        // Only the synthesizing branch below keeps the statements;
+        // every other one parsed for the names alone, and drops them —
+        // their expressions must not stay in the arena for the
         // arena-walking passes to find (`source::neutralize`).
-        neutralize(ast, exprs_before);
         if let Some(clash) = reg.collision_for(form, &names) {
+            neutralize(ast, exprs_before);
             ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
             *s = syntax_error_throw(
                 format!("Identifier '{clash}' has already been declared"),
                 ast,
             );
         } else if !in_fn {
+            neutralize(ast, exprs_before);
             // Knife 4-3: a function the text declares (and the program
             // does not) binds its property where the text ran, deletable
             // for an eval (§19.2.1.3), not for a Script (§16.1.7).
@@ -211,13 +218,57 @@ fn visit(s: &mut Stmt, ast: &mut Ast, reg: &mut Names, in_fn: bool) {
             // function) whose every declaration re-declares an existing
             // global `var`: §16.1.7 CanDeclareGlobalVar says do nothing,
             // so the call completes with `undefined` and nothing else.
+            neutralize(ast, exprs_before);
             ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
+        } else if form == CallForm::Script {
+            // A Script inside a function that declares something new:
+            // its instantiation is a run-time act on the object as it
+            // is then (`script_fn_position`).
+            let script_names = textual_names(&parsed, &names);
+            ast.exprs[eid.0 as usize] = Expr::Ident("undefined".to_string());
+            *s = super::script_fn_position::synthesize(parsed, script_names, eid, ast, sink);
+        } else {
+            // An indirect eval inside a function: left as written.
+            neutralize(ast, exprs_before);
         }
         return;
     }
     let enters_fn = matches!(s, Stmt::FnDecl { .. });
     for c in walk::stmt_children(s) {
-        visit(c, ast, reg, in_fn || enters_fn);
+        visit(c, ast, reg, in_fn || enters_fn, sink);
+    }
+}
+
+/// The three name lists §16.1.7 walks, in textual order — the sets
+/// `Names` keeps are unordered, and the order the bindings are
+/// created in is the order `Object.keys(globalThis)` answers (and
+/// what the build-determinism gate compares).
+fn textual_names(parsed: &[Stmt], names: &Names) -> super::script_fn_position::ScriptNames {
+    let mut fns: Vec<String> = Vec::new();
+    for st in parsed {
+        if let Stmt::FnDecl { name, .. } = st
+            && !fns.contains(name)
+        {
+            fns.push(name.clone());
+        }
+    }
+    let mut counts = std::collections::HashMap::new();
+    super::super::var_hoist::count_var_names(parsed, &mut counts);
+    let mut vars: Vec<(u32, String)> = counts
+        .into_iter()
+        .filter(|(n, _)| !fns.contains(n))
+        .map(|(n, sites)| {
+            let first = sites.iter().map(|e| e.0).min();
+            (first.expect("a counted name has a site"), n)
+        })
+        .collect();
+    vars.sort();
+    let mut lex: Vec<String> = names.lex.iter().cloned().collect();
+    lex.sort();
+    super::script_fn_position::ScriptNames {
+        lex,
+        fns,
+        vars: vars.into_iter().map(|(_, n)| n).collect(),
     }
 }
 

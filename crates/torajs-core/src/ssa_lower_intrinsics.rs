@@ -523,6 +523,10 @@ pub(crate) struct Intrinsics {
     pub(crate) global_ident_set: FuncId,
     /// §16.1.7 step 17 — a top-level `var` slot becomes the property.
     pub(crate) global_var_bind: FuncId,
+    /// §16.1.7 steps 5.c / 8-10 / 12 for a Script inside a function.
+    pub(crate) script_preflight: FuncId,
+    pub(crate) global_var_declare: FuncId,
+    pub(crate) global_fn_declare: FuncId,
     pub(crate) throw_reference_error_tdz: FuncId,
     pub(crate) throw_reference_error_super_delete: FuncId,
     pub(crate) class_computed_method_define: FuncId,

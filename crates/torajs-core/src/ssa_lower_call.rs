@@ -138,6 +138,9 @@ fn try_dispatch_a(
     if let Some(op) = crate::ssa_lower_call_super_value::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    if let Some(op) = crate::ssa_lower_call_script_decl::try_lower(ctx, callee, args) {
+        return Some(op);
+    }
     if let Some(op) = crate::ssa_lower_call_in_op::try_lower_priv(ctx, callee, args) {
         return Some(op);
     }

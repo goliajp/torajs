@@ -29,6 +29,9 @@ pub(crate) struct GlobalObjectIds {
     pub global_ident_typeof: FuncId,
     pub global_ident_set: FuncId,
     pub global_var_bind: FuncId,
+    pub script_preflight: FuncId,
+    pub global_var_declare: FuncId,
+    pub global_fn_declare: FuncId,
 }
 
 pub(crate) fn declare(
@@ -69,6 +72,33 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_global_var_bind",
             &[Type::Str, Type::Ptr, Type::I64],
+            Type::Void,
+        ),
+        // A Script evaluated inside a function (RFC 20260912 knife 5,
+        // `globalthis_object_decls`): (kind I64, name Str borrowed) →
+        // nothing; may record the §16.1.7 SyntaxError / TypeError.
+        script_preflight: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_script_preflight",
+            &[Type::I64, Type::Str],
+            Type::Void,
+        ),
+        // (name Str borrowed) → nothing. §9.1.1.4.17 with D = false.
+        global_var_declare: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_global_var_declare",
+            &[Type::Str],
+            Type::Void,
+        ),
+        // (name Str borrowed, value Any borrowed) → nothing.
+        // §9.1.1.4.18 with D = false.
+        global_fn_declare: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_global_fn_declare",
+            &[Type::Str, Type::Any],
             Type::Void,
         ),
     }
