@@ -238,6 +238,13 @@ impl LiftCtx {
         self.declared.contains(name) && self.goal.applies(name, span)
     }
 
+    /// §B.3.3's strictness precondition alone, for the module-top
+    /// pre-scan (`nested_fns_top`): is the declaration at `span` in
+    /// sloppy code?
+    pub(super) fn applies(&self, name: &str, span: crate::lexer::Span) -> bool {
+        self.goal.applies(name, span)
+    }
+
     /// Does the declaration at `span` get the §B.3.3 var binding?
     pub(super) fn annexb(&self, name: &str, span: crate::lexer::Span, mode: LiftMode) -> AnnexB {
         // Two things used to answer `Legacy` together and mean

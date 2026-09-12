@@ -1,0 +1,11 @@
+before function outer
+after inner
+end inner f
+g-before g-outer
+g-after g-inner
+h-desc-before function true true false true
+h-desc-after function true true false true h-inner
+s-before s-outer
+s-after s-inner
+e-before e-outer
+e-after e-else

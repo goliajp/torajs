@@ -212,6 +212,7 @@ mod nested_fns_capture;
 mod nested_fns_catch;
 mod nested_fns_fnexpr;
 mod nested_fns_idents;
+mod nested_fns_top;
 mod nested_fns_walk;
 mod ns_alias;
 pub(crate) mod objlit_nominal;

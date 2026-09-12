@@ -54,6 +54,14 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     let mut top = std::mem::take(&mut ast.stmts);
     let mut new_top: Vec<Stmt> = Vec::new();
     let mut ctx = LiftCtx::new(ast);
+    // §B.3.3.3 — a module-top declaration a block of the module also
+    // declares keeps its body under a mangled name and hands its value
+    // to a head `var` (`nested_fns_top`); the walk below then treats
+    // the name as declared and the block's declaration takes the write
+    // form. Before the walk, because the block may precede the
+    // declaration.
+    let (top_hoisted, top_hoisted_names) =
+        super::nested_fns_top::lift_top_fns_over_block_fns(&mut top, &mut ctx);
     // The module scope's own function declarations, read before the
     // walk starts mutating their bodies.
     let top_declared = own_fn_names(&top);
@@ -141,7 +149,7 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     // gets hoisted over anything written before it, and
     // `widen_rebound_fn_decls` declines to give a slot to a name read
     // before its declaration, so the write would have nowhere to land.
-    ctx.declared = HashSet::new();
+    ctx.declared = top_hoisted_names;
     ctx.shadowed = top_declared;
     ctx.params = HashSet::new();
     ctx.catch_renames.clear();
@@ -203,6 +211,9 @@ fn desugar_nested_fns_once(ast: &mut Ast) {
     // reach it, but by then the body's other function values have been
     // lifted out too and the rename cannot follow them.
     super::nested_fns_fnexpr::lift_in_fn_expr_bodies(ast, &mut ctx, &mut new_top);
+    // At the HEAD: a module-top function is initialized before the
+    // first statement runs (§16.1.7 step 16).
+    top.splice(0..0, top_hoisted);
     top.extend(new_top);
     ast.stmts = top;
 }
