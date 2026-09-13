@@ -27,7 +27,6 @@ unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-promise — §27.2.4.7 step 2 / §27.2.4.6 step 3 through
     /// the ANY lane. Both adopt one ref on the box.
-    fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void;
     fn __torajs_promise_reject_any(bits: i64) -> *mut c_void;
     /// torajs-promise — the iterator-interleaved combinator entries
     /// (the same kernels the direct `Promise.all(x)` lowering bakes
@@ -315,7 +314,8 @@ pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64
         let p = if reject {
             __torajs_promise_reject_any(v as i64)
         } else {
-            __torajs_promise_resolve_any(v as i64)
+            // §27.2.4.7 in full — a thenable takes the job road.
+            crate::promise_thenable::__torajs_anyv_promise_resolve(v as i64)
         };
         box_void_ptr(p)
     }
@@ -384,14 +384,11 @@ unsafe fn capability_for(this: u64) -> Option<(u64, u64, u64)> {
             let p = __torajs_promise_alloc_pending();
             p.cast::<u8>().add(wr::P_REPR_OFF).write(wr::REPR_ANY);
             p.cast::<u8>().add(wr::P_IS_HEAP_OFF).write(1);
-            torajs_rc::__torajs_rc_inc(p);
-            let r = wr::mint_resolver(p, wr::resolver_resolve_entry);
-            torajs_rc::__torajs_rc_inc(p);
-            let j = wr::mint_resolver(p, wr::resolver_reject_entry);
+            let pair = wr::mint_resolving_pair(p);
             return Some((
                 crate::nanbox_encode::__torajs_anyv_box_pointer(p),
-                crate::nanbox_encode::__torajs_anyv_box_pointer(r as *mut c_void),
-                crate::nanbox_encode::__torajs_anyv_box_pointer(j as *mut c_void),
+                crate::nanbox_encode::__torajs_anyv_box_pointer(pair.resolve as *mut c_void),
+                crate::nanbox_encode::__torajs_anyv_box_pointer(pair.reject as *mut c_void),
             ));
         }
         if this_reaches_promise_ctor(this) {

@@ -779,8 +779,8 @@ pub(crate) struct Intrinsics {
     pub(crate) promise_alloc_rejected: FuncId,
     pub(crate) promise_alloc_fulfilled_heap: FuncId,
     pub(crate) promise_alloc_rejected_heap: FuncId,
-    /// §27.2.4.7 step 2 any-lane probe: pass a boxed %Promise%
-    /// through, else fulfilled_heap + REPR_ANY (kernel-side stamp).
+    /// §27.2.4.7 PromiseResolve through the any lane: %Promise% passes
+    /// through, a thenable takes the §27.2.1.3.2 job, else fulfilled.
     pub(crate) promise_resolve_any: FuncId,
     /// §27.2.4 static-slot patch consult pair (rotation 448).
     pub(crate) promise_ctor_patched: FuncId,

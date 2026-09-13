@@ -24,8 +24,7 @@ use torajs_rc::FLAG_SUBCLASSED;
 use crate::method_call_closure_dispatch::invoke_boxed;
 use crate::nanbox::{as_void_ptr, is_cell};
 use crate::promise_with_resolvers::{
-    P_IS_HEAP_OFF, P_REPR_OFF, P_RESOLVED_LOCK_OFF, P_STATE_OFF, REPR_ANY, STATE_PENDING,
-    mint_resolver, resolver_reject_entry, resolver_resolve_entry,
+    P_IS_HEAP_OFF, P_REPR_OFF, P_STATE_OFF, REPR_ANY, STATE_PENDING, mint_resolving_pair,
 };
 
 /// `torajs_rc::AnySlotTag::Heap` mirror.
@@ -107,13 +106,10 @@ pub unsafe extern "C" fn __torajs_promise_subclass_super(this_av: u64, ex_av: u6
         };
         // §27.2.1.3 CreateResolvingFunctions over THIS instance —
         // each resolver holds its own +1 on the promise.
-        torajs_rc::__torajs_rc_inc(p);
-        let resolve = mint_resolver(p, resolver_resolve_entry);
-        torajs_rc::__torajs_rc_inc(p);
-        let reject = mint_resolver(p, resolver_reject_entry);
+        let pair = mint_resolving_pair(p);
         let argv = [
-            crate::nanbox_encode::__torajs_anyv_box_pointer(resolve as *mut c_void),
-            crate::nanbox_encode::__torajs_anyv_box_pointer(reject as *mut c_void),
+            crate::nanbox_encode::__torajs_anyv_box_pointer(pair.resolve as *mut c_void),
+            crate::nanbox_encode::__torajs_anyv_box_pointer(pair.reject as *mut c_void),
         ];
         let out = invoke_boxed(env, entry, argv.as_ptr(), 2);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
@@ -125,9 +121,9 @@ pub unsafe extern "C" fn __torajs_promise_subclass_super(this_av: u64, ex_av: u6
             let value = __torajs_throw_take();
             let boxed = __torajs_anyv_box_from_pair(tag, value);
             if p.cast::<u8>().add(P_STATE_OFF).read() == STATE_PENDING
-                && p.cast::<u8>().add(P_RESOLVED_LOCK_OFF).read() == 0
+                && (*pair.record).resolved == 0
             {
-                p.cast::<u8>().add(P_RESOLVED_LOCK_OFF).write(1);
+                (*pair.record).resolved = 1;
                 // The taken throw value is an owned transfer; the
                 // reject consumes exactly one reference.
                 __torajs_promise_reject(p, boxed as i64);
@@ -137,8 +133,8 @@ pub unsafe extern "C" fn __torajs_promise_subclass_super(this_av: u64, ex_av: u6
         }
         // Release this call's own resolver references (an executor
         // that stored them took its own stakes).
-        __torajs_value_drop_heap(resolve as *mut c_void);
-        __torajs_value_drop_heap(reject as *mut c_void);
+        __torajs_value_drop_heap(pair.resolve as *mut c_void);
+        __torajs_value_drop_heap(pair.reject as *mut c_void);
         torajs_rc::__torajs_rc_inc(p);
         this_av
     }

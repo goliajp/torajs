@@ -252,6 +252,21 @@ fn lower_zero_arg(ctx: &mut LowerCtx<'_>, method: &str) -> Operand {
     out
 }
 
+/// Does a typed object's static shape carry a `then` member — a field
+/// in its struct layout (an object literal's method is a closure
+/// field), or a class method by name? Only a `Type::Obj` can; every
+/// other typed form has no `then` to find.
+fn typed_shape_has_then(ctx: &LowerCtx<'_>, arg0: ExprId, arg_ty: &Type) -> bool {
+    let Type::Obj(sid) = arg_ty else {
+        return false;
+    };
+    ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .any(|(k, _)| *k == "then")
+        || crate::ssa_lower_member_obj_field::class_name_of_expr(ctx, arg0)
+            .is_some_and(|c| ctx.fn_table.contains_key(&format!("__cm_{c}__then")))
+}
+
 /// `Promise.{resolve,reject}(v, ...)` — thenable absorption + heap /
 /// primitive dispatch. `arg_op` arrives PRE-LOWERED (the consult
 /// scaffold evaluates arguments once, before the split); trailing
@@ -291,6 +306,24 @@ fn lower_one_plus_op(
         let v = ctx.f.append_inst(
             cur_block,
             InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![arg_op]),
+            Type::Promise,
+            None,
+        );
+        return Operand::Value(v);
+    }
+    // §27.2.4.7 through §27.2.1.3.2 — a typed object whose shape carries
+    // a `then` member is a thenable: box it and take the any-lane
+    // kernel (the job road). A shape without one is proven
+    // non-thenable here, at compile time, and keeps the direct mint.
+    if method == "resolve" && typed_shape_has_then(ctx, arg0, &arg_ty) {
+        if !ctx.expr_transfers_ownership(arg0) {
+            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty.clone());
+        }
+        let boxed = ctx.box_to_any(arg_op);
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![boxed]),
             Type::Promise,
             None,
         );

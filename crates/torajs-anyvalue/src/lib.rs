@@ -226,6 +226,7 @@ mod name_get;
 mod promise_capability;
 mod promise_static_patch;
 mod promise_subclass;
+mod promise_thenable;
 mod promise_with_resolvers;
 mod prop_delete;
 mod prop_enumerable;
@@ -1999,6 +2000,7 @@ mod tests {
         __torajs_promise_all_dyn,
         __torajs_promise_all_keyed_dyn,
         __torajs_promise_alloc_pending,
+        __torajs_microtask_enqueue,
         __torajs_promise_allsettled_keyed_dyn,
         __torajs_promise_combinator_dyn_c,
         __torajs_promise_allsettled_dyn,

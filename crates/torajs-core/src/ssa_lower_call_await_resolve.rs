@@ -13,13 +13,15 @@
 //! `check_type_of_ident_synth` (`(any) => Promise<any>`); the general
 //! call path does the rest, and this arm owns the lowering.
 //!
-//! Straight to the any-lane kernel `promise_resolve_any`, with no
-//! patch probe in front of it: the kernel answers the argument itself
-//! when it is a %Promise% cell (§27.2.4.7 step 2, adopting the
-//! transferred ref) and otherwise a fresh cell resolved with it — a
-//! thenable's `then` is read once, per §27.2.1.3.2. That read can run
-//! user code, so the throw check follows the call. Borrow-shaped
-//! arguments share (+1) exactly as the `Promise.resolve` any lane does.
+//! Straight to the any-lane kernel `promise_resolve_any`
+//! (`__torajs_anyv_promise_resolve`), with no patch probe in front of
+//! it: the kernel answers the argument itself when it is a %Promise%
+//! cell (§27.2.4.7 step 2, adopting the transferred ref), a pending
+//! cell the §27.2.1.3.2 job settles when it is a user thenable, and
+//! otherwise a fresh cell resolved with it — the thenable's `then` is
+//! read once, in the kernel. That read can run user code, so the
+//! throw check follows the call. Borrow-shaped arguments share (+1)
+//! exactly as the `Promise.resolve` any lane does.
 //!
 //! Only an `any` argument is lowered here — the injected driver passes
 //! `r.value` off an `any` step object, and that is the one caller. A

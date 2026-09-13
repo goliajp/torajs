@@ -59,9 +59,11 @@ pub(crate) struct PromiseIds {
     pub promise_resolve_thenable: FuncId,
     pub promise_alloc_fulfilled_heap: FuncId,
     pub promise_alloc_rejected_heap: FuncId,
-    /// §27.2.4.7 step 2 through the any lane — probes the boxed
-    /// value for a %Promise% cell (pass-through) before falling back
-    /// to the fulfilled_heap + REPR_ANY pair.
+    /// §27.2.4.7 PromiseResolve(%Promise%, x) through the any lane
+    /// (torajs-anyvalue `promise_thenable`): a %Promise% cell passes
+    /// through, a user thenable answers a pending cell the
+    /// §27.2.1.3.2 job settles, an abrupt `then` read a rejected one,
+    /// anything else the fulfilled_heap + REPR_ANY pair.
     pub promise_resolve_any: FuncId,
     /// §27.2.4 static-slot patch consult pair (rotation 448) — the
     /// call-site gate over the ctor cell's expando dict, and the
@@ -190,7 +192,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         promise_resolve_any: declare_intrinsic(
             module,
             fn_table,
-            "__torajs_promise_resolve_any",
+            "__torajs_anyv_promise_resolve",
             i641,
             Type::Promise,
         ),

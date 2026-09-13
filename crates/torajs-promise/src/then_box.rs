@@ -53,6 +53,10 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_take() -> i64;
     fn __torajs_throw_take_tag() -> i64;
+    /// torajs-anyvalue `promise_thenable` — a handler return that is a
+    /// user thenable (RFC 20260913): settles `result` through the
+    /// §27.2.1.3.2 job and answers 1; 0 = not a thenable, store it.
+    fn __torajs_anyv_promise_settle_thenable(result: *mut c_void, repr: i64, value: i64) -> i64;
 }
 
 /// §27.2.2.1 PromiseReactionJob steps 8-9 — a handler that completes
@@ -96,9 +100,11 @@ pub(crate) unsafe fn reject_on_pending_throw(result: *mut c_void) -> bool {
 
 /// A reaction handler's complete outcome protocol, in spec order: an
 /// abrupt completion rejects (§27.2.2.1 steps 8-9), a returned promise
-/// is ADOPTED rather than stored (§27.2.1.3.2), and anything else
-/// fulfills the derived promise verbatim under the call site's static
-/// return repr.
+/// is ADOPTED rather than stored (§27.2.1.3.2), a returned user
+/// thenable goes through the NewPromiseResolveThenableJob (the
+/// anyvalue hook — only a box or a heap cell can carry one), and
+/// anything else fulfills the derived promise verbatim under the call
+/// site's static return repr.
 pub(crate) unsafe fn settle_handler_return(result: *mut c_void, ret_repr: u8, value: i64) {
     unsafe {
         if reject_on_pending_throw(result) {
@@ -106,6 +112,11 @@ pub(crate) unsafe fn settle_handler_return(result: *mut c_void, ret_repr: u8, va
         }
         if let Some(inner) = crate::then_adopt::returned_promise(ret_repr, value) {
             crate::then_adopt::adopt_into(result, inner);
+            return;
+        }
+        if matches!(ret_repr, REPR_ANY | REPR_HEAP)
+            && __torajs_anyv_promise_settle_thenable(result, ret_repr as i64, value) != 0
+        {
             return;
         }
         (*as_promise(result)).value_repr = ret_repr;

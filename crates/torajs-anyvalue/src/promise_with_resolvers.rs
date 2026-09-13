@@ -18,6 +18,7 @@
 //!   offset 40 — trace_fn = [`resolver_trace`] (the held promise is
 //!               a cycle-collector child)
 //!   offset 48 — promise cell (held +1)
+//!   offset 56 — the pair's [`ResolvingRecord`] (shared with the twin)
 //! ```
 //!
 //! Settle semantics: first settle wins — an already-settled promise
@@ -27,22 +28,25 @@
 //! any-lane `.then` bridge accepts attaches before settlement).
 //!
 //! `[[AlreadyResolved]]` (§27.2.1.3 CreateResolvingFunctions — one
-//! shared record between the resolve & reject functions) rides the
-//! promise's spare `_pad[1]` byte. The promise `state` alone can't
-//! carry it: resolving with a Promise ADOPTS its state and leaves the
-//! withResolvers promise PENDING until the inner settles, so a second
-//! `resolve` / `reject` racing that window must still no-op.
+//! shared record between the resolve & reject functions) is a
+//! [`ResolvingRecord`] the pair shares, pointed at from each cell
+//! (offset 48 → the promise, 56 → the record). It is per PAIR, not per
+//! promise: the thenable job (`promise_thenable`) creates a fresh pair
+//! over a promise whose first pair already fired, and that pair must
+//! be live while the first stays dead. The promise `state` alone can't
+//! carry it either way: resolving with a Promise ADOPTS its state and
+//! leaves the withResolvers promise PENDING until the inner settles,
+//! so a second `resolve` / `reject` racing that window must still
+//! no-op.
 //!
 //! Adoption (§27.2.1.3.2 PromiseResolveFunctions step 8-13): resolving
 //! with a native Promise attaches a forwarding reaction on it — the
 //! withResolvers promise settles when the inner does (immediately as a
 //! microtask when the inner is already settled, or on the inner's
 //! later settlement). Mirrors the any-lane bridge's empty-handler
-//! `forward_settle`. Recorded edge: a plain user thenable (an object
-//! with a callable `.then` that is not a native Promise) is still
-//! stored verbatim rather than invoked — the PromiseResolveThenableJob
-//! machinery is a codebase-wide gap (no `Promise.resolve(thenable)`
-//! support either), tracked as a separate plan-state follow-up.
+//! `forward_settle`. A user thenable (an object with a callable `then`
+//! that is not a native Promise) takes the NewPromiseResolveThenableJob
+//! road in `promise_thenable` (RFC 20260913-thenable-adoption).
 
 use core::ffi::c_void;
 
@@ -55,8 +59,6 @@ use crate::nanbox_encode::__torajs_anyv_box_pointer;
 pub(crate) const P_STATE_OFF: usize = 8;
 pub(crate) const P_IS_HEAP_OFF: usize = 9;
 pub(crate) const P_REPR_OFF: usize = 11;
-/// `_pad[1]` — the `[[AlreadyResolved]]` lock (see module doc).
-pub(crate) const P_RESOLVED_LOCK_OFF: usize = 13;
 const P_VALUE_OFF: usize = 16;
 pub(crate) const STATE_PENDING: u8 = 0;
 const STATE_REJECTED: u8 = 2;
@@ -72,7 +74,49 @@ const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 const CLOSURE_TRACE_FN_OFF: usize = 40;
 const RESOLVER_PROMISE_OFF: usize = 48;
-const CELL_SIZE: usize = 56;
+const RESOLVER_RECORD_OFF: usize = 56;
+const CELL_SIZE: usize = 64;
+
+/// §27.2.1.3 CreateResolvingFunctions — the `[[AlreadyResolved]]`
+/// record one resolve / reject pair shares (module doc). Freed by the
+/// last of the two cells to drop.
+#[repr(C)]
+pub(crate) struct ResolvingRecord {
+    pub(crate) resolved: u8,
+    owners: u8,
+}
+
+/// One CreateResolvingFunctions result: both cells owned, each holding
+/// its own +1 on the promise, plus the record they share (borrowed —
+/// it lives exactly as long as the cells).
+pub(crate) struct ResolvingPair {
+    pub(crate) resolve: *mut u8,
+    pub(crate) reject: *mut u8,
+    pub(crate) record: *mut ResolvingRecord,
+}
+
+/// §27.2.1.3 — mint a resolving pair over `p`. Takes the two promise
+/// stakes itself.
+///
+/// # Safety
+/// `p` is a live promise cell.
+pub(crate) unsafe fn mint_resolving_pair(p: *mut c_void) -> ResolvingPair {
+    unsafe {
+        let record = Box::into_raw(Box::new(ResolvingRecord {
+            resolved: 0,
+            owners: 2,
+        }));
+        torajs_rc::__torajs_rc_inc(p);
+        let resolve = mint_resolver(p, record, resolver_resolve_entry);
+        torajs_rc::__torajs_rc_inc(p);
+        let reject = mint_resolver(p, record, resolver_reject_entry);
+        ResolvingPair {
+            resolve,
+            reject,
+            record,
+        }
+    }
+}
 
 /// dynobj bucket tags (torajs-dynobj `layout.rs` mirror).
 const ANY_HEAP: u64 = 4;
@@ -131,15 +175,12 @@ pub unsafe extern "C" fn __torajs_promise_with_resolvers() -> u64 {
         // Each resolver holds its own +1 on the promise; the alloc's
         // original ref transfers into the result object's `promise`
         // slot below.
-        torajs_rc::__torajs_rc_inc(p);
-        let r = mint_resolver(p, resolver_resolve_entry);
-        torajs_rc::__torajs_rc_inc(p);
-        let j = mint_resolver(p, resolver_reject_entry);
+        let pair = mint_resolving_pair(p);
 
         let mut obj = __torajs_dynobj_alloc();
         set_field(&mut obj, b"promise", p as u64);
-        set_field(&mut obj, b"resolve", r as u64);
-        set_field(&mut obj, b"reject", j as u64);
+        set_field(&mut obj, b"resolve", pair.resolve as u64);
+        set_field(&mut obj, b"reject", pair.reject as u64);
         __torajs_anyv_box_pointer(obj)
     }
 }
@@ -156,10 +197,11 @@ pub(crate) unsafe fn set_field(obj_slot: *mut *mut c_void, name: &[u8], value: u
 }
 
 /// One settle-function cell — owned, carries the promise at the
-/// capture slot, props pre-seeded with the spec reflection entries
-/// (`name` "" / `length` 1).
-pub(crate) unsafe fn mint_resolver(
+/// capture slot and the pair's record behind it, props pre-seeded
+/// with the spec reflection entries (`name` "" / `length` 1).
+unsafe fn mint_resolver(
     p: *mut c_void,
+    record: *mut ResolvingRecord,
     entry: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64,
 ) -> *mut u8 {
     unsafe {
@@ -174,6 +216,7 @@ pub(crate) unsafe fn mint_resolver(
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = entry as *const () as u64;
         *(cell.add(CLOSURE_TRACE_FN_OFF) as *mut u64) = resolver_trace as *const () as u64;
         *(cell.add(RESOLVER_PROMISE_OFF) as *mut u64) = p as u64;
+        *(cell.add(RESOLVER_RECORD_OFF) as *mut u64) = record as u64;
 
         let props_slot = cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void;
         *props_slot = __torajs_dynobj_alloc();
@@ -209,7 +252,7 @@ struct ForwardArg {
 }
 
 /// `true` iff `v` decodes to a native Promise cell.
-unsafe fn is_native_promise(v: u64) -> bool {
+pub(crate) unsafe fn is_native_promise(v: u64) -> bool {
     if !is_cell(v) {
         return false;
     }
@@ -270,23 +313,42 @@ unsafe extern "C" fn adopt_forward_dispatch(arg: i64) {
 /// Shared settle body — first settle wins; the stored value takes
 /// its own stake off the BORROWED argv slot (NaN-box-aware inc,
 /// immediates no-op). Resolving with a native Promise adopts its
-/// state instead of storing it (§27.2.1.3.2); reject never adopts.
+/// state instead of storing it (§27.2.1.3.2 steps 8-13); a user
+/// thenable goes through the job, an abrupt `then` read rejects;
+/// reject never adopts.
 unsafe fn settle(env: *mut c_void, argv: *const u64, argc: i64, rejected: bool) -> u64 {
     unsafe {
         let p = *(env.cast::<u8>().add(RESOLVER_PROMISE_OFF) as *const u64) as *mut c_void;
+        let record =
+            *(env.cast::<u8>().add(RESOLVER_RECORD_OFF) as *const u64) as *mut ResolvingRecord;
         // [[AlreadyResolved]] gate — `state` misses the adoption window
-        // where `p` stays PENDING after resolve(promise), so also lock
-        // on the spare byte.
-        if p.cast::<u8>().add(P_STATE_OFF).read() != STATE_PENDING
-            || p.cast::<u8>().add(P_RESOLVED_LOCK_OFF).read() != 0
-        {
+        // where `p` stays PENDING after resolve(promise), so the pair's
+        // record decides.
+        if p.cast::<u8>().add(P_STATE_OFF).read() != STATE_PENDING || (*record).resolved != 0 {
             return VALUE_UNDEFINED;
         }
-        p.cast::<u8>().add(P_RESOLVED_LOCK_OFF).write(1);
+        (*record).resolved = 1;
         let v = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
-        if !rejected && is_native_promise(v) {
-            adopt_promise(p, as_void_ptr(v));
-            return VALUE_UNDEFINED;
+        if !rejected {
+            if is_native_promise(v) {
+                adopt_promise(p, as_void_ptr(v));
+                return VALUE_UNDEFINED;
+            }
+            match crate::promise_thenable::probe_then(v) {
+                crate::promise_thenable::ThenProbe::Threw => {
+                    // §27.2.1.3.2 step 9 — the taken throw is owned;
+                    // the reject consumes exactly one reference.
+                    let reason = crate::promise_thenable::take_throw_box();
+                    __torajs_promise_reject(p, reason as i64);
+                    return VALUE_UNDEFINED;
+                }
+                crate::promise_thenable::ThenProbe::Callable(then) => {
+                    crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
+                    crate::promise_thenable::enqueue_thenable_job(p, v, then);
+                    return VALUE_UNDEFINED;
+                }
+                crate::promise_thenable::ThenProbe::NotThenable => {}
+            }
         }
         crate::nanbox_ffi::__torajs_anyv_rc_inc(v);
         if rejected {
@@ -314,8 +376,9 @@ pub(crate) unsafe extern "C" fn resolver_reject_entry(
     unsafe { settle(env, argv, argc, true) }
 }
 
-/// drop_fn — release the props bag + the held promise, then the
-/// block itself (the [`crate::method_bind::bound_drop`] shape).
+/// drop_fn — release the props bag + the held promise + this cell's
+/// share of the pair record, then the block itself (the
+/// [`crate::method_bind::bound_drop`] shape).
 unsafe extern "C" fn resolver_drop(env: *mut c_void) {
     unsafe {
         __torajs_cycle_unbuffer(env);
@@ -327,6 +390,11 @@ unsafe extern "C" fn resolver_drop(env: *mut c_void) {
         let p = *(cell.add(RESOLVER_PROMISE_OFF) as *const u64);
         if p != 0 {
             __torajs_value_drop_heap(p as *mut c_void);
+        }
+        let record = *(cell.add(RESOLVER_RECORD_OFF) as *const u64) as *mut ResolvingRecord;
+        (*record).owners -= 1;
+        if (*record).owners == 0 {
+            drop(Box::from_raw(record));
         }
         std::alloc::dealloc(
             cell,

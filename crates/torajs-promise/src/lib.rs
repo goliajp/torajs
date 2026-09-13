@@ -153,6 +153,18 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
+    _result: *mut core::ffi::c_void,
+    _repr: i64,
+    _value: i64,
+) -> i64 {
+    panic!(
+        "torajs-promise test stub: anyv_promise_settle_thenable should not be called from cargo test"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_box_from_pair(_tag: i64, _value: i64) -> u64 {
     panic!("torajs-promise test stub: anyv_box_from_pair should not be called from cargo test");
 }

@@ -311,6 +311,34 @@ unsafe fn box_settled(repr: u8, value: i64) -> AnyValue {
     }
 }
 
+/// §27.2.2.1 step 1.h — the handler's return resolves the derived
+/// promise through the resolve-function protocol (§27.2.1.3.2): a
+/// %Promise% cell is adopted (an attach), a user thenable goes through
+/// the NewPromiseResolveThenableJob, an abrupt `then` read rejects,
+/// anything else fulfills. `ret` is owned and transfers in.
+unsafe fn resolve_result_with(result: *mut c_void, ret: AnyValue) {
+    unsafe {
+        match crate::promise_thenable::probe_then(ret) {
+            crate::promise_thenable::ThenProbe::Threw => {
+                let reason = crate::promise_thenable::take_throw_box();
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(ret);
+                stamp_result(result, REPR_ANY, 1);
+                __torajs_promise_reject(result, reason as i64);
+            }
+            crate::promise_thenable::ThenProbe::Callable(then) => {
+                stamp_result(result, REPR_ANY, 1);
+                crate::promise_thenable::enqueue_thenable_job(result, ret, then);
+            }
+            crate::promise_thenable::ThenProbe::NotThenable => {
+                if __torajs_promise_adopt_if_thenable(result, REPR_ANY as i64, ret as i64) == 0 {
+                    stamp_result(result, REPR_ANY, 1);
+                    __torajs_promise_resolve(result, ret as i64);
+                }
+            }
+        }
+    }
+}
+
 /// Write the result cell's value metadata BEFORE settling it —
 /// `resolve`/`reject` drain chained callbacks immediately when the
 /// microtask queue is hot, and those read the repr byte.
@@ -385,9 +413,8 @@ unsafe extern "C" fn then_any_dispatch(arg: i64) {
                 let reason = __torajs_anyv_box_from_pair(ttag, tval);
                 stamp_result(result, REPR_ANY, 1);
                 __torajs_promise_reject(result, reason as i64);
-            } else if __torajs_promise_adopt_if_thenable(result, REPR_ANY as i64, ret as i64) == 0 {
-                stamp_result(result, REPR_ANY, 1);
-                __torajs_promise_resolve(result, ret as i64);
+            } else {
+                resolve_result_with(result, ret);
             }
         }
         __torajs_promise_drop(src);
