@@ -344,6 +344,35 @@ fn rewrite_returns_for_async(ast: &mut Ast, s: &mut Stmt, inner_ty: &str) {
                     ast.add_expr(default)
                 }
             };
+            // A returned object LITERAL binds to a `const` declared as
+            // the inner type before it reaches `Promise.resolve`. The
+            // rewrite turns the literal into a call argument, and the
+            // one site that pins a declared struct layout onto a
+            // literal — the ret-lowering of a fn declared to return
+            // that struct — no longer sees it (the fn returns a
+            // Promise now). Un-hinted, the literal took whichever
+            // same-named layout registered first: an async generator's
+            // `{value: <f64>, done}` boxed its value into a sync
+            // generator's `{value: any, done}` step, and every reader
+            // parsed the declared type and loaded the box bits as f64
+            // (`a 128 false` for a stored 100; K5, rotation 641). Not
+            // generator-specific — `async function f(): Promise<{value:
+            // number; done: boolean}>` read the same way. The typed
+            // `const` is the let-decl hint every other literal takes.
+            if inner_ty != "any" && matches!(ast.get_expr(raw_value), Expr::ObjectLit { .. }) {
+                let name = format!("__aret_{}", raw_value.0);
+                let decl = Stmt::LetDecl {
+                    mutable: false,
+                    name: name.clone(),
+                    type_ann: Some(inner_ty.to_string()),
+                    init: raw_value,
+                    is_var: false,
+                };
+                let read = ast.add_expr(Expr::Ident(name));
+                let call = build_async_resolve(ast, read, inner_ty);
+                *s = Stmt::Block(vec![decl, Stmt::Return(Some(call))]);
+                return;
+            }
             let call = build_async_resolve(ast, raw_value, inner_ty);
             *s = Stmt::Return(Some(call));
         }

@@ -98,12 +98,25 @@ impl crate::ssa_lower::LowerCtx<'_> {
             // as its own f64 bit pattern (552-04). The sync lane never
             // showed it: its step struct arrives as a plain declared
             // return type and takes the ordinary width injection.
+            //
+            // The payload lives at the promise's VALUE point — the
+            // key the Arr arm above already projects — not at the
+            // promise key itself. Asked at `k`, the struct's `value`
+            // field spelled the same key as the value point, so a
+            // `{value, done}` step answered from the point instead of
+            // from the field: F64 only while the point happened to
+            // carry the literal that built it, and I64 once the
+            // literal bound to a typed local first (rotation 642),
+            // while the parse here — the checker's structural type,
+            // alias name lost — never sees the nominal `__step_<gen>`
+            // layout the writer widened.
             Some(t @ Type::Obj(_)) => {
                 let mut t = t;
                 for k in self.promise_obj_keys(obj) {
+                    let pv = SlotKey::Field(Box::new(k), "value".into());
                     t = crate::ssa_lower_container_width::widen_struct_fields(
                         t,
-                        &k,
+                        &pv,
                         self.num_f64_slots,
                         self.arr_layouts,
                         self.struct_layouts,
