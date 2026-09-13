@@ -263,6 +263,7 @@ mod variadic_closure_bindings;
 mod vtable_slot;
 mod yield_ident_goal;
 pub use apply_args::apply_default_args;
+pub(crate) use apply_args::peel_hidden_params;
 pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;

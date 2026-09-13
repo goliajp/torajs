@@ -34,7 +34,8 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// (Parameter defaults and rest parameters used to be listed here;
 /// `wrapper_params` and the driver's thunk own them now.)
 pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
-    params.iter().any(typed_default_param) || body.iter().any(|s| stmt_blocks_move(ast, s))
+    params.iter().any(|p| typed_default_param(p, ast))
+        || body.iter().any(|s| stmt_blocks_move(ast, s))
 }
 
 /// A defaulted parameter that is not spelled `any`. The wrapper
@@ -48,8 +49,30 @@ pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
 /// Only an explicit `any` moves; everything else keeps the synchronous
 /// lowering until the typed lane binds defaults for a forwarded
 /// `undefined`.
-fn typed_default_param(p: &Param) -> bool {
-    p.default.is_some() && !matches!(p.type_ann.as_deref(), Some("any" | "__nullable(any)"))
+fn typed_default_param(p: &Param, ast: &Ast) -> bool {
+    let Some(d) = p.default else {
+        return false;
+    };
+    // An OPTIONAL parameter (`n?: T`, the parser's implicit default:
+    // `undefined` or the `__undef_slot__T` sentinel) binds nothing —
+    // the wrapper forwards the very value the generator's own optional
+    // reads as "absent", so any type moves.
+    if matches!(ast.get_expr(d), Expr::Ident(n)
+        if n == "undefined" || n.starts_with(crate::ast::UNDEF_SLOT_MARKER))
+    {
+        return false;
+    }
+    match p.type_ann.as_deref() {
+        Some("any" | "__nullable(any)") => false,
+        // A boxed scalar optional (`n?: number`) reaches the generator
+        // as an `any` actual, and the or_default lane binds a LITERAL
+        // default for exactly that pairing (`ssa_lower_call_terminal_
+        // coerce`); a computed default has no lane there yet.
+        Some("number" | "__nullable(number)" | "boolean" | "__nullable(boolean)") => {
+            !matches!(ast.get_expr(d), Expr::Number(_) | Expr::Bool(_))
+        }
+        _ => true,
+    }
 }
 
 fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {

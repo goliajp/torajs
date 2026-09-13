@@ -238,16 +238,42 @@ fn wrapper_params(ast: &mut Ast, params: &[Param]) -> Vec<Param> {
     params
         .iter()
         .map(|p| {
-            if p.default.is_none() {
+            let Some(d) = p.default else {
                 return p.clone();
+            };
+            // An optional parameter already IS the shape the wrapper
+            // wants; only its implicit default is minted afresh (two
+            // declarations must not share one arena node).
+            if matches!(ast.get_expr(d), Expr::Ident(n)
+                if n == "undefined" || n.starts_with(crate::ast::UNDEF_SLOT_MARKER))
+            {
+                let type_ann = p.type_ann.clone();
+                let default = crate::parser::param_optional_default::implicit_optional_default(
+                    ast,
+                    type_ann.as_deref(),
+                );
+                return Param {
+                    name: p.name.clone(),
+                    type_ann,
+                    default: Some(default),
+                    is_rest: p.is_rest,
+                };
             }
+            // A boxed scalar keeps its spelling as `n?: number` — the
+            // slot is a box either way, and the annotation still gates
+            // the caller. Anything else the gate let through is `any`.
+            let type_ann = match p.type_ann.as_deref() {
+                Some(a @ ("number" | "boolean")) => format!("__nullable({a})"),
+                Some(a @ ("__nullable(number)" | "__nullable(boolean)")) => a.to_string(),
+                _ => "any".to_string(),
+            };
             let default = crate::parser::param_optional_default::implicit_optional_default(
                 ast,
-                Some("__nullable(any)"),
+                Some(&type_ann),
             );
             Param {
                 name: p.name.clone(),
-                type_ann: Some("any".into()),
+                type_ann: Some(type_ann),
                 default: Some(default),
                 is_rest: p.is_rest,
             }

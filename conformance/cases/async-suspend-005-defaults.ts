@@ -40,4 +40,18 @@ async function anyRest(...xs: any[]) {
   return xs.length + ":" + xs.join(",");
 }
 anyRest("a", 2).then((v) => console.log("anyRest", v));
+// typed scalar LITERAL defaults ride the boxed-optional spelling
+async function lit(a: number, n: number = 5, f: boolean = true) {
+  await Promise.resolve(0);
+  return (f ? a + n : -1);
+}
+lit(1).then((v) => console.log("lit", v));
+lit(1, 7, false).then((v) => console.log("lit2", v));
+// optional parameters of any type bind nothing and move as written
+async function opt(a: number, o?: number, s?: string, x?: any) {
+  await Promise.resolve(0);
+  return [a, o === undefined, s === undefined, x === undefined].join(",");
+}
+opt(1).then((v) => console.log("opt", v));
+opt(1, 2, "s", 3).then((v) => console.log("opt2", v));
 console.log("sync-end");
