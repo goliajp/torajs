@@ -211,6 +211,7 @@ pub(super) fn shape_machine(
     ast: &mut Ast,
     is_async_gen: bool,
     step_ann: &str,
+    yield_ty: &str,
     trio: (&mut ClassMethod, &mut ClassMethod, &mut ClassMethod),
     lifted_locals: &mut Vec<(String, String)>,
 ) -> Vec<ClassMethod> {
@@ -222,15 +223,39 @@ pub(super) fn shape_machine(
     trio.2.name = MACHINE_THROW.into();
     lifted_locals.push((QUEUE_FIELD.into(), "any".into()));
     let mut ms = forwarders(ast);
-    ms.push(step_ctor(ast, MACHINE_YIELDED, step_ann, false));
-    ms.push(step_ctor(ast, MACHINE_RETURNED, step_ann, true));
+    ms.push(step_ctor(ast, MACHINE_YIELDED, step_ann, yield_ty, false));
+    ms.push(step_ctor(ast, MACHINE_RETURNED, step_ann, yield_ty, true));
     ms
 }
 
-/// `__yielded(__v: any): __step_g { return { value: __v, done: false } }`
-/// (and `__returned`, `done: true`) — the step literal typed by the
-/// method's declared return, exactly as the machine's own arms build it.
-fn step_ctor(ast: &mut Ast, name: &str, step_ann: &str, done: bool) -> ClassMethod {
+/// `__yielded(__v: any): __step_g { if (__v === undefined) return {
+/// value: <T's undefined>, done }; return { value: __v, done } }` (and
+/// `__returned`, `done: true`) — the step literal typed by the method's
+/// declared return, exactly as the machine's own arms build it. An
+/// `undefined` settled value takes the yield type's own spelling of
+/// undefined (`completion_undefined`): coerced into a `number` slot the
+/// any box read back as NaN (`gen-async-step-typed-read-001`, a typed
+/// generator's `return` with no value).
+fn step_ctor(ast: &mut Ast, name: &str, step_ann: &str, yield_ty: &str, done: bool) -> ClassMethod {
+    let undef_probe = ast.add_expr(Expr::Ident("__v".into()));
+    let undef_lit = ast.add_expr(Expr::Ident("undefined".into()));
+    let is_undef = ast.add_expr(Expr::BinOp {
+        op: super::BinOp::Eq,
+        left: undef_probe,
+        right: undef_lit,
+    });
+    let typed_undef = ast.add_expr(super::desugar_generators_methods::completion_undefined(
+        yield_ty,
+    ));
+    let d0 = ast.add_expr(Expr::Bool(done));
+    let undef_step = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".into(), typed_undef), ("done".into(), d0)],
+    });
+    let undef_return = Stmt::If {
+        cond: is_undef,
+        then_branch: Box::new(Stmt::Return(Some(undef_step))),
+        else_branch: None,
+    };
     let v = ast.add_expr(Expr::Ident("__v".into()));
     let d = ast.add_expr(Expr::Bool(done));
     let lit = ast.add_expr(Expr::ObjectLit {
@@ -246,7 +271,7 @@ fn step_ctor(ast: &mut Ast, name: &str, step_ann: &str, done: bool) -> ClassMeth
             is_rest: false,
         }],
         return_type: Some(step_ann.into()),
-        body: vec![Stmt::Return(Some(lit))],
+        body: vec![undef_return, Stmt::Return(Some(lit))],
         is_abstract: false,
         visibility: Visibility::Public,
         accessor_kind: None,

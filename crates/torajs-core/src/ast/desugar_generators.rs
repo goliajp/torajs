@@ -304,6 +304,7 @@ fn desugar_one_generator(
         ast,
         is_async_gen,
         &step_ann,
+        &yield_ty,
         (&mut next_method, &mut return_method, &mut throw_method),
         &mut lifted_locals,
     );
