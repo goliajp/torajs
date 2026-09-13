@@ -290,6 +290,15 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         Expr::New { class_name, .. } if ctx.local_classes.contains(class_name) => {
             return Some("any".into());
         }
+        // `new Promise(executor)` is a `Promise<any>`: the bare class
+        // name is not a type the field checker resolves (`unknown type
+        // \`Promise\` for field`), and the executor's resolve value has
+        // no annotation to read — `var p = new Promise(function (r) {
+        // release = r; })` is how every "suspend the body until the
+        // test says so" case is written.
+        Expr::New { class_name, .. } if class_name == "Promise" => {
+            return Some("Promise<any>".into());
+        }
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),
         // `x as T` says what the local IS; nothing else here could

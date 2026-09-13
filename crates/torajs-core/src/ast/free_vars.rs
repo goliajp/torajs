@@ -137,9 +137,18 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             bound.push(var.clone());
         }
         Stmt::Return(None) => {}
+        // The binding is in scope for its own initializer (§14.3.1: a
+        // lexical declaration's name belongs to the enclosing block
+        // from the block's start; a read before the initializer runs
+        // is the TDZ, never an outer name). `let d = function () {
+        // return d; }` — the value an async body's nested declaration
+        // becomes (`desugar_async_nested_fns`) — read its own name
+        // as a capture of the enclosing scope, and the hoist then
+        // snapshotted a `d` that scope never bound (`unknown
+        // identifier`).
         Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
-            walk_expr(ast, *init, bound, out);
             bound.push(name.clone());
+            walk_expr(ast, *init, bound, out);
         }
         Stmt::If {
             cond,

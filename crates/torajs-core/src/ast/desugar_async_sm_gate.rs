@@ -51,7 +51,7 @@ pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
         || !body
             .iter()
             .any(|s| super::desugar_async_sm::stmt_has_await(ast, s))
-        || body.iter().any(|s| stmt_blocks_move(ast, s))
+        || body.iter().any(|s| stmt_blocks_move(ast, s, Owner::Body))
 }
 
 /// A defaulted parameter that is not spelled `any`. The wrapper
@@ -91,7 +91,18 @@ fn typed_default_param(p: &Param, ast: &Ast) -> bool {
     }
 }
 
-fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {
+/// Whose function the walk is in: the body being judged, or a nested
+/// function expression / object-literal method inside it (which owns
+/// its `this`, `arguments` and `new.target`, so those are not the
+/// body's — but whose awaits, if it keeps the synchronous lowering,
+/// would run inside the moved body's machine).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Owner {
+    Body,
+    NestedFn,
+}
+
+fn stmt_blocks_move(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
     if matches!(
         s,
         Stmt::ForOf { is_await: true, .. } | Stmt::UsingDecl { is_await: true, .. }
@@ -100,15 +111,16 @@ fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {
     }
     walk::stmt_exprs(s)
         .into_iter()
-        .any(|e| expr_blocks_move(ast, e))
+        .any(|e| expr_blocks_move(ast, e, owner))
         || walk::stmt_children_ref(s)
             .into_iter()
-            .any(|c| stmt_blocks_move(ast, c))
+            .any(|c| stmt_blocks_move(ast, c, owner))
 }
 
-fn expr_blocks_move(ast: &Ast, eid: ExprId) -> bool {
+fn expr_blocks_move(ast: &Ast, eid: ExprId, owner: Owner) -> bool {
     match ast.get_expr(eid) {
-        Expr::Ident(n) if n == "arguments" || n.starts_with("__usenv_") => true,
+        Expr::Ident(n) if n.starts_with("__usenv_") => true,
+        Expr::Ident(n) if n == "arguments" => owner == Owner::Body,
         // A dynamic `import()` (the parser spells it as a call of
         // `__torajs_dyn_import`) — the imported module's own
         // top-level await and the driver's resumption have not been
@@ -119,20 +131,30 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId) -> bool {
         // synchronous lowering keeps that case right; the module
         // scheduling is registered (642-15).
         Expr::Ident(n) if n == "__torajs_dyn_import" => true,
-        Expr::NewTarget => true,
+        Expr::NewTarget => owner == Owner::Body,
         // A function expression / object-literal method is its own
-        // function: its `arguments`, `new.target` and `this` are not
-        // the body's, and its awaits are its own (`desugar_async_sm_
-        // this::owns_this`).
-        Expr::ArrowFn { .. } if super::desugar_async_sm_this::owns_this(ast, eid) => false,
+        // function: its `arguments` and `new.target` (and `this`,
+        // which `desugar_async_sm_this` rewrites per owner) are not
+        // the body's. Its AWAIT shapes still count: a nested async
+        // value the gate refuses keeps the synchronous lowering, and
+        // one holding `await using` / `for await` inside a moved
+        // body's machine has three open defects (a labeled `break`
+        // past the declaration SIGSEGVs the cycle collector at exit,
+        // a TDZ read's ReferenceError escapes the rejection, the
+        // post-block statements run a microtask early — rotation 645
+        // probes p13 / p14 / p23), so it keeps the enclosing body on
+        // the synchronous lowering as before, until blade 5 moves it.
+        Expr::ArrowFn { body, .. } if super::desugar_async_sm_this::owns_this(ast, eid) => body
+            .iter()
+            .any(|s| stmt_blocks_move(ast, s, Owner::NestedFn)),
         // An arrow's `arguments` / `new.target` / `this` are the
         // enclosing function's, so its body is scanned too — but a
         // nested `FnDecl` is its own function and `stmt_children_ref`
         // stops at it.
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s)),
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s, owner)),
         _ => walk::expr_children(ast, eid)
             .into_iter()
-            .any(|c| expr_blocks_move(ast, c)),
+            .any(|c| expr_blocks_move(ast, c, owner)),
     }
 }
 
