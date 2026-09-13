@@ -25,8 +25,15 @@
 //! refused) — and every consumer of an async iterator reads it through
 //! the any lane. The driver is an ordinary
 //! async function with statement-level awaits, so D1 moves it into its
-//! own machine — it is injected here and `desugar_async_state_machine`
-//! is run again for it before the generators are collected.
+//! own machine: `inject_async_generator_driver` puts it in the tree
+//! BEFORE the pipeline's one `desugar_async_state_machine` run. Running
+//! that pass a second time from inside `desugar_generators` was wrong:
+//! by then `lift_nested_generators` had emptied the nested generator
+//! declarations out of async function values, blade 2's gate
+//! (`declares_fn_or_class`) let the value through, and the generator
+//! expression it minted was never hoisted (`hoist_gen_fn_exprs` had
+//! run) — its `yield` reached the checker (`Array/fromAsync`'s
+//! `asyncTest(async function () { async function* g() {…} … })`).
 //!
 //! Requests queue (§27.6.3.3 AsyncGeneratorEnqueue): the iterator's
 //! `next` / `return` / `throw` chain on a per-instance promise
@@ -153,17 +160,15 @@ fn async_gen_indices(ast: &Ast) -> Vec<usize> {
         .collect()
 }
 
-/// `desugar_generators`' first step: inject the driver, mark every
-/// async generator body's awaits, and move the driver into its own
-/// machine — all before the generators are collected, so the driver's
-/// generator is desugared in the same loop. Answers whether anything
-/// happened.
+/// `desugar_generators`' first step: mark every async generator body's
+/// awaits (the bodies are all top-level by now — the nested ones were
+/// just lifted). The driver is already in the tree and already moved
+/// (`inject_async_generator_driver`). Answers whether anything happened.
 pub(super) fn prepare(ast: &mut Ast) -> bool {
     let targets = async_gen_indices(ast);
     if targets.is_empty() {
         return false;
     }
-    inject_agen_driver(ast);
     for idx in targets {
         let Stmt::FnDecl { body, .. } = &mut ast.stmts[idx] else {
             continue;
@@ -179,18 +184,28 @@ pub(super) fn prepare(ast: &mut Ast) -> bool {
         *body = marked;
         let _ = ok;
     }
-    // The injected driver is an async declaration with statement-level
-    // awaits: D1 moves it now, so `collect_generator_fn_decls` sees
-    // its generator.
-    super::desugar_async_sm::desugar_async_state_machine(ast);
     true
 }
 
-fn inject_agen_driver(ast: &mut Ast) {
-    if ast
-        .stmts
-        .iter()
-        .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "__agen_drive"))
+/// Put the async generator driver (`AGEN_SRC`) in the tree when the
+/// program has any async generator: a declaration or a method is on the
+/// parser's roll `async_generator_fns`; an EXPRESSION is only in
+/// `gen_fn_exprs` until the hoist names it (`async-fn-value-expr-001`
+/// lost `__agen_enqueue` when this read the roll alone). Runs just
+/// before the pipeline's `desugar_async_state_machine`, which moves the
+/// driver's async declarations into their machines along with the
+/// user's; `desugar_generators` then collects those like any other.
+pub fn inject_async_generator_driver(ast: &mut Ast) {
+    let has_async_gen = !ast.async_generator_fns.is_empty()
+        || ast
+            .gen_fn_exprs
+            .values()
+            .any(|i| i.kind == super::gen_fn_expr::GenFnExprKind::AsyncGenerator);
+    if !has_async_gen
+        || ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "__agen_drive"))
     {
         return;
     }

@@ -240,6 +240,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // by a promise. Before `hoist_gen_fn_exprs`, which lifts the
     // generator EXPRESSIONS blade 2 mints for async function values,
     // and before `desugar_generators`, which lowers every `function*`.
+    // D4's driver is an async declaration too, injected first so this
+    // one run moves it (a second run from inside `desugar_generators`
+    // moved async values whose nested generators had just been lifted
+    // out, past the hoist — `desugar_generators_async`).
+    ast::inject_async_generator_driver(ast);
     ast::desugar_async_state_machine(ast);
     ast::hoist_gen_fn_exprs(ast);
     ast::desugar_generators(ast);

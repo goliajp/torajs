@@ -299,6 +299,7 @@ pub(crate) use desugar_eval::body_owned_exprs;
 pub use desugar_eval::desugar_eval;
 pub use desugar_generators::desugar_generators;
 pub(crate) use desugar_generators_alpha::rebinds_in_stmt;
+pub use desugar_generators_async::inject_async_generator_driver;
 pub(crate) use desugar_generators_walkers::expand_yield_into_in_stmt;
 pub use desugar_objlit_super::desugar_objlit_super;
 pub use desugar_using::desugar_using;
