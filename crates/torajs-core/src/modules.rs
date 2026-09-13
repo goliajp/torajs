@@ -186,22 +186,8 @@ pub fn resolve_imports(
     // may be walked more than once (a later request asking for a name
     // the first visit did not want); the later visit appends.
     let mut injections_by_path: HashMap<PathBuf, Vec<Stmt>> = HashMap::new();
-    // Dynamic-import namespaces (`__dyn_ns_<n>`) don't materialize a
-    // top-level `let` — a lifted async-fn body can't see main-local
-    // bindings, so the resolver rewrites each `Ident(__dyn_ns_<n>)`
-    // use site into the namespace object literal directly (the field
-    // Idents resolve against the injected lib decls from any fn
-    // body). Field lists are remembered per path so a second
-    // `import("...")` of an already-visited module (its request is
-    // sentinel-deduped to nothing) still gets its rewrite.
-    let mut dyn_ns_inline: Vec<(String, Vec<(String, String)>)> = Vec::new();
-    let mut ns_fields_by_path: HashMap<PathBuf, Vec<(String, String)>> = HashMap::new();
-    // Namespace object fields, keyed by the ALIAS rather than the
-    // module — a lib's `export * from "m"` pours m's exports into the
-    // same namespace, and m is a work item popped later. `ns_order`
-    // keeps discovery order for [`materialize_pending_namespaces`].
-    let mut ns_accums: HashMap<String, NsAccum> = HashMap::new();
-    let mut ns_order: Vec<String> = Vec::new();
+    // The namespace tables — see `ns_tables::NsTables`.
+    let mut ns = ns_tables::NsTables::default();
     // §16.2.1.6.3 ambiguity ledger — see `inject_export::Landings`.
     let mut landing_first: HashMap<String, PathBuf> = HashMap::new();
     let mut ambiguous_locals: HashSet<String> = HashSet::new();
@@ -234,8 +220,8 @@ pub fn resolve_imports(
                 default_alias,
                 namespace_alias,
                 side_effect_only,
-                &ns_fields_by_path,
-                &mut dyn_ns_inline,
+                &ns.fields_by_path,
+                &mut ns.dyn_ns_inline,
                 &default_bound_as,
                 &mut injections_by_path,
                 &mut injected_names,
@@ -282,7 +268,7 @@ pub fn resolve_imports(
             )?;
 
         let first_field =
-            repeat_request::open_ns_walk(&namespace_alias, &mut ns_accums, &mut ns_order);
+            repeat_request::open_ns_walk(&namespace_alias, &mut ns.accums, &mut ns.order);
         let mut req = LibRequest {
             side_effect_only,
             default_alias: &default_alias,
@@ -290,7 +276,7 @@ pub fn resolve_imports(
             rename: &rename,
             ns: namespace_alias
                 .as_ref()
-                .and_then(|a| ns_accums.get_mut(a.as_str())),
+                .and_then(|a| ns.accums.get_mut(a.as_str())),
             bare_exports: &bare_exports,
             own_exports: &own_exports,
             // Re-borrowed rather than kept from the filter above —
@@ -319,10 +305,10 @@ pub fn resolve_imports(
         repeat_request::record_ns_walk(
             &namespace_alias,
             repeat_default_field,
-            &mut ns_accums,
+            &mut ns.accums,
             first_field,
             &target_path,
-            &mut ns_fields_by_path,
+            &mut ns.fields_by_path,
         );
     }
 
@@ -333,9 +319,9 @@ pub fn resolve_imports(
         &graph,
         injections_by_path,
         &dyn_table,
-        &ns_order,
-        &ns_accums,
-        &mut dyn_ns_inline,
+        &ns.order,
+        &ns.accums,
+        &mut ns.dyn_ns_inline,
         &ambiguous_locals,
         &entry_seed,
         &ledger.nested,
@@ -353,6 +339,7 @@ mod inject_export;
 mod lib_walk;
 mod load_lib;
 mod namespace_objlit;
+mod ns_tables;
 mod repeat_request;
 mod resolve_helpers;
 pub(crate) mod splice;
