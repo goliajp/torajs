@@ -199,6 +199,9 @@ pub fn resolve_imports(
     // first — re-walking would re-lower the same ExprId.
     let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
     let mut ledger = static_resolution::LedgerState::default();
+    // Module-evaluation statements per dynamic-import candidate, keyed
+    // by its `__dyn_ns_c<k>` alias — see `LibRequest::deferred`.
+    let mut dyn_eval_bodies: HashMap<String, Vec<Stmt>> = HashMap::new();
 
     while let Some((
         target_path,
@@ -292,6 +295,15 @@ pub fn resolve_imports(
                 ambiguous: &mut ambiguous_locals,
             },
             ledger: ledger.ledger(&target_path),
+            // A candidate that is the entry itself has no body to run at
+            // its import: the entry IS the program, already evaluating
+            // (§16.2.1.5.3 — an `import()` of a module in that status
+            // hands back its namespace without a second evaluation).
+            deferred: namespace_alias
+                .as_ref()
+                .filter(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == *a))
+                .filter(|_| target_path.canonicalize().ok() != entry_seed.entry_path)
+                .map(|a| dyn_eval_bodies.entry(a.clone()).or_default()),
         };
 
         let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
@@ -325,6 +337,7 @@ pub fn resolve_imports(
         &ambiguous_locals,
         &entry_seed,
         &ledger.nested,
+        &dyn_eval_bodies,
     )?;
     Ok(closure_files)
 }

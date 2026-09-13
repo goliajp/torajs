@@ -1,0 +1,7 @@
+before
+after
+sidefx body runs
+throws rejected true module body threw
+throws rejected again true
+sidefx 1
+sidefx again 1

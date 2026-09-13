@@ -92,6 +92,12 @@ pub(super) fn slot_type_supported(
             // types the slot; only this provenance clause stood
             // between it and the named-fn-visible home.
             || name.starts_with("__gshadow_")
+            // …and a dynamic-import candidate's evaluation memo
+            // (rotation 645): `__dyn_memo_c<k>` is minted by the
+            // resolver, holds the module's [[Status]] / [[EvaluationError]]
+            // (§16.2.1.5.3), and its only reader and writer is the
+            // candidate's `__dyn_eval_c<k>` — a named fn.
+            || name.starts_with("__dyn_memo_")
             || crate::ssa_lower_inner::body_passes_fn_name::strip_module_mangle(name) != name
             // …and the ES5 class binding (rotation 417): the name is
             // minted, but what it holds is the user's class, and the

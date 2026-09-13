@@ -52,6 +52,14 @@ pub(super) struct LibRequest<'a> {
     /// and indirect exports, judged after the BFS like the entry's
     /// (see [`RequestLedger`]).
     pub(super) ledger: RequestLedger<'a>,
+    /// A dynamic-import candidate's walk collects its non-declaration
+    /// top-level statements here instead of dropping them: the
+    /// dispatcher runs them — once, in a job, an abrupt completion
+    /// rejecting the promise — when the `import()` is evaluated
+    /// (§16.2.1.5.3; `dyn_import_dispatcher::synth_eval_fn`). Every
+    /// other lane keeps the documented drop (`modules.rs` behaviour
+    /// notes).
+    pub(super) deferred: Option<&'a mut Vec<Stmt>>,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -240,6 +248,17 @@ pub(super) fn walk_lib_stmt(
             // the walk; the decls themselves inject below.
         }
         other => {
+            // A statement that declares nothing is module EVALUATION,
+            // not a binding: a candidate's runs at its `import()`; a
+            // `Multi` (a destructuring declaration's spelling) binds
+            // and stays with the decl lane.
+            if !matches!(other, Stmt::Multi(_))
+                && decl_name(&other).is_none()
+                && let Some(deferred) = req.deferred.as_deref_mut()
+            {
+                deferred.push(other);
+                return Ok(());
+            }
             inject_bare_exported_decl(
                 ast,
                 injections,

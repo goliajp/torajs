@@ -446,7 +446,7 @@ pub(super) fn await_inner(ast: &Ast, eid: ExprId) -> Option<ExprId> {
     }
 }
 
-pub(super) fn stmt_has_await(ast: &Ast, s: &Stmt) -> bool {
+pub(crate) fn stmt_has_await(ast: &Ast, s: &Stmt) -> bool {
     let mut found = false;
     super::desugar_async_sm_walk::visit_stmt_exprs(s, &mut |e| {
         found = found || expr_has_await(ast, e);

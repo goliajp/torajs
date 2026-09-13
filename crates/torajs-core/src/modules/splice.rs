@@ -31,6 +31,7 @@ pub(super) fn settle_and_splice(
     ambiguous_locals: &HashSet<String>,
     entry_seed: &static_resolution::EntrySeed,
     nested: &[static_resolution::NestedRequest],
+    dyn_eval_bodies: &HashMap<String, Vec<Stmt>>,
 ) -> Result<(), String> {
     let lib_poisoned = static_resolution::finalize(
         ast,
@@ -52,6 +53,7 @@ pub(super) fn settle_and_splice(
         dyn_ns_inline,
         ambiguous_locals,
         &lib_poisoned,
+        dyn_eval_bodies,
     );
     dead_lib_exprs::sweep(ast, entry_expr_len);
     Ok(())
@@ -76,6 +78,7 @@ pub(super) fn assemble_and_splice(
     dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
     ambiguous_locals: &HashSet<String>,
     lib_poisoned: &HashSet<String>,
+    dyn_eval_bodies: &HashMap<String, Vec<Stmt>>,
 ) {
     let mut injections: Vec<Stmt> = Vec::new();
     for path in graph.evaluation_order() {
@@ -94,8 +97,11 @@ pub(super) fn assemble_and_splice(
         // A candidate whose graph carries an unresolvable lib
         // ImportEntry (§16.2.1.6.4 step 7) rejects the same way.
         poisoned.extend(lib_poisoned.iter().cloned());
-        injections.push(dyn_import_dispatcher::synth_dispatcher(
-            ast, dyn_table, &poisoned,
+        injections.extend(dyn_import_dispatcher::synth_dispatcher(
+            ast,
+            dyn_table,
+            &poisoned,
+            dyn_eval_bodies,
         ));
     }
     // The synthetic `let ns = { … }` bindings only reference decls, so

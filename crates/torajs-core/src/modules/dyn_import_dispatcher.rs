@@ -120,11 +120,16 @@ fn push_syntax_error_arm(
     });
 }
 
+/// The dispatcher plus, per loadable candidate, its evaluation
+/// function and the two state bindings that memoize it
+/// ([`synth_eval_fn`]); the caller splices all of them.
 pub(super) fn synth_dispatcher(
     ast: &mut Ast,
     table: &[(String, DynTarget)],
     poisoned: &HashSet<String>,
-) -> Stmt {
+    eval_bodies: &HashMap<String, Vec<Stmt>>,
+) -> Vec<Stmt> {
+    let mut out: Vec<Stmt> = Vec::new();
     let mut body: Vec<Stmt> = Vec::new();
     // const __s: any = String(__spec);
     let string_ident = ast.add_expr(Expr::Ident("String".to_string()));
@@ -170,20 +175,48 @@ pub(super) fn synth_dispatcher(
             }
             DynTarget::Namespace(ns) => ns,
         };
-        let ns_ident = ast.add_expr(Expr::Ident(ns_name.clone()));
+        // if (__s === "<lit>") return Promise.resolve(undefined).then(() => __dyn_eval_c<k>());
+        // — the module body evaluates in a job (§16.2.1.5.3 runs it
+        // from HostLoadImportedModule's continuation, never inside
+        // the `import()` expression), and a throw there rejects the
+        // returned promise through the `.then`.
+        let stmts = eval_bodies
+            .get(ns_name.as_str())
+            .cloned()
+            .unwrap_or_default();
+        let eval_name = synth_eval_fn(ast, &mut out, ns_name, stmts);
         let promise_ident = ast.add_expr(Expr::Ident("Promise".to_string()));
         ast.synth_global_refs.insert(promise_ident);
         let resolve = ast.add_expr(Expr::Member {
             obj: promise_ident,
             name: "resolve".to_string(),
         });
+        let undef = ast.add_expr(Expr::Ident("undefined".to_string()));
         let resolved = ast.add_expr(Expr::Call {
             callee: resolve,
-            args: vec![ns_ident],
+            args: vec![undef],
+        });
+        let then = ast.add_expr(Expr::Member {
+            obj: resolved,
+            name: "then".to_string(),
+        });
+        let eval_ident = ast.add_expr(Expr::Ident(eval_name));
+        let eval_call = ast.add_expr(Expr::Call {
+            callee: eval_ident,
+            args: Vec::new(),
+        });
+        let thunk = ast.add_expr(Expr::ArrowFn {
+            params: Vec::new(),
+            return_type: Some("any".to_string()),
+            body: vec![Stmt::Return(Some(eval_call))],
+        });
+        let chained = ast.add_expr(Expr::Call {
+            callee: then,
+            args: vec![thunk],
         });
         body.push(Stmt::If {
             cond,
-            then_branch: Box::new(Stmt::Return(Some(resolved))),
+            then_branch: Box::new(Stmt::Return(Some(chained))),
             else_branch: None,
         });
     }
@@ -222,7 +255,7 @@ pub(super) fn synth_dispatcher(
         args: vec![e_ident],
     });
     let catch_body = vec![Stmt::Return(Some(rejected))];
-    Stmt::FnDecl {
+    out.push(Stmt::FnDecl {
         name: DISPATCHER_NAME.to_string(),
         type_params: Vec::new(),
         params: vec![Param {
@@ -242,5 +275,121 @@ pub(super) fn synth_dispatcher(
         }],
         is_generator: false,
         span: crate::lexer::Span { start: 0, end: 0 },
-    }
+    });
+    out
+}
+
+/// One candidate's module evaluation, memoized (§16.2.1.5.3 — a module
+/// evaluates once; a later `import()` of one that threw rejects with
+/// the same value, `[[EvaluationError]]`):
+///
+/// ```ts
+/// const __dyn_memo_c<k>: any = { state: 0, err: undefined };  // 0 unevaluated / 1 done / 2 threw
+/// function __dyn_eval_c<k>(): any {
+///   if (__dyn_memo_c<k>.state === 0) {
+///     __dyn_memo_c<k>.state = 1;
+///     try { <the candidate's top-level statements> }
+///     catch (__e) { __dyn_memo_c<k>.state = 2; __dyn_memo_c<k>.err = __e; }
+///   }
+///   if (__dyn_memo_c<k>.state === 2) throw __dyn_memo_c<k>.err;
+///   return __dyn_ns_c<k>;
+/// }
+/// ```
+///
+/// The memo is one object rather than two top-level `let`s: a
+/// `__`-spelled top-level binding is kept out of the global-write lane
+/// by design, so a function assigning it is "assign to unknown ident";
+/// a field write on a top-level `any` object needs no lane.
+///
+/// The candidate's DECLARATIONS still inject at the top level, eagerly
+/// (the namespace literal names them; `dyn_import.rs`'s "candidates
+/// are EAGER" boundary), so an initializer runs at program start and
+/// only the declaration-free statements wait for the import — the
+/// order between the two is the one deviation left. A body holding
+/// a top-level `await` is not hosted by a plain function and keeps
+/// the drop. Answers the function's name.
+fn synth_eval_fn(ast: &mut Ast, out: &mut Vec<Stmt>, ns_name: &str, stmts: Vec<Stmt>) -> String {
+    let suffix = ns_name.trim_start_matches("__dyn_ns_");
+    let memo = format!("__dyn_memo_{suffix}");
+    let eval = format!("__dyn_eval_{suffix}");
+    let stmts = if stmts.iter().any(|s| crate::ast::stmt_has_await(ast, s)) {
+        Vec::new()
+    } else {
+        stmts
+    };
+    let zero = ast.add_expr(Expr::Number(0.0));
+    let undef = ast.add_expr(Expr::Ident("undefined".to_string()));
+    let memo_init = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("state".into(), zero), ("err".into(), undef)],
+    });
+    out.push(Stmt::LetDecl {
+        mutable: false,
+        name: memo.clone(),
+        type_ann: Some("any".to_string()),
+        init: memo_init,
+        is_var: false,
+    });
+    let field = |ast: &mut Ast, name: &str| {
+        let obj = ast.add_expr(Expr::Ident(memo.clone()));
+        ast.add_expr(Expr::Member {
+            obj,
+            name: name.to_string(),
+        })
+    };
+    let set_state = |ast: &mut Ast, n: f64| {
+        let target = field(ast, "state");
+        let value = ast.add_expr(Expr::Number(n));
+        Stmt::Expr(ast.add_expr(Expr::Assign { target, value }))
+    };
+    let state_is = |ast: &mut Ast, n: f64| {
+        let left = field(ast, "state");
+        let right = ast.add_expr(Expr::Number(n));
+        ast.add_expr(Expr::BinOp {
+            op: BinOp::Eq,
+            left,
+            right,
+        })
+    };
+    let mark_running = set_state(ast, 1.0);
+    let mark_threw = set_state(ast, 2.0);
+    let err_target = field(ast, "err");
+    let e_read = ast.add_expr(Expr::Ident("__e".to_string()));
+    let store_err = Stmt::Expr(ast.add_expr(Expr::Assign {
+        target: err_target,
+        value: e_read,
+    }));
+    let run = Stmt::Try {
+        body: stmts,
+        had_catch: true,
+        catch_param: Some("__e".to_string()),
+        catch_type: None,
+        catch_body: vec![mark_threw, store_err],
+        finally_body: None,
+    };
+    let unevaluated = state_is(ast, 0.0);
+    let threw = state_is(ast, 2.0);
+    let err_read = field(ast, "err");
+    let ns_read = ast.add_expr(Expr::Ident(ns_name.to_string()));
+    out.push(Stmt::FnDecl {
+        name: eval.clone(),
+        type_params: Vec::new(),
+        params: Vec::new(),
+        return_type: Some("any".to_string()),
+        body: vec![
+            Stmt::If {
+                cond: unevaluated,
+                then_branch: Box::new(Stmt::Block(vec![mark_running, run])),
+                else_branch: None,
+            },
+            Stmt::If {
+                cond: threw,
+                then_branch: Box::new(Stmt::Throw(err_read)),
+                else_branch: None,
+            },
+            Stmt::Return(Some(ns_read)),
+        ],
+        is_generator: false,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    });
+    eval
 }
