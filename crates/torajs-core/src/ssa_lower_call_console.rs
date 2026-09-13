@@ -37,6 +37,12 @@ pub(crate) fn try_lower(
     }
     if args.len() == 1 {
         Some(lower_single_arg(ctx, method, args[0]))
+    } else if method == "log" {
+        // The statement lane's per-arg inspect dispatch, in value
+        // position too (`ssa_lower_console_log_multiarg`); the Str
+        // joiner below stays the `console.error` / `warn` shape.
+        crate::ssa_lower_console_log_multiarg::lower_log_args(ctx, args);
+        Some(Operand::ConstI64(0))
     } else {
         Some(lower_multi_arg(ctx, method, args))
     }

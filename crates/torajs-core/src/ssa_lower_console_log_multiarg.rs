@@ -77,10 +77,20 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         return false;
     }
     let arg_ids: Vec<ExprId> = args.clone();
+    lower_log_args(ctx, &arg_ids);
+    true
+}
 
+/// The two phases for a multi-arg `console.log` wherever the call
+/// sits. The value-position call (`(r: any) => console.log("s", r)`,
+/// an expression-bodied arrow; `x = console.log(a, b)`) used to take
+/// `ssa_lower_call_console`'s `console.error` joiner — every argument
+/// coerced to Str, so an object printed as `[object Object]` while the
+/// same call as a statement inspected it.
+pub(crate) fn lower_log_args(ctx: &mut LowerCtx, arg_ids: &[ExprId]) {
     // Phase 1 — evaluate every argument in source order.
     let mut lowered: Vec<LoweredArg> = Vec::with_capacity(arg_ids.len());
-    for &aid in &arg_ids {
+    for &aid in arg_ids {
         // S139 — `undefined`-typed exprs print the literal; a
         // call-shaped one (void call) still runs for effect here.
         // Catches Expr::Ident("undefined") AND S138 derived
@@ -168,7 +178,6 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx, s: &Stmt) -> bool {
         Type::I64,
         None,
     );
-    true
 }
 
 /// Phase-2 print of one evaluated argument (dispatch preserved from
