@@ -634,6 +634,23 @@ fn run_case(
     // stands for the pair. The strict twin remains genuinely missing
     // and is registered as such — it is a known gap, not a silent one.
     let ext = if fm.is_module() { "ts" } else { "cts" };
+    // A case that imports ITSELF by its corpus filename
+    // (`import('./eval-export-dflt-cls-anon.js')` where that file IS the
+    // case) is, in the corpus, one module record: the import resolves
+    // to the module already evaluating and its body does not run again
+    // (§16.2.1.5.3). Staged, the case runs as `case.<ext>` and the
+    // corpus name is an ALIAS file (`fixtures::stage`) — a second path,
+    // so a runtime that evaluates a dynamically imported module's body
+    // (tr, rotation 645) ran the case twice and `$DONE` fired twice.
+    // Point the case's own self-reference at the staged entry; the
+    // alias stays for the fixture chains that name the case from a
+    // sibling.
+    let transformed = match path.file_name().map(|n| n.to_string_lossy().into_owned()) {
+        Some(name) if transformed.contains(&format!("./{name}")) => {
+            transformed.replace(&format!("./{name}"), &format!("./case.{ext}"))
+        }
+        _ => transformed,
+    };
     // The strict transformation of INTERPRETING.md's "Strict Mode"
     // section: a directive prologue, the same Script goal.
     let full = if fm.is_only_strict() {
