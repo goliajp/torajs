@@ -66,6 +66,7 @@ mod delete_bare_name;
 mod desugar_async;
 mod desugar_async_sm;
 mod desugar_async_sm_gate;
+mod desugar_async_sm_values;
 mod desugar_async_sm_walk;
 mod desugar_classes;
 mod desugar_classes_abstract;

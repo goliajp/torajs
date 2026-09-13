@@ -114,3 +114,30 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId) -> bool {
             .any(|c| expr_blocks_move(ast, c)),
     }
 }
+
+/// Does the body read `this` (or the `__this` the fn-expr receiver
+/// channel hands a function expression) anywhere outside a nested
+/// FnDecl? Arrows inherit it, so their bodies count.
+pub(super) fn reads_this(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_reads_this(ast, s))
+}
+
+fn stmt_reads_this(ast: &Ast, s: &Stmt) -> bool {
+    walk::stmt_exprs(s)
+        .into_iter()
+        .any(|e| expr_reads_this(ast, e))
+        || walk::stmt_children_ref(s)
+            .into_iter()
+            .any(|c| stmt_reads_this(ast, c))
+}
+
+fn expr_reads_this(ast: &Ast, eid: ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::This => true,
+        Expr::Ident(n) if n == "__this" => true,
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_reads_this(ast, s)),
+        _ => walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| expr_reads_this(ast, c)),
+    }
+}
