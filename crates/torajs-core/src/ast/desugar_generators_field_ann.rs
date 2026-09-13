@@ -365,25 +365,45 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
     for p in params {
         param_anns.push(p.type_ann.clone()?);
     }
-    let ret = match return_type {
-        Some(rt) => rt.clone(),
-        None if !super::body_has_value_return(body) => "void".into(),
-        // Seeded, not bare: an arrow in a generator body routinely
-        // reads the generator's params and the locals lifted before
-        // it (`const f = (n: number) => n + base`), and the bare
-        // sniff has no entry for either — it bailed, and the field
-        // fell back to `number` while the closure itself came out
-        // `Function([Number], Number)`.
-        // `any` when the seeded sniff cannot read the body either —
-        // the honest answer for a return nothing here can see, and the
-        // one an explicit annotation proves works. Declining instead
-        // handed the field back to the `number` fallback, which is a
-        // claim about the return, not an absence of one: `const add =
-        // (n: number) => (m: number) => n + m` (the sniff has no arm
-        // for an arrow in return position) came out `number` and every
-        // later `add(3)` said "not callable: type Number".
-        None => super::infer_return_ann_seeded(&ast.exprs, body, params, &ctx.binds, ctx.fn_sigs)
-            .unwrap_or_else(|| "any".into()),
+    // An ASYNC function value the state-machine pass did not move (no
+    // await in it) is rewritten by `desugar_async` AFTER this pass —
+    // its return becomes `Promise<T>`, T the declared type stripped of
+    // its own `Promise<>` or `any` when none was written — so the
+    // field is typed as that later value, not as the body's own
+    // return (`const h = async function () { return m; }` inside an
+    // async function's machine: "field is Function([], Number), value
+    // is Function([], Promise(Any))").
+    let ret = if ast.async_fn_value_exprs.contains(&init) {
+        let declared = return_type.clone().unwrap_or_else(|| "any".into());
+        let inner = declared
+            .strip_prefix("Promise<")
+            .and_then(|r| r.strip_suffix('>'))
+            .map(str::to_string)
+            .unwrap_or(declared);
+        format!("Promise<{inner}>")
+    } else {
+        match return_type {
+            Some(rt) => rt.clone(),
+            None if !super::body_has_value_return(body) => "void".into(),
+            // Seeded, not bare: an arrow in a generator body routinely
+            // reads the generator's params and the locals lifted before
+            // it (`const f = (n: number) => n + base`), and the bare
+            // sniff has no entry for either — it bailed, and the field
+            // fell back to `number` while the closure itself came out
+            // `Function([Number], Number)`.
+            // `any` when the seeded sniff cannot read the body either —
+            // the honest answer for a return nothing here can see, and the
+            // one an explicit annotation proves works. Declining instead
+            // handed the field back to the `number` fallback, which is a
+            // claim about the return, not an absence of one: `const add =
+            // (n: number) => (m: number) => n + m` (the sniff has no arm
+            // for an arrow in return position) came out `number` and every
+            // later `add(3)` said "not callable: type Number".
+            None => {
+                super::infer_return_ann_seeded(&ast.exprs, body, params, &ctx.binds, ctx.fn_sigs)
+                    .unwrap_or_else(|| "any".into())
+            }
+        }
     };
     Some(crate::type_ann_fnsig::fn_type_ann(
         "__cls",
