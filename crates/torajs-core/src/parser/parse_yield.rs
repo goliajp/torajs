@@ -223,6 +223,9 @@ impl<'a> Parser<'a> {
         let v_ref = self.ast.add_expr(Expr::Ident(v_name.clone()));
         let body = Stmt::Block(vec![Stmt::Yield(v_ref)]);
         let is_async = self.in_async_gen;
+        if is_async {
+            self.ast.yieldstar_async_vars.insert(v_name.clone());
+        }
         self.ast
             .yieldstar_done_targets
             .insert(v_name.clone(), done_var.clone());
@@ -247,6 +250,9 @@ impl<'a> Parser<'a> {
         let v_ref = self.ast.add_expr(Expr::Ident(v_name.clone()));
         let body = Stmt::Block(vec![Stmt::Yield(v_ref)]);
         let is_async = self.in_async_gen;
+        if is_async {
+            self.ast.yieldstar_async_vars.insert(v_name.clone());
+        }
         self.emit_forof_default(v_name, Some("any".into()), src, body, is_async, None)
     }
 

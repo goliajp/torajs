@@ -1084,6 +1084,11 @@ pub struct Ast {
     /// breaking. Keyed by name — clones share the entry safely, the
     /// binding scopes per generator body.
     pub yieldstar_done_targets: std::collections::HashMap<String, String>,
+    /// The loop variables of the `for await` an ASYNC generator's
+    /// `yield*` was spelled as — the generator prep builds those loops
+    /// as the delegation protocol (`desugar_generators_yieldstar`),
+    /// not the for-await one.
+    pub yieldstar_async_vars: std::collections::HashSet<String>,
     /// Namespace-import bindings (`import * as ns` /
     /// `export * as ns`) materialized as synthetic object literals by
     /// the resolver. §10.4.6.8 — a module namespace exotic object

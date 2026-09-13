@@ -102,7 +102,17 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
                 else {
                     unreachable!()
                 };
-                *s = build_manual_protocol(ast, var_name, src_ident, *body, counter, is_await);
+                if is_await && ast.yieldstar_async_vars.contains(&var_name) {
+                    // An async generator's `yield*` — the delegation
+                    // protocol, not the loop's (`desugar_generators_yieldstar`).
+                    let n = *counter;
+                    *counter += 1;
+                    *s = super::desugar_generators_yieldstar::build_delegation_protocol(
+                        ast, var_name, src_ident, n,
+                    );
+                } else {
+                    *s = build_manual_protocol(ast, var_name, src_ident, *body, counter, is_await);
+                }
             }
         }
         Stmt::Block(ss) | Stmt::Multi(ss) => {
@@ -155,7 +165,11 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
 /// `(src as any)[Symbol.<well_known>]` — the symbol-keyed probe the
 /// derive line reads (and, with `Call`, invokes: F0b index-call
 /// receiver semantics make `o[k]()` take `o` as `this`).
-fn symbol_index_expr(ast: &mut Ast, src_ident: &str, well_known: &str) -> crate::ast::ExprId {
+pub(super) fn symbol_index_expr(
+    ast: &mut Ast,
+    src_ident: &str,
+    well_known: &str,
+) -> crate::ast::ExprId {
     let src_ref = ast.add_expr(Expr::Ident(src_ident.to_string()));
     let src_any = ast.add_expr(Expr::As {
         expr: src_ref,

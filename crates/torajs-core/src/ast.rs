@@ -117,6 +117,7 @@ mod desugar_generators_sm_return;
 mod desugar_generators_sm_rewrite;
 mod desugar_generators_sm_try;
 mod desugar_generators_walkers;
+mod desugar_generators_yieldstar;
 mod desugar_objlit_super;
 mod desugar_using;
 mod desugar_variadic_push;

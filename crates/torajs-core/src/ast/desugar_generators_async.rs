@@ -177,6 +177,20 @@ function __agen_step_call(__it: any, __am: any): any {
   } catch (__e: any) { return Promise.reject(__e); }
   return Promise.resolve(__v0).then((__v: any) => { return { value: __v, done: __d }; });
 }
+function __agen_delegate_call(__it: any, __fn: any, __arg: any, __kind: number, __am: any): any {
+  if (__am != null) { return __fn.call(__it, __arg); }
+  let __r: any;
+  try { __r = __fn.call(__it, __arg); } catch (__e0: any) { return Promise.reject(__e0); }
+  let __d: any;
+  let __v0: any;
+  try {
+    if (__r != null && typeof __r.then === "function") { return __r; }
+    if (__r == null || (typeof __r !== "object" && typeof __r !== "function")) { throw new TypeError("iterator result is not an object"); }
+    __d = __r.done;
+    __v0 = __r.value;
+  } catch (__e: any) { return Promise.reject(__e); }
+  return Promise.resolve(__v0).then((__v: any) => { return { value: __v, done: __d }; });
+}
 function __agen_enqueue(__g: any, __kind: number, __v: any): Promise<any> {
   let __res: any = undefined;
   let __rej: any = undefined;
