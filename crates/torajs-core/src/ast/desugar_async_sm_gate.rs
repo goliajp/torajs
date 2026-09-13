@@ -29,13 +29,38 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 ///   (`arr-promise-elem-width-001`). Registered follow-up: tag the
 ///   YieldInto with its await origin and let num_width follow it.
 ///
+/// - `this` in a plain async function (arrows included, they inherit
+///   it) — the generator is called plainly by the driver's thunk, so
+///   a receiver passed with `.call` or the sloppy global `this` would
+///   be lost (test262 `async-function/evaluation-this-value-*`,
+///   `dynamic-import/assignment-expression/this`). A method's `this`
+///   is rewritten to the `__genrecv` channel before the move and is
+///   not a reason to refuse ([`ThisRead::Rewritten`]);
+/// - a body with no await at all — there is no suspend point to gain,
+///   and moving it still reorders the microtask the driver's promise
+///   settles on against the caller's (`async-disposable-stack-dispose-
+///   sync-calls`: two `disposeAsync()` calls without await, observed
+///   from the caller's own await).
+///
 /// Refusing keeps today's synchronous lowering for that function,
 /// which is never worse than today; moving it would be wrong.
 /// (Parameter defaults and rest parameters used to be listed here;
 /// `wrapper_params` and the driver's thunk own them now.)
-pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
+pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt], this_read: ThisRead) -> bool {
     params.iter().any(|p| typed_default_param(p, ast))
-        || body.iter().any(|s| stmt_blocks_move(ast, s))
+        || !body
+            .iter()
+            .any(|s| super::desugar_async_sm::stmt_has_await(ast, s))
+        || body.iter().any(|s| stmt_blocks_move(ast, s, this_read))
+}
+
+/// What a `this` inside the body means for the move.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ThisRead {
+    /// A plain function's `this` has no channel to the generator.
+    Blocks,
+    /// A method's `this` becomes `__genrecv` before the move.
+    Rewritten,
 }
 
 /// A defaulted parameter that is not spelled `any`. The wrapper
@@ -75,7 +100,7 @@ fn typed_default_param(p: &Param, ast: &Ast) -> bool {
     }
 }
 
-fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {
+fn stmt_blocks_move(ast: &Ast, s: &Stmt, this_read: ThisRead) -> bool {
     if matches!(
         s,
         Stmt::ForOf { is_await: true, .. } | Stmt::UsingDecl { is_await: true, .. }
@@ -94,23 +119,24 @@ fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {
     }
     walk::stmt_exprs(s)
         .into_iter()
-        .any(|e| expr_blocks_move(ast, e))
+        .any(|e| expr_blocks_move(ast, e, this_read))
         || walk::stmt_children_ref(s)
             .into_iter()
-            .any(|c| stmt_blocks_move(ast, c))
+            .any(|c| stmt_blocks_move(ast, c, this_read))
 }
 
-fn expr_blocks_move(ast: &Ast, eid: ExprId) -> bool {
+fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
     match ast.get_expr(eid) {
         Expr::Ident(n) if n == "arguments" || n.starts_with("__usenv_") => true,
         Expr::NewTarget => true,
-        // An arrow's `arguments` / `new.target` are the enclosing
-        // function's, so its body is scanned too — but a nested
-        // `FnDecl` is its own function and `stmt_children_ref` stops
-        // at it.
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s)),
+        Expr::This => this_read == ThisRead::Blocks,
+        // An arrow's `arguments` / `new.target` / `this` are the
+        // enclosing function's, so its body is scanned too — but a
+        // nested `FnDecl` is its own function and `stmt_children_ref`
+        // stops at it.
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s, this_read)),
         _ => walk::expr_children(ast, eid)
             .into_iter()
-            .any(|c| expr_blocks_move(ast, c)),
+            .any(|c| expr_blocks_move(ast, c, this_read)),
     }
 }

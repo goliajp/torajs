@@ -25,7 +25,7 @@
 use super::desugar_async_sm::{
     build_drive_call_to, generator_params, rewrite_body, wrapper_params,
 };
-use super::desugar_async_sm_gate::blocks_move;
+use super::desugar_async_sm_gate::{ThisRead, blocks_move};
 use super::desugar_with::walk;
 use super::{Ast, ClassMethod, Expr, ExprId, GEN_RECV_PARAM, Param, Stmt, mangle_key};
 
@@ -113,7 +113,9 @@ fn movable(ast: &Ast, m: &ClassMethod) -> bool {
         && !m.is_abstract
         && m.type_params.is_empty()
         && !m.params.iter().any(|p| p.name.starts_with("__"))
-        && !blocks_move(ast, &m.params, &m.body)
+        // the parser spells `#m` as `__priv_<C>__m` (parse_class_decl_member)
+        && !m.name.lossy().starts_with("__priv_")
+        && !blocks_move(ast, &m.params, &m.body, ThisRead::Rewritten)
         && !m.body.iter().any(|s| stmt_has_super_or_private(ast, s))
 }
 
@@ -129,7 +131,11 @@ fn stmt_has_super_or_private(ast: &Ast, s: &Stmt) -> bool {
 fn expr_has_super_or_private(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
         Expr::Super { .. } => true,
-        Expr::Member { name, .. } | Expr::OptChain { name, .. } if name.starts_with('#') => true,
+        Expr::Member { name, .. } | Expr::OptChain { name, .. }
+            if name.starts_with('#') || name.starts_with("__priv_") =>
+        {
+            true
+        }
         Expr::Ident(n) if n.starts_with("__super") => true,
         Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_has_super_or_private(ast, s)),
         _ => walk::expr_children(ast, eid)

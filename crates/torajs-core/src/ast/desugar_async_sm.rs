@@ -132,7 +132,12 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
         else {
             continue;
         };
-        if super::desugar_async_sm_gate::blocks_move(ast, &params, &body) {
+        if super::desugar_async_sm_gate::blocks_move(
+            ast,
+            &params,
+            &body,
+            super::desugar_async_sm_gate::ThisRead::Blocks,
+        ) {
             continue;
         }
         let mut moved = body.clone();
@@ -432,7 +437,7 @@ fn await_inner(ast: &Ast, eid: ExprId) -> Option<ExprId> {
     }
 }
 
-fn stmt_has_await(ast: &Ast, s: &Stmt) -> bool {
+pub(super) fn stmt_has_await(ast: &Ast, s: &Stmt) -> bool {
     let mut found = false;
     super::desugar_async_sm_walk::visit_stmt_exprs(s, &mut |e| {
         found = found || expr_has_await(ast, e);
