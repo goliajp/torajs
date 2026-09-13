@@ -48,6 +48,52 @@ pub(super) fn collect_escape_stored(
     stored
 }
 
+/// Rotation 645 store-site anon track — an anonymous argv-face
+/// fn-expr stored DIRECTLY into a boxed-face position (`obj[name] =
+/// function () { … method.apply(obj, arguments) … }` — the test262
+/// harness's `observeMethod`): every call of it is a runtime call
+/// through the receiver's boxed dual entry, which feeds real argc +
+/// argv into the synthetic params — the channel the BINDING form of
+/// this profile already rides (`collect_escape_stored` above evicts
+/// that one from the static face; a direct store never had a binding
+/// to seed any face with, so `arguments` stayed a bare identifier).
+/// Gates as the spread-site anon arm's: the body is in `full`, the
+/// closure's only arena reference is this store, and it does not
+/// ride the fnexpr-this promotion.
+pub(super) fn collect_store_site_anon_argv(
+    ast: &Ast,
+    full: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    use std::collections::{HashMap, HashSet};
+    let props_recvs = super::fnexpr_this_recvs_props::collect_props_receiver_binding_names(
+        &ast.stmts, &ast.exprs,
+    );
+    let expando_recvs = super::fnexpr_this_expando::ExpandoRecvs::scan(&ast.stmts, &ast.exprs);
+    let mut closure_refs: HashMap<&str, usize> = HashMap::new();
+    for e in &ast.exprs {
+        if let Expr::Closure { fn_name, .. } = e {
+            *closure_refs.entry(fn_name).or_insert(0) += 1;
+        }
+    }
+    let mut admitted: HashSet<String> = HashSet::new();
+    for e in &ast.exprs {
+        let Expr::Assign { target, value } = e else {
+            continue;
+        };
+        let Expr::Closure { fn_name, .. } = ast.get_expr(*value) else {
+            continue;
+        };
+        if full.contains(fn_name)
+            && closure_refs.get(fn_name.as_str()) == Some(&1)
+            && !ast.fnexpr_recv_fns.contains(fn_name)
+            && boxed_face_store_target(ast, *target, &props_recvs, &expando_recvs)
+        {
+            admitted.insert(fn_name.clone());
+        }
+    }
+    admitted
+}
+
 /// Rotation 345 — the ARGUMENT-POSITION variant of the escape-store
 /// profile: of the argv-face fns, the ones whose binding stands as
 /// an argument to an explicit-`any` / proven-generic param or to a

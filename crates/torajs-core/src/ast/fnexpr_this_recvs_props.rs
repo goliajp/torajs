@@ -127,6 +127,33 @@ fn collect_props_receiver_inner(
                     other.insert(name.clone());
                 }
             }
+            // Rotation 645 — a function's PARAMETERS are bindings too,
+            // by the same bar: one annotated `any` (or an array) keeps
+            // its properties in the any world, so a store into it
+            // (`function observe(object: any, name) { object[name] =
+            // function () { …arguments… } }` — the test262 harness's
+            // `observeMethod`) lands in a runtime props slot and the
+            // stored fn's calls come back through the boxed entry.
+            // Without the params the census only ever saw declared
+            // bindings, and the stored fn's `arguments` stayed an
+            // unknown identifier. Any other annotation, or none, is a
+            // typed slot: the name goes to `other` like a typed `let`.
+            Stmt::FnDecl { params, .. } => {
+                for p in params {
+                    if p.name.starts_with("__") {
+                        continue;
+                    }
+                    let props_shape = p
+                        .type_ann
+                        .as_deref()
+                        .is_some_and(|a| a == "any" || a.ends_with("[]"));
+                    if props_shape {
+                        names.insert(p.name.clone());
+                    } else {
+                        other.insert(p.name.clone());
+                    }
+                }
+            }
             _ => {}
         }
         super::stmt_nested_lists::for_each_nested_list(s, &mut |inner| {
