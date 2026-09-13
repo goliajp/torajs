@@ -67,10 +67,26 @@ impl GenEnvInfo {
 /// `desugar_generators` hook: the three iterator methods of a
 /// generator with a by-reference capture record join
 /// `gen_env_methods`, keyed the way `desugar_classes` will name them.
-pub(super) fn register_gen_env_methods(ast: &mut Ast, gen_name: &str, class_name: &str) {
+pub(super) fn register_gen_env_methods(
+    ast: &mut Ast,
+    gen_name: &str,
+    class_name: &str,
+    is_async_gen: bool,
+) {
     if let Some(mut info) = ast.gen_env_captures.get(gen_name).cloned() {
         info.class = class_name.to_string();
-        for m in ["next", "return", "throw"] {
+        // D4 — an async generator's machine methods carry the
+        // `__step*` names; the public trio only forwards.
+        let names: [&str; 3] = if is_async_gen {
+            [
+                super::desugar_generators_async::MACHINE_NEXT,
+                super::desugar_generators_async::MACHINE_RETURN,
+                super::desugar_generators_async::MACHINE_THROW,
+            ]
+        } else {
+            ["next", "return", "throw"]
+        };
+        for m in names {
             // The any-receiver twin `desugar_classes` mints for every
             // method (`__cmany_` + the rest of the name) carries the
             // same body and runs when the iterator is reached through

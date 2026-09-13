@@ -190,10 +190,11 @@ pub(super) fn lift(
     prefix: &mut Vec<Stmt>,
     stable: &HashSet<String>,
     log: &mut LiftLog,
+    mark: bool,
 ) {
     if let Some(inner) = await_inner(ast, eid) {
         if expr_has_await(ast, inner) {
-            lift(ast, inner, prefix, stable, log);
+            lift(ast, inner, prefix, stable, log, mark);
         }
         let tmp = format!("__aw_{}", eid.0);
         ast.await_value_reads.remove(&eid);
@@ -201,10 +202,18 @@ pub(super) fn lift(
         if ast.await_yield_values.insert(inner) {
             log.yield_values.push(inner);
         }
+        // D4 mark mode — inside an async GENERATOR the yield carries
+        // an `__AwaitMark` so the driver can tell it from the body's
+        // own yields (`desugar_generators_async`).
+        let value = if mark {
+            super::desugar_generators_async::mint_await_mark(ast, inner)
+        } else {
+            inner
+        };
         prefix.push(Stmt::YieldInto {
             var: tmp.clone(),
             type_ann: Some("any".into()),
-            value: inner,
+            value,
         });
         replace(ast, eid, Expr::Ident(tmp), log);
         return;
@@ -214,7 +223,7 @@ pub(super) fn lift(
         Shape::Ordered(kids) => kids,
         Shape::Guarded(first, _) => {
             if expr_has_await(ast, first) {
-                lift(ast, first, prefix, stable, log);
+                lift(ast, first, prefix, stable, log, mark);
             }
             return;
         }
@@ -227,7 +236,7 @@ pub(super) fn lift(
             break;
         }
         if expr_has_await(ast, *k) {
-            lift(ast, *k, prefix, stable, log);
+            lift(ast, *k, prefix, stable, log, mark);
         }
         if i < last {
             hoist(ast, *k, prefix, stable, log);

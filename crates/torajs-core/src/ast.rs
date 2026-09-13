@@ -99,6 +99,7 @@ mod desugar_eval;
 mod desugar_generators;
 mod desugar_generators_alpha;
 mod desugar_generators_assemble;
+mod desugar_generators_async;
 mod desugar_generators_class;
 mod desugar_generators_field_ann;
 mod desugar_generators_field_ann_builtin;

@@ -2001,6 +2001,7 @@ mod tests {
         __torajs_promise_all_keyed_dyn,
         __torajs_promise_alloc_pending,
         __torajs_microtask_enqueue,
+        __torajs_microtask_run_until_idle,
         __torajs_promise_allsettled_keyed_dyn,
         __torajs_promise_combinator_dyn_c,
         __torajs_promise_allsettled_dyn,

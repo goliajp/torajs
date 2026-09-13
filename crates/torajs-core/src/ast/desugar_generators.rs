@@ -93,6 +93,9 @@ pub fn desugar_generators(ast: &mut Ast) {
     // the claim walk below reads top-level FnDecls only (rationale
     // in the `_lift` sibling's module doc).
     super::desugar_generators_lift::lift_nested_generators(ast);
+    // D4 — async generators: inject the step driver, mark the bodies'
+    // awaits, move the driver (its generator joins the collection).
+    super::desugar_generators_async::prepare(ast);
     let gen_indices = collect_generator_fn_decls(ast);
     if gen_indices.is_empty() {
         return;
@@ -238,20 +241,13 @@ fn desugar_one_generator(
 
     // Class name + struct return type for next().
     let class_name = format!("__Gen_{gen_name}");
-    super::gen_fn_expr::register_gen_env_methods(ast, &gen_name, &class_name);
-    let step_ann = format!("__step_{gen_name}");
-    // Async generator (RFC 20260713 blade 4): the factory itself
-    // stays un-wrapped (parser kept the name out of async_fns —
-    // ag() answers the generator object directly per §27.6), and
-    // the step methods pick up their Promise<__step_*> shape via
-    // the class-method async rewrite: registering the mangled
-    // names here is all desugar_classes_emit needs.
+    // D4 — an async generator's machine is a SYNC one under `__step*`
+    // names (`desugar_generators_async`): the driver does every await,
+    // the factory stays un-wrapped (`ag()` answers the generator object
+    // per §27.6), and the machine yields its operands verbatim.
     let is_async_gen = ast.async_generator_fns.contains(&gen_name);
-    if is_async_gen {
-        for m in ["next", "return", "throw"] {
-            ast.async_fns.insert(format!("__cm_{class_name}__{m}"));
-        }
-    }
+    super::gen_fn_expr::register_gen_env_methods(ast, &gen_name, &class_name, is_async_gen);
+    let step_ann = format!("__step_{gen_name}");
     // Type alias `type __step_<gen> = { value: T, done: boolean }`.
     ast.stmts.push(Stmt::TypeDecl {
         name: step_ann.clone(),
@@ -272,10 +268,7 @@ fn desugar_one_generator(
         crate::ast::sloppy_this_prologue::has_use_strict_directive(&gen_body, &ast.exprs);
     let (next_body, gen_hoisted, has_try_regions, has_finally_ret) =
         crate::ast::desugar_generators_assemble::build_state_machine_next_body(
-            ast,
-            gen_body,
-            &yield_ty,
-            is_async_gen,
+            ast, gen_body, &yield_ty, false,
         );
     // RFC 20260802 — the SM's hoisted catch-param slots become class
     // fields alongside the lifted locals.
@@ -298,7 +291,7 @@ fn desugar_one_generator(
             })
         })],
     };
-    let (mut next_method, return_method, throw_method) = build_iterator_method_trio(
+    let (mut next_method, mut return_method, mut throw_method) = build_iterator_method_trio(
         ast,
         &yield_ty,
         &step_ann,
@@ -306,6 +299,12 @@ fn desugar_one_generator(
         has_try_regions,
         has_finally_ret,
         is_async_gen,
+    );
+    let extra_methods = super::desugar_generators_async::shape_machine(
+        ast,
+        is_async_gen,
+        (&mut next_method, &mut return_method, &mut throw_method),
+        &mut lifted_locals,
     );
     crate::ast::desugar_generators_methods::carry_strictness_to_next(
         ast,
@@ -347,6 +346,7 @@ fn desugar_one_generator(
         next_method,
         return_method,
         throw_method,
+        extra_methods,
         captures_arguments,
         appended,
     );
@@ -388,6 +388,11 @@ fn build_iterator_method_trio(
     has_finally_ret: bool,
     is_async_gen: bool,
 ) -> (ClassMethod, ClassMethod, ClassMethod) {
+    let next_name = if is_async_gen {
+        super::desugar_generators_async::MACHINE_NEXT
+    } else {
+        "next"
+    };
     let yield_arg_default_id = ast.add_expr(
         crate::ast::desugar_generators_methods::yield_arg_undefined(yield_ty),
     );
@@ -403,13 +408,15 @@ fn build_iterator_method_trio(
         yield_ty,
         step_ann,
         has_finally_ret,
-        is_async_gen,
+        false,
+        next_name,
     );
     let throw_method = crate::ast::desugar_generators_methods::build_throw_method(
         ast,
         yield_ty,
         step_ann,
         has_try_regions,
+        next_name,
     );
     (next_method, return_method, throw_method)
 }

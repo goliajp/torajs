@@ -41,7 +41,12 @@ unsafe extern "C" {
     /// torajs-throw — non-zero iff a throw is in flight (a rejected
     /// promise routed through the await hook's throw slot).
     fn __torajs_throw_check() -> i64;
+    /// torajs-microtask — drain to empty (the sync-resolve model's
+    /// await).
+    fn __torajs_microtask_run_until_idle();
 }
+
+use crate::promise_with_resolvers::{P_STATE_OFF, STATE_PENDING};
 
 /// Whether the box holds a heap Promise cell.
 ///
@@ -67,6 +72,15 @@ pub(crate) unsafe fn await_settle(slot: &mut AnyValue) -> bool {
     unsafe {
         if !is_promise_cell(*slot) {
             return false;
+        }
+        // D4 — an async generator's step promise is settled by the
+        // driver's microtasks, which were queued by the `next()` call
+        // itself, AFTER the lower's pre-step drain. Under the sync-
+        // resolve model a pending cell reads as undefined, so drain
+        // once more before the read — the same drain-then-read the
+        // typed await route performs.
+        if as_void_ptr(*slot).cast::<u8>().add(P_STATE_OFF).read() == STATE_PENDING {
+            __torajs_microtask_run_until_idle();
         }
         let settled = __torajs_anyv_await(*slot);
         __torajs_anyv_rc_dec(*slot);

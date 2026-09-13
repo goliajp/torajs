@@ -37,6 +37,7 @@ pub(super) fn assemble_generator_class_and_factory(
     next_method: ClassMethod,
     return_method: ClassMethod,
     throw_method: ClassMethod,
+    extra_methods: Vec<ClassMethod>,
     captures_arguments: bool,
     appended: &mut Vec<Stmt>,
 ) {
@@ -170,7 +171,10 @@ pub(super) fn assemble_generator_class_and_factory(
         fields: class_fields,
         static_init: Vec::new(),
         ctor: Some(ctor_with_params),
-        methods: vec![next_method, return_method, throw_method, self_iter_method],
+        methods: [next_method, return_method, throw_method, self_iter_method]
+            .into_iter()
+            .chain(extra_methods)
+            .collect(),
         static_methods: Vec::new(),
     });
 

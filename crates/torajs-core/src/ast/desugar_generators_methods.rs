@@ -45,12 +45,12 @@ fn emit_close_state(ast: &mut Ast) -> Stmt {
 /// unpadded: "expected 1 argument(s), got 0", reported against a call
 /// the compiler wrote itself. The value handed over is identical
 /// either way; what goes away is the dependency on a global table.
-fn emit_self_next_call(ast: &mut Ast, yield_ty: &str) -> ExprId {
+fn emit_self_next_call(ast: &mut Ast, yield_ty: &str, next_name: &str) -> ExprId {
     let arg = ast.add_expr(yield_arg_undefined(yield_ty));
     let this_recv = ast.add_expr(Expr::This);
     let next_callee = ast.add_expr(Expr::Member {
         obj: this_recv,
-        name: "next".into(),
+        name: next_name.into(),
     });
     ast.add_expr(Expr::Call {
         callee: next_callee,
@@ -82,6 +82,7 @@ pub(super) fn build_return_method(
     step_ann: &str,
     has_finally_ret: bool,
     is_async_gen: bool,
+    next_name: &str,
 ) -> ClassMethod {
     let val_param = Param {
         name: RET_VAL_PARAM.into(),
@@ -131,7 +132,7 @@ pub(super) fn build_return_method(
             target: pending,
             value: true_lit,
         });
-        let call = emit_self_next_call(ast, yield_ty);
+        let call = emit_self_next_call(ast, yield_ty, next_name);
         vec![Stmt::Expr(stash), Stmt::Expr(arm), Stmt::Return(Some(call))]
     } else {
         let close_stmt = emit_close_state(ast);
@@ -179,6 +180,7 @@ pub(super) fn build_throw_method(
     yield_ty: &str,
     step_ann: &str,
     has_try_regions: bool,
+    next_name: &str,
 ) -> ClassMethod {
     let err_param = Param {
         name: THROW_ERR_PARAM.into(),
@@ -207,7 +209,7 @@ pub(super) fn build_throw_method(
             target: inj,
             value: true_lit,
         });
-        let call = emit_self_next_call(ast, yield_ty);
+        let call = emit_self_next_call(ast, yield_ty, next_name);
         vec![Stmt::Expr(stash), Stmt::Expr(arm), Stmt::Return(Some(call))]
     } else {
         let close_stmt = emit_close_state(ast);
