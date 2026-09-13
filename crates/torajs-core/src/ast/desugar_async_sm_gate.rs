@@ -14,6 +14,8 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 ///   it) — the wrapper forwards declared parameters only, so
 ///   `arguments[2]` of a call with three arguments would be gone;
 /// - `new.target` — the generator is called plainly;
+/// - a dynamic `import()` — the imported module's top-level await
+///   and the driver's resumption do not agree yet (642-15);
 /// - `for await` and `await using` — their suspend points are inside
 ///   the iteration / disposal protocol, not at a statement the
 ///   `Stmt::Yield` rewrite can reach (blades 4 / 5). `await using`
@@ -117,6 +119,16 @@ fn stmt_blocks_move(ast: &Ast, s: &Stmt, this_read: ThisRead) -> bool {
 fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
     match ast.get_expr(eid) {
         Expr::Ident(n) if n == "arguments" || n.starts_with("__usenv_") => true,
+        // A dynamic `import()` (the parser spells it as a call of
+        // `__torajs_dyn_import`) — the imported module's own
+        // top-level await and the driver's resumption have not been
+        // made to agree: a body that suspended before a module it
+        // imported reached its `await` never resumed
+        // (`top-level-await/dynamic-import-of-waiting-module`, the
+        // one pass regression left of blade 2's landing). The
+        // synchronous lowering keeps that case right; the module
+        // scheduling is registered (642-15).
+        Expr::Ident(n) if n == "__torajs_dyn_import" => true,
         Expr::NewTarget => true,
         Expr::This => this_read == ThisRead::Blocks,
         // The `__this` the fn-expr receiver channel hands a function
