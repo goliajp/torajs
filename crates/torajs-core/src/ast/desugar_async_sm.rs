@@ -385,6 +385,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt) -> bool {
             ..
         } => {
             if let Some(inner) = await_inner(ast, *init) {
+                ast.await_yield_values.insert(inner);
                 *s = Stmt::YieldInto {
                     var: name.clone(),
                     type_ann: type_ann.clone(),

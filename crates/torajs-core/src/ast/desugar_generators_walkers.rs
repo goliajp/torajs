@@ -78,6 +78,12 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
                 obj: this_id,
                 name: "__sent".into(),
             });
+            // A yield the async rewrite made of `let v = await e`: the
+            // sent value IS `e`'s settled value, so the width analysis
+            // reads this init as `e.value` (`yield_into_await_origins`).
+            if ast.await_yield_values.contains(&value) {
+                ast.yield_into_await_origins.insert(sent_member, value);
+            }
             let let_stmt = Stmt::LetDecl {
                 mutable: true,
                 name: var,

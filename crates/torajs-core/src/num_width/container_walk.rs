@@ -76,6 +76,16 @@ impl<'a> Analysis<'a> {
                 None
             }
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
+                // The `this.__sent` an async body's `let v = await e`
+                // became after the move is `e`'s settled value — read
+                // it as `e.value`, the promise's value point, or the
+                // binding sits in a class of its own and an array it
+                // received reads back at the literal's width
+                // (`arr-promise-elem-width-001`, un-moved until now).
+                if let Some(origin) = self.ast.yield_into_await_origins.get(&eid).copied() {
+                    let base = self.container_key_of(origin, scope)?;
+                    return Some(SlotKey::Field(Box::new(base), "value".into()));
+                }
                 let base = self.container_key_of(*obj, scope)?;
                 Some(SlotKey::Field(Box::new(base), PropKey::from(name)))
             }

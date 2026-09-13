@@ -24,6 +24,11 @@ impl<'a> Analysis<'a> {
                 None
             }
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
+                // Mirror of the walk's await-origin arm.
+                if let Some(origin) = self.ast.yield_into_await_origins.get(&eid).copied() {
+                    let base = self.container_key_lookup(origin, scope)?;
+                    return Some(SlotKey::Field(Box::new(base), "value".into()));
+                }
                 let base = self.container_key_lookup(*obj, scope)?;
                 Some(SlotKey::Field(Box::new(base), PropKey::from(name)))
             }

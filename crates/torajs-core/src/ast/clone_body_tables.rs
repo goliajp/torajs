@@ -87,6 +87,15 @@ pub(crate) fn migrate(cloner: &mut BodyCloner<'_>) {
     copy_set!(fnexpr_recv_faces);
     copy_set!(async_fn_value_exprs);
     copy_set!(async_sm_value_exprs);
+    copy_set!(await_yield_values);
+    // The value names another expr of the same body: a cloned origin
+    // gets the clone's id, one outside the clone keeps its own.
+    for (old, new) in &pairs {
+        if let Some(origin) = cloner.ast.yield_into_await_origins.get(old).copied() {
+            let origin = cloner.map.get(&origin).copied().unwrap_or(origin);
+            cloner.ast.yield_into_await_origins.insert(*new, origin);
+        }
+    }
     copy_set!(stack_array_literals);
     copy_set!(regex_result_props_unread);
 }

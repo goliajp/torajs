@@ -22,12 +22,11 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 ///   that environment's name; a body carrying one still keeps the
 ///   synchronous lowering (`using-await-001`: the SuppressedError
 ///   path through the generator's finally answered a TypeError);
-/// - `let xs: T[] = await e` — an array-annotated await binding. The
-///   synchronous lowering lets num_width tie the awaited literal's
-///   element width to the binding's writes; through `yield` that
-///   link is cut and `xs[0] = 1.5` on an int-born array is refused
-///   (`arr-promise-elem-width-001`). Registered follow-up: tag the
-///   YieldInto with its await origin and let num_width follow it.
+/// (`let xs: T[] = await e` used to be listed here: through `yield`
+/// the width analysis lost the link between the binding and the
+/// awaited literal. The expansion now records the `this.__sent` init's
+/// await origin — `Ast::yield_into_await_origins` — and the analysis
+/// reads it as `e.value`, so the binding moves like any other.)
 ///
 /// - `this` in a plain async function (arrows included, they inherit
 ///   it) — the generator is called plainly by the driver's thunk, so
@@ -105,16 +104,6 @@ fn stmt_blocks_move(ast: &Ast, s: &Stmt, this_read: ThisRead) -> bool {
         s,
         Stmt::ForOf { is_await: true, .. } | Stmt::UsingDecl { is_await: true, .. }
     ) {
-        return true;
-    }
-    if let Stmt::LetDecl {
-        type_ann: Some(ann),
-        init,
-        ..
-    } = s
-        && ast.await_value_reads.contains(init)
-        && (ann.ends_with("[]") || ann.starts_with("Array<"))
-    {
         return true;
     }
     walk::stmt_exprs(s)

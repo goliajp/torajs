@@ -1062,6 +1062,18 @@ pub struct Ast {
     /// stays, this set only tells `desugar_async`'s value lane to leave
     /// the wrapper's `return __async_drive(...)` alone.
     pub async_sm_value_exprs: std::collections::HashSet<ExprId>,
+    /// The promise expressions the async rewrite put under a
+    /// `YieldInto` (`let v = await e` → `let v = yield e`): the
+    /// generator yields `e` to the driver, which awaits it and sends
+    /// the settled value back through `this.__sent`. The expansion
+    /// reads this set to tell such a yield from a user-written one.
+    pub await_yield_values: std::collections::HashSet<ExprId>,
+    /// The `this.__sent` init the expansion minted for one of those →
+    /// the promise expression it carries the settled value of. The
+    /// width analysis reads the init as `e.value` — the promise's
+    /// value point — so the binding stays in one width class with what
+    /// resolved it, exactly as `let v = await e` does un-moved.
+    pub yield_into_await_origins: std::collections::HashMap<ExprId, ExprId>,
     /// Expression-position `yield*` done-value routing (§27.5.3.2:
     /// the YieldExpression's value is the inner iterator's final
     /// `.value`). The parser hoists `v = yield* src` into a mutable
