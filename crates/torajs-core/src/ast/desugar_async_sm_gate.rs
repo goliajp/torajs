@@ -130,6 +130,9 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
         Expr::Ident(n) if n == "arguments" || n.starts_with("__usenv_") => true,
         Expr::NewTarget => true,
         Expr::This => this_read == ThisRead::Blocks,
+        // The `__this` the fn-expr receiver channel hands a function
+        // EXPRESSION is its `this` under another name.
+        Expr::Ident(n) if n == "__this" => this_read == ThisRead::Blocks,
         // An arrow's `arguments` / `new.target` / `this` are the
         // enclosing function's, so its body is scanned too — but a
         // nested `FnDecl` is its own function and `stmt_children_ref`
@@ -138,5 +141,40 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
         _ => walk::expr_children(ast, eid)
             .into_iter()
             .any(|c| expr_blocks_move(ast, c, this_read)),
+    }
+}
+
+/// Does the body declare a function or a class anywhere (a nested
+/// `FnDecl`, a class declaration — a class EXPRESSION is one by this
+/// point, `__ClassExpr_<id>`), arrows' bodies included? Blade 2 hoists
+/// a value's generator through `hoist_gen_fn_exprs`, whose capture
+/// policy snapshots the enclosing locals for the generator alone: a
+/// nested declaration that reads them is left with no binding
+/// (`unknown identifier`), and a class declaration lifted as a
+/// generator field is registered twice (`declares field __ClassExpr_6
+/// twice`). A declaration's own body is not scanned — it is its own
+/// function.
+pub(super) fn declares_fn_or_class(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_declares(ast, s))
+}
+
+fn stmt_declares(ast: &Ast, s: &Stmt) -> bool {
+    if matches!(s, Stmt::FnDecl { .. } | Stmt::ClassDecl { .. }) {
+        return true;
+    }
+    walk::stmt_exprs(s)
+        .into_iter()
+        .any(|e| expr_declares(ast, e))
+        || walk::stmt_children_ref(s)
+            .into_iter()
+            .any(|c| stmt_declares(ast, c))
+}
+
+fn expr_declares(ast: &Ast, eid: ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_declares(ast, s)),
+        _ => walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| expr_declares(ast, c)),
     }
 }

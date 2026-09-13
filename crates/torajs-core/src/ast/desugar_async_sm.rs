@@ -97,7 +97,7 @@ function __async_drive(__mk: any): Promise<any> {
 "#;
 
 pub fn desugar_async_state_machine(ast: &mut Ast) {
-    if ast.async_fns.is_empty() {
+    if ast.async_fns.is_empty() && ast.async_fn_value_exprs.is_empty() {
         return;
     }
     // Snapshot by index so `ast.stmts` can be rebuilt in place. Async
@@ -186,7 +186,10 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
     // Blade 3 — async methods, before `desugar_classes` turns them into
     // `__cm_` FnDecls.
     let moved_methods = super::desugar_async_sm_methods::rewrite_async_methods(ast);
-    if generators.is_empty() && !moved_methods {
+    // Blade 2 — the value shapes, before the hoist that lifts the
+    // generator expressions this mints.
+    let moved_values = super::desugar_async_sm_values::rewrite_async_fn_values(ast);
+    if generators.is_empty() && !moved_methods && !moved_values {
         return;
     }
     ast.stmts.extend(generators);
@@ -217,7 +220,9 @@ fn build_drive_call(ast: &mut Ast, gen_name: &str, params: &[Param]) -> ExprId {
 
 /// The same call with the generator given as an expression — the
 /// method rewrite hands its receiver-first parameter list and the
-/// generator's name.
+/// generator's name; the value rewrite hands its generator
+/// EXPRESSION's slot (which the hoist later turns into a name or a
+/// wrapper closure).
 pub(super) fn build_drive_call_to(ast: &mut Ast, gen_ident: ExprId, params: &[Param]) -> ExprId {
     let args: Vec<ExprId> = params
         .iter()
