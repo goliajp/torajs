@@ -244,6 +244,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // one run moves it (a second run from inside `desugar_generators`
     // moved async values whose nested generators had just been lifted
     // out, past the hoist — `desugar_generators_async`).
+    // A `function` declared directly in an async body becomes a function
+    // value bound at the body's top, so the moved body declares nothing
+    // (a nested declaration cannot see the machine's fields; a value
+    // captures them) — `desugar_async_nested_fns`.
+    ast::desugar_async_nested_fns(ast);
     ast::inject_async_generator_driver(ast);
     ast::desugar_async_state_machine(ast);
     ast::hoist_gen_fn_exprs(ast);
