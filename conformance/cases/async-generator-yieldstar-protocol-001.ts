@@ -554,6 +554,11 @@ async function* gen5() {
 
 async function* inner6() { try { yield 1; yield 2; } finally { console.log("inner-fin"); } }
 async function* gen6() { try { const r: any = yield* inner6(); console.log("after", r); } finally { console.log("outer-fin"); } }
+const reason7 = { why: "value getter" };
+const obj7: any = { [Symbol.asyncIterator]() { return { next() { return { done: true, get value() { throw reason7; } }; } }; } };
+async function* gen7() { yield* obj7; console.log("not reached 7"); }
+const obj8: any = { [Symbol.asyncIterator]() { return { next() { return { done: false, get value() { throw reason7; } }; } }; } };
+async function* gen8() { yield* obj8; console.log("not reached 8"); }
 async function main() {
   let it: any = gen1();
   let v: any = await it.next("next-arg-1"); dump("async-next s1", log1); console.log("v1", v.value, v.done);
@@ -578,5 +583,11 @@ async function main() {
   it = gen6();
   await it.next();
   console.log("thr", await it.throw(new Error("x")).then((r: any) => JSON.stringify(r), (e: any) => "rej:" + e.message));
+  it = gen7();
+  console.log("done-getter", await it.next().then(() => "fulfilled", (e: any) => "rej same:" + (e === reason7)));
+  console.log("done-getter after", JSON.stringify(await it.next()));
+  it = gen8();
+  console.log("notdone-getter", await it.next().then(() => "fulfilled", (e: any) => "rej same:" + (e === reason7)));
+  console.log("notdone-getter after", JSON.stringify(await it.next()));
 }
 main();

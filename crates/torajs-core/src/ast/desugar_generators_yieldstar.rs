@@ -26,9 +26,10 @@
 //!   }
 //!   let __gfstep_N: any = yield new __AwaitMark(__agen_delegate_call(__gfit_N, __ysf_N, __ysr_N, __ysk_N, __gfam_N));
 //!   if (!(__gfstep_N is an object)) throw new TypeError(…);
-//!   if (__gfstep_N.done) { if (__ysk_N === 2) return __gfstep_N.value; [<done target> = __gfstep_N.value;] break; }
+//!   if (__gfstep_N.done) { if (__ysk_N === 2) return __gfstep_N.value; <done target | a discarded local> = __gfstep_N.value; break; }
 //!   __ysk_N = 0;
-//!   try { yield __gfstep_N.value; __ysr_N = this.__sent; if (this.__ysret) { this.__ysret = false; __ysk_N = 2; } }
+//!   const __ysv_N = __gfstep_N.value;   // IteratorValue: a throwing getter is the body's throw
+//!   try { yield __ysv_N; __ysr_N = this.__sent; if (this.__ysret) { this.__ysret = false; __ysk_N = 2; } }
 //!   catch (__yse_N) { __ysk_N = 1; __ysr_N = __yse_N; }
 //! }
 //! (the loop sits in `this.__ysact = true; try { … } finally { this.__ysact = false; }`)
@@ -296,14 +297,22 @@ fn delegation_loop_body(ast: &mut Ast, names: &Names) -> Vec<Stmt> {
         then_branch: Box::new(Stmt::Return(Some(ret_value))),
         else_branch: None,
     }];
-    if let Some(target) = ast.yieldstar_done_targets.get(var_name).cloned() {
-        let final_value = member(ast, step, "value");
-        let target_ref = ident(ast, &target);
-        let assign = ast.add_expr(Expr::Assign {
-            target: target_ref,
-            value: final_value,
-        });
-        done_stmts.push(Stmt::Expr(assign));
+    // §27.5.3.2 7.a.vii — `IteratorValue(innerResult)` on a done step
+    // runs the `value` getter whether or not anything receives it
+    // (`yield-star-next-call-value-get-abrupt`: the getter throws and
+    // that throw completes the generator); a statement-position
+    // delegation reads it into a discarded local.
+    let final_value = member(ast, step, "value");
+    match ast.yieldstar_done_targets.get(var_name).cloned() {
+        Some(target) => {
+            let target_ref = ident(ast, &target);
+            let assign = ast.add_expr(Expr::Assign {
+                target: target_ref,
+                value: final_value,
+            });
+            done_stmts.push(Stmt::Expr(assign));
+        }
+        None => done_stmts.push(let_any(&format!("__ysdv_{n}"), final_value)),
     }
     done_stmts.push(Stmt::Break(None));
     body.push(Stmt::If {
@@ -313,9 +322,15 @@ fn delegation_loop_body(ast: &mut Ast, names: &Names) -> Vec<Stmt> {
     });
     let zero2 = ast.add_expr(Expr::Number(0.0));
     body.push(assign_stmt(ast, kind, zero2));
-    // try { yield step.value; __ysr = this.__sent; if (this.__ysret) { this.__ysret = false; __ysk = 2; } }
+    // const __ysv = step.value;   (§27.6.3.9 IteratorValue — a throwing
+    // `value` getter is the body's own throw, OUTSIDE the try below,
+    // which catches only a throw resumption at the yield)
+    // try { yield __ysv; __ysr = this.__sent; if (this.__ysret) { this.__ysret = false; __ysk = 2; } }
     // catch (__yse) { __ysk = 1; __ysr = __yse; }
-    let value_read = member(ast, step, "value");
+    let value_tmp = format!("__ysv_{n}");
+    let value_read0 = member(ast, step, "value");
+    body.push(let_any(&value_tmp, value_read0));
+    let value_read = ident(ast, &value_tmp);
     let this_id = ast.add_expr(Expr::This);
     let sent = ast.add_expr(Expr::Member {
         obj: this_id,
