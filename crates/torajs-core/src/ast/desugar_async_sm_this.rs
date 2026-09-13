@@ -31,6 +31,33 @@ pub(super) fn owns_this(ast: &Ast, eid: ExprId) -> bool {
     ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid)
 }
 
+/// Does the body read its own `this` anywhere — through arrows, not
+/// into a nested function (`stmt_children_ref` stops at a `FnDecl`,
+/// [`owns_this`] stops at an expression that binds its own)?
+pub(super) fn reads_this(ast: &Ast, body: &[Stmt]) -> bool {
+    body.iter().any(|s| stmt_reads_this(ast, s))
+}
+
+fn stmt_reads_this(ast: &Ast, s: &Stmt) -> bool {
+    walk::stmt_exprs(s)
+        .into_iter()
+        .any(|e| expr_reads_this(ast, e))
+        || walk::stmt_children_ref(s)
+            .into_iter()
+            .any(|c| stmt_reads_this(ast, c))
+}
+
+fn expr_reads_this(ast: &Ast, eid: ExprId) -> bool {
+    match ast.get_expr(eid) {
+        Expr::This => true,
+        Expr::ArrowFn { .. } if owns_this(ast, eid) => false,
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_reads_this(ast, s)),
+        _ => walk::expr_children(ast, eid)
+            .into_iter()
+            .any(|c| expr_reads_this(ast, c)),
+    }
+}
+
 /// `this` → `Ident(recv)` across the body's own `this` reads: through
 /// arrows, not into a nested `FnDecl` (`stmt_children_ref` stops at
 /// it) nor into an expression that binds its own ([`owns_this`]).

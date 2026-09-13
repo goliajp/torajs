@@ -30,13 +30,12 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// await origin — `Ast::yield_into_await_origins` — and the analysis
 /// reads it as `e.value`, so the binding moves like any other.)
 ///
-/// - `this` in a plain async function (arrows included, they inherit
-///   it) — the generator is called plainly by the driver's thunk, so
-///   a receiver passed with `.call` or the sloppy global `this` would
-///   be lost (test262 `async-function/evaluation-this-value-*`,
-///   `dynamic-import/assignment-expression/this`). A method's `this`
-///   is rewritten to the `__genrecv` channel before the move and is
-///   not a reason to refuse ([`ThisRead::Rewritten`]);
+/// (`this` used to be listed here for a declaration and a value: the
+/// generator is called plainly by the driver's thunk. Every blade now
+/// rewrites the body's own `this` to the generator's leading receiver
+/// parameter and hands the wrapper's `this` in — `desugar_async_sm_
+/// this` — so a `.call` receiver, the sloppy global object and an
+/// arrow's lexical `this` all arrive.)
 /// - a body with no await at all — there is no suspend point to gain,
 ///   and moving it still reorders the microtask the driver's promise
 ///   settles on against the caller's (`async-disposable-stack-dispose-
@@ -47,21 +46,12 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// which is never worse than today; moving it would be wrong.
 /// (Parameter defaults and rest parameters used to be listed here;
 /// `wrapper_params` and the driver's thunk own them now.)
-pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt], this_read: ThisRead) -> bool {
+pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
     params.iter().any(|p| typed_default_param(p, ast))
         || !body
             .iter()
             .any(|s| super::desugar_async_sm::stmt_has_await(ast, s))
-        || body.iter().any(|s| stmt_blocks_move(ast, s, this_read))
-}
-
-/// What a `this` inside the body means for the move.
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum ThisRead {
-    /// A plain function's `this` has no channel to the generator.
-    Blocks,
-    /// A method's `this` becomes `__genrecv` before the move.
-    Rewritten,
+        || body.iter().any(|s| stmt_blocks_move(ast, s))
 }
 
 /// A defaulted parameter that is not spelled `any`. The wrapper
@@ -101,7 +91,7 @@ fn typed_default_param(p: &Param, ast: &Ast) -> bool {
     }
 }
 
-fn stmt_blocks_move(ast: &Ast, s: &Stmt, this_read: ThisRead) -> bool {
+fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {
     if matches!(
         s,
         Stmt::ForOf { is_await: true, .. } | Stmt::UsingDecl { is_await: true, .. }
@@ -110,13 +100,13 @@ fn stmt_blocks_move(ast: &Ast, s: &Stmt, this_read: ThisRead) -> bool {
     }
     walk::stmt_exprs(s)
         .into_iter()
-        .any(|e| expr_blocks_move(ast, e, this_read))
+        .any(|e| expr_blocks_move(ast, e))
         || walk::stmt_children_ref(s)
             .into_iter()
-            .any(|c| stmt_blocks_move(ast, c, this_read))
+            .any(|c| stmt_blocks_move(ast, c))
 }
 
-fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
+fn expr_blocks_move(ast: &Ast, eid: ExprId) -> bool {
     match ast.get_expr(eid) {
         Expr::Ident(n) if n == "arguments" || n.starts_with("__usenv_") => true,
         // A dynamic `import()` (the parser spells it as a call of
@@ -130,10 +120,6 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
         // scheduling is registered (642-15).
         Expr::Ident(n) if n == "__torajs_dyn_import" => true,
         Expr::NewTarget => true,
-        Expr::This => this_read == ThisRead::Blocks,
-        // The `__this` the fn-expr receiver channel hands a function
-        // EXPRESSION is its `this` under another name.
-        Expr::Ident(n) if n == "__this" => this_read == ThisRead::Blocks,
         // A function expression / object-literal method is its own
         // function: its `arguments`, `new.target` and `this` are not
         // the body's, and its awaits are its own (`desugar_async_sm_
@@ -143,10 +129,10 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
         // enclosing function's, so its body is scanned too — but a
         // nested `FnDecl` is its own function and `stmt_children_ref`
         // stops at it.
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s, this_read)),
+        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s)),
         _ => walk::expr_children(ast, eid)
             .into_iter()
-            .any(|c| expr_blocks_move(ast, c, this_read)),
+            .any(|c| expr_blocks_move(ast, c)),
     }
 }
 

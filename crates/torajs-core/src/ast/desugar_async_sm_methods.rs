@@ -23,11 +23,11 @@
 //! every shape the declaration gate refuses.
 
 use super::desugar_async_sm::{
-    build_drive_call_to, generator_params, rewrite_body, wrapper_params,
+    recv_generator_params, recv_wrapper_body, rewrite_body, wrapper_params,
 };
-use super::desugar_async_sm_gate::{ThisRead, blocks_move};
+use super::desugar_async_sm_gate::blocks_move;
 use super::desugar_with::walk;
-use super::{Ast, ClassMethod, Expr, ExprId, GEN_RECV_PARAM, Param, Stmt, mangle_key};
+use super::{Ast, ClassMethod, Expr, ExprId, GEN_RECV_PARAM, Stmt, mangle_key};
 
 /// Rewrite every movable async method. Answers whether any moved.
 pub(super) fn rewrite_async_methods(ast: &mut Ast) -> bool {
@@ -115,7 +115,7 @@ fn movable(ast: &Ast, m: &ClassMethod) -> bool {
         && !m.params.iter().any(|p| p.name.starts_with("__"))
         // the parser spells `#m` as `__priv_<C>__m` (parse_class_decl_member)
         && !m.name.lossy().starts_with("__priv_")
-        && !blocks_move(ast, &m.params, &m.body, ThisRead::Rewritten)
+        && !blocks_move(ast, &m.params, &m.body)
         && !m.body.iter().any(|s| stmt_has_super_or_private(ast, s))
 }
 
@@ -158,23 +158,10 @@ fn move_method(
     }
     super::desugar_async_sm_this::rewrite_this(ast, &moved, GEN_RECV_PARAM);
     let gen_name = format!("__async_gen__{}", &mangled["__cm_".len()..]);
-    let mut gen_params = vec![Param {
-        name: GEN_RECV_PARAM.into(),
-        // `any` for both: a static body's `this` is the class object,
-        // and an instance receiver typed as its class made every moved
-        // instance method SIGSEGV at run time (the parser's generator
-        // methods type it by the class only when the body reads it,
-        // and that path carries more than this pass mirrors). The
-        // body's field reads take the any lane.
-        type_ann: Some("any".into()),
-        default: None,
-        is_rest: false,
-    }];
-    gen_params.extend(generator_params(&m.params));
     let generator = Stmt::FnDecl {
         name: gen_name.clone(),
         type_params: Vec::new(),
-        params: gen_params,
+        params: recv_generator_params(&m.params, GEN_RECV_PARAM),
         return_type: Some("any".into()),
         body: moved,
         is_generator: true,
@@ -187,25 +174,7 @@ fn move_method(
     if is_static {
         ast.static_this_sites.insert(this_eid, cname.to_string());
     }
-    let mut recv_first: Vec<Param> = vec![Param {
-        name: "__async_recv".into(),
-        type_ann: None,
-        default: None,
-        is_rest: false,
-    }];
-    recv_first.extend(m.params.iter().cloned());
-    let drive = build_drive_call_to(ast, gen_ident, &recv_first);
-    // The thunk names `__async_recv`; bind it to `this` right before.
-    let body = vec![
-        Stmt::LetDecl {
-            mutable: false,
-            name: "__async_recv".into(),
-            type_ann: Some("any".into()),
-            init: this_eid,
-            is_var: false,
-        },
-        Stmt::Return(Some(drive)),
-    ];
+    let body = recv_wrapper_body(ast, gen_ident, &m.params, this_eid);
     let forwarder = ClassMethod {
         name: m.name.clone(),
         type_params: Vec::new(),

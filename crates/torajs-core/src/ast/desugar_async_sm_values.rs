@@ -13,23 +13,36 @@
 //! <generator>(params))`, an ordinary arrow `lift_arrow_fns` gives an
 //! env. This pass therefore runs BEFORE the hoist.
 //!
+//! A body that reads `this` moves the way a declaration's does
+//! (`desugar_async_sm_this`): the generator takes the receiver as its
+//! leading parameter and the wrapper hands its own `this` in — an
+//! arrow's lexical one, or a function expression's call-site one,
+//! each bound afterwards exactly as the unmoved body's would have
+//! been. The parameter is `__asyncrecv`, not `__genrecv`: the hoist
+//! reads a leading `__genrecv` as the fn-expr receiver-seeding channel
+//! (r295) and refuses it beside captures, while this receiver is an
+//! ordinary argument the wrapper passes.
+//!
 //! Not moved yet, each keeping today's synchronous lowering: a body
-//! that reads `this` (an arrow's `this` is lexical, a hoisted
-//! generator's is its own — RFC 20260717's fn-expr receiver channel
-//! and the generator hoist would have to agree first; `ThisRead::
-//! Blocks`); a body declaring a function or a class (the hoist's
-//! capture snapshot does not reach a nested declaration, and a class
-//! lifted as a generator field registers twice — rotation 641's two
-//! red shapes, `declares_fn_or_class`); a parameter the parser
-//! synthesized (destructuring prefix — the hoist re-registers that
-//! count for declared generators only); and everything the decl gate
-//! refuses (`desugar_async_sm_gate`).
+//! declaring a function or a class (the hoist's capture snapshot does
+//! not reach a nested declaration, and a class lifted as a generator
+//! field registers twice — rotation 641's two red shapes,
+//! `declares_fn_or_class`); a parameter the parser synthesized
+//! (destructuring prefix — the hoist re-registers that count for
+//! declared generators only); and everything the decl gate refuses
+//! (`desugar_async_sm_gate`).
 
 use super::desugar_async_sm::{
-    build_drive_call_to, generator_params, rewrite_body, wrapper_params,
+    build_drive_call_to, generator_params, recv_generator_params, recv_wrapper_body, rewrite_body,
+    wrapper_params,
 };
-use super::desugar_async_sm_gate::{ThisRead, blocks_move, declares_fn_or_class};
+use super::desugar_async_sm_gate::{blocks_move, declares_fn_or_class};
+use super::desugar_async_sm_this::{reads_this, rewrite_this};
 use super::{Ast, Expr, ExprId, GenFnExprInfo, GenFnExprKind, Stmt};
+
+/// The moved value's receiver parameter (module doc: why not
+/// `__genrecv`).
+const VALUE_RECV_PARAM: &str = "__asyncrecv";
 
 /// Rewrite every movable async function value. Answers whether any
 /// moved, so the caller injects the driver.
@@ -48,7 +61,7 @@ pub(super) fn rewrite_async_fn_values(ast: &mut Ast) -> bool {
             continue;
         };
         if params.iter().any(|p| p.name.starts_with("__"))
-            || blocks_move(ast, &params, &body, ThisRead::Blocks)
+            || blocks_move(ast, &params, &body)
             || declares_fn_or_class(ast, &body)
         {
             continue;
@@ -57,8 +70,15 @@ pub(super) fn rewrite_async_fn_values(ast: &mut Ast) -> bool {
         if !rewrite_body(ast, &mut moved) {
             continue;
         }
+        let takes_recv = reads_this(ast, &moved);
+        let gen_params = if takes_recv {
+            rewrite_this(ast, &moved, VALUE_RECV_PARAM);
+            recv_generator_params(&params, VALUE_RECV_PARAM)
+        } else {
+            generator_params(&params)
+        };
         let generator = ast.add_expr(Expr::ArrowFn {
-            params: generator_params(&params),
+            params: gen_params,
             // P10.7 default-Any generator, as for a moved declaration.
             return_type: Some("any".into()),
             body: moved,
@@ -70,12 +90,18 @@ pub(super) fn rewrite_async_fn_values(ast: &mut Ast) -> bool {
                 destr_prefix: 0,
             },
         );
-        let drive = build_drive_call_to(ast, generator, &params);
+        let body = if takes_recv {
+            let this_eid = ast.add_expr(Expr::This);
+            recv_wrapper_body(ast, generator, &params, this_eid)
+        } else {
+            let drive = build_drive_call_to(ast, generator, &params);
+            vec![Stmt::Return(Some(drive))]
+        };
         let wrapper_params = wrapper_params(ast, &params);
         ast.exprs[eid.0 as usize] = Expr::ArrowFn {
             params: wrapper_params,
             return_type: Some("Promise<any>".into()),
-            body: vec![Stmt::Return(Some(drive))],
+            body,
         };
         // The mark STAYS in `async_fn_value_exprs` (the lifted closure's
         // %AsyncFunction% flavour, the §15.8.4 param-throw posture);

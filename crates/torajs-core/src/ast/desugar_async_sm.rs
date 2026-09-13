@@ -34,7 +34,7 @@
 //! check is conservative in the safe direction (an await this pass
 //! cannot place blocks the move rather than being silently dropped).
 
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::{Ast, Expr, ExprId, GEN_RECV_PARAM, Param, Stmt};
 
 pub(super) use super::desugar_async_sm_rewrite::rewrite_body;
 
@@ -135,23 +135,31 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
         else {
             continue;
         };
-        if super::desugar_async_sm_gate::blocks_move(
-            ast,
-            &params,
-            &body,
-            super::desugar_async_sm_gate::ThisRead::Blocks,
-        ) {
+        if super::desugar_async_sm_gate::blocks_move(ast, &params, &body) {
             continue;
         }
         let mut moved = body.clone();
         if !rewrite_body(ast, &mut moved) {
             continue;
         }
+        // A body reading its `this` takes it as the generator's leading
+        // parameter, handed in by the wrapper's own `this` — bound by
+        // `bind_this_param` as the unmoved body's would have been (a
+        // `.call` receiver, the sloppy global object, strict
+        // `undefined`); `desugar_async_sm_this` says why it cannot stay
+        // `Expr::This`.
+        let reads_this = super::desugar_async_sm_this::reads_this(ast, &moved);
+        let gen_params = if reads_this {
+            super::desugar_async_sm_this::rewrite_this(ast, &moved, GEN_RECV_PARAM);
+            recv_generator_params(&params, GEN_RECV_PARAM)
+        } else {
+            generator_params(&params)
+        };
         let gen_name = format!("{GEN_PREFIX}{name}");
         generators.push(Stmt::FnDecl {
             name: gen_name.clone(),
             type_params: type_params.clone(),
-            params: generator_params(&params),
+            params: gen_params,
             // P10.7 default-Any generator: yields and the return value
             // both ride the Any tier, which is what the driver moves.
             return_type: Some("any".into()),
@@ -159,15 +167,22 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
             is_generator: true,
             span,
         });
+        let wrapper_body = if reads_this {
+            let gen_ident = ast.add_expr(Expr::Ident(gen_name.clone()));
+            let this_eid = ast.add_expr(Expr::This);
+            recv_wrapper_body(ast, gen_ident, &params, this_eid)
+        } else {
+            vec![Stmt::Return(Some(build_drive_call(
+                ast, &gen_name, &params,
+            )))]
+        };
         let wrapper_params = wrapper_params(ast, &params);
         ast.stmts[idx] = Stmt::FnDecl {
             name: name.clone(),
             type_params,
             params: wrapper_params,
             return_type: Some(promise_ann(return_type.as_deref())),
-            body: vec![Stmt::Return(Some(build_drive_call(
-                ast, &gen_name, &params,
-            )))],
+            body: wrapper_body,
             is_generator: false,
             // The user wrote this declaration; `toString` answers their
             // source text, not the wrapper's.
@@ -245,6 +260,63 @@ pub(super) fn build_drive_call_to(ast: &mut Ast, gen_ident: ExprId, params: &[Pa
         callee: drive_ident,
         args: vec![thunk],
     })
+}
+
+/// The generator's parameter list for a body whose `this` became a
+/// read of the leading receiver parameter (`desugar_async_sm_this::
+/// rewrite_this`): `<recv>: any` in front of [`generator_params`]
+/// (`__genrecv` for a declaration or a method; a value's rides the
+/// hoist and is named there).
+/// `any` for every receiver — a static method's `this` is the class
+/// object, and an instance receiver typed as its class made every
+/// moved instance method SIGSEGV at run time (the parser's generator
+/// methods type it by the class only when the body reads it, and that
+/// path carries more than this pass mirrors). The body's field reads
+/// take the any lane.
+pub(super) fn recv_generator_params(params: &[Param], recv: &str) -> Vec<Param> {
+    let mut out = vec![Param {
+        name: recv.into(),
+        type_ann: Some("any".into()),
+        default: None,
+        is_rest: false,
+    }];
+    out.extend(generator_params(params));
+    out
+}
+
+/// The wrapper body that hands its own `this` to a receiver-taking
+/// generator: `const __async_recv: any = <this>; return
+/// __async_drive(() => gen(__async_recv, params))`. The receiver is
+/// read where the user's function stood — by the wrapper's `this`,
+/// which `desugar_classes` / `bind_this_param` / `rewrite_toplevel_
+/// this` then bind exactly as they would have bound the unmoved
+/// body's — and rides in front of the parameters. The caller mints
+/// `this_eid` (a static method also records it in
+/// `static_this_sites`).
+pub(super) fn recv_wrapper_body(
+    ast: &mut Ast,
+    gen_ident: ExprId,
+    params: &[Param],
+    this_eid: ExprId,
+) -> Vec<Stmt> {
+    let mut recv_first: Vec<Param> = vec![Param {
+        name: "__async_recv".into(),
+        type_ann: None,
+        default: None,
+        is_rest: false,
+    }];
+    recv_first.extend(params.iter().cloned());
+    let drive = build_drive_call_to(ast, gen_ident, &recv_first);
+    vec![
+        Stmt::LetDecl {
+            mutable: false,
+            name: "__async_recv".into(),
+            type_ann: Some("any".into()),
+            init: this_eid,
+            is_var: false,
+        },
+        Stmt::Return(Some(drive)),
+    ]
 }
 
 /// The wrapper's parameter list: the user's, with every defaulted
