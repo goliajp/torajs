@@ -303,6 +303,7 @@ fn desugar_one_generator(
     let extra_methods = super::desugar_generators_async::shape_machine(
         ast,
         is_async_gen,
+        &step_ann,
         (&mut next_method, &mut return_method, &mut throw_method),
         &mut lifted_locals,
     );

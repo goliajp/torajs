@@ -19,9 +19,11 @@
 //! (a rejection is thrown into the body at the yield point, §27.6.3.8
 //! step 5, which is what completes a generator whose `yield` rejected);
 //! a `done` step awaits its return value. The driver answers a fresh
-//! `{ value, done }` — the awaited value in place of the machine's —
-//! and every consumer of an async iterator reads it through the any
-//! lane. The driver is an ordinary
+//! step built by the machine's own `__yielded` / `__returned` — the
+//! awaited value in the class's step type (a struct a typed consumer
+//! can read; assigning into the machine's step through `any` is
+//! refused) — and every consumer of an async iterator reads it through
+//! the any lane. The driver is an ordinary
 //! async function with statement-level awaits, so D1 moves it into its
 //! own machine — it is injected here and `desugar_async_state_machine`
 //! is run again for it before the generators are collected.
@@ -38,9 +40,13 @@
 //! methods keep their bodies under `__step` / `__step_return` /
 //! `__step_throw`; the public trio forwards to the queue.
 //!
-//! Not this knife: `yield*` over an async iterable still delegates
-//! through the sync protocol inside the machine; `for await` in the
-//! body likewise.
+//! A yield-bearing `for await` in the body — which is what `yield*`
+//! desugars to — awaits each inner step through an await mark, with
+//! `__agen_step_call` giving a sync iterator the Async-from-Sync
+//! posture (a throwing `next()` answers a rejected promise, so the
+//! throw lands at the await, one tick later); `desugar_generators_
+//! forof::build_manual_protocol`. A `for await` without a yield in its
+//! body still runs the lowering's sync await inside the machine.
 
 use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
@@ -48,6 +54,12 @@ pub(super) const AWAIT_MARK_CLASS: &str = "__AwaitMark";
 pub(super) const MACHINE_NEXT: &str = "__step";
 pub(super) const MACHINE_RETURN: &str = "__step_return";
 pub(super) const MACHINE_THROW: &str = "__step_throw";
+/// The machine's own step constructors — the driver's settled value in
+/// a fresh step of the CLASS's step type, so a typed consumer (`.then(
+/// (r: {value: any, done: boolean}) => …)`, the typed for-await lane)
+/// reads a real `__step_*` struct, not a dynobj wearing its field names.
+pub(super) const MACHINE_YIELDED: &str = "__yielded";
+pub(super) const MACHINE_RETURNED: &str = "__returned";
 /// The per-instance request queue tail (a promise, or undefined
 /// before the first request).
 pub(super) const QUEUE_FIELD: &str = "__q";
@@ -71,7 +83,7 @@ async function __agen_drive(__g: any, __kind: number, __v: any): Promise<any> {
     if (__r.done) {
       try { __s = await __r.value; } catch (__e1: any) { __ok = false; __s = __e1; }
       if (!__ok) { throw __s; }
-      return { value: __s, done: true };
+      return __g.__returned(__s);
     }
     if (__r.value instanceof __AwaitMark) {
       try { __s = await __r.value.v; } catch (__e2: any) { __ok = false; __s = __e2; }
@@ -80,8 +92,11 @@ async function __agen_drive(__g: any, __kind: number, __v: any): Promise<any> {
     }
     try { __s = await __r.value; } catch (__e3: any) { __ok = false; __s = __e3; }
     if (!__ok) { __r = __g.__step_throw(__s); continue; }
-    return { value: __s, done: false };
+    return __g.__yielded(__s);
   }
+}
+function __agen_step_call(__it: any): any {
+  try { return __it.next(); } catch (__e: any) { return Promise.reject(__e); }
 }
 async function __agen_chain(__q: any, __g: any, __kind: number, __v: any): Promise<any> {
   await __q;
@@ -195,6 +210,7 @@ pub(super) fn mint_await_mark(ast: &mut Ast, inner: ExprId) -> ExprId {
 pub(super) fn shape_machine(
     ast: &mut Ast,
     is_async_gen: bool,
+    step_ann: &str,
     trio: (&mut ClassMethod, &mut ClassMethod, &mut ClassMethod),
     lifted_locals: &mut Vec<(String, String)>,
 ) -> Vec<ClassMethod> {
@@ -205,7 +221,37 @@ pub(super) fn shape_machine(
     trio.1.name = MACHINE_RETURN.into();
     trio.2.name = MACHINE_THROW.into();
     lifted_locals.push((QUEUE_FIELD.into(), "any".into()));
-    forwarders(ast)
+    let mut ms = forwarders(ast);
+    ms.push(step_ctor(ast, MACHINE_YIELDED, step_ann, false));
+    ms.push(step_ctor(ast, MACHINE_RETURNED, step_ann, true));
+    ms
+}
+
+/// `__yielded(__v: any): __step_g { return { value: __v, done: false } }`
+/// (and `__returned`, `done: true`) — the step literal typed by the
+/// method's declared return, exactly as the machine's own arms build it.
+fn step_ctor(ast: &mut Ast, name: &str, step_ann: &str, done: bool) -> ClassMethod {
+    let v = ast.add_expr(Expr::Ident("__v".into()));
+    let d = ast.add_expr(Expr::Bool(done));
+    let lit = ast.add_expr(Expr::ObjectLit {
+        fields: vec![("value".into(), v), ("done".into(), d)],
+    });
+    ClassMethod {
+        name: name.into(),
+        type_params: Vec::new(),
+        params: vec![Param {
+            name: "__v".into(),
+            type_ann: Some("any".into()),
+            default: None,
+            is_rest: false,
+        }],
+        return_type: Some(step_ann.into()),
+        body: vec![Stmt::Return(Some(lit))],
+        is_abstract: false,
+        visibility: Visibility::Public,
+        accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    }
 }
 
 /// The public `next` / `return` / `throw` of an async generator's

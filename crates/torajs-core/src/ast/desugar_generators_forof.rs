@@ -172,18 +172,6 @@ fn symbol_index_expr(ast: &mut Ast, src_ident: &str, well_known: &str) -> crate:
     })
 }
 
-/// The parser's `await e` desugar, minted here: `e.value` marked in
-/// `await_value_reads` so checker / lowering dispatch it by TYPE
-/// (§27.7.5.1 — Promise unwraps, everything else is identity).
-fn await_expr(ast: &mut Ast, inner: crate::ast::ExprId) -> crate::ast::ExprId {
-    let read = ast.add_expr(Expr::Member {
-        obj: inner,
-        name: "value".into(),
-    });
-    ast.await_value_reads.insert(read);
-    read
-}
-
 /// Build the module-doc shape. `body` is the already-recursed loop
 /// body; the caller's slot receives the Multi.
 fn build_manual_protocol(
@@ -255,30 +243,43 @@ fn build_manual_protocol(
         is_var: false,
     };
 
-    // let __gfstep_N: any = [await] __gfit_N.next();
-    // (async: §14.7.5.6 step 6.d — a Promise-shaped step settles
-    // before done/value are read; identity for a sync iterator's
-    // plain result.)
+    // sync:  let __gfstep_N: any = __gfit_N.next();
+    // async: let __gfstep_N: any = yield new __AwaitMark(__agen_step_call(__gfit_N));
+    // (§14.7.5.6 step 6.d / §27.5.3.2 async yield* — the step is
+    // awaited by the D4 driver through an await mark, and
+    // `__agen_step_call` is the Async-from-Sync wrapper's posture: a
+    // sync iterator's `next()` that throws answers a REJECTED promise,
+    // so the throw lands one tick later, at the await —
+    // `desugar_generators_async`.)
     let it_ref = ast.add_expr(Expr::Ident(it_name));
-    let next_member = ast.add_expr(Expr::Member {
-        obj: it_ref,
-        name: "next".into(),
-    });
-    let next_call = ast.add_expr(Expr::Call {
-        callee: next_member,
-        args: Vec::new(),
-    });
-    let step_init = if is_await {
-        await_expr(ast, next_call)
+    let step_decl = if is_await {
+        let helper = ast.add_expr(Expr::Ident("__agen_step_call".into()));
+        let call = ast.add_expr(Expr::Call {
+            callee: helper,
+            args: vec![it_ref],
+        });
+        let mark = super::desugar_generators_async::mint_await_mark(ast, call);
+        Stmt::YieldInto {
+            var: step_name.clone(),
+            type_ann: Some("any".into()),
+            value: mark,
+        }
     } else {
-        next_call
-    };
-    let step_decl = Stmt::LetDecl {
-        mutable: false,
-        name: step_name.clone(),
-        type_ann: Some("any".into()),
-        init: step_init,
-        is_var: false,
+        let next_member = ast.add_expr(Expr::Member {
+            obj: it_ref,
+            name: "next".into(),
+        });
+        let next_call = ast.add_expr(Expr::Call {
+            callee: next_member,
+            args: Vec::new(),
+        });
+        Stmt::LetDecl {
+            mutable: false,
+            name: step_name.clone(),
+            type_ann: Some("any".into()),
+            init: next_call,
+            is_var: false,
+        }
     };
 
     // if (__gfstep_N.done) break;
@@ -313,22 +314,18 @@ fn build_manual_protocol(
         else_branch: None,
     };
 
-    // let <v>: any = [await] __gfstep_N.value;
-    // (async: §27.1.4.4 — a sync source's Promise-valued element
-    // unwraps; an async iterator's already-settled value passes
-    // through identity. The double-unwrap corner — an async
-    // iterator answering a Promise-valued `value` — is registered
-    // with the kernel lane's precise split as the reference.)
+    // let <v>: any = __gfstep_N.value;
+    // (async: the step itself was awaited above, and a `yield v` in
+    // the body is awaited again by the driver — the two Awaits
+    // §27.5.3.2 spells for an async `yield*`. Registered residue: a
+    // yield-bearing `for await` over a SYNC iterable does not unwrap a
+    // Promise-valued element here — §27.1.4.4's value await — while a
+    // yield-free one, on the lowering's own for-await lane, does.)
     let step_ref_value = ast.add_expr(Expr::Ident(step_name));
-    let value_member = ast.add_expr(Expr::Member {
+    let var_init = ast.add_expr(Expr::Member {
         obj: step_ref_value,
         name: "value".into(),
     });
-    let var_init = if is_await {
-        await_expr(ast, value_member)
-    } else {
-        value_member
-    };
     let var_decl = Stmt::LetDecl {
         mutable: true,
         name: var_name,
