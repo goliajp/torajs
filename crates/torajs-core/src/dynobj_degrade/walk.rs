@@ -129,7 +129,7 @@ impl Walker<'_> {
                 name, params, body, ..
             } => {
                 self.shadow(name);
-                self.walk_fn_body(params, body);
+                self.walk_fn_body(Some(name), params, body);
             }
             Stmt::TypeDecl { .. } => {}
             Stmt::ClassDecl {
@@ -256,10 +256,10 @@ impl Walker<'_> {
             }
         }
         if let Some(c) = ctor {
-            self.walk_fn_body(&c.params, &c.body);
+            self.walk_fn_body(None, &c.params, &c.body);
         }
         for m in methods.iter().chain(static_methods.iter()) {
-            self.walk_fn_body(&m.params, &m.body);
+            self.walk_fn_body(None, &m.params, &m.body);
         }
     }
 
@@ -297,6 +297,7 @@ impl Walker<'_> {
             Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => self.walk_expr(*obj),
             Expr::Call { callee, args } => {
                 self.scan_object_static_call(*callee, args);
+                self.scan_named_call(*callee, args);
                 self.walk_expr(*callee);
                 for a in args {
                     self.walk_expr(*a);
@@ -332,7 +333,7 @@ impl Walker<'_> {
                     self.walk_expr(*e);
                 }
             }
-            Expr::ArrowFn { params, body, .. } => self.walk_fn_body(params, body),
+            Expr::ArrowFn { params, body, .. } => self.walk_fn_body(None, params, body),
             Expr::New { args, .. } | Expr::Super { args } => {
                 for a in args {
                     self.walk_expr(*a);
@@ -370,18 +371,27 @@ impl Walker<'_> {
 
     /// Fn bodies start from a fresh scope stack: free names inside
     /// (closure captures, top-level globals) resolve as `Free` and
-    /// take the conservative fallback path.
-    pub(super) fn walk_fn_body(&mut self, params: &[Param], body: &[Stmt]) {
+    /// take the conservative fallback path. A named `FnDecl` binds
+    /// its params as `Param(i)` so a `delete` through one can name
+    /// the call-site hop (`params.rs`); arrows / methods / ctors have
+    /// no bare-name call sites and shadow opaquely.
+    pub(super) fn walk_fn_body(&mut self, fn_name: Option<&str>, params: &[Param], body: &[Stmt]) {
         let saved = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
-        for p in params {
+        let saved_fn = std::mem::replace(&mut self.cur_fn, fn_name.map(str::to_string));
+        for (i, p) in params.iter().enumerate() {
             if let Some(d) = p.default {
                 self.walk_expr(d);
             }
-            self.shadow(&p.name);
+            if fn_name.is_some() {
+                self.bind_param(&p.name, i);
+            } else {
+                self.shadow(&p.name);
+            }
         }
         for s in body {
             self.walk_stmt(s);
         }
         self.scopes = saved;
+        self.cur_fn = saved_fn;
     }
 }

@@ -40,6 +40,7 @@
 //!   declaration site and a trigger seen before a later
 //!   re-declaration carries forward onto it.
 
+mod params;
 mod walk;
 
 use std::collections::{HashMap, HashSet};
@@ -54,12 +55,17 @@ enum Binding {
     /// Bound by something that can never degrade — shadows without
     /// tracking.
     Opaque,
+    /// The enclosing NAMED fn's parameter at this index — opaque for
+    /// degrading, but a `delete` through it names a call-site hop
+    /// (see `params.rs`).
+    Param(usize),
 }
 
 enum Resolution {
     Tracked(Vec<ExprId>),
     Opaque,
     Free,
+    Param(usize),
 }
 
 /// Collect the init ExprIds of every `let` declaration whose binding
@@ -135,10 +141,16 @@ pub(crate) fn collect_degraded_inits(view: DegradeView<'_>) -> HashSet<ExprId> {
         fallback_write_fields: HashSet::new(),
         fallback_write_names: HashSet::new(),
         registry: HashMap::new(),
+        cur_fn: None,
+        hop: params::ParamHop::default(),
     };
     for s in view.stmts {
         w.walk_stmt(s);
     }
+    // the parameter hop feeds `fallback_write_names`, so it is judged
+    // before the name-keyed fallbacks below
+    let hop = std::mem::take(&mut w.hop);
+    hop.apply(&mut w.out, &mut w.fallback_write_names);
     for n in &w.fallback_names {
         if let Some(eids) = w.registry.get(n) {
             w.out.extend(eids.iter().copied());
@@ -203,6 +215,11 @@ struct Walker<'a> {
     /// Every candidate declaration in the module, by name — the
     /// fallback marking target set.
     registry: HashMap<String, Vec<ExprId>>,
+    /// Name of the innermost named `FnDecl` being walked (`None` in
+    /// arrow / method / ctor bodies and at the top level).
+    cur_fn: Option<String>,
+    /// The parameter hop's ledger (`params.rs`).
+    hop: params::ParamHop,
 }
 
 impl Walker<'_> {
@@ -251,11 +268,19 @@ impl Walker<'_> {
             .insert(name.to_string(), Binding::Opaque);
     }
 
+    fn bind_param(&mut self, name: &str, idx: usize) {
+        self.scopes
+            .last_mut()
+            .expect("scope stack never empty")
+            .insert(name.to_string(), Binding::Param(idx));
+    }
+
     fn resolve(&self, name: &str) -> Resolution {
         for scope in self.scopes.iter().rev() {
             match scope.get(name) {
                 Some(Binding::Tracked(eids)) => return Resolution::Tracked(eids.clone()),
                 Some(Binding::Opaque) => return Resolution::Opaque,
+                Some(Binding::Param(i)) => return Resolution::Param(*i),
                 None => {}
             }
         }
@@ -313,7 +338,7 @@ impl Walker<'_> {
                     .collect();
                 self.out.extend(hits);
             }
-            Resolution::Opaque => {}
+            Resolution::Opaque | Resolution::Param(_) => {}
             Resolution::Free => {
                 if is_define {
                     self.fallback_names.insert(recv.clone());
@@ -360,7 +385,7 @@ impl Walker<'_> {
                             }
                         }
                     }
-                    Resolution::Opaque => {}
+                    Resolution::Opaque | Resolution::Param(_) => {}
                     Resolution::Free => {
                         self.fallback_write_fields
                             .insert((recv.clone(), name.clone()));
@@ -373,7 +398,7 @@ impl Walker<'_> {
                 };
                 match self.resolve(recv) {
                     Resolution::Tracked(eids) => self.out.extend(eids),
-                    Resolution::Opaque => {}
+                    Resolution::Opaque | Resolution::Param(_) => {}
                     Resolution::Free => {
                         self.fallback_write_names.insert(recv.clone());
                     }
@@ -400,6 +425,7 @@ impl Walker<'_> {
         match self.resolve(recv) {
             Resolution::Tracked(eids) => self.out.extend(eids),
             Resolution::Opaque => {}
+            Resolution::Param(idx) => self.hop.mark_trigger(self.cur_fn.as_deref(), idx),
             Resolution::Free => {
                 self.fallback_write_names.insert(recv.clone());
             }
@@ -731,6 +757,41 @@ c.s = 21;
         let decls = decl_inits(src, "c");
         assert_eq!(decls.len(), 1);
         assert!(!got.contains(&decls[0]));
+    }
+
+    #[test]
+    fn delete_through_a_named_fn_param_marks_the_call_site_decl() {
+        // 639-14 — test262 S12.6.4_A7_T1: the helper deletes through
+        // its param, the literal lives at the call site
+        let src = r#"
+var o = { aa: 1, ba: 2 };
+var keep = { aa: 1 };
+function era(h, c) { for (var k in h) { if (k.indexOf(c) === 0) { delete h[k]; } } }
+function look(h) { return h.aa; }
+era(o, "b");
+look(keep);
+"#;
+        let got = collect(src);
+        let o = decl_inits(src, "o");
+        let keep = decl_inits(src, "keep");
+        assert!(got.contains(&o[0]), "arg of the deleting param marks");
+        assert!(
+            !got.contains(&keep[0]),
+            "arg of a reading param stays static"
+        );
+    }
+
+    #[test]
+    fn param_forwarding_closes_over_the_hop() {
+        let src = r#"
+var o = { x: 1 };
+function outer(a, h) { inner(h); }
+function inner(h) { delete h.x; }
+outer(1, o);
+"#;
+        let got = collect(src);
+        let o = decl_inits(src, "o");
+        assert!(got.contains(&o[0]), "two-hop forward marks");
     }
 
     #[test]
