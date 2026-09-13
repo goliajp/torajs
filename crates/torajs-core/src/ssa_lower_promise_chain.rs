@@ -19,16 +19,28 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// read narrow and the let-store sitofp'd raw f64 bits); an
     /// Index projection (`await ps[i]`, r4) the Elem of every base
     /// candidate; anything else its Anon origin.
+    /// The key the analysis filed a read of `n` from this fn under —
+    /// `WidthTable::ident_keys`, the walk's own `resolve` replayed off
+    /// its slot-name registry (param, else local, else the top-level
+    /// binding, else a lifted closure's `Captured` broadcast). The
+    /// lowering's slot table cannot answer this: a captured top-level
+    /// `const h = async (n) => n + 0.5` sits in `locals` at prologue
+    /// depth like a param, and asking `Local` / `Param` for it joined
+    /// nothing — `await h(4)` read its f64 bits from a named async fn
+    /// and from a lifted closure alike (rotation 642).
+    fn promise_ident_keys(&self, n: &str) -> Vec<crate::num_width::SlotKey> {
+        let fn_name = if self.is_main_fn {
+            ""
+        } else {
+            self.f.name.as_str()
+        };
+        self.num_f64_slots.ident_keys(fn_name, n)
+    }
+
     pub(crate) fn promise_obj_keys(&self, obj: ExprId) -> Vec<crate::num_width::SlotKey> {
         use crate::num_width::SlotKey;
         match self.ast.get_expr(obj) {
-            Expr::Ident(n) => {
-                let mut keys = vec![self.num_width_local_key(n)];
-                if !self.is_main_fn {
-                    keys.push(SlotKey::Param(self.f.name.clone(), n.clone()));
-                }
-                keys
-            }
+            Expr::Ident(n) => self.promise_ident_keys(n),
             Expr::Call { callee, .. } => {
                 let fname = self.call_retargets.get(&obj).cloned().or_else(|| {
                     match self.ast.get_expr(*callee) {
@@ -36,10 +48,28 @@ impl crate::ssa_lower::LowerCtx<'_> {
                         _ => None,
                     }
                 });
-                vec![match fname {
-                    Some(f) => SlotKey::Ret(f),
-                    None => SlotKey::Anon(obj.0),
-                }]
+                if let Some(f) = fname {
+                    return vec![SlotKey::Ret(f)];
+                }
+                // A call through an fn-VALUED name (`const h = async (n)
+                // => …; await h(4)`): the analysis keys that result by
+                // the value's `__ret` projection (F1 —
+                // `container_key_lookup`'s indirect arm), which the
+                // binding's init glued onto the lifted closure's Ret.
+                // Keyed by its Anon origin instead, the read joined
+                // nothing: a fractional `Promise<number>` came back as
+                // its f64 bits, and a struct payload read at the parse
+                // default while the closure had widened (rotation 642).
+                // A Member callee keeps the Anon spelling — the analysis
+                // routes those through its method table.
+                if let Expr::Ident(n) = self.ast.get_expr(*callee) {
+                    return self
+                        .promise_ident_keys(n)
+                        .into_iter()
+                        .map(|k| SlotKey::Field(Box::new(k), "__ret".into()))
+                        .collect();
+                }
+                vec![SlotKey::Anon(obj.0)]
             }
             Expr::Index { obj: base, .. } => self
                 .promise_obj_keys(*base)

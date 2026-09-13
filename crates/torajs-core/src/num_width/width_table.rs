@@ -54,6 +54,15 @@ pub(crate) struct WidthTable {
     /// can reach the widths can therefore always reach the proof they
     /// were taken under, and cannot substitute another.
     index_read_proven: HashSet<ExprId>,
+    /// The pre-walk slot-name registry (`analyze_tables::
+    /// collect_slot_registry`): every binding's spellings by name —
+    /// `Param(f, n)` / `Local(f, n)` per top-level fn, `Global(n)` for
+    /// a top-level let. The walk's `resolve` answered a name off this
+    /// registry; [`WidthTable::ident_keys`] answers a lowering the same
+    /// way, so a reader asks for the very key the analysis populated
+    /// rather than guessing from its own slot table (where a captured
+    /// top-level name sits at prologue depth like a param).
+    by_name: HashMap<String, Vec<SlotKey>>,
 }
 
 impl WidthTable {
@@ -68,6 +77,7 @@ impl WidthTable {
         undef_sentinel_params: HashSet<(String, String)>,
         objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
         index_read_proven: HashSet<ExprId>,
+        by_name: HashMap<String, Vec<SlotKey>>,
     ) -> Self {
         WidthTable {
             canon,
@@ -79,7 +89,39 @@ impl WidthTable {
             undef_sentinel_params,
             objlit_shape_f64,
             index_read_proven,
+            by_name,
         }
+    }
+
+    /// The key the walk's `resolve` filed a read of `n` from `fn_name`
+    /// under (`""` for the top level): the fn's own param, else its
+    /// own local, else the top-level binding; from a lifted closure
+    /// (`__`-prefixed) a name none of those spell is the `Captured`
+    /// key the walk unioned every same-named slot onto. Empty when the
+    /// analysis never saw the name — no class to ask.
+    pub(crate) fn ident_keys(&self, fn_name: &str, n: &str) -> Vec<SlotKey> {
+        let Some(spellings) = self.by_name.get(n) else {
+            return Vec::new();
+        };
+        let has = |k: &SlotKey| spellings.contains(k);
+        if !fn_name.is_empty() {
+            let param = SlotKey::Param(fn_name.to_string(), n.to_string());
+            if has(&param) {
+                return vec![param];
+            }
+            let local = SlotKey::Local(fn_name.to_string(), n.to_string());
+            if has(&local) {
+                return vec![local];
+            }
+        }
+        let global = SlotKey::Global(n.to_string());
+        if has(&global) {
+            return vec![global];
+        }
+        if fn_name.starts_with("__") {
+            return vec![SlotKey::Captured(n.to_string())];
+        }
+        Vec::new()
     }
 
     /// See the field's doc — the guard-dominated bounds proof the

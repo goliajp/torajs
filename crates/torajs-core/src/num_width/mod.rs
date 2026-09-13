@@ -446,6 +446,7 @@ pub(crate) fn analyze(
         tables.params,
         objlit_shape_f64,
         a.proven_reads,
+        a.by_name,
     )
 }
 
