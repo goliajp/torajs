@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T12:31:41.317Z",
+  "generatedAt": "2026-09-13T16:19:28.969Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-13T12:20:25Z",
-    "headSha": "9355b4842",
-    "elapsedSec": 491.07,
+    "ranAt": "2026-09-13T16:07:15Z",
+    "headSha": "3a1dc0191",
+    "elapsedSec": 503.49,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32154,
-    "passNoOracle": 1702,
+    "pass": 32293,
+    "passNoOracle": 1703,
     "passNegative": 4566,
-    "passTotal": 38422,
-    "bug": 10618,
-    "incompatible": 4134,
+    "passTotal": 38562,
+    "bug": 10482,
+    "incompatible": 4130,
     "bunSkip": 2932,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49040,
-    "passRateInScope": 72.26,
-    "passRateTrAccepted": 78.35
+    "trAccepted": 49044,
+    "passRateInScope": 72.52,
+    "passRateTrAccepted": 78.63
   },
   "torajs": {
-    "commit": "9355b4842",
-    "commitSubject": "fix(torajs-core,torajs-cli): the async generator driver is injected before the one async state-machine run, not moved by a second one",
+    "commit": "3a1dc0191",
+    "commitSubject": "fix(torajs-core): an async yield* runs IteratorValue on a done step and reads a not-done step's value outside the resumption try",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "9355b4842",
-      "subject": "fix(torajs-core,torajs-cli): the async generator driver is injected before the one async state-machine run, not moved by a second one"
+      "hash": "3a1dc0191",
+      "subject": "fix(torajs-core): an async yield* runs IteratorValue on a done step and reads a not-done step's value outside the resumption try"
     },
     {
-      "hash": "1d347c337",
-      "subject": "feat(torajs-core): an async generator's `yield*` finds an async iterable's protocol from the step it answers (D4, third cut)"
+      "hash": "d01398346",
+      "subject": "fix(torajs-core): a class literal's undefined-initialized fields take the declared slot's type before layout resolution"
     },
     {
-      "hash": "fab2c2c51",
-      "subject": "feat(torajs-core): an await in a loop head or a switch discriminant suspends — the head-tested loop form (D1b, third cut)"
+      "hash": "91f92dbb5",
+      "subject": "feat(torajs-core): an async generator declared in an async body becomes an async generator expression bound in its slot"
     },
     {
-      "hash": "c51ea540c",
-      "subject": "fix(torajs-core): an async generator's settled step spells `undefined` in its yield type's own form"
+      "hash": "69f2c5654",
+      "subject": "feat(torajs-core): an async generator's yield* forwards return(v) to the inner iterator — the delegating yield resumes with a return completion"
     },
     {
-      "hash": "9223dbf78",
-      "subject": "feat(torajs-core): an await on the guarded side of `&&` / `||` / `??` or in a ternary branch suspends — the lift's statement form (D1b, second cut)"
+      "hash": "a3bc5d1dd",
+      "subject": "fix(torajs-core): a machine local's closure with a rest parameter is typed __rest(E[]); the declared-return-type map moves to its own file"
     },
     {
-      "hash": "5ca1b2530",
-      "subject": "fix(torajs-core): an async generator's delegated steps go through the driver, and its settled step is the class's own struct (D4, second cut)"
+      "hash": "d197b2306",
+      "subject": "feat(torajs-core): an async generator's yield* runs the delegation protocol — next read once and called with the sent value, the step awaited before done/value, throw() forwarded to the inner iterator"
     },
     {
-      "hash": "001068f57",
-      "subject": "feat(torajs-core): an async generator's steps suspend — the step driver (RFC 20260805 D4)"
+      "hash": "2e2646e24",
+      "subject": "feat(torajs-core,torajs-cli): a function declared in an async body becomes a function value bound in its slot before the body moves into its state machine"
     },
     {
-      "hash": "299dc2f43",
-      "subject": "fix(torajs-core,torajs-promise): two shapes the A-normal lift's wider move uncovered — a typed slot's undefined boxed as its slot's form, and a this-field guard reading the wrong class"
+      "hash": "456796a26",
+      "subject": "fix(torajs-core): a machine local holding an unmoved async function value is typed as the Promise-returning value desugar_async makes of it"
     },
     {
-      "hash": "897d603b4",
-      "subject": "feat(torajs-core): an await inside an expression suspends — the A-normal lift (RFC 20260805 D1b)"
+      "hash": "2bc79e621",
+      "subject": "feat(torajs-core): an async generator's requests are a queue drained in one job; return e awaits at the return; an async iterator's next() throw is the body's own (D4 residues ① ②)"
     },
     {
-      "hash": "9f7f4061e",
-      "subject": "fix(torajs-core): a returned local closure keeps its argv face when another function declares a local of the same name"
+      "hash": "15a0f737b",
+      "subject": "fix(torajs-meta): a struct's F64 field holding the undefined sentinel reads back as undefined through the reflective walk"
     },
     {
-      "hash": "dca4c6289",
-      "subject": "feat(torajs-anyvalue): a user thenable is adopted wherever a promise is resolved with a value"
+      "hash": "ffb4f9e0a",
+      "subject": "fix(torajs-core): a multi-arg console.log in value position inspects its arguments like the statement form"
     },
     {
-      "hash": "b092dccde",
-      "subject": "fix(torajs-core): an async function's self- or later-referencing parameter default rejects instead of reading the caller's binding"
+      "hash": "c896f5b8a",
+      "subject": "fix(torajs-core): the yield operand's local carries the operand's own type; the cast to the step type sits on the read"
     }
   ],
-  "headSha": "9355b4842",
+  "headSha": "3a1dc0191",
   "autorun": {
-    "total": 946,
+    "total": 947,
     "baselineTarget": 10,
-    "bySelf": 941,
+    "bySelf": 942,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789281559-1cf6",
-      "at": "2026-09-13T06:39:19Z",
-      "ts": 1789281559,
+      "rotationId": "r-1789302727-5e79",
+      "at": "2026-09-13T12:32:07Z",
+      "ts": 1789302727,
       "trigger": "self",
-      "prevHead": "de1e2cb2b",
-      "handoffSha": "sha256:abf7c948140e26c7d090ad7e385a535c75c7e8a6ecd85e6518b3648609a0adc9",
-      "handoffAgeSec": 9,
-      "conformanceBefore": "4072/0/4",
+      "prevHead": "87b0c3044",
+      "handoffSha": "sha256:94edcf1b31edbad9e8901585094dfc1c1bd6e29a68650e2cf4c2e40ea7318fee",
+      "handoffAgeSec": 26,
+      "conformanceBefore": "4082/0/4",
       "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789302727-5e79",
+        "at": "2026-09-13T12:32:07Z",
+        "ts": 1789302727,
+        "trigger": "self",
+        "prevHead": "87b0c3044",
+        "handoffSha": "sha256:94edcf1b31edbad9e8901585094dfc1c1bd6e29a68650e2cf4c2e40ea7318fee",
+        "handoffAgeSec": 26,
+        "conformanceBefore": "4082/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789281559-1cf6",
         "at": "2026-09-13T06:39:19Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 1,
         "conformanceBefore": "3999/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789136979-2ab8",
-        "at": "2026-09-11T14:29:39Z",
-        "ts": 1789136979,
-        "trigger": "self",
-        "prevHead": "8012d5876",
-        "handoffSha": "sha256:109eae7153421b70a30fa8ba6530656a9b4762ee83b56de290dd4c999191bd39",
-        "handoffAgeSec": 34,
-        "conformanceBefore": "3990/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
