@@ -196,8 +196,8 @@ fn build_manual_protocol(
     // outranks the sync symbol; LooseNeq null is GetMethod's
     // nullish-is-absent.)
     let mut pre_decls: Vec<Stmt> = Vec::new();
+    let am_name = format!("__gfam_{n}");
     let iter_call = if is_await {
-        let am_name = format!("__gfam_{n}");
         let am_probe = symbol_index_expr(ast, &src_ident, "asyncIterator");
         pre_decls.push(Stmt::LetDecl {
             mutable: false,
@@ -206,7 +206,7 @@ fn build_manual_protocol(
             init: am_probe,
             is_var: false,
         });
-        let am_ref = ast.add_expr(Expr::Ident(am_name));
+        let am_ref = ast.add_expr(Expr::Ident(am_name.clone()));
         let null_lit = ast.add_expr(Expr::Null);
         let has_async = ast.add_expr(Expr::BinOp {
             op: crate::ast::BinOp::LooseNeq,
@@ -246,10 +246,9 @@ fn build_manual_protocol(
     // sync:  let __gfstep_N: any = __gfit_N.next();
     // async: let __gfstep_N: any = yield new __AwaitMark(__agen_step_call(__gfit_N));
     // (§14.7.5.6 step 6.d / §27.5.3.2 async yield* — the step is
-    // awaited by the D4 driver through an await mark, and
-    // `__agen_step_call` is the Async-from-Sync wrapper's posture: a
-    // sync iterator's `next()` that throws answers a REJECTED promise,
-    // so the throw lands one tick later, at the await —
+    // awaited by the D4 driver through an await mark; a SYNC
+    // iterator's plain result takes `__agen_step_call`'s Async-from-
+    // Sync posture, an async iterator's thenable passes through —
     // `desugar_generators_async`.)
     let it_ref = ast.add_expr(Expr::Ident(it_name));
     let step_decl = if is_await {
@@ -315,12 +314,10 @@ fn build_manual_protocol(
     };
 
     // let <v>: any = __gfstep_N.value;
-    // (async: the step itself was awaited above, and a `yield v` in
-    // the body is awaited again by the driver — the two Awaits
-    // §27.5.3.2 spells for an async `yield*`. Registered residue: a
-    // yield-bearing `for await` over a SYNC iterable does not unwrap a
-    // Promise-valued element here — §27.1.4.4's value await — while a
-    // yield-free one, on the lowering's own for-await lane, does.)
+    // (async: the step itself was awaited above — a sync iterator's
+    // element inside it, per §27.1.4.4 — and a `yield v` in the body
+    // is awaited again by the driver, the two Awaits §27.5.3.2 spells
+    // for an async `yield*`.)
     let step_ref_value = ast.add_expr(Expr::Ident(step_name));
     let var_init = ast.add_expr(Expr::Member {
         obj: step_ref_value,

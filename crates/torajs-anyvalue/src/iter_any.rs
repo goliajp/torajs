@@ -89,6 +89,10 @@ unsafe extern "C" {
 /// keyed by a symbol lands in the symbol-key domain, the real
 /// GetIterator finds it and this lane goes away.
 pub(crate) const SYM_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_iterator__";
+/// D4 — the `[Symbol.asyncIterator]()` twin an async generator's class
+/// carries instead (`desugar_generators_class::self_iter_method`): the
+/// async drive probes it first, the sync probe never sees it.
+pub(crate) const SYM_ASYNC_ITERATOR_METHOD: &[u8] = b"__sym_Symbol_asyncIterator__";
 
 /// `idx_slot` marker for "this loop is being driven by the
 /// `@@iterator` GetIterator resolved". The indexed lane only ever
@@ -173,12 +177,18 @@ pub(crate) unsafe fn claims_iterable(recv: AnyValue) -> bool {
             let class_tag = p.cast::<u8>().add(8).cast::<u32>().read();
             let layout = __torajs_struct_layout_lookup(class_tag);
             return !layout.is_null()
-                && !__torajs_struct_method_find(
+                && (!__torajs_struct_method_find(
                     layout,
                     SYM_ITERATOR_METHOD.as_ptr(),
                     SYM_ITERATOR_METHOD.len() as u32,
                 )
-                .is_null();
+                .is_null()
+                    || !__torajs_struct_method_find(
+                        layout,
+                        SYM_ASYNC_ITERATOR_METHOD.as_ptr(),
+                        SYM_ASYNC_ITERATOR_METHOD.len() as u32,
+                    )
+                    .is_null());
         }
         false
     }
@@ -198,7 +208,18 @@ unsafe fn obj_iter_step(
         // knife 4's to retire; by here the real `@@iterator` lookup
         // has already missed.
         if *iter_slot == VALUE_UNDEFINED {
-            match call_obj_method_0(obj, SYM_ITERATOR_METHOD) {
+            // §7.4.2 hint=async step 2.a — the async drive asks for
+            // `@@asyncIterator` first (an async generator object has
+            // only that one), then the sync symbol.
+            let outcome = if await_mode {
+                match call_obj_method_0(obj, SYM_ASYNC_ITERATOR_METHOD) {
+                    MethodOutcome::Missing => call_obj_method_0(obj, SYM_ITERATOR_METHOD),
+                    found => found,
+                }
+            } else {
+                call_obj_method_0(obj, SYM_ITERATOR_METHOD)
+            };
+            match outcome {
                 MethodOutcome::Ok(iter) => *iter_slot = iter,
                 // No iterator anywhere on this object. That verdict is
                 // not automatically an error — §23.1.2.1 step 3 hands

@@ -144,24 +144,7 @@ pub(super) fn assemble_generator_class_and_factory(
         body: ctor_body_with_params,
     };
 
-    // ES §27.5.1.5 — `%GeneratorPrototype%[@@iterator]` answers the
-    // generator itself, so a generator object IS its own iterable.
-    // Without this method `for (const v of gen())` had no iterator to
-    // resolve (the P5.3 Phase B protocol path looks up
-    // `__cm_<C>____sym_Symbol_iterator__` and panics when absent), and
-    // the any-lane runtime kernel has no name to probe either.
-    let self_this = ast.add_expr(Expr::This);
-    let self_iter_method = ClassMethod {
-        name: "__sym_Symbol_iterator__".into(),
-        type_params: Vec::new(),
-        params: Vec::new(),
-        return_type: Some(class_name.clone()),
-        body: vec![Stmt::Return(Some(self_this))],
-        is_abstract: false,
-        visibility: Visibility::Public,
-        accessor_kind: None,
-        span: crate::lexer::Span { start: 0, end: 0 },
-    };
+    let self_iter_method = self_iter_method(ast, &gen_name, &class_name);
 
     appended.push(Stmt::ClassDecl {
         name: class_name.clone(),
@@ -223,4 +206,33 @@ pub(super) fn assemble_generator_class_and_factory(
         is_generator: false,
         span: orig_span,
     };
+}
+
+/// ES §27.5.1.5 — `%GeneratorPrototype%[@@iterator]` answers the
+/// generator itself, so a generator object IS its own iterable (the
+/// P5.3 Phase B protocol path looks up `__cm_<C>____sym_Symbol_iterator__`,
+/// and the any-lane runtime kernel probes the same name). D4 — an
+/// ASYNC generator object is its own ASYNC iterable instead
+/// (`%AsyncGeneratorPrototype%[@@asyncIterator]`, §27.6.1.4) and has no
+/// `@@iterator`: a `yield*` / `for await` over one must find the async
+/// protocol, not a sync `next()` whose promise step never reads `done`
+/// (an endless loop, probe ys/c).
+fn self_iter_method(ast: &mut Ast, gen_name: &str, class_name: &str) -> ClassMethod {
+    let self_this = ast.add_expr(Expr::This);
+    let name = if ast.async_generator_fns.contains(gen_name) {
+        "__sym_Symbol_asyncIterator__"
+    } else {
+        "__sym_Symbol_iterator__"
+    };
+    ClassMethod {
+        name: name.into(),
+        type_params: Vec::new(),
+        params: Vec::new(),
+        return_type: Some(class_name.to_string()),
+        body: vec![Stmt::Return(Some(self_this))],
+        is_abstract: false,
+        visibility: Visibility::Public,
+        accessor_kind: None,
+        span: crate::lexer::Span { start: 0, end: 0 },
+    }
 }

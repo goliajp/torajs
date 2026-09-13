@@ -41,12 +41,25 @@
 //! `__step_throw`; the public trio forwards to the queue.
 //!
 //! A yield-bearing `for await` in the body — which is what `yield*`
-//! desugars to — awaits each inner step through an await mark, with
-//! `__agen_step_call` giving a sync iterator the Async-from-Sync
-//! posture (a throwing `next()` answers a rejected promise, so the
-//! throw lands at the await, one tick later); `desugar_generators_
-//! forof::build_manual_protocol`. A `for await` without a yield in its
-//! body still runs the lowering's sync await inside the machine.
+//! desugars to — awaits each inner step through an await mark
+//! (`desugar_generators_forof::build_manual_protocol`), the step coming
+//! from `__agen_step_call`: a `next()` that answers a thenable is an
+//! ASYNC iterator's and passes through (the driver adopts it); a plain
+//! result is a SYNC iterator's and takes the Async-from-Sync posture
+//! (§27.1.4.4 AsyncFromSyncIteratorContinuation) — `PromiseResolve
+//! (value).then(v => { value: v, done })`, so the element is awaited (a
+//! Promise-valued one unwraps) and the step lands one tick later, the
+//! tick count the spec's wrapper gives. A throw from `next()` or from a
+//! `then` / `done` / `value` getter answers a rejected promise, so it
+//! lands at the await through the driver's `__step_throw` (a
+//! synchronous throw escaping this helper while the yield operand is
+//! being built surfaced as a TypeError in the driver, not as the thrown
+//! value — `yield-star-next-*-get-abrupt`; the `then` case is the
+//! spec's own tick, the others one later). The verdict is taken from
+//! the result because a symbol-keyed read cannot see a class's folded
+//! `@@asyncIterator` member. A `for await` without a yield in
+//! its body still runs the lowering's own async drive inside the
+//! machine.
 
 use super::{Ast, ClassMethod, Expr, ExprId, Param, Stmt, Visibility};
 
@@ -96,7 +109,16 @@ async function __agen_drive(__g: any, __kind: number, __v: any): Promise<any> {
   }
 }
 function __agen_step_call(__it: any): any {
-  try { return __it.next(); } catch (__e: any) { return Promise.reject(__e); }
+  let __r: any;
+  let __d: any;
+  let __v0: any;
+  try {
+    __r = __it.next();
+    if (__r != null && typeof __r.then === "function") { return __r; }
+    __d = __r.done;
+    __v0 = __r.value;
+  } catch (__e: any) { return Promise.reject(__e); }
+  return Promise.resolve(__v0).then((__v: any) => { return { value: __v, done: __d }; });
 }
 async function __agen_chain(__q: any, __g: any, __kind: number, __v: any): Promise<any> {
   await __q;
