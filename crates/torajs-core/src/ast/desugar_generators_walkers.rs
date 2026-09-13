@@ -250,40 +250,18 @@ pub(crate) fn lift_lets_in_stmt(
                     // behaviour.
                     super::desugar_generators_field_ann::field_ann(ast, *init, ctx).unwrap_or_else(
                         || {
-                            // r454 — a dstr-assignment source temp the
-                            // sniff can't read (an Ident source, an
-                            // element load) holds whatever the RHS
-                            // was; the number fallback pinned it
-                            // against its own init ("field is Number,
-                            // value is Array"). Sniffable sources
-                            // (array literals) stay on their typed
-                            // lane above.
-                            //
-                            // Same rotation, second face: an Ident
-                            // initializer reaching this fallback is a
-                            // FREE name — every param, already-lifted
-                            // bind, and fn signature answers through
-                            // the sniff — i.e. an outer/global value
-                            // this pass has no static type for. The
-                            // t262 dstr templates alias their source
-                            // this way (`var vals = value;` inside
-                            // the generator), and number pinned the
-                            // field against its own store.
-                            //
-                            //
-                            // r633, third face, same argument: a CALL
-                            // reaching here is one the sniff could not
-                            // type (a top-level fn answers through
-                            // `fn_sigs`, a local closure and a class
-                            // generator method through
-                            // `call_result_ann`), so what is left is a
-                            // builtin result. `var b = JSON.parse(s)`
-                            // was pinned to Number and every read off
-                            // it refused.
-                            if n.starts_with("__dstra_src_") || init_unsniffable(ast, *init) {
-                                "any".into()
-                            } else {
+                            // r454 / r633 / r642 — a source the sniff
+                            // cannot read (a dstr-assignment temp, a
+                            // free Ident, a builtin call, a fn-expr, a
+                            // thenable literal, a Boolean off a class
+                            // instance) is an `any` slot: `number` here
+                            // was a guess, and each wrong guess was a
+                            // refused field. Only the parser's for-of
+                            // counter temp is known to be a number.
+                            if n.starts_with("__forof_i_") {
                                 "number".into()
+                            } else {
+                                "any".into()
                             }
                         },
                     )
@@ -365,12 +343,6 @@ pub(crate) fn lift_lets_in_stmt(
         // so their inner lets stay as plain locals — no lift needed.
         _ => {}
     }
-}
-
-/// An initializer shape the field sniff declines that must NOT fall
-/// back to `number` — the fallback's own note says why each is here.
-fn init_unsniffable(ast: &Ast, init: super::ExprId) -> bool {
-    matches!(ast.get_expr(init), Expr::Ident(_) | Expr::Call { .. })
 }
 
 /// What a `let` about to lift may not be called: the fields the
