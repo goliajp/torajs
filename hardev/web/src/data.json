@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T16:19:28.969Z",
+  "generatedAt": "2026-09-13T19:23:07.076Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-13T16:07:15Z",
-    "headSha": "3a1dc0191",
-    "elapsedSec": 503.49,
+    "ranAt": "2026-09-13T19:22:31Z",
+    "headSha": "73f207ebc",
+    "elapsedSec": 500.78,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32293,
-    "passNoOracle": 1703,
-    "passNegative": 4566,
-    "passTotal": 38562,
-    "bug": 10482,
-    "incompatible": 4130,
-    "bunSkip": 2932,
+    "pass": 32430,
+    "passNoOracle": 1647,
+    "passNegative": 4568,
+    "passTotal": 38645,
+    "bug": 10405,
+    "incompatible": 4124,
+    "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49044,
-    "passRateInScope": 72.52,
-    "passRateTrAccepted": 78.63
+    "trAccepted": 49050,
+    "passRateInScope": 72.68,
+    "passRateTrAccepted": 78.79
   },
   "torajs": {
-    "commit": "3a1dc0191",
-    "commitSubject": "fix(torajs-core): an async yield* runs IteratorValue on a done step and reads a not-done step's value outside the resumption try",
+    "commit": "73f207ebc",
+    "commitSubject": "test(test262-runner): a case's self-import specifier points at the staged entry",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "3a1dc0191",
-      "subject": "fix(torajs-core): an async yield* runs IteratorValue on a done step and reads a not-done step's value outside the resumption try"
+      "hash": "73f207ebc",
+      "subject": "test(test262-runner): a case's self-import specifier points at the staged entry"
     },
     {
-      "hash": "d01398346",
-      "subject": "fix(torajs-core): a class literal's undefined-initialized fields take the declared slot's type before layout resolution"
+      "hash": "29b6246e0",
+      "subject": "fix(torajs-core): a private method's function name is its Private Name's description"
     },
     {
-      "hash": "91f92dbb5",
-      "subject": "feat(torajs-core): an async generator declared in an async body becomes an async generator expression bound in its slot"
+      "hash": "b85b47781",
+      "subject": "feat(torajs-core): a function expression stored straight into an any receiver's property takes the argv face for its arguments"
     },
     {
-      "hash": "69f2c5654",
-      "subject": "feat(torajs-core): an async generator's yield* forwards return(v) to the inner iterator — the delegating yield resumes with a return completion"
+      "hash": "64f506186",
+      "subject": "feat(torajs-core): a top-level regex literal binding is readable from named function bodies"
     },
     {
-      "hash": "a3bc5d1dd",
-      "subject": "fix(torajs-core): a machine local's closure with a rest parameter is typed __rest(E[]); the declared-return-type map moves to its own file"
+      "hash": "42f051061",
+      "subject": "fix(torajs-core): new on a value bound in a generator body constructs through the value channel"
     },
     {
-      "hash": "d197b2306",
-      "subject": "feat(torajs-core): an async generator's yield* runs the delegation protocol — next read once and called with the sent value, the step awaited before done/value, throw() forwarded to the inner iterator"
+      "hash": "569605ae1",
+      "subject": "feat(torajs-core): a dynamic import evaluates its target's module body once, in a job, and an abrupt completion rejects the promise"
     },
     {
-      "hash": "2e2646e24",
-      "subject": "feat(torajs-core,torajs-cli): a function declared in an async body becomes a function value bound in its slot before the body moves into its state machine"
+      "hash": "3d0cd1541",
+      "subject": "refactor(torajs-core): the resolver's four namespace tables become one struct"
     },
     {
-      "hash": "456796a26",
-      "subject": "fix(torajs-core): a machine local holding an unmoved async function value is typed as the Promise-returning value desugar_async makes of it"
+      "hash": "6dc7d57f9",
+      "subject": "feat(torajs-core): a module's top-level var beside a same-named function is an early SyntaxError, and a dynamic import of a file that is not module code rejects with one"
     },
     {
-      "hash": "2bc79e621",
-      "subject": "feat(torajs-core): an async generator's requests are a queue drained in one job; return e awaits at the return; an async iterator's next() throw is the body's own (D4 residues ① ②)"
+      "hash": "86e3e4b30",
+      "subject": "refactor(torajs-core): move the dynamic-import dispatcher synthesis into its own module"
     },
     {
-      "hash": "15a0f737b",
-      "subject": "fix(torajs-meta): a struct's F64 field holding the undefined sentinel reads back as undefined through the reflective walk"
+      "hash": "51400df61",
+      "subject": "fix(torajs-core): three gaps the receiver channel uncovered in bodies that now move"
     },
     {
-      "hash": "ffb4f9e0a",
-      "subject": "fix(torajs-core): a multi-arg console.log in value position inspects its arguments like the statement form"
+      "hash": "8fc098c48",
+      "subject": "feat(torajs-core): an async function or value reading this moves, its receiver riding as the generator's leading parameter"
     },
     {
-      "hash": "c896f5b8a",
-      "subject": "fix(torajs-core): the yield operand's local carries the operand's own type; the cast to the step type sits on the read"
+      "hash": "e79fbbfcf",
+      "subject": "fix(torajs-core): the async move gate and its this-rewrite stop at a function expression's own this"
     }
   ],
-  "headSha": "3a1dc0191",
+  "headSha": "73f207ebc",
   "autorun": {
-    "total": 947,
+    "total": 948,
     "baselineTarget": 10,
-    "bySelf": 942,
+    "bySelf": 943,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789302727-5e79",
-      "at": "2026-09-13T12:32:07Z",
-      "ts": 1789302727,
+      "rotationId": "r-1789316409-60ae",
+      "at": "2026-09-13T16:20:09Z",
+      "ts": 1789316409,
       "trigger": "self",
-      "prevHead": "87b0c3044",
-      "handoffSha": "sha256:94edcf1b31edbad9e8901585094dfc1c1bd6e29a68650e2cf4c2e40ea7318fee",
-      "handoffAgeSec": 26,
-      "conformanceBefore": "4082/0/4",
-      "commitsInSession": 14
+      "prevHead": "c22f57945",
+      "handoffSha": "sha256:5c180c466676d1c18173746b7b6b8f2172f0fa1ca42a05fada177b855bf55701",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "4093/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789316409-60ae",
+        "at": "2026-09-13T16:20:09Z",
+        "ts": 1789316409,
+        "trigger": "self",
+        "prevHead": "c22f57945",
+        "handoffSha": "sha256:5c180c466676d1c18173746b7b6b8f2172f0fa1ca42a05fada177b855bf55701",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "4093/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789302727-5e79",
         "at": "2026-09-13T12:32:07Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 7,
         "conformanceBefore": "4008/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789160394-2efd",
-        "at": "2026-09-11T20:59:54Z",
-        "ts": 1789160394,
-        "trigger": "self",
-        "prevHead": "7184e2bf3",
-        "handoffSha": "sha256:a550a3c3ea592a487124e85e9b677d983ed59e0b0277118c43a57f844c52fbe5",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "3999/0/4",
-        "commitsInSession": 17
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
