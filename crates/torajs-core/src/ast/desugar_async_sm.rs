@@ -218,9 +218,18 @@ fn inject_driver(ast: &mut Ast) {
         return;
     };
     let expr_base = ast.exprs.len();
+    let type_ann_base = ast.type_ann_spans.len();
     let Ok(offset) = crate::parser::parse_into(DRIVER_SRC, &tokens, ast) else {
         return;
     };
+    // The driver's type annotations record spans too, and those index
+    // DRIVER_SRC as well: an `: any` ~620 bytes into the driver sliced
+    // the user's file at that offset — inside an em-dash in a comment
+    // of `array-from-async-001` ("end byte index 621 is not a char
+    // boundary"). Same sentinel as the expression spans below.
+    for sp in ast.type_ann_spans.iter_mut().skip(type_ann_base) {
+        *sp = crate::lexer::Span { start: 0, end: 0 };
+    }
     // Same hazard on the per-expression tables: an arrow's span rides
     // `expr_spans` until `lift_arrow_fns` turns it into a `__closure_N`
     // declaration, and the driver's three arrows would carry
