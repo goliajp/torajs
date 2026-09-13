@@ -251,27 +251,33 @@ impl<'a> GenSm<'a> {
         // Number, got Nullable(Number)"). TypeScript's own type for
         // that value is `any`, so the assertion adds nothing the
         // program did not already claim.
+        // The local carries the operand's OWN type (no annotation) and
+        // the cast sits on the read, so the step literal sees the same
+        // shape it did when the operand was written there directly:
+        // annotating the local `number` gave a typed generator's I64
+        // step slot an F64 (`generator-005-bidirectional`, the JIT
+        // lane's `materialize_operand_gpr … holding Fpr`).
+        let held_name = format!("{YIELD_OPERAND_LOCAL}{next}");
+        let hold = Stmt::LetDecl {
+            mutable: false,
+            name: held_name.clone(),
+            type_ann: None,
+            init: val,
+            is_var: false,
+        };
+        let held = self.ast.add_expr(Expr::Ident(held_name));
         let step_ann = if self.yield_ty == "any" {
             "any".to_string()
         } else {
             self.yield_ty.clone()
         };
         let val_for_step = self.ast.add_expr(Expr::As {
-            expr: val,
-            ty_ann: step_ann.clone(),
+            expr: held,
+            ty_ann: step_ann,
         });
-        let held_name = format!("{YIELD_OPERAND_LOCAL}{next}");
-        let hold = Stmt::LetDecl {
-            mutable: false,
-            name: held_name.clone(),
-            type_ann: Some(step_ann),
-            init: val_for_step,
-            is_var: false,
-        };
-        let held = self.ast.add_expr(Expr::Ident(held_name));
         let done = self.ast.add_expr(Expr::Bool(false));
         let obj = self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), held), ("done".into(), done)],
+            fields: vec![("value".into(), val_for_step), ("done".into(), done)],
         });
         vec![hold, set, Stmt::Return(Some(obj))]
     }
