@@ -23,17 +23,20 @@
 //! rewritten function leaves `ast.async_fns`, so its `return e` keeps
 //! the bare value the driver's `resolve` settles with.
 //!
-//! **Which functions move.** `Stmt::Yield` is statement-level, so an
-//! `await` in expression position (`f(await a, await b)`, `if (await x)`)
-//! needs an A-normal lift that blade 2 owns. Until then a function moves
-//! only when every one of its awaits already sits where a yield can:
-//! `await e;` and `let v = await e;`. A function holding any other await
-//! keeps today's lowering verbatim — mixed programs are no worse than
-//! today's, because each moved function is CORRECT, and the check is
-//! conservative in the safe direction (an await this pass cannot place
-//! blocks the move rather than being silently dropped).
+//! **Which functions move.** `Stmt::Yield` is statement-level: `await e;`
+//! and `let v = await e;` become yields directly, and an `await` in
+//! expression position (`f(await a, await b)`, `if (await x)`, `return
+//! await e`) is first hoisted to statement level by the A-normal lift
+//! (`desugar_async_sm_rewrite` + `desugar_async_sm_lift`, D1b). A
+//! function holding an await the lift does not take (a guarded operand,
+//! a loop head) keeps today's lowering verbatim — mixed programs are no
+//! worse than today's, because each moved function is CORRECT, and the
+//! check is conservative in the safe direction (an await this pass
+//! cannot place blocks the move rather than being silently dropped).
 
 use super::{Ast, Expr, ExprId, Param, Stmt};
+
+pub(super) use super::desugar_async_sm_rewrite::rewrite_body;
 
 /// Prefix of the generator holding a moved async function's body. The
 /// wrapper keeps the user's name so every call site is untouched.
@@ -360,80 +363,8 @@ fn inject_driver(ast: &mut Ast) {
     }
 }
 
-/// Rewrite every statement-level await into a yield. Answers false —
-/// leaving `body` untouched for the caller to discard — when any await
-/// sits somewhere `Stmt::Yield` cannot go.
-pub(super) fn rewrite_body(ast: &mut Ast, body: &mut [Stmt]) -> bool {
-    body.iter_mut().all(|s| rewrite_stmt(ast, s))
-}
-
-fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt) -> bool {
-    match s {
-        // `await e;`
-        Stmt::Expr(eid) => {
-            if let Some(inner) = await_inner(ast, *eid) {
-                *s = Stmt::Yield(inner);
-                return !expr_has_await(ast, inner);
-            }
-            !expr_has_await(ast, *eid)
-        }
-        // `let v = await e;`
-        Stmt::LetDecl {
-            name,
-            type_ann,
-            init,
-            ..
-        } => {
-            if let Some(inner) = await_inner(ast, *init) {
-                ast.await_yield_values.insert(inner);
-                *s = Stmt::YieldInto {
-                    var: name.clone(),
-                    type_ann: type_ann.clone(),
-                    value: inner,
-                };
-                return !expr_has_await(ast, inner);
-            }
-            !expr_has_await(ast, *init)
-        }
-        Stmt::Return(v) => v.is_none_or(|e| !expr_has_await(ast, e)),
-        Stmt::Throw(e) => !expr_has_await(ast, *e),
-        Stmt::If {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            !expr_has_await(ast, *cond)
-                && rewrite_stmt(ast, then_branch)
-                && else_branch
-                    .as_deref_mut()
-                    .is_none_or(|b| rewrite_stmt(ast, b))
-        }
-        Stmt::While { cond, body } => !expr_has_await(ast, *cond) && rewrite_stmt(ast, body),
-        Stmt::DoWhile { cond, body } => !expr_has_await(ast, *cond) && rewrite_stmt(ast, body),
-        Stmt::Labeled { body, .. } => rewrite_stmt(ast, body),
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => rewrite_body(ast, stmts),
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            rewrite_body(ast, body)
-                && rewrite_body(ast, catch_body)
-                && finally_body
-                    .as_deref_mut()
-                    .is_none_or(|f| rewrite_body(ast, f))
-        }
-        // Everything else blocks the move if it holds an await; the
-        // conservative direction is refusing to move, never dropping a
-        // suspend point. `for` heads, `switch` discriminants and the
-        // for-of/for-in iterables all land here.
-        other => !stmt_has_await(ast, other),
-    }
-}
-
 /// `Some(inner)` when `eid` IS a parser-minted `await inner` read.
-fn await_inner(ast: &Ast, eid: ExprId) -> Option<ExprId> {
+pub(super) fn await_inner(ast: &Ast, eid: ExprId) -> Option<ExprId> {
     if !ast.await_value_reads.contains(&eid) {
         return None;
     }
