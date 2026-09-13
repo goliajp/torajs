@@ -158,13 +158,23 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
             let Some(name) = name.as_str() else {
                 return false;
             };
+            // r642 — an INDEX key (`{ length: 2, 0: 0, 1: 2 }`, the
+            // test262 array-like idiom) is data like any identifier
+            // key: the dynobj the init lane mints holds it under its
+            // canonical string, and the `: any` spelling of the same
+            // literal already reads right from a named fn. Refused
+            // here, the binding stayed main-local and every named-fn
+            // read — and every async body blade 2 moves into a
+            // generator — died with "unknown identifier".
+            let index_key = !name.is_empty() && name.bytes().all(|b| b.is_ascii_digit());
             let mut chars = name.chars();
             let head_ok = chars
                 .next()
                 .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$');
-            head_ok
-                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
-                && !name.starts_with("__")
+            (index_key
+                || (head_ok
+                    && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                    && !name.starts_with("__")))
                 && any_slot_safe_value(ast, *val)
         }),
         Expr::Array(els) => els.iter().all(|el| any_slot_safe_value(ast, *el)),
