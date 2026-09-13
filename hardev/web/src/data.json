@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T06:38:23.290Z",
+  "generatedAt": "2026-09-13T12:31:41.317Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-13T06:26:28Z",
-    "headSha": "606dcdd3f",
-    "elapsedSec": 468.13,
+    "ranAt": "2026-09-13T12:20:25Z",
+    "headSha": "9355b4842",
+    "elapsedSec": 491.07,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32051,
-    "passNoOracle": 1700,
+    "pass": 32154,
+    "passNoOracle": 1702,
     "passNegative": 4566,
-    "passTotal": 38317,
-    "bug": 10722,
-    "incompatible": 4135,
+    "passTotal": 38422,
+    "bug": 10618,
+    "incompatible": 4134,
     "bunSkip": 2932,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49039,
-    "passRateInScope": 72.06,
-    "passRateTrAccepted": 78.14
+    "trAccepted": 49040,
+    "passRateInScope": 72.26,
+    "passRateTrAccepted": 78.35
   },
   "torajs": {
-    "commit": "606dcdd3f",
-    "commitSubject": "fix(torajs-core): an `as any` over a function value indexes through the closure cell's expando",
+    "commit": "9355b4842",
+    "commitSubject": "fix(torajs-core,torajs-cli): the async generator driver is injected before the one async state-machine run, not moved by a second one",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "606dcdd3f",
-      "subject": "fix(torajs-core): an `as any` over a function value indexes through the closure cell's expando"
+      "hash": "9355b4842",
+      "subject": "fix(torajs-core,torajs-cli): the async generator driver is injected before the one async state-machine run, not moved by a second one"
     },
     {
-      "hash": "b43f589f3",
-      "subject": "fix(torajs-core): an async body carrying a dynamic `import()` keeps the synchronous lowering"
+      "hash": "1d347c337",
+      "subject": "feat(torajs-core): an async generator's `yield*` finds an async iterable's protocol from the step it answers (D4, third cut)"
     },
     {
-      "hash": "f698361e0",
-      "subject": "fix(torajs-core): a top-level object literal with an index key is visible to named functions"
+      "hash": "fab2c2c51",
+      "subject": "feat(torajs-core): an await in a loop head or a switch discriminant suspends — the head-tested loop form (D1b, third cut)"
     },
     {
-      "hash": "5cb925464",
-      "subject": "fix(torajs-core): a generator-lifted local the sniff cannot read is an `any` slot, not `number`"
+      "hash": "c51ea540c",
+      "subject": "fix(torajs-core): an async generator's settled step spells `undefined` in its yield type's own form"
     },
     {
-      "hash": "8a13b57d9",
-      "subject": "feat(test262): port temporalHelpers' observer subset, admitted per case"
+      "hash": "9223dbf78",
+      "subject": "feat(torajs-core): an await on the guarded side of `&&` / `||` / `??` or in a ternary branch suspends — the lift's statement form (D1b, second cut)"
     },
     {
-      "hash": "3ce829723",
-      "subject": "fix(torajs-core): a function expression settled through `Promise.resolve` keeps its own `arguments`"
+      "hash": "5ca1b2530",
+      "subject": "fix(torajs-core): an async generator's delegated steps go through the driver, and its settled step is the class's own struct (D4, second cut)"
     },
     {
-      "hash": "c8c281bcd",
-      "subject": "feat(torajs-core): a moved `let v = await e` keeps its width link to what resolved it"
+      "hash": "001068f57",
+      "subject": "feat(torajs-core): an async generator's steps suspend — the step driver (RFC 20260805 D4)"
     },
     {
-      "hash": "e3ff9ae52",
-      "subject": "feat(torajs-core): an async function value suspends at its first await"
+      "hash": "299dc2f43",
+      "subject": "fix(torajs-core,torajs-promise): two shapes the A-normal lift's wider move uncovered — a typed slot's undefined boxed as its slot's form, and a this-field guard reading the wrong class"
     },
     {
-      "hash": "d7a177291",
-      "subject": "fix(torajs-core): a `this`-reading method keeps static dispatch for a call on a fresh instance in its any-receiver twin"
+      "hash": "897d603b4",
+      "subject": "feat(torajs-core): an await inside an expression suspends — the A-normal lift (RFC 20260805 D1b)"
     },
     {
-      "hash": "8aeb81dc0",
-      "subject": "fix(torajs-core): an awaited call through an async fn VALUE reads its width from the key the analysis filed it under"
+      "hash": "9f7f4061e",
+      "subject": "fix(torajs-core): a returned local closure keeps its argv face when another function declares a local of the same name"
     },
     {
-      "hash": "a6fa5529a",
-      "subject": "refactor(torajs-core): move WidthTable out of num_width/container.rs"
+      "hash": "dca4c6289",
+      "subject": "feat(torajs-anyvalue): a user thenable is adopted wherever a promise is resolved with a value"
     },
     {
-      "hash": "5f81ba116",
-      "subject": "fix(torajs-core): an async fn's returned object literal binds to a typed const, and the await widens at the promise's value point"
+      "hash": "b092dccde",
+      "subject": "fix(torajs-core): an async function's self- or later-referencing parameter default rejects instead of reading the caller's binding"
     }
   ],
-  "headSha": "606dcdd3f",
+  "headSha": "9355b4842",
   "autorun": {
-    "total": 945,
+    "total": 946,
     "baselineTarget": 10,
-    "bySelf": 940,
+    "bySelf": 941,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789267361-00a7",
-      "at": "2026-09-13T02:42:41Z",
-      "ts": 1789267361,
+      "rotationId": "r-1789281559-1cf6",
+      "at": "2026-09-13T06:39:19Z",
+      "ts": 1789281559,
       "trigger": "self",
-      "prevHead": "a25429c68",
-      "handoffSha": "sha256:37ec9c0f064ddd7589f8c5347a906d84f79286846e0c87c7800ca9c73f50bd74",
-      "handoffAgeSec": 2,
-      "conformanceBefore": "4061/0/4",
-      "commitsInSession": 15
+      "prevHead": "de1e2cb2b",
+      "handoffSha": "sha256:abf7c948140e26c7d090ad7e385a535c75c7e8a6ecd85e6518b3648609a0adc9",
+      "handoffAgeSec": 9,
+      "conformanceBefore": "4072/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789281559-1cf6",
+        "at": "2026-09-13T06:39:19Z",
+        "ts": 1789281559,
+        "trigger": "self",
+        "prevHead": "de1e2cb2b",
+        "handoffSha": "sha256:abf7c948140e26c7d090ad7e385a535c75c7e8a6ecd85e6518b3648609a0adc9",
+        "handoffAgeSec": 9,
+        "conformanceBefore": "4072/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789267361-00a7",
         "at": "2026-09-13T02:42:41Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 34,
         "conformanceBefore": "3990/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1789127342-721a",
-        "at": "2026-09-11T11:49:02Z",
-        "ts": 1789127342,
-        "trigger": "self",
-        "prevHead": "593bc210f",
-        "handoffSha": "sha256:726ce103cc7accc3eee038bda68e82abf23c52ce425af4bf02fa62ff5497f286",
-        "handoffAgeSec": 4,
-        "conformanceBefore": "3980/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
