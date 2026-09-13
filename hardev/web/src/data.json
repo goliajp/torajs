@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-12T21:37:32.775Z",
+  "generatedAt": "2026-09-13T02:40:54.505Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-12T21:26:43Z",
-    "headSha": "03a7853b4",
-    "elapsedSec": 460.8,
+    "ranAt": "2026-09-13T02:30:09Z",
+    "headSha": "ffc58d70f",
+    "elapsedSec": 463.92,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 31999,
+    "pass": 32030,
     "passNoOracle": 1700,
     "passNegative": 4566,
-    "passTotal": 38265,
-    "bug": 10762,
+    "passTotal": 38296,
+    "bug": 10731,
     "incompatible": 4147,
     "bunSkip": 2932,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49027,
-    "passRateInScope": 71.96,
-    "passRateTrAccepted": 78.05
+    "passRateInScope": 72.02,
+    "passRateTrAccepted": 78.11
   },
   "torajs": {
-    "commit": "672fe0720",
-    "commitSubject": "chore(hardev): rotation 640 stamps — sweep, determinism, Guard Malloc, bench @ 03a7853b4",
+    "commit": "ffc58d70f",
+    "commitSubject": "fix(torajs-core): the async move gate refuses `this`, an await-less body and a `__priv_`-spelled private name",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "672fe0720",
-      "subject": "chore(hardev): rotation 640 stamps — sweep, determinism, Guard Malloc, bench @ 03a7853b4"
+      "hash": "ffc58d70f",
+      "subject": "fix(torajs-core): the async move gate refuses `this`, an await-less body and a `__priv_`-spelled private name"
     },
     {
-      "hash": "03a7853b4",
-      "subject": "fix(torajs-core): the module-top pre-scan judges a synthetic name by provenance, not by prefix"
+      "hash": "03dcaff35",
+      "subject": "fix(torajs-core): a delete through a named fn's parameter degrades the literal passed to it"
     },
     {
-      "hash": "fcca7c3c6",
-      "subject": "fix(torajs-core): a string field written the Str undefined sentinel reads as nullable"
+      "hash": "f5ef947ac",
+      "subject": "feat(torajs-core): an async method suspends at its first await"
     },
     {
-      "hash": "13d5198b1",
-      "subject": "fix(torajs-core): a Script's let or const shadows the binding an earlier eval declared"
+      "hash": "db9449d7e",
+      "subject": "Revert \"feat(torajs-core): an async function value suspends at its first await\""
     },
     {
-      "hash": "84de64f3d",
-      "subject": "fix(torajs-core): a value-position eval's var still completes empty after its hoist"
+      "hash": "d81a58f4a",
+      "subject": "feat(torajs-core): an async function value suspends at its first await"
     },
     {
-      "hash": "070f230b6",
-      "subject": "fix(torajs-core): a sloppy direct eval in value position declares its var in the script"
+      "hash": "7d97e1e5d",
+      "subject": "feat(torajs-core): an async function with an optional parameter or a literal scalar default suspends too"
     },
     {
-      "hash": "76317e2cc",
-      "subject": "feat(torajs-core): an exhausted generator's completion value is undefined, unboxed"
+      "hash": "7e074a703",
+      "subject": "feat(torajs-core): an async function with a rest parameter or an `any` default suspends too"
     },
     {
-      "hash": "ac9c97340",
-      "subject": "fix(torajs-core): a typed generator lane casts the yielded value to its yield type"
+      "hash": "e7dbd841d",
+      "subject": "fix(torajs-core): the injected async driver's type-annotation spans get the sentinel too"
     },
     {
-      "hash": "9930c9831",
-      "subject": "feat(torajs-core): a bare next() sends undefined — the generator resume channel carries it"
+      "hash": "75cdfcc6e",
+      "subject": "feat(torajs-core): an async function suspends at its first await"
     },
     {
-      "hash": "d98d709ad",
-      "subject": "fix(torajs-core): a generator local holding a computed-key object literal lifts as any"
+      "hash": "7829d3bfc",
+      "subject": "fix(torajs-core): a generator local initialized with an `as` cast takes the cast's type in the state-machine field sniff"
     },
     {
-      "hash": "e0958fc00",
-      "subject": "fix(torajs-core): a var with an initializer over a module-top function shares the function's binding"
+      "hash": "1798e6fb7",
+      "subject": "fix(torajs-core): a method's receiver-polymorphic twin keeps static dispatch on a module-level receiver"
     },
     {
-      "hash": "69f4f9e88",
-      "subject": "fix(torajs-core): a Script's block function over a defined global keeps the property, and a name a later text declares reads the object until then"
+      "hash": "5946d9ab8",
+      "subject": "fix(torajs-core): an async function declared inside a method or generator body gets its promise wrap"
     }
   ],
-  "headSha": "672fe0720",
+  "headSha": "ffc58d70f",
   "autorun": {
-    "total": 943,
+    "total": 944,
     "baselineTarget": 10,
-    "bySelf": 938,
+    "bySelf": 939,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789233678-28fa",
-      "at": "2026-09-12T17:21:18Z",
-      "ts": 1789233678,
+      "rotationId": "r-1789249107-4695",
+      "at": "2026-09-12T21:38:27Z",
+      "ts": 1789249107,
       "trigger": "self",
-      "prevHead": "9aac4fd66",
-      "handoffSha": "sha256:02e25f6a2aa5bdf24d57c19a500a1aa163a942afd979ab701433465a3204c9b1",
-      "handoffAgeSec": 9,
-      "conformanceBefore": "4040/0/4",
-      "commitsInSession": 14
+      "prevHead": "2447425f7",
+      "handoffSha": "sha256:838e558ad50e8dfb70116f20ccd4e0c49431c53e418f0e128be0c6c8125d8a0f",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "4049/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789249107-4695",
+        "at": "2026-09-12T21:38:27Z",
+        "ts": 1789249107,
+        "trigger": "self",
+        "prevHead": "2447425f7",
+        "handoffSha": "sha256:838e558ad50e8dfb70116f20ccd4e0c49431c53e418f0e128be0c6c8125d8a0f",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "4049/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789233678-28fa",
         "at": "2026-09-12T17:21:18Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:42386e7d4b681ad5aeefcf2dd008a9354abc548e148708b942d30a8427f7b402",
         "handoffAgeSec": 9,
         "conformanceBefore": "3970/0/4",
-        "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789089281-48ad",
-        "at": "2026-09-11T01:14:41Z",
-        "ts": 1789089281,
-        "trigger": "self",
-        "prevHead": "f3d3d8b00",
-        "handoffSha": "sha256:43573349bb298832cef5172c4134f2ea802751090f5c6ff39c02593c51bbbe7e",
-        "handoffAgeSec": 4,
-        "conformanceBefore": "3967/0/4",
         "commitsInSession": 15
       }
     ],
