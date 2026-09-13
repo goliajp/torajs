@@ -27,35 +27,35 @@
 //! (methods / fn-exprs).
 
 use super::Parser;
-use crate::ast::{Expr, ExprId};
+use crate::ast::{Ast, Expr, ExprId};
 
 impl<'a> Parser<'a> {
     pub(super) fn implicit_optional_default(&mut self, type_ann: Option<&str>) -> ExprId {
-        // Un-annotated: the plain ident, which types as `Undefined`.
-        let Some(ann) = type_ann else {
-            return self.ast.add_expr(Expr::Ident("undefined".into()));
-        };
-        // The annotation reaching here is the `__nullable(T)` the
-        // caller wrapped around the written type; T is the width that
-        // has to carry the value.
-        let inner = ann
-            .strip_prefix("__nullable(")
-            .and_then(|s| s.strip_suffix(')'))
-            .unwrap_or(ann);
-        // A slot that materializes as Any takes the plain ident and
-        // boxes it to ANY_UNDEF. A pointer-shaped one has no such
-        // encoding and needs its per-type sentinel cell, which the
-        // `__undef_slot__<T>` marker asks the SSA lowering to
-        // materialize (see the module doc on why the async tail's
-        // minter for this same question does not fit here).
-        if crate::ssa_lower_parse_type::nullable_inner_boxes(inner)
-            || matches!(inner, "any" | "void" | "undefined")
-        {
-            return self.ast.add_expr(Expr::Ident("undefined".into()));
-        }
-        self.ast.add_expr(Expr::Ident(format!(
-            "{}{inner}",
-            crate::ast::UNDEF_SLOT_MARKER
-        )))
+        implicit_optional_default(&mut self.ast, type_ann)
     }
+}
+
+/// The default an optional parameter binds when the argument is
+/// absent — the parser's `x?: T` rule, as a free function so a desugar
+/// minting an optional parameter (the async wrapper, RFC 20260805
+/// blade 1) spells the same value the parser would: the plain
+/// `undefined` where the slot materializes as Any, the per-type
+/// `__undef_slot__T` sentinel where it is pointer-shaped.
+pub(crate) fn implicit_optional_default(ast: &mut Ast, type_ann: Option<&str>) -> ExprId {
+    let Some(ann) = type_ann else {
+        return ast.add_expr(Expr::Ident("undefined".into()));
+    };
+    let inner = ann
+        .strip_prefix("__nullable(")
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(ann);
+    if crate::ssa_lower_parse_type::nullable_inner_boxes(inner)
+        || matches!(inner, "any" | "void" | "undefined")
+    {
+        return ast.add_expr(Expr::Ident("undefined".into()));
+    }
+    ast.add_expr(Expr::Ident(format!(
+        "{}{inner}",
+        crate::ast::UNDEF_SLOT_MARKER
+    )))
 }

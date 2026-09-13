@@ -75,7 +75,7 @@ mod object_member_generator;
 mod param_list;
 mod param_list_early_errors;
 mod param_list_modifiers;
-mod param_optional_default;
+pub(crate) mod param_optional_default;
 mod parse_class_decl;
 mod parse_class_decl_computed_field;
 mod parse_class_decl_field;

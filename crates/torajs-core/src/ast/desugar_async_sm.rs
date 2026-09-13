@@ -33,7 +33,6 @@
 //! conservative in the safe direction (an await this pass cannot place
 //! blocks the move rather than being silently dropped).
 
-use super::desugar_with::walk;
 use super::{Ast, Expr, ExprId, Param, Stmt};
 
 /// Prefix of the generator holding a moved async function's body. The
@@ -83,8 +82,15 @@ function __async_step(__g: any, __resolve: any, __reject: any, __v: any, __is_er
   );
 }
 
-function __async_drive(__g: any): Promise<any> {
+function __async_drive(__mk: any): Promise<any> {
   return new Promise((__resolve: any, __reject: any) => {
+    let __g: any;
+    try {
+      __g = __mk();
+    } catch (__e: any) {
+      __reject(__e);
+      return;
+    }
     __async_step(__g, __resolve, __reject, undefined, false);
   });
 }
@@ -126,7 +132,7 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
         else {
             continue;
         };
-        if blocks_move(ast, &params, &body) {
+        if super::desugar_async_sm_gate::blocks_move(ast, &params, &body) {
             continue;
         }
         let mut moved = body.clone();
@@ -137,7 +143,7 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
         generators.push(Stmt::FnDecl {
             name: gen_name.clone(),
             type_params: type_params.clone(),
-            params: params.clone(),
+            params: generator_params(&params),
             // P10.7 default-Any generator: yields and the return value
             // both ride the Any tier, which is what the driver moves.
             return_type: Some("any".into()),
@@ -145,10 +151,11 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
             is_generator: true,
             span,
         });
+        let wrapper_params = wrapper_params(ast, &params);
         ast.stmts[idx] = Stmt::FnDecl {
             name: name.clone(),
             type_params,
-            params: params.clone(),
+            params: wrapper_params,
             return_type: Some(promise_ann(return_type.as_deref())),
             body: vec![Stmt::Return(Some(build_drive_call(
                 ast, &gen_name, &params,
@@ -186,7 +193,15 @@ fn promise_ann(_declared: Option<&str>) -> String {
     "Promise<any>".into()
 }
 
-/// `__async_drive(__async_gen__f(a, b, ...))`.
+/// `__async_drive(() => __async_gen__f(a, b, rest))`.
+///
+/// The generator is constructed INSIDE the driver's `try`: calling it
+/// runs FunctionDeclarationInstantiation, which is where a parameter
+/// default's initializer throws, and §15.8.4 step 3 wants that throw
+/// as a rejection of the returned promise, not a synchronous one from
+/// the wrapper. The thunk carries the wrapper's parameters in; the
+/// wrapper's rest parameter arrives already packed and the generator
+/// takes it as a plain array (`generator_params`).
 fn build_drive_call(ast: &mut Ast, gen_name: &str, params: &[Param]) -> ExprId {
     let gen_ident = ast.add_expr(Expr::Ident(gen_name.into()));
     let args: Vec<ExprId> = params
@@ -197,11 +212,63 @@ fn build_drive_call(ast: &mut Ast, gen_name: &str, params: &[Param]) -> ExprId {
         callee: gen_ident,
         args,
     });
+    let thunk = ast.add_expr(Expr::ArrowFn {
+        params: Vec::new(),
+        return_type: Some("any".into()),
+        body: vec![Stmt::Return(Some(gen_call))],
+    });
     let drive_ident = ast.add_expr(Expr::Ident("__async_drive".into()));
     ast.add_expr(Expr::Call {
         callee: drive_ident,
-        args: vec![gen_call],
+        args: vec![thunk],
     })
+}
+
+/// The wrapper's parameter list: the user's, with every defaulted
+/// parameter turned into an `any` OPTIONAL — `x = init` becomes
+/// `x?: any` — so the initializer runs once, in the generator, when the
+/// wrapper forwards the absent argument as `undefined` (§10.2.11: an
+/// `undefined` argument takes the default; the lowering's or_default
+/// lane binds it for an `any` actual). Left on the wrapper it would run
+/// at the wrapper's entry too — twice per call, and a throwing one
+/// would escape synchronously. Only `any`-spelled defaults get here
+/// (`typed_default_param` gates the rest); rest parameters are kept as
+/// written — the wrapper packs, the generator takes the array.
+fn wrapper_params(ast: &mut Ast, params: &[Param]) -> Vec<Param> {
+    params
+        .iter()
+        .map(|p| {
+            if p.default.is_none() {
+                return p.clone();
+            }
+            let default = crate::parser::param_optional_default::implicit_optional_default(
+                ast,
+                Some("__nullable(any)"),
+            );
+            Param {
+                name: p.name.clone(),
+                type_ann: Some("any".into()),
+                default: Some(default),
+                is_rest: p.is_rest,
+            }
+        })
+        .collect()
+}
+
+/// The generator's parameter list: the user's, with a rest parameter
+/// demoted to a plain array parameter. The wrapper's own rest already
+/// packed the caller's arguments; the thunk hands that array over as
+/// one argument, and a rest on the generator would pack it again.
+fn generator_params(params: &[Param]) -> Vec<Param> {
+    params
+        .iter()
+        .map(|p| Param {
+            name: p.name.clone(),
+            type_ann: p.type_ann.clone(),
+            default: p.default,
+            is_rest: false,
+        })
+        .collect()
 }
 
 /// Parse the driver into the shared arena once. `parse_into` keeps
@@ -347,78 +414,4 @@ pub(super) fn expr_has_await(ast: &Ast, eid: ExprId) -> bool {
         found = found || expr_has_await(ast, c);
     });
     found
-}
-
-/// Shapes blade 1 does not move yet, each for a reason the wrapper's
-/// plain forwarding call cannot honour:
-///
-/// - a parameter with a default or a rest parameter — the wrapper
-///   `f(a, b)` carries the same parameter list, so a default's
-///   initializer would run at the WRAPPER's entry (a throw there is a
-///   synchronous throw, §15.8.4 wants a rejected promise), and a rest
-///   array would be re-wrapped by the generator's own rest;
-/// - `arguments` anywhere in the body, arrows included (they inherit
-///   it) — the wrapper forwards declared parameters only, so
-///   `arguments[2]` of a call with three arguments would be gone;
-/// - `new.target` — the generator is called plainly;
-/// - `for await` and `await using` — their suspend points are inside
-///   the iteration / disposal protocol, not at a statement the
-///   `Stmt::Yield` rewrite can reach (blades 4 / 5). `await using`
-///   has already become a `__usenv_N` dispose stack + try/finally by
-///   this pass (`desugar_using` runs first), so it is recognised by
-///   that environment's name; a body carrying one still keeps the
-///   synchronous lowering (`using-await-001`: the SuppressedError
-///   path through the generator's finally answered a TypeError);
-/// - `let xs: T[] = await e` — an array-annotated await binding. The
-///   synchronous lowering lets num_width tie the awaited literal's
-///   element width to the binding's writes; through `yield` that
-///   link is cut and `xs[0] = 1.5` on an int-born array is refused
-///   (`arr-promise-elem-width-001`). Registered follow-up: tag the
-///   YieldInto with its await origin and let num_width follow it.
-///
-/// Refusing keeps today's synchronous lowering for that function,
-/// which is never worse than today; moving it would be wrong.
-fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
-    params.iter().any(|p| p.default.is_some() || p.is_rest)
-        || body.iter().any(|s| stmt_blocks_move(ast, s))
-}
-
-fn stmt_blocks_move(ast: &Ast, s: &Stmt) -> bool {
-    if matches!(
-        s,
-        Stmt::ForOf { is_await: true, .. } | Stmt::UsingDecl { is_await: true, .. }
-    ) {
-        return true;
-    }
-    if let Stmt::LetDecl {
-        type_ann: Some(ann),
-        init,
-        ..
-    } = s
-        && ast.await_value_reads.contains(init)
-        && (ann.ends_with("[]") || ann.starts_with("Array<"))
-    {
-        return true;
-    }
-    walk::stmt_exprs(s)
-        .into_iter()
-        .any(|e| expr_blocks_move(ast, e))
-        || walk::stmt_children_ref(s)
-            .into_iter()
-            .any(|c| stmt_blocks_move(ast, c))
-}
-
-fn expr_blocks_move(ast: &Ast, eid: ExprId) -> bool {
-    match ast.get_expr(eid) {
-        Expr::Ident(n) if n == "arguments" || n.starts_with("__usenv_") => true,
-        Expr::NewTarget => true,
-        // An arrow's `arguments` / `new.target` are the enclosing
-        // function's, so its body is scanned too — but a nested
-        // `FnDecl` is its own function and `stmt_children_ref` stops
-        // at it.
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s)),
-        _ => walk::expr_children(ast, eid)
-            .into_iter()
-            .any(|c| expr_blocks_move(ast, c)),
-    }
 }
