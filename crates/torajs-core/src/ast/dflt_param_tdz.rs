@@ -37,29 +37,24 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 
 pub(crate) fn run(ast: &mut Ast) {
     let mut hits: Vec<(ExprId, String)> = Vec::new();
+    // Async functions take the rewrite too. §15.8.4 step 3 wants a
+    // param-initializer throw as a REJECTION of the returned promise,
+    // and that is what it becomes: the minted IIFE is a closed function
+    // literal, so `materialize_expr_defaults` moves it off the call-site
+    // pad into a body guard — inside the async `try` for a
+    // synchronously lowered body, inside the driver's `try` for a moved
+    // one — and the throw is caught there. Left on the pad (the
+    // rotation-275 skip) the bare `x` resolved to the CALLER's `x` and
+    // the body ran: the 18 `dflt-params-ref-{self,later}` async cases
+    // (642-07). Async generators were never skipped — their §15.6.2
+    // param throw is synchronous, which the pad gives for free.
     for s in &ast.stmts {
-        if let Stmt::FnDecl { name, params, .. } = s {
-            // A plain async function owes a REJECTED promise for a
-            // param-initializer throw (§15.8.4 step 3), not the sync
-            // throw this rewrite produces — and its existing channel
-            // already answers the ReferenceError rejection (the
-            // dflt-params-ref-self async family passed before this
-            // pass existed). Skip it; async GENERATORS are not in
-            // `async_fns` (their §15.6.2 param throw is sync) and
-            // keep the rewrite.
-            if ast.async_fns.contains(name) {
-                continue;
-            }
+        if let Stmt::FnDecl { params, .. } = s {
             collect_param_hits(ast, params, &mut hits);
         }
     }
-    for (i, e) in ast.exprs.iter().enumerate() {
+    for e in &ast.exprs {
         if let Expr::ArrowFn { params, .. } = e {
-            // Same §15.8.4 posture for async function values / async
-            // arrows (side table keyed by ExprId).
-            if ast.async_fn_value_exprs.contains(&ExprId(i as u32)) {
-                continue;
-            }
             collect_param_hits(ast, params, &mut hits);
         }
     }
