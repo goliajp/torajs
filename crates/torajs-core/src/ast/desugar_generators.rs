@@ -101,7 +101,7 @@ pub fn desugar_generators(ast: &mut Ast) {
         return;
     }
 
-    let fn_sigs = super::desugar_generators_field_ann::collect_declared_fn_return_types(ast);
+    let fn_sigs = super::desugar_generators_field_ann_fnsigs::collect_declared_fn_return_types(ast);
     let mut appended: Vec<Stmt> = Vec::new();
     // Containers first (642-05): a generator holding a by-reference
     // wrapper edits that wrapper's factory while it is still a decl,
