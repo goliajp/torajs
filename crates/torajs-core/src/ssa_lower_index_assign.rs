@@ -124,8 +124,12 @@ impl<'a> LowerCtx<'a> {
         // store on one of them is the ordinary expando store the any
         // set kernel already runs, which is why the `any` spelling of
         // `m[sym] = 1` has always worked.
+        // r642 — the OPERAND's shape decides too: `(f as any)[0] = v`
+        // arrives as a Closure under an `Any` recorded type (a bare
+        // `as` over a heap source), which neither test above boxed.
         let (arr_val, arr_ty) = if crate::ssa_lower_index::shape_has_expando_bag(&arr_ty)
             || obj_is_fn
+            || matches!(arr_ty, Type::Closure(_) | Type::FnSig(_))
             || (matches!(arr_ty, Type::Arr(_)) && key_is_any)
         {
             (self.box_to_any(arr_val), Type::Any)

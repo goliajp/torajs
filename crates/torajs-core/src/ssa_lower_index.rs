@@ -131,8 +131,10 @@ pub(crate) fn lower_from_value(
     // type Map". Boxing is the whole mechanism: RegExp has been on
     // this list the whole time and its non-number keys have worked
     // the whole time.
+    // r642 — a Closure OPERAND under an `Any` type (`(f as any)[0]`) boxes too.
     let (arr_val, arr_ty) = if shape_has_expando_bag(&arr_ty)
         || obj_is_fn
+        || matches!(arr_ty, Type::Closure(_) | Type::FnSig(_))
         || crate::ssa_lower_index_recv_shape::primitive_index_receiver(&arr_ty)
     {
         (ctx.box_to_any(arr_val), Type::Any)
