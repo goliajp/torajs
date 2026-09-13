@@ -28,14 +28,21 @@
 //! hoisting the member would lose it; the receiver binding being
 //! reassigned during the suspension is the recorded deviation).
 //!
+//! A GUARDED position — the right side of `&&` / `||` / `??`, a
+//! ternary's branches — must not evaluate unconditionally, so it takes
+//! the statement form instead of a hoist: `let __awg_<eid>: any` plus
+//! an `if` whose branches assign it (`c ? await a : b` → `if (c) { g =
+//! await a } else { g = b }`), and the node reads the temp. The caller
+//! runs the rewrite over that prefix, so the awaits inside the branches
+//! become yields like any statement's.
+//!
 //! Positions the lift does NOT take, leaving the statement — and so the
-//! function — on the synchronous lowering as before: the guarded side
-//! of `&&` / `||` / `??` and a ternary's branches (the awaited side must
-//! not evaluate unconditionally), an assignment target that is not a
-//! name or a member / index over hoistable parts, a `delete` operand,
-//! `++` / `--`, and a nested function body (its awaits are its own).
-//! Loop heads and switch discriminants are the caller's refusal — a
-//! hoist before the loop is not a re-evaluation per iteration.
+//! function — on the synchronous lowering as before: an assignment
+//! target that is not a name or a member / index over hoistable parts,
+//! a `delete` operand, `++` / `--`, optional chains, and a nested
+//! function body (its awaits are its own). Loop heads and switch
+//! discriminants are the caller's refusal — a hoist before the loop is
+//! not a re-evaluation per iteration.
 //!
 //! The rewrite mutates the arena in place, and the caller decides
 //! whether to move the function only after the WHOLE body is rewritten;
@@ -45,7 +52,7 @@
 use std::collections::HashSet;
 
 use super::desugar_async_sm::{await_inner, expr_has_await};
-use super::{Ast, BinOp, Expr, ExprId, Stmt};
+use super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 
 /// Every arena and side-table change the lift made for one body, so a
 /// refused move can be undone (`rewrite_body`'s contract).
@@ -162,7 +169,7 @@ pub(super) fn can_lift(ast: &Ast, eid: ExprId) -> bool {
         Shape::Leaf => true,
         Shape::Ordered(kids) => kids.iter().all(|k| can_lift(ast, *k)),
         Shape::Guarded(first, rest) => {
-            can_lift(ast, first) && rest.iter().all(|r| !expr_has_await(ast, *r))
+            can_lift(ast, first) && rest.iter().all(|r| can_lift(ast, *r))
         }
         Shape::Refuse(kids) => kids.iter().all(|k| !expr_has_await(ast, *k)),
     }
@@ -221,9 +228,12 @@ pub(super) fn lift(
     let kids = match shape(ast, eid) {
         Shape::Leaf | Shape::Refuse(_) => return,
         Shape::Ordered(kids) => kids,
-        Shape::Guarded(first, _) => {
+        Shape::Guarded(first, rest) => {
             if expr_has_await(ast, first) {
                 lift(ast, first, prefix, stable, log, mark);
+            }
+            if rest.iter().any(|r| expr_has_await(ast, *r)) {
+                guarded_to_statements(ast, eid, prefix, log);
             }
             return;
         }
@@ -242,6 +252,78 @@ pub(super) fn lift(
             hoist(ast, *k, prefix, stable, log);
         }
     }
+}
+
+/// The statement form of a guarded node whose guarded side awaits
+/// (module doc): `let __awg: any = undefined; if (…) { __awg = … } else
+/// { __awg = … }` ahead of the statement, the node reading the temp.
+/// The branches still hold their awaits — the caller's rewrite of the
+/// prefix turns them into yields.
+fn guarded_to_statements(ast: &mut Ast, eid: ExprId, prefix: &mut Vec<Stmt>, log: &mut LiftLog) {
+    let tmp = format!("__awg_{}", eid.0);
+    let assign_tmp = |ast: &mut Ast, value: ExprId| -> Stmt {
+        let target = ast.add_expr(Expr::Ident(tmp.clone()));
+        Stmt::Expr(ast.add_expr(Expr::Assign { target, value }))
+    };
+    let (init, cond, then_v, else_v): (Option<ExprId>, ExprId, ExprId, Option<ExprId>) =
+        match ast.get_expr(eid).clone() {
+            Expr::Ternary {
+                cond,
+                then_branch,
+                else_branch,
+            } => (None, cond, then_branch, Some(else_branch)),
+            // `l && r`: g = l; if (g) g = r.   `l || r`: if (!g) g = r.
+            // `l ?? r`: if (g == null) g = r.
+            Expr::BinOp {
+                op: BinOp::LAnd,
+                left,
+                right,
+            } => (
+                Some(left),
+                ast.add_expr(Expr::Ident(tmp.clone())),
+                right,
+                None,
+            ),
+            Expr::BinOp {
+                op: BinOp::LOr,
+                left,
+                right,
+            } => {
+                let g = ast.add_expr(Expr::Ident(tmp.clone()));
+                let not = ast.add_expr(Expr::Unary {
+                    op: UnaryOp::Not,
+                    expr: g,
+                });
+                (Some(left), not, right, None)
+            }
+            Expr::Nullish { lhs, rhs } => {
+                let g = ast.add_expr(Expr::Ident(tmp.clone()));
+                let null = ast.add_expr(Expr::Null);
+                let is_nullish = ast.add_expr(Expr::BinOp {
+                    op: BinOp::LooseEq,
+                    left: g,
+                    right: null,
+                });
+                (Some(lhs), is_nullish, rhs, None)
+            }
+            other => panic!("guarded lift on a non-guarded node: {other:?}"),
+        };
+    let init = init.unwrap_or_else(|| ast.add_expr(Expr::Ident("undefined".into())));
+    prefix.push(Stmt::LetDecl {
+        mutable: true,
+        name: tmp.clone(),
+        type_ann: Some("any".into()),
+        init,
+        is_var: false,
+    });
+    let then_s = assign_tmp(ast, then_v);
+    let else_s = else_v.map(|v| Box::new(assign_tmp(ast, v)));
+    prefix.push(Stmt::If {
+        cond,
+        then_branch: Box::new(then_s),
+        else_branch: else_s,
+    });
+    replace(ast, eid, Expr::Ident(tmp), log);
 }
 
 /// Bind an operand evaluated ahead of a suspension to a temp, so the

@@ -75,6 +75,11 @@ fn lift_root(ast: &mut Ast, root: ExprId, cx: &Cx, log: &mut LiftLog) -> Option<
         return None;
     }
     lift(ast, root, &mut prefix, &cx.stable, log, cx.mark);
+    // A guarded position's statement form carries its awaits inside
+    // `if` branches — rewrite the prefix like any other body.
+    if !rewrite_list(ast, &mut prefix, cx, log) {
+        return None;
+    }
     Some(prefix)
 }
 
