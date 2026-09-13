@@ -294,13 +294,25 @@ pub unsafe extern "C" fn __torajs_promise_then_observed(cell: *mut c_void) -> u6
 
 /// Box the settled slot per the cell's repr stamp. Rc-neutral — the
 /// box is a borrow of the cell's stake for the callback's argv slot.
+///
+/// A typed cell fulfilled with nothing carries `undefined` in its
+/// slot's own spelling — the F64 sentinel in a `number` slot, the
+/// immortal undefined cell in a pointer slot (`async function f():
+/// Promise<number> { if (c) return 1 }` falling off its end). The box
+/// reads it back as `undefined`, the way the typed `.value` read does;
+/// boxed as a number it printed NaN (643, `async-fallthrough-typed-001`
+/// once the awaiter moved to the driver).
 unsafe fn box_settled(repr: u8, value: i64) -> AnyValue {
     unsafe {
         match repr {
             REPR_I64 => __torajs_anyv_box_from_pair(2, value),
+            REPR_F64 if value as u64 == torajs_rc::F64_UNDEF_SENTINEL_BITS => VALUE_UNDEFINED,
             REPR_F64 => __torajs_anyv_box_from_pair(3, value),
             REPR_BOOL => __torajs_anyv_box_from_pair(1, value),
             REPR_STR => __torajs_anyv_box_str_slot(value as *mut c_void),
+            REPR_HEAP if torajs_rc::undef_cell::is_undef_cell(value as *const u8) => {
+                VALUE_UNDEFINED
+            }
             REPR_HEAP => __torajs_anyv_box_from_pair(4, value),
             REPR_ANY => value as AnyValue,
             REPR_VOID => VALUE_UNDEFINED,

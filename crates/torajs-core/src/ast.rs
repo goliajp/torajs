@@ -294,6 +294,7 @@ pub use desugar_async_sm::desugar_async_state_machine;
 pub use desugar_classes::desugar_classes;
 pub(crate) use desugar_classes_computed_fields::class_has_computed_instance_fields;
 pub use desugar_classes_pass2::route_non_class_new;
+pub(crate) use desugar_eval::body_owned_exprs;
 pub use desugar_eval::desugar_eval;
 pub use desugar_generators::desugar_generators;
 pub(crate) use desugar_generators_alpha::rebinds_in_stmt;

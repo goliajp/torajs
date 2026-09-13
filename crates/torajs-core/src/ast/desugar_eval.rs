@@ -143,7 +143,7 @@ mod script_form;
 mod source;
 mod walk;
 // fnexpr-bind promotion shares the fn-ownership walk (shadow-use aware)
-pub(super) use walk::{body_owned_exprs, fn_owned_exprs};
+pub(crate) use walk::{body_owned_exprs, fn_owned_exprs};
 
 use super::{Ast, Expr, Stmt, free_vars};
 use collapse::{completes_empty_effect_free, decl_names, is_effect_free_decl, name_mentioned};

@@ -231,11 +231,60 @@ impl Checker {
     }
 }
 
+/// For every arena slot, the class whose method / constructor body
+/// holds it (an index into `class_index`), or `None` outside every
+/// class. The `this` of `this.<field>` names THIS class — not the
+/// class that owns the method being called — so the field-type guard
+/// below asks the right declaration.
+#[allow(clippy::type_complexity)]
+pub(crate) fn this_enclosing_classes(
+    ast: &Ast,
+    class_index: &[(
+        usize,
+        String,
+        Vec<String>,
+        Option<String>,
+        Vec<(PropKey, String)>,
+        Vec<StaticInit>,
+        Option<ClassCtor>,
+        Vec<ClassMethod>,
+        Vec<ClassMethod>,
+    )],
+) -> Vec<Option<usize>> {
+    let mut enclosing: Vec<Option<usize>> = vec![None; ast.exprs.len()];
+    let mut mask = vec![false; ast.exprs.len()];
+    for (ci, (_, _, _, _, _, _, ctor, methods, static_methods)) in class_index.iter().enumerate() {
+        mask.fill(false);
+        for m in methods.iter().chain(static_methods.iter()) {
+            crate::ast::body_owned_exprs(ast, &m.body, &mut mask);
+        }
+        if let Some(c) = ctor {
+            crate::ast::body_owned_exprs(ast, &c.body, &mut mask);
+        }
+        for (i, hit) in mask.iter().enumerate() {
+            if *hit {
+                enclosing[i] = Some(ci);
+            }
+        }
+    }
+    enclosing
+}
+
 /// True iff the call receiver is `this.<field>` AND the named
-/// field on class `cname` has a builtin (Array / Str / Number)
-/// type annotation. Used by desugar_classes' single-owner rewrite
-/// guard so `this.data.push(v)` (where `data: T[]`) doesn't get
-/// rewritten as a self-recursive class-method call.
+/// field has a builtin (Array / Str / Number) type annotation. Used
+/// by desugar_classes' single-owner rewrite guard so
+/// `this.data.push(v)` (where `data: T[]`) doesn't get rewritten as
+/// a self-recursive class-method call.
+///
+/// The field is read off the class ENCLOSING the call when
+/// [`this_enclosing_classes`] knows it, and off `cname` (the method's
+/// owner) only for a `this` outside every class body. Asking the owner
+/// for a call made inside ANOTHER class read the wrong declaration:
+/// `class Service { s = "hi"; async bump() {} }` beside a moved async
+/// body whose local `s: Service` became a `__Gen_*` field — the owner's
+/// `s: string` said "builtin", the rewrite was skipped, and `this.s.
+/// bump()` reached the lowering as an unsupported member call (643,
+/// `async-method-inferred-return-001`).
 ///
 /// `class_index` is the snapshot built at the top of desugar_classes
 /// — `(usize, name, type_params, parent, fields, ctor, methods)`.
@@ -244,6 +293,7 @@ pub(crate) fn receiver_is_this_builtin_field(
     ast: &Ast,
     obj_id: ExprId,
     cname: &str,
+    enclosing: Option<&str>,
     class_index: &[(
         usize,
         String,
@@ -275,6 +325,7 @@ pub(crate) fn receiver_is_this_builtin_field(
         return false;
     }
     // Find the class entry and look up the field's type annotation.
+    let cname = enclosing.unwrap_or(cname);
     let cls = class_index.iter().find(|(_, n, ..)| n == cname);
     let Some((_, _, _, _, fields, _, _, _, _)) = cls else {
         return false;

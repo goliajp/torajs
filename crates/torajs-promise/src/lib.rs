@@ -153,6 +153,12 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_is_undef_cell(_p: *const u8) -> i64 {
+    panic!("torajs-promise test stub: is_undef_cell should not be called from cargo test");
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
     _result: *mut core::ffi::c_void,
     _repr: i64,

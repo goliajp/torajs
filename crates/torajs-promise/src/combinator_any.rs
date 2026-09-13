@@ -109,6 +109,11 @@ pub(crate) unsafe fn box_share(bits: u64) {
 /// aware, immediates pass through). `None` = UNSTAMPED (caller
 /// rejects with the MVP placeholder instead of mis-boxing).
 pub(crate) unsafe fn box_settled_owned(repr: u8, value: i64) -> Option<u64> {
+    // A typed slot's own spelling of `undefined` boxes as undefined
+    // (`then_box::settled_is_undefined`).
+    if unsafe { crate::then_box::settled_is_undefined(repr, value) } {
+        return Some(unsafe { __torajs_anyv_box_from_pair(5, 0) });
+    }
     let boxed = unsafe {
         match repr {
             REPR_I64 => __torajs_anyv_box_from_pair(2, value),

@@ -39,6 +39,7 @@ pub(super) fn rewrite_expr_arena_pass2(
     chain_methods: &HashSet<String>,
 ) {
     let n = ast.exprs.len();
+    let enclosing = crate::cm_demote::this_enclosing_classes(ast, class_index);
     for i in 0..n {
         match &ast.exprs[i] {
             Expr::This => {
@@ -151,11 +152,17 @@ pub(super) fn rewrite_expr_arena_pass2(
                         // (3) Multi-owner across unrelated hierarchies
                         //     (sibling collision) — leave Member as-is.
                         if owners.len() == 1 {
+                            let enclosing_cname = enclosing
+                                .get(obj_id.0 as usize)
+                                .copied()
+                                .flatten()
+                                .map(|ci| class_index[ci].1.as_str());
                             let skip_for_builtin_field =
                                 crate::cm_demote::receiver_is_this_builtin_field(
                                     ast,
                                     obj_id,
                                     owners[0].as_str(),
+                                    enclosing_cname,
                                     class_index,
                                 );
                             if skip_for_builtin_field {

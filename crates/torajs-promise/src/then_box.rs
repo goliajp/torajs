@@ -53,6 +53,8 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_take() -> i64;
     fn __torajs_throw_take_tag() -> i64;
+    /// torajs-rc — is this pointer the immortal undefined cell?
+    fn __torajs_is_undef_cell(p: *const u8) -> i64;
     /// torajs-anyvalue `promise_thenable` — a handler return that is a
     /// user thenable (RFC 20260913): settles `result` through the
     /// §27.2.1.3.2 job and answers 1; 0 = not a thenable, store it.
@@ -132,6 +134,9 @@ pub(crate) unsafe fn settle_handler_return(result: *mut c_void, ret_repr: u8, va
 /// contract as the any-lane caller).
 pub(crate) unsafe fn box_settled(repr: u8, value: i64) -> i64 {
     unsafe {
+        if settled_is_undefined(repr, value) {
+            return __torajs_anyv_box_from_pair(5, 0) as i64;
+        }
         (match repr {
             REPR_I64 => __torajs_anyv_box_from_pair(2, value),
             REPR_F64 => __torajs_anyv_box_from_pair(3, value),
@@ -144,6 +149,21 @@ pub(crate) unsafe fn box_settled(repr: u8, value: i64) -> i64 {
             // unreachable — the attach-time gate refused UNSTAMPED.
             _ => __torajs_anyv_box_from_pair(5, 0),
         }) as i64
+    }
+}
+
+/// A typed cell fulfilled with nothing carries `undefined` in its
+/// slot's own spelling — the F64 sentinel in a `number` slot
+/// (torajs-rc `undef_f64::F64_UNDEF_SENTINEL_BITS`, mirrored here in
+/// lockstep), the immortal undefined cell in a pointer slot. Boxing
+/// either as its slot's form loses the `undefined`: a NaN, an
+/// `[object]` (643, `async-fallthrough-typed-001`).
+pub(crate) unsafe fn settled_is_undefined(repr: u8, value: i64) -> bool {
+    const F64_UNDEF_SENTINEL_BITS: u64 = 0x7FFC_0000_0000_000A;
+    match repr {
+        REPR_F64 => value as u64 == F64_UNDEF_SENTINEL_BITS,
+        REPR_HEAP => value != 0 && unsafe { __torajs_is_undef_cell(value as *const u8) } != 0,
+        _ => false,
     }
 }
 
