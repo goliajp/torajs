@@ -253,9 +253,13 @@ fn build_manual_protocol(
     let it_ref = ast.add_expr(Expr::Ident(it_name));
     let step_decl = if is_await {
         let helper = ast.add_expr(Expr::Ident("__agen_step_call".into()));
+        // The `@@asyncIterator` probe rides along: it decides whether a
+        // throwing `next()` is the body's own throw (async) or the
+        // Async-from-Sync wrapper's rejection (sync).
+        let am_ref = ast.add_expr(Expr::Ident(am_name.clone()));
         let call = ast.add_expr(Expr::Call {
             callee: helper,
-            args: vec![it_ref],
+            args: vec![it_ref, am_ref],
         });
         let mark = super::desugar_generators_async::mint_await_mark(ast, call);
         Stmt::YieldInto {

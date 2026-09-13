@@ -18,7 +18,9 @@
 //! point); a real yield's operand is awaited and the step completes
 //! (a rejection is thrown into the body at the yield point, §27.6.3.8
 //! step 5, which is what completes a generator whose `yield` rejected);
-//! a `done` step awaits its return value. The driver answers a fresh
+//! a `done` step carries its return value already awaited (`prepare`
+//! turns the body's `return e` into `return await e`, §27.6.3.2, so
+//! the Await sits inside the body's own try regions). The driver answers a fresh
 //! step built by the machine's own `__yielded` / `__returned` — the
 //! awaited value in the class's step type (a struct a typed consumer
 //! can read; assigning into the machine's step through `any` is
@@ -43,6 +45,13 @@
 //! up to its first await, as AsyncGeneratorResumeNext does: the body's
 //! first statements and the yield's own Await land in the same tick
 //! as the call, which is the tick count every ordering test observes.
+//! The tail is installed BEFORE that synchronous run (a gate promise
+//! the drive's settlement opens): the generator is in the `executing`
+//! state from the call to its first await, and a request the body
+//! makes of its own iterator in that window is queued (§27.6.3.3),
+//! not run — running it re-entered `__step`, whose entry had already
+//! stamped the dead sentinel, and answered `done: true`
+//! (`request-queue-order-state-executing`).
 //! The tail resets itself to undefined when it settles unchained. The machine's own step
 //! methods keep their bodies under `__step` / `__step_return` /
 //! `__step_throw`; the public trio forwards to the queue.
@@ -56,13 +65,20 @@
 //! (§27.1.4.4 AsyncFromSyncIteratorContinuation) — `PromiseResolve
 //! (value).then(v => { value: v, done })`, so the element is awaited (a
 //! Promise-valued one unwraps) and the step lands one tick later, the
-//! tick count the spec's wrapper gives. A throw from `next()` or from a
-//! `then` / `done` / `value` getter answers a rejected promise, so it
-//! lands at the await through the driver's `__step_throw` (a
-//! synchronous throw escaping this helper while the yield operand is
-//! being built surfaced as a TypeError in the driver, not as the thrown
-//! value — `yield-star-next-*-get-abrupt`; the `then` case is the
-//! spec's own tick, the others one later). The verdict is taken from
+//! tick count the spec's wrapper gives. A throw from an ASYNC iterator's
+//! `next()` is the body's own throw (§27.6.3.9 `? Call(next)`): it
+//! escapes the helper synchronously, completes the machine at the
+//! yield (the operand is evaluated before the resume label is stored)
+//! and rejects the step in the same job. A SYNC iterator's `next()`
+//! throw is caught by the Async-from-Sync wrapper (§27.1.4.4 step 5,
+//! IfAbruptRejectPromise) and answers a rejected promise — one tick
+//! later, as bun lands it. Which posture applies is the second
+//! argument: the `@@asyncIterator` probe the protocol took the
+//! iterator from (non-null ⇒ async). A throw from a `then` / `done` / `value`
+//! getter answers a rejected promise instead, so it lands at the await
+//! through the driver's `__step_throw` — the spec reads `then` inside
+//! Await's own promise resolution and `done` / `value` after that Await,
+//! one tick after the call either way. The verdict is taken from
 //! the result because a symbol-keyed read cannot see a class's folded
 //! `@@asyncIterator` member. A `for await` without a yield in
 //! its body still runs the lowering's own async drive inside the
@@ -80,9 +96,13 @@ pub(super) const MACHINE_THROW: &str = "__step_throw";
 /// reads a real `__step_*` struct, not a dynobj wearing its field names.
 pub(super) const MACHINE_YIELDED: &str = "__yielded";
 pub(super) const MACHINE_RETURNED: &str = "__returned";
-/// The per-instance request queue tail (a promise, or undefined
-/// before the first request).
+/// The per-instance request queue (§27.6.3.3 [[AsyncGeneratorQueue]]:
+/// an array of `__AgenReq`, or undefined before the first request).
 pub(super) const QUEUE_FIELD: &str = "__q";
+/// Whether `__agen_run` is draining the queue (the generator is
+/// `executing` or suspended at an await inside a request); a request
+/// arriving then is queued and picked up by the running drain.
+pub(super) const BUSY_FIELD: &str = "__busy";
 
 /// The driver, the mark class and the queue — injected once, parsed
 /// into the shared arena. Every binding is `__`-spelled (the D1 driver's
@@ -94,52 +114,76 @@ class __AwaitMark {
   v: any;
   constructor(v: any) { this.v = v; }
 }
-async function __agen_drive(__g: any, __kind: number, __v: any): Promise<any> {
-  let __r: any = __kind === 0 ? __g.__step(__v) : __kind === 1 ? __g.__step_return(__v) : __g.__step_throw(__v);
-  let __ok: boolean = true;
-  let __s: any = undefined;
-  while (true) {
-    __ok = true;
-    if (__r.done) {
-      try { __s = await __r.value; } catch (__e1: any) { __ok = false; __s = __e1; }
-      if (!__ok) { throw __s; }
-      return __g.__returned(__s);
-    }
-    if (__r.value instanceof __AwaitMark) {
-      try { __s = await __r.value.v; } catch (__e2: any) { __ok = false; __s = __e2; }
-      __r = __ok ? __g.__step(__s) : __g.__step_throw(__s);
-      continue;
-    }
-    try { __s = await __r.value; } catch (__e3: any) { __ok = false; __s = __e3; }
-    if (!__ok) { __r = __g.__step_throw(__s); continue; }
-    return __g.__yielded(__s);
-  }
+class __AgenReq {
+  k: number;
+  v: any;
+  res: any;
+  rej: any;
+  constructor(k: number, v: any, res: any, rej: any) { this.k = k; this.v = v; this.res = res; this.rej = rej; }
 }
-function __agen_step_call(__it: any): any {
+async function __agen_run(__g: any): Promise<any> {
+  __g.__busy = true;
+  while (__g.__q.length > 0) {
+    const __req: any = __g.__q.shift();
+    let __r: any = undefined;
+    let __ok: boolean = true;
+    let __s: any = undefined;
+    let __k: number = __req.k;
+    let __v: any = __req.v;
+    if (__k === 1) {
+      try { __v = await __v; } catch (__e6: any) { __k = 2; __v = __e6; }
+    }
+    try {
+      __r = __k === 0 ? __g.__step(__v) : __k === 1 ? __g.__step_return(__v) : __g.__step_throw(__v);
+    } catch (__e0: any) { __ok = false; __s = __e0; }
+    while (__ok) {
+      if (__r.done) {
+        __req.res(__g.__returned(__r.value));
+        break;
+      }
+      if (__r.value instanceof __AwaitMark) {
+        try { __s = await __r.value.v; } catch (__e2: any) { __ok = false; __s = __e2; }
+        try {
+          __r = __ok ? __g.__step(__s) : __g.__step_throw(__s);
+          __ok = true;
+        } catch (__e3: any) { __ok = false; __s = __e3; }
+        continue;
+      }
+      try { __s = await __r.value; } catch (__e4: any) { __ok = false; __s = __e4; }
+      if (__ok) { __req.res(__g.__yielded(__s)); break; }
+      try {
+        __r = __g.__step_throw(__s);
+        __ok = true;
+      } catch (__e5: any) { __ok = false; __s = __e5; }
+    }
+    if (!__ok) { __req.rej(__s); }
+  }
+  __g.__busy = false;
+  return 0;
+}
+function __agen_step_call(__it: any, __am: any): any {
   let __r: any;
   let __d: any;
   let __v0: any;
-  try {
+  if (__am != null) {
     __r = __it.next();
+  } else {
+    try { __r = __it.next(); } catch (__e0: any) { return Promise.reject(__e0); }
+  }
+  try {
     if (__r != null && typeof __r.then === "function") { return __r; }
     __d = __r.done;
     __v0 = __r.value;
   } catch (__e: any) { return Promise.reject(__e); }
   return Promise.resolve(__v0).then((__v: any) => { return { value: __v, done: __d }; });
 }
-async function __agen_chain(__q: any, __g: any, __kind: number, __v: any): Promise<any> {
-  await __q;
-  const __r: any = await __agen_drive(__g, __kind, __v);
-  return __r;
-}
 function __agen_enqueue(__g: any, __kind: number, __v: any): Promise<any> {
-  const __p: Promise<any> = __g.__q === undefined
-    ? __agen_drive(__g, __kind, __v)
-    : __agen_chain(__g.__q, __g, __kind, __v);
-  let __t: any = undefined;
-  const __done = (__x: any) => { if (__g.__q === __t) { __g.__q = undefined; } return 0; };
-  __t = __p.then(__done, __done);
-  __g.__q = __t;
+  let __res: any = undefined;
+  let __rej: any = undefined;
+  const __p: Promise<any> = new Promise((__a: any, __b: any) => { __res = __a; __rej = __b; });
+  if (__g.__q === undefined) { __g.__q = []; }
+  __g.__q.push(new __AgenReq(__kind, __v, __res, __rej));
+  if (!__g.__busy) { __agen_run(__g); }
   return __p;
 }
 "#;
@@ -174,6 +218,9 @@ pub(super) fn prepare(ast: &mut Ast) -> bool {
             continue;
         };
         let mut marked = std::mem::take(body);
+        for s in &mut marked {
+            await_returns(ast, s);
+        }
         // An await the lift does not take leaves the body as it was —
         // its awaits stay settled-slot reads, the yields still ride the
         // driver.
@@ -185,6 +232,32 @@ pub(super) fn prepare(ast: &mut Ast) -> bool {
         let _ = ok;
     }
     true
+}
+
+/// §27.6.3.2 / ReturnStatement evaluation: an async generator's
+/// `return e` awaits e AT THE RETURN — inside any enclosing try, so a
+/// `finally` runs after the await and a rejection is a throw at the
+/// return site. Each `return e` in the body (a nested function's is
+/// its own; `return;` has nothing to await) becomes the parser's await
+/// read of e, which the lift then suspends on like any other await.
+/// The driver therefore settles a done step with its value as is.
+fn await_returns(ast: &mut Ast, s: &mut Stmt) {
+    match s {
+        Stmt::FnDecl { .. } => {}
+        Stmt::Return(Some(e)) => {
+            let read = ast.add_expr(Expr::Member {
+                obj: *e,
+                name: "value".into(),
+            });
+            ast.await_value_reads.insert(read);
+            *e = read;
+        }
+        _ => {
+            for c in super::desugar_with::walk::stmt_children(s) {
+                await_returns(ast, c);
+            }
+        }
+    }
 }
 
 /// Put the async generator driver (`AGEN_SRC`) in the tree when the
@@ -205,7 +278,7 @@ pub fn inject_async_generator_driver(ast: &mut Ast) {
         || ast
             .stmts
             .iter()
-            .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "__agen_drive"))
+            .any(|s| matches!(s, Stmt::FnDecl { name, .. } if name == "__agen_run"))
     {
         return;
     }
@@ -259,6 +332,7 @@ pub(super) fn shape_machine(
     trio.1.name = MACHINE_RETURN.into();
     trio.2.name = MACHINE_THROW.into();
     lifted_locals.push((QUEUE_FIELD.into(), "any".into()));
+    lifted_locals.push((BUSY_FIELD.into(), "any".into()));
     let mut ms = forwarders(ast);
     ms.push(step_ctor(ast, MACHINE_YIELDED, step_ann, yield_ty, false));
     ms.push(step_ctor(ast, MACHINE_RETURNED, step_ann, yield_ty, true));
