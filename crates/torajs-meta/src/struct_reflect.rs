@@ -93,6 +93,11 @@ const ANY_UNDEF: u64 = 5;
 /// `undefined` NaN-box immediate (mirror reflect.rs).
 const VALUE_UNDEFINED_IMM: u64 = 0x0A;
 
+/// The F64 spelling of `undefined` — mirror of torajs-rc
+/// `undef_f64::F64_UNDEF_SENTINEL_BITS` (this crate declares its
+/// torajs-rc needs as externs; the two constants must agree).
+const F64_UNDEF_SENTINEL_BITS: u64 = 0x7FFC_0000_0000_000A;
+
 /// Byte offset of the `class_tag` u32 inside a `Tag::Obj` instance —
 /// right after the 8-byte universal heap header (mirror
 /// torajs-cycle::layout::OBJ_CLASS_TAG_OFF).
@@ -105,7 +110,12 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 ///
 /// - `0` (`Any`): the slot is already a NaN-box AnyValue — verbatim.
 /// - `1` (`I32`/`I64`): integer payload.
-/// - `2` (`F64`): IEEE-754 bits.
+/// - `2` (`F64`): IEEE-754 bits; the compiler's undefined sentinel
+///   (a generator step's completion value, a `number[]` read past
+///   the end) reads back as JS `undefined`, the way the any-lane
+///   field probe (`torajs-anyvalue` `struct_probe::field_read`)
+///   already answers it — `console.log(step)` on a typed async
+///   generator's done step printed `value: NaN`.
 /// - `3` (`Bool`): `0` / `1`.
 /// - `4..=21` (`Str` / `Arr` / `Obj` / `Map` / ... heap cells): raw
 ///   heap pointer, undefined sentinels normalized (RFC 20260710
@@ -116,6 +126,7 @@ pub(crate) unsafe fn field_slot_to_anyv_borrowed(type_tag: u8, raw: u64) -> u64 
     match type_tag {
         0 => raw,
         1 => unsafe { __torajs_anyv_box_from_pair(ANY_I64 as i64, raw as i64) },
+        2 if raw == F64_UNDEF_SENTINEL_BITS => VALUE_UNDEFINED_IMM,
         2 => unsafe { __torajs_anyv_box_from_pair(ANY_F64 as i64, raw as i64) },
         3 => unsafe { __torajs_anyv_box_from_pair(ANY_BOOL as i64, raw as i64) },
         _ => {
