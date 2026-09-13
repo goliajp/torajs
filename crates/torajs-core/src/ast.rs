@@ -71,6 +71,7 @@ mod desugar_async_sm_gate;
 mod desugar_async_sm_lift;
 mod desugar_async_sm_methods;
 mod desugar_async_sm_rewrite;
+mod desugar_async_sm_this;
 mod desugar_async_sm_values;
 mod desugar_async_sm_walk;
 mod desugar_classes;

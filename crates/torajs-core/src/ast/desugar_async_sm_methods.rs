@@ -156,9 +156,7 @@ fn move_method(
     if !rewrite_body(ast, &mut moved) {
         return None;
     }
-    for s in &moved {
-        stmt_this_to_recv(ast, s);
-    }
+    super::desugar_async_sm_this::rewrite_this(ast, &moved, GEN_RECV_PARAM);
     let gen_name = format!("__async_gen__{}", &mangled["__cm_".len()..]);
     let mut gen_params = vec![Param {
         name: GEN_RECV_PARAM.into(),
@@ -220,34 +218,4 @@ fn move_method(
         span: m.span,
     };
     Some((forwarder, generator))
-}
-
-/// `this` → `__genrecv` across a statement's expressions, arrows
-/// included (their `this` is lexical); a nested FnDecl keeps its own.
-fn stmt_this_to_recv(ast: &mut Ast, s: &Stmt) {
-    for e in walk::stmt_exprs(s) {
-        expr_this_to_recv(ast, e);
-    }
-    for c in walk::stmt_children_ref(s) {
-        stmt_this_to_recv(ast, c);
-    }
-}
-
-fn expr_this_to_recv(ast: &mut Ast, eid: ExprId) {
-    match ast.get_expr(eid) {
-        Expr::This => {
-            ast.exprs[eid.0 as usize] = Expr::Ident(GEN_RECV_PARAM.into());
-        }
-        Expr::ArrowFn { body, .. } => {
-            let body = body.clone();
-            for s in &body {
-                stmt_this_to_recv(ast, s);
-            }
-        }
-        _ => {
-            for c in walk::expr_children(ast, eid) {
-                expr_this_to_recv(ast, c);
-            }
-        }
-    }
 }

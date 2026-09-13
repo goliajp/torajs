@@ -134,6 +134,11 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, this_read: ThisRead) -> bool {
         // The `__this` the fn-expr receiver channel hands a function
         // EXPRESSION is its `this` under another name.
         Expr::Ident(n) if n == "__this" => this_read == ThisRead::Blocks,
+        // A function expression / object-literal method is its own
+        // function: its `arguments`, `new.target` and `this` are not
+        // the body's, and its awaits are its own (`desugar_async_sm_
+        // this::owns_this`).
+        Expr::ArrowFn { .. } if super::desugar_async_sm_this::owns_this(ast, eid) => false,
         // An arrow's `arguments` / `new.target` / `this` are the
         // enclosing function's, so its body is scanned too — but a
         // nested `FnDecl` is its own function and `stmt_children_ref`
