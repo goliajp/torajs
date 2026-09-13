@@ -126,11 +126,6 @@ fn rewrite_async_fn_value_exprs(ast: &mut Ast) {
     let mut ids: Vec<ExprId> = ast.async_fn_value_exprs.iter().copied().collect();
     ids.sort_by_key(|e| e.0);
     for eid in ids {
-        // Blade 2 moved this body into a hoisted generator; the wrapper
-        // arrow's `return __async_drive(...)` already IS the promise.
-        if ast.async_sm_value_exprs.contains(&eid) {
-            continue;
-        }
         let i = eid.0 as usize;
         let arrow = std::mem::replace(&mut ast.exprs[i], Expr::Null);
         let Expr::ArrowFn {

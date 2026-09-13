@@ -97,7 +97,7 @@ function __async_drive(__mk: any): Promise<any> {
 "#;
 
 pub fn desugar_async_state_machine(ast: &mut Ast) {
-    if ast.async_fns.is_empty() && ast.async_fn_value_exprs.is_empty() {
+    if ast.async_fns.is_empty() {
         return;
     }
     // Snapshot by index so `ast.stmts` can be rebuilt in place. Async
@@ -178,10 +178,7 @@ pub fn desugar_async_state_machine(ast: &mut Ast) {
         ast.async_sm_fns.insert(name.clone());
     }
 
-    // Blade 2 — the value shapes, before the hoist that lifts the
-    // generator expressions this mints.
-    let moved_values = super::desugar_async_sm_values::rewrite_async_fn_values(ast);
-    if generators.is_empty() && !moved_values {
+    if generators.is_empty() {
         return;
     }
     ast.stmts.extend(generators);
@@ -207,13 +204,6 @@ fn promise_ann(_declared: Option<&str>) -> String {
 /// takes it as a plain array (`generator_params`).
 fn build_drive_call(ast: &mut Ast, gen_name: &str, params: &[Param]) -> ExprId {
     let gen_ident = ast.add_expr(Expr::Ident(gen_name.into()));
-    build_drive_call_to(ast, gen_ident, params)
-}
-
-/// The same call with the generator given as an expression — the
-/// value rewrite hands its generator EXPRESSION's slot (which the
-/// hoist later turns into a name or a wrapper closure).
-pub(super) fn build_drive_call_to(ast: &mut Ast, gen_ident: ExprId, params: &[Param]) -> ExprId {
     let args: Vec<ExprId> = params
         .iter()
         .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
@@ -244,7 +234,7 @@ pub(super) fn build_drive_call_to(ast: &mut Ast, gen_ident: ExprId, params: &[Pa
 /// would escape synchronously. Only `any`-spelled defaults get here
 /// (`typed_default_param` gates the rest); rest parameters are kept as
 /// written — the wrapper packs, the generator takes the array.
-pub(super) fn wrapper_params(ast: &mut Ast, params: &[Param]) -> Vec<Param> {
+fn wrapper_params(ast: &mut Ast, params: &[Param]) -> Vec<Param> {
     params
         .iter()
         .map(|p| {
@@ -295,7 +285,7 @@ pub(super) fn wrapper_params(ast: &mut Ast, params: &[Param]) -> Vec<Param> {
 /// demoted to a plain array parameter. The wrapper's own rest already
 /// packed the caller's arguments; the thunk hands that array over as
 /// one argument, and a rest on the generator would pack it again.
-pub(super) fn generator_params(params: &[Param]) -> Vec<Param> {
+fn generator_params(params: &[Param]) -> Vec<Param> {
     params
         .iter()
         .map(|p| Param {
@@ -353,7 +343,7 @@ fn inject_driver(ast: &mut Ast) {
 /// Rewrite every statement-level await into a yield. Answers false —
 /// leaving `body` untouched for the caller to discard — when any await
 /// sits somewhere `Stmt::Yield` cannot go.
-pub(super) fn rewrite_body(ast: &mut Ast, body: &mut [Stmt]) -> bool {
+fn rewrite_body(ast: &mut Ast, body: &mut [Stmt]) -> bool {
     body.iter_mut().all(|s| rewrite_stmt(ast, s))
 }
 

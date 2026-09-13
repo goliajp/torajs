@@ -1057,11 +1057,6 @@ pub struct Ast {
     /// the driver's `resolve` settles the result, a second
     /// `Promise.resolve` wrap would nest it.
     pub async_sm_fns: std::collections::HashSet<String>,
-    /// Blade 2 — the async function VALUES (`async_fn_value_exprs`
-    /// members) whose body now lives in a hoisted generator; the mark
-    /// stays, this set only tells `desugar_async`'s value lane to leave
-    /// the wrapper's `return __async_drive(...)` alone.
-    pub async_sm_value_exprs: std::collections::HashSet<ExprId>,
     /// Expression-position `yield*` done-value routing (§27.5.3.2:
     /// the YieldExpression's value is the inner iterator's final
     /// `.value`). The parser hoists `v = yield* src` into a mutable
