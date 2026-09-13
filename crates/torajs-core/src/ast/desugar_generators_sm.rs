@@ -47,6 +47,11 @@ pub(super) const RESUME_LOCAL: &str = "__gen_st";
 /// desugar-reserved name.
 pub(super) const DISPATCH_LABEL: &str = "__sm";
 
+/// Prefix of the per-yield local that holds the evaluated operand
+/// across the resume-label store (`emit_yield_return`); the suffix is
+/// the resume state, so every arm's binding is its own.
+const YIELD_OPERAND_LOCAL: &str = "__gen_yv_";
+
 /// State-machine emitter for generator bodies. Each state's body is
 /// accumulated into `cur_buf` and flushed into `arms[cur_state]` when
 /// the state ends (via yield, goto, or descent into a nested state).
@@ -196,6 +201,16 @@ impl<'a> GenSm<'a> {
         ]
     }
 
+    /// The operand is evaluated into a per-state local BEFORE the
+    /// resume label is persisted. A throw while the operand is being
+    /// built is an abrupt completion of the body at the yield
+    /// (§27.5.3.7 step 3 evaluates the operand first; the generator
+    /// is COMPLETED, RESUME_LOCAL doc); storing the label first left
+    /// the machine resumable at the post-yield arm, so the next
+    /// `next()` ran the statements after the yield — or read the
+    /// never-assigned step of a `yield*` (`__gfstep_N.done` on
+    /// undefined, the TypeError the D4 driver surfaced when
+    /// `__agen_step_call` threw synchronously).
     fn emit_yield_return(&mut self, val: ExprId, next: usize) -> Vec<Stmt> {
         let set = self.emit_set_state(next);
         // §27.6.3.8 AsyncGeneratorYield step 5 — an ASYNC generator
@@ -236,22 +251,29 @@ impl<'a> GenSm<'a> {
         // Number, got Nullable(Number)"). TypeScript's own type for
         // that value is `any`, so the assertion adds nothing the
         // program did not already claim.
-        let val_for_step = if self.yield_ty == "any" {
-            self.ast.add_expr(Expr::As {
-                expr: val,
-                ty_ann: "any".into(),
-            })
+        let step_ann = if self.yield_ty == "any" {
+            "any".to_string()
         } else {
-            self.ast.add_expr(Expr::As {
-                expr: val,
-                ty_ann: self.yield_ty.clone(),
-            })
+            self.yield_ty.clone()
         };
+        let val_for_step = self.ast.add_expr(Expr::As {
+            expr: val,
+            ty_ann: step_ann.clone(),
+        });
+        let held_name = format!("{YIELD_OPERAND_LOCAL}{next}");
+        let hold = Stmt::LetDecl {
+            mutable: false,
+            name: held_name.clone(),
+            type_ann: Some(step_ann),
+            init: val_for_step,
+            is_var: false,
+        };
+        let held = self.ast.add_expr(Expr::Ident(held_name));
         let done = self.ast.add_expr(Expr::Bool(false));
         let obj = self.ast.add_expr(Expr::ObjectLit {
-            fields: vec![("value".into(), val_for_step), ("done".into(), done)],
+            fields: vec![("value".into(), held), ("done".into(), done)],
         });
-        vec![set, Stmt::Return(Some(obj))]
+        vec![hold, set, Stmt::Return(Some(obj))]
     }
 
     pub(super) fn lower_seq(&mut self, stmts: Vec<Stmt>) {
