@@ -125,7 +125,7 @@ pub(crate) fn register_fn_name(
             // 组), so the user-visible name comes back exactly, lone
             // surrogate and all — after the mono-instance suffix
             // comes off.
-            None => unmangle_key(strip_mono_suffix(mname)),
+            None => method_key_display(strip_mono_suffix(mname), class_parents),
         };
         let lit = ssa::StringLiteral::encode_from_wtf8(&key);
         let name_sid = ssa::StringId(module.strings.len() as u32);
@@ -216,7 +216,7 @@ pub(crate) fn register_fn_name(
         Some(p) if p.starts_with("__ccm_") => PropKey::from(""),
         Some(p) => p.clone(),
         None => match strip_static_method_name(visible, class_parents) {
-            Some(m) => unmangle_key(m),
+            Some(m) => method_key_display(m, class_parents),
             None => PropKey::from(visible),
         },
     };
@@ -308,6 +308,22 @@ pub(crate) fn strip_static_method_name<'a>(
     class_parents: &HashMap<String, Option<String>>,
 ) -> Option<&'a str> {
     strip_mangled_method_name(name, "__sm_", class_parents)
+}
+
+/// A method's user-visible name from its key spelling. A PRIVATE
+/// method's key is the parser's `__priv_<C>__<m>` (`parse_class_decl_
+/// member`), and §15.7.14 / §10.2.9 SetFunctionName give its function
+/// the Private Name's description — `#m` (test262 `private-methods/
+/// prod-private-*`: `this.#m.name === "#m"`); every other key is the
+/// symbol spelling of the name, a bijection `unmangle_key` inverts.
+pub(crate) fn method_key_display(
+    mname: &str,
+    class_parents: &HashMap<String, Option<String>>,
+) -> PropKey {
+    match strip_mangled_method_name(mname, "__priv_", class_parents) {
+        Some(private) => PropKey::from(format!("#{}", unmangle_key(private).lossy()).as_str()),
+        None => unmangle_key(mname),
+    }
 }
 
 /// `<prefix><C>__<M>` → `<M>` when `<C>` is a declared class name,
