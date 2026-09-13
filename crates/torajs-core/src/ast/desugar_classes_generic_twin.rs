@@ -430,6 +430,20 @@ fn receiver_keeps_static_type(
     let Expr::Member { obj, .. } = ast.get_expr(callee) else {
         return false;
     };
+    // A fresh instance — pass 2 spelled `new C(…)` as a call to the
+    // factory `__new_C` — is of the class the factory names whatever
+    // the twin retypes: its arguments may read `this`, its class does
+    // not. Restoring the member shape here left `new C().k(3)` inside
+    // any `this`-reading method (a generator's `next` included, so
+    // every async body moved into one) with no lane past the static
+    // one ("unsupported member call shape: k", rotation 642).
+    if let Expr::Call { callee: f, .. } = ast.get_expr(*obj)
+        && let Expr::Ident(f) = ast.get_expr(*f)
+        && f.starts_with("__new_")
+        && f != "__new_target"
+    {
+        return true;
+    }
     let Expr::Ident(name) = ast.get_expr(*obj) else {
         return false;
     };
