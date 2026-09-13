@@ -21,6 +21,7 @@ fn slot_shape_to_type(shape: GlobalSlotShape) -> Type {
         GlobalSlotShape::Bool => Type::Bool,
         GlobalSlotShape::Symbol => Type::Symbol,
         GlobalSlotShape::BigInt => Type::BigInt,
+        GlobalSlotShape::RegExp => Type::RegExp,
     }
 }
 

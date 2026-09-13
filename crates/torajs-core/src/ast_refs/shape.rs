@@ -21,6 +21,13 @@ pub enum GlobalSlotShape {
     F64,
     Str,
     Bool,
+    /// A regex literal init (rotation 645): a fresh RegExp per
+    /// evaluation (§13.2.7.3), its runtime type as certain as the
+    /// literal shapes above. The test262 harness keeps
+    /// `__t262_ASCII_IDENTIFIER = /…/u` at the top level and reads it
+    /// from `formatPropertyName` — a named fn — which was an
+    /// `unknown identifier` for every case that reached it.
+    RegExp,
     /// Cluster #4 follow-up (rotation 235) — a `Symbol()` /
     /// `Symbol(desc)` init: fresh heap mint per §20.4.1, so the
     /// slot's runtime type is statically certain like the literal
@@ -78,6 +85,7 @@ pub(super) fn infer_slot_shape(ast: &Ast, init: ExprId, depth: u32) -> Option<Gl
         Expr::String(_) => Some(GlobalSlotShape::Str),
         Expr::Bool(_) => Some(GlobalSlotShape::Bool),
         Expr::BigInt { .. } => Some(GlobalSlotShape::BigInt),
+        Expr::Regex { .. } => Some(GlobalSlotShape::RegExp),
         Expr::Ident(n) if n == "NaN" || n == "Infinity" => Some(GlobalSlotShape::F64),
         // Alias of another top-level binding: same shape as the
         // binding it copies. An annotated upstream maps through the

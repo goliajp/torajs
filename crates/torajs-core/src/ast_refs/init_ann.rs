@@ -290,7 +290,9 @@ fn shape_field_ann(ast: &Ast, val: ExprId) -> Option<String> {
         GlobalSlotShape::I64 => "number".to_string(),
         GlobalSlotShape::F64 => "f64".to_string(),
         GlobalSlotShape::BigInt => "bigint".to_string(),
-        GlobalSlotShape::Symbol => return None,
+        // A regex field keeps the literal off this lane like a symbol
+        // does — the field lane was never asked to hold one.
+        GlobalSlotShape::Symbol | GlobalSlotShape::RegExp => return None,
     })
 }
 
