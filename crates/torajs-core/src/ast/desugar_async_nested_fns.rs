@@ -36,10 +36,18 @@
 //! (`async-disposable-stack-dispose-sync-calls`). Rewritten, those
 //! bodies declare nothing and move.
 //!
-//! Not rewritten, keeping today's lane: a generator declaration
+//! An `async function*` declaration becomes an async generator
+//! EXPRESSION (`gen_fn_exprs`, kind AsyncGenerator): it had no lane —
+//! `lift_nested_generators` links a sync generator's captures, a nested
+//! async generator declaration reading an enclosing local was an
+//! unknown identifier — while the expression form takes the frame link
+//! the hoist gives an async value's nested generator (rotation 643).
+//!
+//! Not rewritten, keeping today's lane: a sync generator declaration
 //! (`lift_nested_generators` owns it), a generic one (an arrow has no
-//! type parameters), and one whose body names `arguments` (a
-//! declaration owns that binding). Declarations deeper than the body's
+//! type parameters), one whose body names `arguments` (a declaration
+//! owns that binding), and an async generator with a parser-synthesized
+//! (`__`-spelled) parameter. Declarations deeper than the body's
 //! own statement list (inside a block or a loop) are Annex B territory
 //! and stay with `nested_fns`.
 
@@ -99,7 +107,9 @@ fn rewrite_declarations(ast: &mut Ast, body: &mut [Stmt]) {
 
 fn is_rewritable(ast: &Ast, s: &Stmt) -> bool {
     let Stmt::FnDecl {
+        name,
         type_params,
+        params,
         is_generator,
         body,
         ..
@@ -107,7 +117,16 @@ fn is_rewritable(ast: &Ast, s: &Stmt) -> bool {
     else {
         return false;
     };
-    !*is_generator && type_params.is_empty() && !names_arguments(ast, body)
+    // A sync generator declaration keeps `lift_nested_generators`
+    // (which links its captures); an ASYNC one had no lane at all —
+    // as a generator EXPRESSION it takes the frame link the hoist gives
+    // an async value's nested generator (rotation 643). A parameter the
+    // parser synthesized (`__`-spelled destructuring prefix) is counted
+    // by the hoist for declarations only, so such a declaration stays.
+    let generator_ok = !*is_generator
+        || (ast.async_generator_fns.contains(name)
+            && !params.iter().any(|p| p.name.starts_with("__")));
+    generator_ok && type_params.is_empty() && !names_arguments(ast, body)
 }
 
 /// `function f(p): R { … }` → `let f = function (p): R { … }`; an async
@@ -119,6 +138,7 @@ fn to_value_binding(ast: &mut Ast, s: Stmt) -> Stmt {
         return_type,
         body,
         span,
+        is_generator,
         ..
     } = s
     else {
@@ -130,9 +150,20 @@ fn to_value_binding(ast: &mut Ast, s: Stmt) -> Stmt {
         body,
     });
     ast.set_expr_span(eid, span);
-    ast.fn_expr_exprs.insert(eid);
-    if ast.async_fns.contains(&name) {
-        ast.async_fn_value_exprs.insert(eid);
+    if is_generator {
+        // An async generator expression, the parser's own marks.
+        ast.gen_fn_exprs.insert(
+            eid,
+            super::GenFnExprInfo {
+                kind: super::GenFnExprKind::AsyncGenerator,
+                destr_prefix: 0,
+            },
+        );
+    } else {
+        ast.fn_expr_exprs.insert(eid);
+        if ast.async_fns.contains(&name) {
+            ast.async_fn_value_exprs.insert(eid);
+        }
     }
     Stmt::LetDecl {
         mutable: false,
