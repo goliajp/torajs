@@ -1681,7 +1681,33 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `8e50dc162`** (2026-09-12, rotation 638 — RFC 20260912-global-var-cell
+**Latest @ `606dcdd3f`** (2026-09-13, rotation 642 — RFC 20260805 async
+state machine blade 2 re-landed (async function values suspend at their
+first await; a body declaring a function or class, or calling
+`import()`, keeps the synchronous lowering), the K3 width link for a
+moved `let v = await e`, the K5 family closed on both ends (an async
+fn's returned object literal binds to a typed const; the await widens
+at the promise's value point), the fn-value promise lane keyed the way
+num_width files it, a `this`-reading method's twin keeps static
+dispatch for `new C().k()`, a settled function expression keeps its
+own `arguments`, a generator-lifted local the sniff cannot read is an
+`any` slot, an index-keyed top-level literal is visible to named fns,
+an `as any` over a fn value indexes its expando, and temporalHelpers'
+observer subset ported into the typed harness, admitted per case).
+Gate predicate: **47** clusters of >= 4 holding **300** cases, register
+2 · 118 (SR-1 30 / SR-2 92), residue 358 · 488 (53.9%), core **906**,
+unattributed **788**. Sweep passTotal 38296 → **38317 (+21)**, bug
+10731 → 10722, incompatible 4147 → 4135; 21 forward (class 8 — the
+`returns-async-function-returns-arguments-from-own-function` family —
+Array/prototype 5, fromAsync 4, async-function 2, object 1,
+Iterator.from 1), 7 harness-includes → bug (temporalHelpers cases
+running for real), **0 backward**, 0 new crash / timeout. A mid-rotation
+sweep caught 6 pass regressions + 11 bug → type-error backslides that
+the async-directory slices had not covered (all `built-ins/Array/
+fromAsync` / AsyncDisposableStack / top-level-await shapes blade 2
+moved into generators); three knives closed every one.
+
+**@ `8e50dc162`** (2026-09-12, rotation 638 — RFC 20260912-global-var-cell
 knife 4 in three halves: `$262.evalScript` is a Script (§16.1.7: flat
 inline, global lexicals, a declaration collision is a SyntaxError at
 evaluation, last same-named top-level function wins), an eval's / a
