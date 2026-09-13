@@ -106,10 +106,48 @@ pub(crate) fn resolve_objlit_layout(
                                 )))
                 })
     };
+    // HINT-ONLY, like the unbox mirror: a slot taking the `undefined` /
+    // `null` LITERAL (a `ConstPtrNull`) — what a class factory's
+    // zero-init spells for every `any` and pointer-shaped field — is
+    // admitted whatever the literal's own type says. The literal
+    // carries no signature: `undefined` for a closure field lowers as
+    // `Closure(SigId(0))`, and the declared slot's `Closure(SigId(n))`
+    // is the same slot with the program's real signature — `n`
+    // moves with every signature minted before it, so `exact` rejected
+    // the declared layout in one program and accepted it in another.
+    // Rejected, the class literal took the un-hinted scan (or minted a
+    // fresh layout with `Ptr` slots) and its `any` fields' `undefined`
+    // lowered to the generic undefined CELL: an async generator's
+    // `__q` read back as a non-undefined object and `__agen_enqueue`
+    // pushed onto it, in exactly the programs whose signature count
+    // happened to shift. A declared-Any slot boxes the literal after
+    // resolution (the ObjectLit caller's C4 arm), a pointer-shaped one
+    // takes its own sentinel there.
+    let null_lits: Vec<bool> = field_vals
+        .iter()
+        .map(|v| matches!(v, Operand::ConstPtrNull))
+        .collect();
+    let coercible_null_lit = |reg: &Vec<(PropKey, Type)>| -> bool {
+        reg.len() == field_tys.len()
+            && reg
+                .iter()
+                .zip(field_tys.iter())
+                .enumerate()
+                .all(|(i, ((rn, rt), (ln, lt)))| {
+                    rn == ln
+                        && (rt == lt
+                            || (*lt == Type::Ptr && rt.is_pointer_shaped())
+                            || (*lt == Type::F64 && *rt == Type::I64)
+                            || (*lt == Type::I64 && *rt == Type::F64)
+                            || (*rt == Type::Any
+                                && matches!(*lt, Type::I64 | Type::I32 | Type::F64 | Type::Bool))
+                            || (null_lits[i] && (*rt == Type::Any || rt.is_pointer_shaped())))
+                })
+    };
     let hinted = declared_hint.filter(|sid| {
-        layouts
-            .get(sid.0 as usize)
-            .is_some_and(|reg| exact(reg) || coercible(reg) || coercible_unbox(reg))
+        layouts.get(sid.0 as usize).is_some_and(|reg| {
+            exact(reg) || coercible(reg) || coercible_unbox(reg) || coercible_null_lit(reg)
+        })
     });
     let sid = match hinted.or_else(|| {
         layouts

@@ -108,6 +108,31 @@ pub(crate) fn lower(
         ctx.pop_throw_temp(t);
     }
     apply_w4_widen(ctx, &mut field_tys, &mut field_vals, eid);
+    // An `undefined` literal has no type of its own — its field's
+    // DECLARED slot type is the truth, and the sentinel it lands is
+    // re-materialized for that slot after resolution (below). Lowered
+    // on its own it wears a placeholder (`Closure(SigId(0))` for a
+    // closure field, `Ptr` for the rest), and a placeholder that
+    // happens to differ from the declared slot (a closure signature id
+    // moves with every signature the program minted before it)
+    // failed `resolve_objlit_layout`'s hint check: the class literal
+    // took the un-hinted scan or minted a fresh layout with `Ptr`
+    // slots, and its `any` fields' `undefined` lowered to the generic
+    // undefined CELL — an async generator's `__q` read back as a
+    // non-undefined object in exactly the programs whose signature
+    // count had shifted. Retype those fields to the declared slot
+    // before the match.
+    if let Some(h) = declared_hint
+        && let Some(decl) = ctx.struct_layouts.get(h.0 as usize).cloned()
+    {
+        for (name, ty) in field_tys.iter_mut() {
+            if undef_fields.contains(name)
+                && let Some((_, slot_ty)) = decl.iter().find(|(n, _)| n == name)
+            {
+                *ty = *slot_ty;
+            }
+        }
+    }
     let sid = crate::ssa_lower_objlit_layout::resolve_objlit_layout(
         &mut ctx.struct_layouts,
         &mut ctx.f,
