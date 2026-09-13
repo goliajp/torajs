@@ -36,10 +36,23 @@ pub(super) fn any_param_arg_idents(
     collect_fn_decl_params(stmts, &mut fn_params);
     let safe_generics = safe_generic_param_names(stmts, exprs, &fn_params);
     let mut out = std::collections::HashSet::new();
+    let promise_unshadowed = !super::fnexpr_this_names::name_shadowed_elsewhere(stmts, "Promise");
     for e in exprs {
         let Expr::Call { callee, args } = e else {
             continue;
         };
+        // §27.2.4 settle statics — see `is_promise_settle_call`. Not
+        // an FnDecl, so the param table below never sees it; the kill
+        // walk then took the argument as an unknown use and the
+        // fn-expr lost its `arguments` face (`async function o() { let
+        // a = arguments; return function () { return a === arguments }
+        // }`: `unknown identifier arguments`, rotation 642).
+        if promise_unshadowed && is_promise_settle_call(exprs, *callee) {
+            for a in args {
+                super::fnexpr_this_names::slot_value_idents(exprs, *a, &mut out);
+            }
+            continue;
+        }
         let Expr::Ident(fname) = &exprs[callee.0 as usize] else {
             continue;
         };
@@ -101,10 +114,20 @@ pub(super) fn collect_any_param_literal_faces(
         std::collections::HashMap::new();
     collect_fn_decl_params(stmts, &mut fn_params);
     let safe_generics = safe_generic_param_names(stmts, exprs, &fn_params);
+    let promise_unshadowed = !super::fnexpr_this_names::name_shadowed_elsewhere(stmts, "Promise");
     for e in exprs {
         let Expr::Call { callee, args } = e else {
             continue;
         };
+        // The inline twin of the settle-static admit above: `return
+        // function () { …arguments… }` from an async body reaches
+        // `Promise.resolve(<fn-expr> as any)` as a literal.
+        if promise_unshadowed && is_promise_settle_call(exprs, *callee) {
+            for a in args {
+                super::fnexpr_this_faces::collect_face(stmts, exprs, *a, fn_expr_exprs, patches);
+            }
+            continue;
+        }
         let Expr::Ident(fname) = &exprs[callee.0 as usize] else {
             continue;
         };
@@ -130,6 +153,23 @@ pub(super) fn collect_any_param_literal_faces(
             }
         }
     }
+}
+
+/// `Promise.resolve(…)` / `Promise.reject(…)` — §27.2.4 settle statics
+/// (the async rewrite's own return channel spells every `return e`
+/// this way). The promise holds the value as a box, and every
+/// read-back — the await unwrap, a `.then` handler's argument, an
+/// any-lane member call — enters the closure cell's boxed dual entry
+/// with real argc/argv: the same claim the escape-store profile makes
+/// for a store INTO these slots, so an argument admits like any
+/// explicit-`any` param slot. The caller gates on `Promise` being
+/// unshadowed.
+fn is_promise_settle_call(exprs: &[Expr], callee: ExprId) -> bool {
+    let Expr::Member { obj, name } = &exprs[callee.0 as usize] else {
+        return false;
+    };
+    matches!(&exprs[obj.0 as usize], Expr::Ident(n) if n == "Promise")
+        && matches!(name.as_str(), "resolve" | "reject")
 }
 
 /// FnDecl type-params + params by name over the whole program (fn

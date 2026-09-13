@@ -405,21 +405,36 @@ fn collect_hof_anon_argv(
         }
     }
     let mut admitted: HashSet<String> = HashSet::new();
+    let promise_unshadowed =
+        !super::fnexpr_this_names::name_shadowed_elsewhere(&ast.stmts, "Promise");
     for e in &ast.exprs {
         let Expr::Call { callee, args } = e else {
             continue;
         };
-        let Expr::Member { name: m, .. } = ast.get_expr(*callee) else {
+        let Expr::Member { obj, name: m } = ast.get_expr(*callee) else {
             continue;
         };
-        if !HOF_ARGV_METHODS.contains(&m.as_str()) {
+        // §27.2.4 settle statics — `Promise.resolve(function () {
+        // …arguments… } as any)`, which is what the async rewrite
+        // makes of `return function () { … }`: the promise holds the
+        // value as a box and every read-back enters the closure
+        // cell's boxed dual entry with real argc/argv, the very
+        // channel the HOF methods below feed. An env-carrying body
+        // here had no admit at all and stayed loud (`async function
+        // o() { let a = arguments; return function () { return a ===
+        // arguments } }` — `unknown identifier arguments`, rotation
+        // 642); a body without an env never needed one.
+        let is_settle = promise_unshadowed
+            && matches!(m.as_str(), "resolve" | "reject")
+            && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Promise");
+        if !is_settle && !HOF_ARGV_METHODS.contains(&m.as_str()) {
             continue;
         }
         // `Array.from(iter, mapFn)` carries its callback in the
         // SECOND slot (§23.1.2.1); every instance method carries it
         // first. A 1-arg `.from(…)` (Iterator.from) has no callback
         // slot and admits nothing.
-        let cb_slot = if m == "from" {
+        let cb_slot = if !is_settle && m == "from" {
             args.get(1)
         } else {
             args.first()
@@ -427,6 +442,9 @@ fn collect_hof_anon_argv(
         let Some(&a0) = cb_slot else {
             continue;
         };
+        // The async rewrite's `as any` suffix sits between the call
+        // and the literal.
+        let a0 = super::fnexpr_this_names::peel_as(&ast.exprs, a0);
         let Expr::Closure { fn_name, .. } = ast.get_expr(a0) else {
             continue;
         };
