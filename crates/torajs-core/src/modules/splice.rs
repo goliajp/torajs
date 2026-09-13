@@ -6,6 +6,7 @@ use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use super::dyn_import;
 use super::dyn_import_dispatcher;
 use super::graph::ModuleGraph;
 use super::namespace_objlit::{inline_dyn_ns_objlits, materialize_pending_namespaces};
@@ -23,7 +24,7 @@ pub(super) fn settle_and_splice(
     ast: &mut Ast,
     graph: &ModuleGraph,
     injections_by_path: HashMap<PathBuf, Vec<Stmt>>,
-    dyn_table: &[(String, String)],
+    dyn_table: &[(String, dyn_import::DynTarget)],
     ns_order: &[String],
     ns_accums: &HashMap<String, NsAccum>,
     dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
@@ -69,7 +70,7 @@ pub(super) fn assemble_and_splice(
     ast: &mut Ast,
     graph: &ModuleGraph,
     mut injections_by_path: HashMap<PathBuf, Vec<Stmt>>,
-    dyn_table: &[(String, String)],
+    dyn_table: &[(String, dyn_import::DynTarget)],
     ns_order: &[String],
     ns_accums: &HashMap<String, NsAccum>,
     dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,

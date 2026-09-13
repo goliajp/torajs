@@ -10,7 +10,7 @@ use crate::ast::{Ast, BinOp, Expr, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 use super::decl_name;
-use super::dyn_import::DISPATCHER_NAME;
+use super::dyn_import::{DISPATCHER_NAME, DynTarget};
 use super::resolve_helpers::NsAccum;
 
 /// Synthesize the dispatcher FnDecl:
@@ -51,21 +51,24 @@ use super::resolve_helpers::NsAccum;
 /// t262 instn-iee-err-ambiguous-import family): same ResolveExport
 /// verdict, same SyntaxError reject.
 pub(super) fn poisoned_candidates(
-    table: &[(String, String)],
+    table: &[(String, DynTarget)],
     ns_accums: &HashMap<String, NsAccum>,
     injections: &[Stmt],
     ambiguous_locals: &HashSet<String>,
 ) -> HashSet<String> {
-    let needs_scan = table
-        .iter()
-        .any(|(_, ns)| ns_accums.get(ns).is_some_and(reex_backed));
+    let namespaces = table.iter().filter_map(|(_, t)| match t {
+        DynTarget::Namespace(ns) => Some(ns),
+        DynTarget::SyntaxError(_) => None,
+    });
+    let needs_scan = namespaces
+        .clone()
+        .any(|ns| ns_accums.get(ns).is_some_and(reex_backed));
     let mut declared: HashSet<String> = HashSet::new();
     if needs_scan {
         collect_decl_names(injections, &mut declared);
     }
-    table
-        .iter()
-        .filter(|(_, ns)| {
+    namespaces
+        .filter(|ns| {
             ns_accums.get(ns.as_str()).is_some_and(|acc| {
                 acc.fields().iter().any(|(_, local)| {
                     ambiguous_locals.contains(local)
@@ -73,7 +76,7 @@ pub(super) fn poisoned_candidates(
                 })
             })
         })
-        .map(|(_, ns)| ns.clone())
+        .cloned()
         .collect()
 }
 
@@ -96,9 +99,30 @@ pub(super) fn collect_decl_names(stmts: &[Stmt], out: &mut HashSet<String>) {
     }
 }
 
+/// `if (<cond>) throw new SyntaxError(<reason>)` — the dispatcher's
+/// catch turns it into the §16.2.1.5 promise reject.
+fn push_syntax_error_arm(
+    ast: &mut Ast,
+    body: &mut Vec<Stmt>,
+    cond: crate::ast::ExprId,
+    reason: String,
+) {
+    let msg = ast.add_expr(Expr::String(reason.into()));
+    let err = ast.add_expr(Expr::New {
+        class_name: "SyntaxError".to_string(),
+        args: vec![msg],
+        type_args: Vec::new(),
+    });
+    body.push(Stmt::If {
+        cond,
+        then_branch: Box::new(Stmt::Throw(err)),
+        else_branch: None,
+    });
+}
+
 pub(super) fn synth_dispatcher(
     ast: &mut Ast,
-    table: &[(String, String)],
+    table: &[(String, DynTarget)],
     poisoned: &HashSet<String>,
 ) -> Stmt {
     let mut body: Vec<Stmt> = Vec::new();
@@ -120,7 +144,7 @@ pub(super) fn synth_dispatcher(
         is_var: false,
     });
     // Per candidate: if (__s === "<lit>") return Promise.resolve(<ns>);
-    for (lit, ns_name) in table {
+    for (lit, target) in table {
         let s_ref = ast.add_expr(Expr::Ident("__s".to_string()));
         let lit_expr = ast.add_expr(Expr::String(lit.clone().into()));
         let cond = ast.add_expr(Expr::BinOp {
@@ -128,24 +152,24 @@ pub(super) fn synth_dispatcher(
             left: s_ref,
             right: lit_expr,
         });
-        if poisoned.contains(ns_name.as_str()) {
-            // if (__s === "<lit>") throw new SyntaxError(...) — the
-            // catch below turns it into the §16.2.1.5 promise reject.
-            let msg = ast.add_expr(Expr::String(format!(
-                "indirect exports of module '{lit}' do not resolve (circular, missing, or ambiguous)"
-            ).into()));
-            let err = ast.add_expr(Expr::New {
-                class_name: "SyntaxError".to_string(),
-                args: vec![msg],
-                type_args: Vec::new(),
-            });
-            body.push(Stmt::If {
-                cond,
-                then_branch: Box::new(Stmt::Throw(err)),
-                else_branch: None,
-            });
-            continue;
-        }
+        let ns_name = match target {
+            DynTarget::SyntaxError(reason) => {
+                push_syntax_error_arm(ast, &mut body, cond, reason.clone());
+                continue;
+            }
+            DynTarget::Namespace(ns) if poisoned.contains(ns.as_str()) => {
+                push_syntax_error_arm(
+                    ast,
+                    &mut body,
+                    cond,
+                    format!(
+                        "indirect exports of module '{lit}' do not resolve (circular, missing, or ambiguous)"
+                    ),
+                );
+                continue;
+            }
+            DynTarget::Namespace(ns) => ns,
+        };
         let ns_ident = ast.add_expr(Expr::Ident(ns_name.clone()));
         let promise_ident = ast.add_expr(Expr::Ident("Promise".to_string()));
         ast.synth_global_refs.insert(promise_ident);

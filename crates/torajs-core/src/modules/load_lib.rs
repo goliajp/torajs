@@ -94,5 +94,13 @@ pub(super) fn load_lib_section(
             target_path.display()
         ));
     }
+    // §16.2.1.1 — and its top-level redeclarations (a requested
+    // module is module code whatever the entry's goal).
+    if let Some(msg) = crate::ast_early_redecl::module_top_level_redecl(&lib_section) {
+        return Err(format!(
+            "module resolution failure (SyntaxError): import {} parse: {msg}",
+            target_path.display()
+        ));
+    }
     Ok((lib_section, lib_expr_offset, target_dir, table_delta))
 }

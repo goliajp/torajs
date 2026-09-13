@@ -107,6 +107,17 @@ pub(crate) fn run_pre_resolve_gates(ast: &mut ast::Ast) -> Result<(), ()> {
         eprintln!("parse error: {msg}");
         return Err(());
     }
+    // §16.2.1.1 — a module's top level is one lexical scope: `var f;
+    // function f() {}` is an early SyntaxError there (a Script's
+    // var-scopes the function). Asked before the resolver splices
+    // other modules' declarations in beside the entry's own, and
+    // only under the module goal.
+    if !ast.sloppy_script_goal
+        && let Some(msg) = torajs_core::ast_early_redecl::module_top_level_redecl(&ast.stmts)
+    {
+        eprintln!("parse error: {msg}");
+        return Err(());
+    }
     // §16.1.1 / §16.2.1.1 — `new.target` in global code (arrows
     // included) is an early error; a function's own body binds its
     // [[NewTarget]] and stops the walk.

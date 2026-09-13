@@ -50,7 +50,7 @@ pub fn run(ast: &mut Ast) {
 fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
     match s {
         Stmt::Block(list) => {
-            check_list(list.iter(), ast, errors);
+            check_list(list.iter(), &block_fn_kind(ast), errors);
             for c in list {
                 walk_stmt(c, ast, errors);
             }
@@ -61,7 +61,7 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
                 .iter()
                 .flat_map(|c| c.body.iter())
                 .chain(default.iter().flatten());
-            check_list(all, ast, errors);
+            check_list(all, &block_fn_kind(ast), errors);
             for c in cases {
                 for s in &c.body {
                     walk_stmt(s, ast, errors);
@@ -121,13 +121,13 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
             ..
         } => {
             // try/catch/finally bodies are each their own block scope.
-            check_list(body.iter(), ast, errors);
-            check_list(catch_body.iter(), ast, errors);
+            check_list(body.iter(), &block_fn_kind(ast), errors);
+            check_list(catch_body.iter(), &block_fn_kind(ast), errors);
             for s in body.iter().chain(catch_body.iter()) {
                 walk_stmt(s, ast, errors);
             }
             if let Some(f) = finally_body {
-                check_list(f.iter(), ast, errors);
+                check_list(f.iter(), &block_fn_kind(ast), errors);
                 for s in f {
                     walk_stmt(s, ast, errors);
                 }
@@ -177,9 +177,39 @@ fn walk_stmt(s: &Stmt, ast: &Ast, errors: &mut Vec<String>) {
     }
 }
 
+/// §16.2.1.1 — a Module's top-level statement list is one lexical
+/// scope with no Annex B allowance: every `function` declaration is a
+/// LexicallyDeclaredName there, so one beside a `var` of the same name
+/// (`var f; function f() {}`), or beside a second `function f`, is an
+/// early SyntaxError. A Script's top level is the other way round
+/// (§16.1.1 var-scopes plain functions; duplicates resolve last-wins
+/// in `dedupe_fn_decls`), so this is asked only of MODULE code: the
+/// entry under the module goal, and every requested module — a
+/// static one fails the link, a dynamic-import candidate rejects its
+/// promise (`modules::dyn_import`). `export`-wrapped declarations are
+/// members of the same list.
+pub fn module_top_level_redecl(stmts: &[Stmt]) -> Option<String> {
+    let mut errors: Vec<String> = Vec::new();
+    let members = stmts.iter().map(|s| match s {
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => &**inner,
+        other => other,
+    });
+    check_list(members, &|_, _| DeclKind::Lexical, &mut errors);
+    errors.into_iter().next()
+}
+
 /// One block-scope statement list: reject duplicate lexical names
-/// (except plain-fn pairs) and lexical ∩ var overlap.
-fn check_list<'a>(list: impl Iterator<Item = &'a Stmt>, ast: &Ast, errors: &mut Vec<String>) {
+/// (except plain-fn pairs) and lexical ∩ var overlap. `fn_kind`
+/// classifies a `function` declaration by name and generator-ness —
+/// a block's plain function is the Annex B `PlainFn`, a module's top
+/// level has no such thing.
+fn check_list<'a>(
+    list: impl Iterator<Item = &'a Stmt>,
+    fn_kind: &dyn Fn(&str, bool) -> DeclKind,
+    errors: &mut Vec<String>,
+) {
     let mut lexical: HashMap<&str, DeclKind> = HashMap::new();
     let mut vars: Vec<&str> = Vec::new();
     // `Multi` shares the SURROUNDING scope (parse-time destructuring
@@ -206,12 +236,7 @@ fn check_list<'a>(list: impl Iterator<Item = &'a Stmt>, ast: &Ast, errors: &mut 
             Stmt::FnDecl {
                 name, is_generator, ..
             } => {
-                let kind = if *is_generator || ast.async_fns.contains(name) {
-                    DeclKind::Lexical
-                } else {
-                    DeclKind::PlainFn
-                };
-                insert_lexical(name, kind, &mut lexical, errors);
+                insert_lexical(name, fn_kind(name, *is_generator), &mut lexical, errors);
             }
             Stmt::ClassDecl { name, .. } => {
                 insert_lexical(name, DeclKind::Lexical, &mut lexical, errors);
@@ -222,6 +247,18 @@ fn check_list<'a>(list: impl Iterator<Item = &'a Stmt>, ast: &Ast, errors: &mut 
     for v in vars {
         if lexical.contains_key(v) {
             errors.push(format!("\"{v}\" has already been declared"));
+        }
+    }
+}
+
+/// A block's `function` is the Annex B `PlainFn` unless it is a
+/// generator or async function (those are lexical everywhere).
+fn block_fn_kind(ast: &Ast) -> impl Fn(&str, bool) -> DeclKind + '_ {
+    move |name, is_generator| {
+        if is_generator || ast.async_fns.contains(name) {
+            DeclKind::Lexical
+        } else {
+            DeclKind::PlainFn
         }
     }
 }

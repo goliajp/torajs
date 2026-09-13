@@ -56,6 +56,23 @@ use super::{WorkItem, decl_name, resolve_path};
 /// reserve).
 pub(super) const DISPATCHER_NAME: &str = "__torajs_dyn_import";
 
+/// What the dispatcher answers for one candidate specifier.
+pub(super) enum DynTarget {
+    /// The candidate loaded: resolve with its `__dyn_ns_c<k>`
+    /// namespace (unless the link poisoned it — `poisoned_candidates`).
+    Namespace(String),
+    /// The file exists but is not module code tr compiles — ParseModule
+    /// failed (§16.2.1.6 HostLoadImportedModule; a lex / parse error or
+    /// a §16.2.1.1 top-level early error): reject with a SyntaxError
+    /// carrying the reason. It is never queued, so nothing of it
+    /// injects.
+    SyntaxError(String),
+}
+
+/// The `(specifier literal, target)` table the dispatcher matches
+/// against.
+pub(super) type DynTable = Vec<(String, DynTarget)>;
+
 /// Queue every candidate module onto the BFS worklist under a
 /// `__dyn_ns_c<k>` namespace alias (riding the existing
 /// `inline_dyn_ns_objlits` rewrite) and answer the
@@ -65,13 +82,21 @@ pub(super) fn seed_candidates(
     ast: &Ast,
     base_dir: &Path,
     work: &mut VecDeque<WorkItem>,
-) -> Vec<(String, String)> {
-    let mut table: Vec<(String, String)> = Vec::new();
+) -> DynTable {
+    let mut table: DynTable = Vec::new();
     if ast.dyn_import_present {
-        for (k, (lit, path)) in collect_candidates(ast, base_dir).into_iter().enumerate() {
-            let ns_name = format!("__dyn_ns_c{k}");
-            work.push_back((path, Vec::new(), None, false, Some(ns_name.clone()), false));
-            table.push((lit, ns_name));
+        for (k, (lit, probe)) in collect_candidates(ast, base_dir).into_iter().enumerate() {
+            let target = match probe {
+                Ok(path) => {
+                    let ns_name = format!("__dyn_ns_c{k}");
+                    work.push_back((path, Vec::new(), None, false, Some(ns_name.clone()), false));
+                    DynTarget::Namespace(ns_name)
+                }
+                Err(msg) => {
+                    DynTarget::SyntaxError(format!("module '{lit}' failed to parse: {msg}"))
+                }
+            };
+            table.push((lit, target));
         }
     }
     table
@@ -87,15 +112,21 @@ pub(super) fn seed_candidates(
 /// - it resolves to an existing file ([`resolve_path`], which also
 ///   tries the `.ts` suffix fallback);
 /// - a speculative parse succeeds (the file may be any bytes — a
-///   candidate must not turn the build into a parse error);
+///   candidate must not turn the build into a parse error). A file
+///   that lexes / parses wrong, or trips a module top-level early
+///   error, is still a candidate: one that REJECTS with a SyntaxError
+///   (`Err(reason)` here, `DynTarget::SyntaxError` in the table) —
+///   §16.2.1.6 HostLoadImportedModule's failed ParseModule, which a
+///   miss's TypeError would misname (test262 `eval-script-code-
+///   target`: a Script-only body imported as a module);
 /// - its UNMANGLABLE names don't collide with the entry's reserved
 ///   names or an earlier candidate's injected face (see module doc);
 ///   every other collision deconflicts at walk time.
-fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
+fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, Result<PathBuf, String>)> {
     let mut reserved = entry_reserved_names(ast, base_dir);
     let mut seen_lits: HashSet<&str> = HashSet::new();
     let mut seen_paths: HashSet<PathBuf> = HashSet::new();
-    let mut out: Vec<(String, PathBuf)> = Vec::new();
+    let mut out: Vec<(String, Result<PathBuf, String>)> = Vec::new();
     for e in &ast.exprs {
         let Expr::String(lit) = e else { continue };
         // A specifier with a lone surrogate names no file.
@@ -113,8 +144,14 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
             // Two spellings of one file: the first literal claimed it.
             continue;
         }
-        let Some(probe) = speculative_probe(&path) else {
-            continue;
+        let probe = match speculative_probe(&path) {
+            Some(Ok(probe)) => probe,
+            Some(Err(msg)) => {
+                seen_paths.insert(path);
+                out.push((lit.to_string(), Err(msg)));
+                continue;
+            }
+            None => continue,
         };
         if unmanglable_names(&probe)
             .iter()
@@ -144,7 +181,7 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, PathBuf)> {
             reserved.hard.insert(n);
         }
         seen_paths.insert(path.clone());
-        out.push((lit.to_string(), path));
+        out.push((lit.to_string(), Ok(path)));
     }
     out
 }
@@ -262,12 +299,25 @@ fn entry_reserved_names(ast: &Ast, base_dir: &Path) -> ReservedNames {
     names
 }
 
-/// Parse the candidate into a throwaway arena. `None` = unreadable or
-/// unparseable — not a candidate.
-fn speculative_probe(path: &Path) -> Option<Ast> {
+/// Parse the candidate into a throwaway arena. `None` = unreadable —
+/// not a candidate; `Some(Err(reason))` = readable but not module code
+/// tr compiles (the same three judgements `load_lib_section` makes of
+/// a requested module, minus the link).
+fn speculative_probe(path: &Path) -> Option<Result<Ast, String>> {
     let src = std::fs::read_to_string(path).ok()?;
-    let tokens = lexer::tokenize(&src).ok()?;
+    let tokens = match lexer::tokenize(&src) {
+        Ok(t) => t,
+        Err(e) => return Some(Err(format!("lex: {e}"))),
+    };
     let mut probe = Ast::default();
-    parser::parse_into(&src, &tokens, &mut probe).ok()?;
-    Some(probe)
+    if let Err(e) = parser::parse_into(&src, &tokens, &mut probe) {
+        return Some(Err(format!("parse: {e}")));
+    }
+    if let Some(msg) = crate::ast::early_label_errors_in(&probe.stmts, &probe.exprs) {
+        return Some(Err(msg));
+    }
+    if let Some(msg) = crate::ast_early_redecl::module_top_level_redecl(&probe.stmts) {
+        return Some(Err(msg));
+    }
+    Some(Ok(probe))
 }

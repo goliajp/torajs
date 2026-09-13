@@ -112,7 +112,7 @@ fn seed_requests(
     entry: Option<&Path>,
     work: &mut VecDeque<WorkItem>,
     graph: &mut ModuleGraph,
-) -> Result<(static_resolution::EntrySeed, Vec<(String, String)>), String> {
+) -> Result<(static_resolution::EntrySeed, dyn_import::DynTable), String> {
     let mut entry_seed = static_resolution::seed_entry_requests(ast, base_dir, work)?;
     entry_seed.entry_path = entry.and_then(|p| p.canonicalize().ok());
     entry_seed.static_roots = graph.edges_since(work, 0);
