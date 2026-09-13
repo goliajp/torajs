@@ -145,7 +145,9 @@ fn maybe_rewrite_async_method_body(
     method: &ClassMethod,
 ) -> Option<(Vec<Stmt>, Option<String>)> {
     let mangled = format!("{mangled_prefix}{cname}__{}", mangle_key(&method.name));
-    if !ast.async_fns.contains(&mangled) {
+    // Blade 3 moved this body into a generator; the forwarder's
+    // `return __async_drive(...)` already IS the promise.
+    if !ast.async_fns.contains(&mangled) || ast.async_sm_fns.contains(&mangled) {
         return None;
     }
     let declared_ty = method.return_type.clone().unwrap_or_else(|| "any".into());
