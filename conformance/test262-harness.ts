@@ -2225,3 +2225,132 @@ function assertNear(a: number, b: number, tolerance: number = 1): void {
     );
   }
 }
+
+// temporalHelpers.js — the OBSERVER subset only (rotation 642). The
+// stock file is Temporal's whole helper library; the Array.fromAsync
+// and Iterator.from cases that include it use just these four (the
+// property-bag observer needs the primitive observer). The runner
+// admits the include per case only when every `TemporalHelpers.<m>`
+// the case names is one of these, so a Temporal case still reports
+// the helper it is missing rather than dying inside the port.
+// Ported faithfully from harness/temporalHelpers.js; bun runs the
+// same port.
+const __t262_ASCII_IDENTIFIER = /^[$_a-zA-Z][$_a-zA-Z0-9]*$/u;
+function __t262_formatPropertyName(propertyKey: any, objectName: any = ""): any {
+  switch (typeof propertyKey) {
+    case "symbol":
+      if (Symbol.keyFor(propertyKey) !== undefined) {
+        return `${objectName}[Symbol.for('${Symbol.keyFor(propertyKey)}')]`;
+      } else if (propertyKey.description.startsWith("Symbol.")) {
+        return `${objectName}[${propertyKey.description}]`;
+      } else {
+        return `${objectName}[Symbol('${propertyKey.description}')]`;
+      }
+    case "string":
+      if (propertyKey !== String(Number(propertyKey))) {
+        if (__t262_ASCII_IDENTIFIER.test(propertyKey)) {
+          return objectName ? `${objectName}.${propertyKey}` : propertyKey;
+        }
+        return `${objectName}['${propertyKey.replace(/'/g, "\\'")}']`;
+      }
+      // fall through
+    default:
+      // integer or string integer-index
+      return `${objectName}[${propertyKey}]`;
+  }
+}
+const TemporalHelpers: any = {
+  /*
+   * observeProperty(calls, object, propertyName, value):
+   *
+   * Defines an own property @object.@propertyName with value @value, that
+   * will log any calls to its accessors to the array @calls.
+   */
+  observeProperty(calls: any, object: any, propertyName: any, value: any, objectName: any = "") {
+    Object.defineProperty(object, propertyName, {
+      get() {
+        calls.push(`get ${__t262_formatPropertyName(propertyName, objectName)}`);
+        return value;
+      },
+      set() {
+        calls.push(`set ${__t262_formatPropertyName(propertyName, objectName)}`);
+      },
+    });
+  },
+  /*
+   * observeMethod(calls, object, propertyName, value):
+   *
+   * Defines an own property @object.@propertyName with value @value, that
+   * will log any calls of @value to the array @calls.
+   */
+  observeMethod(calls: any, object: any, propertyName: any, objectName: any = "") {
+    const method = object[propertyName];
+    object[propertyName] = function () {
+      calls.push(`call ${__t262_formatPropertyName(propertyName, objectName)}`);
+      return method.apply(object, arguments);
+    };
+  },
+  /*
+   * propertyBagObserver(calls, propertyBag, objectName, skipToPrimitive):
+   *
+   * Returns a proxy of @propertyBag that logs every operation on it to
+   * @calls, primitive property values wrapped in a toPrimitiveObserver
+   * (unless the key is in @skipToPrimitive).
+   */
+  propertyBagObserver(calls: any, propertyBag: any, objectName: any, skipToPrimitive: any) {
+    return new Proxy(propertyBag, {
+      ownKeys(target: any) {
+        calls.push(`ownKeys ${objectName}`);
+        return Reflect.ownKeys(target);
+      },
+      getOwnPropertyDescriptor(target: any, key: any) {
+        calls.push(`getOwnPropertyDescriptor ${__t262_formatPropertyName(key, objectName)}`);
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+      get(target: any, key: any, receiver: any) {
+        calls.push(`get ${__t262_formatPropertyName(key, objectName)}`);
+        const result = Reflect.get(target, key, receiver);
+        if (result === undefined) {
+          return undefined;
+        }
+        if ((result !== null && typeof result === "object") || typeof result === "function") {
+          return result;
+        }
+        if (skipToPrimitive && skipToPrimitive.indexOf(key) >= 0) {
+          return result;
+        }
+        return TemporalHelpers.toPrimitiveObserver(calls, result, `${__t262_formatPropertyName(key, objectName)}`);
+      },
+      has(target: any, key: any) {
+        calls.push(`has ${__t262_formatPropertyName(key, objectName)}`);
+        return Reflect.has(target, key);
+      },
+    });
+  },
+  /*
+   * toPrimitiveObserver(calls, primitiveValue, propertyName):
+   *
+   * Returns an object that will append logs of any Gets or Calls of its
+   * valueOf or toString properties to the array @calls. Both return the
+   * actual primitiveValue.
+   */
+  toPrimitiveObserver(calls: any, primitiveValue: any, propertyName: any) {
+    return {
+      get valueOf() {
+        calls.push(`get ${propertyName}.valueOf`);
+        return function () {
+          calls.push(`call ${propertyName}.valueOf`);
+          return primitiveValue;
+        };
+      },
+      get toString() {
+        calls.push(`get ${propertyName}.toString`);
+        return function () {
+          calls.push(`call ${propertyName}.toString`);
+          if (primitiveValue === undefined) return undefined;
+          return primitiveValue.toString();
+        };
+      },
+    };
+  },
+};

@@ -39,6 +39,7 @@ mod cache;
 mod fixtures;
 mod frontmatter;
 mod harness_shake;
+mod partial_ports;
 mod strict_shell;
 mod summary_json;
 mod verdict;
@@ -542,13 +543,24 @@ fn run_case(
         // question than the cases ask.
         "sm/non262-Math-shell.js",
     ];
-    let unported: Vec<&str> = fm
+    // `temporalHelpers.js` is ported per case — see `partial_ports`.
+    let temporal_missing = partial_ports::temporal_helpers_unported(&case_src, &fm.features);
+    let mut unported: Vec<String> = fm
         .includes
         .iter()
         .map(String::as_str)
         .filter(|inc| !PORTED_INCLUDES.contains(inc))
         .filter(|inc| !(*inc == "sm/non262-strict-shell.js" && strict_shell_ported))
+        .filter(|inc| !(*inc == "temporalHelpers.js" && temporal_missing.is_none()))
+        .map(|inc| match (inc, &temporal_missing) {
+            ("temporalHelpers.js", Some(m)) if m == "Temporal" => {
+                "temporalHelpers.js (Temporal)".to_string()
+            }
+            ("temporalHelpers.js", Some(m)) => format!("temporalHelpers.js (TemporalHelpers.{m})"),
+            _ => inc.to_string(),
+        })
         .collect();
+    unported.dedup();
     if !unported.is_empty() {
         return Outcome::Incompatible {
             kind: "harness-includes".to_string(),

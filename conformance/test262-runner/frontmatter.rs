@@ -29,6 +29,10 @@ pub struct Frontmatter {
     /// judgment (an async case exiting 0 without printing
     /// `Test262:AsyncTestComplete` is NOT a pass).
     pub flags: Vec<String>,
+    /// `features:` list — read by the partially ported includes
+    /// (`partial_ports`): a `Temporal` case keeps its harness-includes
+    /// verdict whatever helpers it names.
+    pub features: Vec<String>,
 }
 
 impl Frontmatter {
@@ -89,6 +93,7 @@ pub fn parse(src: &str) -> Frontmatter {
     let mut in_negative = false;
     let mut in_includes_list = false;
     let mut in_flags_list = false;
+    let mut in_features_list = false;
     for raw in block.lines() {
         let line = raw.trim_end();
         let trimmed = line.trim_start();
@@ -99,6 +104,7 @@ pub fn parse(src: &str) -> Frontmatter {
             in_negative = false;
             in_includes_list = false;
             in_flags_list = false;
+            in_features_list = false;
         }
 
         if let Some(rest) = trimmed.strip_prefix("negative:") {
@@ -162,6 +168,27 @@ pub fn parse(src: &str) -> Frontmatter {
             && let Some(item) = trimmed.strip_prefix('-')
         {
             push_flag(&mut fm.flags, item);
+            continue;
+        }
+
+        if let Some(rest) = trimmed.strip_prefix("features:") {
+            let inline = rest.trim();
+            if let Some(list) = inline.strip_prefix('[') {
+                // Inline form `features: [Temporal, Symbol]`.
+                let list = list.strip_suffix(']').unwrap_or(list);
+                for item in list.split(',') {
+                    push_flag(&mut fm.features, item);
+                }
+            } else if inline.is_empty() {
+                in_features_list = true;
+            }
+            continue;
+        }
+        if in_features_list
+            && indented
+            && let Some(item) = trimmed.strip_prefix('-')
+        {
+            push_flag(&mut fm.features, item);
             continue;
         }
     }
