@@ -1,0 +1,138 @@
+//! W4 — the frozen analysis result: [`WidthTable`], the read-only
+//! query surface every lowering site asks (`slot_is_f64` /
+//! `elem_is_f64` / `field_is_f64`, the nominal-alias and fallthrough
+//! registries, the shape-join and bounds-proof verdicts). Moved out of
+//! `container.rs` verbatim (rotation 642): that file keeps the
+//! walk-time machinery — the union-find, the congruence closure, the
+//! guarded-edge activation and the canonicalization — and this one
+//! keeps what survives it.
+
+use super::SlotKey;
+use super::container::{UnionFind, canon_key_frozen};
+use crate::ast::ExprId;
+use crate::ast::PropKey;
+use std::collections::{HashMap, HashSet};
+
+/// Frozen analysis result: the poison fixpoint over canonical alias
+/// classes (scalar slots and container elem/field points in one
+/// lattice), queried through the frozen union-find so any spelling of
+/// a key resolves to its class representative.
+pub(crate) struct WidthTable {
+    canon: HashSet<SlotKey>,
+    /// W-ESC — frozen class reps whose containers flow into `any`-
+    /// annotated slots (escape.rs); the widen site re-interns their
+    /// Arr elems as Type::Any.
+    any_escaped: HashSet<SlotKey>,
+    uf: UnionFind,
+    container_poison: bool,
+    /// D5 — cyclic plain-alias names (see `alias.rs`); the TypeDecl
+    /// fill site takes nominal widths for these, like classes.
+    nominal_aliases: HashSet<String>,
+    /// RFC 20260725-fallthrough-return knives 1-2 — functions with a
+    /// path that runs off the end of the body, which answers
+    /// `undefined` there. The call site asks here to know a result
+    /// read off one of them may hold that answer's sentinel.
+    fallthrough_fns: HashSet<String>,
+    /// The mirror of `fallthrough_fns`: `(fn name, param name)` pairs
+    /// some call site hands the `undefined` sentinel. The parameter's
+    /// own body asks here, because the value arrives from a caller
+    /// lowered separately and nothing else records it.
+    undef_sentinel_params: HashSet<(String, String)>,
+    /// W4 shape-join (rotation 371) — per ordered-field-name shape,
+    /// the fields whose width floats on ANY same-shaped literal.
+    /// Layout slot width is family-wide (same-shaped literals share
+    /// a layout through the coercible first-match); operation width
+    /// stays per-binding through the keys above.
+    objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
+    /// The index reads the walk proved in-bounds — `xs[i]` under an
+    /// enclosing, untainted `i < xs.length` guard (see
+    /// [`crate::ssa_lower_bounds_proven`]). It rides here rather than
+    /// beside the table because the element-width verdicts above are
+    /// only sound under this very proof: the reason a `number`
+    /// element widens to F64 is that an unproven read owes
+    /// `undefined`, which an I64 slot cannot spell. A consumer that
+    /// can reach the widths can therefore always reach the proof they
+    /// were taken under, and cannot substitute another.
+    index_read_proven: HashSet<ExprId>,
+}
+
+impl WidthTable {
+    #[allow(clippy::too_many_arguments)] // frozen-analysis assembly, one call site
+    pub(super) fn new(
+        canon: HashSet<SlotKey>,
+        any_escaped: HashSet<SlotKey>,
+        uf: UnionFind,
+        container_poison: bool,
+        nominal_aliases: HashSet<String>,
+        fallthrough_fns: HashSet<String>,
+        undef_sentinel_params: HashSet<(String, String)>,
+        objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
+        index_read_proven: HashSet<ExprId>,
+    ) -> Self {
+        WidthTable {
+            canon,
+            any_escaped,
+            uf,
+            container_poison,
+            nominal_aliases,
+            fallthrough_fns,
+            undef_sentinel_params,
+            objlit_shape_f64,
+            index_read_proven,
+        }
+    }
+
+    /// See the field's doc — the guard-dominated bounds proof the
+    /// element widths were decided under.
+    pub(crate) fn index_read_proven(&self, eid: ExprId) -> bool {
+        self.index_read_proven.contains(&eid)
+    }
+
+    /// W4 shape-join query — true when `name` floats on any literal
+    /// sharing this ordered field-name shape (see the field's doc).
+    pub(crate) fn objlit_shape_field_is_f64(&self, shape: &[PropKey], name: &PropKey) -> bool {
+        self.objlit_shape_f64
+            .get(shape)
+            .is_some_and(|s| s.contains(name))
+    }
+
+    /// True when `param` of `fn_name` may be handed the `undefined`
+    /// sentinel by one of its call sites, so the consumers inside that
+    /// body have to check for it the way they check a binding that was
+    /// initialized from the same shape.
+    pub(crate) fn param_takes_undef_sentinel(&self, fn_name: &str, param: &str) -> bool {
+        self.undef_sentinel_params
+            .contains(&(fn_name.to_string(), param.to_string()))
+    }
+
+    pub(crate) fn is_nominal_alias(&self, name: &str) -> bool {
+        self.nominal_aliases.contains(name)
+    }
+
+    /// RFC 20260725-fallthrough-return knife 1 — true when calling
+    /// `name` can answer `undefined` by running off the end of its
+    /// body (ES §10.2.1.4 step 11) rather than through a `return`.
+    pub(crate) fn returns_undef_on_fallthrough(&self, name: &str) -> bool {
+        self.fallthrough_fns.contains(name)
+    }
+
+    pub(crate) fn slot_is_f64(&self, k: &SlotKey) -> bool {
+        self.canon.contains(&canon_key_frozen(&self.uf, k))
+    }
+
+    /// W-ESC — true when the container held in slot `k` flows into
+    /// the `any` world (its frozen class rep carries an escape face).
+    pub(crate) fn slot_escapes_any(&self, k: &SlotKey) -> bool {
+        !self.any_escaped.is_empty() && self.any_escaped.contains(&canon_key_frozen(&self.uf, k))
+    }
+
+    pub(crate) fn elem_is_f64(&self, holder: &SlotKey) -> bool {
+        self.container_poison || self.slot_is_f64(&SlotKey::Elem(Box::new(holder.clone())))
+    }
+
+    #[allow(dead_code)] // D3 wires the struct/class field face
+    pub(crate) fn field_is_f64(&self, holder: &SlotKey, name: impl Into<PropKey>) -> bool {
+        self.container_poison
+            || self.slot_is_f64(&SlotKey::Field(Box::new(holder.clone()), name.into()))
+    }
+}

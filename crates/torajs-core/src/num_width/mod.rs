@@ -45,10 +45,11 @@ mod sentinel_tables;
 mod slot_abi;
 mod walk;
 mod width;
+mod width_table;
 
-pub(crate) use container::WidthTable;
 pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
+pub(crate) use width_table::WidthTable;
 
 use crate::ast::PropKey;
 use crate::ast::{Ast, ExprId, Stmt};
