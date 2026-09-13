@@ -90,27 +90,6 @@ pub(super) fn build_return_method(
         default: None,
         is_rest: false,
     };
-    // §27.6.3.7 step 8.d — an ASYNC generator's return(v) awaits v
-    // before completing with it: prepend `__ret_val = await
-    // __ret_val;` (the await-read is type-dispatched — a Promise
-    // unwraps, anything else passes through identity). Sync
-    // generators complete with v verbatim (§27.5.1.7).
-    let await_stash = if is_async_gen {
-        let inner = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
-        let read = ast.add_expr(Expr::Member {
-            obj: inner,
-            name: "value".into(),
-        });
-        ast.await_value_reads.insert(read);
-        let target = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
-        let assign = ast.add_expr(Expr::Assign {
-            target,
-            value: read,
-        });
-        Some(Stmt::Expr(assign))
-    } else {
-        None
-    };
     let body = if has_finally_ret {
         let this_id = ast.add_expr(Expr::This);
         let inj = ast.add_expr(Expr::Member {
@@ -143,7 +122,53 @@ pub(super) fn build_return_method(
         });
         vec![close_stmt, Stmt::Return(Some(result))]
     };
-    let body: Vec<Stmt> = await_stash.into_iter().chain(body).collect();
+    // D4 — an ASYNC generator's return(v) reaches this method as the
+    // driver's `__step_return`, v already awaited (§27.6.3.7 step 8.d,
+    // AwaitReturn — `__agen_run` awaits a return request's value before
+    // stepping). While the body is delegating (`this.__ysact`, set by
+    // `desugar_generators_yieldstar`'s loop) the request is a
+    // RETURN-completion resumption of the delegating yield (§27.5.3.2
+    // step 7.c forwards it to the inner iterator): flag it and resume
+    // as a next(v); the loop reads the flag off `this.__ysret` after
+    // the yield and takes the return arm.
+    let delegating = if is_async_gen {
+        let this_a = ast.add_expr(Expr::This);
+        let act = ast.add_expr(Expr::Member {
+            obj: this_a,
+            name: super::desugar_generators_async::YS_ACTIVE_FIELD.into(),
+        });
+        let this_b = ast.add_expr(Expr::This);
+        let ret_flag = ast.add_expr(Expr::Member {
+            obj: this_b,
+            name: super::desugar_generators_async::YS_RETURN_FIELD.into(),
+        });
+        let t = ast.add_expr(Expr::Bool(true));
+        let set_flag = ast.add_expr(Expr::Assign {
+            target: ret_flag,
+            value: t,
+        });
+        let this_c = ast.add_expr(Expr::This);
+        let next_callee = ast.add_expr(Expr::Member {
+            obj: this_c,
+            name: next_name.into(),
+        });
+        let v = ast.add_expr(Expr::Ident(RET_VAL_PARAM.into()));
+        let resume = ast.add_expr(Expr::Call {
+            callee: next_callee,
+            args: vec![v],
+        });
+        Some(Stmt::If {
+            cond: act,
+            then_branch: Box::new(Stmt::Block(vec![
+                Stmt::Expr(set_flag),
+                Stmt::Return(Some(resume)),
+            ])),
+            else_branch: None,
+        })
+    } else {
+        None
+    };
+    let body: Vec<Stmt> = delegating.into_iter().chain(body).collect();
     ClassMethod {
         name: "return".into(),
         type_params: Vec::new(),

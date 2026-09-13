@@ -103,6 +103,14 @@ pub(super) const QUEUE_FIELD: &str = "__q";
 /// `executing` or suspended at an await inside a request); a request
 /// arriving then is queued and picked up by the running drain.
 pub(super) const BUSY_FIELD: &str = "__busy";
+/// Whether the body is inside a `yield*` delegation loop
+/// (`desugar_generators_yieldstar`): a return(v) request then resumes
+/// the delegating yield as a return completion instead of completing
+/// the generator.
+pub(super) const YS_ACTIVE_FIELD: &str = "__ysact";
+/// Raised by `return()` for that resumption; the loop reads and clears
+/// it after the delegating yield.
+pub(super) const YS_RETURN_FIELD: &str = "__ysret";
 
 /// The driver, the mark class and the queue — injected once, parsed
 /// into the shared arena. Every binding is `__`-spelled (the D1 driver's
@@ -347,6 +355,8 @@ pub(super) fn shape_machine(
     trio.2.name = MACHINE_THROW.into();
     lifted_locals.push((QUEUE_FIELD.into(), "any".into()));
     lifted_locals.push((BUSY_FIELD.into(), "any".into()));
+    lifted_locals.push((YS_ACTIVE_FIELD.into(), "any".into()));
+    lifted_locals.push((YS_RETURN_FIELD.into(), "any".into()));
     let mut ms = forwarders(ast);
     ms.push(step_ctor(ast, MACHINE_YIELDED, step_ann, yield_ty, false));
     ms.push(step_ctor(ast, MACHINE_RETURNED, step_ann, yield_ty, true));

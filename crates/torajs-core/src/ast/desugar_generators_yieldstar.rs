@@ -19,13 +19,19 @@
 //!     const __yst_N: any = __gfit_N.throw;
 //!     if (__yst_N == null) { <AsyncIteratorClose>; throw new TypeError(…) }
 //!     __ysf_N = __yst_N;
+//!   } else if (__ysk_N === 2) {
+//!     const __ysrm_N: any = __gfit_N.return;
+//!     if (__ysrm_N == null) { return __ysr_N; }
+//!     __ysf_N = __ysrm_N;
 //!   }
 //!   let __gfstep_N: any = yield new __AwaitMark(__agen_delegate_call(__gfit_N, __ysf_N, __ysr_N, __ysk_N, __gfam_N));
-//!   __ysk_N = 0;
 //!   if (!(__gfstep_N is an object)) throw new TypeError(…);
-//!   if (__gfstep_N.done) { [<done target> = __gfstep_N.value;] break; }
-//!   try { yield __gfstep_N.value; __ysr_N = this.__sent; } catch (__yse_N) { __ysk_N = 1; __ysr_N = __yse_N; }
+//!   if (__gfstep_N.done) { if (__ysk_N === 2) return __gfstep_N.value; [<done target> = __gfstep_N.value;] break; }
+//!   __ysk_N = 0;
+//!   try { yield __gfstep_N.value; __ysr_N = this.__sent; if (this.__ysret) { this.__ysret = false; __ysk_N = 2; } }
+//!   catch (__yse_N) { __ysk_N = 1; __ysr_N = __yse_N; }
 //! }
+//! (the loop sits in `this.__ysact = true; try { … } finally { this.__ysact = false; }`)
 //!
 //! (`let v = yield e` — `Stmt::YieldInto` — DECLARES v, so the step's
 //! yield sits at the body's own level and the resumption value is read
@@ -48,12 +54,20 @@
 //! is invisible to a symbol read, so such an iterator keeps the
 //! `it.next(v)` spelling and the step-result posture — `__agen_delegate_call`).
 //!
-//! Registered residue: a `return(v)` resumption still completes the
-//! outer generator without forwarding to the inner iterator's `return`
-//! (§27.5.3.2 step 7.c) — the machine has no "resume with a return
-//! completion" yet.
+//! A `return(v)` resumption (§27.5.3.2 step 7.c): the machine's
+//! `return()` sees `this.__ysact` (raised around the loop, cleared by
+//! its finally) and resumes the delegating yield as a next(v) with
+//! `this.__ysret` raised; the loop reads the flag after the yield and
+//! takes the return arm — the inner `return`, read when needed, is
+//! called with v (already awaited by the driver, AwaitReturn) and its
+//! done step's value completes the outer generator; a missing `return`
+//! completes it with v.
 
 use super::desugar_generators_forof::symbol_index_expr;
+use super::desugar_generators_yieldstar_ast::{
+    assign_stmt, call_method, ident, is_null, let_any, member, not_null, not_object, this_field,
+    type_error,
+};
 use super::{Ast, BinOp, Expr, ExprId, Stmt};
 
 /// The delegation protocol for the for-await loop `var_name` over
@@ -64,23 +78,35 @@ pub(super) fn build_delegation_protocol(
     src_ident: String,
     n: usize,
 ) -> Stmt {
-    let am = format!("__gfam_{n}");
-    let it = format!("__gfit_{n}");
-    let next_m = format!("__ysn_{n}");
-    let recv = format!("__ysr_{n}");
-    let kind = format!("__ysk_{n}");
-    let step = format!("__gfstep_{n}");
-    let throw_m = format!("__yst_{n}");
-    let err = format!("__yse_{n}");
-    let callee = format!("__ysf_{n}");
+    let names = Names {
+        n,
+        var_name,
+        am: format!("__gfam_{n}"),
+        it: format!("__gfit_{n}"),
+        next_m: format!("__ysn_{n}"),
+        recv: format!("__ysr_{n}"),
+        kind: format!("__ysk_{n}"),
+        step: format!("__gfstep_{n}"),
+        throw_m: format!("__yst_{n}"),
+        err: format!("__yse_{n}"),
+        callee: format!("__ysf_{n}"),
+    };
+    let Names {
+        am,
+        it,
+        next_m,
+        recv,
+        kind,
+        ..
+    } = &names;
 
     let mut out: Vec<Stmt> = Vec::new();
     // let __gfam = src[@@asyncIterator]
     let am_probe = symbol_index_expr(ast, &src_ident, "asyncIterator");
-    out.push(let_any(&am, am_probe));
+    out.push(let_any(am, am_probe));
     // let __gfit = __gfam != null ? __gfam.call(src) : src[@@iterator]()
-    let has_async = not_null(ast, &am);
-    let am_ref = ident(ast, &am);
+    let has_async = not_null(ast, am);
+    let am_ref = ident(ast, am);
     let src_ref = ident(ast, &src_ident);
     let am_call = call_method(ast, am_ref, "call", vec![src_ref]);
     let sync_get = symbol_index_expr(ast, &src_ident, "iterator");
@@ -93,10 +119,10 @@ pub(super) fn build_delegation_protocol(
         then_branch: am_call,
         else_branch: sync_call,
     });
-    out.push(let_any(&it, it_init));
+    out.push(let_any(it, it_init));
     // let __ysn = __gfit.next   ([[NextMethod]], read once)
-    let next_read = member(ast, &it, "next");
-    out.push(let_any(&next_m, next_read));
+    let next_read = member(ast, it, "next");
+    out.push(let_any(next_m, next_read));
     let undef1 = ident(ast, "undefined");
     out.push(Stmt::LetDecl {
         mutable: true,
@@ -114,10 +140,75 @@ pub(super) fn build_delegation_protocol(
         is_var: false,
     });
 
-    // The loop body.
+    let body = delegation_loop_body(ast, &names);
+
+    // this.__ysact = true; try { while (true) {…} } finally { this.__ysact = false; }
+    let act_on = this_field(ast, super::desugar_generators_async::YS_ACTIVE_FIELD);
+    let t = ast.add_expr(Expr::Bool(true));
+    let set_on = ast.add_expr(Expr::Assign {
+        target: act_on,
+        value: t,
+    });
+    out.push(Stmt::Expr(set_on));
+    let true_lit = ast.add_expr(Expr::Bool(true));
+    let loop_stmt = Stmt::While {
+        cond: true_lit,
+        body: Box::new(Stmt::Block(body)),
+    };
+    let act_off = this_field(ast, super::desugar_generators_async::YS_ACTIVE_FIELD);
+    let f2 = ast.add_expr(Expr::Bool(false));
+    let set_off = ast.add_expr(Expr::Assign {
+        target: act_off,
+        value: f2,
+    });
+    out.push(Stmt::Try {
+        body: vec![loop_stmt],
+        had_catch: false,
+        catch_param: None,
+        catch_type: None,
+        catch_body: Vec::new(),
+        finally_body: Some(vec![Stmt::Expr(set_off)]),
+    });
+    Stmt::Multi(out)
+}
+
+/// The names one delegation's locals are spelled with (`_N` suffixed).
+struct Names {
+    n: usize,
+    var_name: String,
+    am: String,
+    it: String,
+    next_m: String,
+    recv: String,
+    kind: String,
+    step: String,
+    throw_m: String,
+    err: String,
+    callee: String,
+}
+
+/// One round of the delegation loop (module doc): pick this round's
+/// method by how the last yield was resumed, call it through the
+/// helper and await the step, check it, finish on `done`, yield its
+/// value and record how the outer resumed.
+fn delegation_loop_body(ast: &mut Ast, names: &Names) -> Vec<Stmt> {
+    let Names {
+        n,
+        var_name,
+        am,
+        it,
+        next_m,
+        recv,
+        kind,
+        step,
+        throw_m,
+        err,
+        callee,
+    } = names;
+    let n = *n;
     let mut body: Vec<Stmt> = Vec::new();
     // let __ysf = __ysn;  if (__ysk === 1) { const __yst = __gfit.throw; if (__yst == null) {…} __ysf = __yst; }
-    let next_ref = ident(ast, &next_m);
+    let next_ref = ident(ast, next_m);
     body.push(Stmt::LetDecl {
         mutable: true,
         name: callee.clone(),
@@ -126,91 +217,139 @@ pub(super) fn build_delegation_protocol(
         is_var: false,
     });
     let mut throw_arm: Vec<Stmt> = Vec::new();
-    let throw_read = member(ast, &it, "throw");
-    throw_arm.push(let_any(&throw_m, throw_read));
-    let no_throw = is_null(ast, &throw_m);
+    let throw_read = member(ast, it, "throw");
+    throw_arm.push(let_any(throw_m, throw_read));
+    let no_throw = is_null(ast, throw_m);
     throw_arm.push(Stmt::If {
         cond: no_throw,
-        then_branch: Box::new(Stmt::Block(close_then_type_error(ast, &it, n))),
+        then_branch: Box::new(Stmt::Block(close_then_type_error(ast, it, n))),
         else_branch: None,
     });
-    let throw_ref = ident(ast, &throw_m);
-    throw_arm.push(assign_stmt(ast, &callee, throw_ref));
-    let kind_ref = ident(ast, &kind);
+    let throw_ref = ident(ast, throw_m);
+    throw_arm.push(assign_stmt(ast, callee, throw_ref));
+    let kind_ref = ident(ast, kind);
     let one = ast.add_expr(Expr::Number(1.0));
     let is_throw = ast.add_expr(Expr::BinOp {
         op: BinOp::Eq,
         left: kind_ref,
         right: one,
     });
+    // return arm (§27.5.3.2 7.c): `const __ysrt = it.return; if
+    // (__ysrt == null) return __ysr; __ysf = __ysrt;` — the request's
+    // value was awaited by the driver (AwaitReturn) before it stepped.
+    let mut return_arm: Vec<Stmt> = Vec::new();
+    let return_m = format!("__ysrm_{n}");
+    let return_read = member(ast, it, "return");
+    return_arm.push(let_any(&return_m, return_read));
+    let no_return = is_null(ast, &return_m);
+    let recv_ref0 = ident(ast, recv);
+    return_arm.push(Stmt::If {
+        cond: no_return,
+        then_branch: Box::new(Stmt::Return(Some(recv_ref0))),
+        else_branch: None,
+    });
+    let return_ref = ident(ast, &return_m);
+    return_arm.push(assign_stmt(ast, callee, return_ref));
+    let kind_ref2 = ident(ast, kind);
+    let two = ast.add_expr(Expr::Number(2.0));
+    let is_return = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: kind_ref2,
+        right: two,
+    });
     body.push(Stmt::If {
         cond: is_throw,
         then_branch: Box::new(Stmt::Block(throw_arm)),
-        else_branch: None,
+        else_branch: Some(Box::new(Stmt::If {
+            cond: is_return,
+            then_branch: Box::new(Stmt::Block(return_arm)),
+            else_branch: None,
+        })),
     });
     // let __gfstep = yield new __AwaitMark(__agen_delegate_call(it, fn, recv, kind, am));
-    let mark = delegate_call(ast, &it, &callee, &recv, &kind, &am);
+    let mark = delegate_call(ast, it, callee, recv, kind, am);
     body.push(Stmt::YieldInto {
         var: step.clone(),
         type_ann: Some("any".into()),
         value: mark,
     });
-    let zero2 = ast.add_expr(Expr::Number(0.0));
-    body.push(assign_stmt(ast, &kind, zero2));
     // if (!(step is object)) throw new TypeError(...)
-    let not_obj = not_object(ast, &step);
+    let not_obj = not_object(ast, step);
     let te = type_error(ast, "delegated iterator step is not an object");
     body.push(Stmt::If {
         cond: not_obj,
         then_branch: Box::new(Stmt::Throw(te)),
         else_branch: None,
     });
-    // if (step.done) { [target = step.value;] break; }
-    let done_read = member(ast, &step, "done");
-    let done_then: Stmt = match ast.yieldstar_done_targets.get(&var_name).cloned() {
-        Some(target) => {
-            let final_value = member(ast, &step, "value");
-            let target_ref = ident(ast, &target);
-            let assign = ast.add_expr(Expr::Assign {
-                target: target_ref,
-                value: final_value,
-            });
-            Stmt::Block(vec![Stmt::Expr(assign), Stmt::Break(None)])
-        }
-        None => Stmt::Break(None),
-    };
+    // if (step.done) { if (__ysk === 2) return step.value; [target = step.value;] break; }
+    let done_read = member(ast, step, "done");
+    let kind_ref3 = ident(ast, kind);
+    let two2 = ast.add_expr(Expr::Number(2.0));
+    let done_by_return = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: kind_ref3,
+        right: two2,
+    });
+    let ret_value = member(ast, step, "value");
+    let mut done_stmts = vec![Stmt::If {
+        cond: done_by_return,
+        then_branch: Box::new(Stmt::Return(Some(ret_value))),
+        else_branch: None,
+    }];
+    if let Some(target) = ast.yieldstar_done_targets.get(var_name).cloned() {
+        let final_value = member(ast, step, "value");
+        let target_ref = ident(ast, &target);
+        let assign = ast.add_expr(Expr::Assign {
+            target: target_ref,
+            value: final_value,
+        });
+        done_stmts.push(Stmt::Expr(assign));
+    }
+    done_stmts.push(Stmt::Break(None));
     body.push(Stmt::If {
         cond: done_read,
-        then_branch: Box::new(done_then),
+        then_branch: Box::new(Stmt::Block(done_stmts)),
         else_branch: None,
     });
-    // try { yield step.value; __ysr = this.__sent; } catch (__yse) { __ysk = 1; __ysr = __yse; }
-    let value_read = member(ast, &step, "value");
+    let zero2 = ast.add_expr(Expr::Number(0.0));
+    body.push(assign_stmt(ast, kind, zero2));
+    // try { yield step.value; __ysr = this.__sent; if (this.__ysret) { this.__ysret = false; __ysk = 2; } }
+    // catch (__yse) { __ysk = 1; __ysr = __yse; }
+    let value_read = member(ast, step, "value");
     let this_id = ast.add_expr(Expr::This);
     let sent = ast.add_expr(Expr::Member {
         obj: this_id,
         name: "__sent".into(),
     });
-    let take_sent = assign_stmt(ast, &recv, sent);
+    let take_sent = assign_stmt(ast, recv, sent);
+    let ret_flag = this_field(ast, super::desugar_generators_async::YS_RETURN_FIELD);
+    let ret_flag2 = this_field(ast, super::desugar_generators_async::YS_RETURN_FIELD);
+    let f = ast.add_expr(Expr::Bool(false));
+    let clear_flag = ast.add_expr(Expr::Assign {
+        target: ret_flag2,
+        value: f,
+    });
+    let two3 = ast.add_expr(Expr::Number(2.0));
+    let set_kind2 = assign_stmt(ast, kind, two3);
+    let take_return = Stmt::If {
+        cond: ret_flag,
+        then_branch: Box::new(Stmt::Block(vec![Stmt::Expr(clear_flag), set_kind2])),
+        else_branch: None,
+    };
     let one2 = ast.add_expr(Expr::Number(1.0));
-    let set_kind = assign_stmt(ast, &kind, one2);
-    let err_ref = ident(ast, &err);
-    let set_recv = assign_stmt(ast, &recv, err_ref);
+    let set_kind = assign_stmt(ast, kind, one2);
+    let err_ref = ident(ast, err);
+    let set_recv = assign_stmt(ast, recv, err_ref);
     body.push(Stmt::Try {
-        body: vec![Stmt::Yield(value_read), take_sent],
+        body: vec![Stmt::Yield(value_read), take_sent, take_return],
         had_catch: true,
-        catch_param: Some(err),
+        catch_param: Some(err.clone()),
         catch_type: Some("any".into()),
         catch_body: vec![set_kind, set_recv],
         finally_body: None,
     });
 
-    let true_lit = ast.add_expr(Expr::Bool(true));
-    out.push(Stmt::While {
-        cond: true_lit,
-        body: Box::new(Stmt::Block(body)),
-    });
-    Stmt::Multi(out)
+    body
 }
 
 /// `[const __rt = it.return; if (__rt != null) { yield new
@@ -258,105 +397,4 @@ fn delegate_call(ast: &mut Ast, it: &str, f: &str, recv: &str, kind: &str, am: &
         args,
     });
     super::desugar_generators_async::mint_await_mark(ast, call)
-}
-
-/// `name = value;`
-fn assign_stmt(ast: &mut Ast, name: &str, value: ExprId) -> Stmt {
-    let target = ident(ast, name);
-    let assign = ast.add_expr(Expr::Assign { target, value });
-    Stmt::Expr(assign)
-}
-
-fn ident(ast: &mut Ast, name: &str) -> ExprId {
-    ast.add_expr(Expr::Ident(name.to_string()))
-}
-
-fn member(ast: &mut Ast, obj: &str, name: &str) -> ExprId {
-    let o = ident(ast, obj);
-    ast.add_expr(Expr::Member {
-        obj: o,
-        name: name.to_string(),
-    })
-}
-
-fn call_method(ast: &mut Ast, obj: ExprId, name: &str, args: Vec<ExprId>) -> ExprId {
-    let callee = ast.add_expr(Expr::Member {
-        obj,
-        name: name.to_string(),
-    });
-    ast.add_expr(Expr::Call { callee, args })
-}
-
-fn let_any(name: &str, init: ExprId) -> Stmt {
-    Stmt::LetDecl {
-        mutable: false,
-        name: name.to_string(),
-        type_ann: Some("any".into()),
-        init,
-        is_var: false,
-    }
-}
-
-fn not_null(ast: &mut Ast, name: &str) -> ExprId {
-    let l = ident(ast, name);
-    let r = ast.add_expr(Expr::Null);
-    ast.add_expr(Expr::BinOp {
-        op: BinOp::LooseNeq,
-        left: l,
-        right: r,
-    })
-}
-
-fn is_null(ast: &mut Ast, name: &str) -> ExprId {
-    let l = ident(ast, name);
-    let r = ast.add_expr(Expr::Null);
-    ast.add_expr(Expr::BinOp {
-        op: BinOp::LooseEq,
-        left: l,
-        right: r,
-    })
-}
-
-/// `x == null || (typeof x !== "object" && typeof x !== "function")`.
-fn not_object(ast: &mut Ast, name: &str) -> ExprId {
-    let nullish = is_null(ast, name);
-    let x1 = ident(ast, name);
-    let t1 = ast.add_expr(Expr::TypeOf { expr: x1 });
-    let obj_s = string(ast, "object");
-    let not_obj = ast.add_expr(Expr::BinOp {
-        op: BinOp::Neq,
-        left: t1,
-        right: obj_s,
-    });
-    let x2 = ident(ast, name);
-    let t2 = ast.add_expr(Expr::TypeOf { expr: x2 });
-    let fn_s = string(ast, "function");
-    let not_fn = ast.add_expr(Expr::BinOp {
-        op: BinOp::Neq,
-        left: t2,
-        right: fn_s,
-    });
-    let both = ast.add_expr(Expr::BinOp {
-        op: BinOp::LAnd,
-        left: not_obj,
-        right: not_fn,
-    });
-    ast.add_expr(Expr::BinOp {
-        op: BinOp::LOr,
-        left: nullish,
-        right: both,
-    })
-}
-
-fn string(ast: &mut Ast, s: &str) -> ExprId {
-    ast.add_expr(Expr::String(torajs_wtf8::Wtf8Buf::from(s)))
-}
-
-fn type_error(ast: &mut Ast, msg: &str) -> ExprId {
-    let m = string(ast, msg);
-    ast.add_expr(Expr::New {
-        class_name: "TypeError".into(),
-        args: vec![m],
-        type_args: Vec::new(),
-    })
 }

@@ -410,7 +410,7 @@ fn build_iterator_method_trio(
         yield_ty,
         step_ann,
         has_finally_ret,
-        false,
+        is_async_gen,
         next_name,
     );
     let throw_method = crate::ast::desugar_generators_methods::build_throw_method(
