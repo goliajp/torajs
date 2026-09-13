@@ -12,7 +12,7 @@ use super::desugar_generators_field_ann_builtin::{
     global_ctor_ann, object_static_ann, promise_static_ann,
 };
 use super::desugar_generators_walkers::LiftCtx;
-use super::{Ast, BinOp, Expr};
+use super::{Ast, BinOp, Expr, Stmt};
 use crate::ast::PropKey;
 
 /// This file's answer for `eid`, or the shared sniff's.
@@ -273,6 +273,24 @@ fn fn_ann_return(ann: &str) -> Option<&str> {
 /// does not; guessing `any` here would pin the field against whatever
 /// that pass concludes, which is the failure this whole change exists
 /// to stop repeating.
+/// Is the name `new` names a value binding rather than a class: one
+/// the lift already owns (`binds` — a lifted local or a parameter) or
+/// a top-level function / `let` / `const` / `var` of that name. A
+/// class declared anywhere, or a built-in class (`Map`, `Date` — not
+/// yet a `ClassDecl` at this pass, `inject_builtin_classes` runs
+/// later), is neither and keeps the class annotation.
+fn new_target_is_value(ast: &Ast, name: &str, ctx: &LiftCtx) -> bool {
+    ctx.binds.contains_key(name) || ast.stmts.iter().any(|s| {
+        let inner = match s {
+            Stmt::ExportDecl {
+                inner: Some(inner), ..
+            } => &**inner,
+            other => other,
+        };
+        matches!(inner, Stmt::FnDecl { name: n, .. } | Stmt::LetDecl { name: n, .. } if n == name)
+    })
+}
+
 fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<String> {
     let (params, return_type, body) = match ast.get_expr(init) {
         Expr::ArrowFn {
@@ -298,6 +316,14 @@ fn direct_field_ann(ast: &Ast, init: super::ExprId, ctx: &LiftCtx) -> Option<Str
         // test says so" case is written.
         Expr::New { class_name, .. } if class_name == "Promise" => {
             return Some("Promise<any>".into());
+        }
+        // `new C()` where `C` is a VALUE — a local closure (`const C =
+        // function () { … }`, a lifted local or a parameter) or a
+        // top-level function / binding — constructs through the value
+        // channel (`route_non_class_new`), and the name is no type:
+        // annotating the field `C` was an `unknown type` at check.
+        Expr::New { class_name, .. } if new_target_is_value(ast, class_name, ctx) => {
+            return Some("any".into());
         }
         Expr::New { class_name, .. } => return Some(class_name.clone()),
         Expr::Ident(n) if n == "undefined" => return Some("any".into()),

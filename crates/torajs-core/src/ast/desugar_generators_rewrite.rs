@@ -389,6 +389,25 @@ fn rewrite_params_in_expr(
             rewrite_params_in_expr(ast, lhs, pset, visited);
             rewrite_params_in_expr(ast, rhs, pset, visited);
         }
+        // `new C()` where `C` is one of the lifted locals (a closure
+        // value the body bound, `const C = function () { … }`): the
+        // parser spells a `new` on a bare name as a class name, but this
+        // one names a FIELD now — construct through the value channel
+        // (`NewDynamic`, what the parser mints for `new (expr)()`) over
+        // the rewritten read, or `route_non_class_new` finds no `C`
+        // anywhere (`unknown identifier C`).
+        Expr::New {
+            class_name,
+            args,
+            type_args: _,
+        } if pset.fields.contains_key(&class_name) => {
+            let callee = ast.add_expr(Expr::Ident(class_name));
+            rewrite_params_in_expr(ast, callee, pset, visited);
+            for e in &args {
+                rewrite_params_in_expr(ast, *e, pset, visited);
+            }
+            ast.exprs[eid.0 as usize] = Expr::NewDynamic { callee, args };
+        }
         Expr::New { args, .. } | Expr::Super { args } => {
             for e in args {
                 rewrite_params_in_expr(ast, e, pset, visited);
