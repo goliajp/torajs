@@ -347,6 +347,7 @@ mod dead_lib_exprs;
 mod deconflict;
 mod default_binding;
 mod dyn_import;
+mod dyn_import_dispatcher;
 mod graph;
 mod inject_export;
 mod lib_walk;

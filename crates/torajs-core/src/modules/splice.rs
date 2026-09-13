@@ -6,7 +6,7 @@ use crate::ast::{Ast, Stmt};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use super::dyn_import;
+use super::dyn_import_dispatcher;
 use super::graph::ModuleGraph;
 use super::namespace_objlit::{inline_dyn_ns_objlits, materialize_pending_namespaces};
 use super::resolve_helpers::NsAccum;
@@ -84,12 +84,18 @@ pub(super) fn assemble_and_splice(
     }
     // Dispatcher before `inline_dyn_ns_objlits` — see `synth_dispatcher`.
     if ast.dyn_import_present {
-        let mut poisoned =
-            dyn_import::poisoned_candidates(dyn_table, ns_accums, &injections, ambiguous_locals);
+        let mut poisoned = dyn_import_dispatcher::poisoned_candidates(
+            dyn_table,
+            ns_accums,
+            &injections,
+            ambiguous_locals,
+        );
         // A candidate whose graph carries an unresolvable lib
         // ImportEntry (§16.2.1.6.4 step 7) rejects the same way.
         poisoned.extend(lib_poisoned.iter().cloned());
-        injections.push(dyn_import::synth_dispatcher(ast, dyn_table, &poisoned));
+        injections.push(dyn_import_dispatcher::synth_dispatcher(
+            ast, dyn_table, &poisoned,
+        ));
     }
     // The synthetic `let ns = { … }` bindings only reference decls, so
     // they land after every module's statements regardless of which

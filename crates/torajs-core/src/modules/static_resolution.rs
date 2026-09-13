@@ -305,7 +305,7 @@ pub(super) fn finalize(
 ) -> Result<HashSet<String>, String> {
     let mut declared: HashSet<String> = HashSet::new();
     for stmts in injections_by_path.values() {
-        super::dyn_import::collect_decl_names(stmts, &mut declared);
+        super::dyn_import_dispatcher::collect_decl_names(stmts, &mut declared);
     }
     let verdict =
         |face: &str, binding: &str| check(face, binding, &declared, ns_accums, ambiguous_locals);
