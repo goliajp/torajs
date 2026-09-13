@@ -100,14 +100,32 @@ pub fn desugar_generators(ast: &mut Ast) {
 
     let fn_sigs = super::desugar_generators_field_ann::collect_declared_fn_return_types(ast);
     let mut appended: Vec<Stmt> = Vec::new();
-    for (idx, gen_name, gen_params, gen_ret, gen_body) in gen_indices {
+    // Containers first (642-05): a generator holding a by-reference
+    // wrapper edits that wrapper's factory while it is still a decl,
+    // so the decl is read from the tree HERE, not snapshotted above.
+    for k in super::desugar_generators_frame_link::container_first_order(ast, &gen_indices) {
+        let idx = gen_indices[k].0;
+        let Stmt::FnDecl {
+            name,
+            params,
+            return_type,
+            body,
+            is_generator: true,
+            ..
+        } = ast.stmts[idx].clone()
+        else {
+            panic!(
+                "generator `{}` at stmt {idx} is no longer a `function*` decl when its turn comes",
+                gen_indices[k].1
+            );
+        };
         desugar_one_generator(
             ast,
             idx,
-            gen_name,
-            gen_params,
-            gen_ret,
-            gen_body,
+            name,
+            params,
+            return_type,
+            body,
             &fn_sigs,
             &mut appended,
         );
@@ -115,31 +133,19 @@ pub fn desugar_generators(ast: &mut Ast) {
     ast.stmts.extend(appended);
 }
 
-/// Snapshot every top-level `function*` decl's index + signature +
-/// body so the driver loop can safely mutate `ast.stmts` in place
-/// (the assemble_generator_class_and_factory call splices at each
-/// captured `idx`).
-fn collect_generator_fn_decls(
-    ast: &Ast,
-) -> Vec<(usize, String, Vec<Param>, Option<String>, Vec<Stmt>)> {
+/// Every top-level `function*` decl's index + name, so the driver loop
+/// can mutate `ast.stmts` in place (the assemble step replaces the
+/// decl at each `idx`; the appended class stmts land at the end).
+fn collect_generator_fn_decls(ast: &Ast) -> Vec<(usize, String)> {
     ast.stmts
         .iter()
         .enumerate()
         .filter_map(|(i, s)| match s {
             Stmt::FnDecl {
                 name,
-                params,
-                return_type,
-                body,
                 is_generator: true,
                 ..
-            } => Some((
-                i,
-                name.clone(),
-                params.clone(),
-                return_type.clone(),
-                body.clone(),
-            )),
+            } => Some((i, name.clone())),
             _ => None,
         })
         .collect()

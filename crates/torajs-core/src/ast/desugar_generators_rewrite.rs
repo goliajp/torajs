@@ -18,7 +18,7 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 pub(crate) const GEN_SELF_ALIAS: &str = "__gself";
 
 /// What a rewritten reference reaches the generator object through.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 enum RefBase {
     /// `this.<field>` — the generator's own body and the arrows in it
     /// (an arrow's `this` is lexical, §8.3.4).
@@ -26,6 +26,11 @@ enum RefBase {
     /// `__gself.<field>` — inside a function expression or an
     /// object-literal method, whose `this` is not the generator's.
     SelfAlias,
+    /// `<handle>.<field>` — the body of a NESTED generator reading an
+    /// enclosing generator's local through the frame handle its
+    /// factory was given (`desugar_generators_frame_link`). An
+    /// ordinary local, so a function expression keeps it.
+    Frame(String),
 }
 
 /// The name → field map the walk carries, plus how it spells the base.
@@ -65,6 +70,23 @@ pub(super) fn rewrite_ident_to_this_slot(ast: &mut Ast, body: &[Stmt], from: &st
     let map = ParamMap {
         fields,
         base: RefBase::This,
+    };
+    let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
+    for s in body {
+        rewrite_params_in_stmt(ast, s, &map, &mut visited);
+    }
+}
+
+/// Frame link (`desugar_generators_frame_link`) — rewrite every
+/// `Ident(from)` reachable from `body` into `<handle>.<from>`: a nested
+/// generator's body reading an enclosing generator's local through the
+/// frame handle its factory was given.
+pub(super) fn rewrite_ident_to_frame_field(ast: &mut Ast, body: &[Stmt], from: &str, handle: &str) {
+    let mut fields = std::collections::HashMap::new();
+    fields.insert(from.to_string(), from.to_string());
+    let map = ParamMap {
+        fields,
+        base: RefBase::Frame(handle.to_string()),
     };
     let mut visited: std::collections::HashSet<u32> = std::collections::HashSet::new();
     for s in body {
@@ -262,9 +284,10 @@ fn rewrite_params_in_expr(
     match kind {
         Expr::Ident(name) if pset.fields.contains_key(&name) => {
             let field = pset.fields[&name].clone();
-            let base = match pset.base {
+            let base = match &pset.base {
                 RefBase::This => ast.add_expr(Expr::This),
                 RefBase::SelfAlias => ast.add_expr(Expr::Ident(GEN_SELF_ALIAS.into())),
+                RefBase::Frame(handle) => ast.add_expr(Expr::Ident(handle.clone())),
             };
             ast.exprs[eid.0 as usize] = Expr::Member {
                 obj: base,
@@ -408,10 +431,9 @@ fn rewrite_params_in_expr(
                     .filter(|(k, _)| !super::nested_fns_idents::arrow_rebinds(&params, &body, k))
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect(),
-                base: if owns_this {
-                    RefBase::SelfAlias
-                } else {
-                    pset.base
+                base: match &pset.base {
+                    RefBase::This if owns_this => RefBase::SelfAlias,
+                    b => b.clone(),
                 },
             };
             if !sub.fields.is_empty() {

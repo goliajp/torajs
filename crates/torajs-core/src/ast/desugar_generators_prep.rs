@@ -117,6 +117,12 @@ pub(super) fn prep_generator_body(
             is_rest: false,
         });
     }
+    // 642-05 — a by-reference generator expression nested in this
+    // body gets a handle on this frame for the names about to become
+    // fields, BEFORE the rewrite below turns its reads into `this.x`.
+    super::desugar_generators_frame_link::link_nested_gen_envs(
+        ast, &gen_body, gen_name, &all_names,
+    );
     super::desugar_generators_rewrite::rewrite_params_to_this(ast, &gen_body, &all_names);
     insert_class_bridges(ast, &mut gen_body, &lift_ctx.local_classes);
 

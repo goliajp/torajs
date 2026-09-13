@@ -77,6 +77,18 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
             if ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid) {
                 bound.push("__this".into());
             }
+            // §15.5.5 — a named fn-expression's self-name binds inside
+            // ITS body (the funcEnv), never in the enclosing scope. The
+            // lift excludes it from that arrow's own captures, but an
+            // encloser walked FIRST sees the still-raw body: the arena
+            // is walked in index order, and a wrapper the generator
+            // hoist mints for an async value reuses an ExprId minted
+            // AFTER its enclosers (`desugar_async_sm_values`), so the
+            // encloser's captures grew a `__genenv_N` nothing binds
+            // (642-05: "unknown identifier `__genenv_29`").
+            if let Some(sn) = ast.fn_expr_self_names.get(&eid) {
+                bound.push(sn.clone());
+            }
             hoist_fn_decl_names(body, bound);
             for s in body {
                 walk_stmt(ast, s, bound, out);
