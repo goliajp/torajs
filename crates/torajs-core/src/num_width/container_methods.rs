@@ -139,7 +139,7 @@ impl<'a> Analysis<'a> {
             for a in args.iter().take(2) {
                 if let Some(cb) = self.callee_fn_name(*a) {
                     let (p_num, r_num) = self.fn_number_faces(&cb);
-                    if p_num && let Some(p0) = self.user_params(&cb).first() {
+                    if p_num && let Some(p0) = self.callback_params(&cb).first() {
                         self.uf
                             .union(&src_pv, &SlotKey::Param(cb.clone(), p0.clone()));
                     }
@@ -253,7 +253,7 @@ impl<'a> Analysis<'a> {
     /// abort).
     fn wire_elem_to_cb_param(&mut self, ek: &SlotKey, cb_arg: ExprId) {
         if let Some(cb) = self.callee_fn_name(cb_arg)
-            && let Some(p0) = self.user_params(&cb).first().cloned()
+            && let Some(p0) = self.callback_params(&cb).first().cloned()
         {
             let pk = SlotKey::Param(cb, p0);
             self.c_edges
@@ -379,7 +379,7 @@ impl<'a> Analysis<'a> {
                 // read garbage from the integer registers (probe:
                 // cmp(3.5, -1.25) received 4307779648 / 16384).
                 if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a)) {
-                    for p in self.user_params(&cb).iter().take(2).cloned() {
+                    for p in self.callback_params(&cb).iter().take(2).cloned() {
                         let pk = SlotKey::Param(cb.clone(), p);
                         self.c_edges
                             .entry(ek.clone())
@@ -391,7 +391,7 @@ impl<'a> Analysis<'a> {
             }
             "reduce" | "reduceRight" => {
                 if let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a)) {
-                    let ps = self.user_params(&cb);
+                    let ps = self.callback_params(&cb);
                     if let Some(p0) = ps.first() {
                         // Accumulator: seeded by the init arg, fed back
                         // from the callback's own ret.

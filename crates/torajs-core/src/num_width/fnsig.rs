@@ -214,6 +214,24 @@ impl<'a> Analysis<'a> {
             params.to_vec()
         }
     }
+
+    /// The params a CALLBACK position feeds: `user_params` minus a
+    /// leading hidden `__this`. A receiver-first callee (a promoted
+    /// fn-expr, a `bind_this_param`-ed declaration's shell) carries the
+    /// receiver as its first param, but every HOF lane threads that
+    /// slot separately (`sig_skip`) and lines the element / acc /
+    /// settled value up with the param AFTER it. Wiring the element
+    /// class onto `__this` left the real first param on its
+    /// annotation's default width: `[2.5].every(C3, o)` read 2 and
+    /// `[2.5].map(function (this, v) …, o)` answered 4 (rotation 649).
+    pub(super) fn callback_params(&self, fname: &str) -> Vec<String> {
+        let ps = self.user_params(fname);
+        if ps.first().is_some_and(|p| p == "__this") {
+            ps[1..].to_vec()
+        } else {
+            ps
+        }
+    }
 }
 
 #[cfg(test)]
