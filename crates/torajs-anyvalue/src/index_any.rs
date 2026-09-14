@@ -252,6 +252,16 @@ unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
                 let etag = __torajs_dynobj_get_tag(props, key as *const c_void);
                 let eval = __torajs_dynobj_get_value(props, key as *const c_void);
                 __torajs_str_drop(key as *mut c_void);
+                // An accessor expando (`Object.defineProperty(c, 0,
+                // { get })`) invokes with the struct as receiver, the
+                // `dynobj_index_entry` shape — the pair pointer boxed
+                // as a value printed `null` (rotation 646).
+                if etag == INDEX_ANY_ACCESSOR_TAG {
+                    return __torajs_accessor_invoke_getter(
+                        eval as *const c_void,
+                        crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64),
+                    );
+                }
                 crate::payload_rc_inc(etag as i64, eval as i64);
                 return crate::nanbox_encode::__torajs_anyv_box_from_pair(etag as i64, eval as i64);
             }
