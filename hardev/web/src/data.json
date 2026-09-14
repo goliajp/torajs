@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T12:20:07.774Z",
+  "generatedAt": "2026-09-14T16:07:29.871Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-14T12:09:11Z",
-    "headSha": "dda264488",
-    "elapsedSec": 520.96,
+    "ranAt": "2026-09-14T15:56:51Z",
+    "headSha": "309f37cdf",
+    "elapsedSec": 521.47,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -20,18 +20,18 @@
     "passNoOracle": 1647,
     "passNegative": 4568,
     "passTotal": 38699,
-    "bug": 10354,
-    "incompatible": 4121,
+    "bug": 10353,
+    "incompatible": 4122,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49053,
+    "trAccepted": 49052,
     "passRateInScope": 72.78,
     "passRateTrAccepted": 78.89
   },
   "torajs": {
-    "commit": "dda264488",
-    "commitSubject": "feat(torajs-str, torajs-anyvalue, torajs-core): every string iteration steps per code point",
+    "commit": "309f37cdf",
+    "commitSubject": "feat(torajs-core): a fn-expression argument of an any-callee call is a receiver-safe face",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "dda264488",
-      "subject": "feat(torajs-str, torajs-anyvalue, torajs-core): every string iteration steps per code point"
+      "hash": "309f37cdf",
+      "subject": "feat(torajs-core): a fn-expression argument of an any-callee call is a receiver-safe face"
     },
     {
-      "hash": "84f9b78c3",
-      "subject": "fix(torajs-core): the receiver-first `(F as any)` claim is the bind / call / apply receiver only"
+      "hash": "7a71f5e08",
+      "subject": "fix(torajs-core): `<TypedArray>.from(src, mapFn, thisArg)` gives a named mapFn its receiver"
     },
     {
-      "hash": "6d05ef7eb",
-      "subject": "fix(torajs-core): `(F as any)` of a this-using named fn is a receiver-first value at every site"
+      "hash": "3e598c09f",
+      "subject": "fix(torajs-core): a typed-array `from` mapFn's first param takes the source element width"
     },
     {
-      "hash": "1ee0d38d3",
-      "subject": "feat(torajs-core): a machine body keeps the temporal dead zone of its lifted lets"
+      "hash": "14f9a9a88",
+      "subject": "fix(torajs-core): `Array.from(src, mapFn, thisArg)` gives a named mapFn its receiver"
     },
     {
-      "hash": "3c86e478d",
-      "subject": "fix(torajs-core): a binding pattern's rest walks the iterator at a lifted field store"
+      "hash": "c8343f0f1",
+      "subject": "refactor(torajs-core): the receiver-first shell is a face of the one forwarder synthesizer"
     },
     {
-      "hash": "e2027bfc7",
-      "subject": "feat(torajs-core): pattern-head for-of / for-await bodies move into the async machine"
+      "hash": "62f7267be",
+      "subject": "fix(torajs-core): a receiver-first relay carries argc and argv like the plain one"
     },
     {
-      "hash": "996e6499d",
-      "subject": "chore(hardev): rotation 647 file-size stamp @eb056fc82 (0 new / 0 grew)"
+      "hash": "8c2095cfe",
+      "subject": "fix(torajs-core): the argv-face callback route hands the receiver to the explicit-this kernel"
     },
     {
-      "hash": "eb056fc82",
-      "subject": "chore(hardev): rotation 647 close stamps — test262 sweep @787eec357 (+18 passTotal, 0 regressions), determinism 46/46 N=12, gmalloc 3651/3654 clean 0 offenders, dashboard snapshot"
+      "hash": "69d09307b",
+      "subject": "feat(torajs-core, torajs-arr, torajs-promise): then / sort / reduce lanes honor the receiver-first flag"
     },
     {
-      "hash": "787eec357",
-      "subject": "fix(torajs-core): a sync `yield*` delegation drives the inner iterator with `next(received)`, one argument always"
+      "hash": "b835d8675",
+      "subject": "fix(torajs-core): a receiver-first callback's first user param takes the element width"
     },
     {
-      "hash": "c621e8b38",
-      "subject": "fix(torajs-core): blade 4 / 5 sweep regressions — pattern heads and TDZ-shaped `await using` keep the synchronous lowering; a machine's `next` stops padding every `x.next()`"
+      "hash": "46e233c71",
+      "subject": "refactor(torajs-arr): move the sort comparator seam into sort_cmp.rs"
     },
     {
-      "hash": "163603378",
-      "subject": "fix(torajs-anyvalue): Function.prototype.bind over a class constructor mints a bound cell that constructs the class"
+      "hash": "065fd47d7",
+      "subject": "feat(torajs-core): a `const` / `using` local lifted into the machine stays immutable"
     },
     {
-      "hash": "8c4260f35",
-      "subject": "fix(torajs-core): Array.fromAsync asks the runtime's IsConstructor, not `typeof`"
+      "hash": "1b772a6af",
+      "subject": "chore(hardev): rotation 648 file-size stamp @cd7c94ea3 (0 new / 0 grew)"
     }
   ],
-  "headSha": "dda264488",
+  "headSha": "309f37cdf",
   "autorun": {
-    "total": 951,
+    "total": 952,
     "baselineTarget": 10,
-    "bySelf": 946,
+    "bySelf": 947,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789372732-331f",
-      "at": "2026-09-14T07:58:52Z",
-      "ts": 1789372732,
+      "rotationId": "r-1789390783-230d",
+      "at": "2026-09-14T12:59:43Z",
+      "ts": 1789390783,
       "trigger": "self",
-      "prevHead": "996e6499d",
-      "handoffSha": "sha256:34e592fded1f857b6b20398218c63e682909c6f00910fbf815e9bffe135ce3e8",
-      "handoffAgeSec": 39,
-      "conformanceBefore": "4130/0/4",
-      "commitsInSession": 15
+      "prevHead": "1b772a6af",
+      "handoffSha": "sha256:c25d82d423248b2a9aec0e459200a7fd25a298a278b1d25b85699101f956a008",
+      "handoffAgeSec": 2376,
+      "conformanceBefore": "4135/0/4",
+      "commitsInSession": 8
     },
     "recent": [
+      {
+        "rotationId": "r-1789390783-230d",
+        "at": "2026-09-14T12:59:43Z",
+        "ts": 1789390783,
+        "trigger": "self",
+        "prevHead": "1b772a6af",
+        "handoffSha": "sha256:c25d82d423248b2a9aec0e459200a7fd25a298a278b1d25b85699101f956a008",
+        "handoffAgeSec": 2376,
+        "conformanceBefore": "4135/0/4",
+        "commitsInSession": 8
+      },
       {
         "rotationId": "r-1789372732-331f",
         "at": "2026-09-14T07:58:52Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:02e25f6a2aa5bdf24d57c19a500a1aa163a942afd979ab701433465a3204c9b1",
         "handoffAgeSec": 9,
         "conformanceBefore": "4040/0/4",
-        "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789222029-2a17",
-        "at": "2026-09-12T14:07:09Z",
-        "ts": 1789222029,
-        "trigger": "self",
-        "prevHead": "5929b1c07",
-        "handoffSha": "sha256:cdf3eac1e465b6c22c2a99c1dfebecaab7a257ddd320e8af0d463f944bbe06fe",
-        "handoffAgeSec": 6,
-        "conformanceBefore": "4033/0/4",
         "commitsInSession": 14
       }
     ],
