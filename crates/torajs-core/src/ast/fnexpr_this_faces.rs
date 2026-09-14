@@ -41,6 +41,24 @@ pub(super) fn collect_face(
     let Expr::Closure { fn_name, captures } = &exprs[face.0 as usize] else {
         return;
     };
+    // A relay shell is not a face. `__fwdrecv_<t>` (a named
+    // declaration at a thisArg callback position) and a
+    // receiver-first `__forward_<t>` carry `__this` as a user param
+    // by construction, so the has-this-param probe below would take
+    // them — and `promote_recv_any` would then write the sloppy
+    // `this` prologue into the SHELL body, which has no directive
+    // prologue of its own. The target already owns that decision
+    // (`this_param::bind_this_param` binds a sloppy target's `this`
+    // and leaves a strict one alone), so the shell coerced a receiver
+    // the target had refused: in a sloppy file with any fn-expr face
+    // to bring this pass in, `[1].every(cb, undefined)` on a strict
+    // `cb` answered `this` as the global object where node says
+    // undefined (rotation 650; the same shape is the seven
+    // `-5-1-s` / `10.4.3-1-100-s` cases under the forced
+    // receiver-first switch).
+    if fn_name.starts_with("__forward_") || fn_name.starts_with("__fwdrecv_") {
+        return;
+    }
     if fn_expr_exprs.contains(&face) {
         if captures.iter().any(|c| c == "__this") {
             patches.push(FacePatch {
