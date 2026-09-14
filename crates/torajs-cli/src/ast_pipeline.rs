@@ -263,9 +263,6 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // (a nested declaration cannot see the machine's fields; a value
     // captures them) — `desugar_async_nested_fns`.
     ast::desugar_async_nested_fns(ast);
-    // RFC 20260915 blade 4 — the for-of / for-await protocol helpers a
-    // machine body's loops call, beside the async generator driver.
-    ast::inject_for_of_protocol_helpers(ast);
     ast::inject_async_generator_driver(ast);
     ast::desugar_async_state_machine(ast);
     ast::hoist_gen_fn_exprs(ast);

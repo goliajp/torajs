@@ -16,14 +16,16 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// - `new.target` — the generator is called plainly;
 /// - a dynamic `import()` — the imported module's top-level await
 ///   and the driver's resumption do not agree yet (642-15);
-/// (`for await` and `await using` used to be listed here — RFC
-/// 20260915 blades 4 / 5. `await using` is a `__usenv_N` dispose stack
-/// + try/catch/finally by this pass, whose finally awaits the async
-/// dispose — a statement-level await the `Try` arm turns into a
-/// suspend inside the machine's finally copies; the one defect the
-/// refusal hid was the machine's labeled-block gap. `for await` — and
-/// a sync `for…of` whose body awaits — become the manual iterator
-/// protocol in `desugar_generators_forof`, the step itself a suspend.)
+/// - `for await` — its suspend points are inside the iteration
+///   protocol, not at a statement the `Stmt::Yield` rewrite can reach
+///   (blade 4). (`await using` used to be listed beside it: by this
+///   pass it is a `__usenv_N` dispose stack + try/catch/finally whose
+///   finally awaits the async dispose — a statement-level await the
+///   `Try` arm turns into a suspend inside the machine's finally
+///   copies. RFC 20260915 measured the shape it was refused for and
+///   found it already right; the two defects the refusal hid were the
+///   machine's labeled-block gap and the nested value's frame link,
+///   both closed in the same rotation.)
 /// (`let xs: T[] = await e` used to be listed here: through `yield`
 /// the width analysis lost the link between the binding and the
 /// awaited literal. The expansion now records the `this.__sent` init's
@@ -48,19 +50,10 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// `wrapper_params` and the driver's thunk own them now.)
 pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
     params.iter().any(|p| typed_default_param(p, ast))
-        || !body.iter().any(|s| stmt_suspends(ast, s))
+        || !body
+            .iter()
+            .any(|s| super::desugar_async_sm::stmt_has_await(ast, s))
         || body.iter().any(|s| stmt_blocks_move(ast, s, Owner::Body))
-}
-
-/// Does the statement hold a suspend point — an await read, or a `for
-/// await` (whose steps await without spelling one; a body whose only
-/// awaits are those loops' still moves, RFC 20260915 blade 4)?
-fn stmt_suspends(ast: &Ast, s: &Stmt) -> bool {
-    super::desugar_async_sm::stmt_has_await(ast, s)
-        || matches!(s, Stmt::ForOf { is_await: true, .. })
-        || walk::stmt_children_ref(s)
-            .into_iter()
-            .any(|c| stmt_suspends(ast, c))
 }
 
 /// A defaulted parameter that is not spelled `any`. The wrapper
@@ -112,6 +105,9 @@ enum Owner {
 }
 
 fn stmt_blocks_move(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
+    if matches!(s, Stmt::ForOf { is_await: true, .. }) {
+        return true;
+    }
     walk::stmt_exprs(s)
         .into_iter()
         .any(|e| expr_blocks_move(ast, e, owner))

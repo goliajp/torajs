@@ -59,8 +59,7 @@
 //! A yield-bearing `for await` in the body — which is what `yield*`
 //! desugars to — awaits each inner step through an await mark
 //! (`desugar_generators_forof::build_manual_protocol`), the step coming
-//! from `__agen_step_call` (`desugar_generators_forof_helpers`, shared
-//! with the async-function machines): a `next()` that answers a thenable is an
+//! from `__agen_step_call`: a `next()` that answers a thenable is an
 //! ASYNC iterator's and passes through (the driver adopts it); a plain
 //! result is a SYNC iterator's and takes the Async-from-Sync posture
 //! (§27.1.4.4 AsyncFromSyncIteratorContinuation) — `PromiseResolve
@@ -169,6 +168,22 @@ async function __agen_run(__g: any): Promise<any> {
   }
   __g.__busy = false;
   return 0;
+}
+function __agen_step_call(__it: any, __am: any): any {
+  let __r: any;
+  let __d: any;
+  let __v0: any;
+  if (__am != null) {
+    __r = __it.next();
+  } else {
+    try { __r = __it.next(); } catch (__e0: any) { return Promise.reject(__e0); }
+  }
+  try {
+    if (__r != null && typeof __r.then === "function") { return __r; }
+    __d = __r.done;
+    __v0 = __r.value;
+  } catch (__e: any) { return Promise.reject(__e); }
+  return Promise.resolve(__v0).then((__v: any) => { return { value: __v, done: __d }; });
 }
 function __agen_delegate_call(__it: any, __fn: any, __arg: any, __kind: number, __am: any): any {
   if (__am != null) { return __fn.call(__it, __arg); }
