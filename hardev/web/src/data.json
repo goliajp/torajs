@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T18:36:24.275Z",
+  "generatedAt": "2026-09-14T21:40:14.442Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-14T18:25:42Z",
-    "headSha": "6c344985a",
-    "elapsedSec": 520.15,
+    "ranAt": "2026-09-14T21:29:46Z",
+    "headSha": "720cfd7b3",
+    "elapsedSec": 523.45,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32525,
+    "pass": 32574,
     "passNoOracle": 1650,
     "passNegative": 4568,
-    "passTotal": 38743,
-    "bug": 10310,
-    "incompatible": 4121,
+    "passTotal": 38792,
+    "bug": 10309,
+    "incompatible": 4073,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49053,
-    "passRateInScope": 72.86,
-    "passRateTrAccepted": 78.98
+    "trAccepted": 49101,
+    "passRateInScope": 72.95,
+    "passRateTrAccepted": 79
   },
   "torajs": {
-    "commit": "6c344985a",
-    "commitSubject": "fix(torajs-core): an object literal whose method captures its own binding takes the any lane",
+    "commit": "720cfd7b3",
+    "commitSubject": "fix(torajs-core): an unsniffable predicate body seeds an any return, not boolean",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "6c344985a",
-      "subject": "fix(torajs-core): an object literal whose method captures its own binding takes the any lane"
+      "hash": "720cfd7b3",
+      "subject": "fix(torajs-core): an unsniffable predicate body seeds an any return, not boolean"
     },
     {
-      "hash": "0a87148bc",
-      "subject": "fix(torajs-core): typed Promise.resolve rides the any kernel; the constructor test keys on the ctor tag"
+      "hash": "d71d18c76",
+      "subject": "fix(torajs-core): Array.prototype.push with no arguments answers the length"
     },
     {
-      "hash": "f370cc715",
-      "subject": "fix(torajs-anyvalue): PromiseResolve returns a native promise as itself only when its constructor is %Promise%"
+      "hash": "ae001f6f5",
+      "subject": "fix(torajs-core): Object.is with fewer than two arguments compares against undefined"
     },
     {
-      "hash": "097ba1c4d",
-      "subject": "fix(torajs-core): a Promise static reached with a receiver arms the class factory adapters"
+      "hash": "59b2e4fc2",
+      "subject": "fix(torajs-core): a 0-arg handler is admitted on the Array-inner Promise.then lane"
     },
     {
-      "hash": "70f134ffb",
-      "subject": "fix(torajs-core): the one forwarder synthesizer erases a generic target's type variables"
+      "hash": "5027ceb0a",
+      "subject": "feat(torajs-core): a nullish-initialised mutable let widens on any non-nullish rebind"
     },
     {
-      "hash": "8e5d097b0",
-      "subject": "fix(torajs-anyvalue): a resolving function called with its own promise rejects it"
+      "hash": "a82869b22",
+      "subject": "fix(torajs-core): Map.set / Set.add with a missing argument store undefined"
     },
     {
-      "hash": "52073a284",
-      "subject": "fix(torajs-core): a rest whose SSA element is Any collects untyped; relay rest slots share width"
+      "hash": "49639672c",
+      "subject": "fix(torajs-regex): the named-group duplicate scan tolerates unnamed captures"
     },
     {
-      "hash": "50cd4c77f",
-      "subject": "fix(torajs-core): a relay shell shares its target's signature width"
+      "hash": "9d85a51cd",
+      "subject": "fix(torajs-core): a void function's pending return through finally parks no value"
     },
     {
-      "hash": "1f3489f1c",
-      "subject": "fix(torajs-core): the static argv face yields a this-first body a relay reaches"
+      "hash": "81cc0dda1",
+      "subject": "fix(torajs-core): regexp test/exec with no argument match against \"undefined\""
     },
     {
-      "hash": "8f23d6a5c",
-      "subject": "fix(torajs-anyvalue): promise settle statics accept any constructor as |this|"
+      "hash": "89f764025",
+      "subject": "fix(torajs-core): the async driver attaches through the typed promise lane"
     },
     {
-      "hash": "e7178ff39",
-      "subject": "fix(torajs-core): a relay shell is not a fn-expr this-face"
+      "hash": "fd94d7a75",
+      "subject": "feat(torajs-core): a promise binding whose then the program stores widens to any"
     },
     {
-      "hash": "5febbfae9",
-      "subject": "feat(torajs-core): a length-only this-first body is on the argc tier alone"
+      "hash": "a746ebaad",
+      "subject": "fix(torajs-anyvalue): the promise arm no longer consults the own then a second time"
     }
   ],
-  "headSha": "6c344985a",
+  "headSha": "720cfd7b3",
   "autorun": {
-    "total": 953,
+    "total": 954,
     "baselineTarget": 10,
-    "bySelf": 948,
+    "bySelf": 949,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789402076-47d3",
-      "at": "2026-09-14T16:07:56Z",
-      "ts": 1789402076,
+      "rotationId": "r-1789411028-3107",
+      "at": "2026-09-14T18:37:08Z",
+      "ts": 1789411028,
       "trigger": "self",
-      "prevHead": "1d2f6f525",
-      "handoffSha": "sha256:ced4f61dd3adbd522da191745aebec2fb7ec1707e7be0c9cecb8100ff7292024",
-      "handoffAgeSec": 27,
-      "conformanceBefore": "4142/0/4",
-      "commitsInSession": 13
+      "prevHead": "aa0a0d2c8",
+      "handoffSha": "sha256:d7be97c2df6a478cbad793b88dabea16a1669445787bbcaa02dd41f9014d70e6",
+      "handoffAgeSec": 17,
+      "conformanceBefore": "4153/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789411028-3107",
+        "at": "2026-09-14T18:37:08Z",
+        "ts": 1789411028,
+        "trigger": "self",
+        "prevHead": "aa0a0d2c8",
+        "handoffSha": "sha256:d7be97c2df6a478cbad793b88dabea16a1669445787bbcaa02dd41f9014d70e6",
+        "handoffAgeSec": 17,
+        "conformanceBefore": "4153/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789402076-47d3",
         "at": "2026-09-14T16:07:56Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:37ec9c0f064ddd7589f8c5347a906d84f79286846e0c87c7800ca9c73f50bd74",
         "handoffAgeSec": 2,
         "conformanceBefore": "4061/0/4",
-        "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789249107-4695",
-        "at": "2026-09-12T21:38:27Z",
-        "ts": 1789249107,
-        "trigger": "self",
-        "prevHead": "2447425f7",
-        "handoffSha": "sha256:838e558ad50e8dfb70116f20ccd4e0c49431c53e418f0e128be0c6c8125d8a0f",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "4049/0/4",
         "commitsInSession": 15
       }
     ],
