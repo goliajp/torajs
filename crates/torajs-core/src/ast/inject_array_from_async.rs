@@ -27,8 +27,9 @@ use super::{Ast, Expr, ExprId, Stmt};
 pub(crate) const HELPER: &str = "__array_from_async";
 
 /// Every step of proposal-array-from-async §2.1.1, in spec order.
-/// `IsConstructor(C)` is `typeof c === "function"` here (a callable
-/// non-constructor |this| is the one recorded approximation).
+/// `IsConstructor(C)` is the runtime's own (`__torajs_is_constructor`,
+/// `ssa_lower_call_is_constructor`): a callable non-constructor |this|
+/// falls back to ArrayCreate as steps 3.a / 7.a say.
 const HELPER_SRC: &str = r#"
 async function __array_from_async_close(__iter: any): Promise<void> {
   let __ret: any;
@@ -69,7 +70,7 @@ async function __array_from_async(__c: any, __items: any, __mapfn: any, __this_a
       throw new TypeError("Array.fromAsync: iterator is not an object");
     }
     const __next: any = __iter.next;
-    const __a: any = typeof __c === "function" ? new __c() : [];
+    const __a: any = __torajs_is_constructor(__c) ? new __c() : [];
     let __k: number = 0;
     while (true) {
       let __r: any = __next.call(__iter);
@@ -123,10 +124,10 @@ async function __array_from_async(__c: any, __items: any, __mapfn: any, __this_a
     __len = 9007199254740991;
   }
   __len = Math.trunc(__len);
-  if (typeof __c !== "function" && __len > 4294967295) {
+  if (!__torajs_is_constructor(__c) && __len > 4294967295) {
     throw new RangeError("Invalid array length");
   }
-  const __al: any = typeof __c === "function" ? new __c(__len) : [];
+  const __al: any = __torajs_is_constructor(__c) ? new __c(__len) : [];
   let __i: number = 0;
   while (__i < __len) {
     let __v: any = __obj[__i];

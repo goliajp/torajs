@@ -128,6 +128,11 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Number, Type::Any],
             Box::new(Type::Void),
         )),
+        // RFC 20260915 — injected source's spec IsConstructor, lowered
+        // by `ssa_lower_call_is_constructor`.
+        crate::ssa_lower_call_is_constructor::NAME => {
+            Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
+        }
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
         "__torajs_date_from_value" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Date))),
