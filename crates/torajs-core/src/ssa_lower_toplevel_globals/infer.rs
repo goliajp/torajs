@@ -113,6 +113,7 @@ pub(super) fn inferred_slot_ty(
     ast: &Ast,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
     dynobj_degraded: &std::collections::HashSet<ExprId>,
+    cross_type_widened: &std::collections::HashSet<ExprId>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
     fn_sigs: &mut Vec<(Vec<Type>, Type)>,
@@ -145,6 +146,13 @@ pub(super) fn inferred_slot_ty(
     // it, the init lane boxes a fresh dynobj, the exit hook's Any
     // arm settles the box.
     if dynobj_degraded.contains(&init) {
+        return Some(Type::Any);
+    }
+    // Rotation 652 — a nullish-literal init the cross-type widen made
+    // `any` (`let args = null; … args = arguments`) promotes as the
+    // same Any slot the checker's pass_2 registered from the shared
+    // verdict; the main binding is already `any` off the same set.
+    if crate::let_widen::nullish_widened_init(ast, cross_type_widened, init) {
         return Some(Type::Any);
     }
     // Rotation 592 — an ALIAS of a lifted-arrow binding

@@ -130,6 +130,19 @@ fn collect_non_nullish_rebinds(ast: &Ast) -> HashSet<String> {
     out
 }
 
+/// Rotation 652 — the nullish half of the verdict, asked by both
+/// top-level global registrations (`check_pipeline::pass_2` and
+/// `ssa_lower_toplevel_globals::inferred_slot_ty`). A `let x = null`
+/// that widened here types `any` on its MAIN binding, but the global
+/// slot a named-fn body reads it through is registered from the init
+/// SHAPE, and neither the shape inference nor `any_promote_init`
+/// knows a nullish literal — so `function rd() { x.length }` answered
+/// "unknown identifier" while `let x: any = null` worked. The slot is
+/// the boxed `any` home the annotated spelling already gets.
+pub(crate) fn nullish_widened_init(ast: &Ast, widened: &HashSet<ExprId>, init: ExprId) -> bool {
+    matches!(classify(ast, init), Some(Family::Null | Family::Undef)) && widened.contains(&init)
+}
+
 pub(crate) fn collect_cross_type_widen_inits(ast: &Ast) -> HashSet<ExprId> {
     let mut w = Walker {
         ast,

@@ -56,6 +56,9 @@ pub(crate) fn collect_toplevel_globals(
     // consult in pass_2 (recomputed from this side's own Ast
     // snapshot, the standard no-drift contract).
     let dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ast);
+    // Rotation 652 — same mirror for the cross-type widen set
+    // (`check/construct.rs` holds the checker's copy).
+    let cross_type_widened = crate::let_widen::collect_cross_type_widen_inits(ast);
     let mut globals: HashMap<String, Type> = HashMap::new();
     // Multi-flattened walk (rotation 230) — mirror of the checker's
     // pass_2 pre-pass, same no-drift contract.
@@ -113,6 +116,7 @@ pub(crate) fn collect_toplevel_globals(
                     ast,
                     &binding_refs,
                     &dynobj_degraded,
+                    &cross_type_widened,
                     aliases,
                     arr_layouts,
                     fn_sigs,

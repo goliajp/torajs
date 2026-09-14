@@ -424,9 +424,18 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                             // slot. Shape-typed calls (simple ret
                             // ann / `Symbol()`) keep their exact
                             // slot — the fallback never demotes.
+                            // Rotation 652 — a nullish-literal init
+                            // the cross-type widen made `any` takes
+                            // the same boxed slot (`let_widen`'s
+                            // verdict; the lowerer asks it too).
                             if shaped.is_none()
                                 && !*is_var
-                                && crate::ast_refs_any_promote::any_promote_init(ast, *init)
+                                && (crate::ast_refs_any_promote::any_promote_init(ast, *init)
+                                    || crate::let_widen::nullish_widened_init(
+                                        ast,
+                                        &c.cross_type_widened,
+                                        *init,
+                                    ))
                             {
                                 c.any_promoted_inits.insert(*init);
                                 Some(Type::Any)
