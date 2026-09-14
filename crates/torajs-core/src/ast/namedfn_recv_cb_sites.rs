@@ -414,18 +414,23 @@ pub(super) fn collect_any_let_init_sites(
     walk(&ast.stmts, ast, fn_sigs, sites, &mut scopes);
 }
 
-/// RFC 20260915 item 3 — every `(F as any)` spelling of a promoted
-/// named fn, wherever it sits. The cast hands the value to the any
-/// world, and every any-lane call path honors
-/// `FLAG_CLOSURE_RECV_FIRST`: the plain `__forward_` shim there
-/// hardwired `undefined` into `__this`, so `new ((F as any).bind(null))
-/// (5)` — the bind kernel's bound cell constructing its target with a
-/// fresh `this` (§10.4.1.2) — ran F over an undefined receiver
-/// ("cannot assign to a property of this any value") where the
-/// `: any` binding of the same value (`collect_any_let_init_sites`)
-/// already constructed correctly. The typed lanes never see this
-/// site's copy — the cast is the boundary. Same shadow / re-decl /
-/// generator gates as every other site.
+/// RFC 20260915 item 3 — `(F as any)` as the RECEIVER of a `.bind` /
+/// `.call` / `.apply` call. The bind kernel's bound cell constructs
+/// its target with a fresh `this` (§10.4.1.2), and `new ((F as any)
+/// .bind(null))(5)` reached it — but through the plain `__forward_`
+/// shim the cast had promoted the value to, which pins `undefined`
+/// into `__this`: "cannot assign to a property of this any value".
+/// The `: any` binding of the same value (`const fv: any = F`) already
+/// constructed correctly because `collect_any_let_init_sites` claims
+/// the receiver-first shim for it. These three receivers are the
+/// same boundary — each hands the value to a runtime kernel whose
+/// calls honor FLAG_CLOSURE_RECV_FIRST — so they claim the
+/// `__fwdrecv_` copy, with the same shadow / re-decl / generator
+/// gates. Every OTHER `(F as any)` keeps the plain shim: the two
+/// shells are distinct cells (RFC 20260717 §8 residue 1 — their
+/// `.prototype` objects differ), and `(E as any).prototype` read
+/// through the receiver-first copy missed the methods `E.prototype`
+/// holds (gate red on `fnexpr-proto-method-this-001`).
 pub(super) fn collect_as_any_sites(
     ast: &Ast,
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
@@ -433,7 +438,16 @@ pub(super) fn collect_as_any_sites(
 ) {
     let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
     for e in &ast.exprs {
-        let Expr::As { expr, ty_ann } = e else {
+        let Expr::Call { callee, .. } = e else {
+            continue;
+        };
+        let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+            continue;
+        };
+        if !matches!(name.as_str(), "bind" | "call" | "apply") {
+            continue;
+        }
+        let Expr::As { expr, ty_ann } = ast.get_expr(*obj) else {
             continue;
         };
         if ty_ann != "any" {
