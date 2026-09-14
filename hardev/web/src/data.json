@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-13T19:23:07.076Z",
+  "generatedAt": "2026-09-14T04:46:10.960Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-13T19:22:31Z",
-    "headSha": "73f207ebc",
-    "elapsedSec": 500.78,
+    "ranAt": "2026-09-14T04:35:39Z",
+    "headSha": "fe83a771a",
+    "elapsedSec": 503.44,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32430,
+    "pass": 32464,
     "passNoOracle": 1647,
     "passNegative": 4568,
-    "passTotal": 38645,
-    "bug": 10405,
-    "incompatible": 4124,
+    "passTotal": 38679,
+    "bug": 10372,
+    "incompatible": 4123,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49050,
-    "passRateInScope": 72.68,
-    "passRateTrAccepted": 78.79
+    "trAccepted": 49051,
+    "passRateInScope": 72.74,
+    "passRateTrAccepted": 78.85
   },
   "torajs": {
-    "commit": "73f207ebc",
-    "commitSubject": "test(test262-runner): a case's self-import specifier points at the staged entry",
+    "commit": "fe83a771a",
+    "commitSubject": "fix(torajs-anyvalue): OrdinaryToPrimitive's accessor probe leaves a Proxy on its method dispatch",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "73f207ebc",
-      "subject": "test(test262-runner): a case's self-import specifier points at the staged entry"
+      "hash": "fe83a771a",
+      "subject": "fix(torajs-anyvalue): OrdinaryToPrimitive's accessor probe leaves a Proxy on its method dispatch"
     },
     {
-      "hash": "29b6246e0",
-      "subject": "fix(torajs-core): a private method's function name is its Private Name's description"
+      "hash": "b36ac9702",
+      "subject": "revert: an object literal's named async method stays a hoisted declaration for now"
     },
     {
-      "hash": "b85b47781",
-      "subject": "feat(torajs-core): a function expression stored straight into an any receiver's property takes the argv face for its arguments"
+      "hash": "8daeb38f9",
+      "subject": "fix(torajs-anyvalue): an integer-key read on a Symbol wrapper or a BigInt receiver walks to its prototype"
     },
     {
-      "hash": "64f506186",
-      "subject": "feat(torajs-core): a top-level regex literal binding is readable from named function bodies"
+      "hash": "eae0fd6ca",
+      "subject": "fix(torajs-anyvalue): OrdinaryToPrimitive reads an accessor-defined valueOf / toString through its getter"
     },
     {
-      "hash": "42f051061",
-      "subject": "fix(torajs-core): new on a value bound in a generator body constructs through the value channel"
+      "hash": "8f8bf493e",
+      "subject": "fix(torajs-core): an object literal's named async method is an async function value"
     },
     {
-      "hash": "569605ae1",
-      "subject": "feat(torajs-core): a dynamic import evaluates its target's module body once, in a job, and an abrupt completion rejects the promise"
+      "hash": "c84b650ad",
+      "subject": "refactor(torajs-anyvalue): the struct arm of the integer-key read moves to its own file"
     },
     {
-      "hash": "3d0cd1541",
-      "subject": "refactor(torajs-core): the resolver's four namespace tables become one struct"
+      "hash": "8575267d9",
+      "subject": "fix(torajs-anyvalue): .length on a receiver with no inherent length walks the prototype chain"
     },
     {
-      "hash": "6dc7d57f9",
-      "subject": "feat(torajs-core): a module's top-level var beside a same-named function is an early SyntaxError, and a dynamic import of a file that is not module code rejects with one"
+      "hash": "32834225a",
+      "subject": "fix(torajs-core): Array.fromAsync's array-like length goes through ToNumber"
     },
     {
-      "hash": "86e3e4b30",
-      "subject": "refactor(torajs-core): move the dynamic-import dispatcher synthesis into its own module"
+      "hash": "eb2ed3311",
+      "subject": "fix(torajs-core): a declared function stored as an object-literal field is the function, not its return"
     },
     {
-      "hash": "51400df61",
-      "subject": "fix(torajs-core): three gaps the receiver channel uncovered in bodies that now move"
+      "hash": "006801115",
+      "subject": "feat(torajs-core): Array.fromAsync is a TypeScript async helper the compiler injects, and the runtime cell forwards to it"
     },
     {
-      "hash": "8fc098c48",
-      "subject": "feat(torajs-core): an async function or value reading this moves, its receiver riding as the generator's leading parameter"
+      "hash": "6be01e017",
+      "subject": "fix(torajs-core): an object literal stored into a declared-any field is a dynamic object"
     },
     {
-      "hash": "e79fbbfcf",
-      "subject": "fix(torajs-core): the async move gate and its this-rewrite stop at a function expression's own this"
+      "hash": "69df5335a",
+      "subject": "fix(torajs-anyvalue): a class instance's integer-key read invokes an accessor defined onto it"
     }
   ],
-  "headSha": "73f207ebc",
+  "headSha": "fe83a771a",
   "autorun": {
-    "total": 948,
+    "total": 949,
     "baselineTarget": 10,
-    "bySelf": 943,
+    "bySelf": 944,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789316409-60ae",
-      "at": "2026-09-13T16:20:09Z",
-      "ts": 1789316409,
+      "rotationId": "r-1789327511-6be6",
+      "at": "2026-09-13T19:25:11Z",
+      "ts": 1789327511,
       "trigger": "self",
-      "prevHead": "c22f57945",
-      "handoffSha": "sha256:5c180c466676d1c18173746b7b6b8f2172f0fa1ca42a05fada177b855bf55701",
-      "handoffAgeSec": 1,
-      "conformanceBefore": "4093/0/4",
-      "commitsInSession": 15
+      "prevHead": "56a760acf",
+      "handoffSha": "sha256:36fe0884ec9030ab6b167769f813ea620ad2fee80e5bc7d736602f35d60b4cf8",
+      "handoffAgeSec": 36,
+      "conformanceBefore": "4107/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789327511-6be6",
+        "at": "2026-09-13T19:25:11Z",
+        "ts": 1789327511,
+        "trigger": "self",
+        "prevHead": "56a760acf",
+        "handoffSha": "sha256:36fe0884ec9030ab6b167769f813ea620ad2fee80e5bc7d736602f35d60b4cf8",
+        "handoffAgeSec": 36,
+        "conformanceBefore": "4107/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789316409-60ae",
         "at": "2026-09-13T16:20:09Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 1,
         "conformanceBefore": "4019/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789171790-3755",
-        "at": "2026-09-12T00:09:50Z",
-        "ts": 1789171790,
-        "trigger": "self",
-        "prevHead": "ab64455f8",
-        "handoffSha": "sha256:941176c2a7b72fa6ba42c4e05382124d3601b760a41525b92caf06e7ac3cfa75",
-        "handoffAgeSec": 7,
-        "conformanceBefore": "4008/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
