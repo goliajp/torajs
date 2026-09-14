@@ -62,6 +62,10 @@ unsafe extern "C" {
     /// the kind-1 prototype carries (§27.1.6.1 semantics; RFC
     /// 20260809 B6 async leg).
     fn __torajs_gen_asyncdispose_cell() -> *mut u8;
+    /// torajs-anyvalue — the interned `[Symbol.asyncIterator]` cell
+    /// (§27.1.3.1 return-this) the kind-1 prototype carries, since tr
+    /// has no %AsyncIteratorPrototype% for it to inherit from.
+    fn __torajs_gen_asynciterator_cell() -> *mut u8;
     /// torajs-str — the idx-th well-known symbol singleton (owned
     /// +1; immortal, ledger-free). 0 = asyncDispose (alphabetical).
     fn __torajs_symbol_well_known(idx: i64) -> *mut c_void;
@@ -190,6 +194,26 @@ unsafe fn mint_kind(kind: usize) {
     if kind == 1 {
         let cell = unsafe { __torajs_gen_asyncdispose_cell() } as *mut c_void;
         let sym = unsafe { __torajs_symbol_well_known(0) };
+        if !sym.is_null() && !cell.is_null() {
+            unsafe { __torajs_rc_inc(cell) };
+            let mut slot = gen_proto;
+            unsafe {
+                __torajs_dynobj_define_plain(
+                    &mut slot,
+                    sym as *const u8,
+                    ANY_HEAP,
+                    heap_anyv(cell),
+                    ATTRS_WEC_101,
+                )
+            };
+        }
+    }
+    // §27.1.3.1 — gen_proto[@@asyncIterator] returns this (kind 1 only;
+    // the sync kind inherits @@iterator from %Iterator.prototype%,
+    // wired above). Index 1 = "asyncIterator" (alphabetical).
+    if kind == 1 {
+        let cell = unsafe { __torajs_gen_asynciterator_cell() } as *mut c_void;
+        let sym = unsafe { __torajs_symbol_well_known(1) };
         if !sym.is_null() && !cell.is_null() {
             unsafe { __torajs_rc_inc(cell) };
             let mut slot = gen_proto;

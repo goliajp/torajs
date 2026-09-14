@@ -292,3 +292,44 @@ pub unsafe extern "C" fn __torajs_gen_asyncdispose_cell() -> *mut u8 {
 }
 
 static ASYNCDISPOSE_CELL: AtomicU64 = AtomicU64::new(0);
+
+/// §27.1.3.1 %AsyncIteratorPrototype%[@@asyncIterator] — return this.
+/// Borrow in, owned out like every dispatch return.
+unsafe extern "C" fn gen_asynciterator_entry(
+    _env: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+) -> u64 {
+    let recv = if argc > 0 && !argv.is_null() {
+        unsafe { *argv }
+    } else {
+        VALUE_UNDEFINED
+    };
+    if crate::nanbox::is_cell(recv) {
+        unsafe { torajs_rc::__torajs_rc_inc(crate::nanbox::as_void_ptr(recv)) };
+    }
+    recv
+}
+
+/// The interned `[Symbol.asyncIterator]` cell torajs-meta's genfn
+/// mint defines into the kind-1 shared prototype: tr has no
+/// %AsyncIteratorPrototype% object for that prototype to inherit
+/// from (the sync kind gets its `@@iterator` from %Iterator.prototype%),
+/// so the face lives on the prototype itself (the asyncDispose
+/// posture). Answers an immortal cell (borrow).
+///
+/// # Safety
+/// FFI face; no inputs.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_gen_asynciterator_cell() -> *mut u8 {
+    let p = ASYNCITERATOR_CELL.load(Ordering::Relaxed);
+    if p != 0 {
+        return p as *mut u8;
+    }
+    let cell =
+        unsafe { mint_symbol_method_cell(gen_asynciterator_entry, b"[Symbol.asyncIterator]") };
+    ASYNCITERATOR_CELL.store(cell as u64, Ordering::Relaxed);
+    cell
+}
+
+static ASYNCITERATOR_CELL: AtomicU64 = AtomicU64::new(0);
