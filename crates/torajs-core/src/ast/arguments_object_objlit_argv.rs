@@ -37,6 +37,13 @@
 //! (`[__torajs_argv, …]`, the P11 shape). Both adapter head shapes
 //! are already synthesized and audited.
 
+//! RFC 20260915 blade 4 — the `next` / `return` / `throw` trio off a
+//! `__`-spelled (compiler-minted) binding is benign like the one off a
+//! generator instance: the injected for-of close helpers' `__it` and
+//! a machine's `__gfit_N` reach the field through the any lane, never
+//! a typed-dispatch site, and injected text shares no namespace with
+//! the program (`gen-dstr-rtrn-close-args-001`).
+
 use super::arguments_object_walkers::{
     body_has_arguments_length, body_has_non_length_arguments_touch,
 };
@@ -137,13 +144,6 @@ pub(super) fn collect_objlit_boxed_only_argv(
             Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
             Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
                 if !spread_call_callees.contains(&(i as u32)) {
-                    // RFC 20260915 blade 4 — the same trio off a
-                    // COMPILER-MINTED binding (`__`-spelled: the
-                    // injected for-of close helpers' `__it`, a
-                    // machine's `__gfit_N`) is the runtime iterator
-                    // protocol reaching the field through the any
-                    // lane, never a typed-dispatch site; injected
-                    // text shares no namespace with the program.
                     let benign = matches!(name.as_str(), "next" | "return" | "throw")
                         && matches!(ast.get_expr(*obj), Expr::Ident(n)
                             if gen_instances.contains(n.as_str()) || n.starts_with("__"));
