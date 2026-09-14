@@ -95,6 +95,7 @@ pub(super) fn prep_generator_body(
             .filter_map(|p| p.type_ann.clone().map(|a| (p.name.clone(), a)))
             .collect(),
         local_classes,
+        machine_class: format!("__Gen_{gen_name}"),
     };
     lift_lets_in_list(ast, &mut gen_body, &mut lifted_locals, &mut lift_ctx);
     for i in 0..lifted_locals.len() {

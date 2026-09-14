@@ -457,6 +457,20 @@ pub struct Ast {
     /// class init context is allowed; check.rs's caller-context tracking
     /// lifts the restriction for the same path that visibility uses.
     pub readonly_fields: std::collections::HashSet<(String, PropKey)>,
+    /// RFC 20260915 #8 — machine class → the lifted locals that were
+    /// `const` / `using` bindings. A lifted field is a writable slot,
+    /// so the binding's immutability has to be re-stated here: the
+    /// checker rejects every store to one of these fields except the
+    /// lift's own initialization (`lifted_init_assigns`), with the
+    /// sync lane's message. Keyed by class so a nested machine
+    /// writing through its frame handle (`__genouter_N.<f> = …`) is
+    /// caught too.
+    pub const_lifted_fields: std::collections::HashMap<String, std::collections::HashSet<String>>,
+    /// RFC 20260915 #8 — the `this.<f> = init` Assign nodes the lift
+    /// minted, one per lifted declaration. Each is the binding's
+    /// initialization, not an assignment, and is the only store a
+    /// `const_lifted_fields` member admits.
+    pub lifted_init_assigns: std::collections::HashSet<ExprId>,
     /// P8.2 — accessor descriptor side-channel maps (ES §10.1.7).
     /// `(class_name, property_name) → return_type` for getters and
     /// `(class_name, property_name) → param_type` for setters. Populated

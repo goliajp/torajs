@@ -421,6 +421,8 @@ pub(crate) fn check_post_incr(
                 *obj,
                 Some(name.as_str()),
             )?;
+            // RFC 20260915 #8 — a lifted `const` / `using` field.
+            crate::check_assign_target::reject_const_lifted_update(checker, ast, target)?;
         }
         crate::ast::Expr::Index { obj, index } => {
             crate::check_type_of_assign::reject_globalthis_mutation(

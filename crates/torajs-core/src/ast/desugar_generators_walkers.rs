@@ -43,6 +43,10 @@ pub(crate) struct LiftCtx<'a> {
     /// factory. `any` is the honest slot type — it matches the
     /// `const __cc<N>_C: any` value the ES5 lane itself produces.
     pub(crate) local_classes: std::collections::HashSet<String>,
+    /// The `__Gen_<name>` class the lifted fields land on — the key
+    /// `Ast::const_lifted_fields` records a `const` / `using` lift
+    /// under (RFC 20260915 #8).
+    pub(crate) machine_class: String,
 }
 
 /// J.4 — recursively expand every `Stmt::YieldInto { var, type_ann,
@@ -180,6 +184,7 @@ pub(crate) fn lift_lets_in_stmt(
     super::desugar_generators_alpha::resolve_duplicate_for_let(ast, s, &taken);
     match s {
         Stmt::LetDecl {
+            mutable,
             name,
             type_ann,
             init,
@@ -272,12 +277,21 @@ pub(crate) fn lift_lets_in_stmt(
             let this_id = ast.add_expr(Expr::This);
             let m = ast.add_expr(Expr::Member {
                 obj: this_id,
-                name: n,
+                name: n.clone(),
             });
             let assign = ast.add_expr(Expr::Assign {
                 target: m,
                 value: *init,
             });
+            // RFC 20260915 #8 — the slot is writable; the binding was
+            // not. Record the field and admit exactly this store.
+            if !*mutable {
+                ast.const_lifted_fields
+                    .entry(ctx.machine_class.clone())
+                    .or_default()
+                    .insert(n);
+            }
+            ast.lifted_init_assigns.insert(assign);
             *s = Stmt::Expr(assign);
         }
         Stmt::If {
