@@ -29,6 +29,7 @@ pub(super) fn collect_call_position_face(
     exprs: &[Expr],
     fn_expr_exprs: &std::collections::HashSet<ExprId>,
     any_recvs: &std::collections::HashSet<String>,
+    any_callee_params: &std::collections::HashSet<String>,
     gen_recvs: &std::collections::HashSet<String>,
     arraylit_recvs: &std::collections::HashSet<String>,
     mapset_recvs: &std::collections::HashSet<String>,
@@ -40,6 +41,16 @@ pub(super) fn collect_call_position_face(
     call_faces: &mut std::collections::HashSet<ExprId>,
 ) {
     match &exprs[callee.0 as usize] {
+        // Rotation 649 — the any-CALLEE argument arm: `executor(fn,
+        // fn)` where `executor` is an `any` binding or an `any`-
+        // everywhere parameter (doc in `fnexpr_this_any_callee`).
+        // Every argument that is a marked fn-expr is a face; the rest
+        // fall out of collect_face.
+        Expr::Ident(n) if any_recvs.contains(n) || any_callee_params.contains(n) => {
+            for a in args {
+                collect_face(stmts, exprs, *a, fn_expr_exprs, patches);
+            }
+        }
         // Rotation 328 — the IIFE arm: the callee IS the marked
         // fn-expr (`(function () { …this… })()` / `}())`). Zero
         // aliases by construction — the closure value exists only

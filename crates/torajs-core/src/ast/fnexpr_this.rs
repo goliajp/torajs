@@ -164,6 +164,7 @@ fn collect_position_faces(
     call_faces: &mut std::collections::HashSet<ExprId>,
 ) {
     let any_recvs = collect_any_binding_names(stmts, exprs);
+    let any_callee_params = super::fnexpr_this_any_callee::any_param_callee_names(stmts);
     let gen_recvs = collect_gen_iter_binding_names(stmts, exprs);
     let arraylit_recvs = collect_arraylit_binding_names(stmts, exprs);
     let props_recvs =
@@ -223,6 +224,7 @@ fn collect_position_faces(
             exprs,
             fn_expr_exprs,
             &any_recvs,
+            &any_callee_params,
             &gen_recvs,
             &arraylit_recvs,
             &mapset_recvs,
