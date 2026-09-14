@@ -78,7 +78,7 @@ function __async_step(__g: any, __resolve: any, __reject: any, __v: any, __is_er
     __resolve(__r.value);
     return;
   }
-  const __w: any = __torajs_await_resolve(__r.value);
+  const __w: Promise<any> = __torajs_await_resolve(__r.value);
   __w.then(
     (__x: any) => { __async_step(__g, __resolve, __reject, __x, false); return 0; },
     (__e: any) => { __async_step(__g, __resolve, __reject, __e, true); return 0; },
