@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T04:46:10.960Z",
+  "generatedAt": "2026-09-14T07:58:20.688Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-14T04:35:39Z",
-    "headSha": "fe83a771a",
-    "elapsedSec": 503.44,
+    "ranAt": "2026-09-14T07:47:46Z",
+    "headSha": "787eec357",
+    "elapsedSec": 514.08,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32464,
+    "pass": 32482,
     "passNoOracle": 1647,
     "passNegative": 4568,
-    "passTotal": 38679,
-    "bug": 10372,
-    "incompatible": 4123,
+    "passTotal": 38697,
+    "bug": 10355,
+    "incompatible": 4122,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49051,
-    "passRateInScope": 72.74,
-    "passRateTrAccepted": 78.85
+    "trAccepted": 49052,
+    "passRateInScope": 72.77,
+    "passRateTrAccepted": 78.89
   },
   "torajs": {
-    "commit": "fe83a771a",
-    "commitSubject": "fix(torajs-anyvalue): OrdinaryToPrimitive's accessor probe leaves a Proxy on its method dispatch",
+    "commit": "787eec357",
+    "commitSubject": "fix(torajs-core): a sync `yield*` delegation drives the inner iterator with `next(received)`, one argument always",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "fe83a771a",
-      "subject": "fix(torajs-anyvalue): OrdinaryToPrimitive's accessor probe leaves a Proxy on its method dispatch"
+      "hash": "787eec357",
+      "subject": "fix(torajs-core): a sync `yield*` delegation drives the inner iterator with `next(received)`, one argument always"
     },
     {
-      "hash": "b36ac9702",
-      "subject": "revert: an object literal's named async method stays a hoisted declaration for now"
+      "hash": "c621e8b38",
+      "subject": "fix(torajs-core): blade 4 / 5 sweep regressions — pattern heads and TDZ-shaped `await using` keep the synchronous lowering; a machine's `next` stops padding every `x.next()`"
     },
     {
-      "hash": "8daeb38f9",
-      "subject": "fix(torajs-anyvalue): an integer-key read on a Symbol wrapper or a BigInt receiver walks to its prototype"
+      "hash": "163603378",
+      "subject": "fix(torajs-anyvalue): Function.prototype.bind over a class constructor mints a bound cell that constructs the class"
     },
     {
-      "hash": "eae0fd6ca",
-      "subject": "fix(torajs-anyvalue): OrdinaryToPrimitive reads an accessor-defined valueOf / toString through its getter"
+      "hash": "8c4260f35",
+      "subject": "fix(torajs-core): Array.fromAsync asks the runtime's IsConstructor, not `typeof`"
     },
     {
-      "hash": "8f8bf493e",
-      "subject": "fix(torajs-core): an object literal's named async method is an async function value"
+      "hash": "6578c35d8",
+      "subject": "docs(torajs-core): the argv census's compiler-minted exemption is explained in the module doc, not inside the registered function"
     },
     {
-      "hash": "c84b650ad",
-      "subject": "refactor(torajs-anyvalue): the struct arm of the integer-key read moves to its own file"
+      "hash": "6388190ea",
+      "subject": "fix(torajs-core): the for-of close helpers read `return` as a member off their own binding; the argv census exempts compiler-minted iterator handles"
     },
     {
-      "hash": "8575267d9",
-      "subject": "fix(torajs-anyvalue): .length on a receiver with no inherent length walks the prototype chain"
+      "hash": "db8390e9c",
+      "subject": "feat(torajs-core): `for await` and an awaiting `for…of` move into the async machine, with iterator close (RFC 20260915 blade 4)"
     },
     {
-      "hash": "32834225a",
-      "subject": "fix(torajs-core): Array.fromAsync's array-like length goes through ToNumber"
+      "hash": "19fa4921e",
+      "subject": "Revert \"feat(torajs-core): `for await` and an awaiting `for…of` move into the async machine, with iterator close (RFC 20260915 blade 4)\""
     },
     {
-      "hash": "eb2ed3311",
-      "subject": "fix(torajs-core): a declared function stored as an object-literal field is the function, not its return"
+      "hash": "7b38babb6",
+      "subject": "feat(torajs-core): `for await` and an awaiting `for…of` move into the async machine, with iterator close (RFC 20260915 blade 4)"
     },
     {
-      "hash": "006801115",
-      "subject": "feat(torajs-core): Array.fromAsync is a TypeScript async helper the compiler injects, and the runtime cell forwards to it"
+      "hash": "707208912",
+      "subject": "feat(torajs-core): an async function holding `await using` moves into its state machine (RFC 20260915 blade 5)"
     },
     {
-      "hash": "6be01e017",
-      "subject": "fix(torajs-core): an object literal stored into a declared-any field is a dynamic object"
+      "hash": "ffc20c442",
+      "subject": "fix(torajs-core): a nested async value's frame link is captured outside the value, not read through its `this`"
     },
     {
-      "hash": "69df5335a",
-      "subject": "fix(torajs-anyvalue): a class instance's integer-key read invokes an accessor defined onto it"
+      "hash": "ca43f466a",
+      "subject": "fix(torajs-core): a labeled block holding a yield gets an exit state in the generator machine"
     }
   ],
-  "headSha": "fe83a771a",
+  "headSha": "787eec357",
   "autorun": {
-    "total": 949,
+    "total": 950,
     "baselineTarget": 10,
-    "bySelf": 944,
+    "bySelf": 945,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789327511-6be6",
-      "at": "2026-09-13T19:25:11Z",
-      "ts": 1789327511,
+      "rotationId": "r-1789361201-1e40",
+      "at": "2026-09-14T04:46:41Z",
+      "ts": 1789361201,
       "trigger": "self",
-      "prevHead": "56a760acf",
-      "handoffSha": "sha256:36fe0884ec9030ab6b167769f813ea620ad2fee80e5bc7d736602f35d60b4cf8",
-      "handoffAgeSec": 36,
-      "conformanceBefore": "4107/0/4",
-      "commitsInSession": 14
+      "prevHead": "7cc7a25dc",
+      "handoffSha": "sha256:1d7e8b2a09e231011b4e6f3f79acd9a37652988a641b8f291e3b32db10401eb5",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "4119/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789361201-1e40",
+        "at": "2026-09-14T04:46:41Z",
+        "ts": 1789361201,
+        "trigger": "self",
+        "prevHead": "7cc7a25dc",
+        "handoffSha": "sha256:1d7e8b2a09e231011b4e6f3f79acd9a37652988a641b8f291e3b32db10401eb5",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "4119/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789327511-6be6",
         "at": "2026-09-13T19:25:11Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 17,
         "conformanceBefore": "4024/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1789191436-23b2",
-        "at": "2026-09-12T05:37:16Z",
-        "ts": 1789191436,
-        "trigger": "self",
-        "prevHead": "14d8ce53c",
-        "handoffSha": "sha256:2d20d946356f42ee8ad7837815a18e7322d729f301fa3bc63bca09095e439109",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "4019/0/4",
-        "commitsInSession": 17
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
