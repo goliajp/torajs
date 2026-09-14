@@ -43,6 +43,9 @@ pub(crate) struct ArrIds {
     pub arr_species_guard: FuncId,
     pub arr_shift_guard: FuncId,
     pub arr_delete_tail_guard: FuncId,
+    /// Rotation 652 — the `FROZEN | LENGTH_RO` length-write lock the
+    /// empty `push()` meets (§23.1.3.23 step 6).
+    pub arr_len_write_guard: FuncId,
     pub arr_reserve: FuncId,
     pub arr_push_unchecked: FuncId,
     pub arr_extend_unchecked: FuncId,
@@ -145,6 +148,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_arr_delete_tail_guard",
+            &[Type::Ptr],
+            Type::I64,
+        ),
+        arr_len_write_guard: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_arr_len_write_guard",
             &[Type::Ptr],
             Type::I64,
         ),

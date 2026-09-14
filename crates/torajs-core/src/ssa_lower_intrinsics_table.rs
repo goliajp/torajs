@@ -74,6 +74,7 @@ pub(crate) fn build(
         arr_species_guard: init_a.arr.arr_species_guard,
         arr_shift_guard: init_a.arr.arr_shift_guard,
         arr_delete_tail_guard: init_a.arr.arr_delete_tail_guard,
+        arr_len_write_guard: init_a.arr.arr_len_write_guard,
         arr_drop: init_a.arr.arr_drop,
         arr_drop_scalar: init_a.arr.arr_drop_scalar,
         arr_reserve: init_a.arr.arr_reserve,

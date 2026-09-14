@@ -31,6 +31,16 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, recv_id: ExprId) -> Option<Opera
     }
     let recv_op = ctx.lower_expr(recv_id);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, recv_id, &recv_op);
+    // §23.1.3.23 step 6 — the one write an empty push performs is
+    // `length` (the same value), which a frozen array or a
+    // non-writable length refuses with a TypeError (rotation 652;
+    // `Object.freeze([]).push()` answered 0). Off the hot path: the
+    // appending arm next door never comes here.
+    let guard = ctx.intrinsics.arr_len_write_guard;
+    let cur_block = ctx.cur_block;
+    ctx.f
+        .append_void(cur_block, InstKind::Call(guard, vec![recv_op.clone()]));
+    ctx.emit_throw_check(None);
     let len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),

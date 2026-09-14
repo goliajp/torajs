@@ -81,12 +81,23 @@ pub unsafe extern "C" fn __torajs_arr_any_push(
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
+        // §23.1.3.23 step 6 — with nothing to append the only write is
+        // `length` (the same value), which a frozen array or a
+        // non-writable length refuses (Set with Throw) and a seal /
+        // preventExtensions does not (rotation 652:
+        // `Object.freeze([]).push()` answered 0, and the extend guard
+        // below threw on `Object.seal([1]).push()`).
+        if argc == 0 {
+            if crate::define_length::__torajs_arr_len_write_guard(arr) != 0 {
+                return __torajs_anyv_box_from_pair(5, 0);
+            }
+        }
         // Non-extensible receiver → TypeError before the first append
         // (`__torajs_arr_extend_guard`); `argv` is borrowed, so the
         // reject releases nothing. Checked here rather than left to
         // the per-element kernels so a multi-arg `push(7, 8)` records
         // one throw and stores nothing, on either block kind.
-        if crate::define_length::__torajs_arr_extend_guard(arr) != 0 {
+        else if crate::define_length::__torajs_arr_extend_guard(arr) != 0 {
             return __torajs_anyv_box_from_pair(5, 0);
         }
         let mut cur = arr as *mut u8;
