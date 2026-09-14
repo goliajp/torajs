@@ -290,11 +290,18 @@ unsafe fn combinator_via_capability(kind: PromiseComb, c: u64, v: u64) -> u64 {
 /// on `class CP extends Promise`) takes the §27.2.4.7/.6 custom-C
 /// path — NewPromiseCapability(C), Call(cap.resolve/reject, v),
 /// answer cap.promise — so the answer IS a C instance and the
-/// subclass ctor chain observably runs. Any other thisValue keeps
-/// the step-1 TypeError. Recorded boundary: PromiseResolve's step-2
-/// identity fast path (`C.resolve(x) === x` when x.constructor is
-/// C) is not taken — a C-instance argument mints a fresh C promise
-/// that adopts it.
+/// subclass ctor chain observably runs. Any OTHER constructor —
+/// a plain function, a class that is no Promise heir — takes the
+/// same path (rotation 650): §27.2.4.6 step 1 asks only
+/// IsConstructor, and NewPromiseCapability(C) reaches C through the
+/// construct channel whatever C is, so `Promise.reject.call(P, v)`
+/// on `var P = function (executor) { … }` runs P's executor with
+/// the capability functions (the test262 `capability-invocation`
+/// shape). A |this| that is not a constructor keeps the step-1
+/// TypeError. Recorded boundary: PromiseResolve's step-2 identity
+/// fast path (`C.resolve(x) === x` when x.constructor is C) is not
+/// taken — a C-instance argument mints a fresh C promise that
+/// adopts it.
 pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64) -> u64 {
     unsafe {
         let this = arg_at(argv, argc, 0);
@@ -302,7 +309,7 @@ pub(super) unsafe fn promise_settle_fn(reject: bool, argv: *const u64, argc: i64
         let is_builtin =
             !promise_ctor.is_null() && is_cell(this) && as_void_ptr(this) == promise_ctor.cast();
         if !is_builtin {
-            if this_reaches_promise_ctor(this) {
+            if crate::construct::is_constructor(this) {
                 return settle_via_capability(this, reject, arg_at(argv, argc, 1));
             }
             return promise_settle();
@@ -370,10 +377,12 @@ unsafe fn settle_via_capability(c: u64, reject: bool, v: u64) -> u64 {
 /// `(promise, resolve, reject)` boxes, all owned. A builtin |this|
 /// mints the trio directly (NewPromiseCapability(%Promise%) with no
 /// user ctor to observe — a pending cell plus the §27.2.1.3
-/// resolving pair, exactly the withResolvers kernel's front half); a
-/// builtin-heir class object goes through the real construct-channel
-/// capability. `None` = the TypeError is recorded (wrong |this|, or
-/// the heir ctor chain raised).
+/// resolving pair, exactly the withResolvers kernel's front half);
+/// any other constructor — a builtin-heir class object, a plain
+/// function, a class with no Promise in its chain (rotation 650) —
+/// goes through the real construct-channel capability. `None` = the
+/// TypeError is recorded (a |this| that is not a constructor, or
+/// the ctor chain raised).
 unsafe fn capability_for(this: u64) -> Option<(u64, u64, u64)> {
     unsafe {
         let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
@@ -391,7 +400,7 @@ unsafe fn capability_for(this: u64) -> Option<(u64, u64, u64)> {
                 crate::nanbox_encode::__torajs_anyv_box_pointer(pair.reject as *mut c_void),
             ));
         }
-        if this_reaches_promise_ctor(this) {
+        if crate::construct::is_constructor(this) {
             return crate::promise_capability::new_promise_capability(this);
         }
         promise_settle();
