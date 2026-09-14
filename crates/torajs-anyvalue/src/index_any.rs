@@ -112,7 +112,10 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         }
     }
     if is_int32(recv) || is_double(recv) || is_bool(recv) {
-        return VALUE_UNDEFINED;
+        // §10.1.8.1 through the ToObject wrapper: the family
+        // prototype's expando under the decimal spelling
+        // (`Number.prototype[0] = v` then `(3)[0]`, rotation 646).
+        return unsafe { family_proto_index_get(recv, idx) };
     }
     if !is_cell(recv) {
         return VALUE_UNDEFINED;
@@ -127,9 +130,17 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     // OrdinaryGet reaches own numeric keys `defineProperty` planted
     // past the inherent index face.
     if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
-        let out = unsafe { __torajs_any_index_get(inner, idx) };
-        if out != VALUE_UNDEFINED {
-            return out;
+        // Only a String wrapper has an inherent index face (§10.4.3,
+        // non-configurable, ahead of the expando); the other wrappers'
+        // inner primitive answers nothing of its own, and asking it
+        // would reach the family prototype AHEAD of the wrapper's own
+        // expando (rotation 646: `s[0] = "own"` then `s[0]` read the
+        // prototype's entry).
+        if tag == Tag::StringWrapper as u16 {
+            let out = unsafe { __torajs_any_index_get(inner, idx) };
+            if out != VALUE_UNDEFINED {
+                return out;
+            }
         }
         let props =
             unsafe { (ptr.cast::<u8>().add(WRAPPER_PROPS_OFF) as *const u64).read() } as *mut u8;
@@ -145,11 +156,11 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
         // shape sent the expando dict straight into the chain-walking
         // read, reaching the root while skipping the wrapper
         // prototype between.
-        if let Some(ptag) = crate::member_get_layout::wrapper_proto_tag(tag) {
-            let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(ptag) };
-            if !proto.is_null() {
-                return unsafe { dynobj_index_get(proto as *mut c_void, idx) };
-            }
+        // `<Wrapper>.prototype`'s expando — the Symbol wrapper's too
+        // (`wrapper_proto_props` maps every wrapper tag to its row).
+        let proto = crate::member_get_own::wrapper_proto_props(tag);
+        if !proto.is_null() {
+            return unsafe { dynobj_index_get(proto as *mut c_void, idx) };
         }
         return VALUE_UNDEFINED;
     }
@@ -221,15 +232,38 @@ pub unsafe extern "C" fn __torajs_any_index_get(recv: AnyValue, idx: i64) -> Any
     // read back undefined — a write that reports success and a read
     // that cannot see it.
     if let Some(props) = unsafe { crate::member_get_layout::expando_props(ptr, tag).as_ref() } {
-        return unsafe { dynobj_index_get(props as *const _ as *mut c_void, idx) };
+        let out = unsafe { dynobj_index_get(props as *const _ as *mut c_void, idx) };
+        if out != VALUE_UNDEFINED {
+            return out;
+        }
     }
-    VALUE_UNDEFINED
+    // A Symbol / BigInt cell used as a receiver (`Object(1n)[0]`):
+    // the family prototype's expando under the decimal spelling —
+    // §10.1.8.1's chain step, the walk an immediate takes above
+    // (rotation 646, test262 `Array/fromAsync/asyncitems-symbol` /
+    // `-bigint`).
+    unsafe { family_proto_index_get(recv, idx) }
 }
 
 /// Stack decimal formatter for the ToPropertyKey stringification
 /// (in-house — metal-level crates take no external deps). Fills the
 /// 20-byte buffer backward; answers `(start, len)` into it. 20 bytes
 /// covers i64::MIN (`-9223372036854775808`).
+/// The receiver's family prototype (`recv_proto_family` row space)
+/// read under the decimal spelling of `idx`; undefined for a
+/// family-less receiver.
+unsafe fn family_proto_index_get(recv: AnyValue, idx: i64) -> AnyValue {
+    let family = crate::method_value::family::recv_proto_family(recv);
+    if family < 0 {
+        return VALUE_UNDEFINED;
+    }
+    let proto = unsafe { torajs_rc::builtin_proto::__torajs_get_builtin_prototype(family) };
+    if proto.is_null() {
+        return VALUE_UNDEFINED;
+    }
+    unsafe { dynobj_index_get(proto as *mut c_void, idx) }
+}
+
 pub(crate) fn i64_dec(buf: &mut [u8; 20], v: i64) -> (usize, usize) {
     let neg = v < 0;
     // Two's-complement magnitude — safe for i64::MIN.
