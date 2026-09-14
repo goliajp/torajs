@@ -22,14 +22,31 @@
 //!                                            // rotation 627; 2 and 1
 //! ```
 //!
-//! The shape is the head-less argv face's this-first twin. A body's
-//! declaration leads with its head — one slot for a method / twin /
-//! promoted declaration (`__this`), two for a constructor (`__this`,
-//! `__new_target`) — and "right after the head" is where
-//! `inject_argc_params` puts `__torajs_argv`; the SSA side reads the
-//! hidden argc slot off the same structural test the `__cm_` method
-//! tier uses, and the direct-call terminal packs both slots at that
-//! position (`HeadlessSlots::at`). The map's value IS the head width.
+//! The shape is the head-less face's this-first twin, in both of its
+//! tiers. A body's declaration leads with its head — one slot for a
+//! method / twin / promoted declaration (`__this`), two for a
+//! constructor (`__this`, `__new_target`) — and "right after the
+//! head" is where the hidden I64 argc sits in the SSA signature
+//! (`ssa_lower_pass_1::this_first_hidden_argc_pos`, keyed on
+//! `Ast::this_first_argc_fns`) and, for a body that reads argument
+//! VALUES, where `inject_argc_params` puts `__torajs_argv` right
+//! behind it; the direct-call terminal inserts the slots a callee has
+//! at that position (`HeadlessSlots::at`). The maps' value IS the
+//! head width.
+//!
+//! **Two tiers, as the head-less face has them** (rotation 650). A
+//! body that reads only `arguments.length` is on the argc tier alone
+//! (`this_first_argc_fns`); one that reads values — or that never
+//! reads `arguments` at all but has a `...spread` site feeding it,
+//! the ctor shape below — is on both (`this_first_argv_fns` ⊆
+//! `this_first_argc_fns`). Before the split every admitted body took
+//! the argv channel, and a length-only body then materialized its
+//! `arguments` off the buffer regardless — so a relay's forwarding
+//! call, which packs exactly its declared slots, had to cap the
+//! count it forwards at that pack (`forwarded_argc`), and
+//! `[7].map(t, o)` on a `this`-reading `t` that reads only the count
+//! answered 1 where bun says 3. Lifting the cap alone died on the
+//! over-read; an argc-only body has no buffer to over-read.
 //!
 //! Admission is as narrow as its siblings', for the same reason: a
 //! signature reshape is a memory-safety bug at any call site that
@@ -65,17 +82,21 @@
 //! shape and the runtime any-method lane carries the count natively.
 //! A twin and a promoted declaration have no vtable slot.
 
-use super::arguments_object_walkers::body_has_any_arguments_touch;
+use super::arguments_object_walkers::{
+    body_has_any_arguments_touch, body_has_non_length_arguments_touch,
+};
 use super::{Ast, Expr, Stmt};
 
-/// Collect the this-first bodies that want a runtime argv channel:
-/// name → head width.
+/// Collect the this-first bodies that want a runtime argc channel
+/// (`argc`, name → head width) and the subset that also wants the
+/// argv channel (`argv`). A length-only body with no spread site
+/// is in `argc` alone.
 pub(super) fn collect_this_first_argv(
     ast: &Ast,
     excluded: &std::collections::HashSet<String>,
     static_argv: &std::collections::HashMap<String, usize>,
-) -> std::collections::HashMap<String, usize> {
-    let mut out = std::collections::HashMap::new();
+) -> ThisFirstTiers {
+    let mut out = ThisFirstTiers::default();
     let one_slot: std::collections::HashSet<&String> = ast
         .smany_twins
         .values()
@@ -125,15 +146,31 @@ pub(super) fn collect_this_first_argv(
         // test262 `call-spread-err-mult-err-*` cases). Its body does
         // not materialize (`rewrite_one_body` gates that on a touch),
         // so the slots ride along unread.
-        if !body_has_any_arguments_touch(ast, body) && !has_spread_call_site(ast, name) {
+        let spread_site = has_spread_call_site(ast, name);
+        if !body_has_any_arguments_touch(ast, body) && !spread_site {
             continue;
         }
         if !name_only_called_directly(ast, name) {
             continue;
         }
-        out.insert(name.clone(), head);
+        out.argc.insert(name.clone(), head);
+        // A spread site feeds the declared parameters off the
+        // materialized list (`lower_this_first_argv_spread`), so it
+        // needs the argv channel even for a length-only body.
+        if spread_site || body_has_non_length_arguments_touch(ast, body) {
+            out.argv.insert(name.clone(), head);
+        }
     }
     out
+}
+
+/// The two this-first tiers `collect_this_first_argv` answers.
+#[derive(Default)]
+pub(super) struct ThisFirstTiers {
+    /// Every admitted body: hidden argc right after the head.
+    pub(super) argc: std::collections::HashMap<String, usize>,
+    /// The subset that also takes `__torajs_argv` behind the argc.
+    pub(super) argv: std::collections::HashMap<String, usize>,
 }
 
 /// Some call of `name` carries a `...spread` argument.

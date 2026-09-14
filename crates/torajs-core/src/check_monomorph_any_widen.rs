@@ -153,6 +153,16 @@ fn escape_widen_one(
     if owned_ast.headless_argv_fns.contains(&fn_name) {
         owned_ast.headless_argv_fns.insert(mono_name.clone());
     }
+    if let Some(&head) = owned_ast.this_first_argc_fns.get(&fn_name) {
+        owned_ast
+            .this_first_argc_fns
+            .insert(mono_name.clone(), head);
+    }
+    if let Some(&head) = owned_ast.this_first_argv_fns.get(&fn_name) {
+        owned_ast
+            .this_first_argv_fns
+            .insert(mono_name.clone(), head);
+    }
     if !c.globals.contains_key(&mono_name) {
         emit_widened_spec(
             c,
@@ -247,6 +257,16 @@ fn widen_one(
     }
     if owned_ast.headless_argv_fns.contains(&fn_name) {
         owned_ast.headless_argv_fns.insert(mono_name.clone());
+    }
+    if let Some(&head) = owned_ast.this_first_argc_fns.get(&fn_name) {
+        owned_ast
+            .this_first_argc_fns
+            .insert(mono_name.clone(), head);
+    }
+    if let Some(&head) = owned_ast.this_first_argv_fns.get(&fn_name) {
+        owned_ast
+            .this_first_argv_fns
+            .insert(mono_name.clone(), head);
     }
     if !c.globals.contains_key(&mono_name) {
         emit_widened_spec(

@@ -34,6 +34,9 @@ pub(super) struct BodyTiers<'a> {
     pub(super) env_fns: &'a HashSet<String>,
     pub(super) headless_argv_fns: &'a HashSet<String>,
     pub(super) this_first_argv_fns: &'a HashMap<String, usize>,
+    /// Every this-first body on the hidden-argc slot (the argv map
+    /// is its subset) — the classifier's Real-mode key.
+    pub(super) this_first_argc_fns: &'a HashMap<String, usize>,
 }
 
 pub(super) fn rewrite_fn_bodies(
@@ -105,6 +108,7 @@ fn rewrite_one_body(
         env_fns,
         headless_argv_fns,
         this_first_argv_fns,
+        this_first_argc_fns,
     } = t;
     // A shadowed fn's `arguments` idents refer to its OWN
     // `var arguments` local — leave the body untouched (the
@@ -142,7 +146,7 @@ fn rewrite_one_body(
             value_real_argc: value_real_argc,
             value_argv_fns: value_argv_fns,
             env_fns: env_fns,
-            this_first_argv_fns: this_first_argv_fns,
+            this_first_argc_fns: this_first_argc_fns,
         },
     );
     // T-11 — pre-pass: detect any dynamic `arguments[<non-

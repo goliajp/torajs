@@ -24,42 +24,61 @@ use crate::ssa::{self, FuncId, Module, Type};
 use crate::ssa_lower::{effective_ret_ty, intern_fn_sig};
 use crate::ssa_lower_parse_type::parse_type;
 
-/// RFC 20260810-indirect-argc-abi S1-T1 — does this AST param list
-/// mark a this-first method_argv body? Those are the `__cm_` bodies
-/// the arguments pass admitted (zero arena Ident, off the
-/// dispatch/vtable lanes) and gave the synthetic `__torajs_argv`
-/// param right after `__this` (the injected argc retired with the
-/// T2 blade). Such a body takes the same hidden I64 `__torajs_argc`
-/// at sig position 1 as an `__env`-first fn. Sig side (pass 1), def
-/// side (`setup_fn_params`) and the boxed adapter's skip math all
-/// key on this one predicate — keeping it in one place is what
-/// stops the three sites drifting.
-pub(crate) fn this_first_hidden_argc(params: &[crate::ast::Param]) -> bool {
-    this_first_hidden_argc_pos(params).is_some()
+/// RFC 20260810-indirect-argc-abi S1 — where the hidden I64
+/// `__torajs_argc` sits in this fn's SSA signature, on every tier
+/// that has one: right after `__env` for a lifted closure entry
+/// (S3.2), right after the head for a this-first body (S1-T1 and
+/// rotation 616 / 627 / 650, see [`this_first_hidden_argc_pos`]),
+/// at position 0 for a head-less T-31 body (H1 — no head to sit
+/// behind). `None` for a fn with no hidden slot. Sig side (pass 1),
+/// def side (`setup_fn_params`), the literal-default mirror and the
+/// boxed adapter's skip math all key on this one predicate — keeping
+/// it in one place is what stops the sites drifting (they were three
+/// spellings of the same `if`/`else if` chain until rotation 650).
+pub(crate) fn hidden_argc_pos(
+    ast: &Ast,
+    name: &str,
+    params: &[crate::ast::Param],
+) -> Option<usize> {
+    if params.first().is_some_and(|p| p.name == "__env") {
+        return Some(1);
+    }
+    if let Some(pos) = this_first_hidden_argc_pos(ast, name, params) {
+        return Some(pos);
+    }
+    ast.headless_argc_fns.contains(name).then_some(0)
 }
 
 /// Where the hidden I64 `__torajs_argc` sits in a this-first sig —
 /// right after the head, and a head is as wide as the declaration
 /// says. A method carries one slot (`__this`); a constructor carries
-/// two (`__this`, `__new_target`), so its argc lands at 2 and its
-/// injected `__torajs_argv` right after that (rotation 616).
+/// two (`__this`, `__new_target`), so its argc lands at 2 (rotation
+/// 616).
 ///
-/// The presence of `__torajs_argv` is what marks the tier: only the
-/// argv faces inject it, and `inject_argc_params` puts it directly
-/// after the head it found.
-pub(crate) fn this_first_hidden_argc_pos(params: &[crate::ast::Param]) -> Option<usize> {
+/// Two families carry the slot. The direct-call this-first tiers
+/// (ctors, static twins, promoted `this`-reading declarations) are
+/// keyed by NAME in `Ast::this_first_argc_fns`, whose value is the
+/// head width — since rotation 650 a length-only body on that face
+/// has no `__torajs_argv` to be recognised by, so the param list
+/// cannot mark it. The `__cm_` method_argv family (S1-T1: bodies
+/// the arguments pass admitted off the dispatch / vtable lanes) is
+/// marked by the `__torajs_argv` `inject_argc_params` put right
+/// after `__this`.
+pub(crate) fn this_first_hidden_argc_pos(
+    ast: &Ast,
+    name: &str,
+    params: &[crate::ast::Param],
+) -> Option<usize> {
     if params.first().is_none_or(|p| p.name != "__this") {
         return None;
     }
-    if params.get(1).is_some_and(|p| p.name == "__torajs_argv") {
-        return Some(1);
+    if let Some(&head) = ast.this_first_argc_fns.get(name) {
+        return Some(head);
     }
-    if params.get(1).is_some_and(|p| p.name == "__new_target")
-        && params.get(2).is_some_and(|p| p.name == "__torajs_argv")
-    {
-        return Some(2);
-    }
-    None
+    params
+        .get(1)
+        .is_some_and(|p| p.name == "__torajs_argv")
+        .then_some(1)
 }
 
 /// S3.8 — a typed param's literal default (Number / Bool / short
@@ -85,15 +104,8 @@ fn dflt_lits_of_params(
     if !lits.iter().any(Option::is_some) {
         return None;
     }
-    let this_argc_pos = if params.first().is_some_and(|p| p.name == "__env") {
-        Some(1)
-    } else {
-        this_first_hidden_argc_pos(params)
-    };
-    if let Some(pos) = this_argc_pos {
+    if let Some(pos) = hidden_argc_pos(ast, name, params) {
         lits.insert(pos, None);
-    } else if ast.headless_argc_fns.contains(name) {
-        lits.insert(0, None);
     }
     Some(lits)
 }
@@ -210,24 +222,16 @@ pub(crate) fn run(
             // `__torajs_argc` at sig position 1, SSA-only (the AST
             // param list and the checker's Function face never see
             // it). S1-T1 extends the slot to the this-first
-            // method_argv family (see [`this_first_hidden_argc`]) —
-            // same position, right after the head param.
+            // families (see [`this_first_hidden_argc_pos`]) — same
+            // position, right after the head param.
             // `setup_fn_params` injects the def-side twin; the two
             // sites must not drift (same contract as the W1 widen
-            // note above).
-            let this_argc_pos = if params.first().is_some_and(|p| p.name == "__env") {
-                Some(1)
-            } else {
-                this_first_hidden_argc_pos(params)
-            };
-            if let Some(pos) = this_argc_pos {
+            // note above). H1 — the head-less tier has no head
+            // param, so "right after the head" degenerates to sig
+            // position 0; the direct-call terminal prepends the
+            // argc operand.
+            if let Some(pos) = hidden_argc_pos(ast, name, params) {
                 param_tys.insert(pos, Type::I64);
-            } else if ast.headless_argc_fns.contains(name) {
-                // H1 — the head-less tier has no head param, so
-                // "right after the head" degenerates to sig position
-                // 0. Same def-side twin in `setup_fn_params`; the
-                // direct-call terminal prepends the argc operand.
-                param_tys.insert(0, Type::I64);
             }
             let mut ret_ty = effective_ret_ty(
                 parse_type(

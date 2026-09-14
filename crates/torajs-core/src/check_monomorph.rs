@@ -243,6 +243,19 @@ pub(crate) fn process_one_generic(
         if owned_ast.headless_argv_fns.contains(&name) {
             owned_ast.headless_argv_fns.insert(mono_name.clone());
         }
+        // The this-first tiers are keyed by name too (the argc-only
+        // one has no param to be recognised by), so a promoted
+        // `this`-reading declaration's clone mirrors its head width.
+        if let Some(&head) = owned_ast.this_first_argc_fns.get(&name) {
+            owned_ast
+                .this_first_argc_fns
+                .insert(mono_name.clone(), head);
+        }
+        if let Some(&head) = owned_ast.this_first_argv_fns.get(&name) {
+            owned_ast
+                .this_first_argv_fns
+                .insert(mono_name.clone(), head);
+        }
         // `MakeIterable$$_boolean` → `$$_boolean`; the same suffix
         // names this spec's lifted-closure clones.
         let spec_suffix = mono_name[name.len()..].to_string();

@@ -103,7 +103,7 @@ pub(crate) fn lower_fn(
         &mut f,
         name,
         params,
-        ast.headless_argc_fns.contains(name),
+        crate::ssa_lower_pass_1::hidden_argc_pos(ast, name, params),
         ast.argv_boxed_params.get(name),
         aliases,
         arr_layouts,
@@ -270,7 +270,7 @@ fn setup_fn_params(
     f: &mut ssa::Function,
     name: &str,
     params: &[ast::Param],
-    headless_hidden: bool,
+    hidden_argc_pos: Option<usize>,
     argv_boxed: Option<&std::collections::HashSet<String>>,
     aliases: &HashMap<String, Type>,
     arr_layouts: &mut Vec<Type>,
@@ -288,7 +288,7 @@ fn setup_fn_params(
     // RFC 20260810-indirect-argc-abi H1 — a head-less T-31 body's
     // hidden argc sits at sig position 0 (no head to follow), so the
     // def-side twin binds before the param loop.
-    if headless_hidden {
+    if hidden_argc_pos == Some(0) {
         let apid = f.add_param(Type::I64, "__torajs_argc");
         param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
     }
@@ -324,18 +324,13 @@ fn setup_fn_params(
         param_setup.push((p.name.clone(), pid, pty));
         // RFC 20260810-indirect-argc-abi S1 — def-side twin of the
         // Pass-1 sig injection: an `__env`-first fn takes the hidden
-        // I64 `__torajs_argc` right after the env, and S1-T1 gives
-        // the this-first method_argv family the same slot after
-        // `__this` (predicate shared via `this_first_hidden_argc`).
-        // Binding it through param_setup gives S2's default guard /
-        // arguments.length a named local; bodies that never read it
-        // leave a dead slot egraph DCE clears.
-        let this_argc_pos = if params.first().is_some_and(|q| q.name == "__env") {
-            Some(1)
-        } else {
-            crate::ssa_lower_pass_1::this_first_hidden_argc_pos(params)
-        };
-        if this_argc_pos == Some(param_setup.len()) {
+        // I64 `__torajs_argc` right after the env, and the this-first
+        // families theirs right after the head (one predicate,
+        // `ssa_lower_pass_1::hidden_argc_pos`). Binding it through
+        // param_setup gives S2's default guard / arguments.length a
+        // named local; bodies that never read it leave a dead slot
+        // egraph DCE clears.
+        if hidden_argc_pos == Some(param_setup.len()) {
             let apid = f.add_param(Type::I64, "__torajs_argc");
             param_setup.push(("__torajs_argc".to_string(), apid, Type::I64));
         }

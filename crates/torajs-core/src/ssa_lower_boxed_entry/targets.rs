@@ -184,7 +184,8 @@ fn target_facts(
     // this split exists to prevent. S1-T1 — the this-first
     // method_argv family carries the same sig-only slot (shared
     // predicate: pass 1 / setup_fn_params / here).
-    let this_hidden = crate::ssa_lower_pass_1::this_first_hidden_argc(params);
+    let this_hidden =
+        crate::ssa_lower_pass_1::this_first_hidden_argc_pos(ast, name, params).is_some();
     let ast_skip = env_count + usize::from(has_argv);
     let sig_skip = ast_skip + usize::from(first_is_env) + usize::from(this_hidden);
     let user_tys: Vec<Type> = if twin_argv {

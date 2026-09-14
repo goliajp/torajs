@@ -75,12 +75,12 @@ pub(crate) fn forwarded_argc(
         return Some(Operand::Value(v));
     };
     // The cap guards the callee's materialize against reading past
-    // the relay's packed buffer; it holds for a this-first argv-face
-    // target even when the body only reads `.length` (rotation 649
-    // measured lifting it: the body materializes regardless, and
-    // `[7].map(t, o)` died on the over-read). So a typed HOF site
-    // reaching such a target through a relay answers the declared
-    // count — the argv-carrying relay is the recorded residue.
+    // the relay's packed buffer. A length-only this-first body is on
+    // the argc tier alone since rotation 650 (`packed` is None for
+    // it, the branch above), so a typed HOF site reaching it through
+    // `__fwdrecv_` answers the true count; rotation 649 had measured
+    // lifting the cap while such a body still took the argv channel,
+    // and `[7].map(t, o)` died on the over-read.
     Some(Operand::Value(emit_min_const(ctx, v, n as i64)))
 }
 
@@ -157,12 +157,14 @@ pub(crate) fn headless_slots(ctx: &LowerCtx<'_>, eid: ExprId, callee: ExprId) ->
             at: 0,
         };
     };
-    // The this-first lane carries both slots right after the head
-    // its declaration has.
-    if let Some(&head) = ctx.ast.this_first_argv_fns.get(name) {
+    // The this-first lane carries its slots right after the head
+    // its declaration has: the argc on every admitted body, the argv
+    // pointer only on one that reads argument values (rotation 650
+    // split the tiers as the head-less face has them).
+    if let Some(&head) = ctx.ast.this_first_argc_fns.get(name) {
         return HeadlessSlots {
             argc: true,
-            argv: true,
+            argv: ctx.ast.this_first_argv_fns.contains_key(name),
             at: head,
         };
     }

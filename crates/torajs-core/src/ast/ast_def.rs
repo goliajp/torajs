@@ -940,6 +940,20 @@ pub struct Ast {
     /// `__cm_` method tier gets, and the direct-call terminal packs
     /// both slots at that position.
     pub this_first_argv_fns: std::collections::HashMap<String, usize>,
+    /// The this-first bodies on the direct-call runtime ARGC face,
+    /// each with its head width — [`Self::this_first_argv_fns`] plus
+    /// the length-only bodies that want the count and nothing else
+    /// (rotation 650, the split the head-less tier has had since
+    /// H1). An argc-only body gets the hidden I64 slot right after
+    /// its head and no `__torajs_argv`; its direct-call sites insert
+    /// the count alone. The split is what lets a relay's forwarding
+    /// call pass its true runtime count through uncapped: an argv
+    /// body caps the count at what the relay packed (its declared
+    /// slots — the body would read past the buffer otherwise), so a
+    /// typed HOF site reaching a length-only body through
+    /// `__fwdrecv_` answered the declared arity (`[7].map(t, o)`
+    /// said 1 where bun says 3).
+    pub this_first_argc_fns: std::collections::HashMap<String, usize>,
     /// RFC 20260810-indirect-argc-abi H1 — head-less top-level fns
     /// on the T-31 real-argc tier (`arguments.length` readers with
     /// no `__env`/`__this` head). Their SSA sig carries the hidden

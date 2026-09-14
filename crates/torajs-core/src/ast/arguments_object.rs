@@ -155,6 +155,28 @@ fn retain_escape_stored_off_static(
     }
 }
 
+/// Rotation 616 — every class-member body that touches `arguments`,
+/// recorded while the idents are still there to see. The static
+/// spread expander runs after this pass and needs the answer; asking
+/// it there reads a body the rewrite has already emptied. Recorded
+/// for the whole `__cm_` / `__sm_` family, not just the ones a face
+/// admits: the question is "would the index-read expansion lie", and
+/// it lies for every member of the family that reads the count.
+fn collect_method_arguments_touch(ast: &Ast) -> std::collections::HashSet<String> {
+    ast.stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, body, .. }
+                if (name.starts_with("__cm_") || name.starts_with("__sm_"))
+                    && super::arguments_object_walkers::body_has_any_arguments_touch(ast, body) =>
+            {
+                Some(name.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 pub fn desugar_arguments_object(ast: &mut Ast) {
     // Pre-pass — a pass-through return of an `arguments` element is
     // bound to a local first, so the face scans below see a return
@@ -271,36 +293,21 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         super::arguments_object_method_argv::collect_method_argv(ast, &excluded, &iife_static_argv);
     method_argv_fns.extend(objlit_method_argv);
     ast.method_argv_fns = method_argv_fns.clone();
-    // Rotation 616 — record every class-member body that touches
-    // `arguments` while the idents are still there to see. The
-    // static spread expander runs after this pass and needs the
-    // answer; asking it there reads a body the rewrite has already
-    // emptied. Recorded for the whole `__cm_` / `__sm_` family, not
-    // just the ones a face admits: the question is "would the
-    // index-read expansion lie", and it lies for every member of
-    // the family that reads the count.
-    let mut method_arguments_touch: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-    for s in &ast.stmts {
-        if let Stmt::FnDecl { name, body, .. } = s
-            && (name.starts_with("__cm_") || name.starts_with("__sm_"))
-            && super::arguments_object_walkers::body_has_any_arguments_touch(ast, body)
-        {
-            method_arguments_touch.insert(name.clone());
-        }
-    }
-    ast.method_arguments_touch_fns = method_arguments_touch;
+    ast.method_arguments_touch_fns = collect_method_arguments_touch(ast);
     // Rotation 616 / 627 — the this-first direct-call argv lane
     // (ctors, static twins, promoted declarations). Collected after
     // the static face has settled: a body the static face took is
     // already answered at zero cost, and only the ones it abstained
     // on (a spread site, or two sites with different counts) want a
     // runtime channel.
-    let this_first_argv_fns = super::arguments_object_this_first_argv::collect_this_first_argv(
+    let this_first = super::arguments_object_this_first_argv::collect_this_first_argv(
         ast,
         &excluded,
         &iife_static_argv,
     );
+    let this_first_argc_fns = this_first.argc;
+    let this_first_argv_fns = this_first.argv;
+    ast.this_first_argc_fns = this_first_argc_fns.clone();
     ast.this_first_argv_fns = this_first_argv_fns.clone();
     // RFC 20260816-headless-argv-face — the head-less tier's runtime
     // VALUE channel (module doc in arguments_object_headless_argv).
@@ -352,6 +359,7 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
             env_fns: &env_fns,
             headless_argv_fns: &headless_argv_fns,
             this_first_argv_fns: &this_first_argv_fns,
+            this_first_argc_fns: &this_first_argc_fns,
         },
     );
 }
