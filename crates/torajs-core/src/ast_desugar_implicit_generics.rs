@@ -366,6 +366,7 @@ fn seed_declared_fn_sigs(stmts: &[Stmt]) -> std::collections::HashMap<String, St
     for s in stmts {
         if let Stmt::FnDecl {
             name,
+            params,
             return_type: Some(rt),
             type_params,
             ..
@@ -373,6 +374,32 @@ fn seed_declared_fn_sigs(stmts: &[Stmt]) -> std::collections::HashMap<String, St
             && !name.starts_with("__closure_")
             && type_params.is_empty()
         {
+            // A `__forward_<fn>` shim is a closure VALUE (rotation 646):
+            // the map's bare return spelling is what a CALL of the
+            // name answers, but the infer's `Expr::Closure` arm reads
+            // this entry as the value's own type — `{ next: sf }`
+            // returned from an arrow inferred `__inlobj(next:number)`
+            // and the checker refused the literal. Its params are the
+            // target's, cloned with their annotations, so the
+            // fn-shaped sig `preinfer_closure_sigs` would publish later
+            // is spellable here, ahead of the first closure that reads
+            // it.
+            if name.starts_with("__forward_") {
+                let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
+                let complete = params.iter().filter(|p| p.name != "__env").all(|p| {
+                    p.type_ann.as_ref().is_some_and(|a| {
+                        param_anns.push(a.clone());
+                        true
+                    })
+                });
+                if complete {
+                    fn_sigs.insert(
+                        name.clone(),
+                        crate::type_ann_fnsig::fn_type_ann("__fn", &param_anns.join("|"), rt),
+                    );
+                }
+                continue;
+            }
             fn_sigs.insert(name.clone(), rt.clone());
         }
     }
