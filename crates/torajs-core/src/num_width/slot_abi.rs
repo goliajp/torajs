@@ -102,8 +102,20 @@ pub(super) fn relay_unions(a: &mut Analysis) {
             .collect();
         pairs.push((SlotKey::Ret(name.clone()), SlotKey::Ret(target.clone())));
         for (arg, tp) in args.iter().zip(visible.iter()) {
-            let Expr::Ident(p) = a.ast.get_expr(*arg) else {
-                continue;
+            // A rest param forwards as `...xs` (`forwarder_synth`);
+            // it shares the target's rest slot the same way — left
+            // out, an any-call site that also reaches an unrelated
+            // callee (`call(g1); call(gr)` through one `f(6, 7)`)
+            // widened the shell's `xs` through the site's `__p0`
+            // projection while the target's stayed I64, and the
+            // shell's `gr(...xs)` died on the element-kind check.
+            let p = match a.ast.get_expr(*arg) {
+                Expr::Ident(p) => p,
+                Expr::Spread { expr } => match a.ast.get_expr(*expr) {
+                    Expr::Ident(p) => p,
+                    _ => continue,
+                },
+                _ => continue,
             };
             if !relay_params.contains(p) {
                 continue;
