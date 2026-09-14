@@ -25,6 +25,20 @@
 //! a nested fn body resolves against that fn's own scope only
 //! (closure-captured rebinds of an outer `let` keep the loud
 //! reject; extend to a name-keyed fallback if a cluster surfaces).
+//!
+//! Rotation 651 — that fallback exists for NULLISH inits. `let t =
+//! null; let o = { m() { t = this } }` and `let u = undefined; u = 3`
+//! are TS-legal (tsc, strict or not, types a mutable `let x = null` /
+//! `= undefined` as `any`: the initializer carries no information),
+//! and test262 writes the first shape for every "was `return()`
+//! called with the right receiver" check. A nullish init has no type
+//! to keep, so the question is not "which family is the rhs" but
+//! "is the name ever rebound to something other than null /
+//! undefined" — asked NAME-KEYED over the whole program, nested fn
+//! bodies included, because the scope-correct walk starts every fn
+//! body from a fresh stack. A same-named binding elsewhere can
+//! over-widen this one; that costs typed-lane precision on a
+//! binding whose init was `null`, never a wrong answer.
 
 mod walk;
 
@@ -41,6 +55,9 @@ enum Family {
     Str,
     Bool,
     Null,
+    /// The `undefined` literal (spelled `Ident("undefined")` in the
+    /// arena; nothing else in the pipeline treats it as a binding).
+    Undef,
     Arr,
     Obj,
     /// `Ns.method(...)` where `Ns` is a known global namespace
@@ -57,6 +74,7 @@ fn classify(ast: &Ast, e: ExprId) -> Option<Family> {
         Expr::String(_) => Some(Family::Str),
         Expr::Bool(_) => Some(Family::Bool),
         Expr::Null => Some(Family::Null),
+        Expr::Ident(n) if n == "undefined" => Some(Family::Undef),
         Expr::Array(_) => Some(Family::Arr),
         Expr::ObjectLit { .. } => Some(Family::Obj),
         Expr::Call { callee, .. } => match ast.get_expr(*callee) {
@@ -96,10 +114,27 @@ enum Binding {
 /// Collect the init ExprIds of every unannotated mutable `let`
 /// whose binding is later reassigned a value of a DIFFERENT
 /// syntactic family — such bindings type (and lower) as `any`.
+/// Names assigned, anywhere in the program, an rhs that is not the
+/// `null` / `undefined` literal — the name-keyed half of the nullish
+/// rule (module doc). Scope-blind on purpose.
+fn collect_non_nullish_rebinds(ast: &Ast) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for e in &ast.exprs {
+        if let Expr::Assign { target, value } = e
+            && let Expr::Ident(name) = ast.get_expr(*target)
+            && !matches!(classify(ast, *value), Some(Family::Null | Family::Undef))
+        {
+            out.insert(name.clone());
+        }
+    }
+    out
+}
+
 pub(crate) fn collect_cross_type_widen_inits(ast: &Ast) -> HashSet<ExprId> {
     let mut w = Walker {
         ast,
         gen_factories: collect_gen_factories(ast),
+        non_nullish_rebinds: collect_non_nullish_rebinds(ast),
         scopes: vec![HashMap::new()],
         out: HashSet::new(),
     };
@@ -118,6 +153,9 @@ struct Walker<'a> {
     /// assigns a helper cell into the same slot; without the widen
     /// the checker rejects the reassign (Obj slot, Any value).
     gen_factories: HashSet<String>,
+    /// Names rebound somewhere to a non-nullish rhs — the nullish
+    /// rule's name-keyed evidence (module doc).
+    non_nullish_rebinds: HashSet<String>,
     scopes: Vec<HashMap<String, Binding>>,
     out: HashSet<ExprId>,
 }
@@ -172,6 +210,14 @@ impl Walker<'_> {
                     _ => None,
                 }
             }) {
+            // A nullish init widens on the name-keyed evidence alone
+            // (module doc): the scope walk below still sees the
+            // classifiable in-scope rebinds, this catches the rest.
+            if matches!(family, Family::Null | Family::Undef)
+                && self.non_nullish_rebinds.contains(name)
+            {
+                self.out.insert(init);
+            }
             Binding::Tracked { init, family }
         } else {
             Binding::Opaque
