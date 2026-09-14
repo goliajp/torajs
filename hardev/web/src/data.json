@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-14T07:58:20.688Z",
+  "generatedAt": "2026-09-14T12:20:07.774Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-14T07:47:46Z",
-    "headSha": "787eec357",
-    "elapsedSec": 514.08,
+    "ranAt": "2026-09-14T12:09:11Z",
+    "headSha": "dda264488",
+    "elapsedSec": 520.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32482,
+    "pass": 32484,
     "passNoOracle": 1647,
     "passNegative": 4568,
-    "passTotal": 38697,
-    "bug": 10355,
-    "incompatible": 4122,
+    "passTotal": 38699,
+    "bug": 10354,
+    "incompatible": 4121,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49052,
-    "passRateInScope": 72.77,
+    "trAccepted": 49053,
+    "passRateInScope": 72.78,
     "passRateTrAccepted": 78.89
   },
   "torajs": {
-    "commit": "787eec357",
-    "commitSubject": "fix(torajs-core): a sync `yield*` delegation drives the inner iterator with `next(received)`, one argument always",
+    "commit": "dda264488",
+    "commitSubject": "feat(torajs-str, torajs-anyvalue, torajs-core): every string iteration steps per code point",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,6 +740,38 @@
   },
   "commits": [
     {
+      "hash": "dda264488",
+      "subject": "feat(torajs-str, torajs-anyvalue, torajs-core): every string iteration steps per code point"
+    },
+    {
+      "hash": "84f9b78c3",
+      "subject": "fix(torajs-core): the receiver-first `(F as any)` claim is the bind / call / apply receiver only"
+    },
+    {
+      "hash": "6d05ef7eb",
+      "subject": "fix(torajs-core): `(F as any)` of a this-using named fn is a receiver-first value at every site"
+    },
+    {
+      "hash": "1ee0d38d3",
+      "subject": "feat(torajs-core): a machine body keeps the temporal dead zone of its lifted lets"
+    },
+    {
+      "hash": "3c86e478d",
+      "subject": "fix(torajs-core): a binding pattern's rest walks the iterator at a lifted field store"
+    },
+    {
+      "hash": "e2027bfc7",
+      "subject": "feat(torajs-core): pattern-head for-of / for-await bodies move into the async machine"
+    },
+    {
+      "hash": "996e6499d",
+      "subject": "chore(hardev): rotation 647 file-size stamp @eb056fc82 (0 new / 0 grew)"
+    },
+    {
+      "hash": "eb056fc82",
+      "subject": "chore(hardev): rotation 647 close stamps — test262 sweep @787eec357 (+18 passTotal, 0 regressions), determinism 46/46 N=12, gmalloc 3651/3654 clean 0 offenders, dashboard snapshot"
+    },
+    {
       "hash": "787eec357",
       "subject": "fix(torajs-core): a sync `yield*` delegation drives the inner iterator with `next(received)`, one argument always"
     },
@@ -754,59 +786,38 @@
     {
       "hash": "8c4260f35",
       "subject": "fix(torajs-core): Array.fromAsync asks the runtime's IsConstructor, not `typeof`"
-    },
-    {
-      "hash": "6578c35d8",
-      "subject": "docs(torajs-core): the argv census's compiler-minted exemption is explained in the module doc, not inside the registered function"
-    },
-    {
-      "hash": "6388190ea",
-      "subject": "fix(torajs-core): the for-of close helpers read `return` as a member off their own binding; the argv census exempts compiler-minted iterator handles"
-    },
-    {
-      "hash": "db8390e9c",
-      "subject": "feat(torajs-core): `for await` and an awaiting `for…of` move into the async machine, with iterator close (RFC 20260915 blade 4)"
-    },
-    {
-      "hash": "19fa4921e",
-      "subject": "Revert \"feat(torajs-core): `for await` and an awaiting `for…of` move into the async machine, with iterator close (RFC 20260915 blade 4)\""
-    },
-    {
-      "hash": "7b38babb6",
-      "subject": "feat(torajs-core): `for await` and an awaiting `for…of` move into the async machine, with iterator close (RFC 20260915 blade 4)"
-    },
-    {
-      "hash": "707208912",
-      "subject": "feat(torajs-core): an async function holding `await using` moves into its state machine (RFC 20260915 blade 5)"
-    },
-    {
-      "hash": "ffc20c442",
-      "subject": "fix(torajs-core): a nested async value's frame link is captured outside the value, not read through its `this`"
-    },
-    {
-      "hash": "ca43f466a",
-      "subject": "fix(torajs-core): a labeled block holding a yield gets an exit state in the generator machine"
     }
   ],
-  "headSha": "787eec357",
+  "headSha": "dda264488",
   "autorun": {
-    "total": 950,
+    "total": 951,
     "baselineTarget": 10,
-    "bySelf": 945,
+    "bySelf": 946,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789361201-1e40",
-      "at": "2026-09-14T04:46:41Z",
-      "ts": 1789361201,
+      "rotationId": "r-1789372732-331f",
+      "at": "2026-09-14T07:58:52Z",
+      "ts": 1789372732,
       "trigger": "self",
-      "prevHead": "7cc7a25dc",
-      "handoffSha": "sha256:1d7e8b2a09e231011b4e6f3f79acd9a37652988a641b8f291e3b32db10401eb5",
-      "handoffAgeSec": 1,
-      "conformanceBefore": "4119/0/4",
+      "prevHead": "996e6499d",
+      "handoffSha": "sha256:34e592fded1f857b6b20398218c63e682909c6f00910fbf815e9bffe135ce3e8",
+      "handoffAgeSec": 39,
+      "conformanceBefore": "4130/0/4",
       "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789372732-331f",
+        "at": "2026-09-14T07:58:52Z",
+        "ts": 1789372732,
+        "trigger": "self",
+        "prevHead": "996e6499d",
+        "handoffSha": "sha256:34e592fded1f857b6b20398218c63e682909c6f00910fbf815e9bffe135ce3e8",
+        "handoffAgeSec": 39,
+        "conformanceBefore": "4130/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789361201-1e40",
         "at": "2026-09-14T04:46:41Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 6,
         "conformanceBefore": "4033/0/4",
         "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789206520-4ae8",
-        "at": "2026-09-12T09:48:40Z",
-        "ts": 1789206520,
-        "trigger": "self",
-        "prevHead": "ebd9a8100",
-        "handoffSha": "sha256:4fbc9f31f151dec3f4a11989ae96e34f8040586d5c45aaaeb6d25ee6c1ee509a",
-        "handoffAgeSec": 17,
-        "conformanceBefore": "4024/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
