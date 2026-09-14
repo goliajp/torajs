@@ -5,7 +5,7 @@
 
 use super::free_vars::walk_stmt;
 use super::free_vars_expr::walk_expr;
-use super::free_vars_hoisted_names::hoist_fn_decl_names;
+use super::free_vars_hoisted_names::hoist_list_names;
 use super::{Ast, ClassCtor, ClassMethod, ExprId, Param, StaticInit, Stmt};
 
 /// A nested `function` declaration's body walk. The decl's own name is
@@ -36,7 +36,7 @@ pub(super) fn walk_fn_decl(
     }
     bound.push("arguments".into());
     bound.push("__this".into());
-    hoist_fn_decl_names(body, bound);
+    hoist_list_names(body, bound);
     for s in body {
         walk_stmt(ast, s, bound, out);
     }
@@ -76,7 +76,7 @@ pub(super) fn walk_class_decl(
             StaticInit::Field(f) => walk_expr(ast, f.init, bound, out),
             StaticInit::Block(v) => {
                 let saved = bound.len();
-                hoist_fn_decl_names(v, bound);
+                hoist_list_names(v, bound);
                 for s in v {
                     walk_stmt(ast, s, bound, out);
                 }

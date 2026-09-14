@@ -51,6 +51,11 @@ pub(super) fn prep_generator_body(
     for s in &mut gen_body {
         expand_yield_into_in_stmt(ast, s, yield_ty);
     }
+    // RFC 20260915 item 2 — the temporal dead zone of every `let` /
+    // `const` this body is about to lift, settled while the statement
+    // order still exists (a lifted field has neither a declaration
+    // nor a position left).
+    super::desugar_generators_tdz::rewrite_tdz(ast, &mut gen_body);
     // After expansion, gen_body may contain Multi(Vec<Stmt>) holding
     // the [Yield; LetDecl] pair. The recursive let-lift below walks
     // Multi just fine.

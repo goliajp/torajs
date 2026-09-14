@@ -87,6 +87,18 @@ fn collect_param_hits(ast: &Ast, params: &[Param], hits: &mut Vec<(ExprId, Strin
 /// pass runs after the `Expr::New`-rewriting passes, so a fresh `New`
 /// node would reach the checker unresolved.
 fn rewrite_to_throw_iife(ast: &mut Ast, eid: ExprId, name: &str) {
+    let call = tdz_throw_iife(ast, name, None);
+    ast.exprs[eid.0 as usize] = call;
+}
+
+/// The node itself: `(() : any => { [<before>;] throw
+/// __new_ReferenceError("Cannot access '<name>' before initialization")
+/// })()`, returned rather than stored so the caller decides which slot
+/// it overwrites. `before` is an expression to evaluate ahead of the
+/// throw — the right-hand side of a dead-zone WRITE (§13.15.2 evaluates
+/// the value before PutValue raises). Shared with the machine-body
+/// dead zone (`desugar_generators_tdz`, RFC 20260915 item 2).
+pub(super) fn tdz_throw_iife(ast: &mut Ast, name: &str, before: Option<ExprId>) -> Expr {
     let msg = ast.add_expr(Expr::String(
         format!("Cannot access '{name}' before initialization").into(),
     ));
@@ -95,13 +107,18 @@ fn rewrite_to_throw_iife(ast: &mut Ast, eid: ExprId, name: &str) {
         callee: factory,
         args: vec![msg],
     });
+    let mut body = Vec::new();
+    if let Some(b) = before {
+        body.push(Stmt::Expr(b));
+    }
+    body.push(Stmt::Throw(err));
     let arrow = ast.add_expr(Expr::ArrowFn {
         params: vec![],
         return_type: Some("any".to_string()),
-        body: vec![Stmt::Throw(err)],
+        body,
     });
-    ast.exprs[eid.0 as usize] = Expr::Call {
+    Expr::Call {
         callee: arrow,
         args: vec![],
-    };
+    }
 }

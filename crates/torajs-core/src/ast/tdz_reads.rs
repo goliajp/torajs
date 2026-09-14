@@ -112,11 +112,21 @@ pub fn mark_tdz_reads(ast: &mut Ast) {
 
 /// `Multi` shares the surrounding scope, so it is spliced rather than
 /// treated as a list of its own — the same flattening the top level
-/// gets.
+/// gets. So does `desugar_using`'s wrapper: `try { <the rest of the
+/// list> } catch (__usc_N) { … } finally { … }` holds the statements
+/// written after a `using` declaration, in the scope they were
+/// written in, and a read before the wrapper of a name declared
+/// inside it (`console.log(x); await using x = null`) is the dead
+/// zone exactly as it would be without the wrapper.
 fn flatten<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Stmt>) {
     for s in stmts {
         match s {
             Stmt::Multi(inner) => flatten(inner, out),
+            Stmt::Try {
+                body,
+                catch_param: Some(p),
+                ..
+            } if p.starts_with("__usc_") => flatten(body, out),
             other => out.push(other),
         }
     }
@@ -124,7 +134,12 @@ fn flatten<'a>(stmts: &'a [Stmt], out: &mut Vec<&'a Stmt>) {
 
 /// Run the rule on one more list, then keep descending. A list's own
 /// declarations are the only ones it sees.
-fn run_nested(ast: &Ast, stmts: &[Stmt], out: &mut HashSet<ExprId>) {
+///
+/// `pub(super)` since RFC 20260915 item 2: a generator / async
+/// machine body asks the same question BEFORE its lets lift into
+/// fields (`desugar_generators_tdz`), where the list order this rule
+/// reads still exists.
+pub(super) fn run_nested(ast: &Ast, stmts: &[Stmt], out: &mut HashSet<ExprId>) {
     let mut flat: Vec<&Stmt> = Vec::new();
     flatten(stmts, &mut flat);
     mark_list(ast, &flat, out);
@@ -200,6 +215,25 @@ fn mark_list(ast: &Ast, flat: &[&Stmt], marks: &mut HashSet<ExprId>) {
         return;
     }
     for (i, s) in flat.iter().enumerate() {
+        // A declaration's OWN initializer runs before the binding is
+        // initialized (§14.3.1.2 step 1: the initializer is evaluated,
+        // then InitializeReferencedBinding), so `const a = a + 1` /
+        // `let x = { x }` read the dead zone every time. The name is
+        // not "later" than its own statement, and `collect_bound_names`
+        // would shadow it, so it is asked directly of the init. (The
+        // checker used to call the read undeclared — `a is not
+        // defined` — the right class for the wrong reason.)
+        if let Stmt::LetDecl {
+            name,
+            init,
+            is_var: false,
+            ..
+        } = s
+            && decl_at.get(name.as_str()) == Some(&i)
+        {
+            let own: HashSet<&str> = std::iter::once(name.as_str()).collect();
+            mark_expr(ast, *init, &own, &HashSet::new(), marks);
+        }
         let later: Vec<&str> = decl_at
             .iter()
             .filter(|(_, j)| **j > i)
@@ -230,7 +264,7 @@ fn mark_list(ast: &Ast, flat: &[&Stmt], marks: &mut HashSet<ExprId>) {
 /// [`mark_stmt`] takes, asked the opposite question. Fn and class
 /// bodies are not entered here either: a binding inside one cannot
 /// shadow anything the walk will mark.
-fn collect_bound_names<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
+pub(super) fn collect_bound_names<'a>(s: &'a Stmt, out: &mut HashSet<&'a str>) {
     match s {
         Stmt::LetDecl { name, .. } | Stmt::UsingDecl { name, .. } => {
             out.insert(name.as_str());

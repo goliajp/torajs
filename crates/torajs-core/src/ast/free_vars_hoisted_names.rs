@@ -19,16 +19,42 @@
 
 use super::{Ast, Stmt};
 
-/// Function declarations hoist: a reference anywhere in the holding
-/// list — including before the declaration — resolves to the local
-/// decl, never to an outer binding. Bind every direct `FnDecl` name
-/// before walking the list's statements.
-pub(super) fn hoist_fn_decl_names(list: &[Stmt], bound: &mut Vec<String>) {
+/// The names a list binds for its whole extent, before any of its
+/// statements run — bound before walking the list. A function
+/// declaration hoists: a reference anywhere in the holding list,
+/// including before the declaration, resolves to the local decl. A
+/// lexical declaration (`let` / `const` / `using` / `class`) is in
+/// scope from the block's start too (§14.3.1): a reference before it
+/// is the temporal dead zone of THIS binding, never an outer name —
+/// `(async function () { console.log(w); await null; let w = 1 })`
+/// read as free captured a `w` the enclosing scope never bound
+/// (`unknown identifier`) where bun raises the ReferenceError. `var`
+/// hoists further and is [`hoist_var_names`]'s.
+pub(super) fn hoist_list_names(list: &[Stmt], bound: &mut Vec<String>) {
     for s in list {
-        if let Stmt::FnDecl { name, .. } = s {
-            if !bound.contains(name) {
-                bound.push(name.clone());
+        let name = match s {
+            Stmt::FnDecl { name, .. } | Stmt::ClassDecl { name, .. } => name,
+            Stmt::LetDecl {
+                name,
+                is_var: false,
+                ..
             }
+            | Stmt::UsingDecl { name, .. } => name,
+            // `desugar_using`'s wrapper holds the rest of THIS list
+            // (`try { … } catch (__usc_N)`), in the scope it was
+            // written in — its declarations belong to this list.
+            Stmt::Try {
+                body,
+                catch_param: Some(p),
+                ..
+            } if p.starts_with("__usc_") => {
+                hoist_list_names(body, bound);
+                continue;
+            }
+            _ => continue,
+        };
+        if !bound.contains(name) {
+            bound.push(name.clone());
         }
     }
 }

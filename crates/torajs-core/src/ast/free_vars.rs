@@ -14,7 +14,7 @@
 
 use super::free_vars_decls::{walk_class_decl, walk_fn_decl};
 use super::free_vars_expr::walk_expr;
-use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_fn_decl_names, hoist_var_names};
+use super::free_vars_hoisted_names::{hoist_annexb_fn_names, hoist_list_names, hoist_var_names};
 use super::{Ast, Param, Stmt};
 
 /// Free-variable analysis for an arrow fn body. Returns a deterministic,
@@ -64,7 +64,7 @@ pub(super) fn free_vars_of_arrow(
 pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -> Vec<String> {
     let mut bound: Vec<String> = prebound.to_vec();
     let mut out: Vec<String> = Vec::new();
-    hoist_fn_decl_names(body, &mut bound);
+    hoist_list_names(body, &mut bound);
     // `var` is function-scoped, so a declaration written inside a block
     // is bound for the whole body — including after the block, where
     // the block-scoped walk below would have dropped it.
@@ -99,7 +99,7 @@ fn walk_try(
     out: &mut Vec<String>,
 ) {
     let saved = bound.len();
-    hoist_fn_decl_names(body, bound);
+    hoist_list_names(body, bound);
     for s in body {
         walk_stmt(ast, s, bound, out);
     }
@@ -107,13 +107,13 @@ fn walk_try(
     if let Some(name) = catch_param {
         bound.push(name.clone());
     }
-    hoist_fn_decl_names(catch_body, bound);
+    hoist_list_names(catch_body, bound);
     for s in catch_body {
         walk_stmt(ast, s, bound, out);
     }
     bound.truncate(saved);
     if let Some(fb) = finally_body {
-        hoist_fn_decl_names(fb, bound);
+        hoist_list_names(fb, bound);
         for s in fb {
             walk_stmt(ast, s, bound, out);
         }
@@ -189,10 +189,10 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             // names of every clause hoist into it together.
             let saved = bound.len();
             for c in cases.iter() {
-                hoist_fn_decl_names(&c.body, bound);
+                hoist_list_names(&c.body, bound);
             }
             if let Some(db) = default {
-                hoist_fn_decl_names(db, bound);
+                hoist_list_names(db, bound);
             }
             for c in cases {
                 walk_expr(ast, c.value, bound, out);
@@ -228,7 +228,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
         }
         Stmt::Block(stmts) => {
             let saved = bound.len();
-            hoist_fn_decl_names(stmts, bound);
+            hoist_list_names(stmts, bound);
             for st in stmts {
                 walk_stmt(ast, st, bound, out);
             }
@@ -236,7 +236,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
         }
         Stmt::Multi(stmts) => {
             // Same surrounding scope — bindings stay visible after.
-            hoist_fn_decl_names(stmts, bound);
+            hoist_list_names(stmts, bound);
             for st in stmts {
                 walk_stmt(ast, st, bound, out);
             }

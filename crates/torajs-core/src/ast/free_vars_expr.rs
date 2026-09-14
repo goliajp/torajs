@@ -8,7 +8,7 @@
 //! function body walks statements again.
 
 use super::free_vars::{is_global_name, walk_stmt};
-use super::free_vars_hoisted_names::hoist_fn_decl_names;
+use super::free_vars_hoisted_names::hoist_list_names;
 use super::{Ast, Expr, ExprId};
 
 pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
@@ -89,7 +89,7 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
             if let Some(sn) = ast.fn_expr_self_names.get(&eid) {
                 bound.push(sn.clone());
             }
-            hoist_fn_decl_names(body, bound);
+            hoist_list_names(body, bound);
             for s in body {
                 walk_stmt(ast, s, bound, out);
             }
