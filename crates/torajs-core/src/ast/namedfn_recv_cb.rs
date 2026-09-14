@@ -65,7 +65,7 @@ use super::namedfn_recv_cb_sites::{
     collect_any_let_init_sites, collect_as_any_sites, collect_json_cb_sites,
     collect_objlit_field_sites, collect_props_push_sites, collect_props_store_sites, collect_sites,
 };
-use super::{Ast, Expr, ExprId, Param, Stmt};
+use super::{Ast, Expr, Param, Stmt};
 use std::collections::HashMap;
 
 pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
@@ -150,10 +150,10 @@ fn collect_promoted_fn_sigs(
 }
 
 /// Mint `__fwdrecv_<target>(__env, __this, ...user) { return
-/// target(__this, ...user) }` and append the decl. The target's own
-/// params already lead with `__this: any`, so the forwarder's face
-/// is `__env` + the target params verbatim, and the forwarding call
-/// passes every one through by name.
+/// target(__this, ...user) }` and append the decl — the receiver-first
+/// face of the one forwarder synthesizer (`forwarder_synth`), so the
+/// argv relay, the `__torajs_argv` peel and the gen-argv tail are the
+/// plain shell's.
 fn synthesize_one(
     ast: &mut Ast,
     target: &str,
@@ -168,33 +168,15 @@ fn synthesize_one(
         return fwd;
     }
     let (params, return_type, target_span) = fn_sigs[target].clone();
-    let mut fwd_params: Vec<Param> = Vec::with_capacity(params.len() + 1);
-    fwd_params.push(Param {
-        name: "__env".into(),
-        type_ann: Some("__env()".to_string()),
-        default: None,
-        is_rest: false,
-    });
-    fwd_params.extend(params.iter().cloned());
-    let mut arg_eids: Vec<ExprId> = Vec::with_capacity(params.len());
-    for p in &params {
-        arg_eids.push(ast.add_expr(Expr::Ident(p.name.clone())));
-    }
-    let callee_id = ast.add_expr(Expr::Ident(target.to_string()));
-    let call_id = ast.add_expr(Expr::Call {
-        callee: callee_id,
-        args: arg_eids,
-    });
-    ast.stmts.push(Stmt::FnDecl {
-        name: fwd.clone(),
-        type_params: Vec::new(),
-        params: fwd_params,
+    let decl = super::forwarder_synth::synth_forwarder_decl(
+        ast,
+        &fwd,
+        target,
+        &params,
         return_type,
-        body: vec![Stmt::Return(Some(call_id))],
-        is_generator: false,
-        // The target's source span — toString answers the wrapped
-        // user fn's source (B4, same as the plain forwarder).
-        span: target_span,
-    });
+        target_span,
+        super::forwarder_synth::ShellFace::ReceiverFirst,
+    );
+    ast.stmts.push(decl);
     fwd
 }

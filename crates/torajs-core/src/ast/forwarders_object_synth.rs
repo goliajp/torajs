@@ -89,6 +89,7 @@ pub(super) fn synthesize_forwarder_decls(
             &params,
             return_type,
             target_span,
+            crate::ast::ShellFace::Plain,
         ));
         renames.insert(target.clone(), forward_name);
     }

@@ -176,6 +176,7 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             &params,
             return_type,
             target_span,
+            crate::ast::ShellFace::Plain,
         ));
     }
     for (i, target) in sites {

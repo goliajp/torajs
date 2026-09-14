@@ -1,11 +1,12 @@
 //! The one `__forward_<target>` synthesizer.
 //!
-//! Four passes mint forwarders — [`super::forwarders`] (a fn-typed
+//! Five passes mint forwarders — [`super::forwarders`] (a fn-typed
 //! `return f`), [`super::forwarders_object_synth`] (a member-assigned
 //! `o.m = f`), [`super::namedfn_this_value`] (a `this`-reading
 //! declaration used as a value) and
 //! [`crate::ast_closure_param_tag_axes`] (a name reaching a retagged
-//! lane). Each arrived with its own copy of the same decl shape, and
+//! lane) and [`super::namedfn_recv_cb`] (a thisArg callback position,
+//! receiver-first). Each arrived with its own copy of the same decl shape, and
 //! the copies had begun to drift: the fourth forwarded a rest param as
 //! a bare ident where the other three spread it. A rule with four
 //! transcripts is a rule that will be applied to three of them.
@@ -36,19 +37,41 @@
 //!   user function's source; the forwarder is that function as far as
 //!   an observer is concerned.
 //!
-//! Not folded in: giving the public face a receiver-first channel.
-//! That was tried twice (rotations 366 and 595) and reverted both
-//! times; the audit at
+//! The receiver-first face (`ShellFace::ReceiverFirst`, the
+//! `__fwdrecv_<target>` shell `namedfn_recv_cb` mints for a thisArg
+//! callback position) is the same synthesizer since rotation 649: it
+//! keeps `__this` on the face and forwards it, everything else — the
+//! `__torajs_argv` peel, the rest spread, the gen-argv tail, the
+//! static twin — is shared. Which SITES get that face is still
+//! decided per route: giving every value use the receiver-first face
+//! was tried twice (rotations 366 and 595) and reverted both times,
+//! and the audit at
 //! `.claude/rfcs/20260905-named-fn-value-identity/boxed-entry-caller-audit.md`
 //! says why it can only move per route. This file is that audit's §5.4
-//! precondition — one place to apply a per-route conclusion, instead
-//! of four places to apply it to three of.
+//! precondition — one place to apply a per-route conclusion.
 
 use super::{push_gen_argv_spread, split_gen_argv_tail};
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 
+/// Which public face the shell gets. A `bind_this_param`-promoted
+/// target carries `__this` first; the plain face hides it and feeds
+/// `undefined` (the plain-call receiver, §10.2.1.2), the
+/// receiver-first face keeps it as the shell's first user param and
+/// forwards it — the `__fwdrecv_<target>` shell a thisArg callback
+/// position mints (`namedfn_recv_cb`), registered in
+/// `fnexpr_recv_fns` so every receiver-aware invoker puts the
+/// receiver in argv[0]. Both faces are one synthesizer since rotation
+/// 649: the receiver-first shell used to be a second copy with no argv
+/// relay and no rest / gen-argv handling.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ShellFace {
+    Plain,
+    ReceiverFirst,
+}
+
 /// Build `__forward_<target>(__env, ...user params) { return
-/// target(...); }` from the target's own signature.
+/// target(...); }` (or the receiver-first `__fwdrecv_<target>(__env,
+/// __this, ...user)`) from the target's own signature.
 pub(crate) fn synth_forwarder_decl(
     ast: &mut Ast,
     forward_name: &str,
@@ -56,6 +79,7 @@ pub(crate) fn synth_forwarder_decl(
     params: &[Param],
     return_type: Option<String>,
     target_span: crate::lexer::Span,
+    face: ShellFace,
 ) -> Stmt {
     let twin = static_twin_target(ast, target);
     let (target, params, return_type) = match &twin {
@@ -63,6 +87,7 @@ pub(crate) fn synth_forwarder_decl(
         None => (target, params, return_type),
     };
     let takes_this = params.first().is_some_and(|p| p.name == "__this");
+    let forced_recv = takes_this && face == ShellFace::ReceiverFirst;
     // A relay minted after `desugar_arguments_object` sees the
     // target's injected `__torajs_argv` (head-less: position 0;
     // this-first: right after `__this`). It never enters the face
@@ -74,11 +99,14 @@ pub(crate) fn synth_forwarder_decl(
         .filter(|p| p.name != "__torajs_argv")
         .cloned()
         .collect();
-    let user_params = if takes_this {
+    let user_params = if takes_this && !forced_recv {
         &peeled[1..]
     } else {
         &peeled[..]
     };
+    if forced_recv {
+        ast.fnexpr_recv_fns.insert(forward_name.to_string());
+    }
     let (user_params, takes_gen_argv) = split_gen_argv_tail(user_params);
     let user_params = user_params.to_vec();
 
@@ -92,7 +120,7 @@ pub(crate) fn synth_forwarder_decl(
     fwd_params.extend(user_params.iter().cloned());
 
     let mut arg_eids: Vec<ExprId> = Vec::with_capacity(user_params.len() + 1);
-    if takes_this {
+    if takes_this && !forced_recv {
         arg_eids.push(ast.add_expr(Expr::Ident("undefined".into())));
     }
     for p in &user_params {

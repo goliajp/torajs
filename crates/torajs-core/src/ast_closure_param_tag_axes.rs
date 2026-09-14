@@ -194,6 +194,7 @@ pub(crate) fn wrap_named_fn_values(
                 &params,
                 return_type,
                 target_span,
+                crate::ast::ShellFace::Plain,
             ));
             existing_forwarders.insert(forward_name.clone());
         }

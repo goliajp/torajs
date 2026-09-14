@@ -157,6 +157,7 @@ pub fn synthesize_forwarders(ast: &mut Ast) {
             &params,
             return_type,
             target_span,
+            crate::ast::ShellFace::Plain,
         ));
         renames.insert(target.clone(), forward_name);
     }
