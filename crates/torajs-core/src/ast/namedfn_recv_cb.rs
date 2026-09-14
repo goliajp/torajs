@@ -80,6 +80,7 @@ pub fn synthesize_recv_cb_forwarders(ast: &mut Ast) {
     collect_props_push_sites(ast, &fn_sigs, &mut sites);
     collect_json_cb_sites(ast, &fn_sigs, &mut sites);
     collect_as_any_sites(ast, &fn_sigs, &mut sites);
+    super::namedfn_recv_cb_from::collect_array_from_sites(ast, &fn_sigs, &mut sites);
     if sites.is_empty() {
         return;
     }
@@ -118,6 +119,7 @@ pub(crate) fn recv_cb_claimed_sites(ast: &Ast) -> std::collections::HashSet<usiz
     collect_props_push_sites(ast, &fn_sigs, &mut sites);
     collect_json_cb_sites(ast, &fn_sigs, &mut sites);
     collect_as_any_sites(ast, &fn_sigs, &mut sites);
+    super::namedfn_recv_cb_from::collect_array_from_sites(ast, &fn_sigs, &mut sites);
     sites.into_iter().map(|(e, _)| e.0 as usize).collect()
 }
 
