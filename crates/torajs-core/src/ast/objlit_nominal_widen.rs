@@ -76,6 +76,24 @@ pub(crate) fn widen_detached_method_objlits(
     if !returned.is_empty() {
         super::objlit_nominal_returned::force_returned_literals(stmts, exprs, spans, &returned);
     }
+    // Self-referencing leg (rotation 650) — `var t = { then(res) { … t
+    // … } }`: a method that captures the literal's OWN binding. A
+    // nominal literal's methods lift to receiver-only bodies with no
+    // closure env, so the captured name had nowhere to live and the
+    // body died at "unknown identifier `t`" (the test262 thenable
+    // idiom — `Promise/resolve/S25.4.4.5_A3.1_T1` and its foreign-
+    // thenable sibling; any binding kind). The any-lane literal's
+    // methods are ordinary closures and capture the binding like any
+    // other outer name, which is what `var t: any = …` already
+    // answered correctly. The closure's capture list is the exact
+    // signal: the lifted body already computed it.
+    let admit = |name: &str, init: ExprId| {
+        matches!(&exprs[init.0 as usize], Expr::ObjectLit { fields } if fields.iter().any(|(_, fe)| {
+            matches!(&exprs[fe.0 as usize], Expr::Closure { captures, .. }
+                if captures.iter().any(|c| c == name))
+        }))
+    };
+    widen_inner(stmts, &admit);
 }
 
 /// ExprIds sitting in callee position — what separates reading a
