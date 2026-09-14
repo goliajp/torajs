@@ -204,6 +204,7 @@ mod infer_closure_params_hof;
 mod infer_closure_params_promise;
 mod infer_closure_this_scope;
 mod infer_closure_typevars;
+mod inject_array_from_async;
 mod inject_builtin_classes;
 mod inject_builtin_classes_build;
 mod inject_builtin_classes_cause;
@@ -342,6 +343,7 @@ pub(crate) use implicit_generics_infer::{
 };
 pub(crate) use implicit_generics_value_return::body_has_value_return;
 pub use infer_closure_params::infer_anonymous_closure_params;
+pub use inject_array_from_async::inject_array_from_async;
 pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;
 pub use inject_disposable_stack::inject_disposable_stack;

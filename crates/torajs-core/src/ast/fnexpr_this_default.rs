@@ -33,9 +33,6 @@
 //! the receiver-less answer):
 //!
 //! * `Object.groupBy(items, cb)` / `Map.groupBy` — §7.3.35 step 4.c.
-//! * `Array.fromAsync(items, mapfn)` — proposal-array-from-async
-//!   §2.1.1 step 5.e, and only when the call site omitted the third
-//!   argument, since that one is the thisArg.
 //! * `p.then(f)` / `p.then(f, g)` / `p.catch(f)` / `p.finally(f)` —
 //!   §27.2.5.4 step 9's `Call(handler, undefined, «argument»)`, and
 //!   the same in §27.2.5.1 / §27.2.5.3. The receiver has to be a

@@ -18,8 +18,8 @@ use super::{Expr, ExprId};
 /// (rotation 345) and the proof each entry carries is about the
 /// receiver, which is why `Reflect.apply` belongs in it too.
 ///
-/// Today: `Reflect.construct` and the `Array.from` / `Array.fromAsync`
-/// / `Array.of` statics re-dispatched through `.call` / `.apply`
+/// Today: `Reflect.construct` and the `Array.from` / `Array.of`
+/// statics re-dispatched through `.call` / `.apply`
 /// (their ns-static cells are recv-first, so the thisArg rides argv[0]
 /// into the kernel's Construct split).
 ///
@@ -58,7 +58,7 @@ fn receiver_honoring_callee(exprs: &[Expr], callee: ExprId) -> bool {
         }
         Expr::Member { obj, name } if name == "call" || name == "apply" => {
             matches!(&exprs[obj.0 as usize], Expr::Member { obj: ns, name: m }
-                if (m == "from" || m == "fromAsync" || m == "of")
+                if (m == "from" || m == "of")
                     && matches!(&exprs[ns.0 as usize], Expr::Ident(n) if n == "Array"))
         }
         _ => false,
@@ -67,7 +67,7 @@ fn receiver_honoring_callee(exprs: &[Expr], callee: ExprId) -> bool {
 
 /// RFC 20260808-construct-channel B6 刀 2 — an argument handed to a
 /// RECEIVER-HONORING builtin (`Reflect.construct(C, …)`,
-/// `Array.from.call(C, …)` / `.apply`, fromAsync same) is the
+/// `Array.from.call(C, …)` / `.apply`) is the
 /// fourth receiver-safe use shape: those builtins reach the closure
 /// only through receiver-honoring channels (construct →
 /// `invoke_with_this`; the recv-first ns-static cell prepends the

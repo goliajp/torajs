@@ -219,6 +219,7 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::unwrap_exports(&mut ast);
         torajs_core::ast::desugar_using(&mut ast);
         torajs_core::ast::inject_disposable_stack(&mut ast);
+        torajs_core::ast::inject_array_from_async(&mut ast);
         torajs_core::ast::hoist_gen_fn_exprs(&mut ast);
         torajs_core::ast::desugar_async_nested_fns(&mut ast);
         torajs_core::ast::desugar_async_state_machine(&mut ast);

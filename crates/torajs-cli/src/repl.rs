@@ -269,6 +269,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     a.warm_newline_cache();
     ast::desugar_using(&mut a);
     ast::inject_disposable_stack(&mut a);
+    ast::inject_array_from_async(&mut a);
     ast::inject_builtin_classes(&mut a);
     ast::rewrite_class_expr_self_names(&mut a);
     ast::desugar_classes(&mut a);

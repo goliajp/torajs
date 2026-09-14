@@ -187,9 +187,8 @@ pub(super) fn collect_call_apply_face(
 /// static mapFn slot. Only the INLINE fn-expr promotes (zero aliases
 /// by construction); the from lowering's map loop threads the boxed
 /// thisArg ahead of (elem, i) exactly like the trio kernels.
-/// `Array.fromAsync` rides the same face (rotation 435): its mapped
-/// dyn kernel takes the §2.1.1 step 3.j.ii.6.a receiver as a third
-/// operand and hands it to every mapfn call.
+/// `Array.fromAsync` is not here: it is self-hosted (RFC 20260914),
+/// and its helper hands the thisArg to `mapfn.call` itself.
 ///
 /// Rotation 628 — the receiver may also be an any-lane value: a
 /// `: any` binding / parameter (`TA.from(src, mapfn, thisArg)`,

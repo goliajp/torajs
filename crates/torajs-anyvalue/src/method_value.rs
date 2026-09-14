@@ -83,6 +83,7 @@ pub(crate) mod globalthis_object_vars;
 pub(crate) mod ns_object;
 mod ns_static;
 mod ns_static_argv;
+mod ns_static_bound;
 mod ns_static_coerce;
 mod ns_static_externs;
 // Ctor-static arms (RFC 20260720-ctor-static-reflection 刀 1).

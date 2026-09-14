@@ -66,43 +66,6 @@ pub(crate) unsafe fn reject_with_pending_throw() -> *mut c_void {
 /// ref slot, out slot) → has-element flag.
 pub(crate) type IterStepFn = unsafe extern "C" fn(u64, *mut i64, *mut u64, *mut u64) -> i64;
 
-/// §7.4.2 GetIterator + full drive: collect every element the step
-/// protocol yields into an owned Vec, or answer the rejected promise
-/// when any step leaves a throw in flight. The step fn picks the
-/// non-iterable verdict: `any_iter_next` throws TypeError, the
-/// `_array_like` sibling walks `length` + index keys (§23.1.2.1
-/// step 3's branch, resolved in the kernel). The receiver is
-/// borrowed; the iterator ref lives in `iter_slot` and is released
-/// on every exit (nanbox-aware dec — an undefined immediate is a
-/// no-op).
-pub(crate) unsafe fn collect_items(v: u64, step: IterStepFn) -> Result<Vec<u64>, *mut c_void> {
-    unsafe {
-        let undef = __torajs_anyv_box_from_pair(5, 0);
-        let mut idx: i64 = 0;
-        let mut iter_slot: u64 = undef;
-        let mut out_v: u64 = undef;
-        let mut items: Vec<u64> = Vec::new();
-        loop {
-            let has = step(v, &mut idx, &mut iter_slot, &mut out_v);
-            if __torajs_throw_check() != 0 {
-                for it in items {
-                    __torajs_anyv_rc_dec(it);
-                }
-                __torajs_anyv_rc_dec(iter_slot);
-                return Err(reject_with_pending_throw());
-            }
-            if has == 0 {
-                break;
-            }
-            // The step's rc is the caller's (the for-of ledger) —
-            // the collected slot keeps it.
-            items.push(out_v);
-        }
-        __torajs_anyv_rc_dec(iter_slot);
-        Ok(items)
-    }
-}
-
 /// Owned-slot transfer of a collected element list into the
 /// any-shape array the `*_sync` kernels consume. Shared with the
 /// iterator-interleaved lane's never-activated fall-through.

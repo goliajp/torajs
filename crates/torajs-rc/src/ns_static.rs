@@ -218,11 +218,10 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // §28.1.13 Reflect.set (rotation 268) — strict gate + the
     // boolean-answer [[Set]] kernel. Length 3 per spec.
     row("Reflect", "set", 3),
-    // proposal-array-from-async §2.1.1 Array.fromAsync (rotation 275
-    // 刀 2) — a detached call has an undefined |this|, which is not a
-    // constructor, so §3.k.iv falls to ArrayCreate: the arm delegates
-    // to the same sync-source kernels the direct-call lowering bakes.
-    // Length 1 per proposal (mapfn / thisArg optional).
+    // proposal-array-from-async §2.1.1 Array.fromAsync — self-hosted
+    // (RFC 20260914): the cell forwards to the TypeScript helper the
+    // program binds at startup (`ns_static_bound`). Length 1 per
+    // proposal (mapfn / thisArg optional).
     row("Array", "fromAsync", 1),
     // §27.2.4.8 Promise.try — step 1 requires the |this| value to be
     // an object (the species ctor); a detached call's undefined

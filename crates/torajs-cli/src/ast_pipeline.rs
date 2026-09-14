@@ -246,6 +246,9 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // `using`), before `desugar_async` (their walk helpers are async
     // fns the ordinary async desugar state-machines).
     ast::inject_disposable_stack(ast);
+    // RFC 20260914 — `Array.fromAsync` self-hosted: an async helper the
+    // same state-machine run moves, plus its startup bind.
+    ast::inject_array_from_async(ast);
     // RFC 20260805-async-fn-state-machine blades 1-2: an async function
     // suspends at its first await — the body becomes a generator driven
     // by a promise. Before `hoist_gen_fn_exprs`, which lifts the

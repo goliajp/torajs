@@ -97,7 +97,6 @@ pub(crate) mod arr_locale_string;
 mod arr_member_value;
 mod arr_proto_probe;
 mod array_from;
-mod array_from_async_construct;
 mod buffer_species;
 mod call_spread;
 pub(crate) mod closure_proto;
@@ -1843,9 +1842,6 @@ mod tests {
         __torajs_accessor_invoke_setter,
         __torajs_accessor_name_kind,
         __torajs_accessor_pair_new,
-        __torajs_array_from_async_dyn,
-        __torajs_array_from_async_map_dyn,
-        __torajs_array_from_async_this_dyn,
         __torajs_dynobj_freeze_entries,
         __torajs_dynobj_mark_null_proto,
         __torajs_throw_syntax_error,

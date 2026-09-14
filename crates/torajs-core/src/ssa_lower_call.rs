@@ -91,6 +91,11 @@ pub(crate) fn dispatch(
     if let Some(op) = crate::ssa_lower_call_await_resolve::try_lower(ctx, callee, args) {
         return op;
     }
+    // RFC 20260914 — a self-hosted static's startup registration;
+    // same reason it sits ahead of the any-call layer.
+    if let Some(op) = crate::ssa_lower_call_ns_static_bind::try_lower(ctx, callee, args) {
+        return op;
+    }
     // Any-method-call RFC 20260704 — an `any`-typed receiver claims
     // the call before every typed dispatcher (their name matches
     // assume concrete receiver types).

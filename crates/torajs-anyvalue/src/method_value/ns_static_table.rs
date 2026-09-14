@@ -226,12 +226,11 @@ pub(super) enum Disp {
     /// [[Set]] kernel (refusal = false, no throw; a setter throw
     /// propagates).
     ReflectSet,
-    /// proposal-array-from-async §2.1.1 Array.fromAsync as a
-    /// detached call — an undefined |this| is not a constructor, so
-    /// §3.k.iv falls to ArrayCreate: the same sync-source kernels
-    /// the direct-call lowering bakes (mapped form when a
-    /// non-undefined mapfn argument is present).
-    FromAsyncDyn,
+    /// A static whose body is TypeScript the compiler injects into
+    /// the program (`Array.fromAsync`, RFC 20260914): the program
+    /// binds its closure at startup and the cell forwards to it —
+    /// `ns_static_bound`. Recv-first: argv[0] is the |this|.
+    SelfHosted,
     /// ES2026 json-parse-with-source §25.5.1/.3 — same-crate
     /// kernels (`crate::json_raw`), so the detached face IS the real
     /// semantics (rawJSON's TypeError / SyntaxError ride the pending
@@ -420,7 +419,7 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::ReflectDefineProperty,
     Disp::ReflectApply,
     Disp::ReflectSet,
-    Disp::FromAsyncDyn,
+    Disp::SelfHosted,   // Array.fromAsync — bound by the program
     Disp::PromiseTryFn, // Promise.try — recv-first, ES2025
     Disp::JsonRawJson,
     Disp::JsonIsRawJson,

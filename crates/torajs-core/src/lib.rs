@@ -365,6 +365,7 @@ pub(crate) mod ssa_lower_call_math_hypot;
 pub(crate) mod ssa_lower_call_math_min_max;
 pub(crate) mod ssa_lower_call_math_unary_undef_fold;
 pub(crate) mod ssa_lower_call_namespace_obj_methods;
+pub(crate) mod ssa_lower_call_ns_static_bind;
 pub(crate) mod ssa_lower_call_number_methods;
 pub(crate) mod ssa_lower_call_number_namespace;
 pub(crate) mod ssa_lower_call_obj_own_property;

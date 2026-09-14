@@ -114,6 +114,8 @@ pub(crate) struct AnySubstrateIds {
     /// cell for a namespace static read as a VALUE (`Math.max`);
     /// Closure-repr borrow of an immortal cell.
     pub ns_static_cell: FuncId,
+    /// RFC 20260914 — a self-hosted static's startup registration.
+    pub ns_static_bind: FuncId,
     /// RFC 20260719-ns-static-value-reify B3b — `JSON.stringify` over
     /// an any-lane value (the typed tier unfolds a per-shape walk;
     /// this is the runtime twin). NULL answer = `undefined` result.
@@ -316,6 +318,7 @@ pub(crate) fn declare(
         closure_install_gen_proto: decl!("__torajs_closure_install_gen_proto", [Ptr, Any], Void),
         builtin_ctor_value: decl!("__torajs_builtin_ctor_value", [I64], Any),
         ns_static_cell: decl!("__torajs_ns_static_cell", [I64], Ptr),
+        ns_static_bind: decl!("__torajs_ns_static_bind", [I64, Any], Void),
         anyv_json_stringify: decl!("__torajs_anyv_json_stringify", [Any], Str),
         anyv_json_stringify_gap: decl!("__torajs_anyv_json_stringify_gap", [Any, Str, I64], Str),
         anyv_json_gap_str: decl!("__torajs_anyv_json_gap_str", [Any], Str),

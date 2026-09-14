@@ -54,39 +54,6 @@ pub(crate) fn try_match(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
-    // proposal-array-from-async §2.1.1 — `Array.fromAsync(items,
-    // mapfn?)` sync-source MVP. Every input type is admitted: the
-    // runtime step kernel resolves iterable vs array-like
-    // (§23.1.2.1 step-3 shape), a plain number answers
-    // `Promise<[]>`, and null / undefined reject with the
-    // length-read TypeError. Promise elements unwrap per step 5.e.
-    // The 2-arg form admits any mapfn type too — step 2's
-    // IsCallable check runs BEFORE iteration in the kernel, so a
-    // non-callable rejects with the spec TypeError at runtime.
-    // args[2..] (thisArg + trailing) typecheck-and-drop per the
-    // Array.from S275 posture.
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "fromAsync"
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Array"
-    {
-        if args.is_empty() {
-            return Some(Err(
-                "Array.fromAsync: expects at least 1 arg (the items source)".to_string(),
-            ));
-        }
-        for &a in args {
-            if let Err(e) = checker.type_of(ast, a) {
-                return Some(Err(e));
-            }
-        }
-        return Some(Ok(Type::Promise(Box::new(Type::Array(Box::new(
-            Type::Any,
-        ))))));
-    }
     if let Expr::Member {
         obj: ns_id,
         name: m_name,

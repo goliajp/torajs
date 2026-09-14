@@ -103,7 +103,11 @@ pub fn ns_static_judge(id: i64) -> NsStaticJudge {
         ("Iterator", _) => Keep(ITER_WALK),
         ("Map", "groupBy") => Keep(ITER_WALK | FAM_MAPSET),
         ("Promise", "all" | "allSettled" | "any" | "race") => Keep(ITER_WALK | FAM_PROMISE),
-        ("Array", "fromAsync") => Keep(ITER_WALK | FAM_PROMISE),
+        // self-hosted (RFC 20260914): the cell forwards to a closure
+        // the program bound at startup, and that closure's body is
+        // compiled into the user `.o` — the scan witnesses everything
+        // it reaches. Nothing runs in the staticlib but the forward.
+        ("Array", "fromAsync") => Keep(0),
         ("Promise", _) => Keep(FAM_OBJ_WORLD | FAM_PROMISE),
         // the remaining Object.* reflection surface probes user
         // objects (expando walks, getter invokes, ToString(P)).

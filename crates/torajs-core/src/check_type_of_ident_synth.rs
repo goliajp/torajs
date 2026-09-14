@@ -121,6 +121,13 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any],
             Box::new(Type::Promise(Box::new(Type::Any))),
         )),
+        // RFC 20260914 — a self-hosted static's startup registration
+        // (`__torajs_ns_static_bind(id, f)`), lowered by
+        // `ssa_lower_call_ns_static_bind`.
+        crate::ssa_lower_call_ns_static_bind::NAME => Ok(Type::Function(
+            vec![Type::Number, Type::Any],
+            Box::new(Type::Void),
+        )),
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
         "__torajs_date_from_value" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Date))),

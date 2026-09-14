@@ -36,7 +36,7 @@ pub(crate) fn try_lower(
         Expr::Member { obj, name } => (*obj, name.clone()),
         _ => return None,
     };
-    if m_name != "from" && m_name != "fromAsync" {
+    if m_name != "from" {
         return None;
     }
     if !matches!(ctx.ast.get_expr(ns_id), Expr::Ident(n) if n == "Array") {
@@ -44,80 +44,6 @@ pub(crate) fn try_lower(
     }
     if args.is_empty() {
         return None;
-    }
-    if m_name == "fromAsync" {
-        // proposal-array-from-async §2.1.1 sync-source MVP — box the
-        // items arg (and the mapfn when present) and hand them to
-        // the dyn kernel (array-like step protocol + settled-promise
-        // element unwrap; the mapped entry interleaves await /
-        // mapfn / await per element). The mapped kernel also takes
-        // the step-3.j.ii.6.a receiver: args[2] boxes through as the
-        // thisArg (undefined box when absent). args[3..] (trailing)
-        // eval-and-drop per the S275 posture.
-        let arg_op = ctx.lower_expr(args[0]);
-        let arg_ty = ctx.operand_ty(&arg_op);
-        let boxed = ctx.box_to_any_from_expr(args[0], arg_op.clone());
-        let mut call_args = vec![boxed];
-        let mut cb_temp: Option<(Operand, Type)> = None;
-        let mut recv_temp: Option<(Operand, Type)> = None;
-        if args.len() >= 2 {
-            let cb_op = ctx.lower_expr(args[1]);
-            let cb_ty = ctx.operand_ty(&cb_op);
-            call_args.push(ctx.box_to_any_from_expr(args[1], cb_op.clone()));
-            cb_temp = Some((cb_op, cb_ty));
-            let recv_boxed = if let Some(&ta) = args.get(2) {
-                let ta_op = ctx.lower_expr(ta);
-                let ta_ty = ctx.operand_ty(&ta_op);
-                let b = ctx.box_to_any_from_expr(ta, ta_op.clone());
-                recv_temp = Some((ta_op, ta_ty));
-                b
-            } else {
-                let cur_block = ctx.cur_block;
-                Operand::Value(ctx.f.append_inst(
-                    cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
-                    Type::Any,
-                    None,
-                ))
-            };
-            call_args.push(recv_boxed);
-        }
-        for &a in args.iter().skip(3) {
-            let _ = ctx.lower_expr(a);
-        }
-        let fid = if args.len() >= 2 {
-            ctx.intrinsics.array_from_async_map_dyn
-        } else {
-            ctx.intrinsics.array_from_async_dyn
-        };
-        let cur_block = ctx.cur_block;
-        let v = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(fid, call_args),
-            Type::Promise,
-            None,
-        );
-        // The boxes share; fresh owned temps still owe their stake
-        // (the combinator dyn-entry ownership shape).
-        if arg_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
-            ctx.emit_drop_value(arg_op, arg_ty);
-        }
-        if let Some((cb_op, cb_ty)) = cb_temp
-            && cb_ty.is_refcounted()
-            && ctx.expr_is_fresh_owned(args[1])
-        {
-            ctx.emit_drop_value(cb_op, cb_ty);
-        }
-        if let Some((ta_op, ta_ty)) = recv_temp
-            && ta_ty.is_refcounted()
-            && ctx.expr_is_fresh_owned(args[2])
-        {
-            ctx.emit_drop_value(ta_op, ta_ty);
-        }
-        return Some(Operand::Value(v));
     }
     // B6 刀 3 — the kernel route (shared predicate with the checker:
     // non-fast-lane source / non-Function mapFn / explicit thisArg).
@@ -162,7 +88,7 @@ pub(crate) fn try_lower(
 /// `__torajs_array_from_dyn`. The kernel answers a raw fresh
 /// `Array<Any>` pointer (NULL under a pending throw, which the check
 /// right after forwards before anything consumes it). Owned temps
-/// keep the fromAsync arm's release shape.
+/// are released after the call (the combinator dyn-entry shape).
 fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let src_op = ctx.lower_expr(args[0]);
     let src_ty = ctx.operand_ty(&src_op);

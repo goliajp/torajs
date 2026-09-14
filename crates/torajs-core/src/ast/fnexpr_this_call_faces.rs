@@ -101,7 +101,7 @@ pub(super) fn collect_call_position_face(
                 ident_cands,
             );
         }
-        Expr::Member { obj, name } if name == "from" || name == "fromAsync" => {
+        Expr::Member { obj, name } if name == "from" => {
             super::fnexpr_this_cb_slots::collect_array_from_face(
                 stmts,
                 exprs,

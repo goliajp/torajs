@@ -101,13 +101,6 @@ pub(crate) struct PromiseIds {
     /// fulfill with a null-prototype object keyed like the input.
     pub promise_all_keyed_dyn: FuncId,
     pub promise_allsettled_keyed_dyn: FuncId,
-    /// `Array.fromAsync(items)` sync-source MVP — the array-like
-    /// step protocol collects, promise elements unwrap (§2.1.1
-    /// step 5.e award), result promise holds an `Array<Any>`.
-    pub array_from_async_dyn: FuncId,
-    /// The mapped form — per element: await, `mapfn(value, k)`,
-    /// await the mapped result (§2.1.1 steps 5.e-5.j interleaving).
-    pub array_from_async_map_dyn: FuncId,
 }
 
 // CARVE-OUT: dispatch table — back-to-back `declare_intrinsic` calls
@@ -385,20 +378,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_promise_allsettled_keyed_dyn",
             &[Type::Any],
-            Type::Promise,
-        ),
-        array_from_async_dyn: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_array_from_async_dyn",
-            &[Type::Any],
-            Type::Promise,
-        ),
-        array_from_async_map_dyn: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_array_from_async_map_dyn",
-            &[Type::Any, Type::Any, Type::Any],
             Type::Promise,
         ),
         promise_with_resolvers: declare_intrinsic(

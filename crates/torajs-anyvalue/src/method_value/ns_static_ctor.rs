@@ -429,42 +429,6 @@ pub(super) unsafe fn array_from_value(argv: *const u64, argc: i64) -> u64 {
     }
 }
 
-unsafe extern "C" {
-    /// torajs-promise — the proposal-array-from-async §2.1.1
-    /// sync-source kernels the direct-call lowering bakes (fresh
-    /// rc-1 REPR_HEAP promise cell out).
-    fn __torajs_array_from_async_dyn(v: u64) -> *mut core::ffi::c_void;
-    /// The mapped form takes the §2.1.1 step 3.j.ii.6.a receiver as
-    /// its third argument — the kernel reads it whether or not the
-    /// caller passed one, so the declaration has to carry it.
-    fn __torajs_array_from_async_map_dyn(v: u64, cb: u64, this_arg: u64) -> *mut core::ffi::c_void;
-    /// torajs-promise — the constructor-`this` face (B6 刀 4): a
-    /// non-constructor thisArg falls through to the plain kernel
-    /// inside.
-    fn __torajs_array_from_async_this_dyn(this_c: u64, v: u64) -> *mut core::ffi::c_void;
-}
-
-/// proposal-array-from-async §2.1.1 Array.fromAsync through the
-/// value cell — the cell is recv-first (`this_aware_id`, B6 刀 2),
-/// so argv[0] is the thisArg and items / mapfn follow. A
-/// constructor thisArg takes the §3.j / §3.k.iv Construct face
-/// (rotation 346, B6 刀 4); the mapped form still reads the thisArg
-/// past (recorded MVP boundary — the this-constructor t262 family
-/// carries no mapfn).
-pub(super) unsafe fn from_async_dyn(argv: *const u64, argc: i64) -> u64 {
-    unsafe {
-        let this_c = arg_at(argv, argc, 0);
-        let items = arg_at(argv, argc, 1);
-        let mapfn = arg_at(argv, argc, 2);
-        let p = if is_undefined(mapfn) {
-            __torajs_array_from_async_this_dyn(this_c, items)
-        } else {
-            __torajs_array_from_async_map_dyn(items, mapfn, arg_at(argv, argc, 3))
-        };
-        box_void_ptr(p)
-    }
-}
-
 /// §20.1.2.11 Object.hasOwn — step 1 ToObject throws on a nullish
 /// target; every other receiver routes through the same prop_has
 /// probe the `hasOwnProperty` dispatcher arm uses (single source).
