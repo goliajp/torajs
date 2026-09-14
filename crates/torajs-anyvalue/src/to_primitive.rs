@@ -113,6 +113,13 @@ unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
 /// placeholder under a pending throw the caller's check unwinds.
 #[cfg(not(test))]
 unsafe fn accessor_method_call(recv: AnyValue, key: *const u8) -> Option<Option<AnyValue>> {
+    // §10.5.8 — a Proxy answers the accessor sentinel for EVERY key
+    // (its trap runs inside the accessor get), which is not "this
+    // name is an accessor": the proxy keeps the method dispatch
+    // below, where its [[Get]] / [[Call]] traps already run.
+    if crate::proxy::is_proxy(recv) {
+        return None;
+    }
     unsafe {
         let key = key as *const c_void;
         if crate::member_get::__torajs_any_member_get_tag(recv, key)
