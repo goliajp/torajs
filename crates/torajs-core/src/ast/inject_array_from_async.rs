@@ -115,7 +115,7 @@ async function __array_from_async(__c: any, __items: any, __mapfn: any, __this_a
     }
   }
   const __obj: any = Object(__items);
-  let __len: any = Number(__obj.length);
+  let __len: any = +__obj.length;
   if (__len !== __len || __len <= 0) {
     __len = 0;
   }
