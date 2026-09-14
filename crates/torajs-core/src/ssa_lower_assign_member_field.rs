@@ -189,6 +189,18 @@ pub(crate) fn lower_struct_field_store(
         // share inc (the general arm's `transfers` question is about
         // the SOURCE expression, which the walk already settled).
         w
+    } else if field_ty == Type::Any && matches!(ctx.ast.get_expr(value), Expr::ObjectLit { .. }) {
+        // Rotation 646 — an ObjectLit into a declared-Any field takes
+        // the P3.2 dynobj lane the LetDecl path has
+        // (`lower_let_init_val`). The plain lower minted a STRUCT and
+        // the raw store boxed it, so `k.p = {}` on a class field — and
+        // every `const p: any = {}` a generator lifts into its env —
+        // carried a struct where `let p: any = {}` carries a dynobj:
+        // `Object.defineProperty(p, 0, { get })` then `p[0]` read the
+        // struct's expando lane, and the two spellings of one program
+        // disagreed. The minted cell is an owned stake the field takes
+        // verbatim (the any-literal array arm's shape).
+        ctx.lower_dynobj_init(value)
     } else if let Expr::Array(els) = ctx.ast.get_expr(value)
         && let Type::Arr(arr_id) = field_ty
         && ctx.arr_layouts[arr_id.0 as usize] == Type::Any
