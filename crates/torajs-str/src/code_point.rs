@@ -56,6 +56,61 @@ pub unsafe extern "C" fn __torajs_str_code_point_at(s: *const u8, i: i64) -> i64
     combine_or_lone(payload, i as usize, length as usize) as i64
 }
 
+/// An OWNED plain Str (+1) for any string cell: a Str is retained,
+/// a Substr view is flattened (`__torajs_substr_to_owned`). The
+/// string iteration kernels flatten their receiver once so every
+/// step reads a Str layout directly instead of paying `owned_src`'s
+/// per-call materialization on a view.
+///
+/// # Safety
+/// `s` is a live Str or Substr heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_any_to_owned(s: *const u8) -> *mut u8 {
+    let header = unsafe { &*(s as *const torajs_rc::HeapHeader) };
+    if header.flags & (crate::substr::FLAG_SUBSTR_INLINE | crate::substr::FLAG_SUBSTR_VIEW) != 0 {
+        unsafe { crate::substr_methods::__torajs_substr_to_owned(s) as *mut u8 }
+    } else {
+        unsafe { torajs_rc::__torajs_rc_inc(s as *mut core::ffi::c_void) };
+        s as *mut u8
+    }
+}
+
+/// §22.1.5.1 %StringIteratorPrototype%.next steps 4.b–e as one
+/// kernel: the code point at code-unit index `i` as a fresh Str — one
+/// unit, or two when a high surrogate at `i` is followed by a low one
+/// — with the units it spans written to `*adv_out`. NULL when `i` is
+/// out of range. The string iteration kernels (torajs-anyvalue's
+/// `__torajs_any_iter_next` string lane and the reified
+/// `String.prototype[@@iterator]`) step by this; before it they read
+/// one code unit per step and split every astral character into its
+/// surrogate halves.
+///
+/// # Safety
+///
+/// `s` must be a valid Str heap block (a Substr view is flattened by
+/// the caller — `__torajs_str_any_to_owned`); `adv_out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_code_point_str_at(
+    s: *const u8,
+    i: i64,
+    adv_out: *mut i64,
+) -> *mut u8 {
+    let (payload, length, is_latin1) = unsafe { str_view(s) };
+    if i < 0 || i >= length as i64 {
+        return core::ptr::null_mut();
+    }
+    let adv: usize = if !is_latin1 && combine_or_lone(payload, i as usize, length as usize) > 0xFFFF
+    {
+        2
+    } else {
+        1
+    };
+    unsafe { *adv_out = adv as i64 };
+    let stride = if is_latin1 { 1 } else { 2 };
+    let lo = i as usize * stride;
+    crate::alloc_canonical::alloc_units_canonical(&payload[lo..lo + adv * stride], is_latin1)
+}
+
 /// `substr.codePointAt(i)` — mirror of the Str path operating on
 /// the view's code-unit range. Post-P11.1-S5 the Substr's `len@8`
 /// and `offset@24` fields are already JS code units, so the same

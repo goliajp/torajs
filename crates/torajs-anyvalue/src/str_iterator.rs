@@ -11,9 +11,8 @@
 //! RequireObjectCoercible step.
 //!
 //! tr has no StringIterator substrate; the mint materializes the
-//! character array (one fresh Str per UTF-16 code unit — the
-//! any-lane for-of tier's documented deviation from §22.1.5.1's
-//! per-code-point walk) and answers a VALUES-kind ArrIter over it
+//! character array (one fresh Str per CODE POINT, §22.1.5.1 — a
+//! surrogate pair is one two-unit element) and answers a VALUES-kind ArrIter over it
 //! carrying the string family word, so it still names
 //! %StringIteratorPrototype% when asked what it inherits from,
 //! whose `next()` / for-of step faces the any lane already serves.
@@ -33,8 +32,12 @@ const TAG_HEAP: u64 = 4;
 const STR_LEN_OFF: usize = 8;
 
 unsafe extern "C" {
-    /// torajs-str — fresh rc-1 single-code-unit Str at index `i`.
-    fn __torajs_str_at(s: *const u8, i: i64) -> *mut u8;
+    /// torajs-str — the §22.1.5.1 step: the code point at code-unit
+    /// index `i` as a fresh rc-1 Str, its unit span in `*adv`; NULL
+    /// past the end.
+    fn __torajs_str_code_point_str_at(s: *const u8, i: i64, adv: *mut i64) -> *mut u8;
+    /// torajs-str — an owned plain Str (+1) off a Str or Substr view.
+    fn __torajs_str_any_to_owned(s: *const u8) -> *mut u8;
     /// torajs-arr — fresh rc-1 `Array<Any>` block.
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     /// torajs-arr — append one NaN-box slot pair (transfer: no inc).
@@ -58,19 +61,25 @@ unsafe extern "C" {
 pub(crate) unsafe fn str_iterator_mint(recv: AnyValue) -> AnyValue {
     // §22.1.3.36 step 2 — ToString(this). Owned fresh/inc'd Str;
     // NULL = the kernel recorded a pending throw.
-    let s = unsafe { __torajs_anyv_to_str(recv) };
-    if s.is_null() {
+    let raw = unsafe { __torajs_anyv_to_str(recv) };
+    if raw.is_null() {
         return VALUE_UNDEFINED;
     }
-    let len = unsafe { (s.cast::<u8>().add(STR_LEN_OFF) as *const u32).read() } as i64;
+    // A Substr view flattens so the walk below reads a Str layout.
+    let s = unsafe { __torajs_str_any_to_owned(raw.cast::<u8>()) };
+    unsafe { __torajs_str_drop(raw) };
+    let len = unsafe { (s.add(STR_LEN_OFF) as *const u32).read() } as i64;
     let mut arr = unsafe { __torajs_arr_alloc_any(len.max(0) as u64) };
-    for i in 0..len {
+    let mut i: i64 = 0;
+    while i < len {
         // Fresh rc-1 Str hands its reference to the slot (push_any
-        // is transfer-shaped).
-        let ch = unsafe { __torajs_str_at(s.cast::<u8>(), i) };
+        // is transfer-shaped); a surrogate pair is one element.
+        let mut adv: i64 = 0;
+        let ch = unsafe { __torajs_str_code_point_str_at(s, i, &mut adv) };
         arr = unsafe { __torajs_arr_push_any(arr.cast::<c_void>(), TAG_HEAP, ch as u64) };
+        i += adv;
     }
-    unsafe { __torajs_str_drop(s) };
+    unsafe { __torajs_str_drop(s.cast::<c_void>()) };
     let it = unsafe { __torajs_arr_iter_create_values_string(arr.cast::<c_void>()) };
     // create rc-inc'd the source (1 → 2); hand our mint reference
     // over so the iterator is the array's only owner. Cannot reach

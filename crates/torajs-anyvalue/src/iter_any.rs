@@ -9,13 +9,19 @@
 //! `arr.values()` boxed into `any`).
 //!
 //! Dispatch tree:
-//! - **Strings / arrays** (ShortStr immediate, `Tag::Str`,
-//!   `Tag::Arr`) — indexed tier. `*idx_slot` is the cursor; the
-//!   element read reuses [`__torajs_any_index_get`], the bound
-//!   re-reads [`__torajs_any_iter_len`] every step (ES §23.1.5.1
+//! - **Arrays** (`Tag::Arr`, a TypedArray) — indexed tier.
+//!   `*idx_slot` is the cursor; the element read reuses
+//!   [`__torajs_any_index_get`], the bound re-reads
+//!   [`__torajs_any_iter_len`] every step (ES §23.1.5.1
 //!   ArrayIterator re-reads length live; mid-loop pushes are
-//!   visited). Strings step per UTF-16 code unit — same documented
-//!   deviation from per-code-point iteration as the RFC's S5 note.
+//!   visited).
+//! - **Strings** (ShortStr immediate, `Tag::Str`, a String wrapper)
+//!   — §22.1.5.1: step per CODE POINT. The receiver is flattened
+//!   into `iter_slot` once (an owned plain Str the caller releases
+//!   with the slot), `*idx_slot` is the code-unit cursor and each
+//!   step answers `__torajs_str_code_point_str_at` — one unit, or a
+//!   surrogate pair as one two-unit Str. Until RFC 20260915 this lane
+//!   read one code unit per step (`"a😀b"` iterated as four).
 //! - **`Tag::Map` / `Tag::Set`** — the collection itself, not one of
 //!   its iterator cells. ES §23.1.4 / §24.2.5.1: a Map's default
 //!   iterator is `entries()`, a Set's is `values()`. Mint it once
@@ -353,23 +359,24 @@ pub(crate) unsafe fn iter_next_inner(
     } else {
         None
     };
-    // RFC 20260716 刀 12 — StringWrapper receiver iterates its inner
-    // [[StringData]] via the same indexed lane. `__torajs_any_index_get`
-    // + `__torajs_any_iter_len` already view-through the wrapper cell
-    // (刀 3 view-through + 刀 12 iter_len arm below), so accepting the
-    // wrapper tag as `indexed` is the only site left. NumberWrapper /
-    // BooleanWrapper stay non-indexed (a `for..of` on those throws per
-    // spec, matching bun).
+    // A String wrapper iterates its inner [[StringData]] (RFC
+    // 20260716 刀 12; `__torajs_anyv_to_str` views through the
+    // wrapper cell). NumberWrapper / BooleanWrapper stay non-iterable
+    // (a `for..of` on those throws per spec, matching bun).
+    if is_short_str(recv)
+        || matches!(cell_tag, Some(t) if t == Tag::Str as u16 || t == Tag::StringWrapper as u16)
+    {
+        return unsafe {
+            crate::iter_any_string::string_step(recv, idx_slot, iter_slot, out, await_mode)
+        };
+    }
     // A TypedArray joins the indexed lane rather than deriving a
     // cursor: §23.2.5.1's `values` IS the Array Iterator, and the
     // pair this lane already uses answers both of its questions —
     // `__torajs_any_iter_len` re-validates per step (a detach
     // mid-loop throws), `__torajs_any_index_get` is §10.4.5.
-    let indexed = is_short_str(recv)
-        || matches!(cell_tag, Some(t) if t == Tag::Str as u16
-                                    || t == Tag::Arr as u16
-                                    || t == Tag::TypedArray as u16
-                                    || t == Tag::StringWrapper as u16);
+    let indexed =
+        matches!(cell_tag, Some(t) if t == Tag::Arr as u16 || t == Tag::TypedArray as u16);
     if indexed {
         unsafe {
             let idx = *idx_slot;

@@ -128,6 +128,7 @@ mod iter_any_close;
 mod iter_any_get_method;
 mod iter_any_result;
 mod iter_any_step;
+mod iter_any_string;
 mod iter_concat;
 mod iter_dstr_rest;
 mod iter_from;
@@ -2038,6 +2039,8 @@ mod tests {
         __torajs_str_any_char_code_at,
         __torajs_str_any_code_point_at,
         __torajs_str_any_concat2,
+        __torajs_str_any_to_owned,
+        __torajs_str_code_point_str_at,
         __torajs_str_any_ends_with,
         __torajs_str_any_html,
         __torajs_str_any_index_of,

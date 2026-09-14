@@ -375,9 +375,9 @@ fn struct_has_undef_field(t: &Type) -> bool {
 /// binds when that lane is the iterator one.
 ///
 /// The parse-time desugar reads a pattern's elements by index, which is
-/// right for an Array (and for a String, whose per-code-unit index walk
-/// is the same deviation the runtime iteration kernel already
-/// documents) and wrong for everything else: ES §13.15.5.3 destructures
+/// right for an Array and wrong for everything else — a String included
+/// since RFC 20260915 (its iteration is per code point, and a rest is an
+/// Array of them): ES §13.15.5.3 destructures
 /// through the iterator protocol, so a generator, a Map / Set, a class
 /// instance with `[Symbol.iterator]()`, or any of those behind `any` has
 /// to be STEPPED, not indexed. Before this, an `any` source silently
@@ -407,7 +407,13 @@ pub(crate) fn pick_ary_destr_lane(
     // emitted the park/drain shape, and the typed index lane would
     // leave the park slot empty (the walk lane indexes an Array source
     // anyway, so the semantics match).
-    if !ast.dstr_deferred_rest.contains(&init) && matches!(init_ty, Type::Array(_) | Type::String) {
+    // A String source takes the iterator lane too (RFC 20260915): the
+    // index walk read one code unit per slot and `.slice` for a rest,
+    // so `const [a, ...r] = "xyz"` bound `r` to the STRING "yz" and
+    // `const [e] = "😀"` a lone surrogate; the any-lane string step
+    // is §22.1.5.1's per-code-point walk and the rest lands as an
+    // Array.
+    if !ast.dstr_deferred_rest.contains(&init) && matches!(init_ty, Type::Array(_)) {
         return None;
     }
     checker.iter_destr_srcs.insert(init, limit);
