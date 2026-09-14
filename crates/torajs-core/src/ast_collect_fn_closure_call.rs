@@ -325,10 +325,51 @@ impl<'a> FnToClosureCollector<'a> {
                 }
             }
         }
-        self.walk_expr(*callee);
+        // 651-01 — a swallowed `.call` / `.apply` keeps its Ident receiver.
+        if !self.is_swallowed_fn_proto_callee(callee, args) {
+            self.walk_expr(*callee);
+        }
         for arg in args {
             self.walk_expr(*arg);
         }
+    }
+
+    /// `f.call(…)` / `f.apply(…)` on a top-FnDecl `f` in a form the
+    /// fn-proto desugar swallows. That desugar turns the site into a
+    /// DIRECT call and matches on the bare `Ident(f)` receiver, so
+    /// the receiver must not wrap — and the member-BASE axis
+    /// (rotation 459, `walk_member_base`) wraps EVERY property read
+    /// on a no-original fn: an explicit or implicit generic has no
+    /// lowered instance a bare base could name. `h<T>(this, a: T)`
+    /// therefore reached the desugar as `Closure { __forward_h }`,
+    /// the plain shell whose job is to pin the receiver to
+    /// `undefined`, and `h.call(o, …)` answered `typeof this ===
+    /// "undefined"` (measured rotation 651; the non-generic twin was
+    /// right all along). The callee's only sub-expression is that
+    /// Ident, so the walk it skips loses nothing.
+    ///
+    /// `bind` stays on the wrapped lane: `synth_bind` copies the
+    /// target's param annotations verbatim, so a generic target would
+    /// mint a `__bound_` spelling `T` (the 402-01 erasure lives in the
+    /// forwarder synthesizer alone) — registered, not papered over.
+    /// An unswallowed `apply` (dynamic argArray) keeps the r291 wrap
+    /// above, which is what the any-apply kernel needs.
+    fn is_swallowed_fn_proto_callee(&self, callee: &ExprId, args: &[ExprId]) -> bool {
+        let Expr::Member { obj, name } = self.ast.get_expr(*callee) else {
+            return false;
+        };
+        if !matches!(name.as_str(), "call" | "apply") {
+            return false;
+        }
+        let Expr::Ident(fname) = self.ast.get_expr(*obj) else {
+            return false;
+        };
+        let Some((params, _, _)) = self.fn_sigs.get(fname) else {
+            return false;
+        };
+        crate::ast_desugar_function_prototype_methods::swallows_fn_proto_call(
+            self.ast, name, args, params, fname,
+        )
     }
 
     /// Cluster #4 (test262) — a bare top-FnDecl Ident argument to
