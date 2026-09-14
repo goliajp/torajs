@@ -230,6 +230,13 @@ pub fn desugar_arguments_object(ast: &mut Ast) {
         ast, &shadowed, &excluded, &env_fns,
     );
     static_argv.retain(|n, _| !relayed_argv.contains(n));
+    // The this-first twin of the same stand-aside (rotation 650):
+    // a `this`-reading declaration / static twin / ctor a relay
+    // reaches takes the this-first runtime face when that face
+    // would admit it.
+    let relayed_this_first =
+        super::arguments_object_this_first_argv::relayed_this_first_fns(ast, &excluded);
+    static_argv.retain(|n, _| !relayed_this_first.contains(n));
     // Knife 4c — escape-vs-static resolution: when the escaped
     // alias qualifies for the argv face (exclusively-called safe
     // chain), that face wins — it answers the TRUE per-call argc,

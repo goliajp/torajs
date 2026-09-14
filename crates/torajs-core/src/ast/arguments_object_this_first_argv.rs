@@ -173,6 +173,42 @@ pub(super) struct ThisFirstTiers {
     pub(super) argv: std::collections::HashMap<String, usize>,
 }
 
+/// The this-first bodies a `__forward_` / `__fwdrecv_` relay reaches
+/// AND this face would admit on its own terms — the static face
+/// must yield these, exactly as it yields the head-less ones
+/// (`arguments_object_headless_argv::relayed_argv_fns`): a relay's
+/// calls are runtime calls the static count cannot see, so a
+/// `this`-reading declaration with one direct `t.call(o, 1, 2, 3, 4)`
+/// and a callback use `xs.map(t, o)` folded to the direct site's
+/// count and answered the callback's `arguments.length` 4 and
+/// `arguments[1]` undefined (rotation 650). Asked with an empty
+/// static map: the question is what this face would take if the
+/// static face stood aside, which is exactly the decision being
+/// made.
+pub(super) fn relayed_this_first_fns(
+    ast: &Ast,
+    excluded: &std::collections::HashSet<String>,
+) -> std::collections::HashSet<String> {
+    let relayed: std::collections::HashSet<&str> = ast
+        .stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FnDecl { name, .. } => name
+                .strip_prefix("__forward_")
+                .or_else(|| name.strip_prefix("__fwdrecv_")),
+            _ => None,
+        })
+        .collect();
+    if relayed.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    collect_this_first_argv(ast, excluded, &std::collections::HashMap::new())
+        .argc
+        .into_keys()
+        .filter(|n| relayed.contains(n.as_str()))
+        .collect()
+}
+
 /// Some call of `name` carries a `...spread` argument.
 fn has_spread_call_site(ast: &Ast, name: &str) -> bool {
     ast.exprs.iter().any(|e| {
