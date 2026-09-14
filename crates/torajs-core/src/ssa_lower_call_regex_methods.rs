@@ -79,8 +79,7 @@ pub(crate) fn try_lower(
         }
         "test" => {
             // S266 — trailing args silent-drop per ES §22.2.6.16.
-            debug_assert!(!args.is_empty());
-            let (s, s_owned) = lower_haystack(ctx, args[0]);
+            let (s, s_owned) = lower_haystack_or_undefined(ctx, args.first().copied());
             for a in args.iter().skip(1) {
                 let _ = ctx.lower_expr(*a);
             }
@@ -97,8 +96,7 @@ pub(crate) fn try_lower(
         }
         "exec" => {
             // S266 — trailing args silent-drop per ES §22.2.6.2.
-            debug_assert!(!args.is_empty());
-            let (s, s_owned) = lower_haystack(ctx, args[0]);
+            let (s, s_owned) = lower_haystack_or_undefined(ctx, args.first().copied());
             for a in args.iter().skip(1) {
                 let _ = ctx.lower_expr(*a);
             }
@@ -175,6 +173,21 @@ pub(crate) fn try_lower(
 /// StringWrapper, i64_to_str / bool_to_str for primitives). The
 /// coerced result is owned so the caller's drop fires after the
 /// helper borrow read (same pattern as the Substr path).
+/// §22.2.6.2 / §22.2.6.16 step 3 — `S = ToString(string)`: an absent
+/// argument is `undefined`, and its string is "undefined", so
+/// `/undefined/.exec()[0]` answers "undefined" (test262
+/// S15.10.6.2_A1_T16 / A12). The arm indexed `args[0]` outright and
+/// the compiler died on the empty list (rotation 651).
+fn lower_haystack_or_undefined(ctx: &mut LowerCtx<'_>, arg: Option<ExprId>) -> (Operand, bool) {
+    match arg {
+        Some(a) => lower_haystack(ctx, a),
+        None => (
+            crate::ssa_lower_lit::lower_string(ctx, torajs_wtf8::Wtf8::new("undefined")),
+            false,
+        ),
+    }
+}
+
 fn lower_haystack(ctx: &mut LowerCtx<'_>, arg: ExprId) -> (Operand, bool) {
     let s = ctx.lower_expr(arg);
     let ty = ctx.operand_ty(&s);
