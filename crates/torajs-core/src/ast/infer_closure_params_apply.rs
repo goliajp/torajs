@@ -71,11 +71,20 @@ pub(super) fn apply_closure_ann_updates(
                     // a return-type mismatch before those wedges
                     // could look. Sniff the body's actual return
                     // first (params are already seeded above, so an
-                    // elem-typed identity ret resolves); only an
-                    // unsniffable body keeps the positional seed.
+                    // elem-typed identity ret resolves). Rotation
+                    // 651 — an unsniffable body seeds `any`, not the
+                    // positional "boolean": `return undefined` /
+                    // `return Symbol('')` / `return {}` are all
+                    // ToBoolean-folded predicate answers (test262
+                    // find/return-*-predicate-* × 8), and the seeded
+                    // "boolean" made each a `check_stmt_return`
+                    // mismatch before the call-site wedges could
+                    // look. `any` passes the strict loop's callback-
+                    // subtype widening and the predicate arms
+                    // truth-test the box.
                     let ann = if new_ret_ann == "boolean" {
                         infer_return_ann(exprs, body, params, &std::collections::HashMap::new())
-                            .unwrap_or_else(|| new_ret_ann.clone())
+                            .unwrap_or_else(|| "any".to_string())
                     } else {
                         new_ret_ann.clone()
                     };
