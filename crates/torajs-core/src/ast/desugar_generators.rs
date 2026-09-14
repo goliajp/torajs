@@ -93,6 +93,14 @@ pub fn desugar_generators(ast: &mut Ast) {
     // the claim walk below reads top-level FnDecls only (rationale
     // in the `_lift` sibling's module doc).
     super::desugar_generators_lift::lift_nested_generators(ast);
+    // RFC 20260915 blade 4 — the for-of / for-await protocol helpers a
+    // machine body's loops call. Injected HERE, after the nested lift,
+    // so a generator declared inside a function is on the roll too (a
+    // pipeline-level injection before the async machine pass saw only
+    // top-level declarations: `nested-generator-capture-001` lost
+    // `__gfor_close`). The helpers are synchronous, so no earlier pass
+    // needs to have seen them.
+    super::desugar_generators_forof_helpers::inject_for_of_protocol_helpers(ast);
     // D4 — async generators: inject the step driver, mark the bodies'
     // awaits, move the driver (its generator joins the collection).
     super::desugar_generators_async::prepare(ast);

@@ -107,6 +107,8 @@ mod desugar_generators_field_ann;
 mod desugar_generators_field_ann_builtin;
 mod desugar_generators_field_ann_fnsigs;
 mod desugar_generators_forof;
+mod desugar_generators_forof_close;
+mod desugar_generators_forof_helpers;
 mod desugar_generators_frame_link;
 mod desugar_generators_lift;
 mod desugar_generators_methods;

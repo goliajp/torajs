@@ -41,7 +41,8 @@ pub(super) fn prep_generator_body(
     // yield-bearing `for…of` into the manual iterator protocol
     // BEFORE the lift, so the iterator / step bindings it mints
     // become class fields that survive yield boundaries.
-    super::desugar_generators_forof::rewrite_yield_forof(ast, &mut gen_body);
+    let is_async_gen = ast.async_generator_fns.contains(gen_name);
+    super::desugar_generators_forof::rewrite_yield_forof(ast, &mut gen_body, is_async_gen);
     // J.4 — expand every `let v(:T)? = yield <e>;` into the pair
     // [Stmt::Yield(e); Stmt::LetDecl { init: this.__sent }] so the
     // rest of the pipeline only sees standard Yield + LetDecl. The
@@ -105,6 +106,9 @@ pub(super) fn prep_generator_body(
             }
         }
     }
+    // An inline loop variable spelled like a lifted field would read
+    // the field after the rewrite below — rename it first.
+    super::desugar_generators_alpha::resolve_inline_loop_vars(ast, &mut gen_body, &lifted_locals);
     // Names to rewrite to `this.<name>`: generator params + lifted
     // locals. Both share the same identifier-shadowing semantics
     // for our MVP (no shadowing).

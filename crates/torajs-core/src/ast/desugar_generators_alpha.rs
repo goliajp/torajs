@@ -79,6 +79,39 @@ pub(super) fn resolve_duplicate_for_let(ast: &mut Ast, s: &mut Stmt, taken: &[(S
     }
 }
 
+/// RFC 20260915 blade 4 — an INLINE `for…of` / `for…in` (one the
+/// manual protocol did not take: no suspend in its body) binds its
+/// variable as a plain local of the loop, not a lifted field; but the
+/// `this.<name>` rewrite that follows the lift renames every reference
+/// by name, so a loop variable spelled like a lifted field read the
+/// FIELD (`for await (const v …)` then `for (const v of a.sy())`:
+/// `sy undefined`, `sync 4` — three gate reds). Such a loop's variable
+/// is renamed within its own body, the `for (let i …)` rule's shape.
+pub(super) fn resolve_inline_loop_vars(
+    ast: &mut Ast,
+    stmts: &mut [Stmt],
+    taken: &[(String, String)],
+) {
+    for s in stmts {
+        resolve_inline_loop_var(ast, s, taken);
+    }
+}
+
+fn resolve_inline_loop_var(ast: &mut Ast, s: &mut Stmt, taken: &[(String, String)]) {
+    if let Stmt::ForOf { var_name, body, .. } | Stmt::ForOfSplitIter { var_name, body, .. } = s
+        && taken.iter().any(|(n, _)| n == var_name)
+        && !rebinds_name(std::slice::from_ref(body), var_name)
+    {
+        let name = var_name.clone();
+        let fresh = mint(&name, taken);
+        rewrite_range(ast, std::slice::from_mut(body.as_mut()), &name, &fresh);
+        *var_name = fresh;
+    }
+    for c in super::desugar_with::walk::stmt_children(s) {
+        resolve_inline_loop_var(ast, c, taken);
+    }
+}
+
 fn rewrite_range(ast: &mut Ast, range: &mut [Stmt], from: &str, to: &str) {
     let mut map: HashMap<String, String> = HashMap::new();
     map.insert(from.to_string(), to.to_string());
