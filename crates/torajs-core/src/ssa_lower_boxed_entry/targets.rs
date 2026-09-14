@@ -294,7 +294,10 @@ fn target_facts(
     let recv_slot =
         twin_argv || first_is_env && params.get(ast_skip).is_some_and(|p| p.name == "__this");
     // The relay redirect (module doc in `relay`): the adapter of
-    // a `__forward_<t>` enters `t` with its own argc / argv.
+    // a `__forward_<t>` / `__fwdrecv_<t>` enters `t` with its own
+    // argc / argv. A receiver-first relay composes like a twin on
+    // the this-first argv lane: argv[0] feeds `__this`, the rest
+    // comes off the shifted window (`recv_leads`).
     let relay = (first_is_env && !rest)
         .then(|| {
             relay::headless_target(
@@ -312,13 +315,13 @@ fn target_facts(
     Some(BoxedEntryTarget {
         name: name.to_string(),
         fid,
-        body_fid: relay.map_or(fid, |(t, _)| t),
+        body_fid: relay.map_or(fid, |r| r.fid),
         user_tys,
         ret_ty,
         has_argv: has_argv || relay.is_some(),
         recv_slot,
-        recv_leads: twin_argv,
-        lead_undef: relay.is_some_and(|(_, this_first)| this_first),
+        recv_leads: twin_argv || relay.is_some_and(|r| r.recv_first),
+        lead_undef: relay.is_some_and(|r| r.this_first && !r.recv_first),
         feeds_env: feeds_env && relay.is_none(),
         hidden_argc: first_is_env || this_hidden,
         dflt_lits,

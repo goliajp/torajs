@@ -50,7 +50,16 @@ pub(crate) fn forwarded_argc(
     let crate::ast::Expr::Ident(callee_name) = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if ctx.f.name.strip_prefix("__forward_") != Some(callee_name.as_str()) {
+    // A receiver-first relay (`__fwdrecv_`, rotation 649) forwards
+    // its true count the same way; without it a `this`-reading
+    // declaration at a thisArg callback position answered
+    // `arguments.length` as its declared arity.
+    let relay_of = ctx
+        .f
+        .name
+        .strip_prefix("__forward_")
+        .or_else(|| ctx.f.name.strip_prefix("__fwdrecv_"));
+    if relay_of != Some(callee_name.as_str()) {
         return None;
     }
     let info = ctx.locals.get("__torajs_argc")?;
@@ -65,6 +74,13 @@ pub(crate) fn forwarded_argc(
     let Some(n) = packed else {
         return Some(Operand::Value(v));
     };
+    // The cap guards the callee's materialize against reading past
+    // the relay's packed buffer; it holds for a this-first argv-face
+    // target even when the body only reads `.length` (rotation 649
+    // measured lifting it: the body materializes regardless, and
+    // `[7].map(t, o)` died on the over-read). So a typed HOF site
+    // reaching such a target through a relay answers the declared
+    // count — the argv-carrying relay is the recorded residue.
     Some(Operand::Value(emit_min_const(ctx, v, n as i64)))
 }
 

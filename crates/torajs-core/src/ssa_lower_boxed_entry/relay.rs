@@ -43,14 +43,33 @@ use std::collections::HashMap;
 use crate::ast::{Ast, Expr, Stmt};
 use crate::ssa::{self, FuncId, Type};
 
-/// `Some((fid of t, this_first))` when `name` is a `__forward_` relay
+/// The redirect a relay's adapter takes.
+#[derive(Clone, Copy)]
+pub(super) struct Relay {
+    /// `t`, the fn the adapter enters instead of the relay body.
+    pub(super) fid: FuncId,
+    /// `t` is on the one-slot this-first argv face (`[Any, I64, Ptr,
+    /// …]`) rather than the head-less one (`[I64, Ptr, …]`).
+    pub(super) this_first: bool,
+    /// The relay is receiver-first (`__fwdrecv_<t>`, or a
+    /// `__forward_<t>` registered in `fnexpr_recv_fns`): argv[0] is
+    /// the receiver and feeds `t`'s `__this`, the window shifts past
+    /// it and the count drops by one. A plain relay seeds
+    /// `undefined` there instead. Before rotation 649 no receiver-
+    /// first relay redirected at all, so its body's static forwarding
+    /// call handed `t` the DECLARED parameters: `[7].map(t2, o)` with
+    /// `t2` reading `arguments` answered length 1 where bun says 3.
+    pub(super) recv_first: bool,
+}
+
+/// `Some(relay)` when `name` is a `__forward_` / `__fwdrecv_` relay
 /// whose forwarding call names `t`, `t` is on the head-less argv face
 /// (`[I64, Ptr, …]`) or the one-slot this-first argv face (`[Any,
 /// I64, Ptr, …]`, rotation 627 — a static twin or a promoted
-/// declaration; the adapter leads with the `undefined` receiver the
-/// relay's own forwarding call would have seeded), and `t`'s
-/// signature carries exactly the relay's user types and return type
-/// behind the synthetic slots.
+/// declaration; a plain relay's adapter leads with the `undefined`
+/// receiver its forwarding call would have seeded, a receiver-first
+/// one leads with argv[0]), and `t`'s signature carries exactly the
+/// relay's user types and return type behind the synthetic slots.
 pub(super) fn headless_target(
     ast: &Ast,
     call_retargets: &crate::ssa_lower::CallRetargets,
@@ -60,19 +79,39 @@ pub(super) fn headless_target(
     fn_sig_ids: &HashMap<FuncId, ssa::SigId>,
     user_tys: &[Type],
     ret_ty: &Type,
-) -> Option<(FuncId, bool)> {
-    name.strip_prefix("__forward_")?;
+) -> Option<Relay> {
+    if name.strip_prefix("__forward_").is_none() && name.strip_prefix("__fwdrecv_").is_none() {
+        return None;
+    }
+    let recv_first = ast.fnexpr_recv_fns.contains(name);
     let target = forwarding_call_target(ast, call_retargets, name)?;
     let fid = *fn_table.get(&target)?;
     let (tys, ret) = &fn_sigs[fn_sig_ids.get(&fid)?.0 as usize];
     if ast.this_first_argv_fns.get(&target) == Some(&1) {
-        let face_matches = tys.len() == user_tys.len() + 3
+        // A receiver-first relay's face already spells `__this` as
+        // user param 0 — the same slot `t`'s face leads with.
+        let declared = if recv_first {
+            user_tys
+                .first()
+                .is_some_and(|t| *t == Type::Any)
+                .then(|| &user_tys[1..])?
+        } else {
+            user_tys
+        };
+        let face_matches = tys.len() == declared.len() + 3
             && tys[0] == Type::Any
             && tys[1] == Type::I64
             && tys[2] == Type::Ptr
-            && tys[3..] == *user_tys
+            && tys[3..] == *declared
             && ret == ret_ty;
-        return face_matches.then_some((fid, true));
+        return face_matches.then_some(Relay {
+            fid,
+            this_first: true,
+            recv_first,
+        });
+    }
+    if recv_first {
+        return None;
     }
     if !ast.headless_argv_fns.contains(&target) || !ast.headless_argc_fns.contains(&target) {
         return None;
@@ -82,7 +121,11 @@ pub(super) fn headless_target(
         && tys[1] == Type::Ptr
         && tys[2..] == *user_tys
         && ret == ret_ty;
-    face_matches.then_some((fid, false))
+    face_matches.then_some(Relay {
+        fid,
+        this_first: false,
+        recv_first: false,
+    })
 }
 
 /// The fn the relay's body calls — `return t(…)` as

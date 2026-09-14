@@ -206,8 +206,12 @@ fn uniform_direct_call_argc(
 pub(super) fn forwarder_call_callee_eids(ast: &Ast) -> std::collections::HashSet<u32> {
     let mut out = std::collections::HashSet::new();
     for s in &ast.stmts {
+        // A receiver-first relay (`__fwdrecv_`, rotation 649) is the
+        // same single forwarding call and just as much not a USER
+        // site; counted, it folded a `this`-reading declaration used
+        // only at thisArg callback positions to its declared arity.
         if let Stmt::FnDecl { name, body, .. } = s
-            && name.starts_with("__forward_")
+            && (name.starts_with("__forward_") || name.starts_with("__fwdrecv_"))
             && let [Stmt::Return(Some(eid))] = body.as_slice()
             && let Expr::Call { callee, .. } = ast.get_expr(*eid)
         {

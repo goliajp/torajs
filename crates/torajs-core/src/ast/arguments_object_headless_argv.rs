@@ -226,7 +226,15 @@ pub(super) fn relayed_argv_fns(
         .stmts
         .iter()
         .filter_map(|s| match s {
-            Stmt::FnDecl { name, .. } => name.strip_prefix("__forward_"),
+            // A receiver-first relay (`__fwdrecv_`, rotation 649)
+            // redirects the same way (`ssa_lower_boxed_entry::relay`);
+            // left off this census its target stayed on the static
+            // face and the relay's forwarding call packed the
+            // declared arity: `[7].map(t2, o)` answered
+            // `arguments.length` 1.
+            Stmt::FnDecl { name, .. } => name
+                .strip_prefix("__forward_")
+                .or_else(|| name.strip_prefix("__fwdrecv_")),
             _ => None,
         })
         .collect();
