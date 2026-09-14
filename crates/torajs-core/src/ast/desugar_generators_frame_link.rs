@@ -146,7 +146,32 @@ pub(super) fn link_nested_gen_envs(
         let handle = format!("__genouter_{}", weid.0);
         let frame_ty = format!("__Gen_{gen_name}");
         insert_factory_param(ast, &inner, &info.cell_field, &handle, &frame_ty);
-        pass_frame_from_wrapper(ast, weid, &info.cell_field, &linked);
+        // The wrapper's `this` is the container's iterator only while
+        // every function between them is an arrow. A function
+        // EXPRESSION or an object-literal method on the way (the
+        // blade-2 wrapper of an async value spelled `function`, or a
+        // nested async declaration `desugar_async_nested_fns` turned
+        // into one) binds its own `this` — the receiver of whoever
+        // calls the value, which is the container's iterator only by
+        // the accident of `this.f()`, and an `any` even then (the
+        // value is a recv-first closure): the factory's typed frame
+        // parameter got an any-widened clone that stored the NaN-box
+        // into the iterator-typed field, and the nested machine's
+        // `next()` looped in the method dispatch (RFC 20260915 —
+        // `async function f() { seen += "t"; await null; }` inside a
+        // moved body, `seen` a local of that body). The frame is
+        // therefore captured lexically OUTSIDE the outermost such
+        // owner: `((__gouterv_N: <frame class>) => <owner>)(this)`,
+        // and the wrapper reads the parameter.
+        let frame_src = match this_owner_between(ast, gen_body, weid) {
+            Some(owner) => {
+                let local = format!("__gouterv_{}", weid.0);
+                capture_frame_outside_owner(ast, owner, &local, &frame_ty);
+                ast.add_expr(Expr::Ident(local))
+            }
+            None => ast.add_expr(Expr::This),
+        };
+        pass_frame_from_wrapper(ast, weid, &info.cell_field, &linked, frame_src);
         ast.gen_env_captures
             .get_mut(&inner)
             .expect("the record was cloned from this map")
@@ -187,12 +212,101 @@ fn insert_factory_param(ast: &mut Ast, gen_name: &str, cell: &str, handle: &str,
     );
 }
 
-/// The wrapper `(p) => { <reads>; return __genexpr_N(cell, p) }` becomes
-/// `(p) => { <reads minus linked>; return __genexpr_N(cell, this, p) }`
-/// — `this` is the container's iterator once `desugar_classes` has
-/// given the method its receiver, and the arrow's `this` is lexical.
-fn pass_frame_from_wrapper(ast: &mut Ast, weid: ExprId, cell: &str, linked: &[String]) {
+/// The outermost `this`-owning arrow-slot expression (a function
+/// expression or an object-literal method — `owns_this`) on the path
+/// from `body` down to the wrapper `weid`, if any: the one whose
+/// `this` a `This` in the wrapper would bind to instead of the
+/// container's.
+fn this_owner_between(ast: &Ast, body: &[Stmt], weid: ExprId) -> Option<ExprId> {
+    fn in_stmts(ast: &Ast, stmts: &[Stmt], weid: ExprId, chain: &mut Vec<ExprId>) -> bool {
+        stmts.iter().any(|s| in_stmt(ast, s, weid, chain))
+    }
+    fn in_stmt(ast: &Ast, s: &Stmt, weid: ExprId, chain: &mut Vec<ExprId>) -> bool {
+        for a in walk::arrow_nodes(ast, s) {
+            if a == weid {
+                return true;
+            }
+            let Expr::ArrowFn { body, .. } = ast.get_expr(a) else {
+                continue;
+            };
+            chain.push(a);
+            if in_stmts(ast, body, weid, chain) {
+                return true;
+            }
+            chain.pop();
+        }
+        walk::stmt_children_ref(s)
+            .into_iter()
+            .any(|c| in_stmt(ast, c, weid, chain))
+    }
+    let mut chain = Vec::new();
+    if !in_stmts(ast, body, weid, &mut chain) {
+        return None;
+    }
+    chain
+        .into_iter()
+        .find(|&a| super::desugar_async_sm_this::owns_this(ast, a))
+}
+
+/// `<owner>` (in its arena slot, so every reference to it holds) becomes
+/// `((<local>: <frame_ty>) => <owner'>)(this)`, `<owner'>` the same
+/// expression moved to a fresh slot — the memberships that name a
+/// function-expression node move with it.
+fn capture_frame_outside_owner(ast: &mut Ast, owner: ExprId, local: &str, frame_ty: &str) {
+    let taken = std::mem::replace(&mut ast.exprs[owner.0 as usize], Expr::This);
+    let moved = ast.add_expr(taken);
+    ast.expr_spans[moved.0 as usize] = ast.expr_spans[owner.0 as usize];
+    for set in [
+        &mut ast.fn_expr_exprs,
+        &mut ast.objlit_method_exprs,
+        &mut ast.fnexpr_recv_faces,
+        &mut ast.async_fn_value_exprs,
+        &mut ast.async_sm_value_exprs,
+    ] {
+        if set.remove(&owner) {
+            set.insert(moved);
+        }
+    }
+    if let Some(n) = ast.fn_expr_self_names.remove(&owner) {
+        ast.fn_expr_self_names.insert(moved, n);
+    }
+    let arrow = ast.add_expr(Expr::ArrowFn {
+        params: vec![Param {
+            name: local.to_string(),
+            type_ann: Some(frame_ty.to_string()),
+            default: None,
+            is_rest: false,
+        }],
+        return_type: None,
+        body: vec![Stmt::Return(Some(moved))],
+    });
+    // The machine's `next` is checked in both its receiver spellings
+    // (`__cm_` typed, `__cmany_` any); the cast is a no-op in the
+    // typed one that runs and keeps the any one well-typed.
     let this = ast.add_expr(Expr::This);
+    let typed = ast.add_expr(Expr::As {
+        expr: this,
+        ty_ann: frame_ty.to_string(),
+    });
+    ast.exprs[owner.0 as usize] = Expr::Call {
+        callee: arrow,
+        args: vec![typed],
+    };
+}
+
+/// The wrapper `(p) => { <reads>; return __genexpr_N(cell, p) }` becomes
+/// `(p) => { <reads minus linked>; return __genexpr_N(cell, <frame>, p) }`
+/// — `frame` is `this` (the container's iterator once `desugar_classes`
+/// has given the method its receiver; the arrow's `this` is lexical)
+/// or the local a `this`-owner on the way was wrapped to bind.
+fn pass_frame_from_wrapper(
+    ast: &mut Ast,
+    weid: ExprId,
+    cell: &str,
+    linked: &[String],
+    frame: ExprId,
+) {
+    let this = frame;
     // Read everything first; the arena is borrowed mutably below.
     let Expr::ArrowFn { body, .. } = ast.get_expr(weid) else {
         panic!("gen-env wrapper {weid:?} is not an arrow (lift_arrow_fns must not have run)");
