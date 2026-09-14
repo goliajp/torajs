@@ -413,3 +413,45 @@ pub(super) fn collect_any_let_init_sites(
     let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
     walk(&ast.stmts, ast, fn_sigs, sites, &mut scopes);
 }
+
+/// RFC 20260915 item 3 — every `(F as any)` spelling of a promoted
+/// named fn, wherever it sits. The cast hands the value to the any
+/// world, and every any-lane call path honors
+/// `FLAG_CLOSURE_RECV_FIRST`: the plain `__forward_` shim there
+/// hardwired `undefined` into `__this`, so `new ((F as any).bind(null))
+/// (5)` — the bind kernel's bound cell constructing its target with a
+/// fresh `this` (§10.4.1.2) — ran F over an undefined receiver
+/// ("cannot assign to a property of this any value") where the
+/// `: any` binding of the same value (`collect_any_let_init_sites`)
+/// already constructed correctly. The typed lanes never see this
+/// site's copy — the cast is the boundary. Same shadow / re-decl /
+/// generator gates as every other site.
+pub(super) fn collect_as_any_sites(
+    ast: &Ast,
+    fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
+    sites: &mut Vec<(ExprId, String)>,
+) {
+    let mut scopes = super::namedfn_rebound_scope::BlockScopes::default();
+    for e in &ast.exprs {
+        let Expr::As { expr, ty_ann } = e else {
+            continue;
+        };
+        if ty_ann != "any" {
+            continue;
+        }
+        let inner = *expr;
+        let Expr::Ident(n) = ast.get_expr(inner) else {
+            continue;
+        };
+        if !fn_sigs.contains_key(n)
+            || ast.generator_factory_classes.contains_key(n)
+            || ast.async_generator_fns.contains(n)
+            || super::namedfn_rebound_scope::rebound_beyond_blocks(&ast.stmts, n)
+            || scopes.owns(ast, n, inner)
+            || sites.iter().any(|(e, _)| *e == inner)
+        {
+            continue;
+        }
+        sites.push((inner, n.clone()));
+    }
+}
