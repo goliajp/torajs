@@ -110,33 +110,19 @@ pub(crate) unsafe fn promise_method(
     }
     unsafe {
         // A user `then` override (a `defineProperty(promise, "then",
-        // …)` landing in the expando bag) replaces the builtin for
-        // this call — the invoke's own return value IS the call's
-        // value, no result promise is minted (§27.2's ordinary-object
-        // reading: `then` is just a property). `catch` / `finally`
-        // still reach the builtin below — their spec bodies Invoke
-        // `this.then`, an indirection recorded in plan-state L3b
-        // rather than wired here.
-        if mid == ANY_METHOD_THEN {
-            let user_then = __torajs_promise_then_observed(ptr);
-            if __torajs_throw_check() != 0 {
-                // The override was an accessor whose getter threw —
-                // pending propagates through the caller's check.
-                return Some(VALUE_UNDEFINED);
-            }
-            if user_then != 0 {
-                let out = match closure_boxed_entry(user_then) {
-                    Some((env, entry)) => invoke_boxed(env, entry, argv, argc),
-                    None => crate::method_call::not_callable(),
-                };
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(user_then);
-                if __torajs_throw_check() != 0 {
-                    // `out` is an aborted body's sentinel — not a value.
-                    return Some(VALUE_UNDEFINED);
-                }
-                return Some(out);
-            }
-        }
+        // …)` landing in the expando bag) is an OWN property, and the
+        // own-bag gate in `cell_method` (`method_call_bag_expando`)
+        // resolves it before this arm is reached — with the receiver
+        // as `this`, and honouring `skip_wrapper_expando`. This arm
+        // used to consult the bag a second time, without that flag:
+        // a bound builtin (`var t = p.then.bind(p); p.then = f; t()`)
+        // re-dispatches with the flag set to run the BUILTIN body,
+        // and the second consult sent it back into `f` — an infinite
+        // recursion (rotation 651, test262 `Promise/any/invoke-then`
+        // shape). `catch` / `finally` still reach the builtin below —
+        // their spec bodies Invoke `this.then`, an indirection
+        // recorded in plan-state L3b rather than wired here.
+        //
         // Loud gate FIRST — an unstamped cell means its mint family
         // has no repr wiring yet; refuse at attach time instead of
         // mis-boxing at dispatch time.
