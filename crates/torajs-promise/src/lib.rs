@@ -46,6 +46,7 @@ pub mod combinator_keyed;
 pub(crate) mod combinator_patched;
 pub(crate) mod combinator_settle;
 pub(crate) mod combinator_sparse;
+pub(crate) mod combinator_then_override;
 pub mod layout;
 pub mod micro;
 pub mod pool;

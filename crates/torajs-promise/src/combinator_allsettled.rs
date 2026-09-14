@@ -255,6 +255,15 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     }
     // §27.2.4 static-slot patch consult (rotation 448) — see
     // `combinator_patched`.
+    if let Some(out) = unsafe {
+        crate::combinator_then_override::defer_on_then_override(
+            promises_arr,
+            crate::combinator_all_fanin::MODE_ALLSETTLED,
+            crate::combinator_dyn::allsettled_sync_untagged,
+        )
+    } {
+        return out;
+    }
     if unsafe { crate::combinator_patched::consult_active() } {
         return unsafe { crate::combinator_patched::run_allsettled(promises_arr, record_tags) };
     }

@@ -101,7 +101,7 @@ pub(crate) unsafe extern "C" fn all_sync_untargeted(arr: *mut c_void) -> *mut c_
 /// get-once family counts exactly this one read — and the loop then
 /// calls it per element with this = the ctor cell. Unpatched runs
 /// pay the existence probe only and ride the 0/0 fast shape.
-unsafe fn dyn_with_builtin_resolve(
+pub(crate) unsafe fn dyn_with_builtin_resolve(
     m: u8,
     v: u64,
     sync: unsafe extern "C" fn(*mut c_void) -> *mut c_void,

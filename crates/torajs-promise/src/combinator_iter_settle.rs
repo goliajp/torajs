@@ -26,6 +26,9 @@ unsafe extern "C" {
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-anyvalue — allocate the props bag and seed the §20.2.3
+    /// `name` / `length` reflection entries.
+    fn __torajs_closure_props_seed_reflect(props_slot: *mut *mut c_void, length: i64);
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
     fn __torajs_promise_resolve(p: *mut c_void, value: i64);
@@ -82,6 +85,10 @@ pub(crate) unsafe fn mint_resolver(
         *(cell.add(C_FN_ADDR_OFF) as *mut u64) = iter_resolver_native_entry as *const () as u64;
         *(cell.add(C_DROP_FN_OFF) as *mut u64) = iter_resolver_drop as *const () as u64;
         *(cell.add(C_PROPS_OFF) as *mut u64) = 0;
+        // §27.2.4.1.2/3 — resolveElement / rejectElement have
+        // `length` 1 and an empty `name`; the anyvalue seeder is the
+        // one place both resolver mints spell those entries.
+        __torajs_closure_props_seed_reflect(cell.add(C_PROPS_OFF) as *mut *mut c_void, 1);
         *(cell.add(C_BOXED_ENTRY_OFF) as *mut u64) = entry as *const () as u64;
         *(cell.add(C_TRACE_FN_OFF) as *mut u64) = iter_resolver_trace as *const () as u64;
         *(cell.add(C_BLOCK_OFF) as *mut u64) = b as u64;

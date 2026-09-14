@@ -260,6 +260,59 @@ pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_then_observed(cell: *mut c_void) -> u64 {
     unsafe extern "C" {
+        fn __torajs_str_drop(s: *mut c_void);
+    }
+    unsafe {
+        let Some((tag, value, key)) = own_then_entry(cell) else {
+            return 0;
+        };
+        // Borrow-boxed receiver for the getter's `this` — the cell
+        // stays the caller's.
+        let recv = __torajs_anyv_box_from_pair(4, cell as i64);
+        let v = crate::len_get::box_probe_pair(tag, value, recv, key);
+        __torajs_str_drop(key);
+        v
+    }
+}
+
+/// `__torajs_promise_then_overridden(cell)` — the EXISTENCE half of
+/// [`__torajs_promise_then_observed`]: `1` when the cell's expando
+/// bag holds a `then` entry, `0` otherwise, with no GET performed
+/// (an accessor's getter is not run — that observable read belongs
+/// to the Invoke lane). The sync combinator kernels ask this before
+/// their raw slot walk: an input array whose elements all wear the
+/// builtin `then` keeps its tick-exact walk, and one element with
+/// an override sends the whole array down the iterator-interleaved
+/// lane, which is where §27.2.4.1.3 step 6.q-s already lives. The
+/// two answers are the same predicate over the same entry, so the
+/// lane the sync kernel defers to always activates — the deferral
+/// cannot bounce back.
+///
+/// # Safety
+/// `cell` is a live Promise-tagged heap pointer.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_then_overridden(cell: *mut c_void) -> i64 {
+    unsafe extern "C" {
+        fn __torajs_str_drop(s: *mut c_void);
+    }
+    unsafe {
+        match own_then_entry(cell) {
+            Some((_, _, key)) => {
+                __torajs_str_drop(key);
+                1
+            }
+            None => 0,
+        }
+    }
+}
+
+/// The `then` entry of a promise cell's expando bag: `(tag, value,
+/// key)` with `key` OWNED (the caller drops it), or `None` when the
+/// cell has no bag or the bag has no `then`. A data entry holding
+/// `undefined` reads as absent — its tag IS the absent sentinel —
+/// which both callers above treat as "no override".
+unsafe fn own_then_entry(cell: *mut c_void) -> Option<(u64, u64, *mut c_void)> {
+    unsafe extern "C" {
         fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
         fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
         fn __torajs_str_drop(s: *mut c_void);
@@ -269,7 +322,7 @@ pub unsafe extern "C" fn __torajs_promise_then_observed(cell: *mut c_void) -> u6
     unsafe {
         let props = *(cell.cast::<u8>().add(P_PROPS_OFF) as *const *mut c_void);
         if props.is_null() {
-            return 0;
+            return None;
         }
         let key = {
             let bytes = b"then";
@@ -281,14 +334,9 @@ pub unsafe extern "C" fn __torajs_promise_then_observed(cell: *mut c_void) -> u6
         let value = __torajs_dynobj_get_value(props, key);
         if tag == ANY_UNDEF {
             __torajs_str_drop(key);
-            return 0;
+            return None;
         }
-        // Borrow-boxed receiver for the getter's `this` — the cell
-        // stays the caller's.
-        let recv = __torajs_anyv_box_from_pair(4, cell as i64);
-        let v = crate::len_get::box_probe_pair(tag, value, recv, key);
-        __torajs_str_drop(key);
-        v
+        Some((tag, value, key))
     }
 }
 

@@ -140,6 +140,18 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     if unsafe { sparse_input_rejects(promises_arr) } {
         return unsafe { defer_settle(STATE_REJECTED, 0, 0, REPR_VOID) };
     }
+    // An element wearing its own `then` sends the input down the
+    // interleaved lane (§27.2.4.1.3 step 6.q-s); see
+    // `combinator_then_override`.
+    if let Some(out) = unsafe {
+        crate::combinator_then_override::defer_on_then_override(
+            promises_arr,
+            crate::combinator_all_fanin::MODE_ALL,
+            crate::combinator_dyn::all_sync_untargeted,
+        )
+    } {
+        return out;
+    }
     // §27.2.4 static-slot patch consult (rotation 448) — a user
     // override on `Promise.resolve` detours to the per-element
     // Call(promiseResolve, C, «v») lane; see `combinator_patched`.
@@ -251,6 +263,15 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
     // §27.2.4 static-slot patch consult (rotation 448) — a user
     // override on `Promise.resolve` detours to the per-element
     // Call(promiseResolve, C, «v») lane; see `combinator_patched`.
+    if let Some(out) = unsafe {
+        crate::combinator_then_override::defer_on_then_override(
+            promises_arr,
+            crate::combinator_all_fanin::MODE_RACE,
+            __torajs_promise_race_sync,
+        )
+    } {
+        return out;
+    }
     if unsafe { crate::combinator_patched::consult_active() } {
         return unsafe { crate::combinator_patched::run_race(promises_arr) };
     }
@@ -352,6 +373,15 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
     // §27.2.4 static-slot patch consult (rotation 448) — a user
     // override on `Promise.resolve` detours to the per-element
     // Call(promiseResolve, C, «v») lane; see `combinator_patched`.
+    if let Some(out) = unsafe {
+        crate::combinator_then_override::defer_on_then_override(
+            promises_arr,
+            crate::combinator_all_fanin::MODE_ANY,
+            __torajs_promise_any_sync,
+        )
+    } {
+        return out;
+    }
     if unsafe { crate::combinator_patched::consult_active() } {
         return unsafe { crate::combinator_patched::run_any(promises_arr) };
     }

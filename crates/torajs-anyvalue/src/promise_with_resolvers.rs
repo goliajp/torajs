@@ -218,7 +218,28 @@ unsafe fn mint_resolver(
         *(cell.add(RESOLVER_PROMISE_OFF) as *mut u64) = p as u64;
         *(cell.add(RESOLVER_RECORD_OFF) as *mut u64) = record as u64;
 
-        let props_slot = cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void;
+        __torajs_closure_props_seed_reflect(cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void, 1);
+        cell
+    }
+}
+
+/// Seed a freshly minted native closure cell's props bag with the
+/// §20.2.3 reflection entries — `name` "" and `length` = `length` —
+/// so `f.length` / `f.name` answer the spec instead of `undefined`.
+/// `props_slot` is the cell's `CLOSURE_PROPS_OFF` word and must hold
+/// NULL: the bag is allocated here. The capability resolvers above
+/// and the combinators' resolveElement / rejectElement cells
+/// (torajs-promise `combinator_iter_settle`, whose `.length` test262
+/// asserts is 1) mint through this one seeder.
+///
+/// # Safety
+/// `props_slot` points at the props word of a live Closure cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_closure_props_seed_reflect(
+    props_slot: *mut *mut c_void,
+    length: i64,
+) {
+    unsafe {
         *props_slot = __torajs_dynobj_alloc();
         let name_key = __torajs_str_alloc(c"name".as_ptr() as *const u8, 4);
         let empty = __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
@@ -235,11 +256,10 @@ unsafe fn mint_resolver(
             props_slot,
             len_key as *mut c_void,
             ANY_I64,
-            1,
+            length as u64,
             REFLECT_ENTRY_FLAGS,
         );
         __torajs_str_drop(len_key as *mut c_void);
-        cell
     }
 }
 

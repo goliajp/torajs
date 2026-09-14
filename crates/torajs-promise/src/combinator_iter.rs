@@ -170,7 +170,7 @@ pub(crate) unsafe fn dyn_iter(
                         b = activate(mode, &mut items, &mut next_index);
                     }
                     let index = alloc_index(b, mode, &mut next_index);
-                    invoke_user_then(b, mode, index, user_then);
+                    invoke_user_then(b, mode, index, user_then, elem);
                     __torajs_anyv_rc_dec(user_then);
                     __torajs_anyv_rc_dec(elem);
                     if __torajs_throw_check() != 0 {
@@ -386,11 +386,13 @@ unsafe fn reject_result_with_pending(b: *mut AllBlock) -> *mut c_void {
 }
 
 /// §27.2.4.1.3 step 6.r — Invoke the user override with the mode's
-/// resolveElement / rejectElement pair. Each cell holds a block
-/// stake (`jobs`); the mint stakes die right after the call unless
-/// the user body kept them. The waited-on count goes up for every
-/// mode that counts — the pair's settle entries take it back down.
-unsafe fn invoke_user_then(b: *mut AllBlock, mode: u8, index: u64, user_then: u64) {
+/// resolveElement / rejectElement pair, `this` = the element promise
+/// (`Invoke(nextPromise, "then", …)`; `this_arg` is BORROWED — the
+/// caller still owns `elem`). Each cell holds a block stake (`jobs`);
+/// the mint stakes die right after the call unless the user body kept
+/// them. The waited-on count goes up for every mode that counts — the
+/// pair's settle entries take it back down.
+unsafe fn invoke_user_then(b: *mut AllBlock, mode: u8, index: u64, user_then: u64, this_arg: u64) {
     unsafe {
         if mode != MODE_RACE {
             (*b).remaining += 1;
@@ -402,7 +404,7 @@ unsafe fn invoke_user_then(b: *mut AllBlock, mode: u8, index: u64, user_then: u6
             __torajs_anyv_box_from_pair(4, rcell as i64),
             __torajs_anyv_box_from_pair(4, jcell as i64),
         ];
-        let ret = __torajs_any_call(user_then, argv.as_ptr(), 2);
+        let ret = __torajs_any_call_with_this(user_then, this_arg, argv.as_ptr(), 2);
         let threw = __torajs_throw_check() != 0;
         __torajs_value_drop_heap(rcell);
         __torajs_value_drop_heap(jcell);
