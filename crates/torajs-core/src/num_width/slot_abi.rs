@@ -57,6 +57,68 @@ pub(super) fn dispatch_unions(a: &mut Analysis) {
     slot_unions(a);
 }
 
+/// Rotation 650 — a relay shell shares its target's signature width.
+/// `__forward_<t>` / `__fwdrecv_<t>` is minted as `t`'s own face
+/// (`forwarder_synth`: the shell's params are the target's declared
+/// ones, its body one forwarding call), and the boxed-entry redirect
+/// (`ssa_lower_boxed_entry::relay`) enters `t` directly only when the
+/// two SSA faces match slot for slot. The width analysis saw them as
+/// two unrelated functions: a target param widened to F64 by its own
+/// body left the shell's twin at I64, the faces no longer matched,
+/// and every any-world call fell back to the shell body's static
+/// forwarding call — which packs the declared count, so `(t as
+/// any)(1, 2, 3, 4)` answered `arguments.length` 3 (silent). Each
+/// shell param unions with the target param the forwarding call
+/// feeds it to (positional over the target's visible params — the
+/// injected `__torajs_argv` never appears in the call), and the
+/// returns union too.
+pub(super) fn relay_unions(a: &mut Analysis) {
+    use crate::ast::{Expr, Stmt};
+    let mut pairs: Vec<(SlotKey, SlotKey)> = Vec::new();
+    for s in &a.ast.stmts {
+        let Stmt::FnDecl { name, body, .. } = s else {
+            continue;
+        };
+        if !name.starts_with("__forward_") && !name.starts_with("__fwdrecv_") {
+            continue;
+        }
+        let [Stmt::Return(Some(call))] = body.as_slice() else {
+            continue;
+        };
+        let Expr::Call { callee, args } = a.ast.get_expr(*call) else {
+            continue;
+        };
+        let Expr::Ident(target) = a.ast.get_expr(*callee) else {
+            continue;
+        };
+        let (Some(relay_params), Some(target_params)) =
+            (a.fn_params.get(name), a.fn_params.get(target))
+        else {
+            continue;
+        };
+        let visible: Vec<&String> = target_params
+            .iter()
+            .filter(|p| p.as_str() != "__torajs_argv")
+            .collect();
+        pairs.push((SlotKey::Ret(name.clone()), SlotKey::Ret(target.clone())));
+        for (arg, tp) in args.iter().zip(visible.iter()) {
+            let Expr::Ident(p) = a.ast.get_expr(*arg) else {
+                continue;
+            };
+            if !relay_params.contains(p) {
+                continue;
+            }
+            pairs.push((
+                SlotKey::Param(name.clone(), p.clone()),
+                SlotKey::Param(target.clone(), (*tp).clone()),
+            ));
+        }
+    }
+    for (x, y) in pairs {
+        a.uf.union(&x, &y);
+    }
+}
+
 /// Rotation 507 — the same one-slot-one-ABI rule for every OVERRIDDEN
 /// name, dispatcher or not: a name an unrelated class also declares
 /// gets no `__dispatch_` stub (its Member-shape sites read the slot

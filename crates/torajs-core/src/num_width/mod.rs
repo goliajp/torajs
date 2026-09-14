@@ -368,6 +368,7 @@ pub(crate) fn analyze(
     container::objlit_ctor_unions(&mut a);
     container::generator_step_unions(&mut a);
     slot_abi::dispatch_unions(&mut a);
+    slot_abi::relay_unions(&mut a);
     a.alias_nominal_unions();
     a.fnsig_nominal_unions();
     container::activate_guarded(&mut a);
