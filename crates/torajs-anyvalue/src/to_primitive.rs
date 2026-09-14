@@ -103,6 +103,47 @@ unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
     false
 }
 
+/// §7.1.1.1 step 5 over an ACCESSOR entry — `Get(O, name)` runs the
+/// getter (`get valueOf() { … }`, the test262 toPrimitiveObserver
+/// shape), and the callable it answers is `Call`ed with `O` as this.
+/// `None` when the name is not an accessor on `recv` (the data /
+/// builtin path keeps its dispatch); `Some(None)` when the getter
+/// answered a non-callable (step 5.b — released, the caller moves to
+/// the next name); `Some(Some(out))` is the method's answer, or the
+/// placeholder under a pending throw the caller's check unwinds.
+#[cfg(not(test))]
+unsafe fn accessor_method_call(recv: AnyValue, key: *const u8) -> Option<Option<AnyValue>> {
+    unsafe {
+        let key = key as *const c_void;
+        if crate::member_get::__torajs_any_member_get_tag(recv, key)
+            != crate::struct_probe::ANY_ACCESSOR_TAG
+        {
+            return None;
+        }
+        let f = crate::member_get_receiver::__torajs_any_member_get_with_receiver(recv, key, recv);
+        if __torajs_throw_check() != 0 {
+            return Some(Some(f));
+        }
+        if !crate::promise_capability::is_callable(f) {
+            __torajs_anyv_rc_dec(f);
+            return Some(None);
+        }
+        let out = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+            f,
+            recv,
+            core::ptr::null(),
+            0,
+        );
+        __torajs_anyv_rc_dec(f);
+        Some(Some(out))
+    }
+}
+
+#[cfg(test)]
+unsafe fn accessor_method_call(_recv: AnyValue, _key: *const u8) -> Option<Option<AnyValue>> {
+    None
+}
+
 /// A NaN-boxed value is an "object" for ToPrimitive purposes iff it
 /// is a heap cell whose tag is not a primitive flavor — Str cells /
 /// ShortStr immediates are the string primitive, and BigInt / Symbol
@@ -275,11 +316,23 @@ unsafe fn ordinary_to_primitive(cell: *mut c_void, hint_string: bool) -> Option<
     };
     for (mid, name) in order {
         let key = unsafe { __torajs_str_alloc(name.as_ptr(), name.len() as i64) };
-        if unsafe { skip_not_callable(cell, key) } {
-            unsafe { __torajs_str_drop(key as *mut c_void) };
-            continue;
-        }
-        let out = unsafe { dispatch_method(recv, mid, key) };
+        // An accessor entry answers through its getter (rotation 646
+        // — the not-callable probe read the AccessorPair as a
+        // non-callable value and skipped the name).
+        let out = match unsafe { accessor_method_call(recv, key) } {
+            Some(Some(out)) => out,
+            Some(None) => {
+                unsafe { __torajs_str_drop(key as *mut c_void) };
+                continue;
+            }
+            None => {
+                if unsafe { skip_not_callable(cell, key) } {
+                    unsafe { __torajs_str_drop(key as *mut c_void) };
+                    continue;
+                }
+                unsafe { dispatch_method(recv, mid, key) }
+            }
+        };
         unsafe { __torajs_str_drop(key as *mut c_void) };
         if unsafe { __torajs_throw_check() } != 0 {
             // The user method threw — propagate by returning a
