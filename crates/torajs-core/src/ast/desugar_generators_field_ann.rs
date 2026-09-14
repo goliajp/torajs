@@ -181,6 +181,22 @@ fn objlit_ann(ast: &Ast, fields: &[(PropKey, super::ExprId)], ctx: &LiftCtx) -> 
     }) {
         return Some("any".into());
     }
+    // A spread member is a sentinel one step over (`__spread__` /
+    // `__spread_omit__:a,b` where the name goes, the source as its
+    // value): what it contributes is the SOURCE's keys, a runtime fact
+    // this pass cannot unfold. The shared sniff already answers `any`
+    // for it; this arm composed the sentinel through instead, so a
+    // destructuring object REST lifted to a field (`for await (const
+    // { a, ...r } of xs)` in an async machine, blade 4 of RFC 20260915)
+    // was declared `__inlobj(__spread_omit__:a:any)` — a type nothing
+    // can resolve ("unknown type … for field `r`"), which is why the
+    // pattern-head loops stayed on the synchronous lowering.
+    if fields.iter().any(|(n, _)| {
+        n.as_str()
+            .is_some_and(|k| k == "__spread__" || k.starts_with("__spread_omit__:"))
+    }) {
+        return Some("any".into());
+    }
     let parts: Vec<String> = fields
         .iter()
         .map(|(n, eid)| {

@@ -85,14 +85,10 @@ pub(super) fn rewrite_yield_forof(ast: &mut Ast, body: &mut [Stmt], is_async_gen
 /// Does this loop take the manual protocol — a body suspending inside
 /// it, or the async form (whose step suspends by itself)? A
 /// destructuring PATTERN head (the parser's `__forof_destr_N` loop
-/// local + pattern binds in the body) takes it only for a suspending
-/// body, as before RFC 20260915: the let-lift types the pattern's
-/// locals from their binds (`__inlobj(__spread_omit__::any)` for an
-/// object rest — a field the machine class cannot declare) and an
-/// array rest with elision answered wrong (the test262 `async-gen-
-/// dstr-*` family at blade 4's first sweep); registered.
-fn takes_protocol(body: &Stmt, var_name: &str, is_await: bool) -> bool {
-    (is_await && !var_name.starts_with("__forof_destr_")) || stmt_contains_yield(body)
+/// local + pattern binds in the body) is no exception since the lift
+/// types an object rest's bind as `any` (`objlit_ann`'s spread arm).
+fn takes_protocol(body: &Stmt, is_await: bool) -> bool {
+    is_await || stmt_contains_yield(body)
 }
 
 fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
@@ -107,12 +103,11 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
             forin_obj,
             body,
             is_await,
-            var_name,
             ..
         } = unlabel(&stmts[i])
             && forin_obj.is_none()
             && i > 0
-            && takes_protocol(body, var_name, *is_await)
+            && takes_protocol(body, *is_await)
         {
             let src = src_ident.clone();
             if let Stmt::LetDecl { name, type_ann, .. } = &mut stmts[i - 1]
@@ -132,11 +127,10 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
             body,
             forin_obj,
             is_await,
-            var_name,
             ..
         } => {
             rewrite_in_stmt(ast, body, cx);
-            if forin_obj.is_none() && takes_protocol(body, var_name, *is_await) {
+            if forin_obj.is_none() && takes_protocol(body, *is_await) {
                 let old = std::mem::replace(s, Stmt::Multi(Vec::new()));
                 let Stmt::ForOf {
                     var_name,
