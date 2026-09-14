@@ -39,23 +39,54 @@
 //! (§27.1.4.4), and an async iterator's Promise step settles
 //! before `done` / `value` are read (§14.7.5.6 step 6.d).
 //!
-//! Narrowed faces (registered, not silently wrong): the for-in
-//! desugar (`forin_obj`) keeps the catch-all; §14.7.5's
-//! abrupt-completion iterator close (`return()` forwarding) is not
-//! part of the manual shape.
+//! RFC 20260915 blade 4: a `for await` is rewritten in EVERY machine
+//! body, yield-bearing or not — its step is a suspend of the machine's
+//! own kind (an async function's yields the awaited value, an async
+//! generator's yields it under an `__AwaitMark`; `Suspend`), and the
+//! sync `for…of` of an async function's body is rewritten once its
+//! awaits are yields. Both shapes carry §7.4.9 / §7.4.11 iterator
+//! close on the loop's completion (`desugar_generators_forof_close`).
+//! The helpers the shape calls are injected once per program that can
+//! hold a machine (`desugar_generators_forof_helpers`).
+//!
+//! Narrowed face (registered, not silently wrong): the for-in desugar
+//! (`forin_obj`) keeps the catch-all.
 
+use super::desugar_generators_forof_close::{Suspend, clear_live, set_live, wrap_with_close};
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::{Ast, Expr, Stmt};
 
-/// Entry — walk the raw generator body, bottom-up.
-pub(super) fn rewrite_yield_forof(ast: &mut Ast, body: &mut [Stmt]) {
-    let mut counter = 0usize;
+/// One body's rewrite: the loop counter and which suspend spelling
+/// the machine reads for a `for await` step.
+struct Cx {
+    counter: usize,
+    suspend: Suspend,
+}
+
+/// Entry — walk the raw generator body, bottom-up. `is_async_gen`
+/// picks the `for await` step's suspend spelling (mark mode for an
+/// async generator's machine, the plain yield for an async function's).
+pub(super) fn rewrite_yield_forof(ast: &mut Ast, body: &mut [Stmt], is_async_gen: bool) {
+    let mut cx = Cx {
+        counter: 0,
+        suspend: if is_async_gen {
+            Suspend::Mark
+        } else {
+            Suspend::Plain
+        },
+    };
     for s in body {
-        rewrite_in_stmt(ast, s, &mut counter);
+        rewrite_in_stmt(ast, s, &mut cx);
     }
 }
 
-fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
+/// Does this loop take the manual protocol — a body suspending inside
+/// it, or the async form (whose step suspends by itself)?
+fn takes_protocol(body: &Stmt, is_await: bool) -> bool {
+    is_await || stmt_contains_yield(body)
+}
+
+fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
     for i in 0..stmts.len() {
         // The parser's non-ident-source hoist (`let __forof_src_N =
         // <src>`, no ann) precedes its ForOf in the same Block. The
@@ -66,11 +97,12 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
             src_ident,
             forin_obj,
             body,
+            is_await,
             ..
         } = unlabel(&stmts[i])
             && forin_obj.is_none()
             && i > 0
-            && stmt_contains_yield(body)
+            && takes_protocol(body, *is_await)
         {
             let src = src_ident.clone();
             if let Stmt::LetDecl { name, type_ann, .. } = &mut stmts[i - 1]
@@ -80,7 +112,49 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
                 *type_ann = Some("any".into());
             }
         }
-        rewrite_in_stmt(ast, &mut stmts[i], counter);
+        rewrite_in_stmt(ast, &mut stmts[i], cx);
+    }
+}
+
+/// The tail statement a rewritten for-of ends in: the While itself, or
+/// the close wrap's Try holding it.
+fn is_loop_tail(s: &Stmt) -> bool {
+    match s {
+        Stmt::While { .. } => true,
+        Stmt::Try { body, .. } => matches!(body.as_slice(), [Stmt::While { .. }]),
+        _ => false,
+    }
+}
+
+/// Put `label` on the While inside `tail` (see [`is_loop_tail`]).
+fn label_loop_tail(label: String, tail: Stmt) -> Stmt {
+    match tail {
+        Stmt::Try {
+            mut body,
+            had_catch,
+            catch_param,
+            catch_type,
+            catch_body,
+            finally_body,
+        } => {
+            let w = body.pop().expect("is_loop_tail matched a While");
+            body.push(Stmt::Labeled {
+                label,
+                body: Box::new(w),
+            });
+            Stmt::Try {
+                body,
+                had_catch,
+                catch_param,
+                catch_type,
+                catch_body,
+                finally_body,
+            }
+        }
+        w => Stmt::Labeled {
+            label,
+            body: Box::new(w),
+        },
     }
 }
 
@@ -94,13 +168,16 @@ fn unlabel(s: &Stmt) -> &Stmt {
     }
 }
 
-fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
+fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
     match s {
         Stmt::ForOf {
-            body, forin_obj, ..
+            body,
+            forin_obj,
+            is_await,
+            ..
         } => {
-            rewrite_in_stmt(ast, body, counter);
-            if forin_obj.is_none() && stmt_contains_yield(body) {
+            rewrite_in_stmt(ast, body, cx);
+            if forin_obj.is_none() && takes_protocol(body, *is_await) {
                 let old = std::mem::replace(s, Stmt::Multi(Vec::new()));
                 let Stmt::ForOf {
                     var_name,
@@ -115,38 +192,41 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
                 if is_await && ast.yieldstar_async_vars.contains(&var_name) {
                     // An async generator's `yield*` — the delegation
                     // protocol, not the loop's (`desugar_generators_yieldstar`).
-                    let n = *counter;
-                    *counter += 1;
+                    let n = cx.counter;
+                    cx.counter += 1;
                     *s = super::desugar_generators_yieldstar::build_delegation_protocol(
                         ast, var_name, src_ident, n,
                     );
                 } else {
-                    *s = build_manual_protocol(ast, var_name, src_ident, *body, counter, is_await);
+                    *s = build_manual_protocol(ast, var_name, src_ident, *body, cx, is_await);
                 }
             }
         }
         Stmt::Block(ss) | Stmt::Multi(ss) => {
-            rewrite_in_seq(ast, ss, counter);
+            rewrite_in_seq(ast, ss, cx);
         }
         Stmt::If {
             then_branch,
             else_branch,
             ..
         } => {
-            rewrite_in_stmt(ast, then_branch, counter);
+            rewrite_in_stmt(ast, then_branch, cx);
             if let Some(eb) = else_branch {
-                rewrite_in_stmt(ast, eb, counter);
+                rewrite_in_stmt(ast, eb, cx);
             }
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
-        | Stmt::ForOfSplitIter { body, .. } => rewrite_in_stmt(ast, body, counter),
-        // A labeled for-of becomes `Multi[decls…, While]`; the label
-        // moves onto the While so the machine still sees a labeled
-        // LOOP (`continue label` needs one), not a labeled block.
+        | Stmt::ForOfSplitIter { body, .. } => rewrite_in_stmt(ast, body, cx),
+        // A labeled for-of becomes `Multi[decls…, Try { While }]` (the
+        // close wrap; a delegation protocol ends in a bare While); the
+        // label moves onto the While so the machine still sees a
+        // labeled LOOP (`continue label` needs one), not a labeled
+        // block — a jump to it from inside the loop's own try routes
+        // through that try's finally like any escaping jump.
         Stmt::Labeled { body, .. } => {
-            rewrite_in_stmt(ast, body, counter);
-            if matches!(&**body, Stmt::Multi(ss) if matches!(ss.last(), Some(Stmt::While { .. }))) {
+            rewrite_in_stmt(ast, body, cx);
+            if matches!(&**body, Stmt::Multi(ss) if ss.last().is_some_and(is_loop_tail)) {
                 let Stmt::Labeled { label, body } = std::mem::replace(s, Stmt::Multi(Vec::new()))
                 else {
                     unreachable!()
@@ -154,26 +234,23 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
                 let Stmt::Multi(mut ss) = *body else {
                     unreachable!()
                 };
-                let last = ss.pop().expect("matched a last While");
-                ss.push(Stmt::Labeled {
-                    label,
-                    body: Box::new(last),
-                });
+                let last = ss.pop().expect("matched a loop tail");
+                ss.push(label_loop_tail(label, last));
                 *s = Stmt::Multi(ss);
             }
         }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
-                rewrite_in_stmt(ast, i, counter);
+                rewrite_in_stmt(ast, i, cx);
             }
-            rewrite_in_stmt(ast, body, counter);
+            rewrite_in_stmt(ast, body, cx);
         }
         Stmt::Switch { cases, default, .. } => {
             for c in cases {
-                rewrite_in_seq(ast, &mut c.body, counter);
+                rewrite_in_seq(ast, &mut c.body, cx);
             }
             if let Some(d) = default {
-                rewrite_in_seq(ast, d, counter);
+                rewrite_in_seq(ast, d, cx);
             }
         }
         Stmt::Try {
@@ -182,10 +259,10 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
             finally_body,
             ..
         } => {
-            rewrite_in_seq(ast, body, counter);
-            rewrite_in_seq(ast, catch_body, counter);
+            rewrite_in_seq(ast, body, cx);
+            rewrite_in_seq(ast, catch_body, cx);
             if let Some(fb) = finally_body {
-                rewrite_in_seq(ast, fb, counter);
+                rewrite_in_seq(ast, fb, cx);
             }
         }
         _ => {}
@@ -223,11 +300,11 @@ fn build_manual_protocol(
     var_name: String,
     src_ident: String,
     body: Stmt,
-    counter: &mut usize,
+    cx: &mut Cx,
     is_await: bool,
 ) -> Stmt {
-    let n = *counter;
-    *counter += 1;
+    let n = cx.counter;
+    cx.counter += 1;
     let it_name = format!("__gfit_{n}");
     let step_name = format!("__gfstep_{n}");
 
@@ -288,12 +365,13 @@ fn build_manual_protocol(
     };
 
     // sync:  let __gfstep_N: any = __gfit_N.next();
-    // async: let __gfstep_N: any = yield new __AwaitMark(__agen_step_call(__gfit_N));
+    // async: let __gfstep_N: any = yield <suspend>(__agen_step_call(__gfit_N, __gfam_N));
     // (§14.7.5.6 step 6.d / §27.5.3.2 async yield* — the step is
-    // awaited by the D4 driver through an await mark; a SYNC
+    // awaited by the driver: an async generator's under an await
+    // mark, an async function's as the plain yielded value; a SYNC
     // iterator's plain result takes `__agen_step_call`'s Async-from-
     // Sync posture, an async iterator's thenable passes through —
-    // `desugar_generators_async`.)
+    // `desugar_generators_forof_helpers`.)
     let it_ref = ast.add_expr(Expr::Ident(it_name));
     let step_decl = if is_await {
         let helper = ast.add_expr(Expr::Ident("__agen_step_call".into()));
@@ -305,11 +383,14 @@ fn build_manual_protocol(
             callee: helper,
             args: vec![it_ref, am_ref],
         });
-        let mark = super::desugar_generators_async::mint_await_mark(ast, call);
+        let operand = match cx.suspend {
+            Suspend::Mark => super::desugar_generators_async::mint_await_mark(ast, call),
+            Suspend::Plain | Suspend::None => call,
+        };
         Stmt::YieldInto {
             var: step_name.clone(),
             type_ann: Some("any".into()),
-            value: mark,
+            value: operand,
         }
     } else {
         let next_member = ast.add_expr(Expr::Member {
@@ -379,13 +460,22 @@ fn build_manual_protocol(
         is_var: false,
     };
 
+    // `__gflive_N` brackets the body: cleared before the step (a
+    // throwing `next()` closes nothing), set once the element is
+    // bound — the close in the wrap reads it.
+    let clear = clear_live(ast, n);
+    let set = set_live(ast, n);
     let true_lit = ast.add_expr(Expr::Bool(true));
     let while_loop = Stmt::While {
         cond: true_lit,
-        body: Box::new(Stmt::Block(vec![step_decl, done_check, var_decl, body])),
+        body: Box::new(Stmt::Block(vec![
+            clear, step_decl, done_check, var_decl, set, body,
+        ])),
     };
-    let mut out = pre_decls;
-    out.push(it_decl);
-    out.push(while_loop);
-    Stmt::Multi(out)
+    let mut head = pre_decls;
+    head.push(it_decl);
+    // A sync loop's close is a plain call; the async close is awaited
+    // through the machine's own suspend.
+    let suspend = if is_await { cx.suspend } else { Suspend::None };
+    wrap_with_close(ast, n, is_await, suspend, head, while_loop)
 }

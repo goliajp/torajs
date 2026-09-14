@@ -109,6 +109,39 @@ fn with_prefix(s: &mut Stmt, mut prefix: Vec<Stmt>) {
     *s = Stmt::Multi(prefix);
 }
 
+/// `for (init; c; step)` — the `while` head form for `c`; an await in
+/// `init` or `step` keeps the refusal (init sits in the loop's own
+/// scope, step runs after `continue`).
+fn rewrite_for(
+    ast: &mut Ast,
+    init: Option<&Stmt>,
+    cond: &mut Option<ExprId>,
+    step: Option<ExprId>,
+    body: &mut Box<Stmt>,
+    cx: &Cx,
+    log: &mut LiftLog,
+) -> bool {
+    if init.is_some_and(|i| stmt_has_await(ast, i)) || step.is_some_and(|e| expr_has_await(ast, e))
+    {
+        return false;
+    }
+    if !rewrite_stmt(ast, body, cx, log) {
+        return false;
+    }
+    let Some(c) = *cond else {
+        return true;
+    };
+    let Some(prefix) = lift_root(ast, c, cx, log) else {
+        return false;
+    };
+    if !prefix.is_empty() {
+        let old = std::mem::replace(body.as_mut(), Stmt::Multi(Vec::new()));
+        *body = Box::new(head_tested_body(ast, prefix, c, old));
+        *cond = None;
+    }
+    true
+}
+
 fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool {
     match s {
         // `await e;` — and `f(await e)`, lifted.
@@ -226,36 +259,12 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
         Stmt::DoWhile { cond, body } => {
             !expr_has_await(ast, *cond) && rewrite_stmt(ast, body, cx, log)
         }
-        // `for (init; c; step)` — the same head form for `c`; an await
-        // in `init` or `step` keeps the refusal (init sits in the loop's
-        // own scope, step runs after `continue`).
         Stmt::For {
             init,
             cond,
             step,
             body,
-        } => {
-            if init.as_deref().is_some_and(|i| stmt_has_await(ast, i))
-                || step.is_some_and(|e| expr_has_await(ast, e))
-            {
-                return false;
-            }
-            if !rewrite_stmt(ast, body, cx, log) {
-                return false;
-            }
-            let Some(c) = *cond else {
-                return true;
-            };
-            let Some(prefix) = lift_root(ast, c, cx, log) else {
-                return false;
-            };
-            if !prefix.is_empty() {
-                let old = std::mem::replace(body.as_mut(), Stmt::Multi(Vec::new()));
-                *body = Box::new(head_tested_body(ast, prefix, c, old));
-                *cond = None;
-            }
-            true
-        }
+        } => rewrite_for(ast, init.as_deref(), cond, *step, body, cx, log),
         // `switch (await x)` — the discriminant is evaluated once; case
         // values with awaits keep the refusal.
         Stmt::Switch {
@@ -284,6 +293,19 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
             true
         }
         Stmt::Labeled { body, .. } => rewrite_stmt(ast, body, cx, log),
+        // `for (x of src)` / `for await (x of src)` — the parser hoisted a
+        // non-identifier source into a `let` ahead of the loop, so an
+        // await in it lifts through the LetDecl arm; the body's awaits
+        // become the loop's suspends, and `desugar_generators_forof`
+        // turns the loop into the manual iterator protocol (a `for
+        // await`'s step is a suspend of its own, RFC 20260915 blade 4).
+        // for-in (`forin_obj`) keeps the refusal below — that rewrite
+        // has no arm for it.
+        Stmt::ForOf {
+            forin_obj: None,
+            body,
+            ..
+        } => rewrite_stmt(ast, body, cx, log),
         Stmt::Block(stmts) | Stmt::Multi(stmts) => rewrite_list(ast, stmts, cx, log),
         Stmt::Try {
             body,
