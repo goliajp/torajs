@@ -62,8 +62,12 @@ pub(crate) fn try_lower(
     }
     // S257 — widen `== 2` → `>= 2` per ES §20.1.2.9 trailing-arg
     // ignore. Lower args[0..2]; trailing dropped at lower-time.
-    if args.len() < 2 {
-        return None;
+    if args.is_empty() {
+        // SameValue(undefined, undefined).
+        return Some(Operand::ConstBool(true));
+    }
+    if args.len() == 1 {
+        return Some(lower_single_arg(ctx, args[0]));
     }
 
     let a_borrow = matches!(
@@ -200,4 +204,49 @@ pub(crate) fn try_lower(
         ctx.emit_drop_value(b_op, b_ty);
     }
     Some(Operand::Value(result_v))
+}
+
+/// `Object.is(x)` — §20.1.2.9 with the missing second argument read
+/// as `undefined`: SameValue(x, undefined).
+fn lower_single_arg(ctx: &mut LowerCtx<'_>, arg: ExprId) -> Operand {
+    // §20.1.2.9 — the missing second argument is `undefined`:
+    // `Object.is(null)` is false, `Object.is(undefined)` true
+    // (test262 not-same-value-x-y-null and siblings). The one
+    // written argument boxes and asks the SameValue kernel
+    // against the undefined box; a `Ptr` operand boxes like the
+    // nullish pair below.
+    let a_borrow = matches!(
+        ctx.ast.get_expr(arg),
+        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+    );
+    let a_op = ctx.lower_expr(arg);
+    let a_ty = ctx.operand_ty(&a_op);
+    let a_any = if a_ty == Type::Any {
+        a_op.clone()
+    } else {
+        ctx.box_to_any_from_expr(arg, a_op.clone())
+    };
+    let cur_block = ctx.cur_block;
+    let undef = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.any_box,
+            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    );
+    let r = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.object_is_any,
+            vec![a_any, Operand::Value(undef)],
+        ),
+        Type::Bool,
+        None,
+    );
+    if !a_borrow {
+        ctx.emit_drop_value(a_op, a_ty);
+    }
+    Operand::Value(r)
 }
