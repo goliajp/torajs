@@ -81,6 +81,7 @@ mod sealed_refuse;
 pub mod set_length;
 pub mod slice;
 pub mod sort;
+mod sort_cmp;
 pub mod sparse_gate;
 pub mod species;
 pub mod str_bridge;
