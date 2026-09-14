@@ -16,14 +16,16 @@ use super::{Ast, Expr, ExprId, Param, Stmt};
 /// - `new.target` — the generator is called plainly;
 /// - a dynamic `import()` — the imported module's top-level await
 ///   and the driver's resumption do not agree yet (642-15);
-/// - `for await` and `await using` — their suspend points are inside
-///   the iteration / disposal protocol, not at a statement the
-///   `Stmt::Yield` rewrite can reach (blades 4 / 5). `await using`
-///   has already become a `__usenv_N` dispose stack + try/finally by
-///   this pass (`desugar_using` runs first), so it is recognised by
-///   that environment's name; a body carrying one still keeps the
-///   synchronous lowering (`using-await-001`: the SuppressedError
-///   path through the generator's finally answered a TypeError);
+/// - `for await` — its suspend points are inside the iteration
+///   protocol, not at a statement the `Stmt::Yield` rewrite can reach
+///   (blade 4). (`await using` used to be listed beside it: by this
+///   pass it is a `__usenv_N` dispose stack + try/catch/finally whose
+///   finally awaits the async dispose — a statement-level await the
+///   `Try` arm turns into a suspend inside the machine's finally
+///   copies. RFC 20260915 measured the shape it was refused for and
+///   found it already right; the two defects the refusal hid were the
+///   machine's labeled-block gap and the nested value's frame link,
+///   both closed in the same rotation.)
 /// (`let xs: T[] = await e` used to be listed here: through `yield`
 /// the width analysis lost the link between the binding and the
 /// awaited literal. The expansion now records the `this.__sent` init's
@@ -103,10 +105,7 @@ enum Owner {
 }
 
 fn stmt_blocks_move(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
-    if matches!(
-        s,
-        Stmt::ForOf { is_await: true, .. } | Stmt::UsingDecl { is_await: true, .. }
-    ) {
+    if matches!(s, Stmt::ForOf { is_await: true, .. }) {
         return true;
     }
     walk::stmt_exprs(s)
@@ -119,7 +118,6 @@ fn stmt_blocks_move(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
 
 fn expr_blocks_move(ast: &Ast, eid: ExprId, owner: Owner) -> bool {
     match ast.get_expr(eid) {
-        Expr::Ident(n) if n.starts_with("__usenv_") => true,
         Expr::Ident(n) if n == "arguments" => owner == Owner::Body,
         // A dynamic `import()` (the parser spells it as a call of
         // `__torajs_dyn_import`) — the imported module's own
@@ -137,13 +135,9 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, owner: Owner) -> bool {
         // which `desugar_async_sm_this` rewrites per owner) are not
         // the body's. Its AWAIT shapes still count: a nested async
         // value the gate refuses keeps the synchronous lowering, and
-        // one holding `await using` / `for await` inside a moved
-        // body's machine has three open defects (a labeled `break`
-        // past the declaration SIGSEGVs the cycle collector at exit,
-        // a TDZ read's ReferenceError escapes the rejection, the
-        // post-block statements run a microtask early — rotation 645
-        // probes p13 / p14 / p23), so it keeps the enclosing body on
-        // the synchronous lowering as before, until blade 5 moves it.
+        // that lowering inside a moved body's machine does not compose
+        // with it (rotation 645 probes p13 / p14 / p23), so the
+        // enclosing body stays on the synchronous lowering with it.
         Expr::ArrowFn { body, .. } if super::desugar_async_sm_this::owns_this(ast, eid) => body
             .iter()
             .any(|s| stmt_blocks_move(ast, s, Owner::NestedFn)),
