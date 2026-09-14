@@ -276,9 +276,38 @@ impl<'a> Parser<'a> {
                 "a labeled statement",
                 super::single_stmt_judge::SingleStmtPos::LabelledItem,
             )?;
-            return Ok(Some(Stmt::Labeled { label, body }));
+            return Ok(Some(Self::label_hoisted_for_of(label, body)));
         }
         Ok(None)
+    }
+
+    /// `label: for (x of <expr>)` — the for-of desugar hoists a
+    /// non-identifier source into `Block[let __forof_src_N = e; ForOf]`
+    /// (`try_parse_for_of`), and a label wrapped around that block
+    /// would name a BLOCK, not the loop: the early-error pass refused
+    /// `continue label` (§14.8.1 wants an IterationStatement), and the
+    /// state machine, which hands a label to the yield-loop it wraps,
+    /// never saw the loop. The label sinks onto the loop itself:
+    /// `Block[let; Labeled { label, ForOf }]`. Stacked labels sink one
+    /// at a time (the inner one already sits on the loop), so the
+    /// second statement may be a `Labeled` chain.
+    fn label_hoisted_for_of(label: String, body: Box<Stmt>) -> Stmt {
+        let is_hoisted = matches!(&*body, Stmt::Block(ss)
+            if ss.len() == 2
+                && matches!(&ss[0], Stmt::LetDecl { name, .. } if name.starts_with("__forof_src_"))
+                && matches!(&ss[1], Stmt::ForOf { .. } | Stmt::Labeled { .. }));
+        if !is_hoisted {
+            return Stmt::Labeled { label, body };
+        }
+        let Stmt::Block(mut ss) = *body else {
+            unreachable!()
+        };
+        let stmt = ss.pop().expect("two statements");
+        ss.push(Stmt::Labeled {
+            label,
+            body: Box::new(stmt),
+        });
+        Stmt::Block(ss)
     }
 
     /// `break`/`continue` optional label — ES §14.9/§14.8 restricted

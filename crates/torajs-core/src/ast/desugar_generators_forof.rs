@@ -67,7 +67,7 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
             forin_obj,
             body,
             ..
-        } = &stmts[i]
+        } = unlabel(&stmts[i])
             && forin_obj.is_none()
             && i > 0
             && stmt_contains_yield(body)
@@ -81,6 +81,16 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], counter: &mut usize) {
             }
         }
         rewrite_in_stmt(ast, &mut stmts[i], counter);
+    }
+}
+
+/// The statement under a label chain — a labeled for-of whose source
+/// was hoisted sits as `Labeled { ForOf }` right after its hoist
+/// (`parse_stmt::label_hoisted_for_of`).
+fn unlabel(s: &Stmt) -> &Stmt {
+    match s {
+        Stmt::Labeled { body, .. } => unlabel(body),
+        other => other,
     }
 }
 
