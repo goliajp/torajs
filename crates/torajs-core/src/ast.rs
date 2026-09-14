@@ -394,6 +394,7 @@ pub(crate) mod desugar_with;
 pub(crate) use desugar_with::{WITH_OBJ_FN, WITH_OBJ_PREFIX};
 mod number_template_sites;
 mod with_object_widen;
+mod promise_then_store_widen;
 pub use annexb_fn_goal::triage_annexb_fn_decls;
 pub use annexb_forin_init_goal::triage_annexb_forin_init;
 pub use await_ident_goal::triage_await_idents;
@@ -410,6 +411,7 @@ pub use uninit_let::desugar_uninit_let;
 pub use var_hoist::{ScriptGlobalVar, desugar_var_hoist};
 pub use vtable_slot::{hierarchy_root, join_vtable_slot_params, join_vtable_slot_returns};
 pub use with_object_widen::widen_with_object_bindings;
+pub use promise_then_store_widen::widen_promise_then_store_bindings;
 pub use yield_ident_goal::triage_yield_idents;
 
 mod ast_def;

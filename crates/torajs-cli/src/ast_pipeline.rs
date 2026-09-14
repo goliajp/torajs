@@ -188,6 +188,10 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     // `delete`, fall-through misses); widen its declaration to `any`
     // so it lowers through the dynobj lane (doc on the pass).
     ast::widen_with_object_bindings(ast);
+    // A promise binding whose `then` the program stores keeps that
+    // store in the cell's expando bag — an any-lane surface, so the
+    // binding widens to `any` (doc on the pass).
+    ast::widen_promise_then_store_bindings(ast);
     // `delete <bare name>` goal triage (rotation 372) — strict is the
     // §13.5.1.1 SyntaxError, sloppy resolves §13.5.1.2 statically.
     //
