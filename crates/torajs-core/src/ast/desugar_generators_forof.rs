@@ -54,14 +54,15 @@
 
 use super::desugar_generators_forof_close::{Suspend, clear_live, set_live, wrap_with_close};
 use super::desugar_generators_forof_label::{is_loop_tail, label_loop_tail, unlabel};
+use super::desugar_generators_forof_step::build_step_decl;
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::{Ast, Expr, Stmt};
 
 /// One body's rewrite: the loop counter and which suspend spelling
 /// the machine reads for a `for await` step.
-struct Cx {
-    counter: usize,
-    suspend: Suspend,
+pub(super) struct Cx {
+    pub(super) counter: usize,
+    pub(super) suspend: Suspend,
 }
 
 /// Entry — walk the raw generator body, bottom-up. `is_async_gen`
@@ -265,6 +266,9 @@ fn build_manual_protocol(
     cx.counter += 1;
     let it_name = format!("__gfit_{n}");
     let step_name = format!("__gfstep_{n}");
+    let is_delegation =
+        !is_await && (var_name.starts_with("__ysv_") || var_name.starts_with("__ysxv_"));
+    let recv_name = format!("__gfrecv_{n}");
 
     // sync:  let __gfit_N: any = (src as any)[Symbol.iterator]();
     // async: let __gfam_N: any = (src as any)[Symbol.asyncIterator];
@@ -341,43 +345,15 @@ fn build_manual_protocol(
     // iterator's plain result takes `__agen_step_call`'s Async-from-
     // Sync posture, an async iterator's thenable passes through —
     // `desugar_generators_forof_helpers`.)
-    let it_ref = ast.add_expr(Expr::Ident(it_name));
-    let step_decl = if is_await {
-        let helper = ast.add_expr(Expr::Ident("__agen_step_call".into()));
-        // The `@@asyncIterator` probe rides along: it decides whether a
-        // throwing `next()` is the body's own throw (async) or the
-        // Async-from-Sync wrapper's rejection (sync).
-        let am_ref = ast.add_expr(Expr::Ident(am_name.clone()));
-        let call = ast.add_expr(Expr::Call {
-            callee: helper,
-            args: vec![it_ref, am_ref],
-        });
-        let operand = match cx.suspend {
-            Suspend::Mark => super::desugar_generators_async::mint_await_mark(ast, call),
-            Suspend::Plain | Suspend::None => call,
-        };
-        Stmt::YieldInto {
-            var: step_name.clone(),
-            type_ann: Some("any".into()),
-            value: operand,
-        }
-    } else {
-        let next_member = ast.add_expr(Expr::Member {
-            obj: it_ref,
-            name: "next".into(),
-        });
-        let next_call = ast.add_expr(Expr::Call {
-            callee: next_member,
-            args: Vec::new(),
-        });
-        Stmt::LetDecl {
-            mutable: false,
-            name: step_name.clone(),
-            type_ann: Some("any".into()),
-            init: next_call,
-            is_var: false,
-        }
-    };
+    let step_decl = build_step_decl(
+        ast,
+        cx,
+        &it_name,
+        &am_name,
+        &step_name,
+        is_await,
+        is_delegation.then_some(recv_name.as_str()),
+    );
 
     // if (__gfstep_N.done) break;
     // Expression-position yield* (parse_yield.rs hoist): the done
@@ -434,15 +410,39 @@ fn build_manual_protocol(
     // bound — the close in the wrap reads it.
     let clear = clear_live(ast, n);
     let set = set_live(ast, n);
+    let mut loop_body = vec![clear, step_decl, done_check, var_decl, set, body];
+    if is_delegation {
+        // `__gfrecv_N = this.__sent` — the value the outer `next(v)`
+        // resumed the yield above with, for the next inner step.
+        let target = ast.add_expr(Expr::Ident(recv_name.clone()));
+        let this_id = ast.add_expr(Expr::This);
+        let sent = ast.add_expr(Expr::Member {
+            obj: this_id,
+            name: "__sent".into(),
+        });
+        let assign = ast.add_expr(Expr::Assign {
+            target,
+            value: sent,
+        });
+        loop_body.push(Stmt::Expr(assign));
+    }
     let true_lit = ast.add_expr(Expr::Bool(true));
     let while_loop = Stmt::While {
         cond: true_lit,
-        body: Box::new(Stmt::Block(vec![
-            clear, step_decl, done_check, var_decl, set, body,
-        ])),
+        body: Box::new(Stmt::Block(loop_body)),
     };
     let mut head = pre_decls;
     head.push(it_decl);
+    if is_delegation {
+        let undef = ast.add_expr(Expr::Ident("undefined".into()));
+        head.push(Stmt::LetDecl {
+            mutable: true,
+            name: recv_name.clone(),
+            type_ann: Some("any".into()),
+            init: undef,
+            is_var: false,
+        });
+    }
     // A sync loop's close is a plain call; the async close is awaited
     // through the machine's own suspend.
     let suspend = if is_await { cx.suspend } else { Suspend::None };

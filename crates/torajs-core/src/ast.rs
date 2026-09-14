@@ -111,6 +111,7 @@ mod desugar_generators_forof;
 mod desugar_generators_forof_close;
 mod desugar_generators_forof_helpers;
 mod desugar_generators_forof_label;
+mod desugar_generators_forof_step;
 mod desugar_generators_frame_link;
 mod desugar_generators_lift;
 mod desugar_generators_methods;
