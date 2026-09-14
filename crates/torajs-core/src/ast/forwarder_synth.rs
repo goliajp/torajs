@@ -86,6 +86,19 @@ pub(crate) fn synth_forwarder_decl(
         Some((name, params, ret)) => (name.as_str(), params.as_slice(), ret.clone()),
         None => (target, params, return_type),
     };
+    // 402-01 — a GENERIC target's signature still spells its own
+    // TypeVars (`gid<T>(v: T): T`), but the shell is a plain FnDecl
+    // with no type params to bind them — the checker rejects it loud
+    // ("unknown type `T`"). Erase every TypeVar to `any`: the shell
+    // body's `target(v)` call is then an ordinary generic call site
+    // the checker infers at Any, and the mono pass emits the `$$_any`
+    // specialization the call retargets to. Until rotation 650 only
+    // the member-assigned mint (`forwarders_object_synth`) erased, so
+    // a generic `this`-reading declaration at a thisArg callback
+    // position (`[3].map(g, o)`) died at "unknown type `T` for
+    // parameter `a` of function `__fwdrecv_g`".
+    let (params, return_type) = erase_generic_typevars(ast, target, params.to_vec(), return_type);
+    let params = params.as_slice();
     let takes_this = params.first().is_some_and(|p| p.name == "__this");
     let forced_recv = takes_this && face == ShellFace::ReceiverFirst;
     // A relay minted after `desugar_arguments_object` sees the
@@ -149,6 +162,48 @@ pub(crate) fn synth_forwarder_decl(
         is_generator: false,
         span: target_span,
     }
+}
+
+/// 402-01 — substitute a generic target's own TypeVars with `any`
+/// across the forwarder's param / return annotations (the target's
+/// `type_params` are read off its FnDecl in place, so every caller
+/// of the synthesizer gets the erasure without threading a table).
+/// Non-generic targets pass through untouched.
+fn erase_generic_typevars(
+    ast: &Ast,
+    target: &str,
+    params: Vec<Param>,
+    return_type: Option<String>,
+) -> (Vec<Param>, Option<String>) {
+    let type_params: Vec<String> = ast
+        .stmts
+        .iter()
+        .find_map(|s| match s {
+            Stmt::FnDecl {
+                name, type_params, ..
+            } if name == target => Some(type_params.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    if type_params.is_empty() {
+        return (params, return_type);
+    }
+    let subst: Vec<(String, String)> = type_params
+        .into_iter()
+        .map(|tp| (tp, "any".to_string()))
+        .collect();
+    let params = params
+        .into_iter()
+        .map(|mut p| {
+            if let Some(a) = &mut p.type_ann {
+                *a = crate::ssa_lower_generics_monomorph::substitute_in_ann(a, &subst);
+            }
+            p
+        })
+        .collect();
+    let return_type =
+        return_type.map(|rt| crate::ssa_lower_generics_monomorph::substitute_in_ann(&rt, &subst));
+    (params, return_type)
 }
 
 /// A `this`-reading STATIC method's relay forwards to its
