@@ -142,9 +142,13 @@ fn dispatch_map_method(
 fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
     // S248 — trailing slots type-checked + dropped here (widen `== 2` →
     // `>= 2`; args[2..] silent-ignored at lower-time).
-    debug_assert!(args.len() >= 2);
-    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
-    let (v_tag, v_val, v_raw, _) = ctx.lower_to_tag_value_raw(args[1]);
+    // §24.1.3.9 — an absent key or value is `undefined` (test262
+    // set-methods `other.set(42)` on a Map; the arm indexed `args[1]`
+    // outright and the compiler died on the one-element list,
+    // rotation 651). The typed lane spells it as the pinned ANY_UNDEF
+    // pair, the same word `emit_map_get` answers for a missing key.
+    let (k_tag, k_val, k_raw) = lower_arg_or_undefined(ctx, args.first().copied());
+    let (v_tag, v_val, v_raw) = lower_arg_or_undefined(ctx, args.get(1).copied());
     // S312 — ES §23.1.3.9 evaluates trailing args left-to-right; pre-S312
     // skipped the lower entirely → step()-style side-effect exprs dropped
     // at lower-time. Mirror S272 idiom by lowering each trailing arg for
@@ -163,10 +167,32 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     // stake; an owned-shape temp (`m.set("a", {n:i})` object
     // literal / concat key) still held its mint ref with no
     // consumer (~64B/iter on the mapset churn probe).
-    ctx.release_owned_temp(args[0], &k_raw);
-    ctx.release_owned_temp(args[1], &v_raw);
+    if let (Some(&a), Some(raw)) = (args.first(), k_raw.as_ref()) {
+        ctx.release_owned_temp(a, raw);
+    }
+    if let (Some(&a), Some(raw)) = (args.get(1), v_raw.as_ref()) {
+        ctx.release_owned_temp(a, raw);
+    }
     ctx.emit_rc_inc(recv_op);
     recv_op
+}
+
+/// One `(tag, value)` argument pair for the collection kernels:
+/// the lowered argument, or the pinned ANY_UNDEF pair (tag 5, value 0)
+/// when the call site wrote none — §24.1.3.9 / §24.2.3.1 read an
+/// absent argument as `undefined`. `raw` is `None` for the absent
+/// case: there is no owned temp to release.
+pub(crate) fn lower_arg_or_undefined(
+    ctx: &mut LowerCtx<'_>,
+    arg: Option<ExprId>,
+) -> (Operand, Operand, Option<Operand>) {
+    match arg {
+        Some(a) => {
+            let (tag, val, raw, _) = ctx.lower_to_tag_value_raw(a);
+            (tag, val, Some(raw))
+        }
+        None => (Operand::ConstI64(5), Operand::ConstI64(0), None),
+    }
 }
 
 /// has / delete shared shape: 1 key arg, trailing-drop, intrinsic call
