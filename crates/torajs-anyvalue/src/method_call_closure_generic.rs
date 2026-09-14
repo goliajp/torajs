@@ -13,6 +13,7 @@ use torajs_rc::{
     ANY_METHOD_VALUE_OF, Tag,
 };
 
+use crate::method_value_class::class_ctor_method;
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
     is_short_str, is_undefined,
@@ -78,7 +79,7 @@ pub(crate) unsafe fn generic_builtin_this(
     // the pre-existing redispatch looped into not_callable instead,
     // killing `"" + C` (ToPrimitive default hint runs valueOf first).
     if is_cell(this_arg)
-        && let Some(out) = unsafe { crate::method_value_class::class_ctor_method(mid, this_arg) }
+        && let Some(out) = unsafe { class_ctor_method(mid, this_arg, argv, argc) }
     {
         return Some(out);
     }

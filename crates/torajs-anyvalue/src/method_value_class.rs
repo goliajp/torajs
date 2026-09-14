@@ -437,26 +437,32 @@ pub unsafe extern "C" fn __torajs_class_face_invoke(
 /// (§20.2.3.5 — an interned immortal Str, boxed as-is; `None` when
 /// no source was recorded, e.g. lib/eval-injected classes), and
 /// `valueOf` answers the receiver itself (§20.1.4.7 — inherited
-/// Object.prototype identity, +1 per the boxed-value convention).
-/// `None` for every other receiver or mid.
+/// Object.prototype identity, +1 per the boxed-value convention);
+/// `bind` mints the bound cell over the class (`argv` / `argc` are
+/// the call's own). `None` for every other receiver or mid.
 ///
 /// # Safety
 /// `recv` is a cell-encoded AnyValue over a live heap block.
 pub(crate) unsafe fn class_ctor_method(
     mid: i64,
     recv: crate::nanbox::AnyValue,
+    argv: *const u64,
+    argc: i64,
 ) -> Option<crate::nanbox::AnyValue> {
     unsafe {
         let ptr = crate::nanbox::as_void_ptr(recv);
-        let hdr = &*(ptr as *const torajs_rc::HeapHeader);
-        if hdr.type_tag != torajs_rc::Tag::DynObj as u16
-            || hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR == 0
-        {
+        if !crate::construct::is_class_ctor_cell(ptr) {
             return None;
         }
         if mid == torajs_rc::ANY_METHOD_VALUE_OF {
             torajs_rc::__torajs_rc_inc(ptr);
             return Some(recv);
+        }
+        // §20.2.3.2 Function.prototype.bind — the bound cell holds the
+        // class object as its target (`method_bind`); `C.bind(null, 7)`
+        // used to fall through to not_callable (RFC 20260915).
+        if mid == torajs_rc::ANY_METHOD_BIND {
+            return Some(crate::method_bind::bind_cell(ptr, argv, argc));
         }
         if !matches!(
             mid,

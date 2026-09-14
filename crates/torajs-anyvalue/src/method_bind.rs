@@ -11,6 +11,12 @@
 //! - Binding a bound function nests: the outer thisArg is ignored
 //!   (a bound this cannot be re-bound, ES §20.2.3.2) and the
 //!   partial argument lists concatenate outside-in.
+//! - Binding a CLASS constructor (a dynobj carrying
+//!   `FLAG_DYNOBJ_CLASS_CTOR`, RFC 20260915) holds the class object
+//!   as a kind-1 target: `new` on the bound cell constructs the
+//!   class with boundArgs ++ args (§10.4.1.2, `__torajs_anyv_construct`
+//!   recurses on the target), while a plain call is the class's own
+//!   "cannot be invoked without 'new'" TypeError.
 //! - The bound function is an ordinary callable — `typeof` answers
 //!   "function", it rides HOF callbacks and `.call` / `.apply`
 //!   (whose thisArg is likewise ignored), and expandos work.
@@ -52,6 +58,8 @@ unsafe extern "C" {
     /// torajs-cycle — scrub a normal-dropping cell from the cycle
     /// root buffer (RFC 20260717 knife 3; no-op when never buffered).
     fn __torajs_cycle_unbuffer(p: *mut c_void);
+    /// torajs-throw — record a pending catchable TypeError.
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 const CLOSURE_FN_ADDR_OFF: usize = 8;
@@ -83,7 +91,7 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
         // closures, other bound cells) dispatches through it.
         let (kind, target) = if let Some(mid) = builtin_method_mid(ptr) {
             (0u64, pack_builtin_target(mid, builtin_method_family(ptr)))
-        } else if closure_cell_entry(ptr).is_some() {
+        } else if closure_cell_entry(ptr).is_some() || crate::construct::is_class_ctor_cell(ptr) {
             torajs_rc::__torajs_rc_inc(ptr);
             (1u64, ptr as u64)
         } else {
@@ -205,6 +213,14 @@ unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) 
                 )
             } else {
                 let Some((env2, entry2)) = closure_cell_entry(target as *mut c_void) else {
+                    // A bound CLASS called without `new` — §10.4.1.1
+                    // calls the target, whose [[Call]] is that error.
+                    if crate::construct::is_class_ctor_cell(target as *mut c_void) {
+                        __torajs_throw_type_error(
+                            c"class constructor cannot be invoked without 'new'".as_ptr(),
+                        );
+                        return VALUE_UNDEFINED;
+                    }
                     return not_callable();
                 };
                 // The bound this rides the receiver channel — a

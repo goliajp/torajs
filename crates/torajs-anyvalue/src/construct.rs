@@ -219,12 +219,12 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
 /// # Safety
 /// `ptr` is a live heap cell.
 unsafe fn is_constructor_cell(ptr: *mut c_void) -> bool {
+    if unsafe { is_class_ctor_cell(ptr) } {
+        return true;
+    }
     // SAFETY: caller guarantees a live heap block, whose header is
     // the first `HeapHeader` bytes.
     let hdr = unsafe { &*(ptr as *const HeapHeader) };
-    if hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0 {
-        return true;
-    }
     if hdr.type_tag != Tag::Closure as u16 {
         return false;
     }
@@ -242,6 +242,19 @@ unsafe fn is_constructor_cell(ptr: *mut c_void) -> bool {
         Some((1, target, _)) => unsafe { is_constructor_cell(target as *mut c_void) },
         _ => false,
     }
+}
+
+/// A CLASS object — tr models a class constructor as a dynobj
+/// carrying `FLAG_DYNOBJ_CLASS_CTOR` (the bit that makes `typeof C`
+/// answer `"function"`); the closure-shaped probes never see it.
+///
+/// # Safety
+/// `ptr` is a live heap cell.
+pub(crate) unsafe fn is_class_ctor_cell(ptr: *mut c_void) -> bool {
+    // SAFETY: caller guarantees a live heap block, whose header is
+    // the first `HeapHeader` bytes.
+    let hdr = unsafe { &*(ptr as *const HeapHeader) };
+    hdr.type_tag == Tag::DynObj as u16 && hdr.flags & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR != 0
 }
 
 /// ES §7.2.4 IsConstructor as a value-level predicate.
