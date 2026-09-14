@@ -7,17 +7,18 @@
 //! `f` reading `this` answered `this === obj` false, silently
 //! (rotation 649; test262 `staging/sm/Array/from_this`).
 //!
-//! Only `Array.from` is admitted here: the typed-array `.from` lane
-//! does not thread a mapFn receiver yet (its six cluster-⑤ cases
-//! stay where they are until it does), and admitting a slot the
-//! lowering cannot shift would trade an `undefined` receiver for
-//! shifted arguments.
+//! `<TypedArray ctor>.from` (§23.2.2.1 step 8.b) is the same slot:
+//! that lane rides the any-method call, whose kernel seeds argv[0]
+//! off the shell's header flag, so the receiver-first shell is all it
+//! needs — `Uint8Array.from([1, 2], f, obj)` died on `this.k` of an
+//! undefined receiver before.
 
 use super::{Ast, Expr, ExprId, Param};
 use std::collections::HashMap;
 
 /// Append every `(mapFn ExprId, target name)` where a promoted named
-/// fn is `Array.from`'s mapFn and a thisArg is present.
+/// fn is `Array.from`'s / a typed-array constructor's `from` mapFn and
+/// a thisArg is present.
 pub(super) fn collect_array_from_sites(
     ast: &Ast,
     fn_sigs: &HashMap<String, (Vec<Param>, Option<String>, crate::lexer::Span)>,
@@ -33,7 +34,8 @@ pub(super) fn collect_array_from_sites(
         };
         if name != "from"
             || args.len() < 3
-            || !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Array")
+            || !matches!(ast.get_expr(*obj), Expr::Ident(n)
+                if n == "Array" || super::desugar_classes_builtin_heritage::is_typedarray_ctor(n))
         {
             continue;
         }
