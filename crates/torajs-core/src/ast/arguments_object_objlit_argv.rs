@@ -135,26 +135,8 @@ pub(super) fn collect_objlit_boxed_only_argv(
         .filter(|(_, (all_gen, any))| *all_gen && *any)
         .map(|(n, _)| *n)
         .collect();
-    let mut ident_refs: HashMap<&str, usize> = HashMap::new();
-    let mut closure_refs: HashMap<&str, usize> = HashMap::new();
-    let mut member_names: HashSet<&str> = HashSet::new();
-    for (i, e) in ast.exprs.iter().enumerate() {
-        match e {
-            Expr::Ident(n) => *ident_refs.entry(n).or_insert(0) += 1,
-            Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
-            Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
-                if !spread_call_callees.contains(&(i as u32)) {
-                    let benign = matches!(name.as_str(), "next" | "return" | "throw")
-                        && matches!(ast.get_expr(*obj), Expr::Ident(n)
-                            if gen_instances.contains(n.as_str()) || n.starts_with("__"));
-                    if !benign {
-                        member_names.insert(name);
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
+    let (ident_refs, closure_refs, member_names) =
+        scan_arena_refs(ast, &spread_call_callees, &gen_instances);
     let mut value_fns: HashSet<String> = HashSet::new();
     let mut method_fns: HashSet<String> = HashSet::new();
     for ((_, fname), fn_name) in &fields {
@@ -254,6 +236,87 @@ pub(super) fn collect_objlit_boxed_only_argv(
         &mut method_fns,
     );
     (value_fns, method_fns)
+}
+
+/// Reference discipline over the whole arena: Ident and Closure
+/// reference counts per name, and every member spelling that could
+/// be a typed-dispatch site. A `.next` / `.return` / `.throw` off a
+/// generator instance or a compiler-minted binding is benign (module
+/// doc). Rotation 652 — so is ANY member off a binding the program
+/// only ever declares `: any`: the checker types that receiver Any,
+/// so `o.m(...)` is the any-lane member dispatch that enters the
+/// field closure's boxed adapter — the face's own channel
+/// (`objlit_nominal_anylane`'s (a) leg gives such a literal its
+/// `__this: any` faces for the same reason). Without it the `let it:
+/// any = { m() { …arguments… } }; it.m(1); it.m(2, 3)` shape had no
+/// face at all: the static objlit face needs ONE argc vote, and this
+/// face refused on the member spelling.
+fn scan_arena_refs<'a>(
+    ast: &'a Ast,
+    spread_call_callees: &std::collections::HashSet<u32>,
+    gen_instances: &std::collections::HashSet<&str>,
+) -> (
+    std::collections::HashMap<&'a str, usize>,
+    std::collections::HashMap<&'a str, usize>,
+    std::collections::HashSet<&'a str>,
+) {
+    use std::collections::{HashMap, HashSet};
+    let any_only = any_only_toplevel_bindings(ast);
+    let mut ident_refs: HashMap<&str, usize> = HashMap::new();
+    let mut closure_refs: HashMap<&str, usize> = HashMap::new();
+    let mut member_names: HashSet<&str> = HashSet::new();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        match e {
+            Expr::Ident(n) => *ident_refs.entry(n).or_insert(0) += 1,
+            Expr::Closure { fn_name, .. } => *closure_refs.entry(fn_name).or_insert(0) += 1,
+            Expr::Member { obj, name } | Expr::OptChain { obj, name } => {
+                if !spread_call_callees.contains(&(i as u32)) {
+                    let benign = (matches!(name.as_str(), "next" | "return" | "throw")
+                        && matches!(ast.get_expr(*obj), Expr::Ident(n)
+                            if gen_instances.contains(n.as_str()) || n.starts_with("__")))
+                        || matches!(ast.get_expr(*obj), Expr::Ident(n)
+                            if any_only.contains(n.as_str()));
+                    if !benign {
+                        member_names.insert(name);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    (ident_refs, closure_refs, member_names)
+}
+
+/// Names whose every top-level declaration is spelled `: any` and
+/// that no fn declares as a param or local — a member call off such
+/// a name is any-lane dispatch wherever it appears.
+fn any_only_toplevel_bindings(ast: &Ast) -> std::collections::HashSet<&str> {
+    use std::collections::HashSet;
+    let mut any_decl: HashSet<&str> = HashSet::new();
+    let mut other_decl: HashSet<&str> = HashSet::new();
+    let mut fn_local: HashSet<String> = HashSet::new();
+    for s in &ast.stmts {
+        match s {
+            Stmt::LetDecl { name, type_ann, .. } => {
+                if type_ann.as_deref() == Some("any") {
+                    any_decl.insert(name);
+                } else {
+                    other_decl.insert(name);
+                }
+            }
+            Stmt::FnDecl { params, body, .. } => {
+                for p in params {
+                    fn_local.insert(p.name.clone());
+                }
+                crate::ast_collect_bindings::collect_local_binding_names(body, &mut fn_local);
+            }
+            _ => {}
+        }
+    }
+    any_decl
+        .into_iter()
+        .filter(|n| !other_decl.contains(n) && !fn_local.contains(*n))
+        .collect()
 }
 
 /// The shared per-fn admission gate (module doc): reference
