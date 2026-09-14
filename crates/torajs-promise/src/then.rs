@@ -57,6 +57,7 @@ unsafe extern "C" {
     fn free(p: *mut c_void);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
 }
 
 /// RFC 20260720-anylane-promise-methods knife 3 — the settle path
@@ -79,6 +80,32 @@ pub type ThenCbI64 = unsafe extern "C" fn(i64) -> i64;
 /// handler receives exactly one argument); third the source's
 /// resolved value.
 pub type ThenClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i64;
+
+/// The receiver-first flavor of [`ThenClosureFn`]: a cell stamped
+/// `FLAG_CLOSURE_RECV_FIRST` takes its boxed `__this` between the
+/// hidden argc and the settled value (argc still counts the user
+/// arguments only — the S1 spec count).
+pub type ThenRecvClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64, i64) -> i64;
+
+/// Call a closure handler with the settled value. §27.2.5.4.1 runs a
+/// then / catch handler with an undefined `this`, so a receiver-first
+/// cell (RFC 20260905 residue 1 — the handler was one of the lanes
+/// that did not read the flag and let the value land in `__this`)
+/// gets the undefined box as its leading argument; a plain cell keeps
+/// the two-word face. `env` must be a live closure cell.
+pub(crate) unsafe fn call_handler(env: *mut c_void, value: i64) -> i64 {
+    unsafe {
+        let fn_ptr = *((env as *mut u8).add(8) as *const *mut c_void);
+        let flags = *((env as *const u8).add(6) as *const u16);
+        if flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0 {
+            let cb: ThenRecvClosureFn = core::mem::transmute(fn_ptr);
+            cb(env, 1, __torajs_anyv_box_from_pair(5, 0) as i64, value)
+        } else {
+            let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
+            cb(env, 1, value)
+        }
+    }
+}
 
 /// `.finally(cb)` simple — no value in. §27.2.5.3 runs the handler
 /// argument-free but USES what it returns (a thenable is waited on),
@@ -205,10 +232,7 @@ unsafe extern "C" fn then_closure_dispatch(arg: i64) {
             (*a).param_repr,
             (*src).value,
         );
-        // Load fn_addr from env+8, call cb(env, value).
-        let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
-        let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
-        let result = cb((*a).env, 1, value);
+        let result = call_handler((*a).env, value);
         // A Void-ret handler leaves garbage in the return register —
         // settle a clean 0 behind the VOID stamp.
         let result = if (*a).ret_repr == REPR_VOID {
@@ -366,9 +390,7 @@ unsafe extern "C" fn catch_closure_dispatch(arg: i64) {
                 (*a).param_repr,
                 (*src).value,
             );
-            let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
-            let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
-            let result = cb((*a).env, 1, v);
+            let result = call_handler((*a).env, v);
             // A Void-ret handler leaves garbage in the return
             // register — settle a clean 0 behind the VOID stamp.
             let result = if (*a).ret_repr == REPR_VOID {

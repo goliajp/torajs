@@ -39,6 +39,11 @@ pub(crate) const MODE_HAS_ENV: i64 = 4;
 /// `mode` bit 3 — element slots are Str pointers (undefined
 /// sentinel pre-probe runs before every comparator call).
 pub(crate) const MODE_ELEM_STR: i64 = 8;
+/// The comparator cell is stamped `FLAG_CLOSURE_RECV_FIRST`: its
+/// native entry takes a boxed receiver ahead of `(a, b)`. Set at
+/// entry off the cell header (once per sort), never read per compare
+/// — the lowerer's `mode` never carries it.
+pub(crate) const MODE_RECV_FIRST: i64 = 16;
 
 /// `Cmp.rebox_kind` = ARR_KIND_UNSET means the slots already ARE
 /// AnyValues (FLAG_ARR_ANY receiver); any other kind reboxes the
@@ -70,6 +75,47 @@ pub(crate) trait SortCmp {
     unsafe fn is_gt(&self, a: u64, b: u64) -> bool;
 }
 
+/// RFC 20260905 residue 1 — the receiver-first comparator (§23.1.3.30
+/// calls the comparator with an undefined `this`): the same four
+/// env-first shapes with the undefined box between the argc and the
+/// pair. Out of line so the plain comparator's `is_gt` keeps its
+/// inline budget (bench regression 12115353).
+#[inline(never)]
+unsafe fn is_gt_recv_first(
+    f: *const u8,
+    e: *mut u8,
+    a: u64,
+    b: u64,
+    elem_f64: bool,
+    ret_f64: bool,
+) -> bool {
+    unsafe {
+        let this = __torajs_anyv_box_from_pair(5, 0) as i64;
+        match (elem_f64, ret_f64) {
+            (false, false) => {
+                let c: unsafe extern "C" fn(*mut u8, i64, i64, i64, i64) -> i64 =
+                    core::mem::transmute(f);
+                c(e, 2, this, a as i64, b as i64) > 0
+            }
+            (false, true) => {
+                let c: unsafe extern "C" fn(*mut u8, i64, i64, i64, i64) -> f64 =
+                    core::mem::transmute(f);
+                c(e, 2, this, a as i64, b as i64) > 0.0
+            }
+            (true, false) => {
+                let c: unsafe extern "C" fn(*mut u8, i64, i64, f64, f64) -> i64 =
+                    core::mem::transmute(f);
+                c(e, 2, this, f64::from_bits(a), f64::from_bits(b)) > 0
+            }
+            (true, true) => {
+                let c: unsafe extern "C" fn(*mut u8, i64, i64, f64, f64) -> f64 =
+                    core::mem::transmute(f);
+                c(e, 2, this, f64::from_bits(a), f64::from_bits(b)) > 0.0
+            }
+        }
+    }
+}
+
 /// Comparator callback bundle. `is_gt(a, b)` dispatches to the exact
 /// extern "C" signature selected by `mode` and reports whether the
 /// user comparator returned > 0.
@@ -99,6 +145,9 @@ impl SortCmp for Cmp {
             let elem_f64 = self.mode & MODE_ELEM_F64 != 0;
             let ret_f64 = self.mode & MODE_RET_F64 != 0;
             let has_env = self.mode & MODE_HAS_ENV != 0;
+            if self.mode & MODE_RECV_FIRST != 0 {
+                return is_gt_recv_first(f, e, a, b, elem_f64, ret_f64);
+            }
             // S1 (RFC 20260810-indirect-argc-abi) — the env-first
             // shapes carry the hidden i64 argc after the env; a
             // comparator receives two arguments. FnSig shapes (no

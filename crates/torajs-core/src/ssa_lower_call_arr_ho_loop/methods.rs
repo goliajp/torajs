@@ -229,6 +229,7 @@ pub(super) fn emit_reduce(
     acc_slot: Option<ValueId>,
     acc_ty: Type,
     elem: ValueId,
+    this_arg: Option<&Operand>,
     known_fid: Option<FuncId>,
     fn_val: &Operand,
     fn_ty: Type,
@@ -245,7 +246,13 @@ pub(super) fn emit_reduce(
     );
     // Spec §23.1.3.24 — the reducer's trailing (index, sourceArray)
     // slots, appended only when its sig declares them (arity 3 / 4).
-    let mut reduce_args = vec![Operand::Value(acc_now), Operand::Value(elem)];
+    // RFC 20260905 residue 1 — a promoted reducer's leading `__this`
+    // (undefined, §23.1.3.24 step 8.b.iii) rides ahead of the
+    // accumulator and is skipped when aligning against the sig.
+    let mut reduce_args: Vec<Operand> = this_arg.cloned().into_iter().collect();
+    reduce_args.push(Operand::Value(acc_now));
+    reduce_args.push(Operand::Value(elem));
+    let sig_skip = usize::from(this_arg.is_some());
     // An argv-face reducer packs the WHOLE spec list — its sig's
     // params are the synthetic argv head, not positional slots.
     if cb_arity >= 3 || argv_face {
@@ -259,10 +266,28 @@ pub(super) fn emit_reduce(
     // to an Any acc slot).
     let cb_ret = ctx.callback_ret_ty(fn_ty);
     let new_acc = if cb_ret == Some(Type::Void) {
-        let _ = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0, 4, argv_face);
+        let _ = emit_do_call(
+            ctx,
+            known_fid,
+            fn_val,
+            fn_ty,
+            reduce_args,
+            sig_skip,
+            4,
+            argv_face,
+        );
         emit_undef_any_box(ctx)
     } else {
-        let v = emit_do_call(ctx, known_fid, fn_val, fn_ty, reduce_args, 0, 4, argv_face);
+        let v = emit_do_call(
+            ctx,
+            known_fid,
+            fn_val,
+            fn_ty,
+            reduce_args,
+            sig_skip,
+            4,
+            argv_face,
+        );
         // rotation 285 — the hetero-seed acc lane (dispatch picked an
         // Any slot because the seed's type differs from the cb ret):
         // the typed ret boxes on the way in. box_to_any is rc-neutral

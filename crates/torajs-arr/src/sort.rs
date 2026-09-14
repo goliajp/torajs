@@ -44,7 +44,7 @@ const ARR_HDR_LEN_OFF: usize = 8;
 const ARR_HDR_HEAD_OFF: usize = 20;
 
 use crate::layout::arr_data;
-use crate::sort_cmp::{AnyCmp, Cmp, SortCmp};
+use crate::sort_cmp::{AnyCmp, Cmp, MODE_HAS_ENV, MODE_RECV_FIRST, SortCmp};
 
 unsafe extern "C" {
     /// Cross-tier — provided by torajs-throw at `tr build` link time.
@@ -218,6 +218,16 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         }
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
         let slots = arr_data(arr).add(head * 8) as *mut u64;
+        // RFC 20260905 residue 1 — a receiver-first comparator cell
+        // (header flag) takes the undefined box ahead of the pair;
+        // read once here, the compare loop only tests `mode`.
+        let mode = if mode & MODE_HAS_ENV != 0
+            && (env.add(6) as *const u16).read() & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0
+        {
+            mode | MODE_RECV_FIRST
+        } else {
+            mode
+        };
         let cmp = Cmp { fn_ptr, env, mode };
         if len <= INSERTION_RUN {
             insertion(slots, len, &cmp);

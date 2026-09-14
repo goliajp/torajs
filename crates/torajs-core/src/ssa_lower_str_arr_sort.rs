@@ -161,6 +161,23 @@ pub(crate) fn try_dispatch(
                     || matches!(ctx.ast.get_expr(a0),
                         Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n))
             });
+        // RFC 20260905 residue 1 — a promoted comparator (the same
+        // static test the HOF lane makes) owns a leading `__this`;
+        // §23.1.3.30.2 binds it undefined. The helper fast path reads
+        // the cell's flag at runtime instead.
+        let promoted = cmp_val.is_some()
+            && args.first().is_some_and(|&a0| {
+                matches!(ctx.ast.get_expr(a0),
+                    Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+                    || matches!(ctx.ast.get_expr(a0),
+                        Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n))
+            });
+        let route = pred::CmpRoute {
+            argv_face,
+            this_arg: promoted.then(|| {
+                Operand::Value(crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx))
+            }),
+        };
         // Perf Round 5 attack #1 (RFC 20260703-perf-arr-sort-nlogn):
         // a user comparator whose signature matches the element layout
         // exactly routes through `__torajs_arr_sort_cb` — a stable
@@ -199,7 +216,7 @@ pub(crate) fn try_dispatch(
             release_cmp_temp(ctx, args, &cmp_val);
             return Some(Operand::Value(arr_ptr));
         }
-        emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, argv_face);
+        emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, &route);
         if method == "sort" {
             ctx.emit_rc_inc(Operand::Value(arr_ptr));
         }
@@ -229,7 +246,7 @@ fn emit_insertion_sort(
     elem_ty: Type,
     cmp_val: &Option<Operand>,
     cmp_ty: &Option<Type>,
-    argv_face: bool,
+    route: &pred::CmpRoute,
 ) {
     let len = ctx.f.append_inst(
         ctx.cur_block,
@@ -311,7 +328,7 @@ fn emit_insertion_sort(
         InstKind::Store(Operand::Value(i_now2), Operand::Value(j_slot), 0),
     );
     emit_inner_shift_loop(
-        ctx, arr_ptr, elem_ty, cmp_val, cmp_ty, cur_cmp, j_slot, argv_face,
+        ctx, arr_ptr, elem_ty, cmp_val, cmp_ty, cur_cmp, j_slot, route,
     );
     // inner after: xs[j] = cur
     let j_final = ctx.f.append_inst(
@@ -354,7 +371,7 @@ fn emit_inner_shift_loop(
     cmp_ty: &Option<Type>,
     cur_cmp: ValueId,
     j_slot: ValueId,
-    argv_face: bool,
+    route: &pred::CmpRoute,
 ) {
     let inner_hdr = ctx.f.add_block();
     let inner_check = ctx.f.add_block();
@@ -423,7 +440,7 @@ fn emit_inner_shift_loop(
     // Without: directly compare prev > cur using the
     // element-type-aware predicate (Sgt for I64,
     // Ogt for F64, str_locale_compare for Str).
-    let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur_cmp, elem_ty, argv_face);
+    let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur_cmp, elem_ty, route);
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {

@@ -100,19 +100,12 @@ fn lower_higher_order(
     // arg: args[1] lowers into an Any box (undefined when absent).
     // Only map / filter / forEach carry a thisArg — reduce's args[1]
     // is the initialValue.
-    // A promoted callback is either the inline Closure itself or a
-    // knife-2 variable-routed binding (`fnexpr_recv_locals`) — both
-    // native ABIs carry the leading `__this`; missing the Ident
-    // shape ran the loop with shifted args (rotation 260).
-    let promoted = matches!(ctx.ast.get_expr(args[0]),
-        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
-        || matches!(ctx.ast.get_expr(args[0]),
-            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
-    let promoted = promoted && matches!(method.as_str(), "map" | "filter" | "forEach");
+    let is_reduce = matches!(method.as_str(), "reduce" | "reduceRight");
+    let promoted = promoted_callback(ctx, args[0], &method);
     let mut this_temp: Option<(ExprId, Operand)> = None;
     let mut this_tok: Option<usize> = None;
     let this_arg: Option<Operand> = if promoted {
-        if let Some(&t) = args.get(1) {
+        if !is_reduce && let Some(&t) = args.get(1) {
             let op = ctx.lower_expr(t);
             // box_to_any is a pure encoding (chunk 753) — an
             // owned-shape thisArg temp (inline object literal) keeps
@@ -236,4 +229,25 @@ fn lower_higher_order(
         ctx.release_owned_temp(t, &op);
     }
     out
+}
+
+/// A promoted callback is either the inline Closure itself or a
+/// knife-2 variable-routed binding (`fnexpr_recv_locals`) — both
+/// native ABIs carry the leading `__this`; missing the Ident shape
+/// ran the loop with shifted args (rotation 260). Only the methods
+/// whose loop threads a receiver count: map / filter / forEach take
+/// the §23.1.3 thisArg, and reduce / reduceRight (RFC 20260905
+/// residue 1) take undefined — §23.1.3.24 calls the reducer with no
+/// receiver, but a promoted reducer still owns the leading slot, and
+/// leaving it out fed the accumulator into it.
+fn promoted_callback(ctx: &LowerCtx<'_>, cb: ExprId, method: &str) -> bool {
+    let promoted = matches!(ctx.ast.get_expr(cb),
+        Expr::Closure { fn_name, .. } if ctx.ast.fnexpr_recv_fns.contains(fn_name))
+        || matches!(ctx.ast.get_expr(cb),
+            Expr::Ident(n) if ctx.ast.fnexpr_recv_locals.contains(n));
+    promoted
+        && matches!(
+            method,
+            "map" | "filter" | "forEach" | "reduce" | "reduceRight"
+        )
 }

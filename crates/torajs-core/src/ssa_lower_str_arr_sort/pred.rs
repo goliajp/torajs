@@ -9,6 +9,18 @@
 use crate::ssa::{FPred, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
+/// How the user comparator is invoked — the two facts about its
+/// native entry the inline path threads down to the call. An
+/// argv-face callee rides the boxed variadic pack; a promoted
+/// (receiver-first) callee takes the undefined box ahead of «x, y»
+/// (§23.1.3.30.2 calls the comparator with an undefined `this`; RFC
+/// 20260905 residue 1 — this lane passed «x, y» unshifted and the
+/// callee read `x` as its receiver).
+pub(super) struct CmpRoute {
+    pub(super) argv_face: bool,
+    pub(super) this_arg: Option<Operand>,
+}
+
 /// Emit the `cmp(prev, cur) > 0` (or default-compare `prev > cur`)
 /// predicate in the current block and return its Bool value.
 pub(super) fn emit_sort_pred(
@@ -18,7 +30,7 @@ pub(super) fn emit_sort_pred(
     prev: ValueId,
     cur: ValueId,
     elem_ty: Type,
-    argv_face: bool,
+    route: &CmpRoute,
 ) -> ValueId {
     match (cmp_val, cmp_ty) {
         (Some(cv), Some(ct)) => {
@@ -28,13 +40,13 @@ pub(super) fn emit_sort_pred(
             // an Any slot carries the tag-5 immediate (刀 7 G8a).
             if matches!(elem_ty, Type::Str | Type::Substr) {
                 let pre_fid = ctx.intrinsics.str_sort_undef_pre;
-                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, argv_face);
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, route);
             }
             if matches!(elem_ty, Type::Any) {
                 let pre_fid = ctx.intrinsics.any_sort_undef_pre;
-                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, argv_face);
+                return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, route);
             }
-            emit_user_cmp_pred(ctx, cv, ct, prev, cur, argv_face)
+            emit_user_cmp_pred(ctx, cv, ct, prev, cur, route)
         }
         _ => {
             // ES §23.1.3.30 SortCompare with no comparator =
@@ -189,7 +201,7 @@ fn emit_user_cmp_pred(
     ct: &Type,
     prev: ValueId,
     cur: ValueId,
-    argv_face: bool,
+    route: &CmpRoute,
 ) -> ValueId {
     // RFC 20260726-array-elem-width knife 11 — the elements' width and
     // the comparator's parameter width answer to two different classes,
@@ -205,26 +217,24 @@ fn emit_user_cmp_pred(
         Type::Closure(s) | Type::FnSig(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
         _ => Vec::new(),
     };
-    let args = [prev, cur]
-        .iter()
-        .enumerate()
-        .map(|(i, v)| {
-            let op = Operand::Value(*v);
-            if params.get(i) == Some(&Type::F64) && ctx.operand_ty(&op) == Type::I64 {
-                ctx.coerce_to_f64(op)
-            } else {
-                op
-            }
-        })
-        .collect::<Vec<_>>();
+    let mut args: Vec<Operand> = route.this_arg.iter().cloned().collect();
+    for (i, v) in [prev, cur].iter().enumerate() {
+        let op = Operand::Value(*v);
+        if params.get(i) == Some(&Type::F64) && ctx.operand_ty(&op) == Type::I64 {
+            args.push(ctx.coerce_to_f64(op));
+        } else {
+            args.push(op);
+        }
+    }
+    let sig_skip = usize::from(route.this_arg.is_some());
     // Rotation 364 — an argv-face comparator rides the boxed
     // variadic pack (the direct call would land «x, y» in the
     // reshaped sig's argv-pointer slot); the pack boxes each side,
     // so the F64 param alignment above is a no-op on this route.
-    let cmp_ret = if argv_face {
+    let cmp_ret = if route.argv_face {
         crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, cv, *ct, args, 2)
     } else {
-        ctx.call_fn_value(cv.clone(), *ct, args, 0, 2)
+        ctx.call_fn_value(cv.clone(), *ct, args, sig_skip, 2)
     };
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {
@@ -273,7 +283,7 @@ fn emit_user_cmp_undef_pre(
     prev: ValueId,
     cur: ValueId,
     pre_fid: crate::ssa::FuncId,
-    argv_face: bool,
+    route: &CmpRoute,
 ) -> ValueId {
     let slot = ctx.alloca_in_entry(Type::Bool, Some("__sort_pred"));
     let pre = ctx.f.append_inst(
@@ -312,7 +322,7 @@ fn emit_user_cmp_undef_pre(
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(after_blk));
     ctx.cur_block = cb_blk;
-    let cb_pred = emit_user_cmp_pred(ctx, cv, ct, prev, cur, argv_face);
+    let cb_pred = emit_user_cmp_pred(ctx, cv, ct, prev, cur, route);
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Store(Operand::Value(cb_pred), Operand::Value(slot), 0),
