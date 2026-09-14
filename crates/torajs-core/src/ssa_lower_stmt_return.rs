@@ -246,9 +246,17 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     if !ctx.try_finally_stack.is_empty() {
         let target = *ctx.try_finally_stack.last().unwrap();
         let ret_ty = ctx.f.ret;
-        let slot = match ctx.pending_return_slot {
-            Some(s) => s,
-            None => {
+        // A Void function parks no value — `Alloca(Void)` is not
+        // allocable, and a bare `return;` inside a try whose finally
+        // still has to run (a derived constructor's `catch { return }
+        // finally { super() }`, test262 derived-class-return-override-
+        // *) died on exactly that alloca. The flag alone carries the
+        // pending return; `emit_pending_return` answers `Ret(None)`
+        // when there is no slot.
+        let slot = match (ctx.pending_return_slot, ret_ty) {
+            (Some(s), _) => Some(s),
+            (None, Type::Void) => None,
+            (None, _) => {
                 // Entry-allocated for the same reason as the flag
                 // below: the lazy alloca lands in whichever block held
                 // the `return`, and that block does not dominate the
@@ -257,7 +265,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
                 // flag gates every read of this slot.
                 let s = ctx.alloca_in_entry(ret_ty, Some("__pending_ret"));
                 ctx.pending_return_slot = Some(s);
-                s
+                Some(s)
             }
         };
         let flag = match ctx.pending_return_flag {
@@ -275,7 +283,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
                 f
             }
         };
-        if let Some(v) = coerced {
+        if let (Some(v), Some(slot)) = (coerced, slot) {
             ctx.f
                 .append_void(ctx.cur_block, InstKind::Store(v, Operand::Value(slot), 0));
         }

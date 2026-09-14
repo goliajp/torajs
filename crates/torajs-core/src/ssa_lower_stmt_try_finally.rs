@@ -226,11 +226,14 @@ fn emit_throw_propagate(ctx: &mut LowerCtx) {
 }
 
 /// 4-way tail #2 — pending return: branch to the outer finally when
-/// nested, else load the fn-ret slot, drop owned locals and Ret
+/// nested, else load the fn-ret slot, drop owned locals and Ret. A
+/// Void function has a flag and no slot (`ssa_lower_stmt_return`):
+/// its pending return is `Ret(None)`.
 fn emit_pending_return(ctx: &mut LowerCtx) {
-    let (Some(slot), Some(flag)) = (ctx.pending_return_slot, ctx.pending_return_flag) else {
+    let Some(flag) = ctx.pending_return_flag else {
         return;
     };
+    let slot = ctx.pending_return_slot;
     let f = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Bool, Operand::Value(flag), 0),
@@ -257,16 +260,18 @@ fn emit_pending_return(ctx: &mut LowerCtx) {
         ctx.f.set_term(cb4, Terminator::Br(outer_fb.blk));
     } else {
         let fn_ret_ty = ctx.f.ret;
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(fn_ret_ty, Operand::Value(slot), 0),
-            fn_ret_ty,
-            None,
-        );
+        let ret = slot.map(|slot| {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(fn_ret_ty, Operand::Value(slot), 0),
+                fn_ret_ty,
+                None,
+            );
+            Operand::Value(v)
+        });
         ctx.emit_drops_for_owned_locals();
         let cb4 = ctx.cur_block;
-        ctx.f
-            .set_term(cb4, Terminator::Ret(Some(Operand::Value(v))));
+        ctx.f.set_term(cb4, Terminator::Ret(ret));
     }
     ctx.cur_block = no_ret_blk;
 }
