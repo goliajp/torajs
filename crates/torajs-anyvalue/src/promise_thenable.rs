@@ -223,16 +223,16 @@ pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
 
 /// §27.2.4.7.1 step 2 — `Get(x, "constructor")` on a native promise
 /// through the any-lane member read (own expando first, then the
-/// prototype's builtin ctor cell), compared by pointer identity with
-/// the interned %Promise% constructor. A read that throws answers
+/// prototype's builtin ctor cell), and the answer is %Promise% when
+/// it is the builtin-constructor cell carrying the Promise tag (the
+/// cell is interned on the read itself, so a program that never
+/// spelled `Promise` as a value has no cell to compare pointers
+/// with — an earlier cut that peeked for one answered "builtin" for
+/// every promise in such a program). A read that throws answers
 /// false (the fresh promise then adopts x; the abrupt is the recorded
 /// residue).
 unsafe fn constructor_is_builtin_promise(v: AnyValue) -> bool {
     unsafe {
-        let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
-        if promise_ctor.is_null() {
-            return true;
-        }
         let key = __torajs_str_alloc(b"constructor".as_ptr(), 11);
         let tag = crate::member_get::__torajs_any_member_get_tag(v, key.cast());
         let value = crate::member_get_value::__torajs_any_member_get_value(v, key.cast());
@@ -242,7 +242,9 @@ unsafe fn constructor_is_builtin_promise(v: AnyValue) -> bool {
             return false;
         }
         let c = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
-        is_cell(c) && crate::nanbox::as_void_ptr(c) == promise_ctor.cast()
+        is_cell(c)
+            && crate::method_value::ctor::ctor_tag_of_cell(crate::nanbox::as_void_ptr(c))
+                == Some(10)
     }
 }
 

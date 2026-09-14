@@ -279,33 +279,34 @@ fn lower_one_plus_op(
     arg_op: Operand,
 ) -> Operand {
     let arg_ty = ctx.operand_ty(&arg_op);
-    // §27.2.4.7 step 2 — PromiseResolve on a promise whose
-    // constructor is %Promise% answers the SAME object
-    // (`Promise.resolve(p) === p`; tr has no Promise subclassing, so
-    // the pass-through is unconditional). Replaces the pre-spec
-    // T-19.f absorption mint (`promise_resolve_thenable` — kernel
-    // kept for future any-lane use). Owned-result convention: a
-    // borrow-shaped arg shares (+1); an owned temp transfers as-is.
-    if matches!(arg_ty, Type::Promise) && method == "resolve" {
+    // §27.2.4.7.1 steps 1-2 — PromiseResolve on a native promise
+    // answers the SAME object only when `x.constructor` is %Promise%.
+    // The typed arm used to pass through unconditionally ("tr has no
+    // Promise subclassing"), which stopped being true: a subclass
+    // instance, or a promise whose `constructor` expando was
+    // reassigned (test262 `arg-uniq-ctor` spells it on a typed
+    // binding), must get a fresh promise that adopts it. The any-lane
+    // kernel makes that decision (rotation 650), so a typed promise
+    // rides it too — a cell boxes as its pointer, no allocation, and
+    // the pass-through is still the kernel's answer for the plain
+    // case. Owned-result convention: a borrow-shaped arg shares (+1);
+    // an owned temp transfers as-is. The kernel adopts the caller's
+    // transferred ref and otherwise folds the fulfilled_heap +
+    // REPR_ANY stamp pair itself, so the pass-through can never be
+    // stamped over.
+    if matches!(arg_ty, Type::Promise | Type::Any) && method == "resolve" {
         if !ctx.expr_transfers_ownership(arg0) {
-            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
+            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty.clone());
         }
-        return arg_op;
-    }
-    // §27.2.4.7 step 2 through the ANY lane — the runtime kernel
-    // probes the box for a %Promise% cell (pass-through, adopting
-    // the caller's transferred ref) and otherwise folds the
-    // fulfilled_heap + REPR_ANY stamp pair itself, so the
-    // pass-through can never be stamped over. Borrow-shaped args
-    // share (+1) exactly like the heap lane below.
-    if matches!(arg_ty, Type::Any) && method == "resolve" {
-        if !ctx.expr_transfers_ownership(arg0) {
-            ctx.emit_owned_result_inc(arg_op.clone(), arg_ty);
-        }
+        let boxed = if arg_ty == Type::Any {
+            arg_op
+        } else {
+            ctx.box_to_any_from_expr(arg0, arg_op)
+        };
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.promise_resolve_any, vec![boxed]),
             Type::Promise,
             None,
         );
