@@ -410,6 +410,22 @@ fn inject_driver(ast: &mut Ast) {
     let Ok(offset) = crate::parser::parse_into(DRIVER_SRC, &tokens, ast) else {
         return;
     };
+    // The driver's `__w.then(...)` is §27.7.5.3 Await = PerformPromiseThen,
+    // never an Invoke of a user-patched `then` (rotation 652). Its
+    // receiver Ident joins `synth_promise_static_calls` — the same
+    // "machinery's own §27.7 operation" mark the settle calls carry —
+    // so the typed chain lowering emits no own-`then` probe there. By
+    // eid, not by name: `__w` went through the lexer, so the
+    // source-dunder judge would call it the program's.
+    for i in expr_base..ast.exprs.len() {
+        if let Expr::Call { callee, .. } = &ast.exprs[i]
+            && let Expr::Member { obj, name } = ast.get_expr(*callee)
+            && name == "then"
+            && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "__w")
+        {
+            ast.synth_promise_static_calls.insert(*obj);
+        }
+    }
     // The driver's type annotations record spans too, and those index
     // DRIVER_SRC as well: an `: any` ~620 bytes into the driver sliced
     // the user's file at that offset — inside an em-dash in a comment

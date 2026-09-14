@@ -78,6 +78,8 @@ pub(crate) struct PromiseIds {
     pub anyv_await: FuncId,
     pub promise_then_simple: FuncId,
     pub promise_then_passthrough: FuncId,
+    /// Rotation 652 — existence of an own `then` on the cell (no GET).
+    pub promise_then_overridden: FuncId,
     pub promise_then2: FuncId,
     pub promise_then_closure: FuncId,
     pub promise_catch_simple: FuncId,
@@ -260,6 +262,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_promise_then_passthrough",
             &[Type::Promise],
             Type::Promise,
+        ),
+        promise_then_overridden: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_then_overridden",
+            &[Type::Promise],
+            Type::I64,
         ),
         promise_then2: declare_intrinsic(
             module,

@@ -180,6 +180,7 @@ impl<'a> FnToClosureCollector<'a> {
                 self.try_mark(arg);
             }
         }
+        self.mark_promise_chain_handler_targets(callee, args);
         // `<key> in <fn>` — the parser rewrites the binary op to a
         // synthetic `__torajs_in_op(key, obj)` call; a top-FnDecl
         // Ident on the rhs is a value use (the lowering boxes the
@@ -443,6 +444,31 @@ impl<'a> FnToClosureCollector<'a> {
         // .call(g)` — the this-val-not-generator family).
         for &arg in args {
             self.try_mark(arg);
+        }
+    }
+
+    /// Rotation 652 — a top-FnDecl handler of a `.then` / `.catch` /
+    /// `.finally` call gets a FORWARDER but keeps its raw FnSig at
+    /// the site: the typed chain lane dispatches the bare address
+    /// (`promise-then-100k` / `promise-chain-1k` are exactly
+    /// `.then(add1)`), and only the own-`then` split's patched block
+    /// (`ssa_lower_promise_chain_own_then`) needs a closure cell —
+    /// which it builds from `__forward_<f>` by name. Target only, no
+    /// rewrite.
+    fn mark_promise_chain_handler_targets(&mut self, callee: &ExprId, args: &[ExprId]) {
+        let Expr::Member { name, .. } = self.ast.get_expr(*callee) else {
+            return;
+        };
+        if !matches!(name.as_str(), "then" | "catch" | "finally") {
+            return;
+        }
+        for &arg in args {
+            if let Expr::Ident(f) = self.ast.get_expr(arg)
+                && self.fn_sigs.contains_key(f)
+                && !self.shadowed.iter().any(|s| s.contains(f))
+            {
+                self.targets.insert(f.clone());
+            }
         }
     }
 

@@ -156,10 +156,12 @@ pub extern "C" fn __torajs_promise_patched_result(ret: AnyValue, name_id: i64) -
     }
     unsafe {
         crate::nanbox_ffi::__torajs_anyv_rc_dec(ret);
-        __torajs_throw_type_error(if name_id == 0 {
-            c"the patched Promise.resolve answered a non-promise into a typed slot".as_ptr()
-        } else {
-            c"the patched Promise.reject answered a non-promise into a typed slot".as_ptr()
+        __torajs_throw_type_error(match name_id {
+            0 => c"the patched Promise.resolve answered a non-promise into a typed slot".as_ptr(),
+            1 => c"the patched Promise.reject answered a non-promise into a typed slot".as_ptr(),
+            // Rotation 652 — an own `then` reached from a typed chain
+            // call (`ssa_lower_promise_chain_own_then`).
+            _ => c"an own `then` answered a non-promise into a typed slot".as_ptr(),
         });
     }
     core::ptr::null_mut()

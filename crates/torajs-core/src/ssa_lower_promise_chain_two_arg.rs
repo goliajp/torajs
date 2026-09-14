@@ -3,7 +3,6 @@
 //! 20260720-anylane-promise-methods knife 3 pushed that file past
 //! the 500-line cap; bodies verbatim).
 
-use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -17,11 +16,14 @@ impl LowerCtx<'_> {
     /// the SAME promise in one registration. Each handler word:
     /// low byte = return repr, bit 8 = PARAM_ANY, bit 9 =
     /// THEN2_CLOSURE (env block vs bare fn address).
-    pub(crate) fn lower_then_two_arg(&mut self, src_op: Operand, args: &[ExprId]) -> ValueId {
-        let on_ok = self.lower_expr(args[0]);
+    pub(crate) fn lower_then_two_arg(
+        &mut self,
+        src_op: Operand,
+        on_ok: Operand,
+        on_err: Operand,
+    ) -> ValueId {
         let on_ok_pre_ty = self.operand_ty(&on_ok);
         let on_ok = self.maybe_wrap_promise_cb(on_ok);
-        let on_err = self.lower_expr(args[1]);
         let on_err_pre_ty = self.operand_ty(&on_err);
         let on_err = self.maybe_wrap_promise_cb(on_err);
         let on_ok_ty = self.operand_ty(&on_ok);

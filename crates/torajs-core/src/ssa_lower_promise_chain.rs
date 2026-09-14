@@ -319,8 +319,10 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// dispatcher, else → raw fn-pointer dispatcher). ②.6b —
     /// f64-faced then/catch handlers get the bits-ABI adapter
     /// (finally takes no value, nothing to adapt).
-    fn lower_chain_one_arg(&mut self, m_name: &str, src_op: Operand, args: &[ExprId]) -> ValueId {
-        let cb_op = self.lower_expr(args[0]);
+    /// `cb_op` is the already-lowered handler: the caller lowers the
+    /// arguments once, ahead of the own-`then` probe split (rotation
+    /// 652), so both blocks share the one evaluation.
+    fn lower_chain_one_arg(&mut self, m_name: &str, src_op: Operand, cb_op: Operand) -> ValueId {
         // Before the bits-ABI wrapper replaces it — the wrap's own
         // signature is `(i64) -> i64`, so it can answer neither what
         // the handler's parameter is nor what its return is. See
@@ -410,28 +412,21 @@ impl crate::ssa_lower::LowerCtx<'_> {
             return None;
         }
         let src_op = self.lower_expr(*src_id);
-        // 2-arg form only fires for `.then` — `.catch` / `.finally`
-        // are 1-arg only. The 0-arg form (`p.then()` / `p.catch()`,
-        // §27.2.5.4 with both handlers absent) rides the
-        // passthrough kernel: the derived promise adopts the source
-        // (Identity / Thrower semantics, one reaction tick).
-        let v = if args.is_empty() {
-            let cur_block = self.cur_block;
-            self.f.append_inst(
-                cur_block,
-                InstKind::Call(
-                    self.intrinsics.promise_then_passthrough,
-                    vec![src_op.clone()],
-                ),
-                Type::Promise,
-                None,
-            )
-        } else if m_name == "then" && args.len() == 2 {
-            self.lower_then_two_arg(src_op.clone(), args)
-        } else {
-            let m_name = m_name.as_str();
-            self.lower_chain_one_arg(m_name, src_op.clone(), args)
-        };
+        let mut arg_ops: Vec<Operand> = Vec::with_capacity(args.len());
+        for &a in args {
+            arg_ops.push(self.lower_expr(a));
+        }
+        // Rotation 652 — a `.then` on a cell carrying its OWN `then`
+        // is an Invoke of that override (§27.2.5.4 is only the
+        // builtin's body); the sibling probes the cell and splits.
+        let v = crate::ssa_lower_promise_chain_own_then::lower_chain_with_own_then_probe(
+            self,
+            src_op.clone(),
+            *src_id,
+            m_name,
+            args,
+            &arg_ops,
+        );
         // T-15.g.7 — drop fresh source after .then.
         // Now that promise_drop is rc-aware AND
         // then_simple inc's source on attach, this
@@ -447,5 +442,32 @@ impl crate::ssa_lower::LowerCtx<'_> {
             self.emit_drop_value(src_op, Type::Promise);
         }
         return Some(Operand::Value(v));
+    }
+
+    /// The builtin lane of a chain call over already-lowered handler
+    /// operands. 2-arg form only fires for `.then` — `.catch` /
+    /// `.finally` are 1-arg only. The 0-arg form (`p.then()` /
+    /// `p.catch()`, §27.2.5.4 with both handlers absent) rides the
+    /// passthrough kernel: the derived promise adopts the source
+    /// (Identity / Thrower semantics, one reaction tick).
+    pub(crate) fn lower_chain_fast(
+        &mut self,
+        m_name: &str,
+        src_op: Operand,
+        arg_ops: &[Operand],
+    ) -> ValueId {
+        if arg_ops.is_empty() {
+            let cur_block = self.cur_block;
+            self.f.append_inst(
+                cur_block,
+                InstKind::Call(self.intrinsics.promise_then_passthrough, vec![src_op]),
+                Type::Promise,
+                None,
+            )
+        } else if m_name == "then" && arg_ops.len() == 2 {
+            self.lower_then_two_arg(src_op, arg_ops[0].clone(), arg_ops[1].clone())
+        } else {
+            self.lower_chain_one_arg(m_name, src_op, arg_ops[0].clone())
+        }
     }
 }
