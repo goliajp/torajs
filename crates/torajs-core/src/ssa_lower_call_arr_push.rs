@@ -50,7 +50,13 @@ pub(crate) fn try_lower(
         Expr::Member { obj, name } => (*obj, name.clone()),
         _ => return None,
     };
-    if name != "push" || args.len() != 1 {
+    if name != "push" {
+        return None;
+    }
+    if args.is_empty() {
+        return crate::ssa_lower_call_arr_push_empty::try_lower(ctx, recv_id);
+    }
+    if args.len() != 1 {
         return None;
     }
     if let Some(op) = try_lower_ident_local(ctx, recv_id, args) {
