@@ -3,7 +3,7 @@
 //! break/continue work) to keep that file under the size limit. Both
 //! functions are `pub(super)` and consumed only by [`super::GenSm`].
 
-use super::desugar_generators_sm::{DISPATCH_LABEL, RESUME_LOCAL};
+use super::desugar_generators_sm::{DISPATCH_LABEL, RESUME_LOCAL, SmJump, sm_jump_target};
 use super::{Ast, Expr, Stmt};
 
 /// Returns true if `s` (or any nested stmt) contains a `yield`. Used
@@ -69,7 +69,7 @@ pub(super) fn stmt_contains_yield(s: &Stmt) -> bool {
 pub(super) fn rewrite_break_continue_for_outer(
     ast: &mut Ast,
     s: &mut Stmt,
-    loop_stack: &[(usize, usize, Option<String>)],
+    loop_stack: &[SmJump],
     frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
 ) {
     rewrite_jumps(ast, s, loop_stack, frames, false)
@@ -78,7 +78,7 @@ pub(super) fn rewrite_break_continue_for_outer(
 fn rewrite_jumps(
     ast: &mut Ast,
     s: &mut Stmt,
-    loop_stack: &[(usize, usize, Option<String>)],
+    loop_stack: &[SmJump],
     frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
     bare_owned: bool,
 ) {
@@ -123,20 +123,10 @@ fn rewrite_jumps(
             Stmt::Continue(Some(DISPATCH_LABEL.into())),
         ])
     }
-    // Resolve a bare / labeled jump to a yield-loop state on the stack.
-    // Bare → innermost; labeled → the matching enclosing yield-loop.
+    // Resolve a bare / labeled jump to a state on the stack — the
+    // SM arm's own rule (`sm_jump_target`).
     let resolve = |l: &Option<String>, want_break: bool| -> Option<usize> {
-        let pick = |&(cont, brk, _): &(usize, usize, Option<String>)| {
-            if want_break { brk } else { cont }
-        };
-        match l {
-            None => loop_stack.last().map(pick),
-            Some(name) => loop_stack
-                .iter()
-                .rev()
-                .find(|(_, _, lbl)| lbl.as_deref() == Some(name.as_str()))
-                .map(pick),
-        }
+        sm_jump_target(loop_stack, l, want_break)
     };
     // D4 route test — bare jump whose target loop was entered before
     // the innermost enclosing try/finally (monotonic state alloc ⇒

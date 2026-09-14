@@ -140,8 +140,28 @@ fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, counter: &mut usize) {
         }
         Stmt::While { body, .. }
         | Stmt::DoWhile { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::Labeled { body, .. } => rewrite_in_stmt(ast, body, counter),
+        | Stmt::ForOfSplitIter { body, .. } => rewrite_in_stmt(ast, body, counter),
+        // A labeled for-of becomes `Multi[decls…, While]`; the label
+        // moves onto the While so the machine still sees a labeled
+        // LOOP (`continue label` needs one), not a labeled block.
+        Stmt::Labeled { body, .. } => {
+            rewrite_in_stmt(ast, body, counter);
+            if matches!(&**body, Stmt::Multi(ss) if matches!(ss.last(), Some(Stmt::While { .. }))) {
+                let Stmt::Labeled { label, body } = std::mem::replace(s, Stmt::Multi(Vec::new()))
+                else {
+                    unreachable!()
+                };
+                let Stmt::Multi(mut ss) = *body else {
+                    unreachable!()
+                };
+                let last = ss.pop().expect("matched a last While");
+                ss.push(Stmt::Labeled {
+                    label,
+                    body: Box::new(last),
+                });
+                *s = Stmt::Multi(ss);
+            }
+        }
         Stmt::For { init, body, .. } => {
             if let Some(i) = init {
                 rewrite_in_stmt(ast, i, counter);

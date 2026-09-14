@@ -81,13 +81,12 @@ pub(super) struct GenSm<'a> {
     /// until the body finishes lowering, so the goto literal is a
     /// placeholder ExprId patched by `lower_try_finally` afterwards.
     pub(super) finally_ret: Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
-    /// (continue_target, break_target, label) for each enclosing
-    /// yield-loop. Yield-FREE inner loops emit inline — their
-    /// break/continue keep their normal Stmt::Break / Stmt::Continue
-    /// meaning, never enter this stack. `label` is `Some` when the
-    /// yield-loop was wrapped in a `Stmt::Labeled`, so `break label` /
-    /// `continue label` naming it resolve to its state (ES §13.13).
-    pub(super) loop_stack: Vec<(usize, usize, Option<String>)>,
+    /// The enclosing yield-bearing jump targets, innermost last: each
+    /// yield-loop, and each labeled BLOCK holding a yield (`cont:
+    /// None` — only `break label` reaches it). Yield-FREE inner loops
+    /// emit inline — their break/continue keep their normal
+    /// Stmt::Break / Stmt::Continue meaning, never enter this stack.
+    pub(super) loop_stack: Vec<SmJump>,
     /// Set by the `Stmt::Labeled` arm just before lowering a
     /// yield-bearing labeled loop; the loop's arm `take`s it into its
     /// `loop_stack` entry. `None` outside that hand-off.
@@ -104,6 +103,19 @@ pub(super) struct GenSm<'a> {
     /// awaits the value before it yields it. Set for the async
     /// generators only; a sync one yields verbatim (§27.5.3.7).
     pub(super) is_async_gen: bool,
+}
+
+/// One entry of [`GenSm::loop_stack`]: where a `continue` / `break`
+/// aimed at this construct gotos. A yield-loop has both; a labeled
+/// block holding a yield (ES §13.13 — `lbl: { …; break lbl; … }`,
+/// which the states erase) has only its exit, and a BARE jump never
+/// targets it (`cont: None` also marks it for the bare-jump skip).
+/// `label` is `Some` when the construct sat under a `Stmt::Labeled`.
+#[derive(Clone)]
+pub(super) struct SmJump {
+    pub(super) cont: Option<usize>,
+    pub(super) brk: usize,
+    pub(super) label: Option<String>,
 }
 
 impl<'a> GenSm<'a> {
@@ -130,34 +142,24 @@ impl<'a> GenSm<'a> {
     }
 
     /// State to `goto` for a `break` / `continue` (`want_break` picks
-    /// break vs continue target). `None` label → innermost yield-loop;
-    /// `Some(l)` → the enclosing yield-loop labeled `l` (ES §13.13).
-    /// Returns `None` when no matching yield-loop is on the stack — the
+    /// break vs continue target). `None` label → innermost yield-loop
+    /// (a labeled block is skipped: a bare jump never targets one);
+    /// `Some(l)` → the enclosing entry labeled `l` (ES §13.13).
+    /// Returns `None` when nothing matching is on the stack — the
     /// jump then stays literal (it belongs to a yield-free inner loop
     /// or is resolved later by ssa_lower).
     fn sm_loop_target(&self, label: &Option<String>, want_break: bool) -> Option<usize> {
-        let pick = |&(cont, brk, _): &(usize, usize, Option<String>)| {
-            if want_break { brk } else { cont }
-        };
-        match label {
-            None => self.loop_stack.last().map(pick),
-            Some(l) => self
-                .loop_stack
-                .iter()
-                .rev()
-                .find(|(_, _, lbl)| lbl.as_deref() == Some(l.as_str()))
-                .map(pick),
-        }
+        sm_jump_target(&self.loop_stack, label, want_break)
     }
 
-    /// Labels of the enclosing yield-bearing loops — the finally
-    /// gate walker's outer-label set (a labeled jump resolving to
-    /// one of these routes through the SM, so it doesn't block a
+    /// Labels of the enclosing yield-bearing loops and blocks — the
+    /// finally gate walker's outer-label set (a labeled jump resolving
+    /// to one of these routes through the SM, so it doesn't block a
     /// finally region).
     pub(super) fn outer_loop_labels(&self) -> Vec<String> {
         self.loop_stack
             .iter()
-            .filter_map(|(_, _, l)| l.clone())
+            .filter_map(|j| j.label.clone())
             .collect()
     }
 
@@ -452,23 +454,25 @@ impl<'a> GenSm<'a> {
             rewrite_break_continue_for_outer(self.ast, s, &stack, &mut self.finally_ret);
         }
     }
+}
 
-    /// `label: stmt` inside a generator body — ES §13.13. A yield-bearing
-    /// labeled loop hands its label to the loop's arm (recorded on
-    /// `loop_stack` so `break label` / `continue label` naming it resolve
-    /// to its state); a yield-free labeled statement is emitted inline
-    /// with its label preserved so ssa_lower resolves the jumps, while
-    /// bare / this-loop labeled jumps targeting an enclosing SM loop still
-    /// rewrite to gotos.
-    fn lower_labeled(&mut self, label: String, body: Box<Stmt>) {
-        if stmt_contains_yield(&body) {
-            self.pending_label = Some(label);
-            self.lower(*body);
-            self.pending_label = None;
-        } else {
-            let mut s = Stmt::Labeled { label, body };
-            self.rewrite_outer_jumps(&mut s);
-            self.cur_buf.push(s);
-        }
+/// The resolution behind [`GenSm::sm_loop_target`] and the inline
+/// jump rewriter: bare → innermost yield-LOOP (blocks skipped);
+/// labeled → the entry carrying that label, whose continue target a
+/// block does not have (`continue` naming a block is an early error,
+/// so that read never happens).
+pub(super) fn sm_jump_target(
+    stack: &[SmJump],
+    label: &Option<String>,
+    want_break: bool,
+) -> Option<usize> {
+    let pick = |j: &SmJump| if want_break { Some(j.brk) } else { j.cont };
+    match label {
+        None => stack.iter().rev().find(|j| j.cont.is_some()).and_then(pick),
+        Some(l) => stack
+            .iter()
+            .rev()
+            .find(|j| j.label.as_deref() == Some(l.as_str()))
+            .and_then(pick),
     }
 }
