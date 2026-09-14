@@ -131,7 +131,16 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         return crate::nanbox_encode::__torajs_anyv_box_i64(units);
     }
     if !is_cell(recv) {
-        return VALUE_UNDEFINED;
+        // A number / boolean immediate: its family prototype's expando
+        // `length` (rotation 646 — `Number.prototype.length = 2` read
+        // undefined through the static spelling while `o[k]` found it).
+        return unsafe {
+            crate::len_get_expando::family_proto_length_probe(
+                crate::method_value::family::recv_proto_family(recv),
+                recv,
+            )
+        }
+        .unwrap_or(VALUE_UNDEFINED);
     }
     let ptr = as_void_ptr(recv);
     unsafe {
@@ -145,18 +154,19 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         // non-writable length wins over any expando — its inner Str
         // cell routes to the Str arm below.
         if crate::member_get::is_wrapper_tag(tag) && tag != Tag::StringWrapper as u16 {
-            let props = crate::member_get::wrapper_props(ptr);
-            if !props.is_null() {
-                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
-                let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-                if present {
-                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
-                    __torajs_str_drop(key as *mut c_void);
-                    return v;
-                }
-                __torajs_str_drop(key as *mut c_void);
+            if let Some(v) = crate::len_get_expando::props_length_probe(
+                crate::member_get::wrapper_props(ptr),
+                recv,
+            ) {
+                return v;
+            }
+            // Then the <Wrapper>.prototype expando — §10.1.8.1's chain
+            // step, ahead of the primitive fall-through.
+            if let Some(v) = crate::len_get_expando::props_length_probe(
+                crate::member_get_own::wrapper_proto_props(tag),
+                recv,
+            ) {
+                return v;
             }
         }
         if let Some(inner) = crate::wrapper_view_through::resolve_inner_recv(ptr, tag) {
@@ -169,18 +179,11 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         // same probe for an ArrayBuffer, which then falls through
         // (no inherent length).
         if tag == Tag::TypedArray as u16 || tag == Tag::ArrayBuffer as u16 {
-            let props = crate::member_get_layout::buffer_props(ptr, tag);
-            if !props.is_null() {
-                let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
-                let present = dtag != 5 || __torajs_dynobj_has(props, key as *const c_void) != 0;
-                if present {
-                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
-                    __torajs_str_drop(key as *mut c_void);
-                    return v;
-                }
-                __torajs_str_drop(key as *mut c_void);
+            if let Some(v) = crate::len_get_expando::props_length_probe(
+                crate::member_get_layout::buffer_props(ptr, tag),
+                recv,
+            ) {
+                return v;
             }
             if tag == Tag::TypedArray as u16 {
                 return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_typedarray_length(
@@ -257,8 +260,14 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
         if tag == Tag::Closure as u16 {
             return closure_length_arm(ptr, recv).unwrap_or(VALUE_UNDEFINED);
         }
+        // Every other cell (a Symbol / BigInt used as a receiver, a
+        // Map, a Date …): the family prototype's expando `length`.
+        crate::len_get_expando::family_proto_length_probe(
+            crate::method_value::family::recv_proto_family(recv),
+            recv,
+        )
+        .unwrap_or(VALUE_UNDEFINED)
     }
-    VALUE_UNDEFINED
 }
 
 /// The `Tag::Closure` arm of [`__torajs_any_length_get`] — split out

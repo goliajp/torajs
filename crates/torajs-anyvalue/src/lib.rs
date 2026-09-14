@@ -137,6 +137,7 @@ mod iter_zip;
 mod iter_zip_keyed;
 mod iter_zip_shared;
 mod len_get;
+mod len_get_expando;
 mod locale_list;
 pub(crate) mod member_get;
 mod member_get_buffer;
