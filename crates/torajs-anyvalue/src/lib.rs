@@ -118,6 +118,7 @@ mod index_any_iter_len;
 mod index_any_keyed;
 mod index_any_method_call;
 mod index_any_set;
+mod index_any_struct;
 mod instanceof_dynamic;
 mod iter_any;
 mod iter_any_array_like;
