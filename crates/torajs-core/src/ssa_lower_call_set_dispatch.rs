@@ -389,6 +389,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
             &fn_val,
             fn_ty,
             vec![Operand::Value(v_box1), Operand::Value(v_box2), recv_op],
+            0,
             3,
         );
     } else {

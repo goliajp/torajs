@@ -224,7 +224,9 @@ pub(crate) fn emit_map_loop(
     }
     let sig_skip = usize::from(this_arg.is_some());
     let mapped = if argv_face {
-        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, &fn_val, fn_ty, call_args, 2)
+        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
+            ctx, &fn_val, fn_ty, call_args, sig_skip, 2,
+        )
     } else {
         match known_fid {
             Some(fid) => {

@@ -226,7 +226,7 @@ fn emit_body_and_step(
         // sig's argv-pointer slot (the r363 silent no-op lesson).
         if argv_face {
             let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
-                ctx, &fn_val, fn_ty, pred_args, 3,
+                ctx, &fn_val, fn_ty, pred_args, sig_skip, 3,
             );
         } else {
             let _ = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3);
@@ -241,7 +241,7 @@ fn emit_body_and_step(
     } else {
         let pred_v = if argv_face {
             crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
-                ctx, &fn_val, fn_ty, pred_args, 3,
+                ctx, &fn_val, fn_ty, pred_args, sig_skip, 3,
             )
         } else {
             let v = ctx.call_fn_value(fn_val, fn_ty, pred_args, sig_skip, 3);

@@ -142,7 +142,9 @@ pub(crate) fn try_lower(
     }
     let sig_skip = usize::from(this_arg.is_some());
     let cb_ret = if argv_face {
-        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, &fn_val, fn_ty, call_args, 3)
+        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
+            ctx, &fn_val, fn_ty, call_args, sig_skip, 3,
+        )
     } else {
         let r = ctx.call_fn_value(fn_val.clone(), fn_ty, call_args, sig_skip, 3);
         // 550-01 — §23.1.3.13 step 6.d ReturnIfAbrupt: a throwing

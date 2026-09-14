@@ -346,7 +346,7 @@ pub(crate) fn emit_variadic_boxed_call(
     args: &[ExprId],
 ) -> Operand {
     let packed = crate::ssa_lower_any_method_call::pack_any_argv(ctx, args);
-    emit_variadic_call_conv(ctx, env_ptr, packed, args.len() as i64, user_sig_id)
+    emit_variadic_call_conv(ctx, env_ptr, None, packed, args.len() as i64, user_sig_id)
 }
 
 /// The call + return-conversion half of the boxed variadic dispatch,
@@ -354,17 +354,29 @@ pub(crate) fn emit_variadic_boxed_call(
 /// HOF-loop entry ([`crate::ssa_lower_call_arr_ho_loop`]'s argv-face
 /// downgrade, rotation 363): `closure_call_variadic(env, argv, argc)`
 /// → release the slots the packer boxed → throw check → unbox per
-/// the callee's declared return type.
+/// the callee's declared return type. With `this_arg` the call rides
+/// `closure_call_with_this(env, this, argv, argc)` — the explicit-
+/// receiver twin — so a promoted callee gets the caller's receiver
+/// rather than the `undefined` the receiver-less kernel seeds.
 pub(crate) fn emit_variadic_call_conv(
     ctx: &mut LowerCtx<'_>,
     env_ptr: Operand,
+    this_arg: Option<Operand>,
     packed: crate::ssa_lower_any_argv::AnyArgv,
     argc: i64,
     user_sig_id: crate::ssa::SigId,
 ) -> Operand {
-    let result = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
+    let call = match this_arg {
+        Some(this) => InstKind::Call(
+            ctx.intrinsics.closure_call_with_this,
+            vec![
+                env_ptr,
+                this,
+                Operand::Value(packed.argv),
+                Operand::ConstI64(argc),
+            ],
+        ),
+        None => InstKind::Call(
             ctx.intrinsics.closure_call_variadic,
             vec![
                 env_ptr,
@@ -372,9 +384,8 @@ pub(crate) fn emit_variadic_call_conv(
                 Operand::ConstI64(argc),
             ],
         ),
-        Type::Any,
-        None,
-    );
+    };
+    let result = ctx.f.append_inst(ctx.cur_block, call, Type::Any, None);
     packed.release(ctx);
     ctx.emit_throw_check(None);
     let (_, ret_ty) = ctx.fn_sigs[user_sig_id.0 as usize];

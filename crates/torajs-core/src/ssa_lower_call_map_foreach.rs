@@ -164,6 +164,7 @@ pub(crate) fn emit_map_for_each(
             &fn_val,
             fn_ty,
             vec![Operand::Value(v_box), Operand::Value(k_box), recv_op],
+            0,
             3,
         );
     } else {

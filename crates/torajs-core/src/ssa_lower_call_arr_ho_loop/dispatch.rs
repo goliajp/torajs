@@ -66,16 +66,28 @@ pub(super) fn cb_args(
 /// params. `box_to_any` is rc-neutral on every arm and an Any elem
 /// is already a box, so the pack is pure encoding; the adapter's
 /// materialize incs what it stores.
+///
+/// `sig_skip` — a promoted callback's leading boxed `__this` in
+/// `args` (rotation 649): it is the RECEIVER, not an argument, so it
+/// rides the kernel's explicit-`this` twin instead of the argv. The
+/// receiver-less kernel prepends `undefined` for a flagged cell on
+/// its own, and packing the receiver into the argv doubled the seed:
+/// `[8].forEach(function (this, a) { arguments[1] }, o)` saw
+/// `this === undefined`, `a` as the coerced thisArg and an
+/// `arguments` list led by the receiver.
 pub(crate) fn emit_argv_face_call(
     ctx: &mut LowerCtx<'_>,
     fn_val: &Operand,
     fn_ty: Type,
     args: Vec<Operand>,
+    sig_skip: usize,
     spec_argc: i64,
 ) -> ValueId {
     let Type::Closure(user_sig_id) = fn_ty else {
         unreachable!("argv-face callee is always a lifted closure");
     };
+    let mut args = args;
+    let this_arg = (sig_skip == 1).then(|| args.remove(0));
     let argv = ctx.f.append_inst(
         crate::ssa::BlockId(0),
         InstKind::AllocaBytes((args.len().max(1) * 8) as u64),
@@ -96,6 +108,7 @@ pub(crate) fn emit_argv_face_call(
     let r = crate::ssa_lower_call_closure_local::emit_variadic_call_conv(
         ctx,
         fn_val.clone(),
+        this_arg,
         crate::ssa_lower_any_argv::AnyArgv::borrowed(argv),
         spec_argc,
         user_sig_id,
@@ -121,7 +134,7 @@ pub(super) fn emit_do_call(
     argv_face: bool,
 ) -> ValueId {
     if argv_face {
-        return emit_argv_face_call(ctx, fn_val, fn_ty, args, spec_argc);
+        return emit_argv_face_call(ctx, fn_val, fn_ty, args, sig_skip, spec_argc);
     }
     // `sig_skip` — a promoted receiver-first callback's leading boxed
     // `__this` argv entry is not in the sig (knife 4); positional

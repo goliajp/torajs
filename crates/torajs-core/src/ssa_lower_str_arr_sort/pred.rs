@@ -232,7 +232,7 @@ fn emit_user_cmp_pred(
     // reshaped sig's argv-pointer slot); the pack boxes each side,
     // so the F64 param alignment above is a no-op on this route.
     let cmp_ret = if route.argv_face {
-        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, cv, *ct, args, 2)
+        crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(ctx, cv, *ct, args, sig_skip, 2)
     } else {
         ctx.call_fn_value(cv.clone(), *ct, args, sig_skip, 2)
     };
