@@ -330,6 +330,20 @@ unsafe fn settle(env: *mut c_void, argv: *const u64, argc: i64, rejected: bool) 
         (*record).resolved = 1;
         let v = if argc >= 1 { *argv } else { VALUE_UNDEFINED };
         if !rejected {
+            // §27.2.1.3.2 step 7 — SameValue(resolution, promise) is a
+            // TypeError rejection, not an adoption of itself (which
+            // attached the promise to its own settle and left it
+            // pending forever: `resolve(p)` on p's own resolving
+            // function, the test262 `resolve-self` shape, rotation 650).
+            if is_cell(v) && as_void_ptr(v) == p {
+                unsafe extern "C" {
+                    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+                }
+                __torajs_throw_type_error(c"Chaining cycle detected for promise".as_ptr());
+                let reason = crate::promise_thenable::take_throw_box();
+                __torajs_promise_reject(p, reason as i64);
+                return VALUE_UNDEFINED;
+            }
             if is_native_promise(v) {
                 adopt_promise(p, as_void_ptr(v));
                 return VALUE_UNDEFINED;
