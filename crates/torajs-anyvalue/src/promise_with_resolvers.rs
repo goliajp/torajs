@@ -264,7 +264,7 @@ pub(crate) unsafe fn is_native_promise(v: u64) -> bool {
 /// §27.2.1.3.2 step 8-13 — attach a forwarding reaction on `inner`
 /// so `target` settles when `inner` does. Both cells get a stake to
 /// survive the microtask delay; the dispatch releases them.
-unsafe fn adopt_promise(target: *mut c_void, inner: *mut c_void) {
+pub(crate) unsafe fn adopt_promise(target: *mut c_void, inner: *mut c_void) {
     unsafe {
         let layout = core::alloc::Layout::from_size_align(16, 8).unwrap();
         let a = std::alloc::alloc(layout) as *mut ForwardArg;

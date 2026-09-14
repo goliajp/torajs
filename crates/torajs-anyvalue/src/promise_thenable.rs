@@ -221,6 +221,31 @@ pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
     }
 }
 
+/// §27.2.4.7.1 step 2 — `Get(x, "constructor")` on a native promise
+/// through the any-lane member read (own expando first, then the
+/// prototype's builtin ctor cell), compared by pointer identity with
+/// the interned %Promise% constructor. A read that throws answers
+/// false (the fresh promise then adopts x; the abrupt is the recorded
+/// residue).
+unsafe fn constructor_is_builtin_promise(v: AnyValue) -> bool {
+    unsafe {
+        let promise_ctor = crate::method_value::ctor::ctor_cell_peek(10);
+        if promise_ctor.is_null() {
+            return true;
+        }
+        let key = __torajs_str_alloc(b"constructor".as_ptr(), 11);
+        let tag = crate::member_get::__torajs_any_member_get_tag(v, key.cast());
+        let value = crate::member_get_value::__torajs_any_member_get_value(v, key.cast());
+        __torajs_str_drop(key.cast());
+        if __torajs_throw_check() != 0 {
+            let _ = take_throw_box();
+            return false;
+        }
+        let c = crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64);
+        is_cell(c) && crate::nanbox::as_void_ptr(c) == promise_ctor.cast()
+    }
+}
+
 /// §27.2.4.7 PromiseResolve(%Promise%, x) — the any-lane kernel behind
 /// `await` and `Promise.resolve(any)`. A %Promise% cell passes through
 /// and a non-thenable fulfills (torajs-promise's `resolve_any`, which
@@ -234,6 +259,23 @@ pub unsafe extern "C" fn __torajs_anyv_promise_settle_thenable(
 pub unsafe extern "C" fn __torajs_anyv_promise_resolve(bits: i64) -> *mut c_void {
     unsafe {
         let v = bits as AnyValue;
+        // §27.2.4.7.1 PromiseResolve steps 1-2 — a native promise
+        // answers ITSELF only when `x.constructor` is C (%Promise%
+        // here); a subclass instance, or a promise whose `constructor`
+        // was reassigned, mints a fresh promise that adopts it (the
+        // test262 `arg-uniq-ctor` / `arg-non-thenable`-family shape).
+        // Until rotation 650 every native promise took the identity
+        // road.
+        if is_native_promise(v) && !constructor_is_builtin_promise(v) {
+            let p = __torajs_promise_alloc_pending();
+            p.cast::<u8>().add(P_REPR_OFF).write(REPR_ANY);
+            p.cast::<u8>().add(P_IS_HEAP_OFF).write(1);
+            crate::promise_with_resolvers::adopt_promise(p, crate::nanbox::as_void_ptr(v));
+            // The caller transferred one ref on the box; the
+            // adoption took its own stake above.
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+            return p;
+        }
         match probe_then(v) {
             ThenProbe::NotThenable => __torajs_promise_resolve_any(bits),
             ThenProbe::Threw => {
