@@ -24,10 +24,29 @@ pub(crate) fn program_constructs_from_value(ast: &Ast) -> bool {
         // own `construct` method false-positives into one adapter
         // per class — the pay-for-use trade the species
         // `constructor`-write arm below already makes.
-        crate::ast::Expr::Call { callee, .. } => matches!(
-            ast.get_expr(*callee),
-            crate::ast::Expr::Member { name, .. } if name == "construct"
-        ),
+        crate::ast::Expr::Call { callee, .. } => match ast.get_expr(*callee) {
+            crate::ast::Expr::Member { name, .. } if name == "construct" => true,
+            // Rotation 650 — a Promise settle static reached with an
+            // explicit receiver (`Promise.reject.call(P, v)`, `.apply`,
+            // `.bind`) runs NewPromiseCapability(|this|) through the
+            // construct channel, and |this| may be any class object
+            // (§27.2.4.6 step 1 asks only IsConstructor). Without the
+            // adapters a class with no Promise in its chain stopped at
+            // "cannot be reached through a runtime value yet".
+            crate::ast::Expr::Member { obj, name }
+                if matches!(name.as_str(), "call" | "apply" | "bind") =>
+            {
+                // `(Promise.reject as any).call(…)` — the cast is the
+                // spelling the checker asks for; peel it.
+                let obj = match ast.get_expr(*obj) {
+                    crate::ast::Expr::As { expr, .. } => *expr,
+                    _ => *obj,
+                };
+                matches!(ast.get_expr(obj), crate::ast::Expr::Member { obj: ns, .. }
+                    if matches!(ast.get_expr(*ns), crate::ast::Expr::Ident(n) if n == "Promise"))
+            }
+            _ => false,
+        },
         // A bare `Reflect.construct` member READ detaches the cell
         // (`const c = Reflect.construct; c(C, ...)`) — the call
         // through the detached value is invisible, so the read
