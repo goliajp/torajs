@@ -77,11 +77,22 @@ pub(super) fn check_named_groups_disjunction_ok(root: &Node, names: &[Vec<u8>]) 
     let mut alt_id_counter: u32 = 0;
     let mut fingerprint: Vec<(u32, u32)> = Vec::new();
     collect_named_captures(root, &mut fingerprint, &mut alt_id_counter, &mut entries);
+    // `names` is indexed by capture index and only grows as far as
+    // the LAST named group (`atom.rs`), so a trailing unnamed group
+    // has no entry at all — `names[ci]` on `(.)(?<a>a)(?<b>\1)(\2)`
+    // was an index-out-of-bounds at compile time (test262
+    // named-groups/non-unicode-match, rotation 651). An absent or
+    // empty entry is an unnamed group, and unnamed groups take no
+    // part in the dup rule: the scan below compared two empty names
+    // as equal, which is the other half of the same defect.
+    let name_of = |ci: usize| names.get(ci).filter(|n| !n.is_empty());
     for i in 0..entries.len() {
-        for j in (i + 1)..entries.len() {
-            let (ci, fi) = &entries[i];
-            let (cj, fj) = &entries[j];
-            if names[*ci] == names[*cj] && !fingerprints_diverge(fi, fj) {
+        let (ci, fi) = &entries[i];
+        let Some(ni) = name_of(*ci) else {
+            continue;
+        };
+        for (cj, fj) in &entries[(i + 1)..] {
+            if name_of(*cj) == Some(ni) && !fingerprints_diverge(fi, fj) {
                 return false;
             }
         }
@@ -155,6 +166,19 @@ mod tests {
     fn ok(pattern: &str) -> bool {
         let mut p = Parser::new(pattern.as_bytes(), 0);
         p.parse().is_some() && !p.err()
+    }
+
+    #[test]
+    fn unnamed_group_after_the_last_named_ok() {
+        // `names` stops at group 3; group 4 has no entry.
+        assert!(ok(r"(.)(?<a>a)(?<b>\1)(\2)"));
+    }
+
+    #[test]
+    fn two_unnamed_groups_beside_two_named_ok() {
+        // Empty names are not a duplicate of each other.
+        assert!(ok(r"(?<a>a)(?<b>b)(.)(.)"));
+        assert!(ok(r"(.)(?<a>a)(.)(?<b>b)"));
     }
 
     #[test]
