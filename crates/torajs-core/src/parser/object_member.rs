@@ -1,32 +1,23 @@
-//! Object-literal async method shorthand — real substrate.
+//! Object-literal async method shorthand — `{ async name() { … } }`.
 //!
-//! P10.3-A3b — replaces the pre-existing `parser.rs:4622` stub-drop
-//! that dropped the body of `{ async name() { ... } }` and emitted
-//! `__async_<n>: null`. Real substrate: parse params + body, mint
-//! a unique synthetic `__obj_async_method_<id>` `Stmt::FnDecl`,
-//! register it in `ast.async_fns` so `desugar_async` rewrites
-//! returns into `Promise.resolve(...)`, and emit the property
-//! value as `Expr::Ident(synth_name)` referencing the synth fn.
+//! §13.2.5 makes a method shorthand sugar for a function-valued
+//! property, and an async one is an async function VALUE: the
+//! property's value is the same `Expr::ArrowFn` the computed-key
+//! spelling (`async [k]() {}`) and the sync named spelling mint, put
+//! in `async_fn_value_exprs` so the async desugar's value lane moves
+//! it — a closure over the enclosing scope, `this` through the
+//! receiver channel.
 //!
-//! Method shorthand semantics: ES spec §13.2.5 makes `{ f() {} }`
-//! sugar for `{ f: function () {} }`. tr's dynobj method-call path
-//! (`obj.f(args)`) does not thread `this` into the callee today, so
-//! both `function` and `() =>` desugars observe the same
-//! `this === undefined` inside the body — picking `Stmt::FnDecl`
-//! over `Expr::ArrowFn` here is spec-aligned without altering
-//! caller-observable behavior. Distinct from the non-async path at
-//! parser.rs:4988 which emits an `Expr::ArrowFn` inline; the async
-//! path needs a named `Stmt::FnDecl` because `desugar_async` only
-//! reaches stmt-level FnDecls.
-//!
-//! `async [computedKey]() {}` (computed-property-name method
-//! shorthand) stays on the original stub-drop path — Symbol.X
-//! dispatch substrate is a P3/P7 follow-up, and the real-rewrite
-//! win there is gated on that.
+//! History: P10.3-A3b replaced a body-dropping stub with a hoisted
+//! top-level `__obj_async_method_<id>` declaration referenced by
+//! name (the async desugar then only reached statement-level
+//! FnDecls). That shape captured nothing — `{ async next() { i++ } }`
+//! inside a method read `i` as an unknown identifier — and rotation
+//! 646 retired it once the value lane existed.
 
 use super::Parser;
+use crate::ast::ExprId;
 use crate::ast::PropKey;
-use crate::ast::{Expr, ExprId, Stmt};
 use crate::lexer::Token;
 
 impl<'a> Parser<'a> {
@@ -77,96 +68,21 @@ impl<'a> Parser<'a> {
         // Params — reuse the standard param parser (handles
         // destructuring + type anns).
         // This form IS the async shorthand, so its params are [+Await].
-        let (mut params, destr_lets) = self.with_async_params(true, |p| p.parse_param_list())?;
-        self.finish_formal_params(&params, &destr_lets, true)?;
-        // 刀 1b — method-position default params infer their ann
-        // from the default (see param_list.rs).
-        self.infer_default_param_anns(&mut params);
-
-        // Optional return-type annotation.
-        let return_type = if matches!(self.peek(), Token::Colon) {
-            self.pos += 1;
-            Some(self.parse_type_ann()?)
-        } else {
-            None
-        };
-
-        // Body.
-        match self.peek() {
-            Token::LBrace => self.pos += 1,
-            t => {
-                return Err(format!(
-                    "expected `{{` after async object-method `{method_name}` header, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        }
-        // §15.8.1 — this IS an async body: await is legal.
-        let saved_await = std::mem::replace(&mut self.await_allowed, true);
-        let saved_await_res = std::mem::replace(&mut self.await_reserved, true);
-        let strict_outer = self.in_strict_fn;
-        let mut body = Vec::new();
-        while !matches!(self.peek(), Token::RBrace | Token::Eof) {
-            match self.parse_stmt() {
-                Ok(s) => {
-                    self.arm_strict_directive(&s, &body);
-                    body.push(s);
-                }
-                Err(e) => {
-                    self.await_allowed = saved_await;
-                    self.await_reserved = saved_await_res;
-                    return Err(e);
-                }
-            }
-        }
-        self.await_allowed = saved_await;
-        self.await_reserved = saved_await_res;
-        match self.peek() {
-            Token::RBrace => self.pos += 1,
-            t => {
-                return Err(format!(
-                    "expected `}}` to end async object-method `{method_name}` body, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-        }
-        self.reject_use_strict_with_non_simple_params(&params, &body)?;
-        self.finish_fn_body_strict(strict_outer, &params, &mut body)?;
-        // Prepend destructuring-param helper lets (same shape as
-        // non-async method shorthand at parser.rs:4988).
-        let body = if destr_lets.is_empty() {
-            body
-        } else {
-            let mut full = destr_lets;
-            full.extend(body);
-            full
-        };
-
-        // Mint synth name + emit synth FnDecl. Reuses `synth_classes`
-        // — the field is `Vec<Stmt>`, name's historical (P8.5 class-
-        // expression machinery) but the drain in `parse_program` at
-        // parser.rs:583 prepends every accumulated synth Stmt to
-        // the next emitted top-level stmt, which is exactly the
-        // declared-before-use ordering this synth fn needs.
-        let synth_id = self.mint_desugar_id();
-        let synth_name = format!("__obj_async_method_{synth_id}");
-        self.ast.async_fns.insert(synth_name.clone());
-        self.synth_classes.push(Stmt::FnDecl {
-            name: synth_name.clone(),
-            type_params: Vec::new(),
-            params,
-            return_type,
-            body,
-            is_generator: false,
-            // the synth decl compiles the user's method shorthand --
-            // record its source range (B1b)
-            span: self.span_from(start_pos),
-        });
-
-        // Field value = `Expr::Ident(synth_name)` referencing the
-        // synth fn — same shape as `{ greet: greet }` where `greet`
-        // is a top-level fn.
-        let value = self.ast.add_expr(Expr::Ident(synth_name));
+        // The method is an async function VALUE, the shape the
+        // computed-key spelling already takes (`[k]() {…}` with
+        // `async`): a closure over the enclosing scope, moved by the
+        // async desugar's value lane. It used to be minted as a
+        // hoisted top-level declaration named `__obj_async_method_N`
+        // and referenced by name — which captured nothing, so
+        // `{ async next() { i++ } }` inside a method read an unknown
+        // identifier (rotation 646).
+        let value = self.parse_method_like_value_async(
+            start_pos,
+            true,
+            &format!("async object-method `{method_name}`"),
+            true,
+        )?;
+        self.ast.async_fn_value_exprs.insert(value);
         Ok(Some((PropKey::from(method_name), value)))
     }
 }
