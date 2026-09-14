@@ -50,6 +50,7 @@ pub(super) fn blocks_move(ast: &Ast, params: &[Param], body: &[Stmt]) -> bool {
     params.iter().any(|p| typed_default_param(p, ast))
         || !body.iter().any(|s| stmt_suspends(ast, s))
         || body.iter().any(|s| stmt_blocks_move(ast, s, Owner::Body))
+        || super::desugar_async_sm_gate_tdz::using_bound_read_before_decl(ast, body)
 }
 
 /// Does the statement hold a suspend point — an await read, or a `for
@@ -112,6 +113,20 @@ enum Owner {
 }
 
 fn stmt_blocks_move(ast: &Ast, s: &Stmt, owner: Owner) -> bool {
+    // A for-of / for-await whose head is a destructuring PATTERN
+    // (`for await (const [a, ...r] of xs)`, the parser's
+    // `__forof_destr_N` loop local + pattern binds in the body): the
+    // let-lift types the pattern's locals from their binds
+    // (`__inlobj(__spread_omit__::any)` for an object rest, a field
+    // the machine class cannot declare) and an array rest with
+    // elision answered wrong — the whole test262
+    // `for-await-of/async-func-dstr-*` family (84 pass regressions at
+    // blade 4's first sweep). Keeps the synchronous lowering until
+    // the lift types pattern binds; registered (RFC 20260915).
+    if matches!(s, Stmt::ForOf { var_name, forin_obj: None, .. } if var_name.starts_with("__forof_destr_"))
+    {
+        return true;
+    }
     walk::stmt_exprs(s)
         .into_iter()
         .any(|e| expr_blocks_move(ast, e, owner))
@@ -142,14 +157,19 @@ fn expr_blocks_move(ast: &Ast, eid: ExprId, owner: Owner) -> bool {
         // that lowering inside a moved body's machine does not compose
         // with it (rotation 645 probes p13 / p14 / p23), so the
         // enclosing body stays on the synchronous lowering with it.
-        Expr::ArrowFn { body, .. } if super::desugar_async_sm_this::owns_this(ast, eid) => body
-            .iter()
-            .any(|s| stmt_blocks_move(ast, s, Owner::NestedFn)),
+        Expr::ArrowFn { body, .. } if super::desugar_async_sm_this::owns_this(ast, eid) => {
+            body.iter()
+                .any(|s| stmt_blocks_move(ast, s, Owner::NestedFn))
+                || super::desugar_async_sm_gate_tdz::using_bound_read_before_decl(ast, body)
+        }
         // An arrow's `arguments` / `new.target` / `this` are the
         // enclosing function's, so its body is scanned too — but a
         // nested `FnDecl` is its own function and `stmt_children_ref`
         // stops at it.
-        Expr::ArrowFn { body, .. } => body.iter().any(|s| stmt_blocks_move(ast, s, owner)),
+        Expr::ArrowFn { body, .. } => {
+            body.iter().any(|s| stmt_blocks_move(ast, s, owner))
+                || super::desugar_async_sm_gate_tdz::using_bound_read_before_decl(ast, body)
+        }
         _ => walk::expr_children(ast, eid)
             .into_iter()
             .any(|c| expr_blocks_move(ast, c, owner)),

@@ -53,6 +53,7 @@
 //! (`forin_obj`) keeps the catch-all.
 
 use super::desugar_generators_forof_close::{Suspend, clear_live, set_live, wrap_with_close};
+use super::desugar_generators_forof_label::{is_loop_tail, label_loop_tail, unlabel};
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::{Ast, Expr, Stmt};
 
@@ -81,9 +82,16 @@ pub(super) fn rewrite_yield_forof(ast: &mut Ast, body: &mut [Stmt], is_async_gen
 }
 
 /// Does this loop take the manual protocol — a body suspending inside
-/// it, or the async form (whose step suspends by itself)?
-fn takes_protocol(body: &Stmt, is_await: bool) -> bool {
-    is_await || stmt_contains_yield(body)
+/// it, or the async form (whose step suspends by itself)? A
+/// destructuring PATTERN head (the parser's `__forof_destr_N` loop
+/// local + pattern binds in the body) takes it only for a suspending
+/// body, as before RFC 20260915: the let-lift types the pattern's
+/// locals from their binds (`__inlobj(__spread_omit__::any)` for an
+/// object rest — a field the machine class cannot declare) and an
+/// array rest with elision answered wrong (the test262 `async-gen-
+/// dstr-*` family at blade 4's first sweep); registered.
+fn takes_protocol(body: &Stmt, var_name: &str, is_await: bool) -> bool {
+    (is_await && !var_name.starts_with("__forof_destr_")) || stmt_contains_yield(body)
 }
 
 fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
@@ -98,11 +106,12 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
             forin_obj,
             body,
             is_await,
+            var_name,
             ..
         } = unlabel(&stmts[i])
             && forin_obj.is_none()
             && i > 0
-            && takes_protocol(body, *is_await)
+            && takes_protocol(body, var_name, *is_await)
         {
             let src = src_ident.clone();
             if let Stmt::LetDecl { name, type_ann, .. } = &mut stmts[i - 1]
@@ -116,68 +125,17 @@ fn rewrite_in_seq(ast: &mut Ast, stmts: &mut [Stmt], cx: &mut Cx) {
     }
 }
 
-/// The tail statement a rewritten for-of ends in: the While itself, or
-/// the close wrap's Try holding it.
-fn is_loop_tail(s: &Stmt) -> bool {
-    match s {
-        Stmt::While { .. } => true,
-        Stmt::Try { body, .. } => matches!(body.as_slice(), [Stmt::While { .. }]),
-        _ => false,
-    }
-}
-
-/// Put `label` on the While inside `tail` (see [`is_loop_tail`]).
-fn label_loop_tail(label: String, tail: Stmt) -> Stmt {
-    match tail {
-        Stmt::Try {
-            mut body,
-            had_catch,
-            catch_param,
-            catch_type,
-            catch_body,
-            finally_body,
-        } => {
-            let w = body.pop().expect("is_loop_tail matched a While");
-            body.push(Stmt::Labeled {
-                label,
-                body: Box::new(w),
-            });
-            Stmt::Try {
-                body,
-                had_catch,
-                catch_param,
-                catch_type,
-                catch_body,
-                finally_body,
-            }
-        }
-        w => Stmt::Labeled {
-            label,
-            body: Box::new(w),
-        },
-    }
-}
-
-/// The statement under a label chain — a labeled for-of whose source
-/// was hoisted sits as `Labeled { ForOf }` right after its hoist
-/// (`parse_stmt::label_hoisted_for_of`).
-fn unlabel(s: &Stmt) -> &Stmt {
-    match s {
-        Stmt::Labeled { body, .. } => unlabel(body),
-        other => other,
-    }
-}
-
 fn rewrite_in_stmt(ast: &mut Ast, s: &mut Stmt, cx: &mut Cx) {
     match s {
         Stmt::ForOf {
             body,
             forin_obj,
             is_await,
+            var_name,
             ..
         } => {
             rewrite_in_stmt(ast, body, cx);
-            if forin_obj.is_none() && takes_protocol(body, *is_await) {
+            if forin_obj.is_none() && takes_protocol(body, var_name, *is_await) {
                 let old = std::mem::replace(s, Stmt::Multi(Vec::new()));
                 let Stmt::ForOf {
                     var_name,

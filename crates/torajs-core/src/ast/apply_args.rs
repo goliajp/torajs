@@ -6,14 +6,10 @@
 //! `__cm_<C>__<method>` FnDecls by method name and applying the common
 //! defaults when every owner agrees.
 //!
-//! Its independent sibling `apply_rest_args` used to live here too and
-//! now sits in `apply_rest_args.rs` — the two had grown past the
-//! file-size line together. They share only `peel_hidden_params`,
-//! which stays here.
-//!
+//! Its sibling `apply_rest_args` sits in `apply_rest_args.rs` (file-size
+//! split); they share only `peel_hidden_params`, which stays here.
 //! `pub` because torajs-cli main / cmd_build / lsp / repl call it at
-//! `torajs_core::ast::apply_default_args`; the `pub use` in ast.rs
-//! preserves that path.
+//! `torajs_core::ast::apply_default_args` (the `pub use` in ast.rs).
 
 use super::{Ast, Expr, ExprId, Param, PropKey, Stmt};
 use std::collections::HashMap;
@@ -281,6 +277,20 @@ fn defaulted_args(
     (subst || padded).then_some(new_args)
 }
 
+/// The class-method entries of `fn_defaults` — a generator machine's
+/// (`__Gen_*`) excluded (RFC 20260915): in the NAME-keyed table its
+/// `next(__yield_arg)` padded every unresolvable `x.next()` to one
+/// argument (`arguments.length` 1 where none was passed — test262
+/// `AsyncFromSyncIteratorPrototype/next/absent-value-not-passed`); a
+/// class-resolved receiver still gets it through `fn_defaults`.
+fn class_method_defaults(
+    fn_defaults: &HashMap<String, Vec<Option<ExprId>>>,
+) -> impl Iterator<Item = (&String, &Vec<Option<ExprId>>)> {
+    fn_defaults
+        .iter()
+        .filter(|(f, _)| !f.starts_with("__cm___Gen_"))
+}
+
 pub fn apply_default_args(ast: &mut Ast) {
     let fn_defaults = collect_fn_defaults(ast);
     // Sibling-shape Member calls (`obj.method(args)`) survive desugar
@@ -292,7 +302,7 @@ pub fn apply_default_args(ast: &mut Ast) {
     // without knowing the receiver's static type.
     let mut method_defaults: HashMap<String, Vec<Option<ExprId>>> = HashMap::new();
     let mut method_conflict = unservable_method_names(ast);
-    for (fname, defaults) in &fn_defaults {
+    for (fname, defaults) in class_method_defaults(&fn_defaults) {
         let Some(rest) = fname.strip_prefix("__cm_") else {
             continue;
         };
