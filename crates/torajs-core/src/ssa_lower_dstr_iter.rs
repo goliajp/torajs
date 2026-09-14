@@ -119,17 +119,26 @@ pub(crate) fn try_lower_field_walk(
     field: &str,
 ) -> Option<Operand> {
     let &limit = ctx.ast.iter_destr_srcs.get(&init)?;
-    // Bounded patterns only. A TOP-LEVEL suspendable rest pattern no
-    // longer reaches here with `limit < 0` — 刀 D bounds its walk at
-    // the prefix and drains the rest after the suspension. What still
-    // does is a NESTED pattern's rest (`[a, [b, ...o[yield]]]` — its
-    // inner group is minted by the slot recursion, which keeps the
-    // eager `-1`): draining that eagerly at the lifted store would
-    // run before the target's yield could suspend and hang on an
-    // unbounded iterable (probe-proven, rotation 455), so the nested
-    // rest family stays on its pre-lane behaviour until the RFC's
-    // REMAINDER extends the deferred shape one level down.
-    if limit < 0 {
+    // An ASSIGNMENT pattern's rest (`__dstra_src_N`, the parser's
+    // `dstr_assign` temp) is bounded only: a top-level suspendable
+    // rest no longer reaches here with `limit < 0` — 刀 D bounds its
+    // walk at the prefix and drains the rest after the suspension —
+    // but a NESTED pattern's rest (`[a, [b, ...o[yield]]]`, its inner
+    // group minted by the slot recursion with the eager `-1`) would
+    // be drained here before the target's yield could suspend, and
+    // hang on an unbounded iterable (probe-proven, rotation 455); it
+    // keeps its pre-lane behaviour until the RFC's REMAINDER extends
+    // the deferred shape one level down. A BINDING pattern's rest
+    // (`__ary_src_N`: `const [...x] = src`, a for-of / for-await
+    // head, a parameter) has no target that can suspend — §8.6.2
+    // IteratorBindingInitialization drains the iterator on the spot,
+    // exactly what the `LetDecl` twin does — so it walks like any
+    // bounded group. Refusing it stored the raw source and `.slice`
+    // then failed on the generator object (`for (const [...x] of
+    // [gen()])` in any machine body; the test262
+    // `for-await-of/*-dstr-*-ary-ptrn-rest-*` family once pattern
+    // heads moved into the async machine, RFC 20260915 item 1).
+    if limit < 0 && field.starts_with("__dstra_src_") {
         return None;
     }
     let park = park_for_field(ctx, field, obj, sid);
