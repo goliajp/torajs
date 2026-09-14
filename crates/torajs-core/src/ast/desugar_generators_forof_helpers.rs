@@ -24,15 +24,16 @@
 //! `return` — no Await happens then, §7.4.11 step 3); the result check
 //! runs on the awaited value.
 //!
-//! The `return` method is read as `Reflect.get(__it, "return")`, not
-//! `__it.return`: the arguments-object pass runs after this injection
-//! and refuses an object-literal method's boxed-only argv admission
-//! when ANY member spelling of its name exists in the arena
-//! (`arguments_object_objlit_argv` — a typed-dispatch site would call
-//! the old signature; an index spelling parses to the same `Member`).
-//! The Reflect read is the same any-lane [[Get]] and mints no member
-//! node (`gen-dstr-rtrn-close-args-001`: an iterator's `return:
-//! function () { args = arguments; … }` lost its `arguments`).
+//! The `return` method is read as `__it.return` off the helper's own
+//! `__`-spelled parameter: the arguments-object pass runs after this
+//! injection and refuses an object-literal method's boxed-only argv
+//! admission on any member spelling of its name, EXCEPT the runtime
+//! protocol's `next` / `return` / `throw` off a compiler-minted
+//! binding (`arguments_object_objlit_argv` — the `gen-dstr-rtrn-close-
+//! args-001` iterator's `return: function () { args = arguments; … }`
+//! lost its `arguments` before that exemption). An index spelling
+//! parses to the same `Member`; `Reflect.get` collided with the
+//! by-name method routing of a user class declaring `get`.
 
 use super::{Ast, Stmt};
 
@@ -56,12 +57,12 @@ function __agen_step_call(__it: any, __am: any): any {
 function __gfor_close(__it: any, __threw: boolean): void {
   if (__threw) {
     try {
-      const __ret0: any = Reflect.get(__it, "return");
+      const __ret0: any = __it.return;
       if (__ret0 != null) { __ret0.call(__it); }
     } catch (__e: any) { }
     return;
   }
-  const __ret: any = Reflect.get(__it, "return");
+  const __ret: any = __it.return;
   if (__ret == null) { return; }
   const __res: any = __ret.call(__it);
   if (__res == null || (typeof __res !== "object" && typeof __res !== "function")) { throw new TypeError("iterator result is not an object"); }
@@ -71,12 +72,12 @@ function __gfor_close_async(__it: any, __am: any, __threw: boolean): any {
   let __r0: any;
   if (__threw) {
     try {
-      __ret = Reflect.get(__it, "return");
+      __ret = __it.return;
       if (__ret == null) { return null; }
       __r0 = __ret.call(__it);
     } catch (__e: any) { return null; }
   } else {
-    __ret = Reflect.get(__it, "return");
+    __ret = __it.return;
     if (__ret == null) { return null; }
     __r0 = __ret.call(__it);
   }
