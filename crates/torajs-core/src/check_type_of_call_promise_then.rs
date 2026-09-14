@@ -402,6 +402,24 @@ fn try_then_array(
             {
                 return Some(Ok(promise_of(ret)));
             }
+            // A 0-arg handler ignores its argument slot — the same
+            // admit the scalar-inner lane has carried since
+            // P10.2-A1.1 (the kernels call through
+            // `int64_t (*)(int64_t)` either way). Only the Array-
+            // inner lane still refused: `Promise.all([…]).then(() =>
+            // done())` was "cb must be `(arr: …) => V`, got
+            // Function([], Void)" (test262 allSettled/resolved-immed
+            // and three siblings; two of this rotation's own fixtures
+            // had to spell `(_: any) =>` around it).
+            if let Type::Function(params, ret) = &cb_ty
+                && params.is_empty()
+            {
+                let result_inner = match &**ret {
+                    Type::Void => Type::Undefined,
+                    other => other.clone(),
+                };
+                return Some(Ok(promise_of(&result_inner)));
+            }
             if let Type::Function(params, ret) = &cb_ty
                 && params.len() == 1
                 && params[0] == inner_arr_ty
