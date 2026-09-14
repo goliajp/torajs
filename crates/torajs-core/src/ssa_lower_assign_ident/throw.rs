@@ -21,11 +21,7 @@ use crate::ssa_lower::LowerCtx;
 /// pending TypeError and the throw-check propagates it. `undefined`'s
 /// shape stands in so the enclosing expression still types out.
 pub(super) fn lower_self_name_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand {
-    let v = ctx.lower_expr(value);
-    let v_ty = ctx.operand_ty(&v);
-    if !v_ty.is_copy() {
-        ctx.emit_drop_value(v, v_ty);
-    }
+    lower_and_discard_rhs(ctx, value);
     let raiser = ctx.intrinsics.throw_readonly_assign;
     let cur_block = ctx.cur_block;
     ctx.f.append_void(cur_block, InstKind::Call(raiser, vec![]));
@@ -39,11 +35,7 @@ pub(super) fn lower_undeclared_write_throw(
     value: ExprId,
     dead_zone: bool,
 ) -> Operand {
-    let v = ctx.lower_expr(value);
-    let v_ty = ctx.operand_ty(&v);
-    if !v_ty.is_copy() {
-        ctx.emit_drop_value(v, v_ty);
-    }
+    lower_and_discard_rhs(ctx, value);
     let name_str = ctx.intern_string_literal(name);
     // The rhs is evaluated either way (§13.15.2 evaluates it before
     // PutValue), so only the raiser differs.
@@ -59,4 +51,21 @@ pub(super) fn lower_undeclared_write_throw(
     );
     ctx.emit_throw_check(None);
     Operand::ConstPtrNull
+}
+
+/// §13.15.2 evaluates the rhs before PutValue, and the throw makes its
+/// value unobservable — so it is released here only when THIS site
+/// owns it. A borrow (a local's load, a param) belongs to its binding,
+/// which drops it on the way out: releasing it here as well freed the
+/// block once too often (rotation 652: `function w() { zzz = arguments }`
+/// — the materialized `arguments` array is a local — handed its block
+/// to the pooled allocator, the ReferenceError message string took the
+/// block, and the local's own drop then decremented the message's first
+/// byte: `zzz is not defined` read back as `yzz is not defined`).
+fn lower_and_discard_rhs(ctx: &mut LowerCtx<'_>, value: ExprId) {
+    let v = ctx.lower_expr(value);
+    let v_ty = ctx.operand_ty(&v);
+    if !v_ty.is_copy() && ctx.expr_is_fresh_owned(value) {
+        ctx.emit_drop_value(v, v_ty);
+    }
 }
