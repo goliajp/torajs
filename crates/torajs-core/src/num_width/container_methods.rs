@@ -290,7 +290,8 @@ impl<'a> Analysis<'a> {
             return;
         }
         if let Expr::Ident(ns) = self.ast.get_expr(obj)
-            && ns == "Array"
+            && (ns == "Array"
+                || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(ns))
             && name == "from"
             && self.resolve(ns, scope).is_none()
         {
