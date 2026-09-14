@@ -254,11 +254,17 @@ fn emit_pending_return(ctx: &mut LowerCtx) {
     ctx.cur_block = ret_blk;
     if let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
         // Chaining to the outer finally leaves the outer try body's
-        // frames (this statement sat inside them).
+        // frames (this statement sat inside them) — and closes the
+        // for-ofs between the two tries, which the return site left
+        // open for this finally to run first (rotation 652).
+        crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, outer_fb.teardown_depth, false);
         ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(outer_fb.blk));
     } else {
+        // Every for-of still open around this try closes now, after
+        // the finally body and outside the try's own handlers.
+        crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx);
         let fn_ret_ty = ctx.f.ret;
         let ret = slot.map(|slot| {
             let v = ctx.f.append_inst(

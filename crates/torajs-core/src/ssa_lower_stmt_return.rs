@@ -207,12 +207,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     // held. Emitted after the return value is in hand — the value can
     // read the loop variable — and before the finally hand-off below.
     //
-    // With a `finally` INSIDE the loop body the spec order is
-    // finally-then-close and this emits close-then-finally; observable
-    // only if the finally block touches the iterator. Recorded as
-    // backlog rather than silently narrowed: not closing at all was
-    // the strictly worse answer this replaces.
-    crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx);
+    // A `return` inside a try-with-finally closes only the for-ofs
+    // INSIDE that try here; the ones enclosing the try close in the
+    // finally tail's pending-return dispatch, after the finally body
+    // (§14.7.5.7 step 6: IteratorClose runs on the completion the
+    // loop body produced, and a try statement's completion is the
+    // finally's). Closing them here put the close's throw inside the
+    // try — its catch swallowed the iterator's `return()` throw and
+    // the loop went on (rotation 652: `for (x of it) { try { return }
+    // catch {} }` with a throwing `return()` never terminated). Same
+    // split `break` / `continue` already make (`emit_pending_loop_flag`).
+    match ctx.try_finally_stack.last().copied() {
+        Some(target) => {
+            crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, target.teardown_depth, false)
+        }
+        None => crate::ssa_lower_for_of_teardown::emit_all_for_return(ctx),
+    }
     let mut coerced = ret_operand.map(|op| coerce_to_ret(ctx, op, maybe));
     // A bare `return;` in a value-returning fn answers `undefined`
     // (§10.2.1.4 — [[Call]] of a completion with no value). The

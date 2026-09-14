@@ -168,10 +168,7 @@ pub(crate) fn emit_close_under_pending_throw(ctx: &mut LowerCtx, td: &ForOfTeard
 /// the caller owns the placement; the slots release with the fn's
 /// owned locals afterwards.
 pub(crate) fn emit_all_for_return(ctx: &mut LowerCtx) {
-    let pending: Vec<ForOfTeardown> = ctx.for_of_teardown_stack.iter().rev().cloned().collect();
-    for td in &pending {
-        emit_close(ctx, td);
-    }
+    emit_closes_from(ctx, 0, false);
 }
 
 /// The for-ofs a jump leaves — `for_of_teardown_stack[depth..]`,
@@ -181,16 +178,24 @@ pub(crate) fn emit_closes_from(ctx: &mut LowerCtx, depth: usize, under_throw: bo
     if depth >= ctx.for_of_teardown_stack.len() {
         return;
     }
-    let pending: Vec<ForOfTeardown> = ctx.for_of_teardown_stack[depth..]
-        .iter()
-        .rev()
-        .cloned()
-        .collect();
-    for td in &pending {
+    // Innermost first. While one loop's close is being emitted, that
+    // loop and everything inside it are off the stack: the close's own
+    // throw check routes to a handler and closes `[handler.depth..]`
+    // on the way (`emit_throw_check`), and with the entry still there
+    // the iterator whose `return()` just threw was closed a second
+    // time (rotation 652: `try { for (x of it) { try { return } finally
+    // {} } } catch {}` logged two closes). The outer loops the throw
+    // crosses still close, as §7.4.9 wants; only the one that threw
+    // is spent. Restored afterwards — a non-throwing close falls
+    // through to the next one.
+    let saved: Vec<ForOfTeardown> = ctx.for_of_teardown_stack.clone();
+    for idx in (depth..saved.len()).rev() {
+        ctx.for_of_teardown_stack.truncate(idx);
         if under_throw {
-            emit_close_under_pending_throw(ctx, td);
+            emit_close_under_pending_throw(ctx, &saved[idx]);
         } else {
-            emit_close(ctx, td);
+            emit_close(ctx, &saved[idx]);
         }
     }
+    ctx.for_of_teardown_stack = saved;
 }
