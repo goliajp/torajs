@@ -66,6 +66,9 @@ pub unsafe extern "C" fn __torajs_iterator_ctor_throw() -> u64 {
 /// set time, the cap makes the loop total regardless).
 const MAX_PROTO_WALK: u32 = 64;
 
+/// `torajs_rc::Tag::Str`.
+const TAG_STR_CELL: u16 = 0;
+
 /// Chain `proto_anyv` (a class's `__proto_<C>` dynobj, passed as the
 /// AnyValue its module-scope binding holds) to the builtin prototype
 /// singleton of `proto_tag`. Non-cell input is a no-op (misordered
@@ -110,6 +113,16 @@ pub unsafe extern "C" fn __torajs_proto_chain_builtin(proto_anyv: u64, proto_tag
 /// `v` carries a valid AnyValue bit pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_instanceof_builtin_proto(v: u64, proto_tag: i64) -> bool {
+    // Step 3 — a primitive is never an instance. The walk below would
+    // otherwise answer through the primitive's wrapper prototype.
+    if !is_cell_imm(v)
+        || matches!(
+            unsafe { (v as *const u8).add(4).cast::<u16>().read() },
+            TAG_STR_CELL | crate::reflect::TAG_SYMBOL | crate::reflect::TAG_BIGINT
+        )
+    {
+        return false;
+    }
     let target = unsafe { __torajs_get_builtin_prototype(proto_tag) };
     if target.is_null() {
         return false;

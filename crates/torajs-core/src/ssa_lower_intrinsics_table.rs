@@ -321,7 +321,6 @@ pub(crate) fn build(
         dynobj_mark_null_proto: init_b.object.dynobj_mark_null_proto,
         get_builtin_prototype: init_b.object.get_builtin_prototype,
         instanceof_class_any_tag: init_b.object.instanceof_class_any_tag,
-        instanceof_builtin_any_tag: init_b.object.instanceof_builtin_any_tag,
         instanceof_generic_any: init_b.object.instanceof_generic_any,
         instanceof_generic_tag: init_b.object.instanceof_generic_tag,
         instanceof_fn_value: init_b.object.instanceof_fn_value,

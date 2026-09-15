@@ -38,15 +38,12 @@
 //!    instanceof TypeError }` shape, the inline `Type::Obj(_)`
 //!    path can't see through the NaN-box, so emit a runtime
 //!    dispatch:
-//!    - Built-in tag check first via
-//!      `__torajs_instanceof_builtin_any_tag(v, type_tag)`
-//!      because Tag::Arr / Date / RegExp / Promise / Map / Set /
-//!      WeakMap / WeakSet / Closure cells don't carry a
-//!      `class_tag@+8` slot (only user-declared classes do), so
-//!      the user-class OR-chain below would always emit false.
-//!      Tags mirror `torajs-rc::Tag`: Arr=2, Closure=3 (Function),
-//!      RegExp=4, Date=5, Promise=8, WeakMap=12, WeakSet=13,
-//!      Map=15, Set=19.
+//!    - A builtin constructor runs §7.3.22 OrdinaryHasInstance via
+//!      `__torajs_instanceof_builtin_proto(v, proto_tag)`: the
+//!      constructor's prototype singleton searched on `v`'s
+//!      [[GetPrototypeOf]] chain (a relinked object, a Proxy's
+//!      `getPrototypeOf` trap and a null-prototype array all answer
+//!      by the chain, not by the cell's heap tag).
 //!    - `instanceof Object` accepts any heap cell whose tag isn't
 //!      a primitive wrapper via `__torajs_instanceof_object_any`.
 //!    - User-class descendant_tags loop: per-tag
@@ -236,12 +233,12 @@ fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> O
         );
         return Operand::Value(r);
     }
-    if let Some(t) = builtin_type_tag(class_name) {
+    if let Some(t) = builtin_proto_tag(class_name) {
         let cur_block = ctx.cur_block;
         let r = ctx.f.append_inst(
             cur_block,
             InstKind::Call(
-                ctx.intrinsics.instanceof_builtin_any_tag,
+                ctx.intrinsics.instanceof_builtin_proto,
                 vec![v, Operand::ConstI64(t)],
             ),
             Type::Bool,
@@ -337,31 +334,26 @@ fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) 
     Some(emit_has_instance(ctx, v_any, cell, Some(closure_ty)))
 }
 
-fn builtin_type_tag(class_name: &str) -> Option<i64> {
-    match class_name {
-        "Array" => Some(2),
-        "Function" => Some(3),
-        "RegExp" => Some(4),
-        "Date" => Some(5),
-        "Promise" => Some(8),
-        "Map" => Some(15),
-        "Set" => Some(19),
-        "WeakMap" => Some(12),
-        "WeakSet" => Some(13),
-        "WeakRef" => Some(11),
-        // RFC 20260716 刀 2 — Tag::NumberWrapper = 21,
-        // Tag::StringWrapper = 22, Tag::BooleanWrapper = 23;
-        // Tag::SymbolWrapper = 24 (2026-08-19).
-        "Number" => Some(21),
-        "String" => Some(22),
-        "Boolean" => Some(23),
-        "Symbol" => Some(24),
-        // RFC 20260823-typedarray-substrate 刀 1 — Tag::ArrayBuffer.
-        "ArrayBuffer" => Some(27),
-        // 刀 7 — Tag::DataView.
-        "DataView" => Some(29),
-        _ => None,
-    }
+fn builtin_proto_tag(class_name: &str) -> Option<i64> {
+    Some(match class_name {
+        "Number" => 0,
+        "Array" => 2,
+        "String" => 3,
+        "Boolean" => 4,
+        "Symbol" => 5,
+        "RegExp" => 7,
+        "Date" => 8,
+        "Promise" => 10,
+        "Map" => 11,
+        "Set" => 12,
+        "Function" => 13,
+        "WeakMap" => 16,
+        "WeakSet" => 17,
+        "WeakRef" => 18,
+        "ArrayBuffer" => 19,
+        "DataView" => 32,
+        _ => return None,
+    })
 }
 
 fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {

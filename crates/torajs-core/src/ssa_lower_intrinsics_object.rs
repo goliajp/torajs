@@ -11,7 +11,7 @@
 //! - dynobj basics: `dynobj_alloc`, `get_builtin_prototype`
 //!   (singleton per tag).
 //! - instanceof + in: `instanceof_class_any_tag`,
-//!   `instanceof_builtin_any_tag`, `instanceof_object_any`,
+//!   `instanceof_object_any`,
 //!   `in_op_any_num`, `in_op_any_str`.
 //! - `any_is_arr` — `Array.isArray(v: any)` runtime tag dispatch.
 //! - dynobj read/write: `dynobj_get_tag`, `dynobj_get_value`,
@@ -47,7 +47,6 @@ pub(crate) struct ObjectIds {
     pub dynobj_mark_null_proto: FuncId,
     pub get_builtin_prototype: FuncId,
     pub instanceof_class_any_tag: FuncId,
-    pub instanceof_builtin_any_tag: FuncId,
     pub instanceof_object_any: FuncId,
     pub instanceof_generic_any: FuncId,
     pub instanceof_generic_tag: FuncId,
@@ -212,7 +211,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         dynobj_mark_null_proto: decl!("__torajs_dynobj_mark_null_proto", [Ptr], Void),
         get_builtin_prototype: decl!("__torajs_get_builtin_prototype", [I64], Ptr),
         instanceof_class_any_tag: decl!("__torajs_instanceof_class_any_tag", [Any, I64], Bool),
-        instanceof_builtin_any_tag: decl!("__torajs_instanceof_builtin_any_tag", [Any, I64], Bool),
         instanceof_object_any: decl!("__torajs_instanceof_object_any", [Any], Bool),
         instanceof_generic_any: decl!("__torajs_instanceof_generic_any", [Any, I64], Bool),
         instanceof_generic_tag: decl!("__torajs_generic_tag_match", [I64, I64], Bool),

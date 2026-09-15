@@ -13,6 +13,7 @@ const pOpen: any = new Proxy(open, lie);
 const pClosed: any = new Proxy(closed, lie);
 run("get open", () => Object.getPrototypeOf(pOpen) === other);
 run("get closed", () => Object.getPrototypeOf(pClosed) === other);
+run("instanceof closed", () => pClosed instanceof Array);
 run("set open", () => Reflect.setPrototypeOf(pOpen, other));
 run("set closed other", () => Reflect.setPrototypeOf(pClosed, other));
 run("set closed same", () => Reflect.setPrototypeOf(pClosed, Object.prototype));

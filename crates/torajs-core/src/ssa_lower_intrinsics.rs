@@ -377,7 +377,6 @@ pub(crate) struct Intrinsics {
     pub(crate) dynobj_mark_null_proto: FuncId,
     pub(crate) get_builtin_prototype: FuncId,
     pub(crate) instanceof_class_any_tag: FuncId,
-    pub(crate) instanceof_builtin_any_tag: FuncId,
     pub(crate) instanceof_fn_value: FuncId,
     pub(crate) instanceof_dynamic: FuncId,
     pub(crate) instanceof_object_any: FuncId,

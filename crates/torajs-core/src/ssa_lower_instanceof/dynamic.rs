@@ -27,7 +27,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
-use super::builtin_type_tag;
+use super::builtin_proto_tag;
 
 /// `x instanceof <expression>` — the target is a value nobody can name
 /// at compile time, so there is no ladder to try first: evaluate both
@@ -215,7 +215,7 @@ fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
         return class_declares_has_instance(ctx, class_name)
             .then(|| format!("__class_{class_name}"));
     }
-    if builtin_type_tag(class_name).is_some()
+    if builtin_proto_tag(class_name).is_some()
         || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
     {
         return None;
