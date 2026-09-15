@@ -49,6 +49,9 @@ impl LowerCtx<'_> {
         // Cluster #4 — `o[k] &&= v` fingerprint: evaluate (and
         // coerce) the shared key once up front; both the guard read
         // below and the branch-side assign consult the pin.
+        // RFC 20260915 — the shared obj / index children lower once
+        // here, receiver first, before the key pin coerces the key.
+        let shared = crate::ssa_lower_assign::pin_logical_target(self, left, right);
         let key_pin = self.pin_logical_assign_key(left, right);
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
@@ -158,7 +161,11 @@ impl LowerCtx<'_> {
             slot_ty,
             None,
         );
-        Operand::Value(v)
+        let out = Operand::Value(v);
+        if let Some(shared) = shared {
+            crate::ssa_lower_assign::unpin(self, shared, eid, &out);
+        }
+        out
     }
 
     /// W3 S8's rule, stated next door in [`crate::ssa_lower_ternary`]:
@@ -231,6 +238,9 @@ impl LowerCtx<'_> {
             return self.lower_expr(right);
         }
         // Cluster #4 — `o[k] ||= v` fingerprint (see the `&&` arm).
+        // RFC 20260915 — the shared obj / index children lower once
+        // here, receiver first, before the key pin coerces the key.
+        let shared = crate::ssa_lower_assign::pin_logical_target(self, left, right);
         let key_pin = self.pin_logical_assign_key(left, right);
         let a = self.lower_expr(left);
         let a_ty = self.operand_ty(&a);
@@ -320,6 +330,10 @@ impl LowerCtx<'_> {
             slot_ty,
             None,
         );
-        Operand::Value(v)
+        let out = Operand::Value(v);
+        if let Some(shared) = shared {
+            crate::ssa_lower_assign::unpin(self, shared, eid, &out);
+        }
+        out
     }
 }

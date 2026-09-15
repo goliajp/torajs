@@ -64,10 +64,16 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprI
     // the shared key once up front; the guard read and the branch-
     // side assign both consult the pin (see ssa_lower_logical's
     // `&&`/`||` twins). Unpinned after every join path below.
+    // RFC 20260915 — the shared obj / index children lower once here,
+    // receiver first, before the key pin runs the key's coercion.
+    let shared = crate::ssa_lower_assign::pin_logical_target(ctx, lhs, rhs);
     let key_pin = ctx.pin_logical_assign_key(lhs, rhs);
     let out = lower_inner(ctx, eid, lhs, rhs);
     if let Some(owned) = key_pin {
         ctx.unpin_logical_assign_key(owned);
+    }
+    if let Some(shared) = shared {
+        crate::ssa_lower_assign::unpin(ctx, shared, eid, &out);
     }
     out
 }

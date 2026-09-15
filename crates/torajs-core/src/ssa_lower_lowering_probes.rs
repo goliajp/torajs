@@ -86,6 +86,12 @@ impl<'a> LowerCtx<'a> {
     /// clobbers caller-saved X0 and silently destroyed `n + "x"`-style
     /// ret values). Used by Expr::BinOp's post-call drop pass.
     pub(crate) fn expr_is_fresh_owned(&self, eid: ExprId) -> bool {
+        // RFC 20260915 — a pinned shared child is a borrow at every
+        // site inside its expression (`ssa_lower_assign` module doc);
+        // asked before the peel, on the eid the site hands in.
+        if self.pins.operands.contains_key(&eid) {
+            return false;
+        }
         let eid = self.peel_as_wrappers(eid);
         // Chunk 637 — a Member read whose owned-receiver lowering
         // detached the result (see `ssa_lower_member::lower`) IS

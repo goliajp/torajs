@@ -441,6 +441,12 @@ impl<'a> LowerCtx<'a> {
     /// so nested exprs get their own tighter origin scoped to the
     /// inner subtree (RAII-style save/restore on the prev value).
     pub(crate) fn lower_expr(&mut self, eid: ExprId) -> Operand {
+        // RFC 20260915 — a child an assignment form shares between
+        // its target and its embedded read was lowered once by the
+        // entry point; hand that back (`ssa_lower_assign` module doc).
+        if let Some(op) = self.pins.operands.get(&eid) {
+            return op.clone();
+        }
         // RFC 20260705 chunk 555 — a dispatcher that lowered this
         // exact expr and then declined parked the operand; consume it
         // instead of re-emitting (side-effecting receivers must

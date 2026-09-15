@@ -129,6 +129,13 @@ impl<'a> LowerCtx<'a> {
     /// a borrow — except the minted-closure Ident caught by
     /// [`Self::release_owned_temp`]'s operand-type check.
     pub(crate) fn expr_owned_shape(&self, eid: ExprId) -> bool {
+        // RFC 20260915 — a pinned shared child is the entry point's
+        // to release, so every site inside the expression borrows it
+        // (`ssa_lower_assign` module doc). Before the `As` peel: the
+        // pin is keyed by the eid the sites hand in.
+        if self.pins.operands.contains_key(&eid) {
+            return false;
+        }
         // The template object is a borrow of its site cache (doc on
         // `is_template_object_call`) — the one Call that is not owned.
         if crate::ssa_lower_call_template_object::is_template_object_call(self.ast, eid) {
@@ -236,6 +243,11 @@ impl<'a> LowerCtx<'a> {
     /// `a.reverse().sort()`) and per-call closure envs
     /// (`xs.map(x => ...)`) don't leak their ref.
     pub(crate) fn release_owned_temp(&mut self, eid: ExprId, op: &Operand) {
+        // RFC 20260915 — a pinned shared child is released by its
+        // entry point, minted-closure shape included.
+        if self.pins.operands.contains_key(&eid) {
+            return;
+        }
         if !self.expr_owned_shape(eid) && !self.expr_minted_closure(eid, op) {
             return;
         }
@@ -256,6 +268,11 @@ impl<'a> LowerCtx<'a> {
     /// answer false; the consumer takes +1 so the source binding
     /// keeps its own stake (chunks 563/565).
     pub(crate) fn expr_transfers_ownership(&self, eid: ExprId) -> bool {
+        // RFC 20260915 — a pinned shared child transfers nothing; the
+        // two raw-node arms below must not see it either.
+        if self.pins.operands.contains_key(&eid) {
+            return false;
+        }
         if self.expr_owned_shape(eid) {
             return true;
         }
