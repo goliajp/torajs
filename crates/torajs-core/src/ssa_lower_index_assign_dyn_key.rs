@@ -75,6 +75,12 @@ impl<'a> LowerCtx<'a> {
             Some(t) if crate::check_type_of_index::key_rides_keyed_kernel(t) => {
                 let k_raw = crate::ssa_lower_index_any_key::lower_any_key(self, i1);
                 let transfers = self.expr_transfers_ownership(i1);
+                // The receiver is pinned by `pin_logical_target`; an
+                // `any` one owes ToObject before the coercion below.
+                let recv = self.lower_expr(o1);
+                if self.operand_ty(&recv) == Type::Any {
+                    self.emit_require_object_coercible(&recv);
+                }
                 let cur_block = self.cur_block;
                 let p = self.f.append_inst(
                     cur_block,
@@ -109,6 +115,26 @@ impl<'a> LowerCtx<'a> {
             }
             _ => None,
         }
+    }
+
+    /// §6.2.5.5 GetValue step 3 — ToObject(base) comes BEFORE the
+    /// deferred ToPropertyKey. The compound and logical assignment
+    /// forms coerce their shared key up front (so the read and the
+    /// write see one key), which would run the key's toString on a
+    /// null base first: test262 compound-assignment S11.13.2_A7.x T1
+    /// / T2 expect the TypeError and a silent key. The kernel records
+    /// the TypeError on a nullish `any` receiver; the throw check
+    /// propagates it. RFC 20260915-compound-assign-single-eval 刀 C.
+    pub(crate) fn emit_require_object_coercible(&mut self, recv: &Operand) {
+        let cur_block = self.cur_block;
+        self.f.append_void(
+            cur_block,
+            crate::ssa::InstKind::Call(
+                self.intrinsics.anyv_require_object_coercible,
+                vec![recv.clone()],
+            ),
+        );
+        self.emit_throw_check(None);
     }
 
     /// Release the cell [`Self::pin_logical_assign_key`] pinned (when
@@ -243,6 +269,8 @@ impl<'a> LowerCtx<'a> {
             false
         };
         let k_final = if compound_shared {
+            // ToObject(base) before the coercion (the helper's doc).
+            self.emit_require_object_coercible(&obj_val);
             let cur_block = self.cur_block;
             let p = self.f.append_inst(
                 cur_block,

@@ -263,8 +263,7 @@ pub unsafe extern "C" fn __torajs_any_index_get_keyed(recv: AnyValue, key: AnyVa
         // key's toString never runs (test262 compound-assignment
         // S11.13.2_A7.x T2; the cell / numeric arms above throw inside
         // their own kernels without coercing anything).
-        if is_null(recv) || is_undefined(recv) {
-            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+        if !require_object_coercible(recv) {
             return crate::nanbox::VALUE_UNDEFINED;
         }
         // §7.1.19 step 3 — ToString(key), probe, release the temp.
@@ -277,6 +276,39 @@ pub unsafe extern "C" fn __torajs_any_index_get_keyed(recv: AnyValue, key: AnyVa
         let out = probe_key_cell(recv, kstr as *const c_void);
         __torajs_str_drop(kstr);
         out
+    }
+}
+
+/// §7.1.18 RequireObjectCoercible on a receiver: records the read
+/// TypeError and answers false on null / undefined, true otherwise.
+/// The keyed read above asks it before its own ToString of the key;
+/// the lowering asks it (through the extern twin) before the
+/// up-front ToPropertyKey a compound / logical assignment runs so
+/// its read and write share one coerced key — §6.2.5.5 GetValue
+/// puts ToObject(base) first either way.
+///
+/// # Safety
+/// `recv` is a valid AnyValue.
+unsafe fn require_object_coercible(recv: AnyValue) -> bool {
+    if is_null(recv) || is_undefined(recv) {
+        unsafe {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr())
+        };
+        return false;
+    }
+    true
+}
+
+/// [`require_object_coercible`] for the lowering: a pending TypeError
+/// on a nullish receiver, nothing otherwise; the emit site's throw
+/// check propagates it.
+///
+/// # Safety
+/// `recv` is a valid AnyValue.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_require_object_coercible(recv: AnyValue) {
+    unsafe {
+        let _ = require_object_coercible(recv); // the verdict is the pending throw
     }
 }
 

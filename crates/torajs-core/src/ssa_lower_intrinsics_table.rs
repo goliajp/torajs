@@ -568,6 +568,7 @@ pub(crate) fn build(
         template_object_str: init_c.template.template_object_str,
         template_object_end: init_c.template.template_object_end,
         anyv_to_callable_cell: init_c.recv_gate.anyv_to_callable_cell,
+        anyv_require_object_coercible: init_c.recv_gate.anyv_require_object_coercible,
         ctorany_register: init_c.ctorany.ctorany_register,
         super_call_value: init_c.ctorany.super_call_value,
         super_prop_get: init_c.super_prop.super_prop_get,

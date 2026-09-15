@@ -21,6 +21,12 @@ pub(crate) struct RecvGateIds {
     /// stake and answers the undefined sentinel the call site's
     /// undefable guard turns into a catchable TypeError).
     pub anyv_to_callable_cell: FuncId,
+    /// RFC 20260915 — `anyv_require_object_coercible(box)`: §7.1.18 on
+    /// an `any` receiver, the ToObject(base) a compound / logical
+    /// assignment owes BEFORE the deferred ToPropertyKey it runs up
+    /// front (§6.2.5.5 GetValue order); a nullish receiver records the
+    /// read TypeError.
+    pub anyv_require_object_coercible: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> RecvGateIds {
@@ -38,6 +44,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_anyv_to_callable_cell",
             &[Type::Any],
             Type::Ptr,
+        ),
+        anyv_require_object_coercible: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_require_object_coercible",
+            &[Type::Any],
+            Type::Void,
         ),
     }
 }

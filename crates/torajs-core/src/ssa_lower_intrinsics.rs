@@ -636,6 +636,7 @@ pub(crate) struct Intrinsics {
     pub(crate) any_any_loose_eq: FuncId,
     pub(crate) any_index_get: FuncId,
     pub(crate) any_index_get_keyed: FuncId,
+    pub(crate) anyv_require_object_coercible: FuncId,
     pub(crate) anyv_to_property_key: FuncId,
     pub(crate) anyv_property_key_drop: FuncId,
     pub(crate) any_index_set_keyed: FuncId,
