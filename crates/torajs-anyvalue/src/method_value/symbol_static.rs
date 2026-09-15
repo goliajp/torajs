@@ -46,7 +46,26 @@ pub(crate) fn well_known_singleton(idx: i64) -> *const c_void {
 
 /// The builtin-proto tag the `Symbol` ctor keys (`torajs-rc
 /// builtin_proto` order).
-const SYMBOL_PROTO_TAG: i64 = 5;
+pub(crate) const SYMBOL_PROTO_TAG: i64 = 5;
+
+/// Interned key cells naming the §20.4.2 well-known data properties
+/// of the `Symbol` constructor, in [`WELL_KNOWN_NAMES`] order.
+static WELL_KNOWN_KEY_CELLS: [core::sync::atomic::AtomicU64; WELL_KNOWN_NAMES.len()] =
+    [const { core::sync::atomic::AtomicU64::new(0) }; WELL_KNOWN_NAMES.len()];
+
+/// Call `f` with each well-known name's immortal key cell — the
+/// `Symbol` constructor's own-name list.
+pub(crate) fn for_each_well_known_key(f: &mut impl FnMut(u64)) {
+    use core::sync::atomic::Ordering;
+    for (slot, name) in WELL_KNOWN_KEY_CELLS.iter().zip(WELL_KNOWN_NAMES) {
+        let mut p = slot.load(Ordering::Relaxed);
+        if p == 0 {
+            p = super::mint_immortal_str(name.as_bytes()) as u64;
+            slot.store(p, Ordering::Relaxed);
+        }
+        f(p);
+    }
+}
 
 /// True when `cell` is the `Symbol` ctor cell and `key` names a
 /// well-known symbol static — the write / delete refusal gate (the

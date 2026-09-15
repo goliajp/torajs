@@ -12,6 +12,11 @@ use crate::obj_own_keys_proto_names::push_synthesized_proto_names;
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
     fn __torajs_arr_push(arr: *mut u8, val: i64) -> *mut u8;
+    /// torajs-anyvalue — a builtin constructor cell's own string keys
+    /// after `length` / `name` (immortal interned cells, borrowed); a
+    /// `cap == 0` probe answers the count, 0 for every other closure.
+    fn __torajs_builtin_ctor_own_names(cell: *const c_void, out: *mut u64, cap: u64) -> u64;
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const u8) -> bool;
 }
 
 /// `torajs_rc::flags` mirrors — `delete fn.name` / `delete fn.length`
@@ -73,10 +78,40 @@ pub(crate) unsafe fn closure_cell_keys(cell: *const c_void, include_nonenum: i64
     // the Array-exotic `Array.prototype`.
     if include_nonenum != 0 {
         out = unsafe { push_synthesized_proto_names(cell, out, true) };
+        out = unsafe { push_builtin_ctor_names(cell, props, out) };
     }
     if props.is_null() {
         out as *mut c_void
     } else {
         unsafe { dynobj_keys_append(props, include_nonenum, out, false, true) as *mut c_void }
     }
+}
+
+/// A builtin constructor's `prototype`, table statics and data
+/// constants — all non-enumerable, so only the gOPN / ownKeys surface
+/// lists them. A key the expando dict also holds (a program's
+/// `defineProperty(Array, "from", …)`) is the same property, which
+/// the dict walk lists, so it is skipped here.
+///
+/// # Safety
+/// `cell` is a live Closure cell; `props` is its expando dict or null.
+unsafe fn push_builtin_ctor_names(
+    cell: *const c_void,
+    props: *const c_void,
+    mut out: *mut u8,
+) -> *mut u8 {
+    let n = unsafe { __torajs_builtin_ctor_own_names(cell, core::ptr::null_mut(), 0) };
+    if n == 0 {
+        return out;
+    }
+    let mut names = vec![0u64; n as usize];
+    unsafe { __torajs_builtin_ctor_own_names(cell, names.as_mut_ptr(), n) };
+    for key in names {
+        if !props.is_null() && unsafe { __torajs_dynobj_has(props, key as *const u8) } {
+            continue;
+        }
+        // Immortal interned cells: the array slot borrows.
+        out = unsafe { __torajs_arr_push(out, key as i64) };
+    }
+    out
 }

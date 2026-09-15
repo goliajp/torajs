@@ -385,15 +385,22 @@ pub(crate) unsafe fn ns_static_name(ptr: *const c_void) -> Option<&'static str> 
 /// Interned `.name` Str cell of an ns-static cell.
 pub(crate) unsafe fn ns_static_name_cell_of(ptr: *const c_void) -> Option<*mut u8> {
     let id = unsafe { ns_static_id_of(ptr) }?;
-    let row = ns_static_meta(id)?;
+    ns_static_meta(id)?;
+    Some(ns_static_name_cell(id) as *mut u8)
+}
+
+/// Interned name Str cell of table row `id` (a valid row index) —
+/// shared by the `.name` read and a constructor's own-name list.
+pub(super) fn ns_static_name_cell(id: i64) -> u64 {
     let slot = &NS_NAME_CELLS[id as usize];
     let p = slot.load(Ordering::Relaxed);
     if p != 0 {
-        return Some(p as *mut u8);
+        return p;
     }
-    let cell = mint_immortal_str(row.name.as_bytes());
-    slot.store(cell as u64, Ordering::Relaxed);
-    Some(cell)
+    let row = ns_static_meta(id).expect("callers pass a table row index");
+    let cell = mint_immortal_str(row.name.as_bytes()) as u64;
+    slot.store(cell, Ordering::Relaxed);
+    cell
 }
 
 /// ES-spec `length` of an ns-static cell.

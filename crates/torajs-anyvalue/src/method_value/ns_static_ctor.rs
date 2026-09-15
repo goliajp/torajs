@@ -100,7 +100,7 @@ pub(super) unsafe fn str_from_codes(code_point: bool, argv: *const u64, argc: i6
 /// The ns-static namespace name a builtin proto tag keys —
 /// `torajs-rc builtin_proto` order; families with no table statics
 /// answer through `ns_static_id`'s natural miss.
-fn ctor_ns_name(proto_tag: i64) -> &'static str {
+pub(super) fn ctor_ns_name(proto_tag: i64) -> &'static str {
     match proto_tag {
         0 => "Number",
         1 => "Object",

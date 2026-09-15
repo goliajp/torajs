@@ -66,6 +66,8 @@ const CELL_SIZE: usize = 56;
 // re-export keeps every `crate::method_value::` consumer face.
 pub(crate) mod ctor;
 pub(crate) mod ctor_buffer;
+// A builtin constructor's own-name list (getOwnPropertyNames).
+mod ctor_own_names;
 pub use ctor::ctor_date_call_impl;
 pub(crate) use ctor::{builtin_ctor_cell, ctor_cell_for_recv, ctor_tag_of_cell};
 pub(crate) use ctor_buffer::{ctor_read_cell_inherited, ctor_static_cell_inherited};
