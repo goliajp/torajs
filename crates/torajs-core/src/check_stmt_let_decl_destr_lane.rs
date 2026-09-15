@@ -52,7 +52,17 @@ pub(crate) fn pick_ary_destr_lane(
     // `const [e] = "😀"` a lone surrogate; the any-lane string step
     // is §22.1.5.1's per-code-point walk and the rest lands as an
     // Array.
-    if !ast.dstr_deferred_rest.contains(&init) && matches!(init_ty, Type::Array(_)) {
+    // A module that can reach `Array.prototype` may replace or delete
+    // its `[Symbol.iterator]`, and §8.6.2 destructures an Array through
+    // whatever that answers — so the whole family stands down to the
+    // walk lane, the same compile-time stand-down the typed method tier
+    // takes (`builtin_proto_shadow`). A program that names no builtin
+    // prototype keeps the index lane, bytes unchanged.
+    let array_iteration_patchable = checker.proto_shadow.shadows("Array", "values");
+    if !array_iteration_patchable
+        && !ast.dstr_deferred_rest.contains(&init)
+        && matches!(init_ty, Type::Array(_))
+    {
         return None;
     }
     checker.iter_destr_srcs.insert(init, limit);
