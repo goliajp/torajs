@@ -20,7 +20,7 @@ impl<'a> LowerCtx<'a> {
         // Cluster #4 logical-assign fingerprint — a pinned key was
         // already evaluated once (§13.15.2 evaluates the Reference
         // once); reuse the value instead of re-running the expression.
-        let raw = match &self.compound_key_memo {
+        let raw = match &self.pins.compound_key {
             Some((mid, mop)) if *mid == index => mop.clone(),
             _ => self.lower_expr(index),
         };

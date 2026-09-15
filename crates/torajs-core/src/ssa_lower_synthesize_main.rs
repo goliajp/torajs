@@ -146,7 +146,7 @@ pub(crate) fn synthesize_main(
             redispatch_lowered: None,
             temps: Default::default(),
             owned_member_reads: std::collections::HashSet::new(),
-            compound_key_memo: None,
+            pins: Default::default(),
         };
         crate::undef_f64_fields::prime(&mut ctx);
         // T-15.g.5 — prime the binding sets BEFORE lowering any

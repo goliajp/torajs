@@ -243,8 +243,8 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         }
         Expr::Assign { target, value } => {
             // Ident / Member / Index target dispatch — see
-            // [`lower_assign`] below.
-            return lower_assign(ctx, eid, *target, *value);
+            // [`crate::ssa_lower_assign::lower`].
+            return crate::ssa_lower_assign::lower(ctx, eid, *target, *value);
         }
         Expr::BinOp { op, left, right } => {
             // M1.5 — `&&` / `||` short-circuit + AST-level fold
@@ -414,39 +414,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
         // the Array lowering (this arm only fires if one escapes).
         Expr::Elision => Operand::ConstPtrNull,
         other => panic!("ssa-lower: unsupported expr: {other:?}"),
-    }
-}
-
-/// `Expr::Assign` target dispatch — Ident / Member / Index shapes
-/// route to their per-shape sibling lowerers.
-fn lower_assign(ctx: &mut LowerCtx, eid: ExprId, target: ExprId, value: ExprId) -> Operand {
-    match ctx.ast.get_expr(target).clone() {
-        Expr::Ident(name) => {
-            // K.3 module-level data global + local-binding
-            // assign (4-layer coercion: F64←I64 / Any←val
-            // box_to_any / num←Any coerce / Str←Any
-            // coerce_to_str), plus the RFC 20260730 undeclared-
-            // write ReferenceError lane keyed by target eid. See
-            // [`crate::ssa_lower_assign_ident::lower`].
-            crate::ssa_lower_assign_ident::lower(ctx, eid, target, name, value)
-        }
-        Expr::Member { obj, name: field } => {
-            // M1.4 — `obj.field = value`. 7-way dispatch
-            // (Type::Any dynobj / Closure props / FnSig
-            // fnprops / Arr length setter / Arr arrprops /
-            // RegExp lastIndex / struct field store with
-            // setter accessor + frozen guard). See
-            // [`crate::ssa_lower_assign_member::lower`].
-            crate::ssa_lower_assign_member::lower(ctx, eid, obj, field, value)
-        }
-        Expr::Index { obj, index } => {
-            // bug-327 C3 — moved to ssa_lower_index_assign.rs
-            // (bounds-honoring write: Array<Any> grows via
-            // __torajs_arr_set_any_grow + write-back, typed
-            // tier guards the inline store).
-            ctx.lower_index_assign(eid, obj, index, value)
-        }
-        other => panic!("ssa-lower: unsupported assign target: {other:?}"),
     }
 }
 

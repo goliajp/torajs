@@ -144,7 +144,7 @@ impl AnyNumericKey {
     /// Lower `index` once (a compound-assign pinned key is reused —
     /// §13.15.2 evaluates the Reference once) and pick the kernel.
     pub(crate) fn lower(ctx: &mut LowerCtx<'_>, index: ExprId) -> Self {
-        let raw = match &ctx.compound_key_memo {
+        let raw = match &ctx.pins.compound_key {
             Some((mid, mop)) if *mid == index => mop.clone(),
             _ => ctx.lower_expr(index),
         };
@@ -366,7 +366,7 @@ pub(crate) fn lower_struct_like_index(
         // Cluster #4 T4 — a compound write lane pinned the coerced
         // key for this eid: reuse it (one ToPropertyKey total), no
         // re-lower, no drop (the write lane owns the cell).
-        let (k_raw, memoed) = match &ctx.compound_key_memo {
+        let (k_raw, memoed) = match &ctx.pins.compound_key {
             Some((mid, mop)) if *mid == index => (mop.clone(), true),
             _ => (lower_any_key(ctx, index), false),
         };

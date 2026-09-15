@@ -190,7 +190,7 @@ pub(crate) fn lower_from_value(
         {
             // Cluster #4 T4 — reuse a compound write lane's pinned
             // coerced key (see the boxed-struct twin above).
-            let (k_raw, memoed) = match &ctx.compound_key_memo {
+            let (k_raw, memoed) = match &ctx.pins.compound_key {
                 Some((mid, mop)) if *mid == index => (mop.clone(), true),
                 _ => (lower_any_key(ctx, index), false),
             };

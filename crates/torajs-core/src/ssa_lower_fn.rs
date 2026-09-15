@@ -194,7 +194,7 @@ pub(crate) fn lower_fn(
         redispatch_lowered: None,
         temps: Default::default(),
         owned_member_reads: std::collections::HashSet::new(),
-        compound_key_memo: None,
+        pins: Default::default(),
     };
 
     let assigned_in_body = ctx.prime_body_binding_sets(body.iter());

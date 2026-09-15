@@ -50,7 +50,7 @@ impl<'a> LowerCtx<'a> {
     /// coercing key — ToPropertyKey runs once (§6.2.5 GetValue writes
     /// it back). When the fingerprint matches, evaluate (and for the
     /// keyed lanes coerce) the key up front and pin it in
-    /// `compound_key_memo`; every index lane consults the memo. The
+    /// `pins.compound_key`; every index lane consults the memo. The
     /// caller clears the memo and, when this returns an owned cell
     /// (`true`), releases it after the join.
     ///
@@ -99,12 +99,12 @@ impl<'a> LowerCtx<'a> {
                     Type::Any,
                     None,
                 );
-                self.compound_key_memo = Some((i1, Operand::Value(boxed)));
+                self.pins.compound_key = Some((i1, Operand::Value(boxed)));
                 Some(true)
             }
             Some(crate::check::Type::Number) => {
                 let v = self.lower_expr(i1);
-                self.compound_key_memo = Some((i1, v));
+                self.pins.compound_key = Some((i1, v));
                 Some(false)
             }
             _ => None,
@@ -115,7 +115,7 @@ impl<'a> LowerCtx<'a> {
     /// it answered `true`) and clear the memo. Runs after the join so
     /// both the taken and short-circuited paths see the release.
     pub(crate) fn unpin_logical_assign_key(&mut self, owned: bool) {
-        if let Some((_, op)) = self.compound_key_memo.take()
+        if let Some((_, op)) = self.pins.compound_key.take()
             && owned
         {
             self.emit_drop_value(op, Type::Any);
@@ -201,7 +201,7 @@ impl<'a> LowerCtx<'a> {
         // Cluster #4 logical-assign fingerprint — the guard layer
         // pinned this key (evaluated + coerced once); reuse it, no
         // re-lower, no drop (the pinning layer owns the cell).
-        if let Some((mid, mop)) = &self.compound_key_memo
+        if let Some((mid, mop)) = &self.pins.compound_key
             && *mid == index
         {
             let k = mop.clone();
@@ -233,7 +233,7 @@ impl<'a> LowerCtx<'a> {
         // fingerprint). §6.2.5 GetValue writes ToPropertyKey's answer
         // back into the Reference Record, so a coercing key (object
         // with its own toString) runs ONCE. Mirror: coerce here, pin
-        // the coerced cell in `compound_key_memo`, and both the
+        // the coerced cell in `pins.compound_key`, and both the
         // embedded read and the store below reuse it.
         let compound_shared = if let Expr::BinOp { left, .. } = self.ast.get_expr(value) {
             let left = *left;
@@ -270,14 +270,14 @@ impl<'a> LowerCtx<'a> {
                 Type::Any,
                 None,
             );
-            self.compound_key_memo = Some((index, Operand::Value(boxed)));
+            self.pins.compound_key = Some((index, Operand::Value(boxed)));
             Operand::Value(boxed)
         } else {
             k_raw
         };
         let v_raw = self.lower_expr(value);
         if compound_shared {
-            self.compound_key_memo = None;
+            self.pins.compound_key = None;
         }
         let v_ty = self.operand_ty(&v_raw);
         let (tag_op, value_op) = self.pack_any_slot_value_shared(value, &v_raw, v_ty);

@@ -26,7 +26,7 @@ pub(crate) fn lower_typed_read_index(
     ctx: &mut LowerCtx<'_>,
     index: ExprId,
 ) -> (Operand, Option<(Operand, Operand)>) {
-    let raw = match &ctx.compound_key_memo {
+    let raw = match &ctx.pins.compound_key {
         Some((mid, mop)) if *mid == index => mop.clone(),
         _ => ctx.lower_expr(index),
     };
