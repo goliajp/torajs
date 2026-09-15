@@ -195,6 +195,20 @@ pub(crate) unsafe fn closure_method(
                     // ctor they were called off. Borrowed box.
                     return dispatch(&target, __torajs_anyv_box_pointer(ptr), argv, argc);
                 }
+                // §20.2.3 — `Function.prototype(...)`: the ctor's
+                // `prototype` is a property read, and %Function.prototype%
+                // is itself callable (any arguments, answers undefined —
+                // test262 S15.3.4_A2). The other builtin prototypes are
+                // not callable cells and keep the miss below.
+                if !name_str.is_null()
+                    && let Some((4, proto)) = crate::method_value::ctor_own_read_cell(
+                        ptr as *const c_void,
+                        name_str as *const c_void,
+                    )
+                    && let Some(target) = call_target(proto as *mut c_void)
+                {
+                    return dispatch(&target, __torajs_anyv_box_pointer(ptr), argv, argc);
+                }
                 // 405-01 substrate — a re-parented function value
                 // resolves inherited methods through its user
                 // [[Prototype]] chain (the ES5 extends lane's
