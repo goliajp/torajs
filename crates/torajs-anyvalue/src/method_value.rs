@@ -65,6 +65,7 @@ const CELL_SIZE: usize = 56;
 // `method_value/ctor.rs` submodule (file-size HARD RULE); the
 // re-export keeps every `crate::method_value::` consumer face.
 pub(crate) mod ctor;
+mod ctor_buffer;
 pub use ctor::ctor_date_call_impl;
 pub(crate) use ctor::{builtin_ctor_cell, ctor_cell_for_recv, ctor_tag_of_cell};
 pub use ns_static::ns_static_cell_impl;

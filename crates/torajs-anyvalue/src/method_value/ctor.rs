@@ -77,23 +77,6 @@ fn empty_str_cell() -> *mut u8 {
 }
 
 unsafe extern "C" {
-    /// torajs-buffer — §25.1.4.1 / §23.2.5.1, reached when one of
-    /// the twelve buffer-family constructors is CONSTRUCTED through
-    /// a runtime value (RFC 20260823-typedarray-substrate 刀 4).
-    fn __torajs_arraybuffer_create(length: u64, options: u64) -> u64;
-    fn __torajs_typedarray_create(kind: i64, a0: u64, a1: u64, a2: u64) -> u64;
-    fn __torajs_typedarray_kind(av: u64) -> i64;
-    /// torajs-buffer — §25.3.2 `new DataView(buffer, byteOffset,
-    /// byteLength)`, the same kernel the static `new` lowering calls.
-    fn __torajs_dataview_create(buffer: u64, a1: u64, a2: u64) -> u64;
-}
-
-/// `DataView.prototype`'s builtin-proto slot — past the eleven
-/// per-kind typed-array slots, so it is not `tag - 20` of anything
-/// (565-01).
-const DATAVIEW_TAG: i64 = torajs_rc::builtin_proto::DATAVIEW_PROTO_TAG as i64;
-
-unsafe extern "C" {
     /// torajs-meta / torajs-dynobj — the subclass-proto `constructor`
     /// shadow read (see `ctor_cell_for_recv`).
     fn __torajs_subclass_proto(cell: *const c_void) -> u64;
@@ -338,29 +321,10 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
             VALUE_UNDEFINED
         }
     };
-    // RFC 20260823-typedarray-substrate 刀 4 — the twelve buffer
-    // families share one shape: read the fixed argument slots and
-    // hand them to the kernel that the static `new` lowering calls
-    // with the same values.
+    // The twelve buffer families construct through one sibling
+    // (`ctor_buffer`), which owns their kernels and slot layout.
     if tag >= 19 {
-        let at = |i: i64| -> u64 {
-            if i < argc {
-                unsafe { argv.add(i as usize).read() }
-            } else {
-                VALUE_UNDEFINED
-            }
-        };
-        if tag == 19 {
-            return unsafe { __torajs_arraybuffer_create(at(0), at(1)) };
-        }
-        // 565-01 — DataView's slot sits past the per-kind block, so
-        // it is NOT `tag - 20` of anything: `new dv(buf)` through a
-        // `const dv: any = DataView` binding was minting a
-        // Float16Array off kind 12.
-        if tag == DATAVIEW_TAG {
-            return unsafe { __torajs_dataview_create(at(0), at(1), at(2)) };
-        }
-        return unsafe { __torajs_typedarray_create(tag - 20, at(0), at(1), at(2)) };
+        return unsafe { super::ctor_buffer::construct(tag, argv, argc) };
     }
     unsafe {
         match tag {
@@ -499,15 +463,10 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         // 565-01 — a DataView instance's constructor is DataView;
         // with no arm here the reify walked off the end and the
         // any-lane `v.constructor` threw on a null receiver.
-        t if t == Tag::DataView as u16 => Some(DATAVIEW_TAG),
-        t if t == Tag::TypedArray as u16 => {
-            let kind = unsafe { __torajs_typedarray_kind(recv) };
-            if (0..=11).contains(&kind) {
-                Some(20 + kind)
-            } else {
-                None
-            }
-        }
+        t if t == Tag::DataView as u16 => Some(super::ctor_buffer::DATAVIEW_TAG),
+        t if t == Tag::TypedArray as u16 => unsafe {
+            super::ctor_buffer::typedarray_ctor_tag(recv)
+        },
         _ => None,
     }
 }
