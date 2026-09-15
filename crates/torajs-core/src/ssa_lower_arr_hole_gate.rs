@@ -83,31 +83,104 @@ impl LowerCtx<'_> {
         )
     }
 
-    /// Branch to `skip_blk` when index `i` is not an own property of
-    /// `arr`. `sparse` is [`Self::emit_hof_sparse_probe`]'s answer from
-    /// the preheader. Leaves `cur_block` on the block where the element
-    /// is present, which is where the caller emits the visit.
+    /// The per-step HasProperty gate of a boxed-element source
+    /// (rotation 652 — the earlier form asked the preheader's answer
+    /// once and read every element as a borrowed slot box; a callback
+    /// that shrank `length`, deleted a later index or defined an
+    /// accessor on one was visited as if nothing had happened, and a
+    /// getter-defined element never ran its getter: test262
+    /// Array/prototype/{forEach,reduce,reduceRight} 7-b / 9-b / 9-c-i).
+    ///
+    /// Each step re-reads the header word (the loop already carries a
+    /// call per element on this source, which is what the module doc's
+    /// measurement exempts). Dense: `i < length` now, then the borrowed
+    /// slot box. Exotic or sparse-tailed: the `in` kernel's answer, then
+    /// the accessor-aware read (`arr_index_get`, +1-owned for cells),
+    /// remembered in `owned_slot` / `owned_flag` for the step block to
+    /// release. Either way the element lands in `elem_slot`, and
+    /// `cur_block` is left where the visit is emitted; `skip_blk` takes
+    /// an absent index.
     pub(crate) fn emit_hof_present_gate(
         &mut self,
-        sparse: ValueId,
         arr: ValueId,
         i: ValueId,
         skip_blk: BlockId,
+        elem_slot: ValueId,
+        owned_slot: ValueId,
+        owned_flag: ValueId,
     ) {
         let probe_blk = self.f.add_block();
+        let dense_blk = self.f.add_block();
+        let dense_read_blk = self.f.add_block();
+        let exotic_read_blk = self.f.add_block();
         let work_blk = self.f.add_block();
+        // Cleared before the branch: an ABSENT index jumps to the step
+        // block without passing either read arm, and the step block
+        // must not find the previous step's flag still standing (it
+        // released that box already — a second release was the
+        // crash the first version of this gate shipped to the slice).
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(owned_flag), 0),
+        );
+        let sparse_now = self.emit_hof_sparse_probe(arr);
         let cur = self.cur_block;
         self.f.set_term(
             cur,
             Terminator::CondBr {
-                cond: Operand::Value(sparse),
+                cond: Operand::Value(sparse_now),
                 then_blk: probe_blk,
-                else_blk: work_blk,
+                else_blk: dense_blk,
             },
         );
-        // Only an array that could hold a hole asks. The kernel is the
-        // one `in` uses, so the two operators cannot disagree about
-        // what is present.
+        // Dense: every index below the CURRENT length is present.
+        self.cur_block = dense_blk;
+        let len_now = self.f.append_inst(
+            dense_blk,
+            InstKind::Load(
+                Type::I64,
+                Operand::Value(arr),
+                crate::ssa_lower::ARR_LEN_OFF,
+            ),
+            Type::I64,
+            None,
+        );
+        let in_range = self.f.append_inst(
+            dense_blk,
+            InstKind::ICmp(IPred::Slt, Operand::Value(i), Operand::Value(len_now)),
+            Type::Bool,
+            None,
+        );
+        self.f.set_term(
+            dense_blk,
+            Terminator::CondBr {
+                cond: Operand::Value(in_range),
+                then_blk: dense_read_blk,
+                else_blk: skip_blk,
+            },
+        );
+        self.cur_block = dense_read_blk;
+        let borrowed = self.f.append_inst(
+            dense_read_blk,
+            InstKind::Call(
+                self.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(arr), Operand::Value(i)],
+            ),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            dense_read_blk,
+            InstKind::Store(Operand::Value(borrowed), Operand::Value(elem_slot), 0),
+        );
+        self.f.append_void(
+            dense_read_blk,
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(owned_flag), 0),
+        );
+        self.f.set_term(dense_read_blk, Terminator::Br(work_blk));
+        // Exotic: the kernel `in` uses, so the two operators cannot
+        // disagree about what is present; then the read that runs a
+        // getter.
         self.cur_block = probe_blk;
         let present = self.f.append_inst(
             probe_blk,
@@ -128,10 +201,71 @@ impl LowerCtx<'_> {
             probe_blk,
             Terminator::CondBr {
                 cond: Operand::Value(ok),
-                then_blk: work_blk,
+                then_blk: exotic_read_blk,
                 else_blk: skip_blk,
             },
         );
+        self.cur_block = exotic_read_blk;
+        let owned = self.f.append_inst(
+            exotic_read_blk,
+            InstKind::Call(
+                self.intrinsics.arr_index_get,
+                vec![Operand::Value(arr), Operand::Value(i)],
+            ),
+            Type::Any,
+            None,
+        );
+        // The getter is user code.
+        self.emit_throw_check(None);
+        let rb = self.cur_block;
+        self.f.append_void(
+            rb,
+            InstKind::Store(Operand::Value(owned), Operand::Value(elem_slot), 0),
+        );
+        self.f.append_void(
+            rb,
+            InstKind::Store(Operand::Value(owned), Operand::Value(owned_slot), 0),
+        );
+        self.f.append_void(
+            rb,
+            InstKind::Store(Operand::ConstBool(true), Operand::Value(owned_flag), 0),
+        );
+        self.f.set_term(rb, Terminator::Br(work_blk));
         self.cur_block = work_blk;
+    }
+
+    /// Step-block half of [`Self::emit_hof_present_gate`]: release the
+    /// exotic arm's owned element, if this step made one. A branch
+    /// around the call, so the dense path pays a flag load and nothing
+    /// else.
+    pub(crate) fn emit_hof_release_owned(&mut self, owned_slot: ValueId, owned_flag: ValueId) {
+        let drop_blk = self.f.add_block();
+        let cont_blk = self.f.add_block();
+        let flag = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Bool, Operand::Value(owned_flag), 0),
+            Type::Bool,
+            None,
+        );
+        let cur = self.cur_block;
+        self.f.set_term(
+            cur,
+            Terminator::CondBr {
+                cond: Operand::Value(flag),
+                then_blk: drop_blk,
+                else_blk: cont_blk,
+            },
+        );
+        self.cur_block = drop_blk;
+        let v = self.f.append_inst(
+            drop_blk,
+            InstKind::Load(Type::Any, Operand::Value(owned_slot), 0),
+            Type::Any,
+            None,
+        );
+        self.emit_drop_value(Operand::Value(v), Type::Any);
+        let db = self.cur_block;
+        self.f.set_term(db, Terminator::Br(cont_blk));
+        self.cur_block = cont_blk;
     }
 }

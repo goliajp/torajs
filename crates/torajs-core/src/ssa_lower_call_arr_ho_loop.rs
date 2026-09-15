@@ -31,10 +31,14 @@ pub(crate) struct LoopFrame {
     /// duplicating the step (`end_loop_and_produce` fills it).
     pub(crate) step_blk: BlockId,
     pub(crate) after_blk: BlockId,
-    /// The preheader's answer to "can any index of the source be
-    /// absent?" — read once, before the loop, so the body's hole gate
-    /// is a register test on a loop-invariant value.
-    pub(crate) sparse: Option<ValueId>,
+    /// Rotation 652 — a boxed-element source reads each element in
+    /// the present gate (dense: the borrowed slot box; exotic: the
+    /// accessor-aware owned read) into this slot; the body loads it.
+    pub(crate) elem_slot: Option<ValueId>,
+    /// The exotic read's owned box, and whether this step made one —
+    /// the step block releases it after the visit.
+    pub(crate) owned_slot: Option<ValueId>,
+    pub(crate) owned_flag: Option<ValueId>,
     /// S7-b — the product's pre-reserved append state, when this loop
     /// can take it. `Some` puts the per-element append inline (a slot
     /// store plus an add); `None` leaves it on the `arr_push_unchecked`
@@ -69,8 +73,22 @@ pub(crate) fn begin_loop(
     let i_slot = ctx.alloca(Type::I64, Some("__iter_i"));
     // Only a boxed-element source can hold an interior hole, and only
     // it pays the gate — see `ssa_lower_arr_hole_gate`'s module doc for
-    // the measurement that decided this.
-    let sparse = (src_elem_ty == Type::Any).then(|| ctx.emit_hof_sparse_probe(src_arr));
+    // the measurement that decided this. The gate probes the header
+    // per step (rotation 652) and reads the element into these slots.
+    let boxed_src = src_elem_ty == Type::Any;
+    let elem_slot = boxed_src.then(|| ctx.alloca(Type::Any, Some("__hof_elem")));
+    let owned_slot = boxed_src.then(|| ctx.alloca(Type::Any, Some("__hof_owned")));
+    let owned_flag = boxed_src.then(|| {
+        // Cleared here as well as at each gate entry: a `map` whose
+        // product cannot hole skips the gate entirely, and the step
+        // block still reads this flag.
+        let f = ctx.alloca(Type::Bool, Some("__hof_owned_flag"));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::ConstBool(false), Operand::Value(f), 0),
+        );
+        f
+    });
     let len = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
@@ -179,7 +197,9 @@ pub(crate) fn begin_loop(
         header_blk,
         step_blk,
         after_blk,
-        sparse,
+        elem_slot,
+        owned_slot,
+        owned_flag,
         dst_fast,
     }
 }
@@ -233,16 +253,37 @@ pub(crate) fn emit_per_method_body(
     } else {
         Some(frame.step_blk)
     };
-    if let (Some(sparse), Some(skip_blk)) = (frame.sparse, map_hole_blk) {
-        ctx.emit_hof_present_gate(sparse, src_arr, i_now2, skip_blk);
-    }
+    // A boxed-element source reads its element inside the gate
+    // (rotation 652): the dense arm keeps the borrowed slot box, the
+    // exotic arm takes the accessor-aware owned read, and both land in
+    // `elem_slot`. A `map` whose product cannot hole keeps today's
+    // answer (`emit_map_hole_block` answered None) and reads plainly.
+    let gated = match (
+        frame.elem_slot,
+        frame.owned_slot,
+        frame.owned_flag,
+        map_hole_blk,
+    ) {
+        (Some(es), Some(os), Some(of), Some(skip_blk)) => {
+            ctx.emit_hof_present_gate(src_arr, i_now2, skip_blk, es, os, of);
+            Some(es)
+        }
+        _ => None,
+    };
     // T-13.5: head-aware offset for map/filter/reduce src walk.
     // RFC 20260707 chunk 625 — an Any elem reads through the
     // kind-aware borrowed-box helper instead of a raw LoadDyn: a
     // typed block behind the static Arr<Any> view keeps raw slots,
     // which the raw load misread (same borrow contract, so the cb /
     // push consumers below are unchanged).
-    let elem = if elem_ty == Type::Any {
+    let elem = if let Some(es) = gated {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::Any, Operand::Value(es), 0),
+            Type::Any,
+            None,
+        )
+    } else if elem_ty == Type::Any {
         ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -344,6 +385,11 @@ pub(crate) fn end_loop_and_produce(
     let cur = ctx.cur_block;
     ctx.f.set_term(cur, Terminator::Br(frame.step_blk));
     ctx.cur_block = frame.step_blk;
+    // The exotic arm's owned element read is spent here, after the
+    // visit — the body's consumers keep their borrow contract.
+    if let (Some(os), Some(of)) = (frame.owned_slot, frame.owned_flag) {
+        ctx.emit_hof_release_owned(os, of);
+    }
     let i_then = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(frame.i_slot), 0),

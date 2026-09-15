@@ -37,6 +37,9 @@ use crate::ssa_lower::declare_intrinsic;
 pub(crate) struct ArrAnyIds {
     pub arr_alloc_any: FuncId,
     pub arr_push_any: FuncId,
+    /// Rotation 652 — the accessor-aware `arr[i]` read (+1-owned for
+    /// cells) the typed HOF loops take on an exotic source.
+    pub arr_index_get: FuncId,
     /// Elision hole marking — see `__torajs_arr_mark_last_hole`.
     pub arr_mark_last_hole: FuncId,
     /// §23.1.3.32 per-element toLocaleString join.
@@ -118,6 +121,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_mark_arguments: decl!("__torajs_arr_mark_arguments", [Ptr], Void),
         arguments_callee: decl!("__torajs_arguments_callee", [], Any),
         arr_push_any: decl!("__torajs_arr_push_any", [Ptr, I64, I64], Ptr),
+        arr_index_get: decl!("__torajs_arr_index_get", [Ptr, I64], Any),
         arr_mark_last_hole: decl!("__torajs_arr_mark_last_hole", [Ptr], Void),
         arr_any_to_locale_string: decl!("__torajs_arr_any_to_locale_string", [Ptr], Str),
         arr_typed_to_locale_string: decl!("__torajs_arr_typed_to_locale_string", [Ptr, I64], Str),

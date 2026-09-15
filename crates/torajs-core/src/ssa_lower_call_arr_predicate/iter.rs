@@ -55,12 +55,18 @@ pub(super) fn emit_predicate_iter(
     let after_blk = ctx.f.add_block();
     // §23.1.3.{29,6} — `some` and `every` gate each visit on
     // HasProperty; the other four Get every index, holes included.
-    // Read the header once here, in the preheader, so the body's
-    // branch is a register test on a loop-invariant value.
-    // Only a boxed-element source can hold an interior hole, and only
-    // it pays the gate — see `ssa_lower_arr_hole_gate`'s module doc.
-    let sparse = ((method == "some" || method == "every") && elem_ty == Type::Any)
-        .then(|| ctx.emit_hof_sparse_probe(src_arr));
+    // Only a boxed-element source pays the §23.1.3 HasProperty gate —
+    // see `ssa_lower_arr_hole_gate`'s module doc. Rotation 652: the
+    // gate probes per step and reads the element itself (dense: the
+    // borrowed slot box; exotic: the accessor-aware owned read), so
+    // the loop carries the three slots it writes.
+    let gate = ((method == "some" || method == "every") && elem_ty == Type::Any).then(|| {
+        (
+            ctx.alloca(Type::Any, Some("__hof_elem")),
+            ctx.alloca(Type::Any, Some("__hof_owned")),
+            ctx.alloca(Type::Bool, Some("__hof_owned_flag")),
+        )
+    });
     ctx.f.set_term(ctx.cur_block, Terminator::Br(header_blk));
     // header
     ctx.cur_block = header_blk;
@@ -105,7 +111,7 @@ pub(super) fn emit_predicate_iter(
         fn_val,
         fn_ty,
         this_arg,
-        sparse,
+        gate,
         result_slot,
         argv_face,
     );
@@ -117,6 +123,47 @@ pub(super) fn emit_predicate_iter(
         None,
     );
     Operand::Value(r)
+}
+
+/// The element the predicate sees: the gate's slot when the source is
+/// boxed and gated (rotation 652), else the kind-aware borrowed-box
+/// helper for an Any element (RFC 20260707 chunk 625 — a typed block
+/// behind the static `Arr<Any>` view misread under a raw LoadDyn),
+/// else the head-aware raw slot load (T-13.5).
+fn read_elem(
+    ctx: &mut LowerCtx<'_>,
+    gated: Option<ValueId>,
+    elem_ty: Type,
+    src_arr: ValueId,
+    i_now: ValueId,
+) -> ValueId {
+    if let Some(es) = gated {
+        return ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::Any, Operand::Value(es), 0),
+            Type::Any,
+            None,
+        );
+    }
+    if elem_ty == Type::Any {
+        return ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_get_any_boxed,
+                vec![Operand::Value(src_arr), Operand::Value(i_now)],
+            ),
+            Type::Any,
+            None,
+        );
+    }
+    let (off_base, off) =
+        ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::LoadDyn(elem_ty, off_base, off),
+        elem_ty,
+        None,
+    )
 }
 
 /// Emit the loop body (load elem + call predicate) + hit-vs-next branch +
@@ -140,7 +187,7 @@ fn emit_body_and_step(
     fn_val: Operand,
     fn_ty: Type,
     this_arg: Option<&Operand>,
-    sparse: Option<ValueId>,
+    gate: Option<(ValueId, ValueId, ValueId)>,
     result_slot: ValueId,
     argv_face: bool,
 ) {
@@ -156,37 +203,10 @@ fn emit_body_and_step(
     // (`[1, <hole>, 3].some(v => v === undefined)` is false). The step
     // block is minted here so the gate has somewhere to jump.
     let next_blk = ctx.f.add_block();
-    if let Some(sparse) = sparse {
-        ctx.emit_hof_present_gate(sparse, src_arr, i_now2, next_blk);
+    if let Some((es, os, of)) = gate {
+        ctx.emit_hof_present_gate(src_arr, i_now2, next_blk, es, os, of);
     }
-    // T-13.5: head-aware offset for some/every/findIndex.
-    // RFC 20260707 chunk 625 — an Any elem reads through the
-    // kind-aware borrowed-box helper (typed-behind-Arr<Any> raw
-    // slots misread under a raw LoadDyn; same borrow contract).
-    let elem = if elem_ty == Type::Any {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(src_arr), Operand::Value(i_now2)],
-            ),
-            Type::Any,
-            None,
-        )
-    } else {
-        let (off_base, off) = ctx.emit_arr_slot_byte_offset(
-            Operand::Value(src_arr),
-            Operand::Value(i_now2),
-            3,
-            false,
-        );
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, off_base, off),
-            elem_ty,
-            None,
-        )
-    };
+    let elem = read_elem(ctx, gate.map(|(es, _, _)| es), elem_ty, src_arr, i_now2);
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret predicate
     // returns `undefined`; ToBoolean folds every hit test to false
     // (ES §23.1.3.{8-11,30}). Emit the call for its side effects
@@ -263,6 +283,11 @@ fn emit_body_and_step(
         }
         b
     };
+    // The exotic arm's owned element read is spent once the predicate
+    // has seen it (a store inside the predicate took its own stake).
+    if let Some((_, os, of)) = gate {
+        ctx.emit_hof_release_owned(os, of);
+    }
     // some + findIndex break on `pred == true`; every breaks on
     // `pred == false`.
     let break_cond = if method == "every" {
