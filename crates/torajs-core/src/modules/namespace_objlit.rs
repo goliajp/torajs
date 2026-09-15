@@ -5,9 +5,19 @@
 //! "what does a namespace alias become".
 //!
 //! Two mints, one shape. A static `import * as ns` binds a synthetic
-//! top-level `let`; a dynamic `import()` namespace has no top-level
-//! binding to reach from a lifted fn body, so its object literal goes
-//! in at each use site instead.
+//! top-level `let`; a dynamic `import()` namespace is bound by its
+//! candidate's `__dyn_eval_c<k>` after the module body has run
+//! (`dyn_import_dispatcher::synth_eval_fn`) — the export values are
+//! snapshots, so the literal has to be built after evaluation, and it
+//! is memoized so every `import()` of the module answers one object.
+//! Both are `let <alias>: … = { … }` rows in `namespace_bindings`,
+//! which is what routes them into the dynobj lane and the
+//! `module_ns_finalize` call that gives the object its §10.4.6
+//! attributes. Rotation 652: the dynamic one used to be an inline
+//! object literal at the return site, which lowered as an anonymous
+//! struct — extensible, with configurable exports, and (once a
+//! declared field could actually be deleted) `delete ns.default`
+//! answered true.
 
 use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, Stmt};
@@ -32,23 +42,18 @@ pub(super) fn materialize_pending_namespaces(
     injections: &mut Vec<Stmt>,
     order: &[String],
     accums: &HashMap<String, NsAccum>,
-    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
 ) {
     for alias in order.iter().rev() {
+        // A dynamic candidate's namespace is bound inside its eval fn
+        // (`synth_dispatcher` took its fields from these same accums).
+        if alias.starts_with("__dyn_ns_") {
+            continue;
+        }
         let Some(accum) = accums.get(alias) else {
             continue;
         };
         let sorted = sorted_exports(accum.fields());
-        if alias.starts_with("__dyn_ns_") {
-            dyn_ns_inline.push((alias.clone(), sorted));
-            continue;
-        }
-        let mut fields: Vec<(PropKey, crate::ast::ExprId)> = Vec::with_capacity(sorted.len());
-        for (name, local) in &sorted {
-            let id = ast.add_expr(Expr::Ident(local.clone()));
-            fields.push((PropKey::from(name), id));
-        }
-        let obj_id = ast.add_expr(Expr::ObjectLit { fields });
+        let obj_id = namespace_objlit_expr(ast, &sorted);
         // §10.4.6.8 — mark the binding so a member miss on it answers
         // undefined instead of the anonymous-struct typo reject.
         ast.namespace_bindings.insert(alias.clone(), sorted);
@@ -62,6 +67,21 @@ pub(super) fn materialize_pending_namespaces(
     }
 }
 
+/// `{ name1: local1, name2: local2, … }` — the namespace object literal
+/// over an already-sorted export list; each value is an `Ident(local)`
+/// naming an injected lib decl.
+pub(super) fn namespace_objlit_expr(
+    ast: &mut Ast,
+    sorted: &[(String, String)],
+) -> crate::ast::ExprId {
+    let mut fields: Vec<(PropKey, crate::ast::ExprId)> = Vec::with_capacity(sorted.len());
+    for (name, local) in sorted {
+        let id = ast.add_expr(Expr::Ident(local.clone()));
+        fields.push((PropKey::from(name), id));
+    }
+    ast.add_expr(Expr::ObjectLit { fields })
+}
+
 /// §10.4.6.12 step 7 — the exports the object literal is built from,
 /// sorted by CODE UNIT. The resolver discovers them in walk order,
 /// but `[[OwnPropertyKeys]]` (§10.4.6.11) answers a SORTED copy and a
@@ -72,40 +92,8 @@ pub(super) fn materialize_pending_namespaces(
 /// Code unit, not `str`'s byte order. They agree across the BMP and
 /// disagree above it — a supplementary character sorts before U+E000
 /// as a surrogate pair and after it as UTF-8.
-fn sorted_exports(fields: &[(String, String)]) -> Vec<(String, String)> {
+pub(super) fn sorted_exports(fields: &[(String, String)]) -> Vec<(String, String)> {
     let mut out = fields.to_vec();
     out.sort_by(|a, b| a.0.encode_utf16().cmp(b.0.encode_utf16()));
     out
-}
-
-/// Dynamic-import namespaces skip the `let` above: the use site may
-/// sit inside a (lifted) fn body where a main-local top-level binding
-/// is invisible, so each `Ident(__dyn_ns_<n>)` becomes the namespace
-/// object literal in place. Field Idents reference the injected lib
-/// decls, which named-fn bodies resolve (FnDecls via the pass-1
-/// signature hoist, literal consts via the pass-2 pre-pass). The
-/// arena scan is name-keyed — sound because `__dyn_ns_<n>` names are
-/// parser-minted and arena-offset-seeded, so no other Ident can
-/// spell one.
-pub(super) fn inline_dyn_ns_objlits(ast: &mut Ast, rewrites: &[(String, Vec<(String, String)>)]) {
-    for (ns_name, field_names) in rewrites {
-        let hits: Vec<usize> = ast
-            .exprs
-            .iter()
-            .enumerate()
-            .filter_map(|(i, e)| match e {
-                Expr::Ident(n) if n == ns_name => Some(i),
-                _ => None,
-            })
-            .collect();
-        for idx in hits {
-            let mut fields: Vec<(PropKey, crate::ast::ExprId)> =
-                Vec::with_capacity(field_names.len());
-            for (name, local) in field_names {
-                let id = ast.add_expr(Expr::Ident(local.clone()));
-                fields.push((PropKey::from(name), id));
-            }
-            ast.exprs[idx] = Expr::ObjectLit { fields };
-        }
-    }
 }

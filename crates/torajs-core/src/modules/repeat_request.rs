@@ -30,7 +30,7 @@ pub(super) fn align_and_filter(
     mut namespace_alias: Option<String>,
     side_effect_only: bool,
     ns_fields_by_path: &HashMap<PathBuf, Vec<(String, String)>>,
-    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
+    dyn_ns_repeat: &mut Vec<(String, Vec<(String, String)>)>,
     default_bound_as: &HashMap<PathBuf, String>,
     injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
     injected_names: &mut HashMap<PathBuf, HashSet<String>>,
@@ -45,7 +45,7 @@ pub(super) fn align_and_filter(
         &mut default_alias,
         &mut namespace_alias,
         ns_fields_by_path,
-        dyn_ns_inline,
+        dyn_ns_repeat,
         default_bound_as,
         injections_by_path,
     );
@@ -62,7 +62,7 @@ pub(super) fn align_and_filter(
 }
 
 /// The pre-filter half: a dyn-import namespace revisiting a path
-/// whose fields are already known inlines them without re-walking,
+/// whose fields are already known binds them without re-walking,
 /// and a repeat default request binds by reference (see
 /// `default_binding::shortcut_repeat_default`).
 #[allow(clippy::too_many_arguments)]
@@ -72,7 +72,7 @@ pub(super) fn align_repeat_request(
     default_alias: &mut Option<String>,
     namespace_alias: &mut Option<String>,
     ns_fields_by_path: &HashMap<PathBuf, Vec<(String, String)>>,
-    dyn_ns_inline: &mut Vec<(String, Vec<(String, String)>)>,
+    dyn_ns_repeat: &mut Vec<(String, Vec<(String, String)>)>,
     default_bound_as: &HashMap<PathBuf, String>,
     injections_by_path: &mut HashMap<PathBuf, Vec<Stmt>>,
 ) {
@@ -81,7 +81,7 @@ pub(super) fn align_repeat_request(
         .filter(|n| n.starts_with("__dyn_ns_"))
         && let Some(fields) = ns_fields_by_path.get(target_path)
     {
-        dyn_ns_inline.push((ns.clone(), fields.clone()));
+        dyn_ns_repeat.push((ns.clone(), fields.clone()));
         *namespace_alias = None;
     }
     default_binding::shortcut_repeat_default(

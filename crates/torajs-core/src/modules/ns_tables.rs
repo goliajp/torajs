@@ -12,16 +12,14 @@ use super::NsAccum;
 
 #[derive(Default)]
 pub(super) struct NsTables {
-    /// Dynamic-import namespaces (`__dyn_ns_<n>`) don't materialize a
-    /// top-level `let` — a lifted async-fn body can't see main-local
-    /// bindings, so the resolver rewrites each `Ident(__dyn_ns_<n>)`
-    /// use site into the namespace object literal directly (the field
-    /// Idents resolve against the injected lib decls from any fn
-    /// body).
-    pub(super) dyn_ns_inline: Vec<(String, Vec<(String, String)>)>,
+    /// Dynamic-import namespace aliases (`__dyn_ns_c<k>`) whose module
+    /// was already walked under an earlier alias: no BFS accum exists
+    /// for them, so the dispatcher builds their eval fn's namespace
+    /// literal from the fields remembered per path.
+    pub(super) dyn_ns_repeat: Vec<(String, Vec<(String, String)>)>,
     /// Field lists remembered per path so a second `import("...")` of
     /// an already-visited module (its request is sentinel-deduped to
-    /// nothing) still gets its rewrite.
+    /// nothing) still gets its binding.
     pub(super) fields_by_path: HashMap<PathBuf, Vec<(String, String)>>,
     /// Namespace object fields, keyed by the ALIAS rather than the
     /// module — a lib's `export * from "m"` pours m's exports into the

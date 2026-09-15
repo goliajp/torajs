@@ -11,8 +11,8 @@
 //!    literal in the entry file that resolves to a module file is a
 //!    candidate specifier. The resolver bakes each candidate through
 //!    the same namespace-injection lane the static `import * as ns`
-//!    form uses (`__dyn_ns_c<k>` aliases ride the existing
-//!    `inline_dyn_ns_objlits` rewrite).
+//!    form uses (`__dyn_ns_c<k>` aliases bind the same synthetic
+//!    top-level `let`).
 //! 2. `super::dyn_import_dispatcher::synth_dispatcher` — the runtime
 //!    half, per §13.3.10 evaluation:
 //!    ToString(specifier) with an abrupt completion rejecting the
@@ -74,8 +74,8 @@ pub(super) enum DynTarget {
 pub(super) type DynTable = Vec<(String, DynTarget)>;
 
 /// Queue every candidate module onto the BFS worklist under a
-/// `__dyn_ns_c<k>` namespace alias (riding the existing
-/// `inline_dyn_ns_objlits` rewrite) and answer the
+/// `__dyn_ns_c<k>` namespace alias (bound as a top-level `let` like a
+/// static `import * as ns`) and answer the
 /// `(specifier literal, alias)` table the dispatcher matches against.
 /// No-op (empty table) when the entry has no dynamic import.
 pub(super) fn seed_candidates(

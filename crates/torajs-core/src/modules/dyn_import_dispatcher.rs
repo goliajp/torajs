@@ -31,8 +31,8 @@ use super::resolve_helpers::NsAccum;
 /// The whole §13.3.10 abrupt surface funnels through ONE catch: a
 /// throwing `toString` (step 7) and the miss TypeError both land in
 /// `Promise.reject`, which is exactly IfAbruptRejectPromise. The
-/// `__dyn_ns_c<k>` idents rewrite to namespace object literals in
-/// `inline_dyn_ns_objlits` — synthesis must run before that pass.
+/// namespace each eval fn answers is bound inside it, after the module
+/// body has run (`synth_eval_fn`).
 /// 426-01 — candidates whose namespace depends on a re-export binding
 /// that never materialized. A circular indirect-export chain
 /// (`export { x } from` A→B→A) deduplicates to nothing in the BFS:
@@ -128,6 +128,7 @@ pub(super) fn synth_dispatcher(
     table: &[(String, DynTarget)],
     poisoned: &HashSet<String>,
     eval_bodies: &HashMap<String, Vec<Stmt>>,
+    ns_fields: &HashMap<String, Vec<(String, String)>>,
 ) -> Vec<Stmt> {
     let mut out: Vec<Stmt> = Vec::new();
     let mut body: Vec<Stmt> = Vec::new();
@@ -184,7 +185,8 @@ pub(super) fn synth_dispatcher(
             .get(ns_name.as_str())
             .cloned()
             .unwrap_or_default();
-        let eval_name = synth_eval_fn(ast, &mut out, ns_name, stmts);
+        let fields = ns_fields.get(ns_name.as_str()).cloned().unwrap_or_default();
+        let eval_name = synth_eval_fn(ast, &mut out, ns_name, stmts, fields);
         let promise_ident = ast.add_expr(Expr::Ident("Promise".to_string()));
         ast.synth_global_refs.insert(promise_ident);
         let resolve = ast.add_expr(Expr::Member {
@@ -284,7 +286,7 @@ pub(super) fn synth_dispatcher(
 /// the same value, `[[EvaluationError]]`):
 ///
 /// ```ts
-/// const __dyn_memo_c<k>: any = { state: 0, err: undefined };  // 0 unevaluated / 1 done / 2 threw
+/// const __dyn_memo_c<k>: any = { state: 0, err: undefined, ns: undefined };  // 0 unevaluated / 1 done / 2 threw
 /// function __dyn_eval_c<k>(): any {
 ///   if (__dyn_memo_c<k>.state === 0) {
 ///     __dyn_memo_c<k>.state = 1;
@@ -292,9 +294,20 @@ pub(super) fn synth_dispatcher(
 ///     catch (__e) { __dyn_memo_c<k>.state = 2; __dyn_memo_c<k>.err = __e; }
 ///   }
 ///   if (__dyn_memo_c<k>.state === 2) throw __dyn_memo_c<k>.err;
-///   return __dyn_ns_c<k>;
+///   if (__dyn_memo_c<k>.ns === undefined) {
+///     let __dyn_ns_c<k>: any = { name1: local1, … };   // a `namespace_bindings` row: dynobj lane + module_ns_finalize
+///     __dyn_memo_c<k>.ns = __dyn_ns_c<k>;
+///   }
+///   return __dyn_memo_c<k>.ns;
 /// }
 /// ```
+///
+/// The namespace is built AFTER the body ran because its fields are
+/// value snapshots of the exports, and once per module (memoized on
+/// the memo object) because every `import()` of a module answers the
+/// same namespace object (§16.2.1.5.3 / §10.4.6). It is a `let` in
+/// `namespace_bindings` like a static `import * as ns`, which is what
+/// gives it the §10.4.6 exotic attributes.
 ///
 /// The memo is one object rather than two top-level `let`s: a
 /// `__`-spelled top-level binding is kept out of the global-write lane
@@ -308,7 +321,13 @@ pub(super) fn synth_dispatcher(
 /// order between the two is the one deviation left. A body holding
 /// a top-level `await` is not hosted by a plain function and keeps
 /// the drop. Answers the function's name.
-fn synth_eval_fn(ast: &mut Ast, out: &mut Vec<Stmt>, ns_name: &str, stmts: Vec<Stmt>) -> String {
+fn synth_eval_fn(
+    ast: &mut Ast,
+    out: &mut Vec<Stmt>,
+    ns_name: &str,
+    stmts: Vec<Stmt>,
+    fields: Vec<(String, String)>,
+) -> String {
     let suffix = ns_name.trim_start_matches("__dyn_ns_");
     let memo = format!("__dyn_memo_{suffix}");
     let eval = format!("__dyn_eval_{suffix}");
@@ -319,8 +338,13 @@ fn synth_eval_fn(ast: &mut Ast, out: &mut Vec<Stmt>, ns_name: &str, stmts: Vec<S
     };
     let zero = ast.add_expr(Expr::Number(0.0));
     let undef = ast.add_expr(Expr::Ident("undefined".to_string()));
+    let undef_ns = ast.add_expr(Expr::Ident("undefined".to_string()));
     let memo_init = ast.add_expr(Expr::ObjectLit {
-        fields: vec![("state".into(), zero), ("err".into(), undef)],
+        fields: vec![
+            ("state".into(), zero),
+            ("err".into(), undef),
+            ("ns".into(), undef_ns),
+        ],
     });
     out.push(Stmt::LetDecl {
         mutable: false,
@@ -369,7 +393,30 @@ fn synth_eval_fn(ast: &mut Ast, out: &mut Vec<Stmt>, ns_name: &str, stmts: Vec<S
     let unevaluated = state_is(ast, 0.0);
     let threw = state_is(ast, 2.0);
     let err_read = field(ast, "err");
-    let ns_read = ast.add_expr(Expr::Ident(ns_name.to_string()));
+    // if (memo.ns === undefined) { let <ns>: any = {…}; memo.ns = <ns>; }
+    let ns_slot = field(ast, "ns");
+    let undef_cmp = ast.add_expr(Expr::Ident("undefined".to_string()));
+    let unbound = ast.add_expr(Expr::BinOp {
+        op: BinOp::Eq,
+        left: ns_slot,
+        right: undef_cmp,
+    });
+    let ns_lit = super::namespace_objlit::namespace_objlit_expr(ast, &fields);
+    ast.namespace_bindings.insert(ns_name.to_string(), fields);
+    let bind_ns = Stmt::LetDecl {
+        mutable: false,
+        name: ns_name.to_string(),
+        type_ann: Some("any".to_string()),
+        init: ns_lit,
+        is_var: false,
+    };
+    let ns_store_target = field(ast, "ns");
+    let ns_value = ast.add_expr(Expr::Ident(ns_name.to_string()));
+    let store_ns = Stmt::Expr(ast.add_expr(Expr::Assign {
+        target: ns_store_target,
+        value: ns_value,
+    }));
+    let ns_read = field(ast, "ns");
     out.push(Stmt::FnDecl {
         name: eval.clone(),
         type_params: Vec::new(),
@@ -384,6 +431,11 @@ fn synth_eval_fn(ast: &mut Ast, out: &mut Vec<Stmt>, ns_name: &str, stmts: Vec<S
             Stmt::If {
                 cond: threw,
                 then_branch: Box::new(Stmt::Throw(err_read)),
+                else_branch: None,
+            },
+            Stmt::If {
+                cond: unbound,
+                then_branch: Box::new(Stmt::Block(vec![bind_ns, store_ns])),
                 else_branch: None,
             },
             Stmt::Return(Some(ns_read)),
