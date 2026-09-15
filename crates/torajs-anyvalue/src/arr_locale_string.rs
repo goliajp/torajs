@@ -4,7 +4,8 @@
 //! S15.4.4.3_A1_T1); undefined / null render as the empty string;
 //! the pieces join with ",". Pre-fix the Arr arm delegated to plain
 //! `join`, which stringifies elements without ever dispatching the
-//! element method.
+//! element method. §23.2.3.32 (the typed-array twin) runs the same
+//! walk through [`locale_join`].
 
 use core::ffi::c_void;
 
@@ -61,6 +62,17 @@ pub(crate) unsafe fn arr_to_locale_string(arr: *mut c_void) -> AnyValue {
 unsafe fn arr_to_locale_str(arr: *mut c_void) -> *mut u8 {
     unsafe {
         let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
+        locale_join(len, |i| __torajs_arr_index_get(arr, i as i64))
+    }
+}
+
+/// The walk §23.1.3.32 and §23.2.3.32 share — the two differ only in
+/// where the length and the elements come from, so each caller hands
+/// in its own `read` (an OWNED element per index) and the Invoke /
+/// ToString / join steps live once. NULL on a pending element-hook
+/// throw; otherwise a fresh owned Str.
+pub(crate) unsafe fn locale_join(len: u64, mut read: impl FnMut(u64) -> AnyValue) -> *mut u8 {
+    unsafe {
         let sep = comma();
         // The dynobj arm resolves a monkey-patched hook by NAME
         // (the mid alone can't probe the expando table).
@@ -77,7 +89,7 @@ unsafe fn arr_to_locale_str(arr: *mut c_void) -> *mut u8 {
                 __torajs_str_drop(acc as *mut c_void);
                 acc = next;
             }
-            let v = __torajs_arr_index_get(arr, i as i64);
+            let v = read(i);
             if is_undefined(v) || is_null(v) {
                 __torajs_anyv_rc_dec(v);
                 continue;

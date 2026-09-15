@@ -79,7 +79,8 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
     }
     // Same shape of exception, same reason: `toLocaleString` is an
     // `Object.prototype` property (§20.1.3.5) that only Number /
-    // Array / Date / BigInt redefine (ECMA-402 §18-20). The per-arm
+    // Array / Date / BigInt / %TypedArray% (§23.2.3.32) redefine
+    // (ECMA-402 §18-20). The per-arm
     // `*_supports` tables answer "this ARM resolves this mid", which
     // is a different question — `String.prototype` and
     // `Function.prototype` own no toLocaleString in any engine, yet
@@ -88,7 +89,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
     // the one `intern_family` already carries for this mid; asking
     // one question in two places had let the two drift.
     if mid == ANY_METHOD_TO_LOCALE_STRING {
-        return matches!(tag, 0 | 1 | 2 | 6 | 8);
+        return matches!(tag, 0 | 1 | 2 | 6 | 8 | 38);
     }
     match tag {
         0 => num_supports(mid),

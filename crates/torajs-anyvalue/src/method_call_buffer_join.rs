@@ -93,3 +93,27 @@ pub(crate) unsafe fn typedarray_join(recv: AnyValue, argv: *const u64, argc: i64
         out
     }
 }
+
+/// §23.2.3.32 — ValidateTypedArray, then §23.1.3.32's walk over
+/// TypedArrayLength. The length is taken ONCE, before any hook runs:
+/// a hook that shrinks the buffer leaves the later indices reading
+/// `undefined`, which the walk renders as the empty string, exactly
+/// as the spec's Get does.
+///
+/// # Safety
+/// `recv` is a live TypedArray AnyValue.
+pub(crate) unsafe fn typedarray_to_locale_string(recv: AnyValue) -> AnyValue {
+    unsafe {
+        let len = __torajs_typedarray_validate(recv);
+        if len < 0 {
+            return VALUE_UNDEFINED;
+        }
+        let s = crate::arr_locale_string::locale_join(len as u64, |k| {
+            __torajs_typedarray_index_get(recv, k as f64)
+        });
+        if s.is_null() {
+            return VALUE_UNDEFINED;
+        }
+        crate::nanbox_encode::__torajs_anyv_box_pointer(s as *mut c_void)
+    }
+}

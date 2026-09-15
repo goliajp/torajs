@@ -255,6 +255,16 @@ pub(crate) unsafe fn cell_method(
     }
     // RFC 20260716 刀 3 view-through (`wrapper_view_through`).
     if let Some(inner) = unsafe { crate::wrapper_view_through::resolve_inner_recv(ptr, tag) } {
+        // A reified builtin's body stays a body across the unwrap:
+        // the ordinary entry would re-consult the prototype patch on
+        // the inner primitive, so `oldToLocaleString.call(this)`
+        // inside a sloppy replacement hook (this = the Number
+        // wrapper) re-entered the hook until the stack ran out.
+        if skip_wrapper_expando {
+            return Some(unsafe {
+                crate::method_call::any_method_redispatch(inner, mid, argv, argc)
+            });
+        }
         return Some(unsafe { any_method_call_inner(inner, mid, name_str, recv_slot, argv, argc) });
     }
     // §20.1.4.7 Object.prototype.valueOf is ToObject(this) —

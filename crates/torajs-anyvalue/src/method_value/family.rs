@@ -96,8 +96,10 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
         // === Object.prototype.toString`).
         !matches!(family, 10 | 11 | 12 | 16 | 17 | 18)
     } else if mid == ANY_METHOD_TO_LOCALE_STRING {
-        // Number / Object / Array / BigInt / Date
-        matches!(family, 0 | 1 | 2 | 6 | 8)
+        // Number / Object / Array / BigInt / Date / %TypedArray% —
+        // §23.2.3.32's is its own function, not Array's
+        // (`toString` is the one typed-array name that is shared).
+        matches!(family, 0 | 1 | 2 | 6 | 8 | TYPEDARRAY_PROTO_FAMILY)
     } else if mid == ANY_METHOD_HAS_OWN_PROPERTY
         || mid == ANY_METHOD_IS_PROTOTYPE_OF
         || mid == ANY_METHOD_PROPERTY_IS_ENUMERABLE

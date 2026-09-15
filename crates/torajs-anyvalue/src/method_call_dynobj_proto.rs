@@ -34,6 +34,7 @@ use crate::nanbox_encode::__torajs_anyv_box_pointer;
 unsafe extern "C" {
     fn __torajs_str_alloc(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// Inherited `Object.prototype` surface for plain-object receivers —
@@ -231,6 +232,17 @@ unsafe fn builtin_proto_primitive(
     // Tags are ssa_lower's, fixed by `torajs_rc::builtin_proto`:
     // Number=0, String=3, Boolean=4.
     let tag = unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(obj) };
+    // §23.2.3 — %TypedArray%.prototype and the twelve per-kind
+    // prototypes are ordinary objects with no [[TypedArrayName]], so
+    // every method they own fails ValidateTypedArray on them. `join`
+    // and `at` already met that check through the chain's reified
+    // cell; `toString` and `toLocaleString` never got there, because
+    // the %Object.prototype% surface below answers both names and
+    // said "[object Object]".
+    if typedarray_proto_owns(tag, mid) {
+        unsafe { __torajs_throw_type_error(c"this is not a typed array".as_ptr()) };
+        return Some(crate::nanbox::VALUE_UNDEFINED);
+    }
     // Only what the family OWNS re-dispatches on the initial value.
     // An INHERITED name has to answer on the prototype OBJECT:
     // §20.1.4.3's ToObject(this) is `Number.prototype` itself, not
@@ -255,6 +267,18 @@ unsafe fn builtin_proto_primitive(
         return None;
     }
     Some(out)
+}
+
+/// Is `tag` one of the typed-array prototype objects, and is `mid` a
+/// method that object has (its own, or %TypedArray%.prototype's)?
+fn typedarray_proto_owns(tag: i64, mid: i64) -> bool {
+    use torajs_rc::builtin_proto::{TYPEDARRAY_KIND_PROTO_TAGS, TYPEDARRAY_PROTO_TAG};
+    let base = TYPEDARRAY_PROTO_TAG as i64;
+    if tag != base && !TYPEDARRAY_KIND_PROTO_TAGS.contains(&tag) {
+        return false;
+    }
+    crate::method_support_proto::proto_tag_family_owns(base, mid)
+        || crate::method_support_proto::proto_tag_family_owns(tag, mid)
 }
 
 /// Walks the ordinary [[Prototype]] chain and answers whether

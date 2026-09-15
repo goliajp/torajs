@@ -391,6 +391,7 @@ pub(crate) fn typedarray_supports(mid: i64) -> bool {
             | ANY_METHOD_SET_FROM_BASE64
             | ANY_METHOD_SET_FROM_HEX
             | ANY_METHOD_JOIN
+            | ANY_METHOD_TO_LOCALE_STRING
             | ANY_METHOD_FOR_EACH
             | ANY_METHOD_MAP
             | ANY_METHOD_FILTER
