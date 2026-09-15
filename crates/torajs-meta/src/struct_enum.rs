@@ -199,6 +199,9 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         if unsafe { error_prop_skip(cell, layout, i, (kp, klen), include_nonenum) }
             || (include_nonenum == 0 && unsafe { field_hidden_by_sidecar(cell, kp, klen) })
+            || unsafe {
+                crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, kp, klen as u32) != 0
+            }
         {
             i += 1;
             continue;

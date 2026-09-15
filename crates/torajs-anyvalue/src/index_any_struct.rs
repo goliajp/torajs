@@ -13,7 +13,6 @@ unsafe extern "C" {
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_accessor_invoke_getter(pair: *const c_void, recv_anyv: u64) -> u64;
 }
 
@@ -39,7 +38,7 @@ pub(crate) unsafe fn struct_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
             // under its §7.1.19 decimal spelling; own face, so it
             // answers before the accessor fallback's undefined.
             let props = crate::member_get_layout::struct_props(obj);
-            if !props.is_null() && __torajs_dynobj_has(props, key as *const c_void) != 0 {
+            if crate::struct_probe::expando_own_has(obj, key as *const c_void) {
                 let etag = __torajs_dynobj_get_tag(props, key as *const c_void);
                 let eval = __torajs_dynobj_get_value(props, key as *const c_void);
                 __torajs_str_drop(key as *mut c_void);

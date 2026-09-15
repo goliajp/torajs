@@ -42,7 +42,14 @@ unsafe extern "C" {
     /// sidecar when one exists, else the layout default the integrity
     /// level moves. -1 when the layout declares nothing under the key.
     fn __torajs_obj_declared_field_attrs(obj: *mut c_void, key: *mut c_void) -> i64;
+    /// torajs-dynobj — the raw value word of entry `i`.
+    fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
 }
+
+/// `torajs_dynobj::layout::DYNOBJ_HOLE_SENTINEL` mirror — the raw value
+/// word of a sidecar entry that records a deleted declared field
+/// (RFC 20260915-declared-field-delete).
+const DYNOBJ_HOLE_SENTINEL: u64 = 0x1A;
 
 /// The attribute set a declared member currently reports, as the three
 /// `BUCKET_FLAG_*` bits.
@@ -98,6 +105,45 @@ pub unsafe extern "C" fn __torajs_obj_field_is_nonenumerable(
         if unsafe { crate::str_wtf8::StrWtf8::of(key) }.as_bytes() == want {
             return i64::from(
                 unsafe { __torajs_dynobj_iter_flags(props, i) } & BUCKET_FLAG_ENUMERABLE == 0,
+            );
+        }
+    }
+    0
+}
+
+/// Is the DECLARED field named by `name` deleted (RFC
+/// 20260915-declared-field-delete) — does it carry a sidecar whose
+/// value word is the HOLE sentinel? Bytes spelling for the same
+/// reason as [`__torajs_obj_field_is_nonenumerable`]; the header bit
+/// answers "no" for free on every untouched instance.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` heap pointer; `name` points at
+/// `name_len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_field_is_deleted(
+    cell: *const c_void,
+    name: *const u8,
+    name_len: u32,
+) -> i64 {
+    let flags = unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() };
+    if flags & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
+        return 0;
+    }
+    let props = unsafe { struct_props(cell) };
+    if props.is_null() {
+        return 0;
+    }
+    let want = unsafe { core::slice::from_raw_parts(name, name_len as usize) };
+    let n = unsafe { __torajs_dynobj_iter_len(props) };
+    for i in 0..n {
+        let key = unsafe { __torajs_dynobj_iter_key(props, i) };
+        if key.is_null() {
+            continue;
+        }
+        if unsafe { crate::str_wtf8::StrWtf8::of(key) }.as_bytes() == want {
+            return i64::from(
+                unsafe { __torajs_dynobj_iter_value(props, i) } == DYNOBJ_HOLE_SENTINEL,
             );
         }
     }

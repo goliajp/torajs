@@ -128,6 +128,12 @@ unsafe fn set_obj_member(
         // slot's type (Any / Str / I64 / F64 / Bool; frozen gate
         // inside). A mismatch falls through to the loud reject —
         // a typed slot never silently coerces.
+        // RFC 20260915 — a deleted declared field revives (or refuses).
+        if let Some(r) =
+            crate::struct_probe::deleted_field_write_gate(ptr, key, tag, value, throw_on_refusal)
+        {
+            return Some(r);
+        }
         if crate::struct_field_ffi::frozen_data_field_refuses(
             ptr,
             key,

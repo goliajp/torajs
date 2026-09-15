@@ -276,10 +276,20 @@ pub(crate) unsafe fn redefine_declared_field(
     flags_byte: u64,
     throw_on_refusal: bool,
 ) -> i64 {
-    let cur = unsafe { current_field_attrs(obj, key) };
-    let value_same = flags_byte & DEFINE_PRESENT_VALUE != 0
+    // RFC 20260915 — a deleted field is ABSENT: the define creates it
+    // (every missing attribute defaults false, §10.1.6.3 step 2), with
+    // no current attributes to validate against; the sidecar write
+    // below replaces the deletion record.
+    let deleted = unsafe { __torajs_obj_declared_field_deleted(obj, key) } != 0;
+    let cur = if deleted {
+        0
+    } else {
+        unsafe { current_field_attrs(obj, key) }
+    };
+    let value_same = !deleted
+        && flags_byte & DEFINE_PRESENT_VALUE != 0
         && unsafe { __torajs_struct_data_field_same_value(obj, key, tag, value) } != 0;
-    if !validate_field_redefine(cur, flags_byte, value_same) {
+    if !deleted && !validate_field_redefine(cur, flags_byte, value_same) {
         return unsafe {
             refuse(
                 throw_on_refusal,
@@ -342,6 +352,61 @@ pub(crate) unsafe fn redefine_declared_field(
         unsafe { __torajs_obj_flag_exotic_field(obj) };
     }
     ok
+}
+
+/// RFC 20260915-declared-field-delete — is the DECLARED field `key` on
+/// `obj` deleted? A deletion is a sidecar entry whose value word holds
+/// the HOLE sentinel (`set_entry_flags`, the same record `delete
+/// arr[i]` leaves on a shadow index); the layout slot keeps its stale
+/// bits and every own face asks this before reading it. Free for an
+/// instance nothing ever redefined or deleted: the exotic-field header
+/// bit gates the probe.
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_declared_field_deleted(
+    obj: *mut c_void,
+    key: *mut c_void,
+) -> i64 {
+    let hdr = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
+    if hdr & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
+        return 0;
+    }
+    let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) }
+        as *const c_void;
+    if props.is_null() {
+        return 0;
+    }
+    i64::from(unsafe { crate::set_entry_flags::__torajs_dynobj_entry_is_hole(props, key) } != 0)
+}
+
+/// §10.1.10 [[Delete]] of a DECLARED field that passed the configurable
+/// gate (`prop_delete::struct_delete`): record the deletion as a HOLE
+/// sidecar — minting the bag when the instance has none — and raise
+/// the exotic-field bit the own faces gate on. The slot's bits stay;
+/// nothing reads them past the sidecar. The hole clears the entry's
+/// W/E/C bits, so a repeat `delete` must ask "deleted?" before the
+/// configurable gate (it does). Answers 1 (spec success).
+///
+/// # Safety
+/// `obj` is a live `Tag::Obj` heap pointer whose layout declares `key`;
+/// `key` is a live key cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_obj_declared_field_delete(
+    obj: *mut c_void,
+    key: *mut c_void,
+) -> i64 {
+    let props_slot =
+        unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
+    unsafe {
+        if (*props_slot).is_null() {
+            __torajs_obj_props_attach(obj.cast::<u8>(), crate::alloc::__torajs_dynobj_alloc());
+        }
+        crate::set_entry_flags::__torajs_dynobj_set_entry_hole(props_slot, key);
+        __torajs_obj_flag_exotic_field(obj);
+    }
+    1
 }
 
 /// Raise `FLAG_OBJ_EXOTIC_FIELD` on a struct cell — the one writer of

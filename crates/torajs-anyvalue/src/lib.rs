@@ -231,6 +231,7 @@ mod promise_subclass;
 mod promise_thenable;
 mod promise_with_resolvers;
 mod prop_delete;
+mod prop_delete_struct;
 mod prop_enumerable;
 mod prop_has;
 mod prop_has_chain;
@@ -1078,6 +1079,22 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_struct_layout_lookup(_class_tag: u32) -> *const c_void {
         core::ptr::null()
+    }
+    /// No layout ⇒ no declared field can be deleted (RFC 20260915).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_field_is_deleted(
+        _cell: *const c_void,
+        _name: *const u8,
+        _name_len: u32,
+    ) -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_declared_field_delete(
+        _obj: *mut c_void,
+        _key: *mut c_void,
+    ) -> i64 {
+        1
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_struct_field_find(

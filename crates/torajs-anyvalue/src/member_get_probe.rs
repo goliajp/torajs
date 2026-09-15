@@ -124,8 +124,7 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
         Some((ptr, t)) if t == Tag::Obj as u16 => {
             // Blade 2 — an expando entry answers the existence probe
             // like any own property.
-            let props = unsafe { crate::member_get_layout::struct_props(ptr) };
-            if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+            if unsafe { crate::struct_probe::expando_own_has(ptr, key) } {
                 return 1;
             }
             let class_tag =
@@ -133,7 +132,9 @@ pub unsafe extern "C" fn __torajs_any_method_probe(
             let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
             if !layout.is_null() {
                 let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
-                if unsafe { __torajs_struct_field_find(layout, k.as_ptr(), k.len()) } != u32::MAX {
+                if unsafe { __torajs_struct_field_find(layout, k.as_ptr(), k.len()) } != u32::MAX
+                    && !unsafe { crate::struct_probe::declared_field_deleted(ptr, key) }
+                {
                     return 1;
                 }
             }

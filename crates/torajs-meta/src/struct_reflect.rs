@@ -392,6 +392,14 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
         return unsafe { expando_descriptor(cell, key) };
     }
 
+    // RFC 20260915 — a deleted declared field owns nothing (the slot's
+    // bits are stale; the sidecar is the record).
+    if unsafe {
+        crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, key_bytes, key_len as u32)
+    } != 0
+    {
+        return VALUE_UNDEFINED_IMM;
+    }
     // Read the raw 8-byte slot at the field's byte offset, box per type.
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
     let raw = unsafe {

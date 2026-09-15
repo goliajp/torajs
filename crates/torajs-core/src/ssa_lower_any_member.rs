@@ -250,7 +250,10 @@ pub(crate) fn lower_any_member_read(
 /// i32 at +4; high 16 bits = flags), mask + cmp against OBJ_TAG (1,
 /// mirrored from `torajs_rc::Tag::Obj`), and branch to a fresh
 /// `cls_dispatch` block for Obj cells / `dynobj_blk` for everything
-/// else. Leaves `ctx.cur_block` at the returned `cls_dispatch`.
+/// else. The mask keeps `FLAG_OBJ_EXOTIC_FIELD` in the compare: a
+/// redefined / deleted instance (RFC 20260915) skips the direct slot
+/// load for the sidecar-aware runtime probe — same word, no extra
+/// load. Leaves `ctx.cur_block` at the returned `cls_dispatch`.
 fn emit_obj_tag_gate(
     ctx: &mut LowerCtx,
     class_blk: crate::ssa::BlockId,
@@ -269,7 +272,7 @@ fn emit_obj_tag_gate(
         InstKind::BinOp(
             SsaBinOp::And,
             Operand::Value(tt_word),
-            Operand::ConstI32(0xFFFF),
+            Operand::ConstI32((0xFFFF | (torajs_rc::FLAG_OBJ_EXOTIC_FIELD as u32) << 16) as i32),
         ),
         Type::I32,
         None,

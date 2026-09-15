@@ -142,9 +142,8 @@ pub unsafe extern "C" fn __torajs_any_member_get_value(recv: AnyValue, key: *con
             }
             // Blade 2 — expando dict own face (mirror of the tag
             // channel; borrow-shaped like the dynobj bucket).
-            let props = crate::member_get_layout::struct_props(ptr);
-            if !props.is_null() && __torajs_dynobj_has(props, key) != 0 {
-                return __torajs_dynobj_get_value(props, key);
+            if crate::struct_probe::expando_own_has(ptr, key) {
+                return __torajs_dynobj_get_value(crate::member_get_layout::struct_props(ptr), key);
             }
             // L3b ⑧ — class prototype chain (mirror of the tag
             // channel).

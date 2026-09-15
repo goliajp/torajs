@@ -90,6 +90,93 @@ unsafe extern "C" {
     /// torajs-rc — generic undefined oddball probe (RFC 20260710
     /// C2b).
     fn __torajs_is_undef_cell(p: *const u8) -> i64;
+    /// torajs-meta — is this declared field deleted (RFC 20260915)?
+    fn __torajs_obj_field_is_deleted(cell: *const c_void, name: *const u8, name_len: u32) -> i64;
+    /// torajs-dynobj — entry removal; drops the deletion record on revive.
+    fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+}
+
+/// RFC 20260915 — is the DECLARED field `key` of `ptr` deleted?
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell.
+pub(crate) unsafe fn declared_field_deleted(ptr: *const c_void, key: *const c_void) -> bool {
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
+    unsafe { __torajs_obj_field_is_deleted(ptr, k.as_ptr(), k.len()) != 0 }
+}
+
+/// Does the layout of `ptr` declare `key` (data field or accessor)?
+/// Deletion-blind on purpose: this is the sidecar invariant's question
+/// ("a declared name in the `+24` dict can only be a sidecar"), not
+/// the own-property one.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell.
+pub(crate) unsafe fn struct_layout_declares(ptr: *const c_void, key: *const c_void) -> bool {
+    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
+    let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
+    if layout.is_null() {
+        return false;
+    }
+    let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
+    let (b, n) = (k.as_ptr(), k.len());
+    unsafe {
+        __torajs_struct_field_find(layout, b, n) != u32::MAX
+            || __torajs_struct_accessor_find(layout, b, n, 0) != u32::MAX
+            || __torajs_struct_accessor_find(layout, b, n, 1) != u32::MAX
+    }
+}
+
+/// The struct receiver's expando own-face probe: an entry under `key`
+/// that the layout does NOT declare. A declared name in the dict is an
+/// attribute sidecar (RFC 20260806) or a deletion record (RFC
+/// 20260915), never an own expando — the one place that invariant is
+/// spelled for `has` / `get` / the existence probe.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell.
+pub(crate) unsafe fn expando_own_has(ptr: *const c_void, key: *const c_void) -> bool {
+    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
+    !props.is_null()
+        && unsafe { __torajs_dynobj_has(props, key) } != 0
+        && !unsafe { struct_layout_declares(ptr, key) }
+}
+
+/// [[Set]] on a deleted declared field is CreateDataProperty (RFC
+/// 20260915): refused on a non-extensible instance (the refusal
+/// consumes the payload per `throw_on_refusal`), otherwise the
+/// deletion record goes and the caller's ordinary declared-field
+/// store follows — default attributes, no sidecar. `Some(0)` = refused;
+/// `None` = not deleted, or revived: go on.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell;
+/// `(tag, value)` is the caller's owned payload.
+pub(crate) unsafe fn deleted_field_write_gate(
+    ptr: *mut c_void,
+    key: *const c_void,
+    tag: u64,
+    value: u64,
+    throw_on_refusal: bool,
+) -> Option<i64> {
+    if !unsafe { declared_field_deleted(ptr, key) } {
+        return None;
+    }
+    if unsafe {
+        crate::member_set_closure::refuse_new_key_non_extensible(
+            ptr,
+            false,
+            tag,
+            value,
+            throw_on_refusal,
+        )
+    } {
+        return Some(0);
+    }
+    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
+    unsafe { __torajs_dynobj_delete(props as *mut c_void, key) };
+    None
 }
 
 /// Layout-resolved raw slot read shared by the pair / anyv decode
@@ -116,6 +203,11 @@ unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64, *m
     }
     let idx = unsafe { __torajs_struct_field_find(layout, name.as_ptr(), name.len() as u32) };
     if idx == u32::MAX {
+        return None;
+    }
+    // RFC 20260915 — a deleted declared field is not an own property;
+    // the slot's bits are stale.
+    if unsafe { __torajs_obj_field_is_deleted(ptr, name.as_ptr(), name.len() as u32) } != 0 {
         return None;
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };

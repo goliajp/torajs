@@ -40,7 +40,10 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 mod field_read;
-pub(crate) use field_read::{struct_field_pair, struct_field_pair_bytes};
+pub(crate) use field_read::{
+    declared_field_deleted, deleted_field_write_gate, expando_own_has, struct_field_pair,
+    struct_field_pair_bytes,
+};
 
 use crate::method_call::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, box_void_ptr, is_cell};

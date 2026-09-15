@@ -131,8 +131,7 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
     // Blade 2 — an expando entry is an own property; probed first so
     // an anonymous struct without a layout row (NULL lookup below)
     // still answers its expandos.
-    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
-    if !props.is_null() && unsafe { __torajs_dynobj_has(props, key) } != 0 {
+    if unsafe { crate::struct_probe::expando_own_has(ptr, key) } {
         return 1;
     }
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
@@ -161,6 +160,10 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
         // §20.5.3.2: `name` is the prototype's until user code assigns
         // one).
         if unsafe { crate::struct_error_msg::error_absent_key(ptr, key) } {
+            return 0;
+        }
+        // RFC 20260915 — a deleted declared field is not own.
+        if unsafe { crate::struct_probe::declared_field_deleted(ptr, key) } {
             return 0;
         }
         return 1;
