@@ -49,15 +49,6 @@ unsafe extern "C" {
     fn __torajs_builtin_proto_is_deleted(tag: i64, mid: i64) -> i64;
 }
 
-/// `torajs_rc::flags` mirrors — `delete fn.name` / `delete fn.length`
-/// tombstones on a Closure header (bits 10/11).
-const FLAG_FN_NAME_DELETED: u16 = 1 << 10;
-const FLAG_FN_LENGTH_DELETED: u16 = 1 << 11;
-/// `torajs_rc::FLAG_FN_PROTO` mirror (bit 15, Closure-private —
-/// disjoint-by-tag with Arr's exotic-index bit). Set by the compiler on
-/// a plain `function` cell; clear for arrow / method forms, which own
-/// no `prototype` at all (§20.2.4 vs §10.2.5).
-const FLAG_FN_PROTO: u16 = 1 << 15;
 /// `torajs_rc::any_method` mirrors — Function.prototype's virtual
 /// own name/length tombstone slots (RFC 20260722 刀 3).
 const FN_PROTO_NAME_SLOT: i64 = 164;
@@ -319,61 +310,9 @@ pub unsafe extern "C" fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) ->
             TAG_ARR_CELL => unsafe {
                 crate::obj_own_keys_arr::arr_cell_keys(cell, include_nonenum)
             },
-            TAG_CLOSURE_CELL => {
-                let props =
-                    unsafe { (cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64).read() }
-                        as *const c_void;
-                let mut out = unsafe { __torajs_arr_alloc(0) };
-                // §10.2.9/§10.2.10 (via §20.2.4) — every function's
-                // virtual own `length` / `name` pair surfaces on gOPN
-                // in creation order (length first; test262
-                // property-order family asserts the adjacency).
-                // Non-enumerable, so `Object.keys` stays exact.
-                // Delete tombstones live on the header flags.
-                if include_nonenum != 0 {
-                    let flags = unsafe { (cell.cast::<u8>().add(6) as *const u16).read() };
-                    for (name, deleted) in [
-                        (&b"length"[..], flags & FLAG_FN_LENGTH_DELETED != 0),
-                        (&b"name"[..], flags & FLAG_FN_NAME_DELETED != 0),
-                        // §20.2.4 — a plain `function` also owns
-                        // `prototype` {writable: true, enumerable:
-                        // false, configurable: false}, created WITH the
-                        // function, so it sits right after the
-                        // name/length pair. tr materializes it lazily
-                        // into the props dict on first read (RFC
-                        // 20260721 刀 9), so emitting it here (and
-                        // filtering it out of the props append below)
-                        // makes the order independent of whether
-                        // anything has read it yet. An arrow / method
-                        // form has no `prototype` at all — the header
-                        // flag is exactly that distinction. Not
-                        // deletable (configurable: false), so no
-                        // tombstone.
-                        (&b"prototype"[..], flags & FLAG_FN_PROTO == 0),
-                    ] {
-                        if !deleted {
-                            let k = unsafe { crate::reflect::alloc_str_key(name) };
-                            out = unsafe { __torajs_arr_push(out, k as i64) };
-                        }
-                    }
-                }
-                // §20.2.3 makes `Function.prototype` a built-in
-                // FUNCTION object rather than an ordinary one, so its
-                // synthesized method names come through this arm
-                // instead of the dynobj walk — the same "other cell
-                // shape, same surface" hop `arr_cell_keys` makes for
-                // the Array-exotic `Array.prototype`.
-                if include_nonenum != 0 {
-                    out = unsafe { push_synthesized_proto_names(cell, out, true) };
-                }
-                if props.is_null() {
-                    out as *mut c_void
-                } else {
-                    unsafe {
-                        dynobj_keys_append(props, include_nonenum, out, false, true) as *mut c_void
-                    }
-                }
-            }
+            TAG_CLOSURE_CELL => unsafe {
+                crate::obj_own_keys_closure::closure_cell_keys(cell, include_nonenum)
+            },
             TAG_OBJ_CELL => unsafe {
                 crate::struct_enum::__torajs_anyv_struct_keys(v, include_nonenum)
             },
