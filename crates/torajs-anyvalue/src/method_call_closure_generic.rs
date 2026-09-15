@@ -163,28 +163,8 @@ pub(crate) unsafe fn generic_builtin_this(
     // `Boolean.prototype[1] = v; Boolean.prototype.length = 2`
     // reaches `indexOf.call(true, v)`), which a fresh ToObject mint
     // (no expando, length 0) would shadow into a vacuous scan.
-    // A CLOSURE receiver hosts the generic read scan over its own
-    // face directly (§20.2.4.1 — `length` is the fn's parameter
-    // count, indices are expando keys): `Array.prototype.every
-    // .call(fn, cb)` with `fn[0] = v` installed. Read family only —
-    // `fn.length` is non-writable, so the mutator family keeps its
-    // TypeError.
-    if fam == crate::method_value::family::ARR_PROTO_FAMILY
-        && crate::method_call_arraylike::arraylike_supported(mid)
-        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
-        && is_cell(this_arg)
-        && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
-            == Tag::Closure as u16
-    {
-        return Some(unsafe {
-            crate::method_call_arraylike::arraylike_method(
-                as_void_ptr(this_arg),
-                mid,
-                core::ptr::null_mut(),
-                argv,
-                argc,
-            )
-        });
+    if let Some(out) = face_read_scan(mid, this_arg, argv, argc, fam) {
+        return Some(out);
     }
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && crate::method_call_arraylike::arraylike_supported(mid)
@@ -276,6 +256,49 @@ pub(crate) unsafe fn generic_builtin_this(
             fam == crate::method_value::STR_PROTO_FAMILY,
         )
     }
+}
+
+/// The read-family scan over a receiver whose own face hosts it
+/// directly — split out of [`generic_builtin_this`] (registered
+/// file-size debt) when the bag-face shapes joined the closure arm.
+fn face_read_scan(
+    mid: i64,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+    fam: i64,
+) -> Option<AnyValue> {
+    // A CLOSURE receiver hosts the generic read scan over its own
+    // face directly (§20.2.4.1 — `length` is the fn's parameter
+    // count, indices are expando keys): `Array.prototype.every
+    // .call(fn, cb)` with `fn[0] = v` installed. Read family only —
+    // `fn.length` is non-writable, so the mutator family keeps its
+    // TypeError. The bag-face shapes (a Date, a RegExp, a Map, a
+    // Promise, a buffer — `bag_face_arraylike_tag`) host the same
+    // read scan over their bag (`obj.length = 1; obj[0] = 1` on a
+    // Date, test262 15.4.4.x-1-11 / -1-12); their `length` IS
+    // writable, so the mutator family over them is a recorded
+    // follow-up, not a TypeError by design.
+    if fam == crate::method_value::family::ARR_PROTO_FAMILY
+        && crate::method_call_arraylike::arraylike_supported(mid)
+        && !crate::method_call_arraylike_mut::arraylike_mut_supported(mid)
+        && is_cell(this_arg)
+        && {
+            let t = unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() };
+            t == Tag::Closure as u16 || crate::method_call_arraylike_host::bag_face_arraylike_tag(t)
+        }
+    {
+        return Some(unsafe {
+            crate::method_call_arraylike::arraylike_method(
+                as_void_ptr(this_arg),
+                mid,
+                core::ptr::null_mut(),
+                argv,
+                argc,
+            )
+        });
+    }
+    None
 }
 
 /// thisNumberValue shape — a number immediate or a Number wrapper

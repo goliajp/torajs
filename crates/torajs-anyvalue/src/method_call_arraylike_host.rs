@@ -39,6 +39,23 @@ unsafe extern "C" {
 /// (observable per §23.1.3 step 2 tests); `None` when the getter
 /// left a pending throw. Object lengths answer NaN → 0 (recorded
 /// no-valueOf boundary).
+/// The cell shapes whose array-like face is the any member face
+/// (`Get(O, "length")` / `Get(O, k)` through the ordinary lookup):
+/// every bag-carrying tag that has no dedicated branch here — the
+/// stateful-bag five (Map / Set / Date / RegExp / iterators), the
+/// buffers, Promise, the weak three. Their `length` is whatever the
+/// program stored in the bag (`obj.length = 1; obj[0] = 1` on a Date,
+/// the 15.4.4.x-1-11 / -1-12 test262 family), read the way any other
+/// name on them is read. Wrappers, structs, dynobjs and TypedArray /
+/// Closure keep the branches below; Arr has its own arm entirely.
+pub(crate) fn bag_face_arraylike_tag(tag: u16) -> bool {
+    crate::member_get_layout::expando_props_off(tag).is_some()
+        && !crate::member_get::is_wrapper_tag(tag)
+        && tag != torajs_rc::Tag::Closure as u16
+        && tag != torajs_rc::Tag::Obj as u16
+        && tag != torajs_rc::Tag::TypedArray as u16
+}
+
 pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
     unsafe {
         let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
@@ -71,6 +88,7 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         }
         let (dtag, dval) = if obj_tag == torajs_rc::Tag::TypedArray as u16
             || obj_tag == torajs_rc::Tag::Closure as u16
+            || bag_face_arraylike_tag(obj_tag)
         {
             // §23.2.3.21 — a TypedArray receiver's `length` is the
             // prototype getter (0 for a detached / out-of-bounds
@@ -79,7 +97,10 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
             // receiver rides the same face: its `length` is the
             // fn's parameter count (§20.2.4.1), expando shadow
             // included — `Array.prototype.every.call(fn, cb)` scans
-            // exactly the fn's arity worth of expando indices.
+            // exactly the fn's arity worth of expando indices. The
+            // bag-face shapes ([`bag_face_arraylike_tag`]) ride it
+            // too: the `else` below reads `obj` AS a dynobj, which
+            // they are not.
             let recv = __torajs_anyv_box_pointer(obj);
             (
                 crate::member_get::__torajs_any_member_get_tag(recv, key as *const c_void),
