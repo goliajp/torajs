@@ -120,15 +120,25 @@ unsafe fn desc_field(desc: DescStore, name: &str) -> Option<u64> {
     match desc {
         DescStore::Dyn(d, proto) => {
             let probe_key = FakeStrKey::new(name);
-            if !d.is_null() {
-                let pr = unsafe { probe(d, &probe_key as *const FakeStrKey as *const c_void) };
+            // §6.2.6.5 reads with [[Get]]: the own table, then every
+            // user prototype up the dynobj chain (`new Con()` with
+            // `Con.prototype = { value }`, `Object.create(base)` —
+            // test262 defineProperties 5-b-*), then the arm's builtin
+            // prototype expando below. A struct-cell prototype ends
+            // the walk: its fields are layout rows, not entries
+            // (registered).
+            let mut cur = d;
+            while !cur.is_null() {
+                if unsafe { (cur.cast::<u8>().add(4) as *const u16).read() } != TAG_DYNOBJ {
+                    break;
+                }
+                let pr = unsafe { probe(cur, &probe_key as *const FakeStrKey as *const c_void) };
                 if pr.found {
-                    let ent = unsafe { entries(d) };
+                    let ent = unsafe { entries(cur) };
                     return Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv });
                 }
+                cur = unsafe { crate::proto_chain::__torajs_dynobj_proto_next(cur) };
             }
-            // Own miss — [[Get]] continues up the prototype's
-            // expando table (NULL = chain end).
             if proto.is_null() {
                 return None;
             }
