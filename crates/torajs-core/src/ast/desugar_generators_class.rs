@@ -41,6 +41,19 @@ pub(super) fn assemble_generator_class_and_factory(
     captures_arguments: bool,
     appended: &mut Vec<Stmt>,
 ) {
+    // The resume channel's slot is `T | undefined` — an `any` for a
+    // scalar `T` (`sent_slot_ann`) — but only a body that READS it
+    // has the stash that writes it (`build_next_method`); to every
+    // other generator the field is dead state, and typing it `any`
+    // still made the instance layout non-copy, which turned the
+    // drop's cycle gate from the inline bag check into an unconditional
+    // `__torajs_cycle_buffer` reloc — the cycle collector and every
+    // family's drop linked into `generator-yield-100k` (34 KB → 100 KB,
+    // rotation 653). A never-read slot is a `number` (copy, same width).
+    let reads_sent = [&next_method, &return_method, &throw_method]
+        .into_iter()
+        .chain(extra_methods.iter())
+        .any(|m| crate::ast::desugar_generators_methods::body_reads_sent(ast, &m.body));
     // P10.6-A3 nominal marker (per-generator unique field name so
     // structurally-identical generator classes get distinct sids),
     // followed by __state + __sent. See desugar_generators.
@@ -52,7 +65,11 @@ pub(super) fn assemble_generator_class_and_factory(
         ("__state".into(), "number".into()),
         (
             "__sent".into(),
-            crate::ast::desugar_generators_methods::sent_slot_ann(yield_ty),
+            if reads_sent {
+                crate::ast::desugar_generators_methods::sent_slot_ann(yield_ty)
+            } else {
+                "number".into()
+            },
         ),
     ];
     // Lifted locals as class fields. Their initial values are zero

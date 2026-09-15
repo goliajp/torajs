@@ -409,7 +409,7 @@ pub(super) fn build_next_method(
 /// used as an expression (`expand_yield_into_in_stmt`'s `let v =
 /// this.__sent`)? Every statement list the body owns, every
 /// expression under it.
-fn body_reads_sent(ast: &Ast, body: &[Stmt]) -> bool {
+pub(super) fn body_reads_sent(ast: &Ast, body: &[Stmt]) -> bool {
     use crate::ast::desugar_with::walk;
     fn expr_reads(ast: &Ast, eid: ExprId) -> bool {
         if let Expr::Member { obj, name } = ast.get_expr(eid)
