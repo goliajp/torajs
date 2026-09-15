@@ -207,7 +207,8 @@ pub(crate) fn check_member(
     // must be STEPPED per §13.15.5.3, not indexed. Recording is the
     // whole job — the lifted field is already `any`, and the lowerer's
     // field-store walk boxes the stepped Array<Any> into it.
-    let _ = crate::check_stmt_let_decl::pick_ary_destr_lane(checker, ast, value, &value_ty);
+    let _ =
+        crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane(checker, ast, value, &value_ty);
     if !is_assignable_to_resolved(
         &field_ty,
         &value_ty,

@@ -96,7 +96,9 @@ pub(crate) fn check(
     // whose source isn't a statically indexable container. This is the
     // one place in the pipeline that knows: pick the group's lane here
     // and let the lowerer read the verdict back off the post-check AST.
-    let init_ty = match pick_ary_destr_lane(checker, ast, init, &init_ty) {
+    let init_ty = match crate::check_stmt_let_decl_destr_lane::pick_ary_destr_lane(
+        checker, ast, init, &init_ty,
+    ) {
         Some(materialized) => materialized,
         None => init_ty,
     };
@@ -368,56 +370,6 @@ fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
 /// is left untouched until a probe motivates it.
 fn struct_has_undef_field(t: &Type) -> bool {
     matches!(t, Type::Struct(fs) if fs.iter().any(|(_, ft)| matches!(ft, Type::Undefined)))
-}
-
-/// RFC 20260714-dstr-residual blade 3 — decide which lane an array
-/// binding pattern's group temp takes, and answer the type the temp
-/// binds when that lane is the iterator one.
-///
-/// The parse-time desugar reads a pattern's elements by index, which is
-/// right for an Array and wrong for everything else — a String included
-/// since RFC 20260915 (its iteration is per code point, and a rest is an
-/// Array of them): ES §13.15.5.3 destructures
-/// through the iterator protocol, so a generator, a Map / Set, a class
-/// instance with `[Symbol.iterator]()`, or any of those behind `any` has
-/// to be STEPPED, not indexed. Before this, an `any` source silently
-/// read `undefined` out of every slot and a typed generator source was
-/// rejected outright (`no member .0 on Struct([__gen_nominal_g, …])`).
-///
-/// The verdict is recorded against the group temp's init and the temp
-/// binds `Array<Any>` — the shape the lowerer materializes the walk
-/// into, so every index read below it stays exactly as desugared.
-///
-/// `pub(crate)` since rotation 455: a generator lift rewrites the
-/// group temp's `LetDecl` into `this.<temp> = init` BEFORE check runs,
-/// so [`crate::check_assign_target::check_member`] must ask the same
-/// question at the field-store site — without it a generator-body
-/// destructure of any non-Array source silently indexed `undefined`
-/// out of every slot (the exact silent-wrong this lane exists to
-/// kill). The field's type stays the lift's `any` (the walk result
-/// boxes into it); only the recording matters there.
-pub(crate) fn pick_ary_destr_lane(
-    checker: &mut Checker,
-    ast: &Ast,
-    init: ExprId,
-    init_ty: &Type,
-) -> Option<Type> {
-    let limit = *ast.ary_destr_groups.get(&init)?;
-    // 刀 D — a deferred-rest group NEVER opts out: the desugar already
-    // emitted the park/drain shape, and the typed index lane would
-    // leave the park slot empty (the walk lane indexes an Array source
-    // anyway, so the semantics match).
-    // A String source takes the iterator lane too (RFC 20260915): the
-    // index walk read one code unit per slot and `.slice` for a rest,
-    // so `const [a, ...r] = "xyz"` bound `r` to the STRING "yz" and
-    // `const [e] = "😀"` a lone surrogate; the any-lane string step
-    // is §22.1.5.1's per-code-point walk and the rest lands as an
-    // Array.
-    if !ast.dstr_deferred_rest.contains(&init) && matches!(init_ty, Type::Array(_)) {
-        return None;
-    }
-    checker.iter_destr_srcs.insert(init, limit);
-    Some(Type::Array(Box::new(Type::Any)))
 }
 
 /// Chunk 702 — TS contextual typing for array-literal inits: after the
