@@ -126,6 +126,7 @@ mod iter_any;
 mod iter_any_array_like;
 mod iter_any_await;
 mod iter_any_call;
+mod iter_any_claims;
 mod iter_any_close;
 mod iter_any_get_method;
 mod iter_any_result;

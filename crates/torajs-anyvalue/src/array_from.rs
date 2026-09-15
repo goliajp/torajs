@@ -145,7 +145,7 @@ pub(crate) unsafe fn array_from_this(
                 product
             }
             GetIterator::NoUserMethod | GetIterator::Absent => {
-                if crate::iter_any::claims_iterable(items) {
+                if crate::iter_any_claims::claims_iterable(items) {
                     from_builtin_iterable(this_c, items, map_pair, this_arg)
                 } else {
                     from_array_like(this_c, items, map_pair, this_arg)
