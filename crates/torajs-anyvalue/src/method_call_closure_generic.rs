@@ -102,33 +102,8 @@ pub(crate) unsafe fn generic_builtin_this(
     // and over a TypedArray the member-set route lands on the
     // canonical-numeric-index element store — §10.4.5 [[Set]], which
     // IS the generic semantics.
-    // §23.1.3.{5,19,35} — the Array iterator flavors do NOT validate
-    // at creation (the TypedArray twins do): the cell mints over an
-    // out-of-bounds view and its own next throws, which is the half
-    // the resizable entries/keys/values cases count. The cell's step
-    // already branches on the source's [[TypedArrayName]].
-    if fam == crate::method_value::family::ARR_PROTO_FAMILY
-        && is_cell(this_arg)
-        && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
-            == Tag::TypedArray as u16
-        && matches!(
-            mid,
-            m if m == torajs_rc::ANY_METHOD_KEYS
-                || m == torajs_rc::ANY_METHOD_VALUES
-                || m == torajs_rc::ANY_METHOD_ENTRIES
-        )
-    {
-        let src = as_void_ptr(this_arg);
-        let it = unsafe {
-            if mid == torajs_rc::ANY_METHOD_KEYS {
-                __torajs_arr_iter_create_keys(src)
-            } else if mid == torajs_rc::ANY_METHOD_VALUES {
-                __torajs_arr_iter_create_values(src)
-            } else {
-                __torajs_arr_iter_create_entries(src)
-            }
-        };
-        return Some(crate::nanbox::box_void_ptr(it));
+    if let Some(out) = array_iter_over_face(mid, this_arg, fam) {
+        return Some(out);
     }
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && is_cell(this_arg)
@@ -256,6 +231,60 @@ pub(crate) unsafe fn generic_builtin_this(
             fam == crate::method_value::STR_PROTO_FAMILY,
         )
     }
+}
+
+/// §23.1.3.{5,19,35} — the Array iterator flavors over a receiver that
+/// is not an `Array<Any>`: they do NOT validate at creation (the
+/// TypedArray twins do): the cell mints over an out-of-bounds view and
+/// its own next throws, which is the half the resizable
+/// entries/keys/values cases count. The cell's step branches on the
+/// source: [[TypedArrayName]], or any other cell as an array-like
+/// (`Get(O, "length")` / `Get(O, k)` per step —
+/// `Array.prototype.keys.call({length: 2})`, rotation 654). A
+/// primitive receiver is step 1's ToObject: the wrapper is minted
+/// here, the iterator takes its own stake on it, and this frame's
+/// temp is released (`Array.prototype.values.call("hi")` walks the
+/// String wrapper's code units). Split out of [`generic_builtin_this`]
+/// (registered file-size debt).
+fn array_iter_over_face(mid: i64, this_arg: AnyValue, fam: i64) -> Option<AnyValue> {
+    if fam != crate::method_value::family::ARR_PROTO_FAMILY
+        || !matches!(
+            mid,
+            m if m == torajs_rc::ANY_METHOD_KEYS
+                || m == torajs_rc::ANY_METHOD_VALUES
+                || m == torajs_rc::ANY_METHOD_ENTRIES
+        )
+        || is_null(this_arg)
+        || is_undefined(this_arg)
+    {
+        return None;
+    }
+    let (src, minted) = if is_cell(this_arg) {
+        let p = as_void_ptr(this_arg);
+        // SAFETY: a cell box points at a live heap header; the tag
+        // word sits at offset 4.
+        if unsafe { (p.cast::<u8>().add(4) as *const u16).read() } == Tag::Arr as u16 {
+            return None;
+        }
+        (p, None)
+    } else {
+        // SAFETY: `this_arg` is a live non-nullish any value.
+        let w = unsafe { crate::to_object::__torajs_any_to_object(this_arg) };
+        (as_void_ptr(w), Some(w))
+    };
+    let it = unsafe {
+        if mid == torajs_rc::ANY_METHOD_KEYS {
+            __torajs_arr_iter_create_keys(src)
+        } else if mid == torajs_rc::ANY_METHOD_VALUES {
+            __torajs_arr_iter_create_values(src)
+        } else {
+            __torajs_arr_iter_create_entries(src)
+        }
+    };
+    if let Some(w) = minted {
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(w) };
+    }
+    Some(crate::nanbox::box_void_ptr(it))
 }
 
 /// The read-family scan over a receiver whose own face hosts it

@@ -103,6 +103,13 @@ unsafe extern "C" {
     /// torajs-buffer §10.4.5 — the element, OWNED (a BigInt kind
     /// mints a fresh cell).
     fn __torajs_typedarray_index_get(av: u64, index: f64) -> u64;
+    /// torajs-anyvalue — `ToLength(Get(O, "length"))` over an
+    /// array-like source cell, or -1 with a pending throw (a length
+    /// getter ran and threw). Re-asked every step, like the view's.
+    fn __torajs_arraylike_len_cell(cell: *mut c_void) -> i64;
+    /// torajs-anyvalue — `Get(O, ToString(k))`, OWNED (accessor
+    /// getters run).
+    fn __torajs_any_index_get(recv: u64, idx: i64) -> u64;
 }
 
 /// `type_tag` for TypedArray heap blocks (mirror of
@@ -134,6 +141,21 @@ unsafe fn typedarray_source_len(arr: *mut c_void) -> Option<u64> {
 /// `arr` is a live heap cell.
 unsafe fn source_is_typedarray(arr: *mut c_void) -> bool {
     unsafe { (arr.cast::<u8>().add(4) as *const u16).read() == TAG_TYPEDARRAY }
+}
+
+/// §23.1.5.1 CreateArrayIterator over any other object — the
+/// reified `Array.prototype.{keys,values,entries}.call(obj)` on an
+/// array-like (`{length: 2}`, a Date with indices in its bag, a
+/// string): the closure's steps are `Get(O, "length")` and `Get(O,
+/// ToString(index))`, both re-asked every step, both through the
+/// ordinary any faces. An `Array<Any>` source keeps its header
+/// read, the view keeps ValidateTypedArray.
+///
+/// # Safety
+/// `arr` is a live heap cell.
+unsafe fn source_is_arraylike(arr: *mut c_void) -> bool {
+    let tag = unsafe { (arr.cast::<u8>().add(4) as *const u16).read() };
+    tag != torajs_rc::Tag::Arr as u16 && tag != TAG_TYPEDARRAY
 }
 
 /// Internal: alloc + init a fresh ArrIter struct. rc_inc the source
@@ -254,6 +276,7 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
         return 0;
     }
     let typed = unsafe { source_is_typedarray(arr) };
+    let arraylike = !typed && unsafe { source_is_arraylike(arr) };
     let len = if typed {
         match unsafe { typedarray_source_len(arr) } {
             Some(n) => n,
@@ -265,6 +288,18 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
                 return 0;
             }
         }
+    } else if arraylike {
+        let n = unsafe { __torajs_arraylike_len_cell(arr) };
+        if n < 0 {
+            // The length getter threw; the pending throw is the
+            // caller's, the iterator stays where it was.
+            unsafe {
+                *out_tag = ANY_UNDEF as i64;
+                *out_payload = 0;
+            }
+            return 0;
+        }
+        n as u64
     } else {
         unsafe { *((arr as *const u8).add(8) as *const u64) }
     };
@@ -302,6 +337,11 @@ pub unsafe extern "C" fn __torajs_arr_iter_step(
     } else if typed {
         (
             unsafe { __torajs_typedarray_index_get(arr as u64, i as f64) },
+            true,
+        )
+    } else if arraylike {
+        (
+            unsafe { __torajs_any_index_get(arr as u64, i as i64) },
             true,
         )
     } else {

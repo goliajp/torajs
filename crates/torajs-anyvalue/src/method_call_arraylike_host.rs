@@ -258,3 +258,14 @@ pub(crate) unsafe fn arraylike_has(obj: *mut c_void, k: i64) -> bool {
         hit != 0
     }
 }
+
+/// Staticlib face of [`arraylike_len`] for the array iterator
+/// (torajs-arr `iter.rs`) stepping an array-like source: the
+/// ToLength'd `length`, or -1 with the getter's throw pending.
+///
+/// # Safety
+/// `cell` is a live heap cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arraylike_len_cell(cell: *mut c_void) -> i64 {
+    unsafe { arraylike_len(cell).unwrap_or(-1) }
+}
