@@ -163,7 +163,8 @@ unsafe fn put(desc: &mut *mut c_void, name: &[u8], tag: u64, value: u64) {
 /// trap. Only the attributes the flags mark PRESENT appear, which is
 /// what makes a partial literal descriptor stay partial.
 ///
-/// `(tag, value)` transfers in when the value is present.
+/// `(tag, value)` transfers in when the value (or, for an accessor
+/// define, the AccessorPair) is present.
 ///
 /// # Safety
 /// `recv` is a live Proxy AnyValue; `key` a live key cell.
@@ -177,7 +178,12 @@ pub unsafe extern "C" fn __torajs_proxy_define_from_flags(
 ) -> i64 {
     unsafe {
         let mut desc = __torajs_dynobj_alloc();
-        if flags_byte & DEFINE_PRESENT_VALUE != 0 {
+        if flags_byte & (DEFINE_PRESENT_GET | DEFINE_PRESENT_SET) != 0 {
+            // An accessor descriptor arrives as an AccessorPair cell in
+            // the value slot; its faces become the `get` / `set`
+            // fields (a NULL face named present is `undefined`).
+            put_accessor_faces(&mut desc, value as *mut c_void, flags_byte);
+        } else if flags_byte & DEFINE_PRESENT_VALUE != 0 {
             put(&mut desc, b"value", tag, value);
         }
         for (present, bit, name) in [
@@ -214,6 +220,39 @@ pub unsafe extern "C" fn __torajs_proxy_define_from_flags(
     }
 }
 
+/// The `get` / `set` fields of an accessor define. `pair` (an owned
+/// AccessorPair cell) transfers in and is released here.
+unsafe fn put_accessor_faces(desc: &mut *mut c_void, pair: *mut c_void, flags_byte: u64) {
+    unsafe {
+        for (present, off, name) in [
+            (DEFINE_PRESENT_GET, ACC_GET_OFF, &b"get"[..]),
+            (DEFINE_PRESENT_SET, ACC_SET_OFF, &b"set"[..]),
+        ] {
+            if flags_byte & present == 0 {
+                continue;
+            }
+            let face = pair.cast::<u8>().add(off).cast::<*mut c_void>().read();
+            let v = if face.is_null() {
+                crate::nanbox::VALUE_UNDEFINED
+            } else {
+                torajs_rc::__torajs_rc_inc(face);
+                box_void_ptr(face)
+            };
+            put(
+                desc,
+                name,
+                crate::__torajs_anyv_unbox_tag(v) as u64,
+                crate::__torajs_anyv_unbox_value(v) as u64,
+            );
+        }
+        __torajs_value_drop_heap(pair);
+    }
+}
+
+/// `torajs_dynobj::accessor` mirrors — AccessorPair face slots.
+const ACC_GET_OFF: usize = 8;
+const ACC_SET_OFF: usize = 16;
+
 /// `torajs_dynobj::layout` mirrors — the literal path's flags byte.
 const DEFINE_FLAG_WRITABLE: u64 = 1 << 0;
 const DEFINE_FLAG_ENUMERABLE: u64 = 1 << 1;
@@ -222,3 +261,5 @@ const DEFINE_PRESENT_WRITABLE: u64 = 1 << 3;
 const DEFINE_PRESENT_ENUMERABLE: u64 = 1 << 4;
 const DEFINE_PRESENT_CONFIGURABLE: u64 = 1 << 5;
 const DEFINE_PRESENT_VALUE: u64 = 1 << 6;
+const DEFINE_PRESENT_GET: u64 = 1 << 7;
+const DEFINE_PRESENT_SET: u64 = 1 << 8;
