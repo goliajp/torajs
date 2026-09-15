@@ -136,6 +136,37 @@ pub unsafe extern "C" fn __torajs_function_proto_install(proto: *mut c_void) {
     }
 }
 
+/// §22.1.3 — %String.prototype% is itself a String exotic object whose
+/// [[StringData]] is the empty string, so it owns the §10.4.3 `length`
+/// data property: `0`, with writable, enumerable and configurable all
+/// false. A real own entry, so the read, `in`, `hasOwnProperty`, gOPD,
+/// the own-name list and the refused `delete` all answer it through the
+/// ordinary machinery.
+///
+/// # Safety
+/// `proto` points to a valid, freshly minted TAG_DYNOBJ cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_string_proto_install(proto: *mut c_void) {
+    unsafe {
+        let mut slot = proto;
+        let key = alloc_str_key(b"length");
+        __torajs_dynobj_define_plain(
+            &mut slot,
+            key,
+            ANY_I64,
+            0,
+            DEFINE_PRESENT_VALUE
+                | DEFINE_PRESENT_WRITABLE
+                | DEFINE_PRESENT_ENUMERABLE
+                | DEFINE_PRESENT_CONFIGURABLE,
+        );
+        __torajs_str_drop(key);
+    }
+}
+
+/// `AnySlotTag::I64` — the `length` entry's value tag.
+const ANY_I64: u64 = 2;
+
 /// Mirror of `torajs_rc::ANY_METHOD_FN_HAS_INSTANCE`.
 const ANY_METHOD_FN_HAS_INSTANCE_MID: i64 = 206;
 

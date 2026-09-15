@@ -35,6 +35,7 @@ unsafe extern "C" {
     fn __torajs_object_proto_install(proto: *mut c_void);
     fn __torajs_function_proto_install(proto: *mut c_void);
     fn __torajs_iterator_proto_install(proto: *mut c_void);
+    fn __torajs_string_proto_install(proto: *mut c_void);
     fn __torajs_proto_tostringtag_install(proto: *mut c_void, idx: i64);
     fn __torajs_proto_symbol_keys_install(proto: *mut c_void, idx: i64);
     /// torajs-anyvalue — %Function.prototype%'s cell. §20.2.3 makes it
@@ -293,6 +294,10 @@ pub unsafe extern "C" fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void
     if idx == ITERATOR_PROTO_TAG {
         unsafe { __torajs_iterator_proto_install(fresh) };
     }
+    // %String.prototype%'s own §22.1.3 `length` 0 — same posture.
+    if idx == STRING_PROTO_TAG {
+        unsafe { __torajs_string_proto_install(fresh) };
+    }
     // Eight prototypes carry a §20.4.3.5-shaped `@@toStringTag` own
     // entry (Symbol / BigInt / Promise / Map / Set / WeakMap /
     // WeakSet / WeakRef); the install is a no-op for the rest, which
@@ -459,6 +464,10 @@ unsafe fn __torajs_proto_tostringtag_install(_proto: *mut c_void, _idx: i64) {}
 // (linked into `tr`); same posture as the two stubs above.
 #[cfg(test)]
 unsafe fn __torajs_iterator_proto_install(_proto: *mut c_void) {}
+
+// The %String.prototype% `length` install lives in torajs-meta.
+#[cfg(test)]
+unsafe fn __torajs_string_proto_install(_proto: *mut c_void) {}
 
 // The prototype-side well-known-symbol installs (@@iterator alias,
 // @@unscopables) are torajs-anyvalue's too; same posture.
