@@ -78,14 +78,49 @@ pub unsafe extern "C" fn __torajs_proxy_get_prototype_of(recv: AnyValue) -> AnyV
             return VALUE_NULL;
         };
         // §10.5.1 step 7 — the trap answers an Object or null.
-        if is_null(out) || crate::to_primitive::is_object_value(out) {
-            return out;
+        if !is_null(out) && !crate::to_primitive::is_object_value(out) {
+            __torajs_anyv_rc_dec(out);
+            __torajs_throw_type_error(
+                c"proxy 'getPrototypeOf' trap must return an object or null".as_ptr(),
+            );
+            return VALUE_NULL;
         }
-        __torajs_anyv_rc_dec(out);
-        __torajs_throw_type_error(
-            c"proxy 'getPrototypeOf' trap must return an object or null".as_ptr(),
-        );
-        VALUE_NULL
+        // Steps 8-11 — a non-extensible target pins its prototype.
+        if proto_contradicts_target(target, out).is_err() {
+            __torajs_anyv_rc_dec(out);
+            return VALUE_NULL;
+        }
+        out
+    }
+}
+
+/// §10.5.1 steps 8-11 / §10.5.2 steps 10-13 — a trap may report any
+/// prototype for an extensible target, but a non-extensible one's
+/// [[Prototype]] is fixed, so the reported `proto` must be SameValue
+/// with it. `Err` = a pending throw (the TypeError, or one raised by
+/// the target's own traps).
+///
+/// # Safety
+/// `target` is a live object; `proto` a valid AnyValue.
+unsafe fn proto_contradicts_target(target: AnyValue, proto: AnyValue) -> Result<(), ()> {
+    unsafe {
+        if crate::proxy_invariant::target_extensible(target)? {
+            return Ok(());
+        }
+        let actual = __torajs_anyv_get_proto_of_any(target);
+        if __torajs_throw_check() != 0 {
+            __torajs_anyv_rc_dec(actual);
+            return Err(());
+        }
+        let same = crate::nanbox_ffi::__torajs_anyv_same_value(proto, actual);
+        __torajs_anyv_rc_dec(actual);
+        if same {
+            Ok(())
+        } else {
+            crate::proxy_invariant::violated(
+                c"proxy prototype trap disagrees with a non-extensible target's prototype",
+            )
+        }
     }
 }
 
@@ -121,6 +156,9 @@ pub unsafe extern "C" fn __torajs_proxy_set_prototype_of(recv: AnyValue, proto: 
         }
         let b = __torajs_anyv_to_bool(out);
         __torajs_anyv_rc_dec(out);
+        if b && proto_contradicts_target(target, proto).is_err() {
+            return 0;
+        }
         b as i64
     }
 }
