@@ -195,6 +195,10 @@ unsafe fn derive_for_close(recv: AnyValue, iter_slot: *mut AnyValue) -> bool {
             }
             crate::iter_any_get_method::GetIterator::Threw => return false,
             crate::iter_any_get_method::GetIterator::NoUserMethod => {}
+            crate::iter_any_get_method::GetIterator::Absent => {
+                __torajs_throw_type_error(c"value is not iterable".as_ptr());
+                return false;
+            }
         }
         if is_short_str(recv) {
             return false;

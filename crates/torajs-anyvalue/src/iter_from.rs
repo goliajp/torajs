@@ -86,7 +86,7 @@ pub(crate) unsafe fn derive_flattenable(v: AnyValue, allow_string: bool) -> Opti
         match get_iterator(v) {
             GetIterator::Iterator(it) => return Some(it),
             GetIterator::Threw => return None,
-            GetIterator::NoUserMethod => {}
+            GetIterator::NoUserMethod | GetIterator::Absent => {}
         }
         let minted = match tag {
             t if t == Tag::Arr as u16 => {

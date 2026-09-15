@@ -144,7 +144,7 @@ pub(crate) unsafe fn array_from_this(
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(it);
                 product
             }
-            GetIterator::NoUserMethod => {
+            GetIterator::NoUserMethod | GetIterator::Absent => {
                 if crate::iter_any::claims_iterable(items) {
                     from_builtin_iterable(this_c, items, map_pair, this_arg)
                 } else {

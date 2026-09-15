@@ -135,9 +135,14 @@ unsafe fn interned(slot: &AtomicPtr<u8>, bytes: &[u8]) -> *mut u8 {
 
 /// What [`get_iterator`] resolved.
 pub(crate) enum GetIterator {
-    /// The receiver has no `@@iterator` — the caller keeps its builtin
-    /// lane (an array, a string, a Map).
+    /// The receiver has no `@@iterator` of its own, but a builtin lane
+    /// answers for it (an array, a string, a Map).
     NoUserMethod,
+    /// The `@@iterator` a builtin family prototype owns has been
+    /// deleted — the receiver's builtin lane is no longer reachable
+    /// through §7.4.2, so a consumer with no array-like fallback
+    /// refuses.
+    Absent,
     /// The derived iterator, owned; the caller parks it in `iter_slot`
     /// and releases it at loop exit.
     Iterator(AnyValue),
@@ -225,7 +230,11 @@ pub(crate) unsafe fn get_iterator_wk(
         }
         if tag == TAG_UNDEF || (nullish_missing && tag == TAG_NULL) {
             // Nullish carries no cell, so the guard drops to nothing.
-            return GetIterator::NoUserMethod;
+            return if wk_idx == WK_ITERATOR && builtin_iterator_deleted(recv) {
+                GetIterator::Absent
+            } else {
+                GetIterator::NoUserMethod
+            };
         }
         // A getter-produced method is ours across all four exits of
         // the dispatch below, and the invoke's `env` aliases its cell
@@ -411,4 +420,38 @@ pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
             crate::iter_any_close::reject_non_object_close_result(result);
         }
     }
+}
+
+/// Did a builtin family prototype lose the `[Symbol.iterator]` entry
+/// it owns? The probe above already answered "no method", so the only
+/// question left is whether one was supposed to be there: the Array /
+/// String / Map / Set / %TypedArray% prototypes install theirs at
+/// mint, and `delete Array.prototype[Symbol.iterator]` takes it away.
+///
+/// # Safety
+/// `recv` is a live AnyValue.
+pub(crate) unsafe fn builtin_iterator_deleted(recv: AnyValue) -> bool {
+    let family = crate::method_value::family::recv_proto_family(recv);
+    crate::method_value::symbol_lookup::proto_tag_installs_iterator(family)
+}
+
+/// [`builtin_iterator_deleted`] with the probe done too — the shape a
+/// caller that has not already asked for the method needs.
+///
+/// # Safety
+/// `recv` is a live AnyValue.
+pub(crate) unsafe fn builtin_iterator_missing(recv: AnyValue) -> bool {
+    if !unsafe { builtin_iterator_deleted(recv) } {
+        return false;
+    }
+    let sym = unsafe { __torajs_symbol_well_known(WK_ITERATOR) };
+    if sym.is_null() {
+        return false;
+    }
+    let absent = unsafe { crate::member_get_symbol::symbol_key_get(recv, sym) }
+        .pair()
+        .0
+        == TAG_UNDEF;
+    unsafe { __torajs_rc_dec(sym) };
+    absent
 }

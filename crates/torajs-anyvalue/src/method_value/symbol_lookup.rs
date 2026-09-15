@@ -172,6 +172,11 @@ const METHOD_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 <
 /// use-after-free already present without this row, and this row only
 /// shifted binary layout enough to make it trap. It is fixed at its
 /// source in `ssa_lower_object_lit.rs` (rotation 384).
+pub(crate) fn proto_tag_installs_iterator(proto_tag: i64) -> bool {
+    proto_tag_iterator_alias(proto_tag).is_some()
+}
+
+/// The family prototype's `[Symbol.iterator]` alias — `(family, mid)`.
 fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
     Some(match proto_tag {
         2 => (2, torajs_rc::ANY_METHOD_VALUES),

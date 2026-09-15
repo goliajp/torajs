@@ -319,8 +319,21 @@ unsafe fn symbol_key_probe(recv: AnyValue, key: *const c_void) -> Option<(u64, u
     // BEFORE the root hop, not after: the reified faces are what the
     // family prototype OWNS, and %Object.prototype% is one link
     // further out.
+    // EXCEPT for the one face the family prototype OWNS as a real
+    // entry: `[Symbol.iterator]` is installed into Array / String /
+    // Map / Set / %TypedArray% prototypes at mint
+    // (`__torajs_proto_symbol_keys_install`), so once that dict has
+    // been probed it is the authority — `delete
+    // Array.prototype[Symbol.iterator]` must read as absent, not be
+    // answered again from the reify.
+    let family = crate::method_value::family::recv_proto_family(recv);
+    let owned_by_family_proto = probed
+        && key == crate::method_value::symbol_static::well_known_singleton(5)
+        && crate::method_value::symbol_lookup::proto_tag_installs_iterator(family);
     // SAFETY: key is a live Symbol cell per the caller contract.
-    if let Some(cell) = unsafe { crate::method_value::builtin_symbol_method_lookup(t, key) } {
+    if !owned_by_family_proto
+        && let Some(cell) = unsafe { crate::method_value::builtin_symbol_method_lookup(t, key) }
+    {
         return Some((4, cell as u64));
     }
     // NOT for a DynObj: that arm's `Nothing` is the genuine end of the
@@ -332,7 +345,6 @@ unsafe fn symbol_key_probe(recv: AnyValue, key: *const c_void) -> Option<(u64, u
     if t == Tag::DynObj as u16 {
         return None;
     }
-    let family = crate::method_value::family::recv_proto_family(recv);
     let next = unsafe { chain_next(ptr, family, probed) }?;
     unsafe { symbol_key_probe(next, key) }
 }

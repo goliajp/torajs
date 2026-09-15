@@ -99,6 +99,10 @@ unsafe fn derive_for_park(recv: AnyValue) -> AnyValue {
             crate::iter_any_get_method::GetIterator::Iterator(iter) => return iter,
             crate::iter_any_get_method::GetIterator::Threw => return VALUE_UNDEFINED,
             crate::iter_any_get_method::GetIterator::NoUserMethod => {}
+            crate::iter_any_get_method::GetIterator::Absent => {
+                __torajs_throw_type_error(c"value is not iterable".as_ptr());
+                return VALUE_UNDEFINED;
+            }
         }
         if is_short_str(recv) {
             return box_int32(0);

@@ -159,6 +159,12 @@ unsafe fn map_set_derive_iter(recv: AnyValue, is_map: bool, iter_slot: *mut AnyV
 /// # Safety
 /// `recv` is a live AnyValue.
 pub(crate) unsafe fn claims_iterable(recv: AnyValue) -> bool {
+    // A family prototype whose `[Symbol.iterator]` was deleted no
+    // longer claims its receivers — the array-like walk is what is
+    // left of them (§23.1.2.1 step 4).
+    if unsafe { crate::iter_any_get_method::builtin_iterator_missing(recv) } {
+        return false;
+    }
     if is_short_str(recv) {
         return true;
     }
@@ -333,7 +339,8 @@ pub(crate) unsafe fn iter_next_inner(
                         *idx_slot = USER_ITERATOR_LANE;
                         return step_derived_iterator(iter, out, true);
                     }
-                    crate::iter_any_get_method::GetIterator::NoUserMethod => {}
+                    crate::iter_any_get_method::GetIterator::NoUserMethod
+                    | crate::iter_any_get_method::GetIterator::Absent => {}
                     crate::iter_any_get_method::GetIterator::Threw => {
                         *out = VALUE_UNDEFINED;
                         return 0;
@@ -347,6 +354,17 @@ pub(crate) unsafe fn iter_next_inner(
                     return step_derived_iterator(iter, out, await_mode);
                 }
                 crate::iter_any_get_method::GetIterator::NoUserMethod => {}
+                // The builtin lane's own `@@iterator` was deleted:
+                // §7.4.2 has nothing to call, and only the array-like
+                // consumers (`Array.from` and friends) have a step 3
+                // to fall back on.
+                crate::iter_any_get_method::GetIterator::Absent => {
+                    if !array_like_fallback {
+                        __torajs_throw_type_error(c"value is not iterable".as_ptr());
+                        *out = VALUE_UNDEFINED;
+                        return 0;
+                    }
+                }
                 crate::iter_any_get_method::GetIterator::Threw => {
                     *out = VALUE_UNDEFINED;
                     return 0;

@@ -127,7 +127,7 @@ pub(crate) unsafe fn typed_array_from_this(
                     None => VALUE_UNDEFINED,
                 }
             }
-            GetIterator::NoUserMethod => {
+            GetIterator::NoUserMethod | GetIterator::Absent => {
                 if crate::iter_any::claims_iterable(source) {
                     match drain_builtin_iterable(source) {
                         Some(v) => from_list(c, v, map_pair, this_arg),

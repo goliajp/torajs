@@ -108,7 +108,7 @@ mod supported;
 pub(crate) use supported::builtin_method_supported;
 
 // r290 file-size split — the well-known-symbol reify table.
-mod symbol_lookup;
+pub(crate) mod symbol_lookup;
 pub(crate) use symbol_lookup::builtin_symbol_method_lookup;
 
 /// Interned name Str layout — mirror of torajs-str
