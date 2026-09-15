@@ -14,9 +14,8 @@
 //! carry that split. The kernels here answer the boolean and let the
 //! shell decide.
 //!
-//! The §10.5.x invariant checks (the non-extensible /
-//! non-configurable consistency rules) are NOT here: they need
-//! [[GetOwnProperty]] on the target, which knife 4 builds.
+//! The §10.5.x invariant checks over each answer live in
+//! [`crate::proxy_invariant`].
 
 use core::ffi::c_void;
 
@@ -113,6 +112,10 @@ pub(crate) unsafe fn set(
         let v =
             crate::nanbox_encode::__torajs_anyv_box_from_pair(value_tag as i64, value_bits as i64);
         let out = call_bool_trap(t, handler, target, key, &[v, receiver]);
+        let out = match out {
+            Ok(true) => crate::proxy_invariant::check_set(target, key, v).map(|()| true),
+            other => other,
+        };
         __torajs_anyv_rc_dec(v);
         out
     }
@@ -134,7 +137,11 @@ pub(crate) unsafe fn has(cell: *mut c_void, key: *const c_void) -> Result<bool, 
             }
             return Ok(r != 0);
         };
-        call_bool_trap(t, handler, target, key, &[])
+        let found = call_bool_trap(t, handler, target, key, &[])?;
+        if !found {
+            crate::proxy_invariant::check_has_false(target, key)?;
+        }
+        Ok(found)
     }
 }
 
@@ -164,6 +171,10 @@ pub(crate) unsafe fn delete(
             }
             return Ok(r != 0);
         };
-        call_bool_trap(t, handler, target, key, &[])
+        let deleted = call_bool_trap(t, handler, target, key, &[])?;
+        if deleted {
+            crate::proxy_invariant::check_delete_true(target, key)?;
+        }
+        Ok(deleted)
     }
 }

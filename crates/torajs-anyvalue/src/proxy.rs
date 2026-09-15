@@ -245,6 +245,10 @@ pub(crate) unsafe fn get(ptr: *mut c_void, key: *const c_void, receiver: AnyValu
             __torajs_anyv_rc_dec(out);
             return VALUE_UNDEFINED;
         }
+        if crate::proxy_invariant::check_get(target, key, out).is_err() {
+            __torajs_anyv_rc_dec(out);
+            return VALUE_UNDEFINED;
+        }
         out
     }
 }
