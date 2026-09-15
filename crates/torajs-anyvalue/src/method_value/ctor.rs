@@ -48,6 +48,11 @@ pub(crate) fn builtin_ctor_cell(proto_tag: i64) -> *mut u8 {
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = ctor_call_entry as *const () as u64;
         *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = torajs_rc::ANY_METHOD_UNKNOWN as u64;
+        if crate::closure_proto::ctor_species_accessor::owns_species(proto_tag) {
+            crate::closure_proto::ctor_species_accessor::install(
+                cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void
+            );
+        }
         slot.store(cell as u64, Ordering::Relaxed);
         cell
     }
@@ -269,6 +274,16 @@ pub(crate) fn ctor_tag_of_cell(cell: *const c_void) -> Option<i64> {
         .iter()
         .position(|slot| slot.load(Ordering::Relaxed) == cell as u64 && !cell.is_null())
         .map(|i| i as i64)
+}
+
+/// Is `ctor` the interned builtin constructor of `recv`'s own family —
+/// the default constructor a §7.3.22 SpeciesConstructor /
+/// ArraySpeciesCreate falls back to (`Int8Array` for an Int8Array,
+/// %Promise% for a promise)?
+pub(crate) fn is_default_ctor_for(recv: AnyValue, ctor: AnyValue) -> bool {
+    crate::nanbox::is_cell(ctor)
+        && ctor_family_tag(recv)
+            .is_some_and(|t| ctor_tag_of_cell(crate::nanbox::as_void_ptr(ctor)) == Some(t))
 }
 
 /// ES `name` / `length` of a builtin constructor (刀 3) — the

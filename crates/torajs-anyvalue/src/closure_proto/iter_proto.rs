@@ -54,7 +54,11 @@ pub(crate) fn return_name_cell() -> *mut u8 {
 /// §27.1.2.1 `%Iterator.prototype%[Symbol.iterator]` — return this.
 /// Owned-return convention: a cell receiver goes back with its own
 /// fresh stake.
-unsafe extern "C" fn iter_proto_self_entry(_env: *mut c_void, argv: *const u64, argc: i64) -> u64 {
+pub(super) unsafe extern "C" fn iter_proto_self_entry(
+    _env: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+) -> u64 {
     let recv = if argc > 0 && !argv.is_null() {
         unsafe { *argv }
     } else {

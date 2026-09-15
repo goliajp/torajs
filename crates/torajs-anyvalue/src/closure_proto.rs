@@ -32,6 +32,8 @@ use crate::method_value::mint_immortal_str;
 /// faces keep their symbols across the move.
 mod gen_step;
 
+/// A species-aware builtin constructor's `get [Symbol.species]`.
+pub(crate) mod ctor_species_accessor;
 /// `%Iterator.prototype%`'s own `[Symbol.iterator]` / `[Symbol.dispose]`
 /// entries (RFC 20260809 B6) — a child for the same reach into the
 /// private mint plumbing.

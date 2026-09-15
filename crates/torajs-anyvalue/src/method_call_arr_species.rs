@@ -300,6 +300,12 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
             return SpeciesOutcome::Default;
         }
         let species = crate::nanbox_encode::__torajs_anyv_box_from_pair(stag as i64, sval as i64);
+        // §23.1.2.5 answers %Array% itself for a plain array's
+        // constructor: Construct(%Array%, « len ») is the default
+        // product the kernel already derives.
+        if crate::method_value::ctor::is_default_ctor_for(__torajs_anyv_box_pointer(arr), species) {
+            return SpeciesOutcome::Default;
+        }
         // A getter-produced species is ours once Construct is done —
         // `species_pair` outliving it says so; the product carries its
         // own +1 and is unaffected.

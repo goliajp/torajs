@@ -160,7 +160,7 @@ pub(crate) unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -
                     __torajs_throw_type_error(c"species constructor is not a constructor".as_ptr());
                     return SpeciesResolved::Threw;
                 }
-                species_object_face(dval as *mut c_void)
+                species_object_face(recv, dval as *mut c_void)
             }
             // Number / boolean imm — step 4 TypeError.
             _ => {
@@ -177,7 +177,7 @@ pub(crate) unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -
 /// non-constructor. A real species constructor answers 0 too — the
 /// construct channel is the recorded follow-up, so the product it
 /// would build is still the default's.
-unsafe fn species_object_face(ctor: *mut c_void) -> SpeciesResolved {
+unsafe fn species_object_face(recv: AnyValue, ctor: *mut c_void) -> SpeciesResolved {
     unsafe {
         let sym = __torajs_symbol_well_known(WELL_KNOWN_SPECIES_IDX);
         if sym.is_null() {
@@ -186,7 +186,7 @@ unsafe fn species_object_face(ctor: *mut c_void) -> SpeciesResolved {
         let ctor_av = crate::nanbox_encode::__torajs_anyv_box_pointer(ctor);
         let (stag, sval) = symbol_key_pair(ctor_av, sym as *const c_void);
         __torajs_value_drop_heap(sym);
-        classify_species_entry(ctor_av, stag, sval)
+        classify_species_entry(recv, ctor_av, stag, sval)
     }
 }
 
@@ -194,7 +194,12 @@ unsafe fn species_object_face(ctor: *mut c_void) -> SpeciesResolved {
 /// default; an accessor getter runs and its answer re-classifies;
 /// a constructor proceeds (default product, recorded); anything
 /// else is the step-8 TypeError.
-unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> SpeciesResolved {
+unsafe fn classify_species_entry(
+    recv: AnyValue,
+    ctor_av: AnyValue,
+    stag: u64,
+    sval: u64,
+) -> SpeciesResolved {
     unsafe {
         // §23.2.2.4 with the INHERITED default getter — `get
         // %TypedArray%[@@species]` returns this, and a subclass
@@ -216,7 +221,7 @@ unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> Spe
                 }
                 let gtag = crate::nanbox_encode::__torajs_anyv_unbox_tag(got);
                 let gval = crate::nanbox_encode::__torajs_anyv_unbox_value(got);
-                let verdict = classify_species_entry(ctor_av, gtag as u64, gval as u64);
+                let verdict = classify_species_entry(recv, ctor_av, gtag as u64, gval as u64);
                 // A Ctor verdict keeps its own stake (the recursion
                 // inc'd it) — the getter's answer releases either way.
                 // A ShortStr answer additionally materialized an
@@ -237,6 +242,14 @@ unsafe fn classify_species_entry(ctor_av: AnyValue, stag: u64, sval: u64) -> Spe
                 // counter-example the spec's own test names —
                 // callable, no [[Construct]], and step 10's TypeError
                 // is the whole point of the case.
+                //
+                // The receiver's own intrinsic (`get %Promise%[@@species]`
+                // returning %Promise%) IS the default constructor, and
+                // every caller already derives the default product
+                // without constructing it.
+                if crate::method_value::ctor::is_default_ctor_for(recv, s) {
+                    return SpeciesResolved::Default;
+                }
                 if is_constructor(s) {
                     crate::nanbox_ffi::__torajs_anyv_rc_inc(s);
                     return SpeciesResolved::Ctor(s);

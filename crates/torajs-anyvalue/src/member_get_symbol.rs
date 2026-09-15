@@ -125,6 +125,16 @@ unsafe fn inherited_dict(ptr: *mut c_void, t: u16) -> InheritedFrom {
         }
         return InheritedFrom::Nothing;
     }
+    // A concrete typed-array constructor inherits from %TypedArray%
+    // (§23.2.6), which owns `get [@@species]` for all twelve.
+    if t == Tag::Closure as u16 {
+        let parent = unsafe {
+            crate::method_value::ctor_buffer::__torajs_builtin_ctor_parent_value(ptr.cast_const())
+        };
+        if parent != 0 {
+            return InheritedFrom::Receiver(parent);
+        }
+    }
     // A wrapper keeps its own arm: the family map has no
     // SymbolWrapper row (its method reads intern family-less), while
     // `Object(Symbol())` does inherit through %Symbol.prototype% —
