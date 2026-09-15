@@ -31,6 +31,9 @@ unsafe extern "C" {
     /// hook the front door's dynobj tail records; see
     /// [`__torajs_dynobj_define_plain`]).
     fn __torajs_builtin_proto_note_own_write(obj: *const c_void, name: *const u8, len: i64);
+    /// torajs-anyvalue — the lazy §20.2.4 `prototype` mint, owned box.
+    fn __torajs_closure_prototype_any(env: *mut c_void) -> u64;
+    fn __torajs_anyv_rc_dec(v: u64);
 }
 
 /// Lazily materialize a function's virtual own `length` / `name`
@@ -55,6 +58,10 @@ pub(crate) unsafe fn seed_virtual_fn_prop(
             return;
         };
         let name = core::slice::from_raw_parts(data, len as usize);
+        if name == b"prototype" {
+            seed_fn_prototype(fn_cell, props_slot, key);
+            return;
+        }
         let is_length = name == b"length";
         if !is_length && name != b"name" {
             return;
@@ -93,6 +100,29 @@ pub(crate) unsafe fn seed_virtual_fn_prop(
         define_apply(props_slot, key, tag, value, flags, false);
     }
 }
+
+/// §10.2.5 MakeConstructor — a plain `function` cell's `prototype`
+/// is minted lazily, with its real attributes (writable,
+/// non-enumerable, non-configurable), on first read. A define is a
+/// first touch too: mint it here so the descriptor is validated
+/// against the existing non-configurable entry instead of landing as
+/// a brand-new property (`{ set() {} }` used to replace it).
+unsafe fn seed_fn_prototype(fn_cell: *mut c_void, props_slot: *mut *mut c_void, key: *mut c_void) {
+    unsafe {
+        let hflags = *(fn_cell.cast::<u8>().add(6) as *const u16);
+        if hflags & FLAG_FN_PROTO == 0 || probe(*props_slot, key as *const c_void).found {
+            return;
+        }
+        // The mint writes the entry into the props table and answers
+        // an owned box of the prototype object; only the entry's
+        // stake is kept.
+        __torajs_anyv_rc_dec(__torajs_closure_prototype_any(fn_cell));
+    }
+}
+
+/// `torajs_rc::FLAG_FN_PROTO` mirror (bit 15, Closure-private) — set on
+/// a plain `function` cell, clear for arrow / method forms.
+const FLAG_FN_PROTO: u16 = 1 << 15;
 
 /// The absent-key half of [`define_apply`]'s dynobj tail — the
 /// non-extensible refusal + fresh append (insertion order, absent
