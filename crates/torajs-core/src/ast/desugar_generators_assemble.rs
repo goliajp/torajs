@@ -35,6 +35,19 @@ pub(super) fn build_state_machine_next_body(
     // arm with `return {value:e, done:false}`; control-flow gotos
     // close with `state = N; continue;` and the `while(true)` loop
     // re-enters the if-chain at the new state.
+    // Rotation 653 — whether the rewritten body spells the `__gself`
+    // alias at all (`desugar_generators_rewrite::GEN_SELF_ALIAS`: a
+    // function expression or object-literal method reading a lifted
+    // local). Read before the state machine consumes the body; the
+    // alias decl below is emitted only then. Unconditional (rotation
+    // 636 → 652), every `next()` boxed `this` into an `any` local and
+    // dropped it through the generic drop: +20% on
+    // `generator-yield-100k` and the cycle collector plus every
+    // family's drop linked into a program that never names them
+    // (artifact 34 KB → 100 KB).
+    let needs_self_alias = super::free_vars::free_vars_of_body(ast, &[], &gen_body)
+        .iter()
+        .any(|n| n == super::desugar_generators_rewrite::GEN_SELF_ALIAS);
     let mut sm = super::desugar_generators_sm::GenSm::new(ast, yield_ty.to_string(), is_async_gen);
     sm.lower_seq(gen_body);
     // After the last body stmt, the natural exit is "done forever".
@@ -150,14 +163,17 @@ pub(super) fn build_state_machine_next_body(
     // `desugar_generators_rewrite::GEN_SELF_ALIAS`). A local, not a
     // field: the closure lift captures it at the mint site like any
     // enclosing binding, which `this.<field>` cannot be from there.
-    let self_read = ast.add_expr(Expr::This);
-    body.push(Stmt::LetDecl {
-        mutable: false,
-        name: super::desugar_generators_rewrite::GEN_SELF_ALIAS.into(),
-        type_ann: Some("any".into()),
-        init: self_read,
-        is_var: false,
-    });
+    // Only when the body spells it (rotation 653, see above).
+    if needs_self_alias {
+        let self_read = ast.add_expr(Expr::This);
+        body.push(Stmt::LetDecl {
+            mutable: false,
+            name: super::desugar_generators_rewrite::GEN_SELF_ALIAS.into(),
+            type_ann: Some("any".into()),
+            init: self_read,
+            is_var: false,
+        });
+    }
     body.extend(inject_prologue);
     // The dispatch loop carries the goto label: every SM goto is a
     // `continue __sm;`, which reaches the dispatch from any nesting
