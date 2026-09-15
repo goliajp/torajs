@@ -133,7 +133,7 @@ pub unsafe extern "C" fn __torajs_any_method_call(
 ) -> AnyValue {
     let r = unsafe { any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc) };
     if r == ANY_METHOD_NO_SUCH {
-        if let Some(out) = unsafe { miss_tail(recv, mid, name_str, argv, argc) } {
+        if let Some(out) = unsafe { miss_tail(recv, mid, name_str, recv_slot, argv, argc) } {
             return out;
         }
         return unsafe { not_callable() };
@@ -162,11 +162,14 @@ pub(crate) unsafe fn miss_tail(
     recv: AnyValue,
     mid: i64,
     name_str: *const u8,
+    recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
     if let Some(out) = unsafe {
-        crate::method_call_proto_patch::builtin_proto_patch_method(recv, mid, name_str, argv, argc)
+        crate::method_call_proto_patch::builtin_proto_patch_method(
+            recv, mid, name_str, recv_slot, argv, argc,
+        )
     } {
         return Some(out);
     }
@@ -196,7 +199,7 @@ pub unsafe extern "C" fn __torajs_any_method_call_opt(
     if r == ANY_METHOD_NO_SUCH {
         // Same tail as the throwing flavor — a live patch resolves;
         // only a true miss keeps the `?.()` undefined.
-        if let Some(out) = unsafe { miss_tail(recv, mid, name_str, argv, argc) } {
+        if let Some(out) = unsafe { miss_tail(recv, mid, name_str, recv_slot, argv, argc) } {
             return out;
         }
         return VALUE_UNDEFINED;
@@ -439,7 +442,7 @@ pub unsafe fn any_method_dispatch_impl(
     if !skip_wrapper_expando
         && let Some(out) = unsafe {
             crate::method_call_proto_patch::builtin_proto_patch_method(
-                recv, mid, name_str, argv, argc,
+                recv, mid, name_str, recv_slot, argv, argc,
             )
         }
     {

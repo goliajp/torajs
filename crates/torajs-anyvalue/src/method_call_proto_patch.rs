@@ -198,7 +198,9 @@ pub(crate) unsafe fn primitive_patch_pregate(
             || root_shadows_inherited(fam, mid))
             && !own_face_shadows(recv_face, mid, name_str)
         {
-            if let Some(out) = builtin_proto_patch_method(recv, mid, name_str, argv, argc) {
+            if let Some(out) =
+                builtin_proto_patch_method(recv, mid, name_str, core::ptr::null_mut(), argv, argc)
+            {
                 return Some(out);
             }
             // No own entry resolved, and the method was deleted — the
@@ -284,6 +286,7 @@ pub(crate) unsafe fn primitive_patch_pregate(
                 recv,
                 ANY_METHOD_TO_STRING,
                 core::ptr::null(),
+                core::ptr::null_mut(),
                 core::ptr::null(),
                 0,
             );

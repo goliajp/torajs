@@ -112,7 +112,7 @@ unsafe fn str_keyed_call(
     let r = unsafe { any_method_call_inner(recv, mid, name_cell, recv_slot, argv, argc) };
     if r == crate::method_call::ANY_METHOD_NO_SUCH
         && let Some(out) =
-            unsafe { crate::method_call::miss_tail(recv, mid, name_cell, argv, argc) }
+            unsafe { crate::method_call::miss_tail(recv, mid, name_cell, recv_slot, argv, argc) }
     {
         return out;
     }

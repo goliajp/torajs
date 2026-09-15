@@ -1,0 +1,40 @@
+// §23.1.3 generics hung on %Object.prototype% and called on a plain
+// object (test262 S15.4.4.x_A4 / A3): the borrowed Array cell runs the
+// array-like lane over the receiver, relocation written back.
+var OP: any = Object.prototype;
+OP[1] = 1;
+OP.length = 2;
+OP.pop = Array.prototype.pop;
+var x: any = { 0: 0 };
+console.log("pop", x.pop(), x[1], x.length, x.hasOwnProperty("length"));
+OP.push = Array.prototype.push;
+var y: any = { 0: 0 };
+console.log("push", y.push(7, 8), y[1], y[2], y.length);
+OP.concat = Array.prototype.concat;
+var z: any = { 0: 0 };
+var arr = z.concat();
+console.log("concat", arr[0] === z, arr[1], arr.hasOwnProperty("1"), arr.length);
+OP.join = Array.prototype.join;
+console.log("join", ({ 0: "a" } as any).join("+"));
+OP.reverse = Array.prototype.reverse;
+var w: any = { 0: "a" };
+w.reverse();
+console.log("reverse", w[0], w[1], w.hasOwnProperty("0"));
+OP.shift = Array.prototype.shift;
+var v: any = { 0: "s" };
+console.log("shift", v.shift(), v[0], v.length);
+OP.unshift = Array.prototype.unshift;
+var u: any = { 0: "u" };
+console.log("unshift", u.unshift("n"), u[0], u[1], u[2], u.length);
+OP.splice = Array.prototype.splice;
+var t: any = { 0: "t" };
+console.log("splice", JSON.stringify(t.splice(0, 1)), t[0], t.length);
+OP.sort = Array.prototype.sort;
+var q: any = { 0: "b" };
+q.sort();
+console.log("sort", q[0], q[1]);
+OP.indexOf = Array.prototype.indexOf;
+console.log("indexOf", ({ 0: 5 } as any).indexOf(1), ({ 0: 5 } as any).indexOf(5));
+delete OP[1]; delete OP.length;
+for (const k of ["pop", "push", "concat", "join", "reverse", "shift", "unshift", "splice", "sort", "indexOf"]) delete OP[k];
+console.log("restored", typeof ({} as any).pop, ({}).hasOwnProperty("length"));

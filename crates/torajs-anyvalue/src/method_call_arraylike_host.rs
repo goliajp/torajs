@@ -152,10 +152,21 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
                 }
             }
             pair
-        } else {
+        } else if __torajs_dynobj_has(obj, key as *const c_void) != 0 {
             (
                 __torajs_dynobj_get_tag(obj, key as *const c_void),
                 __torajs_dynobj_get_value(obj, key as *const c_void),
+            )
+        } else {
+            // §7.3.2 Get walks the chain: a dynobj with no own
+            // `length` reads its prototype's (`Object.prototype
+            // .length = 2; ({0: 0}).pop()`, test262 S15.4.4.x_A4) —
+            // the own-dict read alone answered ToLength 0 there. The
+            // own hit above stays the one-probe fast path.
+            let recv = __torajs_anyv_box_pointer(obj);
+            (
+                crate::member_get::__torajs_any_member_get_tag(recv, key as *const c_void),
+                crate::member_get_value::__torajs_any_member_get_value(recv, key as *const c_void),
             )
         };
         __torajs_str_drop(key as *mut c_void);

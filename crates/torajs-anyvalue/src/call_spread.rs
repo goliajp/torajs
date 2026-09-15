@@ -151,7 +151,7 @@ pub unsafe extern "C" fn __torajs_any_method_call_spread(
             let r = any_method_call_inner(recv, mid, name_str, recv_slot, argv, argc);
             if r == ANY_METHOD_NO_SUCH {
                 if let Some(out) = crate::method_call_proto_patch::builtin_proto_patch_method(
-                    recv, mid, name_str, argv, argc,
+                    recv, mid, name_str, recv_slot, argv, argc,
                 ) {
                     return out;
                 }

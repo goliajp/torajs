@@ -65,6 +65,7 @@ pub(crate) unsafe fn builtin_proto_patch_method(
     recv: AnyValue,
     mid: i64,
     name_str: *const u8,
+    recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
@@ -127,13 +128,56 @@ pub(crate) unsafe fn builtin_proto_patch_method(
         // stays on the miss exit (see module doc).
         if let Some(patch_mid) = builtin_method_mid(cell) {
             let fam = builtin_method_family(cell);
-            return crate::method_call_closure::generic_builtin_this(
-                patch_mid, recv, argv, argc, fam,
-            );
+            if let Some(out) =
+                crate::method_call_closure::generic_builtin_this(patch_mid, recv, argv, argc, fam)
+            {
+                return Some(out);
+            }
+            // §23.1.3 "intentionally generic" — an Array method the
+            // program hung on %Object.prototype% (`Object.prototype
+            // .pop = Array.prototype.pop; ({0: 0}).pop()`, test262
+            // S15.4.4.x_A4) runs the array-like scan over the plain
+            // object, the same lane the own-bag store takes
+            // (`method_call_dynobj`); `recv_slot` rides along so a
+            // relocating mutator writes the moved cell back. A struct
+            // receiver hosts the read family only (its layout does
+            // not relocate, and the mutator lane is dynobj-shaped).
+            return arraylike_over_patch(recv, patch_mid, fam, recv_slot, argv, argc);
         }
         if let Some((env, entry)) = closure_cell_entry(cell) {
             return Some(invoke_with_this(env, entry, recv, argv, argc));
         }
         Some(not_callable())
     }
+}
+
+/// The array-like lane behind a borrowed Array-prototype cell whose
+/// receiver is a plain object (see the call site).
+unsafe fn arraylike_over_patch(
+    recv: AnyValue,
+    patch_mid: i64,
+    fam: i64,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if fam != crate::method_value::family::ARR_PROTO_FAMILY
+        || !crate::method_call_arraylike_concat::obj_supported(patch_mid)
+        || !is_cell(recv)
+    {
+        return None;
+    }
+    let ptr = as_void_ptr(recv) as *mut c_void;
+    // SAFETY: a cell box points at a live heap header; the tag word
+    // sits at offset 4.
+    let tag = unsafe { (ptr.cast::<u8>().add(4) as *const u16).read() };
+    let admitted = tag == torajs_rc::Tag::DynObj as u16
+        || (tag == torajs_rc::Tag::Obj as u16
+            && !crate::method_call_arraylike_mut::arraylike_mut_supported(patch_mid));
+    if !admitted {
+        return None;
+    }
+    Some(unsafe {
+        crate::method_call_arraylike_concat::obj_method(ptr, patch_mid, recv_slot, argv, argc)
+    })
 }

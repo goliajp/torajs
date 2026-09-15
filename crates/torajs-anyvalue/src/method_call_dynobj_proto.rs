@@ -52,6 +52,7 @@ pub(crate) unsafe fn object_proto_fallback(
     mid: i64,
     name_str: *const u8,
     is_struct: bool,
+    recv_slot: *mut u64,
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
@@ -118,6 +119,7 @@ pub(crate) unsafe fn object_proto_fallback(
             __torajs_anyv_box_pointer(obj),
             mid,
             name_str,
+            recv_slot,
             argv,
             argc,
         ) {

@@ -160,7 +160,7 @@ pub(crate) unsafe fn dynobj_method(
                 if let Some(r) = proto_chain_method(obj, name_str, recv_slot, argv, argc) {
                     return r;
                 }
-                return object_proto_fallback(obj, mid, name_str, false, argv, argc);
+                return object_proto_fallback(obj, mid, name_str, false, recv_slot, argv, argc);
             }
             // ANY_HEAP = 4 — a plain closure-cell property.
             if dtag == 4 {
@@ -298,7 +298,7 @@ pub(crate) unsafe fn dynobj_method(
         // answers the reified cell, and the cell re-enters by mid.)
         // The struct arm has always ended this way; this one threw.
         if name_str.is_null() {
-            return object_proto_fallback(obj, mid, name_str, false, argv, argc);
+            return object_proto_fallback(obj, mid, name_str, false, recv_slot, argv, argc);
         }
         not_callable()
     }
