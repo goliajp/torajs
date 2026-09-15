@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T09:49:26.390Z",
+  "generatedAt": "2026-09-15T14:09:24.315Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-15T09:38:59Z",
-    "headSha": "00ffa1569",
-    "elapsedSec": 522.82,
+    "ranAt": "2026-09-15T13:58:43Z",
+    "headSha": "df3c627d5",
+    "elapsedSec": 522.26,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 33070,
-    "passNoOracle": 1656,
+    "pass": 33150,
+    "passNoOracle": 1657,
     "passNegative": 4568,
-    "passTotal": 39294,
-    "bug": 9808,
+    "passTotal": 39375,
+    "bug": 9727,
     "incompatible": 4072,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49102,
-    "passRateInScope": 73.9,
-    "passRateTrAccepted": 80.03
+    "passRateInScope": 74.05,
+    "passRateTrAccepted": 80.19
   },
   "torajs": {
-    "commit": "00ffa1569",
-    "commitSubject": "feat(torajs-dynobj,torajs-anyvalue,torajs-meta): a declared class field takes a value its slot cannot hold — the shadow in its sidecar",
+    "commit": "df3c627d5",
+    "commitSubject": "fix(torajs-anyvalue): a keyed read or write on null coerces no key before it throws",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "00ffa1569",
-      "subject": "feat(torajs-dynobj,torajs-anyvalue,torajs-meta): a declared class field takes a value its slot cannot hold — the shadow in its sidecar"
+      "hash": "df3c627d5",
+      "subject": "fix(torajs-anyvalue): a keyed read or write on null coerces no key before it throws"
     },
     {
-      "hash": "9877f649b",
-      "subject": "refactor(torajs-anyvalue): the class-instance arm of the any-lane member set moves to its own file"
+      "hash": "2097495bc",
+      "subject": "fix(torajs-anyvalue): Function.prototype is callable through the constructor member spelling"
     },
     {
-      "hash": "dfecdcb65",
-      "subject": "perf(torajs-core): a generator that never reads its resume channel declares the __sent slot as a copy scalar"
+      "hash": "fac773c3b",
+      "subject": "fix(torajs-meta): a class instance's inspect block lists its fields in §10.1.11.1 order"
     },
     {
-      "hash": "c4af8fe06",
-      "subject": "perf(torajs-core): a generator's next() aliases this only when a nested function expression reads a lifted local"
+      "hash": "ec4863c32",
+      "subject": "feat(torajs-rc,torajs-anyvalue): RegExp.prototype.flags is an accessor with a receiver-generic getter"
     },
     {
-      "hash": "57bd7e574",
-      "subject": "fix(torajs-core): a typed .then with a named-fn handler takes the own-then split, gated on the cell's expando bag"
+      "hash": "7ace0f933",
+      "subject": "feat(torajs-arr,torajs-anyvalue): the array iterator steps an array-like source through Get"
     },
     {
-      "hash": "ea48f916f",
-      "subject": "style(torajs-core): rustfmt two files the promise-then store widen left unformatted"
+      "hash": "5f6d2473e",
+      "subject": "feat(torajs-anyvalue): an Array method hung on Object.prototype runs the array-like lane over a plain object"
     },
     {
-      "hash": "6d21ef8cf",
-      "subject": "chore(hardev): rotation 652 file-size stamp @d3d28721b (0 new / 0 grew)"
+      "hash": "66d593669",
+      "subject": "feat(torajs-anyvalue): the array-like read scan admits receivers whose own face is their bag"
     },
     {
-      "hash": "d3d28721b",
-      "subject": "chore(hardev): rotation 652 close stamps — test262 sweep @b2afdae94 (+387 passTotal, 0 regressions), determinism 46/46 N=12, gmalloc 3696/3700 clean 0 offenders, bench 3-run median 0.5119, dashboard snapshot"
+      "hash": "8b0e31ed7",
+      "subject": "feat(torajs-anyvalue,torajs-promise,torajs-core,torajs-rc): catch and finally are Invokes of then"
     },
     {
-      "hash": "b2afdae94",
-      "subject": "fix(torajs-core): a dynamic import() resolves to a §10.4.6 namespace object"
+      "hash": "124a127bf",
+      "subject": "style(torajs-promise): rustfmt on combinator_then_override"
     },
     {
-      "hash": "07cb31cff",
-      "subject": "fix(torajs-meta): a class instance's declared fields enumerate integer-index names first"
+      "hash": "a8e4f8008",
+      "subject": "refactor(torajs-anyvalue): the any-lane await kernel moves out of the promise method arm"
     },
     {
-      "hash": "52c269cda",
-      "subject": "fix(torajs-dynobj): any object is a Properties container and any object is a descriptor"
+      "hash": "3d8359c57",
+      "subject": "chore(hardev): rotation 653 file-size stamp @120d28558 (0 new / 0 grew)"
     },
     {
-      "hash": "d29e5069c",
-      "subject": "fix(torajs-core): the typed array HOF loops see what the callback did to the array"
+      "hash": "120d28558",
+      "subject": "chore(hardev): rotation 653 close stamps — test262 sweep @00ffa1569 (+115 passTotal, 0 regressions), determinism 46/46 N=12, gmalloc 3698/3702 clean 0 offenders, dashboard snapshot"
     }
   ],
-  "headSha": "00ffa1569",
+  "headSha": "df3c627d5",
   "autorun": {
-    "total": 956,
+    "total": 957,
     "baselineTarget": 10,
-    "bySelf": 951,
+    "bySelf": 952,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789445471-22b3",
-      "at": "2026-09-15T04:11:11Z",
-      "ts": 1789445471,
+      "rotationId": "r-1789465789-2602",
+      "at": "2026-09-15T09:49:49Z",
+      "ts": 1789465789,
       "trigger": "self",
-      "prevHead": "6d21ef8cf",
-      "handoffSha": "sha256:9dd7a59b46fd5eb69731c1975d67008cd624c1db9d466186364c62c51053b8ed",
-      "handoffAgeSec": 10,
-      "conformanceBefore": "4178/0/4",
-      "commitsInSession": 14
+      "prevHead": "3d8359c57",
+      "handoffSha": "sha256:f1367acd3333c7e767f00e183fb024bdd377cd14f4de03f1adb7c7e65fe7ea9d",
+      "handoffAgeSec": 13,
+      "conformanceBefore": "4180/0/4",
+      "commitsInSession": 8
     },
     "recent": [
+      {
+        "rotationId": "r-1789465789-2602",
+        "at": "2026-09-15T09:49:49Z",
+        "ts": 1789465789,
+        "trigger": "self",
+        "prevHead": "3d8359c57",
+        "handoffSha": "sha256:f1367acd3333c7e767f00e183fb024bdd377cd14f4de03f1adb7c7e65fe7ea9d",
+        "handoffAgeSec": 13,
+        "conformanceBefore": "4180/0/4",
+        "commitsInSession": 8
+      },
       {
         "rotationId": "r-1789445471-22b3",
         "at": "2026-09-15T04:11:11Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 1,
         "conformanceBefore": "4093/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789302727-5e79",
-        "at": "2026-09-13T12:32:07Z",
-        "ts": 1789302727,
-        "trigger": "self",
-        "prevHead": "87b0c3044",
-        "handoffSha": "sha256:94edcf1b31edbad9e8901585094dfc1c1bd6e29a68650e2cf4c2e40ea7318fee",
-        "handoffAgeSec": 26,
-        "conformanceBefore": "4082/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
