@@ -394,6 +394,7 @@ pub(crate) fn build(
         anyv_assign: init_b.object.anyv_assign,
         str_index_descriptor: init_b.object.str_index_descriptor,
         anyv_prevent_extensions: init_b.object.anyv_prevent_extensions,
+        anyv_reflect_prevent_extensions: init_b.object.anyv_reflect_prevent_extensions,
         anyv_is_extensible: init_b.object.anyv_is_extensible,
         anyv_seal: init_b.object.anyv_seal,
         anyv_freeze: init_b.object.anyv_freeze,

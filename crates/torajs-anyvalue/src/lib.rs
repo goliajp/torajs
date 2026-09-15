@@ -583,6 +583,10 @@ mod tests {
         obj_any
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_anyv_reflect_prevent_extensions(_obj_any: u64) -> bool {
+        true
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_anyv_is_extensible(_obj_any: u64) -> bool {
         true
     }

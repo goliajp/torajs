@@ -127,6 +127,7 @@ pub(crate) struct ObjectIds {
     pub anyv_assign: FuncId,
     pub str_index_descriptor: FuncId,
     pub anyv_prevent_extensions: FuncId,
+    pub anyv_reflect_prevent_extensions: FuncId,
     pub anyv_is_extensible: FuncId,
     pub anyv_seal: FuncId,
     pub anyv_is_sealed: FuncId,
@@ -279,6 +280,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         anyv_assign: decl!("__torajs_anyv_assign", [Any, Any], Void),
         str_index_descriptor: decl!("__torajs_anyv_str_index_descriptor", [Ptr, I64], Any),
         anyv_prevent_extensions: decl!("__torajs_anyv_prevent_extensions", [Any], Any),
+        anyv_reflect_prevent_extensions: decl!(
+            "__torajs_anyv_reflect_prevent_extensions",
+            [Any],
+            Bool
+        ),
         anyv_is_extensible: decl!("__torajs_anyv_is_extensible", [Any], Bool),
         anyv_seal: decl!("__torajs_anyv_seal", [Any], Any),
         anyv_is_sealed: decl!("__torajs_anyv_is_sealed", [Any], Bool),

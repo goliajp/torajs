@@ -456,6 +456,7 @@ pub(crate) struct Intrinsics {
     pub(crate) obj_key_is_nonenumerable: FuncId,
     pub(crate) str_index_descriptor: FuncId,
     pub(crate) anyv_prevent_extensions: FuncId,
+    pub(crate) anyv_reflect_prevent_extensions: FuncId,
     pub(crate) anyv_is_extensible: FuncId,
     pub(crate) anyv_seal: FuncId,
     pub(crate) anyv_is_sealed: FuncId,

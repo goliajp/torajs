@@ -14,8 +14,7 @@ use crate::nanbox::{VALUE_FALSE, VALUE_TRUE, VALUE_UNDEFINED};
 use super::ns_static::arg_at;
 use super::ns_static_ctor::gopd_static;
 use super::ns_static_table::{
-    __torajs_anyv_get_proto_of_any, __torajs_anyv_is_extensible, __torajs_anyv_prevent_extensions,
-    __torajs_throw_check,
+    __torajs_anyv_get_proto_of_any, __torajs_anyv_is_extensible, __torajs_throw_check,
 };
 
 unsafe extern "C" {
@@ -75,8 +74,13 @@ pub(super) unsafe fn reflect_prevent_extensions(argv: *const u64, argc: i64) -> 
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
         }
-        let _ = __torajs_anyv_prevent_extensions(arg_at(argv, argc, 0));
-        VALUE_TRUE
+        let accepted = super::ns_static_externs::__torajs_anyv_reflect_prevent_extensions(arg_at(
+            argv, argc, 0,
+        ));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        crate::nanbox::box_bool(accepted)
     }
 }
 

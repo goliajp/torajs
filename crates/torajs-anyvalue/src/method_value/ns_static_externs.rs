@@ -137,6 +137,7 @@ unsafe extern "C" {
     /// owns it before handing it back); the readers answer plain
     /// bools.
     pub(super) fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64;
+    pub(super) fn __torajs_anyv_reflect_prevent_extensions(obj_any: u64) -> bool;
     pub(super) fn __torajs_anyv_is_extensible(obj_any: u64) -> bool;
     pub(super) fn __torajs_anyv_seal(obj_any: u64) -> u64;
     pub(super) fn __torajs_anyv_is_sealed(obj_any: u64) -> bool;

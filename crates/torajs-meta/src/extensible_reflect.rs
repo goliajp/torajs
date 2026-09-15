@@ -92,6 +92,27 @@ pub unsafe extern "C" fn __torajs_anyv_prevent_extensions(obj_any: u64) -> u64 {
     obj_any
 }
 
+/// §28.1.10 Reflect.preventExtensions step 2 — `O.[[PreventExtensions]]()`
+/// as the boolean it is: an ordinary object always accepts, a Proxy
+/// answers its trap's verdict (a refusal is `false`, not the TypeError
+/// `Object.preventExtensions` raises). The caller has already gated
+/// IsObject.
+///
+/// # Safety
+///
+/// `obj_any` must carry a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_reflect_prevent_extensions(obj_any: u64) -> bool {
+    if !is_cell_imm(obj_any) {
+        return false;
+    }
+    if unsafe { heap_type_tag(obj_any as *const c_void) } == crate::reflect::TAG_PROXY {
+        return unsafe { __torajs_proxy_prevent_extensions(obj_any) } != 0;
+    }
+    unsafe { __torajs_obj_prevent_extensions(obj_any as *mut c_void) };
+    true
+}
+
 /// RFC C5b — `Object.isExtensible(O)`. Spec ES §20.1.2.13 step 1
 /// `If Type(O) is not Object, return false.` Primitives, null, and
 /// undefined report `false`; primitive-in-spec heap cells (Str /

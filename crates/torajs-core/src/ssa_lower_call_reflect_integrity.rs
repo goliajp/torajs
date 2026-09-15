@@ -13,10 +13,9 @@ use crate::ssa_lower::LowerCtx;
 
 /// §28.1.{8,10} Reflect.isExtensible / preventExtensions — strict
 /// IsObject gate (the define family's receiver guard) then the
-/// Object-flavor kernel. `prevent` answers ConstBool(true): ordinary
-/// [[PreventExtensions]] always succeeds, and the setter kernel's
-/// un-inc'd receiver pass-through is dropped without a dec (it
-/// aliases the argument box — no ref transferred).
+/// Object-flavor kernel. `prevent` answers the [[PreventExtensions]]
+/// boolean — true for an ordinary object, the trap's verdict for a
+/// Proxy (§28.1.10 step 2 reports a refusal, it does not throw).
 pub(crate) fn lower_reflect_extensible(
     ctx: &mut LowerCtx<'_>,
     args: &[ExprId],
@@ -34,19 +33,19 @@ pub(crate) fn lower_reflect_extensible(
         let _ = ctx.lower_expr(*a);
     }
     let cur_block = ctx.cur_block;
-    if prevent {
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_prevent_extensions, vec![any_op]),
-        );
-        return Operand::ConstBool(true);
-    }
+    let kernel = if prevent {
+        ctx.intrinsics.anyv_reflect_prevent_extensions
+    } else {
+        ctx.intrinsics.anyv_is_extensible
+    };
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.anyv_is_extensible, vec![any_op]),
+        InstKind::Call(kernel, vec![any_op]),
         Type::Bool,
         None,
     );
+    // A Proxy's trap, or its §10.5.4 / §10.5.3 invariant check, throws.
+    ctx.emit_throw_check(None);
     Operand::Value(v)
 }
 
