@@ -92,6 +92,18 @@ fn interned_name_cell(slot: &AtomicU64, name: &[u8]) -> *mut u8 {
     cell
 }
 
+/// The property KEY an accessor is listed under (`"size"`), interned
+/// per getter id. It cannot share `builtin_method_name_cell`'s slot:
+/// that table is keyed by the same id and holds the getter FUNCTION's
+/// name (`"get size"`), and whichever face minted the slot first won —
+/// reading `gOPD(Map.prototype, "size").get.name` before
+/// `getOwnPropertyNames(Map.prototype)` made the listing say
+/// `"get size"`.
+fn accessor_key_cell(mid: i64, name: &str) -> *mut u8 {
+    static ACCESSOR_KEY_CELLS: [AtomicU64; TABLE_SIZE] = [const { AtomicU64::new(0) }; TABLE_SIZE];
+    interned_name_cell(&ACCESSOR_KEY_CELLS[mid as usize], name.as_bytes())
+}
+
 fn constructor_name_cell() -> *mut u8 {
     interned_name_cell(&CONSTRUCTOR_NAME_CELL, b"constructor")
 }
@@ -122,7 +134,7 @@ fn for_each_own_name(tag: i64, mut f: impl FnMut(*mut u8)) {
         // consults.
         // SAFETY: pure bitmask read; range-checked inside.
         if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) } == 0 {
-            f(builtin_method_name_cell(mid, name));
+            f(accessor_key_cell(mid, name));
         }
     }
     if constructor_live(tag) {
