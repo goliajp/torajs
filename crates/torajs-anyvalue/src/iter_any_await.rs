@@ -32,7 +32,7 @@
 //! entry below — it is the one consumer that needs the async
 //! GetIterator AND the array-like tail at once.
 
-use crate::method_call_promise::__torajs_anyv_await;
+use crate::anyv_await::__torajs_anyv_await;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use torajs_rc::Tag;

@@ -32,16 +32,16 @@ use crate::nanbox_encode::{
 };
 
 // ---- torajs-promise layout mirror (lockstep layout.rs) ----
-const P_STATE_OFF: usize = 8;
+pub(crate) const P_STATE_OFF: usize = 8;
 const P_IS_HEAP_OFF: usize = 9;
-const P_REPR_OFF: usize = 11;
+pub(crate) const P_REPR_OFF: usize = 11;
 const P_VALUE_OFF: usize = 16;
 /// Lazy expando props dynobj slot (`Promise::props`) — where a
 /// `defineProperty(promise, "then", …)` landing lives.
 const P_PROPS_OFF: usize = 32;
-const STATE_FULFILLED: u8 = 1;
+pub(crate) const STATE_FULFILLED: u8 = 1;
 const STATE_REJECTED: u8 = 2;
-const REPR_UNSTAMPED: u8 = 0;
+pub(crate) const REPR_UNSTAMPED: u8 = 0;
 const REPR_I64: u8 = 1;
 const REPR_F64: u8 = 2;
 const REPR_BOOL: u8 = 3;
@@ -178,58 +178,6 @@ pub(crate) unsafe fn promise_method(
     }
 }
 
-/// `await <any>` — §27.7.5.1 by-VALUE dispatch for the erased lane
-/// (rotation 233). The static tiers dispatch await by TYPE
-/// (Promise(T) unwraps, everything else identity); an `any` operand
-/// only knows its form at runtime. A heap Promise cell unwraps to
-/// its settled value boxed per the cell's repr stamp, +1 stake — the
-/// result is an independent binding, mirroring the typed lane's
-/// rc_inc after `get_value` (box_settled is a borrow). A REJECTED
-/// cell routes through `get_value`'s throw slot (the call site's
-/// throw-check propagates); a still-PENDING cell answers undefined
-/// (the sync-resolve model's guard, same as the typed read); an
-/// UNSTAMPED fulfilled cell refuses loudly — never a silent mis-box.
-/// Every other value — including a thenable struct (L3b) — passes
-/// through identity WITH a fresh +1: the contract is "+1 stake on
-/// every return path", and the lowering call site
-/// (`lower_any_await`) releases an owned operand after this call on
-/// that assumption. Pre-fix the identity arm returned the same cell
-/// without the bump, so `await <owned non-promise cell>` freed the
-/// operand's only stake and handed back a dangling pointer (async-gen
-/// `yield*` step objects — rotation 288 heisenbug root cause). The
-/// call site drains microtasks first, same as the typed await route.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_await(av: AnyValue) -> AnyValue {
-    unsafe {
-        if !crate::nanbox::is_cell(av) {
-            return av;
-        }
-        let ptr = crate::nanbox::as_void_ptr(av);
-        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
-        if tag != torajs_rc::Tag::Promise as u16 {
-            crate::nanbox_ffi::__torajs_anyv_rc_inc(av);
-            return av;
-        }
-        let state = ptr.cast::<u8>().add(P_STATE_OFF).read();
-        let repr = ptr.cast::<u8>().add(P_REPR_OFF).read();
-        let value = __torajs_promise_get_value(ptr);
-        if state != STATE_FULFILLED {
-            // rejected: get_value set the throw slot; pending: the
-            // sync-model undefined guard.
-            return VALUE_UNDEFINED;
-        }
-        if repr == REPR_UNSTAMPED {
-            __torajs_throw_type_error(
-                c"promise value form unknown to `await` on this receiver".as_ptr(),
-            );
-            return VALUE_UNDEFINED;
-        }
-        let out = box_settled(repr, value);
-        crate::nanbox_ffi::__torajs_anyv_rc_inc(out);
-        out
-    }
-}
-
 /// `__torajs_promise_then_observed(cell)` — §27.2.4.1.3 step 6.q's
 /// per-element `then` GET over a promise cell's expando bag (a
 /// `defineProperty(promise, "then", …)` landing at `Promise::props`).
@@ -336,7 +284,7 @@ unsafe fn own_then_entry(cell: *mut c_void) -> Option<(u64, u64, *mut c_void)> {
 /// reads it back as `undefined`, the way the typed `.value` read does;
 /// boxed as a number it printed NaN (643, `async-fallthrough-typed-001`
 /// once the awaiter moved to the driver).
-unsafe fn box_settled(repr: u8, value: i64) -> AnyValue {
+pub(crate) unsafe fn box_settled(repr: u8, value: i64) -> AnyValue {
     unsafe {
         match repr {
             REPR_I64 => __torajs_anyv_box_from_pair(2, value),
