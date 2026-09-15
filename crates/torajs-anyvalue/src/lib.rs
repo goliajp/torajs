@@ -1080,6 +1080,17 @@ mod tests {
     pub unsafe extern "C" fn __torajs_struct_layout_lookup(_class_tag: u32) -> *const c_void {
         core::ptr::null()
     }
+    /// No layout ⇒ declaration order is the only order.
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_struct_field_order_fill(
+        _layout: *const c_void,
+        n: u32,
+        out: *mut u32,
+    ) {
+        for i in 0..n {
+            unsafe { out.add(i as usize).write(i) };
+        }
+    }
     /// No layout ⇒ no declared field can be deleted (RFC 20260915).
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_obj_field_is_deleted(

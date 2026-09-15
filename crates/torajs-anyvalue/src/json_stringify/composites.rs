@@ -9,6 +9,13 @@ use core::ffi::c_void;
 use super::struct_expando;
 use super::*;
 
+unsafe extern "C" {
+    // torajs-meta — the layout rows in §10.1.11.1 order (integer-index
+    // names ascending, then the rest in declaration order), the order
+    // `Object.keys` walks them; one table per serialized instance.
+    fn __torajs_struct_field_order_fill(layout: *const c_void, n: u32, out: *mut u32);
+}
+
 /// torajs-core `ssa_lower::OBJ_CLASS_TAG_OFF` mirror (the u32 class tag
 /// after the heap header of a `Tag::Obj` cell) — named so a class-tag
 /// read-point sweep finds this walk.
@@ -195,7 +202,9 @@ pub(super) unsafe fn write_struct(sb: *mut c_void, ptr: *mut c_void, depth: u32,
         let is_error = crate::member_get::header_flag(ptr, torajs_rc::FLAG_ERROR);
         if !layout.is_null() {
             let n = __torajs_struct_field_count(layout);
-            for i in 0..n {
+            let mut order = vec![0u32; n as usize];
+            __torajs_struct_field_order_fill(layout, n, order.as_mut_ptr());
+            for i in order {
                 // 628-05 — a computed field declared before this row.
                 struct_expando::write_struct_expandos(
                     sb,

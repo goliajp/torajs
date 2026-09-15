@@ -31,6 +31,7 @@
 
 use crate::obj_own_keys_struct::{ExpandoLane, push_expando_entries, push_expando_values};
 use crate::reflect::{TAG_OBJ, heap_type_tag, is_cell_imm};
+use crate::struct_enum_order::{key_already_emitted, layout_field_order};
 use crate::struct_reflect::{accessor_slot_name, field_slot_to_pair_owned, slot_key};
 use core::ffi::{c_char, c_void};
 
@@ -62,9 +63,9 @@ unsafe extern "C" {
 /// `(ptr, len)` field-name slice returned by
 /// `__torajs_struct_field_name` — mirrors `torajs-structmeta::StrSlice`.
 #[repr(C)]
-struct StrSlice {
-    ptr: *const u8,
-    len: usize,
+pub(crate) struct StrSlice {
+    pub(crate) ptr: *const u8,
+    pub(crate) len: usize,
 }
 
 /// Field byte-offset + coarse type tag returned by
@@ -87,28 +88,6 @@ const OBJ_CLASS_TAG_OFF: usize = 8;
 /// Shared by every `Object.keys`/`values`/`entries` struct arm — the
 /// non-struct `any` slot is a separate substrate trunk.
 const NON_STRUCT_MSG: &[u8] = b"Object reflection on a non-struct any value is not yet supported\0";
-
-/// Whether an earlier slot already enumerated `key` — a `get`/`set`
-/// pair occupies two layout slots but is one own property, so the
-/// second one is skipped.
-unsafe fn key_already_emitted(layout: *const c_void, upto: u32, key: (*const u8, usize)) -> bool {
-    let mut j = 0;
-    while j < upto {
-        let prev = unsafe { __torajs_struct_field_name(layout, j) };
-        let (p, plen) = unsafe { slot_key(prev.ptr, prev.len) };
-        if plen == key.1
-            && (key.1 == 0
-                || unsafe {
-                    core::slice::from_raw_parts(p, plen)
-                        == core::slice::from_raw_parts(key.0, key.1)
-                })
-        {
-            return true;
-        }
-        j += 1;
-    }
-    false
-}
 
 /// The `(tag, value)` an own property contributes to `Object.values` /
 /// `Object.entries`, OWNED (the caller pushes it into the array, which
@@ -193,8 +172,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
     let n = unsafe { __torajs_struct_field_count(layout) };
 
     let mut out = unsafe { __torajs_arr_alloc(n as u64) };
-    let mut i = 0;
-    while i < n {
+    for i in unsafe { layout_field_order(layout, n) } {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         if unsafe { error_prop_skip(cell, layout, i, (kp, klen), include_nonenum) }
@@ -203,14 +181,12 @@ pub unsafe extern "C" fn __torajs_anyv_struct_keys(v: u64, include_nonenum: i64)
                 crate::struct_field_attrs::__torajs_obj_field_is_deleted(cell, kp, klen as u32) != 0
             }
         {
-            i += 1;
             continue;
         }
         if unsafe { !key_already_emitted(layout, i, (kp, klen)) } {
             let s = unsafe { alloc_str_from_raw(kp, klen) };
             out = unsafe { __torajs_arr_push(out, s as i64) };
         }
-        i += 1;
     }
     // Blade 3 (RFC 20260714-struct-dynamic-props) — fold expando
     // keys in per §10.1.11.1 (NULL props short-circuits inside).
@@ -373,8 +349,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
     let n = unsafe { __torajs_struct_field_count(layout) };
 
     let mut out = unsafe { __torajs_arr_alloc_any(n as u64) };
-    let mut i = 0;
-    while i < n {
+    for i in unsafe { layout_field_order(layout, n) } {
         unsafe { push_expando_values(cell, ExpandoLane::Before(i), &mut out) };
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         // A get/set pair is ONE own property: skip the second slot, the
@@ -385,12 +360,10 @@ pub unsafe extern "C" fn __torajs_anyv_struct_values(v: u64) -> *mut c_void {
             || unsafe { error_prop_skip(cell, layout, i, key, 0) }
             || unsafe { field_hidden_by_sidecar(cell, key.0, key.1) }
         {
-            i += 1;
             continue;
         }
         let (tag, val) = unsafe { slot_own_value(cell, layout, i, name) };
         out = unsafe { __torajs_arr_push_any(out as *mut c_void, tag, val) };
-        i += 1;
     }
     // Blade 3 — expando values after the layout fields (insertion
     // order; a computed field rides its declaration row, 628-05).
@@ -434,8 +407,7 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
     let n = unsafe { __torajs_struct_field_count(layout) };
 
     let mut outer = unsafe { __torajs_arr_alloc(n as u64) };
-    let mut i = 0;
-    while i < n {
+    for i in unsafe { layout_field_order(layout, n) } {
         unsafe { push_expando_entries(cell, ExpandoLane::Before(i), &mut outer) };
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         // The freshly minted name Str (rc=1) is consumed by push_any.
@@ -448,7 +420,6 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
             || unsafe { error_prop_skip(cell, layout, i, (kp, klen), 0) }
             || unsafe { field_hidden_by_sidecar(cell, kp, klen) }
         {
-            i += 1;
             continue;
         }
         let name_s = unsafe { alloc_str_from_raw(kp, klen) };
@@ -457,7 +428,6 @@ pub unsafe extern "C" fn __torajs_anyv_struct_entries(v: u64) -> *mut c_void {
         let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP, name_s as u64) };
         let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, tag, val) };
         outer = unsafe { __torajs_arr_push(outer, inner as i64) };
-        i += 1;
     }
     // Blade 3 — expando `[key, value]` pairs after the layout fields
     // (same boundary note as the values walk).

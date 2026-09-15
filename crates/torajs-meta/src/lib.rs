@@ -65,6 +65,7 @@ pub mod str_descriptor;
 pub(crate) mod str_wtf8;
 pub mod string_raw;
 pub mod struct_enum;
+pub mod struct_enum_order;
 pub mod struct_field_attrs;
 pub mod struct_print;
 mod struct_print_methods;
