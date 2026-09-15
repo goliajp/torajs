@@ -201,16 +201,6 @@ unsafe fn classify_species_entry(
     sval: u64,
 ) -> SpeciesResolved {
     unsafe {
-        // §23.2.2.4 with the INHERITED default getter — `get
-        // %TypedArray%[@@species]` returns this, and a subclass
-        // inherits it through its static chain, which tr does not
-        // walk: an own-miss on a marked class answers the class
-        // itself (the Array family's `ctor_arr_species_self` mark,
-        // same table, same recorded approximation).
-        if stag == 5 && crate::construct::ctor_arr_species_self(as_void_ptr(ctor_av) as u64) {
-            crate::nanbox_ffi::__torajs_anyv_rc_inc(ctor_av);
-            return SpeciesResolved::Ctor(ctor_av);
-        }
         match stag {
             5 | 0 => SpeciesResolved::Default,
             6 => {

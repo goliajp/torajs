@@ -404,27 +404,6 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
 /// and `__torajs_anyv_construct` answers that miss with its own
 /// message; inventing an entry here would be worse than the gap.
 fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
-    // RFC 20260808-construct-channel 刀 4 — an `extends Array` class
-    // inherits `Array[@@species]`'s default getter (§23.1.2.5)
-    // through its static chain, which the runtime species read does
-    // not walk: mark the class object so an own-miss answers the
-    // class itself. Not gated on the factory adapter below — the
-    // mark is a property-read fact; a missing adapter surfaces as
-    // the construct kernel's own loud miss.
-    // The buffer family rides the same mark: §23.2.2.4
-    // `%TypedArray%[@@species]` is the identical default getter,
-    // inherited the identical way.
-    let species_root =
-        crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ctx.ast, cname)
-            .is_some_and(|r| {
-                r == "Array" || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r)
-            });
-    if species_root {
-        let cur_block = ctx.cur_block;
-        let mark = ctx.intrinsics.ctor_mark_arr_species;
-        ctx.f
-            .append_void(cur_block, InstKind::Call(mark, vec![class_op.clone()]));
-    }
     let Some(&factory) = ctx.fn_table.get(&format!("__new_{cname}")) else {
         return;
     };

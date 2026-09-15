@@ -108,13 +108,12 @@ const SEEDS: [&str; 2] = [
 /// registers, the rc traffic, the ctor-side registries a reader can
 /// only query with a cell it already holds, and the prologue's
 /// prototype-chain links between private cells.
-const SINKS: [&str; 11] = [
+const SINKS: [&str; 10] = [
     "__torajs_anyv_proto_register",
     "__torajs_anyv_class_register",
     "__torajs_anyv_rc_dec",
     "__torajs_class_cell_release",
     "__torajs_anyv_rc_inc",
-    "__torajs_anyv_ctor_mark_arr_species",
     "__torajs_anyv_ctorany_register",
     "__torajs_anyv_ctor_register",
     "__torajs_proto_link_fresh",

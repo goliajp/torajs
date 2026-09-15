@@ -537,7 +537,6 @@ pub(crate) struct Intrinsics {
     pub(crate) fn_computed_name_define: FuncId,
     pub(crate) class_computed_accessor_define: FuncId,
     pub(crate) class_source_register: FuncId,
-    pub(crate) ctor_mark_arr_species: FuncId,
     pub(crate) arr_subclass_alloc: FuncId,
     pub(crate) arr_subclass_super_len: FuncId,
     pub(crate) arr_subclass_super_elems: FuncId,
