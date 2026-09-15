@@ -272,7 +272,10 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             }
             // §6.1.5.1 — the Symbol ctor's well-known data statics
             // are {configurable: false} (RFC 20260722 刀 2).
+            // §21.1.2 / §23.2.6.1 — a ctor's data constants (Number's
+            // values, a typed array's BYTES_PER_ELEMENT) are too.
             if unsafe { crate::method_value::symbol_static::is_wellknown_on_symbol_ctor(ptr, key) }
+                || unsafe { crate::method_value::is_ctor_data_constant(ptr, key) }
             {
                 return unsafe { refuse(throw_on_refusal) };
             }

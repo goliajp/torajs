@@ -240,13 +240,13 @@ pub unsafe extern "C" fn __torajs_ctor_number_constant(
     out_tag: *mut u64,
     out_val: *mut u64,
 ) -> i64 {
-    if super::ctor::ctor_tag_of_cell(cell) != Some(0) {
+    let Some(ctor_tag) = super::ctor::ctor_tag_of_cell(cell) else {
         return 0;
-    }
+    };
     let Some(name) = (unsafe { key_utf8(key) }) else {
         return 0;
     };
-    let Some((tag, val)) = number_constant(name) else {
+    let Some((tag, val)) = ctor_data_constant(ctor_tag, name) else {
         return 0;
     };
     unsafe {
@@ -254,6 +254,34 @@ pub unsafe extern "C" fn __torajs_ctor_number_constant(
         out_val.write(val);
     }
     1
+}
+
+/// A builtin constructor's own DATA constants as `(slot-tag, payload)`
+/// immediates — every one `{ writable: false, enumerable: false,
+/// configurable: false }`: §21.1.2's Number values, and §23.2.6.1
+/// `BYTES_PER_ELEMENT` on the twelve typed-array constructors. The one
+/// table the read, HasProperty, gOPD, write-refusal and delete-refusal
+/// faces all ask.
+pub(crate) fn ctor_data_constant(ctor_tag: i64, name: &str) -> Option<(u64, u64)> {
+    if ctor_tag == 0 {
+        return number_constant(name);
+    }
+    if name == "BYTES_PER_ELEMENT" {
+        return torajs_rc::builtin_proto::typedarray_bytes_per_element(ctor_tag)
+            .map(|n| (2, n as u64));
+    }
+    None
+}
+
+/// Is `key` one of [`ctor_data_constant`]'s rows on this ctor cell?
+///
+/// # Safety
+/// `cell` is null or a live heap cell; `key` is null or a live Str cell.
+pub(crate) unsafe fn is_ctor_data_constant(cell: *const c_void, key: *const c_void) -> bool {
+    let Some(ctor_tag) = super::ctor::ctor_tag_of_cell(cell) else {
+        return false;
+    };
+    unsafe { key_utf8(key) }.is_some_and(|name| ctor_data_constant(ctor_tag, name).is_some())
 }
 
 /// §21.1.2 Number data constants as `(slot-tag, payload)` immediates
@@ -298,9 +326,7 @@ pub(crate) unsafe fn ctor_own_read_cell(
         }
         return Some((4, proto as u64));
     }
-    if tag == 0
-        && let Some(pair) = number_constant(name)
-    {
+    if let Some(pair) = ctor_data_constant(tag, name) {
         return Some(pair);
     }
     // §6.1.5.1 — the Symbol ctor's well-known data statics (RFC

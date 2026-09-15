@@ -64,7 +64,7 @@ unsafe extern "C" {
 pub const NUM_BUILTIN_PROTOS: usize = 39;
 
 mod ctor_meta;
-pub use ctor_meta::builtin_ctor_meta;
+pub use ctor_meta::{builtin_ctor_meta, typedarray_bytes_per_element};
 
 /// `Array.prototype`'s slot. ES §23.1.3 makes it an *Array exotic
 /// object* (an empty one) rather than an ordinary object, so its

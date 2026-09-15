@@ -61,3 +61,24 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         _ => return None,
     })
 }
+
+/// §23.2.5.1 table 71 — a typed-array constructor's (and its
+/// prototype's) `BYTES_PER_ELEMENT`, keyed by the builtin-proto tag:
+/// the twelve kinds sit at 20-31 in element-kind order. `None` for
+/// every other tag, including %TypedArray% (38), which owns no such
+/// property.
+pub fn typedarray_bytes_per_element(tag: i64) -> Option<i64> {
+    if !(20..=31).contains(&tag) {
+        return None;
+    }
+    Some(match tag - 20 {
+        // Int8 / Uint8 / Uint8Clamped.
+        0..=2 => 1,
+        // Int16 / Uint16, and Float16 which was appended at 11.
+        3 | 4 | 11 => 2,
+        // Int32 / Uint32 / Float32.
+        5..=7 => 4,
+        // Float64 / BigInt64 / BigUint64.
+        _ => 8,
+    })
+}

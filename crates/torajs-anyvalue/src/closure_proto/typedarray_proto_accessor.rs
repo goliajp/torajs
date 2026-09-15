@@ -1,6 +1,8 @@
-//! §23.2.3.38 `get %TypedArray%.prototype[@@toStringTag]` — the one
-//! symbol-keyed ACCESSOR on %TypedArray.prototype% (RFC
-//! 20260916-typedarray-intrinsic).
+//! The typed-array prototypes' own entries tr installs at mint time
+//! (RFC 20260916-typedarray-intrinsic): §23.2.3.38
+//! `get %TypedArray%.prototype[@@toStringTag]` — the one symbol-keyed
+//! ACCESSOR on %TypedArray.prototype% — and §23.2.7.1
+//! `<Kind>Array.prototype.BYTES_PER_ELEMENT`.
 //!
 //! It is an accessor rather than the data property the collections
 //! carry because the answer depends on the receiver: a typed array
@@ -92,6 +94,30 @@ unsafe extern "C" fn tag_get(_env: *mut c_void, argv: *const u64, argc: i64) -> 
     }
     unsafe { crate::nanbox_encode::__torajs_anyv_box_pointer(cell.cast()) }
 }
+
+/// §23.2.7.1 — install `BYTES_PER_ELEMENT` as a
+/// `{ writable: false, enumerable: false, configurable: false }` data
+/// entry on a freshly minted per-kind prototype (slots 20-31); a no-op
+/// for every other slot. A real dict entry, so the own-property faces
+/// (hasOwnProperty, gOPD, the own-key listing, delete / write refusal)
+/// read it like any other data property.
+///
+/// # Safety
+/// `proto` is the freshly allocated dynobj for builtin-proto slot `idx`.
+pub(crate) unsafe fn install_bytes_per_element(proto: *mut c_void, idx: i64) {
+    let Some(n) = torajs_rc::builtin_proto::typedarray_bytes_per_element(idx) else {
+        return;
+    };
+    // Value present, W / E / C all present and false.
+    const CONSTANT_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3);
+    unsafe {
+        let key = super::interned_key(&BPE_KEY_CELL, b"BYTES_PER_ELEMENT");
+        let mut slot = proto;
+        __torajs_dynobj_define_plain(&mut slot, key.cast(), 2, n as u64, CONSTANT_ENTRY_FLAGS);
+    }
+}
+
+static BPE_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 
 /// Install the accessor own entry into the freshly minted slot-38
 /// singleton, after its `[Symbol.iterator]` (§23.2.3.37 precedes
