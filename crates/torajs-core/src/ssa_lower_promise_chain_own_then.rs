@@ -13,7 +13,9 @@
 //! Same shape as the §27.2.4 static-slot patch consult
 //! (`ssa_lower_call_promise_resolve`): an existence probe first
 //! (`promise_then_overridden` — no GET, so an accessor's getter does
-//! not run out of order), the handlers lowered once ahead of the
+//! not run out of order; rotation 653 put it behind an inline NULL
+//! check of the cell's expando-bag slot, so an unpatched cell pays
+//! one load), the handlers lowered once ahead of the
 //! split, a fast block with the pre-existing typed emit, a patched
 //! block that rides the any method dispatcher against the boxed cell
 //! and settles the typed return contract through
@@ -31,8 +33,8 @@
 //! lexer, so the source-dunder judge would call `__w` the program's).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type, ValueId};
-use crate::ssa_lower::LowerCtx;
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa_lower::{LowerCtx, PROMISE_PROPS_OFF};
 
 pub(crate) fn lower_chain_with_own_then_probe(
     ctx: &mut LowerCtx<'_>,
@@ -52,19 +54,46 @@ pub(crate) fn lower_chain_with_own_then_probe(
     if m_name != "then" || !boxable || ctx.ast.synth_promise_static_calls.contains(&src_id) {
         return ctx.lower_chain_fast(m_name, src_op, arg_ops);
     }
-    let cur_block = ctx.cur_block;
+    let patched_blk = ctx.f.add_block();
+    let fast_blk = ctx.f.add_block();
+    let after_blk = ctx.f.add_block();
+    let res_slot = ctx.alloca_in_entry(Type::Promise, Some("__pthen"));
+    // The override can only live in the cell's expando bag, and the
+    // bag is NULL until an any-lane store lands on the cell — so the
+    // unpatched chain (every `p.then(f)` the bench corpus writes) pays
+    // one load and a branch, and only a cell with a bag asks the
+    // kernel whether the bag holds `then`.
+    let entry = ctx.cur_block;
+    let bag = ctx.f.append_inst(
+        entry,
+        InstKind::Load(Type::Ptr, src_op.clone(), PROMISE_PROPS_OFF),
+        Type::Ptr,
+        None,
+    );
+    let has_bag = ctx.f.append_inst(
+        entry,
+        InstKind::ICmp(IPred::Ne, Operand::Value(bag), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    let probe_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        entry,
+        Terminator::CondBr {
+            cond: Operand::Value(has_bag),
+            then_blk: probe_blk,
+            else_blk: fast_blk,
+        },
+    );
     let probe = ctx.f.append_inst(
-        cur_block,
+        probe_blk,
         InstKind::Call(ctx.intrinsics.promise_then_overridden, vec![src_op.clone()]),
         Type::I64,
         None,
     );
+    ctx.cur_block = probe_blk;
     let cond = ctx.coerce_to_bool(Operand::Value(probe));
-    let patched_blk = ctx.f.add_block();
-    let fast_blk = ctx.f.add_block();
-    let after_blk = ctx.f.add_block();
     let saved = ctx.cur_block;
-    let res_slot = ctx.alloca_in_entry(Type::Promise, Some("__pthen"));
 
     ctx.cur_block = fast_blk;
     let fast_val = ctx.lower_chain_fast(m_name, src_op.clone(), arg_ops);

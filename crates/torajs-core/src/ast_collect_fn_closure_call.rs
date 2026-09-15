@@ -454,7 +454,7 @@ impl<'a> FnToClosureCollector<'a> {
     /// `.then(add1)`), and only the own-`then` split's patched block
     /// (`ssa_lower_promise_chain_own_then`) needs a closure cell —
     /// which it builds from `__forward_<f>` by name. Target only, no
-    /// rewrite.
+    /// rewrite — and minted even when no other site rewrites (r653).
     fn mark_promise_chain_handler_targets(&mut self, callee: &ExprId, args: &[ExprId]) {
         let Expr::Member { name, .. } = self.ast.get_expr(*callee) else {
             return;

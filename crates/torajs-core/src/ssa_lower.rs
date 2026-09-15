@@ -65,6 +65,13 @@ pub(crate) const OBJ_VTABLE_OFF: u64 = 16;
 /// Inline props-dynobj slot (blade 1). NULL until the first dynamic
 /// write through the `any` lane; blade 2 wires the write side.
 pub(crate) const OBJ_PROPS_OFF: u64 = 24;
+/// A Promise cell's expando-bag slot — NULL until an any-lane store
+/// (`p.then = g`) lands on the cell. Mirrors
+/// `torajs_anyvalue::member_get_layout::PROMISE_PROPS_OFF` (the
+/// any-lane reader) and `method_call_promise::P_PROPS_OFF` (the
+/// own-`then` probe's kernel): the typed chain gates its probe call
+/// on this slot inline, so a cell nothing ever patched pays one load.
+pub(crate) const PROMISE_PROPS_OFF: u64 = 32;
 
 /// Phase 2A refcount + T-13.5 deque layout (mirrors the `ARR_HDR_*`
 /// constants in torajs-arr):

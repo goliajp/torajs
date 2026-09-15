@@ -364,7 +364,7 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     super::variadic_closure_bindings::record(ast);
 
     rewrites.retain(|(eid, _)| !block_scoped.contains(eid));
-    if rewrites.is_empty() {
+    if rewrites.is_empty() && targets.is_empty() {
         return;
     }
 
