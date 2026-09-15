@@ -55,6 +55,9 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         // one bound builtin constructor with no name, no ctor-clause
         // length, and the plain `[Function]` print form.
         32 => ("DataView", 1),
+        // §23.2.2 — the abstract %TypedArray% intrinsic: `name`
+        // "TypedArray", `length` 0.
+        38 => ("TypedArray", 0),
         _ => return None,
     })
 }

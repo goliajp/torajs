@@ -47,6 +47,9 @@ unsafe extern "C" {
     // torajs-rc — a builtin prototype's own [[Prototype]] slot (-1 =
     // the null root), and the slot an iterator cell inherits from.
     fn __torajs_proto_parent_tag(tag: i64) -> i64;
+    /// torajs-anyvalue — a builtin ctor cell's non-Function parent
+    /// (`0` = none; RFC 20260916-typedarray-intrinsic).
+    fn __torajs_builtin_ctor_parent_value(cell: *const c_void) -> u64;
     fn __torajs_iter_cell_proto_tag(ptr: *const c_void, tag: i64) -> i64;
     // torajs-dynobj — DefineOwnProperty kernel (resize relocates
     // through the slot; the create-link insert is the fresh dict's
@@ -401,6 +404,12 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
             let flags = unsafe { dynobj.cast::<u8>().add(6).cast::<u16>().read() };
             if flags & FLAG_FN_GENERATOR_BIT != 0 {
                 return unsafe { crate::genfn::__torajs_genfn_proto(0) };
+            }
+            // §23.2.6 — `<Kind>Array`'s [[Prototype]] is the abstract
+            // %TypedArray% constructor (an immortal interned cell).
+            let parent = unsafe { __torajs_builtin_ctor_parent_value(dynobj) };
+            if parent != 0 {
+                return parent;
             }
         }
         // §10.4.4.7 step 2 — an arguments materialization's

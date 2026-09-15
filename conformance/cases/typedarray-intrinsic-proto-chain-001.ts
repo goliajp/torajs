@@ -1,0 +1,11 @@
+const TA: any = Object.getPrototypeOf(Int8Array);
+const P: any = TA.prototype;
+console.log(TA.name, TA.length, P === Object.getPrototypeOf(Uint8Array.prototype));
+console.log(Object.getPrototypeOf(P) === Object.prototype, Object.getPrototypeOf(TA) === Function.prototype);
+console.log(typeof P.at, P.at === (Int8Array.prototype as any).at, P.at === new Float64Array(2).at);
+console.log(P.toString === Array.prototype.toString, P.hasOwnProperty("at"), (Int8Array.prototype as any).hasOwnProperty("at"));
+console.log((Uint8Array.prototype as any).hasOwnProperty("toBase64"), P.hasOwnProperty("toBase64"));
+console.log(P.at.length, P.at.name, P.map.length, P.map.name, P.values === P.values);
+const ta = new Int16Array([5, 6, 7]);
+console.log(P.at.call(ta, -1), ta.toString(), String(ta), P.join.call(ta, "-"));
+console.log(ta instanceof TA, Int8Array.prototype instanceof TA);

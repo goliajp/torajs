@@ -347,14 +347,7 @@ pub(crate) fn arraybuffer_supports(mid: i64) -> bool {
 /// generic set, which over-reports these four and is the one face
 /// left doing so.
 pub(crate) unsafe fn typedarray_supports_on(recv: *const core::ffi::c_void, mid: i64) -> bool {
-    if matches!(
-        mid,
-        ANY_METHOD_TO_BASE64
-            | ANY_METHOD_TO_HEX
-            | ANY_METHOD_SET_FROM_BASE64
-            | ANY_METHOD_SET_FROM_HEX
-    ) && !recv.is_null()
-    {
+    if is_uint8_text_method(mid) && !recv.is_null() {
         return unsafe { __torajs_typedarray_is_uint8(recv) } != 0;
     }
     typedarray_supports(mid)
@@ -362,6 +355,18 @@ pub(crate) unsafe fn typedarray_supports_on(recv: *const core::ffi::c_void, mid:
 
 unsafe extern "C" {
     fn __torajs_typedarray_is_uint8(p: *const core::ffi::c_void) -> i64;
+}
+
+/// The four text conversions `Uint8Array.prototype` owns rather than
+/// %TypedArray.prototype% — the one place that names them.
+pub(crate) fn is_uint8_text_method(mid: i64) -> bool {
+    matches!(
+        mid,
+        ANY_METHOD_TO_BASE64
+            | ANY_METHOD_TO_HEX
+            | ANY_METHOD_SET_FROM_BASE64
+            | ANY_METHOD_SET_FROM_HEX
+    )
 }
 
 pub(crate) fn typedarray_supports(mid: i64) -> bool {

@@ -59,8 +59,9 @@ unsafe extern "C" {
 /// step. The five per-family ITERATOR prototypes joined as 33-37 —
 /// they are the first slots whose [[Prototype]] is not
 /// %Object.prototype%, which is what [`proto_parent_tag`] was made
-/// for).
-pub const NUM_BUILTIN_PROTOS: usize = 38;
+/// for). %TypedArray%.prototype joined as 38, the abstract parent of
+/// the twelve per-kind prototypes (RFC 20260916-typedarray-intrinsic).
+pub const NUM_BUILTIN_PROTOS: usize = 39;
 
 mod ctor_meta;
 pub use ctor_meta::builtin_ctor_meta;
@@ -139,6 +140,17 @@ pub const SET_ITER_PROTO_TAG: usize = 36;
 /// five that owns a `return` as well as a `next`.
 pub const ITER_HELPER_PROTO_TAG: usize = 37;
 
+/// `%TypedArray%.prototype`'s slot (§23.2.3) — the one prototype the
+/// twelve per-kind typed-array prototypes (20-31) inherit from, and
+/// the owner of every typed-array method. Its constructor is the
+/// abstract %TypedArray% (§23.2.1), which both [[Call]] and
+/// [[Construct]] refuse.
+pub const TYPEDARRAY_PROTO_TAG: usize = 38;
+
+/// The per-kind typed-array prototype slots, `Int8Array` .. `Float16Array`
+/// (20 + `torajs_buffer::typedarray::Kind`).
+pub const TYPEDARRAY_KIND_PROTO_TAGS: core::ops::RangeInclusive<i64> = 20..=31;
+
 /// Does this prototype own a `constructor` property (§20.x.3.1)?
 ///
 /// Every named builtin's prototype does, and that used to be the same
@@ -170,6 +182,11 @@ pub fn proto_parent_tag(tag: i64) -> i64 {
     }
     if (ARRAY_ITER_PROTO_TAG as i64..=ITER_HELPER_PROTO_TAG as i64).contains(&tag) {
         return ITERATOR_PROTO_TAG as i64;
+    }
+    // §23.2.7 — each `<Kind>Array.prototype`'s [[Prototype]] is
+    // %TypedArray.prototype%, not %Object.prototype%.
+    if TYPEDARRAY_KIND_PROTO_TAGS.contains(&tag) {
+        return TYPEDARRAY_PROTO_TAG as i64;
     }
     OBJECT_PROTO_TAG as i64
 }

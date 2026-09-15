@@ -33,8 +33,19 @@ pub(super) fn proto_tag_supports(tag: i64, mid: i64) -> bool {
     // `delete Object.prototype.toString`, every family's read goes
     // undefined with it, which the old early-return could not have
     // expressed.
-    proto_tag_owns(tag, mid)
-        || proto_tag_owns(torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64, mid)
+    // The whole chain, not just the root: a per-kind typed-array
+    // prototype reads its methods one link up on %TypedArray.prototype%
+    // (§23.2.7), and an iterator prototype reads the helpers on
+    // %Iterator.prototype% — `proto_parent_tag` is the one home for
+    // who that parent is, and `-1` ends the walk past the root.
+    let mut t = tag;
+    while t >= 0 {
+        if proto_tag_owns(t, mid) {
+            return true;
+        }
+        t = torajs_rc::builtin_proto::proto_parent_tag(t);
+    }
+    false
 }
 
 /// Own-property variant of [`proto_tag_supports`] (RFC 20260712
@@ -149,13 +160,25 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         // four accessors are not methods and live in the accessor
         // table, not here (RFC 20260823-typedarray-substrate 刀 4).
         //
-        // A typed array's prototype (20-30) owns nothing yet: its
-        // methods are 刀 5-6, and claiming them before they resolve
-        // would make `hasOwnProperty` disagree with the read.
         19 => matches!(
             mid,
             torajs_rc::ANY_METHOD_SLICE | torajs_rc::ANY_METHOD_RESIZE
         ),
+        // §23.2.3 — %TypedArray.prototype% owns every typed-array
+        // method (RFC 20260916-typedarray-intrinsic), including a
+        // `toString` that IS `Array.prototype.toString` (§23.2.3.33,
+        // the identity `intern_family` hands out). The four text
+        // conversions are `Uint8Array.prototype`'s own (the arm
+        // below), so they stay off this row.
+        38 => {
+            mid == ANY_METHOD_TO_STRING
+                || (crate::method_support::typedarray_supports(mid)
+                    && !crate::method_support::is_uint8_text_method(mid))
+        }
+        // `Uint8Array.prototype` (21) owns the base64 / hex four; the
+        // other per-kind prototypes own no method, only
+        // `BYTES_PER_ELEMENT` and `constructor`.
+        21 => crate::method_support::is_uint8_text_method(mid),
         _ => false,
     }
 }

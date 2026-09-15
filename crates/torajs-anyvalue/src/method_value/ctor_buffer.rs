@@ -16,6 +16,27 @@ unsafe extern "C" {
     /// torajs-buffer — §25.3.2 `new DataView(buffer, byteOffset,
     /// byteLength)`, the same kernel the static `new` lowering calls.
     fn __torajs_dataview_create(buffer: u64, a1: u64, a2: u64) -> u64;
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+}
+
+/// The abstract %TypedArray% constructor's slot (§23.2.1).
+const TYPEDARRAY_TAG: i64 = torajs_rc::builtin_proto::TYPEDARRAY_PROTO_TAG as i64;
+
+/// A builtin constructor cell's [[Prototype]] when it is not
+/// %Function.prototype%: each of the twelve typed-array constructors
+/// inherits from the abstract %TypedArray% (§23.2.6). `0` for every
+/// other cell — the caller keeps its own answer.
+///
+/// # Safety
+/// `cell` is any pointer value; it is only compared.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_builtin_ctor_parent_value(cell: *const core::ffi::c_void) -> u64 {
+    match super::ctor_tag_of_cell(cell) {
+        Some(tag) if torajs_rc::builtin_proto::TYPEDARRAY_KIND_PROTO_TAGS.contains(&tag) => {
+            super::ctor::__torajs_builtin_ctor_value(TYPEDARRAY_TAG)
+        }
+        _ => 0,
+    }
 }
 
 /// `DataView.prototype`'s builtin-proto slot — past the eleven
@@ -33,6 +54,17 @@ pub(super) const DATAVIEW_TAG: i64 = torajs_rc::builtin_proto::DATAVIEW_PROTO_TA
 /// # Safety
 /// `argv` points at `argc` readable AnyValue slots.
 pub(super) unsafe fn construct(tag: i64, argv: *const u64, argc: i64) -> u64 {
+    // §23.2.1.1 step 1 — the abstract %TypedArray% refuses to be
+    // constructed directly (a subclass reaches it through `super`,
+    // which is the typed-array kernels' own channel).
+    if tag == TYPEDARRAY_TAG {
+        unsafe {
+            __torajs_throw_type_error(
+                c"Abstract class TypedArray not directly constructable".as_ptr(),
+            )
+        };
+        return VALUE_UNDEFINED;
+    }
     let at = |i: i64| -> u64 {
         if i < argc {
             unsafe { argv.add(i as usize).read() }

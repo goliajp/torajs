@@ -29,6 +29,12 @@ pub(crate) const FAMILY_ROWS: usize = torajs_rc::builtin_proto::NUM_BUILTIN_PROT
 /// / borrow re-dispatch.
 pub(crate) const STR_PROTO_FAMILY: i64 = 3;
 
+/// %TypedArray.prototype%'s family — every typed-array method cell is
+/// minted on this one row, so all twelve kinds see the same function
+/// object (§23.2.3.36's `values` identity among them).
+pub(crate) const TYPEDARRAY_PROTO_FAMILY: i64 =
+    torajs_rc::builtin_proto::TYPEDARRAY_PROTO_TAG as i64;
+
 /// The Array family's proto tag — its reified `concat` borrowed
 /// onto a primitive receiver seeds `ToObject(this)` per §23.1.3.1
 /// (the wrapper-object lane, see `method_call_closure::
@@ -69,6 +75,10 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
     let owns = if mid == ANY_METHOD_VALUE_OF {
         // Number / Object / String / Boolean / Symbol / BigInt / Date
         matches!(family, 0 | 1 | 3 | 4 | 5 | 6 | 8)
+    } else if mid == ANY_METHOD_TO_STRING && family == TYPEDARRAY_PROTO_FAMILY {
+        // §23.2.3.33 — `%TypedArray%.prototype.toString` is the same
+        // function object as `Array.prototype.toString`.
+        return 2;
     } else if mid == ANY_METHOD_TO_STRING {
         // Every family except Promise / Map / Set and the weak
         // three has its own — those six brand themselves through
@@ -139,14 +149,13 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::WeakSet as u16 => 17,
         t if t == Tag::WeakRef as u16 => 18,
         // §25.1.6 — ArrayBuffer.prototype is its own singleton, so
-        // its row is exact. Tag::TypedArray deliberately has NO row:
-        // the eleven per-kind prototypes share one method face, and
-        // the %TypedArray%.prototype they should hang off is a
-        // recorded gap in RFC 20260823-typedarray-substrate. Giving
-        // them per-kind rows would break §23.2.3.36's requirement
-        // that all eleven see the SAME `values` function object,
-        // which the family-less mint gets right by construction.
+        // its row is exact. A typed array reads through
+        // %TypedArray.prototype%'s one row (RFC 20260916-typedarray-
+        // intrinsic): per-kind rows would break §23.2.3.36's
+        // requirement that all twelve see the SAME `values` function
+        // object, and the shared parent is where the spec puts them.
         t if t == Tag::ArrayBuffer as u16 => 19,
+        t if t == Tag::TypedArray as u16 => TYPEDARRAY_PROTO_FAMILY,
         // §25.3.4 — DataView.prototype is its own singleton too, so
         // its row is exact for the same reason ArrayBuffer's is. Its
         // absence was not a recorded boundary like TypedArray's, just

@@ -83,14 +83,12 @@ pub(crate) unsafe fn builtin_symbol_method_lookup(
         t if t == Tag::Map as u16 => (11, torajs_rc::ANY_METHOD_ENTRIES),
         // §23.2.3.36 — `%TypedArray%.prototype[@@iterator]` IS the
         // same function object as `%TypedArray%.prototype.values`,
-        // so it must reify to the very cell the named read answers.
-        // That read is family-less today (`recv_proto_family` has no
-        // TypedArray row, because the eleven per-kind prototypes
-        // share one method face and the abstract
-        // %TypedArray%.prototype they hang off is a recorded gap in
-        // RFC 20260823) — so -1 here is not a shrug, it is the way
-        // to land on the same cell.
-        t if t == Tag::TypedArray as u16 => (-1, torajs_rc::ANY_METHOD_VALUES),
+        // so it reifies on the row the named read answers from:
+        // %TypedArray.prototype%'s (RFC 20260916-typedarray-intrinsic).
+        t if t == Tag::TypedArray as u16 => (
+            super::family::TYPEDARRAY_PROTO_FAMILY,
+            torajs_rc::ANY_METHOD_VALUES,
+        ),
         t if t == Tag::Set as u16 => (12, torajs_rc::ANY_METHOD_VALUES),
         // §22.1.3.36 — no named alias; the dedicated own id (a
         // Substr view shares Tag::Str). A StringWrapper inherits
@@ -164,7 +162,8 @@ const METHOD_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 5) | (1 << 4) | (1 << 3) | (1 <
 /// lives under. `None` for a prototype the spec gives no such entry.
 ///
 /// The aliases mirror the instance table above — §23.1.3.40 Array →
-/// `values`, §24.1.3.14 Map → `entries`, §24.2.3.13 Set → `values`;
+/// `values`, §24.1.3.14 Map → `entries`, §24.2.3.13 Set → `values`,
+/// §23.2.3.36 %TypedArray% → `values`;
 /// §22.1.3.36 String has no named alias and carries a dedicated id.
 /// Tags are `torajs-rc/builtin_proto.rs` order.
 ///
@@ -179,6 +178,9 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
         3 => (3, torajs_rc::ANY_METHOD_STR_ITERATOR),
         11 => (11, torajs_rc::ANY_METHOD_ENTRIES),
         12 => (12, torajs_rc::ANY_METHOD_VALUES),
+        // §23.2.3.36 — %TypedArray.prototype%'s `[Symbol.iterator]`
+        // is its `values`.
+        38 => (38, torajs_rc::ANY_METHOD_VALUES),
         _ => return None,
     })
 }
