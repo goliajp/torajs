@@ -220,6 +220,12 @@ unsafe fn copy_own_into_ex(
     if source == VALUE_NULL_IMM || source == VALUE_UNDEFINED_IMM {
         return;
     }
+    // A Proxy source answers both buckets from one ownKeys trap call.
+    if crate::own_names::is_proxy(source) {
+        let all = unsafe { crate::own_names::__torajs_proxy_own_keys_all(source, 0) };
+        unsafe { copy_keys(target_slot, source, all as *mut c_void, excluded, keys) };
+        return;
+    }
     let strings = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(source, 0) };
     let threw = unsafe { copy_keys(target_slot, source, strings, excluded, keys) };
     if !threw {

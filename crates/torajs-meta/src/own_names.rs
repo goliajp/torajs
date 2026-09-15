@@ -389,6 +389,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_enum_symbols(obj_any: u64) -> *mut c_
 /// # Safety
 /// `obj_any` carries a valid AnyValue bit pattern.
 unsafe fn own_symbols_arr(obj_any: u64, include_nonenum: i64) -> *mut c_void {
+    // §10.5.11 — a Proxy answers through its ownKeys trap.
+    if is_proxy(obj_any) {
+        return unsafe { __torajs_proxy_own_symbols(obj_any, include_nonenum) } as *mut c_void;
+    }
     let out = unsafe { __torajs_arr_alloc(0) };
     unsafe { append_own_symbols(out, obj_any, include_nonenum) }
 }
@@ -406,8 +410,23 @@ unsafe fn own_symbols_arr(obj_any: u64, include_nonenum: i64) -> *mut c_void {
 /// `obj_any` carries a valid AnyValue bit pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_own_keys_all(obj_any: u64) -> *mut c_void {
+    // One trap call for the whole list, not one per bucket.
+    if is_proxy(obj_any) {
+        return unsafe { __torajs_proxy_own_keys_all(obj_any, 1) } as *mut c_void;
+    }
     let names = unsafe { crate::obj_own_keys::__torajs_anyv_own_keys(obj_any, 1) };
     unsafe { append_own_symbols(names as *mut u8, obj_any, 1) }
+}
+
+pub(crate) fn is_proxy(v: u64) -> bool {
+    crate::reflect::is_cell_imm(v)
+        && unsafe { heap_type_tag_local(v as *const c_void) } == crate::reflect::TAG_PROXY
+}
+
+unsafe extern "C" {
+    /// torajs-anyvalue — §10.5.11 [[OwnPropertyKeys]] faces on a Proxy.
+    fn __torajs_proxy_own_symbols(recv: u64, include_nonenum: i64) -> *mut u8;
+    pub(crate) fn __torajs_proxy_own_keys_all(recv: u64, include_nonenum: i64) -> *mut u8;
 }
 
 /// Push this receiver's own symbol keys onto `out`, each `+1`-rc'd for

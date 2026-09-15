@@ -54,26 +54,24 @@ pub unsafe extern "C" fn __torajs_proxy_define_own(
             return 0;
         };
         let (target, handler) = (__s.target, __s.handler);
+        // The internal method receives a descriptor RECORD: read the
+        // caller's object once (§6.2.6.5), and hand the trap and the
+        // forward a fresh object built from it (§10.5.6 step 8), so a
+        // handler that mutates its argument cannot change what the
+        // invariant checks compare.
+        let Ok(record) =
+            crate::proxy_descriptor::to_property_descriptor(box_void_ptr(desc as *mut c_void))
+        else {
+            return 0;
+        };
         let t = match trap(handler, b"defineProperty") {
             Err(()) => return 0,
-            Ok(None) => {
-                // The target's own [[DefineOwnProperty]]. A heap-cell
-                // AnyValue IS its pointer, so the cell's target slot
-                // doubles as the relocation slot the define core
-                // writes a grown dynobj back through.
-                let mut fallback: AnyValue = target;
-                let slot =
-                    crate::proxy::forward_slot(cell, target, &mut fallback) as *mut *mut c_void;
-                let r = __torajs_dynobj_define_from_desc_soft(slot, key, desc);
-                if __torajs_throw_check() != 0 {
-                    return 0;
-                }
-                return r;
-            }
+            Ok(None) => return forward_define(cell, target, key, &record),
             Ok(Some(t)) => t,
         };
         let key_av = crate::proxy_key::key_to_any(key);
-        let argv = [target, key_av, box_void_ptr(desc as *mut c_void)];
+        let desc_obj = record.to_object();
+        let argv = [target, key_av, desc_obj];
         let out = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
             t,
             handler,
@@ -82,13 +80,43 @@ pub unsafe extern "C" fn __torajs_proxy_define_own(
         );
         __torajs_anyv_rc_dec(t);
         __torajs_anyv_rc_dec(key_av);
+        __torajs_anyv_rc_dec(desc_obj);
         if __torajs_throw_check() != 0 {
             __torajs_anyv_rc_dec(out);
             return 0;
         }
-        let b = __torajs_anyv_to_bool(out);
+        let accepted = __torajs_anyv_to_bool(out);
         __torajs_anyv_rc_dec(out);
-        b as i64
+        if !accepted {
+            return 0;
+        }
+        crate::proxy_invariant::check_define_true(target, key, &record).map_or(0, |()| 1)
+    }
+}
+
+/// §10.5.6 step 6.a — the target's own [[DefineOwnProperty]]. A
+/// heap-cell AnyValue IS its pointer, so the cell's target slot
+/// doubles as the relocation slot the define core writes a grown
+/// dynobj back through.
+///
+/// # Safety
+/// `cell` is a live Proxy cell and `target` its live target.
+unsafe fn forward_define(
+    cell: *mut c_void,
+    target: AnyValue,
+    key: *mut c_void,
+    record: &crate::proxy_descriptor::Desc,
+) -> i64 {
+    unsafe {
+        let mut fallback: AnyValue = target;
+        let slot = crate::proxy::forward_slot(cell, target, &mut fallback) as *mut *mut c_void;
+        let desc_obj = record.to_object();
+        let r = __torajs_dynobj_define_from_desc_soft(slot, key, as_void_ptr(desc_obj));
+        __torajs_anyv_rc_dec(desc_obj);
+        if __torajs_throw_check() != 0 {
+            return 0;
+        }
+        r
     }
 }
 

@@ -22,7 +22,6 @@ unsafe extern "C" {
     fn __torajs_dynobj_alloc() -> *mut c_void;
     fn __torajs_dynobj_set(dst: *mut *mut c_void, key: *const u8, tag: u64, value: u64);
     fn __torajs_anyv_own_keys(v: u64, include_nonenum: i64) -> *mut c_void;
-    fn __torajs_anyv_own_symbols(obj_any: u64) -> *mut c_void;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -114,16 +113,16 @@ pub unsafe extern "C" fn __torajs_anyv_get_property_descriptors(obj_any: u64) ->
     }
     let out_slot: *mut *mut c_void = &mut out;
     // include_nonenum = 1: this is the OWN surface, not the
-    // enumerable one.
-    let keys = unsafe { __torajs_anyv_own_keys(obj_any, 1) };
+    // enumerable one. A cell receiver answers both buckets in one
+    // list (a Proxy's ownKeys trap runs once); a non-cell receiver (a
+    // bare number / boolean immediate) has no symbol-keyed own
+    // properties and no cell for the symbol walk to read.
+    let keys = if is_cell_imm(obj_any) {
+        unsafe { crate::own_names::__torajs_anyv_own_keys_all(obj_any) }
+    } else {
+        unsafe { __torajs_anyv_own_keys(obj_any, 1) }
+    };
     unsafe { drain_keys(obj_any, keys, out_slot) };
-    // A non-cell receiver (a bare number / boolean immediate) has no
-    // symbol-keyed own properties and no cell for the symbol walk to
-    // read, so it is asked only for its string keys above.
-    if is_cell_imm(obj_any) {
-        let syms = unsafe { __torajs_anyv_own_symbols(obj_any) };
-        unsafe { drain_keys(obj_any, syms, out_slot) };
-    }
     // The answer is the dynobj itself, boxed as a heap AnyValue —
     // the caller adopts the mint's one share.
     unsafe { __torajs_anyv_box_from_pair(ANY_HEAP, out as i64) }
