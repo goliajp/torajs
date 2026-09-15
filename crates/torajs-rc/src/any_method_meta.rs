@@ -203,6 +203,9 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // §20.4.3.2 — get Symbol.prototype.description (accessor id,
         // `get size` posture: spec getter name, never interns back).
         ANY_METHOD_GET_DESCRIPTION => ("get description", 0),
+        // §22.2.6.4 — get RegExp.prototype.flags (accessor id, same
+        // posture).
+        ANY_METHOD_GET_FLAGS => ("get flags", 0),
         // §22.1.3.36 — String.prototype[Symbol.iterator] (own id,
         // never interns back; the spec function name has brackets).
         ANY_METHOD_STR_ITERATOR => ("[Symbol.iterator]", 0),

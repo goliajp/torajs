@@ -225,6 +225,12 @@ pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Opt
         5 if unsafe { crate::prop_has::key_is(key, b"description") } => {
             Some(torajs_rc::ANY_METHOD_GET_DESCRIPTION)
         }
+        // §22.2.6.4 — `RegExp.prototype` (tag 7) owns a `flags`
+        // accessor (rotation 654; the per-flag accessors are not
+        // modelled yet).
+        7 if unsafe { crate::prop_has::key_is(key, b"flags") } => {
+            Some(torajs_rc::ANY_METHOD_GET_FLAGS)
+        }
         // §25.1.6.13 — `ArrayBuffer.prototype` (tag 19) owns a
         // `resizable` accessor.
         19 if unsafe { crate::prop_has::key_is(key, b"resizable") } => {

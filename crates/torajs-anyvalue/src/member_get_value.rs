@@ -447,6 +447,10 @@ unsafe fn regexp_arm_value(ptr: *mut c_void, key: *const c_void, recv: AnyValue)
         if let Some(v) = expando_arm_value(ptr, Tag::RegExp as u16, key) {
             return v;
         }
+        // §22.2.6 flag accessors — value twin of the tag arm.
+        if let Some(b) = crate::member_props_regexp::regexp_flag_by_name(ptr, key) {
+            return b;
+        }
         reify_value(recv, key)
     }
 }

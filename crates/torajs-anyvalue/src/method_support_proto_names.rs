@@ -32,12 +32,13 @@ use core::sync::atomic::{AtomicU64, Ordering};
 /// enumeration twin of `method_support_proto::proto_tag_accessor_mid`,
 /// which answers the same table one key at a time. Map / Set `size`
 /// (§24.1.3.10 / §24.2.3.9) and Symbol `description` (§20.4.3.2) are
-/// the ones tr materializes; RegExp's §22.2.6 flag accessors are not
-/// modelled yet and are absent from BOTH faces, so the two still
-/// agree.
+/// the ones tr materializes, and RegExp's §22.2.6.4 `flags` (rotation
+/// 654); the per-flag accessors are not modelled yet and are absent
+/// from BOTH faces, so the two still agree.
 fn proto_tag_accessors(tag: i64) -> &'static [(i64, &'static str)] {
     match tag {
         5 => &[(torajs_rc::ANY_METHOD_GET_DESCRIPTION, "description")],
+        7 => &[(torajs_rc::ANY_METHOD_GET_FLAGS, "flags")],
         11 | 12 => &[(torajs_rc::ANY_METHOD_GET_SIZE, "size")],
         19 => &[(torajs_rc::ANY_METHOD_GET_RESIZABLE, "resizable")],
         _ => &[],

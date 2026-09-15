@@ -163,7 +163,7 @@ pub fn any_method_families(mid: i64) -> u16 {
         // ---- number formatting ----
         ANY_METHOD_TO_FIXED | ANY_METHOD_TO_EXPONENTIAL | ANY_METHOD_TO_PRECISION => FAM_NUM,
         // ---- regexp ----
-        ANY_METHOD_TEST | ANY_METHOD_EXEC | ANY_METHOD_COMPILE => FAM_REGEXP,
+        ANY_METHOD_TEST | ANY_METHOD_EXEC | ANY_METHOD_COMPILE | ANY_METHOD_GET_FLAGS => FAM_REGEXP,
         // ---- promise ----
         ANY_METHOD_THEN | ANY_METHOD_CATCH | ANY_METHOD_FINALLY => FAM_PROMISE,
         // ---- symbol ----

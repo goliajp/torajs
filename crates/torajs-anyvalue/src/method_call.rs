@@ -324,6 +324,11 @@ pub unsafe fn any_method_dispatch_impl(
     if mid == torajs_rc::ANY_METHOD_GET_DESCRIPTION {
         return unsafe { crate::method_call_cell::symbol_description_getter(recv) };
     }
+    // §22.2.6.4 — the reified `get RegExp.prototype.flags` cell:
+    // receiver-generic, eight Gets in spec order (same reach).
+    if mid == torajs_rc::ANY_METHOD_GET_FLAGS {
+        return unsafe { crate::regexp_flags_getter::regexp_flags_getter(recv) };
+    }
     // §22.1.3.36 — the reified `String.prototype[Symbol.iterator]`
     // cell (F0 string leg): receiver-generic ToString(this), then a
     // VALUES ArrIter over the character array. The id never interns;

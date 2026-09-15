@@ -128,3 +128,35 @@ pub unsafe extern "C" fn __torajs_any_regexp_prop(
     }
     VALUE_UNDEFINED
 }
+
+/// The §22.2.6.{4,5,6,7,8,9,10,11} flag accessors by NAME for the
+/// runtime member face (`member_get::regexp_arm_tag` and its value
+/// twin): a RegExp receiver read through a dynamic key (`re[k]`,
+/// `Reflect.get(re, "global")`, the reified `get flags` body's own
+/// eight Gets) answers the flag bit as a boolean — `Some(0 | 1)`, or
+/// `None` for any other name. The static spelling keeps the interned
+/// `ANY_RPROP_*` lane above.
+///
+/// # Safety
+/// `ptr` is a live RegExp cell; `key` is NULL or a live Str cell.
+pub(crate) unsafe fn regexp_flag_by_name(ptr: *mut c_void, key: *const c_void) -> Option<u64> {
+    const FLAGS: [(&[u8], i64); 8] = [
+        (b"hasIndices", 0x80),
+        (b"global", 0x02),
+        (b"ignoreCase", 0x01),
+        (b"multiline", 0x04),
+        (b"dotAll", 0x08),
+        (b"unicode", 0x10),
+        (b"unicodeSets", 0x40),
+        (b"sticky", 0x20),
+    ];
+    if key.is_null() {
+        return None;
+    }
+    for (name, bit) in FLAGS {
+        if unsafe { crate::prop_has::key_is(key, name) } {
+            return Some(unsafe { __torajs_regex_has_flag(ptr, bit) } as u64);
+        }
+    }
+    None
+}

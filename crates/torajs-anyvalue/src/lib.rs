@@ -252,6 +252,7 @@ mod proxy_own;
 mod proxy_revocable;
 mod reflect_apply;
 mod reflect_construct;
+mod regexp_flags_getter;
 mod set_like;
 mod set_like_ops;
 mod str_iterator;

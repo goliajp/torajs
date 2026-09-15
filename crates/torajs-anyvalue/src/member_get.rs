@@ -426,6 +426,11 @@ unsafe fn regexp_arm_tag(ptr: *mut c_void, key: *const c_void, recv: AnyValue) -
         if let Some(t) = expando_arm_tag(ptr, Tag::RegExp as u16, key) {
             return t;
         }
+        // §22.2.6 — the inherited flag accessors, after the own bag
+        // (an own entry shadows them) and before the method reify.
+        if crate::member_props_regexp::regexp_flag_by_name(ptr, key).is_some() {
+            return AnySlotTag::Bool as u64;
+        }
         reify_tag(recv, key)
     }
 }
