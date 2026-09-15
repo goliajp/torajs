@@ -97,6 +97,12 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
             )
         };
     }
+    // §23.2.6 — a typed-array constructor inherits %TypedArray%'s
+    // statics; the builtin constructor chain is the one a Closure cell
+    // walks here.
+    if tag == Tag::Closure as u16 {
+        return unsafe { crate::method_value::ctor_read_cell_inherited(ptr, key) }.is_some() as i64;
+    }
     if tag != Tag::DynObj as u16 {
         return 0;
     }

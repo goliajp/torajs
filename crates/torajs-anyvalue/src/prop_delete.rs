@@ -300,12 +300,11 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
             // static (`delete Promise.all`) is {configurable: true}:
             // tombstone its id so every table-backed reader answers
             // absent (an expando restore shadows the bit).
-            // `delete Uint8Array.from` is a no-op true: the static is
-            // %TypedArray%'s, inherited, never an own property of the
-            // concrete constructor (§23.2.2) — no tombstone.
-            if let Some(id) = unsafe { crate::method_value::ctor_static_table_id(ptr, key) }
-                && torajs_rc::ns_static::ns_static_meta(id).is_some_and(|r| r.ns != "TypedArray")
-            {
+            // `delete Uint8Array.from` finds no own static (§23.2.2
+            // gives it to %TypedArray%), so it is a no-op true; `delete
+            // TypedArray.from` tombstones the one static every kind
+            // inherits.
+            if let Some(id) = unsafe { crate::method_value::ctor_static_table_id(ptr, key) } {
                 torajs_rc::ns_static_mark_deleted(id);
             }
             // `Function.prototype` is itself a Closure (§20.2.3 makes

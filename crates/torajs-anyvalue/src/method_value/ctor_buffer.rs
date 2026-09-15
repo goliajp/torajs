@@ -22,6 +22,53 @@ unsafe extern "C" {
 /// The abstract %TypedArray% constructor's slot (§23.2.1).
 const TYPEDARRAY_TAG: i64 = torajs_rc::builtin_proto::TYPEDARRAY_PROTO_TAG as i64;
 
+/// The builtin constructor cell above `cell` on its [[Prototype]]
+/// chain, when that parent is itself a builtin constructor — %TypedArray%
+/// for the twelve typed-array constructors, `None` for everything else
+/// (whose parent is %Function.prototype%).
+fn ctor_parent_cell(cell: *const core::ffi::c_void) -> Option<*const core::ffi::c_void> {
+    let parent = unsafe { __torajs_builtin_ctor_parent_value(cell) };
+    (parent != 0).then(|| crate::nanbox::as_void_ptr(parent) as *const core::ffi::c_void)
+}
+
+/// [`super::ctor_own_read_cell`] over the builtin constructor chain —
+/// §10.1.8.1 OrdinaryGet for a static a concrete constructor inherits
+/// (`Int8Array.from` is %TypedArray%'s). Own-property faces
+/// (hasOwnProperty, gOPD, delete) keep asking the own probe.
+///
+/// # Safety
+/// `cell` is null or a live heap cell; `key` is null or a live Str cell.
+pub(crate) unsafe fn ctor_read_cell_inherited(
+    cell: *const core::ffi::c_void,
+    key: *const core::ffi::c_void,
+) -> Option<(u64, u64)> {
+    let mut c = cell;
+    loop {
+        if let Some(pair) = unsafe { super::ctor_own_read_cell(c, key) } {
+            return Some(pair);
+        }
+        c = ctor_parent_cell(c)?;
+    }
+}
+
+/// [`super::ctor_static_cell`] over the builtin constructor chain — the
+/// dynamic-key invoke's lookup (`(Int8Array as any)["of"](1, 2)`).
+///
+/// # Safety
+/// Same contract as [`ctor_read_cell_inherited`].
+pub(crate) unsafe fn ctor_static_cell_inherited(
+    cell: *const core::ffi::c_void,
+    key: *const core::ffi::c_void,
+) -> Option<*mut u8> {
+    let mut c = cell;
+    loop {
+        if let Some(found) = unsafe { super::ctor_static_cell(c, key) } {
+            return Some(found);
+        }
+        c = ctor_parent_cell(c)?;
+    }
+}
+
 /// A builtin constructor cell's [[Prototype]] when it is not
 /// %Function.prototype%: each of the twelve typed-array constructors
 /// inherits from the abstract %TypedArray% (§23.2.6). `0` for every

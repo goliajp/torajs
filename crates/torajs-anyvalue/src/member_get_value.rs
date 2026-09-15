@@ -374,7 +374,7 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     // constants (mirror of the tag channel).
     if let Some((ptr, t)) = recv_cell(recv)
         && t == Tag::Closure as u16
-        && let Some((_, val)) = unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }
+        && let Some((_, val)) = unsafe { crate::method_value::ctor_read_cell_inherited(ptr, key) }
     {
         return val;
     }

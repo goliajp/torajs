@@ -49,6 +49,11 @@ pub(super) unsafe fn __torajs_any_has_property(_recv: u64, _key: *const c_void) 
     PROP_HAS_RESULT.with(|r| r.get())
 }
 
+pub(super) unsafe fn __torajs_builtin_ctor_parent_value(_cell: *const c_void) -> u64 {
+    // Unit tests build no builtin constructor cells.
+    0
+}
+
 pub(super) unsafe fn __torajs_dynobj_user_proto(_dynobj: *const c_void) -> *mut c_void {
     // Unit tests never build a user [[Prototype]] chain — the chain
     // hop is covered by the conformance fixtures.

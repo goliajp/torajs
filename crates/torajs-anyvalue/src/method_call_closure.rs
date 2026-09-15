@@ -182,7 +182,7 @@ pub(crate) unsafe fn closure_method(
                 // dispatcher entry (this-insensitive statics;
                 // this-sensitive arms throw inside the dispatcher).
                 if !name_str.is_null()
-                    && let Some(cell) = crate::method_value::ctor_static_cell(
+                    && let Some(cell) = crate::method_value::ctor_static_cell_inherited(
                         ptr as *const c_void,
                         name_str as *const c_void,
                     )

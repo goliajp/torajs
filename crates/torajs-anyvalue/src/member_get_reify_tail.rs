@@ -33,7 +33,7 @@ pub(crate) unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
     // (borrow-shaped, matching the pair protocol).
     if let Some((ptr, t)) = recv_cell(recv)
         && t == Tag::Closure as u16
-        && let Some((tag, _)) = unsafe { crate::method_value::ctor_own_read_cell(ptr, key) }
+        && let Some((tag, _)) = unsafe { crate::method_value::ctor_read_cell_inherited(ptr, key) }
     {
         return tag;
     }

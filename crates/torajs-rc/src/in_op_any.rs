@@ -72,6 +72,10 @@ unsafe extern "C" {
     // torajs-anyvalue — borrowed user-[[Prototype]] cell of a DynObj
     // (NULL = null-proto / implicit chain / non-cell).
     fn __torajs_dynobj_user_proto(dynobj: *const c_void) -> *mut c_void;
+    // torajs-anyvalue — a builtin constructor cell's parent when it is
+    // itself a builtin constructor (%TypedArray% above the twelve
+    // typed-array constructors), `0` otherwise.
+    fn __torajs_builtin_ctor_parent_value(cell: *const c_void) -> u64;
     // torajs-anyvalue — prototype-chain membership against the
     // interned family tables (`<Ctor>.prototype` link + the
     // `Object.prototype` root; delete tombstones consulted inside).
@@ -326,6 +330,16 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
             {
                 return false;
             }
+        }
+    }
+    // §23.2.6 — a typed-array constructor's [[Prototype]] is the
+    // abstract %TypedArray%, whose statics it inherits (`"from" in
+    // Int8Array`). The parent is an immortal ctor cell (a heap box is
+    // its pointer bits).
+    if type_tag == crate::Tag::Closure as u16 {
+        let parent = unsafe { __torajs_builtin_ctor_parent_value(ptr as *const c_void) };
+        if parent != 0 {
+            return unsafe { __torajs_in_op_any_str(parent as i64, key) };
         }
     }
     // Class-prototype link — a struct receiver's methods / accessor
