@@ -90,8 +90,9 @@ fn subclass_magic_ty(name: &str) -> Option<Type> {
 
 /// Signatures of the error-family synth intrinsics the class-injection
 /// passes write into the AST — `Error`'s prototype install and its
-/// §20.5.8.1 `cause` install, the `[[ErrorData]]` / IsConstructor
-/// probes, and the own-absence Str sentinel mint. Split out of the
+/// §20.5.8.1 `cause` install, the `[[ErrorData]]` / IsConstructor /
+/// SpeciesConstructor probes, and the own-absence Str sentinel mint.
+/// Split out of the
 /// cascade because that match is a registered known-debt function and
 /// the `cause` install would have grown it.
 fn error_synth_ty(name: &str) -> Option<Type> {
@@ -103,6 +104,9 @@ fn error_synth_ty(name: &str) -> Option<Type> {
         "__torajs_error_is_error" | "__torajs_is_constructor" => {
             Type::Function(vec![Type::Any], Box::new(Type::Boolean))
         }
+        // RFC 20260915 — injected source's SpeciesConstructor(O,
+        // %Promise%), lowered by `ssa_lower_call_injected_spec_ops`.
+        "__torajs_promise_species_ctor" => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         "__torajs_undef_str" => Type::Function(Vec::new(), Box::new(Type::String)),
         _ => return None,
     })
@@ -128,11 +132,6 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Number, Type::Any],
             Box::new(Type::Void),
         )),
-        // RFC 20260915 — injected source's spec IsConstructor, lowered
-        // by `ssa_lower_call_is_constructor`.
-        crate::ssa_lower_call_is_constructor::NAME => {
-            Ok(Type::Function(vec![Type::Any], Box::new(Type::Boolean)))
-        }
         "__torajs_date_now" => Ok(Type::Function(Vec::new(), Box::new(Type::Date))),
         "__torajs_date_from_ms" => Ok(Type::Function(vec![Type::Number], Box::new(Type::Date))),
         "__torajs_date_from_value" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Date))),

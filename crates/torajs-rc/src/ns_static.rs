@@ -381,6 +381,21 @@ pub fn ns_static_is_deleted(id: i64) -> bool {
 // Bitmask capacity must cover every table row.
 const _: () = assert!(NS_STATIC_TABLE.len() <= 256);
 
+/// Self-hosted HELPER slots — closures the injected program registers
+/// through the same `__torajs_ns_static_bind` registry, that no
+/// namespace static reifies: ids one past the table's rows, never an
+/// `NsStaticRow` (`ns_static_meta` answers None, nothing mints a cell
+/// for them). RFC 20260915-promise-finally-via-then — the §27.2.5.3
+/// thenFinally / catchFinally body the runtime's Invoke lane calls.
+pub const HELPER_ID_PROMISE_FINALLY: i64 = NS_STATIC_TABLE.len() as i64;
+/// Its second half: a `finally` handler returned a promise whose
+/// `then` is not the builtin's — `inner.then(() => value)` /
+/// `inner.then(() => { throw reason })`, Invoked.
+pub const HELPER_ID_PROMISE_FINALLY_RESETTLE: i64 = HELPER_ID_PROMISE_FINALLY + 1;
+
+// The bind registry has 256 slots; every helper id must fit beside the rows.
+const _: () = assert!(HELPER_ID_PROMISE_FINALLY_RESETTLE < 256);
+
 #[cfg(test)]
 mod tests {
     use super::*;

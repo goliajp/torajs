@@ -212,6 +212,7 @@ mod method_call_object_proto_own;
 mod method_call_object_proto_tag;
 mod method_call_prelude;
 mod method_call_promise;
+mod method_call_promise_invoke;
 mod method_call_proto_patch;
 mod method_call_regexp;
 mod method_call_str;

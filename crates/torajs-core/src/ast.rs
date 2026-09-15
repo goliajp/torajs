@@ -219,6 +219,7 @@ mod inject_builtin_classes_data;
 mod inject_builtin_classes_message;
 mod inject_builtin_classes_reach;
 mod inject_disposable_stack;
+mod inject_promise_finally;
 mod legacy_octal_sites;
 mod let_owned_elems;
 mod lift_arrow_fns;
@@ -355,6 +356,7 @@ pub use inject_array_from_async::inject_array_from_async;
 pub(crate) use inject_builtin_classes::class_reaches_error;
 pub use inject_builtin_classes::inject_builtin_classes;
 pub use inject_disposable_stack::inject_disposable_stack;
+pub use inject_promise_finally::inject_promise_finally;
 pub use let_owned_elems::analyze_let_owned_elems;
 pub use lift_arrow_fns::lift_arrow_fns;
 pub(crate) use lift_arrow_fns::{

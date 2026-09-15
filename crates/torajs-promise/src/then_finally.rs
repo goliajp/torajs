@@ -39,6 +39,19 @@ unsafe extern "C" {
     fn free(p: *mut c_void);
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-anyvalue — whether a promise cell's `then` is the
+    /// builtin's (no own entry, no `Promise.prototype.then` patch);
+    /// the bag and the patch table live on that side.
+    fn __torajs_promise_then_is_builtin(cell: *mut c_void) -> i64;
+    /// torajs-anyvalue — the Invoke of a non-builtin `then` on the
+    /// returned promise (§27.2.5.3 thenFinally / catchFinally's
+    /// `.then(thunk)`), then the wait on its answer. Consumes one
+    /// stake on each cell.
+    fn __torajs_promise_finally_resettle(
+        source: *mut c_void,
+        inner: *mut c_void,
+        result: *mut c_void,
+    );
 }
 
 /// Forward the source's own settlement — what `.finally` answers with
@@ -109,6 +122,29 @@ unsafe extern "C" fn finally_wait_dispatch(arg: i64) {
     }
 }
 
+/// §27.2.5.3's `promiseResolve(C, r).then(() => value)` over a
+/// returned promise whose `then` is the builtin's: attach the wait
+/// directly. Consumes one stake on each of `source`, `inner`,
+/// `result` (all three move into the job). The any lane's finally
+/// reaction (torajs-anyvalue `then_any_dispatch`) shares it.
+///
+/// # Safety
+/// All three are live promise cells; `source` is settled.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_promise_finally_wait(
+    source: *mut c_void,
+    inner: *mut c_void,
+    result: *mut c_void,
+) {
+    unsafe {
+        let w = malloc(core::mem::size_of::<FinallyWaitArg>()) as *mut FinallyWaitArg;
+        (*w).source = source;
+        (*w).inner = inner;
+        (*w).result = result;
+        __torajs_promise_attach_then(inner, Some(finally_wait_dispatch), w as i64);
+    }
+}
+
 /// The tail both variants share: decide what the handler's return
 /// means and settle (or arrange to settle) the result.
 ///
@@ -125,14 +161,13 @@ unsafe fn finish(source: *mut c_void, result: *mut c_void, ret_repr: u8, ret: i6
             return;
         }
         if let Some(inner) = crate::then_adopt::returned_promise(ret_repr, ret) {
-            let w = malloc(core::mem::size_of::<FinallyWaitArg>()) as *mut FinallyWaitArg;
-            (*w).source = source;
-            (*w).inner = inner;
-            (*w).result = result;
-            // All three stakes move into the waiting job: the two
-            // this call was handed, and the handler's on what it
-            // returned.
-            __torajs_promise_attach_then(inner, Some(finally_wait_dispatch), w as i64);
+            // All three stakes move on: the two this call was handed,
+            // and the handler's on what it returned.
+            if __torajs_promise_then_is_builtin(inner) == 0 {
+                __torajs_promise_finally_resettle(source, inner, result);
+            } else {
+                __torajs_promise_finally_wait(source, inner, result);
+            }
             return;
         }
         drop_handler_return(ret_repr, ret);

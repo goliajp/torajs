@@ -297,6 +297,26 @@ pub(crate) unsafe fn dispatch(
                     )
                     .unwrap_or_else(|| crate::method_call::method_no_such());
                 }
+                // §27.2.5.1 / §27.2.5.3 on a receiver that is not a
+                // Promise cell (`Promise.prototype.catch.call({then…})`,
+                // a primitive whose prototype grew a `then`, a
+                // thenable, a Proxy) — the bodies are receiver-generic
+                // Invokes of `then`; a Promise cell keeps the
+                // re-dispatch, whose arm makes the same choice.
+                if *fam == crate::method_value::family::PROMISE_PROTO_FAMILY
+                    && !crate::method_call_promise_invoke::is_promise_cell(this_arg)
+                {
+                    if *mid == torajs_rc::ANY_METHOD_CATCH {
+                        return crate::method_call_promise_invoke::catch_via_then(
+                            this_arg, argv, argc,
+                        );
+                    }
+                    if *mid == torajs_rc::ANY_METHOD_FINALLY {
+                        return crate::method_call_promise_invoke::finally_via_then(
+                            this_arg, argv, argc,
+                        );
+                    }
+                }
                 if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
                     return out;
                 }

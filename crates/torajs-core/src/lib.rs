@@ -350,7 +350,7 @@ pub(crate) mod ssa_lower_call_fn_value;
 pub(crate) mod ssa_lower_call_fs_promises;
 pub(crate) mod ssa_lower_call_has_own;
 pub(crate) mod ssa_lower_call_in_op;
-pub(crate) mod ssa_lower_call_is_constructor;
+pub(crate) mod ssa_lower_call_injected_spec_ops;
 pub(crate) mod ssa_lower_call_iter_next;
 pub(crate) mod ssa_lower_call_iterator_concat;
 pub(crate) mod ssa_lower_call_iterator_from;

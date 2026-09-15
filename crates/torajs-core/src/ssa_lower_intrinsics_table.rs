@@ -655,6 +655,7 @@ pub(crate) fn build(
         promise_then_simple: init_d.promise.promise_then_simple,
         promise_then_passthrough: init_d.promise.promise_then_passthrough,
         promise_then_overridden: init_d.promise.promise_then_overridden,
+        promise_species_ctor: init_d.promise.promise_species_ctor,
         promise_then2: init_d.promise.promise_then2,
         promise_then_closure: init_d.promise.promise_then_closure,
         promise_catch_simple: init_d.promise.promise_catch_simple,

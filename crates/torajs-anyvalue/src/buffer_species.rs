@@ -125,7 +125,7 @@ pub(crate) unsafe fn ta_species_resolve(recv: AnyValue) -> SpeciesResolved {
 
 /// The constructor-face dispatch (probe pair or accessor-getter
 /// answer) — torajs-arr `classify_ctor_pair_entry` twin.
-unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> SpeciesResolved {
+pub(crate) unsafe fn classify_ctor_entry(recv: AnyValue, dtag: u64, dval: u64) -> SpeciesResolved {
     unsafe {
         match dtag {
             // Absent or explicit undefined — default constructor.

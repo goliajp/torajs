@@ -28,7 +28,7 @@ pub(crate) const HELPER: &str = "__array_from_async";
 
 /// Every step of proposal-array-from-async §2.1.1, in spec order.
 /// `IsConstructor(C)` is the runtime's own (`__torajs_is_constructor`,
-/// `ssa_lower_call_is_constructor`): a callable non-constructor |this|
+/// `ssa_lower_call_injected_spec_ops`): a callable non-constructor |this|
 /// falls back to ArrayCreate as steps 3.a / 7.a say.
 const HELPER_SRC: &str = r#"
 async function __array_from_async_close(__iter: any): Promise<void> {

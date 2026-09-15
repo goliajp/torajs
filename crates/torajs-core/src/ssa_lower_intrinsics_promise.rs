@@ -80,6 +80,9 @@ pub(crate) struct PromiseIds {
     pub promise_then_passthrough: FuncId,
     /// Rotation 652 — existence of an own `then` on the cell (no GET).
     pub promise_then_overridden: FuncId,
+    /// Rotation 654 — §7.3.22 SpeciesConstructor(O, %Promise%) for the
+    /// injected `finally` helper (undefined = default, owned answer).
+    pub promise_species_ctor: FuncId,
     pub promise_then2: FuncId,
     pub promise_then_closure: FuncId,
     pub promise_catch_simple: FuncId,
@@ -269,6 +272,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_promise_then_overridden",
             &[Type::Promise],
             Type::I64,
+        ),
+        promise_species_ctor: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_promise_species_ctor",
+            &[Type::Any],
+            Type::Any,
         ),
         promise_then2: declare_intrinsic(
             module,

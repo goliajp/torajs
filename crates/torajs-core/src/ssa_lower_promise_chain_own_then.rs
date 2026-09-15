@@ -20,9 +20,9 @@
 //! block that rides the any method dispatcher against the boxed cell
 //! and settles the typed return contract through
 //! `promise_patched_result`, one entry-alloca slot the join loads.
-//! `.catch` / `.finally` also Invoke `then` per spec; they stay on the
-//! typed lane here (registered) — the split is the `.then` spelling
-//! the corpus writes.
+//! `.catch` / `.finally` Invoke `then` per spec too (rotation 654):
+//! their patched block dispatches the call's own name, and the
+//! runtime's Promise arm turns it into the Invoke.
 //!
 //! The async machinery's driver (`__w.then(...)` over the
 //! `__torajs_await_resolve` result, rotation 651-05) takes no probe:
@@ -51,7 +51,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     let boxable = args.iter().zip(arg_ops).all(|(&aid, op)| {
         !matches!(ctx.operand_ty(op), Type::FnSig(_)) || handler_forwarder(ctx, aid).is_some()
     });
-    if m_name != "then" || !boxable || ctx.ast.synth_promise_static_calls.contains(&src_id) {
+    if !boxable || ctx.ast.synth_promise_static_calls.contains(&src_id) {
         return ctx.lower_chain_fast(m_name, src_op, arg_ops);
     }
     let patched_blk = ctx.f.add_block();
@@ -105,7 +105,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     ctx.f.set_term(fast_end, Terminator::Br(after_blk));
 
     ctx.cur_block = patched_blk;
-    let patched_val = lower_own_then_invoke(ctx, src_op, args, arg_ops);
+    let patched_val = lower_own_then_invoke(ctx, src_op, m_name, args, arg_ops);
     let patched_end = ctx.cur_block;
     ctx.f.append_void(
         patched_end,
@@ -144,11 +144,13 @@ fn handler_forwarder(ctx: &LowerCtx<'_>, aid: ExprId) -> Option<String> {
 /// The override's call: the receiver cell boxed as a borrow (the
 /// chain caller owns or borrows `src_op` and settles it after the
 /// join), each handler boxed the way the static-slot patch boxes its
-/// arguments, the any method dispatcher, then the typed return
-/// contract.
+/// arguments, the any method dispatcher under the call's own method
+/// name (`catch` / `finally` reach the runtime's Invoke-of-`then`
+/// lane there, rotation 654), then the typed return contract.
 fn lower_own_then_invoke(
     ctx: &mut LowerCtx<'_>,
     src_op: Operand,
+    m_name: &str,
     args: &[ExprId],
     arg_ops: &[Operand],
 ) -> Operand {
@@ -193,8 +195,8 @@ fn lower_own_then_invoke(
             InstKind::Store(slot_val, Operand::Value(argv), (i * 8) as u64),
         );
     }
-    let mid = torajs_rc::any_method_id("then");
-    let name_str = ctx.intern_string_literal("then");
+    let mid = torajs_rc::any_method_id(m_name);
+    let name_str = ctx.intern_string_literal(m_name);
     let cur_block = ctx.cur_block;
     let result = ctx.f.append_inst(
         cur_block,

@@ -42,6 +42,9 @@ pub(crate) const NUM_PROTO_FAMILY: i64 = 0;
 /// The Boolean family's proto tag — its reified toString / valueOf
 /// brand-check thisBooleanValue (§20.3.3) on borrow re-dispatch.
 pub(crate) const BOOL_PROTO_FAMILY: i64 = 4;
+/// %Promise.prototype% — the `then` / `catch` / `finally` family
+/// (`recv_proto_family` maps `Tag::Promise` here).
+pub(crate) const PROMISE_PROTO_FAMILY: i64 = 10;
 
 /// The Object-proto family row — the intern target for mids whose
 /// implementation a family INHERITS from `Object.prototype`.
@@ -128,7 +131,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::RegExp as u16 => 7,
         t if t == Tag::Date as u16 => 8,
         t if t == Tag::Symbol as u16 => 5,
-        t if t == Tag::Promise as u16 => 10,
+        t if t == Tag::Promise as u16 => PROMISE_PROTO_FAMILY,
         t if t == Tag::BigInt as u16 => 6,
         t if t == Tag::Map as u16 => 11,
         t if t == Tag::Set as u16 => 12,

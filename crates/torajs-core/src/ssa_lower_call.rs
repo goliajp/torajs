@@ -96,8 +96,9 @@ pub(crate) fn dispatch(
     if let Some(op) = crate::ssa_lower_call_ns_static_bind::try_lower(ctx, callee, args) {
         return op;
     }
-    // RFC 20260915 — injected source's spec IsConstructor; same reason.
-    if let Some(op) = crate::ssa_lower_call_is_constructor::try_lower(ctx, callee, args) {
+    // RFC 20260915 — injected source's spec abstract ops (IsConstructor,
+    // SpeciesConstructor); same reason.
+    if let Some(op) = crate::ssa_lower_call_injected_spec_ops::try_lower(ctx, callee, args) {
         return op;
     }
     // Any-method-call RFC 20260704 — an `any`-typed receiver claims

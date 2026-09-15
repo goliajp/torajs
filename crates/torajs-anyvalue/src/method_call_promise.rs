@@ -35,10 +35,10 @@ use crate::nanbox_encode::{
 pub(crate) const P_STATE_OFF: usize = 8;
 const P_IS_HEAP_OFF: usize = 9;
 pub(crate) const P_REPR_OFF: usize = 11;
-const P_VALUE_OFF: usize = 16;
+pub(crate) const P_VALUE_OFF: usize = 16;
 /// Lazy expando props dynobj slot (`Promise::props`) — where a
 /// `defineProperty(promise, "then", …)` landing lives.
-const P_PROPS_OFF: usize = 32;
+pub(crate) const P_PROPS_OFF: usize = 32;
 pub(crate) const STATE_FULFILLED: u8 = 1;
 const STATE_REJECTED: u8 = 2;
 pub(crate) const REPR_UNSTAMPED: u8 = 0;
@@ -47,7 +47,7 @@ const REPR_F64: u8 = 2;
 const REPR_BOOL: u8 = 3;
 const REPR_STR: u8 = 4;
 const REPR_HEAP: u8 = 5;
-const REPR_ANY: u8 = 6;
+pub(crate) const REPR_ANY: u8 = 6;
 const REPR_VOID: u8 = 7;
 const REPR_NULL: u8 = 8;
 
@@ -109,6 +109,21 @@ pub(crate) unsafe fn promise_method(
         return None;
     }
     unsafe {
+        // §27.2.5.1 / §27.2.5.3 — `catch` and `finally` are Invokes of
+        // `then`: a cell whose `then` is not the builtin's (an own
+        // entry in its expando bag, or a patched
+        // `Promise.prototype.then`) runs THAT `then`, through the
+        // dispatcher's ordinary GetV. The sibling holds the bodies;
+        // an unpatched cell pays one load and falls through to the
+        // kernels below.
+        if mid != ANY_METHOD_THEN && crate::method_call_promise_invoke::then_is_not_builtin(ptr) {
+            let recv = __torajs_anyv_box_from_pair(4, ptr as i64);
+            return Some(if mid == ANY_METHOD_CATCH {
+                crate::method_call_promise_invoke::catch_via_then(recv, argv, argc)
+            } else {
+                crate::method_call_promise_invoke::finally_via_then(recv, argv, argc)
+            });
+        }
         // A user `then` override (a `defineProperty(promise, "then",
         // …)` landing in the expando bag) is an OWN property, and the
         // own-bag gate in `cell_method` (`method_call_bag_expando`)
@@ -119,9 +134,9 @@ pub(crate) unsafe fn promise_method(
         // re-dispatches with the flag set to run the BUILTIN body,
         // and the second consult sent it back into `f` — an infinite
         // recursion (rotation 651, test262 `Promise/any/invoke-then`
-        // shape). `catch` / `finally` still reach the builtin below —
-        // their spec bodies Invoke `this.then`, an indirection
-        // recorded in plan-state L3b rather than wired here.
+        // shape). `catch` / `finally` took the Invoke lane above when
+        // `then` is not the builtin's; here they are the builtin's
+        // own bodies.
         //
         // Loud gate FIRST — an unstamped cell means its mint family
         // has no repr wiring yet; refuse at attach time instead of
@@ -310,7 +325,7 @@ pub(crate) unsafe fn box_settled(repr: u8, value: i64) -> AnyValue {
 /// %Promise% cell is adopted (an attach), a user thenable goes through
 /// the NewPromiseResolveThenableJob, an abrupt `then` read rejects,
 /// anything else fulfills. `ret` is owned and transfers in.
-unsafe fn resolve_result_with(result: *mut c_void, ret: AnyValue) {
+pub(crate) unsafe fn resolve_result_with(result: *mut c_void, ret: AnyValue) {
     unsafe {
         match crate::promise_thenable::probe_then(ret) {
             crate::promise_thenable::ThenProbe::Threw => {
@@ -336,7 +351,7 @@ unsafe fn resolve_result_with(result: *mut c_void, ret: AnyValue) {
 /// Write the result cell's value metadata BEFORE settling it —
 /// `resolve`/`reject` drain chained callbacks immediately when the
 /// microtask queue is hot, and those read the repr byte.
-unsafe fn stamp_result(result: *mut c_void, repr: u8, is_heap: u8) {
+pub(crate) unsafe fn stamp_result(result: *mut c_void, repr: u8, is_heap: u8) {
     unsafe {
         result.cast::<u8>().add(P_REPR_OFF).write(repr);
         result.cast::<u8>().add(P_IS_HEAP_OFF).write(is_heap);
@@ -375,22 +390,38 @@ unsafe extern "C" fn then_any_dispatch(arg: i64) {
             ((*a).on_ok, (*a).on_ok_entry)
         };
         let result = (*a).result;
+        let mut handed_off = false;
         if (*a).is_finally != 0 {
             // §27.2.5.3 — the callback runs argument-free on either
-            // settlement, its return is ignored (thenable-wait
-            // matches the typed kernel's posture), the settlement
-            // forwards; a callback throw wins as the rejection.
+            // settlement; a throw wins as the rejection; a returned
+            // promise is waited on (`promiseResolve(C, r).then(thunk)`
+            // — its rejection displaces the settlement, its fulfilment
+            // forwards the source's), and a returned promise whose
+            // `then` is not the builtin's is Invoked, closures and
+            // all; any other return is dropped and the settlement
+            // forwards. The wait hands the source / result stakes to
+            // the job, so the tail's drops are skipped for it.
             let cb = (*a).on_ok;
-            if !cb.is_null() {
-                let _ = invoke_boxed(cb, (*a).on_ok_entry, core::ptr::null(), 0);
-            }
+            let ret = if cb.is_null() {
+                VALUE_UNDEFINED
+            } else {
+                invoke_boxed(cb, (*a).on_ok_entry, core::ptr::null(), 0)
+            };
             if __torajs_throw_check() != 0 {
                 let ttag = __torajs_throw_take_tag();
                 let tval = __torajs_throw_take();
                 let reason = __torajs_anyv_box_from_pair(ttag, tval);
                 stamp_result(result, REPR_ANY, 1);
                 __torajs_promise_reject(result, reason as i64);
+            } else if crate::method_call_promise_invoke::is_promise_cell(ret) {
+                crate::method_call_promise_invoke::finally_returned_promise(
+                    src,
+                    crate::nanbox::as_void_ptr(ret) as *mut c_void,
+                    result,
+                );
+                handed_off = true;
             } else {
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(ret);
                 forward_settle(result, rejected, repr, is_heap, value);
             }
         } else if env.is_null() {
@@ -411,8 +442,10 @@ unsafe extern "C" fn then_any_dispatch(arg: i64) {
                 resolve_result_with(result, ret);
             }
         }
-        __torajs_promise_drop(src);
-        __torajs_promise_drop(result);
+        if !handed_off {
+            __torajs_promise_drop(src);
+            __torajs_promise_drop(result);
+        }
         if !(*a).on_ok.is_null() {
             __torajs_value_drop_heap((*a).on_ok);
         }

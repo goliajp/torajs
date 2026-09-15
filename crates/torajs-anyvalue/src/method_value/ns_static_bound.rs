@@ -63,7 +63,7 @@ pub unsafe extern "C" fn __torajs_ns_static_bind(id: i64, f: u64) {
 ///
 /// # Safety
 /// `argv` points at `argc` live any slots.
-pub(super) unsafe fn call_bound(id: i64, argv: *const u64, argc: i64) -> u64 {
+pub(crate) unsafe fn call_bound(id: i64, argv: *const u64, argc: i64) -> u64 {
     let f = usize::try_from(id)
         .ok()
         .and_then(|i| BOUND.get(i))
