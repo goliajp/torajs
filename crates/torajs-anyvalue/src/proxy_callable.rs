@@ -129,6 +129,22 @@ pub unsafe extern "C" fn __torajs_proxy_construct(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
+    // newTarget is the proxy itself for a direct `new p(...)`.
+    unsafe { construct_proxy(recv, argv, argc, recv) }
+}
+
+/// §10.5.13 with an explicit newTarget — the trap receives it, and a
+/// trap-less forward hands it to `target.[[Construct]]`.
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue; `new_target` a live constructor;
+/// `argv` holds `argc` live AnyValues.
+pub(crate) unsafe fn construct_proxy(
+    recv: AnyValue,
+    argv: *const u64,
+    argc: i64,
+    new_target: AnyValue,
+) -> AnyValue {
     unsafe {
         let Ok(__s) = live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
@@ -136,13 +152,16 @@ pub unsafe extern "C" fn __torajs_proxy_construct(
         let (target, handler) = (__s.target, __s.handler);
         let t = match trap(handler, b"construct") {
             Err(()) => return VALUE_UNDEFINED,
-            Ok(None) => return crate::construct::__torajs_anyv_construct(target, argv, argc),
+            Ok(None) => {
+                return crate::reflect_construct::construct_with_new_target(
+                    target, argv, argc, new_target,
+                );
+            }
             Ok(Some(t)) => t,
         };
         let list = args_array(argv, argc);
         let list_av = crate::nanbox::box_void_ptr(list as *mut c_void);
-        // newTarget is the proxy itself for a direct `new p(...)`.
-        let trap_argv = [target, list_av, recv];
+        let trap_argv = [target, list_av, new_target];
         let out = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
             t,
             handler,

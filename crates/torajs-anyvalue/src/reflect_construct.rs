@@ -41,6 +41,7 @@ unsafe extern "C" {
     fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64;
     /// torajs-meta — ordinary [[SetPrototypeOf]] over an any pair.
     fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64);
+    fn __torajs_anyv_get_proto_of_any(obj: u64) -> u64;
 }
 
 /// Arr cell length slot — mirror of torajs-arr `layout::ARR_LEN_OFF`.
@@ -157,34 +158,50 @@ pub unsafe extern "C" fn __torajs_reflect_construct(
         let Some(boxed) = collect_list(list) else {
             return VALUE_UNDEFINED;
         };
+        let obj = construct_with_new_target(target, boxed.as_ptr(), boxed.len() as i64, new_target);
+        for b in boxed {
+            __torajs_anyv_rc_dec(b);
+        }
+        obj
+    }
+}
+
+/// `target.[[Construct]](args, newTarget)` — an OWNED result, or
+/// `undefined` with the pending throw recorded. A Proxy target takes
+/// newTarget down its own trap; an ordinary constructor builds its
+/// object and then, when newTarget differs, takes §9.1.13
+/// GetPrototypeFromConstructor(newTarget) as the object's prototype.
+///
+/// # Safety
+/// `target` and `new_target` are live constructors; `argv` holds
+/// `argc` live AnyValues.
+pub(crate) unsafe fn construct_with_new_target(
+    target: AnyValue,
+    argv: *const u64,
+    argc: i64,
+    new_target: AnyValue,
+) -> AnyValue {
+    unsafe {
+        if crate::proxy::is_proxy(target) {
+            return crate::proxy_callable::construct_proxy(target, argv, argc, new_target);
+        }
         // A plain-fn closure constructs per §10.2.2 through the same
         // channel `new <value>` takes (B1 construct_plain_fn — fresh
         // `this` off the callee's `.prototype`); this path predates
         // B1 and only knew the class-factory registry.
         let target_tag = (as_void_ptr(target).cast::<u8>().add(4) as *const u16).read();
         let obj = if target_tag == Tag::Closure as u16 {
-            crate::construct::__torajs_anyv_construct(target, boxed.as_ptr(), boxed.len() as i64)
+            crate::construct::__torajs_anyv_construct(target, argv, argc)
         } else {
             let entry = ctor_entry(as_void_ptr(target) as u64);
             if entry == 0 {
-                for b in &boxed {
-                    __torajs_anyv_rc_dec(*b);
-                }
                 __torajs_throw_type_error(
                     c"this constructor cannot be reached through a runtime value yet".as_ptr(),
                 );
                 return VALUE_UNDEFINED;
             }
-            invoke_boxed(
-                core::ptr::null_mut(),
-                entry,
-                boxed.as_ptr(),
-                boxed.len() as i64,
-            )
+            invoke_boxed(core::ptr::null_mut(), entry, argv, argc)
         };
-        for b in boxed {
-            __torajs_anyv_rc_dec(b);
-        }
         if __torajs_throw_check() != 0 {
             return obj;
         }
@@ -192,8 +209,15 @@ pub unsafe extern "C" fn __torajs_reflect_construct(
         if new_target != target && is_cell(obj) {
             if let Some(proto) = iter_result_get(new_target, as_void_ptr(new_target), b"prototype")
             {
+                // A proxy newTarget over the target usually answers the
+                // prototype the object already has; re-parenting to the
+                // same value must not reach the fixed-layout refusal.
                 if is_cell(proto) {
-                    __torajs_anyv_set_prototype_of(obj, proto);
+                    let current = __torajs_anyv_get_proto_of_any(obj);
+                    if current != proto {
+                        __torajs_anyv_set_prototype_of(obj, proto);
+                    }
+                    __torajs_anyv_rc_dec(current);
                 }
                 __torajs_anyv_rc_dec(proto);
             } else {
