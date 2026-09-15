@@ -105,10 +105,15 @@ pub(crate) unsafe fn generic_builtin_this(
     if let Some(out) = array_iter_over_face(mid, this_arg, fam) {
         return Some(out);
     }
+    // A Proxy receiver takes the same scan: its length, per-index
+    // Get / HasProperty / Set / Delete all reach the traps through the
+    // helpers' receiver dispatch (§10.5).
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && is_cell(this_arg)
-        && unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() }
-            == Tag::TypedArray as u16
+        && matches!(
+            unsafe { (as_void_ptr(this_arg).cast::<u8>().add(4) as *const u16).read() },
+            t if t == Tag::TypedArray as u16 || t == Tag::Proxy as u16
+        )
         && crate::method_call_arraylike::arraylike_supported(mid)
     {
         return Some(unsafe {

@@ -298,14 +298,20 @@ pub(crate) unsafe fn arraylike_mut(
                 // pending throw previously rode silently through
                 // ~2^52 rounds, which read as a hang.
                 while lo < hi && __torajs_throw_check() == 0 {
+                    // Steps 7.c-7.g in spec order — HasProperty(lower),
+                    // Get(lower), then the same pair for upper; a Proxy
+                    // receiver's traps observe the interleaving.
                     let lo_has = arraylike_has(obj, lo);
-                    let hi_has = arraylike_has(obj, hi);
+                    if __torajs_throw_check() != 0 {
+                        break;
+                    }
                     let lo_v = if lo_has {
                         arraylike_get(obj, lo)
                     } else {
                         VALUE_UNDEFINED
                     };
-                    let hi_v = if hi_has {
+                    let hi_has = __torajs_throw_check() == 0 && arraylike_has(obj, hi);
+                    let hi_v = if hi_has && __torajs_throw_check() == 0 {
                         arraylike_get(obj, hi)
                     } else {
                         VALUE_UNDEFINED

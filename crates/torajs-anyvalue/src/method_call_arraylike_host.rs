@@ -64,6 +64,22 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         // its `length` field through the class-layouts probe; absent
         // field answers the undefined pair (→ ToLength 0).
         let obj_tag = (obj.cast::<u8>().add(4) as *const u16).read();
+        // §10.5.8 — a Proxy's `length` is ONE [[Get]] through its
+        // trap; the tag / value probe pair below would run the trap
+        // twice, and the get-order tests count every call.
+        if obj_tag == torajs_rc::Tag::Proxy as u16 {
+            __torajs_str_drop(key as *mut c_void);
+            let av = crate::proxy::get_named(__torajs_anyv_box_pointer(obj), b"length");
+            if __torajs_throw_check() != 0 {
+                return None;
+            }
+            let n = __torajs_anyv_to_number(av);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(av);
+            if __torajs_throw_check() != 0 {
+                return None;
+            }
+            return Some(to_length(n));
+        }
         // §22.1.4 — a String receiver's `length` is its own
         // non-configurable data property (= code unit count); no
         // expando or prototype read can shadow it, so answer the
@@ -194,15 +210,18 @@ pub(crate) unsafe fn arraylike_len(obj: *mut c_void) -> Option<i64> {
         if __torajs_throw_check() != 0 {
             return None;
         }
-        // §7.1.20 ToLength — NaN/negative clamp 0, cap 2^53-1.
-        let len = if n.is_nan() || n <= 0.0 {
-            0
-        } else if n >= 9007199254740991.0 {
-            9007199254740991
-        } else {
-            n as i64
-        };
-        Some(len)
+        Some(to_length(n))
+    }
+}
+
+/// §7.1.20 ToLength — NaN / negative clamp 0, cap 2^53-1.
+fn to_length(n: f64) -> i64 {
+    if n.is_nan() || n <= 0.0 {
+        0
+    } else if n >= 9007199254740991.0 {
+        9007199254740991
+    } else {
+        n as i64
     }
 }
 
