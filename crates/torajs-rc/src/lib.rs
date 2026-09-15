@@ -227,15 +227,15 @@ pub use flags::{
     FLAG_CLOSURE_RECV_FIRST, FLAG_DYNOBJ_CLASS_CTOR, FLAG_DYNOBJ_MODULE_NS, FLAG_DYNOBJ_RAW_JSON,
     FLAG_ERROR, FLAG_FN_ASYNC, FLAG_FN_GENERATOR, FLAG_FN_LENGTH_DELETED, FLAG_FN_NAME_DELETED,
     FLAG_FN_PROTO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_OBJ_EXOTIC_FIELD, FLAG_OBJ_EXPANDO,
-    FLAG_SEALED, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, FLAG_SUBCLASSED,
+    FLAG_PROXY_CALLABLE, FLAG_PROXY_CONSTRUCTOR, FLAG_SEALED, FLAG_SPLIT_BLOCK,
+    FLAG_STATIC_LITERAL, FLAG_SUBCLASSED,
 };
 pub use ns_static::{
     NS_STATIC_UNKNOWN, NsStaticRow, ns_static_id, ns_static_is_deleted, ns_static_mark_deleted,
     ns_static_meta,
 };
 
-// Type tags (`Tag` enum) live in `tag.rs`; re-exported at crate
-// root just below, same shape as `color` / `arr_kind`.
+// Type tags (`Tag` enum) live in `tag.rs`, re-exported below like `color` / `arr_kind`.
 
 pub mod str_wtf8;
 pub mod tag;

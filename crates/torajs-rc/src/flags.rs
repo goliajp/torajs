@@ -25,6 +25,8 @@
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 12    | [`FLAG_DYNOBJ_MODULE_NS`] | DynObj (disjoint-by-tag with Closure / Obj / Arr) |
 //! | 11    | [`FLAG_DYNOBJ_RAW_JSON`] (DynObj) / `STR_FLAG_HAS_CAPACITY` (torajs-str private, Str) | disjoint-by-tag with Closure / Arr |
+//! | 10    | [`FLAG_PROXY_CALLABLE`] | Proxy (disjoint-by-tag with DynObj / Closure / Arr) |
+//! | 11    | [`FLAG_PROXY_CONSTRUCTOR`] | Proxy (disjoint-by-tag with DynObj / Closure / Arr) |
 //! | 13-14 | cycle-collector color field (`color.rs`) | **universal — never place a flag here** |
 //! | 15    | [`FLAG_ARR_EXOTIC_INDEX`] (Arr) / [`FLAG_FN_PROTO`] (Closure) / [`FLAG_OBJ_EXOTIC_FIELD`] (Obj) | disjoint-by-tag |
 //!
@@ -150,6 +152,15 @@ pub const FLAG_DYNOBJ_CLASS_CTOR: u16 = 1 << 10;
 /// (disjoint-by-tag reuse of Tag::Closure's
 /// [`FLAG_FN_LENGTH_DELETED`] / Tag::Arr's element-kind field).
 pub const FLAG_DYNOBJ_RAW_JSON: u16 = 1 << 11;
+/// Tag::Proxy cell with a [[Call]] internal method — §10.5.14
+/// ProxyCreate step 7 decides it once, from the target at creation, so
+/// revoking the proxy (which nulls the target slot) does not change
+/// `typeof`. Bit 10 is Tag::Proxy-private.
+pub const FLAG_PROXY_CALLABLE: u16 = 1 << 10;
+/// Tag::Proxy cell with a [[Construct]] internal method — ProxyCreate
+/// step 7.b, fixed at creation like [`FLAG_PROXY_CALLABLE`]. Bit 11 is
+/// Tag::Proxy-private.
+pub const FLAG_PROXY_CONSTRUCTOR: u16 = 1 << 11;
 /// Tag::Closure cell whose lifted body takes the call-site `this` as
 /// its first declared param (`(__env, __this, ...user)`) — a
 /// function-expression accessor face (RFC 20260717-fnexpr-this-channel

@@ -4,7 +4,8 @@
 //! A Proxy is callable only when its target is, and constructible
 //! only when its target is — the exotic object gets those internal
 //! methods at creation time, from the target's shape (§10.5.14 step
-//! 3). So `typeof` on a proxy is `typeof` on its target, and
+//! 7), and the header flags record them there. So `typeof` on a proxy
+//! is `typeof` on its target at creation — revoked or not — and
 //! `is_constructor` likewise: the handler never gets to make a
 //! non-function look like one.
 //!
@@ -17,7 +18,7 @@ use core::ffi::c_void;
 
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
-use crate::proxy::{live_slots, slots, trap};
+use crate::proxy::{live_slots, trap};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -25,26 +26,6 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     fn __torajs_value_drop_heap(p: *mut c_void);
-}
-
-/// The target a Proxy's callability is read from — following a chain
-/// of proxies down to the first non-proxy, since a proxy over a
-/// proxy over a function is callable too.
-///
-/// # Safety
-/// `v` is a valid AnyValue.
-pub(crate) unsafe fn callable_target(v: AnyValue) -> AnyValue {
-    let mut cur = v;
-    for _ in 0..64 {
-        if !crate::proxy::is_proxy(cur) {
-            return cur;
-        }
-        // A revoked proxy has null slots — `null` is neither
-        // callable nor a constructor, which is the right answer.
-        let (target, _) = unsafe { slots(as_void_ptr(cur)) };
-        cur = target;
-    }
-    VALUE_UNDEFINED
 }
 
 /// Materialize `argv` as the `Array<Any>` both traps take.
@@ -183,15 +164,37 @@ pub(crate) unsafe fn construct_proxy(
     }
 }
 
-/// Is this proxy callable? A proxy is callable exactly when the
-/// target it wraps is (§10.5.14 step 3) — the handler has no say.
+/// Is this proxy callable? Decided at creation (§10.5.14 step 7) from
+/// the target — the handler has no say, and a revoke does not undo it.
 ///
 /// # Safety
-/// `v` is a valid AnyValue.
+/// `v` is a live Proxy AnyValue.
 pub(crate) unsafe fn proxy_is_callable(v: AnyValue) -> bool {
-    let t = unsafe { callable_target(v) };
+    (unsafe { header_flags(v) } & torajs_rc::FLAG_PROXY_CALLABLE) != 0
+}
+
+/// Does `proxy` have [[Construct]]? Fixed at creation, like
+/// [`proxy_is_callable`].
+///
+/// # Safety
+/// `v` is a live Proxy AnyValue.
+pub(crate) unsafe fn proxy_is_constructor(v: AnyValue) -> bool {
+    (unsafe { header_flags(v) } & torajs_rc::FLAG_PROXY_CONSTRUCTOR) != 0
+}
+
+/// The proxy cell's header flags word.
+unsafe fn header_flags(v: AnyValue) -> u16 {
+    unsafe { as_void_ptr(v).cast::<u8>().add(6).cast::<u16>().read() }
+}
+
+/// IsCallable over a proxy's would-be target: another proxy answers
+/// its own flag, a closure cell is callable.
+pub(crate) fn value_is_callable(t: AnyValue) -> bool {
     if !is_cell(t) {
         return false;
+    }
+    if crate::proxy::is_proxy(t) {
+        return unsafe { proxy_is_callable(t) };
     }
     unsafe { crate::method_call_closure_dispatch::closure_boxed_entry(t) }.is_some()
         || unsafe { as_void_ptr(t).cast::<u8>().add(4).cast::<u16>().read() }

@@ -157,8 +157,7 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
     // §10.5.14 step 3 — a Proxy has [[Construct]] exactly when its
     // target does; the handler has no say in it.
     if crate::proxy::is_proxy(av) {
-        let t = unsafe { crate::proxy_callable::callable_target(av) };
-        return t != av && unsafe { is_constructor(t) };
+        return unsafe { crate::proxy_callable::proxy_is_constructor(av) };
     }
     unsafe { is_constructor_cell(ptr) }
 }

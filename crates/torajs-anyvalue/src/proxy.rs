@@ -103,9 +103,20 @@ pub unsafe extern "C" fn __torajs_proxy_create(target: AnyValue, handler: AnyVal
         __torajs_anyv_rc_inc(target);
         __torajs_anyv_rc_inc(handler);
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
+        // §10.5.14 step 7 — [[Call]] / [[Construct]] exist per the
+        // target as it is NOW; recorded on the header, since a later
+        // revoke nulls the target slot.
+        let mut flags = 0u16;
+        if crate::proxy_callable::value_is_callable(target) {
+            flags |= torajs_rc::FLAG_PROXY_CALLABLE;
+        }
+        if crate::construct::is_constructor(target) {
+            flags |= torajs_rc::FLAG_PROXY_CONSTRUCTOR;
+        }
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
         *(cell.add(4) as *mut u16) = Tag::Proxy as u16;
+        *(cell.add(6) as *mut u16) = flags;
         *(cell.add(TARGET_OFF) as *mut u64) = target;
         *(cell.add(HANDLER_OFF) as *mut u64) = handler;
         __torajs_anyv_box_pointer(cell as *mut c_void)
