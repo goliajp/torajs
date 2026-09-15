@@ -29,6 +29,7 @@ unsafe extern "C" {
     fn __torajs_str_alloc_ascii(src: *const u8, len: i64) -> *mut u8;
     fn __torajs_rc_dec(p: *mut core::ffi::c_void) -> i32;
     fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
 }
 
 /// The interned `"length"` key cell. Minted once and never released —
@@ -68,10 +69,20 @@ unsafe fn length_key() -> *mut u8 {
 /// `recv` is a live AnyValue.
 pub(crate) unsafe fn array_like_length(recv: AnyValue) -> i32 {
     unsafe {
-        let key = length_key() as *const core::ffi::c_void;
-        let tag = __torajs_any_member_get_tag(recv, key);
-        let payload = __torajs_any_member_get_value(recv, key);
-        let n = any_to_number(tag as i64, payload as i64);
+        // A Proxy answers `length` from its `get` trap, and the probe
+        // pair below only carries the accessor SENTINEL for it — which
+        // reads as 0, so every array-like walk over a proxy was empty.
+        let n = if crate::proxy::is_proxy(recv) {
+            let len = crate::len_get::__torajs_any_length_get(recv);
+            let n = crate::nanbox_ffi::__torajs_anyv_to_number(len);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(len);
+            n
+        } else {
+            let key = length_key() as *const core::ffi::c_void;
+            let tag = __torajs_any_member_get_tag(recv, key);
+            let payload = __torajs_any_member_get_value(recv, key);
+            any_to_number(tag as i64, payload as i64)
+        };
         if !(n > 0.0) {
             // NaN, negative and zero all answer an empty walk.
             return 0;
@@ -129,6 +140,36 @@ pub(crate) unsafe fn step(
         *idx_slot = idx + 1;
         // Every absent index answers undefined, which is exactly what
         // §23.1.2.1 step 3.e.iv's Get produces for a hole.
+        *out = __torajs_any_index_get(recv, idx);
+        if await_mode {
+            return crate::iter_any_await::settle_out(out);
+        }
+        1
+    }
+}
+
+/// §23.1.5.1 ArrayIterator over a receiver whose elements are read
+/// through [[Get]] — a Proxy wrapping an array. Unlike [`step`] this
+/// re-reads `length` every time, because that is what
+/// %ArrayIteratorPrototype%.next does and a trap can answer a
+/// different number each call.
+///
+/// # Safety
+/// As [`step`], minus the `iter_slot` (there is nothing to cache).
+pub(crate) unsafe fn step_uncached(
+    recv: AnyValue,
+    idx_slot: *mut i64,
+    out: *mut AnyValue,
+    await_mode: bool,
+) -> i64 {
+    unsafe {
+        let len = array_like_length(recv);
+        let idx = *idx_slot;
+        if __torajs_throw_check() != 0 || idx >= len as i64 {
+            *out = VALUE_UNDEFINED;
+            return 0;
+        }
+        *idx_slot = idx + 1;
         *out = __torajs_any_index_get(recv, idx);
         if await_mode {
             return crate::iter_any_await::settle_out(out);
