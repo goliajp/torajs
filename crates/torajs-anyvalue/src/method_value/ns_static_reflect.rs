@@ -260,7 +260,7 @@ pub(super) unsafe fn reflect_has(argv: *const u64, argc: i64) -> u64 {
         if __torajs_throw_check() != 0 {
             return VALUE_UNDEFINED;
         }
-        let hit = crate::prop_has::__torajs_any_prop_has(
+        let hit = crate::prop_has_chain::__torajs_any_has_property(
             arg_at(argv, argc, 0),
             key as *const core::ffi::c_void,
         );

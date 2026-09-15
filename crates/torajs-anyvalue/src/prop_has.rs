@@ -185,13 +185,13 @@ pub(crate) unsafe fn struct_has_own(ptr: *const c_void, key: *const c_void) -> i
 /// Cell receivers are valid heap pointers; `key` is a live Str cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_void) -> i64 {
-    // A Proxy has no own/inherited split of its own: §10.5.7 is the
-    // only membership question it answers, and the `has` trap sees
-    // both spellings. §10.5.5 [[GetOwnProperty]] — the real own-only
-    // probe — is knife 4.
+    // §7.3.12 HasOwnProperty on a Proxy is §10.5.5 [[GetOwnProperty]]
+    // (the `getOwnPropertyDescriptor` trap), never the `has` trap.
     if crate::proxy::is_proxy(recv) {
-        return unsafe { crate::proxy_ops::has(crate::nanbox::as_void_ptr(recv), key) }
-            .unwrap_or(false) as i64;
+        let d = unsafe { crate::proxy_own::__torajs_proxy_get_own_descriptor(recv, key) };
+        let own = !is_undefined(d);
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(d) };
+        return own as i64;
     }
     if is_null(recv) || is_undefined(recv) {
         unsafe {

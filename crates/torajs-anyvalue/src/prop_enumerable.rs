@@ -49,6 +49,9 @@ pub unsafe extern "C" fn __torajs_any_prop_enumerable(recv: AnyValue, key: *cons
         }
         return 0;
     }
+    if crate::proxy::is_proxy(recv) {
+        return unsafe { proxy_enumerable(recv, key) } as i64;
+    }
     if is_short_str(recv) {
         let len = (recv >> 40) & 0xFF;
         return unsafe { str_index_enumerable(len, key) };
@@ -140,4 +143,22 @@ pub(crate) unsafe fn str_index_enumerable(len: u64, key: *const c_void) -> i64 {
         return 1;
     }
     0
+}
+
+/// §20.1.3.4 steps 3-4 on a Proxy — the `enumerable` field of what
+/// its [[GetOwnProperty]] reports.
+unsafe fn proxy_enumerable(recv: AnyValue, key: *const c_void) -> bool {
+    unsafe {
+        let d = crate::proxy_own::__torajs_proxy_get_own_descriptor(recv, key);
+        if is_undefined(d) {
+            return false;
+        }
+        let e = crate::proxy_get_prop::get_by_name(d, b"enumerable");
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(d);
+        e.is_some_and(|e| {
+            let b = crate::nanbox_ffi::__torajs_anyv_to_bool(e);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(e);
+            b
+        })
+    }
 }

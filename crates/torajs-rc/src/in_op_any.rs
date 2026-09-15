@@ -288,7 +288,9 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
     // `Symbol.iterator in [1]` was false while `[1][Symbol.iterator]`
     // was a function, and a `Object.defineProperty(Array.prototype,
     // sym, …)` patch was invisible to `in`.
-    if unsafe { key_cell_is_symbol(key) } {
+    // A Proxy answers §10.5.7 [[HasProperty]] through its `has` trap;
+    // the own face below is [[GetOwnProperty]], a different trap.
+    if unsafe { key_cell_is_symbol(key) } || type_tag == crate::Tag::Proxy as u16 {
         return unsafe { __torajs_any_has_property(v as u64, key as *const c_void) } != 0;
     }
     if unsafe { __torajs_any_prop_has(v as u64, key as *const c_void) } != 0 {
