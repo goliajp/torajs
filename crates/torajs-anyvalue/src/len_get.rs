@@ -205,40 +205,7 @@ pub unsafe extern "C" fn __torajs_any_length_get(recv: AnyValue) -> AnyValue {
             return crate::nanbox_encode::__torajs_anyv_box_i64(n);
         }
         if tag == Tag::DynObj as u16 {
-            // Own-property probe for the literal key "length" — a
-            // user `{ length: 5 }` through any answers its value;
-            // absence answers (5, 0) = undefined by construction; an
-            // accessor entry runs its getter (box_probe_pair).
-            let key = __torajs_str_alloc(c"length".as_ptr() as *const u8, 6);
-            let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
-            let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
-            // 刀 6 G9d — a truly absent own entry continues along the
-            // user [[Prototype]] chain (§10.1.8.1 OrdinaryGet):
-            // `Object.create(arr).length` answers the Arr parent's
-            // inherent length. The recursion covers grandparents
-            // (member_get knife-2 shape — a heap cell's pointer bits
-            // ARE its box encoding).
-            if dtag == 5 && __torajs_dynobj_has(ptr, key as *const c_void) == 0 {
-                if let Some(parent) = crate::member_get_own::user_proto_cell(ptr) {
-                    __torajs_str_drop(key as *mut c_void);
-                    return __torajs_any_length_get(parent);
-                }
-                // Function.prototype's virtual own `length` 0
-                // (§20.2.3, RFC 20260722 刀 3).
-                if let Some((mtag, mval)) = crate::method_support_proto_meta::builtin_proto_own_meta(
-                    ptr,
-                    key as *const c_void,
-                ) {
-                    __torajs_str_drop(key as *mut c_void);
-                    return crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                        mtag as i64,
-                        mval as i64,
-                    );
-                }
-            }
-            let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
-            __torajs_str_drop(key as *mut c_void);
-            return v;
+            return crate::len_get_expando::dynobj_length(ptr, recv);
         }
         if tag == Tag::Obj as u16 {
             // Struct cell (an inline object literal's anon struct, or
