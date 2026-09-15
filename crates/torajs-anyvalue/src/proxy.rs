@@ -228,7 +228,7 @@ pub(crate) unsafe fn get(ptr: *mut c_void, key: *const c_void, receiver: AnyValu
         let (target, handler) = (s.target, s.handler);
         let t = match trap(handler, b"get") {
             Err(()) => return VALUE_UNDEFINED,
-            Ok(None) => return crate::proxy_get_prop::get_by_key(target, key),
+            Ok(None) => return forward_get(target, key, receiver),
             Ok(Some(t)) => t,
         };
         let key_av = crate::proxy_key::key_to_any(key);
@@ -251,6 +251,40 @@ pub(crate) unsafe fn get(ptr: *mut c_void, key: *const c_void, receiver: AnyValu
         }
         out
     }
+}
+
+/// §10.5.8 step 6 — `target.[[Get]](P, Receiver)`. The receiver is
+/// what a getter found on the target sees as `this`, and a proxy
+/// target takes it down its own trap.
+///
+/// # Safety
+/// `target` and `receiver` are live AnyValues; `key` a live key cell.
+unsafe fn forward_get(target: AnyValue, key: *const c_void, receiver: AnyValue) -> AnyValue {
+    unsafe {
+        if is_proxy(target) {
+            return get(as_void_ptr(target), key, receiver);
+        }
+        crate::member_get_receiver::__torajs_any_member_get_with_receiver(target, key, receiver)
+    }
+}
+
+/// The first Proxy on an ordinary receiver's [[Prototype]] chain.
+///
+/// # Safety
+/// `recv` is a live cell AnyValue.
+pub(crate) unsafe fn chain_proxy(recv: AnyValue) -> Option<AnyValue> {
+    let mut level = unsafe { crate::member_set_proto_root::chain_parent(recv) };
+    for _ in 0..64 {
+        let cell = level?;
+        if is_proxy(cell) {
+            return Some(cell);
+        }
+        if !crate::nanbox::is_cell(cell) {
+            return None;
+        }
+        level = unsafe { crate::member_set_proto_root::chain_parent(cell) };
+    }
+    None
 }
 
 /// [[Get]] on a Proxy for a plain ASCII property name — the shape

@@ -8,6 +8,8 @@
 
 use core::ffi::c_void;
 
+use crate::nanbox::as_void_ptr;
+
 use crate::member_set::{
     __torajs_dynobj_has, __torajs_throw_type_error, drop_payload, dynobj_set_flavored,
 };
@@ -135,6 +137,23 @@ unsafe fn inherited_set_walk(
             // `Object.create(Function.prototype).caller = {}` throws,
             // and a class constructor — whose [[Prototype]] link IS
             // that singleton — throws for the same reason.
+            // A Proxy on the chain answers the rest of the walk:
+            // §10.1.9.2 step 2.a hands it `[[Set]](P, V, Receiver)`.
+            if crate::proxy::is_proxy(cell) {
+                let r = crate::proxy_ops::set(as_void_ptr(cell), key, tag, value, recv);
+                return Some(match r {
+                    Ok(true) => 1,
+                    Ok(false) => {
+                        if throw_on_refusal {
+                            __torajs_throw_type_error(
+                                c"proxy 'set' trap returned falsish".as_ptr(),
+                            );
+                        }
+                        0
+                    }
+                    Err(()) => 0,
+                });
+            }
             let Some(dict) = crate::member_set_proto_root::entry_dict(cell) else {
                 // A shape whose property face this walk does not model
                 // (a struct parent's accessors are a recorded

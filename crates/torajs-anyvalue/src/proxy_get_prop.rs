@@ -49,17 +49,6 @@ pub(crate) unsafe fn get_by_key_checked(recv: AnyValue, key: *const c_void) -> O
     }
 }
 
-/// [[Get]] on `recv` for an existing key cell, answering `undefined`
-/// where the checked form answers `None` — the forwarding arm of a
-/// trap-less internal method, whose caller propagates the pending
-/// throw through its own check.
-///
-/// # Safety
-/// See [`get_by_key_checked`].
-pub(crate) unsafe fn get_by_key(recv: AnyValue, key: *const c_void) -> AnyValue {
-    unsafe { get_by_key_checked(recv, key).unwrap_or(crate::nanbox::VALUE_UNDEFINED) }
-}
-
 /// [[Get]] on `recv` for a plain ASCII name — mints the Str key,
 /// reads, releases it.
 ///

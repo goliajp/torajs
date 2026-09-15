@@ -436,6 +436,15 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
         if cell_tag == Tag::Proxy as u16 {
             return crate::proxy::get(ptr, key, recv);
         }
+        // The same sentinel surfaced from a Proxy further up an
+        // ordinary receiver's chain (`Object.create(proxy).k`):
+        // §10.1.8.1 step 3 hands that proxy `[[Get]](P, Receiver)`
+        // with the ORIGINAL receiver.
+        if cell_tag == Tag::DynObj as u16
+            && let Some(proxy) = crate::proxy::chain_proxy(recv)
+        {
+            return crate::proxy::get(as_void_ptr(proxy), key, recv);
+        }
         if cell_tag != Tag::Obj as u16 {
             // An accessor the receiver's family carries — the third
             // shape that answers the sentinel with a zero value

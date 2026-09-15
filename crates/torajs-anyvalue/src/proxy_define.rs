@@ -148,6 +148,46 @@ pub(crate) unsafe fn create_data_property(
     }
 }
 
+/// §10.1.9.2 steps 2.c-e with a Proxy receiver: the receiver's own
+/// [[GetOwnProperty]] decides between redefining the existing data
+/// property's value and creating a fresh one. `(tag, value)`
+/// transfers in.
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue; `key` a live key cell.
+pub(crate) unsafe fn receiver_set_data(
+    recv: AnyValue,
+    key: *mut c_void,
+    tag: u64,
+    value: u64,
+) -> i64 {
+    unsafe {
+        let existing = crate::proxy_own::__torajs_proxy_get_own_descriptor(recv, key);
+        if __torajs_throw_check() != 0 || !crate::nanbox::is_undefined(existing) {
+            let record = if __torajs_throw_check() != 0 {
+                Err(())
+            } else {
+                crate::proxy_descriptor::to_property_descriptor(existing)
+            };
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(existing);
+            let refuses = match &record {
+                Err(()) => true,
+                Ok(d) => d.is_accessor() || d.writable == Some(false),
+            };
+            if refuses {
+                crate::member_set::drop_payload(tag, value);
+                return 0;
+            }
+            let mut desc = __torajs_dynobj_alloc();
+            put(&mut desc, b"value", tag, value);
+            let r = __torajs_proxy_define_own(recv, key, desc as *const c_void);
+            __torajs_value_drop_heap(desc);
+            return r;
+        }
+        create_data_property(recv, key, tag, value)
+    }
+}
+
 /// One descriptor field; the `(tag, value)` pair transfers.
 unsafe fn put(desc: &mut *mut c_void, name: &[u8], tag: u64, value: u64) {
     unsafe {

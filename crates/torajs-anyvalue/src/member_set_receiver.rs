@@ -60,6 +60,18 @@ pub unsafe extern "C" fn __torajs_any_member_set_with_receiver(
         // object explicitly. That collapses to an ordinary [[Set]],
         // so take the path the rest of the language takes rather than
         // a second implementation of it.
+        // §10.5.9 — a proxy target answers [[Set]] with its own trap,
+        // receiver and all.
+        if crate::proxy::is_proxy(target) {
+            let r = crate::proxy_ops::set(
+                crate::nanbox::as_void_ptr(target),
+                key,
+                tag,
+                value,
+                receiver,
+            );
+            return matches!(r, Ok(true)) as i64;
+        }
         if receiver == target {
             return crate::member_set::__torajs_any_member_set_soft(recv_slot, key, tag, value, -1);
         }
@@ -86,7 +98,7 @@ pub unsafe extern "C" fn __torajs_any_member_set_with_receiver(
         // `Reflect.set(target, key, v, proxy)` inside a `set` trap
         // re-enter that trap forever (RFC 20260823 刀 8).
         if crate::proxy::is_proxy(receiver) {
-            return crate::proxy_define::create_data_property(receiver, key, tag, value);
+            return crate::proxy_define::receiver_set_data(receiver, key, tag, value);
         }
         crate::member_set::__torajs_any_member_set_soft(recv_slot, key, tag, value, -1)
     }
