@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T14:09:24.315Z",
+  "generatedAt": "2026-09-15T17:22:04.743Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-15T13:58:43Z",
-    "headSha": "df3c627d5",
-    "elapsedSec": 522.26,
+    "ranAt": "2026-09-15T17:11:09Z",
+    "headSha": "7936af835",
+    "elapsedSec": 519.85,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 33150,
-    "passNoOracle": 1657,
+    "pass": 33649,
+    "passNoOracle": 1694,
     "passNegative": 4568,
-    "passTotal": 39375,
-    "bug": 9727,
+    "passTotal": 39911,
+    "bug": 9191,
     "incompatible": 4072,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49102,
-    "passRateInScope": 74.05,
-    "passRateTrAccepted": 80.19
+    "passRateInScope": 75.06,
+    "passRateTrAccepted": 81.28
   },
   "torajs": {
-    "commit": "df3c627d5",
-    "commitSubject": "fix(torajs-anyvalue): a keyed read or write on null coerces no key before it throws",
+    "commit": "7936af835",
+    "commitSubject": "fix(torajs-anyvalue): a typed-array constructor inherits from and of from %TypedArray% instead of owning them",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "df3c627d5",
-      "subject": "fix(torajs-anyvalue): a keyed read or write on null coerces no key before it throws"
+      "hash": "7936af835",
+      "subject": "fix(torajs-anyvalue): a typed-array constructor inherits from and of from %TypedArray% instead of owning them"
     },
     {
-      "hash": "2097495bc",
-      "subject": "fix(torajs-anyvalue): Function.prototype is callable through the constructor member spelling"
+      "hash": "334f6b238",
+      "subject": "refactor(torajs-rc): move in_op_any's cfg(test) extern stubs into a test_stubs submodule"
     },
     {
-      "hash": "fac773c3b",
-      "subject": "fix(torajs-meta): a class instance's inspect block lists its fields in §10.1.11.1 order"
+      "hash": "ff39c1673",
+      "subject": "feat(torajs-anyvalue): BYTES_PER_ELEMENT is an own data constant of each typed-array constructor and prototype"
     },
     {
-      "hash": "ec4863c32",
-      "subject": "feat(torajs-rc,torajs-anyvalue): RegExp.prototype.flags is an accessor with a receiver-generic getter"
+      "hash": "ba5d16c68",
+      "subject": "feat(torajs-anyvalue): %TypedArray.prototype%[@@toStringTag] is a real accessor"
     },
     {
-      "hash": "7ace0f933",
-      "subject": "feat(torajs-arr,torajs-anyvalue): the array iterator steps an array-like source through Get"
+      "hash": "fad9953db",
+      "subject": "fix(torajs-anyvalue): a builtin prototype lists an accessor under its key, not its getter's name"
     },
     {
-      "hash": "5f6d2473e",
-      "subject": "feat(torajs-anyvalue): an Array method hung on Object.prototype runs the array-like lane over a plain object"
+      "hash": "5b427e80e",
+      "subject": "fix(torajs-anyvalue): the any lane's .length on a builtin prototype walks its builtin chain"
     },
     {
-      "hash": "66d593669",
-      "subject": "feat(torajs-anyvalue): the array-like read scan admits receivers whose own face is their bag"
+      "hash": "663b998b2",
+      "subject": "refactor(torajs-anyvalue): move the any lane's DynObj length arm into len_get_expando"
     },
     {
-      "hash": "8b0e31ed7",
-      "subject": "feat(torajs-anyvalue,torajs-promise,torajs-core,torajs-rc): catch and finally are Invokes of then"
+      "hash": "f2a70ab64",
+      "subject": "feat(torajs-anyvalue): %TypedArray.prototype% owns the buffer, byteLength, byteOffset and length accessors"
     },
     {
-      "hash": "124a127bf",
-      "subject": "style(torajs-promise): rustfmt on combinator_then_override"
+      "hash": "c0ad546d8",
+      "subject": "fix(torajs-anyvalue): a typed-array method called on a foreign this throws ValidateTypedArray's TypeError"
     },
     {
-      "hash": "a8e4f8008",
-      "subject": "refactor(torajs-anyvalue): the any-lane await kernel moves out of the promise method arm"
+      "hash": "8121e1a56",
+      "subject": "feat(torajs-rc): the %TypedArray% intrinsic sits between the twelve typed-array constructors and their prototypes"
     },
     {
-      "hash": "3d8359c57",
-      "subject": "chore(hardev): rotation 653 file-size stamp @120d28558 (0 new / 0 grew)"
+      "hash": "de1f7daa5",
+      "subject": "refactor(torajs-anyvalue): move the buffer family's constructor faces out of method_value/ctor"
     },
     {
-      "hash": "120d28558",
-      "subject": "chore(hardev): rotation 653 close stamps — test262 sweep @00ffa1569 (+115 passTotal, 0 regressions), determinism 46/46 N=12, gmalloc 3698/3702 clean 0 offenders, dashboard snapshot"
+      "hash": "3acb6f01e",
+      "subject": "fix(torajs-core): a compound or logical assignment on a nullish any base throws before it coerces the key"
     }
   ],
-  "headSha": "df3c627d5",
+  "headSha": "7936af835",
   "autorun": {
-    "total": 957,
+    "total": 958,
     "baselineTarget": 10,
-    "bySelf": 952,
+    "bySelf": 953,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789465789-2602",
-      "at": "2026-09-15T09:49:49Z",
-      "ts": 1789465789,
+      "rotationId": "r-1789481385-09ae",
+      "at": "2026-09-15T14:09:45Z",
+      "ts": 1789481385,
       "trigger": "self",
-      "prevHead": "3d8359c57",
-      "handoffSha": "sha256:f1367acd3333c7e767f00e183fb024bdd377cd14f4de03f1adb7c7e65fe7ea9d",
-      "handoffAgeSec": 13,
-      "conformanceBefore": "4180/0/4",
-      "commitsInSession": 8
+      "prevHead": "95ae528d0",
+      "handoffSha": "sha256:72c780ac0869e0451e970e771f7079b9ea5487f60bfef392bec2f7e260fc2a12",
+      "handoffAgeSec": 21,
+      "conformanceBefore": "4190/0/4",
+      "commitsInSession": 12
     },
     "recent": [
+      {
+        "rotationId": "r-1789481385-09ae",
+        "at": "2026-09-15T14:09:45Z",
+        "ts": 1789481385,
+        "trigger": "self",
+        "prevHead": "95ae528d0",
+        "handoffSha": "sha256:72c780ac0869e0451e970e771f7079b9ea5487f60bfef392bec2f7e260fc2a12",
+        "handoffAgeSec": 21,
+        "conformanceBefore": "4190/0/4",
+        "commitsInSession": 12
+      },
       {
         "rotationId": "r-1789465789-2602",
         "at": "2026-09-15T09:49:49Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 36,
         "conformanceBefore": "4107/0/4",
         "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789316409-60ae",
-        "at": "2026-09-13T16:20:09Z",
-        "ts": 1789316409,
-        "trigger": "self",
-        "prevHead": "c22f57945",
-        "handoffSha": "sha256:5c180c466676d1c18173746b7b6b8f2172f0fa1ca42a05fada177b855bf55701",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "4093/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
