@@ -275,28 +275,39 @@ pub(crate) unsafe fn put_rows(
         }
         unsafe { put_expando_row(props, pi, nearer, indent, any_emitted, slow) };
     }
-    let mut i: u32 = 0;
-    while i < n {
+    // Data fields in §10.1.11.1 order (`layout_field_order`: integer
+    // names first ascending, then declaration order — what
+    // Object.keys / JSON.stringify already walk; bun's inspect prints
+    // `class C { b = 1; 10 = 2 }` as `"10"` first). Accessor slots
+    // are prototype entries to bun and print after every data field,
+    // in declaration order.
+    let ordered = unsafe { crate::struct_enum_order::layout_field_order(layout, n) };
+    let is_accessor = |i: u32| {
+        let name = unsafe { __torajs_struct_field_name(layout, i) };
+        unsafe { accessor_slot_name(name.ptr, name.len) }.is_some()
+    };
+    let (accessors, data): (Vec<u32>, Vec<u32>) =
+        ordered.iter().copied().partition(|&i| is_accessor(i));
+    let mut accessors_decl = accessors;
+    accessors_decl.sort_unstable();
+    for i in data.into_iter().chain(accessors_decl) {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         let kind = unsafe { accessor_slot_name(name.ptr, name.len) };
         let (kp, klen) = unsafe { slot_key(name.ptr, name.len) };
         // The second half of a pair was already rendered under the
         // same key by the first (RFC 20260714-objlit-accessor).
         if kind.is_some() && unsafe { accessor_emitted_before(layout, i, (kp, klen)) } {
-            i += 1;
             continue;
         }
         // An own `constructor` is the one key bun's inspect always
         // leaves out (`key_hidden`); a literal's declared field of
         // that name is one too.
         if unsafe { core::slice::from_raw_parts(kp, klen) } == b"constructor" {
-            i += 1;
             continue;
         }
         let key_cell = unsafe { mint_key(kp, klen) };
         if !nearer.is_empty() && unsafe { shadowed(nearer, key_cell.cast()) } {
             unsafe { __torajs_str_drop(key_cell) };
-            i += 1;
             continue;
         }
         unsafe { open_row(indent, any_emitted) };
@@ -311,7 +322,6 @@ pub(crate) unsafe fn put_rows(
             let tag = unsafe { accessor_tag(layout, kp, klen) };
             unsafe { put_bytes(tag) };
             unsafe { __torajs_inspect_line_add(tag.len() as u32) };
-            i += 1;
             continue;
         }
         let info = unsafe { __torajs_struct_field_info(layout, i) };
@@ -335,7 +345,6 @@ pub(crate) unsafe fn put_rows(
         };
         let anyv = unsafe { field_slot_to_anyv_borrowed(type_tag, raw) };
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
-        i += 1;
     }
     // Blade 3 — the string- and Symbol-keyed expando entries render
     // after the layout fields.
