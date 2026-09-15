@@ -88,6 +88,11 @@ unsafe fn lane_order(cell: *const c_void, props: *const c_void, lane: ExpandoLan
     let mut order = vec![0u64; n_props as usize];
     let n = unsafe { __torajs_dynobj_iter_order(props, order.as_mut_ptr(), n_props) };
     order.truncate(n as usize);
+    // A dict entry under a name the layout declares is the field's
+    // sidecar (attributes / shadow / deletion record — RFC 20260806 /
+    // 20260915), never a second own property: the layout row is the
+    // property. Free unless the instance carries a sidecar at all.
+    order.retain(|&i| !unsafe { crate::struct_field_attrs::expando_key_declared(cell, props, i) });
     let fields = unsafe { computed_fields(cell) };
     if fields.is_empty() && !matches!(lane, ExpandoLane::Before(0) | ExpandoLane::Rest) {
         return Vec::new();

@@ -13,6 +13,25 @@ use crate::member_set::{
 };
 use crate::nanbox::AnyValue;
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
+use torajs_rc::AnySlotTag;
+
+unsafe extern "C" {
+    /// torajs-dynobj — the declared-field shadow store / supersede
+    /// (RFC 20260915-declared-field-shadow).
+    fn __torajs_obj_declared_field_shadow_set(
+        obj: *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    ) -> i64;
+    fn __torajs_obj_declared_field_shadow_clear(obj: *mut c_void, key: *mut c_void);
+    /// torajs-dynobj — the field's live W/E/C bits, `-1` when the
+    /// layout declares nothing under `key`.
+    fn __torajs_obj_declared_field_attrs(obj: *mut c_void, key: *mut c_void) -> i64;
+}
+
+/// `torajs_dynobj::layout::BUCKET_FLAG_WRITABLE` mirror.
+const BUCKET_FLAG_WRITABLE: u64 = 1 << 0;
 
 /// The `Tag::Obj` (class instance / nominal struct) arm of
 /// [`crate::member_set::any_member_set_impl`] — extracted so the dispatcher stays under
@@ -68,7 +87,44 @@ pub(crate) unsafe fn set_obj_member(
         ) {
             return Some(0);
         }
+        // A sidecar that demoted the field to non-writable refuses
+        // the any-lane store — matching payload or not (§10.1.9.2
+        // step 2.a). Only an instance something redefined carries
+        // the header bit, so an untouched one skips the probe.
+        if crate::member_get_layout::header_flag(ptr, torajs_rc::FLAG_OBJ_EXOTIC_FIELD) {
+            let attrs = __torajs_obj_declared_field_attrs(ptr, key);
+            if attrs >= 0 && attrs as u64 & BUCKET_FLAG_WRITABLE == 0 {
+                drop_payload(tag, value);
+                if throw_on_refusal {
+                    crate::member_set::__torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
+                return Some(0);
+            }
+        }
         if crate::struct_error_msg::struct_data_field_set(ptr, key, tag, value) {
+            // The slot took it; a shadow an earlier mismatch left
+            // behind is superseded (free when there is none).
+            __torajs_obj_declared_field_shadow_clear(ptr, key);
+            return Some(1);
+        }
+        // RFC 20260915-declared-field-shadow — a declared DATA field
+        // whose slot cannot hold the payload keeps the value in its
+        // sidecar; the own faces read it before the slot. The
+        // accessor / frozen / non-writable gates above already had
+        // their say. `undefined` is spelled as the undef cell so the
+        // word stays distinct from the attribute-only filler.
+        if crate::struct_probe::struct_layout_declares(ptr, key) {
+            let (t, v) = if tag == AnySlotTag::Undef as u64 {
+                (
+                    AnySlotTag::Heap as u64,
+                    torajs_rc::undef_cell::undef_cell_ptr() as u64,
+                )
+            } else {
+                (tag, value)
+            };
+            __torajs_obj_declared_field_shadow_set(ptr, key, t, v);
             return Some(1);
         }
         // RFC 20260714-struct-dynamic-props blade 2 — a name the

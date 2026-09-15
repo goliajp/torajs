@@ -1101,6 +1101,32 @@ mod tests {
     ) -> i64 {
         0
     }
+    /// No layout ⇒ no declared field can carry a shadow (RFC
+    /// 20260915-declared-field-shadow).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_field_shadow(
+        _cell: *const c_void,
+        _name: *const u8,
+        _name_len: u32,
+        _out: *mut u64,
+    ) -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_declared_field_shadow_set(
+        _obj: *mut c_void,
+        _key: *mut c_void,
+        _tag: u64,
+        _value: u64,
+    ) -> i64 {
+        1
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_declared_field_shadow_clear(
+        _obj: *mut c_void,
+        _key: *mut c_void,
+    ) {
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_obj_declared_field_delete(
         _obj: *mut c_void,

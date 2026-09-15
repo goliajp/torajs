@@ -431,7 +431,18 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     // The descriptor owns its own ref to a heap value — the owned
     // pair decode carries exactly one stake (cell +1 / ShortStr
     // materialization; no separate inc, see field_slot_to_pair_owned).
-    let (v_tag, v_val) = unsafe { field_slot_to_pair_owned(info.type_tag, raw) };
+    // RFC 20260915-declared-field-shadow — the descriptor's value is
+    // the shadow when the any lane wrote one past the slot's type.
+    let (type_tag, raw) = unsafe {
+        crate::struct_field_attrs::slot_or_shadow(
+            cell,
+            key_bytes,
+            key_len as usize,
+            info.type_tag,
+            raw,
+        )
+    };
+    let (v_tag, v_val) = unsafe { field_slot_to_pair_owned(type_tag, raw) };
 
     // The three attributes come from the one place that computes them
     // (`declared_member_attrs`): ES §7.3.14 SetIntegrityLevel moves

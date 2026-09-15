@@ -92,6 +92,14 @@ unsafe extern "C" {
     fn __torajs_is_undef_cell(p: *const u8) -> i64;
     /// torajs-meta — is this declared field deleted (RFC 20260915)?
     fn __torajs_obj_field_is_deleted(cell: *const c_void, name: *const u8, name_len: u32) -> i64;
+    /// torajs-meta — the field's shadow value, when the any lane wrote
+    /// one past the slot's type (RFC 20260915-declared-field-shadow).
+    fn __torajs_obj_field_shadow(
+        cell: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        out: *mut u64,
+    ) -> i64;
     /// torajs-dynobj — entry removal; drops the deletion record on revive.
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
@@ -209,6 +217,15 @@ unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64, *m
     // the slot's bits are stale.
     if unsafe { __torajs_obj_field_is_deleted(ptr, name.as_ptr(), name.len() as u32) } != 0 {
         return None;
+    }
+    // RFC 20260915-declared-field-shadow — a value the slot could not
+    // hold reads as an Any slot from the sidecar. The store spelled a
+    // ShortStr as its materialized cell, so the pair shape's in-slot
+    // normalization never fires on this null slot address.
+    let mut shadow = 0u64;
+    if unsafe { __torajs_obj_field_shadow(ptr, name.as_ptr(), name.len() as u32, &mut shadow) } != 0
+    {
+        return Some((0, shadow, core::ptr::null_mut()));
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
     let slot = unsafe {

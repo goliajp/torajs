@@ -266,7 +266,13 @@ pub(crate) unsafe fn put_rows(
     }
     // Accessor slots collapse a get/set pair into one entry, so the
     // separator keys off what was actually emitted, not off `i`.
+    // A dict entry under a name the layout declares is the field's
+    // attribute sidecar / shadow (RFC 20260806 / 20260915), never a
+    // second own property: the layout row prints it.
     for &pi in &order[..n_idx] {
+        if unsafe { crate::struct_field_attrs::expando_key_declared(cell, props, pi) } {
+            continue;
+        }
         unsafe { put_expando_row(props, pi, nearer, indent, any_emitted, slow) };
     }
     let mut i: u32 = 0;
@@ -322,13 +328,21 @@ pub(crate) unsafe fn put_rows(
         // included) prints verbatim with zero rc traffic; the
         // pre-fix pair roundtrip materialized a ShortStr slot into
         // an owned Str this print walk never dropped.
-        let anyv = unsafe { field_slot_to_anyv_borrowed(info.type_tag, raw) };
+        // RFC 20260915-declared-field-shadow — a shadowed field
+        // prints its sidecar value.
+        let (type_tag, raw) = unsafe {
+            crate::struct_field_attrs::slot_or_shadow(cell, kp, klen, info.type_tag, raw)
+        };
+        let anyv = unsafe { field_slot_to_anyv_borrowed(type_tag, raw) };
         unsafe { __torajs_print_anyv_inline_at(anyv, indent + 2) };
         i += 1;
     }
     // Blade 3 — the string- and Symbol-keyed expando entries render
     // after the layout fields.
     for &pi in &order[n_idx..] {
+        if unsafe { crate::struct_field_attrs::expando_key_declared(cell, props, pi) } {
+            continue;
+        }
         unsafe { put_expando_row(props, pi, nearer, indent, any_emitted, slow) };
     }
     // 405-05 — prototype methods and accessors render after the own

@@ -280,8 +280,17 @@ pub(crate) unsafe fn redefine_declared_field(
     // (every missing attribute defaults false, §10.1.6.3 step 2), with
     // no current attributes to validate against; the sidecar write
     // below replaces the deletion record.
-    let deleted = unsafe { __torajs_obj_declared_field_deleted(obj, key) } != 0;
+    let deleted =
+        unsafe { crate::define_struct_shadow::__torajs_obj_declared_field_deleted(obj, key) } != 0;
     let cur = if deleted {
+        // The HOLE word goes back to the filler first: a flags-only
+        // redefine reboxes the current word, and a reboxed HOLE is a
+        // `null` the shadow readers would take for a value.
+        let props_slot =
+            unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
+        unsafe {
+            crate::set_entry_flags::__torajs_dynobj_set_entry_value_raw(props_slot, key, 5, 0)
+        };
         0
     } else {
         unsafe { current_field_attrs(obj, key) }
@@ -304,28 +313,32 @@ pub(crate) unsafe fn redefine_declared_field(
     // refuse (slot-type mismatch) leaves the stake with us; SameValue
     // needs no store at all, and asking for one would pointlessly
     // re-run the frozen gate.
-    if flags_byte & DEFINE_PRESENT_VALUE != 0
-        && !value_same
-        && unsafe { __torajs_struct_data_field_set(obj, key, tag, value) } == 0
-    {
-        return unsafe {
-            refuse(
-                throw_on_refusal,
-                c"Attempting to define property on object that is not extensible.".as_ptr()
-                    as *const u8,
-                true,
-                tag,
-                value,
-            )
-        };
+    // A payload the slot cannot hold goes to the sidecar's value word
+    // instead (RFC 20260915-declared-field-shadow); the attribute
+    // merge below then finds the entry already there.
+    if flags_byte & DEFINE_PRESENT_VALUE != 0 && !value_same {
+        if unsafe { __torajs_struct_data_field_set(obj, key, tag, value) } != 0 {
+            unsafe {
+                crate::define_struct_shadow::__torajs_obj_declared_field_shadow_clear(obj, key)
+            };
+        } else {
+            unsafe {
+                crate::define_struct_shadow::__torajs_obj_declared_field_shadow_set(
+                    obj, key, tag, value,
+                )
+            };
+        }
     }
     if value_same {
         // The store was skipped, so nothing consumed the caller's
         // stake in the (identical) payload.
         unsafe { crate::define::drop_rejected_value(tag, value) };
     }
-    // The attributes go to the sidecar. Its `value_anyv` is filler:
-    // no `[[Value]]` is passed, so the entry takes `ANY_UNDEF`.
+    // The attributes go to the sidecar. Its `value_anyv` is filler —
+    // the `undefined` pair spelled out (tag 5 = ANY_UNDEF), because
+    // the word is READ now: anything else there is the field's shadow
+    // value (RFC 20260915-declared-field-shadow), and `(0, 0)` boxes
+    // to `null`, a shadow a program can legitimately store.
     let merged = merge_field_attrs(cur, flags_byte);
     let props_slot =
         unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
@@ -336,7 +349,7 @@ pub(crate) unsafe fn redefine_declared_field(
         define_apply(
             props_slot,
             key,
-            0,
+            5,
             0,
             sidecar_flags_byte(merged),
             throw_on_refusal,
@@ -352,61 +365,6 @@ pub(crate) unsafe fn redefine_declared_field(
         unsafe { __torajs_obj_flag_exotic_field(obj) };
     }
     ok
-}
-
-/// RFC 20260915-declared-field-delete — is the DECLARED field `key` on
-/// `obj` deleted? A deletion is a sidecar entry whose value word holds
-/// the HOLE sentinel (`set_entry_flags`, the same record `delete
-/// arr[i]` leaves on a shadow index); the layout slot keeps its stale
-/// bits and every own face asks this before reading it. Free for an
-/// instance nothing ever redefined or deleted: the exotic-field header
-/// bit gates the probe.
-///
-/// # Safety
-/// `obj` is a live `Tag::Obj` heap pointer; `key` is a live key cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_declared_field_deleted(
-    obj: *mut c_void,
-    key: *mut c_void,
-) -> i64 {
-    let hdr = unsafe { (obj.cast::<u8>().add(6) as *const u16).read() };
-    if hdr & OBJ_HDR_FLAG_EXOTIC_FIELD == 0 {
-        return 0;
-    }
-    let props = unsafe { *(obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) as *const u64) }
-        as *const c_void;
-    if props.is_null() {
-        return 0;
-    }
-    i64::from(unsafe { crate::set_entry_flags::__torajs_dynobj_entry_is_hole(props, key) } != 0)
-}
-
-/// §10.1.10 [[Delete]] of a DECLARED field that passed the configurable
-/// gate (`prop_delete::struct_delete`): record the deletion as a HOLE
-/// sidecar — minting the bag when the instance has none — and raise
-/// the exotic-field bit the own faces gate on. The slot's bits stay;
-/// nothing reads them past the sidecar. The hole clears the entry's
-/// W/E/C bits, so a repeat `delete` must ask "deleted?" before the
-/// configurable gate (it does). Answers 1 (spec success).
-///
-/// # Safety
-/// `obj` is a live `Tag::Obj` heap pointer whose layout declares `key`;
-/// `key` is a live key cell.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_obj_declared_field_delete(
-    obj: *mut c_void,
-    key: *mut c_void,
-) -> i64 {
-    let props_slot =
-        unsafe { obj.cast::<u8>().add(crate::layout::CELL_PROPS_OFF) } as *mut *mut c_void;
-    unsafe {
-        if (*props_slot).is_null() {
-            __torajs_obj_props_attach(obj.cast::<u8>(), crate::alloc::__torajs_dynobj_alloc());
-        }
-        crate::set_entry_flags::__torajs_dynobj_set_entry_hole(props_slot, key);
-        __torajs_obj_flag_exotic_field(obj);
-    }
-    1
 }
 
 /// Raise `FLAG_OBJ_EXOTIC_FIELD` on a struct cell — the one writer of

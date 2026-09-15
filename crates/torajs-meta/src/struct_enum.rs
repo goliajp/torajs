@@ -122,12 +122,17 @@ unsafe fn slot_own_value(
             .cast::<u64>()
             .read()
     };
+    // RFC 20260915-declared-field-shadow — a shadowed field reads as
+    // an Any slot from its sidecar.
+    let (type_tag, raw) = unsafe {
+        crate::struct_field_attrs::slot_or_shadow(cell, name.ptr, name.len, info.type_tag, raw)
+    };
     // Owned pair decode — exactly one fresh stake per heap payload
     // (cell +1 / an Any slot's ShortStr materializes at rc=1). The
     // pre-fix borrow-pair + rc_inc left a ShortStr's materialized
     // Str at rc=2 with one reclaiming drop — 32B leaked per
     // `Object.values` read of the slot.
-    unsafe { field_slot_to_pair_owned(info.type_tag, raw) }
+    unsafe { field_slot_to_pair_owned(type_tag, raw) }
 }
 
 /// A fresh rc=1 Str spelling a layout field name — `len` WTF-8 bytes
