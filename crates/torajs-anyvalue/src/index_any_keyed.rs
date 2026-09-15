@@ -18,10 +18,13 @@
 
 use core::ffi::c_void;
 
-use crate::nanbox::{AnyValue, as_double, as_int32, as_void_ptr, is_cell, is_double, is_int32};
+use crate::nanbox::{
+    AnyValue, as_double, as_int32, as_void_ptr, is_cell, is_double, is_int32, is_null, is_undefined,
+};
 use torajs_rc::Tag;
 
 unsafe extern "C" {
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     /// torajs-str — release a heap Str reference (the temp ToString
     /// key minted below).
     fn __torajs_str_drop(s: *mut c_void);
@@ -205,6 +208,13 @@ unsafe fn any_index_set_keyed_impl(
                 );
             }
         }
+        // §6.2.5.6 PutValue — ToObject(base) before the deferred
+        // ToPropertyKey, the read's mirror (bun runs the key's
+        // toString first here; the spec and test262 do not).
+        if is_null(recv) || is_undefined(recv) {
+            __torajs_throw_type_error(c"cannot set properties of null or undefined".as_ptr());
+            return 0;
+        }
         let kstr = crate::nanbox_ffi::__torajs_anyv_to_str(key);
         if kstr.is_null() {
             return 0;
@@ -247,6 +257,15 @@ pub unsafe extern "C" fn __torajs_any_index_get_keyed(recv: AnyValue, key: AnyVa
                 return probe_key_cell(recv, ptr as *const c_void);
             }
             // other cells (objects, Substr views) fall to ToString
+        }
+        // §6.2.5.5 GetValue — ToObject(base) comes BEFORE the deferred
+        // ToPropertyKey: `null[{toString}]` is the TypeError, and the
+        // key's toString never runs (test262 compound-assignment
+        // S11.13.2_A7.x T2; the cell / numeric arms above throw inside
+        // their own kernels without coercing anything).
+        if is_null(recv) || is_undefined(recv) {
+            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
+            return crate::nanbox::VALUE_UNDEFINED;
         }
         // §7.1.19 step 3 — ToString(key), probe, release the temp.
         // Symbols never reach here (cell arm above), so the §7.1.17
