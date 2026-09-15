@@ -37,6 +37,8 @@ mod gen_step;
 /// private mint plumbing.
 pub(crate) mod iter_proto;
 mod iter_proto_accessors;
+/// %TypedArray.prototype%'s `[Symbol.toStringTag]` accessor.
+pub(crate) mod typedarray_proto_accessor;
 
 unsafe extern "C" {
     /// torajs-dynobj — fresh empty entry table.

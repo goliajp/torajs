@@ -322,4 +322,9 @@ pub unsafe extern "C" fn __torajs_proto_symbol_keys_install(proto: *mut c_void, 
             METHOD_ENTRY_FLAGS,
         )
     };
+    // §23.2.3.38 — %TypedArray.prototype%'s `[Symbol.toStringTag]`
+    // accessor, after its `[Symbol.iterator]`.
+    if idx == torajs_rc::builtin_proto::TYPEDARRAY_PROTO_TAG as i64 {
+        unsafe { crate::closure_proto::typedarray_proto_accessor::install(slot) };
+    }
 }
