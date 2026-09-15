@@ -343,9 +343,9 @@ unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void)
             {
                 return mval;
             }
-            // Direct proto-accessor read (tag twin above) — the
-            // getter brand-checks its own prototype and throws.
-            if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
+            // Direct proto-accessor read (tag twin above) — the zero
+            // value channel of the accessor sentinel.
+            if crate::method_support_proto::proto_virtual_accessor_owned(ptr, key) {
                 return 0;
             }
             // Implicit %Object.prototype% hop — tag twin above.

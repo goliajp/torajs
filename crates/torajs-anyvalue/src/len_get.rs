@@ -450,12 +450,16 @@ pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
             return VALUE_UNDEFINED;
         }
         if tag == Tag::DynObj as u16 {
-            // Same probe shape as the `.length` DynObj arm above —
-            // an accessor entry runs its getter (box_probe_pair).
+            // An ordinary [[Get]]: the own entry, else what the object
+            // inherits — `Object.create(m)` reads the Map's size through
+            // its chain, `Map.prototype.size` runs the getter on the
+            // prototype and throws.
             let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
-            let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
-            let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
-            let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
+            let v = crate::member_get_receiver::__torajs_any_member_get_with_receiver(
+                recv,
+                key as *const c_void,
+                recv,
+            );
             __torajs_str_drop(key as *mut c_void);
             return v;
         }

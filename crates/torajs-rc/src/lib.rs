@@ -163,6 +163,7 @@ pub mod any_method_family;
 pub mod any_method_intern;
 pub mod any_method_iter;
 pub mod any_method_meta;
+pub mod any_method_regexp;
 pub mod arr_kind;
 pub mod collection_kind;
 pub mod color;

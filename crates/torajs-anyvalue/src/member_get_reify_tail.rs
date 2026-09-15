@@ -11,8 +11,6 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use torajs_rc::AnySlotTag;
-
 use crate::member_get::{__torajs_any_member_get_tag, recv_cell};
 use crate::nanbox::AnyValue;
 
@@ -76,10 +74,10 @@ pub(crate) unsafe fn dynobj_builtin_tail_tag(
             return mtag;
         }
         // A virtual accessor read directly off its proto singleton
-        // runs the getter on the prototype itself — brand-check
-        // throw (rationale on the helper).
-        if crate::method_support_proto::proto_virtual_accessor_throws(ptr, key) {
-            return AnySlotTag::Undef as u64;
+        // answers the accessor sentinel; the getter runs once, on the
+        // prototype itself (rationale on the helper).
+        if crate::method_support_proto::proto_virtual_accessor_owned(ptr, key) {
+            return crate::struct_probe::ANY_ACCESSOR_TAG;
         }
         // §10.1.8.1 step 4 — the implicit %Object.prototype% hop
         // (rationale on the helper).

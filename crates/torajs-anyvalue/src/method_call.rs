@@ -324,10 +324,10 @@ pub unsafe fn any_method_dispatch_impl(
     if mid == torajs_rc::ANY_METHOD_GET_DESCRIPTION {
         return unsafe { crate::method_call_cell::symbol_description_getter(recv) };
     }
-    // §22.2.6.4 — the reified `get RegExp.prototype.flags` cell:
-    // receiver-generic, eight Gets in spec order (same reach).
-    if mid == torajs_rc::ANY_METHOD_GET_FLAGS {
-        return unsafe { crate::regexp_flags_getter::regexp_flags_getter(recv) };
+    // §22.2.6 — a reified `RegExp.prototype` getter (`flags`, the
+    // eight flag booleans, `source`; same reach).
+    if let Some(out) = unsafe { crate::regexp_proto_accessors::regexp_accessor_call(recv, mid) } {
+        return out;
     }
     // §23.2.3.1 / .2 / .3 / .21 — a reified %TypedArray.prototype% getter.
     if let Some(out) = unsafe { crate::member_get_buffer::typedarray_accessor_call(recv, mid) } {

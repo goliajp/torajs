@@ -221,6 +221,7 @@ pub mod method_call_upsert;
 mod method_call_weak;
 mod method_support;
 mod method_support_proto;
+mod method_support_proto_accessor;
 mod method_support_proto_alias;
 mod method_support_proto_chain;
 mod method_support_proto_meta;
@@ -253,6 +254,7 @@ mod proxy_revocable;
 mod reflect_apply;
 mod reflect_construct;
 mod regexp_flags_getter;
+mod regexp_proto_accessors;
 mod set_like;
 mod set_like_ops;
 mod str_iterator;
@@ -2078,6 +2080,7 @@ mod tests {
         __torajs_regex_drop,
         __torajs_regex_exec,
         __torajs_regex_get_last_index,
+        __torajs_regex_get_source,
         __torajs_regex_has_flag,
         __torajs_regex_last_index_raw,
         __torajs_regex_last_index_store_boxed,

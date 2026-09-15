@@ -251,6 +251,9 @@ fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
 /// still answers `None`).
 fn iter_method_meta(mid: i64) -> Option<(&'static str, u32)> {
     use crate::any_method_iter as it;
+    if let Some(row) = crate::any_method_regexp::regexp_accessor_meta(mid) {
+        return Some(row);
+    }
     Some(match mid {
         // §27.1.2.1 — %Iterator.prototype%[Symbol.iterator]
         // return-this (own id, never interns back).

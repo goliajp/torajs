@@ -453,7 +453,10 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
                     0,
                 );
             }
-            return VALUE_UNDEFINED;
+            // …or one a builtin prototype on its chain carries, run
+            // on this receiver (`Object.create(RegExp.prototype).global`).
+            return crate::method_support_proto_accessor::chain_virtual_accessor_get(recv, key)
+                .unwrap_or(VALUE_UNDEFINED);
         }
         let k = torajs_rc::str_wtf8::StrWtf8::of(key);
         // Set-only property: present, but its [[Get]] is undefined.

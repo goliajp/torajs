@@ -18,7 +18,7 @@ use super::{
     CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, bare_entry, native_entry,
 };
 
-static ACCESSOR_GETTER_CELLS: [AtomicU64; 9] = [const { AtomicU64::new(0) }; 9];
+static ACCESSOR_GETTER_CELLS: [AtomicU64; 18] = [const { AtomicU64::new(0) }; 18];
 
 /// The getter cell for a builtin-proto accessor — Map (proto tag
 /// 11) / Set (proto tag 12) `size`, Symbol (proto tag 5)
@@ -32,8 +32,10 @@ pub(crate) fn proto_accessor_getter_cell(proto_tag: i64, mid: i64) -> *mut u8 {
         (12, _) => 1,
         // §25.1.6.13 `get ArrayBuffer.prototype.resizable`.
         (19, _) => 3,
-        // §22.2.6.4 `get RegExp.prototype.flags`.
-        (7, _) => 4,
+        // §22.2.6.4 `get RegExp.prototype.flags`, then the eight flag
+        // getters and `source` (ids 216-224), one function object each.
+        (7, torajs_rc::ANY_METHOD_GET_FLAGS) => 4,
+        (7, m) => 9 + (m - torajs_rc::any_method_regexp::ANY_METHOD_GET_HAS_INDICES) as usize,
         // §23.2.3.1 / .2 / .3 / .21 — %TypedArray.prototype%'s four,
         // one distinct function object each.
         (38, buf::ANY_METHOD_GET_TA_BUFFER) => 5,

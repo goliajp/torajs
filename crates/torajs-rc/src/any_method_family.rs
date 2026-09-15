@@ -164,6 +164,12 @@ pub fn any_method_families(mid: i64) -> u16 {
         ANY_METHOD_TO_FIXED | ANY_METHOD_TO_EXPONENTIAL | ANY_METHOD_TO_PRECISION => FAM_NUM,
         // ---- regexp ----
         ANY_METHOD_TEST | ANY_METHOD_EXEC | ANY_METHOD_COMPILE | ANY_METHOD_GET_FLAGS => FAM_REGEXP,
+        m if (crate::any_method_regexp::ANY_METHOD_GET_HAS_INDICES
+            ..=crate::any_method_regexp::ANY_METHOD_GET_SOURCE)
+            .contains(&m) =>
+        {
+            FAM_REGEXP
+        }
         // ---- promise ----
         ANY_METHOD_THEN | ANY_METHOD_CATCH | ANY_METHOD_FINALLY => FAM_PROMISE,
         // ---- symbol ----
@@ -234,6 +240,8 @@ mod tests {
             ("any_method.rs", include_str!("any_method.rs")),
             ("any_method_iter.rs", include_str!("any_method_iter.rs")),
             ("any_method_date.rs", include_str!("any_method_date.rs")),
+            ("any_method_buffer.rs", include_str!("any_method_buffer.rs")),
+            ("any_method_regexp.rs", include_str!("any_method_regexp.rs")),
         ];
         let mut seen: Vec<(i64, String, &str)> = Vec::new();
         for (file, src) in sources {

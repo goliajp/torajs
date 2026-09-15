@@ -13,10 +13,10 @@
 //!   transfer a fresh +1 Str out, lastIndex boxes the f64 field,
 //!   the six ES §22.2.6.5-10 booleans ride
 //!   `__torajs_regex_has_flag` with the matching `RE_FLAG_*` bit.
-//! - `Tag::DynObj` → own-property probe by the interned name (a
-//!   user `{ source: "user" }` answers its value; absence answers
-//!   `undefined`) — the `.length`/`.size` probe shape.
-//! - everything else → `undefined` (no such property).
+//! - any other object → an ordinary [[Get]] by the interned name (a
+//!   user `{ source: "user" }` answers its value, a prototype
+//!   accessor runs with the object as `this`).
+//! - a primitive → `undefined`.
 
 use core::ffi::c_void;
 
@@ -42,9 +42,6 @@ unsafe extern "C" {
     fn __torajs_regex_has_flag(re: *const c_void, bit: i64) -> i64;
     /// torajs-rc — mint the reader's stake on a boxed-form heap cell.
     fn __torajs_rc_inc(p: *mut c_void);
-    /// torajs-dynobj — own-property probe pair ((5, 0) = absent).
-    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
-    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -117,13 +114,14 @@ pub unsafe extern "C" fn __torajs_any_regexp_prop(
                 }
             };
         }
-        if tag == Tag::DynObj as u16 && !key.is_null() {
-            // The probe pair is a borrow — the returned box owns its
-            // own reference (the `.length` / `.size` probe shape).
-            let dtag = __torajs_dynobj_get_tag(ptr, key);
-            let dval = __torajs_dynobj_get_value(ptr, key);
-            crate::payload_rc_inc(dtag as i64, dval as i64);
-            return __torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+        if !key.is_null() {
+            // Every other object reads the name with an ordinary [[Get]]:
+            // an own entry, or what it inherits — `RegExp.prototype.global`
+            // runs the §22.2.6.5 getter on the prototype itself, and
+            // `Object.create(RegExp.prototype).source` is its TypeError.
+            return crate::member_get_receiver::__torajs_any_member_get_with_receiver(
+                recv, key, recv,
+            );
         }
     }
     VALUE_UNDEFINED
