@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T04:09:55.353Z",
+  "generatedAt": "2026-09-15T09:49:26.390Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-15T02:51:15Z",
-    "headSha": "b2afdae94",
-    "elapsedSec": 511.37,
+    "ranAt": "2026-09-15T09:38:59Z",
+    "headSha": "00ffa1569",
+    "elapsedSec": 522.82,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 32957,
-    "passNoOracle": 1654,
+    "pass": 33070,
+    "passNoOracle": 1656,
     "passNegative": 4568,
-    "passTotal": 39179,
-    "bug": 9923,
+    "passTotal": 39294,
+    "bug": 9808,
     "incompatible": 4072,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49102,
-    "passRateInScope": 73.68,
-    "passRateTrAccepted": 79.79
+    "passRateInScope": 73.9,
+    "passRateTrAccepted": 80.03
   },
   "torajs": {
-    "commit": "b2afdae94",
-    "commitSubject": "fix(torajs-core): a dynamic import() resolves to a §10.4.6 namespace object",
+    "commit": "00ffa1569",
+    "commitSubject": "feat(torajs-dynobj,torajs-anyvalue,torajs-meta): a declared class field takes a value its slot cannot hold — the shadow in its sidecar",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,6 +740,38 @@
   },
   "commits": [
     {
+      "hash": "00ffa1569",
+      "subject": "feat(torajs-dynobj,torajs-anyvalue,torajs-meta): a declared class field takes a value its slot cannot hold — the shadow in its sidecar"
+    },
+    {
+      "hash": "9877f649b",
+      "subject": "refactor(torajs-anyvalue): the class-instance arm of the any-lane member set moves to its own file"
+    },
+    {
+      "hash": "dfecdcb65",
+      "subject": "perf(torajs-core): a generator that never reads its resume channel declares the __sent slot as a copy scalar"
+    },
+    {
+      "hash": "c4af8fe06",
+      "subject": "perf(torajs-core): a generator's next() aliases this only when a nested function expression reads a lifted local"
+    },
+    {
+      "hash": "57bd7e574",
+      "subject": "fix(torajs-core): a typed .then with a named-fn handler takes the own-then split, gated on the cell's expando bag"
+    },
+    {
+      "hash": "ea48f916f",
+      "subject": "style(torajs-core): rustfmt two files the promise-then store widen left unformatted"
+    },
+    {
+      "hash": "6d21ef8cf",
+      "subject": "chore(hardev): rotation 652 file-size stamp @d3d28721b (0 new / 0 grew)"
+    },
+    {
+      "hash": "d3d28721b",
+      "subject": "chore(hardev): rotation 652 close stamps — test262 sweep @b2afdae94 (+387 passTotal, 0 regressions), determinism 46/46 N=12, gmalloc 3696/3700 clean 0 offenders, bench 3-run median 0.5119, dashboard snapshot"
+    },
+    {
       "hash": "b2afdae94",
       "subject": "fix(torajs-core): a dynamic import() resolves to a §10.4.6 namespace object"
     },
@@ -754,59 +786,38 @@
     {
       "hash": "d29e5069c",
       "subject": "fix(torajs-core): the typed array HOF loops see what the callback did to the array"
-    },
-    {
-      "hash": "aaf9769a0",
-      "subject": "fix(torajs-dynobj): a property descriptor's fields may be inherited"
-    },
-    {
-      "hash": "bd2d1919e",
-      "subject": "feat(torajs-anyvalue): delete removes a class instance's declared field"
-    },
-    {
-      "hash": "0fe1310a8",
-      "subject": "fix(torajs-core): a return inside a try closes the enclosing for-of after the finally, once"
-    },
-    {
-      "hash": "400d4e345",
-      "subject": "fix(torajs-core): a throwing write releases its rhs only when the site owns it"
-    },
-    {
-      "hash": "7a9b3de05",
-      "subject": "fix(torajs-core): a typed .then invokes the cell's own then"
-    },
-    {
-      "hash": "aa074af46",
-      "subject": "fix(torajs-arr): an empty push meets the length-write lock, and only that"
-    },
-    {
-      "hash": "e51c8cfff",
-      "subject": "fix(torajs-core): an objlit method touching arguments admits the boxed argv face off an any-only binding"
-    },
-    {
-      "hash": "ef2ac413c",
-      "subject": "fix(torajs-core): a nullish-initialised let that widened to any is visible to named-fn bodies"
     }
   ],
-  "headSha": "b2afdae94",
+  "headSha": "00ffa1569",
   "autorun": {
-    "total": 955,
+    "total": 956,
     "baselineTarget": 10,
-    "bySelf": 950,
+    "bySelf": 951,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789422155-5bbb",
-      "at": "2026-09-14T21:42:35Z",
-      "ts": 1789422155,
+      "rotationId": "r-1789445471-22b3",
+      "at": "2026-09-15T04:11:11Z",
+      "ts": 1789445471,
       "trigger": "self",
-      "prevHead": "2f37682e4",
-      "handoffSha": "sha256:79846b9547c530628cee654700bedcb3297ce9dd9e1e57c93469753eca94ab2f",
-      "handoffAgeSec": 80,
-      "conformanceBefore": "4166/0/4",
-      "commitsInSession": 16
+      "prevHead": "6d21ef8cf",
+      "handoffSha": "sha256:9dd7a59b46fd5eb69731c1975d67008cd624c1db9d466186364c62c51053b8ed",
+      "handoffAgeSec": 10,
+      "conformanceBefore": "4178/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789445471-22b3",
+        "at": "2026-09-15T04:11:11Z",
+        "ts": 1789445471,
+        "trigger": "self",
+        "prevHead": "6d21ef8cf",
+        "handoffSha": "sha256:9dd7a59b46fd5eb69731c1975d67008cd624c1db9d466186364c62c51053b8ed",
+        "handoffAgeSec": 10,
+        "conformanceBefore": "4178/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789422155-5bbb",
         "at": "2026-09-14T21:42:35Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:94edcf1b31edbad9e8901585094dfc1c1bd6e29a68650e2cf4c2e40ea7318fee",
         "handoffAgeSec": 26,
         "conformanceBefore": "4082/0/4",
-        "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789281559-1cf6",
-        "at": "2026-09-13T06:39:19Z",
-        "ts": 1789281559,
-        "trigger": "self",
-        "prevHead": "de1e2cb2b",
-        "handoffSha": "sha256:abf7c948140e26c7d090ad7e385a535c75c7e8a6ecd85e6518b3648609a0adc9",
-        "handoffAgeSec": 9,
-        "conformanceBefore": "4072/0/4",
         "commitsInSession": 14
       }
     ],
