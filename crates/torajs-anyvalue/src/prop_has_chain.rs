@@ -107,25 +107,23 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
                 key,
             )
         },
-        None => {
-            // Implicit chain root — the %Object.prototype% singleton's
-            // expando face (digit keys installed via
-            // `Object.prototype[0] = …`, RFC 20260721 G2d). A
-            // null-proto receiver has no root; the singleton itself
-            // must not re-probe (its own face already answered above).
-            let flags = unsafe { ptr.cast::<u8>().add(6).cast::<u16>().read() };
-            if flags & crate::member_get_own::DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
-                return 0;
-            }
-            let proto = unsafe {
-                torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
-                    torajs_rc::builtin_proto::OBJECT_PROTO_TAG as i64,
+        // The implicit parent — %Object.prototype% for an ordinary
+        // object, but a builtin prototype answers its own clause's
+        // parent (`Int8Array.prototype` → %TypedArray.prototype%,
+        // §23.2.7; an iterator prototype → %Iterator.prototype%).
+        // `implicit_proto_parent` is the one home for that, and it
+        // answers `None` for the root and a null-proto receiver.
+        // Recursing runs the parent's whole [[HasProperty]], so its
+        // synthesized method / accessor own faces count, not just its
+        // expando dict.
+        None => match unsafe { crate::member_get_own::implicit_proto_parent(ptr) } {
+            Some(parent) => unsafe {
+                __torajs_any_has_property(
+                    crate::nanbox_encode::__torajs_anyv_box_from_pair(4, parent as i64),
+                    key,
                 )
-            };
-            if proto.is_null() || core::ptr::eq(proto.cast(), ptr) {
-                return 0;
-            }
-            (unsafe { __torajs_dynobj_has(proto, key) } != 0) as i64
-        }
+            },
+            None => 0,
+        },
     }
 }

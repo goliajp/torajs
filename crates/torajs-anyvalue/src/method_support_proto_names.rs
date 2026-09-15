@@ -41,6 +41,7 @@ fn proto_tag_accessors(tag: i64) -> &'static [(i64, &'static str)] {
         7 => &[(torajs_rc::ANY_METHOD_GET_FLAGS, "flags")],
         11 | 12 => &[(torajs_rc::ANY_METHOD_GET_SIZE, "size")],
         19 => &[(torajs_rc::ANY_METHOD_GET_RESIZABLE, "resizable")],
+        38 => crate::member_get_buffer::TYPEDARRAY_ACCESSORS,
         _ => &[],
     }
 }

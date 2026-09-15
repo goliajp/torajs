@@ -21,6 +21,7 @@ use torajs_rc::{AnySlotTag, Tag};
 use crate::nanbox::AnyValue;
 
 unsafe extern "C" {
+    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_arraybuffer_byte_length(av: AnyValue) -> i64;
     fn __torajs_arraybuffer_max_byte_length(av: AnyValue) -> i64;
     fn __torajs_arraybuffer_resizable(av: AnyValue) -> i64;
@@ -208,6 +209,69 @@ pub(crate) unsafe fn typedarray_prop(recv: AnyValue, key: *const c_void) -> Opti
         }
         None
     }
+}
+
+/// %TypedArray.prototype%'s four accessors as (getter id, name) — the
+/// one table both the key probe and the own-name enumeration read.
+pub(crate) const TYPEDARRAY_ACCESSORS: &[(i64, &str)] = &[
+    (
+        torajs_rc::any_method_buffer::ANY_METHOD_GET_TA_BUFFER,
+        "buffer",
+    ),
+    (
+        torajs_rc::any_method_buffer::ANY_METHOD_GET_TA_BYTE_LENGTH,
+        "byteLength",
+    ),
+    (
+        torajs_rc::any_method_buffer::ANY_METHOD_GET_TA_BYTE_OFFSET,
+        "byteOffset",
+    ),
+    (
+        torajs_rc::any_method_buffer::ANY_METHOD_GET_TA_LENGTH,
+        "length",
+    ),
+];
+
+/// The getter id `key` names on %TypedArray.prototype%, if any.
+///
+/// # Safety
+/// `key` is a live Str cell.
+pub(crate) unsafe fn typedarray_accessor_mid(key: *const c_void) -> Option<i64> {
+    TYPEDARRAY_ACCESSORS
+        .iter()
+        .find(|(_, name)| unsafe { crate::prop_has::key_is(key, name.as_bytes()) })
+        .map(|(mid, _)| *mid)
+}
+
+/// A reified %TypedArray.prototype% getter invoked on `recv` — `None`
+/// when `mid` is not one of the four. §23.2.3.1 step 2-3 / .2 / .3 /
+/// .21: a receiver without [[TypedArrayName]] is a TypeError (a
+/// DataView has [[ViewedArrayBuffer]] but not that slot, which is what
+/// `this-has-no-typedarrayname-internal` pins). The answer is owned.
+///
+/// # Safety
+/// `recv` is a valid AnyValue.
+pub(crate) unsafe fn typedarray_accessor_call(recv: AnyValue, mid: i64) -> Option<AnyValue> {
+    use torajs_rc::any_method_buffer as buf;
+    if !(buf::ANY_METHOD_GET_TA_BUFFER..=buf::ANY_METHOD_GET_TA_LENGTH).contains(&mid) {
+        return None;
+    }
+    if crate::method_call_buffer::family_rejects_receiver(
+        crate::method_value::family::TYPEDARRAY_PROTO_FAMILY,
+        recv,
+    ) {
+        unsafe { __torajs_throw_type_error(c"this is not a typed array".as_ptr()) };
+        return Some(crate::nanbox::VALUE_UNDEFINED);
+    }
+    let n = |v: i64| crate::nanbox_encode::__torajs_anyv_box_i64(v);
+    Some(unsafe {
+        match mid {
+            buf::ANY_METHOD_GET_TA_BUFFER => __torajs_typedarray_buffer(recv),
+            buf::ANY_METHOD_GET_TA_BYTE_LENGTH => n(__torajs_typedarray_byte_length(recv)),
+            buf::ANY_METHOD_GET_TA_BYTE_OFFSET => n(__torajs_typedarray_byte_offset(recv)),
+            _ => n(__torajs_typedarray_length(recv)),
+        }
+    })
 }
 
 /// The §25.3.4 accessors a DataView answers on the probe pair.

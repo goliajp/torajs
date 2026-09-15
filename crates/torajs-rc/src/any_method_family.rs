@@ -201,6 +201,12 @@ pub fn any_method_families(mid: i64) -> u16 {
         | ANY_METHOD_TO_HEX
         | ANY_METHOD_SET_FROM_BASE64
         | ANY_METHOD_SET_FROM_HEX => FAM_BUFFER,
+        m if (crate::any_method_buffer::ANY_METHOD_GET_TA_BUFFER
+            ..=crate::any_method_buffer::ANY_METHOD_GET_TA_LENGTH)
+            .contains(&m) =>
+        {
+            FAM_BUFFER
+        }
         m if (ANY_METHOD_DV_GET_INT8..=ANY_METHOD_DV_SET_BIGUINT64).contains(&m) => FAM_BUFFER,
         // ---- universal / skeleton / Object.prototype / fn surface,
         // plus anything whose owner set is not worth pinning ----

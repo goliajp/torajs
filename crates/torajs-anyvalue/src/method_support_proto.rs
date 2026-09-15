@@ -236,6 +236,8 @@ pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Opt
         19 if unsafe { crate::prop_has::key_is(key, b"resizable") } => {
             Some(torajs_rc::ANY_METHOD_GET_RESIZABLE)
         }
+        // §23.2.3 — %TypedArray.prototype% (tag 38) owns four.
+        38 => unsafe { crate::member_get_buffer::typedarray_accessor_mid(key) },
         _ => None,
     }
 }
@@ -266,7 +268,7 @@ pub unsafe extern "C" fn __torajs_builtin_proto_own_accessor_getter(
     if unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) } != 0 {
         return 0;
     }
-    crate::method_value::proto_accessor_getter_cell(tag) as u64
+    crate::method_value::proto_accessor_getter_cell(tag, mid) as u64
 }
 
 /// ONE level of the walk in [`crate::method_support_proto_chain`] —

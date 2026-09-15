@@ -13,7 +13,22 @@ pub(crate) fn proto_family_of(ptr: *const c_void, type_tag: u16) -> Option<i64> 
     use crate::Tag;
     use crate::builtin_proto::{ARRAY_PROTO_TAG, FUNCTION_PROTO_TAG, OBJECT_PROTO_TAG};
     let t = type_tag;
-    let family = if t == Tag::Obj as u16 || t == Tag::DynObj as u16 {
+    // A builtin prototype singleton's chain continues at its own
+    // clause's parent (`Int8Array.prototype` → %TypedArray.prototype%,
+    // §23.2.7), and %Object.prototype% has none.
+    // SAFETY: the reverse lookup only compares the pointer.
+    let own_proto = if t == Tag::DynObj as u16 {
+        unsafe { crate::builtin_proto::__torajs_builtin_proto_tag_of(ptr) }
+    } else {
+        -1
+    };
+    let family = if own_proto >= 0 {
+        let parent = crate::builtin_proto::proto_parent_tag(own_proto);
+        if parent < 0 {
+            return None;
+        }
+        parent
+    } else if t == Tag::Obj as u16 || t == Tag::DynObj as u16 {
         // A struct's own-class prototype face is a recorded boundary
         // (module doc); the Object root still answers the universal
         // names.

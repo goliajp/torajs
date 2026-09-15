@@ -235,6 +235,13 @@ fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         ANY_METHOD_TO_HEX => ("toHex", 0),
         ANY_METHOD_SET_FROM_BASE64 => ("setFromBase64", 1),
         ANY_METHOD_SET_FROM_HEX => ("setFromHex", 1),
+        // §23.2.3.1 / .2 / .3 / .21 — the %TypedArray%.prototype
+        // accessors (the `get size` posture: spec getter name, never
+        // interns back).
+        crate::any_method_buffer::ANY_METHOD_GET_TA_BUFFER => ("get buffer", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_TA_BYTE_LENGTH => ("get byteLength", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_TA_BYTE_OFFSET => ("get byteOffset", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_TA_LENGTH => ("get length", 0),
         _ => return iter_method_meta(mid),
     })
 }

@@ -18,22 +18,29 @@ use super::{
     CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, bare_entry, native_entry,
 };
 
-static ACCESSOR_GETTER_CELLS: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+static ACCESSOR_GETTER_CELLS: [AtomicU64; 9] = [const { AtomicU64::new(0) }; 9];
 
 /// The getter cell for a builtin-proto accessor — Map (proto tag
 /// 11) / Set (proto tag 12) `size`, Symbol (proto tag 5)
 /// `description` — lazily allocated, immortal. Callers guarantee
 /// `proto_tag` is one of those three (the
 /// `proto_tag_accessor_mid` probe is the gate).
-pub(crate) fn proto_accessor_getter_cell(proto_tag: i64) -> *mut u8 {
-    let (idx, mid) = match proto_tag {
-        11 => (0, torajs_rc::ANY_METHOD_GET_SIZE),
-        12 => (1, torajs_rc::ANY_METHOD_GET_SIZE),
+pub(crate) fn proto_accessor_getter_cell(proto_tag: i64, mid: i64) -> *mut u8 {
+    use torajs_rc::any_method_buffer as buf;
+    let idx = match (proto_tag, mid) {
+        (11, _) => 0,
+        (12, _) => 1,
         // §25.1.6.13 `get ArrayBuffer.prototype.resizable`.
-        19 => (3, torajs_rc::ANY_METHOD_GET_RESIZABLE),
+        (19, _) => 3,
         // §22.2.6.4 `get RegExp.prototype.flags`.
-        7 => (4, torajs_rc::ANY_METHOD_GET_FLAGS),
-        _ => (2, torajs_rc::ANY_METHOD_GET_DESCRIPTION),
+        (7, _) => 4,
+        // §23.2.3.1 / .2 / .3 / .21 — %TypedArray.prototype%'s four,
+        // one distinct function object each.
+        (38, buf::ANY_METHOD_GET_TA_BUFFER) => 5,
+        (38, buf::ANY_METHOD_GET_TA_BYTE_LENGTH) => 6,
+        (38, buf::ANY_METHOD_GET_TA_BYTE_OFFSET) => 7,
+        (38, _) => 8,
+        _ => 2,
     };
     let slot = &ACCESSOR_GETTER_CELLS[idx];
     let p = slot.load(Ordering::Relaxed);

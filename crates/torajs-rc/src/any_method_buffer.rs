@@ -76,3 +76,11 @@ pub const ANY_METHOD_TO_BASE64: i64 = 207;
 pub const ANY_METHOD_TO_HEX: i64 = 208;
 pub const ANY_METHOD_SET_FROM_BASE64: i64 = 209;
 pub const ANY_METHOD_SET_FROM_HEX: i64 = 210;
+/// §23.2.3.1 / .2 / .3 / .21 — the four `get %TypedArray%.prototype.*`
+/// accessors (RFC 20260916-typedarray-intrinsic 刀 2). Reified getter
+/// ids, never interned by name (the GET_SIZE posture); 211 is
+/// `any_method`'s GET_FLAGS, so these continue at 212.
+pub const ANY_METHOD_GET_TA_BUFFER: i64 = 212;
+pub const ANY_METHOD_GET_TA_BYTE_LENGTH: i64 = 213;
+pub const ANY_METHOD_GET_TA_BYTE_OFFSET: i64 = 214;
+pub const ANY_METHOD_GET_TA_LENGTH: i64 = 215;

@@ -329,6 +329,10 @@ pub unsafe fn any_method_dispatch_impl(
     if mid == torajs_rc::ANY_METHOD_GET_FLAGS {
         return unsafe { crate::regexp_flags_getter::regexp_flags_getter(recv) };
     }
+    // §23.2.3.1 / .2 / .3 / .21 — a reified %TypedArray.prototype% getter.
+    if let Some(out) = unsafe { crate::member_get_buffer::typedarray_accessor_call(recv, mid) } {
+        return out;
+    }
     // §22.1.3.36 — the reified `String.prototype[Symbol.iterator]`
     // cell (F0 string leg): receiver-generic ToString(this), then a
     // VALUES ArrIter over the character array. The id never interns;
