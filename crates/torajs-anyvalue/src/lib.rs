@@ -162,6 +162,7 @@ mod member_set_own_face;
 mod member_set_private;
 mod member_set_proto_root;
 mod member_set_receiver;
+mod member_set_struct;
 mod member_set_symbol;
 mod member_set_wrapper;
 mod method_bind;
