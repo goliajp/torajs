@@ -1,7 +1,7 @@
 {
   "tool": "file_size_audit",
-  "ranAt": "2026-09-15T17:22:15Z",
-  "headSha": "1e27e7a50",
+  "ranAt": "2026-09-15T17:22:30Z",
+  "headSha": "5402d93b7",
   "headShaSource": "local-git",
   "verdict": "ok",
   "filesNew": 0,
@@ -9,5 +9,5 @@
   "fnsNew": 0,
   "fnsGrew": 0,
   "hidden": 5,
-  "stale": 1
+  "stale": 0
 }
