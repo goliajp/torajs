@@ -71,7 +71,8 @@ pub(crate) unsafe fn defer_on_then_override(
                 (!p.is_null()).then_some(p as *mut c_void)
             }
         };
-        let overridden = (0..len).any(|i| cell_at(i).is_some_and(|c| __torajs_promise_then_overridden(c) != 0));
+        let overridden =
+            (0..len).any(|i| cell_at(i).is_some_and(|c| __torajs_promise_then_overridden(c) != 0));
         if !overridden {
             return None;
         }
