@@ -242,6 +242,12 @@ fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         crate::any_method_buffer::ANY_METHOD_GET_TA_BYTE_LENGTH => ("get byteLength", 0),
         crate::any_method_buffer::ANY_METHOD_GET_TA_BYTE_OFFSET => ("get byteOffset", 0),
         crate::any_method_buffer::ANY_METHOD_GET_TA_LENGTH => ("get length", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_AB_BYTE_LENGTH => ("get byteLength", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_AB_MAX_BYTE_LENGTH => ("get maxByteLength", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_AB_DETACHED => ("get detached", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_DV_BUFFER => ("get buffer", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_DV_BYTE_LENGTH => ("get byteLength", 0),
+        crate::any_method_buffer::ANY_METHOD_GET_DV_BYTE_OFFSET => ("get byteOffset", 0),
         _ => return iter_method_meta(mid),
     })
 }

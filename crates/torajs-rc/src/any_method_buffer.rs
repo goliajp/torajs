@@ -84,3 +84,13 @@ pub const ANY_METHOD_GET_TA_BUFFER: i64 = 212;
 pub const ANY_METHOD_GET_TA_BYTE_LENGTH: i64 = 213;
 pub const ANY_METHOD_GET_TA_BYTE_OFFSET: i64 = 214;
 pub const ANY_METHOD_GET_TA_LENGTH: i64 = 215;
+/// §25.1.6.2 / .4 / .3 — `get ArrayBuffer.prototype.byteLength`,
+/// `maxByteLength`, `detached`; §25.3.4.1 / .2 / .3 — `get
+/// DataView.prototype.buffer`, `byteLength`, `byteOffset`. Reified
+/// getter ids after `any_method_regexp`'s 216-224.
+pub const ANY_METHOD_GET_AB_BYTE_LENGTH: i64 = 225;
+pub const ANY_METHOD_GET_AB_MAX_BYTE_LENGTH: i64 = 226;
+pub const ANY_METHOD_GET_AB_DETACHED: i64 = 227;
+pub const ANY_METHOD_GET_DV_BUFFER: i64 = 228;
+pub const ANY_METHOD_GET_DV_BYTE_LENGTH: i64 = 229;
+pub const ANY_METHOD_GET_DV_BYTE_OFFSET: i64 = 230;

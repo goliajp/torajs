@@ -38,7 +38,8 @@ fn proto_tag_accessors(tag: i64) -> &'static [(i64, &'static str)] {
         5 => &[(torajs_rc::ANY_METHOD_GET_DESCRIPTION, "description")],
         7 => crate::regexp_proto_accessors::REGEXP_ACCESSORS,
         11 | 12 => &[(torajs_rc::ANY_METHOD_GET_SIZE, "size")],
-        19 => &[(torajs_rc::ANY_METHOD_GET_RESIZABLE, "resizable")],
+        19 => crate::buffer_proto_accessors::ARRAYBUFFER_ACCESSORS,
+        32 => crate::buffer_proto_accessors::DATAVIEW_ACCESSORS,
         38 => crate::member_get_buffer::TYPEDARRAY_ACCESSORS,
         _ => &[],
     }

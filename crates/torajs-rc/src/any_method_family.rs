@@ -209,7 +209,10 @@ pub fn any_method_families(mid: i64) -> u16 {
         | ANY_METHOD_SET_FROM_HEX => FAM_BUFFER,
         m if (crate::any_method_buffer::ANY_METHOD_GET_TA_BUFFER
             ..=crate::any_method_buffer::ANY_METHOD_GET_TA_LENGTH)
-            .contains(&m) =>
+            .contains(&m)
+            || (crate::any_method_buffer::ANY_METHOD_GET_AB_BYTE_LENGTH
+                ..=crate::any_method_buffer::ANY_METHOD_GET_DV_BYTE_OFFSET)
+                .contains(&m) =>
         {
             FAM_BUFFER
         }

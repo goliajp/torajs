@@ -34,7 +34,8 @@ pub(crate) unsafe fn live_accessor_mid(tag: i64, key: *const c_void) -> Option<i
 /// Getters whose dispatcher arm performs the spec's own `this` checks
 /// (and so may run on a receiver of another brand): the §22.2.6 RegExp
 /// accessors, the four %TypedArray.prototype% views, and
-/// `Symbol.prototype.description`'s thisSymbolValue.
+/// `Symbol.prototype.description`'s thisSymbolValue, and the
+/// ArrayBuffer / DataView prototype getters.
 fn getter_checks_its_receiver(mid: i64) -> bool {
     use torajs_rc::any_method_buffer as buf;
     use torajs_rc::any_method_regexp as rx;
@@ -42,6 +43,7 @@ fn getter_checks_its_receiver(mid: i64) -> bool {
         || mid == torajs_rc::ANY_METHOD_GET_DESCRIPTION
         || (rx::ANY_METHOD_GET_HAS_INDICES..=rx::ANY_METHOD_GET_SOURCE).contains(&mid)
         || (buf::ANY_METHOD_GET_TA_BUFFER..=buf::ANY_METHOD_GET_TA_LENGTH).contains(&mid)
+        || crate::buffer_proto_accessors::owns_getter(mid)
 }
 
 /// Run getter `mid` on a receiver outside its family. Owned answer.

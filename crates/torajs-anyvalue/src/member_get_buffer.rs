@@ -253,6 +253,9 @@ pub(crate) unsafe fn typedarray_accessor_mid(key: *const c_void) -> Option<i64> 
 /// `recv` is a valid AnyValue.
 pub(crate) unsafe fn typedarray_accessor_call(recv: AnyValue, mid: i64) -> Option<AnyValue> {
     use torajs_rc::any_method_buffer as buf;
+    if let Some(out) = unsafe { crate::buffer_proto_accessors::buffer_accessor_call(recv, mid) } {
+        return Some(out);
+    }
     if !(buf::ANY_METHOD_GET_TA_BUFFER..=buf::ANY_METHOD_GET_TA_LENGTH).contains(&mid) {
         return None;
     }

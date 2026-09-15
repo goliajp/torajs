@@ -227,11 +227,20 @@ pub(crate) unsafe fn proto_tag_accessor_mid(tag: i64, key: *const c_void) -> Opt
         // §22.2.6 — `RegExp.prototype` (tag 7) owns `flags`, the
         // eight flag booleans and `source`.
         7 => unsafe { crate::regexp_proto_accessors::regexp_accessor_mid(key) },
-        // §25.1.6.13 — `ArrayBuffer.prototype` (tag 19) owns a
-        // `resizable` accessor.
-        19 if unsafe { crate::prop_has::key_is(key, b"resizable") } => {
-            Some(torajs_rc::ANY_METHOD_GET_RESIZABLE)
-        }
+        // §25.1.6 / §25.3.4 — `ArrayBuffer.prototype` (tag 19) and
+        // `DataView.prototype` (tag 32) own four and three.
+        19 => unsafe {
+            crate::buffer_proto_accessors::accessor_mid(
+                crate::buffer_proto_accessors::ARRAYBUFFER_ACCESSORS,
+                key,
+            )
+        },
+        32 => unsafe {
+            crate::buffer_proto_accessors::accessor_mid(
+                crate::buffer_proto_accessors::DATAVIEW_ACCESSORS,
+                key,
+            )
+        },
         // §23.2.3 — %TypedArray.prototype% (tag 38) owns four.
         38 => unsafe { crate::member_get_buffer::typedarray_accessor_mid(key) },
         _ => None,
