@@ -86,6 +86,20 @@ pub(crate) unsafe fn dynobj_length(ptr: *mut c_void, recv: AnyValue) -> AnyValue
                 __torajs_str_drop(key as *mut c_void);
                 return crate::nanbox_encode::__torajs_anyv_box_from_pair(mtag as i64, mval as i64);
             }
+            // Any other builtin prototype singleton answers `length`
+            // off its own synthesized surface and its builtin chain —
+            // %TypedArray.prototype% owns a `length` ACCESSOR whose
+            // getter throws on the prototype itself (§23.2.3.21), and
+            // a per-kind prototype inherits it. Answering the dict's
+            // absent (5, 0) here read undefined where the named read
+            // `P["length"]` threw.
+            let own = torajs_rc::builtin_proto::__torajs_builtin_proto_tag_of(ptr);
+            if own >= 0 {
+                let v =
+                    crate::method_support_proto_chain::proto_chain_value(own, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                return v;
+            }
         }
         let v = crate::len_get::box_probe_pair(dtag, dval, recv, key as *const c_void);
         __torajs_str_drop(key as *mut c_void);
