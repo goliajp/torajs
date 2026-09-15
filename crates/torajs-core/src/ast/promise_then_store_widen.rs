@@ -34,7 +34,15 @@ use super::{Ast, Expr, ExprId, Stmt};
 
 /// The statics whose answer is a promise (§27.2.4; `withResolvers`
 /// answers a record and is deliberately absent).
-const PROMISE_STATICS: [&str; 7] = ["resolve", "reject", "all", "allSettled", "any", "race", "try"];
+const PROMISE_STATICS: [&str; 7] = [
+    "resolve",
+    "reject",
+    "all",
+    "allSettled",
+    "any",
+    "race",
+    "try",
+];
 
 pub fn widen_promise_then_store_bindings(ast: &mut Ast) {
     let exprs = &ast.exprs;
