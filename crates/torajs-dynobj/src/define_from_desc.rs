@@ -52,6 +52,10 @@ unsafe extern "C" {
     fn __torajs_anyv_cell_ptr(v: u64) -> i64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_to_bool(v: u64) -> bool;
+    /// torajs-anyvalue — the expando bag of ANY cell kind (the cell
+    /// itself for a dynobj), NULL when the shape has none or never
+    /// attached one.
+    fn __torajs_cell_expando_bag(p: *mut c_void) -> *mut c_void;
     /// torajs-anyvalue — class-layout struct field read as a
     /// borrowed NaN-box (the §6.2.6.5 struct-desc lane).
     fn __torajs_struct_field_read_anyv(
@@ -159,7 +163,25 @@ unsafe fn desc_field(desc: DescStore, name: &str) -> Option<u64> {
                     &mut anyv,
                 )
             };
-            if hit == 0 { None } else { Some(anyv) }
+            if hit != 0 {
+                return Some(anyv);
+            }
+            // A field the layout does not declare may still be an own
+            // expando of the instance (`new Error("m")` with `value` /
+            // `writable` assigned onto it — test262 Object/create
+            // 15.2.3.5-4-11x; rotation 652): the `+24` bag is the
+            // same own face `hasOwnProperty` answers from.
+            let bag = unsafe { __torajs_cell_expando_bag(s as *mut c_void) };
+            if bag.is_null() {
+                return None;
+            }
+            let probe_key = FakeStrKey::new(name);
+            let pr = unsafe { probe(bag, &probe_key as *const FakeStrKey as *const c_void) };
+            if !pr.found {
+                return None;
+            }
+            let ent = unsafe { entries(bag) };
+            Some(unsafe { (*ent.add(pr.entry as usize)).value_anyv })
         }
     }
 }
@@ -246,32 +268,13 @@ pub unsafe extern "C" fn __torajs_dynobj_define_from_desc_soft(
     unsafe { define_from_desc_impl(obj_slot, key, desc, false) }
 }
 
-unsafe fn define_from_desc_impl(
-    obj_slot: *mut *mut c_void,
-    key: *mut c_void,
-    desc: *const c_void,
-    throw_on_refusal: bool,
-) -> i64 {
-    if desc.is_null() {
-        return 1;
-    }
-    // §10.5.6 — a Proxy receiver answers the define itself (RFC
-    // 20260823-proxy-substrate 刀 8). The slot holds a heap cell
-    // pointer, which for a Proxy IS its AnyValue.
-    let obj = unsafe { *obj_slot };
-    if !obj.is_null()
-        && unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() } == crate::layout::TAG_PROXY
-    {
-        let r = unsafe { __torajs_proxy_define_own(obj as u64, key, desc) };
-        if r == 0 && throw_on_refusal && unsafe { __torajs_throw_check() } == 0 {
-            unsafe {
-                __torajs_throw_type_error(
-                    c"proxy 'defineProperty' trap returned falsish".as_ptr() as *const u8
-                )
-            };
-        }
-        return r;
-    }
+/// §6.2.6.5 ToPropertyDescriptor reads off ANY object — the
+/// descriptor's own-field store by cell kind (see [`DescStore`]).
+/// `None` is the empty descriptor (all attributes absent).
+///
+/// # Safety
+/// `desc` is a live heap cell.
+unsafe fn resolve_desc_store(desc: *const c_void) -> Option<DescStore> {
     // §6.2.6.5 ToPropertyDescriptor reads off ANY object — dispatch
     // per the desc cell's shape to its own-field store: dynobj entry
     // table (DynObj / Closure-Arr expando) or class-layout struct
@@ -281,7 +284,7 @@ unsafe fn define_from_desc_impl(
     // SIGSEGV. A NULL store (fresh Closure/Arr, or a shape with no
     // expando domain) is an empty descriptor: all-absent flags still
     // create / validate the property.
-    let desc = match unsafe { (desc.cast::<u8>().add(4) as *const u16).read() } {
+    match unsafe { (desc.cast::<u8>().add(4) as *const u16).read() } {
         TAG_DYNOBJ => Some(DescStore::Dyn(desc, core::ptr::null())),
         TAG_CLOSURE_HDR => {
             // A closure descriptor inherits through
@@ -377,8 +380,49 @@ unsafe fn define_from_desc_impl(
                 Some(DescStore::Dyn(expando, wp))
             }
         }
-        _ => None,
-    };
+        // Rotation 652 — every other object kind (Date / RegExp /
+        // Error / Promise / Map …) keeps its descriptor fields in the
+        // bag its shape carries; the accept gate upstream already
+        // refused the primitive cells. Nothing is inherited through a
+        // builtin prototype here (registered).
+        _ => {
+            let bag = unsafe { __torajs_cell_expando_bag(desc as *mut c_void) };
+            if bag.is_null() {
+                None
+            } else {
+                Some(DescStore::Dyn(bag, core::ptr::null()))
+            }
+        }
+    }
+}
+
+unsafe fn define_from_desc_impl(
+    obj_slot: *mut *mut c_void,
+    key: *mut c_void,
+    desc: *const c_void,
+    throw_on_refusal: bool,
+) -> i64 {
+    if desc.is_null() {
+        return 1;
+    }
+    // §10.5.6 — a Proxy receiver answers the define itself (RFC
+    // 20260823-proxy-substrate 刀 8). The slot holds a heap cell
+    // pointer, which for a Proxy IS its AnyValue.
+    let obj = unsafe { *obj_slot };
+    if !obj.is_null()
+        && unsafe { obj.cast::<u8>().add(4).cast::<u16>().read() } == crate::layout::TAG_PROXY
+    {
+        let r = unsafe { __torajs_proxy_define_own(obj as u64, key, desc) };
+        if r == 0 && throw_on_refusal && unsafe { __torajs_throw_check() } == 0 {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"proxy 'defineProperty' trap returned falsish".as_ptr() as *const u8
+                )
+            };
+        }
+        return r;
+    }
+    let desc = unsafe { resolve_desc_store(desc) };
     let Some(desc) = desc else {
         return unsafe { define_apply(obj_slot, key, 0, 0, 0, throw_on_refusal) };
     };

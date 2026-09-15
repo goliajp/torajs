@@ -108,6 +108,31 @@ pub unsafe extern "C" fn __torajs_regex_last_index_define(
     )
 }
 
+// Rotation 652 — the generic container / descriptor arms of the
+// defineProperties walk reach two more anyvalue / meta kernels; no
+// unit test builds a Date-shaped descriptor, so these panic like the
+// stubs above.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_own_keys(
+    _v: u64,
+    _include_nonenum: i64,
+) -> *mut core::ffi::c_void {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_anyv_own_keys should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_cell_expando_bag(
+    _p: *mut core::ffi::c_void,
+) -> *mut core::ffi::c_void {
+    panic!(
+        "torajs-dynobj unit-test stub: __torajs_cell_expando_bag should not be called from cargo test paths"
+    );
+}
+
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const u8) {
