@@ -35,6 +35,10 @@ pub(crate) const STR_PROTO_FAMILY: i64 = 3;
 pub(crate) const TYPEDARRAY_PROTO_FAMILY: i64 =
     torajs_rc::builtin_proto::TYPEDARRAY_PROTO_TAG as i64;
 
+/// `Uint8Array.prototype`'s family (20 + Kind::Uint8) — the row of the
+/// four text conversions it owns.
+pub(crate) const UINT8_ARRAY_PROTO_FAMILY: i64 = 21;
+
 /// The Array family's proto tag — its reified `concat` borrowed
 /// onto a primitive receiver seeds `ToObject(this)` per §23.1.3.1
 /// (the wrapper-object lane, see `method_call_closure::
@@ -75,6 +79,11 @@ pub(crate) fn intern_family(family: i64, mid: i64) -> i64 {
     let owns = if mid == ANY_METHOD_VALUE_OF {
         // Number / Object / String / Boolean / Symbol / BigInt / Date
         matches!(family, 0 | 1 | 3 | 4 | 5 | 6 | 8)
+    } else if family == TYPEDARRAY_PROTO_FAMILY && crate::method_support::is_uint8_text_method(mid)
+    {
+        // The base64 / hex four are `Uint8Array.prototype`'s own; a
+        // typed array instance reads them from that row.
+        return UINT8_ARRAY_PROTO_FAMILY;
     } else if mid == ANY_METHOD_TO_STRING && family == TYPEDARRAY_PROTO_FAMILY {
         // §23.2.3.33 — `%TypedArray%.prototype.toString` is the same
         // function object as `Array.prototype.toString`.

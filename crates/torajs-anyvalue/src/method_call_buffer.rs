@@ -72,6 +72,25 @@ unsafe extern "C" {
     fn __torajs_arr_iter_create_entries(src: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
 }
 
+/// Does a reified method minted on `fam` refuse `recv` as its `this`?
+/// True for the two typed-array families (%TypedArray.prototype% and
+/// `Uint8Array.prototype`) over anything that is not a typed array —
+/// §23.2.4.4 ValidateTypedArray's brand half. Detached and
+/// out-of-bounds views are the kernels' own checks.
+pub(crate) fn family_rejects_receiver(fam: i64, recv: AnyValue) -> bool {
+    use crate::method_value::family::{TYPEDARRAY_PROTO_FAMILY, UINT8_ARRAY_PROTO_FAMILY};
+    if fam != TYPEDARRAY_PROTO_FAMILY && fam != UINT8_ARRAY_PROTO_FAMILY {
+        return false;
+    }
+    if !crate::nanbox::is_cell(recv) {
+        return true;
+    }
+    let ptr = crate::nanbox::as_void_ptr(recv);
+    // SAFETY: is_cell guarantees a live heap pointer with a header.
+    let tag = unsafe { ptr.cast::<u8>().add(4).cast::<u16>().read() };
+    tag != torajs_rc::Tag::TypedArray as u16
+}
+
 /// `None` = this mid is not one ArrayBuffer.prototype owns, and the
 /// caller raises its usual no-such-method TypeError.
 ///
