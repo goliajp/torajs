@@ -141,6 +141,10 @@ impl<'a> LowerCtx<'a> {
         if crate::ssa_lower_call_template_object::is_template_object_call(self.ast, eid) {
             return false;
         }
+        // A private-element check answers its receiver as it got it.
+        if let Some(recv) = crate::ast::private_brand::checked_receiver(&self.ast.exprs, eid) {
+            return self.expr_owned_shape(recv);
+        }
         match self.ast.get_expr(eid) {
             // Chunk 721 — OptCall answers a fresh owned Any box on
             // both arms (hit = the call's owned result, miss = an

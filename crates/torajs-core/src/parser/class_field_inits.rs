@@ -22,6 +22,10 @@ impl<'a> Parser<'a> {
         }
         let mut prefix: Vec<Stmt> = Vec::new();
         for (fname, init_expr) in &field_inits {
+            if crate::ast::private_brand::is_field_add(&self.ast, *init_expr) {
+                prefix.push(Stmt::Expr(*init_expr));
+                continue;
+            }
             let this_ref = self.ast.add_expr(Expr::This);
             // A `__ccm_<n>__` sentinel field becomes a KEYED write
             // into the expando dict (lhs built in the sibling).
@@ -88,6 +92,41 @@ impl<'a> Parser<'a> {
                 }
             }
         })
+    }
+
+    /// RFC 20260916-private-element-brand slice 2b — §7.3.34 step 3
+    /// adds each private field right after its own initializer ran, in
+    /// declaration order. When the member just parsed declared a
+    /// private instance field and some initializer precedes it, mark
+    /// that moment with `__torajs_priv_field_add("__priv_C__x")` in
+    /// the initializer list, which the prefix emits as a statement and
+    /// the class desugar turns into the install. A field no
+    /// initializer precedes is installed with the class's elements
+    /// start instead (`ast/private_brand.rs`), so it needs no marker.
+    pub(super) fn push_private_field_add(
+        &mut self,
+        fields: &[(PropKey, String)],
+        field_inits: &mut Vec<(PropKey, ExprId)>,
+        fields_mark: usize,
+    ) {
+        let Some((key, _)) = fields.get(fields_mark) else {
+            return;
+        };
+        let Some(n) = key.as_str().filter(|n| n.starts_with("__priv_")) else {
+            return;
+        };
+        if field_inits.is_empty() {
+            return;
+        }
+        let callee = self
+            .ast
+            .add_expr(Expr::Ident(crate::ast::private_brand::FIELD_ADD.into()));
+        let name = self.ast.add_expr(Expr::String(n.into()));
+        let call = self.ast.add_expr(Expr::Call {
+            callee,
+            args: vec![name],
+        });
+        field_inits.push((key.clone(), call));
     }
 
     /// Index of the first statement in `body` that IS a `super(...)`

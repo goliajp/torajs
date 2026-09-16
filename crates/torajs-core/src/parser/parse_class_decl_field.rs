@@ -53,6 +53,7 @@ impl<'a> Parser<'a> {
             super::class_element_name::ClassElementPos::Field,
         )?;
         let field_inits_mark = field_inits.len();
+        let fields_mark = fields.len();
         let static_init_mark = static_init.len();
         let expr_mark = self.ast.exprs.len() as u32;
         // Same lookahead the member loop matched on: the member name
@@ -129,6 +130,9 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+        }
+        if !is_static {
+            self.push_private_field_add(fields, field_inits, fields_mark);
         }
         // The ids this static element's initializer occupies — the
         // positional record `class_static_init_expr_ranges` documents.

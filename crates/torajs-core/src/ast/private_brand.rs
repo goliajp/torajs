@@ -14,6 +14,16 @@
 //! order, and its brand is present exactly when the object is an
 //! instance of the class and the cursor is past that position.
 //!
+//! Slice 2b adds the private FIELDS (§7.3.34 step 3): each one holds
+//! its own position after its class's brand, in declaration order, and
+//! is installed right after its own initializer ran — a
+//! `__torajs_priv_field_add` marker the parser leaves in the
+//! initializer prefix (`parser/class_field_inits.rs`), rewritten here.
+//! A field no initializer precedes installs with its class's elements
+//! start, where no user code of the class can run in between. Access
+//! checks for fields are placed only where construction can still be
+//! in progress (`private_field_guard.rs`).
+//!
 //! Chains that touch a value-returning constructor
 //! (`Ast::ctor_return_override`) or an exotic builtin parent keep the
 //! previous behaviour for now: their `this` may be an adopted object
@@ -22,42 +32,112 @@
 
 use super::desugar_classes_super::ClassIndexEntry;
 use super::{Ast, Expr, ExprId, Stmt};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Runtime kernel names the class desugar mints.
 pub(crate) const INSTALL: &str = "__torajs_priv_install";
 pub(crate) const CHECK: &str = "__torajs_priv_brand";
+/// The parser's marker for "this private field is added here".
+pub(crate) const FIELD_ADD: &str = "__torajs_priv_field_add";
 
-/// Plan the brand positions, then guard every access site. Runs once
-/// the class parents are known and before any class rewrite: the
-/// `super(…)` install consults the plan, and the access guard only
-/// touches member receivers no class rewrite has renamed yet.
-pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
-    plan(ast, class_index);
-    guard_access_sites(ast, class_index);
+/// The receiver a `__torajs_priv_brand(obj, "C", pos)` check answers,
+/// when `eid` is one.
+pub(crate) fn checked_receiver(exprs: &[Expr], eid: ExprId) -> Option<ExprId> {
+    let Some(Expr::Call { callee, args }) = exprs.get(eid.0 as usize) else {
+        return None;
+    };
+    match (exprs.get(callee.0 as usize), args.as_slice()) {
+        (Some(Expr::Ident(n)), [recv, _, _]) if n == CHECK => Some(*recv),
+        _ => None,
+    }
 }
 
-/// Record, for every class owning private methods or accessors on a
-/// chain this slice covers, the position of its brand in the chain's
-/// install order (`Ast::private_brand_pos`).
-fn plan(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
-    let parent: HashMap<&str, Option<&str>> = class_index
-        .iter()
-        .map(|(_, c, _, p, ..)| (c.as_str(), p.as_deref()))
+/// Whether `eid` is a `__torajs_priv_field_add("__priv_C__x")` marker.
+pub(crate) fn is_field_add(ast: &Ast, eid: ExprId) -> bool {
+    field_add_name(ast, eid).is_some()
+}
+
+fn field_add_name(ast: &Ast, eid: ExprId) -> Option<String> {
+    let Expr::Call { callee, args } = ast.get_expr(eid) else {
+        return None;
+    };
+    if !matches!(ast.get_expr(*callee), Expr::Ident(n) if n == FIELD_ADD) {
+        return None;
+    }
+    match args.as_slice() {
+        [a] => match ast.get_expr(*a) {
+            Expr::String(n) => Some(n.to_string_lossy_owned()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Plan the element positions, guard the field access sites, rewrite
+/// the field markers into installs, then guard the method access
+/// sites. Runs once the class
+/// parents are known and before any class rewrite: the `super(…)`
+/// install consults the plan, and the access guards only touch member
+/// receivers no class rewrite has renamed yet.
+pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+    let markers: Vec<(usize, String)> = (0..ast.exprs.len())
+        .filter_map(|i| field_add_name(ast, ExprId(i as u32)).map(|n| (i, n)))
         .collect();
-    let owns = |c: &str| {
-        class_index.iter().any(|(_, n, _, _, _, _, _, methods, _)| {
-            n == c && methods.iter().any(|m| m.name.starts_with("__priv_"))
+    let marked: HashSet<&str> = markers.iter().map(|(_, n)| n.as_str()).collect();
+    let field_pos = plan(ast, class_index, &marked);
+    // The field guard reads the constructors as the parser left them:
+    // markers not yet rewritten, no receiver wrapped yet.
+    super::private_field_guard::guard_field_sites(ast, class_index, &field_pos);
+    for (i, name) in &markers {
+        ast.exprs[*i] = match field_pos.get(name) {
+            Some((_, pos)) => install_expr(ast, Expr::This, *pos, *pos + 1),
+            // An uncovered chain keeps the preinstalled field.
+            None => Expr::Ident("undefined".into()),
+        };
+    }
+    guard_method_sites(ast, class_index);
+}
+
+/// The private methods / accessors (the brand, 0 or 1 position) and
+/// the private instance fields a class declares.
+fn own_elements(entry: &ClassIndexEntry) -> (u32, Vec<&str>) {
+    let (_, _, _, _, fields, _, _, methods, _) = entry;
+    let brand = u32::from(methods.iter().any(|m| m.name.starts_with("__priv_")));
+    let fields = fields
+        .iter()
+        .filter_map(|(k, _)| k.as_str().filter(|n| n.starts_with("__priv_")))
+        .collect();
+    (brand, fields)
+}
+
+/// Record, for every class owning private elements on a chain this
+/// slice covers, where its elements sit in the chain's install order
+/// (`Ast::private_elements`), and answer each private field's
+/// (owner class, position).
+fn plan(
+    ast: &mut Ast,
+    class_index: &[ClassIndexEntry],
+    marked: &HashSet<&str>,
+) -> HashMap<String, (String, u32)> {
+    let by_name: HashMap<&str, &ClassIndexEntry> =
+        class_index.iter().map(|e| (e.1.as_str(), e)).collect();
+    let count = |c: &str| {
+        by_name.get(c).map_or(0, |e| {
+            let (brand, fields) = own_elements(e);
+            brand + fields.len() as u32
         })
     };
     let mut out = HashMap::new();
-    for (_, cname, ..) in class_index {
-        if !owns(cname) {
+    let mut field_pos = HashMap::new();
+    for entry in class_index {
+        let cname = entry.1.as_str();
+        let (brand, fields) = own_elements(entry);
+        if brand == 0 && fields.is_empty() {
             continue;
         }
-        let mut pos = 0u32;
+        let mut base = 0u32;
         let mut covered = true;
-        let mut cur = Some(cname.as_str());
+        let mut cur = Some(cname);
         while let Some(c) = cur {
             if ast.ctor_return_override.contains(c)
                 || super::desugar_classes_builtin_heritage::exotic_root_parent(ast, c).is_some()
@@ -65,81 +145,100 @@ fn plan(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
                 covered = false;
                 break;
             }
-            cur = parent.get(c).copied().flatten();
-            if let Some(p) = cur
-                && owns(p)
-            {
-                pos += 1;
-            }
+            cur = by_name.get(c).and_then(|e| e.3.as_deref());
+            base += cur.map_or(0, count);
         }
-        if covered {
-            out.insert(cname.clone(), pos);
+        if !covered {
+            continue;
+        }
+        let head = fields.iter().take_while(|f| !marked.contains(**f)).count() as u32;
+        out.insert(cname.to_string(), (base, brand + head));
+        for (j, f) in fields.iter().enumerate() {
+            field_pos.insert(f.to_string(), (cname.to_string(), base + brand + j as u32));
         }
     }
-    ast.private_brand_pos = out;
+    ast.private_elements = out;
+    field_pos
 }
 
-/// `__torajs_priv_install(this, pos, pos + 1)` for `cname`, or `None`
-/// when the class holds no brand position.
-pub(crate) fn install_call(ast: &mut Ast, cname: &str, recv: Expr) -> Option<ExprId> {
-    let pos = *ast.private_brand_pos.get(cname)?;
+fn install_expr(ast: &mut Ast, recv: Expr, from: u32, to: u32) -> Expr {
     let callee = ast.add_expr(Expr::Ident(INSTALL.into()));
     let recv = ast.add_expr(recv);
-    let from = ast.add_expr(Expr::Number(f64::from(pos)));
-    let to = ast.add_expr(Expr::Number(f64::from(pos + 1)));
-    Some(ast.add_expr(Expr::Call {
+    let from = ast.add_expr(Expr::Number(f64::from(from)));
+    let to = ast.add_expr(Expr::Number(f64::from(to)));
+    Expr::Call {
         callee,
         args: vec![recv, from, to],
-    }))
+    }
+}
+
+/// The install of `cname`'s elements start — its brand and the private
+/// fields no initializer precedes — or `None` when there is nothing to
+/// install there.
+pub(crate) fn install_call(ast: &mut Ast, cname: &str, recv: Expr) -> Option<ExprId> {
+    let (base, start) = *ast.private_elements.get(cname)?;
+    if start == 0 {
+        return None;
+    }
+    let call = install_expr(ast, recv, base, base + start);
+    Some(ast.add_expr(call))
+}
+
+/// `__torajs_priv_brand(obj, "C", pos)` in place of the receiver of
+/// member `i`. The receiver is still evaluated once and the node keeps
+/// its shape, so every downstream pass (the class Pass 2 call rewrite,
+/// `.call` devirtualisation, promise chains, the static-`this` table
+/// keyed on the receiver's ExprId) sees what it saw before; the checker
+/// types the call as its first operand.
+pub(super) fn guard_receiver(ast: &mut Ast, i: usize, cname: &str, pos: u32) {
+    let Expr::Member { obj, .. } = &ast.exprs[i] else {
+        return;
+    };
+    let obj = *obj;
+    let callee = ast.add_expr(Expr::Ident(CHECK.into()));
+    let class = ast.add_expr(Expr::String(cname.into()));
+    let pos = ast.add_expr(Expr::Number(f64::from(pos)));
+    let checked = ast.add_expr(Expr::Call {
+        callee,
+        args: vec![obj, class, pos],
+    });
+    if let Expr::Member { obj, .. } = &mut ast.exprs[i] {
+        *obj = checked;
+    }
 }
 
 /// Route the receiver of every access to a private method or accessor
-/// of a covered class — the read, the write, the call — through
-/// `__torajs_priv_brand(obj, "C", pos)`, which checks the brand
-/// (§7.3.31 / §7.3.32 step 1) and answers the receiver unchanged. The
-/// receiver is still evaluated once and the node keeps its shape, so
-/// every downstream pass (the class Pass 2 call rewrite, `.call`
-/// devirtualisation, promise chains, the static-`this` table keyed on
-/// the receiver's ExprId) sees what it saw before; the checker types
-/// the call as its first operand.
-fn guard_access_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
-    let mut owner: HashMap<String, String> = HashMap::new();
-    for (_, cname, _, _, _, _, _, methods, _) in class_index {
-        if !ast.private_brand_pos.contains_key(cname) {
+/// of a covered class — the read, the write, the call — through the
+/// brand check (§7.3.31 / §7.3.32 step 1). The brand is the class's
+/// first position.
+fn guard_method_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+    let mut owner: HashMap<String, (String, u32)> = HashMap::new();
+    for entry in class_index {
+        let Some((base, _)) = ast.private_elements.get(&entry.1) else {
             continue;
-        }
-        for m in methods {
+        };
+        for m in &entry.7 {
             if let Some(n) = m.name.as_str()
                 && n.starts_with("__priv_")
             {
-                owner.insert(n.to_string(), cname.clone());
+                owner.insert(n.to_string(), (entry.1.clone(), *base));
             }
         }
     }
     if owner.is_empty() {
         return;
     }
-    let sites: Vec<(usize, ExprId, String)> = ast
+    let sites: Vec<(usize, String, u32)> = ast
         .exprs
         .iter()
         .enumerate()
         .filter_map(|(i, e)| match e {
-            Expr::Member { obj, name } => owner.get(name).map(|c| (i, *obj, c.clone())),
+            Expr::Member { name, .. } => owner.get(name).map(|(c, p)| (i, c.clone(), *p)),
             _ => None,
         })
         .collect();
-    for (i, obj, cname) in sites {
-        let pos = ast.private_brand_pos[&cname];
-        let callee = ast.add_expr(Expr::Ident(CHECK.into()));
-        let class = ast.add_expr(Expr::String(cname.as_str().into()));
-        let pos = ast.add_expr(Expr::Number(f64::from(pos)));
-        let checked = ast.add_expr(Expr::Call {
-            callee,
-            args: vec![obj, class, pos],
-        });
-        if let Expr::Member { obj, .. } = &mut ast.exprs[i] {
-            *obj = checked;
-        }
+    for (i, cname, pos) in sites {
+        guard_receiver(ast, i, &cname, pos);
     }
 }
 

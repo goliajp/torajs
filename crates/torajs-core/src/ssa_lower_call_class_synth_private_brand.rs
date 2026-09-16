@@ -3,9 +3,11 @@
 //! [`crate::ssa_lower_call_class_synth`].
 //!
 //! - `__torajs_priv_install(obj, from, to)` — §7.3.33
-//!   PrivateMethodOrAccessorAdd for one class's brand: the runtime
-//!   kernel moves the object's install cursor from `from` to `to`, and
-//!   a cursor already elsewhere is the duplicate-add TypeError.
+//!   PrivateMethodOrAccessorAdd / §7.3.32 PrivateFieldAdd for a run of
+//!   one class's elements: the object's install cursor moves from
+//!   `from` to `to` (inline for a typed instance, the kernel
+//!   otherwise), and a cursor already elsewhere is the duplicate-add
+//!   TypeError.
 //! - `__torajs_priv_brand(obj, "C", pos)` — §7.3.31 / §7.3.32 step 1
 //!   for a private method or accessor of `C`, answering `obj` itself
 //!   (it replaces the receiver of the access): the object is an
@@ -34,19 +36,19 @@ fn const_u32(ctx: &LowerCtx<'_>, eid: ExprId) -> Option<i64> {
     }
 }
 
-fn any_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
-    let v = ctx.lower_expr(eid);
-    if matches!(ctx.expr_types.get(&eid), Some(crate::check::Type::Any)) {
-        v
-    } else {
-        ctx.box_to_any(v)
-    }
-}
-
 fn lower_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     let [obj, from, to] = args else { return None };
     let (from, to) = (const_u32(ctx, *from)?, const_u32(ctx, *to)?);
-    let v = any_arg(ctx, *obj);
+    let recv = ctx.lower_expr(*obj);
+    if matches!(ctx.operand_ty(&recv), Type::Obj(_)) {
+        lower_install_inline(ctx, recv, from, to);
+        return Some(Operand::ConstI64(0));
+    }
+    let v = if matches!(ctx.operand_ty(&recv), Type::Any) {
+        recv
+    } else {
+        ctx.box_to_any(recv)
+    };
     let f = ctx.intrinsics.priv_install;
     ctx.f.append_void(
         ctx.cur_block,
@@ -54,6 +56,70 @@ fn lower_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     );
     ctx.emit_throw_check(None);
     Some(Operand::ConstI64(0))
+}
+
+/// A class instance's cursor sits in the high half of its +8 slot:
+/// standing at `from` it moves by `to - from`; anywhere else the kernel
+/// raises the duplicate-add TypeError.
+fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i64) {
+    let slot = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv.clone(), OBJ_CLASS_TAG_OFF),
+        Type::I64,
+        None,
+    );
+    let cursor = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(BinOp::LShr, Operand::Value(slot), Operand::ConstI64(32)),
+        Type::I64,
+        None,
+    );
+    let at = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(cursor), Operand::ConstI64(from)),
+        Type::Bool,
+        None,
+    );
+    let (fast, slow, cont) = (ctx.f.add_block(), ctx.f.add_block(), ctx.f.add_block());
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(at),
+            then_blk: fast,
+            else_blk: slow,
+        },
+    );
+    ctx.cur_block = fast;
+    let moved = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            BinOp::Add,
+            Operand::Value(slot),
+            Operand::ConstI64((to - from) << 32),
+        ),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(moved), recv.clone(), OBJ_CLASS_TAG_OFF),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(cont));
+    ctx.cur_block = slow;
+    let boxed = ctx.box_to_any(recv);
+    let f = ctx.intrinsics.priv_install;
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(
+            f,
+            vec![boxed, Operand::ConstI64(from), Operand::ConstI64(to)],
+        ),
+    );
+    ctx.emit_throw_check(None);
+    if ctx.cur_open() {
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(cont));
+    }
+    ctx.cur_block = cont;
 }
 
 fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
@@ -123,12 +189,7 @@ fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(cont));
     }
     ctx.cur_block = cont;
-    // The call's answer is an owned temp to every consumer (a Call is
-    // an owned shape); a borrowed receiver (`this`, a binding) takes
-    // the stake it hands on, an owned one (`f().#m()`) passes its own.
-    if !ctx.expr_owned_shape(*obj) {
-        let ty = ctx.operand_ty(&recv);
-        ctx.emit_owned_result_inc(recv.clone(), ty);
-    }
+    // The check answers its receiver with the receiver's own
+    // ownership (`LowerCtx::expr_owned_shape` looks through it).
     Some(recv)
 }

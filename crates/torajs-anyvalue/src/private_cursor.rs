@@ -26,7 +26,8 @@ fn instance_cell(v: AnyValue) -> Option<*mut c_void> {
     }
 }
 
-/// §7.3.33 PrivateMethodOrAccessorAdd for one class's brand: the cursor
+/// §7.3.33 PrivateMethodOrAccessorAdd / §7.3.32 PrivateFieldAdd for a
+/// run of one class's elements: the cursor
 /// must stand at `from` (anywhere else, the brand is already there) and
 /// moves to `to`. A value that is not a class instance cell has no
 /// cursor; the covered chains never install on one.
@@ -40,7 +41,7 @@ pub unsafe extern "C" fn __torajs_priv_install(v: AnyValue, from: i64, to: i64) 
         let slot = p.cast::<u8>().add(CURSOR_OFF).cast::<u32>();
         if i64::from(slot.read()) != from {
             __torajs_throw_type_error(
-                c"cannot initialize private methods twice on the same object".as_ptr(),
+                c"cannot add a private element twice to the same object".as_ptr(),
             );
             return;
         }
@@ -60,12 +61,10 @@ pub unsafe extern "C" fn __torajs_priv_cursor(v: AnyValue) -> i64 {
     }
 }
 
-/// §7.3.31 / §7.3.32 step 1 — the object does not carry the brand.
+/// §7.3.31 / §7.3.32 step 1 — the object does not have the element.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_priv_brand_fail() {
     unsafe {
-        __torajs_throw_type_error(
-            c"cannot use a private method on an object whose class did not install it".as_ptr(),
-        );
+        __torajs_throw_type_error(c"the object does not have this private element".as_ptr());
     }
 }

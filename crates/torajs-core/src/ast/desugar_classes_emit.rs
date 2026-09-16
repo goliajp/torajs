@@ -61,6 +61,8 @@ fn infer_expr_ty_in_getter(
         Expr::String(_) => Some("string".into()),
         Expr::Bool(_) => Some("boolean".into()),
         Expr::Member { obj, name } => {
+            // A checked private access reads the same field.
+            let obj = &crate::ast::private_brand::checked_receiver(exprs, *obj).unwrap_or(*obj);
             let obj_e = exprs.get(obj.0 as usize)?;
             // `this` rewriting state at emit time: parser emits `Expr::This`
             // but `desugar_classes` Pass 2 (which runs before this emit
