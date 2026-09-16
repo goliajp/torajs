@@ -48,8 +48,16 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, name: &str) -> Operand {
     emit_tdz_raise(ctx, eid, name);
     if ctx.locals.get(name).is_none() {
-        if let Some(op) = try_undeclared_read_throw(ctx, eid, name) {
+        if let Some(op) = crate::ssa_lower_ident_global::try_undeclared_read_throw(ctx, eid, name) {
             return op;
+        }
+        // A global-object property this module writes reads off the
+        // object, not off the interned cell the folds below answer
+        // with — the write never reached that cell. Same mechanism
+        // the undeclared read above uses, and the name is present, so
+        // the throw arm of the kernel never fires.
+        if ctx.proto_shadow.writes_global(name) {
+            return crate::ssa_lower_ident_global::emit_global_ident_read(ctx, name);
         }
         if name == "NaN" {
             return Operand::ConstF64(f64::NAN);
@@ -245,41 +253,6 @@ pub(crate) fn emit_tdz_raise(ctx: &mut LowerCtx<'_>, eid: crate::ast::ExprId, na
         InstKind::Call(raiser, vec![Operand::Value(name_str)]),
     );
     ctx.emit_throw_check(None);
-}
-
-/// RFC 20260730-undeclared-ident — §6.2.5.5 GetValue on an
-/// unresolvable Reference. The checker marked this read
-/// (`ast.undeclared_reads`), so evaluating it raises a catchable
-/// ReferenceError (`<name> is not defined`). The value lane past the
-/// throw-check is unreachable; `undefined`'s shape stands in so the
-/// enclosing expression still types out.
-fn try_undeclared_read_throw(
-    ctx: &mut LowerCtx<'_>,
-    eid: crate::ast::ExprId,
-    name: &str,
-) -> Option<Operand> {
-    if !ctx.ast.undeclared_reads.contains_key(&eid) {
-        return None;
-    }
-    let name_str = ctx.intern_string_literal(name);
-    // §9.1.1.4 GetBindingValue with `S` = false — the global
-    // environment record's OBJECT half answers first, and only a name
-    // the global object does not carry reaches the ReferenceError.
-    // `this.p = 1` in global code writes through that object
-    // (`ast::toplevel_this` binds top-level `this` to the singleton
-    // under the sloppy goal), so `p` reads it back; the kernel records
-    // the throw rather than raising it, which is what lets one call
-    // site serve both outcomes.
-    let getter = ctx.intrinsics.global_ident_get;
-    let cur_block = ctx.cur_block;
-    let v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(getter, vec![Operand::Value(name_str)]),
-        Type::Any,
-        None,
-    );
-    ctx.emit_throw_check(None);
-    Some(Operand::Value(v))
 }
 
 /// The `__undef_slot__<T>` marker `desugar_async` plants where an async

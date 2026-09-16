@@ -204,6 +204,7 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
 
     super::hooks::scan_symbol_hooks(ast, &mut set);
     super::hooks::scan_namespace_statics(ast, &mut set);
+    super::hooks::scan_global_writes(ast, &mut set);
 
     set
 }

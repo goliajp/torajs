@@ -125,6 +125,12 @@ pub(crate) struct ShadowSet {
     /// Namespaces whose static set could not be pinned down (a
     /// computed key, a `defineProperty` with a non-literal key).
     statics_opaque: HashSet<String>,
+    /// Global-object properties this module writes by name, whether
+    /// through `globalThis` or by assigning the bare name. The bare
+    /// global FUNCTIONS (`parseInt`, `isNaN`, the URI four) are folded
+    /// both as a call and as a value, off an interned cell that the
+    /// global object's own bag never reaches.
+    globals: HashSet<String>,
 }
 
 impl ShadowSet {
@@ -138,6 +144,7 @@ impl ShadowSet {
             && !self.symbol_hook_opaque
             && self.statics.is_empty()
             && self.statics_opaque.is_empty()
+            && self.globals.is_empty()
     }
 
     /// Might a value in this module carry a handler for the well-known
@@ -166,6 +173,19 @@ impl ShadowSet {
     pub(crate) fn writes_static(&self, ns: &str, name: &str) -> bool {
         self.statics_opaque.contains(ns)
             || self.statics.contains(&(ns.to_string(), name.to_string()))
+    }
+
+    /// Does this module write the global-object property `name`, AND
+    /// is `name` one whose fold can stand down? See [`Self::globals`]
+    /// and `check_js_semantics::is_standdown_global_fn` — the rest of
+    /// the builtin globals keep their loud refusal, so admitting them
+    /// here would route reads to an object nothing had written.
+    pub(crate) fn writes_global(&self, name: &str) -> bool {
+        crate::check_js_semantics::is_standdown_global_fn(name) && self.globals.contains(name)
+    }
+
+    pub(super) fn add_global_write(&mut self, name: &str) {
+        self.globals.insert(name.to_string());
     }
 
     pub(super) fn add_static_write(&mut self, ns: &str, name: &str) {

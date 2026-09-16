@@ -120,6 +120,11 @@ pub(crate) fn check(
         // value-position read answers the concrete fn type exactly
         // like the `Number.parseInt` member read does. Direct calls
         // never get here (the bare_globals early route fires first).
+        // …unless the module writes that property of the global
+        // object. Then the fold — cell for the value, dedicated route
+        // for the call — is reading something the write never
+        // reached, and the read has to go to the object itself.
+        _ if checker.proto_shadow.writes_global(name) => Ok(Type::Any),
         "parseInt" => Ok(Type::Function(
             vec![Type::String, Type::Number],
             Box::new(Type::Number),

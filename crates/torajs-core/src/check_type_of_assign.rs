@@ -117,9 +117,18 @@ pub(crate) fn reject_globalthis_mutation(
         return Ok(());
     }
     match key {
-        Some(name) if crate::check_js_semantics::is_known_builtin_global(name) => Err(format!(
-            "not yet supported: overriding builtin global `{name}` through `globalThis`"
-        )),
+        // …except the handful whose fold stands down instead
+        // (`is_standdown_global_fn`): for those the write and the
+        // bare-name read meet on the global object, so there is no
+        // divergence left to refuse.
+        Some(name)
+            if crate::check_js_semantics::is_known_builtin_global(name)
+                && !crate::check_js_semantics::is_standdown_global_fn(name) =>
+        {
+            Err(format!(
+                "not yet supported: overriding builtin global `{name}` through `globalThis`"
+            ))
+        }
         _ => Ok(()),
     }
 }

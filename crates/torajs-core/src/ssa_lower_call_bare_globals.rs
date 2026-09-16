@@ -28,6 +28,12 @@ pub(crate) fn try_lower(
         Expr::Ident(n) => n.clone(),
         _ => return None,
     };
+    // Checker mirror (`check_type_of_call_bare_globals`) — a module
+    // that writes this property of the global object gets the runtime
+    // dispatcher instead of the dedicated route below.
+    if ctx.proto_shadow.writes_global(&name) {
+        return None;
+    }
     match name.as_str() {
         "parseInt" => Some(lower_parse_int(ctx, args)),
         "parseFloat" => Some(lower_parse_float(ctx, args)),

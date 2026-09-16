@@ -45,6 +45,13 @@ pub(crate) fn try_match(
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
     if let Expr::Ident(name) = ast.get_expr(*callee) {
+        // A module that writes this property of the global object
+        // takes the general cascade: the callee reads Any there
+        // (`check_type_of_ident`), which is what routes the call to
+        // the runtime dispatcher.
+        if checker.proto_shadow.writes_global(name) {
+            return None;
+        }
         match name.as_str() {
             "parseInt" => {
                 // S252 — parseInt(str, radix, ...trailing)

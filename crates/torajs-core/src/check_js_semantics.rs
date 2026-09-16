@@ -167,6 +167,28 @@ pub(crate) fn js_arith_coerces_to_number(l: &Type, r: &Type) -> bool {
 /// resolves via the special Ident → Type::Object("X") arms.
 /// Used by the `typeof undeclared` path to avoid mis-classifying
 /// a tora built-in as "undefined".
+/// The global-object function properties whose fold this compiler
+/// can stand down: a write to one of them routes both the call and
+/// the value read through the global object
+/// (`ssa_lower_ident::emit_global_ident_read`). Everything else on
+/// the builtin-global list keeps the loud
+/// `reject_globalthis_mutation` — the bare-name read of a
+/// constructor resolves through lanes that have no object-backed
+/// twin yet.
+pub(crate) fn is_standdown_global_fn(name: &str) -> bool {
+    matches!(
+        name,
+        "parseInt"
+            | "parseFloat"
+            | "isNaN"
+            | "isFinite"
+            | "encodeURI"
+            | "encodeURIComponent"
+            | "decodeURI"
+            | "decodeURIComponent"
+    )
+}
+
 pub(crate) fn is_known_builtin_global(name: &str) -> bool {
     matches!(
         name,

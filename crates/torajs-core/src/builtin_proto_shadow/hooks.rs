@@ -95,6 +95,60 @@ pub(super) fn scan_namespace_statics(ast: &Ast, set: &mut ShadowSet) {
     }
 }
 
+/// Which global-object properties does this module write by name?
+/// `globalThis.parseInt = f`, `globalThis["parseInt"] = f`, a delete
+/// of either, and a bare `parseInt = f` — which is a global write
+/// under the sloppy goal and a local one otherwise; recording both
+/// costs a stand-down only for a name that is a builtin global.
+///
+/// A COMPUTED `globalThis[k] = f` is not recorded. Standing every
+/// bare global down on it would route reads to the global object for
+/// names it may not carry, which is a worse answer than the fold;
+/// registered rather than guessed.
+pub(super) fn scan_global_writes(ast: &Ast, set: &mut ShadowSet) {
+    // `as` layers are value pass-throughs — `(globalThis as any).x`
+    // names the same property `globalThis.x` does.
+    let strip_as = |mut e: ExprId| {
+        while let Expr::As { expr, .. } = ast.get_expr(e) {
+            e = *expr;
+        }
+        e
+    };
+    let is_global_obj = |e: ExprId| matches!(ast.get_expr(strip_as(e)), Expr::Ident(n) if n == "globalThis" || n == "global");
+    let touch = |target: ExprId, set: &mut ShadowSet| match ast.get_expr(target) {
+        Expr::Ident(n) => set.add_global_write(n),
+        Expr::Member { obj, name } if is_global_obj(*obj) => set.add_global_write(name),
+        Expr::Index { obj, index } if is_global_obj(*obj) => {
+            if let Some(k) = str_literal(ast, *index) {
+                set.add_global_write(&k);
+            }
+        }
+        _ => {}
+    };
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } => touch(*target, set),
+            Expr::Delete { expr } => touch(*expr, set),
+            Expr::Call { callee, args } => {
+                let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                    continue;
+                };
+                if !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Object" || n == "Reflect")
+                {
+                    continue;
+                }
+                if name != "defineProperty" || !args.first().copied().is_some_and(is_global_obj) {
+                    continue;
+                }
+                if let Some(k) = args.get(1).copied().and_then(|k| str_literal(ast, k)) {
+                    set.add_global_write(&k);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 pub(super) fn scan_symbol_hooks(ast: &Ast, set: &mut ShadowSet) {
     let symbol_prop = |e: ExprId| match ast.get_expr(e) {
         Expr::Member { obj, name } if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol") => {
