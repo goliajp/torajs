@@ -91,35 +91,52 @@ pub(crate) struct ShadowSet {
     families: HashSet<Family>,
     /// The precise pairs: `Array.prototype.join = f` names exactly one.
     methods: HashSet<(Family, String)>,
-    /// Does this module install a `Symbol.iterator` anywhere — on a
-    /// prototype, on an instance, through `defineProperty`?
+    /// The well-known symbols this module installs a handler for,
+    /// spelled as the property name after `Symbol.` — "iterator",
+    /// "hasInstance", and so on.
     ///
-    /// Separate from the pairs above because an iteration hook is not
+    /// Separate from the pairs above because a symbol hook is not
     /// reached the way a method is. `arr[Symbol.iterator] = f` writes
     /// an OWN property on one array, which no prototype-shaped
-    /// question sees, and the typed spread / rest lanes read the
-    /// backing store directly rather than going through §7.4.2
-    /// GetIterator — so the hook was invisible to `[...arr]` while
-    /// `[...(arr as any)]` honoured it.
+    /// question sees, and the typed lanes fold the operation the hook
+    /// is supposed to intercept — the spread lanes read the backing
+    /// store rather than going through §7.4.2 GetIterator, the
+    /// `instanceof` ladder compares class tags rather than calling
+    /// §13.10.2's handler. So `[...arr]` and `x instanceof C`
+    /// answered one thing while the same values spelled `any`
+    /// answered another.
     ///
     /// Whole-program and unquantified for the same reason the pairs
     /// are: which object a hook landed on is not a question a
     /// syntactic scan can answer. A program that never spells
-    /// `Symbol.iterator` pays nothing.
-    iterator_hook: bool,
+    /// `Symbol.<x>` in a write position pays nothing.
+    symbol_hooks: HashSet<String>,
+    /// A write under a computed key the scan could not read back to a
+    /// `Symbol.<x>` spelling — every hook question answers yes.
+    symbol_hook_opaque: bool,
 }
 
 impl ShadowSet {
     /// True when the program provably cannot reach any builtin
     /// prototype — the case the typed tier is free in.
     pub(crate) fn is_empty(&self) -> bool {
-        !self.all && self.families.is_empty() && self.methods.is_empty() && !self.iterator_hook
+        !self.all
+            && self.families.is_empty()
+            && self.methods.is_empty()
+            && self.symbol_hooks.is_empty()
+            && !self.symbol_hook_opaque
+    }
+
+    /// Might a value in this module carry a handler for the well-known
+    /// symbol `name`? See [`Self::symbol_hooks`].
+    pub(crate) fn hook_written(&self, name: &str) -> bool {
+        self.symbol_hook_opaque || self.symbol_hooks.contains(name)
     }
 
     /// Might a value in this module carry an iteration hook the typed
-    /// spread lanes cannot see? See [`Self::iterator_hook`].
+    /// spread lanes cannot see?
     pub(crate) fn iterator_hook_written(&self) -> bool {
-        self.iterator_hook
+        self.hook_written("iterator")
     }
 
     /// Might iterating a `family` value in this module have to go
@@ -129,11 +146,15 @@ impl ShadowSet {
     /// `values` for Array, §23.1.3.36), or an own hook installed on
     /// some instance.
     pub(crate) fn shadows_iteration(&self, family: Family) -> bool {
-        self.iterator_hook || self.shadows(family, "values")
+        self.iterator_hook_written() || self.shadows(family, "values")
     }
 
-    pub(super) fn set_iterator_hook(&mut self) {
-        self.iterator_hook = true;
+    pub(super) fn add_symbol_hook(&mut self, name: &str) {
+        self.symbol_hooks.insert(name.to_string());
+    }
+
+    pub(super) fn set_symbol_hook_opaque(&mut self) {
+        self.symbol_hook_opaque = true;
     }
 
     /// Families the fallback lane is known to serve — an allowlist, not

@@ -202,54 +202,70 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
         &delete_targets,
     );
 
-    if scan_iterator_hook(ast) {
-        set.set_iterator_hook();
-    }
+    scan_symbol_hooks(ast, &mut set);
 
     set
 }
 
-/// Does this module install a `Symbol.iterator` anywhere? Three
-/// spellings reach one: an assignment through a computed key
-/// (`x[Symbol.iterator] = f`, prototype or instance alike), a
-/// `defineProperty` / `defineProperties` naming it as the key, and an
-/// object or class body written with it as a computed key — which the
-/// parser has already turned into a `__computed_N__` field whose key
-/// expression is what is read here.
+/// Which well-known symbols does this module install a handler for?
+/// Two spellings reach one: an assignment through a computed key
+/// (`x[Symbol.hasInstance] = f`, prototype or instance alike) and a
+/// `defineProperty` naming it as the key. `defineProperties` hides its
+/// keys inside a descriptor map, so a computed one there is recorded
+/// as opaque — every hook question then answers yes.
 ///
-/// Reads are not writes: `x[Symbol.iterator]` on its own, and
-/// `Symbol.iterator` as a value, install nothing.
-fn scan_iterator_hook(ast: &Ast) -> bool {
-    let names_it = |e: ExprId| {
-        matches!(ast.get_expr(e), Expr::Member { obj, name }
-            if name == "iterator"
-                && matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol"))
+/// A class or object body's own `[Symbol.x]` member is NOT a hook
+/// installed behind anyone's back: the declaration is in the program
+/// text, and the lanes that care read it from there
+/// (`class_computed_keys`). Reads are not writes either:
+/// `x[Symbol.iterator]` on its own, and `Symbol.iterator` as a value,
+/// install nothing.
+fn scan_symbol_hooks(ast: &Ast, set: &mut ShadowSet) {
+    let symbol_prop = |e: ExprId| match ast.get_expr(e) {
+        Expr::Member { obj, name } if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol") => {
+            Some(name.as_str())
+        }
+        _ => None,
     };
-    ast.exprs.iter().any(|e| match e {
-        Expr::Assign { target, .. } => {
-            matches!(ast.get_expr(*target), Expr::Index { index, .. } if names_it(*index))
-        }
-        Expr::Call { callee, args } => {
-            let Expr::Member { obj, name } = ast.get_expr(*callee) else {
-                return false;
-            };
-            if !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Object" || n == "Reflect") {
-                return false;
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } => {
+                if let Expr::Index { index, .. } = ast.get_expr(*target)
+                    && let Some(p) = symbol_prop(*index)
+                {
+                    set.add_symbol_hook(p);
+                }
             }
-            match name.as_str() {
-                "defineProperty" => args.get(1).is_some_and(|&k| names_it(k)),
-                // The descriptor map's keys are a literal's fields —
-                // a computed one lands in the arena as its own key
-                // expression, which the Index arm above does not see.
-                "defineProperties" => args.get(1).is_some_and(|&d| {
-                    matches!(ast.get_expr(d), Expr::ObjectLit { fields }
-                        if fields.iter().any(|(n, _)| n.starts_with("__computed_")))
-                }),
-                _ => false,
+            Expr::Call { callee, args } => {
+                let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                    continue;
+                };
+                if !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Object" || n == "Reflect")
+                {
+                    continue;
+                }
+                match name.as_str() {
+                    "defineProperty" => {
+                        if let Some(&k) = args.get(1)
+                            && let Some(p) = symbol_prop(k)
+                        {
+                            set.add_symbol_hook(p);
+                        }
+                    }
+                    "defineProperties" => {
+                        if args.get(1).is_some_and(|&d| {
+                            matches!(ast.get_expr(d), Expr::ObjectLit { fields }
+                                if fields.iter().any(|(n, _)| n.starts_with("__computed_")))
+                        }) {
+                            set.set_symbol_hook_opaque();
+                        }
+                    }
+                    _ => {}
+                }
             }
+            _ => {}
         }
-        _ => false,
-    })
+    }
 }
 
 /// An opaque `.constructor` read — one whose receiver family is not

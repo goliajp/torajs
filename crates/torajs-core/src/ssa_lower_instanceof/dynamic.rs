@@ -212,8 +212,16 @@ pub(super) fn has_any_encoding(ty: Type) -> bool {
 ///   constant-fold `false`.
 fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
     if ctx.ast.class_parents.contains_key(class_name) {
-        return class_declares_has_instance(ctx, class_name)
-            .then(|| format!("__class_{class_name}"));
+        // A handler the class body declares is one spelling; a
+        // `defineProperty(C, Symbol.hasInstance, …)` is the other, and
+        // no class-shaped question sees it. A module that installs one
+        // anywhere routes every declared-class target here — the same
+        // whole-program posture the iteration lanes take, and the
+        // runtime lane falls through to OrdinaryHasInstance when the
+        // target carries no handler after all.
+        return (class_declares_has_instance(ctx, class_name)
+            || ctx.proto_shadow.hook_written("hasInstance"))
+        .then(|| format!("__class_{class_name}"));
     }
     if builtin_proto_tag(class_name).is_some()
         || matches!(class_name, "Object" | "Iterator" | "BigInt" | "Symbol")
