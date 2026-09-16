@@ -866,6 +866,10 @@ pub struct Ast {
     /// `namedfn_this_value::promote_this_fn_values`, which gives the
     /// same declarations' VALUE uses the matching forwarder.
     pub this_param_fns: std::collections::HashSet<String>,
+    /// RFC 20260917-plain-fn-new-target — the top-level functions that
+    /// gained a `(__this, __new_target, …)` head because they read
+    /// `new.target` (`ast/new_target_param.rs`).
+    pub new_target_fns: std::collections::HashSet<String>,
     /// RFC 20260717-fnexpr-this-channel knife 2 — exact face ExprIds
     /// (the `Expr::Ident` in an accessor-face position) whose
     /// SINGLE-USE const binding routes a promoted fn-expr. Keyed by

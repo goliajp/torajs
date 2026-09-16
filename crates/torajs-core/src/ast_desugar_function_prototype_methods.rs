@@ -69,6 +69,17 @@ pub(crate) fn swallows_fn_proto_call(
     }
 }
 
+/// A target reading `new.target` (`new_target_param.rs`) takes it right
+/// after the receiver; `.call` / `.apply` are a [[Call]], so undefined.
+fn push_new_target_slot(ast: &mut Ast, fn_params: &[Param], args: &mut Vec<ExprId>) {
+    if fn_params
+        .get(1)
+        .is_some_and(|p| p.name == crate::ast::new_target_param::NEW_TARGET)
+    {
+        args.push(ast.add_expr(Expr::Ident("undefined".into())));
+    }
+}
+
 pub(crate) fn run(ast: &mut Ast) {
     let mut fn_sigs: HashMap<String, (Vec<Param>, Option<String>)> = HashMap::new();
     for s in &ast.stmts {
@@ -150,6 +161,7 @@ pub(crate) fn run(ast: &mut Ast) {
                     };
                     new_args.push(recv);
                 }
+                push_new_target_slot(ast, &fn_params, &mut new_args);
                 new_args.extend(args_clone.iter().skip(1).copied());
                 ast.exprs[i] = Expr::Call {
                     callee: callee_target,
@@ -181,6 +193,7 @@ pub(crate) fn run(ast: &mut Ast) {
                     };
                     new_args.push(recv);
                 }
+                push_new_target_slot(ast, &fn_params, &mut new_args);
                 new_args.extend(lit_args);
                 ast.exprs[i] = Expr::Call {
                     callee: callee_target,

@@ -101,6 +101,9 @@ pub(super) struct Constructible {
     pub(super) name: String,
     pub(super) params: Vec<Param>,
     pub(super) takes_this: bool,
+    /// Reads `new.target` — the head carries `__new_target` after the
+    /// receiver (`new_target_param.rs`), and the factory passes `F`.
+    pub(super) takes_new_target: bool,
     /// Body can produce a value, so §10.2.2 step 8 is live for it.
     pub(super) returns_value: bool,
     /// Body reads `arguments` — the factory grows variadic forwarding
@@ -129,14 +132,14 @@ fn collect_declared(ast: &Ast) -> (Vec<String>, Vec<Constructible>) {
             continue;
         }
         let takes_this = params.first().is_some_and(|p| p.name == "__this");
+        let takes_new_target = params
+            .get(1)
+            .is_some_and(|p| p.name == super::new_target_param::NEW_TARGET);
         candidates.push(Constructible {
             name: name.clone(),
-            params: if takes_this {
-                params[1..].to_vec()
-            } else {
-                params.clone()
-            },
+            params: params[usize::from(takes_this) + usize::from(takes_new_target)..].to_vec(),
             takes_this,
+            takes_new_target,
             returns_value: returns_a_value(body),
             body_touches_arguments: super::fn_constructor_argc::body_touches_arguments(ast, body),
         });
@@ -204,6 +207,7 @@ fn collect_fn_expr_bindings(ast: &Ast, candidates: &mut Vec<Constructible>) {
                 })
                 .collect(),
             takes_this,
+            takes_new_target: false,
             returns_value: returns_a_value(body),
             body_touches_arguments: super::fn_constructor_argc::body_touches_arguments(ast, body),
         });
@@ -398,6 +402,9 @@ pub fn synthesize_fn_constructors(ast: &mut Ast) {
         let mut args: Vec<ExprId> = Vec::with_capacity(fparams.len() + 1);
         if c.takes_this {
             args.push(ast.add_expr(Expr::Ident("__this".into())));
+        }
+        if c.takes_new_target {
+            args.push(ast.add_expr(Expr::Ident(c.name.clone())));
         }
         for p in &fparams {
             args.push(ast.add_expr(Expr::Ident(p.name.clone())));

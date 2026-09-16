@@ -146,9 +146,16 @@ pub(crate) fn synth_forwarder_decl(
     // and is never forwarded: the forwarding call's terminal packs
     // the callee's argv itself, and the relay's boxed adapter enters
     // the target with its own (`ssa_lower_boxed_entry::relay`).
+    //
+    // A `new.target` head slot (`new_target_param.rs`) is peeled the
+    // same way: a value face is only ever [[Call]]ed, which passes
+    // undefined.
+    let takes_new_target = params
+        .get(1)
+        .is_some_and(|p| p.name == crate::ast::new_target_param::NEW_TARGET);
     let peeled: Vec<Param> = params
         .iter()
-        .filter(|p| p.name != "__torajs_argv")
+        .filter(|p| p.name != "__torajs_argv" && p.name != crate::ast::new_target_param::NEW_TARGET)
         .cloned()
         .collect();
     let user_params = if takes_this && !forced_recv {
@@ -182,6 +189,10 @@ pub(crate) fn synth_forwarder_decl(
         } else {
             arg_eids.push(id);
         }
+    }
+    if takes_new_target {
+        let undef = ast.add_expr(Expr::Ident("undefined".into()));
+        arg_eids.insert(1, undef);
     }
     if takes_gen_argv {
         push_gen_argv_spread(ast, &mut arg_eids);

@@ -229,6 +229,7 @@ pub(super) fn collect_assign_bound(ast: &Ast, candidates: &mut Vec<Constructible
                 })
                 .collect(),
             takes_this,
+            takes_new_target: false,
             returns_value: returns_a_value(body),
             body_touches_arguments: super::fn_constructor_argc::body_touches_arguments(ast, body),
         });

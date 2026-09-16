@@ -122,11 +122,12 @@ pub(super) fn collect_this_first_argv(
         if params.first().is_none_or(|p| p.name != "__this") {
             continue;
         }
-        let head = if is_ctor {
-            if params.get(1).is_none_or(|p| p.name != "__new_target") {
-                continue;
-            }
+        // A plain function reading `new.target` carries the ctor's
+        // two slots too (`new_target_param.rs`).
+        let head = if params.get(1).is_some_and(|p| p.name == "__new_target") {
             2
+        } else if is_ctor {
+            continue;
         } else {
             1
         };

@@ -296,6 +296,15 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+            // §13.3.12.1 — `new.target`'s AssignmentTargetType is
+            // invalid. Rejected here at parse time; a later pass gives
+            // a plain function's read a parameter to stand in for it.
+            Expr::NewTarget => {
+                return Err(format!(
+                    "`new.target` is not a valid assignment target at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
             Expr::Call { .. } | Expr::OptCall { .. } => {
                 return Err(format!(
                     "a call expression is not a valid assignment target at {} (ES §13.15.1)",
