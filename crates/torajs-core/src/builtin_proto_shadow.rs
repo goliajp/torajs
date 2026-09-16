@@ -62,6 +62,7 @@ use std::collections::HashSet;
 
 /// The module walk that fills a [`ShadowSet`]. A child module so it
 /// writes this one's private fields unchanged.
+mod hooks;
 mod scan;
 
 pub(crate) use scan::collect_shadowed_builtin_methods;
