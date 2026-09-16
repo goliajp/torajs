@@ -43,7 +43,18 @@ pub(super) fn emit_define_literal(
     // kernel); typed Structs stay the prior no-op.
     let get_eid = descriptor_field(ctx, desc_eid, "get");
     let set_eid = descriptor_field(ctx, desc_eid, "set");
-    if (get_eid.is_some() || set_eid.is_some()) && matches!(obj_ty, Type::Any | Type::Arr(_)) {
+    if get_eid.is_some() || set_eid.is_some() {
+        // Every other receiver declines to the runtime
+        // ToPropertyDescriptor road. The arm below is written against
+        // the Any / Arr operand shapes; a Closure / FnSig / Map / …
+        // used to fall PAST it into the data-flags path, where the
+        // `get` was silently dropped and a property with no value
+        // appeared in its place — `Object.defineProperty(f, "zz",
+        // {get() {…}})` defined `zz` as `undefined` while the same
+        // receiver spelled `any` defined the accessor.
+        if !matches!(obj_ty, Type::Any | Type::Arr(_)) {
+            return false;
+        }
         // §6.2.6.5 — a present face that is not statically a plausible
         // callable (`get: []` / `get: false`) declines the fast path;
         // the runtime ToPropertyDescriptor's IsCallable check throws
