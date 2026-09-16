@@ -256,12 +256,24 @@ pub(crate) struct IdentCensus {
     /// loses the static-fold face at every site — the all-or-nothing
     /// posture `proto_shadow` already takes for a patched builtin.
     pub(crate) delete_bases: std::collections::HashSet<String>,
+    /// Names handed to a define family call as the RECEIVER
+    /// (`Object.defineProperty(f, …)`, `Object.defineProperties`,
+    /// `Reflect.defineProperty`). Same posture as `delete_bases` and
+    /// for the same reason: a define can move `length` and `name`
+    /// (§20.2.3 makes both configurable), and the compile-time folds
+    /// read the DECLARATION, so `defineProperty(f, "length",
+    /// {value: 9})` was invisible to `f.length` while `(f as any)
+    /// .length` — the same cell — answered 9. All-or-nothing over the
+    /// module: which define reached which function is not a question
+    /// a syntactic census can answer.
+    pub(crate) define_bases: std::collections::HashSet<String>,
 }
 
 pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
     let mut out = IdentCensus {
         eq_operands: std::collections::HashSet::new(),
         delete_bases: std::collections::HashSet::new(),
+        define_bases: std::collections::HashSet::new(),
     };
     // `as` layers are value pass-throughs — `(h as any) === t` is
     // still a comparison of `h`, and `delete (g as any).name` is
@@ -293,6 +305,27 @@ pub(crate) fn ident_census(ast: &Ast) -> IdentCensus {
                 };
                 if let Expr::Ident(n) = ast.get_expr(strip_as(base)) {
                     out.delete_bases.insert(n.clone());
+                }
+            }
+            Expr::Call { callee, args } => {
+                let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                    continue;
+                };
+                let Expr::Ident(ns) = ast.get_expr(*obj) else {
+                    continue;
+                };
+                let is_define = matches!(
+                    (ns.as_str(), name.as_str()),
+                    ("Object", "defineProperty" | "defineProperties")
+                        | ("Reflect", "defineProperty")
+                );
+                if !is_define {
+                    continue;
+                }
+                if let Some(&recv) = args.first()
+                    && let Expr::Ident(n) = ast.get_expr(strip_as(recv))
+                {
+                    out.define_bases.insert(n.clone());
                 }
             }
             _ => {}

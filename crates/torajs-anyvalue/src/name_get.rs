@@ -233,31 +233,35 @@ unsafe fn closure_name(ptr: *mut c_void) -> AnyValue {
 }
 
 /// `.name` read on a `Type::Closure` receiver (chunk 798 — the
-/// typed-tier registry rewire). Thin extern face over
-/// [`closure_name_str`] so the SSA member arm shares the full
-/// metadata chain (builtin method cells, `bound `-prefixed bound
-/// cells, the fn-addr registry). The Any-tier expando shadow is
-/// deliberately NOT consulted: ES makes `name` non-writable, so on
-/// the typed tier the registry answer matches bun exactly (the
-/// Any-tier expando-first order stays the recorded divergence).
+/// typed-tier registry rewire). Thin extern face over the same
+/// metadata chain the `any` lane walks — builtin method cells,
+/// `bound `-prefixed bound cells, the fn-addr registry — with the own
+/// property bag consulted FIRST, as [`closure_name`] does.
 ///
-/// The REMOVAL is a different question, and this face has to answer
-/// it: §20.2.3 makes `name` non-writable but CONFIGURABLE, so
-/// `delete f.name` succeeds and the read that follows continues along
-/// [[Prototype]] to %Function.prototype%'s own `name` "". The
-/// divergence above is about a write being ignored; a tombstone is
-/// not a write. Without this a typed `f.name` kept answering the
-/// declaration after the delete while the same cell spelled `any`
-/// answered "" — one cell, two stories.
+/// It used to skip the bag, on the ground that §20.2.3 makes `name`
+/// non-writable so the registry answer is the right one. That holds
+/// for a write, which tr refuses outright, and for nothing else:
+/// `name` is CONFIGURABLE, so `delete f.name` and
+/// `Object.defineProperty(f, "name", …)` — value or accessor — are
+/// all legal and all observable. Skipping the bag made one cell tell
+/// two stories, the typed spelling answering the declaration while
+/// `(f as any).name` answered the define.
+///
+/// A redefined `name` that is not a String is the recorded edge: this
+/// face is a Str and spells it as one.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8 {
     unsafe {
-        if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED)
-            && !expando_name_present(ptr)
-        {
+        if expando_name_present(ptr) {
+            let v = closure_name(ptr);
+            let s = crate::nanbox_ffi::__torajs_anyv_to_str(v).cast::<u8>();
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+            return s;
+        }
+        if crate::member_get::header_flag(ptr, torajs_rc::FLAG_FN_NAME_DELETED) {
             return __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
         }
         closure_name_str(ptr)

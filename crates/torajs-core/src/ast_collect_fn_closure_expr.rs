@@ -191,24 +191,32 @@ impl<'a> FnToClosureCollector<'a> {
     }
 
     /// `obj` when it names a fn whose properties this module deletes
-    /// — the base then wraps at EVERY read, `name` / `length`
-    /// included: those two fold statically off a raw base and would
-    /// keep answering the declaration after the removal. Through the
-    /// cell they stay right, since the length read carries the
-    /// declared arity as its fallback (`f(a, b = 39).length` is still
-    /// 1) and the name read walks the cell-aware chain the `any`
+    /// or redefines — the base then wraps at EVERY read, `name` /
+    /// `length` included: those two fold statically off a raw base
+    /// and would keep answering the declaration after the removal.
+    /// Through the cell they stay right, since the length read carries
+    /// the declared arity as its fallback (`f(a, b = 39).length` is
+    /// still 1) and the name read walks the cell-aware chain the `any`
     /// spelling already walked correctly.
+    ///
+    /// A define is the same shape as a delete and was the same
+    /// silent-wrong: `Object.defineProperty(f, "length", {value: 9})`
+    /// then `f.length` answered the declared arity while `(f as any)
+    /// .length` — one cell, one property — answered 9. §20.2.3 makes
+    /// both properties configurable, so the define is legal and the
+    /// fold is what has to stand down.
     ///
     /// Looks through `as` layers, which the sibling axes do not:
     /// `(g as any).name` is still a read of `g` and the cast is
     /// identity at run time. The generator / async forms stay raw for
     /// the reason the prototype axis gives — their faces ride
     /// dedicated static arms.
-    pub(crate) fn deleted_fn_base(&self, obj: ExprId) -> Option<ExprId> {
+    pub(crate) fn reflected_fn_base(&self, obj: ExprId) -> Option<ExprId> {
         let base = self.strip_as(obj);
         match self.ast.get_expr(base) {
             Expr::Ident(n)
-                if self.ident_census.delete_bases.contains(n)
+                if (self.ident_census.delete_bases.contains(n)
+                    || self.ident_census.define_bases.contains(n))
                     && !self.ast.generator_factory_classes.contains_key(n)
                     && !self.ast.async_fns.contains(n)
                     && !self.ast.async_generator_fns.contains(n) =>
@@ -269,10 +277,10 @@ impl<'a> FnToClosureCollector<'a> {
             && name != "name"
             && name != "length"
             && self.is_no_original_fn_ident(obj);
-        // 633-02 — a fn whose properties are deleted anywhere
-        // in the module wraps at EVERY read (see
-        // `deleted_fn_base`), `name` / `length` included.
-        if let Some(b) = self.deleted_fn_base(obj)
+        // 633-02 — a fn whose properties are deleted or redefined
+        // anywhere in the module wraps at EVERY read (see
+        // `reflected_fn_base`), `name` / `length` included.
+        if let Some(b) = self.reflected_fn_base(obj)
             && self.try_mark(b)
         {
         } else if (name != "prototype" && !no_original_base) || !self.try_mark(obj) {
