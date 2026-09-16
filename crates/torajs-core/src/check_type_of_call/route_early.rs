@@ -25,20 +25,6 @@ pub(crate) fn try_route(
     // typecheck) before the generic ident route would refuse the
     // unknown name. Answers Any — the builtin surface's verdict is
     // a runtime fact.
-    // RFC 20260916 slice 2a — the private brand check answers its
-    // receiver unchanged, so it types as the receiver.
-    if let Expr::Ident(n) = ast.get_expr(*callee)
-        && n == crate::ast::private_brand::CHECK
-        && args.len() == 3
-    {
-        let recv = checker.type_of(ast, args[0]);
-        for a in &args[1..] {
-            if let Err(e) = checker.type_of(ast, *a) {
-                return Some(Err(e));
-            }
-        }
-        return Some(recv);
-    }
     if let Expr::Ident(n) = ast.get_expr(*callee)
         && n.starts_with("__superbuiltin__")
     {
