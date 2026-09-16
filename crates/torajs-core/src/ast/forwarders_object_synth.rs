@@ -36,8 +36,27 @@ pub(super) fn synthesize_forwarder_decls(
             renames.insert(target.clone(), existing);
             continue;
         }
-        let forward_name = format!("__forward_{target}");
         let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
+        // RFC 20260914 blade 2's rule, applied to the declarations
+        // `promote_this_fn_values` cannot reach: a `this`-reading
+        // declaration has ONE shell and it is the receiver-first one.
+        // That pass only walks top-level `function` declarations, so a
+        // static class method promoted to a `__this` leading parameter
+        // (`__sm_C__m`) fell here and got the plain face, whose whole
+        // job is to pin the receiver to `undefined` — and the runtime
+        // `.bind` kernel then had nowhere to put the bound this.
+        // `C.method.bind(C)` lost it, which is twelve test262 cases in
+        // the async-private-static family.
+        let face = if params.first().is_some_and(|p| p.name == "__this") {
+            crate::ast::ShellFace::ReceiverFirst
+        } else {
+            crate::ast::ShellFace::Plain
+        };
+        let forward_name = if face == crate::ast::ShellFace::ReceiverFirst {
+            format!("__fwdrecv_{target}")
+        } else {
+            format!("__forward_{target}")
+        };
         // 402-01 — a GENERIC target's TypeVars are erased to `any`
         // by the synthesizer itself (every face, rotation 650).
         // A recv-first public face was tried (rotation 366) and
@@ -50,7 +69,7 @@ pub(super) fn synthesize_forwarder_decls(
             &params,
             return_type,
             target_span,
-            crate::ast::ShellFace::Plain,
+            face,
         ));
         renames.insert(target.clone(), forward_name);
     }

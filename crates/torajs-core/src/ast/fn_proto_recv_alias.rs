@@ -58,7 +58,46 @@
 use super::{Ast, Expr, Stmt};
 use std::collections::{HashMap, HashSet};
 
+/// `__sm_C__m.bind(o)` → `__smany_C__m.bind(o)`.
+///
+/// The twin is where a `this`-reading static's receiver channel lives:
+/// the mono has none at all (knife 3a), so its value is a shell that
+/// pins the receiver to `undefined`, and the runtime `.bind` kernel
+/// has nowhere to put the bound this. `C.m.call(o)` is devirtualized
+/// to the twin by `desugar_function_prototype_methods`' knife 3c —
+/// this is the same move for the one member that pass no longer
+/// swallows, done here because by then the base is already a cell.
+///
+/// Twelve test262 cases in the async-private-static family are
+/// `C.method.bind(C)`.
+fn respell_static_bind_receivers(ast: &mut Ast) {
+    if ast.smany_twins.is_empty() {
+        return;
+    }
+    let mut sites: Vec<(usize, String)> = Vec::new();
+    for (i, e) in ast.exprs.iter().enumerate() {
+        let Expr::Member { obj, name } = e else {
+            continue;
+        };
+        if name != "bind" {
+            continue;
+        }
+        if let Expr::Ident(spelled) = ast.get_expr(*obj)
+            && let Some(twin) = ast.smany_twins.get(spelled)
+        {
+            sites.push((i, twin.clone()));
+        }
+    }
+    for (i, twin) in sites {
+        let eid = ast.add_expr(Expr::Ident(twin));
+        if let Expr::Member { obj, .. } = &mut ast.exprs[i] {
+            *obj = eid;
+        }
+    }
+}
+
 pub fn canonicalize_fn_proto_receivers(ast: &mut Ast) {
+    respell_static_bind_receivers(ast);
     // Only a THIS-USING declaration is in scope here. A this-free
     // target's `.call` arm drops the thisArg outright (its body
     // cannot observe a receiver), and respelling the alias would move
