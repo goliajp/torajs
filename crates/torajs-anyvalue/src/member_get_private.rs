@@ -24,6 +24,9 @@ use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_accessor_get_getter(pair: *const c_void) -> *mut c_void;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
@@ -57,6 +60,19 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
         if let Some((ptr, t)) = recv_cell(recv)
             && t == Tag::Obj as u16
             && unsafe { resolve(ptr, StrWtf8::of(key).as_bytes(), KIND_GETTER) }.is_none()
+        {
+            unsafe { throw_private(c"private accessor was defined without a getter") };
+            return AnySlotTag::Undef as u64;
+        }
+        // A static private accessor lives as an own AccessorPair entry
+        // on the class object (a dynobj).
+        if let Some((ptr, t)) = recv_cell(recv)
+            && t == Tag::DynObj as u16
+            && unsafe { __torajs_dynobj_get_tag(ptr, key) } == ANY_ACCESSOR_TAG
+            && unsafe {
+                __torajs_accessor_get_getter(__torajs_dynobj_get_value(ptr, key) as *const c_void)
+            }
+            .is_null()
         {
             unsafe { throw_private(c"private accessor was defined without a getter") };
             return AnySlotTag::Undef as u64;

@@ -19,7 +19,7 @@
 use crate::member_get_layout::{recv_cell, struct_props};
 use crate::member_get_private::priv_brand_declared;
 use crate::nanbox::AnyValue;
-use crate::struct_probe::{struct_accessor_key, struct_field_pair};
+use crate::struct_probe::{ANY_ACCESSOR_TAG, struct_accessor_key, struct_field_pair};
 use core::ffi::c_void;
 use torajs_rc::Tag;
 
@@ -33,6 +33,9 @@ unsafe extern "C" {
     );
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    fn __torajs_accessor_get_setter(pair: *const c_void) -> *mut c_void;
 }
 
 /// See module doc.
@@ -66,6 +69,23 @@ pub unsafe extern "C" fn __torajs_any_member_set_priv(
         && unsafe { private_method_face(ptr, key) }
     {
         unsafe { __torajs_throw_type_error(c"private method is not writable".as_ptr()) };
+        return;
+    }
+    // §7.3.32 step 5.c — an accessor without a setter throws whatever
+    // the strictness; a static one is an own AccessorPair entry on the
+    // class object (a dynobj), whose base set only refuses loudly in
+    // strict callers.
+    if let Some((ptr, t)) = recv_cell(recv)
+        && t == Tag::DynObj as u16
+        && unsafe { __torajs_dynobj_get_tag(ptr, key) } == ANY_ACCESSOR_TAG
+        && unsafe {
+            __torajs_accessor_get_setter(__torajs_dynobj_get_value(ptr, key) as *const c_void)
+        }
+        .is_null()
+    {
+        unsafe {
+            __torajs_throw_type_error(c"private accessor was defined without a setter".as_ptr())
+        };
         return;
     }
     unsafe { __torajs_any_member_set(recv_slot, key, tag, value, hint) }

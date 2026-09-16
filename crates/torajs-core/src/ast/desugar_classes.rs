@@ -292,8 +292,11 @@ fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::Clas
 /// (whole-Assign replacement, walked FIRST so the read pass below
 /// never sees its target Member), then every remaining `C.p` Member
 /// becomes `__sm_<C>__<p>_get()`. A write with no setter / a read
-/// with no getter keeps its node (checker reports the miss on the
-/// un-rewritten Member — same posture as an unknown static).
+/// with no getter keeps its node, and a kept write TARGET is not a
+/// read: the read pass skips it, so `C.#g = v` over a getter-only
+/// accessor stays an assignment and PrivateSet raises its TypeError
+/// at run time (§7.3.32 step 5.c) instead of the target turning into
+/// a getter call.
 /// Compound assigns (`C.p += v`) desugar to `C.p = C.p + v` upstream,
 /// so the simple shape covers them.
 ///
@@ -330,6 +333,7 @@ fn rewrite_static_accessor_accesses(
         if want_get { g.clone() } else { s.clone() }
     };
     // Write pass — whole-Assign nodes first.
+    let mut kept_targets: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
     for i in 0..ast.exprs.len() {
         let (target, value) = match &ast.exprs[i] {
             Expr::Assign { target, value } => (*target, *value),
@@ -341,11 +345,16 @@ fn rewrite_static_accessor_accesses(
                 callee,
                 args: vec![value],
             };
+        } else {
+            kept_targets.insert(target);
         }
     }
     // Read pass — remaining Members.
     for i in 0..ast.exprs.len() {
         let eid = ExprId(i as u32);
+        if kept_targets.contains(&eid) {
+            continue;
+        }
         if let Some(get_fn) = member_face(ast, eid, true) {
             let callee = ast.add_expr(Expr::Ident(get_fn));
             ast.exprs[i] = Expr::Call {
