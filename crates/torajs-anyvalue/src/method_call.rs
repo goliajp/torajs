@@ -297,6 +297,12 @@ pub unsafe fn any_method_dispatch_impl(
     } {
         return v;
     }
+    // Slice 2c — a private method of a class that adopted this object.
+    if let Some(v) =
+        unsafe { crate::private_foreign::foreign_private_call(recv, name_str, argv, argc) }
+    {
+        return v;
+    }
     if is_null(recv) || is_undefined(recv) {
         unsafe {
             __torajs_throw_type_error(c"cannot call a method of null or undefined".as_ptr());

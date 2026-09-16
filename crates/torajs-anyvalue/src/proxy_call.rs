@@ -55,6 +55,14 @@ pub(crate) unsafe fn method_call(
             .as_bytes()
             .starts_with(b"__priv_")
         {
+            // Unless the proxy itself was adopted by a class that added
+            // its brand to it (slice 2c): the method is then that
+            // class's, called with the proxy as `this`.
+            if let Some(v) =
+                crate::private_foreign::foreign_private_call(recv, name_str, argv, argc)
+            {
+                return v;
+            }
             __torajs_throw_type_error(c"cannot call private method on a Proxy".as_ptr());
             return VALUE_UNDEFINED;
         }

@@ -45,6 +45,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
     if let Some(v) = unsafe { crate::private_foreign::foreign_get(recv, key) } {
         return crate::nanbox_encode::__torajs_anyv_unbox_tag(v) as u64;
     }
+    // A private method / accessor of a class whose brand the store
+    // holds for this object resolves on that class's prototype; an
+    // accessor's getter then runs with the object as receiver.
+    if let Some(proto) = unsafe { crate::private_foreign::foreign_brand_proto(recv, key) } {
+        return unsafe { __torajs_any_member_get_tag(proto, key) };
+    }
     let tag = unsafe { __torajs_any_member_get_tag(recv, key) };
     // The base walk already threw for a null / undefined receiver —
     // don't stack a second TypeError on the pending one.
@@ -145,6 +151,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_value(
 ) -> u64 {
     if let Some(v) = unsafe { crate::private_foreign::foreign_get(recv, key) } {
         return crate::nanbox_encode::__torajs_anyv_unbox_value(v) as u64;
+    }
+    if let Some(proto) = unsafe { crate::private_foreign::foreign_brand_proto(recv, key) } {
+        return unsafe { crate::member_get_value::__torajs_any_member_get_value(proto, key) };
     }
     unsafe { crate::member_get_value::__torajs_any_member_get_value(recv, key) }
 }

@@ -145,3 +145,71 @@ pub(crate) unsafe fn foreign_add(recv: AnyValue, key: *const c_void, value: AnyV
     }
     unsafe { __torajs_weakmap_set(m, k, value) };
 }
+
+/// The prototype a foreign-store brand recorded for the class owning
+/// the private method or accessor `key` (`__priv_<C>__<x>`), when
+/// `recv` carries that class's brand (`__privbrand_<C>`) — borrowed.
+///
+/// # Safety
+/// `key` is a live Str cell.
+pub(crate) unsafe fn foreign_brand_proto(recv: AnyValue, key: *const c_void) -> Option<AnyValue> {
+    let k = unsafe { __torajs_weak_key_from_any(recv) };
+    let table = STORES.load(Ordering::Relaxed);
+    if k.is_null() || table.is_null() {
+        return None;
+    }
+    let wtf8 = unsafe { StrWtf8::of(key) };
+    let member = wtf8.as_bytes().strip_prefix(b"__priv_")?;
+    // SAFETY: leaked for the process, single mutator.
+    for (name, m) in unsafe { &*table } {
+        let Some(class) = name.strip_prefix(b"__privbrand_".as_slice()) else {
+            continue;
+        };
+        if !member.starts_with(class) || !member[class.len()..].starts_with(b"__") {
+            continue;
+        }
+        if unsafe { __torajs_weakmap_has(*m, k) } == 0 {
+            continue;
+        }
+        let proto = unsafe { __torajs_weakmap_get(*m, k) };
+        if crate::nanbox::is_cell(proto) {
+            unsafe { __torajs_value_drop_heap(proto as usize as *mut c_void) };
+            return Some(proto);
+        }
+    }
+    None
+}
+
+/// `o.#m(...args)` where `o` holds the brand of the class owning `#m` in
+/// this store: that class's method, called with `o` as `this`. `None`
+/// for every other receiver or name, so the caller keeps its own path.
+/// The empty-store check comes first: a program that never adopted an
+/// object pays one load.
+///
+/// # Safety
+/// `name_str` is a live Str cell; `argv` holds `argc` live AnyValues.
+pub(crate) unsafe fn foreign_private_call(
+    recv: AnyValue,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if STORES.load(Ordering::Relaxed).is_null() || name_str.is_null() {
+        return None;
+    }
+    let key = name_str as *const c_void;
+    if !unsafe { StrWtf8::of(key) }
+        .as_bytes()
+        .starts_with(b"__priv_")
+    {
+        return None;
+    }
+    let proto = unsafe { foreign_brand_proto(recv, key) }?;
+    let tag = unsafe { crate::member_get::__torajs_any_member_get_tag(proto, key) };
+    let val = unsafe { crate::member_get_value::__torajs_any_member_get_value(proto, key) };
+    let f = unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, val as i64) };
+    unsafe { crate::method_call_closure_dispatch::closure_boxed_entry(f) }?;
+    Some(unsafe {
+        crate::method_call_closure_dispatch::__torajs_any_call_with_this(f, recv, argv, argc)
+    })
+}

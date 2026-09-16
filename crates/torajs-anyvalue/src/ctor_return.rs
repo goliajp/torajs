@@ -61,6 +61,7 @@ unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
+    fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
 }
 
 /// `nanbox` immediate for `undefined` — step 13.c's one exemption.
@@ -171,7 +172,11 @@ pub unsafe extern "C" fn __torajs_ctor_ret_carry(
     // go into the invisible per-name store, where adding one twice is
     // the TypeError; never onto the object's own property face.
     if name.starts_with(b"__privbrand_") {
-        unsafe { crate::private_foreign::foreign_add(target, key, crate::nanbox::VALUE_UNDEFINED) };
+        // The brand holds the prototype the class's private methods and
+        // accessors live on, so they resolve for the adopted object too.
+        let proto = unsafe { __torajs_anyv_get_proto_of_any(minted) };
+        unsafe { crate::private_foreign::foreign_add(target, key, proto) };
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(proto) };
         return;
     }
     // Ownership mirrors `obj_assign::copy_keys`: the probe pair is
