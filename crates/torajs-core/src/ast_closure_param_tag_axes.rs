@@ -174,8 +174,16 @@ pub(crate) fn wrap_named_fn_values(
         if renames.contains_key(target) {
             continue;
         }
-        let forward_name = format!("__forward_{target}");
-        if !existing_forwarders.contains(&forward_name) {
+        // A `this`-reading declaration already wears the
+        // receiver-first face; minting a plain one beside it is the
+        // two-cell split RFC 20260914 blade 2 removed.
+        let existing = crate::ast::shell_names(target)
+            .into_iter()
+            .find(|n| existing_forwarders.contains(n));
+        let forward_name = existing
+            .clone()
+            .unwrap_or_else(|| format!("__forward_{target}"));
+        if existing.is_none() {
             let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
             // Knife 4d (RFC 20260801-arguments-method-face) — an
             // argv-consuming generator factory takes its argv from the

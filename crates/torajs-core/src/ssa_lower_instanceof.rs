@@ -325,7 +325,9 @@ fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) 
     // never used as a value has no forwarder and keeps the
     // constant-false fallback (recorded residue: nothing constructed
     // through it either, so the answer is right anyway).
-    let fwd = format!("__forward_{class_name}");
+    let fwd = crate::ast::shell_names(class_name)
+        .into_iter()
+        .find(|n| ctx.fn_table.contains_key(n.as_str()))?;
     let fid = ctx.fn_table.get(&fwd).copied()?;
     let closure_ty = crate::ssa_lower_closure::closure_value_ty(ctx, &fwd);
     let cell = crate::ssa_lower_closure_canonical::try_lower_canonical_cell(
@@ -369,9 +371,9 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
         ) || matches!(ctx.globals.get(class_name), Some(Type::Closure(_)))
             // Bare FnDecl name with a synthesized forwarder — the
             // canonical-cell lane inside try_lower_fn_value.
-            || ctx
-                .fn_table
-                .contains_key(format!("__forward_{class_name}").as_str());
+            || crate::ast::shell_names(class_name)
+                .iter()
+                .any(|n| ctx.fn_table.contains_key(n.as_str()));
         // `box_to_any`'s match ends in a panic and a panic in the
         // lowerer rejects the whole program, so the operand is checked
         // before it is handed over — same gate the runtime lane

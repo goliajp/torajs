@@ -23,11 +23,20 @@ pub(super) fn synthesize_forwarder_decls(
     let mut new_decls: Vec<Stmt> = Vec::new();
     let mut renames: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for target in targets {
-        let forward_name = format!("__forward_{target}");
-        if existing_forwarders.contains(&forward_name) {
-            renames.insert(target.clone(), forward_name);
+        // A declaration that already has a shell keeps it, whichever
+        // face it wears: `promote_this_fn_values` mints the
+        // receiver-first one for every `this`-reading declaration, and
+        // minting a plain one beside it would give that declaration a
+        // second cell -- so `globalThis.t === t` would answer false
+        // for exactly the functions that read `this`.
+        if let Some(existing) = crate::ast::shell_names(target)
+            .into_iter()
+            .find(|n| existing_forwarders.contains(n))
+        {
+            renames.insert(target.clone(), existing);
             continue;
         }
+        let forward_name = format!("__forward_{target}");
         let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
         // 402-01 — a GENERIC target's TypeVars are erased to `any`
         // by the synthesizer itself (every face, rotation 650).

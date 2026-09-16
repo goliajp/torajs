@@ -130,15 +130,17 @@ pub(crate) fn lower_chain_with_own_then_probe(
     )
 }
 
-/// `Some("__forward_<f>")` when `aid` names a top-level fn whose
+/// `Some("__fwdrecv_<f>" | "__forward_<f>")` when `aid` names a
+/// top-level fn whose
 /// forwarder the collector minted (`ast_collect_fn_closure_call::
 /// mark_promise_chain_handler_targets`).
 fn handler_forwarder(ctx: &LowerCtx<'_>, aid: ExprId) -> Option<String> {
     let Expr::Ident(f) = ctx.ast.get_expr(ctx.peel_as_wrappers(aid)) else {
         return None;
     };
-    let fwd = format!("__forward_{f}");
-    ctx.fn_table.contains_key(&fwd).then_some(fwd)
+    crate::ast::shell_names(f)
+        .into_iter()
+        .find(|n| ctx.fn_table.contains_key(n.as_str()))
 }
 
 /// The override's call: the receiver cell boxed as a borrow (the

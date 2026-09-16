@@ -227,9 +227,6 @@ mod module_ns_members;
 mod module_passes;
 mod named_eval;
 mod namedfn_rebound_scope;
-mod namedfn_recv_cb;
-mod namedfn_recv_cb_from;
-mod namedfn_recv_cb_sites;
 mod namedfn_this_value;
 pub(crate) mod nested_closure_captures;
 mod nested_fns;
@@ -337,7 +334,9 @@ pub use fnexpr_bind_this::{
 pub use fnexpr_this_default::bind_fnexpr_this_default;
 pub use fnexpr_this_unclaimed::unclaimed_fnexpr_this;
 pub use fold_fromentries::fold_fromentries;
-pub(crate) use forwarder_synth::{ShellFace, is_shell, shell_target, synth_forwarder_decl};
+pub(crate) use forwarder_synth::{
+    ShellFace, is_shell, shell_names, shell_target, synth_forwarder_decl,
+};
 pub use forwarders::synthesize_forwarders;
 pub(crate) use forwarders::{push_gen_argv_spread, split_gen_argv_tail};
 pub use forwarders_object::{synthesize_fn_to_closure_forwarders, tag_struct_field_closure_types};
@@ -366,8 +365,6 @@ pub(crate) use lift_arrow_fns::{
 pub use module_ns_members::desugar_module_ns_members;
 pub use module_passes::{desugar_builtin_imports, rename_user_main, unwrap_exports};
 pub(crate) use named_eval::collect_named_eval_positions;
-pub(crate) use namedfn_recv_cb::recv_cb_claimed_sites;
-pub use namedfn_recv_cb::synthesize_recv_cb_forwarders;
 pub use namedfn_this_value::promote_this_fn_values;
 pub use nested_fns::desugar_nested_fns;
 pub use nested_fns_capture::desugar_capturing_nested_fns;

@@ -26,9 +26,10 @@
 //!   expression, and that is the pass which gives one its env).
 //! - `desugar_nested_fns` — before the fn-to-closure collector (RFC
 //!   20260717 O3): lifted nested names are top-level by then.
-//! - `synthesize_recv_cb_forwarders` — claims its HOF callback sites
-//!   BEFORE the plain fn-to-closure wrap (the rewrite turns the
-//!   Ident into `Expr::Closure`, which cluster #1 then skips).
+//! - `promote_this_fn_values` — before `tag_closure_arg_params`, so
+//!   the parameter a rewritten argument lands in is retagged by the
+//!   same fixpoint run; it turns the Ident into `Expr::Closure`,
+//!   which the plain fn-to-closure wrap then skips.
 
 use torajs_core::{ast, ast_closure_param_tag};
 
@@ -376,15 +377,14 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // `Expr::Closure`, and the receiving parameters have to be retagged
     // to the env-first repr in the same run — a slot left typed
     // `(x: any) => string` while the argument became a closure cell is
-    // the calling-convention mismatch that prints nothing at all. The
-    // sites `synthesize_recv_cb_forwarders` wants (it runs later and
-    // gives them the receiver-FIRST shim) are left for it.
+    // the calling-convention mismatch that prints nothing at all.
+    // Every value site takes the receiver-first shell, so there is one
+    // shell per declaration and no second minting pass below.
     ast::canonicalize_fn_proto_receivers(ast);
     ast::promote_this_fn_values(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
     ast::synthesize_forwarders(ast);
     ast::desugar_nested_fns(ast);
-    ast::synthesize_recv_cb_forwarders(ast);
     ast::synthesize_fn_to_closure_forwarders(ast);
     ast::wrap_escaping_fn_ident_bindings(ast);
     ast::desugar_function_prototype_methods(ast);

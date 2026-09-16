@@ -60,13 +60,26 @@
 //! calling-convention mismatch, and its symptom is a program that
 //! prints nothing at all. Forwarder synthesizers that ran earlier have
 //! already turned their sites into `Expr::Closure`, so this pass does
-//! not see them; `synthesize_recv_cb_forwarders` runs LATER and wants
-//! its sites still spelled as names, so it publishes them through
-//! [`crate::ast::recv_cb_claimed_sites`] and this pass stands aside.
-//! Those sites take the receiver-FIRST shim (`__fwdrecv_`), a
-//! different cell from `__forward_` — so a declaration reached BOTH
-//! ways still has two identities. `const h: any = t; h === t` is that
-//! residue, and it is registered rather than papered over.
+//! not see them.
+//!
+//! **One declaration, one shell** (RFC 20260914-namedfn-value-identity
+//! blade 2). Every value site of a `this`-reading declaration takes
+//! the receiver-FIRST shell, so the declaration has exactly one cell
+//! (`__fncell_` is keyed by shell name) and therefore one identity,
+//! one property bag, one `.prototype`. This pass used to stand aside
+//! for a list of "callback" sites that a later pass re-minted with the
+//! receiver-first face, which left a declaration reached both ways
+//! with TWO cells: `const h: any = t; h === t` was false, `new
+//! Proxy(t, {})` dropped the receiver, and `(h as any).prototype` and
+//! `t.prototype` were different objects. The list is gone; so is the
+//! second minting pass.
+//!
+//! The receiver-first face is not a cost here. Every lane that can
+//! call such a cell reads `FLAG_CLOSURE_RECV_FIRST` — the any-lane
+//! kernels, the typed closure call's runtime gate, the higher-order
+//! array methods' `sig_skip`, and the promise callback faces — and a
+//! declaration with no receiver parameter never reaches this pass at
+//! all.
 
 use std::collections::{HashMap, HashSet};
 
@@ -145,13 +158,11 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             _ => {}
         }
     }
-    let claimed = crate::ast::recv_cb_claimed_sites(ast);
     let mut sites: Vec<(usize, String)> = Vec::new();
     for (i, e) in ast.exprs.iter().enumerate() {
         if let Expr::Ident(n) = e
             && sigs.contains_key(n)
             && !non_value.contains(&i)
-            && !claimed.contains(&i)
             && !block_scoped.contains(&i)
         {
             sites.push((i, n.clone()));
@@ -163,7 +174,7 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
 
     let mut new_decls: Vec<Stmt> = Vec::new();
     for (_, target) in &sites {
-        let forward_name = format!("__forward_{target}");
+        let forward_name = format!("__fwdrecv_{target}");
         if have_forwarder.contains(&forward_name) {
             continue;
         }
@@ -176,12 +187,12 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             &params,
             return_type,
             target_span,
-            crate::ast::ShellFace::Plain,
+            crate::ast::ShellFace::ReceiverFirst,
         ));
     }
     for (i, target) in sites {
         ast.exprs[i] = Expr::Closure {
-            fn_name: format!("__forward_{target}"),
+            fn_name: format!("__fwdrecv_{target}"),
             captures: Vec::new(),
         };
     }

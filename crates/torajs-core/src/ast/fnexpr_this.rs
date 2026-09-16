@@ -48,7 +48,6 @@
 //! published the user-facing `__fn(P)->(R)` anns (which deliberately
 //! stay `__this`-free, like `__mth(`'s receiver-less spelling).
 
-pub(super) use super::fnexpr_this_call_faces::is_hof_method;
 pub(crate) use super::fnexpr_this_faces::promote_recv_any;
 use super::fnexpr_this_faces::{FacePatch, collect_face, collect_store_face};
 use super::fnexpr_this_recvs::{

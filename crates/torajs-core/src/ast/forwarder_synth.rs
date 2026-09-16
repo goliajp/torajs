@@ -92,6 +92,22 @@ pub(crate) fn is_shell(name: &str) -> bool {
     shell_target(name).is_some()
 }
 
+/// The names a declaration's shell can go by, receiver-first first.
+///
+/// The inverse of [`shell_target`], for the sites that go the other
+/// way — they hold a declaration name and want the shell that was
+/// minted for it. Which face that is depends on the declaration:
+/// `promote_this_fn_values` mints the receiver-first one for every
+/// `this`-reading declaration, and the plain face is what the other
+/// synthesizers mint. Asking for one spelling finds nothing for half
+/// the declarations, and "no shell" is a plausible-looking answer at
+/// each of these sites (`instanceof` falls back to constant false, a
+/// promise handler to the generic path, the param-tag axis to minting
+/// a SECOND shell).
+pub(crate) fn shell_names(target: &str) -> [String; 2] {
+    [format!("__fwdrecv_{target}"), format!("__forward_{target}")]
+}
+
 /// Build `__forward_<target>(__env, ...user params) { return
 /// target(...); }` (or the receiver-first `__fwdrecv_<target>(__env,
 /// __this, ...user)`) from the target's own signature.

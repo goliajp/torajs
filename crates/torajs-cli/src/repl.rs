@@ -284,8 +284,8 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::tag_struct_field_closure_types(&mut a);
     ast::alias_arrow_arguments(&mut a);
     ast::lift_arrow_fns(&mut a);
+    ast::promote_this_fn_values(&mut a);
     ast::synthesize_forwarders(&mut a);
-    ast::synthesize_recv_cb_forwarders(&mut a);
     ast::synthesize_fn_to_closure_forwarders(&mut a);
     ast::wrap_escaping_fn_ident_bindings(&mut a);
     ast::desugar_function_prototype_methods(&mut a);

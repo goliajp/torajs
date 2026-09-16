@@ -284,7 +284,7 @@ fn collect_hof_cb_face(
 /// receiver-first channel (knife 4) AND take a thisArg. `reduce` /
 /// `reduceRight` / `sort` / `toSorted` take none per §23.1.3.24 /
 /// §23.1.3.30 and have their own any-receiver arm above. Shared with
-/// the named-fn callback mirror ([`super::namedfn_recv_cb`]).
+/// the named-fn declaration mirror ([`super::namedfn_this_value`]).
 pub(super) fn is_hof_method(name: &str) -> bool {
     matches!(
         name,
