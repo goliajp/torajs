@@ -349,12 +349,10 @@ impl<'a> FnToClosureCollector<'a> {
     /// right all along). The callee's only sub-expression is that
     /// Ident, so the walk it skips loses nothing.
     ///
-    /// `bind` stays on the wrapped lane: `synth_bind` copies the
-    /// target's param annotations verbatim, so a generic target would
-    /// mint a `__bound_` spelling `T` (the 402-01 erasure lives in the
-    /// forwarder synthesizer alone) — registered, not papered over.
-    /// An unswallowed `apply` (dynamic argArray) keeps the r291 wrap
-    /// above, which is what the any-apply kernel needs.
+    /// `bind` stays on the wrapped lane because the desugar swallows
+    /// none of it — the runtime kernel calls whatever cell the base
+    /// evaluates to. An unswallowed `apply` (dynamic argArray) keeps
+    /// the r291 wrap above, which is what the any-apply kernel needs.
     fn is_swallowed_fn_proto_callee(&self, callee: &ExprId, args: &[ExprId]) -> bool {
         let Expr::Member { obj, name } = self.ast.get_expr(*callee) else {
             return false;

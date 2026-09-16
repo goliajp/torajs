@@ -1,11 +1,10 @@
-// P4.4 — Function.prototype.bind / call / apply via AST-level
-// desugar at `desugar_function_prototype_methods`. tora's typed-tier
-// substrate: `.call(this, a, b)` rewrites to direct `f(a, b)` (this
-// dropped — class-method this is post-P4); `.apply(this, [a, b])`
-// inlines the array-literal arg into a direct `f(a, b)`; `.bind
-// (this, p)` synthesizes a wrapper FnDecl `__bound_<f>_<id>(env,
-// rem...)` + factory FnDecl `__bind_create_<f>_<id>(partials...)`
-// that returns a Closure capturing partials.
+// Function.prototype.call / apply ride the AST-level desugar at
+// `desugar_function_prototype_methods`: `.call(this, a, b)` rewrites
+// to a direct `f(a, b)` and `.apply(this, [a, b])` inlines the
+// array-literal arg into the same shape. `.bind` does NOT — every
+// `.bind` mints a runtime bound cell through the any-lane kernel,
+// which is where [[Construct]] and the target's own `length` / `name`
+// live.
 //
 // Acceptance:
 //   - .call / .apply / .bind all match bun output

@@ -308,10 +308,11 @@ pub unsafe extern "C" fn __torajs_closure_source_str(ptr: *mut c_void) -> *mut u
 
 /// §20.2.3.5 for a BOUND cell — the native-code form spelled with
 /// the TARGET's name, which is where JSC (so bun) puts it. The
-/// compiler's `__bound_<fn>` wrapper answered this off its registry
-/// row; a cell the any-lane `.bind` minted has no row, so it printed
-/// the anonymous form while its own `.name` said `"bound add"`
-/// (566-04). That name is the one to spell it with, marker off.
+/// compiler's old static bind wrapper answered this off its fn-name
+/// registry row; a bound CELL has no row, so it printed the anonymous
+/// form while its own `.name` said `"bound add"` (566-04). That name
+/// is the one to spell it with, marker off — and since every `.bind`
+/// mints a cell now, this is the only path there is.
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.

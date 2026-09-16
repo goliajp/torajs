@@ -1399,44 +1399,6 @@ pub fn desugar_builtin_new(ast: &mut Ast) {
     crate::ast_desugar_builtin_new::run(ast);
 }
 
-/// P4.4 — `Function.prototype.bind / call / apply` desugar pass.
-/// Rewrites Call exprs whose callee is `Member { obj: Ident(f), name: m }`
-/// (m ∈ {"bind", "call", "apply"}) into substrate-correct shapes that
-/// piggyback on tora's existing FnSig / Closure ABIs. Source fn must
-/// be a top-level FnDecl Ident — typed-tier substrate only. thisArg
-/// is silently discarded (tora has no `this` for top-level fns;
-/// class-method `this` is a separate substrate, not in P4.4 scope).
-///
-///   .call(thisArg, a1, a2)       →  f(a1, a2)
-///   .apply(thisArg, [a1, a2])    →  f(a1, a2)            [array-lit only]
-///   .bind(thisArg, p0, p1)       →  __bind_create_<id>(p0, p1)
-///
-/// `__bind_create_<id>` is a synthesized factory FnDecl: takes
-/// partials as positional params, returns an arrow that captures
-/// them. The arrow's body forwards to the source fn with
-/// (partials..., remaining_args...). The capture mechanism is the
-/// existing lift_arrow_fns substrate — the arrow inside the factory
-/// gets lifted automatically.
-///
-/// Subset limits at this phase:
-///   - `.apply` with non-literal array → left as-is, fails later
-///     with informative typecheck error (full dynamic spread is
-///     P5.5).
-///   - `.bind` source must be Ident referring to a known FnDecl
-///     (closure or runtime-Any source is post-P4.4 substrate).
-///   - thisArg is silently dropped — `this` semantics arrive with
-///     full class substrate (post-P4 / P8 class spec).
-///
-/// Runs AFTER `lift_arrow_fns` / `synthesize_*_forwarders` so the
-/// synthesized factory's inner arrow goes through the normal
-/// closure-lift pipeline on the SECOND lift pass... actually we
-/// need to be careful here — once lift_arrow_fns has run, new
-/// arrows we emit won't be lifted. Solution: emit the FACTORY's
-/// inner arrow as a SEPARATE pre-lifted FnDecl `__bound_<id>`
-/// with explicit `__env(p0|p1|...)` annotation, and the factory
-/// body returns `Expr::Closure { fn_name: "__bound_<id>",
-/// captures: ["p0", "p1", ...] }` directly. Matches the post-
-/// lift_arrow_fns invariant.
 /// Thin wrapper preserving the `ast::desugar_function_prototype_methods`
 /// public surface for `torajs-cli` callers (main / lsp / repl /
 /// cmd_build); body moved into `ast_desugar_function_prototype_methods`

@@ -1,10 +1,9 @@
-// 566-04 — a bound function's two print faces read its own name. The
-// COMPILER's `__bound_<fn>` wrapper has a fn-name registry row and
-// answered both correctly; a cell the any-lane `.bind` mints at
-// runtime has no row at all, so `String(f)` answered the anonymous
-// native form and `console.log(f)` printed the bare `[Function]` —
-// while `f.name` said `"bound add"` the whole time. The name was
-// there; nothing was reading it.
+// 566-04 — a bound function's two print faces read its own name. A
+// bound cell has no fn-name registry row (the compiler's old
+// `__bound_<fn>` wrapper did, and answered both correctly), so
+// `String(f)` answered the anonymous native form and `console.log(f)`
+// printed the bare `[Function]` — while `f.name` said `"bound add"`
+// the whole time. The name was there; nothing was reading it.
 //
 // §20.2.3.5 leaves the native-code spelling implementation-defined,
 // and JSC (so bun) spells it with the name minus ONE `bound `
