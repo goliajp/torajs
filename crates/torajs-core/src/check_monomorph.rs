@@ -119,9 +119,22 @@ pub(crate) fn monomorphize_and_check(c: &mut Checker, ast: &Ast) -> MonoOutput {
     // `__smany_` stays out: statics bind no receiver row.
     // (`__cmany_` is its own spelling — it does NOT match the
     // `__cm_` prefix, the fifth byte differs.)
+    // A generic CLASS FACTORY a runtime consumer constructs through
+    // (`factory_always_admitted`: `then`'s SpeciesConstructor over a
+    // `class MyP<T> extends Promise<T>` instance) seeds the same way —
+    // the construct channel has no call record, so without the clone
+    // there is no factory for the adapter to wrap.
+    let heirs = crate::ssa_lower_boxed_entry::promise_heir_classes(ast);
     let mut method_generics: Vec<String> = generics
         .keys()
-        .filter(|n| n.starts_with("__cm_") || n.starts_with("__sm_") || n.starts_with("__cmany_"))
+        .filter(|n| {
+            n.starts_with("__cm_")
+                || n.starts_with("__sm_")
+                || n.starts_with("__cmany_")
+                || n.strip_prefix("__new_").is_some_and(|c| {
+                    crate::ssa_lower_boxed_entry::factory_always_admitted(ast, &heirs, c)
+                })
+        })
         .cloned()
         .collect();
     method_generics.sort();

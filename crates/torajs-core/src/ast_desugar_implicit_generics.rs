@@ -55,6 +55,20 @@ pub(crate) fn run(ast: &mut Ast) {
     // instead (rotation 409; the demand predicate is the same one
     // that arms the adapter synthesis).
     let factories_stay_any = crate::ssa_lower_boxed_entry::program_constructs_from_value(ast);
+    // …and, whatever the program spells, the factories a runtime
+    // consumer constructs through (`factory_always_admitted`).
+    let always_any_factories: std::collections::HashSet<String> = {
+        let heirs = crate::ssa_lower_boxed_entry::promise_heir_classes(ast);
+        ast.stmts
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::FnDecl { name, .. } => name.strip_prefix("__new_"),
+                _ => None,
+            })
+            .filter(|c| crate::ssa_lower_boxed_entry::factory_always_admitted(ast, &heirs, c))
+            .map(|c| format!("__new_{c}"))
+            .collect()
+    };
     // (k) leg — needs the whole `&Ast` (named-fn refs + the shared
     // promote verdict), so it runs before the borrow split below.
     let promoted_objlits = crate::ast_refs_any_promote::promoted_method_objlits(ast);
@@ -207,7 +221,9 @@ pub(crate) fn run(ast: &mut Ast) {
             desugar_lifted_closure_fn(params, return_type, body, ast_exprs_view, &fn_sigs);
             continue;
         }
-        if factories_stay_any && name.starts_with("__new_") {
+        if (factories_stay_any && name.starts_with("__new_"))
+            || always_any_factories.contains(name.as_str())
+        {
             for p in params.iter_mut() {
                 if p.type_ann.is_none() && !p.is_rest {
                     p.type_ann = Some("any".to_string());

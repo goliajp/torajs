@@ -407,7 +407,13 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
 /// and `__torajs_anyv_construct` answers that miss with its own
 /// message; inventing an entry here would be worse than the gap.
 fn emit_ctor_register(ctx: &mut LowerCtx<'_>, cname: &str, class_op: Operand) {
-    let Some(&factory) = ctx.fn_table.get(&format!("__new_{cname}")) else {
+    // A generic class's factory is a checker template; the construct
+    // channel reaches its all-`any` instance.
+    let Some(&factory) = ctx
+        .fn_table
+        .get(&format!("__new_{cname}"))
+        .or_else(|| ctx.fn_table.get(&format!("__new_{cname}$$anywv")))
+    else {
         return;
     };
     let Some(&(adapter, adapter_sig)) = ctx.boxed_entries.get(&factory) else {

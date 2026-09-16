@@ -77,7 +77,7 @@ pub(crate) fn program_constructs_from_value(ast: &Ast) -> bool {
 /// runtime capability path (`NewPromiseCapability(C)`, rotation 451)
 /// can construct through a first-class value, so their factories
 /// always get a boxed adapter.
-pub(super) fn promise_heir_classes(ast: &Ast) -> std::collections::HashSet<String> {
+pub(crate) fn promise_heir_classes(ast: &Ast) -> std::collections::HashSet<String> {
     let mut out: std::collections::HashSet<String> = ast
         .builtin_class_parents
         .iter()
@@ -100,4 +100,24 @@ pub(super) fn promise_heir_classes(ast: &Ast) -> std::collections::HashSet<Strin
         }
     }
     out
+}
+
+/// The class factories that get a boxed adapter whatever the program
+/// spells — the consumers that construct through them are runtime
+/// ones no syntactic probe sees. A Promise heir: the inherited settle
+/// statics and `then`'s SpeciesConstructor run NewPromiseCapability(C)
+/// through the construct channel. An `extends Array` / TypedArray
+/// heir: the inherited `@@species` construct runs inside the family
+/// methods. One predicate for both consumers — the adapter synthesis
+/// and the implicit-generics pass, which must keep these factories
+/// non-generic or the adapter has no bare `__new_<C>` to wrap.
+pub(crate) fn factory_always_admitted(
+    ast: &Ast,
+    promise_heirs: &std::collections::HashSet<String>,
+    cname: &str,
+) -> bool {
+    promise_heirs.contains(cname)
+        || crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname).is_some_and(
+            |r| r == "Array" || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r),
+        )
 }

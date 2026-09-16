@@ -209,7 +209,9 @@ pub(crate) fn synthesize_boxed_entries(
 }
 
 mod admit;
-pub(crate) use admit::program_constructs_from_value;
+pub(crate) use admit::{
+    factory_always_admitted, program_constructs_from_value, promise_heir_classes,
+};
 
 mod dflt_lit;
 pub(crate) use dflt_lit::{DfltLit, FnDfltLits};

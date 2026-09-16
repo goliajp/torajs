@@ -9,7 +9,7 @@
 
 use std::collections::HashMap;
 
-use super::admit::{program_constructs_from_value, promise_heir_classes};
+use super::admit::{factory_always_admitted, program_constructs_from_value, promise_heir_classes};
 use super::{DfltLit, MAX_BOXED_PARAMS, relay};
 use crate::ast::{Ast, Stmt};
 use crate::ssa::{self, FuncId, Type};
@@ -110,16 +110,12 @@ pub(super) fn collect_boxed_targets(tables: &TargetTables<'_>) -> Vec<BoxedEntry
         // inherited `@@species` construct runs inside the family
         // methods at runtime, and no syntactic probe can see that
         // consumer either.
-        let is_factory = name.starts_with("__new_") && {
-            let cname = &name["__new_".len()..];
-            constructs_from_value
-                || promise_heirs.contains(cname)
-                || crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname)
-                    .is_some_and(|r| {
-                        r == "Array"
-                            || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r)
-                    })
-        };
+        let is_factory = name.starts_with("__new_")
+            && (constructs_from_value
+                || factory_always_admitted(ast, &promise_heirs, {
+                    let c = &name["__new_".len()..];
+                    c.strip_suffix("$$anywv").unwrap_or(c)
+                }));
         if !first_is_env && !first_is_this && !is_static && !is_factory && !is_twin {
             continue;
         }
