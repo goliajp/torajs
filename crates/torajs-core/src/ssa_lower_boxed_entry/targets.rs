@@ -275,10 +275,18 @@ fn target_facts(
         fid,
         body_fid: relay.map_or(fid, |r| r.fid),
         user_tys,
-        ret_ty,
+        ret_ty: if relay.is_some_and(|r| r.ret_void) {
+            Type::Void
+        } else {
+            ret_ty
+        },
         has_argv: has_argv || relay.is_some(),
         recv_slot,
-        recv_leads: twin_argv || relay.is_some_and(|r| r.recv_first),
+        lead: match relay {
+            Some(r) if r.new_target => 2,
+            Some(r) if r.recv_first => 1,
+            _ => usize::from(twin_argv),
+        },
         lead_undef: relay.is_some_and(|r| r.this_first && !r.recv_first),
         feeds_env: feeds_env && relay.is_none(),
         hidden_argc: first_is_env || this_hidden,
@@ -371,7 +379,7 @@ pub(super) struct BoxedEntryTarget {
     /// precedes the hidden argc / argv slots in its sig (a twin on
     /// the this-first argv lane): unboxed first, the window then
     /// shifted for the rest.
-    pub(super) recv_leads: bool,
+    pub(super) lead: usize,
     /// A relay redirected to a one-slot this-first target: the body's
     /// leading `__this` takes the `undefined` receiver the relay's own
     /// forwarding call would have seeded.

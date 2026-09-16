@@ -60,6 +60,28 @@ pub(super) struct Relay {
     /// call handed `t` the DECLARED parameters: `[7].map(t2, o)` with
     /// `t2` reading `arguments` answered length 1 where bun says 3.
     pub(super) recv_first: bool,
+    /// `t` returns nothing while the relay's face answers `any` (the
+    /// relay boxes `undefined` from its body): the adapter calls `t` as
+    /// a void body and answers `undefined` itself.
+    pub(super) ret_void: bool,
+    /// A declaration's construct face (`__ntctor_<t>`, RFC
+    /// 20260917-plain-fn-new-target): argv[0] is the receiver and
+    /// argv[1] the new.target, both feeding `t`'s two head slots.
+    pub(super) new_target: bool,
+}
+
+/// `t`'s return type as the relay's face may carry it: the same type,
+/// or `void` behind the relay's `any` (rotation 662 — `function f() {
+/// store = arguments }` reached through any value answered an empty
+/// arguments object, the relay body forwarding its declared zero).
+fn ret_fits(t_ret: &Type, relay_ret: &Type) -> Option<bool> {
+    if t_ret == relay_ret {
+        Some(false)
+    } else if *t_ret == Type::Void && *relay_ret == Type::Any {
+        Some(true)
+    } else {
+        None
+    }
 }
 
 /// `Some(relay)` when `name` is a `__forward_` / `__fwdrecv_` relay
@@ -80,13 +102,40 @@ pub(super) fn headless_target(
     user_tys: &[Type],
     ret_ty: &Type,
 ) -> Option<Relay> {
-    if name.strip_prefix("__forward_").is_none() && name.strip_prefix("__fwdrecv_").is_none() {
+    let ctor_face = name.starts_with("__ntctor_");
+    if name.strip_prefix("__forward_").is_none()
+        && name.strip_prefix("__fwdrecv_").is_none()
+        && !ctor_face
+    {
         return None;
     }
     let recv_first = ast.fnexpr_recv_fns.contains(name);
     let target = forwarding_call_target(ast, call_retargets, name)?;
     let fid = *fn_table.get(&target)?;
     let (tys, ret) = &fn_sigs[fn_sig_ids.get(&fid)?.0 as usize];
+    if ctor_face {
+        // The face spells `__this, __new_target` as its first two user
+        // params — the same two head slots `t`'s face leads with.
+        if ast.this_first_argv_fns.get(&target) != Some(&2)
+            || user_tys.len() < 2
+            || user_tys[..2] != [Type::Any, Type::Any]
+        {
+            return None;
+        }
+        let ret_void = ret_fits(ret, ret_ty)?;
+        let face_matches = tys.len() == user_tys.len() + 2
+            && tys[..2] == [Type::Any, Type::Any]
+            && tys[2] == Type::I64
+            && tys[3] == Type::Ptr
+            && tys[4..] == user_tys[2..];
+        return face_matches.then_some(Relay {
+            fid,
+            this_first: true,
+            recv_first: true,
+            ret_void,
+            new_target: true,
+        });
+    }
     if ast.this_first_argv_fns.get(&target) == Some(&1) {
         // A receiver-first relay's face already spells `__this` as
         // user param 0 — the same slot `t`'s face leads with.
@@ -98,16 +147,18 @@ pub(super) fn headless_target(
         } else {
             user_tys
         };
+        let ret_void = ret_fits(ret, ret_ty)?;
         let face_matches = tys.len() == declared.len() + 3
             && tys[0] == Type::Any
             && tys[1] == Type::I64
             && tys[2] == Type::Ptr
-            && tys[3..] == *declared
-            && ret == ret_ty;
+            && tys[3..] == *declared;
         return face_matches.then_some(Relay {
             fid,
             this_first: true,
             recv_first,
+            ret_void,
+            new_target: false,
         });
     }
     if recv_first {
@@ -116,15 +167,17 @@ pub(super) fn headless_target(
     if !ast.headless_argv_fns.contains(&target) || !ast.headless_argc_fns.contains(&target) {
         return None;
     }
+    let ret_void = ret_fits(ret, ret_ty)?;
     let face_matches = tys.len() == user_tys.len() + 2
         && tys[0] == Type::I64
         && tys[1] == Type::Ptr
-        && tys[2..] == *user_tys
-        && ret == ret_ty;
+        && tys[2..] == *user_tys;
     face_matches.then_some(Relay {
         fid,
         this_first: false,
         recv_first: false,
+        ret_void,
+        new_target: false,
     })
 }
 

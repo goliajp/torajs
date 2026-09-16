@@ -30,7 +30,7 @@ pub(super) fn build_boxed_entry(
     ret_ty: Type,
     has_argv: bool,
     recv_slot: bool,
-    recv_leads: bool,
+    lead: usize,
     lead_undef: bool,
     feeds_env: bool,
     hidden_argc: bool,
@@ -83,19 +83,22 @@ pub(super) fn build_boxed_entry(
             None,
         )));
     }
-    let shifted = recv_slot.then(|| shifted_argv(&mut f, entry, argv));
+    // The window starts past the receiver slots: the one receiver of a
+    // recv-slot body, or the `lead` slots a relay unboxes itself
+    // (receiver, and a construct face's new.target).
+    let skip = lead.max(usize::from(recv_slot));
+    let shifted = (skip > 0).then(|| shifted_argv(&mut f, entry, argv, skip));
     // A twin on the this-first argv lane: its `__this` is user param
     // 0 and sits BEFORE the hidden slots in the sig, so the receiver
     // in argv[0] is unboxed here and the rest of the user params
     // come off the shifted window below.
-    let lead = usize::from(recv_leads);
-    if recv_leads {
+    if lead > 0 {
         unbox_args(
             &mut f,
             module,
             entry,
             argv,
-            &user_tys[..1],
+            &user_tys[..lead],
             intr,
             anyv_to_str,
             &coerce,
@@ -103,17 +106,21 @@ pub(super) fn build_boxed_entry(
             &mut str_temps,
             &mut obj_temps,
             &mut settle_temps,
-            &dflt_lits[..1.min(dflt_lits.len())],
+            &dflt_lits[..lead.min(dflt_lits.len())],
         );
     }
     // User-argument count the body-side slots receive: a recv-slot
     // body (RFC 20260808 knife 2) gets the window SHIFTED past
     // argv[0] — the receiver riding there feeds `__this`, not
     // `arguments` (§10.4.4) — so the count drops by one.
-    let user_argc = if recv_slot {
+    let user_argc = if skip > 0 {
         Operand::Value(f.append_inst(
             entry,
-            InstKind::BinOp(ssa::BinOp::Sub, Operand::Value(argc), Operand::ConstI64(1)),
+            InstKind::BinOp(
+                ssa::BinOp::Sub,
+                Operand::Value(argc),
+                Operand::ConstI64(skip as i64),
+            ),
             Type::I64,
             None,
         ))
@@ -139,8 +146,8 @@ pub(super) fn build_boxed_entry(
     } else {
         user_tys.len()
     };
-    let base = if recv_leads {
-        shifted.expect("recv_leads implies recv_slot, which minted the shifted window")
+    let base = if lead > 0 {
+        shifted.expect("a lead slot mints the shifted window")
     } else {
         argv
     };
@@ -295,7 +302,12 @@ fn box_return(
 /// The recv-slot argv window shift (RFC 20260808 knife 2): the
 /// receiver rides argv[0], so the body's argv face starts one slot
 /// past it.
-fn shifted_argv(f: &mut ssa::Function, entry: ssa::BlockId, argv: ssa::ValueId) -> ssa::ValueId {
+fn shifted_argv(
+    f: &mut ssa::Function,
+    entry: ssa::BlockId,
+    argv: ssa::ValueId,
+    slots: usize,
+) -> ssa::ValueId {
     let pi = f.append_inst(
         entry,
         InstKind::PtrToInt(Operand::Value(argv)),
@@ -304,7 +316,11 @@ fn shifted_argv(f: &mut ssa::Function, entry: ssa::BlockId, argv: ssa::ValueId) 
     );
     let off = f.append_inst(
         entry,
-        InstKind::BinOp(ssa::BinOp::Add, Operand::Value(pi), Operand::ConstI64(8)),
+        InstKind::BinOp(
+            ssa::BinOp::Add,
+            Operand::Value(pi),
+            Operand::ConstI64(8 * slots as i64),
+        ),
         Type::I64,
         None,
     );
