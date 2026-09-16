@@ -93,7 +93,7 @@ fn dispatch_map_method(
             if args.is_empty() {
                 return Operand::ConstBool(false);
             }
-            emit_predicate_call(ctx, recv_op, args, ctx.intrinsics.map_has)
+            emit_has(ctx, recv_op, args)
         }
         "delete" => {
             // S200 — spec §24.1.3.3 delete(key) step 1: same default-undefined
@@ -147,7 +147,13 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     // outright and the compiler died on the one-element list,
     // rotation 651). The typed lane spells it as the pinned ANY_UNDEF
     // pair, the same word `emit_map_get` answers for a missing key.
-    let (k_tag, k_val, k_raw) = lower_arg_or_undefined(ctx, args.first().copied());
+    let key = args.first().map(|&a| lower_map_key(ctx, a));
+    let str_key = matches!(key, Some(MapKey::Str(_)));
+    let (k_tag, k_val, k_raw) = match key {
+        Some(MapKey::Str(s)) => (Operand::ConstI64(-1), s.clone(), Some(s)),
+        Some(MapKey::Pair(tag, val, raw)) => (tag, val, Some(raw)),
+        None => (Operand::ConstI64(5), Operand::ConstI64(0), None),
+    };
     let (v_tag, v_val, v_raw) = lower_arg_or_undefined(ctx, args.get(1).copied());
     // S312 — ES §23.1.3.9 evaluates trailing args left-to-right; pre-S312
     // skipped the lower entirely → step()-style side-effect exprs dropped
@@ -156,13 +162,18 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.map_set,
-            vec![recv_op, k_tag, k_val, v_tag, v_val],
+    // a string key goes borrowed with no entry hint (k_tag holds -1)
+    let call = match str_key {
+        true => InstKind::Call(
+            ctx.intrinsics.map_set_str,
+            vec![recv_op.clone(), k_val, k_tag, v_tag, v_val],
         ),
-    );
+        false => InstKind::Call(
+            ctx.intrinsics.map_set,
+            vec![recv_op.clone(), k_tag, k_val, v_tag, v_val],
+        ),
+    };
+    ctx.f.append_void(ctx.cur_block, call);
     // Chunk 566 share — the pack's +1 is the kernel's transfer
     // stake; an owned-shape temp (`m.set("a", {n:i})` object
     // literal / concat key) still held its mint ref with no
@@ -248,32 +259,23 @@ fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
         );
         return Operand::Value(box_v);
     }
-    // S264 — trailing args ignored per spec.
-    debug_assert!(!args.is_empty());
-    let (k_tag, k_val, k_raw, _) = ctx.lower_to_tag_value_raw(args[0]);
-    // S296 — lower-and-drop trailing args past the 1 useful key slot per
-    // ES §24.1.3.6 trailing-arg ignore (S272 idiom).
-    for &a in args.iter().skip(1) {
-        let _ = ctx.lower_expr(a);
-    }
-    // Out-slots for (tag, value).
     let tag_slot = ctx.alloca(Type::I64, Some("map_get_tag"));
     let val_slot = ctx.alloca(Type::I64, Some("map_get_val"));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.map_get,
-            vec![
-                recv_op,
-                k_tag,
-                k_val,
-                Operand::Value(tag_slot),
-                Operand::Value(val_slot),
-            ],
+    let (t, v) = (Operand::Value(tag_slot), Operand::Value(val_slot));
+    match emit_find_index(ctx, recv_op.clone(), args) {
+        Ok(idx) => ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.map_entry_get, vec![recv_op, idx, t, v]),
         ),
-    );
-    // Chunk 566 share — settle an owned-temp key's mint ref.
-    ctx.release_owned_temp(args[0], &k_raw);
+        Err((k_tag, k_val, k_raw)) => {
+            ctx.f.append_void(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.map_get, vec![recv_op, k_tag, k_val, t, v]),
+            );
+            // Chunk 566 share — settle an owned-temp key's mint ref.
+            ctx.release_owned_temp(args[0], &k_raw);
+        }
+    }
     let tag_v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),
@@ -297,6 +299,87 @@ fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
         None,
     );
     Operand::Value(box_v)
+}
+
+/// A lowered Map key: a `Str` slot for the borrowed-key kernels, or
+/// the owned `(tag, value)` pair plus the raw operand to settle.
+enum MapKey {
+    Str(Operand),
+    Pair(Operand, Operand, Operand),
+}
+
+/// Lower `key` exactly once. A key whose SSA type is `Str` stays
+/// borrowed; everything else (a `Substr` view included) takes the
+/// pair path.
+fn lower_map_key(ctx: &mut LowerCtx<'_>, key: ExprId) -> MapKey {
+    if !matches!(ctx.expr_types.get(&key), Some(crate::check::Type::String)) {
+        let (tag, val, raw, _) = ctx.lower_to_tag_value_raw(key);
+        return MapKey::Pair(tag, val, raw);
+    }
+    let s = ctx.lower_expr(key);
+    if ctx.operand_ty(&s) == Type::Str {
+        return MapKey::Str(s);
+    }
+    let (tag, val) = ctx.box_to_tag_value(s.clone());
+    MapKey::Pair(tag, val, s)
+}
+
+/// `m.has(k)` / `m.get(k)` key half: `Ok(index)` from
+/// `__torajs_map_find_str` (-1 on a miss) for a string key, else the
+/// lowered pair. Trailing arguments are evaluated and dropped; the
+/// string key's owned temp is settled here.
+fn emit_find_index(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    args: &[ExprId],
+) -> Result<Operand, (Operand, Operand, Operand)> {
+    let key = lower_map_key(ctx, args[0]);
+    for &a in args.iter().skip(1) {
+        let _ = ctx.lower_expr(a);
+    }
+    let s = match key {
+        MapKey::Str(s) => s,
+        MapKey::Pair(tag, val, raw) => return Err((tag, val, raw)),
+    };
+    let idx = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.map_find_str, vec![recv_op, s.clone()]),
+        Type::I64,
+        None,
+    );
+    ctx.release_owned_temp(args[0], &s);
+    Ok(Operand::Value(idx))
+}
+
+/// `m.has(k)`: for a string key the found index compared `>= 0`;
+/// otherwise the generic `__torajs_map_has` over the pair.
+fn emit_has(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Operand {
+    let idx = match emit_find_index(ctx, recv_op.clone(), args) {
+        Ok(idx) => idx,
+        Err((k_tag, k_val, k_raw)) => {
+            let r = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.map_has, vec![recv_op, k_tag, k_val]),
+                Type::I64,
+                None,
+            );
+            ctx.release_owned_temp(args[0], &k_raw);
+            let b = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Ne, Operand::Value(r), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            return Operand::Value(b);
+        }
+    };
+    let b = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Sge, idx, Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(b)
 }
 
 /// keys / values / entries shared shape: trailing-drop + 1-arg Call to a

@@ -66,6 +66,7 @@ pub mod mutate;
 pub mod print;
 pub mod probe;
 pub mod query;
+pub mod str_key;
 pub mod subclass_alloc;
 
 pub use create::{__torajs_map_create, __torajs_set_create};
@@ -78,6 +79,7 @@ pub use iter::{
 };
 pub use mutate::{__torajs_map_get_or_insert, __torajs_map_set};
 pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
+pub use str_key::{__torajs_map_entry_get, __torajs_map_find_str, __torajs_map_set_str};
 
 // Cross-tier extern stubs for cargo unit tests — the real symbols
 // (__torajs_str_eq / __torajs_rc_inc / __torajs_value_drop_heap) are
