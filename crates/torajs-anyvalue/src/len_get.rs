@@ -378,7 +378,7 @@ pub unsafe extern "C" fn __torajs_closure_length(ptr: *mut c_void) -> i64 {
 ///
 /// # Safety
 /// `target` is a live closure-shaped cell pointer.
-unsafe fn bound_target_length(target: u64) -> Option<f64> {
+pub(crate) unsafe fn bound_target_length(target: u64) -> f64 {
     unsafe {
         let got = __torajs_any_length_get(crate::nanbox_encode::__torajs_anyv_box_from_pair(
             4,
@@ -395,12 +395,12 @@ unsafe fn bound_target_length(target: u64) -> Option<f64> {
             None
         };
         crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
-        Some(match n {
+        match n {
             None => 0.0,
             Some(v) if v.is_nan() => 0.0,
             Some(v) if v.is_infinite() => v,
             Some(v) => v.trunc(),
-        })
+        }
     }
 }
 
@@ -421,21 +421,10 @@ unsafe fn closure_length_of(ptr: *mut c_void) -> Option<f64> {
         if let Some((_, len)) = crate::method_value_class::class_accessor_meta(ptr) {
             return Some(len as f64);
         }
-        if let Some((kind, target, bargc)) = crate::method_bind::bound_cell_meta(ptr) {
-            let tlen: Option<f64> = if kind == 0 {
-                let (mid, fam) = crate::method_bind::unpack_builtin_target(target);
-                crate::method_value::builtin_method_arity_for(mid, fam).map(|a| a as f64)
-            } else {
-                bound_target_length(target)
-            };
-            return tlen.map(|l| {
-                if l.is_infinite() {
-                    // §20.2.3.2 step 6.b.i / 6.b.ii — +infinity stays,
-                    // -infinity is 0; neither subtracts the bound args.
-                    return if l > 0.0 { l } else { 0.0 };
-                }
-                (l - bargc as f64).max(0.0)
-            });
+        if crate::method_bind::bound_cell_meta(ptr).is_some() {
+            // Resolved when the cell was minted — see the bind-time
+            // note on `method_bind`'s layout.
+            return Some(crate::method_bind::bound_cell_length(ptr));
         }
         // B6c — a class-method face resolves its adapter's registry
         // row (the ES method arity).

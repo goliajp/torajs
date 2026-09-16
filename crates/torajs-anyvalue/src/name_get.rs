@@ -340,7 +340,7 @@ pub(crate) unsafe fn bound_native_form(ptr: *mut c_void) -> Option<*mut u8> {
 ///
 /// # Safety
 /// `target` is a live closure-shaped cell pointer.
-unsafe fn bound_target_name_str(target: u64) -> *mut u8 {
+pub(crate) unsafe fn bound_target_name_str(target: u64) -> *mut u8 {
     unsafe {
         let got = __torajs_any_name_get(crate::nanbox_encode::__torajs_anyv_box_from_pair(
             4,
@@ -384,21 +384,10 @@ pub(crate) unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
             torajs_rc::__torajs_rc_inc(name as *mut core::ffi::c_void);
             return name;
         }
-        if let Some((kind, target, _)) = crate::method_bind::bound_cell_meta(ptr) {
-            let tname: *mut u8 = if kind == 0 {
-                let (mid, _) = crate::method_bind::unpack_builtin_target(target);
-                let name = torajs_rc::any_method_meta(mid).map_or("", |(n, _)| n);
-                __torajs_str_alloc(name.as_ptr(), name.len() as i64)
-            } else {
-                bound_target_name_str(target)
-            };
-            let prefix = __torajs_str_alloc(c"bound ".as_ptr() as *const u8, 6);
-            let joined = crate::__torajs_str_concat(prefix as *const u8, tname as *const u8);
-            __torajs_str_drop(prefix as *mut c_void);
-            // Fresh target names drop; an interned method-name cell
-            // no-ops on the static flag.
-            __torajs_str_drop(tname as *mut c_void);
-            return joined as *mut u8;
+        if crate::method_bind::bound_cell_meta(ptr).is_some() {
+            // Resolved when the cell was minted — see the bind-time
+            // note on `method_bind`'s layout.
+            return crate::method_bind::bound_cell_name(ptr);
         }
         // B6c — a class-method face resolves its adapter's registry
         // row (the user-visible method name).
