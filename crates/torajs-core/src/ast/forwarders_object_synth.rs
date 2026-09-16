@@ -37,17 +37,21 @@ pub(super) fn synthesize_forwarder_decls(
             continue;
         }
         let (params, return_type, target_span) = fn_sigs.get(target).unwrap().clone();
-        // RFC 20260914 blade 2's rule, applied to the declarations
-        // `promote_this_fn_values` cannot reach: a `this`-reading
-        // declaration has ONE shell and it is the receiver-first one.
-        // That pass only walks top-level `function` declarations, so a
-        // static class method promoted to a `__this` leading parameter
-        // (`__sm_C__m`) fell here and got the plain face, whose whole
-        // job is to pin the receiver to `undefined` — and the runtime
-        // `.bind` kernel then had nowhere to put the bound this.
-        // `C.method.bind(C)` lost it, which is twelve test262 cases in
-        // the async-private-static family.
-        let face = if params.first().is_some_and(|p| p.name == "__this") {
+        // A `this`-reading STATIC's twin takes the receiver-first
+        // face: the twin exists precisely to carry a receiver
+        // (`__smany_`, knife 3a), and the plain face's whole job is to
+        // pin one to `undefined` — so the runtime `.bind` kernel had
+        // nowhere to put the bound this and `C.method.bind(C)` lost
+        // it, which is twelve test262 cases in the async-private-static
+        // family.
+        //
+        // Only the twins. Reading the face off "takes a `__this`
+        // parameter" was measured and is too wide: the other passes
+        // that mint a receiver-first shell do not all register it
+        // where this one looks, so five programs died on
+        // `redeclaration of function __fwdrecv_<t>`. Which sites get
+        // which face moves per route — see `ast/forwarder_synth.rs`.
+        let face = if target.starts_with("__smany_") {
             crate::ast::ShellFace::ReceiverFirst
         } else {
             crate::ast::ShellFace::Plain
