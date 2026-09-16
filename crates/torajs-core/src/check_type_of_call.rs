@@ -127,7 +127,10 @@ pub(crate) fn check(
     {
         return Ok(Type::Any);
     }
-    if let Some(r) = route_early::try_route(checker, ast, eid, callee, args) {
+    if let Some(r) =
+        crate::check_type_of_call_super_value::try_match_priv_brand(checker, ast, callee, args)
+            .or_else(|| route_early::try_route(checker, ast, eid, callee, args))
+    {
         return r;
     }
     if let Some(r) = route_globals::try_route(checker, ast, eid, callee, args) {

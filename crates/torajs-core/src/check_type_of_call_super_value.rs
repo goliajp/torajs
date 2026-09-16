@@ -16,6 +16,28 @@
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
 
+/// RFC 20260916 slice 2a — `__torajs_priv_brand(obj, "C", pos)`
+/// answers its receiver unchanged, so it types as the receiver.
+pub(crate) fn try_match_priv_brand(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    args: &[ExprId],
+) -> Option<Result<Type, String>> {
+    if !matches!(ast.get_expr(*callee), Expr::Ident(n) if n == crate::ast::private_brand::CHECK)
+        || args.len() != 3
+    {
+        return None;
+    }
+    let recv = checker.type_of(ast, args[0]);
+    for a in &args[1..] {
+        if let Err(e) = checker.type_of(ast, *a) {
+            return Some(Err(e));
+        }
+    }
+    Some(recv)
+}
+
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,

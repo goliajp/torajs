@@ -125,6 +125,9 @@ pub(crate) fn try_lower(
         n if n.starts_with("__torajs_ctor_ret_") => {
             crate::ssa_lower_call_class_synth_ctorret::try_lower(ctx, n, args)
         }
+        crate::ast::private_brand::INSTALL | crate::ast::private_brand::CHECK => {
+            crate::ssa_lower_call_class_synth_private_brand::try_lower(ctx, &name, args)
+        }
         "__torajs_my_class_ref" => class_ref::try_lower_my_class_ref(ctx, args),
         // T-12 §13.2.8.4 GetTemplateObject — the tagged-template
         // desugar's synthetic site call, per-site cached at runtime.

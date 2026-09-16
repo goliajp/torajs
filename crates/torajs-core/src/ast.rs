@@ -242,6 +242,7 @@ mod objlit_nominal_returned;
 mod objlit_nominal_settle;
 mod objlit_nominal_widen;
 mod optchain_call;
+pub(crate) mod private_brand;
 mod prop_key;
 mod prop_key_mangle;
 mod prototype_call;

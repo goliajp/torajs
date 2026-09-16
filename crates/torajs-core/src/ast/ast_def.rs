@@ -314,6 +314,10 @@ pub struct Ast {
     /// answering `any`). Only members of this set change shape; every
     /// other class keeps the typed `void` ctor verbatim.
     pub ctor_return_override: std::collections::HashSet<String>,
+    /// RFC 20260916-private-element-brand slice 2a — each class owning
+    /// private methods / accessors on a covered chain → the position
+    /// of its brand in the chain's install order (`ast/private_brand.rs`).
+    pub private_brand_pos: std::collections::HashMap<String, u32>,
     /// Classes extending an exotic-instance builtin (`class C extends
     /// Array`), class name → builtin name (RFC 20260730 blade 1).
     /// Their factory mints a REAL exotic cell through the per-builtin

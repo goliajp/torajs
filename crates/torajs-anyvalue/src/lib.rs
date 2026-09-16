@@ -234,6 +234,7 @@ mod method_support_proto_names;
 mod method_value;
 mod method_value_class;
 mod name_get;
+mod private_cursor;
 mod promise_capability;
 mod promise_static_patch;
 mod promise_subclass;

@@ -130,7 +130,16 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
             // of them into `Ident("__this")`, the local `reshape_ctor`
             // introduces.
             if !ast.ctor_return_override.contains(cname) {
-                ast.exprs[eid.0 as usize] = call;
+                // §10.2.1.3 step 9 — the class's private methods are
+                // installed as soon as `super(…)` has bound `this`.
+                ast.exprs[eid.0 as usize] =
+                    match super::private_brand::install_call(ast, cname, Expr::This) {
+                        Some(install) => Expr::Sequence {
+                            left: ast.add_expr(call),
+                            right: install,
+                        },
+                        None => call,
+                    };
                 continue;
             }
             let call_id = ast.add_expr(call);

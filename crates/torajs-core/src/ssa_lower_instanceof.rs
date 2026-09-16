@@ -95,6 +95,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, expr: ExprId, rhs: ExprId) -> Operan
     }
 }
 
+/// Class membership of an already-lowered operand, without the
+/// `@@hasInstance` / iterator / fold lanes of [`lower_named`]: the
+/// user-class half of `v instanceof C` alone (the typed tag chain or
+/// the any dispatch). The private brand check asks exactly this.
+pub(crate) fn lower_class_membership(
+    ctx: &mut LowerCtx<'_>,
+    v: Operand,
+    class_name: &str,
+) -> Operand {
+    match ctx.operand_ty(&v) {
+        Type::Any => lower_any_dispatch(ctx, v, class_name),
+        Type::Obj(_) => lower_typed_obj_dispatch(ctx, v, class_name),
+        _ => Operand::ConstBool(false),
+    }
+}
+
 fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operand {
     // RFC 20260713 blade 5 — `x instanceof g` where g is a generator
     // factory: §27.5.3 [[HasInstance]] walks g.prototype, which IS

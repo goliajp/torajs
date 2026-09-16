@@ -73,6 +73,8 @@ pub(crate) fn build_factory_body(
     };
     let mut body: Vec<Stmt> = prelude;
     body.push(let_this);
+    let installs = super::private_brand::factory_install_stmts(ast, cname, ctor.is_some());
+    body.extend(installs);
     if let Some(c) = ctor {
         // Build: __cm_C__ctor(__this, __torajs_my_class_ref("C"),
         //                     ctor_param_idents...);

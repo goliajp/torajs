@@ -19,6 +19,12 @@ pub(crate) struct PrivateIds {
     pub any_member_get_priv_tag: FuncId,
     pub any_member_priv_has: FuncId,
     pub any_member_set_priv: FuncId,
+    /// RFC 20260916 slice 2a — a class's private-method brand install.
+    pub priv_install: FuncId,
+    /// The install cursor of a class instance cell (-1 otherwise).
+    pub priv_cursor: FuncId,
+    /// The brand-check TypeError.
+    pub priv_brand_fail: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrivateIds {
@@ -46,6 +52,27 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_any_member_set_priv",
             &[Type::Ptr, Type::Ptr, Type::I64, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        priv_install: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_priv_install",
+            &[Type::Any, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        priv_cursor: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_priv_cursor",
+            &[Type::Any],
+            Type::I64,
+        ),
+        priv_brand_fail: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_priv_brand_fail",
+            &[],
             Type::Void,
         ),
     }

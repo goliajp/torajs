@@ -105,6 +105,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // can walk the chain when the LHS is a subclass and the RHS names
     // an ancestor.
     ast.class_parents = parent_map.clone();
+    super::private_brand::run(ast, &class_index);
     for (_, cname, tp, ..) in &class_index {
         ast.class_type_params.insert(cname.clone(), tp.clone());
     }
