@@ -64,11 +64,14 @@ const RC_INC: &str = "__torajs_rc_inc";
 /// Single-inst void drop helpers whose semantics are exactly
 /// "dec refcount, free on zero, NULL passes through". Inline-expanded
 /// drops (Obj) and indirect drops (Closure) are intentionally absent.
-const DROP_INTRINSICS: [&str; 4] = [
+const DROP_INTRINSICS: [&str; 5] = [
     "__torajs_str_drop",
     "__torajs_substr_drop",
     "__torajs_arr_drop",
     "__torajs_arr_drop_any",
+    // Map and Set cells both drop through it (same struct); a
+    // discarded `m.set(k, v)` result is the retain it pairs with.
+    "__torajs_map_drop",
 ];
 
 /// Runtime intrinsics that provably cannot change any refcount,
