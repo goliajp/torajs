@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-16T00:03:25.292Z",
+  "generatedAt": "2026-09-16T04:17:43.083Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-15T23:41:17Z",
-    "headSha": "3bf4090db0b11fbb0438368415af45a065483848",
-    "elapsedSec": 769.9,
+    "ranAt": "2026-09-16T04:04:45Z",
+    "headSha": "1ca85d2b36045a5b7aa381a4248beb77a739b4ce",
+    "elapsedSec": 557.62,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 33998,
+    "pass": 34018,
     "passNoOracle": 1696,
     "passNegative": 4568,
-    "passTotal": 40262,
-    "bug": 8840,
-    "incompatible": 4072,
+    "passTotal": 40282,
+    "bug": 8821,
+    "incompatible": 4071,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49102,
-    "passRateInScope": 75.72,
-    "passRateTrAccepted": 82
+    "trAccepted": 49103,
+    "passRateInScope": 75.76,
+    "passRateTrAccepted": 82.04
   },
   "torajs": {
-    "commit": "56e9c1af7",
-    "commitSubject": "chore(hardev): rotation 657 test262 sweep @3bf4090db (+149 passTotal, 0 regressions)",
+    "commit": "249e64da4",
+    "commitSubject": "chore(hardev): rotation 658 close stamps — determinism 46/46 N=12, gmalloc 3750/3754 clean 0 offenders",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "56e9c1af7",
-      "subject": "chore(hardev): rotation 657 test262 sweep @3bf4090db (+149 passTotal, 0 regressions)"
+      "hash": "249e64da4",
+      "subject": "chore(hardev): rotation 658 close stamps — determinism 46/46 N=12, gmalloc 3750/3754 clean 0 offenders"
     },
     {
-      "hash": "3bf4090db",
-      "subject": "fix(torajs-anyvalue): a proxy over an array iterates through its traps"
+      "hash": "8db16e275",
+      "subject": "chore(hardev): rotation 658 test262 sweep @1ca85d2b3 (+20 passTotal, 0 regressions)"
     },
     {
-      "hash": "ed9857a35",
-      "subject": "refactor(torajs-anyvalue): move the builtin-lane claim mirror to its own file"
+      "hash": "1ca85d2b3",
+      "subject": "fix(torajs-anyvalue): a bound function's length comes from reading the target's"
     },
     {
-      "hash": "d87518c72",
-      "subject": "fix(torajs-core): typed array destructuring and for-of stand down when the program can patch Array iteration"
+      "hash": "e9277ab5e",
+      "subject": "fix(torajs-anyvalue): a bound function's name comes from reading the target's"
     },
     {
-      "hash": "ecebf682d",
-      "subject": "refactor(torajs-core): move the array-destructuring lane verdict to its own file"
+      "hash": "7ddb8eca4",
+      "subject": "fix(torajs-core): a nested pattern's targets are ordered by the outer iterator too"
     },
     {
-      "hash": "d5f6c6c25",
-      "subject": "fix(torajs-anyvalue): deleting a builtin prototype's Symbol.iterator is observable"
+      "hash": "88e6cc006",
+      "subject": "test(conformance): lock the single-shell identity of a this-reading declaration"
     },
     {
-      "hash": "3e395571a",
-      "subject": "fix(torajs-anyvalue): a proxy's [[Call]] and [[Construct]] are fixed at creation"
+      "hash": "3b48aab0b",
+      "subject": "fix(torajs-core): a this-reading declaration is one value, not two"
     },
     {
-      "hash": "c50a2d8ad",
-      "subject": "fix(torajs-anyvalue): a proxy's [[Construct]] carries newTarget, and Reflect.construct reaches a proxy target"
+      "hash": "10113c60e",
+      "subject": "fix(torajs-core): a receiver-first relay shell is still a relay shell"
     },
     {
-      "hash": "c482e6d1b",
-      "subject": "fix(torajs-meta): Reflect.preventExtensions answers a proxy's refusal as false"
+      "hash": "ffb95aeae",
+      "subject": "refactor(torajs-promise): every callback face asks the same question before transmuting"
     },
     {
-      "hash": "28428f5c1",
-      "subject": "fix(torajs-anyvalue): proxy [[Get]] and [[Set]] carry the receiver through forwards and prototype chains"
+      "hash": "a3a475336",
+      "subject": "fix(torajs-core): an assignment pattern evaluates each element's target before stepping"
     },
     {
-      "hash": "1770df09b",
-      "subject": "fix(torajs-anyvalue): a literal accessor descriptor keeps its get and set on the way to a proxy"
+      "hash": "159566717",
+      "subject": "feat(torajs-anyvalue): a parked destructuring walk can be stepped one element at a time"
     },
     {
-      "hash": "bca0c66c1",
-      "subject": "fix(torajs-dynobj): a define that first touches a function's prototype validates against it"
+      "hash": "04f6ab5a0",
+      "subject": "chore(hardev): rotation 657 file-size stamp (0 new / 0 grew)"
     }
   ],
-  "headSha": "56e9c1af7",
+  "headSha": "249e64da4",
   "autorun": {
-    "total": 960,
+    "total": 961,
     "baselineTarget": 10,
-    "bySelf": 955,
+    "bySelf": 956,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789502891-0158",
-      "at": "2026-09-15T20:08:11Z",
-      "ts": 1789502891,
+      "rotationId": "r-1789517030-1afd",
+      "at": "2026-09-16T00:03:50Z",
+      "ts": 1789517030,
       "trigger": "self",
-      "prevHead": "82bd194b3",
-      "handoffSha": "sha256:b7e731ea437b33f523d874f74c9bea541ae385afeace6d7003bc8de0ef3a3282",
-      "handoffAgeSec": 23,
-      "conformanceBefore": "4211/0/4",
-      "commitsInSession": 15
+      "prevHead": "04f6ab5a0",
+      "handoffSha": "sha256:d86c87d62868de046609337d756cbc803da55baa93a731c79df02f128f0ed2df",
+      "handoffAgeSec": 25,
+      "conformanceBefore": "4222/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789517030-1afd",
+        "at": "2026-09-16T00:03:50Z",
+        "ts": 1789517030,
+        "trigger": "self",
+        "prevHead": "04f6ab5a0",
+        "handoffSha": "sha256:d86c87d62868de046609337d756cbc803da55baa93a731c79df02f128f0ed2df",
+        "handoffAgeSec": 25,
+        "conformanceBefore": "4222/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789502891-0158",
         "at": "2026-09-15T20:08:11Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 2376,
         "conformanceBefore": "4135/0/4",
         "commitsInSession": 8
-      },
-      {
-        "rotationId": "r-1789372732-331f",
-        "at": "2026-09-14T07:58:52Z",
-        "ts": 1789372732,
-        "trigger": "self",
-        "prevHead": "996e6499d",
-        "handoffSha": "sha256:34e592fded1f857b6b20398218c63e682909c6f00910fbf815e9bffe135ce3e8",
-        "handoffAgeSec": 39,
-        "conformanceBefore": "4130/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
