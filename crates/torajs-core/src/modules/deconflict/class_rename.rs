@@ -265,8 +265,9 @@ fn rename_synth_decls(
 /// owns the PREFIX bakes — `__ccmk_` / `__cm_gen_` / `__cm_` /
 /// `__sm_` idents (computed-key reads, forwarder callees, generator
 /// super-call resolutions naming the parent), `__priv_<C>__` member
-/// reference spellings, and the `#x in o` key string (recognized
-/// structurally through its `__torajs_priv_in_op` call so an
+/// reference spellings, and the `#x in o` / field-add marker key
+/// strings (recognized structurally through their `__torajs_priv_in_op`
+/// / `__torajs_priv_field_add` calls so an
 /// ordinary user string is never touched).
 fn rewrite_arena_bakes(ast: &mut Ast, lib_expr_offset: usize, old: &str, new: &str) {
     let in_op_keys: Vec<usize> = ast.exprs[lib_expr_offset..]
@@ -278,7 +279,7 @@ fn rewrite_arena_bakes(ast: &mut Ast, lib_expr_offset: usize, old: &str, new: &s
             let Expr::Ident(cn) = &ast.exprs[callee.0 as usize] else {
                 return None;
             };
-            if cn != "__torajs_priv_in_op" {
+            if cn != "__torajs_priv_in_op" && cn != crate::ast::private_brand::FIELD_ADD {
                 return None;
             }
             args.first().map(|a| a.0 as usize)
