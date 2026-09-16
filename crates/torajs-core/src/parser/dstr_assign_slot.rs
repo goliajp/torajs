@@ -150,6 +150,18 @@ impl<'a> Parser<'a> {
             self.ast.get_expr(target),
             Expr::Array(_) | Expr::ObjectLit { .. }
         ) {
+            // §13.15.5.5 is recursive: a nested pattern whose OWN
+            // elements carry Member / Index targets owes them the same
+            // `lref -> step -> put` interleaving the outer one gets, so
+            // it needs a group of its own -- park slot, prefix-0 walk
+            // and close wrap included -- rather than the plain index
+            // reads below. Its close wrap nests inside the outer
+            // pattern's, which is what §7.4.9 asks for: the inner
+            // iterator settles before the outer one hears about the
+            // abrupt completion.
+            if self.detect_stepwise(target) {
+                return self.emit_dstr_assign_group(target, loaded, out);
+            }
             let id = self.mint_desugar_id();
             let tmp = format!("__dstra_src_{id}");
             self.note_ary_destr_group(target, loaded);

@@ -124,6 +124,23 @@ impl<'a> Parser<'a> {
         target: ExprId,
         value: ExprId,
     ) -> Result<Vec<Stmt>, String> {
+        let mut out = Vec::new();
+        self.emit_dstr_assign_group(target, value, &mut out)?;
+        Ok(out)
+    }
+
+    /// Lay out one pattern over one source: the group temp (plus the
+    /// raw hoist and the prefix-bounded walk when the pattern defers),
+    /// the element statements, and the deferred-close wrap they ride
+    /// inside. A NESTED pattern whose own elements need the spec's
+    /// interleaving comes back through here for its own group, which
+    /// is why this is a function and not the body of the entry above.
+    pub(super) fn emit_dstr_assign_group(
+        &mut self,
+        target: ExprId,
+        value: ExprId,
+        out: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
         let id = self.mint_desugar_id();
         let src_name = format!("__dstra_src_{id}");
         // 刀 D — a rest element in a SUSPENDABLE pattern takes the
@@ -149,7 +166,6 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        let mut out = Vec::new();
         let src_init = match &group_init {
             Some(raw_name) => {
                 // Both temps pin `any` (unlike the plain path below):
@@ -210,11 +226,11 @@ impl<'a> Parser<'a> {
         self.emit_dstr_assign_pattern(target, &src_name, &mut elems)?;
         let suspends = std::mem::replace(&mut self.dstra_saw_yield, saved);
         if suspends || rest_susp || stepwise {
-            self.wrap_deferred_close(id, &mut out, elems);
+            self.wrap_deferred_close(id, out, elems);
         } else {
             out.extend(elems);
         }
-        Ok(out)
+        Ok(())
     }
 
     /// Register the temp's init in `ary_destr_groups`, exactly as the

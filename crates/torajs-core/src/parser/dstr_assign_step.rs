@@ -40,17 +40,47 @@ impl<'a> Parser<'a> {
         let Expr::Array(elems) = self.ast.get_expr(target) else {
             return false;
         };
-        elems.iter().any(|&e| {
-            let t = match self.ast.get_expr(e) {
-                Expr::Spread { .. } | Expr::Elision => return false,
-                Expr::Assign { target, .. } => *target,
-                _ => e,
-            };
-            matches!(
-                self.ast.get_expr(t),
-                Expr::Member { .. } | Expr::Index { .. }
-            )
-        })
+        elems.iter().any(|&e| self.elem_needs_stepping(e))
+    }
+
+    /// One element of an array pattern. A rest element answers false:
+    /// 刀 D already evaluates ITS target ahead of the drain, and the
+    /// deferred shape it takes bounds the walk at the prefix, so the
+    /// close still lands where it should.
+    fn elem_needs_stepping(&self, el: ExprId) -> bool {
+        let t = match self.ast.get_expr(el) {
+            Expr::Spread { .. } | Expr::Elision => return false,
+            Expr::Assign { target, .. } => *target,
+            _ => el,
+        };
+        self.target_needs_stepping(t)
+    }
+
+    /// A destructuring target, RECURSIVELY — because the iterator's
+    /// close is owed at the end of the whole pattern, not the end of
+    /// the walk. `[ [ a[f()] ] ] = src` has no reference of its own at
+    /// the outer level, but its inner pattern does: with the outer
+    /// walk running to completion first, the outer iterator is closed
+    /// before `f()` has even run. Anything that makes an inner pattern
+    /// step therefore makes the outer one step too.
+    ///
+    /// An object pattern never steps an iterator itself, but it can
+    /// hold targets whose evaluation the enclosing array pattern has
+    /// to order — so it forwards the question rather than answering
+    /// false.
+    fn target_needs_stepping(&self, t: ExprId) -> bool {
+        match self.ast.get_expr(t) {
+            Expr::Member { .. } | Expr::Index { .. } => true,
+            Expr::Array(elems) => elems.iter().any(|&e| self.elem_needs_stepping(e)),
+            Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| {
+                let inner = match self.ast.get_expr(*v) {
+                    Expr::Assign { target, .. } => *target,
+                    _ => *v,
+                };
+                self.target_needs_stepping(inner)
+            }),
+            _ => false,
+        }
     }
 
     /// Emit the elements of a stepwise pattern. One element is
