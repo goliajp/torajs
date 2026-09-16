@@ -87,13 +87,24 @@ fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
     // constantly (`"key" + j` over an f64 loop counter), and Ryū spends
     // ~30 ns on what itoa does in a few.
     if abs_d < F64_EXACT_INT_BOUND && (d as i64) as f64 == d {
-        let mut digits = [0u8; ITOA_BUF_LEN];
-        let start = itoa_into(d as i64, &mut digits);
-        return write_literal(buf, &digits[start..]);
+        return write_integer(buf, d as i64);
     }
     let use_exp = abs_d < 1e-6 || abs_d >= 1e21;
     let dec = d2d(d.to_bits());
     format_decimal(buf, dec, use_exp)
+}
+
+/// The integer fast path, kept out of line and size-tuned. Inlined
+/// into `format_f64_into` the digit loop was unrolled into ~1 KB, which
+/// pushed `__text` of every program formatting a number across a page
+/// boundary (+16 KB on disk, rotation 661); called, it is one copy of a
+/// loop and the call costs nothing next to the formatting.
+#[inline(never)]
+#[optimize(size)]
+fn write_integer(buf: &mut [u8], n: i64) -> usize {
+    let mut digits = [0u8; ITOA_BUF_LEN];
+    let start = itoa_into(n, &mut digits);
+    write_literal(buf, &digits[start..])
 }
 
 /// Format a `Decimal64` into `buf` using JS spec digit shape.
