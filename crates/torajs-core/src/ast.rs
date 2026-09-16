@@ -1,8 +1,11 @@
 //! AST — arena-allocated. Children referenced by `ExprId(u32)`, not Box.
 
 pub(crate) mod accessor_lookup;
+mod annexb_block_binding;
 mod annexb_fn_goal;
+mod annexb_fn_var;
 mod annexb_forin_init_goal;
+mod annexb_names;
 mod apply_args;
 mod apply_args_materialize;
 mod apply_args_recv;
@@ -18,6 +21,7 @@ mod arguments_object_chain;
 mod arguments_object_collect;
 mod arguments_object_ctor_argv;
 mod arguments_object_devirt;
+pub(crate) mod arguments_object_escape_store;
 mod arguments_object_headless_argv;
 mod arguments_object_inject;
 mod arguments_object_method_argv;
@@ -40,14 +44,6 @@ mod arguments_object_this_first_argv;
 mod arguments_object_walkers;
 mod arguments_object_walkers_return;
 mod arrow_arguments_alias;
-mod dedupe_fn_decls;
-pub(crate) use arguments_object_walkers::{
-    body_has_arguments_length, body_has_non_length_arguments_touch,
-};
-mod annexb_block_binding;
-mod annexb_fn_var;
-mod annexb_names;
-pub(crate) mod arguments_object_escape_store;
 mod await_ident_goal;
 mod build_factory;
 mod builtin_global_assign;
@@ -62,6 +58,7 @@ mod closure_capture_anns;
 mod closure_capture_anns_outer;
 mod const_write_throw;
 mod control_flow;
+mod dedupe_fn_decls;
 mod delete_arr_widen;
 mod delete_bare_name;
 mod desugar_async;

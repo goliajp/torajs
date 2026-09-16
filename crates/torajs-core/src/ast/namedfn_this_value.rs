@@ -43,7 +43,11 @@
 //! - a `Member` / `Index` base — `t.call(r, 7)` answers the real
 //!   receiver today, and the forwarder pins `undefined`, so routing it
 //!   here would trade a correct answer for a wrong one. The property
-//!   face reads the same cell either way (`fnprops_bind_cell`);
+//!   face reads the same cell either way (`fnprops_bind_cell`).
+//!   `.bind` is the exception, and for the same reason read the other
+//!   way: the desugar swallows no `.bind` at all, so nothing downstream
+//!   turns it into a direct call — the member call survives and the
+//!   runtime kernel calls whatever cell the base evaluated to;
 //! - an `Assign` target — `t = …` is a write, and
 //!   `widen_rebound_fn_decls` owns that shape.
 //!
@@ -149,7 +153,20 @@ pub fn promote_this_fn_values(ast: &mut Ast) {
             Expr::Call { callee, .. } | Expr::NewDynamic { callee, .. } => {
                 non_value.insert(callee.0 as usize);
             }
-            Expr::Member { obj, .. } | Expr::Index { obj, .. } => {
+            // `.bind` is the one property whose base IS a value use:
+            // `desugar_function_prototype_methods` never swallows it
+            // (every `.bind` rides the runtime kernel), so the member
+            // call survives to lowering and the kernel calls the cell
+            // it is handed. A plain `__forward_` shell pins the
+            // receiver to `undefined`, which is exactly the answer
+            // `f.bind({_v: 10})(5)` must not give. `.call` / `.apply`
+            // keep the exclusion: this pass runs BEFORE the desugar,
+            // and the forms it swallows become direct calls whose
+            // receiver channel is already right.
+            Expr::Member { obj, name } if name != "bind" => {
+                non_value.insert(obj.0 as usize);
+            }
+            Expr::Index { obj, .. } => {
                 non_value.insert(obj.0 as usize);
             }
             Expr::Assign { target, .. } => {

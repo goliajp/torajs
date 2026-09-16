@@ -241,7 +241,7 @@ impl<'a> FnToClosureCollector<'a> {
             && let Expr::Ident(fname) = self.ast.get_expr(*obj)
             && let Some((params, _, _)) = self.fn_sigs.get(fname)
             && !crate::ast_desugar_function_prototype_methods::swallows_fn_proto_call(
-                self.ast, mname, args, params, fname,
+                self.ast, mname, args, params,
             )
         {
             // r292 — the generator exclusion drops here too: an
@@ -369,7 +369,7 @@ impl<'a> FnToClosureCollector<'a> {
             return false;
         };
         crate::ast_desugar_function_prototype_methods::swallows_fn_proto_call(
-            self.ast, name, args, params, fname,
+            self.ast, name, args, params,
         )
     }
 
