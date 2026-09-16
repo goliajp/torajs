@@ -400,7 +400,7 @@ pub use await_ident_goal::triage_await_idents;
 pub use desugar_with::{WithReject, desugar_with};
 pub use dup_param_goal::triage_duplicate_params;
 pub use legacy_octal_sites::{record_legacy_octal_sites, triage_legacy_octal};
-pub use new_target_param::bind_new_target_param;
+pub use new_target_param::{bind_new_target_param, synthesize_new_target_ctor_faces};
 pub use number_template_sites::number_template_sites;
 pub use promise_then_store_widen::widen_promise_then_store_bindings;
 pub use stmt_flat::toplevel_stmts_flat;

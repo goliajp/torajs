@@ -191,7 +191,7 @@ pub(crate) unsafe fn construct_with_new_target(
         // B1 and only knew the class-factory registry.
         let target_tag = (as_void_ptr(target).cast::<u8>().add(4) as *const u16).read();
         let obj = if target_tag == Tag::Closure as u16 {
-            crate::construct::__torajs_anyv_construct(target, argv, argc)
+            crate::construct::construct_with_nt(target, argv, argc, new_target)
         } else {
             let entry = ctor_entry(as_void_ptr(target) as u64);
             if entry == 0 {

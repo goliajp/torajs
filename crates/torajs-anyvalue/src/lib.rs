@@ -176,6 +176,7 @@ mod size_get;
 pub use method_call::any_method_dispatch_impl;
 pub use method_value::ctor_date_call_impl;
 pub use method_value::ns_static_cell_impl;
+mod construct_new_target;
 mod method_call_arr;
 mod method_call_arr_copy;
 mod method_call_arr_species;

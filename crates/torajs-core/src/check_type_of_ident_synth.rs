@@ -298,6 +298,11 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::Number, Type::Number],
             Box::new(Type::Void),
         )),
+        // RFC 20260917-plain-fn-new-target knife 3.
+        "__torajs_new_target_register" => Ok(Type::Function(
+            vec![Type::Any, Type::Any],
+            Box::new(Type::Void),
+        )),
         "__torajs_ctor_ret_carry" => Ok(Type::Function(
             vec![Type::Any, Type::Any, Type::String],
             Box::new(Type::Void),

@@ -20,6 +20,9 @@ pub(crate) struct CtorRetIds {
     pub ctor_ret_value: FuncId,
     /// One own element moved onto an adopted object.
     pub ctor_ret_carry: FuncId,
+    /// RFC 20260917-plain-fn-new-target knife 3 — a function's construct
+    /// face registered against its value face.
+    pub new_target_register: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> CtorRetIds {
@@ -36,6 +39,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_ctor_ret_carry",
             &[Type::Any, Type::Any, Type::Ptr],
+            Type::Void,
+        ),
+        new_target_register: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_new_target_register",
+            &[Type::Any, Type::Any],
             Type::Void,
         ),
     }

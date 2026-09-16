@@ -32,6 +32,7 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
     match name {
         "__torajs_ctor_ret_value" => try_lower_value(ctx, args),
         "__torajs_ctor_ret_carry" => try_lower_carry(ctx, args),
+        crate::ast::new_target_param::REGISTER => try_lower_new_target_register(ctx, args),
         _ => None,
     }
 }
@@ -102,5 +103,29 @@ fn try_lower_carry(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
             vec![minted, target, Operand::Value(key)],
         ),
     );
+    Some(Operand::ConstI64(0))
+}
+
+/// RFC 20260917-plain-fn-new-target knife 3 — a plain function's
+/// construct face registered against its value face (both closure
+/// cells; the kernel keeps their boxed entries only).
+fn try_lower_new_target_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    let [value_face, ctor_face] = args else {
+        return None;
+    };
+    let v = any_arg(ctx, *value_face);
+    let c = any_arg(ctx, *ctor_face);
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.new_target_register,
+            vec![v.clone(), c.clone()],
+        ),
+    );
+    for op in [v, c] {
+        let ty = ctx.operand_ty(&op);
+        ctx.emit_drop_value(op, ty);
+    }
     Some(Operand::ConstI64(0))
 }

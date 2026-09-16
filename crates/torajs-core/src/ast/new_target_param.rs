@@ -121,6 +121,99 @@ pub fn bind_new_target_param(ast: &mut Ast) {
     }
 }
 
+/// The register call knife 3 prepends, named for the checker and the
+/// lowering arm.
+pub(crate) const REGISTER: &str = "__torajs_new_target_register";
+
+/// Knife 3 — [[Construct]] through a value. A function above that has a
+/// value face (`__fwdrecv_<F>`, which forwards `undefined` for the
+/// slot) also gets a construct face `__ntctor_<F>(__env, __this,
+/// __new_target, …user)` passing both through, registered at program
+/// start against the value face (`torajs-anyvalue`
+/// `construct_new_target.rs`). Runs after `promote_this_fn_values`,
+/// which mints the value faces.
+///
+/// A function with a parameter default or a rest parameter keeps the
+/// call channel: the face forwards each parameter by name, which a
+/// call-site default or a spread would misrepresent.
+pub fn synthesize_new_target_ctor_faces(ast: &mut Ast) {
+    let mut faces: Vec<Stmt> = Vec::new();
+    let mut registers: Vec<Stmt> = Vec::new();
+    let names: Vec<String> = ast.new_target_fns.iter().cloned().collect();
+    for name in names {
+        let value_face = format!("__fwdrecv_{name}");
+        if !ast
+            .stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == value_face))
+        {
+            continue;
+        }
+        let Some(Stmt::FnDecl {
+            params,
+            return_type,
+            span,
+            ..
+        }) = ast
+            .stmts
+            .iter()
+            .find(|s| matches!(s, Stmt::FnDecl { name: n, .. } if *n == name))
+        else {
+            continue;
+        };
+        if params.iter().any(|p| p.default.is_some() || p.is_rest)
+            || params.first().is_some_and(|p| p.name == "__env")
+        {
+            continue;
+        }
+        let (params, return_type, span) = (params.clone(), return_type.clone(), *span);
+        let ctor_face = format!("__ntctor_{name}");
+        let callee = ast.add_expr(Expr::Ident(name.clone()));
+        let args = params
+            .iter()
+            .map(|p| ast.add_expr(Expr::Ident(p.name.clone())))
+            .collect();
+        let call = ast.add_expr(Expr::Call { callee, args });
+        let mut face_params = vec![Param {
+            name: "__env".into(),
+            type_ann: Some("__env()".into()),
+            default: None,
+            is_rest: false,
+        }];
+        // An untyped JS parameter has no annotation to copy; the face
+        // takes it as `any`, as the value faces do.
+        face_params.extend(params.into_iter().map(|p| Param {
+            type_ann: p.type_ann.or_else(|| Some("any".into())),
+            ..p
+        }));
+        faces.push(Stmt::FnDecl {
+            name: ctor_face.clone(),
+            type_params: Vec::new(),
+            params: face_params,
+            return_type,
+            body: vec![Stmt::Return(Some(call))],
+            is_generator: false,
+            span,
+        });
+        let reg = ast.add_expr(Expr::Ident(REGISTER.into()));
+        let vf = ast.add_expr(Expr::Closure {
+            fn_name: value_face,
+            captures: Vec::new(),
+        });
+        let cf = ast.add_expr(Expr::Closure {
+            fn_name: ctor_face,
+            captures: Vec::new(),
+        });
+        let call = ast.add_expr(Expr::Call {
+            callee: reg,
+            args: vec![vf, cf],
+        });
+        registers.push(Stmt::Expr(call));
+    }
+    ast.stmts.extend(faces);
+    ast.stmts.splice(0..0, registers);
+}
+
 fn collect_stmts(ast: &Ast, stmts: &[Stmt], out: &mut Vec<ExprId>) {
     for s in stmts {
         // A nested declaration is its own function with its own

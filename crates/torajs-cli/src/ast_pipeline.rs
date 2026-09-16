@@ -383,6 +383,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // shell per declaration and no second minting pass below.
     ast::canonicalize_fn_proto_receivers(ast);
     ast::promote_this_fn_values(ast);
+    ast::synthesize_new_target_ctor_faces(ast);
     ast_closure_param_tag::tag_closure_arg_params(ast);
     ast::synthesize_forwarders(ast);
     ast::desugar_nested_fns(ast);

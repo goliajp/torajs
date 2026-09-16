@@ -122,7 +122,7 @@ pub(crate) fn try_lower(
         }
         // RFC 20260820-ctor-return-override — the §10.2.2 step 13
         // family lives in the `_ctorret` sibling.
-        n if n.starts_with("__torajs_ctor_ret_") => {
+        n if n.starts_with("__torajs_ctor_ret_") || n == crate::ast::new_target_param::REGISTER => {
             crate::ssa_lower_call_class_synth_ctorret::try_lower(ctx, n, args)
         }
         crate::ast::private_brand::INSTALL | crate::ast::private_brand::CHECK => {

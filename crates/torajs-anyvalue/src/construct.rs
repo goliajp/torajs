@@ -239,6 +239,22 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
     argv: *const u64,
     argc: i64,
 ) -> AnyValue {
+    unsafe { construct_with_nt(callee, argv, argc, callee) }
+}
+
+/// [`__torajs_anyv_construct`] with an explicit newTarget, which a
+/// plain function reading `new.target` receives in its body
+/// (`construct_new_target.rs`); `Reflect.construct` passes its third
+/// operand, `new F()` the callee itself.
+///
+/// # Safety
+/// As [`__torajs_anyv_construct`]; `new_target` is a live AnyValue.
+pub(crate) unsafe fn construct_with_nt(
+    callee: AnyValue,
+    argv: *const u64,
+    argc: i64,
+    new_target: AnyValue,
+) -> AnyValue {
     if !unsafe { is_constructor(callee) } {
         unsafe {
             __torajs_throw_type_error(c"value is not a constructor".as_ptr());
@@ -274,16 +290,21 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
                 merged[bn + i] = unsafe { *argv.add(i) };
             }
             let target_av = unsafe { __torajs_anyv_box_pointer(target as *mut c_void) };
-            return unsafe {
-                __torajs_anyv_construct(target_av, merged.as_ptr(), (bn + cn) as i64)
+            // Step 5 — a newTarget that is the bound function itself
+            // becomes the target.
+            let nt = if new_target == callee {
+                target_av
+            } else {
+                new_target
             };
+            return unsafe { construct_with_nt(target_av, merged.as_ptr(), (bn + cn) as i64, nt) };
         }
         // A builtin-constructor cell — the per-family [[Construct]]
         // (wrapper mints, containers, the loud reject for the rest).
         if let Some(tag) = crate::method_value::ctor::ctor_tag_of_cell(cell) {
             return unsafe { crate::method_value::ctor::ctor_construct(tag, argv, argc) };
         }
-        return unsafe { construct_plain_fn(cell, argv, argc) };
+        return unsafe { construct_plain_fn(cell, argv, argc, new_target) };
     }
     let entry = ctor_entry(as_void_ptr(callee) as u64);
     if entry == 0 {
@@ -307,13 +328,19 @@ pub unsafe extern "C" fn __torajs_anyv_construct(
 /// first touch, `constructor` back-ref included) — the body runs
 /// through the same receiver-routing dispatcher every any-world call
 /// uses, and a non-object completion answers the fresh `this` (step
-/// 10.b). `new.target` inside the body is a recorded approximation:
-/// tr lowers it to undefined outside class ctors.
+/// 10.b). A body that reads `new.target` is entered through its
+/// registered construct face with `new_target`
+/// (`construct_new_target.rs`); any other body ignores it.
 ///
 /// # Safety
 /// `cell` is a live closure cell carrying `FLAG_FN_PROTO`; `argv`
 /// points at `argc` readable AnyValue slots.
-unsafe fn construct_plain_fn(cell: *mut c_void, argv: *const u64, argc: i64) -> AnyValue {
+unsafe fn construct_plain_fn(
+    cell: *mut c_void,
+    argv: *const u64,
+    argc: i64,
+    new_target: AnyValue,
+) -> AnyValue {
     unsafe {
         let Some((_ptag, pval)) = crate::closure_proto::fn_prototype_pair(cell) else {
             // Unreachable behind the is_constructor gate, but a loud
@@ -325,7 +352,14 @@ unsafe fn construct_plain_fn(cell: *mut c_void, argv: *const u64, argc: i64) -> 
         __torajs_object_create_link_proto(this_obj, __torajs_anyv_box_pointer(pval as *mut c_void));
         let this_av = __torajs_anyv_box_pointer(this_obj);
         let entry = crate::method_call_closure_dispatch::boxed_entry_of(cell as *const u8);
-        let result = invoke_with_this(cell, entry, this_av, argv, argc);
+        let ctor_face = crate::construct_new_target::ctor_face_entry(entry);
+        let result = if ctor_face != 0 {
+            crate::construct_new_target::invoke_ctor_face(
+                ctor_face, this_av, new_target, argv, argc,
+            )
+        } else {
+            invoke_with_this(cell, entry, this_av, argv, argc)
+        };
         if __torajs_throw_check() != 0 {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(this_av);
             return VALUE_UNDEFINED;
