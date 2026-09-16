@@ -60,6 +60,7 @@ pub mod drop;
 pub mod eq;
 pub mod hash;
 pub mod iter;
+mod key_decode;
 pub mod layout;
 pub mod mutate;
 pub mod print;
@@ -88,6 +89,26 @@ pub use query::{__torajs_map_get, __torajs_map_has, __torajs_map_size};
 pub unsafe extern "C" fn __torajs_str_eq(_a: *const u8, _b: *const u8) -> i64 {
     panic!(
         "torajs-collections unit-test stub: __torajs_str_eq should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub static __TORAJS_STR_UNDEF_CELL: u8 = 0;
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_unbox_tag(_v: u64) -> i64 {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_anyv_unbox_tag should not be called from cargo test paths"
+    );
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_anyv_unbox_value(_v: u64) -> i64 {
+    panic!(
+        "torajs-collections unit-test stub: __torajs_anyv_unbox_value should not be called from cargo test paths"
     );
 }
 

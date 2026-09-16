@@ -77,9 +77,9 @@ pub unsafe extern "C" fn __torajs_map_set(
         // borrowed heap key bump (bucket already owns the key).
         unsafe {
             let e = (*m).entries.add(lr.entry_idx as usize);
-            let cur_value_tag = __torajs_anyv_unbox_tag((*e).value_anyv) as u8;
+            let (cur_value_tag, cur_value) = crate::key_decode::stored_pair((*e).value_anyv);
             if cur_value_tag == ANY_HEAP {
-                let old_vp = __torajs_anyv_unbox_value((*e).value_anyv) as *mut c_void;
+                let old_vp = cur_value as *mut c_void;
                 if !old_vp.is_null() {
                     __torajs_value_drop_heap(old_vp);
                 }

@@ -83,7 +83,11 @@ pub(crate) unsafe fn map_keys_equal(ta: u8, pa: u64, tb: u8, pb: u64) -> bool {
                 return false;
             }
             if ta == TAG_STR {
-                unsafe { __torajs_str_eq(pa_p as *const u8, pb_p as *const u8) != 0 }
+                let (a, b) = (pa_p as *const u8, pb_p as *const u8);
+                match unsafe { crate::key_decode::owned_str_eq(a, b) } {
+                    Some(eq) => eq,
+                    None => unsafe { __torajs_str_eq(a, b) != 0 },
+                }
             } else if ta == TAG_BIGINT {
                 unsafe { bigint_values_equal(pa_p as *const u8, pb_p as *const u8) }
             } else {

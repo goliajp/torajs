@@ -112,8 +112,8 @@ pub unsafe extern "C" fn __torajs_map_get(
         } else {
             let e = unsafe { (*m).entries.add(lr.entry_idx as usize) };
             let v_anyv = unsafe { (*e).value_anyv };
-            let vt = unsafe { __torajs_anyv_unbox_tag(v_anyv) };
-            let vp = unsafe { __torajs_anyv_unbox_value(v_anyv) };
+            let (vt, vp) = crate::key_decode::stored_pair(v_anyv);
+            let (vt, vp) = (vt as i64, vp as i64);
             // Caller takes ownership of the returned heap ref.
             if vt as u8 == ANY_HEAP {
                 let vp_ptr = vp as *mut c_void;
