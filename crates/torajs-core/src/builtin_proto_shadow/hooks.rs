@@ -48,24 +48,29 @@ pub(super) fn scan_namespace_statics(ast: &Ast, set: &mut ShadowSet) {
         Expr::Ident(n) => STATIC_NAMESPACES.iter().copied().find(|c| *c == n.as_str()),
         _ => None,
     };
+    // A REMOVAL is a write too, and a louder one: `delete Object.keys`
+    // makes `Object.keys(o)` a TypeError, and a route that folds the
+    // call off the callee's syntax answers it anyway.
+    let touch = |target: ExprId, set: &mut ShadowSet| match ast.get_expr(target) {
+        Expr::Member { obj, name } => {
+            if let Some(ns) = ns_of(*obj) {
+                set.add_static_write(ns, name);
+            }
+        }
+        Expr::Index { obj, index } => {
+            if let Some(ns) = ns_of(*obj) {
+                match str_literal(ast, *index) {
+                    Some(k) => set.add_static_write(ns, &k),
+                    None => set.add_static_opaque(ns),
+                }
+            }
+        }
+        _ => {}
+    };
     for e in &ast.exprs {
         match e {
-            Expr::Assign { target, .. } => match ast.get_expr(*target) {
-                Expr::Member { obj, name } => {
-                    if let Some(ns) = ns_of(*obj) {
-                        set.add_static_write(ns, name);
-                    }
-                }
-                Expr::Index { obj, index } => {
-                    if let Some(ns) = ns_of(*obj) {
-                        match str_literal(ast, *index) {
-                            Some(k) => set.add_static_write(ns, &k),
-                            None => set.add_static_opaque(ns),
-                        }
-                    }
-                }
-                _ => {}
-            },
+            Expr::Assign { target, .. } => touch(*target, set),
+            Expr::Delete { expr } => touch(*expr, set),
             Expr::Call { callee, args } => {
                 let Expr::Member { obj, name } = ast.get_expr(*callee) else {
                     continue;
@@ -97,15 +102,20 @@ pub(super) fn scan_symbol_hooks(ast: &Ast, set: &mut ShadowSet) {
         }
         _ => None,
     };
+    // A REMOVAL is a write: `delete Array.prototype[Symbol.iterator]`
+    // makes `[...arr]` a TypeError, and the typed lanes that read the
+    // backing store answer the elements instead.
+    let touch = |target: ExprId, set: &mut ShadowSet| {
+        if let Expr::Index { index, .. } = ast.get_expr(target)
+            && let Some(p) = symbol_prop(*index)
+        {
+            set.add_symbol_hook(p);
+        }
+    };
     for e in &ast.exprs {
         match e {
-            Expr::Assign { target, .. } => {
-                if let Expr::Index { index, .. } = ast.get_expr(*target)
-                    && let Some(p) = symbol_prop(*index)
-                {
-                    set.add_symbol_hook(p);
-                }
-            }
+            Expr::Assign { target, .. } => touch(*target, set),
+            Expr::Delete { expr } => touch(*expr, set),
             Expr::Call { callee, args } => {
                 let Expr::Member { obj, name } = ast.get_expr(*callee) else {
                     continue;
