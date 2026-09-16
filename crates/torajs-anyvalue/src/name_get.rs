@@ -28,7 +28,9 @@ use core::sync::atomic::{AtomicU64, Ordering};
 
 use torajs_rc::Tag;
 
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_undefined};
+use crate::nanbox::{
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_short_str, is_undefined,
+};
 
 unsafe extern "C" {
     /// torajs-str — fresh rc=1 Str from raw bytes.
@@ -323,14 +325,46 @@ pub(crate) unsafe fn bound_native_form(ptr: *mut c_void) -> Option<*mut u8> {
     }
 }
 
+/// §20.2.3.2 steps 12-14 — the target's contribution to a bound
+/// function's name is `Get(Target, "name")`, and a result that is not
+/// a String becomes the empty string.
+///
+/// The target's INTRINSIC name is a different thing, and the
+/// difference is the whole point of the step: `defineProperty(f,
+/// "name", {value: "target"})`, `delete f.name`, and a `name` set to
+/// a number are each observable here and none of them touch what the
+/// registry knows. Going through the full read also picks up the
+/// deleted-name tombstone and, for a bound-over-bound chain, the
+/// inner cell's own expando.
+///
+/// # Safety
+/// `target` is a live closure-shaped cell pointer.
+unsafe fn bound_target_name_str(target: u64) -> *mut u8 {
+    unsafe {
+        let got = __torajs_any_name_get(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            4,
+            target as i64,
+        ));
+        let is_str = is_short_str(got)
+            || (is_cell(got)
+                && (as_void_ptr(got).cast::<u8>().add(4) as *const u16).read() == Tag::Str as u16);
+        if !is_str {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+            return __torajs_str_alloc(c"".as_ptr() as *const u8, 0);
+        }
+        let s = crate::nanbox_ffi::__torajs_anyv_to_str(got).cast::<u8>();
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+        s
+    }
+}
+
 /// The name Str cell of a closure-tagged cell, owned protocol:
 /// method cells answer their interned immortal cell (drop no-ops on
 /// the static flag), everything else answers a fresh rc=1 Str.
 /// Recursive over bound-cell targets (chunk 719 — ES §20.2.3.2
 /// SetFunctionName: `"bound " + targetName`, nesting concatenates
-/// outside-in). An expando `name` shadow on a bound TARGET is not
-/// consulted here (recorded edge; the receiving cell's own expando
-/// shadows in `closure_name` before this runs).
+/// outside-in), through the target's full `name` READ rather than its
+/// intrinsic name — see [`bound_target_name_str`].
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
@@ -355,7 +389,7 @@ pub(crate) unsafe fn closure_name_str(ptr: *mut c_void) -> *mut u8 {
                 let name = torajs_rc::any_method_meta(mid).map_or("", |(n, _)| n);
                 __torajs_str_alloc(name.as_ptr(), name.len() as i64)
             } else {
-                closure_name_str(target as *mut c_void)
+                bound_target_name_str(target)
             };
             let prefix = __torajs_str_alloc(c"bound ".as_ptr() as *const u8, 6);
             let joined = crate::__torajs_str_concat(prefix as *const u8, tname as *const u8);
