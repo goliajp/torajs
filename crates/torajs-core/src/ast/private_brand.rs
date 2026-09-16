@@ -88,11 +88,16 @@ pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
     // The field guard reads the constructors as the parser left them:
     // markers not yet rewritten, no receiver wrapped yet.
     super::private_field_guard::guard_field_sites(ast, class_index, &field_pos);
+    // A run of markers no user code separates installs as one range.
+    let runs = super::private_field_guard::coalesced_installs(ast, class_index, &field_pos);
     for (i, name) in &markers {
-        ast.exprs[*i] = match field_pos.get(name) {
-            Some((_, pos)) => install_expr(ast, Expr::This, *pos, *pos + 1),
-            // An uncovered chain keeps the preinstalled field.
-            None => Expr::Ident("undefined".into()),
+        let id = ExprId(*i as u32);
+        ast.exprs[*i] = match (runs.get(&id), field_pos.get(name)) {
+            (Some(Some((from, to))), _) => install_expr(ast, Expr::This, *from, *to),
+            (None, Some((_, pos))) => install_expr(ast, Expr::This, *pos, *pos + 1),
+            // Folded into its run's install, or an uncovered chain that
+            // keeps the preinstalled field.
+            (Some(None), _) | (None, None) => Expr::Ident("undefined".into()),
         };
     }
     guard_method_sites(ast, class_index);

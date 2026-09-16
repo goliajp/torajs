@@ -89,6 +89,75 @@ pub(super) fn guard_field_sites(
     }
 }
 
+/// Markers that install together: within one constructor's top-level
+/// statements, a run of add markers separated only by initializer writes
+/// of a literal value runs no user code between its installs, so the
+/// last marker installs the whole run (`Some(range)`) and the others
+/// fold away (`None`). A class declaring thousands of fields
+/// (`test262 identifiers/start-unicode-*-class`) otherwise grows a
+/// constructor with one install per field.
+pub(super) fn coalesced_installs(
+    ast: &Ast,
+    class_index: &[ClassIndexEntry],
+    field_pos: &HashMap<String, (String, u32)>,
+) -> HashMap<ExprId, Option<(u32, u32)>> {
+    let mut out = HashMap::new();
+    for e in class_index {
+        let Some(ctor) = e.6.as_ref() else { continue };
+        let mut run: Vec<(ExprId, u32)> = Vec::new();
+        for s in &ctor.body {
+            let marker = match s {
+                Stmt::Expr(eid) => added_field(ast, *eid)
+                    .filter(|_| super::private_brand::is_field_add(ast, *eid))
+                    .and_then(|n| field_pos.get(&n).map(|(_, p)| (*eid, *p))),
+                _ => None,
+            };
+            match marker {
+                Some((eid, pos)) if run.last().is_none_or(|(_, p)| *p + 1 == pos) => {
+                    run.push((eid, pos));
+                }
+                Some(m) => {
+                    close_run(&mut run, &mut out);
+                    run.push(m);
+                }
+                None if literal_init(ast, s) => {}
+                None => close_run(&mut run, &mut out),
+            }
+        }
+        close_run(&mut run, &mut out);
+    }
+    out
+}
+
+fn close_run(run: &mut Vec<(ExprId, u32)>, out: &mut HashMap<ExprId, Option<(u32, u32)>>) {
+    if run.len() > 1 {
+        let (first, last) = (run[0].1, run[run.len() - 1].1);
+        for (eid, _) in &run[..run.len() - 1] {
+            out.insert(*eid, None);
+        }
+        out.insert(run[run.len() - 1].0, Some((first, last + 1)));
+    }
+    run.clear();
+}
+
+/// `this.<f> = <literal>` — an initializer that runs no user code.
+fn literal_init(ast: &Ast, s: &Stmt) -> bool {
+    let Stmt::Expr(eid) = s else { return false };
+    let Expr::Assign { target, value } = ast.get_expr(*eid) else {
+        return false;
+    };
+    let this_member = matches!(
+        ast.get_expr(*target),
+        Expr::Member { obj, .. } if matches!(ast.get_expr(*obj), Expr::This)
+    );
+    let literal = match ast.get_expr(*value) {
+        Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::Null => true,
+        Expr::Ident(n) => n == "undefined",
+        _ => false,
+    };
+    this_member && literal
+}
+
 fn scan_ctor(ast: &Ast, ctor: &ClassCtor, fields: &HashSet<&str>) -> CtorScan {
     let last_marker = ctor
         .body
