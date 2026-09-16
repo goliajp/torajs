@@ -35,20 +35,25 @@ pub fn fmov_x_from_d(rd: Gpr, rn: Fpr) -> u32 {
     0x9E66_0000 | (rn.idx() << 5) | rd.idx()
 }
 
-/// MOV Vd.8B, Vn.8B — register-to-register f64 move via
-/// `ORR Vd.8B, Vn.8B, Vn.8B` (ARM ARM C7.2.207 MOV vector alias),
-/// the FPR twin of `mov_x_reg`'s ORR-based integer move.
+/// MOV Vd.16B, Vn.16B — register-to-register f64 move via
+/// `ORR Vd.16B, Vn.16B, Vn.16B` (ARM ARM C7.2.207 MOV vector alias,
+/// Q = 1), the FPR twin of `mov_x_reg`'s ORR-based integer move.
 ///
-/// Deliberately NOT the scalar `FMOV Dd, Dn` (0x1E60_4000): Apple
-/// M-series move-elimination handles the ORR vector-mov alias at
-/// rename (zero latency, no execution port) but executes scalar FMOV
-/// on an FP pipe (~2 cycles). A loop-carried phi copy chain built
-/// from FMOVs puts those cycles on the critical path — mandelbrot's
-/// inner loop measured 50→43 ms from this encoding swap alone
-/// (perf-mandelbrot-decomposition.md knife A5). Semantics match the
-/// scalar form for every f64: low 64 bits copied, high 64 zeroed.
+/// Deliberately neither the scalar `FMOV Dd, Dn` (0x1E60_4000) nor
+/// the 64-bit `ORR Vd.8B` (Q = 0, 0x0EA0_1C00): Apple M-series
+/// move-elimination resolves only the full-width vector register copy
+/// at rename (zero latency, no execution port). FMOV runs on an FP
+/// pipe, and the 8B form, which must zero the upper lane, runs too. A
+/// loop-carried phi copy chain puts that cycle on the critical path:
+/// mandelbrot's inner loop measured 50 → 43 ms for FMOV → 8B
+/// (perf-mandelbrot-decomposition.md knife A5) and a further 36.7 →
+/// 28.9 ms for 8B → 16B (rotation 661, hand-assembled kernel, the form
+/// LLVM emits for Apple cores). The upper lane now travels with the
+/// copy instead of being zeroed; nothing reads it — scalar f64 ops use
+/// the D view, and the SIMD reductions seed their own registers with
+/// `movi` / `dup`.
 pub fn mov_d_reg(rd: Fpr, rn: Fpr) -> u32 {
-    0x0EA0_1C00 | (rn.idx() << 16) | (rn.idx() << 5) | rd.idx()
+    0x4EA0_1C00 | (rn.idx() << 16) | (rn.idx() << 5) | rd.idx()
 }
 
 /// FCMP Dn, Dm — set NZCV from `Dn vs Dm`. NaN sets the "unordered"
@@ -277,15 +282,14 @@ mod tests {
 
     #[test]
     fn fmov_d0_to_d0_is_base_word() {
-        // Self-move = base encoding; same bit pattern as clang -O0
-        // emits for `double f(double a){return a;}` when not elided.
-        assert_eq!(mov_d_reg(Fpr::V0, Fpr::V0), 0x0EA0_1C00);
+        // Self-move = base encoding.
+        assert_eq!(mov_d_reg(Fpr::V0, Fpr::V0), 0x4EA0_1C00);
     }
 
     #[test]
     fn fmov_d1_from_d2_matches_arm_arm() {
-        // rn=2 → 2<<5=0x40, rd=1 → 1. Base | 0x40 | 1.
-        assert_eq!(mov_d_reg(Fpr::V1, Fpr::V2), 0x0EA2_1C41);
+        // clang golden: `mov v1.16b, v2.16b` = 0x4EA2_1C41.
+        assert_eq!(mov_d_reg(Fpr::V1, Fpr::V2), 0x4EA2_1C41);
     }
 
     #[test]
