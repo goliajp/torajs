@@ -47,6 +47,17 @@ pub(crate) unsafe fn method_call(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // §7.3.31 step 1 — `p.#m()` finds nothing: a Proxy's own
+        // private elements are always empty, and the target's must
+        // never be reached through a trap. Private names only ever
+        // arrive compiler-mangled under this prefix.
+        if torajs_rc::str_wtf8::StrWtf8::of(name_str as *const c_void)
+            .as_bytes()
+            .starts_with(b"__priv_")
+        {
+            __torajs_throw_type_error(c"cannot call private method on a Proxy".as_ptr());
+            return VALUE_UNDEFINED;
+        }
         // `p.call(t, …)` / `p.apply(t, list)` on a CALLABLE proxy is
         // still a [[Call]] on the proxy — §20.2.3.3 passes its own
         // receiver through as the thisArgument, so forwarding the

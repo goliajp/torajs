@@ -16,9 +16,12 @@
 //! receivers carry no brand and throw here (PrivateSet's ToObject-
 //! free receiver check).
 
+use crate::member_get_layout::{recv_cell, struct_props};
 use crate::member_get_private::priv_brand_declared;
 use crate::nanbox::AnyValue;
+use crate::struct_probe::{struct_accessor_key, struct_field_pair};
 use core::ffi::c_void;
+use torajs_rc::Tag;
 
 unsafe extern "C" {
     fn __torajs_any_member_set(
@@ -29,6 +32,7 @@ unsafe extern "C" {
         hint: i64,
     );
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
 }
 
 /// See module doc.
@@ -53,5 +57,31 @@ pub unsafe extern "C" fn __torajs_any_member_set_priv(
         }
         return;
     }
+    // §7.3.32 step 4 — a private METHOD is not writable. Of the brand
+    // faces above only a class method is neither a layout field, an
+    // expando entry nor an accessor (those three stay writable, or
+    // throw their own readonly TypeError in the base kernel).
+    if let Some((ptr, t)) = recv_cell(recv)
+        && t == Tag::Obj as u16
+        && unsafe { private_method_face(ptr, key) }
+    {
+        unsafe { __torajs_throw_type_error(c"private method is not writable".as_ptr()) };
+        return;
+    }
     unsafe { __torajs_any_member_set(recv_slot, key, tag, value, hint) }
+}
+
+/// Whether a brand-declared private `key` on the struct cell `ptr`
+/// names a method — see the write gate above.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell; `key` a live Str cell.
+unsafe fn private_method_face(ptr: *mut c_void, key: *mut c_void) -> bool {
+    unsafe {
+        if struct_field_pair(ptr, key).is_some() || struct_accessor_key(ptr, key) {
+            return false;
+        }
+        let props = struct_props(ptr);
+        props.is_null() || __torajs_dynobj_has(props, key) == 0
+    }
 }

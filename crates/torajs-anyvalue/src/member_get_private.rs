@@ -17,8 +17,9 @@
 use crate::member_get::__torajs_any_member_get_tag;
 use crate::member_get_layout::{recv_cell, struct_props};
 use crate::nanbox::{AnyValue, is_null, is_undefined};
-use crate::struct_probe::struct_field_pair;
+use crate::struct_probe::{ANY_ACCESSOR_TAG, KIND_GETTER, resolve, struct_field_pair};
 use core::ffi::c_void;
+use torajs_rc::str_wtf8::StrWtf8;
 use torajs_rc::{AnySlotTag, Tag};
 
 unsafe extern "C" {
@@ -37,12 +38,32 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
     key: *const c_void,
 ) -> u64 {
     let tag = unsafe { __torajs_any_member_get_tag(recv, key) };
-    if tag != AnySlotTag::Undef as u64 {
-        return tag;
-    }
     // The base walk already threw for a null / undefined receiver —
     // don't stack a second TypeError on the pending one.
     if is_null(recv) || is_undefined(recv) {
+        return tag;
+    }
+    // §7.3.31 step 1 — a Proxy has its own, always empty, private
+    // elements: the base walk answers the accessor sentinel for it
+    // (the `get` trap route), which must never reach the target.
+    if matches!(recv_cell(recv), Some((_, t)) if t == Tag::Proxy as u16) {
+        unsafe { throw_private(c"cannot read private member from a Proxy") };
+        return AnySlotTag::Undef as u64;
+    }
+    if tag == ANY_ACCESSOR_TAG {
+        // §7.3.31 step 6 — an accessor whose [[Get]] is undefined
+        // throws; the ordinary member channel answers `undefined`
+        // for the same shape, which is right for public names only.
+        if let Some((ptr, t)) = recv_cell(recv)
+            && t == Tag::Obj as u16
+            && unsafe { resolve(ptr, StrWtf8::of(key).as_bytes(), KIND_GETTER) }.is_none()
+        {
+            unsafe { throw_private(c"private accessor was defined without a getter") };
+            return AnySlotTag::Undef as u64;
+        }
+        return tag;
+    }
+    if tag != AnySlotTag::Undef as u64 {
         return tag;
     }
     let declared = match recv_cell(recv) {
@@ -58,13 +79,16 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
     };
     if !declared {
         unsafe {
-            __torajs_throw_type_error(
-                c"cannot read private member from an object whose class did not declare it"
-                    .as_ptr(),
-            );
-        }
+            throw_private(
+                c"cannot read private member from an object whose class did not declare it",
+            )
+        };
     }
     tag
+}
+
+unsafe fn throw_private(msg: &core::ffi::CStr) {
+    unsafe { __torajs_throw_type_error(msg.as_ptr()) }
 }
 
 /// ES2022 §13.10.1 ergonomic brand check (`#x in o`) — whether the

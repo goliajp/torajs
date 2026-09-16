@@ -121,7 +121,7 @@ pub(crate) const ANY_ACCESSOR_TAG: u64 = 6;
 const METHOD_FLAG_TWIN_PRIMARY: u32 = 2;
 
 /// How a struct's accessor half is reached.
-enum StructAccessor {
+pub(crate) enum StructAccessor {
     /// Object literal — the closure env cell out of the layout slot.
     Closure(*mut c_void),
     /// Class — the boxed adapter out of the dispatch table.
@@ -138,7 +138,7 @@ enum StructAccessor {
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` cell.
-unsafe fn resolve(ptr: *mut c_void, prop: &[u8], kind: u8) -> Option<StructAccessor> {
+pub(crate) unsafe fn resolve(ptr: *mut c_void, prop: &[u8], kind: u8) -> Option<StructAccessor> {
     unsafe {
         let class_tag = ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read();
         let layout = __torajs_struct_layout_lookup(class_tag);
