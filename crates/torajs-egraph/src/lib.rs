@@ -31,6 +31,7 @@ pub mod egraph;
 pub mod elaborate;
 pub mod fconst_hoist;
 pub mod float_demote;
+pub mod frem_int;
 pub mod frem_narrow;
 pub mod iconst_hoist;
 pub mod inliner;
@@ -407,7 +408,7 @@ pub fn transform_module(mut module: Module) -> Module {
 }
 
 /// Rewrites that read the interval facts after float_demote (facts
-/// stay id-valid across it).
+/// stay id-valid across both).
 fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval::NumFact>]) {
     // Interval-decided compare absorption — frem_narrow's fused zero
     // guard over a divisor the facts prove non-zero collapses onto the
@@ -415,6 +416,10 @@ fn fact_folds(module: &mut Module, facts: &[HashMap<ValueId, interval::NumFact>]
     gated_pass("CMP_FACT_FOLD", module, |m| {
         cmp_fact_fold::fold_decided_cmps(m, facts)
     });
+    // Exact float remainder — `frem(sitofp x, C)` over a dividend in
+    // [0, 2^53) becomes `sitofp(srem x, C)`, and a concat_f64 reader
+    // takes the integer. `TORAJS_FREM_INT_OFF=1` skips.
+    gated_pass("FREM_INT", module, |m| frem_int::exact_frems(m, facts));
 }
 
 /// The pipeline tail — rc-pair elision, then the cfg-shape passes whose
