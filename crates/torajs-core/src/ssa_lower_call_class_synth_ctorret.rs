@@ -51,20 +51,24 @@ fn any_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
 
 /// See module doc.
 fn try_lower_value(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 3 {
+    if args.len() != 4 {
         return None;
     }
     let Expr::Bool(derived) = ctx.ast.get_expr(args[2]) else {
         return None;
     };
     let derived = Operand::ConstI64(i64::from(*derived));
+    let Expr::Bool(owned) = ctx.ast.get_expr(args[3]) else {
+        return None;
+    };
+    let owned = Operand::ConstI64(i64::from(*owned));
     let a = any_arg(ctx, args[0]);
     let b = any_arg(ctx, args[1]);
     let fid = ctx.intrinsics.ctor_ret_value;
     let cur_block = ctx.cur_block;
     let out = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(fid, vec![a, b, derived]),
+        InstKind::Call(fid, vec![a, b, derived, owned]),
         Type::Any,
         None,
     );

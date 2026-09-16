@@ -290,7 +290,7 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         // because that is the honest type: what a constructor hands
         // back may be any object at all.
         "__torajs_ctor_ret_value" => Ok(Type::Function(
-            vec![Type::Any, Type::Any, Type::Boolean],
+            vec![Type::Any, Type::Any, Type::Boolean, Type::Boolean],
             Box::new(Type::Any),
         )),
         "__torajs_ctor_ret_carry" => Ok(Type::Function(

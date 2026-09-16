@@ -34,22 +34,23 @@
 //! what `__this` is reassigned to, which is what lets the carry find
 //! the fields the mint already initialized without a second local.
 //!
-//! **Ownership**: the pick is BORROW-shaped, and both call sites
-//! consume it by ASSIGNING it into a slot. Those two facts are one
-//! decision, because the SSA treats the two consumers differently:
-//! `x = <call>` retains what it stores, while `let x = <call>` takes
-//! the result over without one. So a borrow-shaped answer is right
-//! under an assignment and dangles under a `let`, and an owned answer
-//! is right under a `let` and leaks under an assignment. Both
-//! mistakes were measured, and each is invisible to the probe that
-//! catches the other: the dangling one read a fresh instance back as
-//! a Str while memory stayed flat, and the leaking one stayed
-//! perfectly correct while spending 65 B per construction.
+//! **Ownership** differs by consumer, and the `owned` argument says
+//! which. The factory relays the pick into `__picked` and returns it:
+//! that consumer needs an OWNED answer — a borrow there let the
+//! factory's exit release the mint to zero and return the freed cell
+//! (rotation 660: over a pooled Obj the residue still read right, so
+//! neither the gate nor Guard Malloc saw it; an Array / Promise
+//! subclass mint lost its subclass registration in the drop and
+//! `instanceof` answered false, and a primitive-returning ctor's
+//! instance read back as a torn object). The `super(…)` site assigns
+//! the pick back into `__this`, which the body goes on owning: an
+//! owned answer there leaks the object once per construction (65 B,
+//! measured). The AOT RSS churn probe catches the leak, and only the
+//! behaviour probe catches the dangle — both are needed.
 //!
 //! For the same reason the parent constructor's answer lands in a
 //! `__sup` LOCAL first. A call result handed straight to another call
-//! as an argument gets no release at all — that was a third leak, of
-//! the same 65 B, sitting underneath the first two.
+//! as an argument gets no release at all.
 
 use crate::member_get_layout::recv_cell;
 use crate::nanbox::AnyValue;
@@ -59,6 +60,7 @@ use torajs_rc::{AnySlotTag, Tag};
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
 }
 
 /// `nanbox` immediate for `undefined` — step 13.c's one exemption.
@@ -99,25 +101,35 @@ fn is_object(v: AnyValue) -> bool {
 ///
 /// # Safety
 /// Both operands are live AnyValue bit patterns the caller keeps
-/// alive across the call. The answer is a BORROW of one of them, and
-/// must be consumed by an assignment (see the module doc).
+/// alive across the call. The answer is OWNED (a +1 stake) when
+/// `owned` is non-zero and a BORROW otherwise (see the module doc).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_ctor_ret_value(
     this_v: AnyValue,
     v: AnyValue,
     derived: i64,
+    owned: i64,
 ) -> AnyValue {
-    if is_object(v) {
-        return v;
-    }
-    if derived != 0 && v != VALUE_UNDEFINED {
-        unsafe {
-            __torajs_throw_type_error(
-                c"derived constructor may only return an object or undefined".as_ptr(),
-            );
+    let picked = if is_object(v) {
+        v
+    } else {
+        if derived != 0 && v != VALUE_UNDEFINED {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"derived constructor may only return an object or undefined".as_ptr(),
+                );
+            }
         }
+        this_v
+    };
+    // A pending throw (the constructor's, or step 13.c's just above)
+    // ends the path at the caller's throw check, which never releases
+    // this answer — so it takes no stake then, owned or not.
+    if owned != 0 && unsafe { __torajs_throw_check() } == 0 {
+        // SAFETY: `picked` is one of the two live operands.
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_inc(picked) };
     }
-    this_v
+    picked
 }
 
 /// Move one of the class's own declared elements onto the object the

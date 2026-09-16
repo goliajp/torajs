@@ -165,17 +165,21 @@ pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<S
 /// derived per spec but reads as base here. That is the same view the
 /// rest of the desugar takes, and keeping one view beats a second
 /// truth about who is derived.
+/// `owned` picks the answer's ownership for its consumer — see the
+/// runtime kernel's module doc (`torajs-anyvalue` `ctor_return.rs`).
 pub(super) fn pick_call(
     ast: &mut Ast,
     incumbent: ExprId,
     candidate: ExprId,
     derived: bool,
+    owned: bool,
 ) -> ExprId {
     let callee = ast.add_expr(Expr::Ident("__torajs_ctor_ret_value".into()));
     let kind = ast.add_expr(Expr::Bool(derived));
+    let owned = ast.add_expr(Expr::Bool(owned));
     ast.add_expr(Expr::Call {
         callee,
-        args: vec![incumbent, candidate, kind],
+        args: vec![incumbent, candidate, kind, owned],
     })
 }
 
