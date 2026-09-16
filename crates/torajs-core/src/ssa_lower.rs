@@ -26,7 +26,7 @@
 use std::collections::HashMap;
 
 use crate::ast::{Ast, ExprId};
-use crate::ssa::{Module, Type, ValueId};
+use crate::ssa::{InstKind, Module, Operand, Type, ValueId};
 pub(crate) use crate::ssa_lower_ctx_struct::LowerCtx;
 pub(crate) use crate::ssa_lower_deep_clone::deep_clone_stmt;
 pub(crate) use crate::ssa_lower_env_drop_and_ret_ty::{effective_ret_ty, synthesize_env_drop};
@@ -61,6 +61,29 @@ pub(crate) use crate::ssa_lower_synthesize_main::{declare_intrinsic, synthesize_
 /// OBJ_MESSAGE_OFF / OBJ_NAME_OFF.
 pub(crate) const OBJ_HEADER_SIZE: u64 = 32;
 pub(crate) const OBJ_CLASS_TAG_OFF: u64 = 8;
+
+/// The class tag of a `Tag::Obj` cell as an I64 compare operand: the
+/// low 32 bits of the +8 slot. The backend's integer Load is always 8
+/// bytes wide, and the high half is not the tag's — the private-element
+/// install cursor lives at +12 — so every compiler-side reader masks.
+pub(crate) fn load_obj_class_tag(ctx: &mut LowerCtx<'_>, obj: Operand) -> ValueId {
+    let slot = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, obj, OBJ_CLASS_TAG_OFF),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            crate::ssa::BinOp::And,
+            Operand::Value(slot),
+            Operand::ConstI64(0xFFFF_FFFF),
+        ),
+        Type::I64,
+        None,
+    )
+}
 pub(crate) const OBJ_VTABLE_OFF: u64 = 16;
 /// Inline props-dynobj slot (blade 1). NULL until the first dynamic
 /// write through the `any` lane; blade 2 wires the write side.

@@ -28,7 +28,7 @@
 
 use crate::ast::ExprId;
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF, OBJ_HEADER_SIZE};
+use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
 use torajs_wtf8::Wtf8;
 
 /// Lower a `Type::Any` Member read for `name`. `obj_val` is the
@@ -122,12 +122,7 @@ pub(crate) fn lower_any_member_read(
     let cls_dispatch = emit_obj_tag_gate(ctx, class_blk, dynobj, dynobj_blk);
 
     // cls_dispatch: load class_tag + emit one cmp arm per candidate.
-    let ct = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(dynobj), OBJ_CLASS_TAG_OFF),
-        Type::I64,
-        None,
-    );
+    let ct = crate::ssa_lower::load_obj_class_tag(ctx, Operand::Value(dynobj));
     let mut current = cls_dispatch;
     for (ctag, offset, field_ty, is_err_slot) in &candidates {
         ctx.cur_block = current;

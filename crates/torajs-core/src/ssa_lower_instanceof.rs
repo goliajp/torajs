@@ -61,7 +61,7 @@
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
-use crate::ssa_lower::{LowerCtx, OBJ_CLASS_TAG_OFF};
+use crate::ssa_lower::LowerCtx;
 
 mod dynamic;
 mod tags;
@@ -388,13 +388,7 @@ fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str
         }
         return Operand::ConstBool(false);
     }
-    let cur_block = ctx.cur_block;
-    let tag_v = ctx.f.append_inst(
-        cur_block,
-        InstKind::Load(Type::I64, v, OBJ_CLASS_TAG_OFF),
-        Type::I64,
-        None,
-    );
+    let tag_v = crate::ssa_lower::load_obj_class_tag(ctx, v);
     let r = emit_obj_tag_or_chain(ctx, tag_v, &descendant_tags);
     // 405-03 + rotation 411 — same generic-class half as the any
     // dispatch, once per generic class in the answer set (the target
