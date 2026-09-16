@@ -58,7 +58,7 @@ pub(crate) fn pick_ary_destr_lane(
     // walk lane, the same compile-time stand-down the typed method tier
     // takes (`builtin_proto_shadow`). A program that names no builtin
     // prototype keeps the index lane, bytes unchanged.
-    let array_iteration_patchable = checker.proto_shadow.shadows("Array", "values");
+    let array_iteration_patchable = checker.proto_shadow.shadows_iteration("Array");
     if !array_iteration_patchable
         && !ast.dstr_deferred_rest.contains(&init)
         && matches!(init_ty, Type::Array(_))

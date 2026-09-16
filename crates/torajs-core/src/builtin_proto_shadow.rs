@@ -91,13 +91,49 @@ pub(crate) struct ShadowSet {
     families: HashSet<Family>,
     /// The precise pairs: `Array.prototype.join = f` names exactly one.
     methods: HashSet<(Family, String)>,
+    /// Does this module install a `Symbol.iterator` anywhere — on a
+    /// prototype, on an instance, through `defineProperty`?
+    ///
+    /// Separate from the pairs above because an iteration hook is not
+    /// reached the way a method is. `arr[Symbol.iterator] = f` writes
+    /// an OWN property on one array, which no prototype-shaped
+    /// question sees, and the typed spread / rest lanes read the
+    /// backing store directly rather than going through §7.4.2
+    /// GetIterator — so the hook was invisible to `[...arr]` while
+    /// `[...(arr as any)]` honoured it.
+    ///
+    /// Whole-program and unquantified for the same reason the pairs
+    /// are: which object a hook landed on is not a question a
+    /// syntactic scan can answer. A program that never spells
+    /// `Symbol.iterator` pays nothing.
+    iterator_hook: bool,
 }
 
 impl ShadowSet {
     /// True when the program provably cannot reach any builtin
     /// prototype — the case the typed tier is free in.
     pub(crate) fn is_empty(&self) -> bool {
-        !self.all && self.families.is_empty() && self.methods.is_empty()
+        !self.all && self.families.is_empty() && self.methods.is_empty() && !self.iterator_hook
+    }
+
+    /// Might a value in this module carry an iteration hook the typed
+    /// spread lanes cannot see? See [`Self::iterator_hook`].
+    pub(crate) fn iterator_hook_written(&self) -> bool {
+        self.iterator_hook
+    }
+
+    /// Might iterating a `family` value in this module have to go
+    /// through §7.4.2 GetIterator rather than the backing store? Two
+    /// ways to lose the shortcut: the family's own
+    /// `[Symbol.iterator]` replaced on its prototype (which is
+    /// `values` for Array, §23.1.3.36), or an own hook installed on
+    /// some instance.
+    pub(crate) fn shadows_iteration(&self, family: Family) -> bool {
+        self.iterator_hook || self.shadows(family, "values")
+    }
+
+    pub(super) fn set_iterator_hook(&mut self) {
+        self.iterator_hook = true;
     }
 
     /// Families the fallback lane is known to serve — an allowlist, not

@@ -58,6 +58,15 @@ pub(crate) fn try_lower(
     {
         return Some(emit_kernel_route(ctx, args));
     }
+    // §23.1.2.1 step 4 reads `GetMethod(items, @@iterator)`; the fast
+    // lanes below read the source's backing store instead. That is the
+    // right trade while nothing can install an iteration hook — and a
+    // module that installs one takes the kernel route for every
+    // `Array.from`, source shape regardless. Same posture as the
+    // spread lanes (`ssa_lower_array_spread`).
+    if ctx.proto_shadow.iterator_hook_written() {
+        return Some(emit_kernel_route(ctx, args));
+    }
     // S275 — widen `== 1 || == 2` to `>= 1`. The 2-arg path below handles
     // iter+mapFn; trailing args (thisArg + extras) are eval-and-dropped
     // at the end so side-effect exprs fire per ES §23.1.2.1 trailing-arg
@@ -93,9 +102,24 @@ fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let src_op = ctx.lower_expr(args[0]);
     let src_ty = ctx.operand_ty(&src_op);
     let src_boxed = ctx.box_to_any_from_expr(args[0], src_op.clone());
-    let fn_op = ctx.lower_expr(args[1]);
-    let fn_ty = ctx.operand_ty(&fn_op);
-    let fn_boxed = ctx.box_to_any_from_expr(args[1], fn_op.clone());
+    // `Array.from(src)` reaches here too when the module installs a
+    // `Symbol.iterator` (see [`try_lower`]); its mapFn is absent, and
+    // §23.1.2.1 spells that `mapping = false` — which the kernel reads
+    // off an undefined second argument.
+    let mapfn = args.get(1).copied();
+    let (fn_op, fn_ty, fn_boxed) = match mapfn {
+        Some(a) => {
+            let op = ctx.lower_expr(a);
+            let ty = ctx.operand_ty(&op);
+            let boxed = ctx.box_to_any_from_expr(a, op.clone());
+            (op, ty, boxed)
+        }
+        None => (
+            Operand::ConstPtrNull,
+            Type::Void,
+            Operand::Value(crate::ssa_lower_call_arr_ho_loop::emit_undef_any_box(ctx)),
+        ),
+    };
     let mut this_temp: Option<(Operand, Type)> = None;
     let this_boxed = if let Some(&t) = args.get(2) {
         let op = ctx.lower_expr(t);
@@ -124,7 +148,10 @@ fn emit_kernel_route(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     if src_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]) {
         ctx.emit_drop_value(src_op, src_ty);
     }
-    if fn_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[1]) {
+    if let Some(a) = mapfn
+        && fn_ty.is_refcounted()
+        && ctx.expr_is_fresh_owned(a)
+    {
         ctx.emit_drop_value(fn_op, fn_ty);
     }
     if let Some((op, ty)) = this_temp

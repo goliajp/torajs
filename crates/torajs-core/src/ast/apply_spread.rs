@@ -51,7 +51,23 @@ struct Rewrite {
     slot_defaults: Vec<Option<ExprId>>,
 }
 
+/// The index-read expansion reads the source's slots; §13.3.8.1 reads
+/// its iterator. That is the right trade while nothing can install an
+/// iteration hook — and a module that spells `Symbol.iterator` in a
+/// write position stands this whole pass down, so every spread it
+/// contains rides the runtime lane, which iterates. Same posture as
+/// the spread / `Array.from` / for-of lanes; a module that never
+/// spells it pays nothing. `spread_callee_wrap` asks the same
+/// question, so the bare fn names those sites leave behind reach the
+/// runtime lane as closure cells.
+fn iteration_hook_stands_this_down(ast: &Ast) -> bool {
+    crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast).iterator_hook_written()
+}
+
 pub fn apply_spread_args(ast: &mut Ast) {
+    if iteration_hook_stands_this_down(ast) {
+        return;
+    }
     super::apply_spread_hoist::apply_spread_hoist(ast);
     super::apply_spread_math::apply_math_min_max_spread(ast);
     super::apply_spread_push::apply_spread_push(ast);

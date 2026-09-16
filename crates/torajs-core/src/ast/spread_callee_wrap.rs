@@ -60,6 +60,13 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         return;
     }
     let evident = collect_array_evident(ast);
+    // A module that installs a `Symbol.iterator` stands the static
+    // expanders down wholesale (`apply_spread_args`), so the question
+    // below — "will one of them take this site?" — is already
+    // answered no, whatever the shape says. Missing that leaves a bare
+    // fn name on the runtime spread lane, which cannot box it.
+    let static_expanders_stood_down =
+        crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ast).iterator_hook_written();
     let mut targets: HashSet<String> = HashSet::new();
     let mut rewrites: Vec<(ExprId, String)> = Vec::new();
     let relay_sites = super::arguments_object_static_argv::forwarder_call_callee_eids(ast);
@@ -154,7 +161,8 @@ pub fn wrap_dynamic_spread_callees(ast: &mut Ast) {
         // runtime spread lane, which cannot box it — a loud
         // "box_to_any element type FnSig" where the two passes each
         // assumed the other had it.
-        if !ast.headless_argc_fns.contains(&name)
+        if !static_expanders_stood_down
+            && !ast.headless_argc_fns.contains(&name)
             && static_expander_takes(ast, args, user, &evident)
         {
             continue;

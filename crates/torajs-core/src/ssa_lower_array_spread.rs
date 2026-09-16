@@ -235,6 +235,24 @@ fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type,
         v_ty = Type::Str;
         minted = true;
     }
+    // §13.2.4.1 runs every spread through GetIterator, and the typed
+    // lanes below do not: they read the backing store. That is the
+    // right trade while nothing can install an iteration hook, and
+    // wrong the moment something does — `arr[Symbol.iterator] = f;
+    // [...arr]` answered the elements while `[...(arr as any)]`
+    // answered the hook, one value with two spellings and two
+    // meanings. A module that installs one stands the typed lanes
+    // down wholesale; one that never spells `Symbol.iterator` pays
+    // nothing (`builtin_proto_shadow`'s posture, same reasoning).
+    if ctx.proto_shadow.iterator_hook_written()
+        && matches!(v_ty, Type::Arr(_) | Type::Str | Type::Set)
+    {
+        let arr_any_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
+        let boxed = ctx.box_to_any(v.clone());
+        let materialized = crate::ssa_lower_arr_from_any::emit(ctx, boxed);
+        ctx.release_owned_temp(inner, &v);
+        return (materialized, Type::Arr(arr_any_id), true, minted);
+    }
     if matches!(v_ty, Type::Str) {
         // The same intrinsic `Array.from(str)` lowers to — one
         // code-point-correct walk, already declared, and it hands back
