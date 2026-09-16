@@ -167,13 +167,27 @@ PY
 # Commit count for the current session: `<last self prevHead>..HEAD`.
 # Empty on cold start or when git cannot answer — callers decide what an
 # unknown means (TRIG-1 SKIPs it; the jsonl records null).
+# Commits in a range that the main session itself made. Work landed by a
+# parallel agent carries an `Agent-Origin: <agent>` trailer and is not
+# the main session's work, so it never counts toward TRIG-1 or `closed:`
+# (takagi 2026-09-16: rotation task/commit counts recognise the main
+# session only — see rules/torajs-autorun-pipeline.md § B-1b). The
+# pattern is overridable so the self-test can exercise the exclusion
+# against real history without writing commits.
+AGENT_ORIGIN_PATTERN="${HARDEV_AGENT_ORIGIN_PATTERN:-^Agent-Origin:}"
+
+autorun_main_session_revs() {
+  git -C "$PROJECT_DIR" rev-list --invert-grep -E --grep="$AGENT_ORIGIN_PATTERN" "$1"
+}
+
 autorun_commits_since_last_self() {
-  local row last_head
+  local row last_head revs
   row=$(autorun_last_self_row)
   [ -n "$row" ] || { echo ""; return; }
   last_head=$(printf '%s\n' "$row" | cut -f2)
   [ -n "$last_head" ] || { echo ""; return; }
-  git -C "$PROJECT_DIR" rev-list --count "$last_head..HEAD" 2>/dev/null || echo ""
+  revs=$(autorun_main_session_revs "$last_head..HEAD" 2>/dev/null) || { echo ""; return; }
+  printf '%s\n' "$revs" | grep -c .
 }
 
 # The `axis:` line from the handoff rotate-trigger section, normalised to

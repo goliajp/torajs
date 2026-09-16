@@ -203,7 +203,7 @@ closed_block() {
 closed_session_shas() {
   local range shas tok seen=""
   range=$(session_range)
-  shas=$(git -C "$PROJECT_DIR" rev-list "$range" 2>/dev/null) || return
+  shas=$(autorun_main_session_revs "$range" 2>/dev/null) || return
   [ -n "$shas" ] || return
   for tok in $(closed_block | grep -oE '\b[0-9a-f]{7,40}\b'); do
     case " $seen " in *" $tok "*) continue ;; esac

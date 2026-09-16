@@ -30,6 +30,7 @@
 #  18  axis skew, review without the reading → exit 1, TRIG-5 FAIL
 #  19  axis skew, axis-B reading months old  → exit 1, TRIG-5 FAIL
 #  20  commits enough, one thing closed     → exit 1, TRIG-1 FAIL
+#  23  every commit carries Agent-Origin     → exit 1, TRIG-1 FAIL
 #
 # Exit: 0 if all cases behave as expected; 1 otherwise.
 
@@ -255,6 +256,15 @@ mk_stamps
 mk_log "$TMP/rot.jsonl" 7200 12
 mk_handoff "$GOOD_AXIS" "closed: $REAL_SHA one thing only" "$GOOD_GATE"
 run_case "20 twelve commits, one thing closed" 1 "TRIG-1 FAIL.*only 1 thing"
+
+# 23 — agent-landed commits are not the main session's work. A pattern
+# that matches every message turns twelve commits into zero; case 1
+# (default pattern) is the other half: nothing real carries the trailer.
+mk_log "$TMP/rot.jsonl" 7200 12
+mk_handoff "$GOOD_AXIS" "$GOOD_CLOSED" "$GOOD_GATE"
+export HARDEV_AGENT_ORIGIN_PATTERN=.
+run_case "23 agent-origin commits not counted" 1 'TRIG-1 FAIL.*commits=0 '
+unset HARDEV_AGENT_ORIGIN_PATTERN
 
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" -eq 0 ]

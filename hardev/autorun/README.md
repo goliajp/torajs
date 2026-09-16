@@ -216,6 +216,12 @@ fi
 
 ## TRIG-1..7 spec（rotation 触发不变量,`trig_gate.sh`;P2.0 SHIPPED,2026-09-07 重设计,2026-09-09 加 6/7）
 
+**计数只认主 session(2026-09-16 takagi 立)**:多路 agent 并行是基本工作方法,但 TRIG-1 的
+commit 数与 `closed:` 条目只数主 session 自己的 commit。agent 落的 commit 带
+`Agent-Origin: <agent>` trailer,`lib.sh::autorun_main_session_revs` 用
+`rev-list --invert-grep` 排除(pattern 可经 `HARDEV_AGENT_ORIGIN_PATTERN` 覆盖,仅供自测)。
+`commitsInSession` 同源。自测用例 23。
+
 INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-1..7
 治 rotation _触发_(trigger.sh self 入口);两侧 gate 互相独立、机器化、
 零模型自评估。
@@ -247,7 +253,7 @@ INV-1..5 治 rotation _执行_(stop_hook 之前、watcherd 之前 act 前),TRIG-
 
 | ID | 不变量 | 它独有的职责 | 实现 |
 |----|--------|------------|------|
-| **TRIG-1** | commit ≥ **12** **且** `closed:` 上属于本 session 的 sha ≥ **3** | **下限** — 工作量够不够摊掉固定成本;两个量,因为其中一个可被稀释 | git rev-list + `closed_session_shas` |
+| **TRIG-1** | commit ≥ **12** **且** `closed:` 上属于本 session 的 sha ≥ **3** | **下限** — 工作量够不够摊掉固定成本;两个量,因为其中一个可被稀释 | `autorun_main_session_revs`(排除 `Agent-Origin:` trailer)+ `closed_session_shas` |
 | **TRIG-2** | wall ∈ [**1800s**, **18000s**];**≥ 18000s 时豁免 TRIG-1** | **两端 + 唯一的机器化出口** — 太快不真实,太长该收 | rotations.jsonl tail self filter |
 | **TRIG-3** | handoff `## rotate 触发` 段含三行:`axis:` / `closed:`(含本 session 区间内真实 sha)/ `gate: N/F/S`(F 必须 0) | **内容** — 哪条轴、闭合了什么、gate 读数多少 | grep + `git rev-list <range>` 校验 sha |
 | **TRIG-4** | 同段 grep -i 不含 13 条 blacklist 借口 phrase | **措辞** — 已知的 procrastination 话术 | grep -iE |
