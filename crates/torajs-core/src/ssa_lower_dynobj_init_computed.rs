@@ -286,7 +286,7 @@ impl LowerCtx<'_> {
                 // `genexpr_names`, so an empty row there is exactly
                 // "anonymous, in no naming position" — which is
                 // what a computed key leaves behind (567-02).
-                let anon = match fn_name.strip_prefix("__forward_") {
+                let anon = match crate::ast::shell_target(fn_name) {
                     Some(target) => self
                         .ast
                         .genexpr_names

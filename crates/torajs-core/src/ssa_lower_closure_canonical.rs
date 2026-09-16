@@ -37,7 +37,7 @@ pub(crate) fn try_lower_canonical_cell(
     // The shells still differ from each other — that cross-shell merge
     // is RFC §8 residue 1 and is NOT this — but a shell must at least
     // be one object per declaration (ES 10.2.11).
-    if !(fn_name.starts_with("__forward_") || fn_name.starts_with("__fwdrecv_")) || has_captures {
+    if !crate::ast::is_shell(fn_name) || has_captures {
         return None;
     }
     let slot_name = format!("__fncell_{fn_name}");
@@ -84,7 +84,7 @@ pub(crate) fn try_lower_canonical_cell(
     // filled migrates in. Before the split, `PROTO.type = v`
     // (FnSig spelling → fnprops) and a proto-chain / any-lane
     // read through the cell answered different storage.
-    if let Some(target) = fn_name.strip_prefix("__forward_")
+    if let Some(target) = crate::ast::shell_target(fn_name)
         && let Some(&target_fid) = ctx.fn_table.get(target)
     {
         let target_addr =
@@ -102,8 +102,7 @@ pub(crate) fn try_lower_canonical_cell(
     // its `__Gen_<name>` class proto (what getPrototypeOf(g())
     // answers); define it into the fresh cell's props so every
     // member-get channel hits the ordinary props probe.
-    if let Some(tag) = fn_name
-        .strip_prefix("__forward_")
+    if let Some(tag) = crate::ast::shell_target(fn_name)
         .and_then(|n| ctx.ast.generator_factory_classes.get(n))
         .and_then(|cls| ctx.class_name_to_tag.get(cls))
         .copied()

@@ -69,6 +69,29 @@ pub(crate) enum ShellFace {
     ReceiverFirst,
 }
 
+/// The declaration a synthesized relay shell forwards to, whichever
+/// face it wears — `__forward_` and `__fwdrecv_` are two faces of the
+/// same shell ([`ShellFace`]), minted by the same synthesizer from the
+/// same signature.
+///
+/// Almost every question asked about a shell has the same answer for
+/// both faces: which declaration is behind it, whether it is a relay
+/// rather than a user function, whether it already exists so a second
+/// one need not be minted. Asking with a single prefix is how a
+/// receiver-first shell gets mistaken for an ordinary anonymous
+/// closure — and the mistakes are quiet ones (a cloned singleton, a
+/// second forwarder over a forwarder, a missing property bag).
+pub(crate) fn shell_target(name: &str) -> Option<&str> {
+    name.strip_prefix("__forward_")
+        .or_else(|| name.strip_prefix("__fwdrecv_"))
+}
+
+/// Is this name one of the synthesized relay shells? See
+/// [`shell_target`] for why both faces answer together.
+pub(crate) fn is_shell(name: &str) -> bool {
+    shell_target(name).is_some()
+}
+
 /// Build `__forward_<target>(__env, ...user params) { return
 /// target(...); }` (or the receiver-first `__fwdrecv_<target>(__env,
 /// __this, ...user)`) from the target's own signature.

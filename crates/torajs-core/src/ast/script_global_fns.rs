@@ -99,7 +99,7 @@ pub fn synthesize_script_global_fns(ast: &mut Ast) {
             ..
         } = s
         {
-            if name.starts_with("__forward_") {
+            if super::is_shell(name) {
                 existing_forwarders.insert(name.clone());
             }
             fn_sigs.insert(name.clone(), (params.clone(), return_type.clone(), *span));

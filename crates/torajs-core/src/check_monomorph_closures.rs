@@ -170,7 +170,7 @@ fn collect_lifted_refs(
         let Expr::Closure { fn_name, .. } = ast.get_expr(old) else {
             continue;
         };
-        if fn_name.starts_with("__forward_") {
+        if crate::ast::is_shell(fn_name) {
             continue;
         }
         if !is_lifted_decl(ast, fn_name) {

@@ -384,7 +384,7 @@ fn seed_declared_fn_sigs(stmts: &[Stmt]) -> std::collections::HashMap<String, St
             // fn-shaped sig `preinfer_closure_sigs` would publish later
             // is spellable here, ahead of the first closure that reads
             // it.
-            if name.starts_with("__forward_") {
+            if crate::ast::is_shell(name) {
                 let mut param_anns: Vec<String> = Vec::with_capacity(params.len());
                 let complete = params.iter().filter(|p| p.name != "__env").all(|p| {
                     p.type_ann.as_ref().is_some_and(|a| {

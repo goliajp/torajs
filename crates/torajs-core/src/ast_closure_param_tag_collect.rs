@@ -28,7 +28,7 @@ pub(crate) fn collect_fn_decls(
             ..
         } = s
         {
-            if name.starts_with("__forward_") {
+            if crate::ast::is_shell(name) {
                 existing_forwarders.insert(name.clone());
             } else {
                 let is_closure_shaped = params.first().is_some_and(|p| p.name == "__env");

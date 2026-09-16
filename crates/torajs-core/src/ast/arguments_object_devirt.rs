@@ -120,7 +120,7 @@ pub(super) fn devirtualize_fn_value_aliases(ast: &mut Ast) {
 /// mint — so `var r = C.m; r(1, 2)` answered `this === C` true for
 /// exactly the bodies that also read `arguments`.
 fn relay_target(ast: &Ast, fn_name: &str) -> Option<String> {
-    fn_name.strip_prefix("__forward_")?;
+    super::shell_target(fn_name)?;
     ast.stmts.iter().find_map(|s| match s {
         Stmt::FnDecl { name, body, .. } if name == fn_name => match body.as_slice() {
             [Stmt::Return(Some(eid))] => match ast.get_expr(*eid) {
