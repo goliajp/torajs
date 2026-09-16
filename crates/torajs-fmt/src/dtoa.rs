@@ -22,11 +22,7 @@
 //!   sign for the `String(-0)` coercion path. `console.log(-0)` keeps
 //!   the sign.
 
-use crate::itoa::{ITOA_BUF_LEN, itoa_into};
 use crate::ryu::{Decimal64, d2d, decimal_length};
-
-/// 2^53 — below it every integer-valued f64 is an exact integer.
-const F64_EXACT_INT_BOUND: f64 = 9_007_199_254_740_992.0;
 
 /// `__torajs_fmt_dtoa(d, out_buf, out_cap) -> bytes_written | -1`.
 ///
@@ -81,30 +77,9 @@ fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
     // magnitude (matching v8 / bun): exponential when
     // `|d| < 1e-6` OR `|d| >= 1e21`.
     let abs_d = if d < 0.0 { -d } else { d };
-    // Integer-valued `|d| < 2^53`: every such integer is exact, so the
-    // shortest round-trip digits are the integer's own decimal digits
-    // (and `< 1e21` keeps it fixed-point). Integer numbers reach here
-    // constantly (`"key" + j` over an f64 loop counter), and Ryū spends
-    // ~30 ns on what itoa does in a few.
-    if abs_d < F64_EXACT_INT_BOUND && (d as i64) as f64 == d {
-        return write_integer(buf, d as i64);
-    }
     let use_exp = abs_d < 1e-6 || abs_d >= 1e21;
     let dec = d2d(d.to_bits());
     format_decimal(buf, dec, use_exp)
-}
-
-/// The integer fast path, kept out of line and size-tuned. Inlined
-/// into `format_f64_into` the digit loop was unrolled into ~1 KB, which
-/// pushed `__text` of every program formatting a number across a page
-/// boundary (+16 KB on disk, rotation 661); called, it is one copy of a
-/// loop and the call costs nothing next to the formatting.
-#[inline(never)]
-#[optimize(size)]
-fn write_integer(buf: &mut [u8], n: i64) -> usize {
-    let mut digits = [0u8; ITOA_BUF_LEN];
-    let start = itoa_into(n, &mut digits);
-    write_literal(buf, &digits[start..])
 }
 
 /// Format a `Decimal64` into `buf` using JS spec digit shape.
@@ -331,22 +306,6 @@ mod tests {
     #[test]
     fn three_point_one_four() {
         check(3.14, "3.14");
-    }
-
-    /// Integer values take the itoa path; its output must match the
-    /// shortest round-trip form on both sides of the 2^53 bound.
-    #[test]
-    fn integers_below_two_pow_53() {
-        check(4095.0, "4095");
-        check(-123_456_789_012_345.0, "-123456789012345");
-        check(9_007_199_254_740_991.0, "9007199254740991");
-        check(-9_007_199_254_740_991.0, "-9007199254740991");
-    }
-
-    #[test]
-    fn integers_at_and_above_two_pow_53() {
-        check(9_007_199_254_740_992.0, "9007199254740992");
-        check(1e20, "100000000000000000000");
     }
 
     /// JS spec exponent form for positive exponents uses `e+`.
