@@ -61,7 +61,7 @@ pub(crate) fn lower_map(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         None,
     );
     let map_op = Operand::Value(v);
-    if try_map_static_pair_init(ctx, &map_op, args) {
+    if !arr_iteration_patched(ctx) && try_map_static_pair_init(ctx, &map_op, args) {
         return map_op;
     }
     let Some(arg0) = args.first() else {
@@ -73,7 +73,8 @@ pub(crate) fn lower_map(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     if arg_ty == Type::Map {
         return lower_map_clone(ctx, map_op, arg_op, arg_owned);
     }
-    if let Type::Arr(outer_id) = arg_ty
+    if !arr_iteration_patched(ctx)
+        && let Type::Arr(outer_id) = arg_ty
         && let Type::Arr(inner_id) = ctx.arr_layouts[outer_id.0 as usize]
     {
         let _ = outer_id;
@@ -165,6 +166,14 @@ fn lower_map_clone(
     Operand::Value(cloned)
 }
 
+/// §24.1.1.1 / §24.2.1.1 walk the argument with GetIterator; the
+/// array-shaped fast paths below read its slots. A module that can
+/// patch array iteration stands them down to `lower_iterable_init`,
+/// which is that walk. Same posture as the spread / for-of lanes.
+fn arr_iteration_patched(ctx: &LowerCtx<'_>) -> bool {
+    ctx.proto_shadow.shadows_iteration("Array")
+}
+
 pub(crate) fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
@@ -174,7 +183,7 @@ pub(crate) fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         None,
     );
     let set_op = Operand::Value(v);
-    if try_set_static_init(ctx, &set_op, args) {
+    if !arr_iteration_patched(ctx) && try_set_static_init(ctx, &set_op, args) {
         return set_op;
     }
     let Some(arg0) = args.first() else {
@@ -186,7 +195,9 @@ pub(crate) fn lower_set(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     if arg_ty == Type::Set {
         return lower_set_clone(ctx, set_op, arg_op, arg_owned);
     }
-    if let Type::Arr(arr_id) = arg_ty {
+    if !arr_iteration_patched(ctx)
+        && let Type::Arr(arr_id) = arg_ty
+    {
         return crate::ssa_lower_new_arr_init::lower_set_from_arr(
             ctx, set_op, arg_op, arg_ty, arg_owned, arr_id,
         );
