@@ -203,6 +203,7 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
     );
 
     scan_symbol_hooks(ast, &mut set);
+    scan_namespace_statics(ast, &mut set);
 
     set
 }
@@ -220,6 +221,84 @@ pub(crate) fn collect_shadowed_builtin_methods(ast: &Ast) -> ShadowSet {
 /// (`class_computed_keys`). Reads are not writes either:
 /// `x[Symbol.iterator]` on its own, and `Symbol.iterator` as a value,
 /// install nothing.
+/// The objects whose STATIC members the typed tier claims off the
+/// callee's syntax: the constructors plus the three pure namespaces.
+/// A write to one of their members is invisible to every such arm.
+///
+/// `Promise` is deliberately absent: its statics already have a
+/// mechanism for this (rotation 448 — the combinators invoke a
+/// patched `Promise.resolve` per element while the async driver's own
+/// settle operations bypass it), and routing those call sites to the
+/// any lane instead loses it — the two gate fixtures that cover it
+/// went to a wrong answer and a SIGSEGV.
+const STATIC_NAMESPACES: &[&str] = &[
+    "Object", "Array", "String", "Number", "Boolean", "Date", "RegExp", "Map", "Set", "WeakMap",
+    "WeakSet", "Function", "BigInt", "Symbol", "JSON", "Math", "Reflect",
+];
+
+/// Which `<Namespace>.<member>` pairs does this module write? Two
+/// spellings name one: a member assignment (`Object.keys = f`) and a
+/// `defineProperty` whose receiver is the namespace. A computed key
+/// (`Math[k] = f`) names no member the scan can read, so the whole
+/// namespace is recorded opaque.
+///
+/// A READ is not a write, and neither is a call: `Object.keys(o)` is
+/// the very thing the answer protects.
+fn scan_namespace_statics(ast: &Ast, set: &mut ShadowSet) {
+    // `as` layers are value pass-throughs — `(Object as any).keys = f`
+    // writes the same property `Object.keys = f` does.
+    let strip_as = |mut e: ExprId| {
+        while let Expr::As { expr, .. } = ast.get_expr(e) {
+            e = *expr;
+        }
+        e
+    };
+    let ns_of = |e: ExprId| match ast.get_expr(strip_as(e)) {
+        Expr::Ident(n) => STATIC_NAMESPACES.iter().copied().find(|c| *c == n.as_str()),
+        _ => None,
+    };
+    for e in &ast.exprs {
+        match e {
+            Expr::Assign { target, .. } => match ast.get_expr(*target) {
+                Expr::Member { obj, name } => {
+                    if let Some(ns) = ns_of(*obj) {
+                        set.add_static_write(ns, name);
+                    }
+                }
+                Expr::Index { obj, index } => {
+                    if let Some(ns) = ns_of(*obj) {
+                        match str_literal(ast, *index) {
+                            Some(k) => set.add_static_write(ns, &k),
+                            None => set.add_static_opaque(ns),
+                        }
+                    }
+                }
+                _ => {}
+            },
+            Expr::Call { callee, args } => {
+                let Expr::Member { obj, name } = ast.get_expr(*callee) else {
+                    continue;
+                };
+                if !matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Object" || n == "Reflect")
+                {
+                    continue;
+                }
+                if !matches!(name.as_str(), "defineProperty" | "defineProperties") {
+                    continue;
+                }
+                let Some(ns) = args.first().copied().and_then(ns_of) else {
+                    continue;
+                };
+                match args.get(1).copied().and_then(|k| str_literal(ast, k)) {
+                    Some(k) if name == "defineProperty" => set.add_static_write(ns, &k),
+                    _ => set.add_static_opaque(ns),
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn scan_symbol_hooks(ast: &Ast, set: &mut ShadowSet) {
     let symbol_prop = |e: ExprId| match ast.get_expr(e) {
         Expr::Member { obj, name } if matches!(ast.get_expr(*obj), Expr::Ident(n) if n == "Symbol") => {

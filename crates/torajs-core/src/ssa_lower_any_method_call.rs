@@ -245,6 +245,16 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
             .get(obj)
             .and_then(crate::builtin_proto_shadow::family_of)
             .is_some_and(|f| ctx.proto_shadow.shadows(f, name));
+    // The namespace STATICS, one object over from the prototypes
+    // above: `Object.keys = f` is a write to the constructor, and the
+    // syntax-keyed routes further down the dispatch claim
+    // `Object.keys(o)` without reading that object at all. Sending
+    // the site here is what makes the patch reachable — the receiver
+    // boxes below and the runtime dispatcher answers off the object's
+    // own bag, which is where the write landed.
+    let patched_ns_static = !ctx.proto_shadow.is_empty()
+        && matches!(ctx.ast.get_expr(*obj), Expr::Ident(n)
+            if ctx.proto_shadow.writes_static(n, name));
     // RFC 20260813-detached-objlit-method — the same surfaces on a
     // binding whose SLOT holds an Any while the checker named a
     // class method's signature (`const t = c.read; t.call(c)`).
@@ -270,6 +280,7 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
         || builtin_ctor_fn
         || any_member_read
         || shadowed_builtin
+        || patched_ns_static
         || detached_method
         || class_method_value
 }

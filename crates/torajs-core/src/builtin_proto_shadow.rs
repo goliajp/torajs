@@ -114,6 +114,16 @@ pub(crate) struct ShadowSet {
     /// A write under a computed key the scan could not read back to a
     /// `Symbol.<x>` spelling — every hook question answers yes.
     symbol_hook_opaque: bool,
+    /// Namespace STATICS this module writes: `Object.keys = f`,
+    /// `Math.max = f`, `JSON.stringify = f`. A different object from
+    /// the prototypes above — `Object.keys` is a property of the
+    /// constructor, not of `Object.prototype` — and a different set of
+    /// blind lowering arms: the typed tier claims these calls off the
+    /// callee's syntax and never reads the object at all.
+    statics: HashSet<(String, String)>,
+    /// Namespaces whose static set could not be pinned down (a
+    /// computed key, a `defineProperty` with a non-literal key).
+    statics_opaque: HashSet<String>,
 }
 
 impl ShadowSet {
@@ -125,6 +135,8 @@ impl ShadowSet {
             && self.methods.is_empty()
             && self.symbol_hooks.is_empty()
             && !self.symbol_hook_opaque
+            && self.statics.is_empty()
+            && self.statics_opaque.is_empty()
     }
 
     /// Might a value in this module carry a handler for the well-known
@@ -147,6 +159,20 @@ impl ShadowSet {
     /// some instance.
     pub(crate) fn shadows_iteration(&self, family: Family) -> bool {
         self.iterator_hook_written() || self.shadows(family, "values")
+    }
+
+    /// Does this module write `<ns>.<name>`? See [`Self::statics`].
+    pub(crate) fn writes_static(&self, ns: &str, name: &str) -> bool {
+        self.statics_opaque.contains(ns)
+            || self.statics.contains(&(ns.to_string(), name.to_string()))
+    }
+
+    pub(super) fn add_static_write(&mut self, ns: &str, name: &str) {
+        self.statics.insert((ns.to_string(), name.to_string()));
+    }
+
+    pub(super) fn add_static_opaque(&mut self, ns: &str) {
+        self.statics_opaque.insert(ns.to_string());
     }
 
     pub(super) fn add_symbol_hook(&mut self, name: &str) {

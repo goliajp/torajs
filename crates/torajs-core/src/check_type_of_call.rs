@@ -46,12 +46,26 @@ pub(crate) fn check(
     // never met the gate. Answering here covers them, and recording the
     // callee as Any is what makes the lowering side notice: its
     // cluster-#4 branch keys on exactly that record.
-    if !checker.proto_shadow.is_empty()
+    // The namespace STATICS are the same story one object over:
+    // `Object.keys` is a property of the constructor, not of
+    // `Object.prototype`, and the routes below claim those calls off
+    // the callee's syntax without reading the object at all — so
+    // `Object.keys = f` was invisible to `Object.keys(o)` while the
+    // same patch reached `(Object as any).keys(o)`.
+    let patched_static = !checker.proto_shadow.is_empty()
+        && matches!(ast.get_expr(*callee), Expr::Member { obj, name }
+            if matches!(ast.get_expr(*obj), Expr::Ident(ns)
+                if checker.proto_shadow.writes_static(ns, name)));
+    let patched_method = if !checker.proto_shadow.is_empty()
         && let Expr::Member { obj, name } = ast.get_expr(*callee)
         && let Ok(obj_ty) = checker.type_of(ast, *obj)
         && let Some(family) = crate::builtin_proto_shadow::family_of(&obj_ty)
-        && checker.proto_shadow.shadows(family, name)
     {
+        checker.proto_shadow.shadows(family, name)
+    } else {
+        false
+    };
+    if patched_static || patched_method {
         // Type the arguments before standing down. Returning straight
         // from here skips the walk every other route performs, and
         // that walk is not just about the answer — checking an
