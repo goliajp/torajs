@@ -287,7 +287,15 @@ unsafe fn closure_length_arm(ptr: *mut c_void, recv: AnyValue) -> Option<AnyValu
         // inherits the undefined (recorded edge; ES would answer
         // 0 via the has-length fallback).
         if let Some(l) = closure_length_of(ptr) {
-            return Some(crate::nanbox_encode::__torajs_anyv_box_i64(l));
+            // An integral length boxes as one; a bound function over
+            // an infinite `length` keeps the double.
+            return Some(
+                if l.is_finite() && l.fract() == 0.0 && l.abs() < 9.007_199_254_740_992e15 {
+                    crate::nanbox_encode::__torajs_anyv_box_i64(l as i64)
+                } else {
+                    crate::nanbox_encode::__torajs_anyv_box_f64(l)
+                },
+            );
         }
         // %Function.prototype% is a Closure cell (§20.2.3) and
         // registers no fn-decl arity, so the walk above finds
@@ -347,7 +355,53 @@ pub unsafe extern "C" fn __torajs_closure_length_or(recv: AnyValue, fallback: i6
 /// `ptr` is a live `Tag::Closure` cell.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_closure_length(ptr: *mut c_void) -> i64 {
-    unsafe { closure_length_of(ptr) }.unwrap_or(-1)
+    // A non-finite length has no i64 spelling, and this face's only
+    // "absent" answer is -1 — so an infinite bound length reads as no
+    // metadata here rather than as a wrong finite number (recorded
+    // boundary; the `any`-lane read above carries the double).
+    unsafe { closure_length_of(ptr) }
+        .filter(|l| l.is_finite() && l.abs() < i64::MAX as f64)
+        .map(|l| l as i64)
+        .unwrap_or(-1)
+}
+
+/// §20.2.3.2 steps 5-6 — the target's contribution to a bound
+/// function's length: `HasOwnProperty(Target, "length")` first (absent
+/// means 0), then `Get`, then only a Number counts, then
+/// ToIntegerOrInfinity.
+///
+/// The target's registry ARITY answers none of that. `Object
+/// .defineProperty(f, "length", {value: 4.5})` makes the bound length
+/// 4, `{value: Infinity}` makes it infinite, and a length past int32
+/// survives — three things the arity cannot express, and every one of
+/// them is what the step is reading for.
+///
+/// # Safety
+/// `target` is a live closure-shaped cell pointer.
+unsafe fn bound_target_length(target: u64) -> Option<f64> {
+    unsafe {
+        let got = __torajs_any_length_get(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            4,
+            target as i64,
+        ));
+        let n = if crate::nanbox::is_int32(got) {
+            Some(crate::nanbox::as_int32(got) as f64)
+        } else if crate::nanbox::is_double(got) {
+            Some(crate::nanbox::as_double(got))
+        } else {
+            // Not a Number (an absent `length`, a string, an object):
+            // step 5's false branch and step 6.b's guard both leave L
+            // at 0.
+            None
+        };
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(got);
+        Some(match n {
+            None => 0.0,
+            Some(v) if v.is_nan() => 0.0,
+            Some(v) if v.is_infinite() => v,
+            Some(v) => v.trunc(),
+        })
+    }
 }
 
 /// ES `length` of a closure-tagged cell: method-cell arity, bound
@@ -357,24 +411,31 @@ pub unsafe extern "C" fn __torajs_closure_length(ptr: *mut c_void) -> i64 {
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Closure` cell.
-unsafe fn closure_length_of(ptr: *mut c_void) -> Option<i64> {
+unsafe fn closure_length_of(ptr: *mut c_void) -> Option<f64> {
     unsafe {
         if let Some(arity) = crate::method_value::builtin_method_arity(ptr) {
-            return Some(arity as i64);
+            return Some(arity as f64);
         }
         // Reified class-accessor face (RFC 20260718-accessor-reify
         // 刀 2) — spec lengths ride the extended cell slot.
         if let Some((_, len)) = crate::method_value_class::class_accessor_meta(ptr) {
-            return Some(len as i64);
+            return Some(len as f64);
         }
         if let Some((kind, target, bargc)) = crate::method_bind::bound_cell_meta(ptr) {
-            let tlen = if kind == 0 {
+            let tlen: Option<f64> = if kind == 0 {
                 let (mid, fam) = crate::method_bind::unpack_builtin_target(target);
-                crate::method_value::builtin_method_arity_for(mid, fam).map(|a| a as i64)
+                crate::method_value::builtin_method_arity_for(mid, fam).map(|a| a as f64)
             } else {
-                closure_length_of(target as *mut c_void)
+                bound_target_length(target)
             };
-            return tlen.map(|l| (l - bargc as i64).max(0));
+            return tlen.map(|l| {
+                if l.is_infinite() {
+                    // §20.2.3.2 step 6.b.i / 6.b.ii — +infinity stays,
+                    // -infinity is 0; neither subtracts the bound args.
+                    return if l > 0.0 { l } else { 0.0 };
+                }
+                (l - bargc as f64).max(0.0)
+            });
         }
         // B6c — a class-method face resolves its adapter's registry
         // row (the ES method arity).
@@ -383,86 +444,8 @@ unsafe fn closure_length_of(ptr: *mut c_void) -> Option<i64> {
         let mut arity: u32 = 0;
         let name_ptr = __torajs_fn_name_lookup(fn_addr, &mut name_len, &mut arity);
         if !name_ptr.is_null() {
-            return Some(arity as i64);
+            return Some(arity as f64);
         }
         None
     }
-}
-
-/// `recv.size` where the receiver is an `any` value
-/// (Any-method-call RFC 20260704 C4-2).
-///
-/// - `null` / `undefined` → catchable TypeError.
-/// - `Tag::Map` / `Tag::Set` → live entry count (the ES §24.1.3.10 /
-///   §24.2.3.9 `size` accessors) via `__torajs_map_size`.
-/// - `Tag::DynObj` → own-property probe for the literal key `"size"`
-///   (a user `{ size: 42 }` answers 42; absence answers `undefined`).
-/// - everything else (strings, arrays, primitives, other heap tags)
-///   → `undefined` (no such property).
-///
-/// # Safety
-/// Cell receivers must be valid heap pointers matching their header
-/// tag layout.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_any_size_get(recv: AnyValue) -> AnyValue {
-    if is_null(recv) || is_undefined(recv) {
-        unsafe {
-            __torajs_throw_type_error(c"cannot read properties of null or undefined".as_ptr());
-        }
-        return VALUE_UNDEFINED;
-    }
-    if !is_cell(recv) {
-        return VALUE_UNDEFINED;
-    }
-    let ptr = as_void_ptr(recv);
-    unsafe {
-        let tag = (ptr.cast::<u8>().add(4) as *const u16).read();
-        if tag == Tag::Map as u16 || tag == Tag::Set as u16 {
-            // §10.1.8.1 own-before-family: a `defineProperty(m, "size",
-            // …)` lands in the cell's own bag and shadows the family
-            // accessor. The keyed spelling reached the bag through the
-            // general cascade and answered it; this intrinsic went
-            // straight to the live count, so `m["size"]` and `m.size`
-            // disagreed about the same object.
-            let props = crate::member_get_layout::expando_props(ptr, tag);
-            if !props.is_null() {
-                let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
-                let present = __torajs_dynobj_has(props, key as *const c_void) != 0;
-                let dtag = __torajs_dynobj_get_tag(props, key as *const c_void);
-                let dval = __torajs_dynobj_get_value(props, key as *const c_void);
-                if present {
-                    let v = box_probe_pair(dtag, dval, recv, key as *const c_void);
-                    __torajs_str_drop(key as *mut c_void);
-                    return v;
-                }
-                __torajs_str_drop(key as *mut c_void);
-            }
-            return crate::nanbox_encode::__torajs_anyv_box_i64(__torajs_map_size(ptr));
-        }
-        if tag == Tag::Obj as u16 {
-            // The struct arm this getter never had: a `size` field, a
-            // `get size()`, or a defineProperty'd expando are all own
-            // properties, and every one of them read undefined here
-            // while `o["size"]` answered and `Object.keys` listed it.
-            if let Some(v) = crate::struct_probe::struct_own_named(ptr, recv, b"size") {
-                return v;
-            }
-            return VALUE_UNDEFINED;
-        }
-        if tag == Tag::DynObj as u16 {
-            // An ordinary [[Get]]: the own entry, else what the object
-            // inherits — `Object.create(m)` reads the Map's size through
-            // its chain, `Map.prototype.size` runs the getter on the
-            // prototype and throws.
-            let key = __torajs_str_alloc(c"size".as_ptr() as *const u8, 4);
-            let v = crate::member_get_receiver::__torajs_any_member_get_with_receiver(
-                recv,
-                key as *const c_void,
-                recv,
-            );
-            __torajs_str_drop(key as *mut c_void);
-            return v;
-        }
-    }
-    VALUE_UNDEFINED
 }
