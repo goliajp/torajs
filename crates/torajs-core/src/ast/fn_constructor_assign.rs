@@ -194,6 +194,9 @@ pub(super) fn promote_assign_bound_ctor_this(ast: &mut Ast) {
 /// [`Constructible`].
 pub(super) fn collect_assign_bound(ast: &Ast, candidates: &mut Vec<Constructible>) {
     for b in assign_bound_bindings(ast) {
+        if ast.new_target_fn_exprs.contains(&b.fn_eid) {
+            continue;
+        }
         let Expr::ArrowFn { params, body, .. } = ast.get_expr(b.fn_eid) else {
             continue;
         };

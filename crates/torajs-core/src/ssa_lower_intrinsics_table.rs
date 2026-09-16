@@ -557,6 +557,7 @@ pub(crate) fn build(
         ctor_ret_value: init_c.ctor_ret.ctor_ret_value,
         ctor_ret_carry: init_c.ctor_ret.ctor_ret_carry,
         new_target_register: init_c.ctor_ret.new_target_register,
+        new_target_register_entries: init_c.ctor_ret.new_target_register_entries,
         any_member_get_value: init_c.any_substrate.any_member_get_value,
         any_accessor_get: init_c.any_substrate.any_accessor_get,
         any_member_set: init_c.any_substrate.any_member_set,

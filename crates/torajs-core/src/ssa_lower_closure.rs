@@ -341,6 +341,7 @@ pub(crate) fn init_env_header(
         }
         None => Operand::ConstI64(0),
     };
+    crate::ssa_lower_closure_ctor_face::emit_register(ctx, &fn_name, &boxed_op);
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
         cur_block,

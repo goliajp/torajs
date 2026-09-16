@@ -870,6 +870,9 @@ pub struct Ast {
     /// gained a `(__this, __new_target, …)` head because they read
     /// `new.target` (`ast/new_target_param.rs`).
     pub new_target_fns: std::collections::HashSet<String>,
+    /// Knife 2 — the function expressions (by ExprId, which the lift
+    /// keeps) whose reads became a body-level `__new_target` local.
+    pub new_target_fn_exprs: std::collections::HashSet<ExprId>,
     /// RFC 20260717-fnexpr-this-channel knife 2 — exact face ExprIds
     /// (the `Expr::Ident` in an accessor-face position) whose
     /// SINGLE-USE const binding routes a promoted fn-expr. Keyed by

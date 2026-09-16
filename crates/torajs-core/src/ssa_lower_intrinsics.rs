@@ -662,6 +662,7 @@ pub(crate) struct Intrinsics {
     pub(crate) ctor_ret_value: FuncId,
     pub(crate) ctor_ret_carry: FuncId,
     pub(crate) new_target_register: FuncId,
+    pub(crate) new_target_register_entries: FuncId,
     pub(crate) any_member_get_value: FuncId,
     pub(crate) any_accessor_get: FuncId,
     pub(crate) any_member_set: FuncId,

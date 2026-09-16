@@ -43,6 +43,10 @@ pub(crate) fn run(
     mono_decls: &mut Vec<Stmt>,
     generic_fn_names: &mut HashSet<String>,
 ) {
+    // RFC 20260917-plain-fn-new-target knife 2 — construct faces of
+    // function expressions reading `new.target`, same post-check clone
+    // lane as the widened bodies below.
+    crate::check_monomorph_ctor_face::run(c, owned_ast, generics, cache, worklist, call_retargets);
     loop {
         while let Some(item) = worklist.pop_front() {
             process_one_generic(

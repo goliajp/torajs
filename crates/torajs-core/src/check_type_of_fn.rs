@@ -193,6 +193,22 @@ pub(crate) fn check_closure(
     checker
         .closure_captures
         .insert(fn_name.clone(), cap_tys.clone());
+    check_closure_body(checker, ast, eid, &fn_name, cap_tys)
+}
+
+/// The body half of [`check_closure`]: check lifted body `fn_name` with
+/// the captures already typed. A clone minted after the main check
+/// (RFC 20260917-plain-fn-new-target knife 2's construct face) has no
+/// construction site whose scope is still live, so it passes the
+/// original closure's recorded capture types here instead.
+pub(crate) fn check_closure_body(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: crate::ast::ExprId,
+    fn_name: &str,
+    cap_tys: Vec<(String, Type)>,
+) -> Result<Type, String> {
+    let fn_name = fn_name.to_string();
     let sig = closure_sig(ast, &fn_name, &checker.aliases)?;
     let ClosureSig {
         real_params,

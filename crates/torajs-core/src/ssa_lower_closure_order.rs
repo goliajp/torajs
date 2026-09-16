@@ -98,6 +98,15 @@ pub(crate) fn order_closure_bodies(
             parent.insert(name.clone(), p);
         }
     }
+    // A clone of a lifted body (551-03 any-widen, the knife 2 construct
+    // face) reads the original's env layout, which is known once the
+    // original's construction site lowered: it waits for the same
+    // parent.
+    for (clone, orig) in &ast.widen_clone_origin {
+        if let Some(p) = parent.get(orig).cloned() {
+            parent.insert(clone.clone(), p);
+        }
+    }
     let names: Vec<Option<&str>> = closure_decls
         .iter()
         .map(|(i, _)| match &ast.stmts[*i] {

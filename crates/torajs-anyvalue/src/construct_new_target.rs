@@ -50,6 +50,19 @@ pub unsafe extern "C" fn __torajs_new_target_register(value_face: AnyValue, ctor
     if key == 0 || entry == 0 {
         return;
     }
+    record(key, entry);
+}
+
+/// Knife 2 — the same record from raw boxed entries: a function
+/// expression's cell registers its construct face as it is minted.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_new_target_register_entries(value_entry: u64, ctor_entry: u64) {
+    if value_entry != 0 && ctor_entry != 0 {
+        record(value_entry, ctor_entry);
+    }
+}
+
+fn record(key: u64, entry: u64) {
     let mut table = FACES.load(Ordering::Relaxed);
     if table.is_null() {
         table = Box::into_raw(Box::new(Faces::new()));
@@ -77,12 +90,16 @@ pub(crate) fn ctor_face_entry(value_entry: u64) -> u64 {
         .map_or(0, |(_, e)| *e)
 }
 
-/// Run a construct face: `[this, newTarget, …argv]` through its adapter.
+/// Run a construct face: `[this, newTarget, …argv]` through its adapter,
+/// with the constructed closure cell as env (a function expression's
+/// face reads its captures there; a declaration's ignores it).
 ///
 /// # Safety
-/// `entry` is a registered construct face; `argv` holds `argc` live
-/// AnyValues; `this_av` and `new_target` are live.
+/// `entry` is a registered construct face; `env` the live cell it was
+/// registered for; `argv` holds `argc` live AnyValues; `this_av` and
+/// `new_target` are live.
 pub(crate) unsafe fn invoke_ctor_face(
+    env: *mut c_void,
     entry: u64,
     this_av: AnyValue,
     new_target: AnyValue,
@@ -97,11 +114,6 @@ pub(crate) unsafe fn invoke_ctor_face(
         full.push(unsafe { *argv.add(i) });
     }
     unsafe {
-        crate::method_call_closure_dispatch::invoke_boxed(
-            core::ptr::null_mut::<c_void>(),
-            entry,
-            full.as_ptr(),
-            (n + 2) as i64,
-        )
+        crate::method_call_closure_dispatch::invoke_boxed(env, entry, full.as_ptr(), (n + 2) as i64)
     }
 }

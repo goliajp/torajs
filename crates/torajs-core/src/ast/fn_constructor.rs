@@ -171,7 +171,9 @@ fn collect_fn_expr_bindings(ast: &Ast, candidates: &mut Vec<Constructible>) {
         let Stmt::LetDecl { name, init, .. } = st else {
             continue;
         };
-        if !ast.fn_expr_exprs.contains(init) {
+        // A function expression reading `new.target` constructs through
+        // the runtime kernel and its construct face (knife 2).
+        if !ast.fn_expr_exprs.contains(init) || ast.new_target_fn_exprs.contains(init) {
             continue;
         }
         let Expr::ArrowFn { params, body, .. } = ast.get_expr(*init) else {

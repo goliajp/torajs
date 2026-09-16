@@ -355,7 +355,7 @@ unsafe fn construct_plain_fn(
         let ctor_face = crate::construct_new_target::ctor_face_entry(entry);
         let result = if ctor_face != 0 {
             crate::construct_new_target::invoke_ctor_face(
-                ctor_face, this_av, new_target, argv, argc,
+                cell, ctor_face, this_av, new_target, argv, argc,
             )
         } else {
             invoke_with_this(cell, entry, this_av, argv, argc)

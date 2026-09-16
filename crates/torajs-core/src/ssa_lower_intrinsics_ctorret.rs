@@ -23,6 +23,9 @@ pub(crate) struct CtorRetIds {
     /// RFC 20260917-plain-fn-new-target knife 3 — a function's construct
     /// face registered against its value face.
     pub new_target_register: FuncId,
+    /// Knife 2 — the same, from a minted cell's boxed entry and the
+    /// face's adapter address.
+    pub new_target_register_entries: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> CtorRetIds {
@@ -46,6 +49,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_new_target_register",
             &[Type::Any, Type::Any],
+            Type::Void,
+        ),
+        new_target_register_entries: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_new_target_register_entries",
+            &[Type::Ptr, Type::Ptr],
             Type::Void,
         ),
     }
