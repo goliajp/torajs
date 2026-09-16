@@ -21,9 +21,12 @@
 //! `name` are exactly the reads that block owns, and refusing THOSE
 //! leaves every other site rewritten.
 //!
-//! Two rebindings stay whole-name, because they are conflicts over the
-//! declaration's own scope rather than a block carving a hole in it:
-//! a parameter / catch / loop variable
+//! A top-level function's parameter carves out that function the same
+//! way (rotation 662: a harness helper's `thunk` parameter refused every
+//! value use of a user `function thunk`). Two rebindings stay
+//! whole-name, because they are conflicts over the declaration's own
+//! scope rather than a scope carving a hole in it: a nested function's
+//! parameter / catch / loop variable
 //! ([`super::fnexpr_this_names::name_shadowed_elsewhere`]), and a
 //! redeclaration at the TOP level, which no block boundary separates
 //! from the declaration.
@@ -47,11 +50,26 @@ use std::collections::HashSet;
 /// the reads under that block — carving per site would refuse the
 /// wrong half.
 pub(crate) fn rebound_beyond_blocks(stmts: &[Stmt], name: &str) -> bool {
-    super::fnexpr_this_names::name_shadowed_elsewhere(stmts, name)
+    shadowed_outside_top_fn_params(stmts, name)
         || stmts
             .iter()
             .any(|s| matches!(s, Stmt::LetDecl { name: dn, .. } if dn == name))
         || var_anywhere(stmts, name)
+}
+
+/// [`super::fnexpr_this_names::name_shadowed_elsewhere`], except that a
+/// top-level function's own parameter is a scope this module carves
+/// out per site ([`block_scoped_expr_ids`] owns that function's body):
+/// a parameter spelled like a declaration elsewhere in the program
+/// shadows it inside that one function only. A catch / loop variable,
+/// and a parameter of a nested function, stay whole-name.
+fn shadowed_outside_top_fn_params(stmts: &[Stmt], name: &str) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::FnDecl { params, body, .. } if params.iter().any(|p| p.name == name) => {
+            super::fnexpr_this_names::name_shadowed_elsewhere(body, name)
+        }
+        _ => super::fnexpr_this_names::name_shadowed_elsewhere(std::slice::from_ref(s), name),
+    })
 }
 
 fn var_anywhere(stmts: &[Stmt], name: &str) -> bool {
@@ -75,6 +93,15 @@ fn var_anywhere(stmts: &[Stmt], name: &str) -> bool {
 pub(crate) fn block_scoped_expr_ids(ast: &Ast, name: &str) -> HashSet<ExprId> {
     let mut out = HashSet::new();
     for s in &ast.stmts {
+        if let Stmt::FnDecl { params, .. } = s
+            && params.iter().any(|p| p.name == name)
+        {
+            for d in params.iter().filter_map(|p| p.default) {
+                collect_expr(ast, d, &mut out);
+            }
+            walk_stmt(ast, s, name, true, &mut out);
+            continue;
+        }
         walk_stmt(ast, s, name, false, &mut out);
     }
     out
