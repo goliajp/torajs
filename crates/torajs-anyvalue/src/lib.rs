@@ -134,6 +134,7 @@ mod iter_any_step;
 mod iter_any_string;
 mod iter_concat;
 mod iter_dstr_rest;
+mod iter_dstr_step;
 mod iter_from;
 mod iter_helper;
 mod iter_helper_eager;

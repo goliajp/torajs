@@ -23,6 +23,7 @@ pub(crate) struct IteratorIds {
     pub dstr_close_pending: FuncId,
     pub dstr_park_pending: FuncId,
     pub dstr_drain_rest: FuncId,
+    pub dstr_step_one: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> IteratorIds {
@@ -112,6 +113,16 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_dstr_drain_rest",
             &[Type::Any, Type::Any],
+            Type::Any,
+        ),
+        // §13.15.5.5 per-element step — one `next()` off the parked
+        // walk, re-parking what is left. (park Any — stake TRANSFERRED
+        // in, recv Any borrowed, out_park Ptr) → owned element Any.
+        dstr_step_one: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_dstr_step_one",
+            &[Type::Any, Type::Any, Type::Ptr],
             Type::Any,
         ),
     }

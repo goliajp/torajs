@@ -607,6 +607,7 @@ pub(crate) struct Intrinsics {
     pub(crate) dstr_close_pending: FuncId,
     pub(crate) dstr_park_pending: FuncId,
     pub(crate) dstr_drain_rest: FuncId,
+    pub(crate) dstr_step_one: FuncId,
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,

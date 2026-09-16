@@ -95,6 +95,32 @@ fn subclass_magic_ty(name: &str) -> Option<Type> {
 /// Split out of the
 /// cascade because that match is a registered known-debt function and
 /// the `cause` install would have grown it.
+/// RFC 20260820-dstr-deferred-close — the destructuring-pattern
+/// family, kept together the way `error_synth_ty` keeps the error
+/// one: every member takes and answers `any`, and what distinguishes
+/// them is which half of §13.15.5 they serve.
+fn dstr_synth_ty(name: &str) -> Option<Type> {
+    Some(match name {
+        // The deferred IteratorClose a suspendable pattern's finally
+        // calls on its parked iterator slot.
+        "__torajs_dstr_close_pending" => Type::Function(vec![Type::Any], Box::new(Type::Void)),
+        // 刀 D — the rest element's post-suspension drain: (parked
+        // resume value, raw source) → the tail as an `any` array.
+        // §13.15.5.5 per-element step has the same shape: (park slot
+        // read, raw source) → that element's value. The park is an
+        // argument by NAME there — the lowering resolves it to a
+        // writable location and stores the next park back, which is
+        // why the signature shows no out parameter.
+        "__torajs_dstr_drain_rest" | "__torajs_dstr_step_one" => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
+        }
+        // 刀 D — the OWNED copy of the park the rest element takes
+        // before clearing the slot (a retain; see the lowering).
+        "__torajs_dstr_park_take" => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        _ => return None,
+    })
+}
+
 fn error_synth_ty(name: &str) -> Option<Type> {
     Some(match name {
         "__torajs_error_proto_install" => Type::Function(vec![Type::String], Box::new(Type::Void)),
@@ -249,19 +275,7 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::Any, Type::String, Type::Any],
             Box::new(Type::Any),
         )),
-        // RFC 20260820-dstr-deferred-close — the deferred
-        // IteratorClose a suspendable destructuring pattern's finally
-        // calls on its parked iterator slot.
-        "__torajs_dstr_close_pending" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Void))),
-        // 刀 D — the rest element's post-suspension drain: (parked
-        // resume value, raw source) → the tail as an `any` array.
-        "__torajs_dstr_drain_rest" => Ok(Type::Function(
-            vec![Type::Any, Type::Any],
-            Box::new(Type::Any),
-        )),
-        // 刀 D — the OWNED copy of the park the rest element takes
-        // before clearing the slot (a retain; see the lowering).
-        "__torajs_dstr_park_take" => Ok(Type::Function(vec![Type::Any], Box::new(Type::Any))),
+        n if dstr_synth_ty(n).is_some() => Ok(dstr_synth_ty(n).unwrap()),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),

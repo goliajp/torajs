@@ -76,6 +76,65 @@ fn park_for_field(
     })
 }
 
+/// Resolve a park slot named by an EXPRESSION rather than paired with
+/// a group temp — the per-element step passes `__dstra_it_<id>` as its
+/// first argument and needs to write it back, not just read it.
+///
+/// Two shapes, matching [`ParkTarget`]: a plain local before the
+/// generator lift, and `__this.__dstra_it_<id>` after it (the lift
+/// rewrites every temp that outlives a suspension into a state-struct
+/// field, and the park slot always does). Anything else answers
+/// `None`, which drops the call back to the general path — the
+/// desugar only ever emits these two.
+pub(crate) fn park_target_of_expr(ctx: &mut LowerCtx, e: ExprId) -> Option<ParkTarget> {
+    match ctx.ast.get_expr(e).clone() {
+        crate::ast::Expr::Ident(n) => ctx.locals.get(&n).map(|i| ParkTarget::Local(i.slot)),
+        crate::ast::Expr::Member { obj, name } => {
+            let o = ctx.lower_expr(obj);
+            let Type::Obj(sid) = ctx.operand_ty(&o) else {
+                return None;
+            };
+            let idx = ctx.struct_layouts[sid.0 as usize]
+                .iter()
+                .position(|(f, _)| f == &name)?;
+            Some(ParkTarget::Field {
+                obj: o,
+                offset: OBJ_HEADER_SIZE + (idx as u64) * 8,
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Read the park out of its slot. A borrow for the close kernel, a
+/// TRANSFER for the step kernel — the difference is settled by whether
+/// the caller stores something back over it, not here.
+pub(crate) fn emit_park_load(ctx: &mut LowerCtx, target: &ParkTarget) -> Operand {
+    let (base, off) = match target {
+        ParkTarget::Local(slot) => (Operand::Value(*slot), 0),
+        ParkTarget::Field { obj, offset } => (obj.clone(), *offset),
+    };
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Any, base, off),
+        Type::Any,
+        None,
+    );
+    Operand::Value(v)
+}
+
+/// Write a park into its slot. No drop-old anywhere: the slot's
+/// previous value was either the `undefined` its declaration seeded or
+/// a stake the kernel just took.
+pub(crate) fn emit_park_store(ctx: &mut LowerCtx, target: &ParkTarget, v: Operand) {
+    let (base, off) = match target {
+        ParkTarget::Local(slot) => (Operand::Value(*slot), 0),
+        ParkTarget::Field { obj, offset } => (obj.clone(), *offset),
+    };
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Store(v, base, off));
+}
+
 /// The `Stmt::LetDecl` sub-lane for an array-destructuring group temp
 /// whose source needs the iterator protocol. Answers false — leaving
 /// the binding to the general path — for every other declaration,
@@ -197,20 +256,7 @@ fn emit_park_transfer(
         None,
     );
     ctx.emit_throw_check(None);
-    match target {
-        ParkTarget::Local(slot) => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
-            );
-        }
-        ParkTarget::Field { obj, offset } => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Store(Operand::Value(v), obj, offset),
-            );
-        }
-    }
+    emit_park_store(ctx, &target, Operand::Value(v));
 }
 
 /// Emit the bounded iteration walk. `limit >= 0` steps at most that

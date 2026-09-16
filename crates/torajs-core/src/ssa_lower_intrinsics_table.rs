@@ -510,6 +510,7 @@ pub(crate) fn build(
         dstr_close_pending: init_c.iterator.dstr_close_pending,
         dstr_park_pending: init_c.iterator.dstr_park_pending,
         dstr_drain_rest: init_c.iterator.dstr_drain_rest,
+        dstr_step_one: init_c.iterator.dstr_step_one,
         static_method_define: init_c.any_substrate.static_method_define,
         static_field_define: init_c.any_substrate.static_field_define,
         class_cell_raw: init_c.any_substrate.class_cell_raw,

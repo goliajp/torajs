@@ -145,6 +145,79 @@ unsafe fn derive_for_park(recv: AnyValue) -> AnyValue {
     }
 }
 
+/// Which of the park's three states the resume rides — the decode
+/// answers it once so the rest drain and the element step cannot
+/// drift apart on the stake question (they settle it oppositely:
+/// the drain BORROWS its park, the step OWNS it).
+pub(crate) enum ParkLane {
+    /// A builtin indexed source — the resume index drives, there is
+    /// no iterator object and nothing to release.
+    Indexed,
+    /// The receiver IS the cursor (MapIter / ArrIter / IterHelper):
+    /// `recv_eff` is the park itself and carries its stake.
+    Cursor,
+    /// A derived iterator object sitting in `iter_slot`.
+    Iterator,
+}
+
+/// The stepping state a park value decodes to.
+pub(crate) struct ParkCursor {
+    pub recv_eff: AnyValue,
+    pub idx: i64,
+    pub iter_slot: AnyValue,
+    pub lane: ParkLane,
+}
+
+/// Does this value step ITSELF? The three cursor cells do, which is
+/// what lets them be parked as-is — everything else in an iteration
+/// slot is either a derived iterator driven through its `next` method
+/// or a per-loop cache (the string lane's flattened receiver), and
+/// the two are not interchangeable.
+pub(crate) unsafe fn is_cursor_cell(v: AnyValue) -> bool {
+    unsafe {
+        if v == VALUE_UNDEFINED || !is_cell(v) {
+            return false;
+        }
+        let tag = (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read();
+        tag == Tag::MapIter as u16 || tag == Tag::ArrIter as u16 || tag == Tag::IterHelper as u16
+    }
+}
+
+/// Decode a non-`undefined` park into the triple `iter_next_inner`
+/// steps with. Pure — takes no stake and releases none; the caller
+/// settles the park according to its own contract.
+///
+/// # Safety
+/// `park` is a live non-`undefined` AnyValue; `recv` is live.
+pub(crate) unsafe fn park_decode(park: AnyValue, recv: AnyValue) -> ParkCursor {
+    unsafe {
+        if is_int32(park) {
+            return ParkCursor {
+                recv_eff: recv,
+                idx: as_int32(park) as i64,
+                iter_slot: VALUE_UNDEFINED,
+                lane: ParkLane::Indexed,
+            };
+        }
+        if is_cursor_cell(park) {
+            // Cursor receivers step themselves; a non-zero index
+            // skips the first-step GetIterator probe.
+            return ParkCursor {
+                recv_eff: park,
+                idx: 1,
+                iter_slot: VALUE_UNDEFINED,
+                lane: ParkLane::Cursor,
+            };
+        }
+        ParkCursor {
+            recv_eff: recv,
+            idx: USER_ITERATOR_LANE,
+            iter_slot: park,
+            lane: ParkLane::Iterator,
+        }
+    }
+}
+
 /// `__torajs_dstr_drain_rest(park, recv)` — §13.15.5.5 step 4: drain
 /// what the park left open into a fresh dense `Array<Any>` (owned,
 /// boxed). Runs AFTER the rest target's reference evaluated (and its
@@ -166,30 +239,17 @@ pub unsafe extern "C" fn __torajs_dstr_drain_rest(park: AnyValue, recv: AnyValue
             // Drained-to-done park — the rest is the empty tail.
             return box_void_ptr(arr as *mut c_void);
         }
-        let mut idx: i64;
-        let mut iter_slot: AnyValue = VALUE_UNDEFINED;
-        let mut recv_eff = recv;
+        let ParkCursor {
+            recv_eff,
+            mut idx,
+            mut iter_slot,
+            lane,
+        } = park_decode(park, recv);
         // `true` when `iter_slot` holds the BORROWED park — the loop
-        // must not release it (the pattern's slot copy owns it).
-        let mut borrowed_iter = false;
-        if is_int32(park) {
-            idx = as_int32(park) as i64;
-        } else {
-            let tag = (as_void_ptr(park).cast::<u8>().add(4) as *const u16).read();
-            if tag == Tag::MapIter as u16
-                || tag == Tag::ArrIter as u16
-                || tag == Tag::IterHelper as u16
-            {
-                // Cursor receivers step themselves; a non-zero index
-                // skips the first-step GetIterator probe.
-                recv_eff = park;
-                idx = 1;
-            } else {
-                iter_slot = park;
-                idx = USER_ITERATOR_LANE;
-                borrowed_iter = true;
-            }
-        }
+        // must not release it (the pattern's slot copy owns it). A
+        // lane that starts WITHOUT an iterator object can still have
+        // one derived into the slot below, and that one is ours.
+        let borrowed_iter = matches!(lane, ParkLane::Iterator);
         let mut out: AnyValue = VALUE_UNDEFINED;
         loop {
             let live = iter_next_inner(recv_eff, &mut idx, &mut iter_slot, &mut out, false, false);
