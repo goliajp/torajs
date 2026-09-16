@@ -39,6 +39,7 @@ pub mod interval;
 pub mod late_gvn;
 pub mod loop_analysis;
 pub mod loop_rotate;
+pub mod map_find_cse;
 pub mod mem2reg;
 pub mod optimize;
 pub mod optimize_licm;
@@ -439,6 +440,10 @@ fn finish_pipeline(module: &mut Module) {
         module,
         rc_dec_immediate::elide_immediate_rc_decs,
     );
+    // Map lookup sharing — a repeated string-key find on the same Map
+    // with no Map write between reuses the earlier index; set_str takes
+    // it as a checked hint. `TORAJS_MAP_FIND_CSE_OFF=1` skips.
+    gated_pass("MAP_FIND_CSE", module, map_find_cse::share_map_finds);
     // Loop rotation — copy each top-tested loop's exit test into its
     // latch so the loop runs one conditional branch per iteration.
     // Before block_layout, which lays out the rotated body.
