@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-15T20:07:48.296Z",
+  "generatedAt": "2026-09-16T00:03:25.292Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-15T19:56:31Z",
-    "headSha": "265625425",
-    "elapsedSec": 519.96,
+    "ranAt": "2026-09-15T23:41:17Z",
+    "headSha": "3bf4090db0b11fbb0438368415af45a065483848",
+    "elapsedSec": 769.9,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 33850,
-    "passNoOracle": 1695,
+    "pass": 33998,
+    "passNoOracle": 1696,
     "passNegative": 4568,
-    "passTotal": 40113,
-    "bug": 8989,
+    "passTotal": 40262,
+    "bug": 8840,
     "incompatible": 4072,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49102,
-    "passRateInScope": 75.44,
-    "passRateTrAccepted": 81.69
+    "passRateInScope": 75.72,
+    "passRateTrAccepted": 82
   },
   "torajs": {
-    "commit": "9f20f9d8f",
-    "commitSubject": "chore(hardev): rotation 656 test262 sweep @265625425 (+202 passTotal, 0 regressions)",
+    "commit": "56e9c1af7",
+    "commitSubject": "chore(hardev): rotation 657 test262 sweep @3bf4090db (+149 passTotal, 0 regressions)",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "9f20f9d8f",
-      "subject": "chore(hardev): rotation 656 test262 sweep @265625425 (+202 passTotal, 0 regressions)"
+      "hash": "56e9c1af7",
+      "subject": "chore(hardev): rotation 657 test262 sweep @3bf4090db (+149 passTotal, 0 regressions)"
     },
     {
-      "hash": "265625425",
-      "subject": "fix(torajs-core): instanceof a builtin constructor searches the prototype chain"
+      "hash": "3bf4090db",
+      "subject": "fix(torajs-anyvalue): a proxy over an array iterates through its traps"
     },
     {
-      "hash": "eadb8d379",
-      "subject": "feat(torajs-anyvalue): the prototype traps must agree with a non-extensible target"
+      "hash": "ed9857a35",
+      "subject": "refactor(torajs-anyvalue): move the builtin-lane claim mirror to its own file"
     },
     {
-      "hash": "46e217622",
-      "subject": "feat(torajs-anyvalue): the get, set, has and deleteProperty traps are checked against the target's invariants"
+      "hash": "d87518c72",
+      "subject": "fix(torajs-core): typed array destructuring and for-of stand down when the program can patch Array iteration"
     },
     {
-      "hash": "d6ff91bd7",
-      "subject": "feat(torajs-anyvalue): ArrayBuffer.prototype and DataView.prototype own their byte accessors"
+      "hash": "ecebf682d",
+      "subject": "refactor(torajs-core): move the array-destructuring lane verdict to its own file"
     },
     {
-      "hash": "d7fa30a9c",
-      "subject": "feat(torajs-anyvalue): %TypedArray%.prototype.toLocaleString"
+      "hash": "d5f6c6c25",
+      "subject": "fix(torajs-anyvalue): deleting a builtin prototype's Symbol.iterator is observable"
     },
     {
-      "hash": "be1fa0226",
-      "subject": "feat(torajs-anyvalue): RegExp.prototype owns the flag and source accessors, and a prototype accessor runs on its real receiver"
+      "hash": "3e395571a",
+      "subject": "fix(torajs-anyvalue): a proxy's [[Call]] and [[Construct]] are fixed at creation"
     },
     {
-      "hash": "b141cd97c",
-      "subject": "feat(torajs-anyvalue): the generic Array methods run over a Proxy receiver"
+      "hash": "c50a2d8ad",
+      "subject": "fix(torajs-anyvalue): a proxy's [[Construct]] carries newTarget, and Reflect.construct reaches a proxy target"
     },
     {
-      "hash": "7381f4af9",
-      "subject": "feat(torajs-meta): a builtin constructor lists its prototype, statics and data constants as own names"
+      "hash": "c482e6d1b",
+      "subject": "fix(torajs-meta): Reflect.preventExtensions answers a proxy's refusal as false"
     },
     {
-      "hash": "736f358ca",
-      "subject": "refactor(torajs-meta): move the closure arm of __torajs_anyv_own_keys into obj_own_keys_closure"
+      "hash": "28428f5c1",
+      "subject": "fix(torajs-anyvalue): proxy [[Get]] and [[Set]] carry the receiver through forwards and prototype chains"
     },
     {
-      "hash": "be556fa90",
-      "subject": "feat(torajs-meta): %String.prototype% owns length 0"
+      "hash": "1770df09b",
+      "subject": "fix(torajs-anyvalue): a literal accessor descriptor keeps its get and set on the way to a proxy"
     },
     {
-      "hash": "dc0f70cc8",
-      "subject": "fix(torajs-anyvalue): a subclass's species comes from the inherited accessor, not a class mark"
+      "hash": "bca0c66c1",
+      "subject": "fix(torajs-dynobj): a define that first touches a function's prototype validates against it"
     }
   ],
-  "headSha": "9f20f9d8f",
+  "headSha": "56e9c1af7",
   "autorun": {
-    "total": 959,
+    "total": 960,
     "baselineTarget": 10,
-    "bySelf": 954,
+    "bySelf": 955,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789493036-3209",
-      "at": "2026-09-15T17:23:56Z",
-      "ts": 1789493036,
+      "rotationId": "r-1789502891-0158",
+      "at": "2026-09-15T20:08:11Z",
+      "ts": 1789502891,
       "trigger": "self",
-      "prevHead": "1b1514e96",
-      "handoffSha": "sha256:ee74991c46a104e26df472bf73cac1b1cc9608d8d493d4367009f320a6b4cbdc",
-      "handoffAgeSec": 5,
-      "conformanceBefore": "4200/0/4",
-      "commitsInSession": 17
+      "prevHead": "82bd194b3",
+      "handoffSha": "sha256:b7e731ea437b33f523d874f74c9bea541ae385afeace6d7003bc8de0ef3a3282",
+      "handoffAgeSec": 23,
+      "conformanceBefore": "4211/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789502891-0158",
+        "at": "2026-09-15T20:08:11Z",
+        "ts": 1789502891,
+        "trigger": "self",
+        "prevHead": "82bd194b3",
+        "handoffSha": "sha256:b7e731ea437b33f523d874f74c9bea541ae385afeace6d7003bc8de0ef3a3282",
+        "handoffAgeSec": 23,
+        "conformanceBefore": "4211/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789493036-3209",
         "at": "2026-09-15T17:23:56Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:34e592fded1f857b6b20398218c63e682909c6f00910fbf815e9bffe135ce3e8",
         "handoffAgeSec": 39,
         "conformanceBefore": "4130/0/4",
-        "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789361201-1e40",
-        "at": "2026-09-14T04:46:41Z",
-        "ts": 1789361201,
-        "trigger": "self",
-        "prevHead": "7cc7a25dc",
-        "handoffSha": "sha256:1d7e8b2a09e231011b4e6f3f79acd9a37652988a641b8f291e3b32db10401eb5",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "4119/0/4",
         "commitsInSession": 15
       }
     ],
