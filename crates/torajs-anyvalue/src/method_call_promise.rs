@@ -40,7 +40,7 @@ pub(crate) const P_VALUE_OFF: usize = 16;
 /// `defineProperty(promise, "then", …)` landing lives.
 pub(crate) const P_PROPS_OFF: usize = 32;
 pub(crate) const STATE_FULFILLED: u8 = 1;
-const STATE_REJECTED: u8 = 2;
+pub(crate) const STATE_REJECTED: u8 = 2;
 pub(crate) const REPR_UNSTAMPED: u8 = 0;
 const REPR_I64: u8 = 1;
 const REPR_F64: u8 = 2;
@@ -116,7 +116,14 @@ pub(crate) unsafe fn promise_method(
         // dispatcher's ordinary GetV. The sibling holds the bodies;
         // an unpatched cell pays one load and falls through to the
         // kernels below.
-        if mid != ANY_METHOD_THEN && crate::method_call_promise_invoke::then_is_not_builtin(ptr) {
+        // `finally` reads SpeciesConstructor in its own body (the
+        // injected helper), so a cell whose species may differ takes
+        // that Invoke lane too.
+        if mid != ANY_METHOD_THEN
+            && (crate::method_call_promise_invoke::then_is_not_builtin(ptr)
+                || (mid == ANY_METHOD_FINALLY
+                    && crate::method_call_promise_species::species_may_differ(ptr)))
+        {
             let recv = __torajs_anyv_box_from_pair(4, ptr as i64);
             return Some(if mid == ANY_METHOD_CATCH {
                 crate::method_call_promise_invoke::catch_via_then(recv, argv, argc)
@@ -161,6 +168,14 @@ pub(crate) unsafe fn promise_method(
             m if m == ANY_METHOD_FINALLY => (a0, VALUE_UNDEFINED),
             _ => (a0, a1),
         };
+        // §27.2.5.4 steps 3-4 — SpeciesConstructor / NewPromiseCapability.
+        if mid != ANY_METHOD_FINALLY
+            && crate::method_call_promise_species::species_may_differ(ptr)
+            && let Some(v) =
+                crate::method_call_promise_species::then_via_species(ptr, ok_av, err_av)
+        {
+            return Some(v);
+        }
         // §27.2.5.4 step 3/4 — non-callable handler slot is EMPTY.
         let (ok_env, ok_entry) = closure_boxed_entry(ok_av).unwrap_or((core::ptr::null_mut(), 0));
         let (err_env, err_entry) =

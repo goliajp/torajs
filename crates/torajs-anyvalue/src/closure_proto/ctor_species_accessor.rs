@@ -19,6 +19,7 @@
 //! its own to keep in step.
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicU64, Ordering};
 
 use super::iter_proto::{iter_proto_self_entry, mint_symbol_method_cell};
 use super::{__torajs_dynobj_alloc, __torajs_dynobj_define_plain, ANY_HEAP};
@@ -36,6 +37,7 @@ const ACC_KINDS_GETTER_ONLY: u64 = 5;
 const ACCESSOR_ENTRY_FLAGS: u64 = (1 << 6) | (1 << 7) | (1 << 8) | (1 << 4) | (1 << 5) | (1 << 2);
 
 unsafe extern "C" {
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
 }
 
@@ -61,7 +63,7 @@ pub(crate) fn owns_species(proto_tag: i64) -> bool {
 ///
 /// # Safety
 /// `props_slot` is the unpublished cell's null props slot.
-pub(crate) unsafe fn install(props_slot: *mut *mut c_void) {
+pub(crate) unsafe fn install(proto_tag: i64, props_slot: *mut *mut c_void) {
     unsafe {
         *props_slot = __torajs_dynobj_alloc();
         let get_cell = mint_symbol_method_cell(iter_proto_self_entry, b"get [Symbol.species]");
@@ -72,5 +74,30 @@ pub(crate) unsafe fn install(props_slot: *mut *mut c_void) {
         );
         let key = symbol_static::well_known_singleton(WK_SPECIES) as *mut c_void;
         __torajs_dynobj_define_plain(props_slot, key, ANY_HEAP, pair as u64, ACCESSOR_ENTRY_FLAGS);
+        INSTALLED_PAIR[proto_tag as usize].store(pair as u64, Ordering::Relaxed);
+    }
+}
+
+/// The accessor pair [`install`] put under each constructor's
+/// `@@species` — identity is what tells an untouched entry from a
+/// program's redefinition or delete.
+static INSTALLED_PAIR: [AtomicU64; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS] =
+    [const { AtomicU64::new(0) }; torajs_rc::builtin_proto::NUM_BUILTIN_PROTOS];
+
+/// Whether `ctor_cell`'s `@@species` entry is no longer the installed
+/// accessor (redefined, overwritten or deleted). Read-only: no getter
+/// runs.
+///
+/// # Safety
+/// `ctor_cell` is the live interned constructor cell for `proto_tag`.
+pub(crate) unsafe fn species_replaced(proto_tag: i64, ctor_cell: *mut c_void) -> bool {
+    unsafe {
+        let props = crate::member_get_layout::closure_props(ctor_cell);
+        if props.is_null() {
+            return true;
+        }
+        let key = symbol_static::well_known_singleton(WK_SPECIES) as *const c_void;
+        __torajs_dynobj_get_value(props, key)
+            != INSTALLED_PAIR[proto_tag as usize].load(Ordering::Relaxed)
     }
 }

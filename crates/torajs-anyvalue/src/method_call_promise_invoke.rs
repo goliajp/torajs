@@ -221,8 +221,8 @@ pub unsafe extern "C" fn __torajs_promise_finally_resettle(
 
 /// `__torajs_promise_species_ctor(p)` — §7.3.22 SpeciesConstructor(O,
 /// %Promise%) for the injected `finally` helper: `undefined` is the
-/// default (%Promise% — its `@@species` reads undefined today, so the
-/// intrinsic lands here too), a constructor answers OWNED, a
+/// default (`get %Promise%[@@species]` answers %Promise% itself, which
+/// the classification recognises as the default), a constructor answers OWNED, a
 /// non-object `constructor` or a non-constructor species leaves the
 /// TypeError pending and answers undefined. The `constructor` GET
 /// runs through the ordinary any member face (own bag, then the
@@ -236,6 +236,19 @@ pub unsafe extern "C" fn __torajs_promise_finally_resettle(
 /// `p` is a live any value.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_promise_species_ctor(p: AnyValue) -> AnyValue {
+    match unsafe { species_ctor_of(p) } {
+        crate::buffer_species::SpeciesResolved::Ctor(c) => c,
+        crate::buffer_species::SpeciesResolved::Default
+        | crate::buffer_species::SpeciesResolved::Threw => VALUE_UNDEFINED,
+    }
+}
+
+/// The classification behind [`__torajs_promise_species_ctor`], for
+/// the Rust callers that must tell the default from a throw.
+///
+/// # Safety
+/// `p` is a live any value.
+pub(crate) unsafe fn species_ctor_of(p: AnyValue) -> crate::buffer_species::SpeciesResolved {
     unsafe extern "C" {
         fn __torajs_str_drop(s: *mut c_void);
     }
@@ -246,10 +259,6 @@ pub unsafe extern "C" fn __torajs_promise_species_ctor(p: AnyValue) -> AnyValue 
         let dtag = crate::member_get::__torajs_any_member_get_tag(p, key as *const c_void);
         let dval = crate::member_get_value::__torajs_any_member_get_value(p, key as *const c_void);
         __torajs_str_drop(key as *mut c_void);
-        match crate::buffer_species::classify_ctor_entry(p, dtag, dval) {
-            crate::buffer_species::SpeciesResolved::Ctor(c) => c,
-            crate::buffer_species::SpeciesResolved::Default
-            | crate::buffer_species::SpeciesResolved::Threw => VALUE_UNDEFINED,
-        }
+        crate::buffer_species::classify_ctor_entry(p, dtag, dval)
     }
 }

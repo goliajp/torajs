@@ -50,7 +50,8 @@ pub(crate) fn builtin_ctor_cell(proto_tag: i64) -> *mut u8 {
         *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = torajs_rc::ANY_METHOD_UNKNOWN as u64;
         if crate::closure_proto::ctor_species_accessor::owns_species(proto_tag) {
             crate::closure_proto::ctor_species_accessor::install(
-                cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void
+                proto_tag,
+                cell.add(CLOSURE_PROPS_OFF) as *mut *mut c_void,
             );
         }
         slot.store(cell as u64, Ordering::Relaxed);

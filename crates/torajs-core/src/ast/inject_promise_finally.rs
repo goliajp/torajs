@@ -38,8 +38,8 @@ pub(crate) const HELPER: &str = "__promise_finally_via_then";
 /// gate: `assignment to p mismatch — slot is Promise but value is
 /// Any`). So SpeciesConstructor is the kernel
 /// `__torajs_promise_species_ctor` (`ssa_lower_call_injected_spec_ops`),
-/// whose `%Promise%[@@species]` read answers undefined today — the
-/// default branch is where the intrinsic lands; a subclass with a
+/// whose classification answers the default for %Promise% (its
+/// `@@species` getter returns %Promise% itself); a subclass with a
 /// species constructor takes the `new C(executor)` route. The closures
 /// are passed as literals so NamedEvaluation never names them
 /// (`.name` is `""`, `.length` 1, not constructors).

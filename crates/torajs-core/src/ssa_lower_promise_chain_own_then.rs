@@ -11,11 +11,10 @@
 //! `Promise/*/invoke-then*`, `resolve-thenable-*`).
 //!
 //! Same shape as the §27.2.4 static-slot patch consult
-//! (`ssa_lower_call_promise_resolve`): an existence probe first
-//! (`promise_then_overridden` — no GET, so an accessor's getter does
-//! not run out of order; rotation 653 put it behind an inline NULL
-//! check of the cell's expando-bag slot, so an unpatched cell pays
-//! one load), the handlers lowered once ahead of the
+//! (`ssa_lower_call_promise_resolve`): an inline NULL check of the
+//! cell's expando-bag slot first (rotation 653; since rotation 660 a
+//! bag alone sends the call to the any lane, which also answers
+//! §27.2.5.4's SpeciesConstructor), the handlers lowered once ahead of the
 //! split, a fast block with the pre-existing typed emit, a patched
 //! block that rides the any method dispatcher against the boxed cell
 //! and settles the typed return contract through
@@ -58,42 +57,34 @@ pub(crate) fn lower_chain_with_own_then_probe(
     let fast_blk = ctx.f.add_block();
     let after_blk = ctx.f.add_block();
     let res_slot = ctx.alloca_in_entry(Type::Promise, Some("__pthen"));
-    // The override can only live in the cell's expando bag, and the
-    // bag is NULL until an any-lane store lands on the cell — so the
-    // unpatched chain (every `p.then(f)` the bench corpus writes) pays
-    // one load and a branch, and only a cell with a bag asks the
-    // kernel whether the bag holds `then`.
+    // Two things can make the builtin kernels the wrong body: an own
+    // `then` (§27.2.5.1 Invoke) and a SpeciesConstructor other than
+    // %Promise% (§27.2.5.4 steps 3-4). Per cell, both need the
+    // expando bag, which is NULL until an any-lane store lands — so
+    // the unpatched chain pays one load and a branch, and a cell with
+    // a bag rides the any dispatcher, whose Promise arm answers both.
+    // Program-wide, a write that can reach `Promise.prototype
+    // .constructor` or a `@@species` accessor redirects every cell
+    // with no bag at all; the census says whether this module has one.
     let entry = ctx.cur_block;
-    let bag = ctx.f.append_inst(
-        entry,
-        InstKind::Load(Type::Ptr, src_op.clone(), PROMISE_PROPS_OFF),
-        Type::Ptr,
-        None,
-    );
-    let has_bag = ctx.f.append_inst(
-        entry,
-        InstKind::ICmp(IPred::Ne, Operand::Value(bag), Operand::ConstPtrNull),
-        Type::Bool,
-        None,
-    );
-    let probe_blk = ctx.f.add_block();
-    ctx.f.set_term(
-        entry,
-        Terminator::CondBr {
-            cond: Operand::Value(has_bag),
-            then_blk: probe_blk,
-            else_blk: fast_blk,
-        },
-    );
-    let probe = ctx.f.append_inst(
-        probe_blk,
-        InstKind::Call(ctx.intrinsics.promise_then_overridden, vec![src_op.clone()]),
-        Type::I64,
-        None,
-    );
-    ctx.cur_block = probe_blk;
-    let cond = ctx.coerce_to_bool(Operand::Value(probe));
-    let saved = ctx.cur_block;
+    let saved = entry;
+    let cond = if species_census_written(ctx) {
+        Operand::ConstBool(true)
+    } else {
+        let bag = ctx.f.append_inst(
+            entry,
+            InstKind::Load(Type::Ptr, src_op.clone(), PROMISE_PROPS_OFF),
+            Type::Ptr,
+            None,
+        );
+        let has_bag = ctx.f.append_inst(
+            entry,
+            InstKind::ICmp(IPred::Ne, Operand::Value(bag), Operand::ConstPtrNull),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(has_bag)
+    };
 
     ctx.cur_block = fast_blk;
     let fast_val = ctx.lower_chain_fast(m_name, src_op.clone(), arg_ops);
@@ -128,6 +119,24 @@ pub(crate) fn lower_chain_with_own_then_probe(
         Type::Promise,
         None,
     )
+}
+
+/// Might this module redirect SpeciesConstructor for a bag-less cell?
+/// `Promise.prototype.constructor` reached by a write, any `@@species`
+/// handler written (`defineProperty(Promise, Symbol.species, …)` lands
+/// in the constructor's own dict, where no cell can see it), or a
+/// class inheriting from Promise — its instances flow into slots the
+/// checker types `Promise` (`P.resolve(x)`), and their species is the
+/// subclass.
+fn species_census_written(ctx: &LowerCtx<'_>) -> bool {
+    let set = &ctx.proto_shadow;
+    set.shadows("Promise", "constructor")
+        || set.hook_written("species")
+        || ctx
+            .ast
+            .builtin_class_parents
+            .iter()
+            .any(|(_, p)| p == "Promise")
 }
 
 /// `Some("__fwdrecv_<f>" | "__forward_<f>")` when `aid` names a
