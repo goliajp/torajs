@@ -374,7 +374,7 @@ impl Parser<'_> {
     /// `load`, or `load === undefined ? default : load` when the slot
     /// carries a default (§13.15.5.4 — undefined and ONLY undefined
     /// fires it).
-    fn dstra_wrap_default(&mut self, load: ExprId, default: Option<ExprId>) -> ExprId {
+    pub(super) fn dstra_wrap_default(&mut self, load: ExprId, default: Option<ExprId>) -> ExprId {
         let Some(default_expr) = default else {
             return load;
         };

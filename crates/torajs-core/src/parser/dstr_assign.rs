@@ -132,10 +132,20 @@ impl<'a> Parser<'a> {
         // prefix, and the group is flagged so the checker keeps it on
         // the iterator lane even for a statically indexable source.
         let rest_susp = self.detect_deferred_rest(target);
-        let group_init = if rest_susp {
-            let raw_name = format!("__dstra_raw_{id}");
+        // §13.15.5.5 — a Member / Index element target has to have its
+        // reference evaluated BEFORE that element's step, so the walk
+        // cannot run ahead: the pattern steps element by element off
+        // the park instead. Same deferred plumbing as 刀 D's rest,
+        // one element earlier (see `dstr_assign_step.rs`).
+        let stepwise = self.detect_stepwise(target);
+        if stepwise {
+            self.dstra_stepwise_ids.insert(id);
+        }
+        if rest_susp {
             self.dstra_deferred_rest_ids.insert(id);
-            Some(raw_name)
+        }
+        let group_init = if rest_susp || stepwise {
+            Some(format!("__dstra_raw_{id}"))
         } else {
             None
         };
@@ -160,7 +170,15 @@ impl<'a> Parser<'a> {
                 });
                 let raw_ref = self.ast.add_expr(Expr::Ident(raw_name.clone()));
                 if let Expr::Array(elems) = self.ast.get_expr(target) {
-                    let prefix = (elems.len() - 1) as i64;
+                    // A stepping pattern walks ZERO elements: the walk
+                    // exists only for §13.15.5.3 step 1's GetIterator
+                    // and the park it leaves behind. Otherwise it is
+                    // 刀 D's bounded prefix before the rest drain.
+                    let prefix = if stepwise {
+                        0
+                    } else {
+                        (elems.len() - 1) as i64
+                    };
                     self.ast.ary_destr_groups.insert(raw_ref, prefix);
                     self.ast.dstr_deferred_rest.insert(raw_ref);
                 }
@@ -183,7 +201,7 @@ impl<'a> Parser<'a> {
         out.push(Stmt::LetDecl {
             mutable: false,
             name: src_name.clone(),
-            type_ann: rest_susp.then(|| "any".into()),
+            type_ann: (rest_susp || stepwise).then(|| "any".into()),
             init: src_init,
             is_var: false,
         });
@@ -191,7 +209,7 @@ impl<'a> Parser<'a> {
         let mut elems = Vec::new();
         self.emit_dstr_assign_pattern(target, &src_name, &mut elems)?;
         let suspends = std::mem::replace(&mut self.dstra_saw_yield, saved);
-        if suspends || rest_susp {
+        if suspends || rest_susp || stepwise {
             self.wrap_deferred_close(id, &mut out, elems);
         } else {
             out.extend(elems);
@@ -231,6 +249,13 @@ impl<'a> Parser<'a> {
                         "rest element must be last in a destructuring pattern at {}",
                         self.at()
                     ));
+                }
+                if let Some(id) = src_name
+                    .strip_prefix("__dstra_src_")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    && self.dstra_stepwise_ids.contains(&id)
+                {
+                    return self.emit_dstr_assign_array_stepwise(&elems, id, out);
                 }
                 self.emit_dstr_assign_array(&elems, src_name, out)
             }

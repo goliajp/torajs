@@ -64,7 +64,7 @@ impl<'a> Parser<'a> {
             if let Some(recovered) = self.recover_yield_temps(target)? {
                 out.extend(recovered);
             }
-            rebuilt = self.hoist_rest_lref(target, out)?;
+            rebuilt = self.hoist_target_lref(target, out)?;
         }
         let id2 = self.mint_desugar_id();
         let rest_name = format!("__dstra_rest_{id2}");
@@ -102,12 +102,18 @@ impl<'a> Parser<'a> {
         self.emit_dstr_assign_slot(rebuilt, drain, out)
     }
 
-    /// Hoist a Member / Index rest target's object (and key) into
-    /// temps so their evaluation — and any throw it raises — lands
-    /// BEFORE the park slot clears, while the PutValue through the
-    /// rebuilt reference stays after the drain. Anything else (an
-    /// Ident, an invalid target the slot path rejects) passes through.
-    fn hoist_rest_lref(&mut self, target: ExprId, out: &mut Vec<Stmt>) -> Result<ExprId, String> {
+    /// Hoist a Member / Index target's object (and key) into temps so
+    /// their evaluation — and any throw it raises — lands BEFORE the
+    /// element's step (or, for the rest element, before the park slot
+    /// clears), while the PutValue through the rebuilt reference stays
+    /// after. Anything else (an Ident, an invalid target the slot path
+    /// rejects) passes through. Shared by both halves of §13.15.5.5:
+    /// the rest drain and the per-element step ask the same question.
+    pub(super) fn hoist_target_lref(
+        &mut self,
+        target: ExprId,
+        out: &mut Vec<Stmt>,
+    ) -> Result<ExprId, String> {
         match self.ast.get_expr(target).clone() {
             Expr::Member { obj, name } => {
                 let t = self.hoist_lref_obj(obj, out);

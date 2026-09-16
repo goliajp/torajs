@@ -52,6 +52,7 @@ mod destr_obj_param;
 mod destr_shape;
 mod dstr_assign;
 mod dstr_assign_rest;
+mod dstr_assign_step;
 mod entry;
 mod void_expr;
 pub use entry::{parse, parse_into, parse_into_eval};
@@ -294,6 +295,11 @@ struct Parser<'a> {
     /// patterns only — a nested pattern's rest keeps the eager tail
     /// (REMAINDER in the RFC).
     dstra_deferred_rest_ids: std::collections::HashSet<u32>,
+    /// §13.15.5.5 — expansion ids whose ELEMENTS step the park one at
+    /// a time (a Member / Index element target makes the merged walk
+    /// observably wrong). Separate from the rest set above because a
+    /// pattern can be either, both, or neither.
+    dstra_stepwise_ids: std::collections::HashSet<u32>,
     /// False while parsing a conditionally-evaluated sub-expression
     /// (loop cond/step, short-circuit rhs, ternary branch, optional
     /// call, defaults) — expression-position `yield` rejects there.

@@ -127,6 +127,7 @@ pub fn parse_into_eval(
         yield_hoist_buf: Vec::new(),
         dstra_saw_yield: false,
         dstra_deferred_rest_ids: std::collections::HashSet::new(),
+        dstra_stepwise_ids: std::collections::HashSet::new(),
         yield_hoist_allowed: true,
         in_formal_params: false,
         await_allowed: true,

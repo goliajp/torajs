@@ -246,6 +246,7 @@ impl<'a> Parser<'a> {
             yield_hoist_buf: Vec::new(),
             dstra_saw_yield: false,
             dstra_deferred_rest_ids: std::collections::HashSet::new(),
+            dstra_stepwise_ids: std::collections::HashSet::new(),
             yield_hoist_allowed: self.yield_hoist_allowed,
             in_formal_params: self.in_formal_params,
             await_allowed: self.await_allowed,
