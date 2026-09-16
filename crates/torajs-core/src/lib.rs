@@ -429,6 +429,7 @@ pub(crate) mod ssa_lower_closure;
 pub(crate) mod ssa_lower_closure_canonical;
 pub mod ssa_lower_closure_captures;
 pub(crate) mod ssa_lower_closure_order;
+pub(crate) mod ssa_lower_closure_value_ty;
 pub(crate) mod ssa_lower_coerce_arr;
 pub(crate) mod ssa_lower_coerce_to_bool;
 pub(crate) mod ssa_lower_coerce_to_str;
