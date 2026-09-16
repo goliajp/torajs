@@ -32,6 +32,7 @@ unsafe extern "C" {
         hint: i64,
     );
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
@@ -52,6 +53,16 @@ pub unsafe extern "C" fn __torajs_any_member_set_priv(
     hint: i64,
 ) {
     let recv = unsafe { *recv_slot };
+    // Slice 2c — an element held in the foreign store takes the write
+    // there; the store takes its own stake, so the handed-in one ends.
+    let boxed =
+        unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64) };
+    if unsafe { crate::private_foreign::foreign_set(recv, key, boxed) } {
+        if tag == torajs_rc::AnySlotTag::Heap as u64 && value != 0 {
+            unsafe { __torajs_value_drop_heap(value as *mut c_void) };
+        }
+        return;
+    }
     if !unsafe { priv_brand_declared(recv, key) } {
         unsafe {
             __torajs_throw_type_error(

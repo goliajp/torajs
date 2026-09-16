@@ -548,6 +548,7 @@ pub(crate) fn build(
         any_regexp_prop: init_c.any_substrate.any_regexp_prop,
         any_member_get_tag: init_c.any_substrate.any_member_get_tag,
         any_member_get_priv_tag: init_c.private.any_member_get_priv_tag,
+        any_member_get_priv_value: init_c.private.any_member_get_priv_value,
         any_member_priv_has: init_c.private.any_member_priv_has,
         any_member_set_priv: init_c.private.any_member_set_priv,
         priv_install: init_c.private.priv_install,

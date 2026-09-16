@@ -40,6 +40,11 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
     recv: AnyValue,
     key: *const c_void,
 ) -> u64 {
+    // Slice 2c — an element installed on an object its class did not
+    // mint lives in the foreign store, Proxy receivers included.
+    if let Some(v) = unsafe { crate::private_foreign::foreign_get(recv, key) } {
+        return crate::nanbox_encode::__torajs_anyv_unbox_tag(v) as u64;
+    }
     let tag = unsafe { __torajs_any_member_get_tag(recv, key) };
     // The base walk already threw for a null / undefined receiver —
     // don't stack a second TypeError on the pending one.
@@ -125,7 +130,23 @@ pub unsafe extern "C" fn __torajs_any_member_priv_has(recv: AnyValue, key: *cons
     if unsafe { torajs_rc::in_op_any::require_object_rhs(recv as i64) }.is_none() {
         return false;
     }
-    unsafe { priv_brand_declared(recv, key) }
+    unsafe { priv_brand_declared(recv, key) || crate::private_foreign::foreign_has(recv, key) }
+}
+
+/// The value twin of [`__torajs_any_member_get_priv_tag`]: a foreign
+/// store element's value, borrowed; otherwise the base value channel.
+///
+/// # Safety
+/// Cell receivers are valid heap pointers; `key` is a live Str cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_any_member_get_priv_value(
+    recv: AnyValue,
+    key: *const c_void,
+) -> u64 {
+    if let Some(v) = unsafe { crate::private_foreign::foreign_get(recv, key) } {
+        return crate::nanbox_encode::__torajs_anyv_unbox_value(v) as u64;
+    }
+    unsafe { crate::member_get_value::__torajs_any_member_get_value(recv, key) }
 }
 
 /// Whether the receiver's OWN face carries the private element — the

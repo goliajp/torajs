@@ -80,7 +80,7 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
     // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
     // pass 2 (which rewrites `Expr::This` and method-call shapes).
-    for (_, cname, _tp, parent, fields, _, ctor, _, _) in class_index {
+    for (_, cname, _tp, parent, fields, _, ctor, methods, _) in class_index {
         let Some(c) = ctor.as_ref() else { continue };
         let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
         for s in &c.body {
@@ -167,7 +167,13 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
                 left: seq,
                 right: adopt,
             });
-            for (fname, _) in fields {
+            // Slice 2c — the private method brand is an element of its
+            // own (§7.3.34 step 2), added before the fields.
+            let brand = methods
+                .iter()
+                .any(|m| m.name.starts_with("__priv_"))
+                .then(|| PropKey::from(format!("__privbrand_{cname}")));
+            for fname in brand.iter().chain(fields.iter().map(|(f, _)| f)) {
                 let this_now = ast.add_expr(Expr::This);
                 let carry = super::desugar_classes_ctor_return::carry_call(ast, this_now, fname);
                 seq = ast.add_expr(Expr::Sequence {

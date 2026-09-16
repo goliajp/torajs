@@ -649,6 +649,7 @@ pub(crate) struct Intrinsics {
     /// Brand-gated tag channel for `__priv_`-named member reads —
     /// own-face miss throws TypeError (§7.3.31 PrivateGet).
     pub(crate) any_member_get_priv_tag: FuncId,
+    pub(crate) any_member_get_priv_value: FuncId,
     /// §13.10.1 ergonomic brand check (`#x in o`).
     pub(crate) any_member_priv_has: FuncId,
     /// §7.3.32 PrivateSet write twin — undeclared brand throws.

@@ -164,12 +164,39 @@ pub unsafe extern "C" fn __torajs_ctor_ret_carry(
     if minted == target || !is_object(target) {
         return;
     }
+    let wtf8 = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
+    let name = wtf8.as_bytes();
+    // RFC 20260916-private-element-brand slice 2c — a class's private
+    // method brand (`__privbrand_<C>`, no value) and its private fields
+    // go into the invisible per-name store, where adding one twice is
+    // the TypeError; never onto the object's own property face.
+    if name.starts_with(b"__privbrand_") {
+        unsafe { crate::private_foreign::foreign_add(target, key, crate::nanbox::VALUE_UNDEFINED) };
+        return;
+    }
     // Ownership mirrors `obj_assign::copy_keys`: the probe pair is
     // borrow-shaped, so a heap payload takes +1 before it meets
     // member_set's consume contract. The mint keeps its own stake and
     // releases it when it is dropped.
     let tag = unsafe { crate::member_get::__torajs_any_member_get_tag(minted, key) };
     let value = unsafe { crate::member_get_value::__torajs_any_member_get_value(minted, key) };
+    if name.starts_with(b"__priv_") {
+        // An instance whose own class declared the field already holds
+        // it in its layout: adding it again is the same TypeError.
+        if unsafe { crate::member_get_private::priv_brand_declared(target, key) } {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"cannot add a private element twice to the same object".as_ptr(),
+                )
+            };
+            return;
+        }
+        // The store takes its own stake; the pair stays a borrow.
+        let v =
+            unsafe { crate::nanbox_encode::__torajs_anyv_box_from_pair(tag as i64, value as i64) };
+        unsafe { crate::private_foreign::foreign_add(target, key, v) };
+        return;
+    }
     if tag == AnySlotTag::Heap as u64 && value != 0 {
         unsafe { __torajs_rc_inc(value as *mut c_void) };
     }
