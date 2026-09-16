@@ -73,6 +73,9 @@ pub(crate) unsafe fn method_call(
         match crate::proxy::trap(handler, b"get") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => {
+                if let Some(v) = user_method_on_proxy(recv, name_str, argv, argc) {
+                    return v;
+                }
                 return crate::method_call::any_method_call_inner(
                     target, mid, name_str, recv_slot, argv, argc,
                 );
@@ -93,6 +96,46 @@ pub(crate) unsafe fn method_call(
             crate::method_call_closure_dispatch::__torajs_any_call_with_this(f, recv, argv, argc);
         crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
         out
+    }
+}
+
+/// §7.3.14 Call(GetV(p, name), p) on a trap-less proxy when the value
+/// is a USER function: its body must see the proxy as `this` (a class
+/// method reading `this.#x` then fails the brand, as it must). `None`
+/// keeps the whole-dispatch forward for everything else — builtin
+/// method cells tag-dispatch on a real receiver, a class method face
+/// without a receiver-polymorphic twin reads `this` at baked layout
+/// offsets, and a non-callable value keeps the forward's miss shape.
+///
+/// # Safety
+/// `recv` is a live Proxy AnyValue; `name_str` a live Str cell; `argv`
+/// points at `argc` slots alive across the call.
+unsafe fn user_method_on_proxy(
+    recv: AnyValue,
+    name_str: *const u8,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    unsafe {
+        let f = crate::proxy::get(as_void_ptr(recv), name_str as *const c_void, recv);
+        if __torajs_throw_check() != 0 {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
+            return Some(VALUE_UNDEFINED);
+        }
+        let user = crate::method_call_closure_dispatch::closure_boxed_entry(f).is_some() && {
+            let cell = as_void_ptr(f);
+            crate::method_value::builtin_method_mid(cell).is_none()
+                && (crate::method_value_class::class_method_face_adapter(cell).is_none()
+                    || crate::method_value_class::class_method_face_guard(cell).1 != 0)
+        };
+        if !user {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
+            return None;
+        }
+        let out =
+            crate::method_call_closure_dispatch::__torajs_any_call_with_this(f, recv, argv, argc);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
+        Some(out)
     }
 }
 
