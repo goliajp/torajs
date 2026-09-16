@@ -1,11 +1,13 @@
 //! RFC 20260815 knife 2b — `__torajs_super_value(P, this, [args…])`
 //! synthetic call lowering.
 //!
-//! Three operands, all boxed to Any: the parent binding (an `any` let
+//! Four operands, all boxed to Any: the parent binding (an `any` let
 //! by construction — the extracted `__ccp<N>` heritage value), the
-//! subclass-allocated `this`, and the dense args pack the AST rewrite
+//! subclass-allocated `this`, the dense args pack the AST rewrite
 //! built (an array literal at an explicit `super(a, b)` site, the
-//! rest binding itself in the implicit forwarding ctor). The runtime
+//! rest binding itself in the implicit forwarding ctor), and the
+//! subclass constructor's `new.target`, which a plain-function parent
+//! receives (§10.2.1.1 via its construct face). The runtime
 //! kernel (`__torajs_anyv_super_call`) owns the whole dispatch — a
 //! class-cell parent routes to its registered `__ctorany_<P>` twin, a
 //! closure takes [[Call]] with `this` bound, anything else raises
@@ -54,11 +56,11 @@ pub(crate) fn try_lower(
         ctx.emit_throw_check(None);
         return Some(Operand::ConstPtrNull);
     }
-    if n != "__torajs_super_value" || args.len() != 3 {
+    if n != "__torajs_super_value" || args.len() != 4 {
         return None;
     }
-    let mut ops: Vec<Operand> = Vec::with_capacity(3);
-    let mut boxed: Vec<Option<Operand>> = Vec::with_capacity(3);
+    let mut ops: Vec<Operand> = Vec::with_capacity(4);
+    let mut boxed: Vec<Option<Operand>> = Vec::with_capacity(4);
     for &a in args {
         let raw = ctx.lower_expr(a);
         let raw_ty = ctx.operand_ty(&raw);

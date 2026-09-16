@@ -33,7 +33,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_anyv_super_call",
-            &[Type::Any, Type::Any, Type::Any],
+            &[Type::Any, Type::Any, Type::Any, Type::Any],
             Type::Any,
         ),
         heritage_check: declare_intrinsic(

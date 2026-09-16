@@ -17,9 +17,9 @@
 //! resolved in is long gone by now. The closure cell mint registers the
 //! face against the original's boxed entry (`ssa_lower_closure_ctor_face.rs`).
 //!
-//! A body with a parameter default, a rest parameter or an arguments
-//! vector keeps the call channel (the undefined local): the face's head
-//! order would disagree with those lanes.
+//! A body with a parameter default or an arguments vector keeps the call
+//! channel (the undefined local): the face's head order would disagree
+//! with those lanes. A rest parameter stays last and packs the tail.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -76,7 +76,7 @@ pub(crate) fn run(
         if params.first().is_none_or(|p| p.name != "__env")
             || params
                 .iter()
-                .any(|p| p.default.is_some() || p.is_rest || p.name == "__torajs_argv")
+                .any(|p| p.default.is_some() || p.name == "__torajs_argv")
         {
             continue;
         }

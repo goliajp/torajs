@@ -129,7 +129,8 @@ pub unsafe extern "C" fn __torajs_anyv_heritage_check(parent: AnyValue) {
 
 /// `super(…args)` against a runtime parent value, `this` already
 /// allocated by the subclass; `args_arr` is the dense `Arr<Any>` the
-/// lane packed at the site.
+/// lane packed at the site; `new_target` is the subclass constructor's
+/// (§13.3.7.1 step 5), borrowed.
 ///
 /// # Safety
 /// `args_arr` must be a live `Arr` cell, borrowed for the duration of
@@ -139,6 +140,7 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
     parent: AnyValue,
     this_v: AnyValue,
     args_arr: AnyValue,
+    new_target: AnyValue,
 ) -> AnyValue {
     let arr = if is_cell(args_arr) {
         as_void_ptr(args_arr)
@@ -193,11 +195,10 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
                     }
                     return VALUE_UNDEFINED;
                 }
-                // Twin head is `(__this, __new_target, …user)`; the
-                // newTarget slot rides undefined (same recorded
-                // approximation the static-name twin call makes).
+                // Twin head is `(__this, __new_target, …user)`.
                 let mut full = vec![VALUE_UNDEFINED; n + 2];
                 full[0] = this_v;
+                full[1] = new_target;
                 full[2..2 + n].copy_from_slice(elems);
                 unsafe {
                     invoke_boxed(core::ptr::null_mut(), entry, full.as_ptr(), (n + 2) as i64);
@@ -207,8 +208,24 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
             }
         }
         if let Some((env, entry)) = unsafe { closure_boxed_entry(parent) } {
+            // A plain-function parent reading `new.target` is entered
+            // through its construct face (RFC 20260917-plain-fn-new-target
+            // knife 4): SuperCall is a [[Construct]] with this new.target.
+            let face = crate::construct_new_target::ctor_face_entry(entry);
             unsafe {
-                invoke_with_this(env, entry, this_v, elems.as_ptr(), n as i64);
+                if face != 0 {
+                    let out = crate::construct_new_target::invoke_ctor_face(
+                        env,
+                        face,
+                        this_v,
+                        new_target,
+                        elems.as_ptr(),
+                        n as i64,
+                    );
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+                } else {
+                    invoke_with_this(env, entry, this_v, elems.as_ptr(), n as i64);
+                }
             }
             release(elems);
             return VALUE_UNDEFINED;

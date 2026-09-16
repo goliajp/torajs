@@ -125,9 +125,12 @@ pub(super) fn rewrite_super_sites(
             let p = ast.add_expr(Expr::Ident(parent.to_string()));
             let this = ast.add_expr(Expr::This);
             let pack = ast.add_expr(Expr::Array(args));
+            // §13.3.7.1 step 5 — SuperCall constructs the parent with
+            // the current new.target.
+            let nt = ast.add_expr(Expr::NewTarget);
             ast.exprs[eid.0 as usize] = Expr::Call {
                 callee,
-                args: vec![p, this, pack],
+                args: vec![p, this, pack, nt],
             };
             continue;
         }
@@ -260,9 +263,10 @@ pub(super) fn implicit_derived_ctor(
         let p = ast.add_expr(Expr::Ident(parent.to_string()));
         let this = ast.add_expr(Expr::This);
         let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        let nt = ast.add_expr(Expr::NewTarget);
         ast.add_expr(Expr::Call {
             callee,
-            args: vec![p, this, rest_ref],
+            args: vec![p, this, rest_ref, nt],
         })
     } else if ast.es5_real_parents.contains(&target) {
         // Real-class target — the `__ctorany_<P>` direct call (see

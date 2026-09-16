@@ -55,7 +55,7 @@ pub(crate) fn try_match(
     // `__torajs_heritage_check(P)` (rotation 410) — the §15.7.14
     // step 5 class-definition-time gate; same synthetic family, one
     // any-world operand.
-    let matches = (n == "__torajs_super_value" && args.len() == 3)
+    let matches = (n == "__torajs_super_value" && args.len() == 4)
         || (n == "__torajs_heritage_check" && args.len() == 1);
     if !matches {
         return None;
