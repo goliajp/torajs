@@ -28,7 +28,7 @@ use crate::pool::{__torajs_promise_alloc_pending, __torajs_promise_drop};
 use crate::state::{
     __torajs_promise_attach_then, __torajs_promise_reject, __torajs_promise_resolve,
 };
-use crate::then::{FinallyCb, FinallyClosureFn, stamp_result_repr};
+use crate::then::{FinallyCb, FinallyClosureFn, FinallyRecvClosureFn, stamp_result_repr};
 use crate::then_box::reject_on_pending_throw;
 
 unsafe extern "C" {
@@ -250,9 +250,17 @@ struct FinallyClosureArg {
 unsafe extern "C" fn finally_closure_dispatch(arg: i64) {
     let a = arg as *mut FinallyClosureArg;
     unsafe {
-        let fn_ptr = *(((*a).env as *mut u8).add(8) as *const *mut c_void);
-        let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
-        let raw = cb((*a).env, 0);
+        // §27.2.5.3 runs the handler argument-free and with an
+        // undefined `this` — a receiver-first cell still has to be
+        // TOLD that, or its first user parameter reads the argc word.
+        let fn_ptr = crate::closure_abi::fn_ptr((*a).env);
+        let raw = if crate::closure_abi::wants_receiver((*a).env) {
+            let cb: FinallyRecvClosureFn = core::mem::transmute(fn_ptr);
+            cb((*a).env, 0, crate::closure_abi::undefined_box())
+        } else {
+            let cb: FinallyClosureFn = core::mem::transmute(fn_ptr);
+            cb((*a).env, 0)
+        };
         let ret = returned_value((*a).ret_repr, raw);
         // The env dies with the job either way; `finish` may hand the
         // rest on to a waiting job.

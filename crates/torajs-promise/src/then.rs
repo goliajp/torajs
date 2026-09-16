@@ -95,11 +95,10 @@ pub type ThenRecvClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64, i64) ->
 /// the two-word face. `env` must be a live closure cell.
 pub(crate) unsafe fn call_handler(env: *mut c_void, value: i64) -> i64 {
     unsafe {
-        let fn_ptr = *((env as *mut u8).add(8) as *const *mut c_void);
-        let flags = *((env as *const u8).add(6) as *const u16);
-        if flags & torajs_rc::FLAG_CLOSURE_RECV_FIRST != 0 {
+        let fn_ptr = crate::closure_abi::fn_ptr(env);
+        if crate::closure_abi::wants_receiver(env) {
             let cb: ThenRecvClosureFn = core::mem::transmute(fn_ptr);
-            cb(env, 1, __torajs_anyv_box_from_pair(5, 0) as i64, value)
+            cb(env, 1, crate::closure_abi::undefined_box(), value)
         } else {
             let cb: ThenClosureFn = core::mem::transmute(fn_ptr);
             cb(env, 1, value)
@@ -116,6 +115,10 @@ pub type FinallyCb = unsafe extern "C" fn() -> i64;
 /// `.finally(cb)` closure — env + hidden argc in (§27.2.5.3 runs the
 /// handler argument-free, so argc is 0), return as above.
 pub type FinallyClosureFn = unsafe extern "C" fn(*mut c_void, i64) -> i64;
+
+/// The receiver-first face of [`FinallyClosureFn`] — §27.2.5.3 runs
+/// the handler with an undefined `this`, boxed into the leading word.
+pub type FinallyRecvClosureFn = unsafe extern "C" fn(*mut c_void, i64, i64) -> i64;
 
 // ============================================================
 // .then simple — cb: (v: i64) -> i64

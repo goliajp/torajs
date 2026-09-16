@@ -33,7 +33,8 @@
 // v0.7-A2 step 6b — force-link mmalloc.
 extern crate torajs_mmalloc as _;
 
-pub mod combinator;
+pub mod closure_abi;
+mod combinator;
 pub(crate) mod combinator_aggregate;
 pub(crate) mod combinator_all_fanin;
 pub mod combinator_allsettled;

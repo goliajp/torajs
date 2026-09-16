@@ -89,6 +89,9 @@ type SimpleCb = unsafe extern "C" fn(reason: i64);
 // S1 (RFC 20260810-indirect-argc-abi) — env-first entry: hidden
 // argc rides between the env and the reason.
 type ClosureCb = unsafe extern "C" fn(env: *mut c_void, argc: i64, reason: i64);
+/// The receiver-first face of [`ClosureCb`] — the listener runs with
+/// an undefined `this`, which the boxed word says explicitly.
+type RecvClosureCb = unsafe extern "C" fn(env: *mut c_void, argc: i64, recv: i64, reason: i64);
 
 /// Universal heap-header `type_tag` for Str (0). Mirrors
 /// `torajs_rc::Tag::Str`. Re-declared as a `u16` constant to keep
@@ -371,10 +374,15 @@ unsafe fn sweep_unhandled_list() {
                     } else if kind == CB_KIND_CLOSURE && !cb_ptr.is_null() {
                         // env+8 — same env layout as
                         // `promise_then_closure` / `microtask_enqueue_closure`.
-                        let fn_addr = *((cb_ptr as *mut u8).add(8) as *const *mut c_void);
+                        let fn_addr = crate::closure_abi::fn_ptr(cb_ptr);
                         if !fn_addr.is_null() {
-                            let cb: ClosureCb = core::mem::transmute(fn_addr);
-                            cb(cb_ptr, 1, reason);
+                            if crate::closure_abi::wants_receiver(cb_ptr) {
+                                let cb: RecvClosureCb = core::mem::transmute(fn_addr);
+                                cb(cb_ptr, 1, crate::closure_abi::undefined_box(), reason);
+                            } else {
+                                let cb: ClosureCb = core::mem::transmute(fn_addr);
+                                cb(cb_ptr, 1, reason);
+                            }
                         }
                     }
                     // A user listener suppresses the default exit-code
