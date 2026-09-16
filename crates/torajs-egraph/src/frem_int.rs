@@ -271,13 +271,15 @@ mod tests {
         let mut stats = FremIntStats::default();
         rewrite_function(&mut f, &facts, &[], &mut stats);
         assert_eq!(stats.frems_exact, 1);
+        // the dividend's own conversion has no reader left and is swept
         let insts = &f.blocks[0].insts;
+        assert_eq!(insts.len(), 2);
         assert_eq!(
-            insts[1].kind,
+            insts[0].kind,
             InstKind::BinOp(BinOp::SRem, v(0), Operand::ConstI64(4096))
         );
-        assert_eq!(insts[2].kind, InstKind::SiToFp(v(3)));
-        assert_eq!(insts[2].result, Some(ValueId(2)));
+        assert_eq!(insts[1].kind, InstKind::SiToFp(v(3)));
+        assert_eq!(insts[1].result, Some(ValueId(2)));
     }
 
     #[test]
