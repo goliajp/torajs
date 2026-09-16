@@ -225,11 +225,16 @@ impl<'a> LowerCtx<'a> {
     /// lowering minted a fresh closure env — the fn-intro path
     /// answers `Type::Closure` with a heap env block the consumer
     /// owns. A user `let`-bound closure Ident is a local slot
-    /// borrow and stays off this predicate.
+    /// borrow and stays off this predicate, and so is a module-level
+    /// data global: its read is a borrow of the global slot, and
+    /// releasing it after a truthiness test (`if (cf)` in a function
+    /// body) freed the closure the global still names (rotation 660,
+    /// test262 then/capability-executor-called-twice: SIGSEGV calling
+    /// through the freed cell).
     pub(crate) fn expr_minted_closure(&self, eid: ExprId, op: &Operand) -> bool {
         matches!(
             self.ast.get_expr(eid),
-            Expr::Ident(n) if !self.locals.contains_key(n)
+            Expr::Ident(n) if !self.locals.contains_key(n) && !self.globals.contains_key(n)
         ) && matches!(self.operand_ty(op), Type::Closure(_))
     }
 
