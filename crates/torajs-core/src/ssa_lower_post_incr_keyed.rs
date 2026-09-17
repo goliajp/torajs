@@ -89,6 +89,8 @@ pub(crate) fn lower_index_any_keyed(
         None,
     );
     ctx.emit_drop_value(Operand::Value(old_box), Type::Any);
+    // A throwing ToNumeric leaves both answers undefined: no PutValue.
+    ctx.emit_throw_check(None);
     // Owned unbox (tag, payload+1) transfers into the keyed store —
     // the `lower_member_any` contract; the surplus box stake releases
     // after it.

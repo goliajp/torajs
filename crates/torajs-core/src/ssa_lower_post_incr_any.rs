@@ -32,6 +32,8 @@ pub(crate) fn lower_any_slot(
         Type::Any,
         None,
     );
+    // A throwing ToNumeric answers undefined and stores nothing.
+    ctx.emit_throw_check(None);
     if !step.is_prefix {
         return Operand::Value(old);
     }
@@ -88,6 +90,8 @@ pub(crate) fn lower_member_any(
         None,
     );
     ctx.emit_drop_value(old_box, Type::Any);
+    // A throwing ToNumeric leaves both answers undefined: no PutValue.
+    ctx.emit_throw_check(None);
     // Owned unbox (tag, payload+1) feeds the member-set kernel; the
     // surplus box stake releases after the store — the
     // `lower_dynobj_assign_any_payload` contract.

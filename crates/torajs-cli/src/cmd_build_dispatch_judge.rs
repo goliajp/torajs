@@ -81,7 +81,7 @@ const FALLBACK_PREFIXES: [&str; 5] = [
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-const COERCION_PREFIXES: [&str; 17] = [
+const COERCION_PREFIXES: [&str; 18] = [
     // The array join kernels run the coercion per ELEMENT rather
     // than on themselves, so the scan never saw `anyv_to_str` in
     // the user `.o` and judged the obj world unreachable. Every
@@ -95,6 +95,9 @@ const COERCION_PREFIXES: [&str; 17] = [
     // toLocaleString through a mid the scan does see.)
     "__torajs_arr_join_any",
     "__torajs_anyv_to_number",
+    // `x++` / `x--` on an any slot or member run ToNumeric inside the
+    // kernel (`sloppy eval++` asks the function value for valueOf).
+    "__torajs_anyv_incr_",
     "__torajs_anyv_number_ctor",
     "__torajs_anyv_to_str",
     "__torajs_anyv_to_display_str",

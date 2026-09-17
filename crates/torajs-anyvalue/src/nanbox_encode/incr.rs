@@ -30,6 +30,10 @@ use crate::loose_eq::bigint_ffi;
 /// to a string.
 const OP_SUB: i64 = 0;
 
+unsafe extern "C" {
+    fn __torajs_throw_check() -> i64;
+}
+
 /// Read `*slot`, coerce it per ToNumeric, write back the incremented
 /// (or decremented) value, and answer the coerced OLD value.
 ///
@@ -92,8 +96,9 @@ pub unsafe extern "C" fn __torajs_anyv_incr_value(
 /// answers `(old, new)`, both owned, with the coercion run exactly
 /// once and the step taken in the operand's own numeric domain
 /// (§6.1.6.2 — a BigInt steps as a BigInt, everything else as a
-/// Number). `None` = a BigInt operand mint failed; callers bail
-/// without storing.
+/// Number). `None` = a BigInt operand mint failed or ToNumeric threw
+/// (a user `valueOf`); callers bail without storing — §13.4.4.1 runs
+/// no PutValue after an abrupt ToNumeric.
 ///
 /// # Safety
 ///
@@ -144,6 +149,11 @@ unsafe fn step_numeric(cur: AnyValue, is_inc: i64) -> Option<(AnyValue, AnyValue
             if crate::nanbox::is_short_str(cur) && value != 0 {
                 // SAFETY: the materialization is ours to release.
                 unsafe { crate::__torajs_value_drop_heap(value as *mut c_void) };
+            }
+            // SAFETY: pure TLS read.
+            if unsafe { __torajs_throw_check() } != 0 {
+                unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(old) };
+                return None;
             }
             let step: i64 = if is_inc != 0 { -1 } else { 1 };
             let old_tag = __torajs_anyv_unbox_tag(old);
