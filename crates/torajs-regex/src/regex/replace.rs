@@ -278,6 +278,15 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
         }
     };
     let global = re.flags & RE_FLAG_G != 0;
+    if haystack_is_ascii
+        && repl_is_ascii
+        && re.flags & RE_FLAG_Y == 0
+        && !repl.contains(&b'$')
+        && let Some(out) =
+            unsafe { super::replace_splice::replace_ascii_splice(re, s, repl, global) }
+    {
+        return out;
+    }
     let out = replace_inner(re, s, repl, global, haystack_is_ascii);
     // Round 5 attack str-replace #5 — the output is gap-copies of `s`
     // plus expansions of `repl`; when both are ASCII the result is

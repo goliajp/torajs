@@ -264,96 +264,97 @@ pub fn search_from_with_ws(
     want_saves: bool,
 ) -> Option<MatchResult> {
     let slen = s.len() as i64;
-    let mut st = from_pos;
     let mut dfa_built_local: Option<crate::dfa::DfaProgram> = None;
-    let dfa_built = resolve_dfa(prog, flags, dfa_cached, &mut dfa_built_local);
-    // Rotation 470 — `first_viable_start` skips start positions whose
-    // first byte the DFA entry state has no transition for; running
-    // the anchored DFA there costs a call and dies one byte in, and on
-    // a short haystack that was most of the search (66% of `/hello/i`
-    // against a 24-byte line — `examples/match_micro`).
-    //
-    // It is off whenever the u-flag code-point-boundary guard below
-    // could fire, since the skip lands `st` straight on the probe and
-    // would step over that guard. Under u flag the haystack has to be
-    // non-ASCII for the guard to have anything to say, so the common
-    // shapes keep the skip.
-    let can_skip_dead_starts = haystack_is_ascii || !crate::parser::unicode_mode(flags);
+    if let Some(dfa) = resolve_dfa(prog, flags, dfa_cached, &mut dfa_built_local) {
+        let (st, end) = dfa_find_from(prog, dfa, s, from_pos, flags, haystack_is_ascii)?;
+        return Some(dfa_hit_result(prog, s, st, end, flags, ws, want_saves));
+    }
+    let mut st = from_pos;
     loop {
-        // V0.2 P14-S2 — literal-prefix SIMD anchor. When the
-        // compiled program's leading byte-consuming op is a plain
-        // `Char(b)` (compile.rs detects this), any candidate start
-        // position whose first input byte is not `b` can never
-        // match — memchr-skip past the gap. The Pike VM scan on
-        // `"abbc xxx abc yyy abbbbc"` for `/zzz/g` drops from 24
-        // `vm_match_at` calls (~1000 ns) to a single memchr-miss
-        // returning None (~5 ns). `prefix_byte` is None for
-        // patterns whose first op is `AnyChar` / `Class` / `Split`
-        // / `Backref` / lookaround, or when the i flag is set
-        // (case-insensitive defeats single-byte memchr) — those
-        // fall through to the original per-position simulation.
         if let Some(b) = prog.prefix_byte {
             if st >= slen {
-                // A program with a literal-prefix anchor must
-                // consume at least one byte to match — no chance
-                // of a zero-width match at end-of-string.
                 return None;
             }
-            let hay = &s[st as usize..];
-            match hay.iter().position(|&c| c == b) {
+            match s[st as usize..].iter().position(|&c| c == b) {
                 Some(off) => st += off as i64,
                 None => return None,
             }
         } else if st > slen {
             return None;
         }
-        // Under u flag, start positions must land on code-point
-        // boundaries — skip UTF-8 continuation bytes so the matcher
-        // doesn't decode mid-sequence and accidentally satisfy
-        // `[^\p{...}]`. P9.3-A2.
-        //
-        // Round 3 Phase B attack #R-A1: when the caller pre-classified
-        // the haystack as ASCII (`haystack_is_ascii == true`), no byte
-        // in `s` can have `& 0xC0 == 0x80`, so the per-iter check is
-        // wasted work. Short-circuit to save ~12 ns/iter on ASCII
-        // u-flag fixtures (the common case for `/\p{L}+/u` style
-        // patterns against Latin-1 / ASCII inputs).
-        if !haystack_is_ascii
-            && crate::parser::unicode_mode(flags)
-            && st < slen
-            && s[st as usize] & 0xC0 == 0x80
-        {
-            st += 1;
-            continue;
-        }
-        if let Some(dfa) = dfa_built {
-            // Rotation 470 — skip the start positions whose first byte
-            // the entry state has no transition for. Running the
-            // anchored DFA there would cost a call and die one byte
-            // in; `first_viable_start` asks the same question with one
-            // load per position. It never advances past `slen`, so a
-            // pattern that accepts zero-width at end of input still
-            // gets its probe there.
-            if can_skip_dead_starts {
-                st = crate::dfa::first_viable_start(dfa, prog, s, st as usize) as i64;
-            }
-            if let Some(n) = dfa_probe(dfa, prog, s, st) {
-                return Some(dfa_hit_result(
-                    prog,
-                    s,
-                    st,
-                    st + n as i64,
-                    flags,
-                    ws,
-                    want_saves,
-                ));
-            }
-            // Anchored DFA missed at `st`; advance one byte and retry.
+        if skips_continuation_byte(s, st, flags, haystack_is_ascii) {
             st += 1;
             continue;
         }
         if let Some(m) = pike_only_at(prog, s, st, flags, ws, want_saves) {
             return Some(m);
+        }
+        st += 1;
+    }
+}
+
+/// Under u flag, start positions must land on code-point boundaries —
+/// skip UTF-8 continuation bytes so the matcher doesn't decode
+/// mid-sequence and accidentally satisfy `[^\p{...}]` (P9.3-A2).
+///
+/// Round 3 Phase B attack #R-A1: when the caller pre-classified the
+/// haystack as ASCII, no byte can have `& 0xC0 == 0x80`, so the check
+/// short-circuits (~12 ns/iter on ASCII u-flag fixtures).
+#[inline(always)]
+fn skips_continuation_byte(s: &[u8], st: i64, flags: u8, haystack_is_ascii: bool) -> bool {
+    !haystack_is_ascii
+        && crate::parser::unicode_mode(flags)
+        && st < s.len() as i64
+        && s[st as usize] & 0xC0 == 0x80
+}
+
+/// The next DFA hit `(start, end)` at or after `from_pos` — the DFA half
+/// of [`search_from_with_ws`], split out so a caller walking every hit
+/// (the dollarless global `replace`) runs this loop directly instead of
+/// re-entering the search, re-resolving the DFA and returning a
+/// `MatchResult` per hit.
+///
+/// V0.2 P14-S2 — literal-prefix anchor: when the program's leading
+/// byte-consuming op is a plain `Char(b)`, a start whose first byte is
+/// not `b` can never match, so the scan skips straight to the next `b`
+/// (a program with such an anchor must consume a byte, so there is no
+/// zero-width match at end of input). Rotation 470 —
+/// `first_viable_start` skips starts whose first byte the DFA entry
+/// state has no transition for; it is off whenever the u-flag
+/// code-point guard could fire, since it would step over that guard.
+#[inline(always)]
+pub(crate) fn dfa_find_from(
+    prog: &Program,
+    dfa: &crate::dfa::DfaProgram,
+    s: &[u8],
+    from_pos: i64,
+    flags: u8,
+    haystack_is_ascii: bool,
+) -> Option<(i64, i64)> {
+    let slen = s.len() as i64;
+    let can_skip_dead_starts = haystack_is_ascii || !crate::parser::unicode_mode(flags);
+    let mut st = from_pos;
+    loop {
+        if let Some(b) = prog.prefix_byte {
+            if st >= slen {
+                return None;
+            }
+            match s[st as usize..].iter().position(|&c| c == b) {
+                Some(off) => st += off as i64,
+                None => return None,
+            }
+        } else if st > slen {
+            return None;
+        }
+        if skips_continuation_byte(s, st, flags, haystack_is_ascii) {
+            st += 1;
+            continue;
+        }
+        if can_skip_dead_starts {
+            st = crate::dfa::first_viable_start(dfa, prog, s, st as usize) as i64;
+        }
+        if let Some(n) = dfa_probe(dfa, prog, s, st) {
+            return Some((st, st + n as i64));
         }
         st += 1;
     }
