@@ -181,6 +181,21 @@ pub(crate) unsafe fn tracked_store_refuses(re: &RegExp) -> bool {
     true
 }
 
+/// §22.2.6.11 step 10 for a global replace: `Set(rx, "lastIndex", 0)`.
+/// Answers false with the TypeError recorded when lastIndex is not
+/// writable. The walk that follows ends on a failing exec, which stores
+/// 0 again, so this is also the observable post-state.
+///
+/// # Safety
+/// Single-threaded runtime; `re` is a live RegExp.
+pub(crate) unsafe fn global_replace_start(re: &mut RegExp) -> bool {
+    if unsafe { tracked_store_refuses(re) } {
+        return false;
+    }
+    re.set_last_index_num(0.0);
+    true
+}
+
 /// Boxed-form `lastIndex` peek (RFC 20260722 any-slot 刀) — the raw
 /// NaN-box bits a non-numeric any-lane store left, or 0 for numeric
 /// form (the caller then reads the f64 getter and boxes it). BORROW

@@ -14,7 +14,7 @@ use alloc::vec::Vec;
 use core::ffi::c_void;
 
 use super::{
-    __torajs_throw_type_error, RegExp, abort_unsupported, as_regex, haystack, str_from_bytes,
+    __torajs_throw_type_error, RegExp, abort_unsupported, as_regex_mut, haystack, str_from_bytes,
     str_from_bytes_ascii, str_slice_ascii_view, str_units,
 };
 use crate::node::REGEX_MAX_CAPTURES;
@@ -247,15 +247,16 @@ pub unsafe extern "C" fn __torajs_str_replace_regex(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
-    let re = unsafe { as_regex(re_ptr) };
+    let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
         abort_unsupported(re);
     }
     // §22.2.6.11 step 10 — see `replace_fn_inner`.
-    if re.flags & RE_FLAG_G != 0 && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+    if re.flags & RE_FLAG_G != 0 && !unsafe { super::lifecycle::global_replace_start(re) } {
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
+    let re: &RegExp = re;
     // Round 5 attacks str-replace #2/#4 — borrow the Str payload
     // directly when it's pure-ASCII Latin-1 (no transcode, no owned
     // Vec alloc/free per call); fall back to the owned transcode for
@@ -311,7 +312,7 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
-    let re = unsafe { as_regex(re_ptr) };
+    let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
         abort_unsupported(re);
     }
@@ -328,6 +329,12 @@ pub unsafe extern "C" fn __torajs_str_replace_all_regex(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
+    // §22.2.6.11 step 10 — the RegExp @@replace a replaceAll reaches.
+    if !unsafe { super::lifecycle::global_replace_start(re) } {
+        let s = unsafe { str_units(str_ptr) };
+        return unsafe { str_from_bytes(&s) as *mut c_void };
+    }
+    let re: &RegExp = re;
     // Round 5 attacks str-replace #2/#4 — same ASCII borrow shape as
     // `__torajs_str_replace_regex` above.
     let s_owned;

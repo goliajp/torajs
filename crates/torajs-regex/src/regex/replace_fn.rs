@@ -19,8 +19,8 @@ use core::ffi::c_void;
 
 use super::replace_fn_dispatch::invoke_replace_cb;
 use super::{
-    __torajs_str_drop, __torajs_str_undef, __torajs_throw_type_error, abort_unsupported, as_regex,
-    byte_to_utf16_units, haystack, str_from_bytes, str_units,
+    __torajs_str_drop, __torajs_str_undef, __torajs_throw_type_error, RegExp, abort_unsupported,
+    as_regex, as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_units,
 };
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
 use crate::vm::{Workspace, match_anchor, save_slot, search_from_with_ws};
@@ -126,17 +126,19 @@ unsafe fn replace_fn_inner(
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
-    let re = unsafe { as_regex(re_ptr) };
+    let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
         abort_unsupported(re);
     }
     // §22.2.6.11 step 10 — a global replace starts with
     // `Set(rx, "lastIndex", 0, true)`, which a non-writable lastIndex
-    // refuses; the input comes back for the caller's throw check.
-    if global && unsafe { super::lifecycle::tracked_store_refuses(re) } {
+    // refuses (the input comes back for the caller's throw check); the
+    // walk's last exec misses, so 0 is also where lastIndex ends.
+    if global && !unsafe { super::lifecycle::global_replace_start(re) } {
         let s = unsafe { str_units(str_ptr) };
         return unsafe { str_from_bytes(&s) as *mut c_void };
     }
+    let re: &RegExp = re;
     let s = unsafe { haystack(re, str_ptr) };
     let slen = s.len() as i64;
 
