@@ -50,6 +50,8 @@ unsafe extern "C" {
     /// torajs-weak — §26.1.4.2 deref in the AnyValue lane.
     fn __torajs_weakref_deref_any(p: *mut c_void) -> u64;
     fn __torajs_weakref_registry_register(target: *mut c_void, kind: u32, owner: *mut c_void);
+    /// torajs-weak — §9.10 AddToKeptObjects (takes its own reference).
+    fn __torajs_kept_objects_add(target: *mut c_void);
     fn __torajs_weakref_create(target: *mut c_void) -> *mut c_void;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
@@ -203,6 +205,8 @@ pub unsafe extern "C" fn __torajs_weakref_subclass_super(
         // exactly as `__torajs_weakref_create` does.
         *(wr as *mut *mut c_void).add(1) = key;
         __torajs_weakref_registry_register(key, 0, wr);
+        // §26.1.1.1 step 4 — kept alive to the end of this job.
+        __torajs_kept_objects_add(key);
     }
     VALUE_UNDEFINED
 }

@@ -160,6 +160,8 @@ pub unsafe extern "C" fn __torajs_microtask_enqueue(fn_: Option<MicrotaskFn>, ar
 /// in a way that violates the single-threaded invariant.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
+    // The job that called the drain is over.
+    unsafe { clear_kept_objects() };
     loop {
         let head = MT_HEAD.load(Ordering::Relaxed);
         let len = MT_LEN.load(Ordering::Relaxed);
@@ -170,6 +172,7 @@ pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
         let t = unsafe { *buf.add(head) };
         MT_HEAD.store(head + 1, Ordering::Relaxed);
         unsafe { (t.fn_)(t.arg) };
+        unsafe { clear_kept_objects() };
         let new_head = MT_HEAD.load(Ordering::Relaxed);
         let cap = MT_CAP.load(Ordering::Relaxed);
         if new_head > 64 && new_head > cap / 2 {
@@ -178,6 +181,27 @@ pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
     }
     MT_HEAD.store(0, Ordering::Relaxed);
     MT_LEN.store(0, Ordering::Relaxed);
+}
+
+/// §9.10 ClearKeptObjects — torajs-weak's kept list, installed by its
+/// first add, so a program with no `WeakRef` pays one load per job.
+static KEPT_CLEAR: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
+
+/// Install the kept-objects clear (idempotent).
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_kept_clear_install(clear: unsafe extern "C" fn()) {
+    KEPT_CLEAR.store(clear as *mut c_void, Ordering::Relaxed);
+}
+
+/// # Safety
+/// A job boundary: no job is running.
+unsafe fn clear_kept_objects() {
+    let hook = KEPT_CLEAR.load(Ordering::Relaxed);
+    if !hook.is_null() {
+        // SAFETY: only `__torajs_kept_clear_install` stores here.
+        let clear = unsafe { core::mem::transmute::<*mut c_void, unsafe extern "C" fn()>(hook) };
+        unsafe { clear() };
+    }
 }
 
 /// The drain of the one job kind that lives outside this queue —

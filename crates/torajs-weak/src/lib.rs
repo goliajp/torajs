@@ -57,6 +57,7 @@ pub mod deref;
 pub mod drop;
 pub mod finreg;
 pub mod finreg_queue;
+pub mod kept;
 pub mod key;
 pub mod layout;
 pub mod registry;
@@ -72,6 +73,7 @@ pub use finreg::{
     __torajs_finreg_unregister,
 };
 pub use finreg_queue::{__torajs_finreg_queue_pop, __torajs_finreg_take_pending};
+pub use kept::{__torajs_kept_objects_add, __torajs_kept_objects_clear};
 pub use key::{__torajs_weak_key_from_any, __torajs_weak_key_from_any_or_throw};
 pub use registry::{
     __torajs_weakref_registry_deregister, __torajs_weakref_registry_register,
@@ -118,6 +120,11 @@ pub extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {}
 #[cfg(test)]
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void) {}
+
+// torajs-microtask's job-boundary hook install — no-op for cargo test.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_kept_clear_install(_clear: unsafe extern "C" fn()) {}
 
 // `__torajs_value_drop_heap` comes from `runtime_str.c` at `tr build`
 // link time — stubbed for cargo test (used by weakmap::set/delete/

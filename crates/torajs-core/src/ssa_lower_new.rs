@@ -306,18 +306,24 @@ fn lower_string_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
 }
 
 /// §26.1.1.1 — CanBeHeldWeakly runs in the kernel. A heap operand
-/// passes its pointer (a cell's NaN-box bits ARE the pointer, and the
-/// kernel takes no reference); a scalar boxes to its immediate.
+/// passes its pointer (a cell's NaN-box bits ARE the pointer); a scalar
+/// boxes to its immediate. The kernel's own reference is the §9.10
+/// kept-objects one, so an owned temporary argument is released here
+/// like any borrowed call argument — on the throw edge too.
 fn lower_weakref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
-    let target_op = if args.is_empty() {
-        Operand::ConstPtrNull
+    let (target_op, temp) = if args.is_empty() {
+        (Operand::ConstPtrNull, None)
     } else {
         let raw = ctx.lower_expr(args[0]);
-        match ctx.operand_ty(&raw) {
-            Type::I64 | Type::F64 | Type::I32 | Type::Bool => ctx.box_to_any(raw),
-            _ => raw,
-        }
+        let op = match ctx.operand_ty(&raw) {
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool => ctx.box_to_any(raw.clone()),
+            _ => raw.clone(),
+        };
+        (op, Some((args[0], raw)))
     };
+    let parked = temp
+        .as_ref()
+        .and_then(|(eid, raw)| ctx.park_owned_temp(*eid, raw));
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -326,6 +332,10 @@ fn lower_weakref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         None,
     );
     ctx.emit_throw_check_owned(None, Operand::Value(v), Type::WeakRef);
+    ctx.unpark_owned_temp(parked);
+    if let Some((eid, raw)) = temp {
+        ctx.release_owned_temp(eid, &raw);
+    }
     Operand::Value(v)
 }
 

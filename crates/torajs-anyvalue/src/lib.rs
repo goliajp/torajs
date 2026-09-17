@@ -1882,6 +1882,7 @@ mod tests {
         __torajs_dataview_create,
         __torajs_finreg_create,
         __torajs_weakref_registry_register,
+        __torajs_kept_objects_add,
         __torajs_weakref_create,
         __torajs_finreg_register,
         __torajs_finreg_unregister,

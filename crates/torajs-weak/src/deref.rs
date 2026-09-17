@@ -30,7 +30,11 @@ pub unsafe extern "C" fn __torajs_weakref_deref(p: *mut c_void) -> *mut c_void {
     let wr = p as *mut WeakRef;
     let t = unsafe { (*wr).target };
     if !t.is_null() {
-        unsafe { __torajs_rc_inc(t) };
+        unsafe {
+            __torajs_rc_inc(t);
+            // §26.1.4.1 WeakRefDeref step 3 — AddToKeptObjects.
+            crate::kept::__torajs_kept_objects_add(t);
+        }
     }
     t
 }
