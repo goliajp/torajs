@@ -32,55 +32,63 @@ unsafe extern "C" {
     fn __torajs_weakmap_get(p: *mut c_void, key: *mut c_void) -> u64;
     fn __torajs_weakmap_has(p: *mut c_void, key: *mut c_void) -> i64;
     fn __torajs_weak_key_from_any(av: u64) -> *mut c_void;
-    fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
-/// Private name bytes → its WeakMap cell (owned by the table for the
-/// process).
-type Stores = Vec<(Box<[u8]>, *mut c_void)>;
+/// The table, and the weak-collection kernels the readers call through.
+///
+/// The kernels are reached through these pointers rather than by name
+/// because the readers sit on the any-lane method dispatch path, which
+/// nearly every program links: naming the torajs-weak kernels there
+/// pulled them into every such binary (rotation 662 measured +1.3 KB of
+/// `__text` and a page more on 12 bench artifacts). Only [`foreign_add`]
+/// names them, and it is reached from the return-override carry alone;
+/// it fills this table on first use, so a program that never adopts an
+/// object never links the kernels and every reader stops at the null
+/// table.
+struct Stores {
+    names: Vec<(Box<[u8]>, *mut c_void)>,
+    has: unsafe extern "C" fn(*mut c_void, *mut c_void) -> i64,
+    get: unsafe extern "C" fn(*mut c_void, *mut c_void) -> u64,
+    set: unsafe extern "C" fn(*mut c_void, *mut c_void, u64),
+    key_of: unsafe extern "C" fn(u64) -> *mut c_void,
+}
 
 static STORES: AtomicPtr<Stores> = AtomicPtr::new(core::ptr::null_mut());
 
-/// The WeakMap for private name `key`, created on first use when
-/// `create`; NULL when absent and not created.
+/// The table, when some object was ever adopted.
+fn table() -> Option<&'static mut Stores> {
+    let t = STORES.load(Ordering::Relaxed);
+    // SAFETY: leaked for the process; single mutator.
+    (!t.is_null()).then(|| unsafe { &mut *t })
+}
+
+/// The WeakMap for private name `key` in `t`, NULL when absent.
 ///
 /// # Safety
 /// `key` is a live Str cell.
-unsafe fn store(key: *const c_void, create: bool) -> *mut c_void {
-    let mut table = STORES.load(Ordering::Relaxed);
-    if table.is_null() {
-        if !create {
-            return core::ptr::null_mut();
-        }
-        table = Box::into_raw(Box::new(Stores::new()));
-        STORES.store(table, Ordering::Relaxed);
-    }
-    // SAFETY: the table is leaked for the process and only this module
-    // touches it, one mutator at a time.
-    let table = unsafe { &mut *table };
+unsafe fn store_in(t: &Stores, key: *const c_void) -> *mut c_void {
     let wtf8 = unsafe { StrWtf8::of(key) };
     let name = wtf8.as_bytes();
-    if let Some((_, m)) = table.iter().find(|(n, _)| **n == *name) {
-        return *m;
-    }
-    if !create {
-        return core::ptr::null_mut();
-    }
-    let m = unsafe { __torajs_weakmap_create() };
-    table.push((name.into(), m));
-    m
+    t.names
+        .iter()
+        .find(|(n, _)| **n == *name)
+        .map_or(core::ptr::null_mut(), |(_, m)| *m)
 }
 
-/// The store and weak key for (`recv`, `key`) when `recv` holds the
-/// element.
-unsafe fn find(recv: AnyValue, key: *const c_void) -> Option<(*mut c_void, *mut c_void)> {
-    let k = unsafe { __torajs_weak_key_from_any(recv) };
-    if k.is_null() {
+/// The table, the store and weak key for (`recv`, `key`) when `recv`
+/// holds the element.
+unsafe fn find(
+    recv: AnyValue,
+    key: *const c_void,
+) -> Option<(&'static Stores, *mut c_void, *mut c_void)> {
+    let t = table()?;
+    let m = unsafe { store_in(t, key) };
+    if m.is_null() {
         return None;
     }
-    let m = unsafe { store(key, false) };
-    (!m.is_null() && unsafe { __torajs_weakmap_has(m, k) } != 0).then_some((m, k))
+    let k = unsafe { (t.key_of)(recv) };
+    (!k.is_null() && unsafe { (t.has)(m, k) } != 0).then_some((t, m, k))
 }
 
 /// Whether `recv` holds private element `key` in this store.
@@ -97,13 +105,18 @@ pub(crate) unsafe fn foreign_has(recv: AnyValue, key: *const c_void) -> bool {
 /// # Safety
 /// `key` is a live Str cell.
 pub(crate) unsafe fn foreign_get(recv: AnyValue, key: *const c_void) -> Option<AnyValue> {
-    let (m, k) = unsafe { find(recv, key) }?;
-    let v = unsafe { __torajs_weakmap_get(m, k) };
+    let (t, m, k) = unsafe { find(recv, key) }?;
+    Some(unsafe { borrowed_get(t, m, k) })
+}
+
+/// `get` hands out a fresh stake on a cell; the map keeps its own, so the
+/// answer is released back to a borrow.
+unsafe fn borrowed_get(t: &Stores, m: *mut c_void, k: *mut c_void) -> AnyValue {
+    let v = unsafe { (t.get)(m, k) };
     if crate::nanbox::is_cell(v) {
-        // `get` handed out a fresh stake; the map still holds its own.
-        unsafe { __torajs_value_drop_heap(v as usize as *mut c_void) };
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(v) };
     }
-    Some(v)
+    v
 }
 
 /// PrivateSet on a held element: replaces the value. Answers false
@@ -113,8 +126,8 @@ pub(crate) unsafe fn foreign_get(recv: AnyValue, key: *const c_void) -> Option<A
 /// `key` is a live Str cell.
 pub(crate) unsafe fn foreign_set(recv: AnyValue, key: *const c_void, value: AnyValue) -> bool {
     match unsafe { find(recv, key) } {
-        Some((m, k)) => {
-            unsafe { __torajs_weakmap_set(m, k, value) };
+        Some((t, m, k)) => {
+            unsafe { (t.set)(m, k, value) };
             true
         }
         None => false,
@@ -134,7 +147,27 @@ pub(crate) unsafe fn foreign_add(recv: AnyValue, key: *const c_void, value: AnyV
     if k.is_null() {
         return;
     }
-    let m = unsafe { store(key, true) };
+    let t = match table() {
+        Some(t) => t,
+        None => {
+            let t = Box::into_raw(Box::new(Stores {
+                names: Vec::new(),
+                has: __torajs_weakmap_has,
+                get: __torajs_weakmap_get,
+                set: __torajs_weakmap_set,
+                key_of: __torajs_weak_key_from_any,
+            }));
+            STORES.store(t, Ordering::Relaxed);
+            // SAFETY: just leaked for the process.
+            unsafe { &mut *t }
+        }
+    };
+    let mut m = unsafe { store_in(t, key) };
+    if m.is_null() {
+        m = unsafe { __torajs_weakmap_create() };
+        let wtf8 = unsafe { StrWtf8::of(key) };
+        t.names.push((wtf8.as_bytes().into(), m));
+    }
     if unsafe { __torajs_weakmap_has(m, k) } != 0 {
         unsafe {
             __torajs_throw_type_error(
@@ -153,27 +186,25 @@ pub(crate) unsafe fn foreign_add(recv: AnyValue, key: *const c_void, value: AnyV
 /// # Safety
 /// `key` is a live Str cell.
 pub(crate) unsafe fn foreign_brand_proto(recv: AnyValue, key: *const c_void) -> Option<AnyValue> {
-    let k = unsafe { __torajs_weak_key_from_any(recv) };
-    let table = STORES.load(Ordering::Relaxed);
-    if k.is_null() || table.is_null() {
+    let t = table()?;
+    let k = unsafe { (t.key_of)(recv) };
+    if k.is_null() {
         return None;
     }
     let wtf8 = unsafe { StrWtf8::of(key) };
     let member = wtf8.as_bytes().strip_prefix(b"__priv_")?;
-    // SAFETY: leaked for the process, single mutator.
-    for (name, m) in unsafe { &*table } {
+    for (name, m) in &t.names {
         let Some(class) = name.strip_prefix(b"__privbrand_".as_slice()) else {
             continue;
         };
         if !member.starts_with(class) || !member[class.len()..].starts_with(b"__") {
             continue;
         }
-        if unsafe { __torajs_weakmap_has(*m, k) } == 0 {
+        if unsafe { (t.has)(*m, k) } == 0 {
             continue;
         }
-        let proto = unsafe { __torajs_weakmap_get(*m, k) };
+        let proto = unsafe { borrowed_get(t, *m, k) };
         if crate::nanbox::is_cell(proto) {
-            unsafe { __torajs_value_drop_heap(proto as usize as *mut c_void) };
             return Some(proto);
         }
     }
@@ -194,7 +225,7 @@ pub(crate) unsafe fn foreign_private_call(
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
-    if STORES.load(Ordering::Relaxed).is_null() || name_str.is_null() {
+    if table().is_none() || name_str.is_null() {
         return None;
     }
     let key = name_str as *const c_void;
