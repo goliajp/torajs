@@ -720,6 +720,7 @@ pub(crate) fn build(
         bigint_drop_rc: init_c.bigint.bigint_drop_rc,
         weakref_create: init_c.weak.weakref_create,
         finreg_new: init_c.weak.finreg_new,
+        weakref_new_checked: init_c.weak.weakref_new_checked,
         weakref_deref_any: init_c.weak.weakref_deref_any,
         weakref_drop: init_c.weak.weakref_drop,
         weakref_target_dying: init_c.weak.weakref_target_dying,

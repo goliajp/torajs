@@ -50,6 +50,7 @@ unsafe extern "C" {
     /// torajs-weak — §26.1.4.2 deref in the AnyValue lane.
     fn __torajs_weakref_deref_any(p: *mut c_void) -> u64;
     fn __torajs_weakref_registry_register(target: *mut c_void, kind: u32, owner: *mut c_void);
+    fn __torajs_weakref_create(target: *mut c_void) -> *mut c_void;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -160,6 +161,27 @@ pub(crate) unsafe fn weakref_method(ptr: *mut c_void, mid: i64) -> AnyValue {
     }
 }
 
+/// `new WeakRef(target)` — §26.1.1.1 step 2 then the plain mint. The
+/// operand is the target's bits (a cell pointer or a NaN-box
+/// immediate); an illegal target raises and answers a target-less
+/// WeakRef the caller's throw path releases.
+///
+/// # Safety
+/// `target` is a live AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakref_new_checked(target: u64) -> *mut c_void {
+    unsafe {
+        let key = __torajs_weak_key_from_any(target);
+        if key.is_null() {
+            __torajs_throw_type_error(WEAKREF_TARGET_MSG.as_ptr());
+        }
+        __torajs_weakref_create(key)
+    }
+}
+
+const WEAKREF_TARGET_MSG: &core::ffi::CStr =
+    c"First argument to WeakRef should be an object or a non-registered symbol";
+
 /// `super(t)` in a WeakRef subclass — §26.1.1.1 steps 2 and 4 applied
 /// onto the cell the factory minted with no target.
 ///
@@ -173,10 +195,7 @@ pub unsafe extern "C" fn __torajs_weakref_subclass_super(
     unsafe {
         let key = __torajs_weak_key_from_any(target);
         if key.is_null() {
-            __torajs_throw_type_error(
-                c"First argument to WeakRef should be an object or a non-registered symbol"
-                    .as_ptr(),
-            );
+            __torajs_throw_type_error(WEAKREF_TARGET_MSG.as_ptr());
             return VALUE_UNDEFINED;
         }
         let wr = crate::nanbox::as_void_ptr(this);

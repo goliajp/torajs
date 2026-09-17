@@ -95,8 +95,7 @@ const COERCION_PREFIXES: [&str; 18] = [
     // toLocaleString through a mid the scan does see.)
     "__torajs_arr_join_any",
     "__torajs_anyv_to_number",
-    // `x++` / `x--` on an any slot or member run ToNumeric inside the
-    // kernel (`sloppy eval++` asks the function value for valueOf).
+    // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
     "__torajs_anyv_incr_",
     "__torajs_anyv_number_ctor",
     "__torajs_anyv_to_str",
@@ -203,7 +202,7 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 33] = [
+const PREFIX_FAMILIES: [(&str, u16); 34] = [
     // the array toLocaleString kernels walk Invoke(elem,
     // "toLocaleString") over ANY element value — the any-lane walk
     // directly, the typed kernels once the receiver is exotic (an
@@ -247,9 +246,9 @@ const PREFIX_FAMILIES: [(&str, u16); 33] = [
     // rc drop path's registry notification, emitted in every
     // program — only the mint/read faces mean the family is used.
     ("__torajs_weakref_create", fam::FAM_WEAK),
+    ("__torajs_weakref_new_checked", fam::FAM_WEAK),
     ("__torajs_weakref_deref", fam::FAM_WEAK),
-    // No finreg symbol is emitted by every program (the drop is the
-    // runtime's own), so the whole prefix is usage evidence.
+    // No program emits a finreg symbol it does not use (drop is runtime-internal).
     ("__torajs_finreg_", fam::FAM_WEAK),
     ("__torajs_weakref_subclass", fam::FAM_WEAK),
     // primitive wrapper objects (`new Number(x)`) view-through to

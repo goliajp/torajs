@@ -305,19 +305,27 @@ fn lower_string_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     ctx.box_to_any(Operand::Value(ptr_v))
 }
 
+/// §26.1.1.1 — CanBeHeldWeakly runs in the kernel. A heap operand
+/// passes its pointer (a cell's NaN-box bits ARE the pointer, and the
+/// kernel takes no reference); a scalar boxes to its immediate.
 fn lower_weakref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let target_op = if args.is_empty() {
         Operand::ConstPtrNull
     } else {
-        ctx.lower_expr(args[0])
+        let raw = ctx.lower_expr(args[0]);
+        match ctx.operand_ty(&raw) {
+            Type::I64 | Type::F64 | Type::I32 | Type::Bool => ctx.box_to_any(raw),
+            _ => raw,
+        }
     };
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.weakref_create, vec![target_op]),
+        InstKind::Call(ctx.intrinsics.weakref_new_checked, vec![target_op]),
         Type::WeakRef,
         None,
     );
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::WeakRef);
     Operand::Value(v)
 }
 

@@ -876,6 +876,7 @@ pub(crate) struct Intrinsics {
     pub(crate) boolean_wrapper_new: FuncId,
     pub(crate) weakref_create: FuncId,
     pub(crate) finreg_new: FuncId,
+    pub(crate) weakref_new_checked: FuncId,
     pub(crate) weakref_deref_any: FuncId,
     pub(crate) weakref_drop: FuncId,
     pub(crate) weakref_target_dying: FuncId,

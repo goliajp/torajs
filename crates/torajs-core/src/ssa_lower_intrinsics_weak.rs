@@ -62,6 +62,9 @@ pub(crate) struct WeakIds {
     /// §26.2.1.1 — (borrowed cleanup Any) → owned registry Any; the
     /// IsCallable TypeError is the kernel's.
     pub finreg_new: FuncId,
+    /// §26.1.1.1 — (target bits) → WeakRef, TypeError on a target that
+    /// cannot be held weakly.
+    pub weakref_new_checked: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> WeakIds {
@@ -239,6 +242,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_finreg_new",
             &[Type::Any],
             Type::Any,
+        ),
+        weakref_new_checked: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_weakref_new_checked",
+            &[Type::Ptr],
+            Type::WeakRef,
         ),
     }
 }
