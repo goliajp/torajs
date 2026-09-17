@@ -39,15 +39,17 @@ pub(crate) const INSTALL: &str = "__torajs_priv_install";
 pub(crate) const CHECK: &str = "__torajs_priv_brand";
 /// The parser's marker for "this private field is added here".
 pub(crate) const FIELD_ADD: &str = "__torajs_priv_field_add";
+/// The parser's synthetic for `#x in o` (`parser/private_in.rs`).
+pub(crate) const PRIV_IN_OP: &str = "__torajs_priv_in_op";
 
-/// The receiver a `__torajs_priv_brand(obj, "C", pos)` check answers,
-/// when `eid` is one.
+/// The receiver a `__torajs_priv_brand(obj, "C", pos[, __this])` check
+/// answers, when `eid` is one.
 pub(crate) fn checked_receiver(exprs: &[Expr], eid: ExprId) -> Option<ExprId> {
     let Some(Expr::Call { callee, args }) = exprs.get(eid.0 as usize) else {
         return None;
     };
     match (exprs.get(callee.0 as usize), args.as_slice()) {
-        (Some(Expr::Ident(n)), [recv, _, _]) if n == CHECK => Some(*recv),
+        (Some(Expr::Ident(n)), [recv, _, _] | [recv, _, _, _]) if n == CHECK => Some(*recv),
         _ => None,
     }
 }
@@ -100,7 +102,9 @@ pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
             (Some(None), _) | (None, None) => Expr::Ident("undefined".into()),
         };
     }
-    guard_method_sites(ast, class_index);
+    let owner = method_owner(ast, class_index);
+    guard_method_sites(ast, &owner);
+    guard_in_op_sites(ast, &owner, &field_pos);
 }
 
 /// The private methods / accessors (the brand, 0 or 1 position) and
@@ -216,11 +220,9 @@ pub(super) fn guard_receiver(ast: &mut Ast, i: usize, cname: &str, pos: u32) {
     }
 }
 
-/// Route the receiver of every access to a private method or accessor
-/// of a covered class — the read, the write, the call — through the
-/// brand check (§7.3.31 / §7.3.32 step 1). The brand is the class's
-/// first position.
-fn guard_method_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
+/// Each private method / accessor of a covered class, with the class
+/// and the class's brand position (its first).
+fn method_owner(ast: &Ast, class_index: &[ClassIndexEntry]) -> HashMap<String, (String, u32)> {
     let mut owner: HashMap<String, (String, u32)> = HashMap::new();
     for entry in class_index {
         let Some((base, _)) = ast.private_elements.get(&entry.1) else {
@@ -234,6 +236,13 @@ fn guard_method_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
             }
         }
     }
+    owner
+}
+
+/// Route the receiver of every access to a private method or accessor
+/// of a covered class — the read, the write, the call — through the
+/// brand check (§7.3.31 / §7.3.32 step 1).
+fn guard_method_sites(ast: &mut Ast, owner: &HashMap<String, (String, u32)>) {
     if owner.is_empty() {
         return;
     }
@@ -248,6 +257,50 @@ fn guard_method_sites(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
         .collect();
     for (i, cname, pos) in sites {
         guard_receiver(ast, i, &cname, pos);
+    }
+}
+
+/// `#x in o` on a unit class's element (RFC 20260917-class-eval-unit
+/// K3): the parser's `__torajs_priv_in_op("__priv_C__x", o)` grows the
+/// class name and `__this`, so the lowering can also ask whether `o`
+/// belongs to the evaluation the running instance does — another
+/// evaluation's instance carries the same row and must answer false.
+fn guard_in_op_sites(
+    ast: &mut Ast,
+    owner: &HashMap<String, (String, u32)>,
+    field_pos: &HashMap<String, (String, u32)>,
+) {
+    let class_of = |name: &str| {
+        owner
+            .get(name)
+            .or_else(|| field_pos.get(name))
+            .map(|(c, _)| c.clone())
+            .filter(|c| ast.eval_unit_classes.contains(c))
+    };
+    let sites: Vec<(usize, String)> = (0..ast.exprs.len())
+        .filter_map(|i| {
+            let Expr::Call { callee, args } = &ast.exprs[i] else {
+                return None;
+            };
+            let [key, _] = args.as_slice() else {
+                return None;
+            };
+            if !matches!(ast.get_expr(*callee), Expr::Ident(n) if n == PRIV_IN_OP) {
+                return None;
+            }
+            let Expr::String(key) = ast.get_expr(*key) else {
+                return None;
+            };
+            class_of(&key.to_string_lossy()).map(|c| (i, c))
+        })
+        .collect();
+    for (i, cname) in sites {
+        let class = ast.add_expr(Expr::String(cname.as_str().into()));
+        let this = ast.add_expr(Expr::Ident("__this".into()));
+        if let Expr::Call { args, .. } = &mut ast.exprs[i] {
+            args.push(class);
+            args.push(this);
+        }
     }
 }
 

@@ -18,6 +18,14 @@
 //!
 //! The initializer write that precedes a field's own install is not an
 //! access and stays unchecked.
+//!
+//! A unit class (RFC 20260917-class-eval-unit K3) adds one more site:
+//! an access whose receiver is not `this`. Two evaluations of the
+//! class share a layout, so `o.#x` on the other evaluation's instance
+//! would read the right slot — and §7.3.31 says it must throw. The
+//! check compares the receiver's evaluation with the one `this` runs
+//! in; a `this.#x` needs none, the running instance is its own
+//! evaluation.
 
 use super::desugar_classes_super::ClassIndexEntry;
 use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
@@ -83,9 +91,24 @@ pub(super) fn guard_field_sites(
             .iter()
             .skip(1)
             .any(|c| scans.get(c.as_str()).is_some_and(|s| s.escapes));
-        if in_prefix || ancestor_escapes {
+        let other_evaluation = ast.eval_unit_classes.contains(&cname) && !receiver_is_this(ast, id);
+        if in_prefix || ancestor_escapes || other_evaluation {
             super::private_brand::guard_receiver(ast, i, &cname, pos);
         }
+    }
+}
+
+/// Whether the member access `id` reads or writes on `this` — the
+/// parser's `Expr::This`, or the `__this` an earlier class rewrite
+/// left in a body.
+fn receiver_is_this(ast: &Ast, id: ExprId) -> bool {
+    let Expr::Member { obj, .. } = ast.get_expr(id) else {
+        return false;
+    };
+    match ast.get_expr(*obj) {
+        Expr::This => true,
+        Expr::Ident(n) => n == "__this",
+        _ => false,
     }
 }
 
