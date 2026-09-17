@@ -370,20 +370,22 @@ fn parse_keyword(s: &str, aliases: &HashMap<String, Type>) -> Type {
         // struct (runtime_bigint.c). Lowers to ptr.
         "bigint" => Type::BigInt,
         // T-26 (v0.7) — WeakRef. Heap-allocated 16-byte struct.
-        // Type ann is `weakref` (lowercase) since `WeakRef<T>` ann
-        // form isn't parsed at SSA layer yet — type-erased.
-        "weakref" => Type::WeakRef,
+        // `weakref` is type_to_ann's spelling; the TS spelling arrives
+        // from a machine-lifted field (`const w = new WeakRef(t)` in
+        // an async body) — the same pairs the checker's registry
+        // (`check_type_ann`) accepts.
+        "weakref" | "WeakRef" => Type::WeakRef,
         // P6.1 — strong-ref Map / Set. Type-erased keys + values via
         // the tagged-Any slot layout in runtime_map.c.
         "Map" | "map" => Type::Map,
         "Set" | "set" => Type::Set,
         // P6.4b — Map iterator handle returned by m.keys / .values / .entries.
-        "mapiter" => Type::MapIter,
+        "mapiter" | "MapIter" => Type::MapIter,
         // P6.4c-C3 — Array<Any> iterator handle.
-        "arriter" => Type::ArrIter,
+        "arriter" | "ArrIter" => Type::ArrIter,
         // T-26.B (v0.7) — WeakMap / WeakSet. Type-erased keys + values.
-        "weakmap" => Type::WeakMap,
-        "weakset" => Type::WeakSet,
+        "weakmap" | "WeakMap" => Type::WeakMap,
+        "weakset" | "WeakSet" => Type::WeakSet,
         other => match aliases.get(other) {
             Some(ty) => *ty,
             None => panic!("ssa-lower: unsupported type annotation `{other}`"),
