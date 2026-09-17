@@ -356,11 +356,23 @@ pub(crate) fn builtin_method_arity_for(mid: i64, fam: i64) -> Option<u32> {
 }
 
 /// The method id a reified cell carries — `None` for ordinary
-/// closures (discriminated by the boxed entry's address). The
-/// capture slot packs `mid | (family + 1) << 32`; this reads the
-/// mid half.
+/// closures (discriminated by the boxed entry's address) and for any
+/// cell that is not a closure at all. The capture slot packs
+/// `mid | (family + 1) << 32`; this reads the mid half.
+///
+/// The tag check comes first because callers probe arbitrary heap
+/// values (an own property of a dynobj, a proxy target): a smaller
+/// cell such as a Proxy ends before the boxed-entry slot, and reading
+/// it there is out of bounds (Guard Malloc caught it on
+/// `proxy-revoked-callable-001`, rotation 662).
+///
+/// # Safety
+/// `ptr` is a live heap cell.
 pub(crate) unsafe fn builtin_method_mid(ptr: *mut c_void) -> Option<i64> {
     unsafe {
+        if (ptr.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
+            return None;
+        }
         let entry = *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64);
         if entry == bare_entry as *const () as u64 {
             Some((*(ptr.cast::<u8>().add(CLOSURE_CAP_BASE_OFF) as *const u64) as u32) as i64)
@@ -384,12 +396,7 @@ pub unsafe extern "C" fn __torajs_builtin_method_face_mid(p: *const c_void) -> i
     if p.is_null() {
         return -1;
     }
-    unsafe {
-        if (p.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
-            return -1;
-        }
-        builtin_method_mid(p as *mut c_void).unwrap_or(-1)
-    }
+    unsafe { builtin_method_mid(p as *mut c_void).unwrap_or(-1) }
 }
 
 /// Invoke a builtin-method mid against `recv` — the accessor-pair
