@@ -79,13 +79,12 @@ unsafe fn dynobj_of_anyv(anyv: u64) -> *const c_void {
     cell
 }
 
-/// The prototype chain of `class_tag`, nearest first — the class's
-/// own `__proto_<C>` and the user prototypes above it.
-unsafe fn proto_chain(class_tag: u32) -> ([*const c_void; MAX_HOPS], usize) {
+/// The prototype chain of struct instance `cell`, nearest first — its
+/// class's own `__proto_<C>` and the user prototypes above it.
+unsafe fn proto_chain(cell: *const c_void) -> ([*const c_void; MAX_HOPS], usize) {
     let mut chain = [core::ptr::null(); MAX_HOPS];
     let mut n = 0usize;
-    let mut cur =
-        unsafe { dynobj_of_anyv(crate::classmeta::proto_anyv_borrowed(class_tag as i64)) };
+    let mut cur = unsafe { dynobj_of_anyv(crate::classmeta::__torajs_obj_proto_borrowed(cell)) };
     let key = unsafe { alloc_str_key(PROTO_SLOT_KEY) };
     while !cur.is_null() && n < MAX_HOPS {
         chain[n] = cur;
@@ -104,8 +103,8 @@ unsafe fn proto_chain(class_tag: u32) -> ([*const c_void; MAX_HOPS], usize) {
 
 /// Run `f` over every prototype entry the inspect face prints, in
 /// bun's order (each hop's own entries, nearest prototype first).
-unsafe fn for_each_proto_entry(class_tag: u32, mut f: impl FnMut(*mut c_void, u64)) {
-    let (chain, n_chain) = unsafe { proto_chain(class_tag) };
+unsafe fn for_each_proto_entry(cell: *const c_void, mut f: impl FnMut(*mut c_void, u64)) {
+    let (chain, n_chain) = unsafe { proto_chain(cell) };
     for h in 0..n_chain {
         let proto = chain[h];
         let len = unsafe { __torajs_dynobj_iter_len(proto) };
@@ -160,9 +159,9 @@ unsafe fn for_each_proto_entry(class_tag: u32, mut f: impl FnMut(*mut c_void, u6
 
 /// True when the class has at least one printable prototype entry —
 /// feeds the caller's empty-form (`Name {}`) early return.
-pub(crate) unsafe fn has_visible_methods(class_tag: u32) -> bool {
+pub(crate) unsafe fn has_visible_methods(cell: *const c_void) -> bool {
     let mut any = false;
-    unsafe { for_each_proto_entry(class_tag, |_, _| any = true) };
+    unsafe { for_each_proto_entry(cell, |_, _| any = true) };
     any
 }
 
@@ -172,13 +171,13 @@ pub(crate) unsafe fn has_visible_methods(class_tag: u32) -> bool {
 /// instance is somebody else's prototype (562-10) — a key one of
 /// them carries belongs to it, not here.
 pub(crate) unsafe fn print_proto_methods(
-    class_tag: u32,
+    cell: *const c_void,
     nearer: &[*const c_void],
     indent: u32,
     any_emitted: &mut bool,
 ) {
     unsafe {
-        for_each_proto_entry(class_tag, |key, anyv| {
+        for_each_proto_entry(cell, |key, anyv| {
             if !nearer.is_empty() && nearer.iter().any(|&o| __torajs_dynobj_has(o, key.cast())) {
                 return;
             }

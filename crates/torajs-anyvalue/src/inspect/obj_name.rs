@@ -36,7 +36,7 @@ unsafe extern "C" {
     fn __torajs_closure_name_str(ptr: *mut c_void) -> *mut u8;
     /// torajs-meta — a class's reified prototype, BORROWED (printing
     /// is not a refcount event). 0 when the tag names no class.
-    fn __torajs_anyv_proto_borrowed(tag: i64) -> u64;
+    fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64;
 }
 
 /// How many [[Prototype]] hops the `constructor` search takes at
@@ -118,9 +118,7 @@ unsafe fn constructor_name(obj: *const c_void) -> Option<Name> {
 /// `cell` is a live `Tag::Obj` cell.
 unsafe fn struct_proto(cell: *const c_void) -> Option<*const c_void> {
     unsafe {
-        // class_tag u32 @+8 — the torajs-rc Tag::Obj invariant.
-        let class_tag = cell.cast::<u8>().add(8).cast::<u32>().read();
-        let v = __torajs_anyv_proto_borrowed(class_tag as i64);
+        let v = __torajs_obj_proto_borrowed(cell);
         if v == 0 {
             return None;
         }

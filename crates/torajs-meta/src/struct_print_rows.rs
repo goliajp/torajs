@@ -223,7 +223,7 @@ pub(crate) unsafe fn put_rows(
 
     // 405-05 — a method-carrying class prints its prototype entries
     // even with zero own properties (`M { m: [Function: m] }`).
-    let has_methods = unsafe { crate::struct_print_methods::has_visible_methods(class_tag) };
+    let has_methods = unsafe { crate::struct_print_methods::has_visible_methods(cell) };
     if n == 0 && n_props == 0 && !has_methods {
         return;
     }
@@ -359,7 +359,7 @@ pub(crate) unsafe fn put_rows(
     // entries last; see struct_print_methods.rs).
     if has_methods {
         unsafe {
-            crate::struct_print_methods::print_proto_methods(class_tag, nearer, indent, any_emitted)
+            crate::struct_print_methods::print_proto_methods(cell, nearer, indent, any_emitted)
         };
     }
 }

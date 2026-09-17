@@ -34,7 +34,7 @@ unsafe extern "C" {
     /// torajs-meta — a struct cell's class prototype (`__proto_<C>`),
     /// where a class's runtime-computed accessors reify; 0 when the
     /// class tag was never registered.
-    fn __torajs_proto_cell_raw(tag: i64) -> u64;
+    fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64;
 }
 
 /// A cell's [[Prototype]], explicit link or implicit clause, as the
@@ -67,8 +67,7 @@ pub(crate) unsafe fn chain_parent(cell: u64) -> Option<u64> {
     } else if ctag == Tag::Obj as u16 {
         // A struct carries no [[Prototype]] slot; its chain root is
         // the class prototype the class registered.
-        let class_tag = unsafe { ptr.cast::<u8>().add(8).cast::<u32>().read() };
-        let root = unsafe { __torajs_proto_cell_raw(class_tag as i64) };
+        let root = unsafe { __torajs_obj_proto_borrowed(ptr.cast()) };
         if crate::nanbox::is_cell(root) {
             return Some(root);
         }

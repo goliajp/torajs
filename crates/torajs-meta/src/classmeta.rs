@@ -30,6 +30,8 @@ pub(crate) mod computed_fields;
 mod define;
 mod error_family;
 mod generic_alias;
+mod obj_proto;
+pub(crate) use obj_proto::{__torajs_obj_proto_borrowed, share_proto};
 mod reify;
 mod source;
 
@@ -435,16 +437,6 @@ pub(crate) fn proto_anyv_borrowed(tag: i64) -> u64 {
     }
 }
 
-/// The class's registered prototype as a BORROWED AnyValue (0 when
-/// the tag names no registered class) — the inspect faces read it
-/// across the crate seam without taking a share, because printing an
-/// object is not a refcount event (562-04). The reflect face takes
-/// [`__torajs_anyv_proto_get`] instead.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_proto_borrowed(tag: i64) -> u64 {
-    proto_anyv_borrowed(tag)
-}
-
 /// `Object.getPrototypeOf(instance)` → owned AnyValue immediate.
 /// Returns `VALUE_NULL_IMM` (the NaN-box `null` sentinel) on
 /// out-of-range tag or unregistered class. rc_inc's the heap
@@ -452,16 +444,7 @@ pub unsafe extern "C" fn __torajs_anyv_proto_borrowed(tag: i64) -> u64 {
 /// the returned reference.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_proto_get(tag: i64) -> u64 {
-    let v = proto_anyv_borrowed(tag);
-    if v == 0 {
-        return VALUE_NULL_IMM;
-    }
-    if is_cell_imm(v) {
-        // SAFETY: cell-encoded AnyValue → 48-bit user-VA pointer
-        // to a valid heap object.
-        unsafe { __torajs_rc_inc(v as *mut c_void) };
-    }
-    v
+    obj_proto::share_proto(proto_anyv_borrowed(tag))
 }
 
 /// `new.target` lookup — AnyValue-immediate variant. Returns

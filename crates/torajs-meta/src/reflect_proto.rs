@@ -344,10 +344,9 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         // identical across the Any and Obj tiers (RFC 20260713
         // blade 5: `Object.getPrototypeOf(g()) === g.prototype`).
         if tag == TAG_OBJ {
-            let class_tag = unsafe { dynobj.cast::<u8>().add(8).cast::<i64>().read() };
-            let r = unsafe { crate::classmeta::__torajs_anyv_proto_get(class_tag) };
-            if r != VALUE_NULL_IMM {
-                return r;
+            let r = unsafe { crate::classmeta::__torajs_obj_proto_borrowed(dynobj) };
+            if r != 0 {
+                return crate::classmeta::share_proto(r);
             }
             // §10.1.1 — a plain struct-typed literal (class_tag 0 /
             // unregistered) is an ordinary object; its [[Prototype]]

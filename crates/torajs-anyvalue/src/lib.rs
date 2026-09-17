@@ -500,10 +500,13 @@ mod tests {
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_throw_set(_tag: i64, _value: i64) {}
-    // RFC 20260802 刀 3a — torajs-meta's per-class prototype registry
-    // read (member_get_symbol's struct chain arm); 0 = unregistered.
+    // torajs-meta's per-class prototype registry reads; 0 = unregistered.
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_proto_cell_raw(_tag: i64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_obj_proto_borrowed(_cell: *const c_void) -> u64 {
         0
     }
     // chunk B3c-1 — the Object statics the ns-static DISPATCH table
@@ -1195,14 +1198,6 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_obj_is_frozen(_p: *const c_void) -> bool {
         false
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_anyv_proto_get(_tag: i64) -> u64 {
-        0
-    }
-    #[unsafe(no_mangle)]
-    pub unsafe extern "C" fn __torajs_anyv_proto_borrowed(_tag: i64) -> u64 {
-        0
     }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_substr_to_owned(_s: *const u8) -> *mut c_void {

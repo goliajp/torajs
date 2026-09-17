@@ -202,7 +202,7 @@ pub unsafe extern "C" fn __torajs_error_name_present(obj: *const c_void) -> i64 
 unsafe extern "C" {
     // torajs-meta classmeta — per-class-tag `__proto_<C>` lookup
     // (OWNED AnyValue: a cell payload arrives +1).
-    fn __torajs_anyv_proto_get(tag: i64) -> u64;
+    fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64;
     // torajs-dynobj — prototype-object entry probes (borrow reads).
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
@@ -247,8 +247,7 @@ pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) 
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn struct_proto_chain_pair(ptr: *const c_void, key: *const c_void) -> (u64, u64) {
-    let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
-    let root = unsafe { __torajs_anyv_proto_get(class_tag as i64) };
+    let root = unsafe { __torajs_obj_proto_borrowed(ptr) };
     // Non-cell (null / unregistered) → no user chain. Cell test mirrors
     // `nanbox::is_cell` consumers: top16 clear + low type bit clear.
     let root_is_cell = !(root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0);
@@ -296,17 +295,6 @@ pub(crate) unsafe fn struct_proto_chain_pair(ptr: *const c_void, key: *const c_v
                 });
             }
         }
-    }
-    // Release proto_get's +1 — the pair stays a borrow of the value
-    // the (still-registered, immortal-for-program-life) prototype
-    // object owns.
-    if root_is_cell {
-        unsafe {
-            __torajs_anyv_rc_dec(crate::nanbox_encode::__torajs_anyv_box_from_pair(
-                AnySlotTag::Heap as i64,
-                root as i64,
-            ))
-        };
     }
     out
 }

@@ -17,9 +17,11 @@
 //! judgment closes both:
 //!
 //! - the by-tag registry — read by `__torajs_anyv_class_get` /
-//!   `__torajs_anyv_proto_get` / `__torajs_class_source_for_cell`
-//!   (instance `.constructor`, `Object.getPrototypeOf`, `instanceof`
-//!   through any, `new.target`, `C.toString()`), every one a torajs-
+//!   `__torajs_anyv_proto_get` / `__torajs_obj_proto_borrowed` /
+//!   `__torajs_class_source_for_cell` (instance `.constructor`,
+//!   `Object.getPrototypeOf`, a struct's inherited symbol keys and
+//!   print rows, `instanceof` through any, `new.target`,
+//!   `C.toString()`), every one a torajs-
 //!   meta entry: the link guard, exact and inline-proof. The
 //!   prologue's own writeback reads (`class_cell_raw` /
 //!   `proto_cell_raw`) are not readers — with the call assumed away
@@ -92,9 +94,10 @@ const PROLOGUE_SYMS: [&str; 4] = [
 #[cfg(test)]
 const REGISTER_SYM: &str = PROLOGUE_SYMS[0];
 /// The registry's readers (torajs-meta `classmeta`).
-const REGISTRY_READERS: [&str; 3] = [
+const REGISTRY_READERS: [&str; 4] = [
     "___torajs_anyv_class_get",
     "___torajs_anyv_proto_get",
+    "___torajs_obj_proto_borrowed",
     "___torajs_class_source_for_cell",
 ];
 
@@ -399,7 +402,7 @@ mod tests {
         assert_eq!(sites[3].func, "helper");
         assert_eq!(
             sites[0].guard.to_string(),
-            "syms:___torajs_anyv_class_get|___torajs_anyv_proto_get|___torajs_class_source_for_cell"
+            "syms:___torajs_anyv_class_get|___torajs_anyv_proto_get|___torajs_obj_proto_borrowed|___torajs_class_source_for_cell"
         );
         let SiteShape::Call {
             byte_offset,
