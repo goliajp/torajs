@@ -76,8 +76,21 @@ pub(crate) fn try_lower(
 /// realloc), so the borrowed elem read IS the receiver and no
 /// outer-slot write-back exists to miss — the historical "no place
 /// to store a possibly-realloc'd pointer" rejection is moot.
+///
+/// A comma receiver whose value is a borrowed place (`(0, xs).push(v)`,
+/// and the dead-zone guard `flag_closure_tdz` wraps a closure's read
+/// in) rides the same arm for the same reason: its value is the cell.
 fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> Option<Operand> {
-    if !matches!(ctx.ast.get_expr(recv_id), Expr::Index { .. }) {
+    let mut tail = recv_id;
+    while let Expr::Sequence { right, .. } = ctx.ast.get_expr(tail) {
+        tail = *right;
+    }
+    let borrowed_comma = tail != recv_id
+        && matches!(
+            ctx.ast.get_expr(tail),
+            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
+        );
+    if !borrowed_comma && !matches!(ctx.ast.get_expr(recv_id), Expr::Index { .. }) {
         return None;
     }
     let recv_val = ctx.lower_expr(recv_id);
