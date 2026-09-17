@@ -49,6 +49,7 @@ unsafe extern "C" {
     fn __torajs_weak_key_from_any(av: u64) -> *mut c_void;
     /// torajs-weak — §26.1.4.2 deref in the AnyValue lane.
     fn __torajs_weakref_deref_any(p: *mut c_void) -> u64;
+    fn __torajs_weakref_registry_register(target: *mut c_void, kind: u32, owner: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
     fn __torajs_value_drop_heap(p: *mut c_void);
@@ -157,6 +158,34 @@ pub(crate) unsafe fn weakref_method(ptr: *mut c_void, mid: i64) -> AnyValue {
         }
         method_no_such()
     }
+}
+
+/// `super(t)` in a WeakRef subclass — §26.1.1.1 steps 2 and 4 applied
+/// onto the cell the factory minted with no target.
+///
+/// # Safety
+/// `this` boxes a live WeakRef cell; `target` is borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakref_subclass_super(
+    this: AnyValue,
+    target: AnyValue,
+) -> AnyValue {
+    unsafe {
+        let key = __torajs_weak_key_from_any(target);
+        if key.is_null() {
+            __torajs_throw_type_error(
+                c"First argument to WeakRef should be an object or a non-registered symbol"
+                    .as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
+        let wr = crate::nanbox::as_void_ptr(this);
+        // `WeakRef::target` (+8), observed through the shared registry
+        // exactly as `__torajs_weakref_create` does.
+        *(wr as *mut *mut c_void).add(1) = key;
+        __torajs_weakref_registry_register(key, 0, wr);
+    }
+    VALUE_UNDEFINED
 }
 
 /// The stage-3 upsert pair on a WeakMap (383-04) — key already

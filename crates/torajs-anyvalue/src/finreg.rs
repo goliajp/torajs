@@ -48,6 +48,29 @@ pub unsafe extern "C" fn __torajs_finreg_new(cleanup: AnyValue) -> AnyValue {
     box_void_ptr(unsafe { __torajs_finreg_create(cleanup) })
 }
 
+/// `super(cb)` in a FinalizationRegistry subclass — §26.2.1.1 steps
+/// 2 and 4 applied onto the cell the factory minted with an undefined
+/// callback.
+///
+/// # Safety
+/// `this` boxes a live registry cell; `cleanup` is borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_finreg_subclass_super(
+    this: AnyValue,
+    cleanup: AnyValue,
+) -> AnyValue {
+    if !crate::proxy_descriptor::is_callable(cleanup) {
+        return unsafe { throw(c"First argument to FinalizationRegistry should be a function") };
+    }
+    unsafe {
+        __torajs_host_job_drain_install(drain_one);
+        crate::nanbox_ffi::__torajs_anyv_rc_inc(cleanup);
+        // `FinReg::cleanup` (+8) — the mint left the undefined sentinel.
+        *(crate::nanbox::as_void_ptr(this) as *mut u64).add(1) = cleanup;
+    }
+    VALUE_UNDEFINED
+}
+
 /// §9.13 CleanupFinalizationRegistry for the registry at the head of
 /// the cleanup queue: each pending cell's held value goes to the
 /// callback, `this` undefined. A throw ends the job (the remaining

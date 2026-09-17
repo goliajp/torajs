@@ -95,7 +95,8 @@ pub(crate) fn scan_call(
             // throw; without this bit the ctor (and its factory /
             // `new` site) is judged never-throwing and the pending
             // throw is silently stranded.
-            if name == "__torajs_ctor_no_super_throw" {
+            // So does an exotic subclass's `super(v)` kernel (the builtin ctor's checks).
+            if name == "__torajs_ctor_no_super_throw" || name.contains("_subclass_super") {
                 *direct = true;
             }
             // RFC 20260820-ctor-return-override — §10.2.2 step 13.c:

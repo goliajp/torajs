@@ -49,8 +49,20 @@ const SUBCLASSABLE_BUILTINS: &[&str] = &["Object", "Iterator"];
 /// and `super(...)` lower differently, everything else takes the
 /// stripped base-class shape below.
 const EXOTIC_SUBCLASSABLE: &[&str] = &[
-    "Array", "Number", "String", "Boolean", "Function", "Map", "Set", "Promise", "RegExp",
-    "WeakMap", "WeakSet", "Date",
+    "Array",
+    "Number",
+    "String",
+    "Boolean",
+    "Function",
+    "Map",
+    "Set",
+    "Promise",
+    "RegExp",
+    "WeakMap",
+    "WeakSet",
+    "Date",
+    "WeakRef",
+    "FinalizationRegistry",
 ];
 
 /// Is `name` a builtin this pass accepts as an `extends` parent?
@@ -109,6 +121,8 @@ pub(crate) fn exotic_alloc_self_magic(parent: &str) -> &'static str {
         "WeakMap" => "__torajs_weakmap_subclass_alloc_self",
         "WeakSet" => "__torajs_weakset_subclass_alloc_self",
         "Date" => "__torajs_date_subclass_alloc_self",
+        "WeakRef" => "__torajs_weakref_subclass_alloc_self",
+        "FinalizationRegistry" => "__torajs_finreg_subclass_alloc_self",
         p if is_typedarray_ctor(p) => "__torajs_typedarray_subclass_alloc_self",
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
     }
@@ -140,6 +154,10 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
         "WeakMap" => Some("__torajs_weakmap_subclass_super"),
         "WeakSet" => Some("__torajs_weakset_subclass_super"),
         "Date" => Some("__torajs_date_subclass_super"),
+        // §26.1.1.1 / §26.2.1.1 — the target / callback check and the
+        // slot write, applied onto the minted cell.
+        "WeakRef" => Some("__torajs_weakref_subclass_super"),
+        "FinalizationRegistry" => Some("__torajs_finreg_subclass_super"),
         "Function" => None,
         p if is_typedarray_ctor(p) => Some("__torajs_typedarray_subclass_super"),
         _ => unreachable!("not an exotic subclassable builtin: {parent}"),
@@ -151,7 +169,8 @@ fn exotic_super_kernel(parent: &str) -> Option<&'static str> {
 /// §27.2.3.1 step 2 rejects a non-callable executor, so `super()`
 /// routes to the kernel with undefined and takes the TypeError.
 fn exotic_super_zero_is_noop(parent: &str) -> bool {
-    parent != "Promise"
+    // WeakRef(undefined) and FinalizationRegistry(undefined) throw too.
+    !matches!(parent, "Promise" | "WeakRef" | "FinalizationRegistry")
 }
 
 /// SUBCLASSABLE (stripped, ordinary-instance) parents whose only
@@ -237,7 +256,13 @@ pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassInde
         if exotic && ctor.is_none() && is_typedarray_ctor(p) {
             *ctor = Some(synthesize_typedarray_forward_ctor(ast));
         }
-        if exotic && ctor.is_none() && matches!(p.as_str(), "Map" | "Set" | "WeakMap" | "WeakSet") {
+        if exotic
+            && ctor.is_none()
+            && matches!(
+                p.as_str(),
+                "Map" | "Set" | "WeakMap" | "WeakSet" | "WeakRef" | "FinalizationRegistry"
+            )
+        {
             let arg = ast.add_expr(Expr::Ident("__superarg".to_string()));
             let sup = ast.add_expr(Expr::Super { args: vec![arg] });
             *ctor = Some(crate::ast::ClassCtor {

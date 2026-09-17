@@ -16,6 +16,9 @@
 
 use core::ffi::c_void;
 
+use crate::create::__torajs_weakref_create;
+use crate::finreg::__torajs_finreg_create;
+use crate::key::AV_UNDEFINED;
 use crate::weakmap::__torajs_weakmap_create;
 use crate::weakset::__torajs_weakset_create;
 
@@ -69,4 +72,25 @@ pub unsafe extern "C" fn __torajs_weakmap_subclass_alloc(class_tag: i64) -> u64 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_weakset_subclass_alloc(class_tag: i64) -> u64 {
     unsafe { mint_common(__torajs_weakset_create(), class_tag) }
+}
+
+/// Mint a WeakRef-subclass instance with no target yet; `super(t)`
+/// (`__torajs_weakref_subclass_super`) checks and installs it.
+///
+/// # Safety
+/// `class_tag` is the class's registered tag.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_weakref_subclass_alloc(class_tag: i64) -> u64 {
+    unsafe { mint_common(__torajs_weakref_create(core::ptr::null_mut()), class_tag) }
+}
+
+/// Mint a FinalizationRegistry-subclass instance whose callback is
+/// still undefined; `super(cb)` (`__torajs_finreg_subclass_super`)
+/// checks and installs it.
+///
+/// # Safety
+/// `class_tag` is the class's registered tag.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_finreg_subclass_alloc(class_tag: i64) -> u64 {
+    unsafe { mint_common(__torajs_finreg_create(AV_UNDEFINED), class_tag) }
 }

@@ -81,6 +81,22 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
             let f = ctx.intrinsics.weakset_subclass_alloc;
             lower_alloc_self(ctx, args, f, false)
         }
+        "__torajs_weakref_subclass_alloc_self" => {
+            let f = ctx.intrinsics.weakref_subclass_alloc;
+            lower_alloc_self(ctx, args, f, false)
+        }
+        "__torajs_finreg_subclass_alloc_self" => {
+            let f = ctx.intrinsics.finreg_subclass_alloc;
+            lower_alloc_self(ctx, args, f, false)
+        }
+        "__torajs_weakref_subclass_super" => {
+            let f = ctx.intrinsics.weakref_subclass_super;
+            lower_super_one_arg(ctx, args, f)
+        }
+        "__torajs_finreg_subclass_super" => {
+            let f = ctx.intrinsics.finreg_subclass_super;
+            lower_super_one_arg(ctx, args, f)
+        }
         "__torajs_date_subclass_alloc_self" => {
             let f = ctx.intrinsics.date_subclass_alloc;
             lower_alloc_self(ctx, args, f, false)
@@ -234,6 +250,9 @@ fn lower_super_boxed(ctx: &mut LowerCtx<'_>, args: &[ExprId], kernel: FuncId) ->
     let v = ctx
         .f
         .append_inst(cur_block, InstKind::Call(kernel, ops), Type::Any, None);
+    // The builtin constructor's own checks (a non-callable executor,
+    // an illegal WeakRef target) raise inside the kernel.
+    ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }
 

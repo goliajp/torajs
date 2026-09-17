@@ -33,6 +33,10 @@ unsafe extern "C" {
     /// torajs-str — universal heap-value drop dispatch; releases the
     /// lazy own-property bag (a DynObj cell) when the owner dies.
     fn __torajs_value_drop_heap(p: *mut c_void);
+
+    /// torajs-meta — scrub a dying WeakRef-subclass instance's
+    /// identity entry; gated on `FLAG_SUBCLASSED`.
+    fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
 /// `__torajs_weakref_drop(wr)` — refcount-aware WeakRef drop.
@@ -62,6 +66,9 @@ pub unsafe extern "C" fn __torajs_weakref_drop(p: *mut c_void) {
             let target = (*wr).target;
             if !target.is_null() {
                 __torajs_weakref_registry_deregister(target, OBSERVER_WEAKREF, p);
+            }
+            if (*wr).header.flags & crate::layout::FLAG_SUBCLASSED != 0 {
+                __torajs_subclass_drop_entry(p);
             }
             free(p);
         }
