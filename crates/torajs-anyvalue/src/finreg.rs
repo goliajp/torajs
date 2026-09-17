@@ -36,7 +36,7 @@ unsafe extern "C" {
 /// `cleanup` is a live AnyValue.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_finreg_new(cleanup: AnyValue) -> AnyValue {
-    if !crate::promise_capability::is_callable(cleanup) {
+    if !crate::proxy_descriptor::is_callable(cleanup) {
         unsafe {
             __torajs_throw_type_error(
                 c"First argument to FinalizationRegistry should be a function".as_ptr(),

@@ -36,3 +36,11 @@ const d = Object.getOwnPropertyDescriptor(FinalizationRegistry.prototype, Symbol
 console.log(d.value, d.writable, d.enumerable, d.configurable);
 const c = Object.getOwnPropertyDescriptor(FinalizationRegistry.prototype, "constructor")!;
 console.log(c.value === F, c.writable, c.enumerable, c.configurable);
+// §7.2.3 IsCallable — a Proxy over a function is callable.
+const callableProxy = new Proxy(function () {}, {});
+console.log(typeof new FinalizationRegistry(callableProxy as any));
+try {
+  new FinalizationRegistry(new Proxy({}, {}) as any);
+} catch (e: any) {
+  console.log(e.constructor.name);
+}

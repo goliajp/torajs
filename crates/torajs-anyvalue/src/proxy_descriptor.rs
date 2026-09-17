@@ -158,7 +158,7 @@ unsafe fn accessor_field(obj: AnyValue, name: &[u8]) -> Result<Option<AnyValue>,
 
 /// IsCallable over the two callable shapes: a closure, and a Proxy
 /// whose target is one.
-fn is_callable(v: AnyValue) -> bool {
+pub(crate) fn is_callable(v: AnyValue) -> bool {
     crate::promise_capability::is_callable(v)
         || (crate::proxy::is_proxy(v) && unsafe { crate::proxy_callable::proxy_is_callable(v) })
 }
