@@ -14,6 +14,7 @@ use crate::ast::{Ast, Expr};
 ///
 /// ```text
 /// function __promise_from_executor(__ex: any): any {
+///   if (typeof __ex !== "function") throw __new_TypeError("…");
 ///   let __pr: any = Promise.withResolvers();
 ///   try { __ex(__pr.resolve, __pr.reject); }
 ///   catch (__e) { __pr.reject(__e); }
@@ -24,11 +25,13 @@ use crate::ast::{Ast, Expr};
 /// Everything the helper's body says rides existing lanes (any-call
 /// for the executor, any-member for the trio fields, any-receiver
 /// then/catch on the result), probe-verified byte-equal before this
-/// pass existed. Only the exact 1-arg form rewrites: a 0-arg
-/// `new Promise()` is a TypeError per spec (executor not callable)
-/// and keeps today's loud reject, and a >1-arg call would have to
-/// evaluate trailing args for their side effects to be faithful —
-/// left loud rather than silently dropped.
+/// pass existed. Step 2's IsCallable check is the helper's first
+/// statement, OUTSIDE the `try`: a non-callable executor is a
+/// synchronous TypeError (the `try` used to turn it into a rejection
+/// that nobody could catch). Every arity rewrites: a missing executor
+/// is `undefined` and takes that same throw, and trailing arguments are
+/// passed on so they are evaluated in order and then ignored, as a
+/// direct call with extra arguments already is.
 pub(super) fn rewrite_promise_new(ast: &mut Ast) {
     // P4.6 stdlib-override — a user `class Promise` (or any user
     // binding of the name) owns every `new Promise(...)` in the
@@ -49,8 +52,13 @@ pub(super) fn rewrite_promise_new(ast: &mut Ast) {
         let executor = match &ast.exprs[i] {
             Expr::New {
                 class_name, args, ..
-            } if class_name == "Promise" && args.len() == 1 => args[0],
+            } if class_name == "Promise" => args.clone(),
             _ => continue,
+        };
+        let executor = if executor.is_empty() {
+            vec![ast.add_expr(Expr::Ident("undefined".into()))]
+        } else {
+            executor
         };
         if !synthesized {
             synthesize_promise_executor_helper(ast);
@@ -59,13 +67,36 @@ pub(super) fn rewrite_promise_new(ast: &mut Ast) {
         let callee = ast.add_expr(Expr::Ident("__promise_from_executor".into()));
         ast.exprs[i] = Expr::Call {
             callee,
-            args: vec![executor],
+            args: executor,
         };
     }
 }
 
 fn synthesize_promise_executor_helper(ast: &mut Ast) {
     use crate::ast::{Param, Stmt};
+
+    // if (typeof __ex !== "function") throw __new_TypeError(…);
+    let ex_typeof = ast.add_expr(Expr::Ident("__ex".into()));
+    let type_of = ast.add_expr(Expr::TypeOf { expr: ex_typeof });
+    let function_str = ast.add_expr(Expr::String("function".into()));
+    let not_callable = ast.add_expr(Expr::BinOp {
+        op: crate::ast::BinOp::Neq,
+        left: type_of,
+        right: function_str,
+    });
+    let type_error = ast.add_expr(Expr::Ident("__new_TypeError".into()));
+    let msg = ast.add_expr(Expr::String(
+        "Promise constructor takes a function argument".into(),
+    ));
+    let err = ast.add_expr(Expr::Call {
+        callee: type_error,
+        args: vec![msg],
+    });
+    let guard = Stmt::If {
+        cond: not_callable,
+        then_branch: Box::new(Stmt::Throw(err)),
+        else_branch: None,
+    };
 
     // let __pr: any = Promise.withResolvers();
     let promise_ns = ast.add_expr(Expr::Ident("Promise".into()));
@@ -139,7 +170,7 @@ fn synthesize_promise_executor_helper(ast: &mut Ast) {
             is_rest: false,
         }],
         return_type: Some("any".into()),
-        body: vec![let_pr, try_stmt, Stmt::Return(Some(promise_field))],
+        body: vec![guard, let_pr, try_stmt, Stmt::Return(Some(promise_field))],
         is_generator: false,
         span: crate::lexer::Span { start: 0, end: 0 },
     });
