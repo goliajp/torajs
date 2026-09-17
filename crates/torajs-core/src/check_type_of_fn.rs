@@ -145,6 +145,11 @@ pub(crate) fn check_closure(
     if let Some(t) = checker.closure_walk_memo.get(&(eid, fn_name.clone())) {
         return Ok(t.clone());
     }
+    if checker.defer_closure_bodies > 0 {
+        // Skeleton walk: the statement walks the body once its binding
+        // is in scope (`check_stmt_let_decl::predeclare_self_ref_closure`).
+        return closure_sig(ast, &fn_name, &checker.aliases).map(|s| s.value_ty);
+    }
     let captures = captures.to_vec();
     let mut cap_tys: Vec<(String, Type)> = Vec::with_capacity(captures.len());
     for cap in &captures {

@@ -143,43 +143,14 @@ pub(crate) fn check(
             ann_ty
         }
     };
-    // RC-4 F1c — a defineProperty receiver's unannotated ObjectLit
-    // binding types as `any`: the define lowering converts the cell
-    // to a DynObj and the write-back only rebinds Any-typed slots,
-    // so a static struct type would strand the defined property on
-    // an orphan cell (test262 gOPN accessor family).
-    //
-    // 2026-07-16 (rotation 121 chunk 5-followup) — the same widen
-    // applies to an unannotated ObjectLit init whose inferred struct
-    // carries a `Type::Undefined` field: pre-bound
-    // `const d1 = { value: undefined }; f(d1)` (arg param typed
-    // `any`) otherwise walks the struct → `box_to_any` refcounted
-    // arm and the callee's `desc.value` read collapses to null
-    // (Type::Undefined field storage is ptr-null, so the any-lane
-    // sees ANY_NULL=0). Widening the binding to `any` routes it
-    // through the dobj lane (mirrors chunk 5's inline-ObjectLit fn
-    // arg fix at the call site — this is the pre-bound analog).
-    let final_ty = if type_ann.is_none()
-        && matches!(ast.get_expr(init), Expr::ObjectLit { .. })
-        && (checker.dynobj_degraded.contains(&init) || struct_has_undef_field(&final_ty))
+    let final_ty = widen_binding_ty(checker, ast, init, type_ann.is_none(), final_ty);
+    if let SelfRef::Skeleton(provisional) = &self_ref_closure
+        && *provisional != final_ty
     {
-        Type::Any
-    } else if checker.any_promoted_inits.contains(&init) {
-        // S2.35 — pass_2 promoted this toplevel binding to an Any
-        // global (call-init / method-objlit shared verdict); the
-        // main binding widens to match, or member calls off the
-        // main home would route to mono sigs the boxed slot value
-        // can never satisfy.
-        Type::Any
-    } else if checker.cross_type_widened.contains(&init) {
-        // RFC 20260804-mutable-let-widen — a later reassign of a
-        // different syntactic family (JS `let it = new C();
-        // it = Iterator.from(it)`) makes the binding `any` from
-        // declaration; the lowerer consults the same set.
-        Type::Any
-    } else {
-        final_ty
-    };
+        checker.errors.push_err(format!(
+            "internal: `{name}` pre-declared as {provisional:?} for its initializer's closures, declared {final_ty:?}"
+        ));
+    }
     let is_alias_init = checker.classify_init_alias(ast, init);
     let declared_class: Option<String> = type_ann.as_ref().and_then(|s| {
         let base = crate::check_type_ann::strip_nullable(s);
@@ -194,7 +165,7 @@ pub(crate) fn check(
     // s.slice`): their `.call`/`.apply`/`.bind` admit any-dispatched
     // (route_early), sidestepping the member table's fixed-arity sig.
     let builtin_mv = is_builtin_mv_init(checker, ast, init);
-    if self_ref_closure {
+    if !matches!(self_ref_closure, SelfRef::None) {
         // Drop the provisional entry the pre-declare pushed — it existed
         // only so the init's own capture could resolve. The real
         // `LocalInfo` below is the one that carries the alias / nominal
@@ -221,6 +192,55 @@ pub(crate) fn check(
     // An initializer is the binding's first assignment — see
     // `Checker::apply_decl_narrow`.
     checker.apply_decl_narrow(ast, name, init);
+}
+
+/// The widenings a binding's type takes after its initializer types —
+/// shared by the declaration and by the skeleton pre-declare, which
+/// must answer the same type the declaration will.
+fn widen_binding_ty(
+    checker: &Checker,
+    ast: &Ast,
+    init: ExprId,
+    unannotated: bool,
+    ty: Type,
+) -> Type {
+    // RC-4 F1c — a defineProperty receiver's unannotated ObjectLit
+    // binding types as `any`: the define lowering converts the cell
+    // to a DynObj and the write-back only rebinds Any-typed slots,
+    // so a static struct type would strand the defined property on
+    // an orphan cell (test262 gOPN accessor family).
+    //
+    // 2026-07-16 (rotation 121 chunk 5-followup) — the same widen
+    // applies to an unannotated ObjectLit init whose inferred struct
+    // carries a `Type::Undefined` field: pre-bound
+    // `const d1 = { value: undefined }; f(d1)` (arg param typed
+    // `any`) otherwise walks the struct → `box_to_any` refcounted
+    // arm and the callee's `desc.value` read collapses to null
+    // (Type::Undefined field storage is ptr-null, so the any-lane
+    // sees ANY_NULL=0). Widening the binding to `any` routes it
+    // through the dobj lane (mirrors chunk 5's inline-ObjectLit fn
+    // arg fix at the call site — this is the pre-bound analog).
+    if unannotated
+        && matches!(ast.get_expr(init), Expr::ObjectLit { .. })
+        && (checker.dynobj_degraded.contains(&init) || struct_has_undef_field(&ty))
+    {
+        Type::Any
+    } else if checker.any_promoted_inits.contains(&init) {
+        // S2.35 — pass_2 promoted this toplevel binding to an Any
+        // global (call-init / method-objlit shared verdict); the
+        // main binding widens to match, or member calls off the
+        // main home would route to mono sigs the boxed slot value
+        // can never satisfy.
+        Type::Any
+    } else if checker.cross_type_widened.contains(&init) {
+        // RFC 20260804-mutable-let-widen — a later reassign of a
+        // different syntactic family (JS `let it = new C();
+        // it = Iterator.from(it)`) makes the binding `any` from
+        // declaration; the lowerer consults the same set.
+        Type::Any
+    } else {
+        ty
+    }
 }
 
 /// A closure init whose capture list names the very binding it
@@ -251,13 +271,24 @@ pub(crate) fn check(
 /// that is what was written, and it is what makes a write from inside
 /// the body (`let h: any = function () { h = 9 }`) an ordinary
 /// PutValue rather than a type error.
+/// What [`predeclare_self_ref_closure`] pushed.
+enum SelfRef {
+    None,
+    /// Typed off the annotation or the closure's own signature.
+    Provisional,
+    /// Typed off the initializer's skeleton; the declaration must
+    /// arrive at the same type, since the closure bodies were checked
+    /// against it.
+    Skeleton(Type),
+}
+
 fn predeclare_self_ref_closure(
     checker: &mut Checker,
     ast: &Ast,
     name: &str,
     type_ann: &Option<String>,
     init: ExprId,
-) -> bool {
+) -> SelfRef {
     let Expr::Closure { fn_name, captures } = ast.get_expr(init) else {
         // 400-01 — a closure minted DEEPER in a composite init
         // self-capturing the binding (`const s: any = { f: function
@@ -265,38 +296,50 @@ fn predeclare_self_ref_closure(
         // resolved "unknown", the prune dropped it, and the body's
         // read fell to the dynamic-global lane (runtime
         // ReferenceError). The lowering half is the recursive lane's
-        // ordinary-binding box (fn_name: None), which takes the
-        // binding's ANNOTATED slot type — so only an annotated
-        // binding admits here, typed off that same annotation.
+        // ordinary-binding box (fn_name: None), which retypes its
+        // capture slots to whatever the initializer produces. An
+        // annotated binding declares its annotation; an unannotated
+        // one declares the initializer's skeleton type — its closures
+        // answer their signatures without walking the bodies, which
+        // is what TS does too (the binding's type never depends on a
+        // closure body unless the closure's own return is inferred,
+        // and then the signature already says `any`).
         let mut nested: Vec<&str> = Vec::new();
         crate::ast::nested_closure_captures::collect(ast, init, &mut nested);
         if !nested.iter().any(|c| *c == name) {
-            return false;
+            return SelfRef::None;
         }
-        let Some(ann) = type_ann else {
-            return false;
+        let (ty, verdict) = match type_ann {
+            Some(ann) => {
+                let Some(ty) =
+                    resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls)
+                else {
+                    return SelfRef::None;
+                };
+                (ty, SelfRef::Provisional)
+            }
+            None => {
+                checker.speculative_depth += 1;
+                checker.defer_closure_bodies += 1;
+                let skeleton = checker.type_of(ast, init);
+                checker.defer_closure_bodies -= 1;
+                checker.speculative_depth -= 1;
+                let Ok(ty) = skeleton else {
+                    return SelfRef::None;
+                };
+                let ty = if ty == Type::Void {
+                    Type::Undefined
+                } else {
+                    ty
+                };
+                let ty = widen_binding_ty(checker, ast, init, true, ty);
+                (ty.clone(), SelfRef::Skeleton(ty))
+            }
         };
-        let Some(ty) =
-            resolve_type_ann_full(ann, &checker.aliases, &[], &checker.generic_alias_decls)
-        else {
-            return false;
-        };
-        return checker
-            .declare(
-                name.to_string(),
-                LocalInfo {
-                    ty,
-                    mutable: true,
-                    moved: false,
-                    borrowed: false,
-                    declared_class: None,
-                    builtin_mv: false,
-                },
-            )
-            .is_ok();
+        return declare_provisional(checker, name, ty, verdict);
     };
     if !captures.iter().any(|c| c == name) {
-        return false;
+        return SelfRef::None;
     }
     let mut ann_any = false;
     if let Some(ann) = type_ann {
@@ -305,30 +348,33 @@ fn predeclare_self_ref_closure(
         match resolved {
             Some(Type::Function(..)) => {}
             Some(Type::Any) => ann_any = true,
-            _ => return false,
+            _ => return SelfRef::None,
         }
     }
     let ty = if ann_any {
         Type::Any
     } else {
         let Ok(sig) = crate::check_type_of_fn::closure_sig(ast, fn_name, &checker.aliases) else {
-            return false;
+            return SelfRef::None;
         };
         sig.value_ty
     };
-    checker
-        .declare(
-            name.to_string(),
-            LocalInfo {
-                ty,
-                mutable: true,
-                moved: false,
-                borrowed: false,
-                declared_class: None,
-                builtin_mv: false,
-            },
-        )
-        .is_ok()
+    declare_provisional(checker, name, ty, SelfRef::Provisional)
+}
+
+fn declare_provisional(checker: &mut Checker, name: &str, ty: Type, verdict: SelfRef) -> SelfRef {
+    let info = LocalInfo {
+        ty,
+        mutable: true,
+        moved: false,
+        borrowed: false,
+        declared_class: None,
+        builtin_mv: false,
+    };
+    match checker.declare(name.to_string(), info) {
+        Ok(_) => verdict,
+        Err(_) => SelfRef::None,
+    }
 }
 
 /// The checker mirror of the lowering's mint gate (`ssa_lower_member

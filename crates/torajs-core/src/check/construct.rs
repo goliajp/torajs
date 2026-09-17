@@ -39,6 +39,7 @@ impl Checker {
             checking_spec_body: false,
             closure_walk_memo: HashMap::new(),
             speculative_depth: 0,
+            defer_closure_bodies: 0,
             generic_alias_decls: HashMap::new(),
             fn_defaults: HashMap::new(),
             expr_types: HashMap::new(),

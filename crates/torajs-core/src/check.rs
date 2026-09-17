@@ -326,6 +326,11 @@ pub(crate) struct Checker {
     /// initializer before its list is in scope: that walk is redone
     /// by the statement itself, so it is never memoized.
     pub(crate) speculative_depth: u32,
+    /// Non-zero while a let-decl pre-declare types an unannotated
+    /// initializer for its SKELETON: closures answer their value type
+    /// (which their annotations fix) without walking the body, since
+    /// the body may read the very binding being declared.
+    pub(crate) defer_closure_bodies: u32,
     /// M3.4 — generic struct alias declarations. Maps `Pair` →
     /// `(["A","B"], [("fst","A"), ("snd","B")])` for
     /// `type Pair<A, B> = { fst: A, snd: B }`. Used by
