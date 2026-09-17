@@ -68,7 +68,10 @@ unsafe fn slot_ptr(p: *mut c_void, i: u64) -> *mut u64 {
         let (vec_off, k) = if i <= live {
             (CELLS_OFF, i - 1)
         } else {
-            (PENDING_OFF, i - 1 - live + u32_at(p, PENDING_HEAD_OFF) as u64)
+            (
+                PENDING_OFF,
+                i - 1 - live + u32_at(p, PENDING_HEAD_OFF) as u64,
+            )
         };
         let vec = *((p as *const u8).add(vec_off) as *const *const *mut u8);
         (*vec.add(k as usize)).add(CELL_HELD_OFF) as *mut u64
