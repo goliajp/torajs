@@ -29,7 +29,11 @@
 //!
 //! - W1 no `extends`, and no class extends this one; W5 not generic,
 //!   not abstract; W6 no builtin parent;
-//! - W2/W3/W4 no private, static, accessor or computed member;
+//! - W2/W3/W4 no private field, no static, public accessor or computed
+//!   member (K2 admits private methods and accessors: their brand check
+//!   also compares the receiver's evaluation with the one `__this` runs
+//!   in, so no member body may hold a `function` expression, whose
+//!   `this` is not the instance);
 //! - W7 the constructor returns no value; W16 reads no `arguments`;
 //! - W8 no member body names the class (the body would read the
 //!   registered template);
@@ -76,6 +80,16 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
             .iter()
             .any(|p| k.starts_with(p))
     };
+    // K2 — a private method, or either half of a private accessor
+    // (`__getter___priv_C__m`); a public accessor stays out.
+    let private_method = |k: &PropKey| {
+        let k = k.lossy();
+        let bare = k
+            .strip_prefix("__getter_")
+            .or_else(|| k.strip_prefix("__setter_"))
+            .unwrap_or(&k);
+        bare.starts_with("__priv_")
+    };
     // A runtime-value parent anywhere (`class D extends f()`) reaches
     // its parent's constructor through the by-cell registry, which no
     // unit class object is in.
@@ -88,7 +102,7 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         || !fields.iter().all(|(k, _)| plain(k))
         || !methods
             .iter()
-            .all(|m| plain(&m.name) && m.type_params.is_empty())
+            .all(|m| (plain(&m.name) || private_method(&m.name)) && m.type_params.is_empty())
         || ast.builtin_class_parents.contains_key(name)
         || ast.class_expr_deferred.contains(name)
         || ast
@@ -116,7 +130,8 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
     for b in bodies {
         in_bodies.list(ast, b, name);
     }
-    in_bodies.name == 0 && !in_bodies.arguments
+    let has_private = methods.iter().any(|m| private_method(&m.name));
+    in_bodies.name == 0 && !in_bodies.arguments && !(has_private && in_bodies.fn_exprs)
 }
 
 /// Whether every reference to `name` in the program sits in the
@@ -231,6 +246,8 @@ fn returns_value(s: &Stmt) -> bool {
 struct Occurrences {
     name: usize,
     arguments: bool,
+    /// A `function` expression (not an arrow): its own `this`.
+    fn_exprs: bool,
 }
 
 impl Occurrences {
@@ -283,6 +300,7 @@ impl Occurrences {
             self.arguments = true;
         }
         if let Expr::ArrowFn { body, .. } = e {
+            self.fn_exprs |= ast.fn_expr_exprs.contains(&eid);
             self.list(ast, body, name);
             return;
         }

@@ -31,6 +31,8 @@ pub(crate) struct PrivateIds {
     /// RFC 20260917-class-eval-unit K1 — wires one evaluation of a
     /// unit class (the identity private brands will compare).
     pub class_unit_wire: FuncId,
+    /// K2 — a class instance's hidden evaluation slot (0 otherwise).
+    pub priv_unit_word: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrivateIds {
@@ -94,6 +96,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             crate::ast::class_unit::UNIT_WIRE,
             &[Type::Any, Type::Any, Type::I64, Type::I64],
             Type::Void,
+        ),
+        priv_unit_word: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_priv_unit_word",
+            &[Type::Any, Type::I64],
+            Type::I64,
         ),
     }
 }

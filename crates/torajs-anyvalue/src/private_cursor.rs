@@ -61,6 +61,21 @@ pub unsafe extern "C" fn __torajs_priv_cursor(v: AnyValue) -> i64 {
     }
 }
 
+/// The word at byte `off` of a class instance cell (a unit class's
+/// hidden evaluation slot, RFC 20260917-class-eval-unit K2); 0 for any
+/// other value. The caller has already established that `v` is an
+/// instance of the class whose layout puts the slot at `off`.
+///
+/// # Safety
+/// `v` is a live AnyValue; for an instance cell, `off` is inside it.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_priv_unit_word(v: AnyValue, off: i64) -> i64 {
+    match instance_cell(v) {
+        Some(p) => unsafe { p.cast::<u8>().add(off as usize).cast::<i64>().read() },
+        None => 0,
+    }
+}
+
 /// §7.3.31 / §7.3.32 step 1 — the object does not have the element.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_priv_brand_fail() {

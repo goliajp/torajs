@@ -25,7 +25,7 @@ pub(crate) fn try_match_priv_brand(
     args: &[ExprId],
 ) -> Option<Result<Type, String>> {
     if !matches!(ast.get_expr(*callee), Expr::Ident(n) if n == crate::ast::private_brand::CHECK)
-        || args.len() != 3
+        || !(args.len() == 3 || args.len() == 4)
     {
         return None;
     }

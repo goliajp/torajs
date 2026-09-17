@@ -123,7 +123,11 @@ fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i6
 }
 
 fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    let [obj, class, pos] = args else { return None };
+    let (obj, class, pos, this_arg) = match args {
+        [obj, class, pos] => (obj, class, pos, None),
+        [obj, class, pos, this] => (obj, class, pos, Some(*this)),
+        _ => return None,
+    };
     let Expr::String(class) = ctx.ast.get_expr(*class) else {
         return None;
     };
@@ -189,7 +193,79 @@ fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(cont));
     }
     ctx.cur_block = cont;
+    if let Some(this_arg) = this_arg {
+        lower_unit_check(ctx, &recv, this_arg, &class);
+    }
     // The check answers its receiver with the receiver's own
     // ownership (`LowerCtx::expr_owned_shape` looks through it).
     Some(recv)
+}
+
+/// RFC 20260917-class-eval-unit K2 — a unit class's private element
+/// belongs to one evaluation: past the tag and cursor checks, the
+/// receiver's hidden evaluation slot must hold the class object the
+/// running instance's does.
+fn lower_unit_check(ctx: &mut LowerCtx<'_>, recv: &Operand, this_arg: ExprId, class: &str) {
+    let Some(Type::Obj(sid)) = ctx.aliases.get(class).copied() else {
+        return;
+    };
+    let Some(idx) = ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .position(|(k, _)| k.lossy() == crate::ast::class_unit::UNIT_SLOT)
+    else {
+        return;
+    };
+    let off = crate::ssa_lower::OBJ_HEADER_SIZE + idx as u64 * 8;
+    let this_op = ctx.lower_expr(this_arg);
+    let mine = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, this_op, off),
+        Type::I64,
+        None,
+    );
+    let theirs = if matches!(ctx.operand_ty(recv), Type::Obj(_)) {
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, recv.clone(), off),
+            Type::I64,
+            None,
+        )
+    } else {
+        let boxed = if matches!(ctx.operand_ty(recv), Type::Any) {
+            recv.clone()
+        } else {
+            ctx.box_to_any(recv.clone())
+        };
+        let f = ctx.intrinsics.priv_unit_word;
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(f, vec![boxed, Operand::ConstI64(off as i64)]),
+            Type::I64,
+            None,
+        )
+    };
+    let same = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(mine), Operand::Value(theirs)),
+        Type::Bool,
+        None,
+    );
+    let fail = ctx.f.add_block();
+    let cont = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(same),
+            then_blk: cont,
+            else_blk: fail,
+        },
+    );
+    ctx.cur_block = fail;
+    let f = ctx.intrinsics.priv_brand_fail;
+    ctx.f.append_void(ctx.cur_block, InstKind::Call(f, vec![]));
+    ctx.emit_throw_check(None);
+    if ctx.cur_open() {
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(cont));
+    }
+    ctx.cur_block = cont;
 }

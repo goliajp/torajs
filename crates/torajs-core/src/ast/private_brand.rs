@@ -203,10 +203,14 @@ pub(super) fn guard_receiver(ast: &mut Ast, i: usize, cname: &str, pos: u32) {
     let callee = ast.add_expr(Expr::Ident(CHECK.into()));
     let class = ast.add_expr(Expr::String(cname.into()));
     let pos = ast.add_expr(Expr::Number(f64::from(pos)));
-    let checked = ast.add_expr(Expr::Call {
-        callee,
-        args: vec![obj, class, pos],
-    });
+    let mut args = vec![obj, class, pos];
+    // A unit class's element belongs to one evaluation: the check also
+    // compares the receiver's with the instance the method runs on
+    // (`ast::class_unit`).
+    if ast.eval_unit_classes.contains(cname) {
+        args.push(ast.add_expr(Expr::Ident("__this".into())));
+    }
+    let checked = ast.add_expr(Expr::Call { callee, args });
     if let Expr::Member { obj, .. } = &mut ast.exprs[i] {
         *obj = checked;
     }
