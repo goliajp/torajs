@@ -126,6 +126,10 @@ pub(crate) fn lower(
     }
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
+    // A try body is a block (§14.15): a closure in it that names a
+    // binding declared later in it needs that binding's box up first,
+    // exactly as `ssa_lower_stmt_block::lower` does for a bare block.
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, body.iter());
     for s in body {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {
@@ -326,6 +330,7 @@ fn lower_catch(
             teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     }
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, catch_body.iter());
     for s in catch_body {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {

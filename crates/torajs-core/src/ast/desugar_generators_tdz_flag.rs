@@ -20,7 +20,7 @@ pub(super) fn flag_closure_reads(ast: &mut Ast, body: &mut Vec<Stmt>) {
 
 /// One occurrence of the binding's name inside a closure written
 /// before its declaration.
-enum Site {
+pub(super) enum Site {
     Read(ExprId),
     Write {
         assign: ExprId,
@@ -66,9 +66,9 @@ fn flag_list(
             None => Vec::new(),
         };
         for s in &stmts[..j] {
-            collect_sites_stmt(ast, s, &name, false, &mut sites);
+            collect_sites_stmt(ast, s, &name, false, true, &mut sites);
         }
-        collect_sites_expr(ast, init, &name, false, &mut sites);
+        collect_sites_expr(ast, init, &name, false, true, &mut sites);
         if sites.is_empty() {
             continue;
         }
@@ -125,7 +125,7 @@ fn flag_list(
                 .map(|name| {
                     let mut sites = Vec::new();
                     for s in &stmts[..j] {
-                        collect_sites_stmt(ast, s, &name, false, &mut sites);
+                        collect_sites_stmt(ast, s, &name, false, true, &mut sites);
                     }
                     (name, sites)
                 })
@@ -231,25 +231,42 @@ fn closure_shadows(params: &[Param], body: &[Stmt], name: &str) -> bool {
     bound.contains(name)
 }
 
-fn collect_sites_stmt(ast: &Ast, s: &Stmt, name: &str, inside: bool, out: &mut Vec<Site>) {
+/// `outer_fn_decls` — whether a `function` declaration standing in the
+/// scanned list itself (not inside a closure) is entered. The machine
+/// pass enters it; `closure_tdz_flag` does not (see its module doc).
+pub(super) fn collect_sites_stmt(
+    ast: &Ast,
+    s: &Stmt,
+    name: &str,
+    inside: bool,
+    outer_fn_decls: bool,
+    out: &mut Vec<Site>,
+) {
     if let Stmt::FnDecl { params, body, .. } = s {
-        if closure_shadows(params, body, name) {
+        if (!inside && !outer_fn_decls) || closure_shadows(params, body, name) {
             return;
         }
         for b in body {
-            collect_sites_stmt(ast, b, name, true, out);
+            collect_sites_stmt(ast, b, name, true, outer_fn_decls, out);
         }
         return;
     }
     for root in stmt_exprs(s) {
-        collect_sites_expr(ast, root, name, inside, out);
+        collect_sites_expr(ast, root, name, inside, outer_fn_decls, out);
     }
     for c in stmt_children_ref(s) {
-        collect_sites_stmt(ast, c, name, inside, out);
+        collect_sites_stmt(ast, c, name, inside, outer_fn_decls, out);
     }
 }
 
-fn collect_sites_expr(ast: &Ast, eid: ExprId, name: &str, inside: bool, out: &mut Vec<Site>) {
+pub(super) fn collect_sites_expr(
+    ast: &Ast,
+    eid: ExprId,
+    name: &str,
+    inside: bool,
+    outer_fn_decls: bool,
+    out: &mut Vec<Site>,
+) {
     match ast.get_expr(eid) {
         Expr::Ident(n) => {
             if inside && n == name {
@@ -261,7 +278,7 @@ fn collect_sites_expr(ast: &Ast, eid: ExprId, name: &str, inside: bool, out: &mu
                 return;
             }
             for b in body {
-                collect_sites_stmt(ast, b, name, true, out);
+                collect_sites_stmt(ast, b, name, true, outer_fn_decls, out);
             }
         }
         Expr::Assign { target, value } => {
@@ -271,9 +288,9 @@ fn collect_sites_expr(ast: &Ast, eid: ExprId, name: &str, inside: bool, out: &mu
                     value: *value,
                 });
             } else {
-                collect_sites_expr(ast, *target, name, inside, out);
+                collect_sites_expr(ast, *target, name, inside, outer_fn_decls, out);
             }
-            collect_sites_expr(ast, *value, name, inside, out);
+            collect_sites_expr(ast, *value, name, inside, outer_fn_decls, out);
         }
         Expr::PostIncr {
             target,
@@ -287,12 +304,12 @@ fn collect_sites_expr(ast: &Ast, eid: ExprId, name: &str, inside: bool, out: &mu
                     is_prefix: *is_prefix,
                 });
             } else {
-                collect_sites_expr(ast, *target, name, inside, out);
+                collect_sites_expr(ast, *target, name, inside, outer_fn_decls, out);
             }
         }
         _ => {
             for c in expr_children(ast, eid) {
-                collect_sites_expr(ast, c, name, inside, out);
+                collect_sites_expr(ast, c, name, inside, outer_fn_decls, out);
             }
         }
     }
@@ -312,7 +329,7 @@ fn guard(ast: &mut Ast, name: &str, flag: &str) -> ExprId {
     })
 }
 
-fn rewrite_site(ast: &mut Ast, site: Site, name: &str, flag: &str) {
+pub(super) fn rewrite_site(ast: &mut Ast, site: Site, name: &str, flag: &str) {
     match site {
         Site::Read(eid) => {
             let left = guard(ast, name, flag);

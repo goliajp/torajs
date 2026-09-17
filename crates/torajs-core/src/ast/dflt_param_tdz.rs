@@ -100,7 +100,7 @@ fn rewrite_to_throw_iife(ast: &mut Ast, eid: ExprId, name: &str) {
 /// dead zone (`desugar_generators_tdz`, RFC 20260915 item 2).
 pub(super) fn tdz_throw_iife(ast: &mut Ast, name: &str, before: Option<ExprId>) -> Expr {
     let msg = ast.add_expr(Expr::String(
-        format!("Cannot access '{name}' before initialization").into(),
+        format!("Cannot access '{name}' before initialization.").into(),
     ));
     let factory = ast.add_expr(Expr::Ident("__new_ReferenceError".to_string()));
     let err = ast.add_expr(Expr::Call {

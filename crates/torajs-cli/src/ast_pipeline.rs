@@ -276,6 +276,11 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::hoist_gen_fn_exprs(ast);
     ast::desugar_generators(ast);
     ast::desugar_async(ast);
+    // §8.1.1.1 — a closure that may run before the `let` / `const` it
+    // reads has been initialised gets the machine bodies' runtime flag,
+    // in every ordinary list. After the machines, whose own bodies
+    // `desugar_generators_tdz` has already settled.
+    ast::flag_closure_tdz(ast);
     ast::desugar_builtin_imports(ast);
     ast::desugar_builtin_new(ast);
     ast::desugar_regex_syntax_error(ast);

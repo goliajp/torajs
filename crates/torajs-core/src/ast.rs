@@ -56,6 +56,7 @@ mod clone_body;
 mod clone_body_tables;
 mod closure_capture_anns;
 mod closure_capture_anns_outer;
+mod closure_tdz_flag;
 mod const_write_throw;
 mod control_flow;
 mod dedupe_fn_decls;
@@ -296,6 +297,7 @@ pub use class_globals::{
 pub(crate) use clone_body::clone_toplevel_stmt;
 pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
 pub(crate) use closure_capture_anns_outer::collect_outer_binds;
+pub use closure_tdz_flag::flag_closure_tdz;
 pub use const_write_throw::rewrite_const_writes_in_functions;
 pub(crate) use control_flow::body_always_terminates;
 pub use dedupe_fn_decls::dedupe_fn_decls;

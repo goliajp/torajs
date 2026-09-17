@@ -114,6 +114,10 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
     let referenced = |n: &str| -> bool {
         ast.exprs.iter().any(|e| {
             matches!(e, Expr::Ident(x) | Expr::New { class_name: x, .. } if x == n)
+            // A raise a desugar synthesized (`dflt_param_tdz::
+            // tdz_throw_iife`) calls the factory by its own name, which
+            // names the class as surely as the program writing it would.
+                || matches!(e, Expr::Ident(x) if x.strip_prefix("__new_") == Some(n))
                 || matches!(e, Expr::Member { name, .. } if name == n)
             // P7.4-a-2 — `x instanceof <N>` is a genuine reference to
             // <N> (without it `catch (e) { e instanceof TypeError }`

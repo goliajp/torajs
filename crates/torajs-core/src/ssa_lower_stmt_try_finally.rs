@@ -30,6 +30,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
     ctx.shadow_stack.push(Vec::new());
 
     let (saved_active_slot, saved_tag_slot, saved_value_slot) = emit_o5_suspend(ctx);
+    crate::ssa_lower_stmt_let_decl_recursive::hoist_forward_boxes(ctx, fbody.iter());
     for s in fbody {
         ctx.lower_stmt(s);
         if !ctx.cur_open() {

@@ -78,7 +78,7 @@ impl Parser<'_> {
     /// for every program).
     fn tdz_reference_error(&mut self, name: &str) -> ExprId {
         let msg = self.ast.add_expr(Expr::String(
-            format!("Cannot access '{name}' before initialization").into(),
+            format!("Cannot access '{name}' before initialization.").into(),
         ));
         let factory = self
             .ast
