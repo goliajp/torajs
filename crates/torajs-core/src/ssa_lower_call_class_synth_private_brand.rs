@@ -201,52 +201,63 @@ fn lower_check(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
     Some(recv)
 }
 
+/// Byte offset of `class`'s hidden evaluation slot (`__priv__unit`,
+/// RFC 20260917-class-eval-unit K1) — `None` unless `class` is a unit
+/// class with a known layout.
+pub(crate) fn unit_slot_off(ctx: &LowerCtx<'_>, class: &str) -> Option<u64> {
+    let Type::Obj(sid) = ctx.aliases.get(class).copied()? else {
+        return None;
+    };
+    let idx = ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .position(|(k, _)| k.lossy() == crate::ast::class_unit::UNIT_SLOT)?;
+    Some(crate::ssa_lower::OBJ_HEADER_SIZE + idx as u64 * 8)
+}
+
+/// The word at `off` of `recv`'s instance cell: an inline load for a
+/// typed instance, the `__torajs_priv_unit_word` kernel for anything
+/// else. The caller has established `recv` is an instance of the class
+/// whose layout puts the slot at `off` (the kernel answers 0 for a
+/// value that is no instance cell at all).
+pub(crate) fn unit_word(ctx: &mut LowerCtx<'_>, recv: &Operand, off: u64) -> Operand {
+    if matches!(ctx.operand_ty(recv), Type::Obj(_)) {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, recv.clone(), off),
+            Type::I64,
+            None,
+        );
+        return Operand::Value(v);
+    }
+    let boxed = if matches!(ctx.operand_ty(recv), Type::Any) {
+        recv.clone()
+    } else {
+        ctx.box_to_any(recv.clone())
+    };
+    let f = ctx.intrinsics.priv_unit_word;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(f, vec![boxed, Operand::ConstI64(off as i64)]),
+        Type::I64,
+        None,
+    );
+    Operand::Value(v)
+}
+
 /// RFC 20260917-class-eval-unit K2 — a unit class's private element
 /// belongs to one evaluation: past the tag and cursor checks, the
 /// receiver's hidden evaluation slot must hold the class object the
 /// running instance's does.
 fn lower_unit_check(ctx: &mut LowerCtx<'_>, recv: &Operand, this_arg: ExprId, class: &str) {
-    let Some(Type::Obj(sid)) = ctx.aliases.get(class).copied() else {
+    let Some(off) = unit_slot_off(ctx, class) else {
         return;
     };
-    let Some(idx) = ctx.struct_layouts[sid.0 as usize]
-        .iter()
-        .position(|(k, _)| k.lossy() == crate::ast::class_unit::UNIT_SLOT)
-    else {
-        return;
-    };
-    let off = crate::ssa_lower::OBJ_HEADER_SIZE + idx as u64 * 8;
     let this_op = ctx.lower_expr(this_arg);
-    let mine = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, this_op, off),
-        Type::I64,
-        None,
-    );
-    let theirs = if matches!(ctx.operand_ty(recv), Type::Obj(_)) {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, recv.clone(), off),
-            Type::I64,
-            None,
-        )
-    } else {
-        let boxed = if matches!(ctx.operand_ty(recv), Type::Any) {
-            recv.clone()
-        } else {
-            ctx.box_to_any(recv.clone())
-        };
-        let f = ctx.intrinsics.priv_unit_word;
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(f, vec![boxed, Operand::ConstI64(off as i64)]),
-            Type::I64,
-            None,
-        )
-    };
+    let mine = unit_word(ctx, &this_op, off);
+    let theirs = unit_word(ctx, recv, off);
     let same = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, Operand::Value(mine), Operand::Value(theirs)),
+        InstKind::ICmp(IPred::Eq, mine, theirs),
         Type::Bool,
         None,
     );
