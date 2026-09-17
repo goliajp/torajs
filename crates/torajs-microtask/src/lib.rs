@@ -180,6 +180,43 @@ pub unsafe extern "C" fn __torajs_microtask_run_until_idle() {
     MT_LEN.store(0, Ordering::Relaxed);
 }
 
+/// The drain of the one job kind that lives outside this queue —
+/// FinalizationRegistry cleanup (§9.13 HostEnqueueFinalization-
+/// RegistryCleanupJob). Installed by the first registry, so a program
+/// without one pays a single load at exit and links nothing of it.
+/// The hook answers 1 when it ran a job, 0 when there was none, and
+/// -1 when a job threw (the pending throw is the caller's).
+static HOST_JOB_DRAIN: AtomicPtr<c_void> = AtomicPtr::new(ptr::null_mut());
+
+/// Install the host-job drain (idempotent).
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_host_job_drain_install(drain: unsafe extern "C" fn() -> i32) {
+    HOST_JOB_DRAIN.store(drain as *mut c_void, Ordering::Relaxed);
+}
+
+/// The program's exit checkpoint: drain microtasks, then one host job,
+/// and again until both are empty — a cleanup callback may queue
+/// microtasks or kill further targets. Stops at a job that threw.
+///
+/// # Safety
+/// Same as [`__torajs_microtask_run_until_idle`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_host_jobs_run_until_idle() {
+    loop {
+        unsafe { __torajs_microtask_run_until_idle() };
+        let hook = HOST_JOB_DRAIN.load(Ordering::Relaxed);
+        if hook.is_null() {
+            return;
+        }
+        // SAFETY: only `__torajs_host_job_drain_install` stores here.
+        let drain =
+            unsafe { core::mem::transmute::<*mut c_void, unsafe extern "C" fn() -> i32>(hook) };
+        if unsafe { drain() } != 1 {
+            return;
+        }
+    }
+}
+
 /// `mt_len - mt_head` — number of pending microtasks. Returns
 /// `usize` to match the C `size_t` signature.
 #[unsafe(no_mangle)]

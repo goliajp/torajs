@@ -1,0 +1,10 @@
+unregister true
+sync end
+microtask
+cleanup a
+cleanup {
+  label: "b",
+}
+cleanup registered by a callback
+microtask from a callback
+lonely 42

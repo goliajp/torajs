@@ -1,8 +1,8 @@
 // §26.2.3.2 register / §26.2.3.3 unregister — argument validation,
 // return values, and the token bookkeeping that needs no collection.
-const fr = new FinalizationRegistry((h: any) => {
-  console.log("cleanup", h);
-});
+// The callback stays silent: tr collects the temporaries below at
+// once and runs it at exit, bun (without a forced gc) never does.
+const fr = new FinalizationRegistry((h: any) => {});
 const o = {};
 const probes: Array<() => unknown> = [
   () => fr.register(1 as any, 1),

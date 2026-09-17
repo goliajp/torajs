@@ -117,6 +117,7 @@ pub(super) fn resolve_generic(
             | "WeakMap"
             | "WeakSet"
             | "WeakRef"
+            | "FinalizationRegistry"
             | "ReadonlyMap"
             | "ReadonlySet"
             | "MapIter"
@@ -142,6 +143,8 @@ pub(super) fn resolve_generic(
             // siblings (deref() answers Any; the target
             // type is validated above, then dropped).
             "WeakRef" => Type::WeakRef,
+            // Held-value type validated above; the cell is any-lane.
+            "FinalizationRegistry" => Type::Any,
             "MapIter" | "mapiter" => Type::MapIter,
             "ArrIter" | "arriter" => Type::ArrIter,
             _ => unreachable!(),

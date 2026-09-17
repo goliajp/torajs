@@ -62,6 +62,9 @@ pub(crate) struct RuntimeMiscIds {
     pub process_stdout_write: FuncId,
     pub process_stderr_write: FuncId,
     pub microtask_drain: FuncId,
+    /// Exit checkpoint: microtasks, then host jobs (FinalizationRegistry
+    /// cleanup), until both are empty.
+    pub host_jobs_drain: FuncId,
     /// RFC 20260804-fnprops-canonical-cell — binds a fn ptr's props
     /// storage to its canonical forward cell at the cell's lazy mint
     /// (bag migrates; both spellings share one slot after).
@@ -201,6 +204,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_microtask_run_until_idle",
+            &[],
+            Type::Void,
+        ),
+        host_jobs_drain: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_host_jobs_run_until_idle",
             &[],
             Type::Void,
         ),

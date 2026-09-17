@@ -170,7 +170,11 @@ pub(super) fn parse_generic(
     }
     // P5.1 — `Iterator<T>` / `IterableIterator<T>` opaque at SSA
     // (Any-tier slot; P5.3 Phase B dispatches via class runtime).
-    if matches!(head, "Iterator" | "IterableIterator") {
+    // `FinalizationRegistry<T>` erases to the any lane its cell lives on.
+    if matches!(
+        head,
+        "Iterator" | "IterableIterator" | "FinalizationRegistry"
+    ) {
         return Some(Type::Any);
     }
     // `Map<K,V>` / `Set<T>` / `WeakMap<K,V>` / `WeakSet<T>` — K/V

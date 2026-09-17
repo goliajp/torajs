@@ -22,6 +22,11 @@ unsafe extern "C" {
     /// torajs-weak — CanBeHeldWeakly (§9.13): the cell, or NULL.
     fn __torajs_weak_key_from_any(av: u64) -> *mut c_void;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
+    fn __torajs_finreg_queue_pop() -> *mut c_void;
+    fn __torajs_finreg_take_pending(fr: *mut c_void, out: *mut u64) -> i32;
+    fn __torajs_host_job_drain_install(drain: unsafe extern "C" fn() -> i32);
+    fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
 /// §26.2.1.1 steps 2–5 — IsCallable(cleanupCallback), then an owned
@@ -39,7 +44,37 @@ pub unsafe extern "C" fn __torajs_finreg_new(cleanup: AnyValue) -> AnyValue {
         };
         return VALUE_UNDEFINED;
     }
+    unsafe { __torajs_host_job_drain_install(drain_one) };
     box_void_ptr(unsafe { __torajs_finreg_create(cleanup) })
+}
+
+/// §9.13 CleanupFinalizationRegistry for the registry at the head of
+/// the cleanup queue: each pending cell's held value goes to the
+/// callback, `this` undefined. A throw ends the job (the remaining
+/// cells stay pending) and is left for the exit checkpoint to report.
+unsafe extern "C" fn drain_one() -> i32 {
+    unsafe {
+        let fr = __torajs_finreg_queue_pop();
+        if fr.is_null() {
+            return 0;
+        }
+        // `FinReg::cleanup` (torajs-weak layout, +8). The queue's
+        // reference keeps the registry and its callback alive.
+        let cleanup = *(fr as *const u64).add(1);
+        let mut held = 0u64;
+        let mut outcome = 1;
+        while __torajs_finreg_take_pending(fr, &mut held) != 0 {
+            let r = crate::method_call_closure_dispatch::__torajs_any_call(cleanup, &held, 1);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(r);
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(held);
+            if __torajs_throw_check() != 0 {
+                outcome = -1;
+                break;
+            }
+        }
+        __torajs_value_drop_heap(fr);
+        outcome
+    }
 }
 
 /// Dispatch a method id on a `Tag::FinalizationRegistry` cell. The

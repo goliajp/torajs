@@ -643,6 +643,7 @@ pub(crate) fn build(
         obj_check_not_frozen: init_c.print_freeze.obj_check_not_frozen,
         obj_check_field_writable: init_c.print_freeze.obj_check_field_writable,
         microtask_drain: init_c.runtime_misc.microtask_drain,
+        host_jobs_drain: init_c.runtime_misc.host_jobs_drain,
         microtask_enqueue_closure: init_d.promise.microtask_enqueue_closure,
         microtask_enqueue_simple: init_d.promise.microtask_enqueue_simple,
         promise_alloc_fulfilled: init_d.promise.promise_alloc_fulfilled,

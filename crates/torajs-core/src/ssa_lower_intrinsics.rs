@@ -770,6 +770,7 @@ pub(crate) struct Intrinsics {
     /// main exit so chained Promise callbacks run before the
     /// process returns.
     pub(crate) microtask_drain: FuncId,
+    pub(crate) host_jobs_drain: FuncId,
     /// P10.1-A1 — queueMicrotask(cb) closure-path enqueue. Takes
     /// the closure env pointer; runtime rc-inc's + dispatches at
     /// the next drain. cb's ABI is `(env*) -> void` (mirrors

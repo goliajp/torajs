@@ -178,11 +178,14 @@ pub(crate) fn synthesize_main(
             // `.then` callback runs user code, which must observe the
             // top-level locals, globals and class registry alive.
             // (Draining after the drops ran callbacks against a
-            // partially-torn-down world — rotation 348.)
+            // partially-torn-down world — rotation 348.) The same
+            // checkpoint runs FinalizationRegistry cleanup jobs, whose
+            // throw is uncaught like any top-level one.
             ctx.f.append_void(
                 ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.microtask_drain, vec![]),
+                InstKind::Call(ctx.intrinsics.host_jobs_drain, vec![]),
             );
+            ctx.emit_throw_check(None);
             // P10.5-A3-b — sweep unhandled rejections + capture the
             // exit code while the heap is still fully alive. The
             // reporter resolves a rejected reason's `name` through
