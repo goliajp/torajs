@@ -12,7 +12,11 @@ use crate::str_wtf8::StrWtf8;
 /// `true` iff the live key spells exactly [`PROTO_SLOT_KEY`] (the
 /// [[Prototype]]-slot simulation key hidden from own-keys walks).
 pub(crate) unsafe fn key_is_proto_slot(key: *const c_void) -> bool {
-    unsafe { StrWtf8::of(key) }.as_bytes() == PROTO_SLOT_KEY
+    let s = unsafe { StrWtf8::of(key) };
+    let bytes = s.as_bytes();
+    // A unit-class object's tag record is the same kind of internal
+    // slot (`classmeta::unit::UNIT_RECORD_KEY`).
+    bytes == PROTO_SLOT_KEY || bytes == crate::classmeta::UNIT_RECORD_KEY
 }
 
 /// Equality of a live key's spelling against a fixed name.

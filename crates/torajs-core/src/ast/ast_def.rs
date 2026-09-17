@@ -269,6 +269,9 @@ pub struct Ast {
     /// `compute_full_fields` resolves members of this set in a
     /// second, dependency-ordered pass instead.
     pub class_expr_deferred: std::collections::HashSet<String>,
+    /// RFC 20260917-class-eval-unit K1 — hoisted classes whose every
+    /// evaluation mints its own class object (`ast::class_unit`).
+    pub eval_unit_classes: std::collections::HashSet<String>,
     /// Recorded by `desugar_classes` so post-desugar passes (check, ssa_lower)
     /// can resolve `instanceof Parent` on a subclass instance: maps each
     /// declared class name to its parent (None if no `extends`). Empty

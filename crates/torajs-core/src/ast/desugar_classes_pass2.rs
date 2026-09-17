@@ -113,13 +113,23 @@ pub(super) fn rewrite_expr_arena_pass2(
                     continue;
                 }
                 let factory = format!("__new_{class_name}");
-                let args = args.clone();
+                let mut args = args.clone();
+                let unit_name = ast
+                    .eval_unit_classes
+                    .contains(class_name)
+                    .then(|| class_name.clone());
                 // `new Box<number>()` states what `T` is. A call has
                 // nowhere to carry that, so it goes into the side
                 // table generic inference reads — otherwise a class
                 // whose type parameter appears only in its field
                 // types has nothing to infer from.
                 let type_args = type_args.clone();
+                // A unit class's factory takes the evaluation first: the
+                // binding the declaration left in scope (`ast::class_unit`).
+                if let Some(unit_name) = unit_name {
+                    let unit = ast.add_expr(Expr::Ident(unit_name));
+                    args.insert(0, unit);
+                }
                 let callee = ast.add_expr(Expr::Ident(factory));
                 ast.exprs[i] = Expr::Call { callee, args };
                 if !type_args.is_empty() {

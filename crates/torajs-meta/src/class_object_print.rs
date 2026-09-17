@@ -79,7 +79,11 @@ unsafe fn tag_of_class_object(cell: *const c_void) -> Option<i64> {
             return Some(tag);
         }
     }
-    None
+    // One evaluation of a unit class (RFC 20260917-class-eval-unit K1).
+    match unsafe { crate::classmeta::unit::__torajs_class_unit_tag_of(cell) } {
+        -1 => None,
+        tag => Some(tag),
+    }
 }
 
 /// The definition name recorded for `tag`, or `None` when the row

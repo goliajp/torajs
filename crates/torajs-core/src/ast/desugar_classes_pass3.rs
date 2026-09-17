@@ -169,8 +169,19 @@ pub(super) fn rewrite_classdecls_pass3(
         // Constructor → C__ctor(__this: C, params...): void { body }
         // — see `emit_ctor_fn` doc (default-ctor synthesis +
         // `__new_target` threading).
-        let ctor_params_for_factory =
+        let mut ctor_params_for_factory =
             emit_ctor_fn(ast, cname, type_params, &this_ann, ctor, appended);
+        if ast.eval_unit_classes.contains(cname) {
+            ctor_params_for_factory.insert(
+                0,
+                Param {
+                    name: super::class_unit::UNIT_PARAM.into(),
+                    type_ann: Some("any".into()),
+                    default: None,
+                    is_rest: false,
+                },
+            );
+        }
 
         // 405-01 face 2 — the receiver-polymorphic ctor twin, minted
         // when a capturing subclass `extends` this real class (the

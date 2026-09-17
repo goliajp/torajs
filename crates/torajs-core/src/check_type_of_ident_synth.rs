@@ -308,6 +308,11 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             Box::new(Type::Void),
         )),
         "__torajs_my_class_ref" => Ok(Type::Function(vec![Type::String], Box::new(Type::Any))),
+        // RFC 20260917-class-eval-unit K1 — `(class, proto, "C")`.
+        "__torajs_class_unit_wire" => Ok(Type::Function(
+            vec![Type::Any, Type::Any, Type::String],
+            Box::new(Type::Void),
+        )),
         // RFC 20260713 blade 5 cut 4 — generator-proto →
         // %GeneratorPrototype% chain writer (class_globals emits it
         // at module init; lowered in the class-synth lane).

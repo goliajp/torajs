@@ -89,12 +89,18 @@ pub(crate) fn build_factory_body(
         // path.
         let callee = ast.add_expr(Expr::Ident(format!("__cm_{cname}__ctor")));
         let this_id = ast.add_expr(Expr::Ident("__this".into()));
-        let class_ref_callee = ast.add_expr(Expr::Ident("__torajs_my_class_ref".to_string()));
-        let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
-        let new_target_id = ast.add_expr(Expr::Call {
-            callee: class_ref_callee,
-            args: vec![cname_str],
-        });
+        // A unit class's `new.target` is the evaluation the factory was
+        // called with, not the registered template (`ast::class_unit`).
+        let new_target_id = if ast.eval_unit_classes.contains(cname) {
+            ast.add_expr(Expr::Ident(super::class_unit::UNIT_PARAM.into()))
+        } else {
+            let class_ref_callee = ast.add_expr(Expr::Ident("__torajs_my_class_ref".to_string()));
+            let cname_str = ast.add_expr(Expr::String(cname.to_string().into()));
+            ast.add_expr(Expr::Call {
+                callee: class_ref_callee,
+                args: vec![cname_str],
+            })
+        };
         let mut args: Vec<ExprId> = Vec::with_capacity(c.params.len() + 2);
         args.push(this_id);
         args.push(new_target_id);

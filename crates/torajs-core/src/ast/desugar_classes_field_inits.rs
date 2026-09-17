@@ -68,6 +68,15 @@ pub(super) fn compute_class_field_default_inits(
         let mut init_pairs: Vec<(PropKey, ExprId)> = Vec::with_capacity(combined.len());
         let mut prelude: Vec<Stmt> = Vec::new();
         for (fname, fty) in &combined {
+            // A unit class's hidden slot starts as the evaluation the
+            // factory was called with (`ast::class_unit`).
+            if fname.lossy() == super::class_unit::UNIT_SLOT
+                && ast.eval_unit_classes.contains(cname)
+            {
+                let id = ast.add_expr(Expr::Ident(super::class_unit::UNIT_PARAM.into()));
+                init_pairs.push((fname.clone(), id));
+                continue;
+            }
             let id = super::default_init_for_field(
                 ast,
                 fty,

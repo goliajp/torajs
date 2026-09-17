@@ -28,6 +28,9 @@ pub(crate) struct PrivateIds {
     pub priv_cursor: FuncId,
     /// The brand-check TypeError.
     pub priv_brand_fail: FuncId,
+    /// RFC 20260917-class-eval-unit K1 — wires one evaluation of a
+    /// unit class (the identity private brands will compare).
+    pub class_unit_wire: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrivateIds {
@@ -83,6 +86,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_priv_brand_fail",
             &[],
+            Type::Void,
+        ),
+        class_unit_wire: declare_intrinsic(
+            module,
+            fn_table,
+            crate::ast::class_unit::UNIT_WIRE,
+            &[Type::Any, Type::Any, Type::I64, Type::I64],
             Type::Void,
         ),
     }

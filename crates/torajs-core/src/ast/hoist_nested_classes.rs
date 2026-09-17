@@ -32,6 +32,7 @@
 //!   be renamed with it).
 
 use super::hoist_nested_classes_admit::{class_evaluation_is_observable, class_is_capture_free};
+use super::hoist_nested_classes_walk::walk_child;
 use super::*;
 
 pub(super) fn hoist_nested_classes(ast: &mut Ast) {
@@ -97,6 +98,7 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
             &mut hoisted,
             &mut counter,
             &name_counts,
+            false,
         );
     }
     ast.stmts = stmts;
@@ -123,6 +125,7 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
             &mut hoisted,
             &mut counter,
             &name_counts,
+            true,
         );
         if let Expr::ArrowFn { body: b, .. } = &mut ast.exprs[i] {
             *b = body;
@@ -150,13 +153,14 @@ fn collect_decl_name(s: &Stmt, out: &mut Vec<String>) {
 /// ClassDecls first (top-down — a hoisted outer class becomes a
 /// top-level name that unlocks an inner `extends` of it), then
 /// recurse into each statement's child containers.
-fn walk_container(
+pub(super) fn walk_container(
     ast: &mut Ast,
     stmts: &mut Vec<Stmt>,
     top_names: &mut Vec<String>,
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
     name_counts: &std::collections::HashMap<String, u32>,
+    multi_eval: bool,
 ) {
     // A `Multi` holding a ClassDecl is the parse_stmt wrapper's
     // use-site splice of a class EXPRESSION (393-01). Flatten it into
@@ -228,11 +232,16 @@ fn walk_container(
             Stmt::ClassDecl { name, .. } => name.clone(),
             _ => unreachable!(),
         };
+        // RFC 20260917-class-eval-unit K1 — a unit-class candidate whose
+        // name another class shares takes the collision rename, so the
+        // reference census below counts this class's references only.
+        let unit_shape = multi_eval && super::class_unit::admits_shape(ast, &stmts[idx]);
         // Collision domain: everything visible at top level once the
         // hoist lands. Sibling entries pushed above shadow the check
         // for the class's own occurrence, so count duplicates.
         let collides = top_names.iter().filter(|n| **n == old_name).count() > 1
-            || top_names[..sibling_start].contains(&old_name);
+            || top_names[..sibling_start].contains(&old_name)
+            || (unit_shape && name_counts.get(&old_name).copied().unwrap_or(0) > 1);
         let mut residual: Option<String> = None;
         if collides {
             let new_name = format!("__hc{}_{}", *counter, old_name);
@@ -291,6 +300,17 @@ fn walk_container(
         // does not touch). A class that did NOT collide keeps the
         // top-level binding `class_globals` mints for it, which is
         // the same widening its hoist already records.
+        let binding = residual
+            .clone()
+            .unwrap_or_else(|| top_names.last().cloned().unwrap_or_default());
+        if unit_shape && super::class_unit::refs_stay_local(ast, stmts, idx, &binding) {
+            let mut cls = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
+            let (slot, unit_fn) = super::class_unit::make_unit(ast, &mut cls, &binding);
+            stmts[idx] = slot;
+            hoisted.push(cls);
+            hoisted.push(unit_fn);
+            continue;
+        }
         let slot = match residual {
             Some(name) => {
                 let init = ast.add_expr(Expr::Ident(format!("__class_{name}")));
@@ -309,94 +329,6 @@ fn walk_container(
     }
 
     for s in stmts.iter_mut() {
-        walk_child(ast, s, top_names, hoisted, counter, name_counts);
-    }
-}
-
-/// Recurse into every child statement container of one statement.
-/// `Box<Stmt>` positions (if/while bodies) recurse through here too;
-/// a bare ClassDecl in single-statement position is a spec syntax
-/// error and is left alone (stays loud).
-fn walk_child(
-    ast: &mut Ast,
-    s: &mut Stmt,
-    top_names: &mut Vec<String>,
-    hoisted: &mut Vec<Stmt>,
-    counter: &mut u32,
-    name_counts: &std::collections::HashMap<String, u32>,
-) {
-    match s {
-        Stmt::FnDecl { body, .. } => {
-            walk_container(ast, body, top_names, hoisted, counter, name_counts)
-        }
-        Stmt::Block(v) | Stmt::Multi(v) => {
-            walk_container(ast, v, top_names, hoisted, counter, name_counts)
-        }
-        Stmt::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            walk_child(ast, then_branch, top_names, hoisted, counter, name_counts);
-            if let Some(eb) = else_branch {
-                walk_child(ast, eb, top_names, hoisted, counter, name_counts);
-            }
-        }
-        Stmt::While { body, .. }
-        | Stmt::DoWhile { body, .. }
-        | Stmt::ForOfSplitIter { body, .. }
-        | Stmt::ForOf { body, .. }
-        | Stmt::Labeled { body, .. } => {
-            walk_child(ast, body, top_names, hoisted, counter, name_counts)
-        }
-        Stmt::For { init, body, .. } => {
-            if let Some(i) = init {
-                walk_child(ast, i, top_names, hoisted, counter, name_counts);
-            }
-            walk_child(ast, body, top_names, hoisted, counter, name_counts);
-        }
-        Stmt::Switch { cases, default, .. } => {
-            for c in cases {
-                walk_container(ast, &mut c.body, top_names, hoisted, counter, name_counts);
-            }
-            if let Some(d) = default {
-                walk_container(ast, d, top_names, hoisted, counter, name_counts);
-            }
-        }
-        Stmt::Try {
-            body,
-            catch_body,
-            finally_body,
-            ..
-        } => {
-            walk_container(ast, body, top_names, hoisted, counter, name_counts);
-            walk_container(ast, catch_body, top_names, hoisted, counter, name_counts);
-            if let Some(fb) = finally_body {
-                walk_container(ast, fb, top_names, hoisted, counter, name_counts);
-            }
-        }
-        Stmt::ClassDecl {
-            ctor,
-            methods,
-            static_methods,
-            static_init,
-            ..
-        } => {
-            if let Some(c) = ctor {
-                walk_container(ast, &mut c.body, top_names, hoisted, counter, name_counts);
-            }
-            for m in methods.iter_mut().chain(static_methods.iter_mut()) {
-                walk_container(ast, &mut m.body, top_names, hoisted, counter, name_counts);
-            }
-            for si in static_init {
-                if let StaticInit::Block(v) = si {
-                    walk_container(ast, v, top_names, hoisted, counter, name_counts);
-                }
-            }
-        }
-        Stmt::ExportDecl {
-            inner: Some(inner), ..
-        } => walk_child(ast, inner, top_names, hoisted, counter, name_counts),
-        _ => {}
+        walk_child(ast, s, top_names, hoisted, counter, name_counts, multi_eval);
     }
 }

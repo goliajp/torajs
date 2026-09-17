@@ -31,8 +31,14 @@ use super::__torajs_rc_inc;
 #[inline(never)]
 pub unsafe extern "C" fn __torajs_obj_proto_borrowed(cell: *const c_void) -> u64 {
     // SAFETY: a live Tag::Obj cell has its class tag at +8 (u32).
-    let class_tag = unsafe { cell.cast::<u8>().add(8).cast::<u32>().read() };
-    super::proto_anyv_borrowed(i64::from(class_tag))
+    let class_tag = i64::from(unsafe { cell.cast::<u8>().add(8).cast::<u32>().read() });
+    // A unit class's instance names its own evaluation's class object
+    // (RFC 20260917-class-eval-unit K1); the prototype registered under
+    // its tag is only the shared template.
+    match super::unit::unit_slot_off(class_tag) {
+        0 => super::proto_anyv_borrowed(class_tag),
+        off => unsafe { super::unit::unit_instance_proto(cell, off) },
+    }
 }
 
 /// Take a share of a borrowed prototype AnyValue: `VALUE_NULL_IMM` for

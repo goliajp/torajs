@@ -558,6 +558,7 @@ pub(crate) fn build(
         priv_install: init_c.private.priv_install,
         priv_cursor: init_c.private.priv_cursor,
         priv_brand_fail: init_c.private.priv_brand_fail,
+        class_unit_wire: init_c.private.class_unit_wire,
         ctor_ret_value: init_c.ctor_ret.ctor_ret_value,
         ctor_ret_carry: init_c.ctor_ret.ctor_ret_carry,
         new_target_register: init_c.ctor_ret.new_target_register,

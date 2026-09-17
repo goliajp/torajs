@@ -108,6 +108,7 @@ mod combinator_elem;
 mod combinator_spec;
 mod compare;
 mod construct;
+mod construct_unit;
 mod ctor_return;
 mod date_from_value;
 pub mod dispatch_arms;
@@ -508,6 +509,10 @@ mod tests {
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_obj_proto_borrowed(_cell: *const c_void) -> u64 {
         0
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_class_unit_tag_of(_cell: *const c_void) -> i64 {
+        -1
     }
     // chunk B3c-1 — the Object statics the ns-static DISPATCH table
     // delegates to (torajs-meta / torajs-rc in the shipped binary).

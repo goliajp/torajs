@@ -307,6 +307,11 @@ pub(crate) unsafe fn construct_with_nt(
         return unsafe { construct_plain_fn(cell, argv, argc, new_target) };
     }
     let entry = ctor_entry(as_void_ptr(callee) as u64);
+    if entry == 0
+        && let Some(v) = unsafe { crate::construct_unit::construct_unit(callee, argv, argc) }
+    {
+        return v;
+    }
     if entry == 0 {
         // The class is real but its factory has no boxed adapter —
         // an argument or return type outside the boxable set. Say so

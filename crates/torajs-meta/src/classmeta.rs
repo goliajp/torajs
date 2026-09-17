@@ -34,6 +34,8 @@ mod obj_proto;
 pub(crate) use obj_proto::{__torajs_obj_proto_borrowed, share_proto};
 mod reify;
 mod source;
+pub(crate) mod unit;
+pub(crate) use unit::UNIT_RECORD_KEY;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);

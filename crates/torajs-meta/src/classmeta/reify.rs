@@ -54,9 +54,30 @@ pub(super) unsafe fn reify_prototype_methods(tag: i64, proto: *mut c_void) {
         // iteration and every later table read must see the move.
         let mut slot = proto;
         for i in 0..n {
-            define_row(tag, &mut slot, layout, n, i, false);
+            define_row(tag, &mut slot, layout, n, i, false, core::ptr::null_mut());
         }
         PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
+    }
+}
+
+/// The method rows of unit class `tag` onto one evaluation's
+/// prototype, with each face minted once and reused across
+/// evaluations (`unit::unit_faces`). No registry write.
+///
+/// # Safety
+/// `proto` is a live dynobj heap pointer; `tag` is in range.
+pub(super) unsafe fn define_unit_rows(tag: i64, proto: *mut c_void) {
+    unsafe {
+        let layout = __torajs_struct_layout_lookup(tag as u32);
+        if layout.is_null() {
+            return;
+        }
+        let n = __torajs_struct_method_count(layout);
+        let faces = super::unit::unit_faces(tag, n);
+        let mut slot = proto;
+        for i in 0..n {
+            define_row(tag, &mut slot, layout, n, i, false, faces);
+        }
     }
 }
 
@@ -86,7 +107,7 @@ pub(super) unsafe fn redefine_rows_after(tag: i64, after: u32) {
         let n = __torajs_struct_method_count(layout);
         let mut slot = proto as *mut c_void;
         for i in (after + 1)..n {
-            define_row(tag, &mut slot, layout, n, i, true);
+            define_row(tag, &mut slot, layout, n, i, true, core::ptr::null_mut());
         }
         PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
@@ -97,9 +118,13 @@ pub(super) unsafe fn redefine_rows_after(tag: i64, after: u32) {
 /// end of the insertion order (`redefine_rows_after`'s whole job);
 /// the registration walk passes false and appends in table order.
 ///
+/// `faces` is NULL or a unit class's per-row face cache: a plain
+/// method row reuses the face minted by an earlier evaluation.
+///
 /// # Safety
 /// `slot` points at a live prototype dynobj; `layout` is the class's
-/// live layout entry with `n` method rows.
+/// live layout entry with `n` method rows; `faces` is NULL or holds
+/// `n` slots.
 unsafe fn define_row(
     tag: i64,
     slot: &mut *mut c_void,
@@ -107,6 +132,7 @@ unsafe fn define_row(
     n: u32,
     i: u32,
     reinsert: bool,
+    faces: *mut u64,
 ) {
     unsafe {
         {
@@ -186,13 +212,26 @@ unsafe fn define_row(
             } else {
                 (tag as u64, __torajs_struct_method_twin_at(layout, i) as u64)
             };
-            let cell = __torajs_class_method_cell_new(
-                adapter as u64,
-                this_free,
-                cell_tag,
-                twin,
-                core::ptr::null_mut(),
-            );
+            let cached = if faces.is_null() {
+                0
+            } else {
+                *faces.add(i as usize)
+            };
+            let cell = if cached != 0 {
+                cached as *mut u8
+            } else {
+                let fresh = __torajs_class_method_cell_new(
+                    adapter as u64,
+                    this_free,
+                    cell_tag,
+                    twin,
+                    core::ptr::null_mut(),
+                );
+                if !faces.is_null() {
+                    *faces.add(i as usize) = fresh as u64;
+                }
+                fresh
+            };
             let key = alloc_str_key(name);
             if reinsert {
                 __torajs_dynobj_delete(*slot, key.cast::<c_void>());

@@ -53,5 +53,10 @@ pub extern "C" fn __torajs_class_source_for_cell(cell: *const c_void) -> *mut c_
         }
         tag += 1;
     }
-    core::ptr::null_mut()
+    // One evaluation of a unit class shares the template's source.
+    match unsafe { super::unit::__torajs_class_unit_tag_of(cell) } {
+        -1 => core::ptr::null_mut(),
+        // SAFETY: an in-range tag (the record check bounds it).
+        tag => unsafe { CLASS_SOURCE_BY_TAG[tag as usize] as *mut c_void },
+    }
 }

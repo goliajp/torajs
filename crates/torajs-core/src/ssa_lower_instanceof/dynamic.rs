@@ -211,6 +211,13 @@ pub(super) fn has_any_encoding(ty: Type) -> bool {
 ///   resolves, where the empty descendant-tag set used to
 ///   constant-fold `false`.
 fn dynamic_target_name(ctx: &LowerCtx<'_>, class_name: &str) -> Option<String> {
+    // A unit class names the evaluation its declaration left in scope
+    // (`ast::class_unit`): the tag fold would say yes to an instance of
+    // any evaluation, so the operator decides against this one's
+    // prototype.
+    if ctx.ast.eval_unit_classes.contains(class_name) {
+        return Some(class_name.to_string());
+    }
     if ctx.ast.class_parents.contains_key(class_name) {
         // A handler the class body declares is one spelling; a
         // `defineProperty(C, Symbol.hasInstance, …)` is the other, and
