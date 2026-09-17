@@ -141,6 +141,7 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         t if t == Tag::WeakMap as u16 => weakmap_supports(mid),
         t if t == Tag::WeakSet as u16 => weakset_supports(mid),
         t if t == Tag::WeakRef as u16 => weakref_supports(mid),
+        t if t == Tag::FinalizationRegistry as u16 => crate::method_support::finreg_supports(mid),
         t if t == Tag::Closure as u16 => closure_supports(mid),
         // §27.2.5 Promise.prototype — then / catch / finally own
         // methods; the dispatcher has always answered the calls, but

@@ -194,6 +194,7 @@ pub fn any_method_families(mid: i64) -> u16 {
         ANY_METHOD_STR_ITERATOR => FAM_STR | FAM_ITER,
         // ---- weak ----
         m if m == it::ANY_METHOD_DEREF => FAM_WEAK,
+        m if m == it::ANY_METHOD_REGISTER || m == it::ANY_METHOD_UNREGISTER => FAM_WEAK,
         // ---- date (toJSON + every id the date sibling owns) ----
         ANY_METHOD_TO_JSON => FAM_DATE,
         m if d::date_owned_mid(m) => FAM_DATE,

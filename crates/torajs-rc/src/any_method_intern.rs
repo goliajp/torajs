@@ -135,6 +135,8 @@ pub fn any_method_id(name: &str) -> i64 {
         "drop" => crate::any_method_iter::ANY_METHOD_DROP,
         "toArray" => crate::any_method_iter::ANY_METHOD_TO_ARRAY,
         "deref" => crate::any_method_iter::ANY_METHOD_DEREF,
+        "register" => crate::any_method_iter::ANY_METHOD_REGISTER,
+        "unregister" => crate::any_method_iter::ANY_METHOD_UNREGISTER,
         "anchor" => ANY_METHOD_ANCHOR,
         "fontcolor" => ANY_METHOD_FONTCOLOR,
         "fontsize" => ANY_METHOD_FONTSIZE,

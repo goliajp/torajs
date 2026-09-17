@@ -157,6 +157,7 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         16 => weakmap_supports(mid),
         17 => weakset_supports(mid),
         18 => weakref_supports(mid),
+        39 => crate::method_support::finreg_supports(mid),
         // %ArrayBuffer.prototype% (§25.1.6) owns slice + resize. The
         // four accessors are not methods and live in the accessor
         // table, not here (RFC 20260823-typedarray-substrate 刀 4).

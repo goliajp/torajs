@@ -1886,6 +1886,8 @@ mod tests {
         __torajs_dataview_set,
         __torajs_dataview_create,
         __torajs_finreg_create,
+        __torajs_finreg_register,
+        __torajs_finreg_unregister,
         __torajs_typedarray_is_kind,
         __torajs_typedarray_create,
         __torajs_typedarray_tracks_length,

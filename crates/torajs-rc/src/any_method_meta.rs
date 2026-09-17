@@ -272,6 +272,8 @@ fn iter_method_meta(mid: i64) -> Option<(&'static str, u32)> {
         // reflection faces reading this table (`.name` / `.length` /
         // the own-name enumeration) could not see it.
         m if m == it::ANY_METHOD_DEREF => ("deref", 0),
+        m if m == it::ANY_METHOD_REGISTER => ("register", 2),
+        m if m == it::ANY_METHOD_UNREGISTER => ("unregister", 1),
         // §27.1.4.3 / §27.1.4.10 — %Iterator.prototype% drop /
         // toArray (rotation 434: the tag-15 ownership row made the
         // reflection faces reach them; the name-table guard caught

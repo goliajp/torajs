@@ -200,7 +200,7 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 31] = [
+const PREFIX_FAMILIES: [(&str, u16); 32] = [
     // the array toLocaleString kernels walk Invoke(elem,
     // "toLocaleString") over ANY element value — the any-lane walk
     // directly, the typed kernels once the receiver is exotic (an
@@ -245,6 +245,7 @@ const PREFIX_FAMILIES: [(&str, u16); 31] = [
     // program — only the mint/read faces mean the family is used.
     ("__torajs_weakref_create", fam::FAM_WEAK),
     ("__torajs_weakref_deref", fam::FAM_WEAK),
+    ("__torajs_finreg_new", fam::FAM_WEAK),
     // primitive wrapper objects (`new Number(x)`) view-through to
     // their primitive's family arm on method / to-primitive
     // dispatch (BooleanWrapper reads [[BooleanData]] directly and

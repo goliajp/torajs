@@ -281,7 +281,8 @@ pub unsafe fn closure_arm_impl(
     }
 }
 
-/// Weak family arm — WeakMap / WeakSet / WeakRef by tag.
+/// Weak family arm — WeakMap / WeakSet / WeakRef / FinalizationRegistry
+/// by tag.
 ///
 /// # Safety
 /// `recv` boxes a live WeakMap / WeakSet / WeakRef cell.
@@ -298,6 +299,8 @@ pub unsafe fn weak_arm_impl(
     unsafe {
         if tag == Tag::WeakRef as u16 {
             crate::method_call_weak::weakref_method(ptr, mid)
+        } else if tag == Tag::FinalizationRegistry as u16 {
+            crate::finreg::finreg_method(ptr, mid, argv, argc)
         } else {
             crate::method_call_weak::weak_method(ptr, tag == Tag::WeakSet as u16, mid, argv, argc)
         }

@@ -229,6 +229,12 @@ pub(crate) fn weakref_supports(mid: i64) -> bool {
     mid == torajs_rc::any_method_iter::ANY_METHOD_DEREF
 }
 
+/// `finreg::finreg_method` arm ids — §26.2.3's two methods.
+pub(crate) fn finreg_supports(mid: i64) -> bool {
+    use torajs_rc::any_method_iter::{ANY_METHOD_REGISTER, ANY_METHOD_UNREGISTER};
+    mid == ANY_METHOD_REGISTER || mid == ANY_METHOD_UNREGISTER
+}
+
 /// `method_call_closure` arm ids — `Function.prototype`'s surface.
 /// TO_STRING paired with the B4 source-text arm (RFC
 /// 20260719-fn-tostring-source; supported table and dispatcher move

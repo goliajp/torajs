@@ -30,6 +30,12 @@ pub const ANY_METHOD_ITER_SELF: i64 = 174;
 /// through `any` had no arm to land in).
 pub const ANY_METHOD_DEREF: i64 = 175;
 
+/// `register` / `unregister` — §26.2.3.2 / §26.2.3.3, the two methods
+/// of `FinalizationRegistry.prototype` (RFC 20260917 K2b).
+pub const ANY_METHOD_REGISTER: i64 = 231;
+/// See [`ANY_METHOD_REGISTER`].
+pub const ANY_METHOD_UNREGISTER: i64 = 232;
+
 /// `%Iterator.prototype%[Symbol.dispose]` — §27.1.4.1 (Explicit
 /// Resource Management): GetMethod(this, "return"), call it when
 /// present, answer undefined. Own id like [`ANY_METHOD_ITER_SELF`]

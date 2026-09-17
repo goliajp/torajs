@@ -430,7 +430,11 @@ fn seam_arm_for_tag(tag: u16) -> Option<SeamArm> {
         x if x == t(Tag::BigInt) => seam::__torajs_dispatch_bigint_arm,
         x if x == t(Tag::Symbol) => seam::__torajs_dispatch_symbol_arm,
         x if x == t(Tag::Closure) => seam::__torajs_dispatch_closure_arm,
-        x if x == t(Tag::WeakMap) || x == t(Tag::WeakSet) || x == t(Tag::WeakRef) => {
+        x if x == t(Tag::WeakMap)
+            || x == t(Tag::WeakSet)
+            || x == t(Tag::WeakRef)
+            || x == t(Tag::FinalizationRegistry) =>
+        {
             seam::__torajs_dispatch_weak_arm
         }
         _ => return None,
