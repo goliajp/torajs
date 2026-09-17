@@ -34,10 +34,26 @@ unsafe extern "C" {
 /// # Safety
 /// `iter` is `undefined` or a live AnyValue; a throw is pending.
 pub(crate) unsafe fn iter_close_under_pending_throw(iter: AnyValue) {
+    unsafe { with_pending_throw_stashed(|| __torajs_iter_close_value(iter)) }
+}
+
+/// The slot-shaped twin of [`iter_close_under_pending_throw`] — a
+/// consumer that parked its iterator (the collection constructors'
+/// §24.1.1.2 AddEntriesFromIterable step 4.d / 4.i close).
+///
+/// # Safety
+/// Same contract as [`__torajs_any_iter_close`]; a throw is pending.
+pub(crate) unsafe fn any_iter_close_under_pending_throw(recv: AnyValue, slot: *mut AnyValue) {
+    unsafe { with_pending_throw_stashed(|| __torajs_any_iter_close(recv, slot)) }
+}
+
+/// Run `close` with the pending throw taken off, swallow whatever it
+/// raises, and put the original back (§7.4.11 step 5).
+unsafe fn with_pending_throw_stashed(close: impl FnOnce()) {
     unsafe {
         let tag = __torajs_throw_take_tag();
         let val = __torajs_throw_take();
-        __torajs_iter_close_value(iter);
+        close();
         if __torajs_throw_check() != 0 {
             let ctag = __torajs_throw_take_tag();
             let cval = __torajs_throw_take();

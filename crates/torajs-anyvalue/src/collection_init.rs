@@ -333,7 +333,7 @@ pub unsafe extern "C" fn __torajs_collection_init_from_iterable(
             if __torajs_throw_check() != 0 {
                 // §7.4.11 — an abrupt add (or a malformed entry)
                 // closes the iterator before propagating.
-                crate::iter_any_close::__torajs_any_iter_close(iterable, &mut iter_slot);
+                crate::iter_any_close::any_iter_close_under_pending_throw(iterable, &mut iter_slot);
                 break;
             }
         }
