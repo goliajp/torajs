@@ -51,7 +51,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
         !matches!(ctx.operand_ty(op), Type::FnSig(_)) || handler_forwarder(ctx, aid).is_some()
     });
     if !boxable || ctx.ast.synth_promise_static_calls.contains(&src_id) {
-        return ctx.lower_chain_fast(m_name, src_op, arg_ops);
+        return ctx.lower_chain_fast(m_name, src_op, args, arg_ops);
     }
     let patched_blk = ctx.f.add_block();
     let fast_blk = ctx.f.add_block();
@@ -87,7 +87,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     };
 
     ctx.cur_block = fast_blk;
-    let fast_val = ctx.lower_chain_fast(m_name, src_op.clone(), arg_ops);
+    let fast_val = ctx.lower_chain_fast(m_name, src_op.clone(), args, arg_ops);
     let fast_end = ctx.cur_block;
     ctx.f.append_void(
         fast_end,

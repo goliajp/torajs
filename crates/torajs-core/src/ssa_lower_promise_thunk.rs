@@ -228,31 +228,31 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// that boundary in the wrong register bank. The wrap is a
     /// closure-shaped env (fn slot → thunk, capture 0 → the real
     /// callback) so the runtime's closure dispatcher works unchanged.
-    /// Integral-faced callbacks pass through untouched.
-    pub(crate) fn maybe_wrap_promise_cb(&mut self, cb_op: Operand) -> Operand {
+    /// Integral-faced callbacks pass through untouched. Answers `None`
+    /// for those; `Some(wrap)` is a fresh +1 cell the caller settles.
+    /// `cb_owned`: the call site owns a reference on a closure `cb_op`
+    /// (a fresh temp) — it moves into the wrap; a borrowed one gets a
+    /// reference of the wrap's own.
+    pub(crate) fn wrap_promise_cb(&mut self, cb_op: Operand, cb_owned: bool) -> Option<Operand> {
         let cb_ty = self.operand_ty(&cb_op);
         let (sid, is_closure) = match cb_ty {
             Type::Closure(s) => (s, true),
             Type::FnSig(s) => (s, false),
-            _ => return cb_op,
+            _ => return None,
         };
         let (params, ret) = self.fn_sigs[sid.0 as usize].clone();
         let p = params.first() == Some(&Type::F64);
         let r = ret == Type::F64;
         if !p && !r {
-            return cb_op;
+            return None;
         }
-        let Some((thunk_fid, thunk_sig)) = self.promise_thunks.get(is_closure, p, r) else {
-            return cb_op;
-        };
+        let (thunk_fid, thunk_sig) = self.promise_thunks.get(is_closure, p, r)?;
         let drop_pair = if is_closure {
             self.promise_thunks.drop_closure
         } else {
             self.promise_thunks.drop_fnsig
         };
-        let Some((drop_fid, drop_sig)) = drop_pair else {
-            return cb_op;
-        };
+        let (drop_fid, drop_sig) = drop_pair?;
         let wrap_user_sig = intern_fn_sig(self.fn_sigs, vec![Type::I64], Type::I64);
         let wrap_ty = Type::Closure(wrap_user_sig);
         let env_v = self.f.append_inst(
@@ -342,13 +342,15 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 crate::ssa_lower::CLOSURE_TRACE_FN_OFF,
             ),
         );
-        // Capture 0: the real callback. Its natural ref moves into
-        // the wrap (the wrap's drop releases it), so the wrap takes
-        // the callback's exact ownership position at the call site.
+        // Capture 0: the real callback, one reference of the wrap's
+        // own (the wrap's drop releases it).
+        if is_closure && !cb_owned {
+            self.emit_rc_inc(cb_op);
+        }
         self.f.append_void(
             self.cur_block,
             InstKind::Store(cb_op, Operand::Value(env_v), CLOSURE_CAP_BASE_OFF),
         );
-        Operand::Value(env_v)
+        Some(Operand::Value(env_v))
     }
 }

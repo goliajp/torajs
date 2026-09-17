@@ -322,17 +322,20 @@ impl crate::ssa_lower::LowerCtx<'_> {
     /// `cb_op` is the already-lowered handler: the caller lowers the
     /// arguments once, ahead of the own-`then` probe split (rotation
     /// 652), so both blocks share the one evaluation.
-    fn lower_chain_one_arg(&mut self, m_name: &str, src_op: Operand, cb_op: Operand) -> ValueId {
+    fn lower_chain_one_arg(
+        &mut self,
+        m_name: &str,
+        src_op: Operand,
+        aid: ExprId,
+        cb_pre: Operand,
+    ) -> ValueId {
         // Before the bits-ABI wrapper replaces it — the wrap's own
         // signature is `(i64) -> i64`, so it can answer neither what
         // the handler's parameter is nor what its return is. See
         // `chain_cb_repr_word` / `chain_cb_param_repr`.
-        let cb_pre_ty = self.operand_ty(&cb_op);
-        let cb_op = if m_name == "finally" {
-            cb_op
-        } else {
-            self.maybe_wrap_promise_cb(cb_op)
-        };
+        let cb_pre_ty = self.operand_ty(&cb_pre);
+        let handler = self.prepare_chain_handler(aid, cb_pre, m_name != "finally");
+        let cb_op = handler.passed;
         let cb_ty = self.operand_ty(&cb_op);
         let is_closure = matches!(cb_ty, Type::Closure(_));
         let then_intrinsic = match (m_name, is_closure) {
@@ -371,6 +374,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         if repr_word & crate::ssa_lower_promise_repr_mark::PARAM_ANY_FLAG != 0 {
             self.emit_throw_check(None);
         }
+        self.settle_chain_handler(handler);
         v
     }
 
@@ -454,6 +458,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
         &mut self,
         m_name: &str,
         src_op: Operand,
+        args: &[ExprId],
         arg_ops: &[Operand],
     ) -> ValueId {
         if arg_ops.is_empty() {
@@ -465,9 +470,9 @@ impl crate::ssa_lower::LowerCtx<'_> {
                 None,
             )
         } else if m_name == "then" && arg_ops.len() == 2 {
-            self.lower_then_two_arg(src_op, arg_ops[0].clone(), arg_ops[1].clone())
+            self.lower_then_two_arg(src_op, args, arg_ops[0].clone(), arg_ops[1].clone())
         } else {
-            self.lower_chain_one_arg(m_name, src_op, arg_ops[0].clone())
+            self.lower_chain_one_arg(m_name, src_op, args[0], arg_ops[0].clone())
         }
     }
 }

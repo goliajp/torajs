@@ -3,8 +3,19 @@
 //! 20260720-anylane-promise-methods knife 3 pushed that file past
 //! the 500-line cap; bodies verbatim).
 
+use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+
+/// One handler operand of a typed chain call, from the argument the
+/// program wrote to what the kernel receives.
+pub(crate) struct ChainHandler {
+    aid: ExprId,
+    pre: Operand,
+    pub(crate) passed: Operand,
+    wrapped: bool,
+    parked: Option<usize>,
+}
 
 impl LowerCtx<'_> {
     /// 2-arg `.then(onOk, onErr)` — ONE native kernel attach
@@ -19,13 +30,16 @@ impl LowerCtx<'_> {
     pub(crate) fn lower_then_two_arg(
         &mut self,
         src_op: Operand,
+        args: &[ExprId],
         on_ok: Operand,
         on_err: Operand,
     ) -> ValueId {
         let on_ok_pre_ty = self.operand_ty(&on_ok);
-        let on_ok = self.maybe_wrap_promise_cb(on_ok);
+        let ok_handler = self.prepare_chain_handler(args[0], on_ok, true);
+        let on_ok = ok_handler.passed.clone();
         let on_err_pre_ty = self.operand_ty(&on_err);
-        let on_err = self.maybe_wrap_promise_cb(on_err);
+        let err_handler = self.prepare_chain_handler(args[1], on_err, true);
+        let on_err = err_handler.passed.clone();
         let on_ok_ty = self.operand_ty(&on_ok);
         let on_err_ty = self.operand_ty(&on_err);
         let mut ok_word =
@@ -61,7 +75,53 @@ impl LowerCtx<'_> {
         if (ok_word | err_word) & crate::ssa_lower_promise_repr_mark::PARAM_ANY_FLAG != 0 {
             self.emit_throw_check(None);
         }
+        self.settle_chain_handler(err_handler);
+        self.settle_chain_handler(ok_handler);
         v
+    }
+
+    /// The kernels take a reference of their own on every handler
+    /// (attach inc, dispatch drop), so the call site settles its own:
+    /// a fresh closure literal's birth reference, or the bits-ABI wrap
+    /// it minted. Without this each `await` leaked the driver's two
+    /// handler envs (and through them the async activation). Parked
+    /// for the attach's throw edge.
+    pub(crate) fn prepare_chain_handler(
+        &mut self,
+        aid: ExprId,
+        pre: Operand,
+        may_wrap: bool,
+    ) -> ChainHandler {
+        let owned = self.throw_temp_of(aid, &pre).is_some();
+        let wrap = if may_wrap {
+            self.wrap_promise_cb(pre, owned)
+        } else {
+            None
+        };
+        let (passed, wrapped, parked) = match wrap {
+            Some(w) => {
+                let ty = self.operand_ty(&w);
+                (w, true, Some(self.push_throw_temp(w, ty)))
+            }
+            None => (pre, false, self.park_owned_temp(aid, &pre)),
+        };
+        ChainHandler {
+            aid,
+            pre,
+            passed,
+            wrapped,
+            parked,
+        }
+    }
+
+    pub(crate) fn settle_chain_handler(&mut self, h: ChainHandler) {
+        self.unpark_owned_temp(h.parked);
+        if h.wrapped {
+            let ty = self.operand_ty(&h.passed);
+            self.emit_drop_value(h.passed, ty);
+        } else {
+            self.release_owned_temp(h.aid, &h.pre);
+        }
     }
 
     /// knife 3 (RFC 20260720-anylane-promise-methods) — the call
@@ -84,7 +144,7 @@ impl LowerCtx<'_> {
     /// settled value per the source cell's repr stamp before the
     /// call).
     ///
-    /// **Takes the cb type BEFORE `maybe_wrap_promise_cb`**, and both
+    /// **Takes the cb type BEFORE `wrap_promise_cb`**, and both
     /// halves need it: the wrap's signature is `(i64) -> i64`, which
     /// names neither end of the handler inside it. Asking the wrapped
     /// operand instead
@@ -120,7 +180,7 @@ impl LowerCtx<'_> {
     /// decide that (the cell's stamp is the truth, and SSA's
     /// `Type::Promise` is inner-T erased); this hands it the target.
     ///
-    /// **Takes the cb type BEFORE `maybe_wrap_promise_cb`.** That
+    /// **Takes the cb type BEFORE `wrap_promise_cb`.** That
     /// wrapper's own signature is `(i64) -> i64` — the f64 bits-ABI
     /// adapter — so asking the wrapped operand what its parameter is
     /// answers I64 for every f64-faced handler, and the kernel would
