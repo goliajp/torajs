@@ -71,6 +71,8 @@ pub(crate) fn proto_family_of(ptr: *const c_void, type_tag: u16) -> Option<i64> 
         17
     } else if t == Tag::WeakRef as u16 {
         18
+    } else if t == Tag::FinalizationRegistry as u16 {
+        39
     } else if t == Tag::MapIter as u16 || t == Tag::ArrIter as u16 || t == Tag::IterHelper as u16 {
         // §23.1.5.2 — an iterator hangs off its PER-FAMILY prototype,
         // which the cell itself has to name (an ArrIter over a

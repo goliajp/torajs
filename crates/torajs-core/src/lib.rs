@@ -567,6 +567,7 @@ pub(crate) mod ssa_lower_new;
 pub(crate) mod ssa_lower_new_arr_init;
 mod ssa_lower_new_collection;
 pub(crate) mod ssa_lower_new_dynamic;
+pub(crate) mod ssa_lower_new_finreg;
 pub(crate) mod ssa_lower_nullable_guard;
 pub(crate) mod ssa_lower_nullish;
 pub(crate) mod ssa_lower_number_coerce;

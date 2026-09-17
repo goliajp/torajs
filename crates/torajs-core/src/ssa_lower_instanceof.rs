@@ -370,6 +370,7 @@ fn builtin_proto_tag(class_name: &str) -> Option<i64> {
         "WeakRef" => 18,
         "ArrayBuffer" => 19,
         "DataView" => 32,
+        "FinalizationRegistry" => 39,
         _ => return None,
     })
 }

@@ -105,6 +105,9 @@ pub(crate) const TAG_WEAKMAP_CELL: u16 = 12;
 pub(crate) const TAG_WEAKSET_CELL: u16 = 13;
 pub(crate) const WEAKREF_PROPS_OFF: usize = 16;
 pub(crate) const WEAKCOLL_PROPS_OFF: usize = 24;
+/// `torajs_rc::Tag::FinalizationRegistry` and `torajs_weak::finreg::FINREG_PROPS_OFF`.
+pub(crate) const TAG_FINREG_CELL: u16 = 31;
+pub(crate) const FINREG_PROPS_OFF: usize = 32;
 
 /// The three iterator cell tags (`torajs_rc::Tag::{MapIter, ArrIter,
 /// IterHelper}`). ArrIter and MapIter share a layout shape, so their
@@ -139,6 +142,7 @@ pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
         TAG_REGEXP_CELL => Some(REGEX_PROPS_OFF),
         TAG_MAP_ITER_CELL | TAG_ARR_ITER_CELL => Some(ITER_PROPS_OFF),
         TAG_WEAKREF_CELL => Some(WEAKREF_PROPS_OFF),
+        TAG_FINREG_CELL => Some(FINREG_PROPS_OFF),
         TAG_WEAKMAP_CELL | TAG_WEAKSET_CELL => Some(WEAKCOLL_PROPS_OFF),
         TAG_ITER_HELPER_CELL => Some(ITER_HELPER_PROPS_OFF),
         _ => None,
@@ -170,6 +174,7 @@ pub(crate) fn is_bag_only_tag(tag: u16) -> bool {
             | TAG_WEAKREF_CELL
             | TAG_WEAKMAP_CELL
             | TAG_WEAKSET_CELL
+            | TAG_FINREG_CELL
     )
 }
 

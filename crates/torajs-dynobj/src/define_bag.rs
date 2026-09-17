@@ -49,6 +49,7 @@ pub(crate) unsafe fn lazy_bag_props_off(htag: u16, key: *mut c_void) -> Option<u
         // below it and keeps a mirror, so a shape added there has to
         // be added here too.
         crate::layout::TAG_WEAKREF_HDR => Some(crate::layout::WEAKREF_PROPS_OFF),
+        crate::layout::TAG_FINREG_HDR => Some(crate::layout::FINREG_PROPS_OFF),
         crate::layout::TAG_WEAKMAP_HDR | crate::layout::TAG_WEAKSET_HDR => {
             Some(crate::layout::WEAKCOLL_PROPS_OFF)
         }

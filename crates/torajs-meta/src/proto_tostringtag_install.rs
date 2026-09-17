@@ -87,6 +87,8 @@ fn tag_for_proto(idx: i64) -> Option<&'static [u8]> {
         16 => Some(b"WeakMap"),
         17 => Some(b"WeakSet"),
         18 => Some(b"WeakRef"),
+        // §26.2.3.4 — same plain data property.
+        39 => Some(b"FinalizationRegistry"),
         // The five per-family iterator prototypes. Same plain data
         // property as the ones above, and the reason those objects
         // exist at all: the badge of `[1].values()` is "[object Array

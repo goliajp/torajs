@@ -58,6 +58,8 @@ pub fn builtin_ctor_meta(tag: i64) -> Option<(&'static str, u32)> {
         // §23.2.2 — the abstract %TypedArray% intrinsic: `name`
         // "TypedArray", `length` 0.
         38 => ("TypedArray", 0),
+        // §26.2.2 — `length` 1 (cleanupCallback).
+        39 => ("FinalizationRegistry", 1),
         _ => return None,
     })
 }

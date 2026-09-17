@@ -339,6 +339,9 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
     };
     // The twelve buffer families construct through one sibling
     // (`ctor_buffer`), which owns their kernels and slot layout.
+    if tag == torajs_rc::builtin_proto::FINREG_PROTO_TAG as i64 {
+        return unsafe { crate::finreg::__torajs_finreg_new(arg0()) };
+    }
     if tag >= 19 {
         return unsafe { super::ctor_buffer::construct(tag, argv, argc) };
     }
@@ -468,6 +471,7 @@ fn ctor_family_tag(recv: AnyValue) -> Option<i64> {
         t if t == Tag::WeakMap as u16 => Some(16),
         t if t == Tag::WeakSet as u16 => Some(17),
         t if t == Tag::WeakRef as u16 => Some(18),
+        t if t == Tag::FinalizationRegistry as u16 => Some(39),
         t if t == Tag::Promise as u16 => Some(10),
         t if t == Tag::NumberWrapper as u16 => Some(0),
         t if t == Tag::StringWrapper as u16 => Some(3),

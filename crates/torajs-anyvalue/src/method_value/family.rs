@@ -159,6 +159,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::WeakMap as u16 => 16,
         t if t == Tag::WeakSet as u16 => 17,
         t if t == Tag::WeakRef as u16 => 18,
+        t if t == Tag::FinalizationRegistry as u16 => 39,
         // §25.1.6 — ArrayBuffer.prototype is its own singleton, so
         // its row is exact. A typed array reads through
         // %TypedArray.prototype%'s one row (RFC 20260916-typedarray-

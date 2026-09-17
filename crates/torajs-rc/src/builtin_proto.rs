@@ -62,7 +62,7 @@ unsafe extern "C" {
 /// %Object.prototype%, which is what [`proto_parent_tag`] was made
 /// for). %TypedArray%.prototype joined as 38, the abstract parent of
 /// the twelve per-kind prototypes (RFC 20260916-typedarray-intrinsic).
-pub const NUM_BUILTIN_PROTOS: usize = 39;
+pub const NUM_BUILTIN_PROTOS: usize = 40;
 
 mod ctor_meta;
 pub use ctor_meta::{builtin_ctor_meta, typedarray_bytes_per_element};
@@ -148,6 +148,10 @@ pub const ITER_HELPER_PROTO_TAG: usize = 37;
 /// [[Construct]] refuse.
 pub const TYPEDARRAY_PROTO_TAG: usize = 38;
 
+/// `FinalizationRegistry.prototype`'s slot (§26.2.3) — the next free
+/// one after %TypedArray%.prototype.
+pub const FINREG_PROTO_TAG: usize = 39;
+
 /// The per-kind typed-array prototype slots, `Int8Array` .. `Float16Array`
 /// (20 + `torajs_buffer::typedarray::Kind`).
 pub const TYPEDARRAY_KIND_PROTO_TAGS: core::ops::RangeInclusive<i64> = 20..=31;
@@ -218,7 +222,7 @@ static SLOTS: [AtomicUsize; NUM_BUILTIN_PROTOS] = [SLOT_INIT; NUM_BUILTIN_PROTOS
 /// Array=2, String=3, Boolean=4, Symbol=5, BigInt=6, RegExp=7,
 /// Date=8, Error=9, Promise=10, Map=11, Set=12, Function=13,
 /// AsyncFunction=14, Iterator=15, WeakMap=16, WeakSet=17,
-/// WeakRef=18.
+/// WeakRef=18, FinalizationRegistry=39.
 /// ssa_lower must emit one of these via `Operand::ConstI64(<tag>)`.
 /// Out-of-range `tag` returns NULL (defensive — ssa_lower should
 /// never emit it).

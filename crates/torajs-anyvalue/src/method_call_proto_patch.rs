@@ -96,6 +96,7 @@ fn proto_is_only_method_source(tag: u16) -> bool {
             || t == Tag::WeakMap as u16
             || t == Tag::WeakSet as u16
             || t == Tag::WeakRef as u16
+            || t == Tag::FinalizationRegistry as u16
             || t == Tag::Date as u16
             || t == Tag::RegExp as u16
             || t == Tag::Promise as u16

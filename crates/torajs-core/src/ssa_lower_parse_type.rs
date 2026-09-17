@@ -191,8 +191,7 @@ pub(crate) fn parse_type(
     }
     // Buffer-family class annotations — the checker's collapse
     // (check_type_ann), mirrored: the cells are any-lane only.
-    if s == "ArrayBuffer"
-        || s == "DataView"
+    if matches!(s, "ArrayBuffer" | "DataView" | "FinalizationRegistry")
         || crate::ssa_lower_call_typedarray::kind_of_name(s).is_some()
     {
         return Type::Any;

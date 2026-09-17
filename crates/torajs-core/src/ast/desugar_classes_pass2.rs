@@ -261,6 +261,7 @@ pub(super) fn ssa_intercepted_builtin(name: &str) -> bool {
             | "Float16Array"
             // 刀 7 — `new DataView(buf, off, len)` lowers to §25.3.2.
             | "DataView"
+            | "FinalizationRegistry"
     )
 }
 

@@ -113,6 +113,7 @@ mod date_from_value;
 pub mod dispatch_arms;
 pub(crate) mod dispatch_seam;
 mod error_cause;
+mod finreg;
 mod function_proto_cell;
 mod function_subclass;
 pub(crate) mod index_any;
@@ -1884,6 +1885,7 @@ mod tests {
         __torajs_dataview_get,
         __torajs_dataview_set,
         __torajs_dataview_create,
+        __torajs_finreg_create,
         __torajs_typedarray_is_kind,
         __torajs_typedarray_create,
         __torajs_typedarray_tracks_length,

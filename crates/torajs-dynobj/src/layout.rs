@@ -169,6 +169,9 @@ pub const TAG_WEAKMAP_HDR: u16 = 12;
 pub const TAG_WEAKSET_HDR: u16 = 13;
 pub const WEAKREF_PROPS_OFF: usize = 16;
 pub const WEAKCOLL_PROPS_OFF: usize = 24;
+/// `Tag::FinalizationRegistry` and torajs-weak's `FINREG_PROPS_OFF`.
+pub const TAG_FINREG_HDR: u16 = 31;
+pub const FINREG_PROPS_OFF: usize = 32;
 
 /// RegExp heap tag (torajs-rc `Tag::RegExp` = 4); its lazy expando
 /// props dynobj sits directly after the header at +8

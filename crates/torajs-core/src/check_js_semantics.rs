@@ -201,6 +201,7 @@ pub(crate) fn is_known_builtin_global(name: &str) -> bool {
             | "Array"
             | "Date"
             | "WeakRef"
+            | "FinalizationRegistry"
             | "WeakMap"
             | "WeakSet"
             | "Symbol"

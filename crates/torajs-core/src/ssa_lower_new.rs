@@ -86,6 +86,7 @@ pub(crate) fn try_lower(
         // 刀 7 — §25.3.2; same borrowed-triple shape as the typed
         // arrays, one constructor instead of eleven.
         "DataView" => Some(crate::ssa_lower_call_typedarray::lower_dataview(ctx, args)),
+        "FinalizationRegistry" => Some(crate::ssa_lower_new_finreg::lower(ctx, args)),
         // RFC 20260823-typedarray-substrate 刀 2 — the eleven §23.2
         // constructors share one kernel, keyed by the element-kind
         // discriminant the NAME resolves to at compile time.

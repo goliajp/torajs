@@ -128,6 +128,9 @@ pub(crate) const DATE_PROPS_OFF: usize = 16;
 /// that for one commit).
 pub(crate) const WEAKREF_PROPS_OFF: usize = 16;
 
+/// `torajs_weak::finreg::FINREG_PROPS_OFF` — same two-table rule.
+pub(crate) const FINREG_PROPS_OFF: usize = 32;
+
 /// WeakMap / WeakSet lazy expando slot — mirror of
 /// `torajs_weak::layout::WEAKCOLL_PROPS_OFF`. The two cells share a
 /// four-field prefix (header, n_buckets, n_entries, buckets), so both
@@ -179,6 +182,8 @@ pub(crate) fn expando_props_off(tag: u16) -> Option<usize> {
         Some(DATE_PROPS_OFF)
     } else if tag == Tag::WeakRef as u16 {
         Some(WEAKREF_PROPS_OFF)
+    } else if tag == Tag::FinalizationRegistry as u16 {
+        Some(FINREG_PROPS_OFF)
     } else if tag == Tag::WeakMap as u16 || tag == Tag::WeakSet as u16 {
         Some(WEAKCOLL_PROPS_OFF)
     } else if tag == Tag::RegExp as u16 {
@@ -212,6 +217,8 @@ pub(crate) fn is_stateful_bag_tag(t: u16) -> bool {
         || t == Tag::WeakMap as u16
         || t == Tag::WeakSet as u16
         || t == Tag::WeakRef as u16
+        // §26.2 — cells, callback and queue state are internal slots.
+        || t == Tag::FinalizationRegistry as u16
         || is_iter_cell_tag(t)
 }
 

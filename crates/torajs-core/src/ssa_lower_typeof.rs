@@ -135,14 +135,45 @@ pub(crate) fn builtin_global_typeof(name: &str) -> Option<&'static str> {
     match name {
         "undefined" => Some("undefined"),
         "Math" | "JSON" | "Reflect" | "globalThis" | "console" => Some("object"),
-        "Number" | "String" | "Boolean" | "Symbol" | "Date" | "Array" | "Object" | "RegExp"
-        | "Error" | "Function" | "Promise" | "Map" | "Set" | "WeakMap" | "WeakSet" | "WeakRef"
-        | "Proxy" | "Iterator" | "BigInt" | "ArrayBuffer" | "DataView" | "TypeError"
-        | "RangeError" | "SyntaxError" | "ReferenceError" | "EvalError" | "URIError"
-        | "parseInt" | "parseFloat" | "isNaN" | "isFinite" | "encodeURI" | "decodeURI"
-        | "encodeURIComponent" | "decodeURIComponent" | "escape" | "unescape" | "eval" => {
-            Some("function")
-        }
+        "Number"
+        | "String"
+        | "Boolean"
+        | "Symbol"
+        | "Date"
+        | "Array"
+        | "Object"
+        | "RegExp"
+        | "Error"
+        | "Function"
+        | "Promise"
+        | "Map"
+        | "Set"
+        | "WeakMap"
+        | "WeakSet"
+        | "WeakRef"
+        | "FinalizationRegistry"
+        | "Proxy"
+        | "Iterator"
+        | "BigInt"
+        | "ArrayBuffer"
+        | "DataView"
+        | "TypeError"
+        | "RangeError"
+        | "SyntaxError"
+        | "ReferenceError"
+        | "EvalError"
+        | "URIError"
+        | "parseInt"
+        | "parseFloat"
+        | "isNaN"
+        | "isFinite"
+        | "encodeURI"
+        | "decodeURI"
+        | "encodeURIComponent"
+        | "decodeURIComponent"
+        | "escape"
+        | "unescape"
+        | "eval" => Some("function"),
         // RFC 20260823-typedarray-substrate 刀 4 — the eleven §23.2
         // constructors. `typeof Float16Array` deliberately stays
         // out: the harness feature-tests it against `"undefined"`,

@@ -63,6 +63,7 @@ pub(crate) fn is_global_name(name: &str) -> bool {
             // both the checker resolution and the statics wedge.
             | "Iterator"
             | "WeakRef"
+            | "FinalizationRegistry"
             // Runtime module namespaces the checker fallback types
             // (kept in the same sync).
             | "fs"

@@ -200,7 +200,7 @@ fn resolve_type_ann_inner(
         // classes annotate as `Type::Any` for the same reason their
         // constructors produce it: the cells are reached only
         // through the any-lane kernels in this slab.
-        "ArrayBuffer" | "DataView" => Some(Type::Any),
+        "ArrayBuffer" | "DataView" | "FinalizationRegistry" => Some(Type::Any),
         n2 if crate::ssa_lower_call_typedarray::kind_of_name(n2).is_some() => Some(Type::Any),
         // T-13.a (v0.4.0) — `symbol` is a primitive type alias for
         // Type::Symbol. Lower-case `symbol` is the spec spelling
