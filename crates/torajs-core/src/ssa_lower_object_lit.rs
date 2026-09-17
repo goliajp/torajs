@@ -303,6 +303,9 @@ fn unfold_spread(
     };
     let layout = ctx.struct_layouts[sid.0 as usize].clone();
     for (idx, (sn, st)) in layout.iter().enumerate() {
+        if crate::check_type_of_object_lit::private_slot(sn) {
+            continue;
+        }
         let off = OBJ_HEADER_SIZE + (idx as u64) * 8;
         // RFC 20260714-objlit-accessor blade 3 — CopyDataProperties
         // (ES §7.3.25) reaches each own key through [[Get]], so a source

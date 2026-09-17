@@ -202,25 +202,7 @@ pub(crate) fn try_lower(
         return Some(lower_forin_nonstruct_keys(ctx, args[0], arg_op, &arg_raw));
     }
     let field_names: Vec<PropKey> = match arg_ty {
-        Type::Obj(sid) => {
-            // RFC 20260714-objlit-accessor — an accessor lives in the
-            // layout under a synthetic slot name (`__getter_v` /
-            // `__setter_v`), but ES §10.4 makes it one own property
-            // keyed by the plain name. Enumerate it as `v`, once (a
-            // get/set pair is a single key), never as the internal
-            // spelling.
-            let mut out: Vec<PropKey> = Vec::new();
-            for (fname, _) in ctx.struct_layouts[sid.0 as usize].iter() {
-                let key = match crate::check_type_of_object_lit::accessor_slot(fname) {
-                    Some((_, prop)) => PropKey::from(prop),
-                    None => fname.clone(),
-                };
-                if !out.contains(&key) {
-                    out.push(key);
-                }
-            }
-            out
-        }
+        Type::Obj(sid) => struct_key_names(&ctx.struct_layouts[sid.0 as usize]),
         other => panic!("ssa-lower: Object.{m_name} requires a struct arg, got {other:?}"),
     };
     let n = field_names.len() as i64;
@@ -389,4 +371,26 @@ fn lower_str_receiver_keys(
     );
     ctx.release_owned_temp(recv_eid, arg_raw);
     Operand::Value(v)
+}
+
+/// The own property keys a struct layout declares, in slot order.
+/// RFC 20260714-objlit-accessor — an accessor lives in the layout under
+/// a synthetic slot name (`__getter_v` / `__setter_v`), but ES §10.4
+/// makes it one own property keyed by the plain name: enumerated as
+/// `v`, once. A private element's slot is no property at all.
+fn struct_key_names(layout: &[(PropKey, Type)]) -> Vec<PropKey> {
+    let mut out: Vec<PropKey> = Vec::new();
+    for (fname, _) in layout {
+        if crate::check_type_of_object_lit::private_slot(fname) {
+            continue;
+        }
+        let key = match crate::check_type_of_object_lit::accessor_slot(fname) {
+            Some((_, prop)) => PropKey::from(prop),
+            None => fname.clone(),
+        };
+        if !out.contains(&key) {
+            out.push(key);
+        }
+    }
+    out
 }

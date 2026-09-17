@@ -35,6 +35,15 @@ pub(crate) fn accessor_slot(name: &Wtf8) -> Option<(&'static str, &Wtf8)> {
     name.strip_prefix("__setter_").map(|p| ("__setter_", p))
 }
 
+/// A private element's layout slot (`#x` is the field `__priv_<C>__<x>`,
+/// `parser/private_refs.rs`). It belongs to [[PrivateElements]], not to
+/// the object's properties (§6.2.10): every face that enumerates or
+/// copies properties skips it. The runtime twin is torajs-meta
+/// `struct_enum_order::is_private_row`.
+pub(crate) fn private_slot(name: &Wtf8) -> bool {
+    name.strip_prefix("__priv_").is_some()
+}
+
 /// The omit list rides an identifier-only spelling (destructuring
 /// rest excludes bound names), so a key that is not a `&str` is never
 /// a spread marker.
@@ -108,6 +117,9 @@ pub(crate) fn check(
                 continue;
             };
             for (sn, st) in src_fields.iter() {
+                if private_slot(sn) {
+                    continue;
+                }
                 // RFC 20260714-objlit-accessor blade 3 — CopyDataProperties
                 // (ES §7.3.25) reaches each own key through [[Get]], so an
                 // accessor on the source contributes the getter's RESULT as

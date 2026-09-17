@@ -45,9 +45,13 @@ pub(super) fn lower_obj(
             Operand::Value(v) => v,
             _ => unreachable!(),
         };
-        let primitive_only = layout
-            .iter()
-            .all(|(_, fty)| matches!(fty, Type::I64 | Type::Bool | Type::Str));
+        // The builder lanes serialize every slot by position; a private
+        // element's slot is not a property, so its layout takes the
+        // concat lane, which skips it.
+        let primitive_only = layout.iter().all(|(fname, fty)| {
+            matches!(fty, Type::I64 | Type::Bool | Type::Str)
+                && !crate::check_type_of_object_lit::private_slot(fname)
+        });
         if primitive_only && gap.is_none() {
             // A frontend `undefined` field is pointer-shaped at SSA,
             // so a layout this gate accepts never carries one — the
@@ -140,7 +144,9 @@ fn resolve_field(
     // emitted, and alone its [[Get]] is undefined — step 8.b then
     // omits the whole segment.
     let accessor = crate::check_type_of_object_lit::accessor_slot(fname);
-    if matches!(accessor, Some(("__setter_", _))) {
+    if matches!(accessor, Some(("__setter_", _)))
+        || crate::check_type_of_object_lit::private_slot(fname)
+    {
         return None;
     }
     // §25.5.2.4 step 8.b again, for the shape SSA cannot express: an

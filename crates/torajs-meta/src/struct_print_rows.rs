@@ -224,7 +224,9 @@ pub(crate) unsafe fn put_rows(
     // 405-05 — a method-carrying class prints its prototype entries
     // even with zero own properties (`M { m: [Function: m] }`).
     let has_methods = unsafe { crate::struct_print_methods::has_visible_methods(cell) };
-    if n == 0 && n_props == 0 && !has_methods {
+    // Data and accessor rows only — a private element prints nowhere.
+    let ordered = unsafe { crate::struct_enum_order::layout_field_order(layout, n) };
+    if ordered.is_empty() && n_props == 0 && !has_methods {
         return;
     }
 
@@ -253,7 +255,7 @@ pub(crate) unsafe fn put_rows(
     } else {
         unsafe { __torajs_dynobj_iter_slow_mode(props) }
     };
-    if slow == 0 && n == 0 && !has_methods {
+    if slow == 0 && ordered.is_empty() && !has_methods {
         let fast_hit = order.iter().any(|&pi| unsafe {
             let key = __torajs_dynobj_iter_key(props, pi);
             !key.is_null()
@@ -281,7 +283,6 @@ pub(crate) unsafe fn put_rows(
     // `class C { b = 1; 10 = 2 }` as `"10"` first). Accessor slots
     // are prototype entries to bun and print after every data field,
     // in declaration order.
-    let ordered = unsafe { crate::struct_enum_order::layout_field_order(layout, n) };
     let is_accessor = |i: u32| {
         let name = unsafe { __torajs_struct_field_name(layout, i) };
         unsafe { accessor_slot_name(name.ptr, name.len) }.is_some()

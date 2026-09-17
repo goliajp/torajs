@@ -1112,10 +1112,11 @@ mod tests {
         _layout: *const c_void,
         n: u32,
         out: *mut u32,
-    ) {
+    ) -> u32 {
         for i in 0..n {
             unsafe { out.add(i as usize).write(i) };
         }
+        n
     }
     /// No layout ⇒ no declared field can be deleted (RFC 20260915).
     #[unsafe(no_mangle)]

@@ -53,6 +53,9 @@ impl OwnProp {
 pub(crate) fn own_props(layout: &[(PropKey, Type)], fn_sigs: &[(Vec<Type>, Type)]) -> Vec<OwnProp> {
     let mut out: Vec<OwnProp> = Vec::new();
     for (idx, (fname, fty)) in layout.iter().enumerate() {
+        if crate::check_type_of_object_lit::private_slot(fname) {
+            continue;
+        }
         let (key, src) = match crate::check_type_of_object_lit::accessor_slot(fname) {
             Some(("__getter_", prop)) => {
                 let Type::Closure(sig) = *fty else {
@@ -108,6 +111,9 @@ pub(crate) struct OwnPropSink {
 pub(crate) fn own_prop_sinks(layout: &[(PropKey, Type)]) -> Vec<OwnPropSink> {
     let mut out: Vec<OwnPropSink> = Vec::new();
     for (idx, (fname, fty)) in layout.iter().enumerate() {
+        if crate::check_type_of_object_lit::private_slot(fname) {
+            continue;
+        }
         let (key, sink) = match crate::check_type_of_object_lit::accessor_slot(fname) {
             Some(("__setter_", prop)) => {
                 let Type::Closure(sig) = *fty else {
