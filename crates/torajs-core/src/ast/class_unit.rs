@@ -29,8 +29,8 @@
 //!
 //! - W1 no `extends`, and no class extends this one; W5 not generic,
 //!   not abstract; W6 no builtin parent;
-//! - W2/W3/W4 no private field, no static, public accessor or computed
-//!   member (K2 admits private methods and accessors: their brand check
+//! - W2/W3/W4 no static, public accessor or computed member (K2 admits
+//!   private methods and accessors, K3 private fields: their brand check
 //!   also compares the receiver's evaluation with the one `__this` runs
 //!   in, so no member body may hold a `function` expression, whose
 //!   `this` is not the instance);
@@ -80,6 +80,12 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
             .iter()
             .any(|p| k.starts_with(p))
     };
+    // K3 — a private FIELD. It is a layout slot like any other, and
+    // the per-evaluation hidden slot already rides beside the private
+    // rows; what makes it admissible is the K2b call-boundary guard,
+    // which refuses any body that reaches a private element on
+    // another evaluation's receiver.
+    let private_field = |k: &PropKey| k.lossy().starts_with("__priv_");
     // K2 — a private method, or either half of a private accessor
     // (`__getter___priv_C__m`); a public accessor stays out.
     let private_method = |k: &PropKey| {
@@ -99,7 +105,7 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         || *is_abstract
         || !static_init.is_empty()
         || !static_methods.is_empty()
-        || !fields.iter().all(|(k, _)| plain(k))
+        || !fields.iter().all(|(k, _)| plain(k) || private_field(k))
         || !methods
             .iter()
             .all(|m| (plain(&m.name) || private_method(&m.name)) && m.type_params.is_empty())
