@@ -177,6 +177,9 @@ pub(super) struct Analysis<'a> {
     pub(super) demoted: &'a HashMap<ExprId, ExprId>,
     /// name → ordered param names, for call-arg → Param edges.
     pub(super) fn_params: HashMap<String, Vec<String>>,
+    /// Callback bindings resolved to their lifted closure
+    /// (`analyze_tables::collect_bound_closures`).
+    pub(super) bound_closures: HashMap<String, String>,
     /// Top-level let/const names, for ident resolution at top level
     /// and inside named fns (named fns see top-level bindings via the
     /// data-global path).
@@ -299,6 +302,7 @@ pub(crate) fn analyze(
     // `analyze_tables.rs`).
     let (fn_params, toplevel_lets, by_name, const_ints) =
         analyze_tables::collect_slot_registry(ast);
+    let bound_closures = analyze_tables::collect_bound_closures(ast, &fn_params, &by_name);
 
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
@@ -311,6 +315,7 @@ pub(crate) fn analyze(
         retargets,
         demoted,
         fn_params,
+        bound_closures,
         toplevel_lets,
         const_ints,
         by_name,

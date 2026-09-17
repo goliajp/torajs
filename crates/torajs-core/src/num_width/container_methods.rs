@@ -201,6 +201,7 @@ impl<'a> Analysis<'a> {
     pub(super) fn callee_fn_name(&self, eid: ExprId) -> Option<String> {
         match self.ast.get_expr(eid) {
             Expr::Ident(n) if self.fn_params.contains_key(n) => Some(n.clone()),
+            Expr::Ident(n) => self.bound_closures.get(n).cloned(),
             Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
             _ => None,
         }

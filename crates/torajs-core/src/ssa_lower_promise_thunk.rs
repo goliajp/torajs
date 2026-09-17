@@ -121,6 +121,16 @@ pub(crate) fn synthesize_promise_thunks(
             fn_num_faces.insert(name, (p_num, r_num));
         }
     }
+    // A handler named through an immutable closure binding resolves to
+    // the closure its initializer minted — the width analysis wires the
+    // same name the same way (`num_width::analyze_tables::
+    // collect_bound_closures`), so the faces it decided are the ones
+    // the call site will ask an adapter for. Over-resolving a shadowed
+    // name only synthesizes an adapter that goes unused.
+    let mut bound: HashMap<&str, &str> = HashMap::new();
+    for stmt in &ast.stmts {
+        collect_bound_closures(ast, stmt, &mut bound);
+    }
     let mut needed: Vec<(bool, bool, bool)> = Vec::new();
     for expr in &ast.exprs {
         let Expr::Call { callee, args } = expr else {
@@ -135,6 +145,7 @@ pub(crate) fn synthesize_promise_thunks(
         for a in args.iter().take(2) {
             let cb = match ast.get_expr(*a) {
                 Expr::Ident(n) if fn_user_params.contains_key(n.as_str()) => n.as_str(),
+                Expr::Ident(n) if bound.contains_key(n.as_str()) => bound[n.as_str()],
                 Expr::Closure { fn_name, .. } if fn_user_params.contains_key(fn_name.as_str()) => {
                     fn_name.as_str()
                 }
@@ -220,6 +231,32 @@ pub(crate) fn synthesize_promise_thunks(
 /// because it is the same concern as the thunks it selects from —
 /// and because the chain file had three lines of headroom left under
 /// the file-size limit, so growing it was not an option.
+/// `name → lifted closure` for every immutable binding initialized
+/// with a closure, in every statement list.
+fn collect_bound_closures<'a>(ast: &'a Ast, s: &'a Stmt, out: &mut HashMap<&'a str, &'a str>) {
+    match s {
+        Stmt::LetDecl {
+            name,
+            init,
+            mutable: false,
+            ..
+        } => {
+            if let Expr::Closure { fn_name, .. } = ast.get_expr(*init) {
+                out.insert(name.as_str(), fn_name.as_str());
+            }
+        }
+        Stmt::FnDecl { body, .. } => {
+            for b in body {
+                collect_bound_closures(ast, b, out);
+            }
+        }
+        _ => {}
+    }
+    for c in crate::ast::desugar_with::walk::stmt_children_ref(s) {
+        collect_bound_closures(ast, c, out);
+    }
+}
+
 impl crate::ssa_lower::LowerCtx<'_> {
     /// ②.6b — wrap an f64-faced `.then` / `.catch` handler in its
     /// synthesized bits-ABI adapter. The promise runtime invokes

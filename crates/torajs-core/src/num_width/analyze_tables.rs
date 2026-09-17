@@ -124,6 +124,54 @@ pub(super) fn collect_slot_registry(ast: &Ast) -> SlotRegistry {
     (fn_params, toplevel_lets, by_name, const_ints)
 }
 
+/// Rotation 664 — `name → lifted closure` for a callback argument
+/// spelled through an immutable binding (`const show = (v: number) =>
+/// …; p.then(show)` / `xs.forEach(show)`). The callback wirings resolve
+/// only a function declaration's name or a closure literal, so a value
+/// arriving through the promise or the element slot never reached the
+/// closure's parameter: the lifted function kept an integer face for
+/// `v` while the runtime handed it f64 bits (`1.5` printed `1`), and a
+/// fractional return landed in an integer result slot.
+///
+/// Keyed by name, so only a name bound exactly once in the whole
+/// program — one slot of any kind (`by_name`), no function of that
+/// name — resolves; anything else keeps today's unresolved answer.
+pub(super) fn collect_bound_closures(
+    ast: &Ast,
+    fn_params: &HashMap<String, Vec<String>>,
+    by_name: &HashMap<String, Vec<SlotKey>>,
+) -> HashMap<String, String> {
+    let mut out: HashMap<String, String> = HashMap::new();
+    let mut visit = |name: &str, decl: Option<&Stmt>| {
+        let Some(Stmt::LetDecl {
+            mutable: false,
+            is_var: false,
+            init,
+            ..
+        }) = decl
+        else {
+            return;
+        };
+        if let crate::ast::Expr::Closure { fn_name, .. } = ast.get_expr(*init)
+            && by_name.get(name).is_some_and(|slots| slots.len() == 1)
+            && !fn_params.contains_key(name)
+        {
+            out.insert(name.to_string(), fn_name.clone());
+        }
+    };
+    for stmt in &ast.stmts {
+        match stmt {
+            Stmt::FnDecl { body, .. } => {
+                for b in body {
+                    let_names::walk_bindings(b, &mut visit);
+                }
+            }
+            other => let_names::walk_bindings(other, &mut visit),
+        }
+    }
+    out
+}
+
 /// W4 shape-join (rotation 371) — same-shaped anonymous literals
 /// share one struct layout at lowering (resolve_objlit_layout's
 /// first-match scan admits F64-vs-I64 as coercible), so the LAYOUT
