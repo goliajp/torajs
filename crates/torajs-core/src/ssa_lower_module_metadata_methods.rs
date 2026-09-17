@@ -195,11 +195,22 @@ pub(crate) fn collect_own_class_methods(
 /// bodies with a synthesized boxed adapter survive — a synthesis
 /// dropout (>8 params / unboxable type) keeps the runtime miss an
 /// honest no-such TypeError.
+/// The per-body facts a method row carries into its `MethodMeta`
+/// flags word, each a set of the FuncIds that have it. A struct
+/// because there are two of them now and they are the same type:
+/// passing both positionally is a swap that compiles.
+pub(crate) struct MethodFidFacts<'a> {
+    /// S2.38 — the body never reads its receiver (flags bit 0).
+    pub this_free: &'a std::collections::HashSet<ssa::FuncId>,
+    /// K2b — the body reaches a private element (flags bit 3).
+    pub touches_private: &'a std::collections::HashSet<ssa::FuncId>,
+}
+
 pub(crate) fn resolve_class_methods(
     ast: &crate::ast::Ast,
     own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
-    this_free_fids: &std::collections::HashSet<ssa::FuncId>,
+    facts: &MethodFidFacts<'_>,
     cname: &str,
 ) -> Vec<ssa::MethodMetaSpec> {
     let mut out: Vec<ssa::MethodMetaSpec> = Vec::new();
@@ -247,13 +258,14 @@ pub(crate) fn resolve_class_methods(
                     out.push(ssa::MethodMetaSpec {
                         name: mname.clone(),
                         adapter_fid,
-                        this_free: this_free_fids.contains(&fid),
+                        this_free: facts.this_free.contains(&fid),
                         twin_adapter_fid: twin_fid
                             .and_then(|t| boxed_entries.get(&t).map(|&(a, _)| a)),
                         twin_primary: false,
                         // depth 0 is the class's own body list; every
                         // later hop is an ancestor's.
                         declared_here: depth == 0,
+                        touches_private: facts.touches_private.contains(&fid),
                     });
                 }
                 // Shadow even on adapter dropout — a child decl

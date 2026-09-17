@@ -274,6 +274,7 @@ fn parse_check(src: &str) -> ParseOutcome {
     ast::inject_builtin_classes(&mut a);
     ast::rewrite_class_expr_self_names(&mut a);
     ast::desugar_classes(&mut a);
+    ast::collect_private_touch_fns(&mut a);
     ast::materialize_expr_defaults(&mut a);
     ast::bind_this_param(&mut a);
     ast::rewrite_toplevel_this(&mut a);

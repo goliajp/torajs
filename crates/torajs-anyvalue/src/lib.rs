@@ -514,6 +514,10 @@ mod tests {
     pub unsafe extern "C" fn __torajs_class_unit_tag_of(_cell: *const c_void) -> i64 {
         -1
     }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_class_unit_of(_cell: *const c_void) -> u64 {
+        0
+    }
     // chunk B3c-1 — the Object statics the ns-static DISPATCH table
     // delegates to (torajs-meta / torajs-rc in the shipped binary).
     // The table is test-reachable, so `-dead_strip` keeps the module

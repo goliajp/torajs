@@ -87,7 +87,7 @@ unsafe extern "C" {
     /// cycle is by construction.
     fn __torajs_class_method_cell_new_unit(
         adapter: u64,
-        this_free: u64,
+        flags: u64,
         class_tag: u64,
         twin: u64,
         unit: u64,

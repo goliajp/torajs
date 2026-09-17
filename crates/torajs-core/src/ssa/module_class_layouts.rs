@@ -77,6 +77,15 @@ pub struct MethodMetaSpec {
     /// shadow that survives re-linking the chain. Baked as MethodMeta
     /// flags bit 2.
     pub declared_here: bool,
+    /// K2b (RFC 20260917-class-eval-unit) — this body reaches a
+    /// PRIVATE element. Baked as MethodMeta flags bit 3. Two
+    /// evaluations of one unit class share a tag and a layout, so one
+    /// evaluation's body run against the other's instance reads the
+    /// right offsets — right for a public member
+    /// (`C1.prototype.plain.call(c2)` must keep working) and a
+    /// §7.3.31 brand failure for a private one. The call-boundary
+    /// guard only has the face, so the answer travels with it.
+    pub touches_private: bool,
 }
 
 #[derive(Debug, Clone)]

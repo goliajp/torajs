@@ -946,6 +946,19 @@ pub struct Ast {
     /// lie. Sites kept off that expansion land on the runtime spread
     /// lane, which either carries the true count or rejects loudly.
     pub method_arguments_touch_fns: std::collections::HashSet<String>,
+    /// K2b (RFC 20260917-class-eval-unit) — the `__cm_` / `__sm_` /
+    /// `__new_` bodies that reach a PRIVATE element, by function name.
+    /// Baked into each method's `MethodMeta` flags (bit 3) so the
+    /// call-boundary guard can answer it from the face alone: two
+    /// evaluations of one unit class share a layout, so running one's
+    /// body against the other's instance is right for public members
+    /// and a §7.3.31 brand failure for private ones.
+    ///
+    /// Collected right after `desugar_classes` mints those FnDecls and
+    /// BEFORE `lift_arrow_fns` — after the lift, `m() { return (() =>
+    /// this.#x)() }` keeps its private access in a `__closure_N` the
+    /// method body no longer holds.
+    pub private_touch_fns: std::collections::HashSet<String>,
     /// The this-first bodies admitted to the direct-call runtime argv
     /// face (module doc in `arguments_object_this_first_argv`), each
     /// with its head width: 2 for a constructor (`__this`,

@@ -215,7 +215,18 @@ unsafe fn define_row(
                 (tag as u64, __torajs_struct_method_twin_at(layout, i) as u64)
             };
             let cell = if unit != 0 {
-                __torajs_class_method_cell_new_unit(adapter as u64, this_free, cell_tag, twin, unit)
+                // The unit face takes the whole flags word: bit 3
+                // (K2b — the body reaches a private element, baked by
+                // `cmd_build_ssa_string_registries`) rides with bit 0
+                // into the call-boundary guard. Read inline the way
+                // bit 2 is, a few lines up.
+                __torajs_class_method_cell_new_unit(
+                    adapter as u64,
+                    u64::from(flags),
+                    cell_tag,
+                    twin,
+                    unit,
+                )
             } else {
                 __torajs_class_method_cell_new(
                     adapter as u64,

@@ -128,6 +128,11 @@ pub(crate) fn populate_class_layouts(
         &all_class_names,
     );
     let this_free_fids = collect_this_free_fids(ast, module, &own_methods);
+    let touches_private_fids = collect_touches_private_fids(ast, module, &own_methods);
+    let facts = crate::ssa_lower_module_metadata_methods::MethodFidFacts {
+        this_free: &this_free_fids,
+        touches_private: &touches_private_fids,
+    };
     for (cname, _tag) in &class_names_by_tag {
         let sid = match module.struct_layouts.iter().enumerate().find_map(|(i, _)| {
             aliases.get(*cname).and_then(|t| match t {
@@ -152,7 +157,7 @@ pub(crate) fn populate_class_layouts(
                     fn_table,
                     boxed_entries,
                     &own_methods,
-                    &this_free_fids,
+                    &facts,
                     cname,
                 ));
                 continue;
@@ -189,7 +194,7 @@ pub(crate) fn populate_class_layouts(
                 ast,
                 &own_methods,
                 boxed_entries,
-                &this_free_fids,
+                &facts,
                 cname,
             ),
         });
@@ -211,7 +216,7 @@ pub(crate) fn populate_class_layouts(
                 fn_table,
                 boxed_entries,
                 &own_methods,
-                &this_free_fids,
+                &facts,
                 cname,
             );
             ((*cname).clone(), row.methods)
@@ -231,6 +236,32 @@ pub(crate) fn populate_class_layouts(
 /// S2.38 — the receiver-free / bare-call-safe verdict per `__cm_`
 /// body, extracted verbatim from [`populate_class_layouts`] under
 /// the 200-line function rule (404-01 pushed the walk over).
+/// K2b — the class-member FuncIds whose body reaches a private
+/// element. The AST pass `class_private_touch` answered this by
+/// function NAME while the arrows were still inline in the bodies;
+/// this maps that set onto the SSA FuncIds the method table carries,
+/// exactly as `collect_this_free_fids` maps its own by-name verdicts.
+fn collect_touches_private_fids(
+    ast: &crate::ast::Ast,
+    module: &ssa::Module,
+    own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
+) -> std::collections::HashSet<ssa::FuncId> {
+    own_methods
+        .values()
+        .flatten()
+        .map(|(_, fid, _)| *fid)
+        .filter(|fid| {
+            let name = module.funcs[fid.0 as usize].name.as_str();
+            // A generic method's mono carries a `$$<spec>` suffix the
+            // AST pass never saw.
+            ast.private_touch_fns.contains(name)
+                || name
+                    .split_once("$$")
+                    .is_some_and(|(base, _)| ast.private_touch_fns.contains(base))
+        })
+        .collect()
+}
+
 fn collect_this_free_fids(
     ast: &crate::ast::Ast,
     module: &Module,
@@ -338,14 +369,14 @@ fn generic_class_placeholder_row(
     fn_table: &HashMap<String, ssa::FuncId>,
     boxed_entries: &HashMap<ssa::FuncId, (ssa::FuncId, ssa::SigId)>,
     own_methods: &HashMap<String, Vec<(PropKey, ssa::FuncId, Option<ssa::FuncId>)>>,
-    this_free_fids: &std::collections::HashSet<ssa::FuncId>,
+    facts: &crate::ssa_lower_module_metadata_methods::MethodFidFacts<'_>,
     cname: &str,
 ) -> ClassLayoutMeta {
     let methods = crate::ssa_lower_module_metadata_methods::resolve_class_methods(
         ast,
         own_methods,
         boxed_entries,
-        this_free_fids,
+        facts,
         cname,
     );
     ClassLayoutMeta {

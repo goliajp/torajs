@@ -135,6 +135,38 @@ pub unsafe extern "C" fn __torajs_class_unit_wire(
     }
 }
 
+/// K2b — the class object held in `cell`'s hidden unit slot, or 0
+/// when `cell` is not an instance of a unit class. The guard at a
+/// method-call boundary compares this with the face's own unit: a
+/// face minted by one evaluation running against another
+/// evaluation's instance is a §7.3.31 brand failure for every
+/// private element it touches.
+///
+/// # Safety
+/// `cell` is NULL or a live heap cell.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_unit_of(cell: *const c_void) -> u64 {
+    if cell.is_null() {
+        return 0;
+    }
+    unsafe {
+        if heap_type_tag(cell) != crate::reflect::TAG_OBJ {
+            return 0;
+        }
+        let tag = i64::from(cell.cast::<u8>().add(8).cast::<u32>().read());
+        let off = unit_slot_off(tag);
+        if off == 0 {
+            return 0;
+        }
+        let class = cell.cast::<u8>().add(off as usize).cast::<u64>().read();
+        if is_cell_imm(class) && heap_type_tag(class as *const c_void) == TAG_DYNOBJ {
+            class
+        } else {
+            0
+        }
+    }
+}
+
 /// The tag a unit-class object records, or -1 for any other cell.
 ///
 /// # Safety

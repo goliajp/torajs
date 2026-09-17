@@ -166,10 +166,13 @@ pub(crate) fn build_class_layout_entries(ssa_module: &Module) -> Vec<UserClassLa
                     // Bit 0 = this-free (S2.38); bit 1 = twin-primary
                     // (404-01 — the adapter is recv-first-shaped);
                     // bit 2 = declared by this class rather than
-                    // inherited (508-03 — gates the own-entry reify).
+                    // inherited (508-03 — gates the own-entry reify);
+                    // bit 3 = the body reaches a private element (K2b
+                    // — gates the unit face's call-boundary guard).
                     flags: u32::from(mm.this_free)
                         | (u32::from(mm.twin_primary) << 1)
-                        | (u32::from(mm.declared_here) << 2),
+                        | (u32::from(mm.declared_here) << 2)
+                        | (u32::from(mm.touches_private) << 3),
                     twin_fn_id: mm.twin_adapter_fid.map(|f| f.0),
                 })
                 .collect(),

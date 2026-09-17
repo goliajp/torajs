@@ -72,7 +72,12 @@ const CLS_CELL_NAME_OFF: usize = 72;
 /// 20260917-class-eval-unit), 0 on every immortal one-per-class face.
 /// Non-zero is what makes the cell mortal and traceable.
 const CLS_CELL_UNIT_OFF: usize = 80;
-const CELL_SIZE: usize = 88;
+/// K2b — non-zero when the body of the method this face names reaches
+/// a PRIVATE element (`MethodMeta` flags bit 3). Only a unit face
+/// carries it; it is what makes a cross-evaluation call a §7.3.31
+/// brand failure rather than a legal call on a same-layout receiver.
+const CLS_CELL_PRIV_OFF: usize = 88;
+const CELL_SIZE: usize = 96;
 /// The closure trace hook a mortal unit face installs (mirror of
 /// torajs-cycle `CLOSURE_TRACE_FN_OFF`); 0 on every other face.
 const CLOSURE_TRACE_FN_OFF: usize = 40;
@@ -131,6 +136,7 @@ pub extern "C" fn __torajs_class_method_cell_new(
             twin,
             name,
             unit: 0,
+            touches_private: false,
         })
     }
 }
@@ -146,7 +152,10 @@ pub extern "C" fn __torajs_class_method_cell_new(
 /// class), which is exactly why the trace hook is not optional.
 ///
 /// `unit` is the class object's cell pointer, carrying a `+1` this
-/// cell owns.
+/// cell owns. `flags` is the row's whole `MethodMeta` flags word (the
+/// immortal twin takes just the this-free bit, since its two call
+/// sites have nothing else): bit 0 is this-free, bit 3 says the body
+/// reaches a private element.
 ///
 /// # Safety
 /// `unit` is a live heap cell pointer (never 0 — a 0 unit would mint
@@ -154,7 +163,7 @@ pub extern "C" fn __torajs_class_method_cell_new(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_class_method_cell_new_unit(
     adapter: u64,
-    this_free: u64,
+    flags: u64,
     class_tag: u64,
     twin: u64,
     unit: u64,
@@ -163,11 +172,12 @@ pub unsafe extern "C" fn __torajs_class_method_cell_new_unit(
     unsafe {
         mint(MethodCellSpec {
             adapter,
-            this_free,
+            this_free: flags & 1,
             class_tag,
             twin,
             name: core::ptr::null_mut(),
             unit,
+            touches_private: flags & 8 != 0,
         })
     }
 }
@@ -182,6 +192,7 @@ struct MethodCellSpec {
     twin: u64,
     name: *mut u8,
     unit: u64,
+    touches_private: bool,
 }
 
 /// Mint one reified class-method function object. Immortal when
@@ -224,6 +235,7 @@ unsafe fn mint(spec: MethodCellSpec) -> *mut u8 {
         *(cell.add(CLS_CELL_TWIN_OFF) as *mut u64) = spec.twin;
         *(cell.add(CLS_CELL_NAME_OFF) as *mut u64) = spec.name as u64;
         *(cell.add(CLS_CELL_UNIT_OFF) as *mut u64) = spec.unit;
+        *(cell.add(CLS_CELL_PRIV_OFF) as *mut u64) = u64::from(spec.touches_private);
         cell
     }
 }
@@ -299,6 +311,32 @@ pub(crate) unsafe fn class_method_face_guard(ptr: *mut c_void) -> (u64, u64) {
             *(ptr.cast::<u8>().add(CLS_CELL_TAG_OFF) as *const u64),
             *(ptr.cast::<u8>().add(CLS_CELL_TWIN_OFF) as *const u64),
         )
+    }
+}
+
+/// K2b — a unit face's `(evaluation's class object, the body reaches
+/// a private element)` pair, or `None` for every other cell. The
+/// sentinel check is the same load-bearing one
+/// [`class_method_face_guard`] documents: an ACCESSOR face's cell uses
+/// these very words for other things, and its block is shorter.
+///
+/// # Safety
+/// `ptr` points at a live `Tag::Closure` heap cell.
+pub(crate) unsafe fn class_method_face_unit(ptr: *mut c_void) -> Option<(u64, bool)> {
+    unsafe {
+        if *(ptr.cast::<u8>().add(CLOSURE_BOXED_ENTRY_OFF) as *const u64)
+            != class_bare_entry as *const () as u64
+        {
+            return None;
+        }
+        let unit = *(ptr.cast::<u8>().add(CLS_CELL_UNIT_OFF) as *const u64);
+        if unit == 0 {
+            return None;
+        }
+        Some((
+            unit,
+            *(ptr.cast::<u8>().add(CLS_CELL_PRIV_OFF) as *const u64) != 0,
+        ))
     }
 }
 

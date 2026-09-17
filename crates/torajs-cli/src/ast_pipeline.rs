@@ -338,6 +338,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // same-named class declared outside.
     ast::rewrite_class_expr_self_names(ast);
     ast::desugar_classes(ast);
+    // K2b — which member bodies reach a private element, asked while
+    // the arrows are still inline in them (`lift_arrow_fns` below
+    // hoists every one out).
+    ast::collect_private_touch_fns(ast);
     // Object-literal method [[HomeObject]] super sites — right after
     // the class pass has consumed the markers it owns.
     ast::desugar_objlit_super(ast);
