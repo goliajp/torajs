@@ -139,3 +139,32 @@ pub unsafe extern "C" fn __torajs_promise_subclass_super(this_av: u64, ex_av: u6
         this_av
     }
 }
+
+/// `new Promise(executor)` through a first-class constructor value
+/// (§27.2.3.1, `method_value::ctor::ctor_construct` tag 10) — step
+/// 2's IsCallable before the mint of step 3 (test262
+/// `get-prototype-abrupt-executor-not-callable`), then the resolving
+/// functions and the executor over a fresh base promise, exactly the
+/// subclass `super(executor)` runs. Answers the owned instance, or
+/// undefined with the TypeError pending.
+///
+/// # Safety
+/// `ex_av` is a live AnyValue.
+pub(crate) unsafe fn promise_base_construct(ex_av: u64) -> u64 {
+    unsafe {
+        if !crate::promise_capability::is_callable(ex_av) {
+            __torajs_throw_type_error(c"Promise executor must be a function".as_ptr());
+            return crate::nanbox::VALUE_UNDEFINED;
+        }
+        let p = __torajs_promise_alloc_pending();
+        p.cast::<u8>().add(P_REPR_OFF).write(REPR_ANY);
+        p.cast::<u8>().add(P_IS_HEAP_OFF).write(1);
+        let this_av = __torajs_anyv_box_from_pair(ANY_HEAP, p as i64);
+        // The super kernel answers a second owned reference (its
+        // statement-position convention); a construct hands out the
+        // mint's own.
+        let out = __torajs_promise_subclass_super(this_av, ex_av);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+        this_av
+    }
+}

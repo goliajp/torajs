@@ -25,7 +25,8 @@ unsafe extern "C" {
 /// semantics per spec; Date covers the zero-arg (now) and one-number
 /// (ms) mints; the four collections mint fresh cells and seed them
 /// from the optional iterable (§24.1.1.1 / §24.2.1.1 / §24.3.1.1 /
-/// §24.4.1.1); WeakRef is §26.1.1.1; Symbol and BigInt throw the
+/// §24.4.1.1); WeakRef is §26.1.1.1; Promise is §27.2.3.1 over the
+/// subclass `super(executor)` kernel; Symbol and BigInt throw the
 /// TypeError their own step 1 prescribes for a `new`. Everything else
 /// keeps the loud TypeError.
 pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u64 {
@@ -113,6 +114,9 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
             12 => seed_collection(__torajs_set_create(), COLLECTION_SET, argc, arg0()),
             16 => seed_collection(__torajs_weakmap_create(), COLLECTION_WEAKMAP, argc, arg0()),
             17 => seed_collection(__torajs_weakset_create(), COLLECTION_WEAKSET, argc, arg0()),
+            // §27.2.3.1 — executor first, then the mint
+            // (`promise_subclass::promise_base_construct`).
+            10 => crate::promise_subclass::promise_base_construct(arg0()),
             // §20.4.1 / §21.2.1 — both carry [[Construct]] (a class may
             // extend them) and both throw when NewTarget is not
             // undefined, which `new` always makes it.
