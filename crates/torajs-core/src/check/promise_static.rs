@@ -54,10 +54,30 @@ impl Checker {
             }
             return Some(Ok(Type::Any));
         }
+        // §27.2.4.6 — a rejected promise never fulfils, so its T is
+        // unconstrained by the reason: TS types this
+        // `Promise.reject<T = never>(reason?: any): Promise<T>`, and
+        // the reason's own type says nothing about T. Reading T off
+        // the argument (which `resolve` must do) made
+        // `const p: Promise<number> = Promise.reject(new Error("x"))`
+        // a type error. This lattice has no `never`, but `Any` plays
+        // bottom at every assignment site (`check_assignable` answers
+        // true for a `from` of Any before anything else) and `Promise`
+        // is covariant there, so `Promise<Any>` is assignable to every
+        // `Promise<T>` — the role `never` fills.
+        //
+        // The argument is still typechecked below for its own errors.
+        if m_name == "reject" {
+            for &arg in args {
+                if let Err(e) = self.type_of(ast, arg) {
+                    return Some(Err(e));
+                }
+            }
+            return Some(Ok(Type::Promise(Box::new(Type::Any))));
+        }
         // P10.2-A1 — 0-arg form: `Promise.resolve()` ≡
-        // `Promise.resolve(undefined)` per ES spec
-        // §27.2.4.6 (Promise.reject() symmetrically
-        // rejects with undefined). Inner T = Undefined.
+        // `Promise.resolve(undefined)` per ES spec §27.2.4.6. Inner
+        // T = Undefined.
         if args.is_empty() {
             return Some(Ok(Type::Promise(Box::new(Type::Undefined))));
         }
@@ -116,28 +136,6 @@ impl Checker {
             // runtime side is the existing heap adopt path — this
             // whitelist was the only gate.
             Type::ClassRef(_) => arg_ty.clone(),
-            // P10.5-A2 — `Promise.reject` accepts Type::Any so the
-            // async-fn body try/catch wrapper (desugar_async, P10.5-A1)
-            // can shadow `__async_err` as spec-correct `any` per ES
-            // §27.7.3.6 AsyncFunctionBody. Return type contextually
-            // unifies with the enclosing fn's expected `Promise<T>`
-            // (caller sees a Promise of the declared T; reject's
-            // reason has no static type since it's the rejection
-            // pathway). Standalone `Promise.reject(<any>)` outside a
-            // typed context surfaces as `Promise<Any>`.
-            //
-            // Runtime path is the existing heap variant
-            // (`__torajs_promise_alloc_rejected_heap`), since Any
-            // lowers to an opaque pointer at SSA (24-byte boxed-any
-            // heap struct via `__torajs_any_box`). Drop dispatches
-            // universally via `__torajs_value_drop_heap` reading the
-            // box's heap header. `Promise.resolve(any)` is
-            // intentionally still rejected — unblock target is the
-            // catch-side flow only.
-            Type::Any if m_name == "reject" => match &self.expected_return {
-                Some(Type::Promise(t)) => (**t).clone(),
-                _ => Type::Any,
-            },
             // P10.7 — `Promise.resolve(<any>)` lands a `Promise<any>`
             // wrapping the original value. Default-Any async fns
             // (`async function foo() { return e }`) desugar to

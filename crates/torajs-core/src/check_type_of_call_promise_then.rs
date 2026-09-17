@@ -180,8 +180,15 @@ fn try_then_two_arg(
                 // satisfy the `(T) => T` signature the table fixes.
                 // The `(T) => T` case still lands here and still
                 // answers Promise<T>, so nothing it admitted moves.
+                // A `Promise<any>` receiver puts no bound on the
+                // handler's parameter either: `any` is this lattice's
+                // both-ways type, and TS admits
+                // `(p as Promise<any>).then((v: string) => …)`. The
+                // shape reaches here off `Promise.reject(x)`, whose T
+                // is unconstrained by the reason (§27.2.4.6).
                 if let Type::Function(params, ret) = &aty
-                    && (params.is_empty() || (params.len() == 1 && params[0] == inner_ty))
+                    && (params.is_empty()
+                        || (params.len() == 1 && (params[0] == inner_ty || inner_ty == Type::Any)))
                 {
                     if i == 0 {
                         result_inner = match &**ret {
