@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T17:00:59.631Z",
+  "generatedAt": "2026-09-17T23:14:07.552Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-17T16:49:32Z",
-    "headSha": "9faf87b04b714264d577d8cd1eb790b1f92b41fe",
-    "elapsedSec": 536.82,
+    "ranAt": "2026-09-17T23:02:50Z",
+    "headSha": "5c8d479170cbc51df9af2a14d3da6d7a266edf9f",
+    "elapsedSec": 535.15,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34189,
+    "pass": 34192,
     "passNoOracle": 1705,
     "passNegative": 4568,
-    "passTotal": 40462,
-    "bug": 8644,
-    "incompatible": 4068,
+    "passTotal": 40465,
+    "bug": 8642,
+    "incompatible": 4067,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49106,
-    "passRateInScope": 76.09,
+    "trAccepted": 49107,
+    "passRateInScope": 76.1,
     "passRateTrAccepted": 82.4
   },
   "torajs": {
-    "commit": "3f6d19249",
-    "commitSubject": "chore(hardev): rotation 664 sweep stamp @9faf87b04",
+    "commit": "cb4f11f21",
+    "commitSubject": "chore(hardev): rotation 665 close stamps — sweep @5c8d47917 (passTotal 40465, +3, 0 regressions), determinism 46/46 N=12, gmalloc 3805/3810 clean 0 offenders",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "3f6d19249",
-      "subject": "chore(hardev): rotation 664 sweep stamp @9faf87b04"
+      "hash": "cb4f11f21",
+      "subject": "chore(hardev): rotation 665 close stamps — sweep @5c8d47917 (passTotal 40465, +3, 0 regressions), determinism 46/46 N=12, gmalloc 3805/3810 clean 0 offenders"
     },
     {
-      "hash": "9faf87b04",
-      "subject": "feat: a unit class's private methods and accessors belong to one evaluation"
+      "hash": "5c8d47917",
+      "subject": "feat: a class with private fields is a unit class too"
     },
     {
-      "hash": "19a9f8139",
-      "subject": "feat: a class declared in a function or loop body is a new class on every evaluation"
+      "hash": "9bc0525eb",
+      "subject": "feat: a unit class's method refuses a receiver from another evaluation"
     },
     {
-      "hash": "f494c0e4f",
-      "subject": "fix: a typed promise chain accepts an asserted receiver"
+      "hash": "ad9f87584",
+      "subject": "refactor: split the class-constructor borrowed builtins out of method_value_class"
     },
     {
-      "hash": "09fef688f",
-      "subject": "fix: a callback named through a closure binding keeps its f64 faces"
+      "hash": "d7ba9b6fc",
+      "subject": "fix: a private element is not reported by any reflection face"
     },
     {
-      "hash": "1a359df17",
-      "subject": "fix: typed promise chains settle the call site's reference on each handler"
+      "hash": "6a9a23ec2",
+      "subject": "fix: an array literal's repr check looks inside a Promise too"
     },
     {
-      "hash": "661c02ae3",
-      "subject": "fix: private fields are not properties to any enumeration face"
+      "hash": "5380ffec2",
+      "subject": "fix: Promise.reject's T is unconstrained by the rejection reason"
     },
     {
-      "hash": "5f8e4a719",
-      "subject": "fix: the lowering accepts the TS spellings of WeakRef / WeakMap / WeakSet annotations"
+      "hash": "8cb903455",
+      "subject": "feat: each evaluation of a unit class gets its own method function objects"
     },
     {
-      "hash": "ce47aae1b",
-      "subject": "fix: WeakRef keeps its target alive to the end of the job (§9.10)"
+      "hash": "b423ecbd9",
+      "subject": "refactor: split the class-accessor face out of method_value_class"
     },
     {
-      "hash": "5fa894354",
-      "subject": "refactor: one runtime kernel answers a struct instance's class prototype"
+      "hash": "fd5daf4bd",
+      "subject": "chore(hardev): rotation 664 file-size stamp on the final HEAD"
     },
     {
-      "hash": "dfd7cde30",
-      "subject": "fix: new Promise with a non-callable executor throws a catchable TypeError"
+      "hash": "75c23e95e",
+      "subject": "chore(hardev): rotation 664 dashboard snapshot"
     },
     {
-      "hash": "3378ade46",
-      "subject": "fix: push on a comma receiver whose value is a borrowed place"
+      "hash": "ed4568a5b",
+      "subject": "chore(hardev): rotation 664 close stamps — determinism 46/46 N=12, gmalloc 3801/3805 clean (4 too heavy, 0 offenders), dashboard snapshot"
     }
   ],
-  "headSha": "3f6d19249",
+  "headSha": "cb4f11f21",
   "autorun": {
-    "total": 967,
+    "total": 968,
     "baselineTarget": 10,
-    "bySelf": 962,
+    "bySelf": 963,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789638418-2981",
-      "at": "2026-09-17T09:46:58Z",
-      "ts": 1789638418,
+      "rotationId": "r-1789664530-7a27",
+      "at": "2026-09-17T17:02:10Z",
+      "ts": 1789664530,
       "trigger": "self",
-      "prevHead": "158c45f6b",
-      "handoffSha": "sha256:a92ae23e5769b7db5429d903ecf80cfc17754128ea768f1eca91b0c4ed7b308b",
-      "handoffAgeSec": 8,
-      "conformanceBefore": "4271/0/4",
-      "commitsInSession": 15
+      "prevHead": "fd5daf4bd",
+      "handoffSha": "sha256:834be026e99a395ba6cec5c6e6db01c03515950574a096a6cfb5b186606b5531",
+      "handoffAgeSec": 33,
+      "conformanceBefore": "4283/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789664530-7a27",
+        "at": "2026-09-17T17:02:10Z",
+        "ts": 1789664530,
+        "trigger": "self",
+        "prevHead": "fd5daf4bd",
+        "handoffSha": "sha256:834be026e99a395ba6cec5c6e6db01c03515950574a096a6cfb5b186606b5531",
+        "handoffAgeSec": 33,
+        "conformanceBefore": "4283/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789638418-2981",
         "at": "2026-09-17T09:46:58Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 5,
         "conformanceBefore": "4200/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789481385-09ae",
-        "at": "2026-09-15T14:09:45Z",
-        "ts": 1789481385,
-        "trigger": "self",
-        "prevHead": "95ae528d0",
-        "handoffSha": "sha256:72c780ac0869e0451e970e771f7079b9ea5487f60bfef392bec2f7e260fc2a12",
-        "handoffAgeSec": 21,
-        "conformanceBefore": "4190/0/4",
-        "commitsInSession": 12
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
