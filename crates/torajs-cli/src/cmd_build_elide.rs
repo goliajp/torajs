@@ -10,7 +10,7 @@
 //!
 //! | call | fed only by | guard member |
 //! |---|---|---|
-//! | `__torajs_microtask_run_until_idle` | `__torajs_microtask_enqueue` | `torajs_microtask-` |
+//! | `__torajs_host_jobs_run_until_idle` | `__torajs_microtask_enqueue` / `__torajs_host_job_drain_install` | `torajs_microtask-` |
 //! | `__torajs_main_exit_code` (unhandled-rejection sweep) | a promise cell being rejected | `torajs_promise-` |
 //! | `__torajs_cycle_at_exit_drain` | `__torajs_cycle_buffer` (a cyclic-shape rc_dec) | `torajs_cycle-` |
 //!
@@ -103,7 +103,7 @@ const RET: u32 = 0xD65F_03C0;
 /// word).
 const SITES: [(&str, &str, &[&str], u32); 3] = [
     (
-        "___torajs_microtask_run_until_idle",
+        "___torajs_host_jobs_run_until_idle",
         "torajs_microtask-",
         &[],
         NOP,
@@ -334,7 +334,7 @@ mod tests {
                 USER_MAIN_SYM,
                 &[
                     "___torajs_print_i64",
-                    "___torajs_microtask_run_until_idle",
+                    "___torajs_host_jobs_run_until_idle",
                     "___torajs_main_exit_code",
                     "___torajs_cycle_at_exit_drain",
                 ],
