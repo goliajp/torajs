@@ -9,14 +9,32 @@ use core::ffi::c_void;
 use crate::reflect::PROTO_SLOT_KEY;
 use crate::str_wtf8::StrWtf8;
 
-/// `true` iff the live key spells exactly [`PROTO_SLOT_KEY`] (the
-/// [[Prototype]]-slot simulation key hidden from own-keys walks).
-pub(crate) unsafe fn key_is_proto_slot(key: *const c_void) -> bool {
+/// `true` iff the live key is one an own-keys walk must not report.
+/// Two kinds:
+///
+/// - the runtime's internal slots — the [[Prototype]]-slot simulation
+///   key [`PROTO_SLOT_KEY`] and a unit-class object's tag record
+///   (`classmeta::unit::UNIT_RECORD_KEY`). Both start with NUL, so no
+///   program can spell them;
+/// - a PRIVATE element's mangled row (`__priv_<C>__<x>`). §7.3 keeps
+///   private elements off every reflection face: they are not
+///   properties. tr reifies a private method or accessor as an own
+///   entry of the class prototype (and a static private member as one
+///   of the class object), which is how its brand and its per-
+///   evaluation identity are resolved — so the entry stays and the
+///   walks skip it. `Object.getOwnPropertyNames(C.prototype)` answered
+///   `["constructor", "__priv_C__m", "pub"]` where bun answers
+///   `["constructor", "pub"]`, and a `static #x` even came out
+///   enumerable, so `{...C}` carried it.
+///
+/// The private-field ROWS of an instance are a different walk and were
+/// already filtered (`struct_enum_order::is_private_row`).
+pub(crate) unsafe fn key_is_hidden_own(key: *const c_void) -> bool {
     let s = unsafe { StrWtf8::of(key) };
     let bytes = s.as_bytes();
-    // A unit-class object's tag record is the same kind of internal
-    // slot (`classmeta::unit::UNIT_RECORD_KEY`).
-    bytes == PROTO_SLOT_KEY || bytes == crate::classmeta::UNIT_RECORD_KEY
+    bytes == PROTO_SLOT_KEY
+        || bytes == crate::classmeta::UNIT_RECORD_KEY
+        || bytes.starts_with(b"__priv_")
 }
 
 /// Equality of a live key's spelling against a fixed name.

@@ -26,7 +26,7 @@
 use core::ffi::c_void;
 
 use crate::obj_own_keys::FLAG_ENUMERABLE;
-use crate::obj_own_keys_key_shape::{key_canonical_index, key_is_proto_slot};
+use crate::obj_own_keys_key_shape::{key_canonical_index, key_is_hidden_own};
 
 use crate::classmeta::computed_fields::{BEFORE_EVERY_ROW, ComputedField, computed_fields, key_eq};
 
@@ -189,7 +189,7 @@ pub(crate) unsafe fn for_each_enumerable_expando(
             continue;
         }
         let key = unsafe { __torajs_dynobj_iter_key(props, i) };
-        if key.is_null() || unsafe { key_is_proto_slot(key) } {
+        if key.is_null() || unsafe { key_is_hidden_own(key) } {
             continue;
         }
         // RFC 20260806-declared-field-redefine — a declared name in
@@ -238,7 +238,7 @@ pub(crate) unsafe fn struct_keys_with_expandos(
             }
         }
         let key = unsafe { __torajs_dynobj_iter_key(props, i) };
-        if key.is_null() || unsafe { key_is_proto_slot(key) } {
+        if key.is_null() || unsafe { key_is_hidden_own(key) } {
             continue;
         }
         // A declared name in the dict is the field's attribute

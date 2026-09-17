@@ -24,7 +24,7 @@ use crate::obj_own_keys_proto_names::push_synthesized_proto_names;
 // The key-shape predicates moved to a sibling for the file-size cap;
 // re-exported so every `crate::obj_own_keys::` consumer face (for-in,
 // values/entries) stays unchanged.
-pub(crate) use crate::obj_own_keys_key_shape::key_is_proto_slot;
+pub(crate) use crate::obj_own_keys_key_shape::key_is_hidden_own;
 
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
@@ -138,7 +138,7 @@ pub(crate) unsafe fn dynobj_keys_append(
         // face; this filter is the gOPN (include_nonenum) face's
         // gate. A user's own `__proto__` DATA entry (shorthand
         // `{__proto__}`) is a real own property and passes through.
-        if unsafe { key_is_proto_slot(key) } {
+        if unsafe { key_is_hidden_own(key) } {
             continue;
         }
         // Borrowed key → the array slot takes its own share.

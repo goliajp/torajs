@@ -29,7 +29,7 @@ use super::*;
 /// evaluation's class object cannot answer through the by-tag registry
 /// (printing, `toString`, `new v()`). Non-enumerable, non-writable,
 /// non-configurable, and hidden from every own-key walk the way the
-/// `\0proto` slot is (`obj_own_keys_key_shape::key_is_internal_slot`).
+/// `\0proto` slot is (`obj_own_keys_key_shape::key_is_hidden_own`).
 pub(crate) const UNIT_RECORD_KEY: &[u8] = b"\x00unit";
 const UNIT_RECORD_ATTRS: u64 = (1 << 3) | (1 << 4) | (1 << 5) | (1 << 6);
 const ANY_I64: u64 = 2;

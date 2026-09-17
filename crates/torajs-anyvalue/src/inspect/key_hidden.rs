@@ -69,9 +69,20 @@ pub unsafe extern "C" fn __torajs_key_cell_inspect_hidden(
     let spelling = unsafe { StrWtf8::of(key) };
     let bytes = spelling.as_bytes();
     // `constructor` always; `\0proto` is the runtime's own
-    // [[Prototype]] slot (`member_get_own::PROTO_SLOT_KEY`), never a
-    // property the program can see.
-    if bytes == b"constructor" || bytes == b"\x00proto" {
+    // [[Prototype]] slot (`member_get_own::PROTO_SLOT_KEY`) and
+    // `\0unit` a unit class object's tag record, never properties the
+    // program can see. A `__priv_` row is a PRIVATE element: §7.3
+    // keeps those off every reflection face, and inspect is one
+    // (`console.log(new C())` printed `__priv_C__m` next to the real
+    // methods). torajs-meta's own-keys walks answer a DIFFERENT
+    // question at `obj_own_keys_key_shape::key_is_hidden_own` (it
+    // reports `constructor`, inspect does not) and this crate cannot
+    // reach it anyway — torajs-meta depends on torajs-anyvalue.
+    if bytes == b"constructor"
+        || bytes == b"\x00proto"
+        || bytes == b"\x00unit"
+        || bytes.starts_with(b"__priv_")
+    {
         return 1;
     }
     (bytes == b"__proto__" && !dont_enum_only && (slow != 0 || flags & FLAG_ENUMERABLE == 0)) as i32

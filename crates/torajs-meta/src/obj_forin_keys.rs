@@ -8,7 +8,7 @@ use core::ffi::c_void;
 
 use crate::obj_own_keys::{
     __torajs_anyv_own_keys, ARR_DATA_PTR_OFF, ARR_LEN_OFF, FLAG_ENUMERABLE, TAG_DYNOBJ,
-    TAG_OBJ_CELL, heap_type_tag_local, is_dynobj_imm, key_is_proto_slot,
+    TAG_OBJ_CELL, heap_type_tag_local, is_dynobj_imm, key_is_hidden_own,
 };
 
 unsafe extern "C" {
@@ -75,7 +75,7 @@ unsafe fn forin_visit_dynobj(
     let n = unsafe { __torajs_dynobj_iter_order(level, order.as_mut_ptr(), len) };
     for &i in order.iter().take(n as usize) {
         let key = unsafe { __torajs_dynobj_iter_key(level, i) };
-        if key.is_null() || unsafe { key_is_proto_slot(key) } {
+        if key.is_null() || unsafe { key_is_hidden_own(key) } {
             continue;
         }
         if yield_keys
