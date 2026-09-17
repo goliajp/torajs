@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T09:45:45.208Z",
+  "generatedAt": "2026-09-17T17:00:59.631Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-17T09:35:19Z",
-    "headSha": "4d28a7d0f5f40b44c85dda2a8f71fe112a45dddd",
-    "elapsedSec": 537.44,
+    "ranAt": "2026-09-17T16:49:32Z",
+    "headSha": "9faf87b04b714264d577d8cd1eb790b1f92b41fe",
+    "elapsedSec": 536.82,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34163,
-    "passNoOracle": 1700,
+    "pass": 34189,
+    "passNoOracle": 1705,
     "passNegative": 4568,
-    "passTotal": 40431,
-    "bug": 8675,
+    "passTotal": 40462,
+    "bug": 8644,
     "incompatible": 4068,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49106,
-    "passRateInScope": 76.04,
-    "passRateTrAccepted": 82.33
+    "passRateInScope": 76.09,
+    "passRateTrAccepted": 82.4
   },
   "torajs": {
-    "commit": "adb6b7a4c",
-    "commitSubject": "chore(hardev): rotation 663 sweep stamp @4d28a7d0f",
+    "commit": "3f6d19249",
+    "commitSubject": "chore(hardev): rotation 664 sweep stamp @9faf87b04",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "adb6b7a4c",
-      "subject": "chore(hardev): rotation 663 sweep stamp @4d28a7d0f"
+      "hash": "3f6d19249",
+      "subject": "chore(hardev): rotation 664 sweep stamp @9faf87b04"
     },
     {
-      "hash": "4d28a7d0f",
-      "subject": "fix: new WeakRef checks CanBeHeldWeakly"
+      "hash": "9faf87b04",
+      "subject": "feat: a unit class's private methods and accessors belong to one evaluation"
     },
     {
-      "hash": "d9bc4541e",
-      "subject": "fix(torajs-anyvalue): the collection constructors close their iterator with the throw stashed"
+      "hash": "19a9f8139",
+      "subject": "feat: a class declared in a function or loop body is a new class on every evaluation"
     },
     {
-      "hash": "9bb4fd83a",
-      "subject": "feat: WeakRef and FinalizationRegistry are subclassable"
+      "hash": "f494c0e4f",
+      "subject": "fix: a typed promise chain accepts an asserted receiver"
     },
     {
-      "hash": "4c4a84b0a",
-      "subject": "fix(torajs-anyvalue): a callable Proxy is a valid FinalizationRegistry callback"
+      "hash": "09fef688f",
+      "subject": "fix: a callback named through a closure binding keeps its f64 faces"
     },
     {
-      "hash": "35e85360e",
-      "subject": "style(torajs-cycle): rustfmt the FinalizationRegistry walk mirror"
+      "hash": "1a359df17",
+      "subject": "fix: typed promise chains settle the call site's reference on each handler"
     },
     {
-      "hash": "03b974493",
-      "subject": "fix(torajs-core): an unannotated binding's initializer closures may read it"
+      "hash": "661c02ae3",
+      "subject": "fix: private fields are not properties to any enumeration face"
     },
     {
-      "hash": "e101b811d",
-      "subject": "fix: an update expression whose ToNumeric throws completes abruptly"
+      "hash": "5f8e4a719",
+      "subject": "fix: the lowering accepts the TS spellings of WeakRef / WeakMap / WeakSet annotations"
     },
     {
-      "hash": "632c976f2",
-      "subject": "fix(torajs-cli): the exit checkpoint's drain stays elidable after its rename"
+      "hash": "ce47aae1b",
+      "subject": "fix: WeakRef keeps its target alive to the end of the job (§9.10)"
     },
     {
-      "hash": "94fcc0485",
-      "subject": "feat: FinalizationRegistry cleanup jobs at the exit checkpoint"
+      "hash": "5fa894354",
+      "subject": "refactor: one runtime kernel answers a struct instance's class prototype"
     },
     {
-      "hash": "c364ac0aa",
-      "subject": "feat: FinalizationRegistry.prototype.register / unregister"
+      "hash": "dfd7cde30",
+      "subject": "fix: new Promise with a non-callable executor throws a catchable TypeError"
     },
     {
-      "hash": "3ea6a4714",
-      "subject": "feat: FinalizationRegistry constructor and prototype (slot 39)"
+      "hash": "3378ade46",
+      "subject": "fix: push on a comma receiver whose value is a borrowed place"
     }
   ],
-  "headSha": "adb6b7a4c",
+  "headSha": "3f6d19249",
   "autorun": {
-    "total": 966,
+    "total": 967,
     "baselineTarget": 10,
-    "bySelf": 961,
+    "bySelf": 962,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789628106-04dc",
-      "at": "2026-09-17T06:55:06Z",
-      "ts": 1789628106,
+      "rotationId": "r-1789638418-2981",
+      "at": "2026-09-17T09:46:58Z",
+      "ts": 1789638418,
       "trigger": "self",
-      "prevHead": "ea8753f30",
-      "handoffSha": "sha256:f9d3459d334192dfb120bad7f96d1ec02b8c2442f9f7a3104c9c8bb9f53c98ea",
-      "handoffAgeSec": 1,
-      "conformanceBefore": "4264/0/4",
-      "commitsInSession": 18
+      "prevHead": "158c45f6b",
+      "handoffSha": "sha256:a92ae23e5769b7db5429d903ecf80cfc17754128ea768f1eca91b0c4ed7b308b",
+      "handoffAgeSec": 8,
+      "conformanceBefore": "4271/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789638418-2981",
+        "at": "2026-09-17T09:46:58Z",
+        "ts": 1789638418,
+        "trigger": "self",
+        "prevHead": "158c45f6b",
+        "handoffSha": "sha256:a92ae23e5769b7db5429d903ecf80cfc17754128ea768f1eca91b0c4ed7b308b",
+        "handoffAgeSec": 8,
+        "conformanceBefore": "4271/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789628106-04dc",
         "at": "2026-09-17T06:55:06Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 21,
         "conformanceBefore": "4190/0/4",
         "commitsInSession": 12
-      },
-      {
-        "rotationId": "r-1789465789-2602",
-        "at": "2026-09-15T09:49:49Z",
-        "ts": 1789465789,
-        "trigger": "self",
-        "prevHead": "3d8359c57",
-        "handoffSha": "sha256:f1367acd3333c7e767f00e183fb024bdd377cd14f4de03f1adb7c7e65fe7ea9d",
-        "handoffAgeSec": 13,
-        "conformanceBefore": "4180/0/4",
-        "commitsInSession": 8
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
