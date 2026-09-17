@@ -130,4 +130,9 @@ pub enum Tag {
     /// `value_anyv` cell and seen through by the dynobj kernels
     /// (the AccessorPair model, resolved by this tag).
     GlobalCell = 30,
+    /// `FinalizationRegistry` (§26.2) — `{ header:8 | cleanup:8
+    /// (AnyValue) | cells:8 | len/cap:8 | props:8 | pending:8 |
+    /// head/len:8 | cap/queued:8 | queue_next:8 }` (72 B). Substrate
+    /// in `torajs-weak::finreg` (RFC 20260917-finalization-registry K1).
+    FinalizationRegistry = 31,
 }

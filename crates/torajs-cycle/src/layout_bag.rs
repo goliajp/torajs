@@ -50,6 +50,8 @@ pub fn bag_only_props_off(type_tag: u16) -> Option<usize> {
         TAG_MAP | TAG_SET => 48,
         // torajs-anyvalue `iter_helper::PROPS_OFF`.
         TAG_ITER_HELPER => 56,
+        // torajs-weak `finreg::FINREG_PROPS_OFF`.
+        crate::finreg::TAG_FINREG => 32,
         _ => return None,
     })
 }
@@ -142,6 +144,11 @@ pub unsafe fn is_visitable_bag(p: *mut c_void) -> bool {
     // A bagless view still owns the buffer it reads through.
     if crate::view_buffer::is_view_cell(header.type_tag) {
         return !unsafe { crate::view_buffer::view_buffer(p) }.is_null();
+    }
+    // A registry always has its callback slot and one per cell.
+    if header.type_tag == crate::finreg::TAG_FINREG {
+        return (0..unsafe { crate::finreg::finreg_child_count(p) })
+            .any(|i| !unsafe { crate::finreg::finreg_child_at(p, i) }.is_null());
     }
     // A bagless promise still owns whatever it settled with.
     header.type_tag == TAG_PROMISE && !unsafe { crate::promise::promise_value(p) }.is_null()

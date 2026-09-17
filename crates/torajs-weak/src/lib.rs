@@ -55,6 +55,8 @@ extern crate torajs_mmalloc as _;
 pub mod create;
 pub mod deref;
 pub mod drop;
+pub mod finreg;
+pub mod finreg_queue;
 pub mod key;
 pub mod layout;
 pub mod registry;
@@ -65,6 +67,11 @@ pub mod weakset;
 pub use create::__torajs_weakref_create;
 pub use deref::__torajs_weakref_deref;
 pub use drop::__torajs_weakref_drop;
+pub use finreg::{
+    __torajs_finreg_create, __torajs_finreg_drop, __torajs_finreg_register,
+    __torajs_finreg_unregister,
+};
+pub use finreg_queue::{__torajs_finreg_queue_pop, __torajs_finreg_take_pending};
 pub use key::{__torajs_weak_key_from_any, __torajs_weak_key_from_any_or_throw};
 pub use registry::{
     __torajs_weakref_registry_deregister, __torajs_weakref_registry_register,
@@ -99,6 +106,18 @@ pub unsafe extern "C" fn __torajs_rc_inc(_p: *mut core::ffi::c_void) {
 // `__torajs_weakmap_invalidate_key` + `__torajs_weakset_invalidate_key`
 // are now provided by `weakmap` / `weakset` modules (P4.3'-c / -d) —
 // no stubs needed.
+
+// torajs-cycle / torajs-meta hooks the FinalizationRegistry drop
+// calls — no-ops for cargo test, which links neither crate.
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_cycle_buffer(_p: *mut core::ffi::c_void) {}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_cycle_unbuffer(_p: *mut core::ffi::c_void) {}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_subclass_drop_entry(_p: *mut core::ffi::c_void) {}
 
 // `__torajs_value_drop_heap` comes from `runtime_str.c` at `tr build`
 // link time — stubbed for cargo test (used by weakmap::set/delete/

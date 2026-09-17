@@ -306,6 +306,12 @@ pub unsafe extern "C" fn __torajs_weakref_target_dying(target: *mut c_void) {
             }
             OBSERVER_WEAKMAP => unsafe { __torajs_weakmap_invalidate_key(owner, target) },
             OBSERVER_WEAKSET => unsafe { __torajs_weakset_invalidate_key(owner, target) },
+            crate::finreg::OBSERVER_FR_TARGET => unsafe {
+                crate::finreg_queue::target_died(owner.cast(), target)
+            },
+            crate::finreg::OBSERVER_FR_TOKEN => unsafe {
+                crate::finreg_queue::token_died(owner.cast())
+            },
             _ => {
                 // Unknown observer kind — registry is corrupt; drop
                 // the node silently (matches C's no-default switch

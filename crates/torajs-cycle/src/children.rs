@@ -176,6 +176,16 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
                 f(crate::view_buffer::VIEW_BUFFER_SLOT, buf);
             }
         }
+        if tag == crate::finreg::TAG_FINREG {
+            // The cleanup callback and every cell's held value; a
+            // cell's target and token are observed, not owned.
+            for i in 0..unsafe { crate::finreg::finreg_child_count(p) } {
+                let child = unsafe { crate::finreg::finreg_child_at(p, i) };
+                if !child.is_null() {
+                    f(i, child);
+                }
+            }
+        }
         if matches!(tag, TAG_MAP | TAG_SET) {
             let n = unsafe { crate::map::map_child_count(p) };
             for i in 0..n {
@@ -251,6 +261,10 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         // A Map / Set entry slot — the bag sentinel is handled by the
         // arm below, which is why this one tests for it first.
         unsafe { crate::map::map_slot_clear(p, i) };
+    } else if i != PROPS_SLOT_INDEX
+        && unsafe { (*(p as *const HeapHeader)).type_tag } == crate::finreg::TAG_FINREG
+    {
+        unsafe { crate::finreg::finreg_slot_clear(p, i) };
     } else if i == crate::iter_src::ITER_SRC_SLOT
         && crate::iter_src::is_iter_cell(unsafe { (*(p as *const HeapHeader)).type_tag })
     {

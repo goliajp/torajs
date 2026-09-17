@@ -42,6 +42,8 @@ per_tag_drop_stub!(
     __torajs_weakref_drop,
     __torajs_weakmap_drop,
     __torajs_weakset_drop,
+    // RFC 20260917-finalization-registry K1
+    __torajs_finreg_drop,
     __torajs_map_drop,
     __torajs_set_drop,
     __torajs_map_iter_drop,
