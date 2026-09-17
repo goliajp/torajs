@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T06:54:41.716Z",
+  "generatedAt": "2026-09-17T09:45:45.208Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-17T06:44:07Z",
-    "headSha": "b56ae45c4062374bbfd30701bda5ba8f520cbd1d",
-    "elapsedSec": 530.29,
+    "ranAt": "2026-09-17T09:35:19Z",
+    "headSha": "4d28a7d0f5f40b44c85dda2a8f71fe112a45dddd",
+    "elapsedSec": 537.44,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34109,
-    "passNoOracle": 1696,
+    "pass": 34163,
+    "passNoOracle": 1700,
     "passNegative": 4568,
-    "passTotal": 40373,
-    "bug": 8733,
+    "passTotal": 40431,
+    "bug": 8675,
     "incompatible": 4068,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49106,
-    "passRateInScope": 75.93,
-    "passRateTrAccepted": 82.22
+    "passRateInScope": 76.04,
+    "passRateTrAccepted": 82.33
   },
   "torajs": {
-    "commit": "b56ae45c4",
-    "commitSubject": "fix(torajs-anyvalue): the foreign private store no longer links the weak kernels into every program",
+    "commit": "adb6b7a4c",
+    "commitSubject": "chore(hardev): rotation 663 sweep stamp @4d28a7d0f",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "b56ae45c4",
-      "subject": "fix(torajs-anyvalue): the foreign private store no longer links the weak kernels into every program"
+      "hash": "adb6b7a4c",
+      "subject": "chore(hardev): rotation 663 sweep stamp @4d28a7d0f"
     },
     {
-      "hash": "36b020eaf",
-      "subject": "fix(torajs-anyvalue): the builtin-method probe checks the cell is a closure before reading its slots"
+      "hash": "4d28a7d0f",
+      "subject": "fix: new WeakRef checks CanBeHeldWeakly"
     },
     {
-      "hash": "792dd6c30",
-      "subject": "fix(torajs-regex): a global replace leaves lastIndex at 0"
+      "hash": "d9bc4541e",
+      "subject": "fix(torajs-anyvalue): the collection constructors close their iterator with the throw stashed"
     },
     {
-      "hash": "cf7d8802b",
-      "subject": "perf(torajs-regex): a dollarless ASCII replace walks its hits once and allocates the result once"
+      "hash": "9bb4fd83a",
+      "subject": "feat: WeakRef and FinalizationRegistry are subclassable"
     },
     {
-      "hash": "719869eb0",
-      "subject": "fix(torajs-core): a value face's adapter enters a void or new.target-reading target with the true arguments"
+      "hash": "4c4a84b0a",
+      "subject": "fix(torajs-anyvalue): a callable Proxy is a valid FinalizationRegistry callback"
     },
     {
-      "hash": "d00b05ce2",
-      "subject": "feat(torajs-core): super() into a function parent constructs it with the subclass's new.target"
+      "hash": "35e85360e",
+      "subject": "style(torajs-cycle): rustfmt the FinalizationRegistry walk mirror"
     },
     {
-      "hash": "6d281fc06",
-      "subject": "feat(torajs-core): a function expression reading new.target gets it under construction"
+      "hash": "03b974493",
+      "subject": "fix(torajs-core): an unannotated binding's initializer closures may read it"
     },
     {
-      "hash": "e5b9a8b41",
-      "subject": "refactor(torajs-core): move the closure value type out of the closure mint"
+      "hash": "e101b811d",
+      "subject": "fix: an update expression whose ToNumeric throws completes abruptly"
     },
     {
-      "hash": "bac9d61ac",
-      "subject": "feat(torajs-anyvalue): private methods and accessors resolve on the adopting class for a foreign object"
+      "hash": "632c976f2",
+      "subject": "fix(torajs-cli): the exit checkpoint's drain stays elidable after its rename"
     },
     {
-      "hash": "a0da5e829",
-      "subject": "feat(torajs-anyvalue): constructing a function through a value hands new.target to its body"
+      "hash": "94fcc0485",
+      "subject": "feat: FinalizationRegistry cleanup jobs at the exit checkpoint"
     },
     {
-      "hash": "0ae08af1a",
-      "subject": "feat(torajs-core): a function declaration reading new.target takes it as a parameter"
+      "hash": "c364ac0aa",
+      "subject": "feat: FinalizationRegistry.prototype.register / unregister"
     },
     {
-      "hash": "bde74d1a9",
-      "subject": "fix(torajs-core): a top-level function's parameter shadows a declaration inside that function only"
+      "hash": "3ea6a4714",
+      "subject": "feat: FinalizationRegistry constructor and prototype (slot 39)"
     }
   ],
-  "headSha": "b56ae45c4",
+  "headSha": "adb6b7a4c",
   "autorun": {
-    "total": 965,
+    "total": 966,
     "baselineTarget": 10,
-    "bySelf": 960,
+    "bySelf": 961,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789587270-1cb6",
-      "at": "2026-09-16T19:34:30Z",
-      "ts": 1789587270,
+      "rotationId": "r-1789628106-04dc",
+      "at": "2026-09-17T06:55:06Z",
+      "ts": 1789628106,
       "trigger": "self",
-      "prevHead": "44b9e1861",
-      "handoffSha": "sha256:e1cb43efd21b9405fd19cb8c5a71217cdcbda5223910b7af99281921a896ea50",
-      "handoffAgeSec": 5,
-      "conformanceBefore": "4254/0/4",
-      "commitsInSession": 15
+      "prevHead": "ea8753f30",
+      "handoffSha": "sha256:f9d3459d334192dfb120bad7f96d1ec02b8c2442f9f7a3104c9c8bb9f53c98ea",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "4264/0/4",
+      "commitsInSession": 18
     },
     "recent": [
+      {
+        "rotationId": "r-1789628106-04dc",
+        "at": "2026-09-17T06:55:06Z",
+        "ts": 1789628106,
+        "trigger": "self",
+        "prevHead": "ea8753f30",
+        "handoffSha": "sha256:f9d3459d334192dfb120bad7f96d1ec02b8c2442f9f7a3104c9c8bb9f53c98ea",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "4264/0/4",
+        "commitsInSession": 18
+      },
       {
         "rotationId": "r-1789587270-1cb6",
         "at": "2026-09-16T19:34:30Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 13,
         "conformanceBefore": "4180/0/4",
         "commitsInSession": 8
-      },
-      {
-        "rotationId": "r-1789445471-22b3",
-        "at": "2026-09-15T04:11:11Z",
-        "ts": 1789445471,
-        "trigger": "self",
-        "prevHead": "6d21ef8cf",
-        "handoffSha": "sha256:9dd7a59b46fd5eb69731c1975d67008cd624c1db9d466186364c62c51053b8ed",
-        "handoffAgeSec": 10,
-        "conformanceBefore": "4178/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
