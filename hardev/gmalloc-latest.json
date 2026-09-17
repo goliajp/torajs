@@ -1,13 +1,13 @@
 {
   "tool": "gmalloc_scan",
-  "ranAt": "2026-09-17T17:00:25Z",
-  "headSha": "9faf87b04b714264d577d8cd1eb790b1f92b41fe",
+  "ranAt": "2026-09-17T23:13:36Z",
+  "headSha": "5c8d479170cbc51df9af2a14d3da6d7a266edf9f",
   "headShaSource": "arg",
   "verdict": "ok",
-  "total": 3805,
-  "clean": 3801,
+  "total": 3810,
+  "clean": 3805,
   "skipped": 0,
-  "verdictUnknown": 4,
+  "verdictUnknown": 5,
   "offenders": 0,
   "workers": 2
 }
