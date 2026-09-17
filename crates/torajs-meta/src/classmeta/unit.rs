@@ -14,15 +14,14 @@
 //! prototype (`obj_proto::__torajs_obj_proto_borrowed`).
 //!
 //! What stays shared across evaluations, and is right to: layout,
-//! vtable, method bodies, and — for now — the reified method faces
-//! (K1 registered deviation: `C1.prototype.m === C2.prototype.m`;
-//! K2b gives each unit its own). The faces are minted once per
-//! (tag, row) and reused, because a face is an immortal static cell:
-//! minting one per evaluation would leak one per call.
+//! vtable and method bodies. The reified method faces are NOT shared
+//! since K2b — §15.7.14 gives every evaluation its own method
+//! function objects, so each evaluation mints its own, MORTAL, faces
+//! (they hold the class object, and the prototype entry that owns
+//! them releases them).
 
 use core::ffi::c_void;
-use core::ptr;
-use std::sync::atomic::{AtomicPtr, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use super::*;
 
@@ -39,14 +38,7 @@ const ANY_I64: u64 = 2;
 /// wire (idempotent), so no prologue ordering is involved.
 static UNIT_SLOT_OFF: [AtomicU32; MAX_CLASSES] = [const { AtomicU32::new(0) }; MAX_CLASSES];
 
-/// Per tag, a lazily allocated array of reified method faces indexed
-/// by method-table row (0 = not minted yet).
-static UNIT_FACES: [AtomicPtr<u64>; MAX_CLASSES] =
-    [const { AtomicPtr::new(ptr::null_mut()) }; MAX_CLASSES];
-
 unsafe extern "C" {
-    #[link_name = "__torajs_libc_malloc"]
-    fn malloc(n: usize) -> *mut c_void;
     fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const u8) -> u64;
     fn __torajs_dynobj_get_value(obj: *const c_void, key: *const u8) -> u64;
 }
@@ -57,25 +49,6 @@ pub(super) fn unit_slot_off(tag: i64) -> u32 {
         return 0;
     }
     UNIT_SLOT_OFF[tag as usize].load(Ordering::Relaxed)
-}
-
-/// The face cache of `tag`'s `n` method rows, allocated zeroed on
-/// first use.
-///
-/// # Safety
-/// `tag` is in range; `n` is the class's method-row count.
-pub(super) unsafe fn unit_faces(tag: i64, n: u32) -> *mut u64 {
-    let cell = &UNIT_FACES[tag as usize];
-    let cur = cell.load(Ordering::Relaxed);
-    if !cur.is_null() || n == 0 {
-        return cur;
-    }
-    let bytes = n as usize * core::mem::size_of::<u64>();
-    // SAFETY: a fresh block of `n` u64 slots, zeroed below.
-    let fresh = unsafe { malloc(bytes) }.cast::<u64>();
-    unsafe { ptr::write_bytes(fresh, 0, n as usize) };
-    cell.store(fresh, Ordering::Relaxed);
-    fresh
 }
 
 /// The prototype of a unit-class instance, BORROWED (0 when the hidden
@@ -158,7 +131,7 @@ pub unsafe extern "C" fn __torajs_class_unit_wire(
             DEFINE_CTOR_FLAGS,
         );
         __torajs_str_drop(key);
-        reify::define_unit_rows(tag, slot);
+        reify::define_unit_rows(tag, slot, class_anyv);
     }
 }
 

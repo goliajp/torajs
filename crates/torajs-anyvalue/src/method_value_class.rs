@@ -42,6 +42,10 @@ pub(crate) use accessor::class_accessor_meta;
 unsafe extern "C" {
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-value-drop — release one reference on a heap cell.
+    fn __torajs_value_drop_heap(p: *mut c_void);
+    /// torajs-cycle — scrub a cell from the cycle root buffer.
+    fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
 
 // Cell layout offsets — mirror of `method_value.rs` (itself a mirror
@@ -62,7 +66,14 @@ const CLS_CELL_TWIN_OFF: usize = 64;
 /// derived from the key at definition time (0 for every face whose
 /// name is the source spelling the fn-name registry already holds).
 const CLS_CELL_NAME_OFF: usize = 72;
-const CELL_SIZE: usize = 80;
+/// K2b — the evaluation's class object a UNIT face holds (RFC
+/// 20260917-class-eval-unit), 0 on every immortal one-per-class face.
+/// Non-zero is what makes the cell mortal and traceable.
+const CLS_CELL_UNIT_OFF: usize = 80;
+const CELL_SIZE: usize = 88;
+/// The closure trace hook a mortal unit face installs (mirror of
+/// torajs-cycle `CLOSURE_TRACE_FN_OFF`); 0 on every other face.
+const CLOSURE_TRACE_FN_OFF: usize = 40;
 
 /// Boxed dual entry of every reified class-method cell — a bare call
 /// is the ES `this = undefined` TypeError. Also the recognizer
@@ -109,27 +120,152 @@ pub extern "C" fn __torajs_class_method_cell_new(
     twin: u64,
     name: *mut u8,
 ) -> *mut u8 {
+    // SAFETY: a spec whose `unit` is 0 — the immortal shape.
+    unsafe {
+        mint(MethodCellSpec {
+            adapter,
+            this_free,
+            class_tag,
+            twin,
+            name,
+            unit: 0,
+        })
+    }
+}
+
+/// K2b — one evaluation's face of a unit class (RFC
+/// 20260917-class-eval-unit). §15.7.14 gives every evaluation its own
+/// method function objects, so this face is minted per evaluation
+/// rather than once per (class, row), and it is therefore MORTAL: no
+/// `FLAG_STATIC_LITERAL`, a real [`method_face_drop`], and a
+/// [`method_face_trace`] over the one child it holds — `unit`, the
+/// evaluation's class object, whose prototype owns this very face.
+/// That is a cycle by construction (class → prototype → face →
+/// class), which is exactly why the trace hook is not optional.
+///
+/// `unit` is the class object's cell pointer, carrying a `+1` this
+/// cell owns.
+///
+/// # Safety
+/// `unit` is a live heap cell pointer (never 0 — a 0 unit would mint
+/// a mortal cell with no owner to release, use the immortal twin).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_method_cell_new_unit(
+    adapter: u64,
+    this_free: u64,
+    class_tag: u64,
+    twin: u64,
+    unit: u64,
+) -> *mut u8 {
+    // SAFETY: caller contract above.
+    unsafe {
+        mint(MethodCellSpec {
+            adapter,
+            this_free,
+            class_tag,
+            twin,
+            name: core::ptr::null_mut(),
+            unit,
+        })
+    }
+}
+
+/// What one reified method face is made of. A struct rather than six
+/// positional arguments: `adapter`, `twin` and `unit` are all bare
+/// `u64` words and swapping two of them compiles.
+struct MethodCellSpec {
+    adapter: u64,
+    this_free: u64,
+    class_tag: u64,
+    twin: u64,
+    name: *mut u8,
+    unit: u64,
+}
+
+/// Mint one reified class-method function object. Immortal when
+/// `spec.unit` is 0 (one per class row, the prototype entry outlives
+/// the process), mortal when it is not (one per evaluation).
+///
+/// # Safety
+/// `spec.name` is null or an owned Str cell; `spec.unit` is 0 or a
+/// live heap cell this face takes a `+1` on.
+unsafe fn mint(spec: MethodCellSpec) -> *mut u8 {
     // SAFETY: fresh CELL_SIZE allocation, fully initialized below.
     unsafe {
         let layout = core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
         *(cell.add(4) as *mut u16) = Tag::Closure as u16;
-        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL
-            | if this_free != 0 {
-                FLAG_CLASS_METHOD_THIS_FREE
-            } else {
-                0
-            };
+        *(cell.add(6) as *mut u16) = if spec.unit != 0 {
+            0
+        } else {
+            FLAG_STATIC_LITERAL
+        } | if spec.this_free != 0 {
+            FLAG_CLASS_METHOD_THIS_FREE
+        } else {
+            0
+        };
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = class_native_entry as *const () as u64;
-        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
+        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = if spec.unit != 0 {
+            method_face_drop as *const () as u64
+        } else {
+            0
+        };
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = class_bare_entry as *const () as u64;
-        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = adapter;
-        *(cell.add(CLS_CELL_TAG_OFF) as *mut u64) = class_tag;
-        *(cell.add(CLS_CELL_TWIN_OFF) as *mut u64) = twin;
-        *(cell.add(CLS_CELL_NAME_OFF) as *mut u64) = name as u64;
+        if spec.unit != 0 {
+            *(cell.add(CLOSURE_TRACE_FN_OFF) as *mut u64) = method_face_trace as *const () as u64;
+            torajs_rc::__torajs_rc_inc(spec.unit as *mut c_void);
+        }
+        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = spec.adapter;
+        *(cell.add(CLS_CELL_TAG_OFF) as *mut u64) = spec.class_tag;
+        *(cell.add(CLS_CELL_TWIN_OFF) as *mut u64) = spec.twin;
+        *(cell.add(CLS_CELL_NAME_OFF) as *mut u64) = spec.name as u64;
+        *(cell.add(CLS_CELL_UNIT_OFF) as *mut u64) = spec.unit;
         cell
+    }
+}
+
+/// drop_fn of a MORTAL unit face — release the expando bag and the
+/// held class object, then the block (the
+/// `proxy_revocable::revoker_drop` shape).
+///
+/// # Safety
+/// `env` is a live unit-face cell at refcount 0.
+unsafe extern "C" fn method_face_drop(env: *mut c_void) {
+    unsafe {
+        __torajs_cycle_unbuffer(env);
+        let cell = env.cast::<u8>();
+        let props = *(cell.add(CLOSURE_PROPS_OFF) as *const u64);
+        if props != 0 {
+            __torajs_value_drop_heap(props as *mut c_void);
+        }
+        let unit = *(cell.add(CLS_CELL_UNIT_OFF) as *const u64);
+        if unit != 0 {
+            __torajs_value_drop_heap(unit as *mut c_void);
+        }
+        std::alloc::dealloc(
+            cell,
+            core::alloc::Layout::from_size_align(CELL_SIZE, 8).unwrap(),
+        );
+    }
+}
+
+/// trace_fn of a MORTAL unit face — the held class object is the
+/// cell's one extra child.
+unsafe extern "C" fn method_face_trace(
+    env: *mut c_void,
+    visit: unsafe extern "C" fn(i64, *mut c_void, *mut c_void, *mut c_void),
+    ctx: *mut c_void,
+) {
+    unsafe {
+        let slot = env.cast::<u8>().add(CLS_CELL_UNIT_OFF);
+        visit(
+            0,
+            *(slot as *const u64) as *mut c_void,
+            slot as *mut c_void,
+            ctx,
+        );
     }
 }
 

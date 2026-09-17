@@ -81,6 +81,17 @@ unsafe extern "C" {
         twin: u64,
         name: *mut u8,
     ) -> *mut u8;
+    /// torajs-anyvalue — K2b: one EVALUATION's face of a unit class.
+    /// Mortal, holds `unit` (the evaluation's class object) with a
+    /// `+1`, and traceable — the class → prototype → face → class
+    /// cycle is by construction.
+    fn __torajs_class_method_cell_new_unit(
+        adapter: u64,
+        this_free: u64,
+        class_tag: u64,
+        twin: u64,
+        unit: u64,
+    ) -> *mut u8;
     fn __torajs_builtin_method_cell(mid: i64) -> *mut u8;
     /// torajs-anyvalue — reified class-accessor face (RFC
     /// 20260718-accessor-reify 刀 2; name transfers).
