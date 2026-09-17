@@ -155,6 +155,16 @@ fn repr_disagrees(first: &Type, ty: &Type) -> bool {
     }
     match (first, ty) {
         (Type::Array(first_in), Type::Array(elem_in)) => repr_disagrees(first_in, elem_in),
+        // A promise buries its settled value behind the same repr
+        // decision an array slot makes (`promise_value_repr` reads the
+        // inner type), so the any-ness question has to be asked one
+        // level in here too. `[Promise.resolve(2),
+        // Promise.reject(new Error("x"))]` unified to
+        // `Array<Promise<Number>>` — the anchor — and
+        // `Promise.allSettled` then typed each record's second field
+        // `number`, so the rejected record's boxed reason read back as
+        // the scalar 0 (`reason.message` answered undefined).
+        (Type::Promise(first_in), Type::Promise(elem_in)) => repr_disagrees(first_in, elem_in),
         (Type::Function(..), _) => first != ty,
         _ => false,
     }
