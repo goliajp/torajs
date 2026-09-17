@@ -6,6 +6,15 @@
 //! private externs and helpers directly.
 
 use super::*;
+use torajs_rc::collection_kind::{
+    COLLECTION_MAP, COLLECTION_SET, COLLECTION_WEAKMAP, COLLECTION_WEAKSET,
+};
+
+unsafe extern "C" {
+    /// torajs-weak — fresh empty WeakMap / WeakSet cells (rc 1).
+    fn __torajs_weakmap_create() -> *mut c_void;
+    fn __torajs_weakset_create() -> *mut c_void;
+}
 
 /// [[Construct]] of a builtin-constructor value — `new N(5)` through
 /// a `const N: any = Number` binding, `new (Array.bind(null))(3)`,
@@ -14,8 +23,11 @@ use super::*;
 /// call: `new String(sym)` runs plain ToString and throws where the
 /// call form stringifies); Object / Array share their call-form
 /// semantics per spec; Date covers the zero-arg (now) and one-number
-/// (ms) mints; Map / Set mint fresh empties (the iterable-seed form
-/// keeps a loud reject). Everything else keeps the loud TypeError.
+/// (ms) mints; the four collections mint fresh cells and seed them
+/// from the optional iterable (§24.1.1.1 / §24.2.1.1 / §24.3.1.1 /
+/// §24.4.1.1); WeakRef is §26.1.1.1; Symbol and BigInt throw the
+/// TypeError their own step 1 prescribes for a `new`. Everything else
+/// keeps the loud TypeError.
 pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u64 {
     use crate::nanbox::{VALUE_UNDEFINED, box_void_ptr};
     let arg0 = || -> u64 {
@@ -97,11 +109,29 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
                     crate::nanbox_ffi::__torajs_anyv_to_number(n0),
                 ))
             }
-            11 | 12 if argc == 0 => box_void_ptr(if tag == 11 {
-                __torajs_map_create()
-            } else {
-                __torajs_set_create()
-            }),
+            11 => seed_collection(__torajs_map_create(), COLLECTION_MAP, argc, arg0()),
+            12 => seed_collection(__torajs_set_create(), COLLECTION_SET, argc, arg0()),
+            16 => seed_collection(__torajs_weakmap_create(), COLLECTION_WEAKMAP, argc, arg0()),
+            17 => seed_collection(__torajs_weakset_create(), COLLECTION_WEAKSET, argc, arg0()),
+            // §20.4.1 / §21.2.1 — both carry [[Construct]] (a class may
+            // extend them) and both throw when NewTarget is not
+            // undefined, which `new` always makes it.
+            5 => {
+                __torajs_throw_type_error(c"Symbol is not a constructor".as_ptr());
+                VALUE_UNDEFINED
+            }
+            6 => {
+                __torajs_throw_type_error(c"BigInt is not a constructor".as_ptr());
+                VALUE_UNDEFINED
+            }
+            18 => {
+                let cell = crate::method_call_weak::__torajs_weakref_new_checked(arg0());
+                if __torajs_throw_check() != 0 {
+                    __torajs_value_drop_heap(cell);
+                    return VALUE_UNDEFINED;
+                }
+                box_void_ptr(cell)
+            }
             _ => {
                 __torajs_throw_type_error(
                     c"this constructor cannot be constructed through a first-class value yet"
@@ -111,4 +141,24 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
             }
         }
     }
+}
+
+/// A fresh collection cell (rc 1) seeded from the constructor's
+/// optional iterable — the §24.1.1.1 steps 5–9 shared by all four
+/// families (`collection_init`). An abrupt seed releases the cell and
+/// leaves the throw pending for the caller's check.
+unsafe fn seed_collection(cell: *mut c_void, kind: i64, argc: i64, iterable: u64) -> u64 {
+    use crate::nanbox::{VALUE_UNDEFINED, box_void_ptr};
+    let target = box_void_ptr(cell);
+    if argc == 0 {
+        return target;
+    }
+    unsafe {
+        crate::collection_init::__torajs_collection_init_from_iterable(target, iterable, kind);
+        if __torajs_throw_check() != 0 {
+            __torajs_value_drop_heap(cell);
+            return VALUE_UNDEFINED;
+        }
+    }
+    target
 }
