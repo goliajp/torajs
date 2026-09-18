@@ -244,3 +244,46 @@ pub(crate) unsafe fn foreign_private_call(
         crate::method_call_closure_dispatch::__torajs_any_call_with_this(f, recv, argv, argc)
     })
 }
+
+/// §7.3.32 PrivateFieldAdd for an instance that is NOT a layout cell:
+/// the runtime-value class lane builds its instances as plain objects,
+/// which have no slot and no install cursor for a private field, so
+/// the field lives in the store above from the moment its initializer
+/// ran (`torajs-core` `ast/capturing_classes/private_fields.rs` spells
+/// the constructor prefix as this call). Adding it twice is the
+/// TypeError; every reader already consults the store first.
+///
+/// A receiver whose LAYOUT declares the field (a class instance cell
+/// reaching a `__ctorany_` twin) keeps the brand-gated write the
+/// prefix always was: the slot is the field.
+///
+/// # Safety
+/// All three are live AnyValues; `key` holds the private name's Str.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_priv_field_define(
+    recv: AnyValue,
+    key: AnyValue,
+    value: AnyValue,
+) -> AnyValue {
+    unsafe {
+        let kp = crate::index_any_keyed::__torajs_anyv_to_property_key(key);
+        if !kp.is_null() {
+            if crate::member_get_private::priv_brand_declared(recv, kp as *const c_void) {
+                // The write kernel takes the payload's stake over, so
+                // it gets one of its own (`value` is borrowed here).
+                let mut slot = recv;
+                crate::member_set_private::__torajs_any_member_set_priv(
+                    &mut slot,
+                    kp,
+                    crate::nanbox_encode::__torajs_anyv_unbox_tag(value) as u64,
+                    crate::nanbox_encode::__torajs_anyv_unbox_value_owned(value) as u64,
+                    0,
+                );
+            } else {
+                foreign_add(recv, kp as *const c_void, value);
+            }
+            crate::index_any_keyed::__torajs_anyv_property_key_drop(kp);
+        }
+    }
+    crate::nanbox::VALUE_UNDEFINED
+}

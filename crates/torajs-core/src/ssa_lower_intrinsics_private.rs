@@ -37,6 +37,8 @@ pub(crate) struct PrivateIds {
     pub class_unit_same_at: FuncId,
     /// K5-3 — the evaluation a word stands under at a chain depth.
     pub class_unit_home: FuncId,
+    /// K6-2 — PrivateFieldAdd onto an instance that is no layout cell.
+    pub priv_field_define: FuncId,
     /// K4-1 — one evaluation's static method face onto its class
     /// object (`unit, name Str, adapter vaddr, flags`).
     pub class_unit_static_method_define: FuncId,
@@ -148,6 +150,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_class_unit_home",
             &[Type::I64, Type::I64],
+            Type::Any,
+        ),
+        priv_field_define: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_priv_field_define",
+            &[Type::Any, Type::Any, Type::Any],
             Type::Any,
         ),
     }

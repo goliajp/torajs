@@ -198,7 +198,7 @@ pub(in crate::ast) fn mint_static_generic_twin(
 pub(in crate::ast) fn mint_ctor_generic_twin(
     ast: &mut Ast,
     cname: &str,
-    ctor: &Option<super::ClassCtor>,
+    (ctor, fields): (&Option<super::ClassCtor>, &[(super::PropKey, String)]),
     appended: &mut Vec<Stmt>,
 ) {
     let (body, user_params): (Vec<Stmt>, Vec<Param>) = match ctor {
@@ -206,7 +206,14 @@ pub(in crate::ast) fn mint_ctor_generic_twin(
         None => (Vec::new(), Vec::new()),
     };
     let mut cloner = BodyCloner::new(ast);
-    let cloned_body = cloner.clone_stmts(&body);
+    let mut cloned_body = cloner.clone_stmts(&body);
+    // K6-2 — the twin's `this` may be the lane's plain object.
+    super::capturing_classes::private_fields::define_in_twin(
+        cloner.ast,
+        cname,
+        fields,
+        &mut cloned_body,
+    );
     super::clone_body_tables::migrate(&mut cloner);
     retarget_super_ctor_twin_calls(&mut cloner);
     if !restore_dynamic_calls(&mut cloner, &user_params, &body) {

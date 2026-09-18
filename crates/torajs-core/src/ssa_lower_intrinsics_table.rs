@@ -565,6 +565,7 @@ pub(crate) fn build(
         priv_unit_word: init_c.private.priv_unit_word,
         class_unit_same_at: init_c.private.class_unit_same_at,
         class_unit_home: init_c.private.class_unit_home,
+        priv_field_define: init_c.private.priv_field_define,
         ctor_ret_value: init_c.ctor_ret.ctor_ret_value,
         ctor_ret_carry: init_c.ctor_ret.ctor_ret_carry,
         new_target_register: init_c.ctor_ret.new_target_register,

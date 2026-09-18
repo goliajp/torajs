@@ -70,6 +70,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 
 mod install;
 mod own_binding;
+pub(in crate::ast) mod private_fields;
 mod this_sites;
 use decline::decline_reason;
 pub(crate) use decline::{EXPR_HERITAGE_REASON, unclaimed_class_message};
@@ -298,6 +299,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     let Stmt::ClassDecl {
         name,
         parent,
+        fields,
         ctor,
         methods,
         static_methods,
@@ -387,7 +389,10 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     // §15.7.14 hands it; an explicit body has its super sites lowered
     // against the parent BINDING (blade 5 — the α-rename already put
     // the lane's minted spelling into `parent`).
-    let (params, body) = extends::ctor_parts(ast, ctor, parent.as_deref(), src_name, &name);
+    let forwards =
+        parent.is_some() && (ctor.is_none() || ast.field_init_synth_ctors.contains(src_name));
+    let (params, mut body) = extends::ctor_parts(ast, ctor, parent.as_deref(), src_name, &name);
+    private_fields::define_in_prefix(ast, &fields, (src_name, forwards), &mut body);
     if let Some(p) = &parent {
         extends::rewrite_super_sites(ast, &body, p, false, &name);
         extends::rewrite_super_prop_sites(ast, &body, p, false, &name);

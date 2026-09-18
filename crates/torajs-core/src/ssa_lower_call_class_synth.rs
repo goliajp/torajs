@@ -117,6 +117,7 @@ pub(crate) fn try_lower(
         }
         "__torajs_undef_str" => crate::ssa_lower_call_error_magic::try_lower_undef_str(ctx, args),
         "__torajs_super_prop_get"
+        | crate::ast::private_brand::FIELD_DEFINE
         | "__torajs_super_prop_set"
         | "__torajs_super_prop_call"
         | "__torajs_super_prop_opt_call"

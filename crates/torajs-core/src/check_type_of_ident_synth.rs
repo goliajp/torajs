@@ -221,7 +221,7 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         // §13.3.6 call off a Super Reference: base, key,
         // receiver, args pack — every slot any-world, and the
         // product is whatever the method answered.
-        "__torajs_super_prop_get" => Ok(Type::Function(
+        "__torajs_super_prop_get" | crate::ast::private_brand::FIELD_DEFINE => Ok(Type::Function(
             vec![Type::Any, Type::Any, Type::Any],
             Box::new(Type::Any),
         )),

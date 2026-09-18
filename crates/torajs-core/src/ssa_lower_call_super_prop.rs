@@ -28,6 +28,9 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> Option<Operand> {
     let (kernel, arity, flags) = match name {
         "__torajs_super_prop_get" => (ctx.intrinsics.super_prop_get, 3, None),
+        // Not a SuperProperty, the same operand discipline: `(this,
+        // private name, value)`, all any-world, all borrowed.
+        crate::ast::private_brand::FIELD_DEFINE => (ctx.intrinsics.priv_field_define, 3, None),
         "__torajs_super_prop_set" => (ctx.intrinsics.super_prop_set, 4, None),
         "__torajs_super_prop_call" => (ctx.intrinsics.super_prop_call, 4, None),
         "__torajs_super_prop_opt_call" => (ctx.intrinsics.super_prop_opt_call, 4, None),

@@ -127,7 +127,7 @@ pub(super) fn rewrite_classdecls_pass3(
         cname,
         type_params,
         _parent,
-        _own_fields,
+        own_fields,
         static_init,
         ctor,
         methods,
@@ -191,7 +191,12 @@ pub(super) fn rewrite_classdecls_pass3(
         // so a program carrying one mints every class's twin — the
         // runtime registry dispatches `super(…)` to it by class cell.
         if ast.es5_real_parents.contains(cname) || !ast.es5_value_parents.is_empty() {
-            super::desugar_classes_generic_twin::mint_ctor_generic_twin(ast, cname, ctor, appended);
+            super::desugar_classes_generic_twin::mint_ctor_generic_twin(
+                ast,
+                cname,
+                (ctor, own_fields),
+                appended,
+            );
         }
 
         // Methods → __cm_C__m(__this: C, params...): R { body }

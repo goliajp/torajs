@@ -39,6 +39,10 @@ pub(crate) const INSTALL: &str = "__torajs_priv_install";
 pub(crate) const CHECK: &str = "__torajs_priv_brand";
 /// The parser's marker for "this private field is added here".
 pub(crate) const FIELD_ADD: &str = "__torajs_priv_field_add";
+/// `__torajs_priv_field_define(this, "__priv_C__x", init)` — the
+/// runtime-value lane's PrivateFieldAdd
+/// (`capturing_classes/private_fields.rs`).
+pub(crate) const FIELD_DEFINE: &str = "__torajs_priv_field_define";
 /// The parser's synthetic for `#x in o` (`parser/private_in.rs`).
 pub(crate) const PRIV_IN_OP: &str = "__torajs_priv_in_op";
 

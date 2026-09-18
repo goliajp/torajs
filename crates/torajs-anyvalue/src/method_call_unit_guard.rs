@@ -58,6 +58,18 @@ pub(crate) unsafe fn refuses_receiver(face: *mut c_void, this_arg: AnyValue) -> 
             if leaf == face_unit || __torajs_class_unit_covers(face_unit, leaf) != 0 {
                 return false;
             }
+            // K5-4 / K6-2 — an instance of a runtime-value subclass
+            // (`class extends P1`) is a plain object: no hidden slot
+            // to read its evaluation from, its private fields in the
+            // foreign store. What ties it to ONE evaluation is that
+            // evaluation's prototype on its chain (registered
+            // deviation: the spec's brand is fixed at construction, a
+            // re-linked chain moves this one).
+            if crate::construct::class_ctor_has_instance(this_arg, face_unit as *mut c_void)
+                == Some(true)
+            {
+                return false;
+            }
         }
         __torajs_throw_type_error(
             c"cannot access a private member of another evaluation of this class".as_ptr(),
