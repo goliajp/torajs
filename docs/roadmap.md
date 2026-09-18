@@ -1681,7 +1681,34 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `d6c552d78`** (2026-09-18, rotations 666–667). 666: K3's
+**Latest @ `5183ee43d`** (2026-09-18, rotation 668). Class evaluation
+units: **K4-4** static private members per evaluation (a static face
+refuses another evaluation's class object at the call boundary once its
+body reaches a private element; `#x in o` on a static element asks for
+this evaluation), a unit class's static field DEFINED rather than
+written (`static name = "x"`), and **K5-1** — a class extending a unit
+class of the same container is a unit class too, the family admitted as
+a whole, its constructor and prototype chained under that evaluation's
+parent (200k evaluations of a two-class family: RSS flat at 2.2 MB).
+Four defects the probes for those uncovered, none class-unit specific:
+a static `super.m()` ran its target with the DECLARING class as `this`
+(a `super.create()` factory built the parent); a top-level destructured
+binding was unreadable from a function declaration; a binding pattern
+was refused anywhere but alone in a declaration list; and a class named
+inside a sibling class's body was admitted as a unit (its instances
+answered false to `instanceof`), with the hoist's collision rename
+missing siblings already lifted.
+
+Gate predicate: **37** clusters of >= 4 holding **245** cases, register
+2 · 118, residue 349 · 473 (56.6%), core **836**, unattributed **718**.
+Against rotation 667: clusters 37 → **37 (0)**, cases 245 → **245 (0)**,
+core 837 → **836 (−1)**. Sweep passTotal 40481 → **40490 (+9)**, bug
+8627 → **8619 (−8)**, incompatible 4066 → **4065 (−1)**; **0 backward**.
+The remaining `multiple-evaluations-of-class` variants are blocked
+outside the class work: indirect eval through a runtime value,
+`new Function(<string>)` through a first-class value, `$262` realms.
+
+**Prior @ `d6c552d78`** (2026-09-18, rotations 666–667). 666: K3's
 second half (a private field read through a receiver that is not
 `this`, `#x in o`, both compared per evaluation), `new` of a built-in
 constructor VALUE through the any lane (the four collections seed from
