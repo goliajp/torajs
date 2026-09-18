@@ -606,6 +606,7 @@ mod ssa_lower_recv_face;
 pub(crate) mod ssa_lower_regex_bake;
 pub(crate) mod ssa_lower_relative_index;
 pub(crate) mod ssa_lower_resolve_callee;
+pub(crate) mod ssa_lower_return_borrow;
 pub(crate) mod ssa_lower_scope_exit;
 pub mod ssa_lower_set_flavor;
 pub(crate) mod ssa_lower_splice;
