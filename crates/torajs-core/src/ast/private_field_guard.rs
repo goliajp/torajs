@@ -46,6 +46,7 @@ pub(super) fn guard_field_sites(
     ast: &mut Ast,
     class_index: &[ClassIndexEntry],
     field_pos: &HashMap<String, (String, u32)>,
+    in_static: &HashMap<ExprId, String>,
 ) {
     if field_pos.is_empty() {
         return;
@@ -93,7 +94,7 @@ pub(super) fn guard_field_sites(
             .any(|c| scans.get(c.as_str()).is_some_and(|s| s.escapes));
         let other_evaluation = ast.eval_unit_classes.contains(&cname) && !receiver_is_this(ast, id);
         if in_prefix || ancestor_escapes || other_evaluation {
-            super::private_brand::guard_receiver(ast, i, &cname, pos);
+            super::private_brand::guard_receiver(ast, i, &cname, pos, in_static);
         }
     }
 }

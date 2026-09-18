@@ -17,6 +17,8 @@ const CURSOR_OFF: usize = 12;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-meta — the tag a unit class object records (-1 = not one).
+    fn __torajs_class_unit_tag_of(cell: *const c_void) -> i64;
 }
 
 fn instance_cell(v: AnyValue) -> Option<*mut c_void> {
@@ -62,17 +64,21 @@ pub unsafe extern "C" fn __torajs_priv_cursor(v: AnyValue) -> i64 {
 }
 
 /// The word at byte `off` of a class instance cell (a unit class's
-/// hidden evaluation slot, RFC 20260917-class-eval-unit K2); 0 for any
-/// other value. The caller has already established that `v` is an
+/// hidden evaluation slot, RFC 20260917-class-eval-unit K2). A unit
+/// class object answers itself: a static body runs for the evaluation
+/// its `this` IS. 0 for any other value. The caller has already established that `v` is an
 /// instance of the class whose layout puts the slot at `off`.
 ///
 /// # Safety
 /// `v` is a live AnyValue; for an instance cell, `off` is inside it.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_priv_unit_word(v: AnyValue, off: i64) -> i64 {
-    match instance_cell(v) {
-        Some(p) => unsafe { p.cast::<u8>().add(off as usize).cast::<i64>().read() },
-        None => 0,
+    match recv_cell(v) {
+        Some((p, t)) if t == Tag::Obj as u16 => unsafe {
+            p.cast::<u8>().add(off as usize).cast::<i64>().read()
+        },
+        Some((p, _)) if unsafe { __torajs_class_unit_tag_of(p) } >= 0 => p as i64,
+        _ => 0,
     }
 }
 

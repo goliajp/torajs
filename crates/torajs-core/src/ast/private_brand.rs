@@ -87,9 +87,10 @@ pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
         .collect();
     let marked: HashSet<&str> = markers.iter().map(|(_, n)| n.as_str()).collect();
     let field_pos = plan(ast, class_index, &marked);
+    let in_static = super::private_brand_static_in::static_body_exprs(ast);
     // The field guard reads the constructors as the parser left them:
     // markers not yet rewritten, no receiver wrapped yet.
-    super::private_field_guard::guard_field_sites(ast, class_index, &field_pos);
+    super::private_field_guard::guard_field_sites(ast, class_index, &field_pos, &in_static);
     // A run of markers no user code separates installs as one range.
     let runs = super::private_field_guard::coalesced_installs(ast, class_index, &field_pos);
     for (i, name) in &markers {
@@ -103,9 +104,9 @@ pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
         };
     }
     let owner = method_owner(ast, class_index);
-    guard_method_sites(ast, &owner);
-    guard_in_op_sites(ast, &owner, &field_pos);
-    super::private_brand_static_in::guard_sites(ast);
+    guard_method_sites(ast, &owner, &in_static);
+    guard_in_op_sites(ast, &owner, &field_pos, &in_static);
+    super::private_brand_static_in::guard_sites(ast, &in_static);
 }
 
 /// The private methods / accessors (the brand, 0 or 1 position) and
@@ -200,7 +201,13 @@ pub(crate) fn install_call(ast: &mut Ast, cname: &str, recv: Expr) -> Option<Exp
 /// `.call` devirtualisation, promise chains, the static-`this` table
 /// keyed on the receiver's ExprId) sees what it saw before; the checker
 /// types the call as its first operand.
-pub(super) fn guard_receiver(ast: &mut Ast, i: usize, cname: &str, pos: u32) {
+pub(super) fn guard_receiver(
+    ast: &mut Ast,
+    i: usize,
+    cname: &str,
+    pos: u32,
+    in_static: &HashMap<ExprId, String>,
+) {
     let Expr::Member { obj, .. } = &ast.exprs[i] else {
         return;
     };
@@ -210,10 +217,13 @@ pub(super) fn guard_receiver(ast: &mut Ast, i: usize, cname: &str, pos: u32) {
     let pos = ast.add_expr(Expr::Number(f64::from(pos)));
     let mut args = vec![obj, class, pos];
     // A unit class's element belongs to one evaluation: the check also
-    // compares the receiver's with the instance the method runs on
-    // (`ast::class_unit`).
+    // compares the receiver's with the one the body runs for — the
+    // instance's, or a static body's `this` (`ast::class_unit`).
     if ast.eval_unit_classes.contains(cname) {
-        args.push(ast.add_expr(Expr::Ident("__this".into())));
+        let site = ExprId(i as u32);
+        args.push(super::private_brand_static_in::running_this(
+            ast, in_static, site,
+        ));
     }
     let checked = ast.add_expr(Expr::Call { callee, args });
     if let Expr::Member { obj, .. } = &mut ast.exprs[i] {
@@ -243,7 +253,11 @@ fn method_owner(ast: &Ast, class_index: &[ClassIndexEntry]) -> HashMap<String, (
 /// Route the receiver of every access to a private method or accessor
 /// of a covered class — the read, the write, the call — through the
 /// brand check (§7.3.31 / §7.3.32 step 1).
-fn guard_method_sites(ast: &mut Ast, owner: &HashMap<String, (String, u32)>) {
+fn guard_method_sites(
+    ast: &mut Ast,
+    owner: &HashMap<String, (String, u32)>,
+    in_static: &HashMap<ExprId, String>,
+) {
     if owner.is_empty() {
         return;
     }
@@ -257,7 +271,7 @@ fn guard_method_sites(ast: &mut Ast, owner: &HashMap<String, (String, u32)>) {
         })
         .collect();
     for (i, cname, pos) in sites {
-        guard_receiver(ast, i, &cname, pos);
+        guard_receiver(ast, i, &cname, pos, in_static);
     }
 }
 
@@ -270,6 +284,7 @@ fn guard_in_op_sites(
     ast: &mut Ast,
     owner: &HashMap<String, (String, u32)>,
     field_pos: &HashMap<String, (String, u32)>,
+    in_static: &HashMap<ExprId, String>,
 ) {
     let class_of = |name: &str| {
         owner
@@ -297,7 +312,7 @@ fn guard_in_op_sites(
         .collect();
     for (i, cname) in sites {
         let class = ast.add_expr(Expr::String(cname.as_str().into()));
-        let this = ast.add_expr(Expr::Ident("__this".into()));
+        let this = super::private_brand_static_in::running_this(ast, in_static, ExprId(i as u32));
         if let Expr::Call { args, .. } = &mut ast.exprs[i] {
             args.push(class);
             args.push(this);
