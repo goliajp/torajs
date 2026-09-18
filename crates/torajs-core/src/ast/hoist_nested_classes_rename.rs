@@ -12,13 +12,19 @@ use super::*;
 /// level once the hoist lands. Sibling entries already pushed onto
 /// `top_names` shadow the check for the class's own occurrence, so
 /// duplicates count. A unit-class candidate (`unit_shape`) collides
-/// with any other class of the name anywhere in the program — and
-/// with any `let` / `function` / for-of binding of it: `const K =
-/// outer()` in the loop that evaluates `outer` is a different
-/// binding, but the reference census is keyed by name and would count
-/// its readers as this class's outside references (`new K()` in that
-/// loop kept the class shared, rotation 667). The rename gives the
-/// census a name only this class answers to.
+/// with any other class of the name anywhere in the program: the
+/// reference census is keyed by name, and the rename gives it a name
+/// only this class answers to.
+///
+/// EVERY hoisted class collides with a `let` / `function` / for-of
+/// binding of its name anywhere. For a unit candidate that is the
+/// census again (`const K = outer()` in the loop that evaluates
+/// `outer` kept the class shared, rotation 667). For the shared lane
+/// it is resolution: the class leaves nothing behind where it was
+/// written, and a program-scope binding of the name takes that name
+/// out of the class-object rewrite — `return [A, B]` inside `mk` read
+/// the top level's own `const [A, B] = mk()`, still uninitialized
+/// (`value is not a constructor`).
 pub(super) fn name_collides(
     top_names: &[String],
     sibling_start: usize,
@@ -28,9 +34,8 @@ pub(super) fn name_collides(
 ) -> bool {
     top_names.iter().filter(|n| *n == old_name).count() > 1
         || top_names[..sibling_start].iter().any(|n| n == old_name)
-        || (unit_shape
-            && (name_counts.classes.get(old_name).copied().unwrap_or(0) > 1
-                || name_counts.bindings.contains_key(old_name)))
+        || (unit_shape && name_counts.classes.get(old_name).copied().unwrap_or(0) > 1)
+        || name_counts.bindings.contains_key(old_name)
 }
 
 /// Give the class at `stmts[idx]` its collision name and carry along
