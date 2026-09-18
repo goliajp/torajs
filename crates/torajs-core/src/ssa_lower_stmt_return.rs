@@ -215,6 +215,19 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
 }
 
 pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
+    // A moved mark says "THIS return hands the local to the caller",
+    // and it is a compile-time flag on the binding — left standing it
+    // also silenced the local's drop at every LATER return, on paths
+    // that never came through this one (`if (c) return s; return t;`
+    // stranded `s` whenever `c` was false: 59 MB vs 1.6 MB flat over
+    // 200k, strings alike). So the marks this return makes are undone
+    // once its own drops are emitted; nothing runs after a `return`.
+    let unmoved: Vec<String> = ctx
+        .locals
+        .iter()
+        .filter(|(_, info)| !info.moved)
+        .map(|(name, _)| name.clone())
+        .collect();
     let ret_operand = maybe.map(|eid| lower_return_value(ctx, eid));
     // §7.4.9 on the way out of every enclosing for-of. `break` gets
     // this from the loop's exit block; a return never reaches that
@@ -328,6 +341,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     ctx.emit_drops_for_owned_locals();
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Ret(coerced));
+    // Not on the finally hand-off above: the frames outside the try
+    // are released by the finally tail, one site shared by every
+    // return routed through it, which still needs the mark.
+    for name in unmoved {
+        if let Some(info) = ctx.locals.get_mut(&name) {
+            info.moved = false;
+        }
+    }
 }
 
 /// Step 4's boundary coercions, lifted out of `lower` to keep it
