@@ -296,7 +296,8 @@ pub(crate) unsafe fn invoke_with_this(
             if let Some((face_unit, touches_private)) =
                 crate::method_value_class::class_method_face_unit(env)
                 && touches_private
-                && (!is_cell(this_arg) || __torajs_class_unit_of(as_void_ptr(this_arg)) != face_unit)
+                && (!is_cell(this_arg)
+                    || __torajs_class_unit_of(as_void_ptr(this_arg)) != face_unit)
             {
                 __torajs_throw_type_error(
                     c"cannot access a private member of another evaluation of this class".as_ptr(),

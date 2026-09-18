@@ -291,13 +291,13 @@ pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
-pub use class_private_touch::collect_private_touch_fns;
 pub use arrow_arguments_alias::alias_arrow_arguments;
 pub(crate) use build_factory::build_factory_body;
 pub use builtin_global_assign::demote_assigned_builtin_globals;
 pub use class_globals::{
     CLASS_PROLOGUE_FN, class_display_name, rewrite_class_expr_self_names, synthesize_class_globals,
 };
+pub use class_private_touch::collect_private_touch_fns;
 pub(crate) use clone_body::clone_toplevel_stmt;
 pub(crate) use closure_capture_anns::{SiteAnns, collect_closure_capture_anns};
 pub(crate) use closure_capture_anns_outer::collect_outer_binds;
