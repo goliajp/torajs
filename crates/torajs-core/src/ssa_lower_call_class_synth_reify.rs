@@ -216,6 +216,32 @@ pub(super) fn try_lower_unit_static_accessor_reify(
     Some(Operand::ConstI64(0))
 }
 
+/// K4-2 — `__torajs_unit_static_field_define(__unit, "<f>", <init>)`:
+/// one static field of ONE evaluation, defined (not written) onto its
+/// class object. Evaluation order is the spec's: the initializer runs,
+/// then the define.
+pub(super) fn try_lower_unit_static_field_define(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let [unit_id, name_id, init_id] = args else {
+        return None;
+    };
+    let val = ctx.lower_expr(*init_id);
+    let (vtag, vvalue) = ctx.box_to_tag_value(val);
+    let unit_op = ctx.lower_expr(*unit_id);
+    let name_op = ctx.lower_expr(*name_id);
+    let define = ctx.intrinsics.class_unit_static_field_define;
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(define, vec![unit_op, name_op.clone(), vtag, vvalue]),
+    );
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
+    Some(Operand::ConstI64(0))
+}
+
 /// 563-03 — `__torajs_class_static_own_move_to_end("<C>", "<M>")`:
 /// move the class object's own `<M>` entry behind everything defined
 /// so far. §15.7.14 defines every static element in ONE ordered

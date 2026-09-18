@@ -62,6 +62,12 @@ pub const UNIT_STATIC_METHOD_REIFY: &str = "__torajs_unit_static_method_reify";
 /// K4-3 — its accessor twin: one pair per evaluation.
 pub const UNIT_STATIC_ACCESSOR_REIFY: &str = "__torajs_unit_static_accessor_reify";
 
+/// K4-2 — one static FIELD of one evaluation: §7.3.34 DefineField's
+/// CreateDataPropertyOrThrow on the class object. A define, not a
+/// write: `static name = "x"` replaces the class object's non-writable
+/// `name`, and a private field has no brand to write through yet.
+pub const UNIT_STATIC_FIELD_DEFINE: &str = "__torajs_unit_static_field_define";
+
 /// Whether the ClassDecl `cls` (about to be hoisted out of a
 /// multi-evaluation container) has a unit-class shape. The name-keyed
 /// reference census is [`refs_stay_local`], asked after the hoist's
@@ -260,9 +266,9 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
     let length_lit = ast.add_expr(Expr::Number(length as f64));
     let class_init = ast.add_expr(Expr::ObjectLit {
         fields: vec![
+            (PropKey::from("length"), length_lit),
             (PropKey::from("name"), name_lit),
             (PropKey::from("prototype"), proto_ref),
-            (PropKey::from("length"), length_lit),
         ],
     });
     let wire = ast.add_expr(Expr::Ident(UNIT_WIRE.into()));
@@ -300,21 +306,19 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
     // every method is defined (§15.7.14 steps 31–35). The class
     // object's local is spelled `__unit` so a static `this` (pass 2
     // rewrites it to `__unit`) resolves inside the factory too; a
-    // field is an own data entry (`__unit.x = init`, the any-lane
-    // member write), a block runs inline.
+    // field is an own data entry (`UNIT_STATIC_FIELD_DEFINE`), a
+    // block runs inline.
     for si in static_inits {
         match si {
             UnitStatic::Field(name, init) => {
-                let obj = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
-                let target = ast.add_expr(Expr::Member {
-                    obj,
-                    name: name.lossy().into_owned(),
+                let callee = ast.add_expr(Expr::Ident(UNIT_STATIC_FIELD_DEFINE.into()));
+                let unit_arg = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
+                let name_lit = ast.add_expr(Expr::String(name.into()));
+                let define = ast.add_expr(Expr::Call {
+                    callee,
+                    args: vec![unit_arg, name_lit, init],
                 });
-                let assign = ast.add_expr(Expr::Assign {
-                    target,
-                    value: init,
-                });
-                static_reifies.push(Stmt::Expr(assign));
+                static_reifies.push(Stmt::Expr(define));
             }
             UnitStatic::Block(idx) => {
                 let callee = ast.add_expr(Expr::Ident(format!("__sb_{binding}__{idx}")));

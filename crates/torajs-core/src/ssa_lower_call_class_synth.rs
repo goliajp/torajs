@@ -77,6 +77,9 @@ pub(crate) fn try_lower(
         crate::ast::class_unit::UNIT_STATIC_ACCESSOR_REIFY => {
             reify::try_lower_unit_static_accessor_reify(ctx, args)
         }
+        crate::ast::class_unit::UNIT_STATIC_FIELD_DEFINE => {
+            reify::try_lower_unit_static_field_define(ctx, args)
+        }
         "__torajs_static_field_reify" => reify::try_lower_static_field_reify(ctx, args),
         "__torajs_class_accessor_reify" => reify::try_lower_class_accessor_reify(ctx, args, false),
         "__torajs_class_static_accessor_reify" => {

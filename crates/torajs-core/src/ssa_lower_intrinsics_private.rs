@@ -38,6 +38,8 @@ pub(crate) struct PrivateIds {
     pub class_unit_static_method_define: FuncId,
     /// K4-3 — its accessor twin (`unit, name Str, get vaddr, set vaddr`).
     pub class_unit_static_accessor_define: FuncId,
+    /// K4-2 — one static field (`unit, name Str, value tag, value`).
+    pub class_unit_static_field_define: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> PrivateIds {
@@ -113,6 +115,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_class_unit_static_accessor_define",
+            &[Type::Any, Type::Str, Type::I64, Type::I64],
+            Type::Void,
+        ),
+        class_unit_static_field_define: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_class_unit_static_field_define",
             &[Type::Any, Type::Str, Type::I64, Type::I64],
             Type::Void,
         ),

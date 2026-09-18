@@ -15,7 +15,9 @@
 //! own arms. A real binding of any of these names has already won
 //! before this is reached.
 
-use crate::ast::class_unit::{UNIT_STATIC_ACCESSOR_REIFY, UNIT_STATIC_METHOD_REIFY};
+use crate::ast::class_unit::{
+    UNIT_STATIC_ACCESSOR_REIFY, UNIT_STATIC_FIELD_DEFINE, UNIT_STATIC_METHOD_REIFY, UNIT_WIRE,
+};
 use crate::check::Type;
 
 /// RFC 20260730 blade 1 — exotic-subclass factory internals: the
@@ -139,6 +141,25 @@ fn error_synth_ty(name: &str) -> Option<Type> {
     })
 }
 
+/// RFC 20260917-class-eval-unit — the per-evaluation class family,
+/// kept together the way `dstr_synth_ty` keeps the pattern one: every
+/// member runs inside `__cunit_<C>` on the class object that
+/// evaluation minted.
+fn unit_synth_ty(name: &str) -> Option<Type> {
+    let void_fn = |params: Vec<Type>| Type::Function(params, Box::new(Type::Void));
+    Some(match name {
+        // K1 — `(class, proto, "C")`.
+        UNIT_WIRE => void_fn(vec![Type::Any, Type::Any, Type::String]),
+        // K4-1 / K4-3 — `("C", member, the evaluation's class)`.
+        UNIT_STATIC_METHOD_REIFY | UNIT_STATIC_ACCESSOR_REIFY => {
+            void_fn(vec![Type::String, Type::String, Type::Any])
+        }
+        // K4-2 — `(the evaluation's class, field name, initializer)`.
+        UNIT_STATIC_FIELD_DEFINE => void_fn(vec![Type::Any, Type::String, Type::Any]),
+        _ => return None,
+    })
+}
+
 pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
     let t = match name {
         // RFC 20260805-async-fn-state-machine blade 1 — the injected
@@ -225,13 +246,11 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             Box::new(Type::Void),
         )),
         // L3b static-field-reflect: third arg is the `__sf_<C>__<f>`
-        // global's value; K4-1's unit reify: the evaluation's class.
-        "__torajs_static_field_reify" | UNIT_STATIC_METHOD_REIFY | UNIT_STATIC_ACCESSOR_REIFY => {
-            Ok(Type::Function(
-                vec![Type::String, Type::String, Type::Any],
-                Box::new(Type::Void),
-            ))
-        }
+        // global's value.
+        "__torajs_static_field_reify" => Ok(Type::Function(
+            vec![Type::String, Type::String, Type::Any],
+            Box::new(Type::Void),
+        )),
         "__torajs_class_accessor_reify" | "__torajs_class_static_accessor_reify" => Ok(
             Type::Function(vec![Type::String, Type::String], Box::new(Type::Void)),
         ),
@@ -279,6 +298,7 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             Box::new(Type::Any),
         )),
         n if dstr_synth_ty(n).is_some() => Ok(dstr_synth_ty(n).unwrap()),
+        n if unit_synth_ty(n).is_some() => Ok(unit_synth_ty(n).unwrap()),
         // 刀 3 — the derived-ctor no-super ReferenceError raiser the
         // class desugar appends to super-less derived ctors.
         n if error_synth_ty(n).is_some() => Ok(error_synth_ty(n).unwrap()),
@@ -311,11 +331,6 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             Box::new(Type::Void),
         )),
         "__torajs_my_class_ref" => Ok(Type::Function(vec![Type::String], Box::new(Type::Any))),
-        // RFC 20260917-class-eval-unit K1 — `(class, proto, "C")`.
-        "__torajs_class_unit_wire" => Ok(Type::Function(
-            vec![Type::Any, Type::Any, Type::String],
-            Box::new(Type::Void),
-        )),
         // RFC 20260713 blade 5 cut 4 — generator-proto →
         // %GeneratorPrototype% chain writer (class_globals emits it
         // at module init; lowered in the class-synth lane).

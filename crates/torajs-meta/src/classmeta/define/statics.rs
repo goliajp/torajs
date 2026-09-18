@@ -103,6 +103,37 @@ pub unsafe extern "C" fn __torajs_class_unit_static_accessor_define(
     }
 }
 
+/// K4-2 — one static FIELD on ONE EVALUATION's class object: the
+/// unit twin of `__torajs_class_static_field_define`, with the class
+/// object given rather than looked up by tag. §7.3.34 DefineField is
+/// CreateDataPropertyOrThrow, so the entry replaces whatever the
+/// object already carries under that key (`static name = "x"` over
+/// the non-writable `name`) with the `{writable, enumerable,
+/// configurable}` data triple.
+///
+/// # Safety
+/// `unit` is a live dynobj cell; `name_str` a live Str cell
+/// (caller-owned); `vtag`/`vvalue` follow the dynobj_define pair
+/// contract (the heap arm's reference is the entry's stake).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_unit_static_field_define(
+    unit: u64,
+    name_str: *const u8,
+    vtag: u64,
+    vvalue: u64,
+) {
+    if !is_cell_imm(unit) || name_str.is_null() {
+        return;
+    }
+    if unsafe { heap_type_tag(unit as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let mut slot = unit as *mut c_void;
+        __torajs_dynobj_define_plain(&mut slot, name_str, vtag, vvalue, DEFINE_FIELD_FLAGS);
+    }
+}
+
 /// Knife B cut 2 — one static-method own entry on the class object.
 /// ssa_lower hands the resolved triple (`tag`, the method-name Str
 /// cell, the `__sm_<C>__<M>` boxed adapter's vaddr); the minted cell

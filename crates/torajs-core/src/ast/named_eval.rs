@@ -20,7 +20,8 @@
 //!
 //! Positions NOT covered (same set the closure path has always
 //! missed, recorded rather than silently assumed): class-field
-//! initializers and `export default`.
+//! initializers (a unit class's public static fields excepted) and
+//! `export default`.
 
 use std::collections::HashMap;
 
@@ -138,6 +139,20 @@ pub(crate) fn collect_named_eval_positions(ast: &Ast) -> HashMap<ExprId, String>
     // exactly one syntactic position, so the sweep never collides with
     // the walk above.
     for e in &ast.exprs {
+        // K4-2 — a unit class's static field initializer
+        // (§15.7.10 ClassFieldDefinition is a NamedEvaluation by the
+        // field name). A private field's `#x` spelling is not
+        // recoverable from its mangled key here; it stays anonymous.
+        if let Expr::Call { callee, args } = e
+            && let Expr::Ident(c) = ast.get_expr(*callee)
+            && c == super::class_unit::UNIT_STATIC_FIELD_DEFINE
+            && let [_, key, init] = args.as_slice()
+            && let Expr::String(key) = ast.get_expr(*key)
+            && let Some(key) = key.as_str()
+            && !key.starts_with("__priv_")
+        {
+            map.insert(unwrap_as(ast, *init), key.to_string());
+        }
         if let Expr::ObjectLit { fields } = e {
             for (fname, val) in fields {
                 // 565-03 — a COMPUTED key gives no syntactic name: the
