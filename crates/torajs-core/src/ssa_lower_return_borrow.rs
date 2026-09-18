@@ -23,6 +23,20 @@ pub(crate) fn retain_borrowed_answer(
     src_eid: ExprId,
     v: &Operand,
 ) -> Option<Operand> {
+    // A read its lowering already answered OWNED carries its stake and
+    // aliases nothing: no retain, and no consume walk either. A keyed
+    // read through an `any` key is one (`const k: any = …; return
+    // xs[k]`): the element arm below retained it a second time (one
+    // box per call, 11.4 MB vs 1.7 MB flat), and without that arm the
+    // walk marked `xs` moved and stranded the whole array (46.7 MB).
+    // Joins are judged below — their owned form is per-site.
+    let is_read = matches!(
+        ctx.ast.get_expr(src_eid),
+        Expr::Index { .. } | Expr::OptIndex { .. } | Expr::Member { .. } | Expr::OptChain { .. }
+    );
+    if is_read && ctx.expr_owned_shape(src_eid) {
+        return Some(v.clone());
+    }
     // A join (`?:`, `??`, `&&`, `||`) over borrows answers a borrow of
     // whichever arm ran, and the consume walk marks none of the arms'
     // locals moved (it cannot know which one leaves). The caller owns
