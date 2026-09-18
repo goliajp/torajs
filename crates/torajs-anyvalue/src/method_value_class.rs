@@ -38,7 +38,7 @@ mod accessor;
 mod ctor_method;
 
 use accessor::class_accessor_bare_entry;
-pub(crate) use accessor::class_accessor_meta;
+pub(crate) use accessor::{__torajs_class_accessor_face_invoke, class_accessor_meta};
 pub(crate) use ctor_method::class_ctor_method;
 
 unsafe extern "C" {

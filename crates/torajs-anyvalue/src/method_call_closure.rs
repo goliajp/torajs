@@ -239,10 +239,6 @@ pub(crate) enum CallTarget {
     /// the §23.1.3.1 wrapper-seed concat for an Array-prototype
     /// cell on a primitive receiver.
     Builtin(i64, i64),
-    /// A reified class method / accessor face (RFC
-    /// 20260718-accessor-reify 刀 2) — the carried adapter invokes
-    /// with the thisArg in the env slot.
-    ClassAdapter(u64),
 }
 
 /// Classify the receiver closure cell.
@@ -257,14 +253,11 @@ pub(crate) unsafe fn call_target(ptr: *mut c_void) -> Option<CallTarget> {
         // `invoke_with_this`'s receiver guard runs (the face cell in
         // the env slot carries the class tag + twin; the entry is
         // the recognizer sentinel it re-derives the adapter from).
-        // Accessor faces keep the direct ClassAdapter invoke — their
-        // re-bind guard is the recorded RFC follow-up.
-        if crate::method_value_class::class_method_face_adapter(ptr).is_some() {
-            return closure_cell_entry(ptr).map(|(env, entry)| CallTarget::Boxed(env, entry));
-        }
-        if let Some(adapter) = crate::method_value_class::class_method_adapter(ptr) {
-            return Some(CallTarget::ClassAdapter(adapter));
-        }
+        // K4-3 — an ACCESSOR face rides the same lane: `invoke_with_
+        // this` hands it to the pair kernels' entry, whose guard
+        // (629-02) routes a foreign receiver through the twin. The
+        // direct adapter invoke it took before ran the mono body with
+        // the receiver ignored (the RFC follow-up this closes).
         closure_cell_entry(ptr).map(|(env, entry)| CallTarget::Boxed(env, entry))
     }
 }
@@ -282,11 +275,6 @@ pub(crate) unsafe fn dispatch(
     unsafe {
         match target {
             CallTarget::Boxed(env, entry) => invoke_with_this(*env, *entry, this_arg, argv, argc),
-            CallTarget::ClassAdapter(adapter) => {
-                crate::method_value_class::__torajs_class_face_invoke(
-                    *adapter, this_arg, argv, argc,
-                )
-            }
             CallTarget::Builtin(mid, fam) => {
                 // A tag-15 cell (%Iterator.prototype%'s helpers) is
                 // STRICT about its receiver — §27.1.4.x step 1 is a

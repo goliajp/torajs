@@ -53,6 +53,56 @@ pub unsafe extern "C" fn __torajs_class_unit_static_method_define(
     }
 }
 
+/// K4-3 — one static accessor pair on ONE EVALUATION's class object:
+/// the static twin of `__torajs_class_static_accessor_define`, with
+/// the class object given rather than looked up by tag, and the faces
+/// minted mortal and holding it (`define_accessor_pair`'s `unit`).
+/// Each half takes the twin-primary encoding `(tag 0, twin = adapter)`
+/// for the reason the unit static METHOD face does: a static body's
+/// adapter reads every parameter off argv, so the receiver has to
+/// ride argv[0] (`invoke_boxed_recv_first`), which is the leading
+/// `__unit` param.
+///
+/// # Safety
+/// `unit` is a live dynobj cell; `name_str` a live Str cell
+/// (caller-owned); the adapters are live boxed-adapter code
+/// addresses or 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_unit_static_accessor_define(
+    unit: u64,
+    name_str: *const u8,
+    get_adapter: u64,
+    set_adapter: u64,
+) {
+    if !is_cell_imm(unit) || name_str.is_null() || (get_adapter == 0 && set_adapter == 0) {
+        return;
+    }
+    if unsafe { heap_type_tag(unit as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let spelling = crate::str_wtf8::StrWtf8::of(name_str.cast());
+        let mut slot = unit as *mut c_void;
+        define_accessor_pair(
+            &mut slot,
+            name_str,
+            spelling.as_bytes(),
+            FaceHalf {
+                adapter: get_adapter,
+                tag: 0,
+                twin: get_adapter,
+            },
+            FaceHalf {
+                adapter: set_adapter,
+                tag: 0,
+                twin: set_adapter,
+            },
+            DEFINE_ACCESSOR_FLAGS,
+            unit,
+        );
+    }
+}
+
 /// Knife B cut 2 — one static-method own entry on the class object.
 /// ssa_lower hands the resolved triple (`tag`, the method-name Str
 /// cell, the `__sm_<C>__<M>` boxed adapter's vaddr); the minted cell

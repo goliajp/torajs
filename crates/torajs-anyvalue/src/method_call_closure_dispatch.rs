@@ -258,6 +258,21 @@ pub(crate) unsafe fn invoke_with_this(
     argc: i64,
 ) -> AnyValue {
     unsafe {
+        // K4-3 (RFC 20260917-class-eval-unit) — a reified class-
+        // ACCESSOR face rebinds through the pair kernels' own entry,
+        // which carries the receiver guard (629-02: an own instance
+        // takes the mono adapter with the receiver in the env slot,
+        // anything else the twin recv-first). Before this a `.call`
+        // took the method path below: the mono adapter ran with the
+        // receiver ignored — a static getter answered for the
+        // declaring class, an instance getter read a foreign object at
+        // baked offsets — and a unit class's face, whose body reads
+        // the receiver off argv[0], read nothing at all.
+        if crate::method_value_class::class_accessor_meta(env).is_some() {
+            return crate::method_value_class::__torajs_class_accessor_face_invoke(
+                env, this_arg, argv, argc,
+            );
+        }
         // S2.34 — a reified class-METHOD face carries its boxed
         // adapter in the cap slot and wants the RECEIVER in the env
         // slot (`adapter(this-as-env, argv, argc)`, the exact shape

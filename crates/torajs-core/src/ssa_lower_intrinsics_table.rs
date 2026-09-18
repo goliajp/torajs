@@ -560,6 +560,7 @@ pub(crate) fn build(
         priv_brand_fail: init_c.private.priv_brand_fail,
         class_unit_wire: init_c.private.class_unit_wire,
         class_unit_static_method_define: init_c.private.class_unit_static_method_define,
+        class_unit_static_accessor_define: init_c.private.class_unit_static_accessor_define,
         priv_unit_word: init_c.private.priv_unit_word,
         ctor_ret_value: init_c.ctor_ret.ctor_ret_value,
         ctor_ret_carry: init_c.ctor_ret.ctor_ret_carry,

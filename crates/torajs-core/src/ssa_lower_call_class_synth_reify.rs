@@ -162,6 +162,60 @@ pub(super) fn try_lower_unit_static_method_reify(
     Some(Operand::ConstI64(0))
 }
 
+/// K4-3 — `__torajs_unit_static_accessor_reify("<C>", "<p>", __unit)`:
+/// the static twin of `try_lower_class_accessor_reify` for ONE
+/// evaluation's class object — both faces' boxed adapters (either may
+/// be absent) and the object itself, to `__torajs_class_unit_static_
+/// accessor_define`. Both-adapters dropout skips the define.
+pub(super) fn try_lower_unit_static_accessor_reify(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let [cname_id, pname_id, unit_id] = args else {
+        return None;
+    };
+    let Expr::String(cname) = ctx.ast.get_expr(*cname_id) else {
+        return None;
+    };
+    let cname = cname.to_string_lossy_owned();
+    let Expr::String(pname) = ctx.ast.get_expr(*pname_id) else {
+        return None;
+    };
+    let pname = pname.clone();
+    let face = |suffix: &str| -> Option<(crate::ssa::FuncId, crate::ssa::SigId)> {
+        let body = format!("__sm_{cname}__{}{suffix}", mangle_key(&pname));
+        let body_fid = ctx.fn_table.get(body.as_str()).copied()?;
+        ctx.boxed_entries.get(&body_fid).copied()
+    };
+    let get = face("_get");
+    let set = face("_set");
+    if get.is_none() && set.is_none() {
+        return Some(Operand::ConstI64(0));
+    }
+    let unit_op = ctx.lower_expr(*unit_id);
+    let name_op = ctx.lower_expr(*pname_id);
+    let cur_block = ctx.cur_block;
+    let mut vaddr = |f: Option<(crate::ssa::FuncId, crate::ssa::SigId)>| match f {
+        Some((fid, sig)) => Operand::Value(ctx.f.append_inst(
+            cur_block,
+            InstKind::FnAddr(fid),
+            Type::FnSig(sig),
+            None,
+        )),
+        None => Operand::ConstI64(0),
+    };
+    let get_op = vaddr(get);
+    let set_op = vaddr(set);
+    let define = ctx.intrinsics.class_unit_static_accessor_define;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(define, vec![unit_op, name_op.clone(), get_op, set_op]),
+    );
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
+    Some(Operand::ConstI64(0))
+}
+
 /// 563-03 — `__torajs_class_static_own_move_to_end("<C>", "<M>")`:
 /// move the class object's own `<M>` entry behind everything defined
 /// so far. §15.7.14 defines every static element in ONE ordered

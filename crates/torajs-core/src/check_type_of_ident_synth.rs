@@ -15,6 +15,7 @@
 //! own arms. A real binding of any of these names has already won
 //! before this is reached.
 
+use crate::ast::class_unit::{UNIT_STATIC_ACCESSOR_REIFY, UNIT_STATIC_METHOD_REIFY};
 use crate::check::Type;
 
 /// RFC 20260730 blade 1 — exotic-subclass factory internals: the
@@ -225,7 +226,7 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
         )),
         // L3b static-field-reflect: third arg is the `__sf_<C>__<f>`
         // global's value; K4-1's unit reify: the evaluation's class.
-        "__torajs_static_field_reify" | crate::ast::class_unit::UNIT_STATIC_METHOD_REIFY => {
+        "__torajs_static_field_reify" | UNIT_STATIC_METHOD_REIFY | UNIT_STATIC_ACCESSOR_REIFY => {
             Ok(Type::Function(
                 vec![Type::String, Type::String, Type::Any],
                 Box::new(Type::Void),

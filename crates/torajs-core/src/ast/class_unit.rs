@@ -59,6 +59,9 @@ pub const UNIT_PARAM: &str = "__unit";
 /// (`classmeta::define::statics`).
 pub const UNIT_STATIC_METHOD_REIFY: &str = "__torajs_unit_static_method_reify";
 
+/// K4-3 — its accessor twin: one pair per evaluation.
+pub const UNIT_STATIC_ACCESSOR_REIFY: &str = "__torajs_unit_static_accessor_reify";
+
 /// Whether the ClassDecl `cls` (about to be hoisted out of a
 /// multi-evaluation container) has a unit-class shape. The name-keyed
 /// reference census is [`refs_stay_local`], asked after the hoist's
@@ -129,9 +132,11 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         // mortal face per evaluation onto that object. Static fields
         // / blocks (K4-2), static accessors (K4-3) and static private
         // members (K4-4) still keep the shared identity.
+        // K4-3 — a static ACCESSOR rides the same way: its two faces
+        // take `__unit` first and reify as one pair per evaluation.
         || !static_methods
             .iter()
-            .all(|m| plain(&m.name) && m.accessor_kind.is_none() && m.type_params.is_empty())
+            .all(|m| plain(&m.name) && m.type_params.is_empty())
         || !fields.iter().all(|(k, _)| plain(k) || private_field(k))
         || !methods
             .iter()
@@ -209,7 +214,15 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
     else {
         unreachable!("admitted a ClassDecl");
     };
-    let static_names: Vec<PropKey> = static_methods.iter().map(|m| m.name.clone()).collect();
+    // K4-1 / K4-3 — one reify per static method, one per accessor
+    // NAME (a get / set pair defines once, at its first face).
+    let mut static_names: Vec<(PropKey, bool)> = Vec::new();
+    for m in static_methods.iter() {
+        let is_accessor = m.accessor_kind.is_some();
+        if !(is_accessor && static_names.iter().any(|(n, a)| *a && *n == m.name)) {
+            static_names.push((m.name.clone(), is_accessor));
+        }
+    }
     // K4-2 — the static initializers stay on the declaration so
     // `emit_static_inits` still mints each block's strict `__sb_<C>__<i>`
     // function (with a `__unit` param for a unit class); the fields'
@@ -267,8 +280,13 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
     // rows' `define_unit_rows` shape, on the class object instead of
     // the prototype).
     let mut static_reifies: Vec<Stmt> = Vec::with_capacity(static_names.len());
-    for name in static_names {
-        let callee = ast.add_expr(Expr::Ident(UNIT_STATIC_METHOD_REIFY.into()));
+    for (name, is_accessor) in static_names {
+        let magic = if is_accessor {
+            UNIT_STATIC_ACCESSOR_REIFY
+        } else {
+            UNIT_STATIC_METHOD_REIFY
+        };
+        let callee = ast.add_expr(Expr::Ident(magic.into()));
         let cname_lit = ast.add_expr(Expr::String(binding.to_string().into()));
         let mname_lit = ast.add_expr(Expr::String(name.into()));
         let unit_arg = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));

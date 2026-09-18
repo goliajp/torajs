@@ -317,7 +317,11 @@ fn rewrite_static_accessor_accesses(
         return;
     }
     let windows = super::desugar_classes_statics::static_field_shadow_windows(ast, class_index);
-    let member_face = |ast: &Ast, eid: ExprId, want_get: bool| -> Option<String> {
+    // K4-3 — a unit class's accessor face takes the evaluation's
+    // class object first (K4-1's `__unit` param), so the call passes
+    // the binding: `C.p` → `__sm_C__p_get(C)`, `C.p = v` →
+    // `__sm_C__p_set(C, v)`.
+    let member_face = |ast: &Ast, eid: ExprId, want_get: bool| -> Option<(String, Vec<ExprId>)> {
         let Expr::Member { obj, name } = ast.get_expr(eid) else {
             return None;
         };
@@ -331,7 +335,13 @@ fn rewrite_static_accessor_accesses(
             return None;
         }
         let (g, s) = accessor_rewrites.get(&key)?;
-        if want_get { g.clone() } else { s.clone() }
+        let face = if want_get { g.clone() } else { s.clone() }?;
+        let head = if ast.eval_unit_classes.contains(class_name) {
+            vec![*obj]
+        } else {
+            Vec::new()
+        };
+        Some((face, head))
     };
     // Write pass — whole-Assign nodes first.
     let mut kept_targets: std::collections::HashSet<ExprId> = std::collections::HashSet::new();
@@ -340,12 +350,10 @@ fn rewrite_static_accessor_accesses(
             Expr::Assign { target, value } => (*target, *value),
             _ => continue,
         };
-        if let Some(set_fn) = member_face(ast, target, false) {
+        if let Some((set_fn, mut args)) = member_face(ast, target, false) {
             let callee = ast.add_expr(Expr::Ident(set_fn));
-            ast.exprs[i] = Expr::Call {
-                callee,
-                args: vec![value],
-            };
+            args.push(value);
+            ast.exprs[i] = Expr::Call { callee, args };
         } else {
             kept_targets.insert(target);
         }
@@ -356,12 +364,9 @@ fn rewrite_static_accessor_accesses(
         if kept_targets.contains(&eid) {
             continue;
         }
-        if let Some(get_fn) = member_face(ast, eid, true) {
+        if let Some((get_fn, args)) = member_face(ast, eid, true) {
             let callee = ast.add_expr(Expr::Ident(get_fn));
-            ast.exprs[i] = Expr::Call {
-                callee,
-                args: vec![],
-            };
+            ast.exprs[i] = Expr::Call { callee, args };
         }
     }
 }
