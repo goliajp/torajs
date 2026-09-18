@@ -44,10 +44,29 @@ pub(super) fn compute_descendant_tags(ctx: &LowerCtx<'_>, class_name: &str) -> V
 /// what the specialization rows copy their identity from, and the
 /// name comparison in `__torajs_generic_tag_match` is keyed off it.
 pub(super) fn generic_class_tag(ctx: &LowerCtx<'_>, class_name: &str) -> Option<i64> {
-    if !ctx.generic_struct_decls.contains_key(class_name) {
+    if !is_generic_class(ctx, class_name) {
         return None;
     }
     ctx.class_name_to_tag.get(class_name).map(|t| *t as i64)
+}
+
+/// Does `class_name`'s instances wear per-specialization tags? Two
+/// ways: the class declares type params (`generic_struct_decls`), or
+/// the implicit-generics pass genericized its factory — an
+/// un-annotated ctor parameter turns `__new_C` into a template whose
+/// monos are `__new_C$$…`, and `write_class_tag` mints each mono its
+/// own tag with the class's name. The class itself carries no type
+/// params, so the first table never lists it, and the answer set had
+/// only the template's constant tag: `new C(1) instanceof C` answered
+/// false for every class whose ctor parameter was un-annotated, and
+/// the private brand check on such an instance (the same membership
+/// test) refused the class's own `this.#x = v`.
+fn is_generic_class(ctx: &LowerCtx<'_>, class_name: &str) -> bool {
+    if ctx.generic_struct_decls.contains_key(class_name) {
+        return true;
+    }
+    let prefix = format!("__new_{class_name}$$");
+    ctx.fn_table.keys().any(|k| k.starts_with(&prefix))
 }
 
 /// The name-identity half's tag set (see the module doc): the target
@@ -61,7 +80,7 @@ pub(super) fn generic_half_tags(ctx: &LowerCtx<'_>, class_name: &str) -> Vec<i64
     if ctx.ast.class_parents.contains_key(class_name) {
         for c in ctx.ast.class_parents.keys() {
             if c != class_name
-                && ctx.generic_struct_decls.contains_key(c)
+                && is_generic_class(ctx, c)
                 && chain_reaches(ctx, c, class_name)
                 && let Some(tag) = ctx.class_name_to_tag.get(c)
             {
