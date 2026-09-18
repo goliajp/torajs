@@ -411,15 +411,19 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Statement driver — `let/const PAT (: T)? = src ;` for both
-    /// pattern kinds (parse_stmt dispatches here on `let [` /
-    /// `let {`). Replaces the flat parse_array_destructuring /
-    /// parse_object_destructuring pair.
-    pub(super) fn parse_destructuring_decl(
+    /// `PAT (: T)? = src` for both pattern kinds (the declaration loop
+    /// in `parse_let_decl_stmt` dispatches here on `[` / `{`).
+    ///
+    /// One DECLARATOR, not the statement: §14.3.1 lets a pattern sit
+    /// at any position of the list (`const [a] = x, [b] = y`), so the
+    /// `,` / `;` after the initializer is the caller's. The bindings
+    /// join `decls`, which flattens into the surrounding scope.
+    pub(super) fn parse_destructuring_declarator(
         &mut self,
         mutable: bool,
         is_var: bool,
-    ) -> Result<Stmt, String> {
+        decls: &mut Vec<Stmt>,
+    ) -> Result<(), String> {
         // §14.3.1.1 — `var { let } = o` binds, `let`/`const { let }` do
         // not. Restored before `?` so an error does not leak the flag.
         let saved = std::mem::replace(&mut self.pattern_binds_lexically, !is_var);
@@ -443,13 +447,7 @@ impl<'a> Parser<'a> {
             }
         }
         let src = self.parse_expr()?;
-        if matches!(self.peek(), Token::Semi) {
-            self.pos += 1;
-        }
-        let mut stmts: Vec<Stmt> = Vec::new();
-        self.emit_pattern_binds(&pat, src, mutable, is_var, &mut stmts);
-        // Stmt::Multi flattens at lowering time, so the user-visible
-        // lets join the surrounding scope rather than a fresh frame.
-        Ok(Stmt::Multi(stmts))
+        self.emit_pattern_binds(&pat, src, mutable, is_var, decls);
+        Ok(())
     }
 }

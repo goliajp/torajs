@@ -25,19 +25,6 @@ impl<'a> Parser<'a> {
             "const"
         };
         self.pos += 1;
-        // Destructuring: `let [a, b] = src` or `let { x, y } = src`.
-        // Parsed inline so it shares the let-decl's lookahead. Both
-        // forms desugar to `let __t = src; let <field>...; ...` so the
-        // backend never sees a destructuring pattern.
-        if matches!(self.peek(), Token::LBracket | Token::LBrace) {
-            // `is_var` travels with `mutable`. Dropping it made every
-            // `var { a } = src` bind block-scoped, so `{ var { a } =
-            // src } a` answered `unknown identifier` where §14.3.2
-            // hoists the binding to the enclosing function — and
-            // inside a `with` body the same mistake made the name
-            // SHADOW the object, which a `var` never does.
-            return self.parse_destructuring_decl(mutable, is_var);
-        }
         // V3-18 m1.h.5 — multi-decl `let a, b = 1, c` per spec
         // §14.3.1. Each binding can have its own type ann and
         // optional init; commas separate; final semi closes.
@@ -45,6 +32,18 @@ impl<'a> Parser<'a> {
         // passes see them as a flat statement sequence.
         let mut decls: Vec<Stmt> = Vec::new();
         loop {
+            // A pattern declarator (`let [a, b] = src`, `let { x } =
+            // src`) desugars to `let __t = src; let <field>…` so the
+            // backend never sees a pattern. `is_var` travels with
+            // `mutable`: dropping it bound `var { a } = src`
+            // block-scoped where §14.3.2 hoists it.
+            if matches!(self.peek(), Token::LBracket | Token::LBrace) {
+                self.parse_destructuring_declarator(mutable, is_var, &mut decls)?;
+                if self.next_declarator() {
+                    continue;
+                }
+                break;
+            }
             let name = match self.peek() {
                 Token::Ident(n) => {
                     let n = n.clone();
@@ -155,14 +154,8 @@ impl<'a> Parser<'a> {
                     init,
                     is_var,
                 });
-                if matches!(self.peek(), Token::Comma) {
-                    self.pos += 1;
+                if self.next_declarator() {
                     continue;
-                }
-                // Only consume Semi as terminator; for ASI-style
-                // stmt-start, leave the token for the outer parse.
-                if matches!(self.peek(), Token::Semi) {
-                    self.pos += 1;
                 }
                 break;
             }
@@ -190,20 +183,29 @@ impl<'a> Parser<'a> {
                 init,
                 is_var,
             });
-            if matches!(self.peek(), Token::Comma) {
-                self.pos += 1;
-                continue;
+            if !self.next_declarator() {
+                break;
             }
-            if matches!(self.peek(), Token::Semi) {
-                self.pos += 1;
-            }
-            break;
         }
         return Ok(if decls.len() == 1 {
             decls.into_iter().next().unwrap()
         } else {
             Stmt::Multi(decls)
         });
+    }
+
+    /// Step past one declarator: `true` after a `,` (another follows).
+    /// Otherwise the list is over, and only a `;` is consumed — an
+    /// ASI-style statement start stays for the outer parse.
+    fn next_declarator(&mut self) -> bool {
+        if matches!(self.peek(), Token::Comma) {
+            self.pos += 1;
+            return true;
+        }
+        if matches!(self.peek(), Token::Semi) {
+            self.pos += 1;
+        }
+        false
     }
 
     /// §13.15.2 — a destructuring assignment in the INIT position
