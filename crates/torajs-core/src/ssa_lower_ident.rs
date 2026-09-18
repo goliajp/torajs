@@ -363,6 +363,7 @@ fn try_inline_const_literal(
             name: n,
             init,
             mutable,
+            type_ann,
             ..
         } = s
         else {
@@ -370,6 +371,17 @@ fn try_inline_const_literal(
         };
         if n != &name_owned || (*mutable && !dead) {
             continue;
+        }
+        // Chunk 809's read-side mirror: an `any`-annotated binding is
+        // registered Any (the annotation wins in the checker and in
+        // `collect_toplevel_globals`), so every read of it is typed
+        // Any and served by the boxed slot. Folding the literal here
+        // handed a bare `ConstI64(5)` to a consumer that had been
+        // told the value was Any — `const N: any = 5; function rd():
+        // any { return N }` was `__torajs_rc_inc(0x5)`, a SIGSEGV in
+        // `_main_user`'s prologue once `rd` inlined (rotation 667).
+        if type_ann.as_deref() == Some("any") {
+            return None;
         }
         match ctx.ast.get_expr(*init) {
             Expr::Number(v) => {
