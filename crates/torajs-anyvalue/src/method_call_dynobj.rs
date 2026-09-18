@@ -239,7 +239,7 @@ pub(crate) unsafe fn dynobj_method(
                         crate::method_value_class::class_method_face_guard(cellp);
                     if face_tag == 0 && twin != 0 {
                         let recv = __torajs_anyv_box_pointer(obj);
-                        return crate::method_call_closure_dispatch::invoke_boxed_recv_first(
+                        return crate::method_call_unit_guard::invoke_static_face(
                             cellp, twin, recv, argv, argc,
                         );
                     }

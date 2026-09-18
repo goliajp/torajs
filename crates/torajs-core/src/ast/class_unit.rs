@@ -29,11 +29,13 @@
 //!
 //! - W1 no `extends`, and no class extends this one; W5 not generic,
 //!   not abstract; W6 no builtin parent;
-//! - W2/W3/W4 no static, public accessor or computed member (K2 admits
+//! - W3/W4 no public instance accessor, no computed member. K2 admits
 //!   private methods and accessors, K3 private fields: their brand check
 //!   also compares the receiver's evaluation with the one `__this` runs
 //!   in, so no member body may hold a `function` expression, whose
-//!   `this` is not the instance);
+//!   `this` is not the instance. K4 admits static methods, accessors,
+//!   fields and blocks, private ones included: they run inside
+//!   `__cunit_C` on the evaluation's own class object;
 //! - W7 the constructor returns no value; W16 reads no `arguments`;
 //! - W8 no member body names the class (the body would read the
 //!   registered template);
@@ -119,7 +121,8 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
     // static field or a field spelled like a method stays out.
     let static_init_admits = static_init.iter().all(|si| match si {
         StaticInit::Field(sf) => {
-            plain(&sf.name) && !static_methods.iter().any(|m| m.name == sf.name)
+            (plain(&sf.name) || private_field(&sf.name))
+                && !static_methods.iter().any(|m| m.name == sf.name)
         }
         StaticInit::Block(_) => true,
     });
@@ -135,14 +138,18 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         // K4-1 — a plain static METHOD rides the unit: its body takes
         // the evaluation's class object as a leading `__unit` param
         // (a static `this` spells it), and `__cunit_C` defines one
-        // mortal face per evaluation onto that object. Static fields
-        // / blocks (K4-2), static accessors (K4-3) and static private
-        // members (K4-4) still keep the shared identity.
+        // mortal face per evaluation onto that object.
         // K4-3 — a static ACCESSOR rides the same way: its two faces
         // take `__unit` first and reify as one pair per evaluation.
+        // K4-4 — a static PRIVATE method / accessor / field rides as
+        // an own entry of the evaluation's class object, so the brand
+        // probe (`dynobj_has(receiver, key)`) already answers per
+        // evaluation for a foreign object. Another evaluation's class
+        // object carries the same key; the call-boundary guard
+        // (`method_call_unit_guard`) refuses it.
         || !static_methods
             .iter()
-            .all(|m| plain(&m.name) && m.type_params.is_empty())
+            .all(|m| (plain(&m.name) || private_method(&m.name)) && m.type_params.is_empty())
         || !fields.iter().all(|(k, _)| plain(k) || private_field(k))
         || !methods
             .iter()
@@ -187,7 +194,10 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
             StaticInit::Block(b) => in_bodies.list(ast, b, name),
         }
     }
-    let has_private = methods.iter().any(|m| private_method(&m.name));
+    let has_private = methods
+        .iter()
+        .chain(static_methods.iter())
+        .any(|m| private_method(&m.name));
     in_bodies.name == 0 && !in_bodies.arguments && !(has_private && in_bodies.fn_exprs)
 }
 

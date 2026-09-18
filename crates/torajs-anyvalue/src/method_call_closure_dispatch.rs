@@ -36,11 +36,6 @@ unsafe extern "C" {
     /// torajs-rc — the one boxed-entry reader (link-judged; see
     /// `torajs_rc::closure_entry`).
     fn __torajs_closure_boxed_entry(cell: *const u8) -> u64;
-    /// torajs-meta — the class object a unit-class instance carries
-    /// in its hidden slot (0 = not one).
-    fn __torajs_class_unit_of(cell: *const core::ffi::c_void) -> u64;
-    /// torajs-throw — record a pending catchable TypeError.
-    fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
 
 /// The boxed dual entry of a closure cell (0 = none linked) — every
@@ -291,32 +286,14 @@ pub(crate) unsafe fn invoke_with_this(
             // OrdinaryCallBindThis puts no shape bound on it).
             let (face_tag, twin) = crate::method_value_class::class_method_face_guard(env);
             if face_tag == 0 && twin != 0 {
-                return invoke_boxed_recv_first(env, twin, this_arg, argv, argc);
-            }
-            // K2b (RFC 20260917-class-eval-unit) — §15.7.14 gives
-            // every evaluation of a unit class its own method
-            // function objects, and §7.3.31 binds a private element
-            // to the evaluation that declared it. Two evaluations
-            // share a tag and therefore a layout, so running this
-            // body against the OTHER evaluation's instance addresses
-            // the right fields: legal for a public member
-            // (`C1.prototype.plain.call(c2)` answers, as bun does),
-            // a brand failure the moment the body reaches a private
-            // one. The face knows which evaluation minted it; the
-            // receiver carries its own in a hidden slot.
-            //
-            // The throw lands at the call boundary rather than at the
-            // private access inside, so a side effect the body would
-            // have run first does not (registered deviation).
-            if let Some((face_unit, touches_private)) =
-                crate::method_value_class::class_method_face_unit(env)
-                && touches_private
-                && (!is_cell(this_arg)
-                    || __torajs_class_unit_of(as_void_ptr(this_arg)) != face_unit)
-            {
-                __torajs_throw_type_error(
-                    c"cannot access a private member of another evaluation of this class".as_ptr(),
+                return crate::method_call_unit_guard::invoke_static_face(
+                    env, twin, this_arg, argv, argc,
                 );
+            }
+            // K2b — a face minted by one evaluation of a unit class
+            // refuses another evaluation's receiver once its body
+            // reaches a private element (`method_call_unit_guard`).
+            if crate::method_call_unit_guard::refuses_receiver(env, this_arg) {
                 return VALUE_UNDEFINED;
             }
             if is_cell(this_arg) {

@@ -135,6 +135,15 @@ pub(super) fn try_lower_unit_static_method_reify(
     let Some(&(adapter_fid, adapter_sig)) = ctx.boxed_entries.get(&body_fid) else {
         return Some(Operand::ConstI64(0));
     };
+    // The row's `MethodMeta` word: bit 3 when the body reaches a
+    // private element (K4-4's call-boundary brand guard reads it). The
+    // AST pass answered by name before any `$$` suffix existed.
+    let base = body.split_once("$$").map_or(body.as_str(), |(b, _)| b);
+    let flags = if ctx.ast.private_touch_fns.contains(base) {
+        8
+    } else {
+        0
+    };
     let unit_op = ctx.lower_expr(*unit_id);
     let name_op = ctx.lower_expr(*mname_id);
     let cur_block = ctx.cur_block;
@@ -153,7 +162,7 @@ pub(super) fn try_lower_unit_static_method_reify(
                 unit_op,
                 name_op.clone(),
                 Operand::Value(adapter),
-                Operand::ConstI64(0),
+                Operand::ConstI64(flags),
             ],
         ),
     );
