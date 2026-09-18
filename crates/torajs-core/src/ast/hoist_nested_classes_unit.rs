@@ -17,7 +17,7 @@ pub(super) fn take_unit_lane(
     binding: &str,
     hoisted: &mut Vec<Stmt>,
 ) -> bool {
-    if !super::class_unit::refs_stay_local(ast, stmts, idx, binding) {
+    if !super::class_unit_admit::refs_stay_local(ast, stmts, idx, binding) {
         return false;
     }
     let mut cls = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));

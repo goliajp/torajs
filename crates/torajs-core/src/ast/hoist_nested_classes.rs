@@ -223,7 +223,7 @@ pub(super) fn walk_container(
         // K4-2 — a unit-class candidate runs its static initializers
         // inside `__cunit_<C>`, at the declaration's own position,
         // so the in-place lane has nothing left to get right for it.
-        let unit_shape = multi_eval && super::class_unit::admits_shape(ast, &stmts[idx]);
+        let unit_shape = multi_eval && super::class_unit_admit::admits_shape(ast, &stmts[idx]);
         if !class_is_capture_free(ast, &stmts[idx], top_names)
             || (observable
                 && !unit_shape

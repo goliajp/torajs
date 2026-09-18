@@ -54,6 +54,7 @@ mod class_globals_shadow;
 mod class_globals_shadow_decls;
 mod class_private_touch;
 pub(crate) mod class_unit;
+mod class_unit_admit;
 mod class_unit_census;
 mod clone_body;
 mod clone_body_tables;
