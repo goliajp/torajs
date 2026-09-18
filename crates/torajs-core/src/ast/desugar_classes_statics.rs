@@ -50,6 +50,7 @@ pub(super) type StaticAccessorRewrites =
 pub(super) type InheritedStaticOwners = HashMap<(String, PropKey), String>;
 
 pub(super) fn build_static_member_rewrites(
+    ast: &Ast,
     class_index: &[ClassIndexEntry],
 ) -> (
     HashMap<(String, PropKey), String>,
@@ -70,8 +71,14 @@ pub(super) fn build_static_member_rewrites(
         // `ClassName.member`; static blocks have no member name and are
         // emitted as `__sb_<C>__<idx>` named fns called at top level,
         // so they do not contribute to the static-member rewrite table.
+        // K4-2 — a unit class's static field is an own entry of the
+        // evaluation's class object, read through the any-typed
+        // binding; it has no `__sf_` slot to rewrite to.
+        let unit = ast.eval_unit_classes.contains(cname);
         for si in sis {
-            if let StaticInit::Field(sf) = si {
+            if let StaticInit::Field(sf) = si
+                && !unit
+            {
                 static_member_rewrites.insert(
                     (cname.clone(), sf.name.clone()),
                     format!("__sf_{cname}__{}", mangle_key(&sf.name)),
@@ -314,9 +321,15 @@ pub(super) fn emit_static_inits(
     // `this.f`); the later declarations assign into the slot the
     // first one declared instead of declaring it again.
     let mut declared: std::collections::HashSet<PropKey> = std::collections::HashSet::new();
+    // K4-2 — a unit class runs its statics inside `__cunit_<C>`
+    // (`class_unit::make_unit`): no `__sf_` slot, no template reify,
+    // and each block's strict `__sb_` function takes the evaluation's
+    // class object as `__unit` and is called from there, not here.
+    let unit = ast.eval_unit_classes.contains(cname);
     for (block_idx, si) in static_init.iter().enumerate() {
         emit_computed_static_stores_at(ast, cname, block_idx, own_statics);
         match si {
+            StaticInit::Field(_) if unit => {}
             StaticInit::Field(sf) if !declared.insert(sf.name.clone()) => {
                 let slot = ast.add_expr(Expr::Ident(format!(
                     "__sf_{cname}__{}",
@@ -362,15 +375,28 @@ pub(super) fn emit_static_inits(
             }
             StaticInit::Block(stmts) => {
                 let fn_name = format!("__sb_{cname}__{block_idx}");
+                let params = if unit {
+                    vec![Param {
+                        name: super::class_unit::UNIT_PARAM.to_string(),
+                        type_ann: Some("any".to_string()),
+                        default: None,
+                        is_rest: false,
+                    }]
+                } else {
+                    Vec::new()
+                };
                 appended.push(Stmt::FnDecl {
                     name: fn_name.clone(),
                     type_params: type_params.to_vec(),
-                    params: Vec::new(),
+                    params,
                     return_type: Some("void".into()),
                     body: stmts.clone(),
                     is_generator: false,
                     span: crate::lexer::Span { start: 0, end: 0 },
                 });
+                if unit {
+                    continue;
+                }
                 let callee_id = ast.add_expr(Expr::Ident(fn_name));
                 let call_id = ast.add_expr(Expr::Call {
                     callee: callee_id,

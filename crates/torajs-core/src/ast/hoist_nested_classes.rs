@@ -219,8 +219,13 @@ pub(super) fn walk_container(
         // its ctor prefix reads `__ccmk_<C>_<n>`, a free name that
         // already fails the capture check below.
         let observable = class_evaluation_is_observable(ast, &stmts[idx]);
+        // K4-2 — a unit-class candidate runs its static initializers
+        // inside `__cunit_<C>`, at the declaration's own position,
+        // so the in-place lane has nothing left to get right for it.
+        let unit_shape = multi_eval && super::class_unit::admits_shape(ast, &stmts[idx]);
         if !class_is_capture_free(ast, &stmts[idx], top_names)
             || (observable
+                && !unit_shape
                 && super::capturing_classes::decline::would_claim(
                     ast,
                     &stmts[idx],
@@ -247,7 +252,6 @@ pub(super) fn walk_container(
         // RFC 20260917-class-eval-unit K1 — a unit-class candidate whose
         // name another class shares takes the collision rename, so the
         // reference census below counts this class's references only.
-        let unit_shape = multi_eval && super::class_unit::admits_shape(ast, &stmts[idx]);
         let collides = super::hoist_nested_classes_rename::name_collides(
             top_names,
             sibling_start,

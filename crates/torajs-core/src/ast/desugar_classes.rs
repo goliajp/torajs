@@ -183,7 +183,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // sub-sibling (chunk 177, 2026-06-28) — pure function, no
     // `&mut Ast` mutation.
     let (static_member_rewrites, static_accessor_rewrites, inherited_static_owners) =
-        super::desugar_classes_statics::build_static_member_rewrites(&class_index);
+        super::desugar_classes_statics::build_static_member_rewrites(ast, &class_index);
 
     // Pass 3 — ClassDecl → TypeDecl replacement + per-class synthetic
     // FnDecl emission (ctor / methods / factory / static fields /

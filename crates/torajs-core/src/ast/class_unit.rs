@@ -103,11 +103,26 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
     // A runtime-value parent anywhere (`class D extends f()`) reaches
     // its parent's constructor through the by-cell registry, which no
     // unit class object is in.
+    // K4-2 — a plain static FIELD or a static block rides too: the
+    // initializer / block runs inside `__cunit_C` on the evaluation's
+    // class object (`__unit.x = init`), in declaration order after
+    // the methods, which is §15.7.14's order and position. A computed
+    // static field or a field spelled like a method stays out.
+    let static_init_admits = static_init.iter().all(|si| match si {
+        StaticInit::Field(sf) => {
+            plain(&sf.name) && !static_methods.iter().any(|m| m.name == sf.name)
+        }
+        StaticInit::Block(_) => true,
+    });
     if parent.is_some()
         || !ast.es5_value_parents.is_empty()
         || !type_params.is_empty()
         || *is_abstract
-        || !static_init.is_empty()
+        || !static_init_admits
+        || ast
+            .class_computed_static_fields
+            .iter()
+            .any(|(c, _, _)| c == name)
         // K4-1 — a plain static METHOD rides the unit: its body takes
         // the evaluation's class object as a leading `__unit` param
         // (a static `this` spells it), and `__cunit_C` defines one
@@ -136,7 +151,13 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
     {
         return false;
     }
-    let mut bodies: Vec<&[Stmt]> = methods.iter().map(|m| m.body.as_slice()).collect();
+    // Static method bodies count too (K4-1): `static m() { return
+    // S.k }` would read the registered template's `k`.
+    let mut bodies: Vec<&[Stmt]> = methods
+        .iter()
+        .chain(static_methods.iter())
+        .map(|m| m.body.as_slice())
+        .collect();
     if let Some(c) = ctor {
         if c.body.iter().any(returns_value) {
             return false;
@@ -146,6 +167,14 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
     let mut in_bodies = Occurrences::default();
     for b in bodies {
         in_bodies.list(ast, b, name);
+    }
+    // A static initializer naming the class would read the registered
+    // template, exactly like a method body (W8).
+    for si in static_init {
+        match si {
+            StaticInit::Field(sf) => in_bodies.expr(ast, sf.init, name),
+            StaticInit::Block(b) => in_bodies.list(ast, b, name),
+        }
     }
     let has_private = methods.iter().any(|m| private_method(&m.name));
     in_bodies.name == 0 && !in_bodies.arguments && !(has_private && in_bodies.fn_exprs)
@@ -174,12 +203,30 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         fields,
         ctor,
         static_methods,
+        static_init,
         ..
     } = cls
     else {
         unreachable!("admitted a ClassDecl");
     };
     let static_names: Vec<PropKey> = static_methods.iter().map(|m| m.name.clone()).collect();
+    // K4-2 — the static initializers stay on the declaration so
+    // `emit_static_inits` still mints each block's strict `__sb_<C>__<i>`
+    // function (with a `__unit` param for a unit class); the fields'
+    // `__sf_` slots and the template reify it skips. `__cunit_C` runs
+    // them here: a field as `__unit.x = init`, a block as a call.
+    enum UnitStatic {
+        Field(PropKey, ExprId),
+        Block(usize),
+    }
+    let static_inits: Vec<UnitStatic> = static_init
+        .iter()
+        .enumerate()
+        .map(|(i, si)| match si {
+            StaticInit::Field(sf) => UnitStatic::Field(sf.name.clone(), sf.init),
+            StaticInit::Block(_) => UnitStatic::Block(i),
+        })
+        .collect();
     fields.push((PropKey::from(UNIT_SLOT), "any".to_string()));
     let length = ctor.as_ref().map_or(0, |c| {
         c.params
@@ -206,7 +253,7 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         ],
     });
     let wire = ast.add_expr(Expr::Ident(UNIT_WIRE.into()));
-    let class_arg = ast.add_expr(Expr::Ident("__cuc".into()));
+    let class_arg = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
     let proto_arg = ast.add_expr(Expr::Ident("__cup".into()));
     let tag_arg = ast.add_expr(Expr::String(binding.to_string().into()));
     let wire_call = ast.add_expr(Expr::Call {
@@ -224,14 +271,45 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         let callee = ast.add_expr(Expr::Ident(UNIT_STATIC_METHOD_REIFY.into()));
         let cname_lit = ast.add_expr(Expr::String(binding.to_string().into()));
         let mname_lit = ast.add_expr(Expr::String(name.into()));
-        let unit_arg = ast.add_expr(Expr::Ident("__cuc".into()));
+        let unit_arg = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
         let call = ast.add_expr(Expr::Call {
             callee,
             args: vec![cname_lit, mname_lit, unit_arg],
         });
         static_reifies.push(Stmt::Expr(call));
     }
-    let ret = ast.add_expr(Expr::Ident("__cuc".into()));
+    // K4-2 — static fields and blocks, in declaration order, after
+    // every method is defined (§15.7.14 steps 31–35). The class
+    // object's local is spelled `__unit` so a static `this` (pass 2
+    // rewrites it to `__unit`) resolves inside the factory too; a
+    // field is an own data entry (`__unit.x = init`, the any-lane
+    // member write), a block runs inline.
+    for si in static_inits {
+        match si {
+            UnitStatic::Field(name, init) => {
+                let obj = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
+                let target = ast.add_expr(Expr::Member {
+                    obj,
+                    name: name.lossy().into_owned(),
+                });
+                let assign = ast.add_expr(Expr::Assign {
+                    target,
+                    value: init,
+                });
+                static_reifies.push(Stmt::Expr(assign));
+            }
+            UnitStatic::Block(idx) => {
+                let callee = ast.add_expr(Expr::Ident(format!("__sb_{binding}__{idx}")));
+                let unit_arg = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
+                let call = ast.add_expr(Expr::Call {
+                    callee,
+                    args: vec![unit_arg],
+                });
+                static_reifies.push(Stmt::Expr(call));
+            }
+        }
+    }
+    let ret = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
     let any_let = |name: &str, init: ExprId| Stmt::LetDecl {
         mutable: false,
         name: name.into(),
@@ -247,7 +325,7 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         return_type: Some("any".into()),
         body: [
             any_let("__cup", proto_init),
-            any_let("__cuc", class_init),
+            any_let(UNIT_PARAM, class_init),
             Stmt::Expr(wire_call),
         ]
         .into_iter()

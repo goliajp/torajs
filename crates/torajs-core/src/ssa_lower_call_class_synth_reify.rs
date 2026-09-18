@@ -105,7 +105,7 @@ pub(super) fn try_lower_static_method_reify(
 }
 
 /// K4-1 (RFC 20260917-class-eval-unit) —
-/// `__torajs_unit_static_method_reify("<C>", "<M>", __cuc)`: resolve
+/// `__torajs_unit_static_method_reify("<C>", "<M>", __unit)`: resolve
 /// `__sm_<C>__<M>`'s boxed adapter and define one MORTAL face holding
 /// this evaluation's class object onto that object. The same adapter
 /// dropout as the template reify skips the define. No writeback: the
