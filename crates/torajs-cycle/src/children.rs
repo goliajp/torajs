@@ -119,6 +119,17 @@ pub(crate) unsafe fn for_each_child(p: *mut c_void, mut f: impl FnMut(u64, *mut 
                 f(i, child);
             }
         }
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == crate::accessor::TAG_ACCESSOR_PAIR
+    {
+        // The getter and setter closures a property definition
+        // handed over. A class-accessor face that holds its class
+        // closes class → proto → pair → face → class.
+        for i in 0..crate::accessor::ACCESSOR_CHILD_COUNT {
+            let child = unsafe { crate::accessor::accessor_child_at(p, i) };
+            if !child.is_null() {
+                f(i, child);
+            }
+        }
     } else if let Some(off) =
         crate::layout_bag::bag_only_props_off(unsafe { (*(p as *const HeapHeader)).type_tag })
     {
@@ -252,6 +263,9 @@ pub(crate) unsafe fn clear_child_slot(p: *mut c_void, i: u64) {
         }
     } else if unsafe { (*(p as *const HeapHeader)).type_tag } == crate::proxy::TAG_PROXY {
         unsafe { crate::proxy::proxy_slot_clear(p, i) };
+    } else if unsafe { (*(p as *const HeapHeader)).type_tag } == crate::accessor::TAG_ACCESSOR_PAIR
+    {
+        unsafe { crate::accessor::accessor_slot_clear(p, i) };
     } else if i != PROPS_SLOT_INDEX
         && matches!(
             unsafe { (*(p as *const HeapHeader)).type_tag },

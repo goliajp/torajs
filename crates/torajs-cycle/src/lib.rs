@@ -64,6 +64,7 @@
 // v0.7-A2 step 6b — force-link mmalloc.
 extern crate torajs_mmalloc as _;
 
+pub(crate) mod accessor;
 pub mod arr;
 pub mod buffer;
 pub(crate) mod children;

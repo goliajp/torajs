@@ -179,6 +179,7 @@ unsafe fn define_row(
                         face_half(layout, tag, get_adapter),
                         face_half(layout, tag, set_adapter),
                         DEFINE_ACCESSOR_FLAGS,
+                        unit,
                     );
                     __torajs_str_drop(key);
                 }

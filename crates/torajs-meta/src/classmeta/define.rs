@@ -55,6 +55,7 @@ pub unsafe extern "C" fn __torajs_class_accessor_define(
             super::reify::face_half(layout, tag, get_adapter),
             super::reify::face_half(layout, tag, set_adapter),
             DEFINE_ACCESSOR_FLAGS,
+            0,
         );
         PROTOS_BY_TAG_IMM[tag as usize] = slot as u64;
     }
@@ -100,6 +101,7 @@ pub(super) unsafe fn define_accessor_pair(
     get: FaceHalf,
     set: FaceHalf,
     flags: u64,
+    unit: u64,
 ) {
     unsafe {
         let mint_face = |half: FaceHalf, prefix: &[u8], length: u64| -> *mut c_void {
@@ -110,6 +112,19 @@ pub(super) unsafe fn define_accessor_pair(
             full.extend_from_slice(prefix);
             full.extend_from_slice(prop);
             let face_name = alloc_str_key(&full);
+            // K2b — one evaluation's face is mortal and holds the
+            // evaluation's class object; the shared by-tag prototype
+            // (unit 0) keeps the immortal face.
+            if unit != 0 {
+                return __torajs_class_accessor_cell_new_unit(
+                    half.adapter,
+                    face_name,
+                    length,
+                    half.tag,
+                    half.twin,
+                    unit,
+                ) as *mut c_void;
+            }
             __torajs_class_accessor_cell_new(half.adapter, face_name, length, half.tag, half.twin)
                 as *mut c_void
         };
@@ -275,6 +290,7 @@ pub unsafe extern "C" fn __torajs_class_computed_accessor_define(
             FaceHalf::mono(get_adapter),
             FaceHalf::mono(set_adapter),
             flags,
+            0,
         );
         if is_static != 0 {
             CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;

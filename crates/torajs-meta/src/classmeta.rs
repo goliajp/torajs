@@ -102,6 +102,16 @@ unsafe extern "C" {
         class_tag: u64,
         twin: u64,
     ) -> *mut u8;
+    /// torajs-anyvalue — K2b, the accessor half: one EVALUATION's
+    /// accessor face of a unit class (mortal, holds `unit`, traceable).
+    fn __torajs_class_accessor_cell_new_unit(
+        adapter: u64,
+        name: *mut u8,
+        length: u64,
+        class_tag: u64,
+        twin: u64,
+        unit: u64,
+    ) -> *mut u8;
     /// torajs-dynobj — fresh `+1`-rc AccessorPair (faces transfer).
     fn __torajs_accessor_pair_new(get: *mut c_void, set: *mut c_void, kinds: u64) -> *mut c_void;
 }

@@ -150,6 +150,7 @@ pub unsafe extern "C" fn __torajs_class_static_accessor_define(
             FaceHalf::mono(get_adapter),
             FaceHalf::mono(set_adapter),
             DEFINE_ACCESSOR_FLAGS,
+            0,
         );
         CLASSES_BY_TAG_IMM[tag as usize] = slot as u64;
     }

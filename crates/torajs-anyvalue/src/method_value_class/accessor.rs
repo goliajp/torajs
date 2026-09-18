@@ -26,7 +26,12 @@ const ACC_CELL_LEN_OFF: usize = 64;
 /// `__cmany_` twin's boxed adapter (0 = no twin; a this-free body).
 const ACC_CELL_TAG_OFF: usize = 72;
 const ACC_CELL_TWIN_OFF: usize = 80;
+/// The evaluation's class object a UNIT face holds (RFC
+/// 20260917-class-eval-unit K2b, the accessor half): 0 on every
+/// immortal one-per-class face, whose block ends before this word.
+const ACC_CELL_UNIT_OFF: usize = 88;
 const ACC_CELL_SIZE: usize = 88;
+const ACC_UNIT_CELL_SIZE: usize = 96;
 
 /// Boxed dual entry of a reified class-accessor face — its own
 /// sentinel (distinct from [`class_bare_entry`]) so the reflection
@@ -61,24 +66,155 @@ pub unsafe extern "C" fn __torajs_class_accessor_cell_new(
     class_tag: u64,
     twin: u64,
 ) -> *mut u8 {
-    // SAFETY: fresh ACC_CELL_SIZE allocation, fully initialized below.
+    // SAFETY: a spec whose `unit` is 0 — the immortal shape.
     unsafe {
-        let layout = core::alloc::Layout::from_size_align(ACC_CELL_SIZE, 8).unwrap();
+        mint(AccessorCellSpec {
+            adapter,
+            name,
+            length,
+            class_tag,
+            twin,
+            unit: 0,
+        })
+    }
+}
+
+/// K2b, the accessor half — one evaluation's accessor face of a unit
+/// class. §15.7.14 gives every evaluation its own function objects,
+/// so the face is minted per evaluation and is MORTAL: no
+/// `FLAG_STATIC_LITERAL`, a real [`accessor_face_drop`] that also
+/// releases the `.name` Str, and an [`accessor_face_trace`] over the
+/// held class object (class → prototype → pair → face → class is a
+/// cycle by construction). Before this every evaluation of a unit
+/// class with a private accessor leaked two faces and two name Strs.
+///
+/// # Safety
+/// `name` is an owned Str cell; `unit` is a live heap cell pointer
+/// (never 0 — use the immortal mint for the shared prototype).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_accessor_cell_new_unit(
+    adapter: u64,
+    name: *mut u8,
+    length: u64,
+    class_tag: u64,
+    twin: u64,
+    unit: u64,
+) -> *mut u8 {
+    // SAFETY: caller contract above.
+    unsafe {
+        mint(AccessorCellSpec {
+            adapter,
+            name,
+            length,
+            class_tag,
+            twin,
+            unit,
+        })
+    }
+}
+
+/// What one accessor face is made of — a struct for the same reason
+/// the method face has one: `adapter`, `twin` and `unit` are all bare
+/// words and swapping two of them compiles.
+struct AccessorCellSpec {
+    adapter: u64,
+    name: *mut u8,
+    length: u64,
+    class_tag: u64,
+    twin: u64,
+    unit: u64,
+}
+
+/// Mint one reified class-accessor face: immortal when `spec.unit` is
+/// 0, mortal (one per evaluation, one word longer) when it is not.
+///
+/// # Safety
+/// `spec.name` transfers; `spec.unit` is 0 or a live heap cell this
+/// face takes a `+1` on.
+unsafe fn mint(spec: AccessorCellSpec) -> *mut u8 {
+    let size = if spec.unit != 0 {
+        ACC_UNIT_CELL_SIZE
+    } else {
+        ACC_CELL_SIZE
+    };
+    // SAFETY: fresh allocation of `size`, fully initialized below.
+    unsafe {
+        let layout = core::alloc::Layout::from_size_align(size, 8).unwrap();
         let cell = std::alloc::alloc_zeroed(layout);
         *(cell as *mut u32) = 1;
         *(cell.add(4) as *mut u16) = Tag::Closure as u16;
-        *(cell.add(6) as *mut u16) = FLAG_STATIC_LITERAL;
+        *(cell.add(6) as *mut u16) = if spec.unit != 0 {
+            0
+        } else {
+            FLAG_STATIC_LITERAL
+        };
         *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = class_native_entry as *const () as u64;
-        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = 0;
+        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = if spec.unit != 0 {
+            accessor_face_drop as *const () as u64
+        } else {
+            0
+        };
         *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
         *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) =
             class_accessor_bare_entry as *const () as u64;
-        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = adapter;
-        *(cell.add(ACC_CELL_NAME_OFF) as *mut u64) = name as u64;
-        *(cell.add(ACC_CELL_LEN_OFF) as *mut u64) = length;
-        *(cell.add(ACC_CELL_TAG_OFF) as *mut u64) = class_tag;
-        *(cell.add(ACC_CELL_TWIN_OFF) as *mut u64) = twin;
+        if spec.unit != 0 {
+            *(cell.add(CLOSURE_TRACE_FN_OFF) as *mut u64) = accessor_face_trace as *const () as u64;
+            torajs_rc::__torajs_rc_inc(spec.unit as *mut c_void);
+            *(cell.add(ACC_CELL_UNIT_OFF) as *mut u64) = spec.unit;
+        }
+        *(cell.add(CLOSURE_CAP_BASE_OFF) as *mut u64) = spec.adapter;
+        *(cell.add(ACC_CELL_NAME_OFF) as *mut u64) = spec.name as u64;
+        *(cell.add(ACC_CELL_LEN_OFF) as *mut u64) = spec.length;
+        *(cell.add(ACC_CELL_TAG_OFF) as *mut u64) = spec.class_tag;
+        *(cell.add(ACC_CELL_TWIN_OFF) as *mut u64) = spec.twin;
         cell
+    }
+}
+
+/// drop_fn of a MORTAL unit accessor face — release the expando bag,
+/// the `.name` Str and the held class object, then the block (the
+/// method face's `method_face_drop` shape).
+///
+/// # Safety
+/// `env` is a live unit accessor-face cell at refcount 0.
+unsafe extern "C" fn accessor_face_drop(env: *mut c_void) {
+    unsafe {
+        __torajs_cycle_unbuffer(env);
+        let cell = env.cast::<u8>();
+        let props = *(cell.add(CLOSURE_PROPS_OFF) as *const u64);
+        if props != 0 {
+            __torajs_value_drop_heap(props as *mut c_void);
+        }
+        let name = *(cell.add(ACC_CELL_NAME_OFF) as *const u64);
+        if name != 0 {
+            __torajs_value_drop_heap(name as *mut c_void);
+        }
+        let unit = *(cell.add(ACC_CELL_UNIT_OFF) as *const u64);
+        if unit != 0 {
+            __torajs_value_drop_heap(unit as *mut c_void);
+        }
+        std::alloc::dealloc(
+            cell,
+            core::alloc::Layout::from_size_align(ACC_UNIT_CELL_SIZE, 8).unwrap(),
+        );
+    }
+}
+
+/// trace_fn of a MORTAL unit accessor face — the held class object is
+/// the cell's one traced child (the name Str holds nothing).
+unsafe extern "C" fn accessor_face_trace(
+    env: *mut c_void,
+    visit: unsafe extern "C" fn(i64, *mut c_void, *mut c_void, *mut c_void),
+    ctx: *mut c_void,
+) {
+    unsafe {
+        let slot = env.cast::<u8>().add(ACC_CELL_UNIT_OFF);
+        visit(
+            0,
+            *(slot as *const u64) as *mut c_void,
+            slot as *mut c_void,
+            ctx,
+        );
     }
 }
 

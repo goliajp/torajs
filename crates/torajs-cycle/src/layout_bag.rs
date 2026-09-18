@@ -69,10 +69,13 @@ pub fn bag_only_props_off(type_tag: u16) -> Option<usize> {
 /// different reason: it has no bag at all, but both of its slots are
 /// owned AnyValues and its cell is a sized `std::alloc` block, so the
 /// array-spill fallthrough would read it at the wrong offset and free
-/// it with the wrong shape.
+/// it with the wrong shape. An AccessorPair qualifies for the Proxy
+/// reason: two owned closure slots, a sized `__torajs_calloc` block.
 #[inline]
 pub fn corpse_takes_own_destructor(type_tag: u16) -> bool {
-    bag_only_props_off(type_tag).is_some() || type_tag == crate::proxy::TAG_PROXY
+    bag_only_props_off(type_tag).is_some()
+        || type_tag == crate::proxy::TAG_PROXY
+        || type_tag == crate::accessor::TAG_ACCESSOR_PAIR
 }
 
 /// `torajs_rc::Tag` mirrors for [`bag_only_props_off`]. Values are
