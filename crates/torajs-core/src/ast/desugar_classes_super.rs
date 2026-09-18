@@ -292,54 +292,13 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
                 args: new_args,
             };
         }
-        let mut static_sites: Vec<(ExprId, String, Vec<ExprId>)> = Vec::new();
-        for m in static_methods {
-            for s in &m.body {
-                collect_supercall_in_stmt(ast, s, &mut static_sites);
-            }
-        }
-        // 420-04 — a static field initializer and a static block are
-        // static member bodies too: §15.7.14 runs both with the class
-        // as receiver, so their home object is the class and
-        // `super.m()` names the parent CLASS. Only the method list was
-        // walked, so those two positions kept the parser's raw
-        // `__supercall__<m>` marker and died on it at typecheck. (A
-        // bare `super(...)` CALL is a different question — the grammar
-        // confines SuperCall to derived constructors, and the class
-        // lane refuses it in a static body on its own.)
-        for si in static_init {
-            match si {
-                StaticInit::Field(f) => {
-                    collect_supercall_in_stmt(ast, &Stmt::Expr(f.init), &mut static_sites);
-                }
-                StaticInit::Block(v) => {
-                    for s in v {
-                        collect_supercall_in_stmt(ast, s, &mut static_sites);
-                    }
-                }
-            }
-        }
-        for (eid, m_name, args) in static_sites {
-            // Same degrade as the instance sites, with the static home
-            // object: `super.m()` in a static body names the parent
-            // CLASS, whose link is `Object.getPrototypeOf(C)`.
-            if dynamic {
-                let base = super::super_home_dynamic::mint_home_proto(ast, cname, true);
-                let key = ast.add_expr(Expr::String(m_name.into()));
-                let recv = ast.add_expr(Expr::Ident(cname.clone()));
-                let pack = ast.add_expr(Expr::Array(args));
-                let kernel = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
-                ast.exprs[eid.0 as usize] = Expr::Call {
-                    callee: kernel,
-                    args: vec![base, key, recv, pack],
-                };
-                continue;
-            }
-            let owner = nearest_declaring(class_index, parent_name, &m_name, true)
-                .unwrap_or(parent_name.clone());
-            let callee = ast.add_expr(Expr::Ident(format!("__sm_{owner}__{m_name}")));
-            ast.exprs[eid.0 as usize] = Expr::Call { callee, args };
-        }
+        super::desugar_classes_super_static::rewrite_static_super_calls(
+            ast,
+            class_index,
+            (cname, parent_name),
+            (static_methods.as_slice(), static_init.as_slice()),
+            dynamic,
+        );
     }
     dynamic
 }
@@ -378,7 +337,7 @@ fn builtin_heritage_root(ast: &Ast, class_index: &[ClassIndexEntry], start: &str
 ///
 /// The hop bound guards a malformed `extends` cycle; a well-formed
 /// hierarchy is a tree and terminates on its own.
-fn nearest_declaring(
+pub(super) fn nearest_declaring(
     class_index: &[ClassIndexEntry],
     start: &str,
     m: &str,
