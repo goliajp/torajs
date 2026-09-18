@@ -156,12 +156,12 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     // call (probe ag8: named fn `return a[0]` leaked; the
     // materialized `__torajs_arguments` was the same shape).
     // Retain the payload instead: the box leaves self-owned,
-    // the array keeps its scope drop, and only the index
-    // sub-expression feeds the consume walk. Gated on the
+    // the array keeps its scope drop, and nothing takes a moved
+    // mark (the index is read, never handed out). Gated on the
     // receiver's static Arr<Any> type — other Any-producing
     // index lanes may answer owned boxes where a retain would
     // leak.
-    if let Expr::Index { obj, index } = ctx.ast.get_expr(src_eid)
+    if let Expr::Index { obj, .. } = ctx.ast.get_expr(src_eid)
         && let Expr::Ident(obj_name) = ctx.ast.get_expr(*obj)
         && ctx.operand_ty(&v) == Type::Any
         && ctx.locals.get(obj_name).is_some_and(|info| {
@@ -175,7 +175,6 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
             Type::Any,
             None,
         );
-        ctx.consume_all_idents_in_return(*index);
         return Operand::Value(retained);
     }
     // Rotation 326 — the typed sibling of the retain above:
@@ -190,14 +189,13 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     // receivers alike; Str/Substr receivers never reach here
     // (s[i] answers a fresh owned Substr), and the Any-elem
     // shape took the anyv_retain arm above.
-    if let Expr::Index { obj, index } = ctx.ast.get_expr(src_eid) {
+    if let Expr::Index { obj, .. } = ctx.ast.get_expr(src_eid) {
         let v_ty = ctx.operand_ty(&v);
         let elem_matches = matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_)))
             && v_ty.is_refcounted()
             && !matches!(v_ty, Type::Any | Type::Substr);
         if elem_matches {
             ctx.emit_rc_inc(v.clone());
-            ctx.consume_all_idents_in_return(*index);
             return v;
         }
     }

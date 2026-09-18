@@ -108,9 +108,12 @@ impl<'a> LowerCtx<'a> {
                         stack.push(obj);
                     }
                 }
-                Expr::OptIndex { obj, index } => {
+                // A key is read to find the element and never aliases
+                // what the read answers: `const k = "k" + i; return
+                // o[k]` marked `k` and stranded the key string per
+                // call (8.2 MB vs 1.6 MB flat).
+                Expr::OptIndex { obj, .. } | Expr::Index { obj, .. } => {
                     stack.push(obj);
-                    stack.push(index);
                 }
                 Expr::Call { .. } | Expr::OptCall { .. } => {
                     // RFC 20260705 owned-result invariant: a Call
@@ -127,10 +130,6 @@ impl<'a> LowerCtx<'a> {
                     stack.push(target);
                     stack.push(value);
                 }
-                Expr::Index { obj, index } => {
-                    stack.push(obj);
-                    stack.push(index);
-                }
                 Expr::Array(_) | Expr::ObjectLit { .. } => {
                     // Rotation 460, the Call / New owned-result
                     // invariant in its literal form: an array or
@@ -146,7 +145,7 @@ impl<'a> LowerCtx<'a> {
                     // a local is the only consumable shape here, and
                     // that is precisely the one the store retains.
                 }
-                Expr::Ternary { cond, .. } => {
+                Expr::Ternary { .. } => {
                     // A join hands back ONE of its arms, decided at
                     // run time, and a moved mark is a compile-time
                     // fact: marking both arms' locals skipped the
@@ -156,7 +155,11 @@ impl<'a> LowerCtx<'a> {
                     // `__fnctor_` factory returns through). The arms
                     // keep their drops; `lower_return_value` retains
                     // the join's answer instead.
-                    stack.push(cond);
+                    //
+                    // The condition is only tested for truthiness and
+                    // never leaves: `return n ? n : "anon"` marked `n`
+                    // through it and stranded one string per call
+                    // (7.9 MB vs 1.6 MB flat).
                 }
                 // `a ?? b` — same join, same reason.
                 Expr::Nullish { .. } => {}
