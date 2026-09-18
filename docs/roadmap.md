@@ -1681,7 +1681,43 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `a026f072e`** (2026-09-19, rotation 669). Class evaluation
+**Latest @ `6fb4b9c96`** (2026-09-19, rotation 670). Class expressions
+written in a member body's statement land beside their use site (K6-1),
+so one reading an outer local (`var self = this; return class { g() {
+return self.#x } }`) takes the runtime-value lane with `self` captured
+and a capture-free one becomes a unit class per evaluation. `super(…)`
+on that lane adopts the parent constructor's answer (§10.2.2 step 13)
+on all three super paths: a runtime-value parent, another lane class,
+and a real class through a `__ctorany_` twin that now answers.
+
+The rest of the rotation is ownership in the SSA lowering, all of it
+predating the rotation. The compile-time `moved` flag on a binding is
+flow-insensitive, and six shapes leaked through it — a join in return
+position (every `new F()` whose body can return a value), a return's
+mark outliving it, a conditional `throw e`, a ternary's condition / an
+index key, returns through a `finally`, and an owned read retained
+twice. Two were silent wrong values rather than leaks: a function
+returning a field read (`return this.s`, `return p.name`) handed the
+caller the FIELD'S stake, so dropping the result freed the field under
+the live object and a later same-size allocation read back through it;
+and an alias `let` the body reassigns reached a scope drop it never paid
+for on the path with no assignment. Neither was visible to the gate, to
+RSS churn (the refcount wraps instead of double-freeing) or to Guard
+Malloc (the AOT heap is mmap-backed).
+
+Gate predicate unchanged: **37** clusters of >= 4 holding **246** cases,
+register 2 · 118 (SR-1 30 / SR-2 92), residue 348 · 472 (56.5%), core
+**836** — none of this rotation's work sat in the `incompatible` bucket.
+Sweep passTotal 40492 → **40503 (+11)**, pass 34219 → **34229 (+10)**,
+passNoOracle 1705 → **1706 (+1)**, passNegative 4568 (=), bug 8617 →
+**8606 (−11)**, incompatible 4065 (=), trAccepted 49109 (=);
+conservation exact. Verdict diff 11 changed, all forward, **0
+backward**: the five A-group class-expression cases, the two
+`class-field … proxy` cases, `super/call-bind-this-value`,
+`super/call-expr-value`, `try/S12.14_A18_T7`, and
+`import-defer/…/ignore-private-name-access` back on the semantic path.
+
+**Prior @ `a026f072e`** (2026-09-19, rotation 669). Class evaluation
 units through **K5**: private instance elements across `extends` in a
 family (the class object's hidden record is `[tag, unit ancestors]` and a
 brand compares at the declaring class's depth), static private elements
