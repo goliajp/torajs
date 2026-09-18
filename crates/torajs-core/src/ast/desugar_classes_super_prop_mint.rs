@@ -24,7 +24,21 @@ pub(super) struct SiteCtx<'a> {
     pub(super) this_receiver: bool,
 }
 
-impl SiteCtx<'_> {
+impl<'a> SiteCtx<'a> {
+    /// The context of a `super.m()` site whose base is read when it
+    /// runs (a program that re-links prototypes): the same base and
+    /// receiver spelling the property forms take, a unit class's
+    /// included.
+    pub(super) fn runtime(cname: &'a str, is_static: bool) -> Self {
+        SiteCtx {
+            parent_name: None,
+            cname,
+            is_static,
+            dynamic: true,
+            this_receiver: false,
+        }
+    }
+
     /// The super base — minted fresh per site.
     pub(super) fn base(&self, ast: &mut Ast) -> ExprId {
         // K5-3 — a unit class's bodies are hoisted away from the

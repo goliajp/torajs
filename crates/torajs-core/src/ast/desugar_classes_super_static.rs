@@ -53,9 +53,10 @@ pub(super) fn rewrite_static_super_calls(
         // object: `super.m()` in a static body names the parent
         // CLASS, whose link is `Object.getPrototypeOf(C)`.
         if dynamic {
-            let base = super::super_home_dynamic::mint_home_proto(ast, cname, true);
+            let site = super::desugar_classes_super_prop_mint::SiteCtx::runtime(cname, true);
+            let base = site.base(ast);
             let key = ast.add_expr(Expr::String(m_name.into()));
-            let recv = ast.add_expr(Expr::Ident(cname.clone()));
+            let recv = site.receiver(ast);
             let pack = ast.add_expr(Expr::Array(args));
             let kernel = ast.add_expr(Expr::Ident("__torajs_super_prop_call".to_string()));
             ast.exprs[eid.0 as usize] = Expr::Call {

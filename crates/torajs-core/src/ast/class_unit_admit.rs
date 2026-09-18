@@ -155,8 +155,8 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     // class's, so they may not name the parent (the name would read
     // the registered template, W8's reason). A `super.x` / `super[k]`
     // site reads its base off the running evaluation's home (K5-3).
-    // A program that re-links prototypes routes `super.m()` through
-    // the registry and stays out. Private elements ride: an instance
+    // In a program that re-links prototypes `super.m()` takes the
+    // same runtime base. Private elements ride: an instance
     // one's brand compares at the declaring class's depth of the
     // chain (K5-2); a static one is an own entry of the one class
     // object that declared it, which a derived class object does not
@@ -177,7 +177,7 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
             StaticInit::Block(b) => in_derived.list(ast, b, p),
         }
     }
-    in_derived.name == 0 && !super::super_home_dynamic::program_mutates_prototypes(ast)
+    in_derived.name == 0
 }
 
 /// [`refs_stay_local`] for a class the hoist is about to give a
