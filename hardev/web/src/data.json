@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-18T04:49:54.360Z",
+  "generatedAt": "2026-09-18T14:05:03.996Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-18T04:34:08Z",
-    "headSha": "d6c552d78",
-    "elapsedSec": 554.25,
+    "ranAt": "2026-09-18T13:52:53Z",
+    "headSha": "5183ee43d",
+    "elapsedSec": 549.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34208,
+    "pass": 34217,
     "passNoOracle": 1705,
     "passNegative": 4568,
-    "passTotal": 40481,
-    "bug": 8627,
-    "incompatible": 4066,
+    "passTotal": 40490,
+    "bug": 8619,
+    "incompatible": 4065,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49108,
-    "passRateInScope": 76.13,
-    "passRateTrAccepted": 82.43
+    "trAccepted": 49109,
+    "passRateInScope": 76.15,
+    "passRateTrAccepted": 82.45
   },
   "torajs": {
-    "commit": "48573c100",
-    "commitSubject": "docs(roadmap): P-SURF accounting for rotations 666–667 @d6c552d78",
+    "commit": "f1ad6d12f",
+    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 668 @5183ee43d",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "48573c100",
-      "subject": "docs(roadmap): P-SURF accounting for rotations 666–667 @d6c552d78"
+      "hash": "f1ad6d12f",
+      "subject": "docs(roadmap): P-SURF accounting for rotation 668 @5183ee43d"
     },
     {
-      "hash": "8f1447003",
-      "subject": "chore(hardev): rotation 667 close stamps — determinism 46/46 N=12, gmalloc 3817/3821 clean 0 offenders"
+      "hash": "83e1a84dd",
+      "subject": "chore(hardev): rotation 668 close stamps — determinism 46/46 N=12, gmalloc 3826/3830 clean 0 offenders"
     },
     {
-      "hash": "a3af84032",
-      "subject": "chore(hardev): rotation 667 sweep @d6c552d78 (passTotal 40481, +13, 0 regressions)"
+      "hash": "790360b9c",
+      "subject": "chore(hardev): rotation 668 sweep @5183ee43d (passTotal 40490, +9, 0 regressions)"
     },
     {
-      "hash": "d6c552d78",
-      "subject": "feat(core): K4-3 — a unit class's static accessors are per-evaluation faces on its class object"
+      "hash": "5183ee43d",
+      "subject": "feat: K5-1 a class extending a per-evaluation class is one too"
     },
     {
-      "hash": "14cdd1adc",
-      "subject": "feat(core): K4-2 — a unit class's static fields and blocks run per evaluation, in place"
+      "hash": "220dd68c0",
+      "subject": "refactor: move unit-class admission out of class_unit"
     },
     {
-      "hash": "d3b343a38",
-      "subject": "refactor(core): lift the hoist's collision test out of walk_container"
+      "hash": "28aa576f4",
+      "subject": "refactor: move the collision rename and the unit lane out of walk_container"
     },
     {
-      "hash": "76d1a9b06",
-      "subject": "feat(core): K4-1 — a unit class's static methods are per-evaluation faces on its class object"
+      "hash": "3221ca47c",
+      "subject": "fix: a function declaration reads a top-level destructured binding"
     },
     {
-      "hash": "abbb28a16",
-      "subject": "refactor(core): lift pass 2's method-call rewrite out of the arena loop"
+      "hash": "22811ac6f",
+      "subject": "fix: a static `super.m()` runs the target with the current `this`"
     },
     {
-      "hash": "64827b7e0",
-      "subject": "refactor(core): move the computed-key reify arms out of class_synth_reify"
+      "hash": "ba1624514",
+      "subject": "refactor: move the static super-call rewrite into its own sibling"
     },
     {
-      "hash": "a3c6e3f10",
-      "subject": "perf(regex): scan the haystack for ASCII a word at a time"
+      "hash": "e9465725b",
+      "subject": "fix: a class named in a sibling class's body keeps the shared identity"
     },
     {
-      "hash": "886b7cb0f",
-      "subject": "fix(core): a unit class shadowed by a same-name binding elsewhere takes the collision rename"
+      "hash": "cb9c0b99b",
+      "subject": "fix: a binding pattern may sit at any position of a declaration list"
     },
     {
-      "hash": "f78cc72c3",
-      "subject": "fix(core): a named function's `new K()` over an any-typed class binding reads `K`"
+      "hash": "775df3a7d",
+      "subject": "refactor: move the unit-class reference census out of class_unit"
     }
   ],
-  "headSha": "48573c100",
+  "headSha": "f1ad6d12f",
   "autorun": {
-    "total": 970,
+    "total": 971,
     "baselineTarget": 10,
-    "bySelf": 965,
+    "bySelf": 966,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789694106-179b",
-      "at": "2026-09-18T01:15:06Z",
-      "ts": 1789694106,
+      "rotationId": "r-1789707011-6d54",
+      "at": "2026-09-18T04:50:11Z",
+      "ts": 1789707011,
       "trigger": "self",
-      "prevHead": "02b1e4bc6",
-      "handoffSha": "sha256:0f145da215867b82589a0abddf50c10399c10775709bcd3fcb6d0f152fc57e32",
-      "handoffAgeSec": 17,
-      "conformanceBefore": "4291/0/4",
-      "commitsInSession": 14
+      "prevHead": "131978bc6",
+      "handoffSha": "sha256:9874dff02b7ea7600c914b8b072967ad3021e8baf08c1304a503ba32b364531e",
+      "handoffAgeSec": 10,
+      "conformanceBefore": "4299/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1789707011-6d54",
+        "at": "2026-09-18T04:50:11Z",
+        "ts": 1789707011,
+        "trigger": "self",
+        "prevHead": "131978bc6",
+        "handoffSha": "sha256:9874dff02b7ea7600c914b8b072967ad3021e8baf08c1304a503ba32b364531e",
+        "handoffAgeSec": 10,
+        "conformanceBefore": "4299/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1789694106-179b",
         "at": "2026-09-18T01:15:06Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 21,
         "conformanceBefore": "4232/0/4",
         "commitsInSession": 13
-      },
-      {
-        "rotationId": "r-1789517030-1afd",
-        "at": "2026-09-16T00:03:50Z",
-        "ts": 1789517030,
-        "trigger": "self",
-        "prevHead": "04f6ab5a0",
-        "handoffSha": "sha256:d86c87d62868de046609337d756cbc803da55baa93a731c79df02f128f0ed2df",
-        "handoffAgeSec": 25,
-        "conformanceBefore": "4222/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
