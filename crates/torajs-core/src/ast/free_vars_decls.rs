@@ -3,6 +3,7 @@
 //! whole declaration BODY (a fn's or a class's own scope) leaves
 //! free in the enclosing scope.
 
+use super::free_vars::Bound;
 use super::free_vars::walk_stmt;
 use super::free_vars_expr::walk_expr;
 use super::free_vars_hoisted_names::hoist_list_names;
@@ -27,20 +28,20 @@ pub(super) fn walk_fn_decl(
     ast: &Ast,
     params: &[Param],
     body: &[Stmt],
-    bound: &mut Vec<String>,
+    bound: &mut Bound<'_>,
     out: &mut Vec<String>,
 ) {
-    let saved = bound.len();
+    let saved = bound.names.len();
     for p in params {
-        bound.push(p.name.clone());
+        bound.names.push(p.name.clone());
     }
-    bound.push("arguments".into());
-    bound.push("__this".into());
-    hoist_list_names(body, bound);
+    bound.names.push("arguments".into());
+    bound.names.push("__this".into());
+    hoist_list_names(body, &mut bound.names);
     for s in body {
         walk_stmt(ast, s, bound, out);
     }
-    bound.truncate(saved);
+    bound.names.truncate(saved);
 }
 
 /// A class declaration's body walk. The module resolver's hidden-
@@ -59,7 +60,7 @@ pub(super) fn walk_class_decl(
     methods: &[ClassMethod],
     static_methods: &[ClassMethod],
     static_init: &[StaticInit],
-    bound: &mut Vec<String>,
+    bound: &mut Bound<'_>,
     out: &mut Vec<String>,
 ) {
     if let Some(pid) = parent {
@@ -75,12 +76,12 @@ pub(super) fn walk_class_decl(
         match si {
             StaticInit::Field(f) => walk_expr(ast, f.init, bound, out),
             StaticInit::Block(v) => {
-                let saved = bound.len();
-                hoist_list_names(v, bound);
+                let saved = bound.names.len();
+                hoist_list_names(v, &mut bound.names);
                 for s in v {
                     walk_stmt(ast, s, bound, out);
                 }
-                bound.truncate(saved);
+                bound.names.truncate(saved);
             }
         }
     }

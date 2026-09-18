@@ -7,18 +7,19 @@
 //! recursive across the module boundary — an expression carrying a
 //! function body walks statements again.
 
+use super::free_vars::Bound;
 use super::free_vars::{is_global_name, walk_stmt};
 use super::free_vars_hoisted_names::hoist_list_names;
 use super::{Ast, Expr, ExprId};
 
-pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &mut Vec<String>) {
+pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Bound<'_>, out: &mut Vec<String>) {
     match ast.get_expr(eid) {
         Expr::Elision => {}
         Expr::Ident(name) => {
-            if is_global_name(name) {
+            if is_global_name(name) && !bound.rebound_globals.iter().any(|g| g == name) {
                 return;
             }
-            if !bound.contains(name) && !out.contains(name) {
+            if !bound.names.contains(name) && !out.contains(name) {
                 out.push(name.clone());
             }
         }
@@ -60,9 +61,9 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
             }
         }
         Expr::ArrowFn { params, body, .. } => {
-            let saved = bound.len();
+            let saved = bound.names.len();
             for p in params {
-                bound.push(p.name.clone());
+                bound.names.push(p.name.clone());
             }
             // A marked fn-expr (`function () {}` parsed into an
             // ArrowFn node and listed in `ast.fn_expr_exprs`) and an
@@ -75,7 +76,7 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
             // enclosing function, which is what hands an arrow inside
             // a promoted fn-expr its receiver.
             if ast.fn_expr_exprs.contains(&eid) || ast.objlit_method_exprs.contains(&eid) {
-                bound.push("__this".into());
+                bound.names.push("__this".into());
             }
             // §15.5.5 — a named fn-expression's self-name binds inside
             // ITS body (the funcEnv), never in the enclosing scope. The
@@ -87,13 +88,13 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
             // encloser's captures grew a `__genenv_N` nothing binds
             // (642-05: "unknown identifier `__genenv_29`").
             if let Some(sn) = ast.fn_expr_self_names.get(&eid) {
-                bound.push(sn.clone());
+                bound.names.push(sn.clone());
             }
-            hoist_list_names(body, bound);
+            hoist_list_names(body, &mut bound.names);
             for s in body {
                 walk_stmt(ast, s, bound, out);
             }
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Expr::Closure { captures, .. } => {
             // Already lifted (the arena is walked in index order, so an
@@ -117,7 +118,7 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
                 {
                     continue;
                 }
-                if !bound.contains(c) && !out.contains(c) {
+                if !bound.names.contains(c) && !out.contains(c) {
                     out.push(c.clone());
                 }
             }
@@ -138,7 +139,7 @@ pub(super) fn walk_expr(ast: &Ast, eid: ExprId, bound: &mut Vec<String>, out: &m
             // builtin-new rewrites, where class News have become
             // factory calls.
             if !is_global_name(class_name)
-                && !bound.contains(class_name)
+                && !bound.names.contains(class_name)
                 && !out.contains(class_name)
             {
                 out.push(class_name.clone());

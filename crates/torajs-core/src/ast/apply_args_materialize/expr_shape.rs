@@ -79,7 +79,7 @@ pub(super) fn body_safe_default(
             .iter()
             .all(|(_, v)| body_safe_default(ast, *v, global_fns, prior)),
         Expr::ArrowFn { params, body, .. } => {
-            free_vars::free_vars_of_arrow(ast, params, body, global_fns, None)
+            free_vars::free_vars_of_arrow(ast, params, body, global_fns, &[], None)
                 .iter()
                 .all(|v| prior.contains(v))
         }
@@ -128,7 +128,7 @@ pub(super) fn refs_prior_param(
             params: aparams,
             body,
             ..
-        } => free_vars::free_vars_of_arrow(ast, aparams, body, global_fns, None)
+        } => free_vars::free_vars_of_arrow(ast, aparams, body, global_fns, &[], None)
             .iter()
             .any(|v| params[..pi].iter().any(|p| p.name == *v)),
         _ => false,

@@ -33,6 +33,7 @@ pub(super) fn free_vars_of_arrow(
     params: &[Param],
     body: &[Stmt],
     global_fn_names: &[String],
+    rebound_globals: &[String],
     self_name: Option<&str>,
 ) -> Vec<String> {
     // Pre-bind top-level fn names so they're treated as already-in-scope
@@ -50,7 +51,7 @@ pub(super) fn free_vars_of_arrow(
     if let Some(sn) = self_name {
         bound.push(sn.to_string());
     }
-    free_vars_of_body(ast, &bound, body)
+    free_vars_of_body_rebound(ast, &bound, rebound_globals, body)
 }
 
 /// The walk itself, over a caller-supplied pre-bound set. Split out of
@@ -62,20 +63,47 @@ pub(super) fn free_vars_of_arrow(
 /// it a declaration cannot become an arrow), so the quasi-binding is
 /// the wrapper's business, not the walk's.
 pub(super) fn free_vars_of_body(ast: &Ast, prebound: &[String], body: &[Stmt]) -> Vec<String> {
-    let mut bound: Vec<String> = prebound.to_vec();
+    free_vars_of_body_rebound(ast, prebound, &[], body)
+}
+
+/// [`free_vars_of_body`] with the global names an enclosing scope
+/// rebinds (see [`Bound::rebound_globals`]).
+pub(super) fn free_vars_of_body_rebound(
+    ast: &Ast,
+    prebound: &[String],
+    rebound_globals: &[String],
+    body: &[Stmt],
+) -> Vec<String> {
+    let mut bound = Bound {
+        names: prebound.to_vec(),
+        rebound_globals,
+    };
     let mut out: Vec<String> = Vec::new();
-    hoist_list_names(body, &mut bound);
+    hoist_list_names(body, &mut bound.names);
     // `var` is function-scoped, so a declaration written inside a block
     // is bound for the whole body — including after the block, where
     // the block-scoped walk below would have dropped it.
-    hoist_var_names(body, &mut bound);
+    hoist_var_names(body, &mut bound.names);
     // Annex B §B.3.3 hoists a block-nested `function` the same way in
     // sloppy code — see `hoist_annexb_fn_names`.
-    hoist_annexb_fn_names(ast, body, &mut bound);
+    hoist_annexb_fn_names(ast, body, &mut bound.names);
     for s in body {
         walk_stmt(ast, s, &mut bound, &mut out);
     }
     out
+}
+
+/// The walk's binding frame.
+pub(super) struct Bound<'a> {
+    /// Every name bound so far — the arrow's params, the pre-bound
+    /// top-level fn names, and the declarations of each frame the walk
+    /// is inside. A reference to one is not free.
+    pub(super) names: Vec<String>,
+    /// The [`super::free_vars_globals::GLOBAL_NAMES`] an ENCLOSING
+    /// scope of the arrow rebinds. The walk skips a global name
+    /// (`console`, `fs`, `process`, …) instead of capturing it; a
+    /// rebound one is the local, and must be captured like any other.
+    pub(super) rebound_globals: &'a [String],
 }
 
 /// 423-01 knife C — the free identifier names of ONE top-level lib
@@ -95,33 +123,33 @@ fn walk_try(
     catch_param: &Option<String>,
     catch_body: &[Stmt],
     finally_body: &Option<Vec<Stmt>>,
-    bound: &mut Vec<String>,
+    bound: &mut Bound<'_>,
     out: &mut Vec<String>,
 ) {
-    let saved = bound.len();
-    hoist_list_names(body, bound);
+    let saved = bound.names.len();
+    hoist_list_names(body, &mut bound.names);
     for s in body {
         walk_stmt(ast, s, bound, out);
     }
-    bound.truncate(saved);
+    bound.names.truncate(saved);
     if let Some(name) = catch_param {
-        bound.push(name.clone());
+        bound.names.push(name.clone());
     }
-    hoist_list_names(catch_body, bound);
+    hoist_list_names(catch_body, &mut bound.names);
     for s in catch_body {
         walk_stmt(ast, s, bound, out);
     }
-    bound.truncate(saved);
+    bound.names.truncate(saved);
     if let Some(fb) = finally_body {
-        hoist_list_names(fb, bound);
+        hoist_list_names(fb, &mut bound.names);
         for s in fb {
             walk_stmt(ast, s, bound, out);
         }
-        bound.truncate(saved);
+        bound.names.truncate(saved);
     }
 }
 
-pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut Vec<String>) {
+pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut Vec<String>) {
     match s {
         Stmt::Expr(eid) | Stmt::Return(Some(eid)) | Stmt::Yield(eid) => {
             walk_expr(ast, *eid, bound, out)
@@ -134,7 +162,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
         // the hoist pass panicked.
         Stmt::YieldInto { var, value, .. } => {
             walk_expr(ast, *value, bound, out);
-            bound.push(var.clone());
+            bound.names.push(var.clone());
         }
         Stmt::Return(None) => {}
         // The binding is in scope for its own initializer (§14.3.1: a
@@ -147,7 +175,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
         // snapshotted a `d` that scope never bound (`unknown
         // identifier`).
         Stmt::LetDecl { name, init, .. } | Stmt::UsingDecl { name, init, .. } => {
-            bound.push(name.clone());
+            bound.names.push(name.clone());
             walk_expr(ast, *init, bound, out);
         }
         Stmt::If {
@@ -156,24 +184,24 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             else_branch,
         } => {
             walk_expr(ast, *cond, bound, out);
-            let saved = bound.len();
+            let saved = bound.names.len();
             walk_stmt(ast, then_branch, bound, out);
-            bound.truncate(saved);
+            bound.names.truncate(saved);
             if let Some(eb) = else_branch {
                 walk_stmt(ast, eb, bound, out);
-                bound.truncate(saved);
+                bound.names.truncate(saved);
             }
         }
         Stmt::While { cond, body } => {
             walk_expr(ast, *cond, bound, out);
-            let saved = bound.len();
+            let saved = bound.names.len();
             walk_stmt(ast, body, bound, out);
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Stmt::DoWhile { body, cond } => {
-            let saved = bound.len();
+            let saved = bound.names.len();
             walk_stmt(ast, body, bound, out);
-            bound.truncate(saved);
+            bound.names.truncate(saved);
             walk_expr(ast, *cond, bound, out);
         }
         Stmt::Switch {
@@ -187,12 +215,12 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             // clause: `case 0: let a = 1; case 1: a` reads the same
             // binding. So the frame opens once here and the fn-decl
             // names of every clause hoist into it together.
-            let saved = bound.len();
+            let saved = bound.names.len();
             for c in cases.iter() {
-                hoist_list_names(&c.body, bound);
+                hoist_list_names(&c.body, &mut bound.names);
             }
             if let Some(db) = default {
-                hoist_list_names(db, bound);
+                hoist_list_names(db, &mut bound.names);
             }
             for c in cases {
                 walk_expr(ast, c.value, bound, out);
@@ -205,7 +233,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
                     walk_stmt(ast, s, bound, out);
                 }
             }
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Stmt::For {
             init,
@@ -213,7 +241,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             step,
             body,
         } => {
-            let saved = bound.len();
+            let saved = bound.names.len();
             if let Some(i) = init {
                 walk_stmt(ast, i, bound, out);
             }
@@ -224,19 +252,19 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
                 walk_expr(ast, *st, bound, out);
             }
             walk_stmt(ast, body, bound, out);
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Stmt::Block(stmts) => {
-            let saved = bound.len();
-            hoist_list_names(stmts, bound);
+            let saved = bound.names.len();
+            hoist_list_names(stmts, &mut bound.names);
             for st in stmts {
                 walk_stmt(ast, st, bound, out);
             }
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Stmt::Multi(stmts) => {
             // Same surrounding scope — bindings stay visible after.
-            hoist_list_names(stmts, bound);
+            hoist_list_names(stmts, &mut bound.names);
             for st in stmts {
                 walk_stmt(ast, st, bound, out);
             }
@@ -251,10 +279,10 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             // the body only.
             walk_expr(ast, *parent, bound, out);
             walk_expr(ast, *sep, bound, out);
-            let saved = bound.len();
-            bound.push(var_name.clone());
+            let saved = bound.names.len();
+            bound.names.push(var_name.clone());
             walk_stmt(ast, body, bound, out);
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Stmt::ForOf {
             var_name,
@@ -271,12 +299,12 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Vec<String>, out: &mut 
             // `for (v of xs)` inside `() => {}` was a capture of an
             // identifier no scope could ever hold, while the same loop
             // in a named fn was fine.
-            let saved = bound.len();
-            bound.push(i_ident.clone());
+            let saved = bound.names.len();
+            bound.names.push(i_ident.clone());
             walk_expr(ast, *elem_expr, bound, out);
-            bound.push(var_name.clone());
+            bound.names.push(var_name.clone());
             walk_stmt(ast, body, bound, out);
-            bound.truncate(saved);
+            bound.names.truncate(saved);
         }
         Stmt::Break(_) | Stmt::Continue(_) => {}
         Stmt::Labeled { body, .. } => walk_stmt(ast, body, bound, out),

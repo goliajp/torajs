@@ -129,7 +129,7 @@ pub(super) fn route_wrapper(
     // the prep can turn them into field stores.
     let self_name = ast.fn_expr_self_names.get(&eid).cloned();
     let mut captures =
-        crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names, None);
+        crate::ast::free_vars::free_vars_of_arrow(ast, &params, &body, &global_names, &[], None);
     let self_ref = self_name
         .as_ref()
         .is_some_and(|sn| captures.iter().any(|c| c == sn));

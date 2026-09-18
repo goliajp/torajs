@@ -119,7 +119,7 @@ fn convert_slot(ast: &mut Ast, slot: &mut Stmt, global_names: &[String]) -> Opti
         return None;
     }
     let captures =
-        super::free_vars::free_vars_of_arrow(ast, params, body, global_names, Some(name));
+        super::free_vars::free_vars_of_arrow(ast, params, body, global_names, &[], Some(name));
     if captures.is_empty() {
         return None;
     }
