@@ -1681,7 +1681,38 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `5183ee43d`** (2026-09-18, rotation 668). Class evaluation
+**Latest @ `a026f072e`** (2026-09-19, rotation 669). Class evaluation
+units through **K5**: private instance elements across `extends` in a
+family (the class object's hidden record is `[tag, unit ancestors]` and a
+brand compares at the declaring class's depth), static private elements
+in a family (an own entry of the ONE class object that declared them, so
+a derived class object reads none), `super.x` / `super[k]` and a
+re-linking program's `super.m()` reading their base off the running
+evaluation's home, and a unit class reached as a runtime-value parent.
+**K6-2**: a class in the runtime-value lane (capturing, or extending a
+runtime value) may now hold private fields — its constructor prefix
+installs them in the foreign store instead of writing through a brand
+the plain-object instance never had. Adding a private element to a
+non-extensible object is a TypeError (`nonextensible-applies-to-private`).
+Five leaks and two silent defects the probes uncovered, none class-unit
+specific: the first `F.prototype = …` on a fresh function orphaned a
+property bag (1.3 KB per evaluation of any class with a runtime-value
+parent); the dynamic `instanceof` walk and the `setPrototypeOf`
+same-value probes kept the owned prototype reads; a derived class with
+field initializers and no constructor skipped `super` in the
+runtime-value lane; a hoisted nested class sharing a name with a
+top-level binding read that binding uninitialized.
+
+Gate predicate: **37** clusters of >= 4 holding **246** cases, register
+2 · 118, residue 348 · 472 (56.5%), core **836**, unattributed **718**.
+Against rotation 668: clusters 37 → **37 (0)**, cases 245 → **246 (+1)**,
+core 836 → **836 (0)**. Sweep passTotal 40490 → **40492 (+2)**, bug
+8619 → **8617 (−2)**, incompatible 4065 → **4065 (0)**; **1 backward**
+(`import-defer/…/ignore-private-name-access`, a pass that rode a
+brand-write TypeError thrown for the wrong reason; its real cause is the
+runtime-value lane's `super()` not adopting a returned object).
+
+**Prior @ `5183ee43d`** (2026-09-18, rotation 668). Class evaluation
 units: **K4-4** static private members per evaluation (a static face
 refuses another evaluation's class object at the call boundary once its
 body reaches a private element; `#x in o` on a static element asks for
