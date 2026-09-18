@@ -40,6 +40,12 @@ pub(super) fn rewrite_expr_arena_pass2(
 ) {
     let n = ast.exprs.len();
     let enclosing = crate::cm_demote::this_enclosing_classes(ast, class_index);
+    let tables = super::desugar_classes_pass2_calls::Pass2Tables {
+        class_index,
+        method_owners,
+        chain_methods,
+        enclosing: &enclosing,
+    };
     for i in 0..n {
         match &ast.exprs[i] {
             Expr::This => {
@@ -139,85 +145,9 @@ pub(super) fn rewrite_expr_arena_pass2(
             Expr::Call { callee, args } => {
                 let callee_id = *callee;
                 let args_clone = args.clone();
-                // Look at what the callee is pointing at.
-                if let Expr::Member { obj, name } = &ast.exprs[callee_id.0 as usize] {
-                    let m_name = name.clone();
-                    let obj_id = *obj;
-                    if let Some(owners) = method_owners.get(&m_name) {
-                        // Three cases:
-                        // (1) Single owner — keep static dispatch via
-                        //     `__cm_<C>__<M>`, EXCEPT when the receiver
-                        //     is `this.<field>` and the field is typed
-                        //     as a known builtin (Array `T[]`, `string`,
-                        //     `number`). Those calls dispatch to the
-                        //     intrinsic, not the user class's method
-                        //     — without the guard, `class C { data:
-                        //     T[]; push(v) { this.data.push(v); } }`
-                        //     would rewrite the inner `this.data.push`
-                        //     to `__cm_C__push(this.data, v)` and
-                        //     infinite-recurse.
-                        // (2) Multi-owner forming a single inheritance
-                        //     chain (override case) — route through
-                        //     `__dispatch_<M>` runtime-tag dispatcher.
-                        // (3) Multi-owner across unrelated hierarchies
-                        //     (sibling collision) — leave Member as-is.
-                        if owners.len() == 1 {
-                            let enclosing_cname = enclosing
-                                .get(obj_id.0 as usize)
-                                .copied()
-                                .flatten()
-                                .map(|ci| class_index[ci].1.as_str());
-                            let skip_for_builtin_field =
-                                crate::cm_demote::receiver_is_this_builtin_field(
-                                    ast,
-                                    obj_id,
-                                    owners[0].as_str(),
-                                    enclosing_cname,
-                                    class_index,
-                                );
-                            if skip_for_builtin_field {
-                                // Leave Member; ssa_lower picks the
-                                // builtin intrinsic from the field's
-                                // actual type at SSA time.
-                            } else {
-                                crate::cm_demote::record_speculative_rewrite(
-                                    ast,
-                                    i,
-                                    callee_id,
-                                    obj_id,
-                                    &args_clone,
-                                );
-                                let mangled = format!("__cm_{}__{m_name}", owners[0]);
-                                let new_callee = ast.add_expr(Expr::Ident(mangled));
-                                let mut new_args = Vec::with_capacity(args_clone.len() + 1);
-                                new_args.push(obj_id);
-                                new_args.extend(args_clone);
-                                ast.exprs[i] = Expr::Call {
-                                    callee: new_callee,
-                                    args: new_args,
-                                };
-                            }
-                        } else if chain_methods.contains(&m_name) {
-                            crate::cm_demote::record_speculative_rewrite(
-                                ast,
-                                i,
-                                callee_id,
-                                obj_id,
-                                &args_clone,
-                            );
-                            let mangled = format!("__dispatch_{m_name}");
-                            let new_callee = ast.add_expr(Expr::Ident(mangled));
-                            let mut new_args = Vec::with_capacity(args_clone.len() + 1);
-                            new_args.push(obj_id);
-                            new_args.extend(args_clone);
-                            ast.exprs[i] = Expr::Call {
-                                callee: new_callee,
-                                args: new_args,
-                            };
-                        }
-                        // else: sibling collision — leave Member call AS-IS.
-                    }
-                }
+                super::desugar_classes_pass2_calls::rewrite_method_call(
+                    ast, i, callee_id, args_clone, &tables,
+                );
             }
             _ => {}
         }
