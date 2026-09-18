@@ -157,6 +157,12 @@ pub(super) fn build_static_member_rewrites(
         );
     }
     for (_, cname, _, parent, _, _, _, _, _) in class_index {
+        // K5-1 — a derived unit class inherits statics the ordinary
+        // way, through its class object's [[Prototype]]: an alias
+        // would name the parent TEMPLATE's `__sf_` / `__sm_`.
+        if ast.eval_unit_classes.contains(cname) {
+            continue;
+        }
         let mut cur = parent.clone();
         // Cycle guard — same rationale as the collect_abstract_classes
         // walk: a mutual-extends cycle must not spin here (the checker

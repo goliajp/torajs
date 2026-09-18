@@ -81,6 +81,22 @@ pub(super) fn rewrite_static_super_calls(
         // pass 3: the site keeps a marker until
         // `desugar_classes_static_route::resolve_static_super_calls`. A
         // receiver-free target keeps the direct mono call.
+        // K5-1 — a unit class's static body takes the receiver as its
+        // leading `__unit` param whatever it does with it, and mints no
+        // twin: the mono IS receiver-polymorphic.
+        if ast.eval_unit_classes.contains(&owner) {
+            let this = ast.add_expr(Expr::This);
+            ast.static_this_sites.insert(this, cname.clone());
+            let callee = ast.add_expr(Expr::Ident(mono));
+            let mut with_recv = Vec::with_capacity(args.len() + 1);
+            with_recv.push(this);
+            with_recv.extend(args);
+            ast.exprs[eid.0 as usize] = Expr::Call {
+                callee,
+                args: with_recv,
+            };
+            continue;
+        }
         if reads_receiver(ast, class_index, &owner, &m_name, 0) {
             let this = ast.add_expr(Expr::This);
             ast.static_this_sites.insert(this, cname.clone());

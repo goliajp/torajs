@@ -58,8 +58,16 @@ pub(super) fn unit_slot_off(tag: i64) -> u32 {
 /// `cell` is a live `Tag::Obj` cell of class `tag`, a unit class whose
 /// instances keep their class object at `off`.
 pub(super) unsafe fn unit_instance_proto(cell: *const c_void, off: u32) -> u64 {
+    unsafe { unit_class_prototype(cell.cast::<u8>().add(off as usize).cast::<u64>().read()) }
+}
+
+/// The `prototype` own value of a class object, BORROWED (0 when
+/// `class` is not a dynobj cell holding one).
+///
+/// # Safety
+/// `class` is any AnyValue word.
+unsafe fn unit_class_prototype(class: u64) -> u64 {
     unsafe {
-        let class = cell.cast::<u8>().add(off as usize).cast::<u64>().read();
         if !is_cell_imm(class) || heap_type_tag(class as *const c_void) != TAG_DYNOBJ {
             return 0;
         }
@@ -73,7 +81,9 @@ pub(super) unsafe fn unit_instance_proto(cell: *const c_void, off: u32) -> u64 {
 
 /// Wire one evaluation of unit class `tag`: `class_anyv` / `proto_anyv`
 /// are the class object and prototype the declaration just minted, and
-/// `slot_off` the offset of the hidden slot its instances carry.
+/// `slot_off` the offset of the hidden slot its instances carry;
+/// `parent_anyv` is the parent's class object for a derived class
+/// (K5-1), `undefined` for a base.
 /// §10.2.3 MakeConstructor and §15.7.14's method definitions, exactly
 /// as `wire_first_class_links` runs them for a one-shot class, onto
 /// these two objects only.
@@ -86,6 +96,7 @@ pub unsafe extern "C" fn __torajs_class_unit_wire(
     proto_anyv: u64,
     tag: i64,
     slot_off: i64,
+    parent_anyv: u64,
 ) {
     if !in_range(tag)
         || !is_cell_imm(class_anyv)
@@ -99,7 +110,18 @@ pub unsafe extern "C" fn __torajs_class_unit_wire(
         let class_cell = class_anyv as *mut c_void;
         __torajs_dynobj_lock_builtin_fn_class_slots(class_cell);
         __torajs_dynobj_mark_class_ctor(class_cell);
-        let func_proto = __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG);
+        // K5-1 — §15.7.14 steps 5–8: a derived class's constructor
+        // inherits from the parent CONSTRUCTOR and its prototype from
+        // the parent's `prototype`, here the class object of the same
+        // evaluation (`parent_anyv`; anything but a class object means
+        // a base class).
+        let parent_proto = unit_class_prototype(parent_anyv);
+        let func_proto = if parent_proto != 0 {
+            crate::reflect_proto_set::__torajs_proto_link_fresh(proto_anyv, parent_proto);
+            parent_anyv as *mut c_void
+        } else {
+            __torajs_get_builtin_prototype(FUNCTION_PROTO_TAG)
+        };
         if !func_proto.is_null() {
             let flags = class_cell.cast::<u8>().add(6).cast::<u16>().read();
             // A fresh class object: extensible, acyclic — the link

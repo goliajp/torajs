@@ -56,12 +56,12 @@ pub(super) fn try_lower_my_class_ref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) ->
     Some(Operand::Value(v))
 }
 
-/// `__torajs_class_unit_wire(class, proto, "C")` — the runtime wiring
+/// `__torajs_class_unit_wire(class, proto, "C", parent)` — the runtime wiring
 /// of one unit-class evaluation (`ast::class_unit`). The class name
 /// resolves here to what the kernel needs from the static layout: the
 /// class tag and the byte offset of the hidden slot instances carry.
 pub(super) fn try_lower_unit_wire(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    let [class_id, proto_id, name_id] = args else {
+    let [class_id, proto_id, name_id, parent_id] = args else {
         return None;
     };
     let Expr::String(cname) = ctx.ast.get_expr(*name_id) else {
@@ -78,6 +78,7 @@ pub(super) fn try_lower_unit_wire(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
     let off = crate::ssa_lower::OBJ_HEADER_SIZE + idx as u64 * 8;
     let class_op = ctx.lower_expr(*class_id);
     let proto_op = ctx.lower_expr(*proto_id);
+    let parent_op = ctx.lower_expr(*parent_id);
     let wire = ctx.intrinsics.class_unit_wire;
     let cur_block = ctx.cur_block;
     ctx.f.append_void(
@@ -89,6 +90,7 @@ pub(super) fn try_lower_unit_wire(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
                 proto_op,
                 Operand::ConstI64(tag as i64),
                 Operand::ConstI64(off as i64),
+                parent_op,
             ],
         ),
     );

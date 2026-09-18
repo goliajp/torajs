@@ -101,7 +101,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             crate::ast::class_unit::UNIT_WIRE,
-            &[Type::Any, Type::Any, Type::I64, Type::I64],
+            &[Type::Any, Type::Any, Type::I64, Type::I64, Type::Any],
             Type::Void,
         ),
         class_unit_static_method_define: declare_intrinsic(

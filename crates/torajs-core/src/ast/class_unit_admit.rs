@@ -1,16 +1,20 @@
 //! Admission to the per-evaluation lane (RFC 20260917-class-eval-unit):
 //! which nested class may become a unit class. `class_unit` holds what
 //! an admitted class then turns into. Split out of it (verbatim move)
-//! when K5's family rule pushed the file past its line limit.
+//! ahead of K5's family rule.
 
 use super::class_unit_census::{Occurrences, names_class, returns_value};
-use super::{Ast, PropKey, StaticInit, Stmt};
+use super::{Ast, Expr, PropKey, StaticInit, Stmt};
 
 /// Whether the ClassDecl `cls` (about to be hoisted out of a
 /// multi-evaluation container) has a unit-class shape. The name-keyed
 /// reference census is [`refs_stay_local`], asked after the hoist's
 /// rename has made the name unique.
-pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
+///
+/// `assumed_parent` is the family lookahead's hypothesis (K5): the
+/// sibling named so is about to become a unit class, which its own
+/// admission depends on (`hoist_nested_classes_unit::family_admits`).
+pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) -> bool {
     let Stmt::ClassDecl {
         name,
         type_params,
@@ -62,8 +66,22 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         }
         StaticInit::Block(_) => true,
     });
-    if parent.is_some()
-        || !ast.es5_value_parents.is_empty()
+    // K5-1 — `extends` is admitted for ONE heritage: a unit class of
+    // the same container, by name. `__cunit_C(parent)` then wires this
+    // evaluation's class object and prototype under that evaluation's.
+    // Every other heritage keeps the shared identity.
+    let unit_parent = match parent {
+        None => None,
+        Some(pid) => match ast.get_expr(*pid) {
+            Expr::Ident(p)
+                if ast.eval_unit_classes.contains(p) || assumed_parent == Some(p.as_str()) =>
+            {
+                Some(p.as_str())
+            }
+            _ => return false,
+        },
+    };
+    if !ast.es5_value_parents.is_empty()
         || !type_params.is_empty()
         || *is_abstract
         || !static_init_admits
@@ -92,10 +110,6 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
             .all(|m| (plain(&m.name) || private_method(&m.name)) && m.type_params.is_empty())
         || ast.builtin_class_parents.contains_key(name)
         || ast.class_expr_deferred.contains(name)
-        || ast
-            .class_parents
-            .values()
-            .any(|p| p.as_deref() == Some(name.as_str()))
         || ast.class_computed_keys.keys().any(|(c, _)| c == name)
         || ast
             .class_computed_instance_fields
@@ -134,7 +148,60 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         .iter()
         .chain(static_methods.iter())
         .any(|m| private_method(&m.name));
-    in_bodies.name == 0 && !in_bodies.arguments && !(has_private && in_bodies.fn_exprs)
+    if in_bodies.name != 0 || in_bodies.arguments || (has_private && in_bodies.fn_exprs) {
+        return false;
+    }
+    // K5-1 — a derived unit class. Its bodies are hoisted like any
+    // class's, so they may not name the parent (the name would read
+    // the registered template, W8's reason), and a `super.x` /
+    // `super[k]` site spells its base as that same name. The brand of
+    // a private element compares ONE evaluation word, which a chain
+    // needs per class (K5-2), and a program that re-links prototypes
+    // routes `super` through the registry (K5-3): both stay out.
+    let Some(p) = unit_parent else {
+        return true;
+    };
+    let mut in_derived = Occurrences::default();
+    for name in [p, "__superbase__"] {
+        if let Some(c) = ctor {
+            in_derived.list(ast, &c.body, name);
+        }
+        for m in methods.iter().chain(static_methods.iter()) {
+            in_derived.list(ast, &m.body, name);
+        }
+        for si in static_init {
+            match si {
+                StaticInit::Field(sf) => in_derived.expr(ast, sf.init, name),
+                StaticInit::Block(b) => in_derived.list(ast, b, name),
+            }
+        }
+    }
+    in_derived.name == 0
+        && !declares_private(cls)
+        && !super::super_home_dynamic::program_mutates_prototypes(ast)
+}
+
+/// Whether the class declares any private element, instance or static.
+pub(super) fn declares_private(cls: &Stmt) -> bool {
+    let Stmt::ClassDecl {
+        fields,
+        methods,
+        static_methods,
+        static_init,
+        ..
+    } = cls
+    else {
+        return false;
+    };
+    let private = |k: &PropKey| k.lossy().contains("__priv_");
+    fields.iter().any(|(k, _)| private(k))
+        || methods
+            .iter()
+            .chain(static_methods)
+            .any(|m| private(&m.name))
+        || static_init
+            .iter()
+            .any(|si| matches!(si, StaticInit::Field(sf) if private(&sf.name)))
 }
 
 /// Whether every reference to `name` in the program sits in the
@@ -151,6 +218,17 @@ pub(super) fn refs_stay_local(ast: &Ast, container: &[Stmt], idx: usize, name: &
     for (j, s) in container.iter().enumerate() {
         if j != idx {
             in_container.stmt(ast, s, name);
+            // K5 — a sibling's heritage is evaluated HERE, where the
+            // class is written, and the residual `let B =
+            // __cunit_B(A)` keeps reading this container's binding.
+            // True only when that sibling becomes a unit class itself,
+            // which `family_admits` is there to guarantee.
+            if let Stmt::ClassDecl {
+                parent: Some(pid), ..
+            } = s
+            {
+                in_container.expr(ast, *pid, name);
+            }
         }
     }
     let program = ast.exprs.iter().filter(|e| names_class(e, name)).count();

@@ -27,8 +27,10 @@
 //! Admission is deliberately narrow (the RFC's K1 whitelist); anything
 //! else keeps today's shared identity:
 //!
-//! - W1 no `extends`, and no class extends this one; W5 not generic,
-//!   not abstract; W6 no builtin parent;
+//! - W1 `extends` only a unit class of the same container (K5-1), and
+//!   then the whole family is admitted or none of it
+//!   (`hoist_nested_classes_unit::family_admits`); W5 not generic, not
+//!   abstract; W6 no builtin parent;
 //! - W3/W4 no public instance accessor, no computed member. K2 admits
 //!   private methods and accessors, K3 private fields: their brand check
 //!   also compares the receiver's evaluation with the one `__this` runs
@@ -56,6 +58,10 @@ pub const UNIT_WIRE: &str = "__torajs_class_unit_wire";
 /// The factory's leading parameter carrying the evaluation's class.
 pub const UNIT_PARAM: &str = "__unit";
 
+/// K5 — `__cunit_<C>`'s parameter for a derived unit class: the class
+/// object of the evaluation's parent.
+pub const UNIT_PARENT_PARAM: &str = "__unit_parent";
+
 /// K4-1 — the synthesized per-evaluation static-method define
 /// (`classmeta::define::statics`).
 pub const UNIT_STATIC_METHOD_REIFY: &str = "__torajs_unit_static_method_reify";
@@ -80,11 +86,18 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         ctor,
         static_methods,
         static_init,
+        parent,
         ..
     } = cls
     else {
         unreachable!("admitted a ClassDecl");
     };
+    // K5-1 — an admitted heritage is a unit class of this container,
+    // by name (`admits_shape`).
+    let unit_parent = parent.as_ref().and_then(|pid| match ast.get_expr(*pid) {
+        Expr::Ident(p) => Some(p.clone()),
+        _ => None,
+    });
     // K4-1 / K4-3 — one reify per static method, one per accessor
     // NAME (a get / set pair defines once, at its first face).
     let mut static_names: Vec<(PropKey, bool)> = Vec::new();
@@ -111,7 +124,13 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
             StaticInit::Block(_) => UnitStatic::Block(i),
         })
         .collect();
-    fields.push((PropKey::from(UNIT_SLOT), "any".to_string()));
+    // A derived unit class inherits its parent's hidden slot — the
+    // layout is the parent's fields first, so the offset is the same
+    // one, and the factory fills it with THIS class's `__unit`
+    // (redeclaring a parent field is a layout error).
+    if unit_parent.is_none() {
+        fields.push((PropKey::from(UNIT_SLOT), "any".to_string()));
+    }
     let length = ctor.as_ref().map_or(0, |c| {
         c.params
             .iter()
@@ -140,9 +159,18 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
     let class_arg = ast.add_expr(Expr::Ident(UNIT_PARAM.into()));
     let proto_arg = ast.add_expr(Expr::Ident("__cup".into()));
     let tag_arg = ast.add_expr(Expr::String(binding.to_string().into()));
+    // The evaluation's parent class object, or `undefined` for a base.
+    let parent_arg = ast.add_expr(Expr::Ident(
+        if unit_parent.is_some() {
+            UNIT_PARENT_PARAM
+        } else {
+            "undefined"
+        }
+        .into(),
+    ));
     let wire_call = ast.add_expr(Expr::Call {
         callee: wire,
-        args: vec![class_arg, proto_arg, tag_arg],
+        args: vec![class_arg, proto_arg, tag_arg, parent_arg],
     });
     // K4-1 — one own entry per static method on THIS evaluation's
     // class object: `__torajs_unit_static_method_reify("C", "m",
@@ -208,7 +236,15 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
     let unit_fn = Stmt::FnDecl {
         name: fn_name.clone(),
         type_params: Vec::new(),
-        params: Vec::<Param>::new(),
+        params: unit_parent
+            .iter()
+            .map(|_| Param {
+                name: UNIT_PARENT_PARAM.into(),
+                type_ann: Some("any".into()),
+                default: None,
+                is_rest: false,
+            })
+            .collect(),
         return_type: Some("any".into()),
         body: [
             any_let("__cup", proto_init),
@@ -223,10 +259,11 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         span: crate::lexer::Span { start: 0, end: 0 },
     };
     let callee = ast.add_expr(Expr::Ident(fn_name));
-    let init = ast.add_expr(Expr::Call {
-        callee,
-        args: Vec::new(),
-    });
+    let args = unit_parent
+        .into_iter()
+        .map(|p| ast.add_expr(Expr::Ident(p)))
+        .collect();
+    let init = ast.add_expr(Expr::Call { callee, args });
     let residual = Stmt::LetDecl {
         mutable: true,
         name: binding.to_string(),

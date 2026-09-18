@@ -148,8 +148,8 @@ fn error_synth_ty(name: &str) -> Option<Type> {
 fn unit_synth_ty(name: &str) -> Option<Type> {
     let void_fn = |params: Vec<Type>| Type::Function(params, Box::new(Type::Void));
     Some(match name {
-        // K1 — `(class, proto, "C")`.
-        UNIT_WIRE => void_fn(vec![Type::Any, Type::Any, Type::String]),
+        // K1 — `(class, proto, "C", parent class | undefined)`.
+        UNIT_WIRE => void_fn(vec![Type::Any, Type::Any, Type::String, Type::Any]),
         // K4-1 / K4-3 — `("C", member, the evaluation's class)`.
         UNIT_STATIC_METHOD_REIFY | UNIT_STATIC_ACCESSOR_REIFY => {
             void_fn(vec![Type::String, Type::String, Type::Any])
