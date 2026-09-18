@@ -147,7 +147,17 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
         .iter()
         .chain(static_methods.iter())
         .any(|m| private_method(&m.name));
-    if in_bodies.name != 0 || in_bodies.arguments || (has_private && in_bodies.fn_exprs) {
+    // K6-1 — a class written inside a member body: its own methods'
+    // `__this` is ITS instance, but a unit class's brand guard appends
+    // `__this` to every private-element site in the outer's bodies,
+    // this inner body's included; and when the inner class takes the
+    // runtime-value lane its methods become `function` expressions
+    // after this census ran. Either way the brand cannot be compared
+    // here, so such an outer class keeps the shared identity.
+    if in_bodies.name != 0
+        || in_bodies.arguments
+        || (has_private && (in_bodies.fn_exprs || in_bodies.holds_class))
+    {
         return false;
     }
     // K5-1 — a derived unit class. Its bodies are hoisted like any

@@ -80,6 +80,7 @@ impl<'a> Parser<'a> {
             .class_private_scopes
             .push((name.clone(), std::collections::HashSet::new()));
         self.class_stack.push(scope_id);
+        self.class_body_stmt_depths.push(self.stmt_depth);
         // The generator-method branch keys its `super` rewrites on the
         // statically-known parent NAME; a non-Ident heritage answers
         // None there, same as no heritage (those classes are routed to

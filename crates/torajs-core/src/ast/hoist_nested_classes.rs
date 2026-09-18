@@ -5,10 +5,11 @@
 //! (a fn body, an fn-expression body, a block, a switch arm, ...)
 //! never desugars and aborts loud in check.rs. This pass moves every
 //! CAPTURE-FREE nested ClassDecl to the top level so the existing
-//! class machinery lifts it with zero downstream changes — the same
-//! strategy the parser already applies to class *expressions*
-//! (`parse_primary_class_expr` buffers them to `synth_classes` and
-//! splices at top level).
+//! class machinery lifts it with zero downstream changes. A class
+//! *expression* outside a class body, or (K6-1) in a member body's
+//! statement, reaches this pass the same way: the parser lands its
+//! ClassDecl beside the use site (`buffer_class_expr`); only one in a
+//! field initializer or computed key still splices at top level.
 //!
 //! Capture-free means: every ctor / method / static body resolves
 //! its free identifiers against top-level names (plus the class's
@@ -311,6 +312,33 @@ pub(super) fn walk_container(
         };
         let cls = std::mem::replace(&mut stmts[idx], slot);
         hoisted.push(cls);
+    }
+
+    // K6-1 — a class this level just hoisted took its member bodies
+    // along, and `stmts` now holds only its residual, so the walk
+    // below never sees them. A class expression written in one of
+    // those bodies (its use-site splice put the ClassDecl there)
+    // would stay put and abort loud in check. Scan them here, after
+    // this level's hoist and over this level's entries only (a nested
+    // walk scans what it hoists itself): an inner class extending the
+    // outer lands after it in `hoisted`, and the outer's name is
+    // already in `top_names`.
+    let lifted_end = hoisted.len();
+    for j in lifted_start..lifted_end {
+        if !matches!(hoisted[j], Stmt::ClassDecl { .. }) {
+            continue;
+        }
+        let mut cls = std::mem::replace(&mut hoisted[j], Stmt::Multi(Vec::new()));
+        walk_child(
+            ast,
+            &mut cls,
+            top_names,
+            hoisted,
+            counter,
+            name_counts,
+            true,
+        );
+        hoisted[j] = cls;
     }
 
     for s in stmts.iter_mut() {

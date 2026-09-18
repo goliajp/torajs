@@ -32,6 +32,10 @@ pub(super) struct Occurrences {
     /// binding: for the question "does every reference stay in the
     /// container" such an occurrence is NOT a local one.
     pub(super) skip_class_bodies: bool,
+    /// A class declaration anywhere in the subtree (a class expression
+    /// spliced beside its use site included), whatever
+    /// `skip_class_bodies` says about its body.
+    pub(super) holds_class: bool,
 }
 
 impl Occurrences {
@@ -42,6 +46,9 @@ impl Occurrences {
     }
 
     pub(super) fn stmt(&mut self, ast: &Ast, s: &Stmt, name: &str) {
+        if matches!(s, Stmt::ClassDecl { .. }) {
+            self.holds_class = true;
+        }
         match s {
             Stmt::FnDecl { body, .. } => self.list(ast, body, name),
             Stmt::ClassDecl {

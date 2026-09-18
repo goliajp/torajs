@@ -41,7 +41,9 @@
 //! - W7 the constructor returns no value; W16 reads no `arguments`;
 //! - W8 no member body names the class (the body would read the
 //!   registered template);
-//! - W12 not a class expression written inside a class body;
+//! - W12 not a class expression of a field initializer / computed key
+//!   (`class_expr_deferred`); with private elements, no member body
+//!   holds a class (K6-1);
 //! - W14 the class is referenced only inside the container it was
 //!   declared in, and its name is declared exactly once in the program.
 

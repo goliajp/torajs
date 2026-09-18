@@ -195,6 +195,14 @@ struct Parser<'a> {
     /// reference so `resolve_private_refs` can walk out through the
     /// lexical nesting after the whole file has parsed.
     class_stack: Vec<u32>,
+    /// K6-1 — `stmt_depth` at the moment each enclosing class body
+    /// (innermost LAST) was entered; pushed / popped with
+    /// `class_stack`. A class expression minted at a deeper depth
+    /// sits inside a statement of a member body, so its declaration
+    /// lands beside its use site (`buffer_class_expr`); one at the
+    /// same depth sits in a field initializer or a computed key and
+    /// keeps the top-level splice.
+    class_body_stmt_depths: Vec<u32>,
     /// §15.7 — true while a ClassHeritage is being parsed. All parts
     /// of a class are strict code and the heritage is one, but the
     /// `class_stack` push that carries that answer for the BODY
@@ -409,14 +417,15 @@ struct Parser<'a> {
     /// rarely collides; if it does, lift to a scope stack). The full
     /// dynamic-ctor-dispatch substrate is parked as an L3b follow-up.
     class_value_aliases: std::collections::HashMap<String, String>,
-    /// Class expressions minted OUTSIDE a class body (393-01). Unlike
+    /// Class expressions minted outside a class body (393-01) or in a
+    /// member body's statement (K6-1). Unlike
     /// `synth_classes` these land NEXT TO their use site — the
     /// `parse_stmt` wrapper drains them in front of the finished
     /// statement — so one inside a nested scope stays a nested
     /// ClassDecl and `hoist_nested_classes` gets to ask its real
     /// question (capture-free → lift; capturing → the ES5 lane).
     /// Splicing to the top level, which `synth_classes` still does for
-    /// the class-body case, LOSES that question: the class body's
+    /// a field initializer / computed key, LOSES that question: the class body's
     /// free names stop resolving anywhere, silently.
     synth_classes_local: Vec<Stmt>,
     /// Depth of the `parse_stmt` call currently on the stack. 0 after

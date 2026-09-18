@@ -259,8 +259,9 @@ pub struct Ast {
     /// enters this map (§15.5.5: the self-name wins).
     pub class_expr_display_names: std::collections::HashMap<String, String>,
     /// Rotation 373 (L3b 373-05) — synth `__ClassExpr_<id>` decls
-    /// whose expression site sat INSIDE an enclosing class body (a
-    /// method / accessor / field initializer / static block). Their
+    /// whose expression site sat in an enclosing class body's field
+    /// initializer or computed key (K6-1 lands one written in a
+    /// member body's statement beside its use site instead). Their
     /// evaluation is deferred past the enclosing class's definition,
     /// so `class extends Outer` from within Outer's own body is
     /// legal — but the parser's synth flush lands the decl BEFORE

@@ -152,8 +152,8 @@ impl<'a> Parser<'a> {
     //   const F = class extends Parent { ... }   // extends
     //   foo(class { ... })                       // class as argument
     // Strategy (a): parse as a ClassDecl with an `__ClassExpr_<id>`
-    // synth name, buffer to `synth_classes` for splice immediately
-    // before this stmt's push in `parse_program`, then emit
+    // synth name, buffer it (`buffer_class_expr`) for a splice in
+    // front of the statement that uses it, then emit
     // `Expr::Ident("__ClassExpr_<id>")` at the original use site.
     // The existing class machinery (desugar_classes,
     // synthesize_class_globals) lifts this Ident to the value-form
@@ -173,26 +173,40 @@ impl<'a> Parser<'a> {
             Stmt::ClassDecl { name, .. } => name.clone(),
             _ => unreachable!("parse_class_decl_with_abstract returns ClassDecl"),
         };
-        // Rotation 373 (L3b 373-05) — an expression-position class
-        // inside an enclosing class body evaluates when THAT code
-        // runs, after every top-level class definition completed;
-        // mark it so the field-flattening order check defers it
-        // (the synth flush below lands it before the enclosing
-        // ClassDecl stmt). `class_stack` is the enclosing-class-body
-        // signal the private-name machinery already maintains.
-        if !self.class_stack.is_empty() {
-            self.ast.class_expr_deferred.insert(cls_name.clone());
-            self.synth_classes.push(stmt);
-        } else {
-            // 393-01 — outside a class body the decl lands NEXT TO its
-            // use site (the parse_stmt wrapper drains this buffer), so
-            // a class expression in a nested scope keeps its scope and
-            // the nested-class machinery decides its fate. The
-            // class-body case stays on the top-level splice: its
-            // deferral contract above is written against that.
-            self.synth_classes_local.push(stmt);
-        }
+        self.buffer_class_expr(stmt, &cls_name);
         return Ok(self.ast.add_expr(Expr::Ident(cls_name)));
+    }
+
+    /// Where a freshly minted class expression's ClassDecl lands.
+    /// Outside any class body (393-01), or inside a STATEMENT of a
+    /// member body (K6-1: `stmt_depth` is deeper than it was at the
+    /// innermost body's entry — a method / ctor / accessor / static
+    /// block statement, or a block-bodied arrow written in one), the
+    /// decl goes NEXT TO its use site: the `parse_stmt` wrapper drains
+    /// `synth_classes_local` in front of the finished statement, so
+    /// the class stays a nested ClassDecl in the scope it was written
+    /// in and `hoist_nested_classes` decides its lane (capture-free →
+    /// a unit class per evaluation; capturing → the runtime-value
+    /// lane, where an outer `self` is a closure capture).
+    ///
+    /// At the body's own depth — a field initializer, a computed key,
+    /// an expression-bodied arrow in either — the decl keeps the
+    /// top-level splice of rotation 373: it evaluates when THAT code
+    /// runs, after every top-level class definition completed, so it
+    /// is marked deferred and the field-flattening order check lets
+    /// it extend the enclosing class. Its free names still resolve
+    /// nowhere (K6 residue).
+    pub(super) fn buffer_class_expr(&mut self, stmt: Stmt, cls_name: &str) {
+        let in_member_stmt = self
+            .class_body_stmt_depths
+            .last()
+            .is_none_or(|&entry| self.stmt_depth > entry);
+        if in_member_stmt {
+            self.synth_classes_local.push(stmt);
+        } else {
+            self.ast.class_expr_deferred.insert(cls_name.to_string());
+            self.synth_classes.push(stmt);
+        }
     }
 
     /* Single-param arrow without parens: `x => body`. JS spec

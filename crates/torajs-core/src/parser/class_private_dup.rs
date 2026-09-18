@@ -104,6 +104,7 @@ impl Parser<'_> {
             }
         }
         self.class_stack.pop();
+        self.class_body_stmt_depths.pop();
         Ok(())
     }
 }
