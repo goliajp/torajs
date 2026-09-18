@@ -156,9 +156,10 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     // the registered template, W8's reason), and a `super.x` /
     // `super[k]` site spells its base as that same name. A program
     // that re-links prototypes routes `super` through the registry
-    // (K5-3) and stays out. Private INSTANCE elements ride: the brand
-    // compares at the declaring class's depth of the chain (K5-2). A
-    // STATIC private element in a family does not yet (K5-2b).
+    // (K5-3) and stays out. Private elements ride: an instance one's
+    // brand compares at the declaring class's depth of the chain
+    // (K5-2); a static one is an own entry of the one class object
+    // that declared it, which a derived class object does not carry.
     let Some(p) = unit_parent else {
         return true;
     };
@@ -177,26 +178,31 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
             }
         }
     }
-    in_derived.name == 0
-        && !declares_static_private(cls)
-        && !super::super_home_dynamic::program_mutates_prototypes(ast)
+    in_derived.name == 0 && !super::super_home_dynamic::program_mutates_prototypes(ast)
 }
 
-/// Whether the class declares a static private element.
-pub(super) fn declares_static_private(cls: &Stmt) -> bool {
-    let Stmt::ClassDecl {
-        static_methods,
-        static_init,
-        ..
-    } = cls
-    else {
-        return false;
+/// [`refs_stay_local`] for a class the hoist is about to give a
+/// collision name: the rename reaches every reference in the
+/// container, so what decides is only that none of them sits inside a
+/// sibling class body (hoisted, it would read the template).
+pub(super) fn refs_avoid_class_bodies(
+    ast: &Ast,
+    container: &[Stmt],
+    idx: usize,
+    name: &str,
+) -> bool {
+    let mut outside = Occurrences {
+        skip_class_bodies: true,
+        ..Occurrences::default()
     };
-    let private = |k: &PropKey| k.lossy().contains("__priv_");
-    static_methods.iter().any(|m| private(&m.name))
-        || static_init
-            .iter()
-            .any(|si| matches!(si, StaticInit::Field(sf) if private(&sf.name)))
+    let mut everywhere = Occurrences::default();
+    for (j, s) in container.iter().enumerate() {
+        if j != idx {
+            outside.stmt(ast, s, name);
+            everywhere.stmt(ast, s, name);
+        }
+    }
+    outside.name == everywhere.name
 }
 
 /// Whether every reference to `name` in the program sits in the

@@ -51,6 +51,12 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
     if let Some(proto) = unsafe { crate::private_foreign::foreign_brand_proto(recv, key) } {
         return unsafe { __torajs_any_member_get_tag(proto, key) };
     }
+    if let Some((ptr, t)) = recv_cell(recv)
+        && t == Tag::DynObj as u16
+        && unsafe { class_object_lacks_private(ptr, key) }
+    {
+        return AnySlotTag::Undef as u64;
+    }
     let tag = unsafe { __torajs_any_member_get_tag(recv, key) };
     // The base walk already threw for a null / undefined receiver —
     // don't stack a second TypeError on the pending one.
@@ -112,6 +118,26 @@ pub unsafe extern "C" fn __torajs_any_member_get_priv_tag(
         };
     }
     tag
+}
+
+/// A STATIC private element is an own entry of the one class object
+/// that declared it (§7.3.31 looks at the object's own
+/// [[PrivateElements]]), while every member walk follows
+/// [[Prototype]] — a derived class object would reach its parent's
+/// (`class B extends A {}; B.readS()` answered). Records the brand
+/// TypeError and answers `true` when `obj` is a class object without
+/// an own `key`; `key` must spell a private name.
+///
+/// # Safety
+/// `obj` is a live dynobj cell; `key` a live Str cell.
+pub(crate) unsafe fn class_object_lacks_private(obj: *mut c_void, key: *const c_void) -> bool {
+    unsafe {
+        if !crate::construct::is_class_ctor_cell(obj) || __torajs_dynobj_has(obj, key) != 0 {
+            return false;
+        }
+        throw_private(c"cannot read private member from an object whose class did not declare it");
+        true
+    }
 }
 
 unsafe fn throw_private(msg: &core::ffi::CStr) {

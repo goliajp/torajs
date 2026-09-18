@@ -156,6 +156,15 @@ pub(crate) unsafe fn dynobj_method(
                 if __torajs_dynobj_has(obj, key) != 0 {
                     return not_callable();
                 }
+                // A private name never resolves up the chain of a
+                // class object (`B.callS()` reaching `A`'s `#sm`).
+                if torajs_rc::str_wtf8::StrWtf8::of(key)
+                    .as_bytes()
+                    .starts_with(b"__priv_")
+                    && crate::member_get_private::class_object_lacks_private(obj, key)
+                {
+                    return crate::nanbox::VALUE_UNDEFINED;
+                }
                 // knife 2 — user chain first; this = receiver.
                 if let Some(r) = proto_chain_method(obj, name_str, recv_slot, argv, argc) {
                     return r;

@@ -286,7 +286,13 @@ pub(super) fn walk_container(
             .clone()
             .unwrap_or_else(|| top_names.last().cloned().unwrap_or_default());
         if unit_shape
-            && super::hoist_nested_classes_unit::take_unit_lane(ast, stmts, idx, &binding, hoisted)
+            && super::hoist_nested_classes_unit::take_unit_lane(
+                ast,
+                stmts,
+                idx,
+                (&binding, name_counts),
+                hoisted,
+            )
         {
             continue;
         }

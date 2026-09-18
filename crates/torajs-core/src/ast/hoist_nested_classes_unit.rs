@@ -4,6 +4,7 @@
 //! `walk_container` (verbatim move), which answers which LANE a nested
 //! class takes; this file answers what the unit lane does with it.
 
+use super::hoist_nested_classes_census::NameCensus;
 use super::{Ast, Expr, Stmt};
 
 /// K5-1 — a unit class and the siblings that extend it are one family:
@@ -13,12 +14,24 @@ use super::{Ast, Expr, Stmt};
 /// false. So the parent is decided with its children: every sibling
 /// whose heritage names `binding` must itself be admissible (shape,
 /// under the hypothesis that the parent is a unit class; references;
-/// its own children), and a parent that has children may not declare
-/// a STATIC private element yet (`admits_shape` holds the derived side
-/// to the same; K5-2b). The derived classes come later in the list —
-/// a class is in its dead zone before its own declaration — so this
+/// its own children). The derived classes come later in the list — a
+/// class is in its dead zone before its own declaration — so this
 /// looks ahead.
-fn family_admits(ast: &Ast, stmts: &[Stmt], idx: usize, binding: &str, depth: u32) -> bool {
+///
+/// A child is judged BEFORE its own turn in the container walk, so
+/// before the collision rename it may be due (`name_collides`' unit
+/// rule: another class or binding of the name anywhere). Its census
+/// then asks what the rename will leave true — no occurrence inside a
+/// sibling class body — instead of counting that other binding's
+/// readers as its own (`const [A, B] = mk()` at top level kept every
+/// such family shared).
+fn family_admits(
+    ast: &Ast,
+    stmts: &[Stmt],
+    idx: usize,
+    binding: &str,
+    (names, depth): (&NameCensus, u32),
+) -> bool {
     let children: Vec<usize> = stmts
         .iter()
         .enumerate()
@@ -32,7 +45,7 @@ fn family_admits(ast: &Ast, stmts: &[Stmt], idx: usize, binding: &str, depth: u3
     if children.is_empty() {
         return true;
     }
-    if depth >= 64 || super::class_unit_admit::declares_static_private(&stmts[idx]) {
+    if depth >= 64 {
         return false;
     }
     children.into_iter().all(|j| {
@@ -40,8 +53,14 @@ fn family_admits(ast: &Ast, stmts: &[Stmt], idx: usize, binding: &str, depth: u3
             return false;
         };
         super::class_unit_admit::admits_shape(ast, &stmts[j], Some(binding))
-            && super::class_unit_admit::refs_stay_local(ast, stmts, j, name)
-            && family_admits(ast, stmts, j, name, depth + 1)
+            && if names.classes.get(name).copied().unwrap_or(0) > 1
+                || names.bindings.contains_key(name)
+            {
+                super::class_unit_admit::refs_avoid_class_bodies(ast, stmts, j, name)
+            } else {
+                super::class_unit_admit::refs_stay_local(ast, stmts, j, name)
+            }
+            && family_admits(ast, stmts, j, name, (names, depth + 1))
     })
 }
 
@@ -53,11 +72,11 @@ pub(super) fn take_unit_lane(
     ast: &mut Ast,
     stmts: &mut [Stmt],
     idx: usize,
-    binding: &str,
+    (binding, names): (&str, &NameCensus),
     hoisted: &mut Vec<Stmt>,
 ) -> bool {
     if !super::class_unit_admit::refs_stay_local(ast, stmts, idx, binding)
-        || !family_admits(ast, stmts, idx, binding, 0)
+        || !family_admits(ast, stmts, idx, binding, (names, 0))
     {
         return false;
     }
