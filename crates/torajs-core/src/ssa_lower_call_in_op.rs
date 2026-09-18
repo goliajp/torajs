@@ -370,15 +370,11 @@ fn same_evaluation(
     let this_op = ctx.lower_expr(this);
     let mine = crate::ssa_lower_call_class_synth_private_brand::unit_word(ctx, &this_op, off);
     let theirs = crate::ssa_lower_call_class_synth_private_brand::unit_word(ctx, obj_op, off);
-    let same = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, mine, theirs),
-        Type::Bool,
-        None,
-    );
+    let same =
+        crate::ssa_lower_call_class_synth_private_brand::same_unit(ctx, mine, theirs, &class);
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Store(Operand::Value(same), Operand::Value(slot), 0),
+        InstKind::Store(same, Operand::Value(slot), 0),
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
     ctx.cur_block = merge;

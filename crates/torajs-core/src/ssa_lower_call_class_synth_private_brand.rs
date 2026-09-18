@@ -244,10 +244,87 @@ pub(crate) fn unit_word(ctx: &mut LowerCtx<'_>, recv: &Operand, off: u64) -> Ope
     Operand::Value(v)
 }
 
+/// How many unit ancestors `class` has: its depth in the unit chain,
+/// the index its evaluation holds in every descendant's record
+/// (`torajs-meta` `classmeta/unit.rs`). A unit class's parent is a unit
+/// class or nothing (`ast::class_unit_admit`).
+fn unit_depth(ctx: &LowerCtx<'_>, class: &str) -> i64 {
+    let mut depth = 0;
+    let mut cur = class;
+    while let Some(Some(p)) = ctx.ast.class_parents.get(cur) {
+        if !ctx.ast.eval_unit_classes.contains(p) {
+            break;
+        }
+        depth += 1;
+        cur = p;
+    }
+    depth
+}
+
+/// Whether the evaluation words `mine` and `theirs` stand under the
+/// same evaluation of `class` (K5-2). Equal words — the same leaf
+/// class, every access that does not cross a subclass — answer inline;
+/// only differing words ask the kernel to compare at `class`'s depth.
+pub(crate) fn same_unit(
+    ctx: &mut LowerCtx<'_>,
+    mine: Operand,
+    theirs: Operand,
+    class: &str,
+) -> Operand {
+    let depth = unit_depth(ctx, class);
+    let slot = ctx.alloca_in_entry(Type::Bool, Some("__unit_same"));
+    let eq = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, mine.clone(), theirs.clone()),
+        Type::Bool,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(eq), Operand::Value(slot), 0),
+    );
+    let (slow, merge) = (ctx.f.add_block(), ctx.f.add_block());
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(eq),
+            then_blk: merge,
+            else_blk: slow,
+        },
+    );
+    ctx.cur_block = slow;
+    let f = ctx.intrinsics.class_unit_same_at;
+    let at = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(f, vec![mine, theirs, Operand::ConstI64(depth)]),
+        Type::I64,
+        None,
+    );
+    let under = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(at), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(under), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Bool, Operand::Value(slot), 0),
+        Type::Bool,
+        None,
+    );
+    Operand::Value(v)
+}
+
 /// RFC 20260917-class-eval-unit K2 — a unit class's private element
 /// belongs to one evaluation: past the tag and cursor checks, the
-/// receiver's hidden evaluation slot must hold the class object the
-/// running instance's does.
+/// receiver must stand under the evaluation of `class` the running
+/// body does.
 fn lower_unit_check(ctx: &mut LowerCtx<'_>, recv: &Operand, this_arg: ExprId, class: &str) {
     let Some(off) = unit_slot_off(ctx, class) else {
         return;
@@ -255,18 +332,13 @@ fn lower_unit_check(ctx: &mut LowerCtx<'_>, recv: &Operand, this_arg: ExprId, cl
     let this_op = ctx.lower_expr(this_arg);
     let mine = unit_word(ctx, &this_op, off);
     let theirs = unit_word(ctx, recv, off);
-    let same = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Eq, mine, theirs),
-        Type::Bool,
-        None,
-    );
+    let same = same_unit(ctx, mine, theirs, class);
     let fail = ctx.f.add_block();
     let cont = ctx.f.add_block();
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
-            cond: Operand::Value(same),
+            cond: same,
             then_blk: cont,
             else_blk: fail,
         },

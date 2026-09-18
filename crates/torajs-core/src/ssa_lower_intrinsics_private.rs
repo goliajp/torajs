@@ -33,6 +33,8 @@ pub(crate) struct PrivateIds {
     pub class_unit_wire: FuncId,
     /// K2 — a class instance's hidden evaluation slot (0 otherwise).
     pub priv_unit_word: FuncId,
+    /// K5-2 — whether two evaluation words agree at a chain depth.
+    pub class_unit_same_at: FuncId,
     /// K4-1 — one evaluation's static method face onto its class
     /// object (`unit, name Str, adapter vaddr, flags`).
     pub class_unit_static_method_define: FuncId,
@@ -130,6 +132,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_priv_unit_word",
             &[Type::Any, Type::I64],
+            Type::I64,
+        ),
+        class_unit_same_at: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_class_unit_same_at",
+            &[Type::I64, Type::I64, Type::I64],
             Type::I64,
         ),
     }

@@ -24,6 +24,9 @@ unsafe extern "C" {
     /// torajs-meta — the class object a unit-class instance carries
     /// in its hidden slot (0 = not one).
     fn __torajs_class_unit_of(cell: *const c_void) -> u64;
+    /// torajs-meta — whether `unit` is `leaf` or a recorded ancestor of
+    /// it (1 / 0).
+    fn __torajs_class_unit_covers(unit: u64, leaf: u64) -> i64;
     /// torajs-throw — record a pending catchable TypeError.
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
 }
@@ -31,7 +34,9 @@ unsafe extern "C" {
 /// Record the brand TypeError and answer `true` when `face` was minted
 /// by one evaluation, its body reaches a private element, and
 /// `this_arg` belongs to another: neither that evaluation's class
-/// object (a static member's receiver) nor one of its instances. A
+/// object (a static member's receiver) nor one of its instances — nor,
+/// K5-2, a class object or an instance of a subclass evaluated UNDER
+/// it, whose recorded ancestors hold the face's evaluation. A
 /// receiver of the right evaluation but the wrong kind — an instance
 /// handed to a static body — passes here and fails the body's own
 /// private access, which finds no such element on it.
@@ -46,7 +51,11 @@ pub(crate) unsafe fn refuses_receiver(face: *mut c_void, this_arg: AnyValue) -> 
         };
         if is_cell(this_arg) {
             let recv = as_void_ptr(this_arg);
-            if recv as u64 == face_unit || __torajs_class_unit_of(recv) == face_unit {
+            let leaf = match __torajs_class_unit_of(recv) {
+                0 => recv as u64,
+                unit => unit,
+            };
+            if leaf == face_unit || __torajs_class_unit_covers(face_unit, leaf) != 0 {
                 return false;
             }
         }

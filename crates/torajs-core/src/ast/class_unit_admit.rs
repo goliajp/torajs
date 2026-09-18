@@ -154,10 +154,11 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     // K5-1 — a derived unit class. Its bodies are hoisted like any
     // class's, so they may not name the parent (the name would read
     // the registered template, W8's reason), and a `super.x` /
-    // `super[k]` site spells its base as that same name. The brand of
-    // a private element compares ONE evaluation word, which a chain
-    // needs per class (K5-2), and a program that re-links prototypes
-    // routes `super` through the registry (K5-3): both stay out.
+    // `super[k]` site spells its base as that same name. A program
+    // that re-links prototypes routes `super` through the registry
+    // (K5-3) and stays out. Private INSTANCE elements ride: the brand
+    // compares at the declaring class's depth of the chain (K5-2). A
+    // STATIC private element in a family does not yet (K5-2b).
     let Some(p) = unit_parent else {
         return true;
     };
@@ -177,15 +178,13 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
         }
     }
     in_derived.name == 0
-        && !declares_private(cls)
+        && !declares_static_private(cls)
         && !super::super_home_dynamic::program_mutates_prototypes(ast)
 }
 
-/// Whether the class declares any private element, instance or static.
-pub(super) fn declares_private(cls: &Stmt) -> bool {
+/// Whether the class declares a static private element.
+pub(super) fn declares_static_private(cls: &Stmt) -> bool {
     let Stmt::ClassDecl {
-        fields,
-        methods,
         static_methods,
         static_init,
         ..
@@ -194,11 +193,7 @@ pub(super) fn declares_private(cls: &Stmt) -> bool {
         return false;
     };
     let private = |k: &PropKey| k.lossy().contains("__priv_");
-    fields.iter().any(|(k, _)| private(k))
-        || methods
-            .iter()
-            .chain(static_methods)
-            .any(|m| private(&m.name))
+    static_methods.iter().any(|m| private(&m.name))
         || static_init
             .iter()
             .any(|si| matches!(si, StaticInit::Field(sf) if private(&sf.name)))

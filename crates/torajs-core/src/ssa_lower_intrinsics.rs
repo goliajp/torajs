@@ -666,6 +666,7 @@ pub(crate) struct Intrinsics {
     pub(crate) class_unit_static_accessor_define: FuncId,
     pub(crate) class_unit_static_field_define: FuncId,
     pub(crate) priv_unit_word: FuncId,
+    pub(crate) class_unit_same_at: FuncId,
     /// RFC 20260820-ctor-return-override — §10.2.2 step 13. The pick
     /// hands back an OWNED box; the carry borrows.
     pub(crate) ctor_ret_value: FuncId,

@@ -14,9 +14,10 @@ use super::{Ast, Expr, Stmt};
 /// whose heritage names `binding` must itself be admissible (shape,
 /// under the hypothesis that the parent is a unit class; references;
 /// its own children), and a parent that has children may not declare
-/// a private element (`admits_shape` holds the derived side to the
-/// same). The derived classes come later in the list — a class is in
-/// its dead zone before its own declaration — so this looks ahead.
+/// a STATIC private element yet (`admits_shape` holds the derived side
+/// to the same; K5-2b). The derived classes come later in the list —
+/// a class is in its dead zone before its own declaration — so this
+/// looks ahead.
 fn family_admits(ast: &Ast, stmts: &[Stmt], idx: usize, binding: &str, depth: u32) -> bool {
     let children: Vec<usize> = stmts
         .iter()
@@ -31,7 +32,7 @@ fn family_admits(ast: &Ast, stmts: &[Stmt], idx: usize, binding: &str, depth: u3
     if children.is_empty() {
         return true;
     }
-    if depth >= 64 || super::class_unit_admit::declares_private(&stmts[idx]) {
+    if depth >= 64 || super::class_unit_admit::declares_static_private(&stmts[idx]) {
         return false;
     }
     children.into_iter().all(|j| {
