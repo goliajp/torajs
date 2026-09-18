@@ -56,7 +56,11 @@ pub unsafe fn str_slice_ascii_view<'a>(p: *const c_void) -> Option<&'a [u8]> {
     }
     let payload =
         unsafe { core::slice::from_raw_parts::<'a, u8>(s.add(STR_HDR_SIZE), length as usize) };
-    if !payload.iter().all(|&b| b <= 0x7F) {
+    // `<[u8]>::is_ascii` scans a machine word at a time; the byte
+    // loop it replaces was 18% of `/a.+c/s` over a 27-byte haystack
+    // (rotation 667 leaf profile: four instructions per byte, every
+    // call, ahead of the match itself).
+    if !payload.is_ascii() {
         return None;
     }
     Some(payload)
@@ -117,7 +121,7 @@ unsafe fn str_slice(p: *const c_void, merge_pairs: bool) -> Vec<u8> {
         (length as usize) * 2
     };
     let payload = unsafe { core::slice::from_raw_parts(s.add(STR_HDR_SIZE), byte_cnt) };
-    if is_latin1 && payload.iter().all(|&b| b <= 0x7F) {
+    if is_latin1 && payload.is_ascii() {
         return payload.to_vec();
     }
     if is_latin1 {
