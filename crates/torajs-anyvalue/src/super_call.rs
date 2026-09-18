@@ -184,7 +184,14 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
             // bytes.
             let hdr = unsafe { &*(cell as *const HeapHeader) };
             if hdr.type_tag == Tag::DynObj as u16 && hdr.flags & FLAG_DYNOBJ_CLASS_CTOR != 0 {
-                let entry = ctorany_entry(cell as u64);
+                // K5-4 — one evaluation of a unit class is not in the
+                // by-cell table; its registered template's twin is
+                // the same code (`construct_unit`'s reasoning).
+                let entry = match ctorany_entry(cell as u64) {
+                    0 => unsafe { crate::construct_unit::unit_template_cell(cell) }
+                        .map_or(0, ctorany_entry),
+                    entry => entry,
+                };
                 if entry == 0 {
                     release(elems);
                     unsafe {

@@ -51,9 +51,9 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
             .unwrap_or(&k);
         bare.starts_with("__priv_")
     };
-    // A runtime-value parent anywhere (`class D extends f()`) reaches
-    // its parent's constructor through the by-cell registry, which no
-    // unit class object is in.
+    // K5-4 — a runtime-value parent elsewhere (`class D extends f()`)
+    // is no bar: a unit class object reached that way runs its
+    // template's constructor twin (`super_call`'s fallback).
     // K4-2 — a plain static FIELD or a static block rides too: the
     // initializer / block runs inside `__cunit_C` on the evaluation's
     // class object (`__unit.x = init`), in declaration order after
@@ -81,8 +81,7 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
             _ => return false,
         },
     };
-    if !ast.es5_value_parents.is_empty()
-        || !type_params.is_empty()
+    if !type_params.is_empty()
         || *is_abstract
         || !static_init_admits
         || ast

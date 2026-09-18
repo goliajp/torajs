@@ -21,6 +21,16 @@ unsafe extern "C" {
     fn __torajs_class_cell_raw(tag: i64) -> u64;
 }
 
+/// The registered template class cell of the unit class `cell` is one
+/// evaluation of; `None` for any other cell.
+///
+/// # Safety
+/// `cell` is a live heap cell.
+pub(crate) unsafe fn unit_template_cell(cell: *const c_void) -> Option<u64> {
+    let tag = unsafe { __torajs_class_unit_tag_of(cell) };
+    (tag >= 0).then(|| unsafe { __torajs_class_cell_raw(tag) })
+}
+
 /// `Some(instance)` when `callee` is a unit-class object whose template
 /// factory has a boxed entry; `None` leaves the miss to the caller.
 ///
@@ -32,11 +42,8 @@ pub(crate) unsafe fn construct_unit(
     argv: *const u64,
     argc: i64,
 ) -> Option<AnyValue> {
-    let tag = unsafe { __torajs_class_unit_tag_of(as_void_ptr(callee) as *const c_void) };
-    if tag < 0 {
-        return None;
-    }
-    let entry = crate::construct::ctor_entry(unsafe { __torajs_class_cell_raw(tag) });
+    let template = unsafe { unit_template_cell(as_void_ptr(callee) as *const c_void) }?;
+    let entry = crate::construct::ctor_entry(template);
     if entry == 0 {
         return None;
     }
