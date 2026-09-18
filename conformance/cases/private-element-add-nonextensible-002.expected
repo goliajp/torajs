@@ -1,0 +1,10 @@
+field open 42
+field sealed TypeError true
+method open 42
+method sealed TypeError true
+accessor open 42
+accessor sealed TypeError true
+self seal TypeError true
+seal after install true
+nested open 7
+nested sealed TypeError true

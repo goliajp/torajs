@@ -59,8 +59,12 @@ fn lower_install(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
 }
 
 /// A class instance's cursor sits in the high half of its +8 slot:
-/// standing at `from` it moves by `to - from`; anywhere else the kernel
-/// raises the duplicate-add TypeError.
+/// standing at `from` on an extensible cell it moves by `to - from`;
+/// anywhere else — or on a cell `Object.preventExtensions` marked —
+/// the kernel raises the TypeError (duplicate add, or the proposal's
+/// non-extensible refusal). The flag word is the header's +4 (tag in
+/// the low half, flags in the high), read the way `emit_obj_tag_gate`
+/// reads it.
 fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i64) {
     let slot = ctx.f.append_inst(
         ctx.cur_block,
@@ -77,6 +81,34 @@ fn lower_install_inline(ctx: &mut LowerCtx<'_>, recv: Operand, from: i64, to: i6
     let at = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Eq, Operand::Value(cursor), Operand::ConstI64(from)),
+        Type::Bool,
+        None,
+    );
+    let flags_word = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I32, recv.clone(), 4),
+        Type::I32,
+        None,
+    );
+    let non_ext = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            BinOp::And,
+            Operand::Value(flags_word),
+            Operand::ConstI32(((torajs_rc::FLAG_NON_EXTENSIBLE as u32) << 16) as i32),
+        ),
+        Type::I32,
+        None,
+    );
+    let extensible = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(non_ext), Operand::ConstI32(0)),
+        Type::Bool,
+        None,
+    );
+    let at = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(BinOp::And, Operand::Value(at), Operand::Value(extensible)),
         Type::Bool,
         None,
     );

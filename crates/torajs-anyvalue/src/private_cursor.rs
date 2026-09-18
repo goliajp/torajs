@@ -17,6 +17,8 @@ const CURSOR_OFF: usize = 12;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-rc — the header's FLAG_NON_EXTENSIBLE, cleared.
+    fn __torajs_obj_is_extensible(p: *const c_void) -> bool;
     /// torajs-meta — the tag a unit class object records (-1 = not one).
     fn __torajs_class_unit_tag_of(cell: *const c_void) -> i64;
 }
@@ -29,10 +31,12 @@ fn instance_cell(v: AnyValue) -> Option<*mut c_void> {
 }
 
 /// §7.3.33 PrivateMethodOrAccessorAdd / §7.3.32 PrivateFieldAdd for a
-/// run of one class's elements: the cursor
-/// must stand at `from` (anywhere else, the brand is already there) and
-/// moves to `to`. A value that is not a class instance cell has no
-/// cursor; the covered chains never install on one.
+/// run of one class's elements: the object must be extensible
+/// (proposal nonextensible-applies-to-private — a base ctor's
+/// `Object.preventExtensions(this)` refuses the subclass's elements),
+/// the cursor must stand at `from` (anywhere else, the brand is already
+/// there) and moves to `to`. A value that is not a class instance cell
+/// has no cursor; the covered chains never install on one.
 ///
 /// # Safety
 /// `v` is a live AnyValue.
@@ -40,6 +44,12 @@ fn instance_cell(v: AnyValue) -> Option<*mut c_void> {
 pub unsafe extern "C" fn __torajs_priv_install(v: AnyValue, from: i64, to: i64) {
     let Some(p) = instance_cell(v) else { return };
     unsafe {
+        if !__torajs_obj_is_extensible(p) {
+            __torajs_throw_type_error(
+                c"cannot add a private element to a non-extensible object".as_ptr(),
+            );
+            return;
+        }
         let slot = p.cast::<u8>().add(CURSOR_OFF).cast::<u32>();
         if i64::from(slot.read()) != from {
             __torajs_throw_type_error(
