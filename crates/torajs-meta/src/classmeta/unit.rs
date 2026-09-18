@@ -112,11 +112,30 @@ unsafe fn mint_record(tag: i64, parent_anyv: u64) -> *mut u8 {
 }
 
 /// The hidden slot offset of a unit class's instances, 0 otherwise.
+///
+/// A generic mono factory's instances wear a per-specialization tag
+/// (`__new_C$$…`, minted by the compiler's anon-stamp pool with the
+/// class's name) that `__torajs_class_unit_wire` never sees — the
+/// wire registers the class's main tag. Such a tag resolves through
+/// `generic_alias::main_tag_of` to the main tag's slot: the mono's
+/// layout appends the hidden slot at the same offset (one word per
+/// field, the slot last), so the main tag's answer is the mono's
+/// too. Without the alias an un-annotated ctor parameter (an
+/// implicitly generic factory) made `Object.getPrototypeOf(new L(1))`
+/// answer the shared template prototype instead of the evaluation's,
+/// and `new L(1) instanceof L` answered false.
 pub(super) fn unit_slot_off(tag: i64) -> u32 {
     if !in_range(tag) {
         return 0;
     }
-    UNIT_SLOT_OFF[tag as usize].load(Ordering::Relaxed)
+    let off = UNIT_SLOT_OFF[tag as usize].load(Ordering::Relaxed);
+    if off != 0 {
+        return off;
+    }
+    match super::generic_alias::main_tag_of(tag) {
+        Some(main) => UNIT_SLOT_OFF[main].load(Ordering::Relaxed),
+        None => 0,
+    }
 }
 
 /// The prototype of a unit-class instance, BORROWED (0 when the hidden
