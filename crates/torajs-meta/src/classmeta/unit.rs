@@ -313,6 +313,27 @@ pub unsafe extern "C" fn __torajs_class_unit_same_at(mine: u64, theirs: u64, dep
     i64::from(mine != 0 && mine == unsafe { unit_at(theirs, depth as u64) })
 }
 
+/// K5-3 — the evaluation of the depth-`depth` class that `word`
+/// stands under, as an OWNED AnyValue (`undefined` when there is none):
+/// the HOME of that class's methods, whose [[Prototype]] is the
+/// `super` base of §13.3.7.
+///
+/// # Safety
+/// `word` comes from a hidden evaluation slot or a static `this`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_unit_home(word: u64, depth: i64) -> u64 {
+    let unit = if depth < 0 {
+        0
+    } else {
+        unsafe { unit_at(word, depth as u64) }
+    };
+    if unit == 0 {
+        return VALUE_UNDEFINED_IMM;
+    }
+    unsafe { __torajs_rc_inc(unit as *mut c_void) };
+    unit
+}
+
 /// K5-2 — whether `unit` is `leaf` or one of `leaf`'s recorded
 /// ancestors: the call-boundary guard's question, a face minted by
 /// `unit`'s evaluation running on a receiver of `leaf`'s.

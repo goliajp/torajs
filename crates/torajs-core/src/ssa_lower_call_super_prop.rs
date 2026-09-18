@@ -16,7 +16,10 @@
 //! Ownership follows the `__torajs_super_value` rule verbatim: a
 //! borrow-shaped source takes a +1 before boxing, the boxed temp is
 //! released after the call, and an operand already in the any world
-//! rides through untouched.
+//! rides through — released after the call when it is an owned temp
+//! (`Object.getPrototypeOf(home)`, the runtime base of a unit class or
+//! of a program that re-links prototypes, leaked one reference to the
+//! home per site visit).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -39,10 +42,12 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
     }
     let mut ops: Vec<Operand> = Vec::with_capacity(arity);
     let mut boxed: Vec<Operand> = Vec::with_capacity(arity);
+    let mut any_temps: Vec<(ExprId, Operand)> = Vec::new();
     for &a in args {
         let raw = ctx.lower_expr(a);
         let raw_ty = ctx.operand_ty(&raw);
         if raw_ty == Type::Any {
+            any_temps.push((a, raw.clone()));
             ops.push(raw);
         } else {
             if matches!(ctx.ast.get_expr(a), Expr::Ident(_) | Expr::Member { .. })
@@ -65,6 +70,9 @@ pub(crate) fn try_lower(ctx: &mut LowerCtx<'_>, name: &str, args: &[ExprId]) -> 
         .append_inst(cur_block, InstKind::Call(kernel, ops), Type::Any, None);
     for b in boxed {
         ctx.emit_drop_value(b, Type::Any);
+    }
+    for (a, op) in any_temps {
+        ctx.release_owned_temp(a, &op);
     }
     ctx.emit_throw_check(None);
     Some(Operand::Value(out))

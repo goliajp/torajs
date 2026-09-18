@@ -27,6 +27,21 @@ pub(super) struct SiteCtx<'a> {
 impl SiteCtx<'_> {
     /// The super base — minted fresh per site.
     pub(super) fn base(&self, ast: &mut Ast) -> ExprId {
+        // K5-3 — a unit class's bodies are hoisted away from the
+        // evaluation that owns them, where neither its name nor its
+        // parent's reads THAT evaluation's class object. The base is
+        // read off the home the running `this` stands under, which is
+        // also what §13.3.7 says (`[[HomeObject]].[[Prototype]]`).
+        if ast.eval_unit_classes.contains(self.cname) {
+            let callee = ast.add_expr(Expr::Ident(super::class_unit::UNIT_HOME.to_string()));
+            let class = ast.add_expr(Expr::String(self.cname.into()));
+            let this = self.running_this(ast);
+            let home = ast.add_expr(Expr::Call {
+                callee,
+                args: vec![class, this],
+            });
+            return super::super_home_dynamic::home_proto_of(ast, home, self.is_static);
+        }
         // 507-03 — the parent is only the home object's prototype while
         // nothing re-links it; when the program can, the base is read from
         // the home object itself. That also covers the no-extends case
@@ -62,11 +77,23 @@ impl SiteCtx<'_> {
     /// §13.3.7's receiver — `this`, or the class object in static
     /// context.
     pub(super) fn receiver(&self, ast: &mut Ast) -> ExprId {
-        if self.is_static && !self.this_receiver {
+        if ast.eval_unit_classes.contains(self.cname) {
+            self.running_this(ast)
+        } else if self.is_static && !self.this_receiver {
             ast.add_expr(Expr::Ident(self.cname.to_string()))
         } else {
             ast.add_expr(Expr::This)
         }
+    }
+
+    /// A unit class's `this`: in static context the parser's static
+    /// `this`, which pass 2 turns into the evaluation's `__unit`.
+    fn running_this(&self, ast: &mut Ast) -> ExprId {
+        let this = ast.add_expr(Expr::This);
+        if self.is_static {
+            ast.static_this_sites.insert(this, self.cname.to_string());
+        }
+        this
     }
 }
 

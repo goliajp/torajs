@@ -142,6 +142,9 @@ pub(crate) fn try_lower(
         }
         "__torajs_my_class_ref" => class_ref::try_lower_my_class_ref(ctx, args),
         crate::ast::class_unit::UNIT_WIRE => class_ref::try_lower_unit_wire(ctx, args),
+        crate::ast::class_unit::UNIT_HOME => {
+            crate::ssa_lower_call_class_synth_private_brand::lower_unit_home(ctx, args)
+        }
         // T-12 §13.2.8.4 GetTemplateObject — the tagged-template
         // desugar's synthetic site call, per-site cached at runtime.
         "__torajs_template_object" => crate::ssa_lower_call_template_object::try_lower(ctx, args),

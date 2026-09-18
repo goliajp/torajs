@@ -261,6 +261,29 @@ fn unit_depth(ctx: &LowerCtx<'_>, class: &str) -> i64 {
     depth
 }
 
+/// `__torajs_unit_home("C", this)` (K5-3) — the evaluation of `C` the
+/// running body stands under, OWNED: the running `this`'s evaluation
+/// word, taken to `C`'s depth of the chain.
+pub(crate) fn lower_unit_home(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
+    let [class, this_arg] = args else { return None };
+    let Expr::String(class) = ctx.ast.get_expr(*class) else {
+        return None;
+    };
+    let class = class.to_string_lossy_owned();
+    let off = unit_slot_off(ctx, &class)?;
+    let depth = unit_depth(ctx, &class);
+    let this_op = ctx.lower_expr(*this_arg);
+    let word = unit_word(ctx, &this_op, off);
+    let f = ctx.intrinsics.class_unit_home;
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(f, vec![word, Operand::ConstI64(depth)]),
+        Type::Any,
+        None,
+    );
+    Some(Operand::Value(v))
+}
+
 /// Whether the evaluation words `mine` and `theirs` stand under the
 /// same evaluation of `class` (K5-2). Equal words — the same leaf
 /// class, every access that does not cross a subclass — answer inline;

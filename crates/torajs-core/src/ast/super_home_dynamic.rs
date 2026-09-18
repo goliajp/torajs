@@ -53,6 +53,12 @@ fn is_proto_mutator(name: &str) -> bool {
 /// itself for a static one.
 pub(super) fn mint_home_proto(ast: &mut Ast, cname: &str, is_static: bool) -> ExprId {
     let class = ast.add_expr(Expr::Ident(cname.to_string()));
+    home_proto_of(ast, class, is_static)
+}
+
+/// [`mint_home_proto`] over any spelling of the class object — a unit
+/// class's is `__torajs_unit_home(…)`, not its name.
+pub(super) fn home_proto_of(ast: &mut Ast, class: ExprId, is_static: bool) -> ExprId {
     let home = if is_static {
         class
     } else {

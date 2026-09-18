@@ -75,6 +75,13 @@ pub const UNIT_STATIC_ACCESSOR_REIFY: &str = "__torajs_unit_static_accessor_reif
 /// `name`, and a private field has no brand to write through yet.
 pub const UNIT_STATIC_FIELD_DEFINE: &str = "__torajs_unit_static_field_define";
 
+/// K5-3 — `__torajs_unit_home("C", this)`: the evaluation of `C` the
+/// running body stands under, i.e. the home object of `C`'s static
+/// members and the holder of the home (`.prototype`) of its instance
+/// ones. A hoisted body cannot spell that by name — the name reads the
+/// registered template.
+pub const UNIT_HOME: &str = "__torajs_unit_home";
+
 /// Turn the admitted class at `container[idx]` into a unit class: the
 /// hidden slot joins its fields, and the answer is the statement left
 /// where the class was written plus the `__cunit_` function to hoist

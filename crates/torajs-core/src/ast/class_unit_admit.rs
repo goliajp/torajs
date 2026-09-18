@@ -153,29 +153,28 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     }
     // K5-1 — a derived unit class. Its bodies are hoisted like any
     // class's, so they may not name the parent (the name would read
-    // the registered template, W8's reason), and a `super.x` /
-    // `super[k]` site spells its base as that same name. A program
-    // that re-links prototypes routes `super` through the registry
-    // (K5-3) and stays out. Private elements ride: an instance one's
-    // brand compares at the declaring class's depth of the chain
-    // (K5-2); a static one is an own entry of the one class object
-    // that declared it, which a derived class object does not carry.
+    // the registered template, W8's reason). A `super.x` / `super[k]`
+    // site reads its base off the running evaluation's home (K5-3).
+    // A program that re-links prototypes routes `super.m()` through
+    // the registry and stays out. Private elements ride: an instance
+    // one's brand compares at the declaring class's depth of the
+    // chain (K5-2); a static one is an own entry of the one class
+    // object that declared it, which a derived class object does not
+    // carry.
     let Some(p) = unit_parent else {
         return true;
     };
     let mut in_derived = Occurrences::default();
-    for name in [p, "__superbase__"] {
-        if let Some(c) = ctor {
-            in_derived.list(ast, &c.body, name);
-        }
-        for m in methods.iter().chain(static_methods.iter()) {
-            in_derived.list(ast, &m.body, name);
-        }
-        for si in static_init {
-            match si {
-                StaticInit::Field(sf) => in_derived.expr(ast, sf.init, name),
-                StaticInit::Block(b) => in_derived.list(ast, b, name),
-            }
+    if let Some(c) = ctor {
+        in_derived.list(ast, &c.body, p);
+    }
+    for m in methods.iter().chain(static_methods.iter()) {
+        in_derived.list(ast, &m.body, p);
+    }
+    for si in static_init {
+        match si {
+            StaticInit::Field(sf) => in_derived.expr(ast, sf.init, p),
+            StaticInit::Block(b) => in_derived.list(ast, b, p),
         }
     }
     in_derived.name == 0 && !super::super_home_dynamic::program_mutates_prototypes(ast)

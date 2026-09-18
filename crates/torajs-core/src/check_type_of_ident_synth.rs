@@ -16,7 +16,8 @@
 //! before this is reached.
 
 use crate::ast::class_unit::{
-    UNIT_STATIC_ACCESSOR_REIFY, UNIT_STATIC_FIELD_DEFINE, UNIT_STATIC_METHOD_REIFY, UNIT_WIRE,
+    UNIT_HOME, UNIT_STATIC_ACCESSOR_REIFY, UNIT_STATIC_FIELD_DEFINE, UNIT_STATIC_METHOD_REIFY,
+    UNIT_WIRE,
 };
 use crate::check::Type;
 
@@ -156,6 +157,8 @@ fn unit_synth_ty(name: &str) -> Option<Type> {
         }
         // K4-2 — `(the evaluation's class, field name, initializer)`.
         UNIT_STATIC_FIELD_DEFINE => void_fn(vec![Type::Any, Type::String, Type::Any]),
+        // K5-3 — `("C", the running this)` answers C's evaluation.
+        UNIT_HOME => Type::Function(vec![Type::String, Type::Any], Box::new(Type::Any)),
         _ => return None,
     })
 }

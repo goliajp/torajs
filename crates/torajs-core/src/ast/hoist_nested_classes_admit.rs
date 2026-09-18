@@ -93,8 +93,12 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
             .iter()
             // `super.m()` parses as a Call to the marker ident
             // `__supercall__m` — desugar_classes rewrites it from the
-            // class's own parent link, so it is never a capture.
-            .all(|n| n.starts_with("__supercall__"))
+            // class's own parent link, so it is never a capture. Nor
+            // is `__superbase__`, the marker `super.x` / `super[k]`
+            // hang off: the SuperProperty rewrite spells the base.
+            .all(|n| {
+                n.starts_with("__supercall__") || n == super::super_collect_prop::SUPER_BASE_MARKER
+            })
     };
 
     if let Some(c) = ctor
