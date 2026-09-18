@@ -248,23 +248,13 @@ pub(super) fn walk_container(
         // name another class shares takes the collision rename, so the
         // reference census below counts this class's references only.
         let unit_shape = multi_eval && super::class_unit::admits_shape(ast, &stmts[idx]);
-        // Collision domain: everything visible at top level once the
-        // hoist lands. Sibling entries pushed above shadow the check
-        // for the class's own occurrence, so count duplicates.
-        let collides = top_names.iter().filter(|n| **n == old_name).count() > 1
-            || top_names[..sibling_start].contains(&old_name)
-            || (unit_shape
-                && (name_counts.classes.get(&old_name).copied().unwrap_or(0) > 1
-                    // A `let` / `function` / for-of binding of the same
-                    // name anywhere else in the program — `const K =
-                    // outer()` in the loop that evaluates `outer` —
-                    // is a different binding, but the census below is
-                    // keyed by name and would count its readers as
-                    // this class's outside references (`new K()` in
-                    // that loop kept the class shared, rotation 667).
-                    // The rename gives the census a name only this
-                    // class answers to.
-                    || name_counts.bindings.contains_key(&old_name)));
+        let collides = super::hoist_nested_classes_rename::name_collides(
+            top_names,
+            sibling_start,
+            &old_name,
+            unit_shape,
+            name_counts,
+        );
         let mut residual: Option<String> = None;
         if collides {
             let new_name = format!("__hc{}_{}", *counter, old_name);

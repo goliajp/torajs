@@ -7,6 +7,32 @@
 
 use super::*;
 
+/// Whether a class about to be hoisted under `old_name` must take
+/// the collision rename. Collision domain: everything visible at top
+/// level once the hoist lands. Sibling entries already pushed onto
+/// `top_names` shadow the check for the class's own occurrence, so
+/// duplicates count. A unit-class candidate (`unit_shape`) collides
+/// with any other class of the name anywhere in the program — and
+/// with any `let` / `function` / for-of binding of it: `const K =
+/// outer()` in the loop that evaluates `outer` is a different
+/// binding, but the reference census is keyed by name and would count
+/// its readers as this class's outside references (`new K()` in that
+/// loop kept the class shared, rotation 667). The rename gives the
+/// census a name only this class answers to.
+pub(super) fn name_collides(
+    top_names: &[String],
+    sibling_start: usize,
+    old_name: &str,
+    unit_shape: bool,
+    name_counts: &super::hoist_nested_classes_census::NameCensus,
+) -> bool {
+    top_names.iter().filter(|n| *n == old_name).count() > 1
+        || top_names[..sibling_start].iter().any(|n| n == old_name)
+        || (unit_shape
+            && (name_counts.classes.get(old_name).copied().unwrap_or(0) > 1
+                || name_counts.bindings.contains_key(old_name)))
+}
+
 pub(super) fn rename_in_stmts(ast: &mut Ast, stmts: &mut [Stmt], old: &str, new: &str) {
     for s in stmts.iter_mut() {
         rename_in_stmt(ast, s, old, new);
