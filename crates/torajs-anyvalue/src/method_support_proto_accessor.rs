@@ -100,7 +100,10 @@ pub(crate) unsafe fn chain_virtual_accessor_get(
             unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(cur) };
         }
         if next == cur {
+            // Both holds on the self-linked hop are released here; the
+            // tail below must not release `cur` a third time.
             unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(next) };
+            owned = false;
             break None;
         }
         cur = next;

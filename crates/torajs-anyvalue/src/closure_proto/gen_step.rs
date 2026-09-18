@@ -216,6 +216,10 @@ unsafe fn receiver_is_gen_instance(recv: u64, kind: usize) -> bool {
             cur = next;
             depth += 1;
         }
+        // The hop the depth bound stopped on is still held.
+        if crate::nanbox::is_cell(cur) {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(cur);
+        }
     }
     false
 }

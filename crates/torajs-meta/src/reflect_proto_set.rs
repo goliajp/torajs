@@ -282,7 +282,7 @@ unsafe fn closure_set_prototype_of(
     } else {
         proto
     };
-    if proto_n == unsafe { crate::reflect_proto::__torajs_anyv_get_proto_of_any(obj) } {
+    if unsafe { crate::reflect_proto::proto_of_any_is(obj, proto_n) } {
         return Ok(());
     }
     let carrier = unsafe { closure_proto_carrier(cell) };
@@ -302,8 +302,7 @@ unsafe fn exotic_set_prototype_of(obj: u64, proto: u64) -> Result<(), ProtoRefus
     } else {
         proto
     };
-    let cur = unsafe { crate::reflect_proto::__torajs_anyv_get_proto_of_any(obj) };
-    if proto == cur {
+    if unsafe { crate::reflect_proto::proto_of_any_is(obj, proto) } {
         return Ok(());
     }
     if unsafe { cell_flags(obj as *const c_void) } & HDR_FLAG_NON_EXTENSIBLE != 0 {
@@ -406,8 +405,15 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
             // Object flavor throws / silently keeps; the honest
             // Reflect spelling of "the write cannot take effect" is
             // false (recorded boundary, same family as the
-            // rotation-154 struct probe).
-            return 0;
+            // rotation-154 struct probe). A SAME-VALUE write takes
+            // effect trivially (§10.1.2.1 step 4 answers true before
+            // anything is asked of the receiver).
+            let want = if is_null_any(proto) {
+                VALUE_NULL_IMM
+            } else {
+                proto
+            };
+            return i64::from(crate::reflect_proto::proto_of_any_is(obj, want));
         }
         i64::from(ordinary_set_prototype_of(cell, proto, cell_flags(cell)).is_ok())
     }

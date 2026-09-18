@@ -34,6 +34,7 @@ const CLOSURE_PROPS_OFF: usize = 24;
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
+    fn __torajs_rc_dec(p: *mut c_void);
     /// torajs-anyvalue — §10.5.1 [[GetPrototypeOf]] on a Proxy.
     fn __torajs_proxy_get_prototype_of(v: u64) -> u64;
     fn __torajs_str_drop(s: *mut u8);
@@ -276,6 +277,22 @@ unsafe fn builtin_cell_proto_tag(dynobj: *const c_void, tag: u16) -> i64 {
         29 => 32, // DataView → DataView.prototype
         _ => -1,
     }
+}
+
+/// Whether `obj`'s current [[Prototype]] is `proto` (null spelled
+/// `VALUE_NULL_IMM`). The getter below answers an OWNED reference; a
+/// same-value probe that kept it leaked one per call on a mortal
+/// prototype (`Object.setPrototypeOf(f, q)` on a re-linked function,
+/// on an instance of a subclassed exotic).
+///
+/// # Safety
+/// `obj` carries a valid AnyValue bit pattern.
+pub(crate) unsafe fn proto_of_any_is(obj: u64, proto: u64) -> bool {
+    let cur = unsafe { __torajs_anyv_get_proto_of_any(obj) };
+    if is_cell_imm(cur) {
+        unsafe { __torajs_rc_dec(cur as *mut c_void) };
+    }
+    cur == proto
 }
 
 /// AnyValue-immediate `Object.getPrototypeOf(any)` — reads the
