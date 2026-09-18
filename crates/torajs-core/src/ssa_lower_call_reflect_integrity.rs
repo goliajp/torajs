@@ -176,7 +176,8 @@ pub(crate) fn lower_reflect_apply(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
         boxed.push(any);
     }
     for a in args.iter().skip(3) {
-        let _ = ctx.lower_expr(*a);
+        let op = ctx.lower_expr(*a);
+        ctx.release_owned_temp(*a, &op);
     }
     // A call site that named fewer than three arguments still reaches
     // the three-operand kernel ABI; the missing ones are `undefined`,
@@ -200,12 +201,30 @@ pub(crate) fn lower_reflect_apply(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.reflect_apply, boxed),
+        InstKind::Call(ctx.intrinsics.reflect_apply, boxed.clone()),
         Type::Any,
         None,
     );
+    release_reflect_operands(ctx, args, &boxed);
     ctx.emit_throw_check(None);
     Operand::Value(v)
+}
+
+/// The kernels borrow their three operands (the list walk takes its
+/// own +1 per element, a constructed object its own prototype stake),
+/// so an owned temp among them — an array literal as the argument
+/// list, a fresh call product as target or receiver — is released
+/// here, after the borrow and before the throw check like the other
+/// Reflect sites. Nothing released them before: `Reflect.construct(F,
+/// [i])` and `Reflect.apply(f, null, [i])` each stranded one block per
+/// call (14.2 MB / 14.0 MB vs 1.9 MB flat over 200k). `boxed` may be
+/// longer than `args` (the undefined fills, the two-argument
+/// construct form's repeated target); the zip stops at the spelled
+/// operands, so a repeated target is released once.
+fn release_reflect_operands(ctx: &mut LowerCtx<'_>, args: &[ExprId], boxed: &[Operand]) {
+    for (&a, op) in args.iter().zip(boxed.iter()) {
+        ctx.release_owned_temp(a, op);
+    }
 }
 
 /// §28.1.2 Reflect.construct(target, argumentsList[, newTarget]) —
@@ -227,7 +246,8 @@ pub(crate) fn lower_reflect_construct(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -
         boxed.push(any);
     }
     for a in args.iter().skip(3) {
-        let _ = ctx.lower_expr(*a);
+        let op = ctx.lower_expr(*a);
+        ctx.release_owned_temp(*a, &op);
     }
     if boxed.len() == 2 {
         boxed.push(boxed[0].clone());
@@ -235,10 +255,11 @@ pub(crate) fn lower_reflect_construct(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(ctx.intrinsics.reflect_construct, boxed),
+        InstKind::Call(ctx.intrinsics.reflect_construct, boxed.clone()),
         Type::Any,
         None,
     );
+    release_reflect_operands(ctx, args, &boxed);
     ctx.emit_throw_check(None);
     Operand::Value(v)
 }
@@ -364,7 +385,8 @@ pub(crate) fn lower_reflect_define_property(ctx: &mut LowerCtx<'_>, args: &[Expr
         (ptr, false, Some(desc_op), tok)
     };
     for a in args.iter().skip(3) {
-        let _ = ctx.lower_expr(*a);
+        let op = ctx.lower_expr(*a);
+        ctx.release_owned_temp(*a, &op);
     }
     let slot = ctx.alloca(Type::Ptr, Some("__dynobj_slot"));
     ctx.f.append_void(
