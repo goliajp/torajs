@@ -1681,7 +1681,36 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `5c8d47917`** (2026-09-18, rotations 643–665 — the
+**Latest @ `d6c552d78`** (2026-09-18, rotations 666–667). 666: K3's
+second half (a private field read through a receiver that is not
+`this`, `#x in o`, both compared per evaluation), `new` of a built-in
+constructor VALUE through the any lane (the four collections seed from
+an iterable, WeakRef, Promise's step order, Symbol / BigInt keep
+[[Construct]] and refuse only `new`), an arrow's capture of a local
+that shadows a global name, the temporary of `new <expr>()` owned.
+667: an AccessorPair became a cycle-collector child, so a unit class's
+accessor faces are minted mortal per evaluation (200k evaluations:
+52.0 MB → 3.0 MB); class evaluation units **K4-1 / K4-2 / K4-3** —
+static methods, static fields and blocks, static accessors all per
+evaluation on that evaluation's class object, static initializers
+running at the declaration's own position (K4-4 static private members
+remain); a `const X: any = <literal>` read served by the boxed slot
+rather than the folded literal (a named reader crashed); `new K()` in a
+named function counts as a reader of `K`; a unit candidate shadowed by
+a same-name `let` / `function` / for-of binding takes the collision
+rename; an accessor face's `.call` honours its receiver guard (the
+RFC 20260718 follow-up); and axis B's first attack, the regex
+haystack's ASCII scan a word at a time (−15% on the `u`-flag shape).
+Gate predicate: **37** clusters of >= 4 holding **245** cases, register
+2 · 118, residue 350 · 474 (56.6%), core **837**, unattributed **719**.
+Against rotation 665: clusters 37 → **37 (0)**, cases 245 → **245 (0)**,
+core 838 → **837 (−1)**. Sweep passTotal 40465 → **40481 (+16)**, bug
+8642 → **8627 (−15)**, incompatible 4067 → **4066 (−1)**; both rotations
+reported **0 backward**. Head of the incompatible bucket, by cluster:
+ModuleSource 91 (signed SR-2), decorator `@` 20, then import
+attributes and the `Function(...)` constructor.
+
+**Prior @ `5c8d47917`** (2026-09-18, rotations 643–665 — the
 accounting here lapsed for twenty-two rotations; this entry closes the
 gap from the sweep stamps in `hardev/test262-latest.json` and the
 per-rotation sections of `plan-state.md`. Headlines, oldest first:
