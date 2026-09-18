@@ -209,11 +209,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // the remaining `C.p` Members into getter calls; neither shape
     // survives into the Ident rewrite below.
     rewrite_static_accessor_accesses(ast, &static_accessor_rewrites, &class_index);
-    super::desugar_classes_static_route::route_inherited_static_calls(
-        ast,
-        &inherited_static_owners,
-    );
-    super::desugar_classes_static_route::route_cast_static_calls(ast, &inherited_static_owners);
+    super::desugar_classes_static_route::route_static_calls(ast, &inherited_static_owners);
     rewrite_static_member_accesses(ast, &static_member_rewrites, &class_index);
     reject_abstract_new(ast, &abstract_classes);
     finalize_side_tables(
