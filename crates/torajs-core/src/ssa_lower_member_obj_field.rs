@@ -73,10 +73,19 @@ pub(crate) fn try_lower(
     // (bun/JSC wording), not a deref past the bare static header.
     // No-op for plain receivers.
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    if let Some(op) = try_accessor_getter(ctx, eid, obj, obj_val, sid, name) {
-        return op;
-    }
-    if let Some(op) = try_objlit_getter(ctx, obj_val, sid, name) {
+    // A getter read is a CALL: its result arrives owned (+1-result),
+    // so the read joins the owned track and its consumer releases it.
+    // Left off, every consumer took its own stake on top and the
+    // call's was never released — which a getter body returning a bare
+    // field used to hide by handing back no stake at all.
+    let getter = match try_accessor_getter(ctx, eid, obj, obj_val.clone(), sid, name) {
+        Some(op) => Some(op),
+        None => try_objlit_getter(ctx, obj_val.clone(), sid, name),
+    };
+    if let Some(op) = getter {
+        if !ctx.operand_ty(&op).is_copy() {
+            ctx.owned_member_reads.insert(eid);
+        }
         return op;
     }
     // RFC 20260718-error-message-own-prop 刀 2 — an Error-derived

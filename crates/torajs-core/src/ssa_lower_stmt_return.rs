@@ -199,6 +199,30 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
             return v;
         }
     }
+    // A member read that is not already owned (`return this.s`,
+    // `return p.name`, `return a.b.c`) answers the FIELD'S OWN stake —
+    // a bare `Load`. Every caller owns what a call returns and drops
+    // it, so that drop took the field's stake away from under the
+    // object: `{ const r = nameOf(p); }` freed `p.name`'s cell and
+    // the next same-size allocation read back through it (`p.name`
+    // answered a later string's bytes; bun answers the original). The
+    // refcount wrapped below zero instead of double-freeing, which is
+    // why churn stayed flat and Guard Malloc stayed quiet. For an
+    // OWNED local receiver the consume walk "fixed" this by marking
+    // the local moved — its cell and every other field stranded per
+    // call (20.8 MB vs 1.6 MB flat). The answer takes its own stake;
+    // the receiver, whatever it is, keeps its drop.
+    if matches!(
+        ctx.ast.get_expr(src_eid),
+        Expr::Member { .. } | Expr::OptChain { .. }
+    ) && !ctx.expr_owned_shape(src_eid)
+    {
+        let ty = ctx.operand_ty(&v);
+        if ty.is_refcounted() {
+            ctx.emit_owned_result_inc(v.clone(), ty);
+            return v;
+        }
+    }
     // Chunk 752 — a Copy-typed result (scalar) cannot alias any
     // local's heap, so no binding needs the moved mark; the
     // blanket walk stranded every non-Copy local the expression
