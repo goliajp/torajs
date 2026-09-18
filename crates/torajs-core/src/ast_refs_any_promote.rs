@@ -77,6 +77,17 @@ pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
             return any_promote_init(ast, inner);
         }
     }
+    // A destructuring bind (`const [a, b] = src` / `const { x } =
+    // src`): the parser spells it as a read off its own source temp,
+    // under the §13.15.5.4 default ternary when the slot has one. The
+    // element's static type is whatever the source's is, which this
+    // syntactic verdict cannot see; the boxed slot holds any of them.
+    // Before this arm the binding stayed main-local, and a read from a
+    // function DECLARATION (`function f() { return a + b }`) died with
+    // a ReferenceError while the same read from an arrow worked.
+    if is_dstr_load(ast, init) {
+        return true;
+    }
     let Expr::Call { callee, .. } = ast.get_expr(init) else {
         return false;
     };
@@ -88,6 +99,39 @@ pub(crate) fn any_promote_init(ast: &Ast, init: ExprId) -> bool {
     // the named-fn-visibility problem of a different wall; never
     // promote them here.
     !matches!(ast.get_expr(*callee), Expr::Ident(n) if n.starts_with("__new_"))
+}
+
+/// A read off a destructuring source temp the parser minted
+/// (`parser/destr_emit`), bare or as the loaded arm of its default
+/// ternary.
+fn is_dstr_load(ast: &Ast, init: ExprId) -> bool {
+    const SRC_TEMPS: [&str; 4] = [
+        "__ary_src_",
+        "__destr_src_",
+        "__nested_destr_",
+        "__rest_destr_",
+    ];
+    // The element recipe keeps the load in the THEN arm (`in range &&
+    // defined ? load : default`), the field recipe in the ELSE arm
+    // (`load === undefined ? default : load`).
+    if let Expr::Ternary {
+        then_branch,
+        else_branch,
+        ..
+    } = ast.get_expr(init)
+    {
+        return is_dstr_load(ast, *then_branch) || is_dstr_load(ast, *else_branch);
+    }
+    let load = init;
+    // An object pattern over a plain identifier reads that identifier
+    // directly (no temp); the parser marks every such field load.
+    if ast.dstr_default_member_loads.contains(&load) {
+        return true;
+    }
+    let (Expr::Index { obj, .. } | Expr::Member { obj, .. }) = ast.get_expr(load) else {
+        return false;
+    };
+    matches!(ast.get_expr(*obj), Expr::Ident(n) if SRC_TEMPS.iter().any(|p| n.starts_with(p)))
 }
 
 /// The P4.5 sentinel spelling of a class read as a VALUE — what the
