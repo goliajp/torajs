@@ -117,7 +117,7 @@ impl Scan {
             }
             // An arrow is still inline here (the pass runs before
             // `lift_arrow_fns`), so its body is reached through its
-            // own node exactly as `class_unit::Occurrences` does.
+            // own node exactly as `class_unit_census::Occurrences` does.
             Expr::ArrowFn { body, .. } => {
                 self.list(ast, body);
                 return;
