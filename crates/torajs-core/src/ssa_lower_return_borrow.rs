@@ -29,10 +29,22 @@ pub(crate) fn retain_borrowed_answer(
     // xs[k]`): the element arm below retained it a second time (one
     // box per call, 11.4 MB vs 1.7 MB flat), and without that arm the
     // walk marked `xs` moved and stranded the whole array (46.7 MB).
+    // An Ident-target assignment is another (`mint_consumer_stake`
+    // takes the +1 and records the eid): the walk marked the target
+    // moved on top of that stake, so the slot's own share never
+    // released (`return (a = s + "!")` stranded one string per call,
+    // 7.5 MB vs 1.5 MB flat; over a shared source the surplus lands
+    // on a long-lived cell and RSS cannot see it), and it reached the
+    // rhs too — `return (a = xs[0])` over a LOCAL array marked `xs`
+    // moved and stranded the whole array per call (32.3 MB vs 1.7 MB).
     // Joins are judged below — their owned form is per-site.
     let is_read = matches!(
         ctx.ast.get_expr(src_eid),
-        Expr::Index { .. } | Expr::OptIndex { .. } | Expr::Member { .. } | Expr::OptChain { .. }
+        Expr::Index { .. }
+            | Expr::OptIndex { .. }
+            | Expr::Member { .. }
+            | Expr::OptChain { .. }
+            | Expr::Assign { .. }
     );
     if is_read && ctx.expr_owned_shape(src_eid) {
         return Some(v.clone());
