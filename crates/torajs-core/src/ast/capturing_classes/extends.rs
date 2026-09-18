@@ -27,7 +27,7 @@
 //! dropping inherited statics.
 
 use super::super::super_collect::{collect_super_in_stmt, collect_supercall_in_stmt};
-use super::super::{Ast, Expr, ExprId, Param, Stmt};
+use super::super::{Ast, ClassCtor, Expr, ExprId, Param, Stmt};
 use super::install::define_member;
 
 /// The claim-time `extends` bookkeeping for a class this lane just
@@ -249,6 +249,43 @@ fn this_first(ast: &mut Ast, args: Vec<ExprId>) -> Vec<ExprId> {
 /// before `apply_rest_args` / `apply_spread_args` run, which is what
 /// packs the call sites. Calls the ctor-forward target, not the
 /// parent — see `rewrite_super_sites`.
+/// The implicit forwarding constructor's rest parameter. Not a name a
+/// program can spell: field initializers now run in that constructor's
+/// scope (`ctor_parts`), and `w = args.length` must keep reading the
+/// OUTER `args`.
+const REST_ARGS: &str = "__super_args";
+
+/// The constructor's params and body as the lane lowers them.
+///
+/// A class that wrote no constructor but has field initializers
+/// arrives with one anyway: the parser hangs the initializer statements
+/// on a synthesized, EMPTY-headed ctor (`field_init_synth_ctors`). For
+/// a derived class that is not a constructor the program wrote — it
+/// holds no `super(…)` — so taking it as explicit skipped the parent
+/// entirely: `class extends Base { w = 2 }` built instances with `w`
+/// and none of the parent's fields. It is the implicit forwarding
+/// constructor with the initializers run after `super(...args)`
+/// returns (§10.2.1.3 step 11 → §7.3.34), the same repair
+/// `desugar_classes_default_ctor` makes for the real-class lane.
+pub(super) fn ctor_parts(
+    ast: &mut Ast,
+    ctor: Option<ClassCtor>,
+    parent: Option<&str>,
+    src_name: &str,
+    class_binding: &str,
+) -> (Vec<Param>, Vec<Stmt>) {
+    match (ctor, parent) {
+        (Some(c), Some(p)) if ast.field_init_synth_ctors.contains(src_name) => {
+            let (params, mut body) = implicit_derived_ctor(ast, p, class_binding);
+            body.extend(c.body);
+            (params, body)
+        }
+        (Some(c), _) => (c.params, c.body),
+        (None, Some(p)) => implicit_derived_ctor(ast, p, class_binding),
+        (None, None) => (Vec::new(), Vec::new()),
+    }
+}
+
 pub(super) fn implicit_derived_ctor(
     ast: &mut Ast,
     parent: &str,
@@ -262,7 +299,7 @@ pub(super) fn implicit_derived_ctor(
         let callee = ast.add_expr(Expr::Ident("__torajs_super_value".to_string()));
         let p = ast.add_expr(Expr::Ident(parent.to_string()));
         let this = ast.add_expr(Expr::This);
-        let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let nt = ast.add_expr(Expr::NewTarget);
         ast.add_expr(Expr::Call {
             callee,
@@ -274,7 +311,7 @@ pub(super) fn implicit_derived_ctor(
         let callee = ast.add_expr(Expr::Ident(format!("__ctorany_{target}")));
         let this = ast.add_expr(Expr::This);
         let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
-        let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
         ast.add_expr(Expr::Call {
             callee,
@@ -282,7 +319,7 @@ pub(super) fn implicit_derived_ctor(
         })
     } else {
         let callee = call_member(ast, &target, &[]);
-        let rest_ref = ast.add_expr(Expr::Ident("args".to_string()));
+        let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
         let args = this_first(ast, vec![spread]);
         ast.add_expr(Expr::Call { callee, args })
@@ -293,7 +330,7 @@ pub(super) fn implicit_derived_ctor(
     // array) — `any[]` is what the parser's own `(...args)` infers to
     // by the closure-param pass.
     let params = vec![Param {
-        name: "args".to_string(),
+        name: REST_ARGS.to_string(),
         type_ann: Some("any[]".to_string()),
         default: None,
         is_rest: true,

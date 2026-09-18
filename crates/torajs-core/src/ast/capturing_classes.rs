@@ -387,13 +387,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     // §15.7.14 hands it; an explicit body has its super sites lowered
     // against the parent BINDING (blade 5 — the α-rename already put
     // the lane's minted spelling into `parent`).
-    let (params, body) = match ctor {
-        Some(c) => (c.params, c.body),
-        None => match &parent {
-            Some(p) => extends::implicit_derived_ctor(ast, p, &name),
-            None => (Vec::new(), Vec::new()),
-        },
-    };
+    let (params, body) = extends::ctor_parts(ast, ctor, parent.as_deref(), src_name, &name);
     if let Some(p) = &parent {
         extends::rewrite_super_sites(ast, &body, p, false, &name);
         extends::rewrite_super_prop_sites(ast, &body, p, false, &name);
