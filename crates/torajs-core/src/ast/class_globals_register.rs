@@ -216,7 +216,9 @@ pub(super) fn emit_reify_stmts(
     // before the emit loop — `ast.add_expr` borrows `ast` mutably.
     let mut reifies: Vec<(String, PropKey, bool)> = Vec::new();
     for cname in &meta.class_names {
-        if gen_class_set.contains(cname) {
+        // K4-1 — a unit class defines its static methods per
+        // evaluation, inside `__cunit_<C>` (`class_unit::make_unit`).
+        if gen_class_set.contains(cname) || ast.eval_unit_classes.contains(cname) {
             continue;
         }
         let prefix = format!("__sm_{cname}__");

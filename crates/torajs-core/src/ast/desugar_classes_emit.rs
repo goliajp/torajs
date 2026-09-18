@@ -347,12 +347,32 @@ pub(in crate::ast) fn emit_class_static_methods(
                 p.type_ann = Some("any".to_string());
             }
         }
+        // K4-1 (RFC 20260917-class-eval-unit) — a unit class's static
+        // method takes the evaluation's class object first, exactly
+        // where an instance method takes `__this`: a static `this`
+        // spells `__unit` (pass 2), a direct `C.m(a)` passes the
+        // binding (`rewrite_static_member_accesses`), and the per-
+        // evaluation face hands the receiver through the same env
+        // channel an instance face uses. No twin: the body already
+        // takes any receiver.
+        let is_unit = ast.eval_unit_classes.contains(cname);
+        if is_unit {
+            params.insert(
+                0,
+                Param {
+                    name: super::class_unit::UNIT_PARAM.to_string(),
+                    type_ann: Some("any".to_string()),
+                    default: None,
+                    is_rest: false,
+                },
+            );
+        }
         // RFC 20260804-fn-this-channel knife 3a — the
         // receiver-polymorphic static twin (`__smany_`), minted off
         // the same body the mono FnDecl gets. Accessor faces keep
         // their reify lane (recorded RFC residue), so only plain
         // static methods mint; a this-free body mints nothing.
-        if sm.accessor_kind.is_none() {
+        if sm.accessor_kind.is_none() && !is_unit {
             super::desugar_classes_generic_twin::mint_static_generic_twin(
                 ast, &fn_name, &params, &body, &fn_tp, sm.span, appended,
             );

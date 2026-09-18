@@ -56,7 +56,14 @@ pub(super) fn rewrite_expr_arena_pass2(
                 // every other `this` is an instance receiver, `__this`.
                 let eid = super::ExprId(i as u32);
                 if let Some(cls) = ast.static_this_sites.get(&eid).cloned() {
-                    ast.exprs[i] = Expr::Ident(cls);
+                    // K4-1 — a unit class's static body receives the
+                    // evaluation's class object as its `__unit` param;
+                    // the class NAME would be the registered template.
+                    ast.exprs[i] = if ast.eval_unit_classes.contains(&cls) {
+                        Expr::Ident(super::class_unit::UNIT_PARAM.into())
+                    } else {
+                        Expr::Ident(cls)
+                    };
                 } else {
                     ast.exprs[i] = Expr::Ident("__this".into());
                 }

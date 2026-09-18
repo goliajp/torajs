@@ -10,6 +10,49 @@ use core::ffi::c_void;
 
 use super::*;
 
+/// K4-1 (RFC 20260917-class-eval-unit) — one static-method own entry
+/// on ONE EVALUATION's class object. `unit` is that object (a live
+/// dynobj the declaration just minted); the face is mortal and holds
+/// it, the way `define_unit_rows` mints the prototype's method rows.
+/// `flags` is the row's `MethodMeta` word (bit 0 this-free, bit 3
+/// reaches a private element). Guard pair `(tag 0, twin = adapter)` —
+/// the twin-primary encoding a generic row uses: a static body's boxed
+/// adapter drops the env argument and reads every parameter off argv,
+/// so the receiver has to ride argv[0], which is exactly where
+/// `invoke_boxed_recv_first` puts it and exactly what the leading
+/// `__unit` param is. Every dispatch consumer routes that pair through
+/// the recv-first entry (member call, `.call` / `.apply`), and no
+/// layout guard applies: the body takes any receiver.
+///
+/// # Safety
+/// `name_str` is a live Str cell (caller-owned; the define takes its
+/// own key reference); `adapter` is a live boxed-adapter code address.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_class_unit_static_method_define(
+    unit: u64,
+    name_str: *const u8,
+    adapter: u64,
+    flags: u64,
+) {
+    if !is_cell_imm(unit) || name_str.is_null() || adapter == 0 {
+        return;
+    }
+    if unsafe { heap_type_tag(unit as *const c_void) } != TAG_DYNOBJ {
+        return;
+    }
+    unsafe {
+        let cell = __torajs_class_method_cell_new_unit(adapter, flags, 0, adapter, unit);
+        let mut slot = unit as *mut c_void;
+        __torajs_dynobj_define_plain(
+            &mut slot,
+            name_str,
+            ANY_HEAP as u64,
+            cell as u64,
+            DEFINE_CTOR_FLAGS,
+        );
+    }
+}
+
 /// Knife B cut 2 — one static-method own entry on the class object.
 /// ssa_lower hands the resolved triple (`tag`, the method-name Str
 /// cell, the `__sm_<C>__<M>` boxed adapter's vaddr); the minted cell

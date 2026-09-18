@@ -223,12 +223,14 @@ pub(crate) fn try_type(name: &str) -> Option<Result<Type, String>> {
             vec![Type::String, Type::String],
             Box::new(Type::Void),
         )),
-        // L3b static-field-reflect (2026-07-22) — third arg is the
-        // `__sf_<C>__<f>` global's current value (any field type).
-        "__torajs_static_field_reify" => Ok(Type::Function(
-            vec![Type::String, Type::String, Type::Any],
-            Box::new(Type::Void),
-        )),
+        // L3b static-field-reflect: third arg is the `__sf_<C>__<f>`
+        // global's value; K4-1's unit reify: the evaluation's class.
+        "__torajs_static_field_reify" | crate::ast::class_unit::UNIT_STATIC_METHOD_REIFY => {
+            Ok(Type::Function(
+                vec![Type::String, Type::String, Type::Any],
+                Box::new(Type::Void),
+            ))
+        }
         "__torajs_class_accessor_reify" | "__torajs_class_static_accessor_reify" => Ok(
             Type::Function(vec![Type::String, Type::String], Box::new(Type::Void)),
         ),

@@ -104,6 +104,64 @@ pub(super) fn try_lower_static_method_reify(
     Some(Operand::ConstI64(0))
 }
 
+/// K4-1 (RFC 20260917-class-eval-unit) —
+/// `__torajs_unit_static_method_reify("<C>", "<M>", __cuc)`: resolve
+/// `__sm_<C>__<M>`'s boxed adapter and define one MORTAL face holding
+/// this evaluation's class object onto that object. The same adapter
+/// dropout as the template reify skips the define. No writeback: the
+/// class object is the evaluation's local, not a registered binding.
+pub(super) fn try_lower_unit_static_method_reify(
+    ctx: &mut LowerCtx<'_>,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let [cname_id, mname_id, unit_id] = args else {
+        return None;
+    };
+    let Expr::String(cname) = ctx.ast.get_expr(*cname_id) else {
+        return None;
+    };
+    let cname = cname.to_string_lossy_owned();
+    let Expr::String(mname) = ctx.ast.get_expr(*mname_id) else {
+        return None;
+    };
+    let mname = mname.clone();
+    let mut body = format!("__sm_{cname}__{}", mangle_key(&mname));
+    if !ctx.fn_table.contains_key(body.as_str()) {
+        body.push_str("$$anywv");
+    }
+    let Some(&body_fid) = ctx.fn_table.get(body.as_str()) else {
+        return Some(Operand::ConstI64(0));
+    };
+    let Some(&(adapter_fid, adapter_sig)) = ctx.boxed_entries.get(&body_fid) else {
+        return Some(Operand::ConstI64(0));
+    };
+    let unit_op = ctx.lower_expr(*unit_id);
+    let name_op = ctx.lower_expr(*mname_id);
+    let cur_block = ctx.cur_block;
+    let adapter = ctx.f.append_inst(
+        cur_block,
+        InstKind::FnAddr(adapter_fid),
+        Type::FnSig(adapter_sig),
+        None,
+    );
+    let define = ctx.intrinsics.class_unit_static_method_define;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            define,
+            vec![
+                unit_op,
+                name_op.clone(),
+                Operand::Value(adapter),
+                Operand::ConstI64(0),
+            ],
+        ),
+    );
+    let ty = ctx.operand_ty(&name_op);
+    ctx.emit_drop_value(name_op, ty);
+    Some(Operand::ConstI64(0))
+}
+
 /// 563-03 — `__torajs_class_static_own_move_to_end("<C>", "<M>")`:
 /// move the class object's own `<M>` entry behind everything defined
 /// so far. §15.7.14 defines every static element in ONE ordered

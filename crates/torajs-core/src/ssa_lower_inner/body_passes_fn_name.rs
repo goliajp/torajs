@@ -79,7 +79,13 @@ fn accessor_prop_of<'a>(ast: &'a Ast, name: &str) -> Option<&'a PropKey> {
 fn es_arity(params: &[crate::ast::Param]) -> u32 {
     params
         .iter()
-        .filter(|p| p.name != "__env" && p.name != "__this")
+        .filter(|p| {
+            p.name != "__env"
+                && p.name != "__this"
+                // K4-1 — a unit class's static method takes the
+                // evaluation's class object the same hidden way.
+                && p.name != crate::ast::class_unit::UNIT_PARAM
+        })
         .take_while(|p| p.default.is_none() && !p.is_rest)
         .count() as u32
 }

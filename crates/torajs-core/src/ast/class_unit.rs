@@ -55,6 +55,10 @@ pub const UNIT_WIRE: &str = "__torajs_class_unit_wire";
 /// The factory's leading parameter carrying the evaluation's class.
 pub const UNIT_PARAM: &str = "__unit";
 
+/// K4-1 — the synthesized per-evaluation static-method define
+/// (`classmeta::define::statics`).
+pub const UNIT_STATIC_METHOD_REIFY: &str = "__torajs_unit_static_method_reify";
+
 /// Whether the ClassDecl `cls` (about to be hoisted out of a
 /// multi-evaluation container) has a unit-class shape. The name-keyed
 /// reference census is [`refs_stay_local`], asked after the hoist's
@@ -104,7 +108,15 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
         || !type_params.is_empty()
         || *is_abstract
         || !static_init.is_empty()
-        || !static_methods.is_empty()
+        // K4-1 — a plain static METHOD rides the unit: its body takes
+        // the evaluation's class object as a leading `__unit` param
+        // (a static `this` spells it), and `__cunit_C` defines one
+        // mortal face per evaluation onto that object. Static fields
+        // / blocks (K4-2), static accessors (K4-3) and static private
+        // members (K4-4) still keep the shared identity.
+        || !static_methods
+            .iter()
+            .all(|m| plain(&m.name) && m.accessor_kind.is_none() && m.type_params.is_empty())
         || !fields.iter().all(|(k, _)| plain(k) || private_field(k))
         || !methods
             .iter()
@@ -121,7 +133,6 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
             .iter()
             .any(|(c, _, _)| c == name)
         || ast.generator_factory_classes.contains_key(name)
-        || ast.static_this_sites.values().any(|c| c == name)
     {
         return false;
     }
@@ -159,9 +170,16 @@ pub(super) fn refs_stay_local(ast: &Ast, container: &[Stmt], idx: usize, name: &
 /// beside it. `binding` is the name the container refers to the class
 /// by (the hoist's collision rename, when one happened).
 pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, Stmt) {
-    let Stmt::ClassDecl { fields, ctor, .. } = cls else {
+    let Stmt::ClassDecl {
+        fields,
+        ctor,
+        static_methods,
+        ..
+    } = cls
+    else {
         unreachable!("admitted a ClassDecl");
     };
+    let static_names: Vec<PropKey> = static_methods.iter().map(|m| m.name.clone()).collect();
     fields.push((PropKey::from(UNIT_SLOT), "any".to_string()));
     let length = ctor.as_ref().map_or(0, |c| {
         c.params
@@ -195,6 +213,24 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         callee: wire,
         args: vec![class_arg, proto_arg, tag_arg],
     });
+    // K4-1 — one own entry per static method on THIS evaluation's
+    // class object: `__torajs_unit_static_method_reify("C", "m",
+    // __cuc)` resolves `__sm_C__m`'s boxed adapter at lowering and
+    // mints a mortal face holding the class object (the instance
+    // rows' `define_unit_rows` shape, on the class object instead of
+    // the prototype).
+    let mut static_reifies: Vec<Stmt> = Vec::with_capacity(static_names.len());
+    for name in static_names {
+        let callee = ast.add_expr(Expr::Ident(UNIT_STATIC_METHOD_REIFY.into()));
+        let cname_lit = ast.add_expr(Expr::String(binding.to_string().into()));
+        let mname_lit = ast.add_expr(Expr::String(name.into()));
+        let unit_arg = ast.add_expr(Expr::Ident("__cuc".into()));
+        let call = ast.add_expr(Expr::Call {
+            callee,
+            args: vec![cname_lit, mname_lit, unit_arg],
+        });
+        static_reifies.push(Stmt::Expr(call));
+    }
     let ret = ast.add_expr(Expr::Ident("__cuc".into()));
     let any_let = |name: &str, init: ExprId| Stmt::LetDecl {
         mutable: false,
@@ -209,12 +245,15 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
         type_params: Vec::new(),
         params: Vec::<Param>::new(),
         return_type: Some("any".into()),
-        body: vec![
+        body: [
             any_let("__cup", proto_init),
             any_let("__cuc", class_init),
             Stmt::Expr(wire_call),
-            Stmt::Return(Some(ret)),
-        ],
+        ]
+        .into_iter()
+        .chain(static_reifies)
+        .chain([Stmt::Return(Some(ret))])
+        .collect(),
         is_generator: false,
         span: crate::lexer::Span { start: 0, end: 0 },
     };

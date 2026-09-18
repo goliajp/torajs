@@ -266,9 +266,15 @@ pub(crate) fn run(
             // promoted face read one too high — `{ f: function (n)
             // { this.n = n } }.f.length` answered 2, and an
             // object-literal getter answered 1 where the spec says 0.
+            // `__unit` (K4-1) is the same kind of channel for a unit
+            // class's static method.
             let arity = params
                 .iter()
-                .filter(|p| p.name != "__env" && p.name != "__this")
+                .filter(|p| {
+                    p.name != "__env"
+                        && p.name != "__this"
+                        && p.name != crate::ast::class_unit::UNIT_PARAM
+                })
                 .take_while(|p| p.default.is_none() && !p.is_rest)
                 .count() as u32;
             // B3b — lifted closure decls carry the user arrow /

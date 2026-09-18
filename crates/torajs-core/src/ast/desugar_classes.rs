@@ -386,22 +386,54 @@ fn rewrite_static_member_accesses(
     // still mean the method (§15.7.14; sibling doc).
     let positional =
         super::desugar_classes_statics::positional_static_method_sites(ast, class_index);
+    // K4-1 — a unit class's static method takes the evaluation's
+    // class object first, so `C.m(a)` becomes `__sm_C__m(C, a)` (the
+    // binding `C` is the evaluation) and a VALUE read `C.m` stays a
+    // Member: the class object carries a per-evaluation face for it.
+    // Which Member is a callee is known only from its Call.
+    let callee_of: std::collections::HashMap<u32, usize> = ast
+        .exprs
+        .iter()
+        .enumerate()
+        .filter_map(|(ci, e)| match e {
+            Expr::Call { callee, .. } => Some((callee.0, ci)),
+            _ => None,
+        })
+        .collect();
     for i in 0..ast.exprs.len() {
         let replacement = match &ast.exprs[i] {
             Expr::Member { obj, name } => {
                 if let Some(method) = positional.get(&(i as u32)) {
-                    Some(method.clone())
+                    Some((method.clone(), None))
                 } else if let Expr::Ident(class_name) = &ast.exprs[obj.0 as usize] {
                     let key = (class_name.clone(), PropKey::from(name));
-                    static_member_rewrites.get(&key).cloned()
+                    static_member_rewrites.get(&key).cloned().map(|n| {
+                        let unit = ast.eval_unit_classes.contains(class_name).then_some(*obj);
+                        (n, unit)
+                    })
                 } else {
                     None
                 }
             }
             _ => None,
         };
-        if let Some(new_name) = replacement {
-            ast.exprs[i] = Expr::Ident(new_name);
+        match replacement {
+            Some((new_name, None)) => ast.exprs[i] = Expr::Ident(new_name),
+            Some((new_name, Some(unit_binding))) => {
+                if let Some(&ci) = callee_of.get(&(i as u32))
+                    && let Expr::Call { args, .. } = &ast.exprs[ci]
+                {
+                    let mut new_args = Vec::with_capacity(args.len() + 1);
+                    new_args.push(unit_binding);
+                    new_args.extend(args.iter().copied());
+                    let callee = ast.add_expr(Expr::Ident(new_name));
+                    ast.exprs[ci] = Expr::Call {
+                        callee,
+                        args: new_args,
+                    };
+                }
+            }
+            None => {}
         }
     }
 }
