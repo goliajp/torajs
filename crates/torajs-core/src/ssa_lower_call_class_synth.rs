@@ -43,6 +43,7 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_call_class_synth_proto as proto;
 use crate::ssa_lower_call_class_synth_reify as reify;
+use crate::ssa_lower_call_class_synth_reify_computed as reify_computed;
 
 mod class_ref;
 
@@ -78,12 +79,14 @@ pub(crate) fn try_lower(
         "__torajs_class_static_own_move_to_end" => {
             reify::try_lower_static_own_move_to_end(ctx, args)
         }
-        "__torajs_class_computed_reify" => reify::try_lower_class_computed_reify(ctx, args),
+        "__torajs_class_computed_reify" => {
+            reify_computed::try_lower_class_computed_reify(ctx, args)
+        }
         "__torajs_class_computed_field_register" => {
             crate::ssa_lower_call_class_synth_computed_field::try_lower_register(ctx, args)
         }
         "__torajs_class_computed_key" | "__torajs_to_property_key" => {
-            reify::try_lower_class_computed_key(ctx, args)
+            reify_computed::try_lower_class_computed_key(ctx, args)
         }
         "__torajs_obj_rest" => crate::ssa_lower_call_obj_rest::try_lower(ctx, args),
         // RFC 20260820-dstr-deferred-close — the dstr family lives in
