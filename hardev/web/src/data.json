@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-18T14:05:03.996Z",
+  "generatedAt": "2026-09-18T18:09:59.323Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-18T13:52:53Z",
-    "headSha": "5183ee43d",
-    "elapsedSec": 549.37,
+    "ranAt": "2026-09-18T17:59:09Z",
+    "headSha": "a026f072e",
+    "elapsedSec": 540.93,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34217,
+    "pass": 34219,
     "passNoOracle": 1705,
     "passNegative": 4568,
-    "passTotal": 40490,
-    "bug": 8619,
+    "passTotal": 40492,
+    "bug": 8617,
     "incompatible": 4065,
     "bunSkip": 2854,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 82.45
   },
   "torajs": {
-    "commit": "f1ad6d12f",
-    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 668 @5183ee43d",
+    "commit": "e55bd6756",
+    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 669 @a026f072e",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "f1ad6d12f",
-      "subject": "docs(roadmap): P-SURF accounting for rotation 668 @5183ee43d"
+      "hash": "e55bd6756",
+      "subject": "docs(roadmap): P-SURF accounting for rotation 669 @a026f072e"
     },
     {
-      "hash": "83e1a84dd",
-      "subject": "chore(hardev): rotation 668 close stamps — determinism 46/46 N=12, gmalloc 3826/3830 clean 0 offenders"
+      "hash": "f4dd1cfe9",
+      "subject": "chore(hardev): rotation 669 close stamps — determinism 46/46 N=12, gmalloc 3839/3843 clean 0 offenders"
     },
     {
-      "hash": "790360b9c",
-      "subject": "chore(hardev): rotation 668 sweep @5183ee43d (passTotal 40490, +9, 0 regressions)"
+      "hash": "ec01b5594",
+      "subject": "chore(hardev): rotation 669 sweep @a026f072e (passTotal 40492, +2, 1 non-semantic pass re-baselined)"
     },
     {
-      "hash": "5183ee43d",
-      "subject": "feat: K5-1 a class extending a per-evaluation class is one too"
+      "hash": "a026f072e",
+      "subject": "feat: adding a private element to a non-extensible object is a TypeError"
     },
     {
-      "hash": "220dd68c0",
-      "subject": "refactor: move unit-class admission out of class_unit"
+      "hash": "19ae0e604",
+      "subject": "feat: private fields of a class in the runtime-value lane (K6-2)"
     },
     {
-      "hash": "28aa576f4",
-      "subject": "refactor: move the collision rename and the unit lane out of walk_container"
+      "hash": "e2d5f50d4",
+      "subject": "fix: the setPrototypeOf same-value probe hands its prototype read back"
     },
     {
-      "hash": "3221ca47c",
-      "subject": "fix: a function declaration reads a top-level destructured binding"
+      "hash": "8ddbe6025",
+      "subject": "fix: a derived class with field initializers and no constructor still calls super in the runtime-value lane"
     },
     {
-      "hash": "22811ac6f",
-      "subject": "fix: a static `super.m()` runs the target with the current `this`"
+      "hash": "41112a5c8",
+      "subject": "fix: the dynamic instanceof walk releases each prototype hop"
     },
     {
-      "hash": "ba1624514",
-      "subject": "refactor: move the static super-call rewrite into its own sibling"
+      "hash": "54d91b394",
+      "subject": "fix: the first `F.prototype = …` on a fresh function no longer orphans a property bag"
     },
     {
-      "hash": "e9465725b",
-      "subject": "fix: a class named in a sibling class's body keeps the shared identity"
+      "hash": "d86e50a0d",
+      "subject": "feat: a per-evaluation class as a runtime-value parent (K5-4)"
     },
     {
-      "hash": "cb9c0b99b",
-      "subject": "fix: a binding pattern may sit at any position of a declaration list"
+      "hash": "d44ffbc28",
+      "subject": "feat: a per-evaluation class family in a program that re-links prototypes (K5-3)"
     },
     {
-      "hash": "775df3a7d",
-      "subject": "refactor: move the unit-class reference census out of class_unit"
+      "hash": "df0757198",
+      "subject": "feat: super property forms inside a per-evaluation class family (K5-3)"
     }
   ],
-  "headSha": "f1ad6d12f",
+  "headSha": "e55bd6756",
   "autorun": {
-    "total": 971,
+    "total": 972,
     "baselineTarget": 10,
-    "bySelf": 966,
+    "bySelf": 967,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789707011-6d54",
-      "at": "2026-09-18T04:50:11Z",
-      "ts": 1789707011,
+      "rotationId": "r-1789740336-2812",
+      "at": "2026-09-18T14:05:36Z",
+      "ts": 1789740336,
       "trigger": "self",
-      "prevHead": "131978bc6",
-      "handoffSha": "sha256:9874dff02b7ea7600c914b8b072967ad3021e8baf08c1304a503ba32b364531e",
-      "handoffAgeSec": 10,
-      "conformanceBefore": "4299/0/4",
+      "prevHead": "b3b65be3d",
+      "handoffSha": "sha256:11294b55bff2237cddac796be6f0d3d05ba1f08ba9f1090e353247c1dd2e7419",
+      "handoffAgeSec": 46,
+      "conformanceBefore": "4308/0/4",
       "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1789740336-2812",
+        "at": "2026-09-18T14:05:36Z",
+        "ts": 1789740336,
+        "trigger": "self",
+        "prevHead": "b3b65be3d",
+        "handoffSha": "sha256:11294b55bff2237cddac796be6f0d3d05ba1f08ba9f1090e353247c1dd2e7419",
+        "handoffAgeSec": 46,
+        "conformanceBefore": "4308/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1789707011-6d54",
         "at": "2026-09-18T04:50:11Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 31,
         "conformanceBefore": "4243/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789532309-62ee",
-        "at": "2026-09-16T04:18:29Z",
-        "ts": 1789532309,
-        "trigger": "self",
-        "prevHead": "22bc9b073",
-        "handoffSha": "sha256:580f1f38472934731dadd99840af2ab01fa9dc16738cd94ad4a0ba985267cc4f",
-        "handoffAgeSec": 21,
-        "conformanceBefore": "4232/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
