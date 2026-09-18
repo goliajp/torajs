@@ -167,7 +167,24 @@ pub(crate) fn lower(
     // boxed twice); the old alias path left the box borrowing a stake
     // the slot's drop-old then stole (UAF).
     let boxed_any = ty == Type::Any && ctx.operand_ty(&init_val) != Type::Any;
-    if !is_alias_init {
+    // An alias binding the body REASSIGNS is born owned, like a
+    // written parameter or for-of variable. As a borrow its first
+    // assignment skipped the drop-old (the slot held no stake) and
+    // turned the flag off — at compile time, so inside a loop every
+    // later assignment skipped it too and stranded the previous
+    // value (`let b = xs[0]; for (…) if (…) b = xs[j];` 20.8 MB vs
+    // 1.6 MB flat), while a path with no assignment at all reached a
+    // scope drop the borrow never paid for.
+    let init_ty = ctx.operand_ty(&init_val);
+    let owned_alias = is_alias_init
+        && !boxed_any
+        && init_ty.is_refcounted()
+        && ctx.prereserve.body_reassigns(name);
+    if owned_alias {
+        ctx.emit_owned_result_inc(init_val.clone(), init_ty);
+    }
+    let is_alias_init = is_alias_init && !owned_alias;
+    if !is_alias_init && !owned_alias {
         let pre_ty = ctx.operand_ty(&init_val);
         let shares = crate::ssa_lower_stmt_let_decl_share::init_shares_source_stake(
             ctx, init, pre_ty, ty, converted,

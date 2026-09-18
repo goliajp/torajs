@@ -105,6 +105,13 @@ impl PreReserve {
         self.reassigned.clone_from(assigned);
     }
 
+    /// Whether this body (or a closure it builds) assigns `name`
+    /// anywhere. Name-keyed, so a shadowing binding answers for both —
+    /// callers use it only where "yes" is the safe side.
+    pub(crate) fn body_reassigns(&self, name: &str) -> bool {
+        self.reassigned.contains(name)
+    }
+
     /// Note a `let name = <array literal>` the lowering just walked past.
     pub(crate) fn note_array_literal_let(&mut self, name: &str) {
         if !self.fresh.insert(name.to_string()) {
