@@ -286,6 +286,18 @@ fn idents_in_expr(ast: &Ast, eid: ExprId, shadow: &HashSet<String>, out: &mut Ha
                 idents_in_expr(ast, *a, shadow, out);
             }
         }
+        // A `new` whose constructor is an expression reads that
+        // expression like any callee: `function mk() { return new
+        // K() }` over a top-level `const K: any = C` is a named-fn
+        // reader of `K`, and without this arm the binding never
+        // promoted ("ssa-lower: unknown ident K" — while the plain
+        // read `return K` and an arrow's `new K()` both worked).
+        Expr::NewDynamic { callee, args } => {
+            idents_in_expr(ast, *callee, shadow, out);
+            for a in args {
+                idents_in_expr(ast, *a, shadow, out);
+            }
+        }
         Expr::Ternary {
             cond,
             then_branch,
