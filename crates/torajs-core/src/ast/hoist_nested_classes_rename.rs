@@ -33,6 +33,25 @@ pub(super) fn name_collides(
                 || name_counts.bindings.contains_key(old_name)))
 }
 
+/// Rename across the whole scope a container's class name is visible
+/// in: the container's statements, and the siblings this container
+/// already gave up to the hoist (`lifted`). A sibling declared BEFORE
+/// the renamed class has left the container by the time the rename
+/// runs, and its body still spells the old name — which, the rename
+/// existing because another class shares it, is somebody else's
+/// (`class E { make() { return new D() } } class D {}` in the second
+/// of two functions declaring a `D`: "D is not defined").
+pub(super) fn rename_scope(
+    ast: &mut Ast,
+    stmts: &mut [Stmt],
+    lifted: &mut [Stmt],
+    old: &str,
+    new: &str,
+) {
+    rename_in_stmts(ast, stmts, old, new);
+    rename_in_stmts(ast, lifted, old, new);
+}
+
 pub(super) fn rename_in_stmts(ast: &mut Ast, stmts: &mut [Stmt], old: &str, new: &str) {
     for s in stmts.iter_mut() {
         rename_in_stmt(ast, s, old, new);

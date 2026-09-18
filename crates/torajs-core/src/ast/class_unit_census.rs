@@ -27,6 +27,11 @@ pub(super) struct Occurrences {
     pub(super) arguments: bool,
     /// A `function` expression (not an arrow): its own `this`.
     pub(super) fn_exprs: bool,
+    /// Leave class bodies out. A class body is hoisted out of the
+    /// container, so a name it holds stops reading the container's
+    /// binding: for the question "does every reference stay in the
+    /// container" such an occurrence is NOT a local one.
+    pub(super) skip_class_bodies: bool,
 }
 
 impl Occurrences {
@@ -45,7 +50,7 @@ impl Occurrences {
                 static_methods,
                 static_init,
                 ..
-            } => {
+            } if !self.skip_class_bodies => {
                 if let Some(c) = ctor {
                     self.list(ast, &c.body, name);
                 }

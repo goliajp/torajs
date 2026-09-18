@@ -202,9 +202,16 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt) -> bool {
 }
 
 /// Whether every reference to `name` in the program sits in the
-/// container that declares it (`container[idx]`, excluded).
+/// container that declares it (`container[idx]`, excluded), and
+/// outside any class body there: a sibling class is hoisted too, and
+/// from up there `new D()` builds through the registered template, not
+/// through this evaluation's `D` (`new E().make() instanceof D` answered
+/// false).
 pub(super) fn refs_stay_local(ast: &Ast, container: &[Stmt], idx: usize, name: &str) -> bool {
-    let mut in_container = Occurrences::default();
+    let mut in_container = Occurrences {
+        skip_class_bodies: true,
+        ..Occurrences::default()
+    };
     for (j, s) in container.iter().enumerate() {
         if j != idx {
             in_container.stmt(ast, s, name);

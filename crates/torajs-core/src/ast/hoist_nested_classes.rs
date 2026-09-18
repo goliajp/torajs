@@ -194,6 +194,7 @@ pub(super) fn walk_container(
     // check: they either hoist together or the straggler fails loud
     // in desugar's parent validation.
     let sibling_start = top_names.len();
+    let lifted_start = hoisted.len();
     for s in stmts.iter() {
         if let Stmt::ClassDecl { name, .. } = s {
             top_names.push(name.clone());
@@ -308,7 +309,10 @@ pub(super) fn walk_container(
                     }
                 }
             }
-            super::hoist_nested_classes_rename::rename_in_stmts(ast, stmts, &old_name, &new_name);
+            let lifted = &mut hoisted[lifted_start..];
+            super::hoist_nested_classes_rename::rename_scope(
+                ast, stmts, lifted, &old_name, &new_name,
+            );
             top_names.push(new_name.clone());
             residual = Some(new_name);
         } else {
