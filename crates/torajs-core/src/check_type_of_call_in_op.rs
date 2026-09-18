@@ -70,7 +70,8 @@ pub(crate) fn try_match(
 /// may be anything — a non-Object rhs is the runtime kernel's
 /// §13.10.1 step-5 TypeError, not a compile reject (`#x in 42` must
 /// throw, not fail to build). A unit class's element carries its
-/// class and the running instance (`ast::private_brand`).
+/// class and the running instance (`ast::private_brand`), a static one
+/// the running static `this` (`ast::private_brand_static_in`).
 pub(crate) fn try_match_priv(
     checker: &mut Checker,
     ast: &Ast,
@@ -80,7 +81,7 @@ pub(crate) fn try_match_priv(
     let Expr::Ident(n) = ast.get_expr(*callee) else {
         return None;
     };
-    if n != crate::ast::private_brand::PRIV_IN_OP || !(args.len() == 2 || args.len() == 4) {
+    if n != crate::ast::private_brand::PRIV_IN_OP || !(2..=4).contains(&args.len()) {
         return None;
     }
     for a in &args[1..] {

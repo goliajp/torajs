@@ -105,6 +105,7 @@ pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
     let owner = method_owner(ast, class_index);
     guard_method_sites(ast, &owner);
     guard_in_op_sites(ast, &owner, &field_pos);
+    super::private_brand_static_in::guard_sites(ast);
 }
 
 /// The private methods / accessors (the brand, 0 or 1 position) and

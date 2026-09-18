@@ -272,7 +272,7 @@ pub(crate) fn try_lower_priv(
     let Expr::Ident(n) = ctx.ast.get_expr(callee) else {
         return None;
     };
-    if n != crate::ast::private_brand::PRIV_IN_OP || !(args.len() == 2 || args.len() == 4) {
+    if n != crate::ast::private_brand::PRIV_IN_OP || !(2..=4).contains(&args.len()) {
         return None;
     }
     let Expr::String(key) = ctx.ast.get_expr(args[0]) else {
@@ -294,7 +294,7 @@ pub(crate) fn try_lower_priv(
         cur_block,
         InstKind::Call(
             ctx.intrinsics.any_member_priv_has,
-            vec![boxed, Operand::Value(key_str)],
+            vec![boxed.clone(), Operand::Value(key_str)],
         ),
         Type::Bool,
         None,
@@ -304,6 +304,30 @@ pub(crate) fn try_lower_priv(
     ctx.emit_throw_check(None);
     let r = match args {
         [_, _, class, this] => same_evaluation(ctx, r, &obj_op, *class, *this),
+        // A STATIC element (`ast::private_brand_static_in`): the rhs
+        // has it only when it IS the evaluation's class object, which
+        // the third operand (the static `this`) names. Both sides are
+        // boxed cells by then, so identity is the word compare.
+        [_, _, unit] => {
+            let unit_op = ctx.lower_expr(*unit);
+            let same = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Eq, boxed.clone(), unit_op),
+                Type::Bool,
+                None,
+            );
+            let both = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(
+                    crate::ssa::BinOp::And,
+                    Operand::Value(r),
+                    Operand::Value(same),
+                ),
+                Type::Bool,
+                None,
+            );
+            Operand::Value(both)
+        }
         _ => Operand::Value(r),
     };
     ctx.release_owned_temp(args[1], &obj_op);
