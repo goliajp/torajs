@@ -297,6 +297,18 @@ pub(crate) unsafe fn set_closure_member(
         let own = in_bag
             || (crate::prop_has::key_is(key, b"prototype")
                 && crate::closure_proto::fn_prototype_pair(ptr).is_some());
+        // `fn_prototype_pair` is not a pure read: on a function with
+        // no bag yet it MATERIALIZES the virtual pair — a fresh bag in
+        // the +24 slot holding `prototype → {constructor: F}`. The
+        // `props` read above predates that, and attaching a second bag
+        // over it orphaned the first with its stake on `F`: every
+        // `F.prototype = …` on a fresh function leaked the function
+        // and both bags (1 KB per evaluation of a class with a
+        // runtime-value parent, whose lowering is exactly that write).
+        // `in_bag` keeps its meaning — the entry was not there BEFORE
+        // this write — so the first write still defines with the
+        // virtual pair's attributes, now over the materialized entry.
+        props = *props_slot as *mut c_void;
         if !own
             && let Some(handled) = crate::member_set_dynobj::inherited_set_handled(
                 ptr,
