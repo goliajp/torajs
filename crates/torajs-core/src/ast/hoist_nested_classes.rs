@@ -262,56 +262,9 @@ pub(super) fn walk_container(
         );
         let mut residual: Option<String> = None;
         if collides {
-            let new_name = format!("__hc{}_{}", *counter, old_name);
-            *counter += 1;
-            // The rename is the hoist's, not the program's: `.name`,
-            // the `[class X]` print and the instance's `X { … }` prefix
-            // keep the source spelling, through the same table a named
-            // class expression's binding uses (`class_display_name`).
-            // A class expression that already carries a display name
-            // carries it on. Before this `.name` answered `__hc0_D`.
-            let display = ast
-                .class_expr_display_names
-                .get(&old_name)
-                .cloned()
-                .unwrap_or_else(|| old_name.clone());
-            ast.class_expr_display_names
-                .insert(new_name.clone(), display);
-            // The declaration text (`String(C)`, §20.2.3.5) is keyed
-            // by name too; a renamed class answered "" for it. The
-            // span stays under the old name as well: a program with
-            // two classes so named still has the other one.
-            if let Some(span) = ast.class_decl_spans.get(&old_name).copied() {
-                ast.class_decl_spans.insert(new_name.clone(), span);
-            }
-            // The parser recorded, at the token, that a `this` in a
-            // static body means THIS class — and it recorded it as the
-            // NAME the source used, which `desugar_classes` pass 2
-            // later mints. Renaming without remapping leaves those
-            // sites naming a binding that no longer exists, and
-            // `typeof` of an unresolvable name answers "undefined"
-            // rather than saying so: the class renamed for a collision
-            // starts answering wrong QUIETLY. Only the sites still
-            // registered under the old name move, so a class nested
-            // inside one of these bodies keeps its own.
-            if let Stmt::ClassDecl { static_methods, .. } = &stmts[idx] {
-                let sites: Vec<ExprId> = static_methods
-                    .iter()
-                    .flat_map(|m| super::capturing_classes::this_sites(ast, &m.body))
-                    .collect();
-                for eid in sites {
-                    if ast
-                        .static_this_sites
-                        .get(&eid)
-                        .is_some_and(|c| *c == old_name)
-                    {
-                        ast.static_this_sites.insert(eid, new_name.clone());
-                    }
-                }
-            }
             let lifted = &mut hoisted[lifted_start..];
-            super::hoist_nested_classes_rename::rename_scope(
-                ast, stmts, lifted, &old_name, &new_name,
+            let new_name = super::hoist_nested_classes_rename::apply_collision_rename(
+                ast, stmts, lifted, idx, &old_name, counter,
             );
             top_names.push(new_name.clone());
             residual = Some(new_name);
@@ -331,12 +284,9 @@ pub(super) fn walk_container(
         let binding = residual
             .clone()
             .unwrap_or_else(|| top_names.last().cloned().unwrap_or_default());
-        if unit_shape && super::class_unit::refs_stay_local(ast, stmts, idx, &binding) {
-            let mut cls = std::mem::replace(&mut stmts[idx], Stmt::Multi(Vec::new()));
-            let (slot, unit_fn) = super::class_unit::make_unit(ast, &mut cls, &binding);
-            stmts[idx] = slot;
-            hoisted.push(cls);
-            hoisted.push(unit_fn);
+        if unit_shape
+            && super::hoist_nested_classes_unit::take_unit_lane(ast, stmts, idx, &binding, hoisted)
+        {
             continue;
         }
         let slot = match residual {

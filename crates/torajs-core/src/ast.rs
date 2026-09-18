@@ -201,6 +201,7 @@ mod hoist_nested_classes;
 mod hoist_nested_classes_admit;
 mod hoist_nested_classes_census;
 mod hoist_nested_classes_rename;
+mod hoist_nested_classes_unit;
 mod hoist_nested_classes_walk;
 mod implicit_generics_cb_ret;
 pub(crate) mod implicit_generics_infer;
