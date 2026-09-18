@@ -65,5 +65,11 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    Some(Ok(Type::Undefined))
+    // The super dispatch answers what the parent's constructor did
+    // (§10.2.2 step 13 reads it at the site); the gate answers nothing.
+    Some(Ok(if n == "__torajs_super_value" {
+        Type::Any
+    } else {
+        Type::Undefined
+    }))
 }

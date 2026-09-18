@@ -128,10 +128,11 @@ pub(super) fn rewrite_super_sites(
             // §13.3.7.1 step 5 — SuperCall constructs the parent with
             // the current new.target.
             let nt = ast.add_expr(Expr::NewTarget);
-            ast.exprs[eid.0 as usize] = Expr::Call {
+            let call = Expr::Call {
                 callee,
                 args: vec![p, this, pack, nt],
             };
+            ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call);
             continue;
         }
         // A REAL-class target (405-01 face 2) calls its
@@ -154,10 +155,11 @@ pub(super) fn rewrite_super_sites(
             continue;
         }
         let callee = call_member(ast, &ctor_target, &[]);
-        ast.exprs[eid.0 as usize] = Expr::Call {
+        let call = Expr::Call {
             callee,
             args: this_first(ast, args),
         };
+        ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call);
     }
     for (eid, mname, args) in method_sites {
         let proto_path = ["prototype", mname.as_str()];
@@ -206,6 +208,39 @@ pub(super) fn rewrite_super_prop_sites(
         },
         sites,
     );
+}
+
+/// §10.2.2 step 13 at a `super(…)` site whose call answers a value (a
+/// runtime-value parent, or another class of this lane through
+/// `.call`): an object the parent handed back becomes `this`. The
+/// `this` nodes here are the ones `return_override::reshape` turns
+/// into the constructor's local; the pick stays borrow-shaped for the
+/// reason `ctor_return.rs` records.
+fn adopt_super_answer(ast: &mut Ast, call: Expr) -> Expr {
+    let call_id = ast.add_expr(call);
+    let slot = ast.add_expr(Expr::Ident(super::return_override::SUP.to_string()));
+    let store = ast.add_expr(Expr::Assign {
+        target: slot,
+        value: call_id,
+    });
+    let answer = ast.add_expr(Expr::Ident(super::return_override::SUP.to_string()));
+    let incumbent = ast.add_expr(Expr::This);
+    let picked =
+        super::super::desugar_classes_ctor_return::pick_call(ast, incumbent, answer, false, false);
+    let target = ast.add_expr(Expr::This);
+    let adopt = ast.add_expr(Expr::Assign {
+        target,
+        value: picked,
+    });
+    let seq = ast.add_expr(Expr::Sequence {
+        left: store,
+        right: adopt,
+    });
+    let value = ast.add_expr(Expr::This);
+    Expr::Sequence {
+        left: seq,
+        right: value,
+    }
 }
 
 /// Where `super(…)` against `parent` actually lands (405-01) — the
@@ -301,10 +336,12 @@ pub(super) fn implicit_derived_ctor(
         let this = ast.add_expr(Expr::This);
         let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let nt = ast.add_expr(Expr::NewTarget);
-        ast.add_expr(Expr::Call {
+        let call = Expr::Call {
             callee,
             args: vec![p, this, rest_ref, nt],
-        })
+        };
+        let adopted = adopt_super_answer(ast, call);
+        ast.add_expr(adopted)
     } else if ast.es5_real_parents.contains(&target) {
         // Real-class target — the `__ctorany_<P>` direct call (see
         // `rewrite_super_sites`), spread-forwarding the rest param.
@@ -322,7 +359,8 @@ pub(super) fn implicit_derived_ctor(
         let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
         let args = this_first(ast, vec![spread]);
-        ast.add_expr(Expr::Call { callee, args })
+        let adopted = adopt_super_answer(ast, Expr::Call { callee, args });
+        ast.add_expr(adopted)
     };
     // The annotation is load-bearing: an unannotated rest lowered as
     // scalar `any` (the packing built `__empty_arr__any` instead of

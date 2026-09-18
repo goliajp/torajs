@@ -71,6 +71,7 @@ use super::{Ast, Expr, ExprId, Stmt};
 mod install;
 mod own_binding;
 pub(in crate::ast) mod private_fields;
+mod return_override;
 mod this_sites;
 use decline::decline_reason;
 pub(crate) use decline::{EXPR_HERITAGE_REASON, unclaimed_class_message};
@@ -396,6 +397,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     if let Some(p) = &parent {
         extends::rewrite_super_sites(ast, &body, p, false, &name);
         extends::rewrite_super_prop_sites(ast, &body, p, false, &name);
+        return_override::reshape(ast, &mut body);
     }
     let ctor_eid = ast.add_expr(Expr::ArrowFn {
         params,

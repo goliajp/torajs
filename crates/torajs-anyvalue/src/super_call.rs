@@ -22,10 +22,12 @@
 //! ctor) — the packed shape is what lets one kernel take both without
 //! a spread protocol.
 //!
-//! The twin's return value is void and a function parent's return is
-//! discarded (the ES5 lane keeps the subclass-allocated `this` as the
-//! construction result), so the kernel answers undefined; errors ride
-//! the pending-throw channel.
+//! A function parent's answer is handed back OWNED — the super site
+//! takes §10.2.2 step 13 on it (`torajs-core`
+//! `ast/capturing_classes/return_override.rs`: an object becomes the
+//! subclass's `this`), and until it did, an object the parent returned
+//! was never released. The twin is void, so a class parent answers
+//! undefined; errors ride the pending-throw channel.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -220,22 +222,21 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
             // knife 4): SuperCall is a [[Construct]] with this new.target.
             let face = crate::construct_new_target::ctor_face_entry(entry);
             unsafe {
-                if face != 0 {
-                    let out = crate::construct_new_target::invoke_ctor_face(
+                let out = if face != 0 {
+                    crate::construct_new_target::invoke_ctor_face(
                         env,
                         face,
                         this_v,
                         new_target,
                         elems.as_ptr(),
                         n as i64,
-                    );
-                    crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+                    )
                 } else {
-                    invoke_with_this(env, entry, this_v, elems.as_ptr(), n as i64);
-                }
+                    invoke_with_this(env, entry, this_v, elems.as_ptr(), n as i64)
+                };
+                release(elems);
+                return out;
             }
-            release(elems);
-            return VALUE_UNDEFINED;
         }
     }
     release(elems);
