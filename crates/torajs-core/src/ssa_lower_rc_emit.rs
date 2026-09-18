@@ -151,9 +151,20 @@ impl<'a> LowerCtx<'a> {
             // undef immediate whose drop no-ops), per the chunk-705
             // contract; it was missing from this predicate, so a
             // discarded / printed `f?.()` result had no release site.
-            Expr::Call { .. } | Expr::New { .. } | Expr::Closure { .. } | Expr::OptCall { .. } => {
-                true
-            }
+            // A `new` whose constructor is an expression
+            // (`ssa_lower_new_dynamic`) answers the constructed object
+            // owned exactly like the named form; it was missing from
+            // this list, so a temporary `new K().x` / `new K().m()`
+            // receiver over an `any` constructor had no release site
+            // — every instance leaked (200k churn 15 MB vs 1.5 MB
+            // flat), and for a unit class each leaked instance pinned
+            // its evaluation's class object, prototype and faces
+            // (175 MB).
+            Expr::Call { .. }
+            | Expr::New { .. }
+            | Expr::NewDynamic { .. }
+            | Expr::Closure { .. }
+            | Expr::OptCall { .. } => true,
             // Rotation 325 — a short-circuit `&&` / `||` join is a
             // borrow UNLESS its lowering unified the arms to owned
             // (an owned any-member read rode into the slot — see
