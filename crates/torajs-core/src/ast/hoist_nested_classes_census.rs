@@ -78,6 +78,71 @@ pub(super) fn admit_top_root_real_classes(
     }
 }
 
+/// The program's declaration census the hoist walk reads: how many
+/// ClassDecls carry each name (the collision-rename and top-root
+/// gates), and which names some OTHER kind of binding declares (the
+/// unit-class rename — see `walk_container`).
+#[derive(Default)]
+pub(super) struct NameCensus {
+    pub(super) classes: std::collections::HashMap<String, u32>,
+    pub(super) bindings: std::collections::HashMap<String, u32>,
+}
+
+/// Count every `let` / `const` / `var`, `function` and for-of binding
+/// name in `s`, recursively — the same containers
+/// [`count_class_decl_names`] descends, plus class member bodies.
+pub(super) fn count_binding_decl_names(s: &Stmt, out: &mut std::collections::HashMap<String, u32>) {
+    match s {
+        Stmt::LetDecl { name, .. } | Stmt::FnDecl { name, .. } => {
+            *out.entry(name.clone()).or_insert(0) += 1;
+        }
+        Stmt::ForOf { var_name, .. } => {
+            *out.entry(var_name.clone()).or_insert(0) += 1;
+        }
+        _ => {}
+    }
+    match s {
+        Stmt::FnDecl { body, .. } => {
+            for cs in body {
+                count_binding_decl_names(cs, out);
+            }
+        }
+        Stmt::ClassDecl {
+            ctor,
+            methods,
+            static_methods,
+            static_init,
+            ..
+        } => {
+            if let Some(c) = ctor {
+                for cs in &c.body {
+                    count_binding_decl_names(cs, out);
+                }
+            }
+            for m in methods.iter().chain(static_methods.iter()) {
+                for ms in &m.body {
+                    count_binding_decl_names(ms, out);
+                }
+            }
+            for si in static_init {
+                if let StaticInit::Block(v) = si {
+                    for vs in v {
+                        count_binding_decl_names(vs, out);
+                    }
+                }
+            }
+        }
+        Stmt::ExportDecl {
+            inner: Some(inner), ..
+        } => count_binding_decl_names(inner, out),
+        _ => {
+            for cs in super::desugar_with::walk::stmt_children_ref(s) {
+                count_binding_decl_names(cs, out);
+            }
+        }
+    }
+}
+
 pub(super) fn count_class_decl_names(s: &Stmt, out: &mut std::collections::HashMap<String, u32>) {
     if let Stmt::ClassDecl {
         name,

@@ -49,19 +49,27 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
     // name provably has one owner. Counted once here, where the whole
     // tree is still in hand; the lane mints fresh fn-exprs, never
     // fresh ClassDecls, so the census cannot go stale mid-walk.
-    let mut name_counts: std::collections::HashMap<String, u32> = std::collections::HashMap::new();
+    let mut name_counts = super::hoist_nested_classes_census::NameCensus::default();
     for s in &ast.stmts {
-        super::hoist_nested_classes_census::count_class_decl_names(s, &mut name_counts);
+        super::hoist_nested_classes_census::count_class_decl_names(s, &mut name_counts.classes);
+        super::hoist_nested_classes_census::count_binding_decl_names(s, &mut name_counts.bindings);
     }
     for e in &ast.exprs {
         if let super::Expr::ArrowFn { body, .. } = e {
             for s in body {
-                super::hoist_nested_classes_census::count_class_decl_names(s, &mut name_counts);
+                super::hoist_nested_classes_census::count_class_decl_names(
+                    s,
+                    &mut name_counts.classes,
+                );
+                super::hoist_nested_classes_census::count_binding_decl_names(
+                    s,
+                    &mut name_counts.bindings,
+                );
             }
         }
     }
 
-    super::hoist_nested_classes_census::admit_top_root_real_classes(ast, &name_counts);
+    super::hoist_nested_classes_census::admit_top_root_real_classes(ast, &name_counts.classes);
 
     let mut hoisted: Vec<Stmt> = Vec::new();
     let mut counter: u32 = 0;
@@ -86,7 +94,7 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
                 &mut stmts,
                 idx,
                 &mut counter,
-                &name_counts,
+                &name_counts.classes,
             );
         }
     }
@@ -159,7 +167,7 @@ pub(super) fn walk_container(
     top_names: &mut Vec<String>,
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
-    name_counts: &std::collections::HashMap<String, u32>,
+    name_counts: &super::hoist_nested_classes_census::NameCensus,
     multi_eval: bool,
 ) {
     // A `Multi` holding a ClassDecl is the parse_stmt wrapper's
@@ -213,7 +221,11 @@ pub(super) fn walk_container(
         let observable = class_evaluation_is_observable(ast, &stmts[idx]);
         if !class_is_capture_free(ast, &stmts[idx], top_names)
             || (observable
-                && super::capturing_classes::decline::would_claim(ast, &stmts[idx], name_counts))
+                && super::capturing_classes::decline::would_claim(
+                    ast,
+                    &stmts[idx],
+                    &name_counts.classes,
+                ))
         {
             // The other half: a class that DOES read an outer local
             // cannot be lifted, and takes the runtime-value lane
@@ -224,7 +236,7 @@ pub(super) fn walk_container(
                 stmts,
                 idx,
                 counter,
-                name_counts,
+                &name_counts.classes,
             );
             continue;
         }
@@ -241,7 +253,18 @@ pub(super) fn walk_container(
         // for the class's own occurrence, so count duplicates.
         let collides = top_names.iter().filter(|n| **n == old_name).count() > 1
             || top_names[..sibling_start].contains(&old_name)
-            || (unit_shape && name_counts.get(&old_name).copied().unwrap_or(0) > 1);
+            || (unit_shape
+                && (name_counts.classes.get(&old_name).copied().unwrap_or(0) > 1
+                    // A `let` / `function` / for-of binding of the same
+                    // name anywhere else in the program — `const K =
+                    // outer()` in the loop that evaluates `outer` —
+                    // is a different binding, but the census below is
+                    // keyed by name and would count its readers as
+                    // this class's outside references (`new K()` in
+                    // that loop kept the class shared, rotation 667).
+                    // The rename gives the census a name only this
+                    // class answers to.
+                    || name_counts.bindings.contains_key(&old_name)));
         let mut residual: Option<String> = None;
         if collides {
             let new_name = format!("__hc{}_{}", *counter, old_name);
@@ -259,6 +282,13 @@ pub(super) fn walk_container(
                 .unwrap_or_else(|| old_name.clone());
             ast.class_expr_display_names
                 .insert(new_name.clone(), display);
+            // The declaration text (`String(C)`, §20.2.3.5) is keyed
+            // by name too; a renamed class answered "" for it. The
+            // span stays under the old name as well: a program with
+            // two classes so named still has the other one.
+            if let Some(span) = ast.class_decl_spans.get(&old_name).copied() {
+                ast.class_decl_spans.insert(new_name.clone(), span);
+            }
             // The parser recorded, at the token, that a `this` in a
             // static body means THIS class — and it recorded it as the
             // NAME the source used, which `desugar_classes` pass 2

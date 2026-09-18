@@ -17,7 +17,7 @@ pub(super) fn walk_child(
     top_names: &mut Vec<String>,
     hoisted: &mut Vec<Stmt>,
     counter: &mut u32,
-    name_counts: &std::collections::HashMap<String, u32>,
+    name_counts: &super::hoist_nested_classes_census::NameCensus,
     multi_eval: bool,
 ) {
     match s {
