@@ -63,33 +63,20 @@ impl<'a> LowerCtx<'a> {
                         info.moved = true;
                     }
                 }
-                Expr::BinOp { op, left, right } => {
-                    // Chunk 718 — a BinOp answers a FRESH value
-                    // (arithmetic, concat, fresh any box), never an
-                    // alias of an Index receiver's heap. Descending
-                    // into an Index operand marked its receiver moved
-                    // and stranded the whole container per call
-                    // (`return a[0] + a[1]` leaked the array — probe
-                    // p717b 42.8MB vs 6.4MB flat, chunk-674 residual
-                    // face).
+                Expr::BinOp { .. } => {
+                    // Chunk 718 — an arithmetic / concat / comparison
+                    // BinOp answers a FRESH value, never an alias of an
+                    // operand's heap. Descending marked the operand
+                    // moved and stole a drop nobody replaced (`return
+                    // a[0] + a[1]` leaked the array — probe p717b
+                    // 42.8MB vs 6.4MB flat; `return cap + "!"` one
+                    // string per call, 13.2MB vs 6.7MB, rotation 460).
                     //
-                    // Rotation 460 — "fresh" is the whole answer for
-                    // every operator EXCEPT the two short-circuiting
-                    // ones: `a && b` / `a || b` hand back one OPERAND,
-                    // so those keep the conservative walk while the
-                    // rest stop here. `return cap + "!"` for a local
-                    // `cap` leaked one string per call — the concat
-                    // allocates and the operand read only borrows, so
-                    // the moved mark stole a drop nobody replaced
-                    // (13.2MB vs 6.7MB flat over 200k).
-                    if !matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr) {
-                        continue;
-                    }
-                    for side in [left, right] {
-                        if !matches!(self.ast.get_expr(side), Expr::Index { .. }) {
-                            stack.push(side);
-                        }
-                    }
+                    // The two short-circuiting operators hand back one
+                    // OPERAND instead, which makes them joins like
+                    // `?:` (see the Ternary arm): which operand leaves
+                    // is a run-time fact, so neither takes the moved
+                    // mark and the return site retains the answer.
                 }
                 Expr::Unary { expr, .. } | Expr::TypeOf { expr } | Expr::Spread { expr } => {
                     stack.push(expr);
@@ -159,19 +146,20 @@ impl<'a> LowerCtx<'a> {
                     // a local is the only consumable shape here, and
                     // that is precisely the one the store retains.
                 }
-                Expr::Ternary {
-                    cond,
-                    then_branch,
-                    else_branch,
-                } => {
+                Expr::Ternary { cond, .. } => {
+                    // A join hands back ONE of its arms, decided at
+                    // run time, and a moved mark is a compile-time
+                    // fact: marking both arms' locals skipped the
+                    // scope drop of whichever one was NOT returned
+                    // (`return c ? r : a` stranded one cell per call,
+                    // 59 MB vs 1.6 MB flat over 200k — the shape every
+                    // `__fnctor_` factory returns through). The arms
+                    // keep their drops; `lower_return_value` retains
+                    // the join's answer instead.
                     stack.push(cond);
-                    stack.push(then_branch);
-                    stack.push(else_branch);
                 }
-                Expr::Nullish { lhs, rhs } => {
-                    stack.push(lhs);
-                    stack.push(rhs);
-                }
+                // `a ?? b` — same join, same reason.
+                Expr::Nullish { .. } => {}
                 Expr::New { .. } => {
                     // RFC 20260705 owned-result invariant: a New
                     // result is a fresh owned allocation; ctor args

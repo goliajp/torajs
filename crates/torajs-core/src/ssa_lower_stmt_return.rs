@@ -133,6 +133,21 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     if needs_retain {
         ctx.emit_rc_inc(v.clone());
     }
+    // A join (`?:`, `??`, `&&`, `||`) over borrows answers a borrow of
+    // whichever arm ran, and the consume walk marks none of the arms'
+    // locals moved (it cannot know which one leaves). The caller owns
+    // every return value, so the answer takes its own stake here and
+    // both arms keep their scope drops. A join its lowering already
+    // unified to owned (`expr_transfers_ownership`) carries that stake.
+    let is_join = matches!(
+        ctx.ast.get_expr(src_eid),
+        Expr::Ternary { .. } | Expr::Nullish { .. }
+    ) || matches!(ctx.ast.get_expr(src_eid), Expr::BinOp { op, .. }
+        if matches!(op, crate::ast::BinOp::LAnd | crate::ast::BinOp::LOr));
+    if is_join && !ctx.expr_transfers_ownership(src_eid) {
+        let ty = ctx.operand_ty(&v);
+        ctx.emit_owned_result_inc(v.clone(), ty);
+    }
     // RFC 20260708-closure-argv-face (generalized chunk 674) —
     // `return a[i]` where `a` is a local Arr<Any> hands back a
     // box BORROWING the array's elem stake (get_any_boxed is a
