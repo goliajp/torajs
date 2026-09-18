@@ -26,8 +26,9 @@
 //! takes §10.2.2 step 13 on it (`torajs-core`
 //! `ast/capturing_classes/return_override.rs`: an object becomes the
 //! subclass's `this`), and until it did, an object the parent returned
-//! was never released. The twin is void, so a class parent answers
-//! undefined; errors ride the pending-throw channel.
+//! was never released. A class parent's twin answers the same way
+//! (what its body returned, else the receiver). Errors ride the
+//! pending-throw channel.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicU64, Ordering};
@@ -209,11 +210,11 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
                 full[0] = this_v;
                 full[1] = new_target;
                 full[2..2 + n].copy_from_slice(elems);
-                unsafe {
-                    invoke_boxed(core::ptr::null_mut(), entry, full.as_ptr(), (n + 2) as i64);
-                }
+                let out = unsafe {
+                    invoke_boxed(core::ptr::null_mut(), entry, full.as_ptr(), (n + 2) as i64)
+                };
                 release(elems);
-                return VALUE_UNDEFINED;
+                return out;
             }
         }
         if let Some((env, entry)) = unsafe { closure_boxed_entry(parent) } {

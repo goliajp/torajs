@@ -24,9 +24,9 @@
 //! `extends::adopt_super_answer` writes the sequence with `this`
 //! nodes; [`reshape`] then turns every `this` of the constructor's own
 //! function into the local — arrows ride along (lexical `this`), a
-//! nested `function` / class keeps its own. Nothing moves when no
-//! super site answers a value (a real-class parent's `__ctorany_` twin
-//! is void).
+//! nested `function` / class keeps its own. All three super paths
+//! answer a value: a runtime-value parent, another class of this lane
+//! through `.call`, and a real class through its `__ctorany_` twin.
 //!
 //! Unlike the real lane, the `new` that runs this function picks
 //! against the object IT allocated, so the returns are rewritten too:

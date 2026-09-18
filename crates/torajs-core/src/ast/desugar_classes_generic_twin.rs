@@ -190,11 +190,12 @@ pub(in crate::ast) fn mint_static_generic_twin(
 /// (`__this, __new_target, …user`), every param typed `any` so
 /// field writes lower through the any-member lane.
 ///
-/// The admit is confined to ROOT classes, so the body carries no
-/// super form and `restore_dynamic_calls` can only be asked to
-/// restore member-call shapes it has records for; a dropped restore
-/// still neutralizes defensively (the subclass's call then fails
-/// loudly on the missing name — never silently).
+/// A derived parent's twin reaches ITS parent through the retargeted
+/// super call (`retarget_super_ctor_twin_calls`), so a chain lands
+/// twin to twin. `restore_dynamic_calls` can only be asked to restore
+/// member-call shapes it has records for; a dropped restore still
+/// neutralizes defensively (the subclass's call then fails loudly on
+/// the missing name — never silently).
 pub(in crate::ast) fn mint_ctor_generic_twin(
     ast: &mut Ast,
     cname: &str,
@@ -235,11 +236,34 @@ pub(in crate::ast) fn mint_ctor_generic_twin(
         default: p.default.map(|d| cloner.clone_expr(d)),
         is_rest: p.is_rest,
     }));
+    // §10.2.2 step 13 — the twin answers like the mono constructor of
+    // a return-override chain does: whatever the body returns, else
+    // the receiver it ran on. Its caller is a `super(…)` site of the
+    // runtime-value lane (directly, or through
+    // `__torajs_anyv_super_call`), which adopts an object answer as
+    // the derived `this` — a void twin dropped `constructor(o) {
+    // return o }` on the floor.
+    // A derived member of a return-override chain cloned its mono
+    // body's field carry, which reads `__this_in` — there the
+    // parameter that keeps naming the object the factory minted. Here
+    // that object is whatever the twin was called on.
+    let recv = cloner.ast.add_expr(Expr::Ident("__this".into()));
+    cloned_body.insert(
+        0,
+        Stmt::LetDecl {
+            mutable: false,
+            name: "__this_in".into(),
+            type_ann: Some("any".into()),
+            init: recv,
+            is_var: false,
+        },
+    );
+    super::desugar_classes_ctor_return::answering_frame(cloner.ast, &mut cloned_body, 1);
     appended.push(Stmt::FnDecl {
         name: format!("__ctorany_{cname}"),
         type_params: Vec::new(),
         params,
-        return_type: Some("void".into()),
+        return_type: Some("any".into()),
         body: cloned_body,
         is_generator: false,
         span: crate::lexer::Span { start: 0, end: 0 },

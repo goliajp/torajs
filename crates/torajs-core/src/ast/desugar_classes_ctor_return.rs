@@ -125,6 +125,16 @@ pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<S
             is_var: false,
         },
     );
+    answering_frame(ast, body, 1);
+    "any".to_string()
+}
+
+/// The two pieces of the answering shape that do not depend on how the
+/// receiver arrives: the `__sup` slot at `at`, and the tail `return
+/// __this`. Shared with the receiver-polymorphic `__ctorany_` twin
+/// (`desugar_classes_generic_twin`), whose `__this` is already an
+/// `any` parameter and needs no local in front of it.
+pub(super) fn answering_frame(ast: &mut Ast, body: &mut Vec<Stmt>, at: usize) {
     // A slot for what `super(…)` answered. Binding the parent
     // constructor's result to a LOCAL before the pick reads it is not
     // cosmetic: the SSA emits a release for a local holding a call's
@@ -136,7 +146,7 @@ pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<S
     // the body, each assignment releasing what the last one left.
     let undef = ast.add_expr(Expr::Ident("undefined".into()));
     body.insert(
-        1,
+        at,
         Stmt::LetDecl {
             mutable: true,
             name: "__sup".into(),
@@ -147,7 +157,6 @@ pub(super) fn reshape_ctor(ast: &mut Ast, params: &mut [Param], body: &mut Vec<S
     );
     let tail = ast.add_expr(Expr::Ident("__this".into()));
     body.push(Stmt::Return(Some(tail)));
-    "any".to_string()
 }
 
 /// `__torajs_ctor_ret_value(incumbent, candidate, derived)` — the

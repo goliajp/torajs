@@ -151,7 +151,8 @@ pub(super) fn rewrite_super_sites(
             let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
             let mut full = vec![this, nt];
             full.extend(args);
-            ast.exprs[eid.0 as usize] = Expr::Call { callee, args: full };
+            let call = Expr::Call { callee, args: full };
+            ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call);
             continue;
         }
         let callee = call_member(ast, &ctor_target, &[]);
@@ -350,10 +351,12 @@ pub(super) fn implicit_derived_ctor(
         let nt = ast.add_expr(Expr::Ident("undefined".to_string()));
         let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
-        ast.add_expr(Expr::Call {
+        let call = Expr::Call {
             callee,
             args: vec![this, nt, spread],
-        })
+        };
+        let adopted = adopt_super_answer(ast, call);
+        ast.add_expr(adopted)
     } else {
         let callee = call_member(ast, &target, &[]);
         let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
