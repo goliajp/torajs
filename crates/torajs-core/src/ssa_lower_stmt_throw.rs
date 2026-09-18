@@ -36,9 +36,9 @@
 //!   and rc_inc's the inner payload so the source-binding drop
 //!   doesn't release it before catch reads it.
 //! - `Ptr` const-null → tag 0, payload 0.
-//! - refcounted → ANY_HEAP=4; if source ident is borrowed, retain
-//!   (`emit_rc_inc`) before forwarding so throw_value carries its
-//!   own +1.
+//! - refcounted → ANY_HEAP=4; a binding or any other borrow-shaped
+//!   read retains (`emit_rc_inc`) before forwarding so the throw slot
+//!   carries its own +1 — a throw never moves a local (see `lower`).
 //! - Fallback → tag 4, value as-is (matches pre-P4.7 behaviour for
 //!   unusual operand types).
 
@@ -61,13 +61,15 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
     while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
         src_eid = *expr;
     }
-    // Chunk 752 — same Copy-result gate as the Return site: a thrown
-    // scalar packs by value into the throw slot and cannot alias any
-    // local's heap (`throw v.length` stranded v — probe vT 15.97MB
-    // vs 6.37MB flat).
-    if !v_ty.is_copy() {
-        ctx.consume_all_idents_in_return(src_eid);
-    }
+    // A throw never MOVES a local into the throw slot — the slot takes
+    // its own stake (below) and every binding keeps its drop. A moved
+    // mark is a compile-time flag on the binding, and a throw is
+    // almost always conditional: `const e = new Error(…); if (bad)
+    // throw e; return 1;` skipped `e`'s drop on the path that never
+    // threw (43.7 MB vs 1.6 MB flat over 200k; 156 MB in a loop), and
+    // when the thrown local lives in a frame that SURVIVES the jump
+    // (declared outside the `try`) no single flag value is right for
+    // both the path through the catch and the path around it.
     let is_undef = matches!(
         ctx.expr_types.get(&eid),
         Some(crate::check::Type::Undefined)
@@ -128,17 +130,22 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
                     Type::I64,
                     None,
                 );
+                // The slot now holds its own stake, so an owned box
+                // (`throw mk()` answering `any`) is released here; a
+                // binding or a borrow is not a temp and rides through.
+                ctx.release_owned_temp(src_eid, &v);
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
             Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
                 (Operand::ConstI64(0), Operand::ConstI64(0))
             }
             _ if v_ty.is_refcounted() => {
-                let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(src_eid) {
-                    ctx.locals.get(name).is_some_and(|info| info.borrowed)
-                } else {
-                    false
-                };
+                // Any read that does not already hand its reference
+                // over — a binding (owned or borrowed), a member or
+                // element read — is a borrow the slot must not keep
+                // bare; a call / `new` / literal result transfers.
+                let needs_retain = matches!(ctx.ast.get_expr(src_eid), Expr::Ident(_))
+                    || !ctx.expr_transfers_ownership(src_eid);
                 if needs_retain {
                     ctx.emit_rc_inc(v.clone());
                 }
