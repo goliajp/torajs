@@ -416,8 +416,11 @@ pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void)
 /// §7.3.22 steps 3 and 6-7 — is `pval` on O's [[Prototype]] chain?
 ///
 /// O must be an Object (step 3, non-objects answer false); the walk
-/// compares cell identity (the proto getter answers borrows /
-/// immortal singletons — nothing to release).
+/// compares cell identity. The proto getter answers an OWNED
+/// reference (`share_proto`, `dynobj_entry`), so each hop is released
+/// once the next one is read: keeping them leaked one reference per
+/// mortal prototype per `instanceof` that walked it, which pinned the
+/// constructor behind it for good.
 ///
 /// # Safety
 /// `v` is a valid AnyValue; `pval` is a heap cell address.
@@ -428,10 +431,17 @@ pub(crate) unsafe fn proto_chain_reaches(v: AnyValue, pval: u64) -> bool {
         }
         let mut cur = __torajs_anyv_get_proto_of_any(v);
         while cur != crate::nanbox::VALUE_NULL && cur != 0 {
-            if is_cell(cur) && as_void_ptr(cur) as u64 == pval {
+            let reached = is_cell(cur) && as_void_ptr(cur) as u64 == pval;
+            let next = if reached {
+                0
+            } else {
+                __torajs_anyv_get_proto_of_any(cur)
+            };
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(cur);
+            if reached {
                 return true;
             }
-            cur = __torajs_anyv_get_proto_of_any(cur);
+            cur = next;
         }
         false
     }
