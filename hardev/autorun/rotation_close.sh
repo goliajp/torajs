@@ -46,6 +46,10 @@ cd "$REPO" 2>/dev/null || { echo "rotation_close: cannot cd $REPO" >&2; exit 2; 
   echo "rotation_close: $REPO is not the torajs repo (no Cargo.toml / release-build.sh)" >&2
   exit 2; }
 echo "repo=$REPO head=$H"
+# A previous round's step logs must not be mistaken for this one's
+# (rotation 669 read last round's gmalloc summary as this round's and
+# killed a running sweep's workers on the strength of it).
+rm -f /tmp/rc-*.log
 rc=0
 note() { printf '\n=== %s ===\n' "$1"; }
 

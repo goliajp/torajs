@@ -33,6 +33,8 @@ unsafe extern "C" {
     fn __torajs_weakmap_has(p: *mut c_void, key: *mut c_void) -> i64;
     fn __torajs_weak_key_from_any(av: u64) -> *mut c_void;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-meta — [[IsExtensible]] of any object value.
+    fn __torajs_anyv_is_extensible(obj_any: u64) -> bool;
 }
 
 /// The table, and the weak-collection kernels the readers call through.
@@ -136,15 +138,26 @@ pub(crate) unsafe fn foreign_set(recv: AnyValue, key: *const c_void, value: AnyV
 
 /// §7.3.32 PrivateFieldAdd / §7.3.33 PrivateMethodOrAccessorAdd onto an
 /// object the class did not mint: adding an element the object already
-/// holds is the TypeError. `value` is borrowed; a value that cannot be
-/// held weakly as a key never reaches here (the caller adopted it as
-/// an object).
+/// holds is the TypeError, and so is adding one to a non-extensible
+/// object (proposal nonextensible-applies-to-private, step 1 of both —
+/// a frozen object, a module namespace: the return-override trick may
+/// not stamp them). `value` is borrowed; a value that cannot be held
+/// weakly as a key never reaches here (the caller adopted it as an
+/// object).
 ///
 /// # Safety
 /// `key` is a live Str cell.
 pub(crate) unsafe fn foreign_add(recv: AnyValue, key: *const c_void, value: AnyValue) {
     let k = unsafe { __torajs_weak_key_from_any(recv) };
     if k.is_null() {
+        return;
+    }
+    if !unsafe { __torajs_anyv_is_extensible(recv) } {
+        unsafe {
+            __torajs_throw_type_error(
+                c"cannot add a private element to a non-extensible object".as_ptr(),
+            )
+        };
         return;
     }
     let t = match table() {
