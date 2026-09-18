@@ -96,10 +96,17 @@ fn lower_return_value(ctx: &mut LowerCtx, eid: crate::ast::ExprId) -> Operand {
     while let Expr::As { expr, .. } = ctx.ast.get_expr(src_eid) {
         src_eid = *expr;
     }
+    // A return routed through a `finally` parks its value and leaves;
+    // the frames outside the try are released at the finally tail, ONE
+    // site shared by every return that came through it. A moved mark
+    // cannot serve that site (it is right for one of those returns and
+    // wrong for the rest), so such a return retains an owned local
+    // instead of moving it and `lower` undoes the mark.
+    let through_finally = !ctx.try_finally_stack.is_empty();
     let needs_retain = if let Expr::Ident(name) = ctx.ast.get_expr(src_eid) {
-        ctx.locals
-            .get(name)
-            .is_some_and(|info| info.borrowed && info.ty.is_refcounted())
+        ctx.locals.get(name).is_some_and(|info| {
+            info.ty.is_refcounted() && (info.borrowed || (through_finally && !info.moved))
+        })
             // Rotation 326 — an escape-boxed binding in its
             // OWNING frame (`info.borrowed == false`; the box
             // holds the payload's stake). Reading the ident
@@ -163,6 +170,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         .filter(|(_, info)| !info.moved)
         .map(|(name, _)| name.clone())
         .collect();
+    let root_is_ident = maybe.is_some_and(|mut eid| {
+        while let Expr::As { expr, .. } = ctx.ast.get_expr(eid) {
+            eid = *expr;
+        }
+        matches!(ctx.ast.get_expr(eid), Expr::Ident(_))
+    });
     let ret_operand = maybe.map(|eid| lower_return_value(ctx, eid));
     // §7.4.9 on the way out of every enclosing for-of. `break` gets
     // this from the loop's exit block; a return never reaches that
@@ -264,6 +277,20 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(true), Operand::Value(flag), 0),
         );
+        // A bare binding was retained, not moved (`lower_return_value`),
+        // so its mark comes off BEFORE the drops below — a local of the
+        // try body dies right here with its frame, one of an outer
+        // frame at the finally tail: `try { if (c) return s; return t;
+        // } finally {}` stranded whichever of the two the tail's shared
+        // drop site saw marked (7.9 MB vs 1.6 MB flat). Other shapes
+        // keep their marks — nothing was retained for them.
+        if root_is_ident {
+            for name in unmoved {
+                if let Some(info) = ctx.locals.get_mut(&name) {
+                    info.moved = false;
+                }
+            }
+        }
         // RFC 20260901-scope-exit-drops — the value is parked, so the
         // frames inside the try body (or catch) die now; the frames
         // between the finally and the fn boundary are the finally
@@ -276,9 +303,6 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
     ctx.emit_drops_for_owned_locals();
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, Terminator::Ret(coerced));
-    // Not on the finally hand-off above: the frames outside the try
-    // are released by the finally tail, one site shared by every
-    // return routed through it, which still needs the mark.
     for name in unmoved {
         if let Some(info) = ctx.locals.get_mut(&name) {
             info.moved = false;
