@@ -51,6 +51,9 @@ pub(super) fn admit_top_root_real_classes(
             // it out of the table entirely (mapping it to None would
             // mis-admit it as a root).
             let pn = ast.parent_ident_name(*parent).map(str::to_string);
+            if pn.is_some() {
+                ast.es5_derived_parents.insert(name.clone());
+            }
             if parent.is_none() || pn.is_some() {
                 cand.insert(name.clone(), pn);
             }

@@ -718,6 +718,16 @@ pub struct Ast {
     /// receiver at baked struct offsets a dynobj instance never
     /// has).
     pub es5_real_parents: std::collections::HashSet<String>,
+    /// The constructors a capturing subclass's `super(…)` may land on
+    /// that are themselves DERIVED (carry an `extends` clause): the
+    /// hoist's entry scan records every real-class candidate with a
+    /// named parent, the lane's admit its own siblings. A super site
+    /// is where the PARENT's §10.2.2 step 13 runs (`ctor_return.rs`),
+    /// and step 13.c — a non-object, non-undefined answer is a
+    /// TypeError — is gated on the parent being derived. Read before
+    /// `class_parents` exists (the hoist runs first), which is why it
+    /// is not derived from that table.
+    pub es5_derived_parents: std::collections::HashSet<String>,
     /// RFC 20260815 knife 2a — the minted `__ccp<N>` bindings holding
     /// an extracted non-Ident heritage expression (`class K extends
     /// f() {}` → `let __ccp0: any = f()`). The capturing lane admits a

@@ -60,7 +60,13 @@ pub(super) fn record_claim_tables(ast: &mut Ast, s: &Stmt, new: &str, self_targe
         // through the container's cannot redirect a `super(…)`.
         _ => self_target.to_string(),
     };
-    ast.es5_ctor_forward.insert(new.to_string(), target);
+    ast.es5_ctor_forward.insert(new.to_string(), target.clone());
+    // A sibling with its own ctor and a parent is a derived
+    // constructor: a subclass's `super(…)` lands on `target` and runs
+    // this class's step 13 there.
+    if ctor.is_some() && parent.is_some() {
+        ast.es5_derived_parents.insert(target);
+    }
     if let Some(p) = &parent {
         let landing = ast.es5_ctor_forward.get(p).cloned().unwrap_or(p.clone());
         for n in [p, &landing] {
@@ -132,7 +138,10 @@ pub(super) fn rewrite_super_sites(
                 callee,
                 args: vec![p, this, pack, nt],
             };
-            ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call);
+            // A value-shaped parent's kind is a runtime fact this
+            // desugar cannot read (recorded residue: its step 13.c
+            // TypeError is missed).
+            ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call, false);
             continue;
         }
         // A REAL-class target (405-01 face 2) calls its
@@ -152,7 +161,8 @@ pub(super) fn rewrite_super_sites(
             let mut full = vec![this, nt];
             full.extend(args);
             let call = Expr::Call { callee, args: full };
-            ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call);
+            let derived = ast.es5_derived_parents.contains(&ctor_target);
+            ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call, derived);
             continue;
         }
         let callee = call_member(ast, &ctor_target, &[]);
@@ -160,7 +170,8 @@ pub(super) fn rewrite_super_sites(
             callee,
             args: this_first(ast, args),
         };
-        ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call);
+        let derived = ast.es5_derived_parents.contains(&ctor_target);
+        ast.exprs[eid.0 as usize] = adopt_super_answer(ast, call, derived);
     }
     for (eid, mname, args) in method_sites {
         let proto_path = ["prototype", mname.as_str()];
@@ -217,7 +228,11 @@ pub(super) fn rewrite_super_prop_sites(
 /// `this` nodes here are the ones `return_override::reshape` turns
 /// into the constructor's local; the pick stays borrow-shaped for the
 /// reason `ctor_return.rs` records.
-fn adopt_super_answer(ast: &mut Ast, call: Expr) -> Expr {
+///
+/// `derived` names the PARENT whose constructor the call runs: step
+/// 13.c refuses a non-object, non-undefined answer only for a derived
+/// one (`Ast::es5_derived_parents`).
+fn adopt_super_answer(ast: &mut Ast, call: Expr, derived: bool) -> Expr {
     let call_id = ast.add_expr(call);
     let slot = ast.add_expr(Expr::Ident(super::return_override::SUP.to_string()));
     let store = ast.add_expr(Expr::Assign {
@@ -226,8 +241,9 @@ fn adopt_super_answer(ast: &mut Ast, call: Expr) -> Expr {
     });
     let answer = ast.add_expr(Expr::Ident(super::return_override::SUP.to_string()));
     let incumbent = ast.add_expr(Expr::This);
-    let picked =
-        super::super::desugar_classes_ctor_return::pick_call(ast, incumbent, answer, false, false);
+    let picked = super::super::desugar_classes_ctor_return::pick_call(
+        ast, incumbent, answer, derived, false,
+    );
     let target = ast.add_expr(Expr::This);
     let adopt = ast.add_expr(Expr::Assign {
         target,
@@ -341,7 +357,7 @@ pub(super) fn implicit_derived_ctor(
             callee,
             args: vec![p, this, rest_ref, nt],
         };
-        let adopted = adopt_super_answer(ast, call);
+        let adopted = adopt_super_answer(ast, call, false);
         ast.add_expr(adopted)
     } else if ast.es5_real_parents.contains(&target) {
         // Real-class target — the `__ctorany_<P>` direct call (see
@@ -355,14 +371,16 @@ pub(super) fn implicit_derived_ctor(
             callee,
             args: vec![this, nt, spread],
         };
-        let adopted = adopt_super_answer(ast, call);
+        let derived = ast.es5_derived_parents.contains(&target);
+        let adopted = adopt_super_answer(ast, call, derived);
         ast.add_expr(adopted)
     } else {
         let callee = call_member(ast, &target, &[]);
         let rest_ref = ast.add_expr(Expr::Ident(REST_ARGS.to_string()));
         let spread = ast.add_expr(Expr::Spread { expr: rest_ref });
         let args = this_first(ast, vec![spread]);
-        let adopted = adopt_super_answer(ast, Expr::Call { callee, args });
+        let derived = ast.es5_derived_parents.contains(&target);
+        let adopted = adopt_super_answer(ast, Expr::Call { callee, args }, derived);
         ast.add_expr(adopted)
     };
     // The annotation is load-bearing: an unannotated rest lowered as
