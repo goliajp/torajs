@@ -1681,7 +1681,35 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `606dcdd3f`** (2026-09-13, rotation 642 — RFC 20260805 async
+**Latest @ `5c8d47917`** (2026-09-18, rotations 643–665 — the
+accounting here lapsed for twenty-two rotations; this entry closes the
+gap from the sweep stamps in `hardev/test262-latest.json` and the
+per-rotation sections of `plan-state.md`. Headlines, oldest first:
+`Array.fromAsync` as a self-hosted TS async helper (646); the
+this-first receiver face split into two tiers and the const-in-machine
+immutability (649–650); the global slot of a nullish-initialised `let`
+(652); catch / finally as Invoke of `then`, the array-like generic
+receiver face (654); the %TypedArray% intrinsic object and single
+evaluation of compound assignment operands (655); destructuring
+assignment ordered per element by the outer iterator (§13.15.5.5), one
+shell per this-reading declaration, bound `name` through
+`Get(target, "name")` (658); bench 0 cells slower than bun (661);
+private brand slices 2b / 2c and plain-function `new.target` (662);
+FinalizationRegistry K1–K3 (663); class evaluation units K0 / K1 / K2
+— a class in a function body gets a new class object per evaluation
+— plus closure TDZ (664); K2b / K3a, private elements hidden from
+every reflection face, `Promise.reject` typed `Promise<never>` (665)).
+Gate predicate: **37** clusters of >= 4 holding **245** cases, register
+2 · 118 (SR-1 30 / SR-2 92), residue 351 · 475 (56.7%), core **838**,
+unattributed **720**. Against rotation 642: clusters 47 → **37 (−10)**,
+cases 300 → **245 (−55)**, core 906 → **838 (−68)**. Sweep passTotal
+38317 → **40465 (+2148)**, bug 10722 → **8642 (−2080)**, incompatible
+4135 → **4067 (−68)**; every rotation's close reported **0 backward**
+against its predecessor. Head of the incompatible bucket, by cluster:
+ModuleSource 91 (signed SR-2), decorator `@` 20, then import
+attributes and the `Function(...)` constructor.
+
+**Prior @ `606dcdd3f`** (2026-09-13, rotation 642 — RFC 20260805 async
 state machine blade 2 re-landed (async function values suspend at their
 first await; a body declaring a function or class, or calling
 `import()`, keeps the synchronous lowering), the K3 width link for a
