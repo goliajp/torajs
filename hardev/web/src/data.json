@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T16:23:41.548Z",
+  "generatedAt": "2026-09-19T19:14:17.248Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-19T16:12:26Z",
-    "headSha": "572877dac",
-    "elapsedSec": 536,
+    "ranAt": "2026-09-19T19:03:27Z",
+    "headSha": "35eabf65b",
+    "elapsedSec": 534.46,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34231,
+    "pass": 34241,
     "passNoOracle": 1711,
     "passNegative": 4568,
-    "passTotal": 40510,
-    "bug": 8600,
+    "passTotal": 40520,
+    "bug": 8590,
     "incompatible": 4064,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49110,
-    "passRateInScope": 76.18,
-    "passRateTrAccepted": 82.49
+    "passRateInScope": 76.2,
+    "passRateTrAccepted": 82.51
   },
   "torajs": {
-    "commit": "886226dc8",
-    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 672 @572877dac",
+    "commit": "cd89fa9e0",
+    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 673 @35eabf65b",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "886226dc8",
-      "subject": "docs(roadmap): P-SURF accounting for rotation 672 @572877dac"
+      "hash": "cd89fa9e0",
+      "subject": "docs(roadmap): P-SURF accounting for rotation 673 @35eabf65b"
     },
     {
-      "hash": "591ed5c6c",
-      "subject": "chore(hardev): rotation 672 close stamps — sweep @572877dac (passTotal 40510, +0, verdict diff 0 changes), determinism 46/46 N=12, gmalloc 3869/3874 clean 0 offenders (5 in the watchdog bucket, the defineProperties / Object.create family)"
+      "hash": "b5f07d7a8",
+      "subject": "chore(hardev): rotation 673 close stamps — sweep @35eabf65b (passTotal 40520, +10, verdict diff 10 forward / 0 back), determinism 46/46 N=12, gmalloc 3880/3884 clean 0 offenders (4 in the watchdog bucket)"
     },
     {
-      "hash": "5edce1fbe",
-      "subject": "chore(bench): rotation 672 bench @572877dac — median 0.4334 (rotation start 0.4797), 0 cells slower than bun 1.4.2, work-only 44/45 ahead"
+      "hash": "35eabf65b",
+      "subject": "feat: a class's well-known symbol methods sit on its prototype"
     },
     {
-      "hash": "572877dac",
-      "subject": "perf(torajs-regex): a match result is born holding m[0], and a literal subject's share costs no call"
+      "hash": "531a689b9",
+      "subject": "fix: optional chains short-circuit on an undefined heap slot"
     },
     {
-      "hash": "5badae3df",
-      "subject": "fix(torajs-core): an anonymous class expression on the unit lane answers \"\" for .name"
+      "hash": "131a42404",
+      "subject": "feat: this.m() and x?.m() take the re-parent guard too"
     },
     {
-      "hash": "c6eb0c9ab",
-      "subject": "fix(torajs-core): a computed class key follows its scope's renames"
+      "hash": "d0e078189",
+      "subject": "fix: [[HasProperty]] on a class instance walks its class prototype"
     },
     {
-      "hash": "13b47a7ce",
-      "subject": "fix(torajs-core): a class expression in a nested class's static initializer evaluates in place"
+      "hash": "948cea1c7",
+      "subject": "feat: a re-parented instance's setter write follows its user chain"
     },
     {
-      "hash": "d4e76831a",
-      "subject": "fix(torajs-core): a collision-renamed nested class runs its statics in place and keeps its name"
+      "hash": "7259af339",
+      "subject": "feat: typed class dispatch yields to a re-parented instance's chain"
     },
     {
-      "hash": "1008d40cc",
-      "subject": "refactor(torajs-core): move the capturing lane's computed-key family into computed_keys.rs"
+      "hash": "a966a0064",
+      "subject": "refactor: move the call dispatcher's fourth stage to its own file"
     },
     {
-      "hash": "42ff1f415",
-      "subject": "chore(bench): rotation 672 bench @1ba1ae9dc — median 0.4627 (was 0.4797), 0 cells slower than bun 1.4.2; regex-wireback-minlit and split-only now lead on work-only"
+      "hash": "21e32ad2a",
+      "subject": "fix: console.log names a re-parented struct by its user chain"
     },
     {
-      "hash": "1ba1ae9dc",
-      "subject": "perf(torajs-core): a split product that is only measured is never built"
+      "hash": "d5a369d96",
+      "subject": "feat: Reflect.construct takes the prototype newTarget names"
     },
     {
-      "hash": "6c7e50631",
-      "subject": "perf(torajs-arr): array drops release their share in-crate"
+      "hash": "7a007fb4a",
+      "subject": "feat: instanceof / in / for-in follow a re-parented struct's chain"
     }
   ],
-  "headSha": "886226dc8",
+  "headSha": "cd89fa9e0",
   "autorun": {
-    "total": 975,
+    "total": 976,
     "baselineTarget": 10,
-    "bySelf": 970,
+    "bySelf": 971,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789782817-76af",
-      "at": "2026-09-19T01:53:37Z",
-      "ts": 1789782817,
+      "rotationId": "r-1789835108-0b27",
+      "at": "2026-09-19T16:25:08Z",
+      "ts": 1789835108,
       "trigger": "self",
-      "prevHead": "dd421a056",
-      "handoffSha": "sha256:fe6972cd51f0745c08687d04b9a3fe3748a9ecf6928db35d3bb6c0a099b71562",
-      "handoffAgeSec": 17,
-      "conformanceBefore": "4345/0/4",
+      "prevHead": "dbdfde094",
+      "handoffSha": "sha256:55a9c1356e57f4cc9ee0680f6590e3af62bd31a44e433a47c6c0b2513d0efd6d",
+      "handoffAgeSec": 16,
+      "conformanceBefore": "4352/0/4",
       "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789835108-0b27",
+        "at": "2026-09-19T16:25:08Z",
+        "ts": 1789835108,
+        "trigger": "self",
+        "prevHead": "dbdfde094",
+        "handoffSha": "sha256:55a9c1356e57f4cc9ee0680f6590e3af62bd31a44e433a47c6c0b2513d0efd6d",
+        "handoffAgeSec": 16,
+        "conformanceBefore": "4352/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789782817-76af",
         "at": "2026-09-19T01:53:37Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 8,
         "conformanceBefore": "4271/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789628106-04dc",
-        "at": "2026-09-17T06:55:06Z",
-        "ts": 1789628106,
-        "trigger": "self",
-        "prevHead": "ea8753f30",
-        "handoffSha": "sha256:f9d3459d334192dfb120bad7f96d1ec02b8c2442f9f7a3104c9c8bb9f53c98ea",
-        "handoffAgeSec": 1,
-        "conformanceBefore": "4264/0/4",
-        "commitsInSession": 18
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
