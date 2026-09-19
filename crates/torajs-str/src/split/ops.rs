@@ -40,7 +40,7 @@ pub(crate) unsafe fn str_len(p: *const u8) -> u32 {
 /// Read a Str's `(payload_bytes, code_unit_count, is_latin1)` view.
 /// Used by the split entry to size scans + decide stride.
 #[inline]
-unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
+pub(super) unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
     let length = unsafe { (p.add(STR_LEN_OFF) as *const u32).read() };
     let header = unsafe { &*(p as *const HeapHeader) };
     let is_latin1 = (header.flags & STR_FLAG_IS_LATIN1) != 0;
@@ -56,7 +56,7 @@ unsafe fn str_view<'a>(p: *const u8) -> (&'a [u8], u32, bool) {
 /// Widen a Latin-1 byte payload to UTF-16 LE — each input byte
 /// becomes a `(byte, 0)` u16 pair. Used when the haystack is
 /// UTF-16 but the separator is Latin-1.
-fn widen_latin1_to_utf16(src: &[u8]) -> alloc::vec::Vec<u8> {
+pub(super) fn widen_latin1_to_utf16(src: &[u8]) -> alloc::vec::Vec<u8> {
     let mut out = alloc::vec::Vec::with_capacity(src.len() * 2);
     for &b in src {
         out.push(b);

@@ -610,6 +610,7 @@ pub(crate) mod ssa_lower_return_borrow;
 pub(crate) mod ssa_lower_scope_exit;
 pub mod ssa_lower_set_flavor;
 pub(crate) mod ssa_lower_splice;
+mod ssa_lower_split_count;
 pub(crate) mod ssa_lower_stmt_block;
 pub(crate) mod ssa_lower_stmt_break_continue;
 pub(crate) mod ssa_lower_stmt_dispatch;

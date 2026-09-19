@@ -185,6 +185,7 @@ pub(crate) struct Intrinsics {
     pub(crate) str_sort_cmp: FuncId,
     pub(crate) str_sort_undef_pre: FuncId,
     pub(crate) str_split: FuncId,
+    pub(crate) str_split_count: FuncId,
     pub(crate) str_split_no_sep: FuncId,
     pub(crate) str_split_any_sep: FuncId,
     pub(crate) str_split_any_sep_lim: FuncId,

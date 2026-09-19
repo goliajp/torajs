@@ -73,6 +73,9 @@ pub(crate) struct StrBIds {
     /// member read dereferences a find/findLast miss.
     pub heap_nullish_check: FuncId,
     pub str_split: FuncId,
+    /// `s.split(sep).length` without the array — the lane a split
+    /// product that is only ever measured takes (`ast::split_length_only`).
+    pub str_split_count: FuncId,
     pub str_split_no_sep: FuncId,
     pub str_split_any_sep: FuncId,
     /// Rotation 264 — the limit-carrying twin for the `@@split`
@@ -234,6 +237,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_str_split",
             &[Type::Str, Type::Str],
             Type::Ptr,
+        ),
+        str_split_count: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_split_count",
+            &[Type::Str, Type::Str],
+            Type::I64,
         ),
         str_split_no_sep: declare_intrinsic(
             module,

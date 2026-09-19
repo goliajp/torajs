@@ -65,6 +65,35 @@ pub fn out_count(s: &[u8], sep: &[u8], stride: usize) -> u64 {
     }
 }
 
+/// `s.split(sep).length` without building the array.
+///
+/// The compiler takes this lane when the split product is only ever
+/// measured — `s.split(sep).length`, or a binding whose every use is
+/// `.length` (`torajs-core` `ast::split_length_only`). Same `(Str,
+/// Str)` contract as [`super::ops::__torajs_str_split`] and the same
+/// token count as its general build: a Latin-1 haystack can not
+/// contain a UTF-16 needle (one token, the whole string), and a
+/// Latin-1 needle is widened onto a UTF-16 haystack's code-unit grid.
+///
+/// # Safety
+///
+/// Both `s` and `sep` must be valid flat Str heap blocks.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_split_count(s: *const u8, sep: *const u8) -> i64 {
+    let (s_payload, _, s_latin1) = unsafe { super::ops::str_view(s) };
+    let (sep_payload, _, sep_latin1) = unsafe { super::ops::str_view(sep) };
+    let tokens = match (s_latin1, sep_latin1) {
+        (true, false) => 1,
+        (false, true) => {
+            let widened = super::ops::widen_latin1_to_utf16(sep_payload);
+            out_count(s_payload, &widened, 2)
+        }
+        (true, true) => out_count(s_payload, sep_payload, 1),
+        (false, false) => out_count(s_payload, sep_payload, 2),
+    };
+    tokens as i64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

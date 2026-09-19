@@ -209,6 +209,17 @@ pub(crate) fn lower_split(
         );
         return emit_limit_clamp_slice(ctx, split_v, argv[2].clone(), arr_id);
     }
+    // A product the census proved is only ever measured
+    // (`ast::split_length_only`) is never built: count the tokens.
+    if !sep_is_any && ctx.ast.split_length_only_seps.contains(&args[0]) {
+        let n = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_split_count, argv),
+            Type::I64,
+            None,
+        );
+        return Operand::Value(n);
+    }
     // 1-arg `s.split(sep)` with non-undef sep — standard 2-arg call.
     // This is the original arm's fall-through into the post-match Call
     // site (`(ctx.intrinsics.str_split, Type::Arr(arr_id))`).

@@ -1287,6 +1287,12 @@ pub struct Ast {
     /// into owned strings for the ones listed here and types the
     /// binding `Arr<Str>`. Empty before the pass runs.
     pub let_owned_elem_inits: std::collections::HashSet<ExprId>,
+    /// Rotation 672 — the separator ExprIds of the one-argument
+    /// `R.split(S)` calls whose product is only ever measured
+    /// (`R.split(S).length`, or a binding read only as `x.length`).
+    /// Populated by `analyze_split_length_only`; the lowering counts
+    /// the tokens instead of building the array.
+    pub split_length_only_seps: std::collections::HashSet<ExprId>,
     /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
     /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
     /// "not set" (parser fills these on key Expr-emit sites; fallback
