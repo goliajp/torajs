@@ -405,6 +405,7 @@ pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
 pub(crate) mod ssa_lower_call_sibling_rest;
 pub(crate) mod ssa_lower_call_spread;
+pub(crate) mod ssa_lower_call_stage_d;
 pub(crate) mod ssa_lower_call_str_match_custom;
 pub(crate) mod ssa_lower_call_str_regex_emit;
 pub(crate) mod ssa_lower_call_str_regex_methods;
