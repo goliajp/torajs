@@ -52,6 +52,10 @@ unsafe extern "C" {
     // torajs-anyvalue::inspect — line-width estimate primitive
     // (inspect wrap trunk), bun `estimated_line_length` mirror.
     pub(crate) fn __torajs_inspect_line_reset(cols: u32);
+
+    // torajs-anyvalue::inspect — bun's `constructor`-name /
+    // @@toStringTag prefix for an ordinary object (1 = printed).
+    fn __torajs_inspect_obj_name_prefix(obj: *const c_void) -> i32;
 }
 
 /// Mirrors `torajs-structmeta::StrSlice` — `(ptr, len)` borrowed view
@@ -127,12 +131,38 @@ pub unsafe extern "C" fn __torajs_anyv_struct_print_inline_at(v: u64, indent: u3
     // Named-class prefix. NULL / empty class_name → no prefix
     // (anonymous A1 anon-stamp coverage gap → degrade to bare
     // `{…}` form so the walker still shows useful content).
-    let cn = unsafe { __torajs_struct_class_name(class_tag) };
-    if !cn.ptr.is_null() && cn.len > 0 {
-        unsafe { put_bytes_from_raw(cn.ptr, cn.len) };
-        unsafe { put_byte(b' ') };
+    if unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() }
+        & crate::classmeta::obj_proto::FLAG_OBJ_USER_PROTO
+        != 0
+    {
+        unsafe { put_user_proto_prefix(cell) };
+    } else {
+        let cn = unsafe { __torajs_struct_class_name(class_tag) };
+        if !cn.ptr.is_null() && cn.len > 0 {
+            unsafe { put_bytes_from_raw(cn.ptr, cn.len) };
+            unsafe { put_byte(b' ') };
+        }
     }
     unsafe { crate::struct_print_rows::put_body(cell, class_tag, indent) };
+}
+
+/// A re-parented instance's prefix (RFC 20260920-struct-user-proto):
+/// its layout's class no longer names it, so it takes the ordinary
+/// object's rule — the `constructor` up its user chain — and the
+/// null-prototype form for an explicit null link.
+///
+/// # Safety
+/// `cell` is a live `Tag::Obj` cell with `FLAG_OBJ_USER_PROTO` raised.
+unsafe fn put_user_proto_prefix(cell: *const c_void) {
+    let root = unsafe { crate::classmeta::__torajs_obj_proto_borrowed(cell) };
+    if !crate::reflect::is_cell_imm(root) {
+        unsafe { put_bytes(b"[Object: null prototype] ") };
+        return;
+    }
+    if unsafe { crate::reflect::heap_type_tag(root as *const c_void) } == crate::reflect::TAG_DYNOBJ
+    {
+        unsafe { __torajs_inspect_obj_name_prefix(root as *const c_void) };
+    }
 }
 
 /// 562-10 — the rows this struct cell contributes to a block
