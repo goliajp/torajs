@@ -31,6 +31,8 @@ struct StrSlice {
 
 unsafe extern "C" {
     fn __torajs_struct_class_name(class_tag: u32) -> StrSlice;
+    /// torajs-anyvalue — `C.prototype` on `v`'s [[Prototype]] chain.
+    fn __torajs_instanceof_proto_chain_any_tag(v: u64, expected_tag: i64) -> bool;
 }
 
 /// Universal object header: class_tag u32 at +8.
@@ -78,6 +80,14 @@ pub extern "C" fn __torajs_instanceof_generic_any(v: u64, base_tag: i64) -> bool
     unsafe {
         if heap_type_tag(p) != TAG_OBJ {
             return false;
+        }
+        // A re-parented instance answers by its user chain (RFC
+        // 20260920-struct-user-proto), not by the layout's class name.
+        if p.cast::<u8>().add(6).cast::<u16>().read()
+            & crate::classmeta::obj_proto::FLAG_OBJ_USER_PROTO
+            != 0
+        {
+            return __torajs_instanceof_proto_chain_any_tag(v, base_tag);
         }
         let tag = p.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read();
         __torajs_generic_tag_match(tag as i64, base_tag)

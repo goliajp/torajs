@@ -43,6 +43,26 @@ unsafe fn user_proto_cell_borrowed(obj: *const c_void) -> Option<*const c_void> 
     }
 }
 
+/// `Some(user link)` for a re-parented struct (RFC
+/// 20260920-struct-user-proto) — `Some(None)` when that link is an
+/// explicit null — and `None` for every other value.
+unsafe fn struct_user_proto(v: u64) -> Option<Option<*const c_void>> {
+    if !crate::reflect::is_cell_imm(v)
+        || unsafe { heap_type_tag_local(v as *const c_void) } != TAG_OBJ_CELL
+    {
+        return None;
+    }
+    let cell = v as *const c_void;
+    if unsafe { cell.cast::<u8>().add(6).cast::<u16>().read() }
+        & crate::classmeta::obj_proto::FLAG_OBJ_USER_PROTO
+        == 0
+    {
+        return None;
+    }
+    let root = unsafe { crate::classmeta::__torajs_obj_proto_borrowed(cell) };
+    Some(crate::reflect::is_cell_imm(root).then_some(root as *const c_void))
+}
+
 /// Content equality of two live key cells, by WTF-8 spelling — a
 /// Symbol key (never yielded by for-in, but recorded as a shadow)
 /// matches only itself.
@@ -146,15 +166,21 @@ pub unsafe extern "C" fn __torajs_anyv_forin_keys(v: u64) -> *mut c_void {
         return unsafe { __torajs_arr_alloc(0) as *mut c_void };
     }
     let out = unsafe { __torajs_anyv_own_keys(v, 0) };
-    if !is_dynobj_imm(v) {
+    let reparented = unsafe { struct_user_proto(v) };
+    if !is_dynobj_imm(v) && reparented.is_none() {
         return out;
     }
     let mut out = out as *mut u8;
     // The visited set borrows key cells — every level stays live
     // through the receiver's chain references for the whole call.
     let mut visited: Vec<*mut c_void> = Vec::new();
-    out = unsafe { forin_visit_dynobj(v as *const c_void, false, &mut visited, out) };
-    let mut level = unsafe { user_proto_cell_borrowed(v as *const c_void) };
+    let mut level = match reparented {
+        Some(link) => link,
+        None => unsafe {
+            out = forin_visit_dynobj(v as *const c_void, false, &mut visited, out);
+            user_proto_cell_borrowed(v as *const c_void)
+        },
+    };
     let mut depth = 0usize;
     while let Some(cell) = level {
         // A simulated-slot cycle must not hang the kernel — cap
@@ -170,12 +196,16 @@ pub unsafe extern "C" fn __torajs_anyv_forin_keys(v: u64) -> *mut c_void {
             }
             TAG_OBJ_CELL => {
                 // Struct level (`Object.create(structLit)`) — its
-                // enumerable field keys yield, then the chain ends
-                // (struct cells carry no user-proto simulation slot).
+                // enumerable field keys yield; the chain goes on only
+                // when it was re-parented (its class prototype holds
+                // no enumerable keys).
                 let keys = unsafe { crate::struct_enum::__torajs_anyv_struct_keys(cell as u64, 0) };
                 out = unsafe { append_unvisited(keys, &visited, out) };
                 unsafe { __torajs_value_drop_heap(keys) };
-                break;
+                match unsafe { struct_user_proto(cell as u64) } {
+                    Some(link) => level = link,
+                    None => break,
+                }
             }
             _ => break,
         }

@@ -344,6 +344,17 @@ pub unsafe extern "C" fn __torajs_in_op_any_str(v: i64, key: *const u8) -> bool 
             return unsafe { __torajs_in_op_any_str(parent as i64, key) };
         }
     }
+    // A re-parented struct (RFC 20260920-struct-user-proto) keeps its
+    // user link where a function value does: the props dict at +24.
+    // Its class is off the chain, so the class-table probe below
+    // answers false for it (`struct_proto_has`).
+    if type_tag == crate::Tag::Obj as u16
+        && unsafe { *((ptr as *const u8).add(6) as *const u16) } & crate::FLAG_OBJ_USER_PROTO != 0
+    {
+        let props = unsafe { *((ptr as *const u8).add(24) as *const u64) } as *mut c_void;
+        let parent = unsafe { __torajs_dynobj_user_proto(props) };
+        return !parent.is_null() && unsafe { __torajs_in_op_any_str(parent as i64, key) };
+    }
     // Class-prototype link — a struct receiver's methods / accessor
     // halves live on its class prototype, not on the instance
     // (`hasOwnProperty` answers false, `in` answers true), one hop

@@ -157,6 +157,12 @@ pub unsafe extern "C" fn __torajs_instanceof_class_any_tag(v: i64, expected_tag:
         }
         return false;
     }
+    // A re-parented instance (RFC 20260920-struct-user-proto) is a
+    // `C` exactly when `C.prototype` is on its USER chain — its class
+    // tag names the layout, no longer the chain.
+    if unsafe { *((ptr as *const u8).add(6) as *const u16) } & crate::FLAG_OBJ_USER_PROTO != 0 {
+        return unsafe { __torajs_instanceof_proto_chain_any_tag(v as u64, expected_tag) };
+    }
     // The slot is a u32 (every other read point agrees); reading 8
     // bytes would fold the pad after it into the comparison.
     let class_tag = unsafe { *((ptr as *const u8).add(OBJ_CLASS_TAG_OFF) as *const u32) };
