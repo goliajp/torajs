@@ -7,7 +7,7 @@
 //! 1. NULL → no-op
 //! 2. Flags has `FLAG_STATIC_LITERAL` → no-op (`.rodata`-baked arrays
 //!    don't have a refcount we own)
-//! 3. `__torajs_rc_dec(p)` → if last owner (returned 1):
+//! 3. release one share (`HeapHeader::dec_ref`) → if it was the last:
 //!    a. `__torajs_arrprops_drop_entry(p)` — release any associated
 //!       key-value props (no-op for arrays that never had `arr.x = v`)
 //!    b. `__torajs_arr_free(p)` — pool-aware free (LIFO pool for
@@ -21,31 +21,19 @@
 use core::ffi::c_void;
 
 use torajs_rc::{
-    ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_HEAP, FLAG_ARR_ANY, FLAG_BUFFERED,
-    FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, HeapHeader,
+    ARR_ELEM_KIND_MASK, ARR_ELEM_KIND_SHIFT, ARR_KIND_HEAP, DropPolicy, FLAG_ARR_ANY,
+    FLAG_BUFFERED, FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, HeapHeader,
 };
 
+use crate::alloc::__torajs_arr_free;
 use crate::layout::{arr_data, arr_data_is_inline, arr_live_extent};
+use crate::props::__torajs_arrprops_drop_entry;
 
 /// 8-byte slot stride for Array<Any> — Step 7e-A (NaN-box AnyValue
 /// per slot; mirrors `any.rs`'s `ANY_SLOT_BYTES`).
 const ANY_SLOT_BYTES: usize = 8;
 
 unsafe extern "C" {
-    /// Cross-tier — torajs-rc. Decrements rc; returns 1 if hit zero
-    /// (caller takes ownership of the now-dangling pointer).
-    fn __torajs_rc_dec(p: *mut c_void) -> i32;
-
-    /// Cross-tier — runtime_str.c's pool-aware array free. Returns
-    /// blocks with `cap ≤ ARR_POOL_PAYLOAD` to a LIFO pool; libc free
-    /// for the rest.
-    fn __torajs_arr_free(p: *mut c_void);
-
-    /// Cross-tier — runtime_str.c's array-prop side-table. Drops the
-    /// per-array key-value entry if one exists. No-op for the common
-    /// case (most arrays never had `arr.x = v` written).
-    fn __torajs_arrprops_drop_entry(p: *mut c_void);
-
     /// Cross-tier — runtime_str.c's universal heap value dropper.
     /// Used by `__torajs_arr_drop_any` to release each ANY_HEAP slot's
     /// child value before freeing the outer block.
@@ -77,6 +65,26 @@ unsafe extern "C" {
     fn __torajs_subclass_drop_entry(p: *mut c_void);
 }
 
+/// Give back one share of the array cell `p`; true when it was the
+/// last one.
+///
+/// `HeapHeader::dec_ref` called in-crate rather than through the
+/// `__torajs_rc_dec` export: the same rule (static literals keep,
+/// weak observers are told through `__torajs_weakref_active`, which
+/// resolves to one word across every archive that carries a copy of
+/// torajs-rc) without a call into another archive on every drop.
+///
+/// # Safety
+/// `p` is a live heap cell, and the caller holds no reference into
+/// its header across this call.
+#[inline]
+unsafe fn release_share(p: *mut c_void) -> bool {
+    matches!(
+        unsafe { (*(p as *mut HeapHeader)).dec_ref() },
+        DropPolicy::Free
+    )
+}
+
 /// True iff the array's slots can carry heap-cell pointers — the only
 /// shapes that can close a reference cycle (mirrors the arr half of
 /// torajs-cycle `is_visitable_arr`). Scalar-kind / UNSET arrays are
@@ -99,24 +107,26 @@ pub unsafe extern "C" fn __torajs_arr_drop(p: *mut c_void) {
     }
     // STATIC_LITERAL flag check — `.rodata` array literals must never
     // be rc-decremented (the store would page-fault) or freed.
-    let header = unsafe { &*(p as *const HeapHeader) };
-    if header.flags & FLAG_STATIC_LITERAL != 0 {
+    // flags are read once as a value: the release below mutates the
+    // header, and the drop never changes them.
+    let flags = unsafe { (*(p as *const HeapHeader)).flags };
+    if flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    if unsafe { __torajs_rc_dec(p) } != 0 {
+    if unsafe { release_share(p) } {
         unsafe {
             // A previously-buffered block must leave the cycle root
             // buffer before arr_free can pool-recycle its cell.
-            if header.flags & FLAG_BUFFERED != 0 {
+            if flags & FLAG_BUFFERED != 0 {
                 __torajs_cycle_unbuffer(p);
             }
-            if header.flags & FLAG_SUBCLASSED != 0 {
+            if flags & FLAG_SUBCLASSED != 0 {
                 __torajs_subclass_drop_entry(p);
             }
             __torajs_arrprops_drop_entry(p);
             __torajs_arr_free(p);
         }
-    } else if arr_may_cycle(header.flags) {
+    } else if arr_may_cycle(flags) {
         // Still referenced — a pointer-carrying array is a potential
         // cycle root, exactly like the obj drop's T-26.C hook.
         unsafe { __torajs_cycle_buffer(p) };
@@ -139,13 +149,15 @@ pub unsafe extern "C" fn __torajs_arr_drop_scalar(p: *mut c_void) {
     if p.is_null() {
         return;
     }
-    let header = unsafe { &*(p as *const HeapHeader) };
-    if header.flags & FLAG_STATIC_LITERAL != 0 {
+    // flags are read once as a value: the release below mutates the
+    // header, and the drop never changes them.
+    let flags = unsafe { (*(p as *const HeapHeader)).flags };
+    if flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    if unsafe { __torajs_rc_dec(p) } != 0 {
+    if unsafe { release_share(p) } {
         unsafe {
-            if header.flags & FLAG_SUBCLASSED != 0 {
+            if flags & FLAG_SUBCLASSED != 0 {
                 crate::exotic_seam::__torajs_arr_drop_subclass_slow(p);
             }
             if !(*(p.cast::<u8>().add(crate::layout::ARR_PROPS_OFF) as *const *mut c_void))
@@ -181,8 +193,10 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
     if arr.is_null() {
         return;
     }
-    let header = unsafe { &*(arr as *const HeapHeader) };
-    if header.flags & FLAG_ARR_ANY == 0 {
+    // flags are read once as a value: the release below mutates the
+    // header, and the drop never changes them.
+    let flags = unsafe { (*(arr as *const HeapHeader)).flags };
+    if flags & FLAG_ARR_ANY == 0 {
         // RFC 20260707 chunk 623 — typed block behind a static
         // Arr<Any> slot (T-11 widen): the NaN-box slot walk below
         // misreads raw scalars (a small bit-1-clear i64 like 4
@@ -193,18 +207,18 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
         // world), scalar frees straight. UNSET = unmarked scalar or
         // a missed coercion boundary — no walk keeps it a leak at
         // worst, never a bad deref.
-        if header.arr_elem_kind() == ARR_KIND_HEAP {
+        if (flags & ARR_ELEM_KIND_MASK) >> ARR_ELEM_KIND_SHIFT == ARR_KIND_HEAP {
             return unsafe { __torajs_arr_drop_heap(arr) };
         }
         return unsafe { __torajs_arr_drop(arr) };
     }
-    if header.flags & FLAG_STATIC_LITERAL != 0 {
+    if flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    if unsafe { __torajs_rc_dec(arr) } == 0 {
+    if !unsafe { release_share(arr) } {
         // Shared — at least one other owner remains; an Any-array
         // holds cell pointers, so it's a potential cycle root.
-        if arr_may_cycle(header.flags) {
+        if arr_may_cycle(flags) {
             unsafe { __torajs_cycle_buffer(arr) };
         }
         return;
@@ -212,7 +226,7 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
     // Last owner: walk slots, drop each cell-tagged heap value via
     // the NaN-box-safe dispatcher (immediates skip), then free.
     unsafe {
-        if header.flags & FLAG_BUFFERED != 0 {
+        if flags & FLAG_BUFFERED != 0 {
             __torajs_cycle_unbuffer(arr);
         }
         let arr_u8 = arr as *mut u8;
@@ -226,7 +240,7 @@ pub unsafe extern "C" fn __torajs_arr_drop_any(arr: *mut c_void) {
             let av = *(slots.add(off) as *const u64);
             __torajs_value_drop_heap(av as *mut c_void);
         }
-        if header.flags & FLAG_SUBCLASSED != 0 {
+        if flags & FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(arr);
         }
         __torajs_arrprops_drop_entry(arr);
@@ -271,20 +285,22 @@ pub unsafe extern "C" fn __torajs_arr_drop_heap(arr: *mut c_void) {
     if arr.is_null() {
         return;
     }
-    let header = unsafe { &*(arr as *const HeapHeader) };
-    if header.flags & FLAG_STATIC_LITERAL != 0 {
+    // flags are read once as a value: the release below mutates the
+    // header, and the drop never changes them.
+    let flags = unsafe { (*(arr as *const HeapHeader)).flags };
+    if flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    if unsafe { __torajs_rc_dec(arr) } == 0 {
+    if !unsafe { release_share(arr) } {
         // Shared — heap-elem slots are cell pointers; potential
         // cycle root (same hook as `__torajs_arr_drop_any`).
-        if arr_may_cycle(header.flags) {
+        if arr_may_cycle(flags) {
             unsafe { __torajs_cycle_buffer(arr) };
         }
         return;
     }
     unsafe {
-        if header.flags & FLAG_BUFFERED != 0 {
+        if flags & FLAG_BUFFERED != 0 {
             __torajs_cycle_unbuffer(arr);
         }
         let arr_u8 = arr as *mut u8;
@@ -297,7 +313,7 @@ pub unsafe extern "C" fn __torajs_arr_drop_heap(arr: *mut c_void) {
             let child = *(slots.add(i as usize * 8) as *const *mut c_void);
             __torajs_value_drop_heap(child);
         }
-        if header.flags & FLAG_SUBCLASSED != 0 {
+        if flags & FLAG_SUBCLASSED != 0 {
             __torajs_subclass_drop_entry(arr);
         }
         __torajs_arrprops_drop_entry(arr);
