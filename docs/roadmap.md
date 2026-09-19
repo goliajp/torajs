@@ -1681,7 +1681,38 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `79d88c3bf`** (2026-09-19, rotation 671). A class whose
+**Latest @ `572877dac`** (2026-09-20, rotation 672). The rotation
+opened on a directive: no bench cell may lose to bun. Two cells did on
+the work-only measure (`regex-wireback-minlit-100k` 1.23,
+`split-only-100k` 1.25), and at 1e8 / 2e8 iterations the steady-state
+gaps were wider (1.67x, 2.5x) than the 100k-iteration cells showed.
+Both were decomposed against JavaScriptCore's source. A whole-string
+match now answers the subject itself as m[0]; a pure-literal pattern
+searches as a substring find (JSC's atom path); array drops release
+their share in-crate; a match result is born holding m[0]; and a split
+product that is only ever measured is never built (scalar replacement,
+`__torajs_str_split_count` — unlike JSC's atom-keyed StringSplitCache
+it also covers runtime strings). Bench median 0.4797 -> **0.4334**, 0
+cells slower than bun 1.4.2, work-only 44/45 ahead; the remaining cell,
+`prime_count`, is division-bound, tr matches `rustc -O` there within
+1%, and bun's own run-to-run spread is ±3 ms.
+
+On the class surface: a collision-renamed nested class runs its
+statics where it is written; the capturing lane's constructor answers
+the display name and the declaration text; a class expression in a
+nested class's static initializer or computed key evaluates in place
+(an immediately invoked arrow, so the enclosing scope is in reach); a
+computed key follows its scope's renames; and an anonymous class
+expression answers "" for `.name` on every lane. None of these shapes
+moved a test262 verdict.
+
+Gate predicate unchanged: **37** clusters of >= 4 holding **246** cases,
+register 2 · 118 (SR-1 30 / SR-2 92), residue 348 · 472 (56.5%), core
+**836**. Sweep passTotal 40510 → **40510 (+0)**, every bucket unchanged,
+conservation exact; verdict diff **0 changes** (the sweep's release
+`tr` was checked against a new fixture before this was believed).
+
+**Prior @ `79d88c3bf`** (2026-09-19, rotation 671). A class whose
 constructor parameter is un-annotated gets a genericized factory, and
 its instances wear per-mono tags the `instanceof` answer set never
 listed: `new C(1) instanceof C` answered false for every such class
