@@ -324,9 +324,17 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     // rename is the lowering's, not the program's: record the source
     // spelling as the expression's self-name, which the fn-name
     // registry lets win over the binding (§15.5.5). Before this
-    // `.name` answered `__cci1_C`.
-    ast.fn_expr_self_names
-        .insert(ctor_eid, src_name.to_string());
+    // `.name` answered `__cci1_C`. Read through the display table: a
+    // class the hoist renamed for a name collision (`__hc0_C`) still
+    // answers the name it was written with.
+    let shown = super::class_globals::class_display_name(ast, src_name).to_string();
+    ast.fn_expr_self_names.insert(ctor_eid, shown);
+    // §20.2.3.5 — this function IS the class object, so its source
+    // text is the class declaration's; without the span `String(C)`
+    // printed a native `function` form.
+    if let Some(span) = ast.class_decl_spans.get(src_name).copied() {
+        ast.set_expr_span(ctor_eid, span);
+    }
     out.push(Stmt::LetDecl {
         mutable: false,
         name: name.clone(),

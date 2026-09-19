@@ -299,13 +299,12 @@ pub(super) fn walk_container(
         }
         if unit_shape
             && observable
-            && residual.is_none()
             && in_place_for_statics(
                 ast,
                 stmts,
                 idx,
                 counter,
-                (name_counts, &hoisted[lifted_start..], &old_name),
+                (name_counts, &hoisted[lifted_start..], &binding),
             )
         {
             top_names.pop();
