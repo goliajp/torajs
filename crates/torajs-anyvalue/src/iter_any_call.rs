@@ -60,6 +60,12 @@ pub(crate) enum MethodOutcome {
 /// # Safety
 /// `obj` is a live `Tag::Obj` heap pointer.
 pub(crate) unsafe fn call_obj_method_0(obj: *mut c_void, name: &[u8]) -> MethodOutcome {
+    // A re-parented instance (RFC 20260920-struct-user-proto): its
+    // class's table is off its chain. The symbol-keyed lookup that
+    // runs before this fallback already asked the user chain.
+    if unsafe { crate::member_get_layout::obj_user_proto_raised(obj) } {
+        return MethodOutcome::Missing;
+    }
     let class_tag = unsafe { obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {

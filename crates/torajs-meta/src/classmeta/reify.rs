@@ -12,6 +12,10 @@ unsafe extern "C" {
     /// an entry to the end of the insertion order by defining it
     /// again right after.
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
+    /// torajs-str — the well-known symbol behind a `__sym_Symbol_<x>__`
+    /// member name (owned +1), NULL for any other name.
+    fn __torajs_symbol_well_known_of_member(name: *const u8, len: usize) -> *mut c_void;
+    fn __torajs_rc_dec(p: *mut c_void);
 }
 
 /// Knife B cut 1 — the prototype's own method entries. Walks the
@@ -237,7 +241,17 @@ unsafe fn define_row(
                     core::ptr::null_mut(),
                 )
             };
-            let key = alloc_str_key(name);
+            // `[Symbol.iterator]()` and its well-known siblings were
+            // folded to a `__sym_Symbol_<x>__` method name for the
+            // mangled-name dispatch; on the prototype the member is
+            // keyed by the symbol itself (§6.1.7), which is what
+            // GetIterator's GetMethod and every symbol read ask for.
+            let sym = __torajs_symbol_well_known_of_member(name.as_ptr(), name.len());
+            let key = if sym.is_null() {
+                alloc_str_key(name)
+            } else {
+                sym.cast::<u8>()
+            };
             if reinsert {
                 __torajs_dynobj_delete(*slot, key.cast::<c_void>());
             }
@@ -252,7 +266,11 @@ unsafe fn define_row(
                 cell as u64,
                 DEFINE_CTOR_FLAGS,
             );
-            __torajs_str_drop(key);
+            if sym.is_null() {
+                __torajs_str_drop(key);
+            } else {
+                __torajs_rc_dec(sym);
+            }
         }
     }
 }

@@ -401,7 +401,10 @@ fn lower_non_array_source(
                 .async_generator_fns
                 .iter()
                 .any(|g| ctx.ast.generator_factory_classes.get(g) == Some(&cname));
-            if is_await && is_async_gen_class {
+            // RFC 20260920-struct-user-proto K4 — in a program that can
+            // re-parent, the instance's @@iterator may come from its user
+            // chain; the any lane's GetIterator asks the chain.
+            if (is_await && is_async_gen_class) || ctx.ast.program_reparents {
                 let boxed = ctx.box_to_any(src_ptr_op);
                 crate::ssa_lower_for_of_any_iter::lower(ctx, boxed, var_name, body, is_await);
                 return true;

@@ -406,6 +406,33 @@ pub unsafe extern "C" fn __torajs_symbol_well_known(idx: i64) -> *mut c_void {
     }
 }
 
+/// The well-known symbol a class member folded to the name
+/// `__sym_Symbol_<x>__` stands for (the parser's spelling of
+/// `[Symbol.<x>]()`): owned +1, NULL when `<x>` names none.
+///
+/// # Safety
+/// `name` points at `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_symbol_well_known_of_member(
+    name: *const u8,
+    len: usize,
+) -> *mut c_void {
+    let name = unsafe { core::slice::from_raw_parts(name, len) };
+    let Some(prop) = name
+        .strip_prefix(b"__sym_Symbol_")
+        .and_then(|rest| rest.strip_suffix(b"__"))
+    else {
+        return core::ptr::null_mut();
+    };
+    match WELL_KNOWN_DESCS
+        .iter()
+        .position(|d| d.strip_prefix(b"Symbol.") == Some(prop))
+    {
+        Some(idx) => unsafe { __torajs_symbol_well_known(idx as i64) },
+        None => core::ptr::null_mut(),
+    }
+}
+
 unsafe fn ensure_well_known(slot: &AtomicPtr<c_void>, desc_bytes: &[u8]) -> *mut c_void {
     let existing = slot.load(Ordering::Acquire);
     if !existing.is_null() {
