@@ -222,6 +222,23 @@ fn rename_in_stmt(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
             static_init,
             ..
         } => {
+            // A computed key is evaluated in the scope the class is
+            // written in (§15.7.14), so an outer name it reads renames
+            // with that scope — and the keys live in a side table, not
+            // under the ClassDecl. Not for the class being renamed
+            // itself: there its own name in a key is the class-scope
+            // binding, still in its TDZ.
+            if name != old {
+                let keys: Vec<ExprId> = ast
+                    .class_computed_keys
+                    .iter()
+                    .filter(|((c, _), _)| c == name)
+                    .map(|(_, e)| *e)
+                    .collect();
+                for k in keys {
+                    rename_in_expr(ast, k, old, new);
+                }
+            }
             if name == old {
                 *name = new.to_string();
             }
