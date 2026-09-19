@@ -480,6 +480,9 @@ pub unsafe extern "C" fn __torajs_any_accessor_get(
 /// # Safety
 /// `ptr` is a live `Tag::Obj` cell; `key` a live Str cell.
 pub(crate) unsafe fn struct_accessor_key(ptr: *mut c_void, key: *const c_void) -> bool {
+    if unsafe { crate::member_get_layout::obj_user_proto_raised(ptr) } {
+        return false;
+    }
     let k = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
     unsafe { struct_accessor_present(ptr, k.as_bytes()) }
 }

@@ -7,9 +7,13 @@
 
 use core::ffi::{c_char, c_void};
 
-use crate::reflect::{TAG_CLOSURE, TAG_DYNOBJ, VALUE_NULL_IMM, heap_type_tag, is_cell_imm};
+use crate::classmeta::obj_proto::{FLAG_OBJ_USER_PROTO, OBJ_PROPS_OFF};
+use crate::reflect::{
+    PROTO_SLOT_KEY, TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag,
+    is_cell_imm,
+};
 use crate::reflect_proto_set::{
-    CLOSURE_PROPS_OFF, HDR_FLAG_NON_EXTENSIBLE, ProtoRefusal, cell_flags, is_null_any,
+    CLOSURE_PROPS_OFF, HDR_FLAG_NON_EXTENSIBLE, ProtoRefusal, cell_flags, is_null_any, link_proto,
     ordinary_set_prototype_of, throw_proto_refusal,
 };
 
@@ -17,6 +21,10 @@ unsafe extern "C" {
     /// torajs-rc — the one first-attach of a user closure's props bag
     /// (link-judged; see `torajs_rc::closure_entry`).
     fn __torajs_closure_props_attach(cell: *mut u8, props: *mut c_void);
+    /// torajs-rc — the one first-attach of a struct instance's props
+    /// dict (link-judged, same contract as the closure entry).
+    fn __torajs_obj_props_attach(cell: *mut u8, props: *mut c_void);
+    fn __torajs_str_drop(s: *mut u8);
     fn __torajs_dynobj_alloc() -> *mut c_void;
     /// torajs-anyvalue — §10.5.2 [[SetPrototypeOf]] on a Proxy.
     fn __torajs_proxy_set_prototype_of(obj: u64, proto: u64) -> i64;
@@ -63,7 +71,49 @@ unsafe fn closure_set_prototype_of(
         return Ok(());
     }
     let carrier = unsafe { closure_proto_carrier(cell) };
-    unsafe { ordinary_set_prototype_of(carrier, proto, cell_flags(cell)) }
+    unsafe { link_carrier(carrier, proto, cell_flags(cell)) }
+}
+
+/// [`link_proto`] with its own `PROTO_SLOT_KEY` Str.
+unsafe fn link_carrier(carrier: *mut c_void, proto: u64, flags: u16) -> Result<(), ProtoRefusal> {
+    unsafe {
+        let key = alloc_str_key(PROTO_SLOT_KEY);
+        let r = link_proto(carrier, proto, flags, key);
+        __torajs_str_drop(key);
+        r
+    }
+}
+
+/// A struct instance's re-parent (RFC 20260920-struct-user-proto) —
+/// the function-value path one tag over: the same-value test asks the
+/// instance's own [[GetPrototypeOf]] (its class prototype until now),
+/// the link lands in its lazy props dict, and `FLAG_OBJ_USER_PROTO`
+/// tells every proto reader to look there instead of at the class tag.
+unsafe fn struct_set_prototype_of(
+    obj: u64,
+    cell: *mut c_void,
+    proto: u64,
+) -> Result<(), ProtoRefusal> {
+    let proto_n = if is_null_any(proto) {
+        VALUE_NULL_IMM
+    } else {
+        proto
+    };
+    if unsafe { crate::reflect_proto::proto_of_any_is(obj, proto_n) } {
+        return Ok(());
+    }
+    unsafe {
+        let slot = cell.cast::<u8>().add(OBJ_PROPS_OFF) as *mut *mut c_void;
+        if (*slot).is_null() {
+            // first attach — the entry the instance's drop seams are
+            // link-judged on
+            __torajs_obj_props_attach(cell.cast::<u8>(), __torajs_dynobj_alloc());
+        }
+        link_carrier(*slot, proto, cell_flags(cell))?;
+        let flags = cell.cast::<u8>().add(6).cast::<u16>();
+        flags.write(flags.read() | FLAG_OBJ_USER_PROTO);
+    }
+    Ok(())
 }
 
 /// The re-parent for a receiver tr keeps on its builtin
@@ -123,17 +173,10 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
                 }
                 return;
             }
-            // A static-layout struct has no __proto__ simulation
-            // slot — the write CANNOT take effect, and the silent
-            // return read as success (rotation 154 probe:
-            // getPrototypeOf(child) === base stayed false). Loud
-            // TypeError, aligned with the Object.assign
-            // struct-target boundary; real re-parenting needs the
-            // variable-position any-promotion family (L3b).
-            if heap_type_tag(cell) == crate::reflect::TAG_OBJ {
-                __torajs_throw_type_error(
-                    c"Cannot set prototype of a fixed-layout object".as_ptr(),
-                );
+            if heap_type_tag(cell) == TAG_OBJ {
+                if let Err(r) = struct_set_prototype_of(obj, cell, proto) {
+                    throw_proto_refusal(r);
+                }
                 return;
             }
             if let Err(r) = exotic_set_prototype_of(obj, proto) {
@@ -177,8 +220,11 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
             if heap_type_tag(cell) == TAG_CLOSURE {
                 return i64::from(closure_set_prototype_of(obj, cell, proto).is_ok());
             }
-            // Fixed-layout struct / exotic (Arr / wrapper)
-            // receivers cannot take a new [[Prototype]] in tr — the
+            if heap_type_tag(cell) == TAG_OBJ {
+                return i64::from(struct_set_prototype_of(obj, cell, proto).is_ok());
+            }
+            // Exotic (Arr / wrapper) receivers cannot take a new
+            // [[Prototype]] in tr — the
             // Object flavor throws / silently keeps; the honest
             // Reflect spelling of "the write cannot take effect" is
             // false (recorded boundary, same family as the
@@ -217,6 +263,12 @@ pub unsafe extern "C" fn __torajs_anyv_proto_member_set(obj: u64, proto: u64) {
             // value routes through the same expando carrier.
             if heap_type_tag(cell) == TAG_CLOSURE {
                 if let Err(r) = closure_set_prototype_of(obj, cell, proto) {
+                    throw_proto_refusal(r);
+                }
+                return;
+            }
+            if heap_type_tag(cell) == TAG_OBJ {
+                if let Err(r) = struct_set_prototype_of(obj, cell, proto) {
                     throw_proto_refusal(r);
                 }
                 return;

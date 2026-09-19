@@ -181,12 +181,17 @@ pub(crate) unsafe fn struct_method(
                 // `o.__getter_b()` keeps the honest no-such TypeError
                 // (the property read reaches the getter, the call does
                 // not). A user method really named `b` still wins here.
+                // A re-parented instance (RFC 20260920) answers its
+                // class's methods and accessors only if its user
+                // chain still reaches them — the chain read below.
+                let reparented = crate::member_get_layout::obj_user_proto_raised(obj);
                 let mut mflags: u32 = 0;
-                let adapter = if __torajs_accessor_name_kind(name_bytes, name_len) == 255 {
-                    __torajs_struct_method_find_flags(layout, name_bytes, name_len, &mut mflags)
-                } else {
-                    core::ptr::null()
-                };
+                let adapter =
+                    if !reparented && __torajs_accessor_name_kind(name_bytes, name_len) == 255 {
+                        __torajs_struct_method_find_flags(layout, name_bytes, name_len, &mut mflags)
+                    } else {
+                        core::ptr::null()
+                    };
                 if !adapter.is_null() {
                     // 404-01 — a twin-primary record's adapter is the
                     // receiver-polymorphic `__cmany_` twin: recv-first
@@ -226,11 +231,15 @@ pub(crate) unsafe fn struct_method(
                     .chain(core::slice::from_raw_parts(name_bytes, name_len as usize))
                     .copied()
                     .collect();
-                let getter_adapter = __torajs_struct_method_find(
-                    layout,
-                    getter_key.as_ptr(),
-                    getter_key.len() as u32,
-                );
+                let getter_adapter = if reparented {
+                    core::ptr::null()
+                } else {
+                    __torajs_struct_method_find(
+                        layout,
+                        getter_key.as_ptr(),
+                        getter_key.len() as u32,
+                    )
+                };
                 if !getter_adapter.is_null() {
                     let got = crate::method_call::invoke_boxed(
                         obj,

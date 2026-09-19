@@ -15,7 +15,7 @@
 //! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
 //! | 4     | [`FLAG_FROZEN`] | universal |
 //! | 5     | [`FLAG_BUFFERED`] | universal (cycle collector) |
-//! | 6     | NULL_PROTO (torajs-dynobj private, DynObj) / [`FLAG_CLASS_METHOD_THIS_FREE`] (Closure) / [`FLAG_ARR_SPARSE_TAIL`] (Arr) | disjoint-by-tag |
+//! | 6     | NULL_PROTO (torajs-dynobj private, DynObj) / [`FLAG_CLASS_METHOD_THIS_FREE`] (Closure) / [`FLAG_ARR_SPARSE_TAIL`] (Arr) / [`FLAG_OBJ_USER_PROTO`] (Obj) | disjoint-by-tag |
 //! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) | disjoint-by-tag |
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
@@ -239,6 +239,17 @@ pub const FLAG_OBJ_EXOTIC_FIELD: u16 = 1 << 15;
 /// Bit 12 is Tag::Obj-private (disjoint-by-tag with Arr's element-kind
 /// field at 10-12 and the Closure / DynObj bits at 10-11).
 pub const FLAG_OBJ_EXPANDO: u16 = 1 << 12;
+/// `Tag::Obj` instance carries a user [[Prototype]] (RFC
+/// 20260920-struct-user-proto) — `Object.setPrototypeOf(inst, p)` or a
+/// newTarget whose `prototype` is not the class's own. The link lives
+/// where a function value keeps its own (405-01): the `\x00proto`
+/// entry of the lazy props dynobj at +24, an explicit null as that
+/// dict's NULL_PROTO bit. Proto readers test this bit before the class
+/// tag, so an instance never re-parented pays one masked compare.
+///
+/// Bit 6 is Tag::Obj-private (disjoint-by-tag with DynObj's NULL_PROTO
+/// bit, which says the same thing about the dict itself).
+pub const FLAG_OBJ_USER_PROTO: u16 = 1 << 6;
 /// `Tag::Arr` `length` property lock (RFC 20260712-arr-exotic-define
 /// chunk D) — `Object.defineProperty(arr, "length", {writable:
 /// false})` sets it; every later length mutation (assign / define /

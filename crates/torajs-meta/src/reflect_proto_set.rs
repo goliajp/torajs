@@ -16,16 +16,17 @@
 //! the `__proto__` setter silently ignores an invalid value and
 //! throws only on the refusal.
 //!
-//! Recorded boundary: non-dynobj receivers (Arr / Closure / wrapper
-//! / struct cells) keep their builtin [[Prototype]] — the write is
-//! ignored (spec would allow re-parenting exotic objects; the
-//! per-shape proto slot is a follow-up knife).
+//! A function value and a struct instance link through their props
+//! dict (the CARRIER, see [`link_proto`]); exotic receivers (Arr /
+//! wrapper / Map …) keep their builtin [[Prototype]] — the write is
+//! ignored (recorded boundary; `reflect_proto_set_faces`).
 
 use core::ffi::{c_char, c_void};
 
+use crate::classmeta::obj_proto::{FLAG_OBJ_USER_PROTO, OBJ_PROPS_OFF};
 use crate::reflect::{
     ANY_HEAP, DYNOBJ_HDR_FLAG_NULL_PROTO, OBJECT_PROTO_TAG, PROTO_SLOT_ATTRS, PROTO_SLOT_KEY,
-    TAG_CLOSURE, TAG_DYNOBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
+    TAG_CLOSURE, TAG_DYNOBJ, TAG_OBJ, VALUE_NULL_IMM, alloc_str_key, heap_type_tag, is_cell_imm,
 };
 
 unsafe extern "C" {
@@ -77,7 +78,7 @@ pub(crate) const CLOSURE_PROPS_OFF: usize = 24;
 /// The receiver's current user-proto link: the own `__proto__` cell
 /// entry, or null for the null-proto shape / an absent entry (the
 /// implicit %Object.prototype%).
-unsafe fn current_proto(dynobj: *const c_void, key: *const u8) -> u64 {
+pub(crate) unsafe fn current_proto(dynobj: *const c_void, key: *const u8) -> u64 {
     let flags = unsafe { dynobj.cast::<u8>().add(6).cast::<u16>().read() };
     if flags & DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
         return VALUE_NULL_IMM;
@@ -179,30 +180,67 @@ pub(crate) unsafe fn ordinary_set_prototype_of(
             __torajs_str_drop(key);
             return Err(ProtoRefusal::ImmutableProto);
         }
+        let r = link_proto(obj, proto, receiver_flags, key);
+        __torajs_str_drop(key);
+        r
+    }
+}
+
+/// §10.1.2.1 steps 5-9 — the extensibility refusal, the cycle walk and
+/// the write, for a receiver whose step-3 same-value test is already
+/// settled. A function value or a struct instance asks that test of
+/// its own [[GetPrototypeOf]] and then links through its CARRIER (the
+/// props dict holding the `\x00proto` entry); the carrier's
+/// absent-entry answer is not that receiver's implicit chain, so
+/// running step 3 again on the carrier would skip real writes
+/// (`setPrototypeOf(fn, Object.prototype)` compared the carrier's
+/// implied %Object.prototype% and returned without writing).
+///
+/// `obj` is the dict the link lands in; `proto` is null (either
+/// encoding) or a cell; `key` is a live `PROTO_SLOT_KEY` Str.
+pub(crate) unsafe fn link_proto(
+    obj: *mut c_void,
+    proto: u64,
+    receiver_flags: u16,
+    key: *const u8,
+) -> Result<(), ProtoRefusal> {
+    unsafe {
         if receiver_flags & HDR_FLAG_NON_EXTENSIBLE != 0 {
-            __torajs_str_drop(key);
             return Err(ProtoRefusal::NonExtensible);
         }
         // Steps 6-8 — walk the would-be parent chain; finding the
-        // receiver itself is the cycle refusal. A closure link hops
-        // through its expando props bag — the dynobj that CARRIES its
-        // user [[Prototype]] entry (405-01), and also the cell this
-        // fn is asked to write when the receiver is a function value,
-        // so the ptr_eq probe catches closure cycles too. Any other
+        // receiver itself is the cycle refusal. A function or struct
+        // link hops through its props dict — the dynobj that CARRIES
+        // its user [[Prototype]] entry, and also the cell this fn is
+        // asked to write when the receiver is such a value, so the
+        // ptr_eq probe catches their cycles too. A struct never
+        // re-parented continues at its class prototype. Any other
         // non-dynobj link ends the walk (builtin implicit chains
         // cannot reach a user object).
         let mut cur_p = proto;
         while is_cell_imm(cur_p) {
             let mut cell = cur_p as *mut c_void;
-            if heap_type_tag(cell) == TAG_CLOSURE {
-                let props = *(cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64);
-                if props == 0 {
+            let tag = heap_type_tag(cell);
+            if tag == TAG_CLOSURE || tag == TAG_OBJ {
+                let off = if tag == TAG_CLOSURE {
+                    CLOSURE_PROPS_OFF
+                } else {
+                    OBJ_PROPS_OFF
+                };
+                let props = *(cell.cast::<u8>().add(off) as *const u64) as *mut c_void;
+                if core::ptr::eq(props, obj) {
+                    return Err(ProtoRefusal::Cycle);
+                }
+                if tag == TAG_OBJ && cell_flags(cell) & FLAG_OBJ_USER_PROTO == 0 {
+                    cur_p = crate::classmeta::__torajs_obj_proto_borrowed(cell);
+                    continue;
+                }
+                if props.is_null() {
                     break;
                 }
-                cell = props as *mut c_void;
+                cell = props;
             }
             if core::ptr::eq(cell, obj) {
-                __torajs_str_drop(key);
                 return Err(ProtoRefusal::Cycle);
             }
             if heap_type_tag(cell) != TAG_DYNOBJ {
@@ -230,7 +268,6 @@ pub(crate) unsafe fn ordinary_set_prototype_of(
                 PROTO_SLOT_ATTRS,
             );
         }
-        __torajs_str_drop(key);
         Ok(())
     }
 }

@@ -32,7 +32,7 @@ mod error_family;
 mod first_class_links;
 mod generic_alias;
 mod kind;
-mod obj_proto;
+pub(crate) mod obj_proto;
 pub(crate) use obj_proto::{__torajs_obj_proto_borrowed, share_proto};
 mod reify;
 mod source;

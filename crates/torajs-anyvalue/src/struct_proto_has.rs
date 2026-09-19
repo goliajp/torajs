@@ -55,6 +55,10 @@ pub unsafe extern "C" fn __torajs_struct_proto_member_has(
     ptr: *const c_void,
     key: *const c_void,
 ) -> i64 {
+    // A re-parented instance's class is no longer on its chain.
+    if unsafe { crate::member_get_layout::obj_user_proto_raised(ptr) } {
+        return 0;
+    }
     let class_tag = unsafe { ptr.cast::<u8>().add(OBJ_CLASS_TAG_OFF).cast::<u32>().read() };
     let layout = unsafe { __torajs_struct_layout_lookup(class_tag) };
     if layout.is_null() {

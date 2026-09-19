@@ -71,6 +71,10 @@ pub(crate) unsafe fn chain_parent(cell: u64) -> Option<u64> {
         if crate::nanbox::is_cell(root) {
             return Some(root);
         }
+        // A re-parented instance's explicit null ends the chain.
+        if unsafe { crate::member_get_layout::obj_user_proto_raised(ptr) } {
+            return None;
+        }
     }
     unsafe { implicit_parent(ptr) }
 }

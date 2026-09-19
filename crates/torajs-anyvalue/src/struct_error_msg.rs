@@ -248,6 +248,9 @@ pub(crate) unsafe fn error_proto_chain_pair(ptr: *const c_void, key_lit: &[u8]) 
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` is a live Str cell.
 pub(crate) unsafe fn struct_proto_chain_pair(ptr: *const c_void, key: *const c_void) -> (u64, u64) {
     let root = unsafe { __torajs_obj_proto_borrowed(ptr) };
+    if unsafe { crate::member_get_layout::obj_user_proto_raised(ptr) } {
+        return unsafe { crate::member_get_layout::user_proto_pair(root, key) };
+    }
     // Non-cell (null / unregistered) → no user chain. Cell test mirrors
     // `nanbox::is_cell` consumers: top16 clear + low type bit clear.
     let root_is_cell = !(root & 0xFFFF_0000_0000_0000 != 0 || root & 0x2 != 0 || root == 0);

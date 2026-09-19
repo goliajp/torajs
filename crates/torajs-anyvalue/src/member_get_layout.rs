@@ -27,6 +27,38 @@ pub(crate) unsafe fn struct_props(ptr: *const c_void) -> *const c_void {
     unsafe { *(ptr.cast::<u8>().add(OBJ_PROPS_OFF) as *const u64) as *const c_void }
 }
 
+/// Whether struct `ptr` was re-parented (RFC 20260920-struct-user-proto):
+/// its [[Prototype]] is the user link in its props dict, so its class's
+/// method / accessor tables are no longer on its chain.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` cell.
+pub(crate) unsafe fn obj_user_proto_raised(ptr: *const c_void) -> bool {
+    unsafe { ptr.cast::<u8>().add(6).cast::<u16>().read() & torajs_rc::FLAG_OBJ_USER_PROTO != 0 }
+}
+
+/// The inherited `(tag, value)` pair of a re-parented struct: the whole
+/// [[Get]] asked of its user prototype `root`, which may be any object
+/// (a struct literal, a function, a dynobj). Borrow-shaped like every
+/// probe answer; an accessor answers its pair, which the emitted
+/// accessor arm then invokes with the INSTANCE as receiver. A null
+/// link (`root` not a cell) ends the chain.
+///
+/// # Safety
+/// `root` is the borrowed answer of `__torajs_obj_proto_borrowed` for
+/// a re-parented instance; `key` is a live Str cell.
+pub(crate) unsafe fn user_proto_pair(root: u64, key: *const c_void) -> (u64, u64) {
+    if !crate::nanbox::is_cell(root) {
+        return (torajs_rc::AnySlotTag::Undef as u64, 0);
+    }
+    unsafe {
+        (
+            crate::member_get::__torajs_any_member_get_tag(root, key),
+            crate::member_get_value::__torajs_any_member_get_value(root, key),
+        )
+    }
+}
+
 /// Wrapper-cell lazy props slot — mirror of
 /// `torajs-wrapper::WRAPPER_PROPS_OFF` (RFC 20260716 刀 5, rotation
 /// 121). Every wrapper cell layout is `[header:8][value:8][props:8]`.
