@@ -300,10 +300,16 @@ impl<'a> Parser<'a> {
             return body;
         }
         let mut prefix: Vec<Stmt> = Vec::new();
+        // A parameter property is declared AHEAD of the class's own
+        // fields, wherever the constructor sits in the body: bun
+        // answers `tag,x` for `class A { x = 1; constructor(public
+        // tag) {} }` (own keys, JSON.stringify and for-in all read
+        // the layout order), and tr answered `x,tag`.
+        let mut promoted_fields: Vec<(PropKey, String)> = Vec::new();
         for (idx, vis, rd) in promoted_props {
             let p = &params[*idx];
             let ty_ann = p.type_ann.clone().unwrap_or_else(|| "any".into());
-            fields.push((PropKey::from(&p.name), ty_ann));
+            promoted_fields.push((PropKey::from(&p.name), ty_ann));
             if *vis != ast::Visibility::Public {
                 self.ast
                     .member_visibility
@@ -326,8 +332,16 @@ impl<'a> Parser<'a> {
             });
             prefix.push(Stmt::Expr(assign));
         }
-        prefix.extend(body);
-        prefix
+        fields.splice(0..0, promoted_fields);
+        // The assignments run once `this` exists — in a derived class
+        // that is after `super(…)`, where they used to sit in front of
+        // it. The field initializers `finalize_class_field_inits`
+        // splices at the same index later land ahead of them, which is
+        // the order bun runs the two in.
+        let at = self.super_stmt_index(&body).map_or(0, |i| i + 1);
+        let mut body = body;
+        body.splice(at..at, prefix);
+        body
     }
 }
 

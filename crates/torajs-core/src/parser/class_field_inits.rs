@@ -156,7 +156,7 @@ impl<'a> Parser<'a> {
     /// call. Only the statement level is examined: a super buried in a
     /// branch has no single "after" to speak of, and that shape is a
     /// recorded boundary elsewhere too.
-    fn super_stmt_index(&self, body: &[Stmt]) -> Option<usize> {
+    pub(super) fn super_stmt_index(&self, body: &[Stmt]) -> Option<usize> {
         body.iter().position(|s| {
             matches!(s, Stmt::Expr(eid) if matches!(self.ast.get_expr(*eid), Expr::Super { .. }))
         })
