@@ -154,6 +154,14 @@ fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operan
     if !matches!(actual_ty, Type::Obj(_)) {
         return Operand::ConstBool(false);
     }
+    // RFC 20260920-struct-user-proto K4 — in a program that can
+    // re-parent, a class instance's tag no longer settles membership:
+    // the runtime kernel reads FLAG_OBJ_USER_PROTO and walks the user
+    // chain when it is raised.
+    if ctx.ast.program_reparents {
+        let boxed = ctx.box_to_any(v);
+        return lower_any_dispatch(ctx, boxed, class_name);
+    }
     lower_typed_obj_dispatch(ctx, v, class_name)
 }
 

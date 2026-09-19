@@ -246,6 +246,7 @@ pub(crate) fn run_ast_prelude(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::synthesize_sloppy_implicit_globals(ast);
     ast::unwrap_exports(ast);
     ast::rename_user_main(ast);
+    ast::census_program_reparents(ast);
     ast::desugar_using(ast);
     // RFC 20260809 B5 — after `desugar_using` (the classes contain no
     // `using`), before `desugar_async` (their walk helpers are async

@@ -197,12 +197,23 @@ fn try_accessor_getter(
         }
     };
     let ret_ty = ctx.f_ret_type_hint(fid);
-    let cur_block = ctx.cur_block;
-    let v = ctx
-        .f
-        .append_inst(cur_block, InstKind::Call(fid, vec![obj_val]), ret_ty, None);
-    ctx.emit_throw_check(Some(fid));
-    Some(Operand::Value(v))
+    let recv = obj_val.clone();
+    let call = move |ctx: &mut LowerCtx<'_>| {
+        let cur_block = ctx.cur_block;
+        let v = ctx
+            .f
+            .append_inst(cur_block, InstKind::Call(fid, vec![obj_val]), ret_ty, None);
+        ctx.emit_throw_check(Some(fid));
+        Operand::Value(v)
+    };
+    if !ctx.ast.program_reparents {
+        return Some(call(ctx));
+    }
+    // RFC 20260920-struct-user-proto K4 — a re-parented instance
+    // reads its getter from its user chain.
+    Some(crate::ssa_lower_call_reparent_guard::guarded_getter(
+        ctx, eid, recv, name, call,
+    ))
 }
 
 fn lower_struct_field(

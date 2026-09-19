@@ -45,6 +45,11 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_call_optchain::try_lower(ctx, eid, callee, args) {
         return op;
     }
+    // RFC 20260920-struct-user-proto K4 — same outside-the-cascade
+    // shape: its static branch re-enters `dispatch` for this call.
+    if let Some(op) = crate::ssa_lower_call_reparent_guard::try_lower(ctx, eid, callee, args) {
+        return op;
+    }
     dispatch(ctx, eid, callee, args)
 }
 

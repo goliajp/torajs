@@ -766,6 +766,10 @@ pub struct Ast {
     /// `%Object.prototype%` when there is none; the runtime cannot tell
     /// an injected class from a user one by shape.
     pub intrinsic_classes: std::collections::HashSet<String>,
+    /// K4 of the same RFC — the user's code names a re-parenting write
+    /// (`ast::census_program_reparents`); typed class dispatch then
+    /// tests the instance's `FLAG_OBJ_USER_PROTO` before going static.
+    pub program_reparents: bool,
     /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
     /// nominal alias minted for a method-bearing object literal) → its
     /// method field names. `ssa_lower` resolves the alias to a

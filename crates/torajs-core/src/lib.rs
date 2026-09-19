@@ -400,6 +400,7 @@ pub(crate) mod ssa_lower_call_reflect_integrity;
 pub(crate) mod ssa_lower_call_reflect_set;
 pub(crate) mod ssa_lower_call_regex_methods;
 pub(crate) mod ssa_lower_call_regexp_escape;
+pub(crate) mod ssa_lower_call_reparent_guard;
 pub(crate) mod ssa_lower_call_script_decl;
 pub(crate) mod ssa_lower_call_set_dispatch;
 pub(crate) mod ssa_lower_call_sibling_class_dispatch;
