@@ -201,6 +201,13 @@ pub struct Program {
     /// RE2 / Hyperscan. On `str-replace-100k` no-match probe this
     /// drops the Pike VM cost from ~1011 ns/iter to ~30 ns/iter.
     pub prefix_byte: Option<u8>,
+    /// `Some(bytes)` iff the whole program is one run of literal
+    /// ASCII bytes and nothing else (`/x/`, `/foo/`, `/, /`): no
+    /// group, anchor, class or quantifier, no ignore-case bit. A
+    /// search for such a pattern is a substring find, so
+    /// `search_from_with_ws` answers it without entering the DFA or
+    /// the Pike VM. Set by [`Program::derive_search_anchors`].
+    pub literal: Option<Vec<u8>>,
     /// `true` iff the AST passes [`crate::dfa::analyze`] — no
     /// backref / no lookaround — and thus is representable by a
     /// classical subset-construction DFA. Set at compile time by

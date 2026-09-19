@@ -263,6 +263,9 @@ pub fn search_from_with_ws(
     haystack_is_ascii: bool,
     want_saves: bool,
 ) -> Option<MatchResult> {
+    if let Some(lit) = prog.literal.as_deref() {
+        return crate::search_anchors::find_literal(s, from_pos, lit);
+    }
     let slen = s.len() as i64;
     let mut dfa_built_local: Option<crate::dfa::DfaProgram> = None;
     if let Some(dfa) = resolve_dfa(prog, flags, dfa_cached, &mut dfa_built_local) {

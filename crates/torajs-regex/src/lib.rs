@@ -63,6 +63,7 @@ pub mod parser;
 pub mod program;
 pub mod regex;
 pub mod resolve;
+pub mod search_anchors;
 pub mod ucd;
 pub mod ucd_emoji_seq;
 pub mod ucd_tables;

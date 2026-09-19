@@ -151,22 +151,7 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
     // compile.rs). The baked DFA path benefits from the prefix anchor
     // too: it shrinks the search window before the DFA byte-walk runs.
     if rejected == 0 {
-        for inst in &prog.insts {
-            match crate::program::Op::from_u8(inst.op) {
-                Some(crate::program::Op::Save)
-                | Some(crate::program::Op::AnchorB)
-                | Some(crate::program::Op::AnchorE)
-                | Some(crate::program::Op::WBound)
-                | Some(crate::program::Op::NWBound) => continue,
-                Some(crate::program::Op::Char) => {
-                    if inst.pad as u8 & crate::parser::RE_FLAG_I == 0 {
-                        prog.prefix_byte = Some(inst.ch);
-                    }
-                    break;
-                }
-                _ => break,
-            }
-        }
+        prog.derive_search_anchors();
     }
 
     // Baked-DFA bind: stamp the meta ptr into the new field so

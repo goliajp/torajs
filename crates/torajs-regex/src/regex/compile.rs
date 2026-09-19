@@ -166,22 +166,7 @@ pub(crate) fn compile_bytes(pat: Vec<u8>, fl: Vec<u8>) -> *mut c_void {
     // to `Class` at parse time which lands in the "different
     // shape" branch.
     if rejected == 0 {
-        for inst in &prog.insts {
-            match crate::program::Op::from_u8(inst.op) {
-                Some(crate::program::Op::Save)
-                | Some(crate::program::Op::AnchorB)
-                | Some(crate::program::Op::AnchorE)
-                | Some(crate::program::Op::WBound)
-                | Some(crate::program::Op::NWBound) => continue,
-                Some(crate::program::Op::Char) => {
-                    if inst.pad as u8 & crate::parser::RE_FLAG_I == 0 {
-                        prog.prefix_byte = Some(inst.ch);
-                    }
-                    break;
-                }
-                _ => break,
-            }
-        }
+        prog.derive_search_anchors();
     }
 
     // Round 3 Phase B sub-batch 7.2 — eager-build runtime DFA at ctor
