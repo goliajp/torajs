@@ -158,14 +158,45 @@ pub(crate) fn emit_nullish_cond(
             None,
         );
         Operand::Value(nullish)
-    } else {
+    } else if matches!(obj_ty, Type::Str) {
+        // Both string sentinels (null, the undefined cell / view).
         let cond = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_is_nullish, vec![obj_op.clone()]),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(cond)
+    } else {
+        let is_null = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::ICmp(IPred::Eq, obj_op.clone(), Operand::ConstPtrNull),
             Type::Bool,
             None,
         );
-        Operand::Value(cond)
+        if !obj_ty.is_refcounted() || matches!(obj_ty, Type::Substr) {
+            return Operand::Value(is_null);
+        }
+        // A `T | undefined` heap slot holds `undefined` as the generic
+        // undefined cell, not NULL: `x?.m()` on such an `x` compared
+        // only against NULL, so it called the method on the sentinel.
+        let is_undef = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.is_undef_cell, vec![obj_op.clone()]),
+            Type::Bool,
+            None,
+        );
+        let nullish = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                SsaBinOp::Or,
+                Operand::Value(is_null),
+                Operand::Value(is_undef),
+            ),
+            Type::Bool,
+            None,
+        );
+        Operand::Value(nullish)
     }
 }
 
