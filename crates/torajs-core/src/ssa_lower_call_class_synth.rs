@@ -418,6 +418,13 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                 ),
             );
         }
+        if ctx.ast.intrinsic_classes.contains(&cname) {
+            let mark = ctx.intrinsics.class_mark_intrinsic;
+            ctx.f.append_void(
+                cur_block,
+                InstKind::Call(mark, vec![Operand::ConstI64(tag as i64)]),
+            );
+        }
         emit_ctor_register(ctx, &cname, class_op.clone());
         // rotation 186 — the register kernel defines `constructor`
         // + reified methods onto the PROTOTYPE dynobj, which may

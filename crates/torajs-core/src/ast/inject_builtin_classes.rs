@@ -273,6 +273,8 @@ pub fn inject_builtin_classes(ast: &mut Ast) {
         }
         ast.injected_error_classes.insert((*n).to_string());
     }
+    ast.intrinsic_classes
+        .extend(ast.injected_error_classes.iter().cloned());
     ast.stmts.splice(0..0, injected);
 }
 

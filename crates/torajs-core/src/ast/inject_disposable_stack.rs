@@ -334,6 +334,14 @@ pub fn inject_disposable_stack(ast: &mut Ast) {
     }
     let tokens = crate::lexer::tokenize(&src).expect("disposable stack lex");
     let offset = crate::parser::parse_into(&src, &tokens, ast).expect("disposable stack parse");
+    for (wanted, name) in [
+        (want_sync, "DisposableStack"),
+        (want_async, "AsyncDisposableStack"),
+    ] {
+        if wanted {
+            ast.intrinsic_classes.insert(name.to_string());
+        }
+    }
     // Parsed spans index the injected source, not the program's —
     // stamp the (0,0) "no user source" sentinel (the stmt.rs span
     // contract, `desugar_using::inject_helpers` 同款), on FnDecls and

@@ -11,7 +11,7 @@
 
 use core::ffi::c_void;
 
-use super::{CLASSES_BY_TAG_IMM, MAX_CLASSES, in_range};
+use super::{MAX_CLASSES, in_range};
 
 // Same shape as PROTOS_BY_TAG_IMM / CLASSES_BY_TAG_IMM: a
 // process-lifetime, single-threaded-runtime static table written by
@@ -43,20 +43,10 @@ pub extern "C" fn __torajs_class_source_for_cell(cell: *const c_void) -> *mut c_
     if cell.is_null() {
         return core::ptr::null_mut();
     }
-    let mut tag = 0usize;
-    while tag < MAX_CLASSES {
-        // SAFETY: single-threaded JS runtime, direct indexed reads.
-        let registered = unsafe { CLASSES_BY_TAG_IMM[tag] };
-        if registered as *const c_void == cell {
-            let src = unsafe { CLASS_SOURCE_BY_TAG[tag] };
-            return src as *mut c_void;
-        }
-        tag += 1;
-    }
     // One evaluation of a unit class shares the template's source.
-    match unsafe { super::unit::__torajs_class_unit_tag_of(cell) } {
+    match super::intrinsic::tag_of_class_cell(cell) {
         -1 => core::ptr::null_mut(),
-        // SAFETY: an in-range tag (the record check bounds it).
+        // SAFETY: an in-range tag (the scan / record check bounds it).
         tag => unsafe { CLASS_SOURCE_BY_TAG[tag as usize] as *mut c_void },
     }
 }

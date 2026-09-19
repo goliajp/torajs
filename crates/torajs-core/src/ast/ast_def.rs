@@ -759,6 +759,13 @@ pub struct Ast {
     /// USER `class MyErr extends Error` keeps its spec prototype
     /// shape (no own `name` / `message` — it inherits them).
     pub injected_error_classes: std::collections::HashSet<String>,
+    /// RFC 20260920-struct-user-proto K3 — every class the compiler
+    /// injects to stand in for a spec intrinsic (the error family,
+    /// `DisposableStack` / `AsyncDisposableStack`). §10.1.13's default
+    /// prototype is the nearest such class on a constructor's chain,
+    /// `%Object.prototype%` when there is none; the runtime cannot tell
+    /// an injected class from a user one by shape.
+    pub intrinsic_classes: std::collections::HashSet<String>,
     /// RFC 20260714-objlit-accessor blade 1 — `__ObjLit_<n>` (the synth
     /// nominal alias minted for a method-bearing object literal) → its
     /// method field names. `ssa_lower` resolves the alias to a

@@ -31,8 +31,10 @@ use torajs_rc::Tag;
 use crate::construct::{ctor_entry, is_constructor};
 use crate::iter_any_result::iter_result_get;
 use crate::method_call_closure_dispatch::invoke_boxed;
+use crate::method_value::ctor::ctor_tag_of_cell;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_undefined};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
+use crate::to_primitive::is_object_value;
 
 unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
@@ -42,6 +44,11 @@ unsafe extern "C" {
     /// torajs-meta — ordinary [[SetPrototypeOf]] over an any pair.
     fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64);
     fn __torajs_anyv_get_proto_of_any(obj: u64) -> u64;
+    /// torajs-meta — §10.1.13 step 4's intrinsic default for a class
+    /// constructor (borrowed; 0 = keep what the target built).
+    fn __torajs_class_default_proto(ctor: u64) -> u64;
+    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
+    fn __torajs_dynobj_alloc() -> *mut c_void;
 }
 
 /// Arr cell length slot — mirror of torajs-arr `layout::ARR_LEN_OFF`.
@@ -190,7 +197,15 @@ pub(crate) unsafe fn construct_with_new_target(
         // `this` off the callee's `.prototype`); this path predates
         // B1 and only knew the class-factory registry.
         let target_tag = (as_void_ptr(target).cast::<u8>().add(4) as *const u16).read();
-        let obj = if target_tag == Tag::Closure as u16 {
+        let obj = if new_target != target
+            && ctor_tag_of_cell(as_void_ptr(target).cast_const()) == Some(OBJECT_PROTO_TAG)
+        {
+            // §20.1.1.1 step 1 — Object under a foreign newTarget is
+            // OrdinaryCreateFromConstructor: a fresh object, the value
+            // argument plays no part (returning it would re-parent the
+            // caller's own object below).
+            crate::nanbox_encode::__torajs_anyv_box_from_pair(4, __torajs_dynobj_alloc() as i64)
+        } else if target_tag == Tag::Closure as u16 {
             crate::construct::construct_with_nt(target, argv, argc, new_target)
         } else {
             let entry = ctor_entry(as_void_ptr(target) as u64);
@@ -209,13 +224,22 @@ pub(crate) unsafe fn construct_with_new_target(
         if new_target != target && is_cell(obj) {
             if let Some(proto) = iter_result_get(new_target, as_void_ptr(new_target), b"prototype")
             {
+                // Step 4 — a non-object `prototype` (a string and a symbol
+                // are cells too) falls back to the realm intrinsic the
+                // constructor names: its own prototype for an intrinsic,
+                // %Object.prototype% under a chain of user classes.
+                let want = if is_object_value(proto) {
+                    proto
+                } else {
+                    default_proto(target)
+                };
                 // A proxy newTarget over the target usually answers the
                 // prototype the object already has; re-parenting to the
-                // same value must not reach the fixed-layout refusal.
-                if is_cell(proto) {
+                // same value is a no-op.
+                if want != 0 {
                     let current = __torajs_anyv_get_proto_of_any(obj);
-                    if current != proto {
-                        __torajs_anyv_set_prototype_of(obj, proto);
+                    if current != want {
+                        __torajs_anyv_set_prototype_of(obj, want);
                     }
                     __torajs_anyv_rc_dec(current);
                 }
@@ -228,5 +252,33 @@ pub(crate) unsafe fn construct_with_new_target(
             }
         }
         obj
+    }
+}
+
+/// `%Object.prototype%`'s builtin-proto tag, which is also the
+/// interned `Object` constructor cell's slot.
+const OBJECT_PROTO_TAG: i64 = 1;
+
+/// §10.1.13 step 4 — the intrinsic default prototype of `target`,
+/// BORROWED, for a newTarget whose `prototype` is no object; 0 keeps
+/// what the target built. An ordinary function's is
+/// %Object.prototype% (§10.2.2 step 5.a); a builtin constructor built
+/// its own intrinsic already, and a bound function constructed its
+/// target, which chose; a class asks the class registry.
+///
+/// # Safety
+/// `target` is a live constructor.
+unsafe fn default_proto(target: AnyValue) -> u64 {
+    let cell = as_void_ptr(target);
+    unsafe {
+        if (cell.cast::<u8>().add(4) as *const u16).read() != Tag::Closure as u16 {
+            return __torajs_class_default_proto(target);
+        }
+        if ctor_tag_of_cell(cell.cast_const()).is_some()
+            || crate::method_bind::bound_cell_meta(cell).is_some()
+        {
+            return 0;
+        }
+        __torajs_get_builtin_prototype(OBJECT_PROTO_TAG) as u64
     }
 }

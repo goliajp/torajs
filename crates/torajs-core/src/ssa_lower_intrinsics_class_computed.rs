@@ -37,6 +37,9 @@ pub(crate) struct ClassComputedIds {
     /// type-erased class declaration text to the runtime's per-tag
     /// source table (§20.2.3.5 class-ctor toString).
     pub class_source_register: FuncId,
+    /// RFC 20260920-struct-user-proto K3 — `class_mark_intrinsic(tag)`:
+    /// the class stands in for a spec intrinsic (`Ast::intrinsic_classes`).
+    pub class_mark_intrinsic: FuncId,
 }
 
 pub(crate) fn declare(
@@ -70,6 +73,13 @@ pub(crate) fn declare(
             fn_table,
             "__torajs_class_source_register",
             &[Type::I64, Type::Ptr],
+            Type::Void,
+        ),
+        class_mark_intrinsic: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_class_mark_intrinsic",
+            &[Type::I64],
             Type::Void,
         ),
     }

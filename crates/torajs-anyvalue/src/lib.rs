@@ -512,6 +512,10 @@ mod tests {
         0
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_class_default_proto(_ctor: u64) -> u64 {
+        0
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_class_unit_tag_of(_cell: *const c_void) -> i64 {
         -1
     }
