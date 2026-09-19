@@ -314,8 +314,16 @@ fn transform_inner(src: &str, quotes_open_strings: bool) -> String {
                 // emit verbatim.
             }
         }
-        // bare `assert(` (must NOT be a member like `obj.assert(`).
-        if starts_with_at(bytes, i, b"assert(") && !preceded_by_dot(bytes, i) {
+        // bare `assert(` (must NOT be a member like `obj.assert(`, nor
+        // a METHOD DEFINITION named `assert` — `class C { assert(e) {
+        // … } }` was renamed while its call site `c.assert(…)` was
+        // not, so the method went missing: four Function/prototype/
+        // toString private-method cases failed in the runner, not in
+        // tr).
+        if starts_with_at(bytes, i, b"assert(")
+            && !preceded_by_dot(bytes, i)
+            && !opens_method_definition(bytes, i + b"assert".len())
+        {
             out.push_str("__t262_assert(");
             i += b"assert(".len();
             continue;
@@ -430,6 +438,42 @@ fn preceded_by_dot(bytes: &[u8], i: usize) -> bool {
         return false;
     }
     bytes[i - 1] == b'.'
+}
+
+/// Is the `(` at `open` the parameter list of a method definition —
+/// its matching `)` followed by `{`? A call is followed by `;`, `,`,
+/// `)` or an operator; only a definition's list meets a body brace.
+/// Quoted strings are skipped so a paren inside one does not count.
+fn opens_method_definition(bytes: &[u8], open: usize) -> bool {
+    let mut depth = 0usize;
+    let mut j = open;
+    while j < bytes.len() {
+        match bytes[j] {
+            b'(' => depth += 1,
+            b')' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    j += 1;
+                    break;
+                }
+            }
+            q @ (b'"' | b'\'' | b'`') => {
+                j += 1;
+                while j < bytes.len() && bytes[j] != q {
+                    if bytes[j] == b'\\' {
+                        j += 1;
+                    }
+                    j += 1;
+                }
+            }
+            _ => {}
+        }
+        j += 1;
+    }
+    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+        j += 1;
+    }
+    j < bytes.len() && bytes[j] == b'{'
 }
 
 fn preceded_by_word(bytes: &[u8], i: usize) -> bool {
