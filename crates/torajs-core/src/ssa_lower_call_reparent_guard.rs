@@ -162,8 +162,9 @@ fn store_and_join(
 
 /// `(receiver, method name, user arguments)` of a method call on a
 /// struct-typed receiver: a call `desugar_classes` rewrote by name
-/// (its original shape is recorded, `cm_demote` hop 1), or one it left
-/// in member form (a name several unrelated classes declare).
+/// (its original shape is recorded, `cm_demote` hop 1; a `this` call
+/// apart), or one it left in member form (a name several unrelated
+/// classes declare).
 fn method_call_shape(
     ctx: &LowerCtx<'_>,
     eid: ExprId,
@@ -182,6 +183,17 @@ fn method_call_shape(
             return None;
         };
         return Some((*args.first()?, name.clone(), user_args.clone()));
+    }
+    // `this.m()` inside a method: rewritten the same way, recorded
+    // apart (no demotion decision exists for it). A method reached
+    // through a re-parented instance's chain still runs with that
+    // instance as `this`. A super call is never recorded — it is
+    // static by spec.
+    if let Some(member) = ctx.ast.cm_this_static_calls.get(&eid) {
+        let Expr::Member { name, .. } = ctx.ast.get_expr(*member) else {
+            return None;
+        };
+        return Some((*args.first()?, name.clone(), args.get(1..)?.to_vec()));
     }
     let Expr::Member { obj, name } = ctx.ast.get_expr(callee) else {
         return None;

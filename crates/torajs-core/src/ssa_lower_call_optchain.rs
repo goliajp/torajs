@@ -72,7 +72,10 @@ pub(crate) fn try_lower(
     // Hit — an ordinary member call, arguments and all.
     ctx.cur_block = hit_blk;
     ctx.redispatch_lowered = Some((base, recv.clone()));
-    let hit = crate::ssa_lower_call::dispatch(ctx, eid, callee, args);
+    // The re-parent guard sits outside the cascade too (RFC
+    // 20260920-struct-user-proto K4); a hit branch is an ordinary call.
+    let hit = crate::ssa_lower_call_reparent_guard::try_lower(ctx, eid, callee, args)
+        .unwrap_or_else(|| crate::ssa_lower_call::dispatch(ctx, eid, callee, args));
     let hit_ty = ctx.operand_ty(&hit);
     let hit_any = if matches!(hit_ty, Type::Any) {
         hit
