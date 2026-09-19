@@ -86,10 +86,20 @@ pub(crate) fn try_lower_setter_call(
         },
         None => v.clone(),
     };
-    let cur_block = ctx.cur_block;
-    ctx.f
-        .append_void(cur_block, InstKind::Call(fid, vec![obj_val, arg]));
-    ctx.emit_throw_check(Some(fid));
+    let recv = obj_val.clone();
+    let call = move |ctx: &mut LowerCtx<'_>| {
+        let cur_block = ctx.cur_block;
+        ctx.f
+            .append_void(cur_block, InstKind::Call(fid, vec![obj_val, arg]));
+        ctx.emit_throw_check(Some(fid));
+    };
+    if ctx.ast.program_reparents {
+        // RFC 20260920-struct-user-proto K4 — a re-parented instance
+        // writes through its user chain's setter.
+        crate::ssa_lower_call_reparent_guard::guarded_setter(ctx, recv, field, v.clone(), call);
+    } else {
+        call(ctx);
+    }
     for (op, ty) in owned {
         ctx.emit_drop_value(op, ty);
     }

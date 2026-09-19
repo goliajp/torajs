@@ -86,6 +86,35 @@ pub(crate) fn guarded_getter(
     })
 }
 
+/// A typed class-setter write `obj.field = v` under the guard: a
+/// re-parented instance writes through the any lane, whose set walk
+/// finds its user chain's setter (or creates the own property).
+/// `v` is the lowered right-hand side, borrowed.
+pub(crate) fn guarded_setter(
+    ctx: &mut LowerCtx<'_>,
+    obj_val: Operand,
+    field: &str,
+    v: Operand,
+    static_call: impl FnOnce(&mut LowerCtx<'_>),
+) {
+    let (dyn_blk, static_blk, join_blk) = split_on_user_proto(ctx, &obj_val);
+    ctx.cur_block = static_blk;
+    static_call(ctx);
+    store_and_join(ctx, None, Operand::ConstI64(0), join_blk);
+    ctx.cur_block = dyn_blk;
+    // The member write takes the caller's +1 on a heap payload.
+    let ty = ctx.operand_ty(&v);
+    ctx.emit_owned_result_inc(v.clone(), ty);
+    let (tag, val) = ctx.box_to_tag_value(v);
+    let boxed = ctx.box_to_any(obj_val);
+    crate::ssa_lower_assign_member_any::emit_any_member_set(
+        ctx, boxed, field, tag, val, &None, false,
+    );
+    ctx.emit_throw_check(None);
+    store_and_join(ctx, None, Operand::ConstI64(0), join_blk);
+    ctx.cur_block = join_blk;
+}
+
 /// Split on `recv`'s `FLAG_OBJ_USER_PROTO`: `static_arm` lowers the
 /// class's own answer, `dyn_arm` the any lane's OWNED Any, fitted to
 /// the static answer's type; the two meet in an entry slot.

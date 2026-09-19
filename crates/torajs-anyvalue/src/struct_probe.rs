@@ -254,6 +254,11 @@ pub unsafe extern "C" fn __torajs_struct_accessor_set(
         if obj.is_null() || name.is_null() {
             return false;
         }
+        // A re-parented instance's class accessors are off its chain;
+        // the caller's inherited-set walk finds the user chain's own.
+        if crate::member_get_layout::obj_user_proto_raised(obj) {
+            return false;
+        }
         let prop = core::slice::from_raw_parts(name, name_len as usize);
         if let Some(acc) = resolve(obj, prop, KIND_SETTER) {
             invoke_setter(obj, acc, value);
