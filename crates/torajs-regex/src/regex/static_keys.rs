@@ -16,7 +16,7 @@ use super::{__torajs_str_drop, str_from_bytes};
 /// for the program's lifetime. Unit test
 /// `torajs_rc::tests::flag_static_literal_value_locked` (lib.rs:657)
 /// asserts the value stays `4`.
-const FLAG_STATIC_LITERAL: u16 = 1 << 2;
+pub(crate) const FLAG_STATIC_LITERAL: u16 = 1 << 2;
 
 /// Round 4 wire-back Phase B chunk 1 attacks #R-K1 + #R-K3 — cached
 /// `"index"` / `"input"` / `"groups"` key Str slots. First call into

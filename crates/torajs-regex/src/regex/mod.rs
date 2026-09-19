@@ -256,6 +256,7 @@ unsafe extern "C" {
     pub fn __torajs_str_drop(s: *mut c_void);
     pub fn __torajs_arr_alloc(initial_cap: u64) -> *mut c_void;
     pub fn __torajs_arr_push(arr: *mut c_void, val: i64) -> *mut c_void;
+    pub fn __torajs_arr_alloc_with(cap: u64, first: i64) -> *mut c_void;
     /// `/d` match-indices — the `.indices` result and its `[start,
     /// end]` pairs are self-describing Array<Any> cells (NaN-box
     /// slots) so the Any lanes print / index them without an

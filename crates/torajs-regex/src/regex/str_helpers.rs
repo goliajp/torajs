@@ -235,7 +235,12 @@ pub unsafe fn span_str(
         return unsafe { str_from_bytes(span) };
     }
     if span.len() == s.len() {
-        unsafe { __torajs_rc_inc(subject as *mut c_void) };
+        // A `.rodata` literal keeps no count (the share is free), so
+        // the call into torajs-rc is skipped for it; flags u16 @6.
+        let flags = unsafe { *((subject as *const u8).add(6) as *const u16) };
+        if flags & super::static_keys::FLAG_STATIC_LITERAL == 0 {
+            unsafe { __torajs_rc_inc(subject as *mut c_void) };
+        }
         return subject as *mut u8;
     }
     unsafe { str_from_bytes_ascii(span) }

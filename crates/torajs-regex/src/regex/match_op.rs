@@ -7,11 +7,11 @@ use core::ffi::c_void;
 use super::match_indices::attach_indices;
 use super::static_keys::{K_GROUPS, K_INDEX, K_INPUT, cached_static_key};
 use super::{
-    __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
-    __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
-    __torajs_str_drop, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported,
-    as_regex_mut, byte_to_utf16_units, haystack, span_str, str_from_bytes, str_slice_ascii_view,
-    utf16_units_to_byte,
+    __torajs_arr_alloc_with, __torajs_arr_push, __torajs_arrprops_attach_exec3,
+    __torajs_arrprops_set, __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto,
+    __torajs_dynobj_set, __torajs_rc_inc, __torajs_str_drop, __torajs_str_undef, ANY_HEAP, ANY_I64,
+    ANY_UNDEF, RegExp, abort_unsupported, as_regex_mut, byte_to_utf16_units, haystack, span_str,
+    str_from_bytes, str_slice_ascii_view, utf16_units_to_byte,
 };
 use crate::node::REGEX_MAX_CAPTURES;
 use crate::parser::{RE_FLAG_G, RE_FLAG_Y};
@@ -299,19 +299,18 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             )
         };
         let Some(m) = hit else { break };
-        if out.is_null() {
-            // Round 5 attack #6 — pre-size to the exec shape
-            // (m[0] + capture groups) so the first push never takes
-            // the cap0→4 grow (pool pop + 32B header memcpy + pool
-            // push) that used to fire on every fresh result array.
-            // The global branch pushes one segment per hit and grows
-            // normally past the pre-size; still strictly better than
-            // starting at 0.
-            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-            out = unsafe { __torajs_arr_alloc(1 + n_cap_lim as u64) };
-        }
         let seg = unsafe { span_str(str_ptr, s, m.start, m.end, haystack_is_ascii) };
-        out = unsafe { __torajs_arr_push(out, seg as i64) };
+        out = if out.is_null() {
+            // Round 5 attack #6 — pre-size to the exec shape
+            // (m[0] + capture groups) so no push on it takes the
+            // cap0→4 grow; the first hit is born holding m[0]. The
+            // global branch pushes one segment per later hit and
+            // grows normally past the pre-size.
+            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+            unsafe { __torajs_arr_alloc_with(1 + n_cap_lim as u64, seg as i64) }
+        } else {
+            unsafe { __torajs_arr_push(out, seg as i64) }
+        };
         if !global {
             // Append captures.
             let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
@@ -432,9 +431,8 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     // Round 5 attack #6 — pre-size to the exec shape (see match loop
     // above); the pushes below fill exactly 1 + n_cap_lim slots.
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-    let mut out = unsafe { __torajs_arr_alloc(1 + n_cap_lim as u64) };
     let whole = unsafe { span_str(str_ptr, s, m.start, m.end, haystack_is_ascii) };
-    out = unsafe { __torajs_arr_push(out, whole as i64) };
+    let mut out = unsafe { __torajs_arr_alloc_with(1 + n_cap_lim as u64, whole as i64) };
     for i in 1..=n_cap_lim {
         let gs = save_slot(m.saves(), 2 * i);
         let ge = save_slot(m.saves(), 2 * i + 1);

@@ -112,6 +112,26 @@ pub unsafe extern "C" fn __torajs_arr_alloc(cap: u64) -> *mut u8 {
     unsafe { __torajs_arr_alloc_pooled(cap) }
 }
 
+/// A fresh array of capacity `cap` already holding `first` at index 0
+/// — `__torajs_arr_alloc(cap)` then `__torajs_arr_push(_, first)` in
+/// one call. A match result is built this way on every hit (m[0] is
+/// always there), and the push paid a second call into this archive
+/// plus the extensibility guard a block born one instruction earlier
+/// can not fail.
+///
+/// # Safety
+/// `cap >= 1`; `first` is a slot value the caller hands over. Same
+/// ownership contract as [`__torajs_arr_alloc_pooled`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_with(cap: u64, first: i64) -> *mut u8 {
+    let p = unsafe { __torajs_arr_alloc_pooled(cap) };
+    unsafe {
+        *(p.add(ARR_CELL_SIZE) as *mut i64) = first;
+        *(p.add(ARR_LEN_OFF) as *mut u64) = 1;
+    }
+    p
+}
+
 /// Pool-aware free. Called by [`crate::drop::__torajs_arr_drop`] on
 /// the last-owner path.
 ///
