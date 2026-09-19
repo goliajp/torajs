@@ -103,6 +103,14 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
     if tag == Tag::Closure as u16 {
         return unsafe { crate::method_value::ctor_read_cell_inherited(ptr, key) }.is_some() as i64;
     }
+    // A struct's chain is its class prototype, or its user link once
+    // re-parented; the `in` kernel walks both (it hands only symbol keys
+    // and Proxies back here, and both answered above). A default Proxy
+    // `has` over a class instance used to stop at the own face.
+    if tag == Tag::Obj as u16 {
+        return unsafe { torajs_rc::in_op_any::__torajs_in_op_any_str(recv as i64, key.cast()) }
+            as i64;
+    }
     if tag != Tag::DynObj as u16 {
         return 0;
     }
