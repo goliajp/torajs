@@ -1681,7 +1681,49 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `6fb4b9c96`** (2026-09-19, rotation 670). Class expressions
+**Latest @ `79d88c3bf`** (2026-09-19, rotation 671). A class whose
+constructor parameter is un-annotated gets a genericized factory, and
+its instances wear per-mono tags the `instanceof` answer set never
+listed: `new C(1) instanceof C` answered false for every such class
+(the private brand check rides the same membership test, so `this.#x =
+v` was refused once the base constructor had used `this`), and on the
+unit-class lane `Object.getPrototypeOf` answered the shared template
+prototype. Both are fixed at their source (the name-identity half of
+the answer set; the unit slot lookup falling through the generic tag
+alias).
+
+A capturing-lane `super(…)` site now knows its parent's
+[[ConstructorKind]] — statically for a real or sibling parent, at run
+time for a value-shaped one (`__torajs_anyv_class_register` records
+it, and a class extending a builtin is derived in both views) — so
+§10.2.2 step 13.c raises where it used to construct silently.
+Installing a private element on a non-extensible instance throws
+(proposal nonextensible-applies-to-private) on the class's own
+instances, not only the foreign store. A class expression in an
+INSTANCE field initializer evaluates per construction inside the
+constructor; a nested class the unit lane refuses runs its static
+initializers where it is written; a TS parameter property is declared
+ahead of the class's own fields. Two ownership leaks closed (`return
+(a = v)`, the `Reflect.apply` / `construct` operand temps). The
+test262 runner's bare `assert(` rewrite no longer renames a METHOD
+named `assert`.
+
+Gate predicate unchanged: **37** clusters of >= 4 holding **246** cases,
+register 2 · 118 (SR-1 30 / SR-2 92), residue 348 · 472 (56.5%), core
+**836**. Sweep passTotal 40503 → **40510 (+7)**, pass 34229 → **34231
+(+2)**, passNoOracle 1706 → **1711 (+5)**, passNegative 4568 (=), bug
+8606 → **8600 (−6)**, incompatible 4065 → **4064 (−1)**, trAccepted
+49109 → **49110 (+1)**; conservation exact. Verdict diff 8 changed, all
+forward, **0 backward**: `Function/internals/Construct/derived-return-
+val`, `subclass/builtin-objects/Object/constructor-returns-non-object`,
+`class/elements/private-class-field-on-nonextensible-objects`, the four
+`Function/prototype/toString` private-method cases (the runner fix; tr
+answers the exact source text), and `staging/sm/ArrayBuffer/slice-
+species` incompatible → bug (the lane now admits a body reading its
+own sibling binding; the case stops at a capturing class extending
+`ArrayBuffer`).
+
+**Prior @ `6fb4b9c96`** (2026-09-19, rotation 670). Class expressions
 written in a member body's statement land beside their use site (K6-1),
 so one reading an outer local (`var self = this; return class { g() {
 return self.#x } }`) takes the runtime-value lane with `self` captured
