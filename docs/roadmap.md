@@ -1681,7 +1681,33 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `572877dac`** (2026-09-20, rotation 672). The rotation
+**Latest @ `35eabf65b`** (2026-09-20, rotation 673). A class
+instance had no [[Prototype]] of its own — its class tag named it — so
+`Object.setPrototypeOf(inst, p)` and a `Reflect.construct` newTarget
+whose `prototype` differs from the class's had to throw `Cannot set
+prototype of a fixed-layout object`. The instance now keeps a user
+link where a function value keeps its own: a `\x00proto` entry in its
+lazy props dict, gated by a new header bit, so an instance never
+re-parented pays one masked compare. Every reader follows it — get,
+set, `in`, `instanceof`, for-in, iteration, printing — and in a
+program whose code names a re-parenting write, the typed lane tests
+the bit before a static method / accessor call. `Reflect.construct`
+now asks whether `prototype` is an object (a string used to be taken
+as one) and falls back to the intrinsic default: the nearest injected
+builtin class on the chain, else `%Object.prototype%`. Found on the
+way: `x?.m()` on a `C | undefined` holding undefined called the method
+on the undefined sentinel, and a class's `[Symbol.iterator]()` was not
+on its prototype under the symbol.
+
+Gate predicate unchanged: **37** clusters of >= 4 holding **246** cases,
+register 2 · 118 (SR-1 30 / SR-2 92), residue 348 · 472 (56.5%), core
+**836**. Sweep passTotal 40510 → **40520 (+10)**, bug 8600 → 8590,
+conservation exact; verdict diff **10 changes, all forward** — the
+whole newTarget × fixed-layout cluster (AggregateError /
+SuppressedError, {Async,}DisposableStack ×2, Object subclass,
+Proxy construct ×2, Proxy setPrototypeOf), 0 regressions.
+
+**Prior @ `572877dac`** (2026-09-20, rotation 672). The rotation
 opened on a directive: no bench cell may lose to bun. Two cells did on
 the work-only measure (`regex-wireback-minlit-100k` 1.23,
 `split-only-100k` 1.25), and at 1e8 / 2e8 iterations the steady-state
