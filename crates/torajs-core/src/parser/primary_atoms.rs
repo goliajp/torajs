@@ -189,18 +189,23 @@ impl<'a> Parser<'a> {
     /// a unit class per evaluation; capturing → the runtime-value
     /// lane, where an outer `self` is a closure capture).
     ///
-    /// At the body's own depth — a field initializer, a computed key,
-    /// an expression-bodied arrow in either — the decl keeps the
-    /// top-level splice of rotation 373: it evaluates when THAT code
-    /// runs, after every top-level class definition completed, so it
-    /// is marked deferred and the field-flattening order check lets
-    /// it extend the enclosing class. Its free names still resolve
-    /// nowhere (K6 residue).
+    /// An INSTANCE field initializer counts as a member statement
+    /// too: it runs per construction inside the ctor, and the decl
+    /// rides into the ctor prefix with it (`field_init_classes`).
+    ///
+    /// At the body's own depth otherwise — a static field
+    /// initializer, a computed key, an expression-bodied arrow in
+    /// either — the decl keeps the top-level splice of rotation 373:
+    /// it evaluates when THAT code runs, after every top-level class
+    /// definition completed, so it is marked deferred and the
+    /// field-flattening order check lets it extend the enclosing
+    /// class. Its free names still resolve nowhere (K6 residue).
     pub(super) fn buffer_class_expr(&mut self, stmt: Stmt, cls_name: &str) {
-        let in_member_stmt = self
-            .class_body_stmt_depths
-            .last()
-            .is_none_or(|&entry| self.stmt_depth > entry);
+        let in_member_stmt = self.in_instance_field_init
+            || self
+                .class_body_stmt_depths
+                .last()
+                .is_none_or(|&entry| self.stmt_depth > entry);
         if in_member_stmt {
             self.synth_classes_local.push(stmt);
         } else {

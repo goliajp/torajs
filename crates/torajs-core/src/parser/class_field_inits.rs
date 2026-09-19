@@ -52,6 +52,12 @@ impl<'a> Parser<'a> {
                 target: lhs,
                 value: *init_expr,
             });
+            // K6 residue — the class expressions the initializer
+            // minted declare right in front of it, so they evaluate
+            // per construction with the initializer's scope in reach.
+            if let Some(decls) = self.field_init_classes.remove(&init_expr.0) {
+                prefix.extend(decls);
+            }
             prefix.push(Stmt::Expr(assign));
         }
         Some(match ctor {
@@ -92,6 +98,23 @@ impl<'a> Parser<'a> {
                 }
             }
         })
+    }
+
+    /// Parse an INSTANCE field's initializer, keeping the class
+    /// expressions it mints for the ctor prefix (K6 residue): the
+    /// buffer flag routes them to the use-site-local list, and the
+    /// slice minted here is parked under the initializer's ExprId.
+    pub(super) fn parse_instance_field_init(&mut self) -> Result<ExprId, String> {
+        let mark = self.synth_classes_local.len();
+        let saved = std::mem::replace(&mut self.in_instance_field_init, true);
+        let init = self.parse_assign();
+        self.in_instance_field_init = saved;
+        let init = init?;
+        let decls = self.synth_classes_local.split_off(mark);
+        if !decls.is_empty() {
+            self.field_init_classes.insert(init.0, decls);
+        }
+        Ok(init)
     }
 
     /// RFC 20260916-private-element-brand slice 2b — §7.3.34 step 3

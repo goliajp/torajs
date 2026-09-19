@@ -203,6 +203,18 @@ struct Parser<'a> {
     /// same depth sits in a field initializer or a computed key and
     /// keeps the top-level splice.
     class_body_stmt_depths: Vec<u32>,
+    /// K6 residue — true while an INSTANCE field's initializer is
+    /// being parsed. The initializer runs per construction, inside
+    /// the ctor (`finalize_class_field_inits` splices it there), so a
+    /// class expression written in it belongs beside that statement
+    /// like one written in a method body — not in the top-level
+    /// splice, where an outer local or the enclosing class's statics
+    /// are out of reach and every instance shares one class.
+    in_instance_field_init: bool,
+    /// The class declarations buffered while an initializer parsed,
+    /// keyed by the initializer's ExprId; the ctor prefix builder
+    /// emits them in front of the `this.<f> = init` statement.
+    field_init_classes: std::collections::HashMap<u32, Vec<Stmt>>,
     /// §15.7 — true while a ClassHeritage is being parsed. All parts
     /// of a class are strict code and the heritage is one, but the
     /// `class_stack` push that carries that answer for the BODY

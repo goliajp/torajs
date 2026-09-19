@@ -107,6 +107,8 @@ pub fn parse_into_eval(
         current_class: None,
         class_stack: Vec::new(),
         class_body_stmt_depths: Vec::new(),
+        in_instance_field_init: false,
+        field_init_classes: std::collections::HashMap::new(),
         in_class_heritage: false,
         in_for_init: false,
         bare_logical: false,

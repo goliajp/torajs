@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
             // before user ctor body executes.
             let init = if matches!(self.peek(), Token::Eq) {
                 self.pos += 1;
-                Some(self.parse_assign()?)
+                Some(self.parse_instance_field_init()?)
             } else if marker.is_optional() {
                 // §9.2 — an optional field with no initializer holds
                 // `undefined`, and saying so explicitly is what gets

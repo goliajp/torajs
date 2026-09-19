@@ -184,6 +184,8 @@ impl<'a> Parser<'a> {
             // arena directly).
             class_stack: self.class_stack.clone(),
             class_body_stmt_depths: self.class_body_stmt_depths.clone(),
+            in_instance_field_init: self.in_instance_field_init,
+            field_init_classes: std::collections::HashMap::new(),
             // A template interpolation written in a ClassHeritage is
             // still in the heritage, so the strictness rides along
             // like `in_strict_fn` below.
@@ -277,6 +279,8 @@ impl<'a> Parser<'a> {
         // these drain at the enclosing stmt's wrapper.
         self.synth_classes_local
             .append(&mut sub.synth_classes_local);
+        self.field_init_classes
+            .extend(sub.field_init_classes.drain());
         // Expression-position yields hoisted inside the
         // interpolation drain at the ENCLOSING statement.
         self.yield_hoist_buf.append(&mut sub.yield_hoist_buf);

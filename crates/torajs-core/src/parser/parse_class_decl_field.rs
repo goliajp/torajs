@@ -194,7 +194,11 @@ impl<'a> Parser<'a> {
         } else {
             self.static_this_class.take()
         };
-        let init = self.parse_assign();
+        let init = if is_static {
+            self.parse_assign()
+        } else {
+            self.parse_instance_field_init()
+        };
         self.static_this_class = saved_static_this;
         let init = init?;
         let inferred = match self.ast.get_expr(init) {
