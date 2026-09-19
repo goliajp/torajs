@@ -10,7 +10,7 @@ use super::{
     __torajs_arr_alloc, __torajs_arr_push, __torajs_arrprops_attach_exec3, __torajs_arrprops_set,
     __torajs_dynobj_alloc, __torajs_dynobj_mark_null_proto, __torajs_dynobj_set, __torajs_rc_inc,
     __torajs_str_drop, __torajs_str_undef, ANY_HEAP, ANY_I64, ANY_UNDEF, RegExp, abort_unsupported,
-    as_regex_mut, byte_to_utf16_units, haystack, str_from_bytes, str_slice_ascii_view,
+    as_regex_mut, byte_to_utf16_units, haystack, span_str, str_from_bytes, str_slice_ascii_view,
     utf16_units_to_byte,
 };
 use crate::node::REGEX_MAX_CAPTURES;
@@ -310,7 +310,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
             out = unsafe { __torajs_arr_alloc(1 + n_cap_lim as u64) };
         }
-        let seg = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
+        let seg = unsafe { span_str(str_ptr, s, m.start, m.end, haystack_is_ascii) };
         out = unsafe { __torajs_arr_push(out, seg as i64) };
         if !global {
             // Append captures.
@@ -323,7 +323,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
                     // 20260707 chunk 2: the sentinel cell, not NULL).
                     out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
                 } else {
-                    let grp = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
+                    let grp = unsafe { span_str(str_ptr, s, gs, ge, haystack_is_ascii) };
                     out = unsafe { __torajs_arr_push(out, grp as i64) };
                 }
             }
@@ -433,7 +433,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
     // above); the pushes below fill exactly 1 + n_cap_lim slots.
     let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
     let mut out = unsafe { __torajs_arr_alloc(1 + n_cap_lim as u64) };
-    let whole = unsafe { str_from_bytes(&s[m.start as usize..m.end as usize]) };
+    let whole = unsafe { span_str(str_ptr, s, m.start, m.end, haystack_is_ascii) };
     out = unsafe { __torajs_arr_push(out, whole as i64) };
     for i in 1..=n_cap_lim {
         let gs = save_slot(m.saves(), 2 * i);
@@ -443,7 +443,7 @@ pub unsafe extern "C" fn __torajs_regex_exec(
             // chunk 2: the sentinel cell, not NULL).
             out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
         } else {
-            let grp = unsafe { str_from_bytes(&s[gs as usize..ge as usize]) };
+            let grp = unsafe { span_str(str_ptr, s, gs, ge, haystack_is_ascii) };
             out = unsafe { __torajs_arr_push(out, grp as i64) };
         }
     }

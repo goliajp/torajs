@@ -16,7 +16,7 @@ use core::ffi::c_void;
 
 use alloc::vec::Vec;
 
-use super::{__torajs_str_alloc, __torajs_str_alloc_ascii, STR_HDR_SIZE};
+use super::{__torajs_rc_inc, __torajs_str_alloc, __torajs_str_alloc_ascii, STR_HDR_SIZE};
 
 /// View a tora `Str *` as a `&[u8]` of its payload. Safety: `p`
 /// must point at a live Str whose header is well-formed and whose
@@ -204,4 +204,39 @@ pub unsafe fn str_from_bytes(data: &[u8]) -> *mut u8 {
 /// bytes of `data` must be ASCII.
 pub unsafe fn str_from_bytes_ascii(data: &[u8]) -> *mut u8 {
     unsafe { __torajs_str_alloc_ascii(data.as_ptr(), data.len() as i64) }
+}
+
+/// The string for the byte span `start..end` of a match over
+/// `subject`, whose searched bytes are `s`.
+///
+/// When `s` is the subject's own ASCII payload
+/// (`subject_is_ascii_view`) and the span is all of it, the answer is
+/// the subject itself with one more share: strings are immutable and
+/// carry no identity, so a whole-string hit (`/^\d+$/.exec(id)`, any
+/// validating pattern) needs no second copy of the text. The extra
+/// share also keeps `__torajs_str_append` off its in-place branch,
+/// which requires refcount 1. Any other ASCII span skips the encoding
+/// scan the view already paid for.
+///
+/// # Safety
+///
+/// `subject` is a live tora Str pointer, `0 <= start <= end <= s.len()`,
+/// and `subject_is_ascii_view` is true only when `s` came from
+/// [`str_slice_ascii_view`] on `subject`.
+pub unsafe fn span_str(
+    subject: *const c_void,
+    s: &[u8],
+    start: i64,
+    end: i64,
+    subject_is_ascii_view: bool,
+) -> *mut u8 {
+    let span = &s[start as usize..end as usize];
+    if !subject_is_ascii_view {
+        return unsafe { str_from_bytes(span) };
+    }
+    if span.len() == s.len() {
+        unsafe { __torajs_rc_inc(subject as *mut c_void) };
+        return subject as *mut u8;
+    }
+    unsafe { str_from_bytes_ascii(span) }
 }

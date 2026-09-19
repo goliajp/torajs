@@ -52,8 +52,8 @@ use crate::program::Program;
 
 pub(crate) use offset_map::{byte_to_utf16_units, utf16_units_to_byte};
 pub use str_helpers::{
-    haystack, str_code_points, str_from_bytes, str_from_bytes_ascii, str_slice_ascii_view,
-    str_units,
+    haystack, span_str, str_code_points, str_from_bytes, str_from_bytes_ascii,
+    str_slice_ascii_view, str_units,
 };
 
 /// Universal heap header (offset 0 of every refcounted heap object).
