@@ -271,7 +271,7 @@ pub(super) fn walk_container(
             top_names.push(new_name.clone());
             residual = Some(new_name);
         } else {
-            top_names.push(old_name);
+            top_names.push(old_name.clone());
         }
         // §14.2.3 — the scope the class was WRITTEN in holds the
         // outer mutable binding, and for a renamed class that scope
@@ -295,6 +295,20 @@ pub(super) fn walk_container(
                 hoisted,
             )
         {
+            continue;
+        }
+        if unit_shape
+            && observable
+            && residual.is_none()
+            && in_place_for_statics(
+                ast,
+                stmts,
+                idx,
+                counter,
+                (name_counts, &hoisted[lifted_start..], &old_name),
+            )
+        {
+            top_names.pop();
             continue;
         }
         let slot = match residual {
@@ -344,4 +358,42 @@ pub(super) fn walk_container(
     for s in stmts.iter_mut() {
         walk_child(ast, s, top_names, hoisted, counter, name_counts, multi_eval);
     }
+}
+
+/// A unit-shaped class the unit lane refused (a sibling body names
+/// it, say) still carries observable static work, and the shared
+/// hoist would run that at the program's end instead of where the
+/// class is written. When no class this level already `lifted` names
+/// it (those bodies now run at the top level, where a binding kept in
+/// the container is out of reach) and the capturing lane will take
+/// it, that lane rewrites it in place and answers `true` — a later
+/// sibling that reads it then sees a local and takes the same lane,
+/// so the two evaluate in source order.
+fn in_place_for_statics(
+    ast: &mut Ast,
+    stmts: &mut [Stmt],
+    idx: usize,
+    counter: &mut u32,
+    (names, lifted, name): (
+        &super::hoist_nested_classes_census::NameCensus,
+        &[Stmt],
+        &str,
+    ),
+) -> bool {
+    let mut occ = super::class_unit_census::Occurrences::default();
+    for s in lifted
+        .iter()
+        .filter(|s| matches!(s, Stmt::ClassDecl { .. }))
+    {
+        occ.stmt(ast, s, name);
+    }
+    occ.name == 0
+        && super::capturing_classes::decline::would_claim(ast, &stmts[idx], &names.classes)
+        && super::capturing_classes::try_rewrite_capturing_class(
+            ast,
+            stmts,
+            idx,
+            counter,
+            &names.classes,
+        )
 }

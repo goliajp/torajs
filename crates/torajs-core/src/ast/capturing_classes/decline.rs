@@ -184,20 +184,43 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
             return Some("a static member of it calls super()");
         }
     }
-    // A body naming a compiler-minted global is not ordinary user
-    // nesting: `__cm_gen_<C>__<m>` is the top-level generator method
-    // the parser hoisted out (it cannot capture either), and a
-    // `__supercall__*` either belongs to a parent link rejected above
-    // or — parent admitted — is the marker the emit rewrites, so it
-    // is exempt below. The caller already decided this class
-    // captures; the walk here only screens for those names, so the
-    // prebound set need cover no more than what would otherwise
-    // report a `__` name spuriously. The admitted parent's minted
-    // binding is a real name in scope, so a body reading it (`P.x`
-    // spelled with the source name, α-renamed by now) is prebound
-    // rather than "compiler minted".
-    let mut prebound = vec![name.clone(), "arguments".to_string()];
-    if let Some(p) = ast.parent_ident_name(*parent) {
+    if names_compiler_minted(
+        ast,
+        name,
+        *parent,
+        (ctor, methods.as_slice(), static_methods.as_slice()),
+    ) {
+        return Some("a body in it names something the compiler minted");
+    }
+    None
+}
+
+/// Does a body of the class name a compiler-minted global?
+///
+/// Such a body is not ordinary user
+/// nesting: `__cm_gen_<C>__<m>` is the top-level generator method
+/// the parser hoisted out (it cannot capture either), and a
+/// `__supercall__*` either belongs to a parent link rejected above
+/// or — parent admitted — is the marker the emit rewrites, so it
+/// is exempt below. The caller already decided this class
+/// captures; the walk here only screens for those names, so the
+/// prebound set need cover no more than what would otherwise
+/// report a `__` name spuriously. The admitted parent's minted
+/// binding is a real name in scope, so a body reading it (`P.x`
+/// spelled with the source name, α-renamed by now) is prebound
+/// rather than "compiler minted".
+fn names_compiler_minted(
+    ast: &Ast,
+    name: &str,
+    parent: Option<crate::ast::ExprId>,
+    (ctor, methods, static_methods): (
+        &Option<super::super::ClassCtor>,
+        &[super::super::ClassMethod],
+        &[super::super::ClassMethod],
+    ),
+) -> bool {
+    let mut prebound = vec![name.to_string(), "arguments".to_string()];
+    if let Some(p) = ast.parent_ident_name(parent) {
         prebound.push(p.to_string());
     }
     // The ctor prefix a computed instance field turns into reads the
@@ -218,23 +241,26 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     let synthetic_free = |params: &[Param], body: &[Stmt]| -> bool {
         let mut bound = prebound.clone();
         bound.extend(params.iter().map(|p| p.name.clone()));
+        // A SIBLING the lane already claimed is a real `let` in the
+        // container under its minted `__cc<N>_…` spelling (the rename
+        // wrote that spelling into this body), so reading it is an
+        // ordinary capture, not a compiler global: `class B { m() {
+        // return new A() } }` beside a capturing `A` was refused for
+        // naming it.
         free_vars_of_body(ast, &bound, body).iter().any(|n| {
             n.starts_with("__")
+                && !super::is_es5_class_binding(n)
                 && !(allow_supercall && (n.starts_with("__supercall__") || n == "__superbase__"))
         })
     };
     let ctor_synthetic = ctor
         .as_ref()
         .is_some_and(|c| synthetic_free(&c.params, &c.body));
-    if ctor_synthetic
+    ctor_synthetic
         || methods
             .iter()
             .chain(static_methods.iter())
             .any(|m| synthetic_free(&m.params, &m.body))
-    {
-        return Some("a body in it names something the compiler minted");
-    }
-    None
 }
 
 /// What to say about a `ClassDecl` that reached the checker.
