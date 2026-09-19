@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-18T21:52:20.337Z",
+  "generatedAt": "2026-09-19T01:41:25.861Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-18T21:36:55Z",
-    "headSha": "6fb4b9c96",
-    "elapsedSec": 542.2,
+    "ranAt": "2026-09-19T01:24:33Z",
+    "headSha": "79d88c3bf",
+    "elapsedSec": 541.73,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34229,
-    "passNoOracle": 1706,
+    "pass": 34231,
+    "passNoOracle": 1711,
     "passNegative": 4568,
-    "passTotal": 40503,
-    "bug": 8606,
-    "incompatible": 4065,
+    "passTotal": 40510,
+    "bug": 8600,
+    "incompatible": 4064,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49109,
-    "passRateInScope": 76.17,
-    "passRateTrAccepted": 82.48
+    "trAccepted": 49110,
+    "passRateInScope": 76.18,
+    "passRateTrAccepted": 82.49
   },
   "torajs": {
-    "commit": "46db0aef5",
-    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 670 @6fb4b9c96",
+    "commit": "79d88c3bf",
+    "commitSubject": "fix(test262-runner): the bare assert( rewrite leaves a method definition alone",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "46db0aef5",
-      "subject": "docs(roadmap): P-SURF accounting for rotation 670 @6fb4b9c96"
+      "hash": "79d88c3bf",
+      "subject": "fix(test262-runner): the bare assert( rewrite leaves a method definition alone"
     },
     {
-      "hash": "8f094443e",
-      "subject": "chore(hardev): rotation 670 close stamps — sweep @6fb4b9c96 (passTotal 40503, +11, 0 regressions), determinism 46/46 N=12, gmalloc 3854/3858 clean 0 offenders"
+      "hash": "a3a6243d2",
+      "subject": "fix: a TS parameter property is declared ahead of the class's own fields"
     },
     {
-      "hash": "6fb4b9c96",
-      "subject": "fix: an owned read in return position was retained a second time"
+      "hash": "e4c10633d",
+      "subject": "fix: a nested class the unit lane refuses runs its static initializers where it is written"
     },
     {
-      "hash": "e2b6781fc",
-      "subject": "fix: a return through a finally retains its local instead of moving it"
+      "hash": "aa07a9027",
+      "subject": "feat: a class expression in an instance field initializer evaluates per construction"
     },
     {
-      "hash": "f33ab46b0",
-      "subject": "fix: an alias let the body reassigns is born owned"
+      "hash": "fc743f862",
+      "subject": "fix: a value-shaped parent's super() runs the parent's step 13.c"
     },
     {
-      "hash": "69fc8c32b",
-      "subject": "refactor: move the return site's borrow-retain family to its own module"
+      "hash": "0e0f4ed63",
+      "subject": "refactor: move the class object's first-class links out of the registry module"
     },
     {
-      "hash": "cd25e8790",
-      "subject": "fix: returning a field read handed the caller the field's own stake"
+      "hash": "6decf8023",
+      "subject": "fix: a unit class's generic mono instances resolve their prototype through the main tag"
     },
     {
-      "hash": "faab86e13",
-      "subject": "feat: a real class parent's constructor answer reaches the runtime-value lane"
+      "hash": "a8f2a6e1d",
+      "subject": "fix: instanceof knows a class whose factory the implicit-generics pass genericized"
     },
     {
-      "hash": "6727b0906",
-      "subject": "fix: the return walk marked a ternary's condition and an index key moved"
+      "hash": "db38b9028",
+      "subject": "fix: installing a private element on a non-extensible instance throws"
     },
     {
-      "hash": "48e3395e7",
-      "subject": "fix: throw retains instead of moving, so a conditional throw stops leaking"
+      "hash": "7591cc5c7",
+      "subject": "fix: a capturing-lane super() site knows whether its parent is derived"
     },
     {
-      "hash": "1d5db6b98",
-      "subject": "fix: a return's moved marks outlived it and silenced drops at later returns"
+      "hash": "9477ee3ef",
+      "subject": "fix: Reflect.apply / Reflect.construct release their owned operand temps"
     },
     {
-      "hash": "d1e3db0a4",
-      "subject": "fix: a join in return position stranded the arm it did not return"
+      "hash": "738bf67bf",
+      "subject": "fix: an ident-target assignment returned as the value carries its own stake"
     }
   ],
-  "headSha": "46db0aef5",
+  "headSha": "79d88c3bf",
   "autorun": {
-    "total": 973,
+    "total": 974,
     "baselineTarget": 10,
-    "bySelf": 968,
+    "bySelf": 969,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789755106-2044",
-      "at": "2026-09-18T18:11:46Z",
-      "ts": 1789755106,
+      "rotationId": "r-1789768413-0ae3",
+      "at": "2026-09-18T21:53:33Z",
+      "ts": 1789768413,
       "trigger": "self",
-      "prevHead": "961285d29",
-      "handoffSha": "sha256:471f884e929ee9aadc49e46bb9c838b60fba6d59c3206471c31e98934d16d4d9",
-      "handoffAgeSec": 7,
-      "conformanceBefore": "4321/0/4",
-      "commitsInSession": 18
+      "prevHead": "799d4514c",
+      "handoffSha": "sha256:1b5fddbb10717330b3f32b0b92fbee674f2e35f14841905f3f38f6b990abe25c",
+      "handoffAgeSec": 40,
+      "conformanceBefore": "4336/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789768413-0ae3",
+        "at": "2026-09-18T21:53:33Z",
+        "ts": 1789768413,
+        "trigger": "self",
+        "prevHead": "799d4514c",
+        "handoffSha": "sha256:1b5fddbb10717330b3f32b0b92fbee674f2e35f14841905f3f38f6b990abe25c",
+        "handoffAgeSec": 40,
+        "conformanceBefore": "4336/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789755106-2044",
         "at": "2026-09-18T18:11:46Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 5,
         "conformanceBefore": "4254/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789575653-0798",
-        "at": "2026-09-16T16:20:53Z",
-        "ts": 1789575653,
-        "trigger": "self",
-        "prevHead": "03a5643f0",
-        "handoffSha": "sha256:11e555c8114a5c92e31b3675958dc05db1aa933f81a46d0aaef7c962a83778c3",
-        "handoffAgeSec": 45,
-        "conformanceBefore": "4250/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
