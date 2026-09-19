@@ -3,12 +3,11 @@
 //! Split out of the parent for size, but the boundary is a real one:
 //! the parent answers "what the lane does with the ones it takes",
 //! this answers "which ones it takes at all". The computed-key
-//! vocabulary (`sentinel_index`, `own_computed_members`,
-//! `key_binding`) stays in the parent because both halves speak it.
+//! vocabulary both halves speak lives in the sibling `computed_keys`.
 
 use super::super::free_vars::free_vars_of_body;
 use super::super::{Ast, Param, Stmt, Visibility};
-use super::{key_binding, own_computed_members, sentinel_index};
+use super::computed_keys::{key_binding, own_computed_members, sentinel_index};
 
 /// Why this class stays off the lane, phrased for the person who wrote
 /// it. `None` means it routes.
