@@ -215,8 +215,12 @@ impl<'a> Parser<'a> {
                     Stmt::ClassDecl { name, .. } => name.clone(),
                     _ => unreachable!(),
                 };
-                self.buffer_class_expr(stmt, &cls_name);
-                NewHead::Named(cls_name)
+                let head = self.buffer_class_expr(stmt, &cls_name);
+                if matches!(self.ast.get_expr(head), Expr::Ident(_)) {
+                    NewHead::Named(cls_name)
+                } else {
+                    NewHead::Dynamic(head)
+                }
             }
             // P8.5 — `new (expr)(args)` per ES spec §13.3.5
             // NewExpression: the callee may be a parenthesized

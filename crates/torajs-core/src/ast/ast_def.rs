@@ -270,6 +270,12 @@ pub struct Ast {
     /// `compute_full_fields` resolves members of this set in a
     /// second, dependency-ordered pass instead.
     pub class_expr_deferred: std::collections::HashSet<String>,
+    /// Rotation 672 (K6) — the immediately invoked arrows the parser
+    /// wraps a nested class's static-initializer class expression in,
+    /// keyed by the call, answering the class's synthesized name. Only
+    /// these see §8.4 NamedEvaluation through the call; a user-written
+    /// `(() => class {})()` does not.
+    pub class_expr_iife_calls: std::collections::HashMap<ExprId, String>,
     /// RFC 20260917-class-eval-unit K1 — hoisted classes whose every
     /// evaluation mints its own class object (`ast::class_unit`).
     pub eval_unit_classes: std::collections::HashSet<String>,

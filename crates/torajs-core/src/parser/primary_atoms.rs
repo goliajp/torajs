@@ -173,8 +173,7 @@ impl<'a> Parser<'a> {
             Stmt::ClassDecl { name, .. } => name.clone(),
             _ => unreachable!("parse_class_decl_with_abstract returns ClassDecl"),
         };
-        self.buffer_class_expr(stmt, &cls_name);
-        return Ok(self.ast.add_expr(Expr::Ident(cls_name)));
+        Ok(self.buffer_class_expr(stmt, &cls_name))
     }
 
     /// Where a freshly minted class expression's ClassDecl lands.
@@ -195,12 +194,16 @@ impl<'a> Parser<'a> {
     ///
     /// At the body's own depth otherwise — a static field
     /// initializer, a computed key, an expression-bodied arrow in
-    /// either — the decl keeps the top-level splice of rotation 373:
-    /// it evaluates when THAT code runs, after every top-level class
-    /// definition completed, so it is marked deferred and the
-    /// field-flattening order check lets it extend the enclosing
-    /// class. Its free names still resolve nowhere (K6 residue).
-    pub(super) fn buffer_class_expr(&mut self, stmt: Stmt, cls_name: &str) {
+    /// either — a class written inside a function or block body
+    /// becomes the body of an immediately invoked arrow
+    /// ([`Self::class_expr_iife`]). A top-level class keeps the
+    /// top-level splice of rotation 373: it evaluates when THAT code
+    /// runs, after every top-level class definition completed, so it
+    /// is marked deferred and the field-flattening order check lets
+    /// it extend the enclosing class.
+    ///
+    /// Answers the expression the use site evaluates.
+    pub(super) fn buffer_class_expr(&mut self, stmt: Stmt, cls_name: &str) -> ExprId {
         let in_member_stmt = self.in_instance_field_init
             || self
                 .class_body_stmt_depths
@@ -208,10 +211,44 @@ impl<'a> Parser<'a> {
                 .is_none_or(|&entry| self.stmt_depth > entry);
         if in_member_stmt {
             self.synth_classes_local.push(stmt);
+        } else if self
+            .class_body_stmt_depths
+            .last()
+            .is_some_and(|&entry| entry > 1)
+        {
+            return self.class_expr_iife(stmt, cls_name);
         } else {
             self.ast.class_expr_deferred.insert(cls_name.to_string());
             self.synth_classes.push(stmt);
         }
+        self.ast.add_expr(Expr::Ident(cls_name.to_string()))
+    }
+
+    /// K6 residue — a class expression at a NESTED class's own body
+    /// depth (a static field initializer or a computed key; the class
+    /// body entered below the top-level statement) evaluates when that
+    /// code runs, with the enclosing scope in reach (§15.7.14). The
+    /// top-level splice gave it neither: `static I = class { m() {
+    /// return k } }` inside `function outer(k)` read an unbound `k`.
+    /// As the body of an immediately invoked arrow it is a class
+    /// declared in a function body, which `hoist_nested_classes`
+    /// already evaluates in place and lets capture; the arrow keeps
+    /// the initializer's `this`.
+    fn class_expr_iife(&mut self, stmt: Stmt, cls_name: &str) -> ExprId {
+        let ret = self.ast.add_expr(Expr::Ident(cls_name.to_string()));
+        let arrow = self.ast.add_expr(Expr::ArrowFn {
+            params: Vec::new(),
+            return_type: None,
+            body: vec![stmt, Stmt::Return(Some(ret))],
+        });
+        let call = self.ast.add_expr(Expr::Call {
+            callee: arrow,
+            args: Vec::new(),
+        });
+        self.ast
+            .class_expr_iife_calls
+            .insert(call, cls_name.to_string());
+        call
     }
 
     /* Single-param arrow without parens: `x => body`. JS spec

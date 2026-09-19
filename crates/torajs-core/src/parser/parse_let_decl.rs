@@ -326,13 +326,19 @@ impl<'a> Parser<'a> {
     /// (`class Named {}`) never reaches here: the parser keeps that
     /// name, and there is no synth to override.
     pub(super) fn name_anonymous_class_expr(&mut self, name: &str, value: ExprId) {
-        let Expr::Ident(synth) = self.ast.get_expr(value) else {
-            return;
+        // A nested class's static-initializer class expression is
+        // evaluated through an arrow the parser minted for it
+        // (`class_expr_iife`); the class is still the initializer.
+        let synth = match self.ast.class_expr_iife_calls.get(&value) {
+            Some(s) => s.clone(),
+            None => match self.ast.get_expr(value) {
+                Expr::Ident(s) => s.clone(),
+                _ => return,
+            },
         };
         if !synth.starts_with("__ClassExpr_") {
             return;
         }
-        let synth = synth.clone();
         self.ast
             .class_expr_display_names
             .entry(synth)
