@@ -62,6 +62,7 @@ pub mod reflect_descriptors;
 pub mod reflect_get_property_descriptor;
 pub mod reflect_proto;
 pub mod reflect_proto_set;
+mod reflect_proto_set_faces;
 pub mod str_descriptor;
 pub(crate) mod str_wtf8;
 pub mod string_raw;
