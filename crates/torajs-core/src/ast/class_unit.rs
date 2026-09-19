@@ -147,11 +147,10 @@ pub(super) fn make_unit(ast: &mut Ast, cls: &mut Stmt, binding: &str) -> (Stmt, 
             .count()
     });
     ast.eval_unit_classes.insert(binding.to_string());
-    let display = ast
-        .class_expr_display_names
-        .get(binding)
-        .cloned()
-        .unwrap_or_else(|| binding.to_string());
+    // The same lookup every lane uses: a recorded display name, else
+    // "" for an anonymous class expression (§8.4 — only
+    // NamedEvaluation names one), else the binding.
+    let display = super::class_globals::class_display_name(ast, binding).to_string();
 
     let proto_init = ast.add_expr(Expr::ObjectLit { fields: Vec::new() });
     let proto_ref = ast.add_expr(Expr::Ident("__cup".into()));
