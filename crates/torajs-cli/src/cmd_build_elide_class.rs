@@ -94,11 +94,12 @@ const PROLOGUE_SYMS: [&str; 4] = [
 #[cfg(test)]
 const REGISTER_SYM: &str = PROLOGUE_SYMS[0];
 /// The registry's readers (torajs-meta `classmeta`).
-const REGISTRY_READERS: [&str; 4] = [
+const REGISTRY_READERS: [&str; 5] = [
     "___torajs_anyv_class_get",
     "___torajs_anyv_proto_get",
     "___torajs_obj_proto_borrowed",
     "___torajs_class_source_for_cell",
+    "___torajs_class_kind_derived",
 ];
 
 /// The prologue calls whose second operand mints the taint: the two
@@ -402,7 +403,7 @@ mod tests {
         assert_eq!(sites[3].func, "helper");
         assert_eq!(
             sites[0].guard.to_string(),
-            "syms:___torajs_anyv_class_get|___torajs_anyv_proto_get|___torajs_obj_proto_borrowed|___torajs_class_source_for_cell"
+            "syms:___torajs_anyv_class_get|___torajs_anyv_proto_get|___torajs_obj_proto_borrowed|___torajs_class_source_for_cell|___torajs_class_kind_derived"
         );
         let SiteShape::Call {
             byte_offset,

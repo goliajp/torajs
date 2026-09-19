@@ -324,7 +324,7 @@ pub(crate) fn declare(
         anyv_json_gap_str: decl!("__torajs_anyv_json_gap_str", [Any], Str),
         class_register: decl!(
             "__torajs_anyv_class_register",
-            [I64, Any, I64, I64, I64],
+            [I64, Any, I64, I64, I64, I64],
             Void
         ),
         error_proto_install: decl!("__torajs_error_proto_install", [I64, Str], Void),

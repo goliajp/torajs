@@ -69,7 +69,7 @@ unsafe fn put_bytes(s: &[u8]) {
 ///
 /// # Safety
 /// `cell` is a live heap cell.
-unsafe fn tag_of_class_object(cell: *const c_void) -> Option<i64> {
+pub(crate) unsafe fn tag_of_class_object(cell: *const c_void) -> Option<i64> {
     if cell.is_null() {
         return None;
     }

@@ -169,11 +169,12 @@ pub(super) fn answering_frame(ast: &mut Ast, body: &mut Vec<Stmt>, at: usize) {
 /// [[Construct]] step 13 happens, since tr's `super(…)` reaches
 /// `__cm_<P>__ctor` directly and never goes through P's factory.
 ///
-/// Read off `Ast::class_parents`, which the strip pass has already
-/// touched: a class extending a builtin (`class C extends Object`) is
-/// derived per spec but reads as base here. That is the same view the
-/// rest of the desugar takes, and keeping one view beats a second
-/// truth about who is derived.
+/// Read through [`is_derived`]: `Ast::class_parents` plus the builtin
+/// parents the strip pass moved to their own table, so a class
+/// extending a builtin (`class C extends Object`) is derived here as
+/// it is per spec — and the runtime kind registry
+/// (`__torajs_anyv_class_register`'s `is_derived`) reads the same two
+/// tables, one view of who is derived.
 /// `owned` picks the answer's ownership for its consumer — see the
 /// runtime kernel's module doc (`torajs-anyvalue` `ctor_return.rs`).
 pub(super) fn pick_call(
@@ -192,9 +193,14 @@ pub(super) fn pick_call(
     })
 }
 
-/// Does `cname` have an `extends` clause the desugar kept?
+/// Does `cname` have an `extends` clause — a class the desugar kept,
+/// or a builtin the strip pass moved to its own table? Both make the
+/// class derived (§15.7.14: [[ConstructorKind]] is `derived` for any
+/// ClassHeritage), so `class C extends Array { constructor() { super();
+/// return 3 } }` raises step 13.c like bun.
 pub(super) fn is_derived(ast: &Ast, cname: &str) -> bool {
     ast.class_parents.get(cname).is_some_and(Option::is_some)
+        || ast.builtin_class_parents.contains_key(cname)
 }
 
 /// `__torajs_ctor_ret_carry(minted, target, "<name>")` — one own

@@ -43,7 +43,10 @@ use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    fn __torajs_throw_check() -> i64;
     fn __torajs_arr_index_get(arr: *const c_void, idx: i64) -> u64;
+    /// torajs-meta — [[ConstructorKind]] of a registered class object.
+    fn __torajs_class_kind_derived(cell: *const c_void) -> bool;
 }
 
 /// Arr cell length slot — mirror of torajs-arr `layout::ARR_LEN_OFF`.
@@ -214,6 +217,24 @@ pub unsafe extern "C" fn __torajs_anyv_super_call(
                     invoke_boxed(core::ptr::null_mut(), entry, full.as_ptr(), (n + 2) as i64)
                 };
                 release(elems);
+                // §10.2.2 step 13.c for the PARENT: this call is where
+                // its [[Construct]] step 13 runs (the twin is entered
+                // directly), and the site's pick cannot know a value's
+                // kind — a DERIVED parent answering a non-object,
+                // non-undefined value is a TypeError here.
+                if !crate::to_primitive::is_object_value(out)
+                    && out != VALUE_UNDEFINED
+                    && unsafe { __torajs_throw_check() } == 0
+                    && unsafe { __torajs_class_kind_derived(cell) }
+                {
+                    unsafe {
+                        __torajs_anyv_rc_dec(out);
+                        __torajs_throw_type_error(
+                            c"derived constructor may only return an object or undefined".as_ptr(),
+                        );
+                    }
+                    return VALUE_UNDEFINED;
+                }
                 return out;
             }
         }

@@ -31,6 +31,7 @@ mod define;
 mod error_family;
 mod first_class_links;
 mod generic_alias;
+mod kind;
 mod obj_proto;
 pub(crate) use obj_proto::{__torajs_obj_proto_borrowed, share_proto};
 mod reify;
@@ -231,10 +232,12 @@ pub extern "C" fn __torajs_anyv_class_register(
     is_synth_gen: i64,
     parent_tag: i64,
     builtin_parent_tag: i64,
+    is_derived: i64,
 ) {
     if !in_range(tag) {
         return;
     }
+    kind::record(tag, is_derived);
     // SAFETY: same as anyv_proto_register.
     unsafe {
         CLASSES_BY_TAG_IMM[tag as usize] = class_anyv;

@@ -353,6 +353,17 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
         .flatten()
         .and_then(|p| ctx.class_name_to_tag.get(&p).copied())
         .map_or(-1, |t| t as i64);
+    // [[ConstructorKind]]: a heritage clause of any shape (a named
+    // class, a value, a builtin) makes the class derived. The strip
+    // pass moved a builtin parent out of `class_parents` into its own
+    // table, so both are asked.
+    let is_derived = i64::from(
+        ctx.ast
+            .class_parents
+            .get(&cname)
+            .is_some_and(Option::is_some)
+            || ctx.ast.builtin_class_parents.contains_key(&cname),
+    );
     // A stripped BUILTIN parent has no class tag — its ctor lives in
     // the interned builtin-ctor registry instead, keyed by the
     // builtin-proto tag. `builtin_ctor_meta` is the single source
@@ -382,6 +393,7 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                     Operand::ConstI64(is_gen),
                     Operand::ConstI64(parent_tag),
                     Operand::ConstI64(builtin_parent_tag),
+                    Operand::ConstI64(is_derived),
                 ],
             ),
         );
