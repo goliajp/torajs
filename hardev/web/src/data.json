@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T17:13:13.066Z",
+  "generatedAt": "2026-09-20T21:24:21.598Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T17:01:54Z",
-    "headSha": "f743c111e",
-    "elapsedSec": 534.28,
+    "ranAt": "2026-09-20T21:11:59Z",
+    "headSha": "a76e3988c",
+    "elapsedSec": 534.14,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34369,
-    "passNoOracle": 1718,
+    "pass": 34395,
+    "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40655,
-    "bug": 8585,
+    "passTotal": 40682,
+    "bug": 8558,
     "incompatible": 3934,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49240,
-    "passRateInScope": 76.46,
-    "passRateTrAccepted": 82.56
+    "passRateInScope": 76.51,
+    "passRateTrAccepted": 82.62
   },
   "torajs": {
-    "commit": "d8490684f",
-    "commitSubject": "chore(hardev): file-size stamp on the rotation 679 final tree",
+    "commit": "5118547f3",
+    "commitSubject": "chore(hardev): file-size stamp on the clean rotation 680 tree",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "d8490684f",
-      "subject": "chore(hardev): file-size stamp on the rotation 679 final tree"
+      "hash": "5118547f3",
+      "subject": "chore(hardev): file-size stamp on the clean rotation 680 tree"
     },
     {
-      "hash": "6b8cab1d8",
-      "subject": "chore(hardev): rotation 679 final close stamps"
+      "hash": "e85504e4e",
+      "subject": "chore(hardev): rotation 680 close stamps"
     },
     {
-      "hash": "f743c111e",
-      "subject": "fix: Object.assign wraps a primitive target, so a typed one stops being refused"
+      "hash": "a76e3988c",
+      "subject": "fix: freeze and seal begin at PreventExtensions, and it can refuse"
     },
     {
-      "hash": "b6781a9e5",
-      "subject": "refactor(check): Object.assign moves next door so try_match is about one surface"
+      "hash": "c84ebbc46",
+      "subject": "chore(hardev): sync to the build host by content, not by git status"
     },
     {
-      "hash": "79bfafcf5",
-      "subject": "chore(hardev): dashboard snapshot at rotation 679 close"
+      "hash": "b465e4d9f",
+      "subject": "fix: subarray over a detached buffer is a TypeError, not a view"
     },
     {
-      "hash": "1d83cb7d9",
-      "subject": "chore(hardev): file-size stamp on the rotation 679 tree"
+      "hash": "85023856a",
+      "subject": "fix: instanceof reads the prototype's type, not just its address"
     },
     {
-      "hash": "bd0302a79",
-      "subject": "chore(hardev): rotation 679 close stamps"
+      "hash": "d213cfec4",
+      "subject": "refactor: OrdinaryHasInstance over a value target moves next door"
     },
     {
-      "hash": "182c169da",
-      "subject": "fix: ToObject is defined for a primitive, so the own-face surfaces stop refusing one"
+      "hash": "25b660dc9",
+      "subject": "fix: a heap cell is not the same question as an Object"
     },
     {
-      "hash": "2d32ee9a8",
-      "subject": "fix(ssa-lower): Reflect.ownKeys is not a ToObject surface, so it needs the IsObject gate"
+      "hash": "bfc5fe414",
+      "subject": "fix: ArrayBuffer and DataView join the receiver brand gate"
     },
     {
-      "hash": "5ef9029f8",
-      "subject": "fix(ssa-lower): a nullish receiver is not a cell, so getOwnPropertySymbols must throw"
+      "hash": "dd926f4f5",
+      "subject": "fix: BigInt and Function join the ThisXValue brand gate"
     },
     {
-      "hash": "35f06bd58",
-      "subject": "fix(ssa-lower): a primitive has a prototype, so getPrototypeOf must not answer null"
+      "hash": "3c7075262",
+      "subject": "fix: the IsRegExp needle slot gets a road, so an any needle stops crashing"
     },
     {
-      "hash": "4039eec6d",
-      "subject": "fix(check): splice's two bounds are a ToIntegerOrInfinity slot, so the gate comes off"
+      "hash": "d3487f022",
+      "subject": "refactor: the ThisXValue receiver shapes move next door"
     }
   ],
-  "headSha": "d8490684f",
+  "headSha": "5118547f3",
   "autorun": {
-    "total": 982,
+    "total": 983,
     "baselineTarget": 10,
-    "bySelf": 977,
+    "bySelf": 978,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789915070-71c7",
-      "at": "2026-09-20T14:37:50Z",
-      "ts": 1789915070,
+      "rotationId": "r-1789924395-5692",
+      "at": "2026-09-20T17:13:15Z",
+      "ts": 1789924395,
       "trigger": "self",
-      "prevHead": "6ec8f07a8",
-      "handoffSha": "sha256:81177b7362cdb92284f0c30af6aa5ef404302cb7c47966809d1649e2e8ae1564",
-      "handoffAgeSec": 6,
-      "conformanceBefore": "4393/0/4",
+      "prevHead": "09c571d91",
+      "handoffSha": "sha256:36291793f7ec6038b56ed8cb0b1994099e8a799c9f997ddf13c82b085f9806b0",
+      "handoffAgeSec": 13,
+      "conformanceBefore": "4400/0/4",
       "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1789924395-5692",
+        "at": "2026-09-20T17:13:15Z",
+        "ts": 1789924395,
+        "trigger": "self",
+        "prevHead": "09c571d91",
+        "handoffSha": "sha256:36291793f7ec6038b56ed8cb0b1994099e8a799c9f997ddf13c82b085f9806b0",
+        "handoffAgeSec": 13,
+        "conformanceBefore": "4400/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1789915070-71c7",
         "at": "2026-09-20T14:37:50Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 40,
         "conformanceBefore": "4336/0/4",
         "commitsInSession": 16
-      },
-      {
-        "rotationId": "r-1789755106-2044",
-        "at": "2026-09-18T18:11:46Z",
-        "ts": 1789755106,
-        "trigger": "self",
-        "prevHead": "961285d29",
-        "handoffSha": "sha256:471f884e929ee9aadc49e46bb9c838b60fba6d59c3206471c31e98934d16d4d9",
-        "handoffAgeSec": 7,
-        "conformanceBefore": "4321/0/4",
-        "commitsInSession": 18
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
