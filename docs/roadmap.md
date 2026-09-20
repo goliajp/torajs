@@ -26,13 +26,53 @@
 
 ---
 
+## Positioning — 定位（2026-09-20）
+
+takagi 原话（2026-09-20）：
+> "我必须要做好定位，torajs 是 ts 语法体系下的一门先进的 metal 语言套件，
+> 要以最先进的 ts 系语言为自我要求，架构清晰，行为正统，性能极致"
+
+**torajs 是一门语言，不是一个恰好能跑 TS 的 runtime。** 它要占的位置，在
+「JS/TS 语义完整度 × 类型是否参与代码生成」两维里是**一个空格**：
+**完整 JS/TS 语义 + 类型参与代码生成到原生机器码**。
+
+已占住的两格各自放弃了一样东西 —— 静态子集路线（AssemblyScript / ArkTS /
+Static TypeScript / subscript）收窄语言直到注解必然成立；类型擦除路线
+（bun / Deno / Node / Perry / Porffor）把类型丢掉。**torajs 两样都不放弃。**
+
+由此得到一条可执行的判据：**任何一次「拒收合法 JS 程序」或「降级到 `any`
+了事」，都是在离开这一格。** 语言层每个"做不做"的决定，判据是它会不会缩小
+typed 覆盖面、或削弱全程序视野 —— 不是"test262 能降几簇"。
+
+**参照系。** `bun` 是**兼容性底线，不是标尺**：anything bun runs, tr must
+eventually run 仍是硬约束，但 bun 的行为不是"正确"的定义，规范才是（见
+design-principles 的 test262 纪律）。"性能极致"的刻度是 **native ceiling**，
+`tr/bun` 只是它的一个投影 —— `medianVsRust` 才是那把尺。
+
+**先进性只认架构上的、上限的、本质的** —— 产物大小、median 比值都是**读数**，
+不是先进性本身。架构上的本质差异只有四条：① 类型不被丢弃（其余 TS 运行时
+全是 type erasure）② 全程序视野（AOT 看得见整个程序，JIT 只有函数级观察
+窗口）③ 无 GC 的确定性内存（§6 HARD RULE）④ 共享堆多线程（P16，JSC 的
+per-VM 堆架构上不可能）。**v1.0 期内能推进的是 ① 与 ②。**
+
+完整 framing 见 `.claude/vision.md` §4；谱系证据（谁占哪一格、这一格为什么
+空、每条引用的原文出处）见 `.claude/tasks/2026-09-20/ts-family-survey.md`。
+外部认知：microsoft/TypeScript issue **#63486**（2026-05-16 开，05-18 标
+`Out of Scope` 关闭）列举"最近出现的 TS→原生二进制编译器"，点名
+ts-aot.dev / **torajs.com** / perryts.com —— 这一格的竞争在 TS 官方视野里
+已经成形，而官方明确表态不做。
+
+---
+
 ## Foundation
 
 ### Goal — five axes
 
-torajs 是 AOT 编译型 TypeScript runtime，差异化是 native binary + 小
-artifact + fast startup。Long-arc 终态由五轴定义，**五轴并行推进，不接受
-为某一轴妥协另一轴**。每 phase 同时推，任一轴失败 = phase 不收口。
+torajs 是 **ts 语法体系下的一门 metal 语言**（定位见上节），实现形态是
+AOT 编译到 native binary 与 JIT 式 compile-and-run 双模；native binary /
+小 artifact / fast startup 是这个实现形态的**读数**，不是定位本身。
+Long-arc 终态由五轴定义，**五轴并行推进，不接受为某一轴妥协另一轴**。
+每 phase 同时推，任一轴失败 = phase 不收口。
 
 （标题此前写着 "three axes" 而正文已列四轴 —— 轴 D 2026-06-08 追加时
 没改标题。2026-08-30 轴 E 追加时一并订正。）
@@ -169,6 +209,8 @@ Windows x64）。E5 post-v1.0。按第五设计原则，这里没有「先做一
 ### Hard requirements (kept from v1)
 
 1. **极致 perf** — beat bun/node on important benchmarks; hold them.
+   **（2026-09-20 重述）** 击败 bun/node 是**下界**，不是"极致"的定义。
+   刻度是 **native ceiling**（`medianVsRust`）；`tr/bun` 是它的一个投影。
 2. **Compile not too slow** — first `tr run foo.ts` pays one full
    compile through the in-house pipeline (lower → e-graph → codegen →
    link); subsequent runs hit the cache. （2026-08-21：原文写的
@@ -180,8 +222,12 @@ Windows x64）。E5 post-v1.0。按第五设计原则，这里没有「先做一
    (2026-06-08)**：永远不引入 GC（mark-sweep / generational / concurrent /
    stop-the-world / GC pause），对标 Rust `Arc<T>` + `Weak<T>` + 自动 cycle
    collection。RC 多线程下走 biased ARC（详见轴 D）。
-5. **TS-shape semantics** — what works, works the same as bun. No
-   Rust-flavoured idioms in user code.
+5. **TS-shape semantics** — what works, works **the way ECMA-262 says**.
+   bun agreeing is corroboration, not the criterion; **where bun and the
+   spec differ, the spec wins**（2026-09-20 重述：原文写的 "works the
+   same as bun" 把参考实现当成了正确性来源）。byte-equal vs bun 仍是
+   日常验收的**手段**——它便宜且抓得住绝大多数回归——但它证明的是"与一个
+   参考实现一致"，不是"正确"。No Rust-flavoured idioms in user code.
 6. **Full TS coverage as a roadmap target** — every TS feature bun
    supports has a roadmap phase. Compile errors point at the phase.
    **（2026-08-21 重述）**"anything bun runs" 是**方向，不是一份可穷尽
@@ -8082,6 +8128,7 @@ re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
 |---|---|---|
+| **S0** | **类型系统对 ES 运行期语义的责任边界（语言规范第一章）** | **375 @ `d12609951`（44.9% of core 835）** |
 | S1 | `new` on a function + constructor `this` | 1900 + cascade |
 | S2 | generator / class-member syntax | 6700 |
 | S3 | name resolution at ssa-lower | 830 |
@@ -8094,6 +8141,60 @@ re-derive with `cluster_incompat.py` before acting on any of them):
 S7 holding the largest share is not a contradiction of "enumerable": it
 is clusters #21–#482, each individually attributable, just not worth
 naming in a roadmap until the groups above them fall.
+
+#### S0 — 类型系统对 ES 运行期语义的责任边界（语言规范第一章）
+
+**Added 2026-09-20, and it runs first.** 定位（见本文件 Positioning 段）把
+这一条从"checker 的一个参数"改判为**这门语言的定义**。
+
+**它是什么。** core 835 条里的 **375 条（44.9%）不是 375 个缺口，是一条从未
+画过的边界**：tr 的 checker 拒收一个**合法**的 JS 程序，因为规范自己的
+**运行期** TypeError 被当成了**编译期**类型错误。
+
+```js
+assert.throws(TypeError, function() { 1n & 1; });      // §13.15.3
+assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
+```
+
+这些程序在**使用**规范定义的运行期语义，不是在违反它。实测（2026-09-20，
+`target/iter/tr` 对 bun 1.4.2）：`any` 拼写下 tr 与 bun 逐字相同（同样是
+`caught TypeError`），**只有 typed 拼写被拒** —— 运行期语义早已完整存在，
+差别只在 checker 拦不拦。
+
+**为什么排第一。** 不定这条线，后面每一族都要重复付一遍「拒收还是降级」的
+判断，而这两个答案分别通向已被占住的两格（静态子集 / 类型擦除）。它也是
+单点影响最大的一条：gate 未归因 ≥4 簇 **37 → 21**（对比：修全部
+`not yet supported` 171 条只到 30 簇，修全部 parse/lex 202 条只到 32 簇）。
+而 **76% 的量藏在 ≤3 残尾里，gate 指标只露出 24%** —— 所以本组的验收判据
+不能是簇数。
+
+**三分，不是二分**（取代 S5 原本的两条出路）：
+
+| 情形 | 处置 |
+|---|---|
+| 静态可证必错，且 spec **无**对应运行期语义 | 编译期拒（tr 独有的价值） |
+| spec **有**运行期语义，而**类型已知** | **typed 路径直接 emit 那次 throw**，运行期零检查 |
+| 类型真未知 | any 车道，运行期按 spec |
+
+中间一档是定位的具体形态：`1n & 1` 的类型完全已知 —— bun 必须在运行期做
+两次 ToNumeric 才知道要抛（类型被丢弃了，它没有别的选择），tsc 只报错不给
+可执行物，**tr 编译期就知道**。三者里只有 tr 同时拿到「编译期知道」与
+「运行期照 spec」。
+
+- [ ] **S0.1** 375 条逐条归档到三档；判据必须**机械可判** ——「什么叫 spec
+      为该操作定义了运行期语义」要能写成一个函数，不能逐条人判。
+- [ ] **S0.2** **typed 覆盖率量具**（`hardev/typed-census-latest.json`）：
+      编译期落进 typed / any / refused 三类的表达式占比。**本组唯一的机械
+      验收证据**；空语料 / 打点失效必须 exit 非 0
+      （`test/instrument-must-be-able-to-fail`）。打点位置先勘察 `ssa_lower`
+      的表达式发射点再定。
+- [ ] **S0.3** `docs/language-spec/ch1-type-runtime-boundary.md` —— 第一章
+      正文 + **与 TypeScript 的差异表**。AssemblyScript / ArkTS / Static
+      TypeScript 都有成文的"与 TS 的差异"，torajs 至今没有；这是"架构清晰"
+      在文档层的落点。RFC：`.claude/rfcs/20260922-language-spec-ch1/`。
+- [ ] **S0.4** 按分档表逐族落地，每族后量 typed 覆盖率 + gate。
+      **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
+      优势，当轮回退）且 bench median 不回归。
 
 #### S1 — `new` on a function, and the `this` that comes with it
 
@@ -8891,11 +8992,23 @@ One cluster family, split by what the lost name is:
 
 #### S5 — Type-system boundaries
 
-Cases where tr's checker refuses a program bun runs. Each needs a
-decision — widen the checker, or record a subset-boundary refusal in
-the S7.2 register with its rationale (per the test262 discipline in
-`.claude/rules/torajs-design-principles.md`: neither bun failing nor
-our own checker objecting is, by itself, a reason to skip).
+Cases where tr's checker refuses a program the spec says is legal (bun
+running it is corroboration, not the criterion). Each needs a decision.
+
+**Re-framed 2026-09-20 — there are three doors here, not two.** This
+section used to read "widen the checker, or record a subset-boundary
+refusal in the S7.2 register". Those two lead to the two quadrants that
+are already occupied: widening everything into `any` is the type-erasure
+route (bun / Perry / Porffor), and registering refusals is the
+static-subset route (AssemblyScript / ArkTS). **The third door is S0's
+middle tier** — the spec defines a runtime semantic *and* the type is
+known, so the typed path emits that throw directly, with zero runtime
+checking. Take S0's split first; what genuinely does not fit it is what
+this section decides on, and only then does the S7.2 register apply
+(per the test262 discipline in
+`.claude/rules/torajs-design-principles.md` §5 and the
+type-participates-in-codegen rule in §7: neither bun failing nor our own
+checker objecting is, by itself, a reason to skip).
 
 - [ ] **S5.1** `not callable: type Any` — **539**, 21 directories
 - [ ] **S5.2** `parameter requires a type annotation` — **380**
@@ -9211,26 +9324,48 @@ and added 轴 E): **P0–P13 closed ✓ *and* P-SURF closed *and* 轴 B at
 target *and* 轴 E through E4**. The axes, with what each still owes —
 
 - **轴 A (spec)** — P13 close ✓, **P-SURF open** ← S7.2's predicate:
-  unattributed ≥ 4 clusters **134** (drives to 0), holding 998 cases,
-  register 2 · 215, core 1824. Sweep @ `573d37b17` (rotation 605).
+  unattributed ≥ 4 clusters **37** (drives to 0), holding 246 cases,
+  register 2 · 118, core 835. Sweep @ `d12609951` (rotation 674).
+  **Re-framed 2026-09-20**: 375 of those 835 core cases (44.9%) are one
+  thing, not 375 — the checker refuses a *legal* JS program because the
+  spec's own runtime TypeError is being treated as a compile-time type
+  error (`assert.throws(TypeError, () => 1n & 1)` is a program that
+  *uses* §13.15.3, not one that breaks it). Probed: the `any` spelling
+  already answers exactly like bun; only the typed spelling is refused.
+  **That boundary is a language definition, not a checker parameter** —
+  it is where this project either stays in its quadrant or leaves it,
+  and it is now P-SURF's first item (L0, 语言规范第一章). 76% of those
+  375 sit in the ≤3 residue, so the gate number only shows 24% of it.
 - **轴 B (perf)** — **target raised 2026-08-24**: no longer "0
   regression" (that lower bound was met at r470 and is now table
   stakes) but **bench-tr full-matrix median tr/bun-aot ≤ 0.33 (3×),
-  chasing 0.25 (4×)**. Measured @ `9325f1914` (2026-08-29, runs=3):
-  median **0.502** across 44 cells, **0 cells slower than bun**, best
-  `popcount` 0.047×, worst `prime_count` 0.987×. **Open by 1.52×.**
+  chasing 0.25 (4×)**. Measured @ `572877dac` (2026-09-19, runs=3):
+  median **0.4334** across 46 cells, **0 cells slower than bun**, best
+  `popcount` 0.042×, worst `prime_count` 0.949×. **Open by 1.313×.**
   P-PERF's own projection for S1-A2 + S2 + S6 + S7 all landing is
   **0.442 — still short**, which is why decomposition (not polish) is
   the standing mode on this axis.
+  **Scale note (2026-09-20, positioning).** The target number stands
+  as takagi set it on 2026-08-24 and is not restated here. What the
+  new positioning adds is how to *read* it: `tr/bun` is one projection
+  of the real yardstick, which is the **native ceiling**. On that
+  yardstick the same run reads `medianVsRust` **1.0048** — level with
+  `rustc -O` across the matrix. Both numbers stay; the second one is
+  the one that answers "性能极致".
 - **轴 C (implementation purity / metal)** — **closed** @ `0d5a8b0`
   (0 LLVM, 0 inkwell, self-researched AArch64 backend + Mach-O writer +
   linker). The only axis that is done.
 - **轴 D (multi-thread-ready)** — framing only during v1.0; the
   acceptance form is the four shape rules in Foundation, not an
   implementation. Real biased-ARC switch is P16, post-v1.0.
-- **轴 E (platform reach)** — **open, newly on the gate**: E1
-  linux-aarch64 / E2 linux-x86_64 / E3 macos-x86_64 / E4 windows-x86_64.
-  Today: one combination of the five. Tracked as `P-PLAT`.
+- **轴 E (platform reach)** — **open**: E1 linux-aarch64 / E2
+  linux-x86_64 / E3 macos-x86_64 / E4 windows-x86_64. Today: one
+  combination of the five. Tracked as `P-PLAT`.
+  **Re-framed 2026-09-20**: this is not an item still owed on the gate.
+  A 语言套件 that exists on exactly one machine is not yet a language
+  suite — E0 (format abstraction + target triple threading) is the step
+  after which torajs first *qualifies* for the noun in its own
+  positioning. Same execution order, different weight.
 
 — and no new external dependencies, conformance gate green, per the
 standing contract.
