@@ -128,7 +128,7 @@ pub(crate) fn bare_global_ns_static_id(name: &str) -> Option<i64> {
     let ns = match name {
         "parseInt" | "parseFloat" => "Number",
         "isNaN" | "isFinite" | "encodeURI" | "encodeURIComponent" | "decodeURI"
-        | "decodeURIComponent" => "globalThis",
+        | "decodeURIComponent" | "escape" | "unescape" => "globalThis",
         _ => return None,
     };
     let id = torajs_rc::ns_static_id(ns, name);

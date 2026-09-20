@@ -326,6 +326,15 @@ pub static NS_STATIC_TABLE: &[NsStaticRow] = &[
     // this row is the VALUE face, and the dispatch arm runs the same
     // torajs-buffer kernel so a detached call agrees. Length 1.
     row("ArrayBuffer", "isView", 1),
+    // §B.2.1.1 / §B.2.1.2 the Annex-B `escape` / `unescape` globals as
+    // VALUES. The direct CALL has lowered through the torajs-str
+    // kernels since the URI quartet landed; only the value face was
+    // missing, so `escape.length` / `escape.name` / `new escape()` read
+    // an unknown ident while `escape("a b")` worked. Keyed under
+    // `globalThis` like the quartet, appended at the END because the id
+    // IS the index. Lengths 1 per spec.
+    row("globalThis", "escape", 1),
+    row("globalThis", "unescape", 1),
 ];
 
 /// Compile-time `(namespace, member)` → id. Linear scan — lower-time

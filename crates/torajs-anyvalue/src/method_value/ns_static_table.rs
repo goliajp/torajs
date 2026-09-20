@@ -286,6 +286,14 @@ pub(super) enum Disp {
         encode: bool,
         component: bool,
     },
+    /// §B.2.1.1/.2 the Annex-B `escape` / `unescape` globals —
+    /// ToString the argument (may throw), then the torajs-str
+    /// kernel. Neither can fail: `unescape` leaves a malformed `%`
+    /// run alone rather than raising the URIError its §19.2.6
+    /// neighbours do.
+    EscapeKernel {
+        escape: bool,
+    },
     /// §20.1.2.10 Object.groupBy / §24.2.2.4 Map.groupBy — neither
     /// reads |this|, so the detached call IS the real semantics:
     /// (items, cb) straight into the torajs-meta kernels (fresh
@@ -460,4 +468,6 @@ pub(super) static DISPATCH: &[Disp] = &[
     Disp::TypedArrayFrom,    // TypedArray.from — recv-first, §23.2.2.1
     Disp::TypedArrayOf,      // TypedArray.of — recv-first, §23.2.2.2
     Disp::ArrayBufferIsView, // ArrayBuffer.isView — §25.1.5.1
+    Disp::EscapeKernel { escape: true }, // escape — §B.2.1.1
+    Disp::EscapeKernel { escape: false }, // unescape — §B.2.1.2
 ];

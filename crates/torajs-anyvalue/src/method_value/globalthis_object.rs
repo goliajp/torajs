@@ -294,6 +294,8 @@ pub(crate) fn globalthis_object_ptr() -> *mut c_void {
             ("globalThis", b"decodeURIComponent"),
             ("globalThis", b"encodeURI"),
             ("globalThis", b"encodeURIComponent"),
+            ("globalThis", b"escape"),
+            ("globalThis", b"unescape"),
         ] {
             let key = mint_immortal_str(name);
             let cell = ns_static_cell(torajs_rc::ns_static::ns_static_id(

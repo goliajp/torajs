@@ -584,6 +584,16 @@ mod tests {
     pub unsafe extern "C" fn __torajs_str_uri_decode(_s: *const u8, _component: i64) -> *mut u8 {
         core::ptr::null_mut()
     }
+    // §B.2.1.1/.2 — the Annex-B pair the EscapeKernel dispatch arm
+    // references (torajs-str's escape.rs in the shipped binary).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_escape(_s: *const u8) -> *mut u8 {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_str_unescape(_s: *const u8) -> *mut u8 {
+        core::ptr::null_mut()
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_symbol_for(_key: *mut c_void) -> *mut c_void {
         core::ptr::null_mut()

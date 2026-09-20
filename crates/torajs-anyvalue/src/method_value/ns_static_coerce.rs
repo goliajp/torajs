@@ -24,6 +24,8 @@ unsafe extern "C" {
     /// a pending URIError and answers the empty placeholder).
     fn __torajs_str_uri_encode(s: *const u8, component: i64) -> *mut u8;
     fn __torajs_str_uri_decode(s: *const u8, component: i64) -> *mut u8;
+    fn __torajs_str_escape(s: *const u8) -> *mut u8;
+    fn __torajs_str_unescape(s: *const u8) -> *mut u8;
 }
 
 /// §19.2.5 parseInt arm — ToString the input (may throw), ToInt32
@@ -68,6 +70,27 @@ pub(super) unsafe fn global_num_test(finite: bool, argv: *const u64, argc: i64) 
             return VALUE_UNDEFINED;
         }
         box_bool(if finite { n.is_finite() } else { n.is_nan() })
+    }
+}
+
+/// §B.2.1.1/.2 Annex-B escape / unescape arm — ToString the argument
+/// (may throw), then the torajs-str kernel, then the owned-Str slot
+/// box. Unlike its §19.2.6 neighbour above neither kernel can fail:
+/// §B.2.1.2 step 4 leaves a malformed `%` run in place rather than
+/// raising, so there is no second throw check after the call.
+pub(super) unsafe fn escape_kernel_value(escape: bool, argv: *const u64, argc: i64) -> u64 {
+    unsafe {
+        let s = crate::nanbox_ffi::__torajs_anyv_to_str(arg_at(argv, argc, 0));
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        let out = if escape {
+            __torajs_str_escape(s as *const u8)
+        } else {
+            __torajs_str_unescape(s as *const u8)
+        };
+        __torajs_str_drop(s);
+        __torajs_anyv_box_str_slot(out.cast::<c_void>())
     }
 }
 

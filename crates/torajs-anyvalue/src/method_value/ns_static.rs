@@ -258,23 +258,30 @@ unsafe fn dispatch(id: i64, argv: *const u64, argc: i64) -> u64 {
             Disp::ReflectConstructDyn => {
                 super::ns_static_reflect::reflect_construct_dyn(argv, argc)
             }
-            // §19.2.1 — tr performs no runtime evaluation (direct
-            // calls compile through the desugar_eval prefix); the
-            // escaped cell's call face is the recorded loud reject.
-            Disp::EvalDyn => {
-                __torajs_throw_type_error(
-                    c"eval through a runtime value is not supported".as_ptr(),
-                );
-                VALUE_UNDEFINED
-            }
+            Disp::EvalDyn => eval_dyn_reject(),
             Disp::GlobalNumTest { finite } => {
                 super::ns_static_coerce::global_num_test(*finite, argv, argc)
             }
             Disp::UriKernel { encode, component } => {
                 super::ns_static_coerce::uri_kernel_value(*encode, *component, argv, argc)
             }
+            Disp::EscapeKernel { escape } => {
+                super::ns_static_coerce::escape_kernel_value(*escape, argv, argc)
+            }
         }
     }
+}
+
+/// §19.2.1 — tr performs no runtime evaluation (direct calls compile
+/// through the `desugar_eval` prefix), so the escaped cell's call face
+/// is the recorded loud reject. It lives out here rather than inline in
+/// `dispatch`'s table because that table is a table: an arm with a body
+/// is the one shape a reader has to stop and read.
+unsafe fn eval_dyn_reject() -> u64 {
+    unsafe {
+        __torajs_throw_type_error(c"eval through a runtime value is not supported".as_ptr());
+    }
+    VALUE_UNDEFINED
 }
 
 /// Hand an argv borrow back as the OWNED result the boxed entry's
