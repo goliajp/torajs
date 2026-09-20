@@ -143,6 +143,16 @@ static METHOD_CELLS: [[AtomicU64; TABLE_SIZE]; FAMILY_ROWS] =
 /// immortal-static shape as [`METHOD_CELLS`].
 static METHOD_NAME_CELLS: [AtomicU64; TABLE_SIZE] = [const { AtomicU64::new(0) }; TABLE_SIZE];
 
+/// Is `entry` the boxed dual entry every reified builtin method
+/// cell carries? A caller that HAS a receiver must not jump into it
+/// — the entry is the receiver-less throw, so it would discard the
+/// `this` it was handed. The answer is one compare against a
+/// constant on a word the caller already loaded.
+#[inline]
+pub(crate) fn is_bare_entry(entry: u64) -> bool {
+    entry == bare_entry as *const () as u64
+}
+
 /// Boxed dual entry of every reified method cell — a bare call is
 /// the ES `this = undefined` TypeError.
 unsafe extern "C" fn bare_entry(_env: *mut c_void, _argv: *const u64, _argc: i64) -> u64 {

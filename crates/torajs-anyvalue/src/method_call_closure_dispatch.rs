@@ -204,6 +204,20 @@ pub unsafe extern "C" fn __torajs_any_call_with_this(
             return crate::proxy_callable::__torajs_proxy_apply(recv, this_arg, argv, argc);
         }
         if let Some((env, entry)) = closure_boxed_entry(recv) {
+            // A reified builtin method cell's boxed dual entry IS
+            // the receiver-less TypeError, so jumping into it throws
+            // away the `this_arg` we were handed. `.call` never
+            // reaches it because it classifies through `call_target`
+            // first — this spelling of the same operation has to ask
+            // the same question, or `Get(p, "toString")` through a
+            // proxy trap (which lands here with the proxy as `this`)
+            // answers "called without a receiver". One compare
+            // against a constant on the entry word already loaded.
+            if crate::method_value::is_bare_entry(entry)
+                && let Some(target) = crate::method_call_closure::call_target(env)
+            {
+                return crate::method_call_closure::dispatch(&target, this_arg, argv, argc);
+            }
             return invoke_with_this(env, entry, this_arg, argv, argc);
         }
         // §10.2.1 step 2 twin — a class object ignores the explicit
