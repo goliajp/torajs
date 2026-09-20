@@ -87,6 +87,14 @@ pub unsafe extern "C" fn __torajs_regex_get_source(re_ptr: *const c_void) -> *mu
         return unsafe { __torajs_str_alloc_pooled(0) as *mut c_void };
     }
     let re = unsafe { as_regex(re_ptr) };
+    // §22.2.6.10 step 4 — an EMPTY pattern reads as `(?:)`, so that
+    // the source always round-trips through the `/…/` literal form
+    // (`/(?:)/` is how an empty regex is spelled; `//` is a comment).
+    // Only reachable since `RegExp("")` got a path: a literal cannot
+    // produce an empty pattern.
+    if re.src_bytes.is_empty() {
+        return unsafe { str_from_bytes(b"(?:)") as *mut c_void };
+    }
     // `src_bytes` is the code-unit form (str_helpers::str_units); the
     // allocator re-encodes it into the Str layout — a raw byte copy
     // into the Latin-1 layout read every non-ASCII source as one

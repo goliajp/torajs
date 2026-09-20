@@ -32,6 +32,60 @@ unsafe fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {}
 #[cfg(test)]
 unsafe fn __torajs_throw_syntax_error(_msg: *const core::ffi::c_char) {}
 
+#[cfg(not(test))]
+unsafe extern "C" {
+    fn __torajs_throw_range_error(msg: *const core::ffi::c_char);
+}
+
+#[cfg(test)]
+unsafe fn __torajs_throw_range_error(_msg: *const core::ffi::c_char) {}
+
+/// §21.2.1.1 `BigInt(value)` steps 2-3 — ToPrimitive with the number
+/// hint, then a Number goes through §7.1.14 NumberToBigInt and
+/// anything else through ToBigInt.
+///
+/// The difference is the whole point of the two operations: ToBigInt
+/// REFUSES a Number (§7.1.13's table says TypeError, so `1n + 1`
+/// cannot silently work), while the `BigInt` function is the explicit
+/// conversion and accepts one — as long as it is an integer, which is
+/// what raises the RangeError here rather than a TypeError.
+///
+/// # Safety
+/// `v` is a live NaN-boxed Any value.
+pub(crate) unsafe fn bigint_of_value(v: AnyValue) -> Option<*mut u8> {
+    unsafe {
+        // Step 2's ToPrimitive. A Str / BigInt / Symbol cell is
+        // already primitive and re-enters `any_to_bigint` unchanged;
+        // only an object needs the hop, and it is the one `any_to_bigint`
+        // would make anyway — made here so a Number RESULT is visible.
+        let prim = if is_cell(v) && !matches!(cell_tag(v), Tag::Str | Tag::BigInt | Tag::Symbol) {
+            crate::to_primitive::heap_to_primitive(as_void_ptr(v), false)?
+        } else {
+            v
+        };
+        let owned_prim = prim != v;
+        let out = if crate::nanbox::is_int32(prim) || crate::nanbox::is_double(prim) {
+            let n = if crate::nanbox::is_int32(prim) {
+                f64::from(crate::nanbox::as_int32(prim))
+            } else {
+                crate::nanbox::as_double(prim)
+            };
+            if !n.is_finite() || n.fract() != 0.0 {
+                __torajs_throw_range_error(c"Not an integer".as_ptr());
+                None
+            } else {
+                Some(bigint_ffi::__torajs_bigint_from_number(n))
+            }
+        } else {
+            any_to_bigint(prim)
+        };
+        if owned_prim {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
+        }
+        out
+    }
+}
+
 /// §7.1.13 — coerce `v` to an owned BigInt heap pointer (rc stake
 /// belongs to the caller). `None` = a pending throw was recorded
 /// (TypeError / SyntaxError / a poisoned valueOf during

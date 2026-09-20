@@ -24,6 +24,7 @@ use super::{
 /// the same immortal closure shape as [`builtin_method_cell`]
 /// (calling it is the bare-receiver TypeError — constructing
 /// through a first-class ctor value is a recorded follow-up).
+mod call_forms;
 mod construct;
 
 pub(crate) use construct::ctor_construct;
@@ -112,6 +113,16 @@ unsafe extern "C" {
     /// torajs-collections — fresh empty Map / Set cells (rc 1).
     fn __torajs_map_create() -> *mut c_void;
     fn __torajs_set_create() -> *mut c_void;
+    /// torajs-str — §20.4.1.1's mint (rc 1; takes its own stake in
+    /// the description) and the Str release that pairs with it.
+    fn __torajs_symbol_alloc(desc: *mut c_void) -> *mut c_void;
+    fn __torajs_str_drop(cell: *mut c_void);
+    /// torajs-regex — §22.2.3.1 RegExpInitialize, with the pattern
+    /// parser's rejection already turned into a SyntaxError.
+    fn __torajs_regex_compile_or_throw(
+        pattern_str: *const c_void,
+        flags_str: *const c_void,
+    ) -> *mut c_void;
 }
 
 /// Monolithic resolution of the ctor-date seam — §21.4.2 Date as a
@@ -211,6 +222,17 @@ unsafe extern "C" fn ctor_call_entry(env: *mut c_void, argv: *const u64, argc: i
             // answer is the current time rendered as a string.
             // Through the ctor-date seam: see `dispatch_seam`.
             8 => crate::dispatch_seam::__torajs_ctor_date_call(),
+            // §20.4.1.1 / §21.2.1.1 — Symbol and BigInt are the two
+            // families that exist ONLY in the call form; their
+            // `new` is the TypeError (`ctor::construct`'s twin rows
+            // say so). A description / value of undefined is the
+            // absent argument, not the string "undefined".
+            5 => call_forms::ctor_symbol_call(argc, arg0(0)),
+            6 => call_forms::ctor_bigint_call(argc, arg0(0)),
+            // §22.2.4.1 — with NewTarget undefined a RegExp argument
+            // and no flags answers the argument itself; anything
+            // else is what `new RegExp(…)` would build.
+            7 => call_forms::ctor_regexp_call(argv, argc),
             _ => {
                 __torajs_throw_type_error(
                     c"this constructor cannot be called as a function through a first-class value"

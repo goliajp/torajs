@@ -1038,6 +1038,19 @@ mod tests {
     /// (shipped binary resolves libtorajs_{bigint,throw}.a).
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const core::ffi::c_char) {}
+    /// The §20.4.1.1 / §22.2.3.1 mints the builtin-ctor call table
+    /// reaches (shipped binary resolves libtorajs_{str,regex}.a).
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_symbol_alloc(_desc: *mut c_void) -> *mut c_void {
+        core::ptr::null_mut()
+    }
+    #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_regex_compile_or_throw(
+        _pattern: *const c_void,
+        _flags: *const c_void,
+    ) -> *mut c_void {
+        core::ptr::null_mut()
+    }
     #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_bigint_as_int_n(_bits: i64, _v: *const c_void) -> *mut u8 {
         core::ptr::null_mut()

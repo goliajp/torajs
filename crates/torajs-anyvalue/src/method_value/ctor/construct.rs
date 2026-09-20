@@ -128,6 +128,21 @@ pub(crate) unsafe fn ctor_construct(tag: i64, argv: *const u64, argc: i64) -> u6
                 __torajs_throw_type_error(c"BigInt is not a constructor".as_ptr());
                 VALUE_UNDEFINED
             }
+            // §22.2.4.1 step 2 — with a NewTarget present the
+            // identity shortcut is skipped and the pattern is always
+            // rebuilt; the body itself is shared with the call form.
+            7 => super::call_forms::regexp_build(
+                if argc > 0 {
+                    argv.read()
+                } else {
+                    VALUE_UNDEFINED
+                },
+                if argc > 1 {
+                    argv.add(1).read()
+                } else {
+                    VALUE_UNDEFINED
+                },
+            ),
             18 => {
                 let cell = crate::method_call_weak::__torajs_weakref_new_checked(arg0());
                 if __torajs_throw_check() != 0 {
