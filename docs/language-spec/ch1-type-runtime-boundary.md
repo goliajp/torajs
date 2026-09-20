@@ -292,12 +292,18 @@ refuse 族里 tsc **不**同判的条目,是这张表最值钱的地方:族的�
 
 | 轴 | n | 形状 | tsc 怎么推 |
 |---|--:|---|---|
-| 裸声明后赋两种形状 | 7 | `var o; o = {join(){…}}; o = {};` | evolving `any`,每个赋值点各自成型 |
+| 裸声明后赋两种形状 **(r677 已落地一半)** | 7 | `var o; o = {join(){…}}; o = {};` | evolving `any`,每个赋值点各自成型 |
 | 循环体内的裸 `let` | 1 | `for (let i of […]) { let s; s = i; }` | 同上(tr 在顶层通过,进了循环体就推成 `Undefined`) |
 | 生成器函数表达式 | 1 | `let f = function*(){…}; f = function*(){…};` | 结构同型;tr 给每个生成器表达式铸一个名义 `ClassRef`,于是任意两个永不互赋 |
 | `var x = {}` 后赋任意对象 | 1 | `var x = {}; x = Array;` | TS 的 `{}` 接受除 `null`/`undefined` 外的一切 —— 这是语义不是精度 |
 | getter-only 改赋 setter-only | 1 | `var o = {get a(){…}}; o = {set a(b){}};` | 两边都是属性 `a`;tr 记成 `__getter_a` / `__setter_a` 两个不同字段名 |
 | 只抛出的箭头函数 | 1 | `it.return = () => { throw … };` | 返回 `never`,可赋给任何返回类型 |
+
+**第一条 r677 落地了它的一半**:`Ast::spliced_uninit_inits` 记下「这个 init 是
+`desugar_uninit_let` 搬上来的」,`let_widen` 据此对裸声明按**字段名**比较对象字面量。
+剩下的一半是**值类型**变化(`{toString(){return {}}}` 对 `{toString(){}}`,
+`built-ins/Symbol/desc-to-string`)—— evolving any 同样接受,而分辨它需要那个 pass
+拿不到的类型,所以按模块自己的规则留了 loud reject。
 
 最后一条是一条**轴**而不是孤例,而且它解释了上面那三条 `||=` 为什么判
 对:tsc 把「只抛出」的**箭头/函数表达式**推成 `never`(接受),把**函数
