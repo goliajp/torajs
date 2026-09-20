@@ -147,7 +147,15 @@ unsafe fn exotic_set_prototype_of(obj: u64, proto: u64) -> Result<(), ProtoRefus
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
     unsafe {
-        if !is_null_any(proto) && !is_cell_imm(proto) {
+        // §20.1.2.22 / §28.1.13 step 2 and §B.2.2.1.2 step 3 — "proto
+        // is not an Object and proto is not null". `is_cell_imm`
+        // answers a narrower question (is it a heap cell), and tr
+        // carries strings, symbols and bigints on the heap while the
+        // spec calls them primitives, so all three walked through a
+        // gate that meant Object. The three faces differ in what they
+        // do about it — two throw, `__proto__ =` returns — but not in
+        // what they ask.
+        if !is_null_any(proto) && !crate::reflect::is_object_imm(proto) {
             __torajs_throw_type_error(c"Prototype must be an object or null".as_ptr());
             return;
         }
@@ -203,7 +211,15 @@ pub unsafe extern "C" fn __torajs_anyv_set_prototype_of(obj: u64, proto: u64) {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64) -> i64 {
     unsafe {
-        if !is_null_any(proto) && !is_cell_imm(proto) {
+        // §20.1.2.22 / §28.1.13 step 2 and §B.2.2.1.2 step 3 — "proto
+        // is not an Object and proto is not null". `is_cell_imm`
+        // answers a narrower question (is it a heap cell), and tr
+        // carries strings, symbols and bigints on the heap while the
+        // spec calls them primitives, so all three walked through a
+        // gate that meant Object. The three faces differ in what they
+        // do about it — two throw, `__proto__ =` returns — but not in
+        // what they ask.
+        if !is_null_any(proto) && !crate::reflect::is_object_imm(proto) {
             __torajs_throw_type_error(c"Prototype must be an object or null".as_ptr());
             return 0;
         }
@@ -251,7 +267,15 @@ pub unsafe extern "C" fn __torajs_reflect_set_prototype_of(obj: u64, proto: u64)
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_proto_member_set(obj: u64, proto: u64) {
     unsafe {
-        if !is_null_any(proto) && !is_cell_imm(proto) {
+        // §20.1.2.22 / §28.1.13 step 2 and §B.2.2.1.2 step 3 — "proto
+        // is not an Object and proto is not null". `is_cell_imm`
+        // answers a narrower question (is it a heap cell), and tr
+        // carries strings, symbols and bigints on the heap while the
+        // spec calls them primitives, so all three walked through a
+        // gate that meant Object. The three faces differ in what they
+        // do about it — two throw, `__proto__ =` returns — but not in
+        // what they ask.
+        if !is_null_any(proto) && !crate::reflect::is_object_imm(proto) {
             return;
         }
         if !is_cell_imm(obj) {

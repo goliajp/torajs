@@ -85,17 +85,8 @@ pub unsafe extern "C" fn __torajs_anyv_str_length_descriptor(str_ptr: *const c_v
 /// `obj_any` must carry a valid AnyValue bit pattern.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_throw_typeerror_if_not_object(obj_any: u64) {
-    if obj_any == VALUE_UNDEFINED_IMM || obj_any == VALUE_NULL_IMM || !is_cell_imm(obj_any) {
-        // SAFETY: NUL-terminated static C string.
-        unsafe {
-            __torajs_throw_type_error(c"Properties can only be defined on Objects.".as_ptr())
-        };
-        return;
-    }
-    // Cell — inspect the universal heap header `type_tag` to filter out
-    // spec-primitive cells (Str / BigInt / Symbol).
-    let tag = unsafe { heap_type_tag(obj_any as *const c_void) };
-    if matches!(tag, TAG_STR | TAG_BIGINT | TAG_SYMBOL) {
+    // SAFETY: the caller's contract says `obj_any` is a valid pattern.
+    if !unsafe { crate::reflect::is_object_imm(obj_any) } {
         // SAFETY: NUL-terminated static C string.
         unsafe {
             __torajs_throw_type_error(c"Properties can only be defined on Objects.".as_ptr())

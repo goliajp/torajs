@@ -211,6 +211,32 @@ pub(crate) const fn is_cell_imm(v: u64) -> bool {
     (v & TOP_16_MASK) == 0 && (v & TAG_BIT_TYPE_OTHER) == 0 && v != 0
 }
 
+/// §7.1 — is `v` a language-value **Object**?
+///
+/// [`is_cell_imm`] answers a different question: is it a heap cell.
+/// The two part company on exactly three tags, because tr carries
+/// strings, symbols and bigints on the heap while the spec classifies
+/// them as primitives. Every gate that means "Object" and asks
+/// `is_cell_imm` therefore lets those three through —
+/// `Reflect.setPrototypeOf({}, Symbol())` returned true where
+/// §28.1.13 step 2 raises.
+///
+/// This is the predicate `__torajs_anyv_throw_typeerror_if_not_object`
+/// spelled inline; naming it is what stops the next gate from
+/// spelling a fourth copy, and from spelling it with two tags
+/// instead of three.
+///
+/// # Safety
+/// `v` carries a valid AnyValue bit pattern.
+pub(crate) unsafe fn is_object_imm(v: u64) -> bool {
+    if !is_cell_imm(v) {
+        return false;
+    }
+    // SAFETY: is_cell_imm pinned `v` to a live heap cell.
+    let tag = unsafe { heap_type_tag(v as *const c_void) };
+    !matches!(tag, TAG_STR | TAG_BIGINT | TAG_SYMBOL)
+}
+
 /// Build a data descriptor dynobj `{ value, writable, enumerable,
 /// configurable }` — the shared tail of every gOPD arm (general
 /// dynobj walk / Arr length / Str length / struct field / closure
