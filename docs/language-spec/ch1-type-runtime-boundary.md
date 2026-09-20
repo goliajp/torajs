@@ -101,6 +101,34 @@ typed 覆盖率量具(`hardev/autorun/typed_census.sh`)是它唯一的机械证�
 所以该问的不是「它归哪一档」,而是**这一族是否该存在** ——
 design-principles 禁止把 Rust 习语带进语言面。
 
+### 3.1 判据 2 在 F3 上的实测 —— 默认档位被部分推翻
+
+上一节写着「F3 的运行期语义早已完整存在,差别只在 checker 拦不拦」。
+**拿判据 2 问了一遍,这句话不全对。** 5 条抽样(`target/iter/tr` 对
+bun 1.4.2,全部用 `any` 拼写绕开 checker):
+
+| 探针 | tr | bun | 谁对 |
+|---|---|---|---|
+| `Object.assign(t, {a:1})`,t 是 `"x"` | `threw TypeError` | `no-throw` | **bun** —— §20.1.2.1 ToObject 后 String 包装对象可加属性 |
+| `BigInt(v)`,v 是 `{}` | `threw TypeError` | `threw SyntaxError` | **bun** —— §21.2.1.1 StringToBigInt 失败抛 SyntaxError |
+| `[1,2,3].copyWithin(n)`,n 是 `{}` | `[ 1, 2, 3 ]` | 同 | 一致 |
+| `Object.values(o)`,o 是 `42` | `[]` | 同 | 一致 |
+| `a.push(true)`,a 是 `[1]` | `2` | 同 | 一致 |
+
+**所以 F3 要再切一刀**:
+
+- **F3-a 运行期语义已正确** → 档 B,typed 路径直接 emit 即可(S0.4)。
+- **F3-b 运行期语义本身还不对** → **不在 S0 的范围内**。这些是底层
+  机制缺口(错误的类型、不该抛而抛),要先把运行期修对,然后才谈 typed
+  直出。它们属于 P-SURF 的 L1 底层机制,不属于本章。
+
+**这条修正改变了账目的读法**:66% 不是"都能靠 typed 直出拿下",其中
+有一部分要先补运行期语义。逐条落档(S0.1)因此必须**对每条跑一次判据
+2**,不能按族批量判 —— 族的默认值只决定"先问哪个问题"。
+
+这也是判据 2 那条纪律的又一次兑现:被推翻的正是**本章上一节自己写下
+的理由**。理由写得越顺,越要拿一行探针问它。
+
 ## 4. 与 TypeScript 的差异
 
 AssemblyScript、ArkTS、Static TypeScript 都有一份成文的「我与 TypeScript

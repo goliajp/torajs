@@ -116,9 +116,13 @@ FAMILIES = [
         r"|receiver must be|target must be|value must be|primitive-coercible"
         r"|must be a string, number or symbol|must match elem type"
         r"|expected element type|source\[\d*\]|cb must be",
-        "**最大的一族。** 内建函数的参数处理在 spec 里几乎总是"
-        "「先做 ToXxx 强制转换,失败则抛 TypeError」——两种结果都是运行期"
-        "语义,两种 tr 都能在类型已知时编译期算出来。",
+        "**最大的一族,而且它的档位只对了一半。** 内建的参数处理在 spec 里"
+        "几乎总是「ToXxx 强制转换,失败则抛 TypeError」,两种结果都是运行期"
+        "语义 —— 但 2026-09-20 的 5 条抽样里有 2 条 **tr 的运行期语义本身"
+        "就是错的**(`Object.assign(\"x\", {...})` 不该抛却抛了;"
+        "`BigInt({})` 该抛 SyntaxError 却抛 TypeError)。所以本族要再切:"
+        "运行期已正确的才是档 B;运行期也错的属于底层机制缺口,不在 S0 范围。"
+        "**逐条落档必须对每条跑一次 any-拼写探针,不能按族批量判。**",
     ),
 ]
 
