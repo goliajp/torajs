@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T03:03:25.335Z",
+  "generatedAt": "2026-09-20T05:36:08.084Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T02:50:30Z",
-    "headSha": "d12609951",
-    "elapsedSec": 546.19,
+    "ranAt": "2026-09-20T05:23:05Z",
+    "headSha": "b9d86df9d",
+    "elapsedSec": 542.08,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 82.51
   },
   "torajs": {
-    "commit": "2930ebf06",
-    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 674 @d12609951",
+    "commit": "d834b3735",
+    "commitSubject": "chore(hardev): file-size stamp on the final HEAD",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "2930ebf06",
-      "subject": "docs(roadmap): P-SURF accounting for rotation 674 @d12609951"
+      "hash": "d834b3735",
+      "subject": "chore(hardev): file-size stamp on the final HEAD"
     },
     {
-      "hash": "2549f4719",
-      "subject": "chore(hardev): rotation 674 close stamps — sweep @d12609951 (passTotal 40522, +2, verdict diff 2 forward / 0 back), determinism 46/46 N=12, gmalloc 3888/3892 clean 0 offenders (4 in the watchdog bucket)"
+      "hash": "3516628c7",
+      "subject": "chore(hardev): rotation close stamps @ b9d86df9d"
     },
     {
-      "hash": "d12609951",
-      "subject": "test: computed-member edge shapes"
+      "hash": "b9d86df9d",
+      "subject": "docs: repair ch.1 3.1 — the root-cause note split a list in two"
     },
     {
-      "hash": "ba07d9cb6",
-      "subject": "test: pin the computed-key evaluation order §15.7.14"
+      "hash": "8a9abb313",
+      "subject": "docs: locate the BigInt runtime bug — ToPrimitive's number hint"
     },
     {
-      "hash": "6b62e8224",
-      "subject": "fix: a computed key reading its own class name stops warning twice"
+      "hash": "e8e5329c7",
+      "subject": "docs: record S0's boundary, found by probing rather than by design"
     },
     {
-      "hash": "c916a069b",
-      "subject": "test: a generic class keeps its computed static field across twins"
+      "hash": "87d7fd2ce",
+      "subject": "docs: probe F3 with criterion 2 — half its verdict was wrong"
     },
     {
-      "hash": "81413fe6a",
-      "subject": "test: pin the duplicate-class-name surfaces that were already right"
+      "hash": "560383170",
+      "subject": "docs: language spec ch.1 — what the type system owes ES runtime semantics"
     },
     {
-      "hash": "e3befa6e4",
-      "subject": "fix: a class constructor answers its own declaration text"
+      "hash": "d8bf61499",
+      "subject": "feat: classify checker refusals by family, with S0's three-way verdict"
     },
     {
-      "hash": "18b157cb7",
-      "subject": "refactor: the last two computed-member probes ask the owner too"
+      "hash": "ca3a497f3",
+      "subject": "chore: typed-coverage baseline — typed_ratio 0.7317 @ f7b74aa1f"
     },
     {
-      "hash": "2cce00b2c",
-      "subject": "fix: a class's computed static stores land on its own class object"
+      "hash": "f7b74aa1f",
+      "subject": "feat: typed-coverage census, the ruler S0 is graded on"
     },
     {
-      "hash": "20ba07c99",
-      "subject": "fix: the capturing lane keeps a class whose name another class shares"
+      "hash": "f2ef76cda",
+      "subject": "docs: refresh P-SURF numbers onto the cleaned-up baseline"
     },
     {
-      "hash": "9e1d85b41",
-      "subject": "fix: computed class members answer by owner, not by class name"
+      "hash": "c3de02b63",
+      "subject": "feat: clear the corpus-scope noise off the v1.0 gate predicate"
     }
   ],
-  "headSha": "2930ebf06",
+  "headSha": "d834b3735",
   "autorun": {
-    "total": 977,
+    "total": 978,
     "baselineTarget": 10,
-    "bySelf": 972,
+    "bySelf": 973,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789845331-19c7",
-      "at": "2026-09-19T19:15:31Z",
-      "ts": 1789845331,
+      "rotationId": "r-1789873427-4022",
+      "at": "2026-09-20T03:03:47Z",
+      "ts": 1789873427,
       "trigger": "self",
-      "prevHead": "f572cada8",
-      "handoffSha": "sha256:696d1befda8b65cab9a394c93221fe2caca319e927b1e0275e8ddeb69bbf93c9",
-      "handoffAgeSec": 1,
-      "conformanceBefore": "4362/0/4",
+      "prevHead": "b4f26160d",
+      "handoffSha": "sha256:2ea3daf53bea3085b0c6b39993f9427cbcb3a65c93ab1f814ed73211010d6e9e",
+      "handoffAgeSec": 7,
+      "conformanceBefore": "4370/0/4",
       "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789873427-4022",
+        "at": "2026-09-20T03:03:47Z",
+        "ts": 1789873427,
+        "trigger": "self",
+        "prevHead": "b4f26160d",
+        "handoffSha": "sha256:2ea3daf53bea3085b0c6b39993f9427cbcb3a65c93ab1f814ed73211010d6e9e",
+        "handoffAgeSec": 7,
+        "conformanceBefore": "4370/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789845331-19c7",
         "at": "2026-09-19T19:15:31Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 37,
         "conformanceBefore": "4288/0/4",
         "commitsInSession": 11
-      },
-      {
-        "rotationId": "r-1789664530-7a27",
-        "at": "2026-09-17T17:02:10Z",
-        "ts": 1789664530,
-        "trigger": "self",
-        "prevHead": "fd5daf4bd",
-        "handoffSha": "sha256:834be026e99a395ba6cec5c6e6db01c03515950574a096a6cfb5b186606b5531",
-        "handoffAgeSec": 33,
-        "conformanceBefore": "4283/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
