@@ -88,9 +88,17 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
         .filter(|d| d.severity == Severity::Error)
         .map(|d| d.message.clone())
         .collect();
-    if !error_messages.is_empty() {
-        return Err(error_messages.join("\n"));
-    }
+    // S0 的实测闸(`crate::s0_admit`):开着时这些诊断降级成 warning,
+    // 让被拒的程序照常 lower —— 于是 test262 那 366 条被拒的 case 自己
+    // 就是判据 2 的探针。闸关着时这一行的唯一效果是读一次环境变量。
+    let admitted = if crate::s0_admit::admit() {
+        error_messages
+    } else {
+        if !error_messages.is_empty() {
+            return Err(error_messages.join("\n"));
+        }
+        Vec::new()
+    };
     // A `with` fall-through read is not a diagnostic: see
     // `Ast::with_fallthrough_idents`. The entry stays in
     // `undeclared_reads` so lowering still emits the ReferenceError
@@ -113,6 +121,9 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
             .filter(|d| d.severity == Severity::Warning)
             .map(|d| d.message.clone()),
     );
+    // 闸开时把降级掉的诊断带出来,否则一次 admit 过的编译与一次本来就
+    // 干净的编译在调用方看来一模一样 —— 探针要分得清这两者。
+    warnings.extend(admitted.into_iter().map(|m| format!("[s0-admit] {m}")));
     let before_mono = c.errors.len();
     let mono = crate::check_monomorph::monomorphize_and_check(&mut c, ast);
     // A specialization body's diagnostics are discarded inside the

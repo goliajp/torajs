@@ -679,6 +679,7 @@ pub(crate) mod ssa_lower_typeof_runtime;
 pub(crate) mod ssa_lower_unary;
 pub(crate) mod ssa_lower_undef_f64_source;
 pub mod ssa_lower_while_push_fast;
+pub(crate) mod s0_admit;
 pub mod staticlibs;
 pub(crate) mod type_ann_fnsig;
 pub(crate) mod typed_census;
