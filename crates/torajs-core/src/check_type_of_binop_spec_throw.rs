@@ -38,10 +38,32 @@ use crate::check::Type;
 /// | Symbol × String | throws (…to a string) | throws (…to a number) |
 /// | Symbol × anything else | throws (…to a number) | throws |
 /// | BigInt × BigInt | fine | fine (except `>>>`) |
+///
+/// …and every row is conditional on BOTH operands being primitives,
+/// because an object's ToPrimitive runs first and may throw something
+/// else. See the note at the top of the function body.
 pub(crate) fn spec_mandated_throw(op: BinOp, l: &Type, r: &Type) -> Option<String> {
     const SYM_NUM: &str = "Cannot convert a symbol to a number";
     const SYM_STR: &str = "Cannot convert a symbol to a string";
     const MIXED: &str = "Cannot mix BigInt and other types, use explicit conversions";
+
+    // Band B replaces the operator with the throw, and that is only
+    // the same program when nothing observable happens in between.
+    // ToPrimitive on an object CALLS USER CODE (`Symbol.toPrimitive`,
+    // `valueOf`, `toString`) and §13.15.3 runs it BEFORE the operator
+    // gets to refuse the pair — so if that code throws, its error is
+    // the one the program sees. test262's
+    // `unsigned-right-shift/bigint-toprimitive` asserts exactly that:
+    // `({[Symbol.toPrimitive]() { throw new MyError() }}) >>> 0n`
+    // must raise MyError, and emitting the TypeError up front raised
+    // a TypeError instead. So every operand must be a shape whose
+    // ToPrimitive is the identity — a primitive.
+    //
+    // `Any` is excluded for the same reason and not a weaker one: the
+    // value behind it may be an object, and then there is user code.
+    if !is_primitive(l) || !is_primitive(r) {
+        return None;
+    }
 
     let is_str = |t: &Type| matches!(t, Type::String);
     let is_sym = |t: &Type| matches!(t, Type::Symbol);
@@ -109,6 +131,23 @@ fn coerces_numerically(op: BinOp) -> bool {
             | BinOp::Shl
             | BinOp::Shr
             | BinOp::UShr
+    )
+}
+
+/// §7.1.1 ToPrimitive is the identity on these and only these, so an
+/// operand of one of these types cannot run user code on its way to
+/// ToNumeric. That is band B's precondition — see the note at the top
+/// of [`spec_mandated_throw`].
+fn is_primitive(t: &Type) -> bool {
+    matches!(
+        t,
+        Type::Number
+            | Type::String
+            | Type::Boolean
+            | Type::Null
+            | Type::Undefined
+            | Type::BigInt
+            | Type::Symbol
     )
 }
 
