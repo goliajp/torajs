@@ -107,7 +107,7 @@ pub unsafe extern "C" fn __torajs_proxy_create(target: AnyValue, handler: AnyVal
         // target as it is NOW; recorded on the header, since a later
         // revoke nulls the target slot.
         let mut flags = 0u16;
-        if crate::proxy_callable::value_is_callable(target) {
+        if crate::construct::is_callable(target) {
             flags |= torajs_rc::FLAG_PROXY_CALLABLE;
         }
         if crate::construct::is_constructor(target) {

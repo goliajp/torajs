@@ -16,7 +16,7 @@
 
 use core::ffi::c_void;
 
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use crate::proxy::{live_slots, trap};
 
@@ -187,19 +187,10 @@ unsafe fn header_flags(v: AnyValue) -> u16 {
     unsafe { as_void_ptr(v).cast::<u8>().add(6).cast::<u16>().read() }
 }
 
-/// IsCallable over a proxy's would-be target: another proxy answers
-/// its own flag, a closure cell is callable.
-pub(crate) fn value_is_callable(t: AnyValue) -> bool {
-    if !is_cell(t) {
-        return false;
-    }
-    if crate::proxy::is_proxy(t) {
-        return unsafe { proxy_is_callable(t) };
-    }
-    unsafe { crate::method_call_closure_dispatch::closure_boxed_entry(t) }.is_some()
-        || unsafe { as_void_ptr(t).cast::<u8>().add(4).cast::<u16>().read() }
-            == torajs_rc::Tag::Closure as u16
-}
+// IsCallable over a proxy's would-be target is §7.2.3 like every
+// other asking of it — `construct::is_callable`. A copy lived here
+// and listed the closure shapes only, so `new Proxy(class C {}, {})`
+// recorded itself non-callable and `typeof` answered "object".
 
 /// §20.2.3.3 CreateListFromArrayLike then [[Call]] — the `apply`
 /// spelling's argument list arrives as a value, not as a window.

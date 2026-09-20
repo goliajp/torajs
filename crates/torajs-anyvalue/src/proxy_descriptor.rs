@@ -156,11 +156,11 @@ unsafe fn accessor_field(obj: AnyValue, name: &[u8]) -> Result<Option<AnyValue>,
     Ok(Some(v))
 }
 
-/// IsCallable over the two callable shapes: a closure, and a Proxy
-/// whose target is one.
+/// §7.2.3 IsCallable — `construct::is_callable`. This was a third
+/// spelling of it, assembled from the promise lane's copy plus a
+/// Proxy clause, and like the others it had no class-constructor row.
 pub(crate) fn is_callable(v: AnyValue) -> bool {
-    crate::promise_capability::is_callable(v)
-        || (crate::proxy::is_proxy(v) && unsafe { crate::proxy_callable::proxy_is_callable(v) })
+    unsafe { crate::construct::is_callable(v) }
 }
 
 fn type_error<T>(msg: &core::ffi::CStr) -> Result<T, ()> {
