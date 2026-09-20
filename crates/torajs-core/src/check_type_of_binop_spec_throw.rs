@@ -43,11 +43,21 @@ pub(crate) fn spec_mandated_throw(op: BinOp, l: &Type, r: &Type) -> Option<Strin
     const SYM_STR: &str = "Cannot convert a symbol to a string";
     const MIXED: &str = "Cannot mix BigInt and other types, use explicit conversions";
 
+    let is_str = |t: &Type| matches!(t, Type::String);
+    let is_sym = |t: &Type| matches!(t, Type::Symbol);
+
+    // §7.2.13 IsLessThan hands a Symbol back from ToPrimitive and then
+    // ToNumeric refuses it. This is the ONLY way a comparison throws:
+    // the numeric types themselves compare across (step 5 puts a
+    // BigInt against a Number by mathematical value), which is why
+    // comparison is otherwise absent from this file.
+    if matches!(op, BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) && (is_sym(l) || is_sym(r)) {
+        return Some(SYM_NUM.into());
+    }
+
     if !coerces_numerically(op) {
         return None;
     }
-    let is_str = |t: &Type| matches!(t, Type::String);
-    let is_sym = |t: &Type| matches!(t, Type::Symbol);
 
     // §7.1.1 ToPrimitive hands a Symbol straight back, and both
     // ToNumeric and ToString then refuse it. `+` reaches ToString only

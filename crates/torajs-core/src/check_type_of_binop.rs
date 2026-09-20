@@ -390,9 +390,19 @@ fn check_compare(l: Type, r: Type) -> Result<Type, String> {
     // and reading that refusal onto comparison made `1n < 2` a
     // compile error while `(1n as any) < 2` answered true off the
     // same kernel.
-    if matches!(l, Type::BigInt) && matches!(r, Type::Number | Type::String)
-        || matches!(r, Type::BigInt) && matches!(l, Type::Number | Type::String)
-    {
+    // …and Boolean / Null / Undefined reach step 4 the same way a
+    // Number does (ToNumeric answers 1/0, 0 and NaN), so they compare
+    // against a BigInt too. Listing only Number and String here made
+    // `1n < true` a compile error while `(1n as any) < true` answered
+    // false off the same kernel — the same half-measure the rest of
+    // this family had.
+    let cross = |t: &Type| {
+        matches!(
+            t,
+            Type::Number | Type::String | Type::Boolean | Type::Null | Type::Undefined
+        )
+    };
+    if matches!(l, Type::BigInt) && cross(&r) || matches!(r, Type::BigInt) && cross(&l) {
         return Ok(Type::Boolean);
     }
     if rides_any_lane(&l) || rides_any_lane(&r) {

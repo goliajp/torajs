@@ -8253,6 +8253,10 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       **实施中推翻了 §5 原先的建议**：throw-IIFE minter 看着最省，但它跑在
       checker **之前**，而档 B 的判据按定义依赖类型 —— 它只覆盖字面量对，
       覆盖不到 `let n: bigint = 1n; n & 1`，而后者才是这一族的主体。
+      **比较运算是同一族里的两类**：§7.2.13 IsLessThan 在数值类型之间是
+      **有答案**的（步骤 5 把 BigInt 与 Number 按数学值比），所以 `1n < true`
+      本就该跑通 —— 那是 checker 的缺口；而 Symbol 在任一侧都抛，那才是档 B。
+      一族里两条相反的结论，正是 §3.3「逐条问」那条纪律的用处。
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
 
