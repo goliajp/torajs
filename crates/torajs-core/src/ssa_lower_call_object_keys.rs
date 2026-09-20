@@ -100,7 +100,23 @@ pub(crate) fn try_lower(
     // member-write receiver). Snapshot the pre-box operand: the
     // Closure box below is rc-neutral, and the release wants the
     // receiver's own type.
+    // §28.1.11 step 1 — `Reflect.ownKeys` is NOT a ToObject surface: it
+    // throws a TypeError on a non-Object target instead of wrapping it.
+    // It shares this emit with `Object.keys` only because own-string-
+    // keys and all-own-keys coincided back when tr had no symbol keys
+    // -- the comment at the alias above still says exactly that, and it
+    // stopped being true once `getOwnPropertySymbols` and
+    // `anyv_own_keys_all` landed. Sharing the emit is right; what was
+    // missing is the IsObject gate, so a primitive target refused at
+    // lower time where the spec wants a catchable TypeError. The gate
+    // is the one every other strict-family surface already uses, and
+    // it runs after the argument is evaluated (§13.3.6.1).
     let arg_raw = arg_op.clone();
+    if ns == "Reflect"
+        && let Some(dead) = reflect_is_object_gate(ctx, args[0], &arg_op, &arg_raw)
+    {
+        return Some(dead);
+    }
     // Cluster #4 follow-up (rotation 235) — a typed Closure receiver
     // boxes to any at this boundary and rides the runtime own-keys
     // walk: `anyv_own_keys`' TAG_CLOSURE_CELL arm answers the
@@ -248,6 +264,44 @@ pub(crate) fn try_lower(
     );
     ctx.release_owned_temp(args[0], &arg_raw);
     Some(Operand::Value(chosen))
+}
+
+/// §28.1.11 step 1 — `Reflect.ownKeys` is NOT a ToObject surface: a
+/// non-Object target throws a TypeError instead of being wrapped. That
+/// is the whole difference between the Reflect family and the Object.*
+/// one, and it is the half of the alias that never came across:
+/// `Object.keys(1)` is `[]`, `Reflect.ownKeys(1)` throws.
+///
+/// Returns `Some(dead value)` when the gate emitted an UNCONDITIONAL
+/// throw, and the caller must then return it rather than fall through.
+/// Nothing after such a throw is reachable at runtime, but it all still
+/// has to be reachable at COMPILE time, and the arms in `try_lower`
+/// cannot represent a non-object receiver -- their fallthrough is a
+/// `panic!`, which would refuse the program instead of letting it
+/// throw. Shaping a dead value like the surface's return is what the
+/// spec-throw band does at a call position.
+fn reflect_is_object_gate(
+    ctx: &mut LowerCtx<'_>,
+    recv_eid: ExprId,
+    arg_op: &Operand,
+    arg_raw: &Operand,
+) -> Option<Operand> {
+    let recv_ty = ctx.operand_ty(arg_op);
+    let is_object_shape = matches!(recv_ty, Type::Any)
+        || crate::ssa_lower_object_define::is_typed_object(recv_ty.clone());
+    crate::ssa_lower_object_define::emit_receiver_typecheck(ctx, recv_eid, arg_op, recv_ty);
+    if is_object_shape {
+        return None;
+    }
+    let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Str);
+    let dead = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_alloc, vec![Operand::ConstI64(0)]),
+        Type::Arr(arr_id),
+        None,
+    );
+    ctx.release_owned_temp(recv_eid, arg_raw);
+    Some(Operand::Value(dead))
 }
 
 /// W-N-c — `Object.getOwnPropertySymbols`: an Any receiver routes
