@@ -89,6 +89,14 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
+    // `xs.{splice,toSpliced}(start, dc?)` — both slots are
+    // ToIntegerOrInfinity (§23.1.3.31 steps 3/7, §23.1.3.34). Must
+    // precede the items arm: that one owns element-typed `args[2..]`.
+    if let Some(r) =
+        crate::check_type_of_call_array_splice_bound::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     // RFC 20260720-splice-insert knife 2 — `xs.splice(start, dc,
     // ...items)` 3+-arg insert arm — see
     // [`crate::check_type_of_call_array_splice_insert`]. Items match
