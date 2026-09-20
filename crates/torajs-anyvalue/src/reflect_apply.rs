@@ -30,7 +30,32 @@ pub unsafe extern "C" fn __torajs_reflect_apply(
     this_arg: AnyValue,
     list: AnyValue,
 ) -> AnyValue {
-    // §28.1.1 step 1 — IsCallable(target).
+    // §28.1.1 step 1 — IsCallable(target). A Proxy is callable when
+    // its target is (§10.5.14 step 7) and runs its `apply` trap, so it
+    // never reaches the closure classifier below — which knows closure
+    // cells only, and answered "requires the first argument be a
+    // function" about a proxy over an ordinary function.
+    if is_cell(f) && crate::proxy::is_proxy(f) {
+        if !unsafe { crate::construct::is_callable(f) } {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Reflect.apply requires the first argument be a function".as_ptr(),
+                );
+            }
+            return VALUE_UNDEFINED;
+        }
+        // Step 2 is CreateListFromArrayLike with no nullish amnesty
+        // here either.
+        if is_undefined(list) || is_null(list) {
+            unsafe {
+                __torajs_throw_type_error(
+                    c"Reflect.apply requires the third argument be an object".as_ptr(),
+                );
+            }
+            return VALUE_UNDEFINED;
+        }
+        return unsafe { crate::proxy_callable::apply_with_list(f, this_arg, list) };
+    }
     let target = if is_cell(f) {
         unsafe { call_target(as_void_ptr(f)) }
     } else {
