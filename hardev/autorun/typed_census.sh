@@ -58,6 +58,25 @@ TR="${HARDEV_TC_TR:-$TARGET_DIR/iter/tr}"
 
 # 语料:conformance 的 .ts / .cts,按 stride 取样。它们是本仓自己的
 # fixture,覆盖面跟着语言面长 —— 比 bench 的 46 格宽得多。
+#
+# ## 取样必须按路径定,不能按序号定
+#
+# 第一版写的是 `i % STRIDE == 0`(按排序后的**序号**)。它每一轮都在
+# 说谎,而且说得很像数据:新增一个 fixture 会把它后面每一个落点整体
+# 平移,于是下一轮量的是**另一批文件**。rotation 676 实测 —— 同一个
+# tr 二进制,加了 6 条 fixture 之后读数 0.7317 → 0.7247;把那 6 条挪走
+# 再跑,读数**逐字回到** typed=81496 any=29888 scored=111384
+# ratio=0.7317。也就是说 −0.0070 全部是语料成分,per-expression 覆盖
+# 一点没动。而 §7 要这个数回答的正是「typed 面在扩大还是缩小」——
+# 一个每轮都会因为加 fixture 而漂的数,回答不了它。
+#
+# 改成按**路径的 crc32** 定:加一条 fixture 只以 1/STRIDE 的概率**新增**
+# 一个样本,既有的 240 个落点一个不动,相邻两轮因此可比。`zlib.crc32`
+# 跨 Python 版本与平台稳定(`hash()` 不是,它带每进程随机种子)。
+# 代价是样本数不再恰好是 len/stride,而是在它附近 —— 判据 1 的下限
+# 本来就是为这种浮动留的。
+# 同族教训见 rules/torajs-file-size-debt.md 的 release_batch stride 一节:
+# **掉出样本的绿,不是绿**。
 # `mapfile` 是 bash 4+;macOS 自带 3.2,dev 机上它不存在 —— 用可移植
 # 的 while-read。这条被自测抓到过:mapfile 缺失时脚本在取样前就死,
 # 退出码恰好也是 1,于是四条"能红"的用例全部因为错误的原因而通过。
@@ -65,11 +84,13 @@ ALL=()
 while IFS= read -r _line; do ALL+=("$_line"); done \
   < <(ls conformance/cases/*.ts conformance/cases/*.cts 2>/dev/null | sort)
 SAMPLE=()
-i=0
-for f in ${ALL[@]+"${ALL[@]}"}; do
-  if [ $((i % STRIDE)) -eq 0 ]; then SAMPLE+=("$f"); fi
-  i=$((i + 1))
-done
+while IFS= read -r _line; do SAMPLE+=("$_line"); done < <(
+  printf '%s\n' ${ALL[@]+"${ALL[@]}"} \
+    | python3 -c 'import sys,zlib
+stride = int(sys.argv[1])
+for p in sys.stdin.read().splitlines():
+    if p and zlib.crc32(p.encode()) % stride == 0:
+        print(p)' "$STRIDE")
 
 if [ "$LIST_ONLY" -eq 1 ]; then
   printf '%s\n' ${SAMPLE[@]+"${SAMPLE[@]}"}
@@ -125,6 +146,7 @@ bash "$REPO/hardev/autorun/write_stamp.sh" "$STAMP" \
   typed-census ok \
   "samples=int:$n_sample" "hits=int:$hits" \
   "typed=int:$typed" "any=int:$any" "refused=int:$refused" \
-  "scored=int:$scored" "typedRatio=$ratio" "stride=int:$STRIDE" || exit 1
+  "scored=int:$scored" "typedRatio=$ratio" "stride=int:$STRIDE" \
+  "corpusFiles=int:${#ALL[@]}" || exit 1
 
 exit 0
