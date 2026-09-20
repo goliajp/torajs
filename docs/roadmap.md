@@ -8141,7 +8141,7 @@ re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
 |---|---|---|
-| **S0** | **类型系统对 ES 运行期语义的责任边界（语言规范第一章）** | **366 @ `b9d86df9d`（44.9% of core 815）** |
+| **S0** | **类型系统对 ES 运行期语义的责任边界（语言规范第一章）** | **307 @ `a10d94e62`（40.6% of core 756）— 起点 366 @ `b9d86df9d`** |
 | S1 | `new` on a function + constructor `this` | 1900 + cascade |
 | S2 | generator / class-member syntax | 6700 |
 | S3 | name resolution at ssa-lower | 830 |
