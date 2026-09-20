@@ -209,7 +209,7 @@ pub(crate) fn try_route(
     {
         return Some(r);
     }
-    route_tail(checker, ast, callee, args)
+    route_tail(checker, ast, eid, callee, args)
 }
 
 /// Tail of the segment, split off when the `.finally` arm pushed
@@ -221,9 +221,21 @@ pub(crate) fn try_route(
 fn route_tail(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
+    // Band B for the §22.1.3.{7,8,23} needle slot — a statically
+    // known RegExp or Symbol settles the throw here, so the call
+    // stops being a refusal and becomes an executable that raises.
+    // It sits early because it pre-empts nothing: a needle of any
+    // other type answers `None` on its first look and every lane
+    // below still owns the call.
+    if let Some(r) =
+        crate::check_type_of_call_string_isregexp_slot::try_match(checker, ast, eid, callee, args)
+    {
+        return Some(r);
+    }
     // `arr.flat(N)` literal-depth early-route arm — see
     // [`crate::check_type_of_call_arr_flat`] (chunk 212 —
     // sixth sub-batch). Peels `Array<>` layers from the
