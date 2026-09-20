@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-19T19:14:17.248Z",
+  "generatedAt": "2026-09-20T03:03:25.335Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-19T19:03:27Z",
-    "headSha": "35eabf65b",
-    "elapsedSec": 534.46,
+    "ranAt": "2026-09-20T02:50:30Z",
+    "headSha": "d12609951",
+    "elapsedSec": 546.19,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34241,
+    "pass": 34243,
     "passNoOracle": 1711,
     "passNegative": 4568,
-    "passTotal": 40520,
-    "bug": 8590,
-    "incompatible": 4064,
+    "passTotal": 40522,
+    "bug": 8589,
+    "incompatible": 4063,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49110,
-    "passRateInScope": 76.2,
+    "trAccepted": 49111,
+    "passRateInScope": 76.21,
     "passRateTrAccepted": 82.51
   },
   "torajs": {
-    "commit": "cd89fa9e0",
-    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 673 @35eabf65b",
+    "commit": "2930ebf06",
+    "commitSubject": "docs(roadmap): P-SURF accounting for rotation 674 @d12609951",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "cd89fa9e0",
-      "subject": "docs(roadmap): P-SURF accounting for rotation 673 @35eabf65b"
+      "hash": "2930ebf06",
+      "subject": "docs(roadmap): P-SURF accounting for rotation 674 @d12609951"
     },
     {
-      "hash": "b5f07d7a8",
-      "subject": "chore(hardev): rotation 673 close stamps — sweep @35eabf65b (passTotal 40520, +10, verdict diff 10 forward / 0 back), determinism 46/46 N=12, gmalloc 3880/3884 clean 0 offenders (4 in the watchdog bucket)"
+      "hash": "2549f4719",
+      "subject": "chore(hardev): rotation 674 close stamps — sweep @d12609951 (passTotal 40522, +2, verdict diff 2 forward / 0 back), determinism 46/46 N=12, gmalloc 3888/3892 clean 0 offenders (4 in the watchdog bucket)"
     },
     {
-      "hash": "35eabf65b",
-      "subject": "feat: a class's well-known symbol methods sit on its prototype"
+      "hash": "d12609951",
+      "subject": "test: computed-member edge shapes"
     },
     {
-      "hash": "531a689b9",
-      "subject": "fix: optional chains short-circuit on an undefined heap slot"
+      "hash": "ba07d9cb6",
+      "subject": "test: pin the computed-key evaluation order §15.7.14"
     },
     {
-      "hash": "131a42404",
-      "subject": "feat: this.m() and x?.m() take the re-parent guard too"
+      "hash": "6b62e8224",
+      "subject": "fix: a computed key reading its own class name stops warning twice"
     },
     {
-      "hash": "d0e078189",
-      "subject": "fix: [[HasProperty]] on a class instance walks its class prototype"
+      "hash": "c916a069b",
+      "subject": "test: a generic class keeps its computed static field across twins"
     },
     {
-      "hash": "948cea1c7",
-      "subject": "feat: a re-parented instance's setter write follows its user chain"
+      "hash": "81413fe6a",
+      "subject": "test: pin the duplicate-class-name surfaces that were already right"
     },
     {
-      "hash": "7259af339",
-      "subject": "feat: typed class dispatch yields to a re-parented instance's chain"
+      "hash": "e3befa6e4",
+      "subject": "fix: a class constructor answers its own declaration text"
     },
     {
-      "hash": "a966a0064",
-      "subject": "refactor: move the call dispatcher's fourth stage to its own file"
+      "hash": "18b157cb7",
+      "subject": "refactor: the last two computed-member probes ask the owner too"
     },
     {
-      "hash": "21e32ad2a",
-      "subject": "fix: console.log names a re-parented struct by its user chain"
+      "hash": "2cce00b2c",
+      "subject": "fix: a class's computed static stores land on its own class object"
     },
     {
-      "hash": "d5a369d96",
-      "subject": "feat: Reflect.construct takes the prototype newTarget names"
+      "hash": "20ba07c99",
+      "subject": "fix: the capturing lane keeps a class whose name another class shares"
     },
     {
-      "hash": "7a007fb4a",
-      "subject": "feat: instanceof / in / for-in follow a re-parented struct's chain"
+      "hash": "9e1d85b41",
+      "subject": "fix: computed class members answer by owner, not by class name"
     }
   ],
-  "headSha": "cd89fa9e0",
+  "headSha": "2930ebf06",
   "autorun": {
-    "total": 976,
+    "total": 977,
     "baselineTarget": 10,
-    "bySelf": 971,
+    "bySelf": 972,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789835108-0b27",
-      "at": "2026-09-19T16:25:08Z",
-      "ts": 1789835108,
+      "rotationId": "r-1789845331-19c7",
+      "at": "2026-09-19T19:15:31Z",
+      "ts": 1789845331,
       "trigger": "self",
-      "prevHead": "dbdfde094",
-      "handoffSha": "sha256:55a9c1356e57f4cc9ee0680f6590e3af62bd31a44e433a47c6c0b2513d0efd6d",
-      "handoffAgeSec": 16,
-      "conformanceBefore": "4352/0/4",
+      "prevHead": "f572cada8",
+      "handoffSha": "sha256:696d1befda8b65cab9a394c93221fe2caca319e927b1e0275e8ddeb69bbf93c9",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "4362/0/4",
       "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789845331-19c7",
+        "at": "2026-09-19T19:15:31Z",
+        "ts": 1789845331,
+        "trigger": "self",
+        "prevHead": "f572cada8",
+        "handoffSha": "sha256:696d1befda8b65cab9a394c93221fe2caca319e927b1e0275e8ddeb69bbf93c9",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "4362/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789835108-0b27",
         "at": "2026-09-19T16:25:08Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 33,
         "conformanceBefore": "4283/0/4",
         "commitsInSession": 16
-      },
-      {
-        "rotationId": "r-1789638418-2981",
-        "at": "2026-09-17T09:46:58Z",
-        "ts": 1789638418,
-        "trigger": "self",
-        "prevHead": "158c45f6b",
-        "handoffSha": "sha256:a92ae23e5769b7db5429d903ecf80cfc17754128ea768f1eca91b0c4ed7b308b",
-        "handoffAgeSec": 8,
-        "conformanceBefore": "4271/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
