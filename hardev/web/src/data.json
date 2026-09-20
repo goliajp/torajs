@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T16:34:47.967Z",
+  "generatedAt": "2026-09-20T17:13:13.066Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T16:23:11Z",
-    "headSha": "182c169da",
-    "elapsedSec": 546.69,
+    "ranAt": "2026-09-20T17:01:54Z",
+    "headSha": "f743c111e",
+    "elapsedSec": 534.28,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34365,
+    "pass": 34369,
     "passNoOracle": 1718,
     "passNegative": 4568,
-    "passTotal": 40651,
+    "passTotal": 40655,
     "bug": 8585,
-    "incompatible": 3938,
+    "incompatible": 3934,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49236,
-    "passRateInScope": 76.45,
+    "trAccepted": 49240,
+    "passRateInScope": 76.46,
     "passRateTrAccepted": 82.56
   },
   "torajs": {
-    "commit": "1d83cb7d9",
-    "commitSubject": "chore(hardev): file-size stamp on the rotation 679 tree",
+    "commit": "d8490684f",
+    "commitSubject": "chore(hardev): file-size stamp on the rotation 679 final tree",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,6 +740,26 @@
   },
   "commits": [
     {
+      "hash": "d8490684f",
+      "subject": "chore(hardev): file-size stamp on the rotation 679 final tree"
+    },
+    {
+      "hash": "6b8cab1d8",
+      "subject": "chore(hardev): rotation 679 final close stamps"
+    },
+    {
+      "hash": "f743c111e",
+      "subject": "fix: Object.assign wraps a primitive target, so a typed one stops being refused"
+    },
+    {
+      "hash": "b6781a9e5",
+      "subject": "refactor(check): Object.assign moves next door so try_match is about one surface"
+    },
+    {
+      "hash": "79bfafcf5",
+      "subject": "chore(hardev): dashboard snapshot at rotation 679 close"
+    },
+    {
       "hash": "1d83cb7d9",
       "subject": "chore(hardev): file-size stamp on the rotation 679 tree"
     },
@@ -766,29 +786,9 @@
     {
       "hash": "4039eec6d",
       "subject": "fix(check): splice's two bounds are a ToIntegerOrInfinity slot, so the gate comes off"
-    },
-    {
-      "hash": "1f1673a44",
-      "subject": "fix(ssa-lower): Array<Any>.fill reads its bounds on the road every other lane takes"
-    },
-    {
-      "hash": "6ec8f07a8",
-      "subject": "chore(hardev): file-size stamp on the rotation 678 tree"
-    },
-    {
-      "hash": "47aabd11b",
-      "subject": "chore(hardev): rotation 678 close stamps"
-    },
-    {
-      "hash": "8e9ae78f8",
-      "subject": "fix(ssa-lower): §7.1.6 ToInt32 is a road, and the int32 slots take it"
-    },
-    {
-      "hash": "326c22eaa",
-      "subject": "fix(check): a name in the Math widen list must name one of the sinks"
     }
   ],
-  "headSha": "1d83cb7d9",
+  "headSha": "d8490684f",
   "autorun": {
     "total": 982,
     "baselineTarget": 10,
