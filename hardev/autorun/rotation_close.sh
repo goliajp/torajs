@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# hardev autorun pillar — run the four mechanical checks a rotation closes on.
+# hardev autorun pillar — run the mechanical checks a rotation closes on.
 #
 # Steps 0b / 0c / 0c-2 of the close sequence in
 # `rules/torajs-autorun-pipeline.md`, in the one order that is correct,
@@ -21,13 +21,18 @@
 # Run FROM the dev machine:
 #   scp hardev/autorun/rotation_close.sh mini:/tmp/
 #   ssh mini 'zsh -lc "bash /tmp/rotation_close.sh <dev-HEAD>"'
-#   scp mini:'~/workspace/goliajp/torajs/hardev/{determinism,gmalloc}-latest.json' hardev/
+#   scp mini:'~/workspace/goliajp/torajs/hardev/{determinism,gmalloc,typed-census}-latest.json' hardev/
 #   scp mini:/tmp/t262-<HEAD>.json hardev/test262-latest.json
 #
 # The stamps must then be committed: TRIG-6 reads them out of the repo,
 # not off mini.
 #
-# exit: 0 all four green · 1 at least one red (the summary says which)
+# exit: 0 all green · 1 at least one red (the summary says which)
+#
+# 0c-3 (typed coverage) joined the close sequence in the rules when the
+# meter landed, and this script did not follow. A step that exists only
+# in prose is a step that gets skipped — which is the whole reason the
+# other three live here.
 
 set -u
 [ "$#" -ge 1 ] || { echo "usage: rotation_close.sh <head-sha> [repo-dir]" >&2; exit 2; }
@@ -91,7 +96,13 @@ gm_rc=$?
 tail -2 /tmp/rc-gm.log
 [ "$gm_rc" -eq 0 ] || rc=1
 
+note "0c-3 — typed coverage"
+HARDEV_HEAD_SHA="$H" bash hardev/autorun/typed_census.sh > /tmp/rc-tc.log 2>&1
+tc_rc=$?
+tail -2 /tmp/rc-tc.log
+[ "$tc_rc" -eq 0 ] || rc=1
+
 note "summary"
-printf 'sweep=%s determinism=%s gmalloc=%s  (stamp json: /tmp/t262-%s.json, hardev/{determinism,gmalloc}-latest.json)\n' \
-  "$sweep_rc" "$bd_rc" "$gm_rc" "$H"
+printf 'sweep=%s determinism=%s gmalloc=%s typed_census=%s  (stamp json: /tmp/t262-%s.json, hardev/{determinism,gmalloc,typed-census}-latest.json)\n' \
+  "$sweep_rc" "$bd_rc" "$gm_rc" "$tc_rc" "$H"
 exit "$rc"

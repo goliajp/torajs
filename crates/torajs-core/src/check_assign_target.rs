@@ -269,7 +269,21 @@ fn try_class_dynamic_write(
         let is_getter = ast
             .accessor_getters
             .contains_key(&(cname.clone(), PropKey::from(field)));
-        if !(is_method || is_getter) {
+        // §15.7 puts every PrivateName a class body declares into the
+        // scope of that whole body, nested classes included. So a
+        // reference that RESOLVES is legal code, and whether `this`
+        // carries the brand is §7.3.32's question at run time —
+        // PrivateFieldSet step 4 throws a catchable TypeError. Only an
+        // unresolvable name is §13.1's early error.
+        //
+        // The read path has consulted `declared_private_names` for a
+        // while (`check_type_of_member_terminal_miss`, `check/type_of`);
+        // the write path never did, so `this.#x = 1` inside a class
+        // nested in the one that declares `#x` was refused outright.
+        // Not a difference of posture — one path just never took the
+        // hop the other takes.
+        let declared = checker.declared_privates.contains(field);
+        if !(is_method || is_getter || declared) {
             let raw = field
                 .strip_prefix("__priv_")
                 .and_then(|r| r.split_once("__").map(|(_, f)| f))

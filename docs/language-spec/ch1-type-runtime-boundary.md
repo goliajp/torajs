@@ -361,6 +361,18 @@ checker 记侧表 `Ast::spec_throws` → 经 monomorphization 交棒 → lowerin
 `ast_throw_info` 登记 may-throw,否则调用方的检查被剪掉、throw 跨函数
 边界静默消失 —— 前两条先例各自付过同一笔学费。
 
+**两条落地时才看得见的约束**:
+
+1. **那个不可达的值仍然需要正确的形状。** 它永远不被读,但它要被
+   materialize,而后端不肯把指针放进浮点寄存器:
+   `function f(x: bigint): number { return +x }` 的返回槽是 f64,
+   而 TDZ 读用的空指针不是 —— 程序当场
+   `FPR materialization can't hold ConstPtrNull`。形状要取自 checker
+   为该表达式记下的类型。
+2. **该表达式的类型不该一律写成 `Any`。** 一元 `+` 只要产出就产出
+   Number,所以它记 Number,外层表达式因此留在 typed 车道上。写 Any
+   是更省事的局部答案,也正是 §7 要防的那次交换。
+
 ### 5.1 错误类别不可能从消息文本推出
 
 档 B 要 emit「那次 throw」,就必须知道抛**哪一类**。366 条消息里:
