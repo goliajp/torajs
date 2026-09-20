@@ -63,6 +63,14 @@ typed 覆盖率量具(`hardev/autorun/typed_census.sh`)是它唯一的机械证�
 2. **同一语义的 `any` 拼写今天已经跑得对** → B。这是最便宜的判据,一行
    探针:把接收者或操作数写成 `any`,若 tr 与 bun 逐字相同,说明运行期
    语义早已完整存在,**差别只在 checker 拦不拦**。
+
+   **它有一个机械的全量版,而且必须用它**:手写的 `any` 拼写只是被拒
+   程序的**近似**,近似错了整档就错,而 366 条要问 366 次。
+   `TORAJS_S0_ADMIT=1`(`crates/torajs-core/src/s0_admit.rs`)让 checker
+   的 Error 降级成 warning,于是**每条被拒的 test262 case 自己就是探针**:
+   带闸跑一次全量 sweep,`hardev/autorun/s0_docket.py` 直接读回档位 ——
+   闸开即通过的是 B,仍被拒的是 S0.4 的工作面,跑起来但答案不对的是
+   L1。用的是 test262 自己的语料,不是近似。
 3. **TypeScript 自己怎么判**(`node web/node_modules/typescript/bin/tsc
    --noEmit --strict`)→ 区分 A 与 C。tsc 无条件拒的(如 `m.a` 的
    TS2339、`const` 重赋值的 TS2588)归 A;只在 `noImplicitAny` 下报的
@@ -78,28 +86,76 @@ typed 覆盖率量具(`hardev/autorun/typed_census.sh`)是它唯一的机械证�
 
 `hardev/autorun/refusal_families.py` 按**消息族**聚类并给出默认档位。
 按签名聚是 366 条 / 230 个签名(top-20 只覆盖 28%),那个粒度上无法判;
-按族聚只有十个,覆盖 95%。
+按族聚只有十五个,**覆盖 100%**。
 
 | 族 | 条数 | 默认档 | 规范依据 |
 |---|---:|---|---|
 | F3 内建实参/接收者类型 | 175 | **B** | 内建的参数处理几乎总是 ToXxx / TypeError |
 | F5 赋值/槽类型不匹配 | 51 | A | JS 无变量类型,规范无对应 |
+| F1 运算符操作数类型 | 35 | **B** | §13.15.3 / §6.1.6 / §13.6 / §7.1.4 |
 | F4 成员/字段不存在 | 31 | **分两路** | JS 读缺失成员答 undefined;TS 对 dot 无条件拒 |
-| F1 运算符操作数类型 | 29 | **B** | §13.15.3 / §6.1.6 |
 | F8 未知标识符 | 23 | **B** | §9.1.1.1 运行期 ReferenceError |
 | F2 调用非函数 | 15 | **B** | §7.3.14 IsCallable |
 | F10 泛型/类型参数 | 8 | A | TS 类型系统自身 |
 | F6 const 重赋值 | 7 | A | 与 tsc 的 TS2588 对齐 |
 | F7 重复声明 | 7 | A | 早错,求值前拒 |
+| F14 实现缺口 | 4 | **gap** | 不是一档 —— 见下 |
 | F9 所有权/别名 | 3 | A(**待审**) | 既不是规范的也不是 TS 的 —— 见下 |
-| F0 未归族 | 17 | ? | 需要新族或逐条判 |
+| F11 迭代源/索引接收者 | 2 | **B** | §13.7.5.6 → §7.4.2 GetIterator |
+| F12 switch case 类型 | 2 | **B** | §14.12.4 IsStrictlyEqual 是全函数 |
+| F13 ternary 分支合一 | 2 | **C** | §13.14 对分支类型零要求 |
+| F15 私有字段未声明 | 1 | **B** | §15.7 词法可解析 → §7.3.32 运行期 brand check |
 
-**合计:B 242 条(66%)· A 76 条(20%)· 分两路 31 条(8%)。**
+**合计:B 253 条(69%)· A 76 条(20%)· 分两路 31 条(8%)·
+C 2 条 · gap 4 条。**
+
+**F1 那 +6 条是纯正则漏网**:`+` / `**` / 一元 `+` 与 bitwise 是同一句
+ToNumeric,只是消息没写 `arithmetic` / `bitwise` 这些词。其中一条写的是
+`` `+` on bigint is a TypeError per spec `` —— **一条把自己描述成档 B 的
+拒收**。
+
+**F11 / F12 / F13 / F15 四族的发射点,注释里的道理本来就是对的,只是
+停在了半路**:F12 的注释写着「§14.12.4 用 IsStrictlyEqual,而它是全
+函数」,然后只为 `any` 开了口,没推到非 any 的跨类型对;F13 的注释已经
+为「两个无共同祖先的用户类」定了 join-to-Any,只是没把
+Struct / ClassRef / Number 的混合也交给它;F15 的读路径已经查过
+`declared_private_names`,写路径漏了那一跳。**四处都不是立场分歧,是
+没走完。**
+
+**F14 故意不是三分法的一档。** 它标的是「这一族必须逐条问,不能批量
+判」—— 理由见 §3.1:同一族里既有 checker 白名单漏项(运行期是对的,
+档 B),也有运行期本身的分歧(档 L1,不在 S0 范围)。给它一个档位就是
+在假装那条边界不存在。
 
 **族上的档位是起点不是答案。** S0.1 要求逐条落档,复核时可以推翻族的
 默认值。F9 是最该被推翻的候选:所有权/别名既不在规范里、也不在 TS 里,
 所以该问的不是「它归哪一档」,而是**这一族是否该存在** ——
 design-principles 禁止把 Rust 习语带进语言面。
+
+### 3.0 判据 3 在 F4 上的实测 —— `split` 这一档在这批语料上无对象
+
+F4 的默认档是**分两路**,依据是判据 3:TS 自己把 `m.a`(无条件 TS2339)
+与 `m["a"]`(TS7052,只在 `noImplicitAny` 下)分成两类。判据没错,**但
+这批语料里没有第二路**:31 条逐条读 test262 源码找触发行,**31 条全是
+dot 拼写,bracket 零条**(其中 2 条所在文件混有 bracket 写法,而失败的
+键仍是 dot)。
+
+逐条问 tsc 之后,31 条实际分成:
+
+- **20 条落档 A** —— tsc 同样无条件 TS2339,与 §4 差异表那一行一致。
+- **11 条出族** —— tsc **不报错**,所以它们不是档位问题,是 checker 的
+  缺口(`Symbol` 缺 `valueOf`、`RegExp` 缺 `constructor`、生成器对象被
+  建成裸 Struct 所以缺 `return`、`X.prototype.m.call(recv, …)` 的 thisArg
+  回代把检查打到错的接收者上、eval 字符串被当程序文本检查)。与 §3.1 的
+  F3-b 同性质:**先修 checker,不占档位**。
+
+**切分轴也不是 dot 与 bracket。** 发出这一族诊断的是四处、三条路:读
+路径(`check_type_of_member_terminal_miss.rs`)、写路径
+(`check_assign_target.rs`)、**可选链**(`check/type_of.rs` 的
+`member_type`)。而可选链那一路是**第二套 Struct 成员查找**,不共享读
+路径积累起来的宽松姿态 —— 一条 getter 在读路径认得(存成
+`__getter_a`)、在可选链路径不认。这是
+**同一个问题有两份实现**,而它们已经漂开了 —— 归 L3。
 
 ### 3.1 判据 2 在 F3 上的实测 —— 默认档位被部分推翻
 
@@ -158,7 +214,56 @@ AssemblyScript、ArkTS、Static TypeScript 都有一份成文的「我与 TypeSc
 **本章不改变的**:语法面是 TypeScript 的;语义面以 ECMA-262 为准
 (`bun` 一致是佐证,不是判据;两者冲突时规范胜)。
 
-## 5. 验收
+## 5. 档 B 怎么落地
+
+机制**已经有三代先例**,不需要发明:
+
+1. **TDZ 读** —— AST pass 打标(`ast/tdz_reads.rs`),lowering 无条件
+   emit(`ssa_lower_ident.rs` 的 `emit_tdz_raise`)。checker 只是知情:
+   把它 typed 成 `Any` 并让它别落进 undeclared 集。
+2. **未声明读/写** —— checker 侧打标(`undeclared_reads`),经
+   monomorphization 交棒进 AST,lowering emit ReferenceError。
+   **这是「拒收 → typed throw」今天唯一走通的整条线**,而
+   `check_entry.rs` 里那段把它降级成 warning 的代码,正是本章闸的前身。
+3. **AST 期把表达式整个换成 throw-IIFE** —— `ast/readonly_globals.rs`
+   的 minter,已有三个调用方(`NaN = 1`、`Map()` 这类不可调用内建、
+   嵌套函数写顶层 `const`)。
+
+**第三条是最省的通道**:它绕开 checker(不必碰 `Diagnostic`),也绕开
+前两条各自付过的死值代价(替身指针、接收者链上的 `read_raises` 走查);
+求值顺序也已经有先例处理(逗号运算符 / `Expr::Sequence` 前置实参,
+§13.3.6.2)。它缺的只有一样:**错误类名今天写死是 `TypeError`**,
+RangeError / SyntaxError 走不了。
+
+### 5.1 错误类别不可能从消息文本推出
+
+档 B 要 emit「那次 throw」,就必须知道抛**哪一类**。366 条消息里:
+
+| 信号 | 命中 |
+|---|---:|
+| 字面出现 `TypeError` | **1** |
+| `RangeError` / `SyntaxError` / `ReferenceError` | **0** |
+| `per spec` | 7 |
+
+而 §3.1 已经记下一个反例:`BigInt({})` 今天抛 TypeError,规范
+(§21.2.1.1 StringToBigInt)要的是 **SyntaxError** —— 消息文本读不出这个
+差别,因为它描述的是「checker 不认这个类型」,不是「规范说抛什么」。
+更远的一头是:相当一部分消息的正确答案是**不抛**(F13 的 ternary、
+F12 的 switch case、F14 的实现缺口)。
+
+**所以「看到 `type error:` 就 emit 一次 TypeError」是一条会造假的机械
+规则**,不能用。类别只有两个合法来源:
+
+1. **在 push 点写死** —— 写下那条诊断的人知道它是 §13.15.3 的 TypeError。
+   给诊断加一个结构化的 `(ErrorClass, 条款号)` 字段,由每个 push 点填。
+   落 B 档的条数虽多,push 点很少(F1 全族只有三行)。
+2. **带闸 sweep 反推** —— 闸开后 any 车道实际抛出的类就是答案。这是
+   判据 2 的机械版,用的是 test262 自己的语料。
+
+两条可以互验:push 点填的类别与闸开后实际抛的类别不一致时,**不一致
+本身就是一条缺陷**(要么诊断写错了依据,要么运行期抛错了类)。
+
+## 6. 验收
 
 - **S0.1** 366 条逐条有档位,族默认值被复核过。
 - **S0.4** 实施后 **typed 覆盖率必须上升**(基线 0.7317 @ `f7b74aa1f`)。
