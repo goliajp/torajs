@@ -120,6 +120,10 @@ bun 1.4.2,全部用 `any` 拼写绕开 checker):
 **所以 F3 要再切一刀**:
 
 - **F3-a 运行期语义已正确** → 档 B,typed 路径直接 emit 即可(S0.4)。
+- **F3-b 运行期语义本身还不对** → **不在 S0 的范围内**。这些是底层
+  机制缺口(错误的类型、不该抛而抛),要先把运行期修对,然后才谈 typed
+  直出。它们属于 P-SURF 的 L1 底层机制,不属于本章。
+
 **根因已定位(2026-09-20)**:`String({})` 与 `{} + ""` 都与 bun 一致,
 `BigInt("[object Object]")` 也正确抛 SyntaxError —— 所以 ToPrimitive 整体
 是好的、`any_to_bigint` 的 String 分支也是好的。坏的是
@@ -127,10 +131,6 @@ bun 1.4.2,全部用 `any` 拼写绕开 checker):
 (`crates/torajs-anyvalue/src/to_bigint.rs:101`)对 struct / array 传
 `false`(hint number),该路径返回 None 并抛 TypeError,于是三条 BigInt
 探针全在进 String 分支之前就死了。
-
-- **F3-b 运行期语义本身还不对** → **不在 S0 的范围内**。这些是底层
-  机制缺口(错误的类型、不该抛而抛),要先把运行期修对,然后才谈 typed
-  直出。它们属于 P-SURF 的 L1 底层机制,不属于本章。
 
 **这条修正改变了账目的读法**:66% 不是"都能靠 typed 直出拿下",其中
 有一部分要先补运行期语义。逐条落档(S0.1)因此必须**对每条跑一次判据
