@@ -70,23 +70,59 @@ unsafe extern "C" {
     fn __torajs_arr_iter_create_entries(src: *mut core::ffi::c_void) -> *mut core::ffi::c_void;
 }
 
-/// Does a reified method minted on `fam` refuse `recv` as its `this`?
-/// True for the two typed-array families (%TypedArray.prototype% and
-/// `Uint8Array.prototype`) over anything that is not a typed array —
-/// §23.2.4.4 ValidateTypedArray's brand half. Detached and
-/// out-of-bounds views are the kernels' own checks.
-pub(crate) fn family_rejects_receiver(fam: i64, recv: AnyValue) -> bool {
-    use crate::method_value::family::{TYPEDARRAY_PROTO_FAMILY, UINT8_ARRAY_PROTO_FAMILY};
-    if fam != TYPEDARRAY_PROTO_FAMILY && fam != UINT8_ARRAY_PROTO_FAMILY {
-        return false;
+/// The cell tag a reified method minted on `fam` demands of its
+/// `this`, when that prototype brand-checks at all.
+///
+/// §23.2.4.4 ValidateTypedArray step 1-2 for the two typed-array
+/// families, §25.1.6 `[[ArrayBufferData]]` for ArrayBuffer, §25.3.4
+/// `[[DataView]]` for DataView. Every method those four prototypes own
+/// begins with that check; the detached and out-of-bounds readings are
+/// the kernels' own, one layer down.
+///
+/// Rotation 680 — the last two joined. The rule was written once and
+/// reached half of what it covers, so
+/// `ArrayBuffer.prototype.slice.call([])` fell past the gate into the
+/// ordinary re-dispatch and ran `Array.prototype.slice`, answering a
+/// value where §25.1.6.7 step 3 raises.
+fn family_brand_tag(fam: i64) -> Option<(u16, &'static core::ffi::CStr)> {
+    use crate::method_value::family::{
+        ARRAYBUFFER_PROTO_FAMILY, DATAVIEW_PROTO_FAMILY, TYPEDARRAY_PROTO_FAMILY,
+        UINT8_ARRAY_PROTO_FAMILY,
+    };
+    match fam {
+        f if f == TYPEDARRAY_PROTO_FAMILY || f == UINT8_ARRAY_PROTO_FAMILY => Some((
+            torajs_rc::Tag::TypedArray as u16,
+            c"this is not a typed array",
+        )),
+        f if f == ARRAYBUFFER_PROTO_FAMILY => Some((
+            torajs_rc::Tag::ArrayBuffer as u16,
+            c"this is not an ArrayBuffer",
+        )),
+        f if f == DATAVIEW_PROTO_FAMILY => {
+            Some((torajs_rc::Tag::DataView as u16, c"this is not a DataView"))
+        }
+        _ => None,
     }
+}
+
+/// The TypeError text when a reified method minted on `fam` refuses
+/// `recv` as its `this`, or `None` when it accepts it.
+///
+/// An inherited mid never arrives with one of these families — it
+/// interns to the row of the prototype that owns it — so the answer
+/// does not depend on which method is being called.
+pub(crate) fn family_rejects_receiver(
+    fam: i64,
+    recv: AnyValue,
+) -> Option<&'static core::ffi::CStr> {
+    let (want, msg) = family_brand_tag(fam)?;
     if !crate::nanbox::is_cell(recv) {
-        return true;
+        return Some(msg);
     }
     let ptr = crate::nanbox::as_void_ptr(recv);
     // SAFETY: is_cell guarantees a live heap pointer with a header.
     let tag = unsafe { ptr.cast::<u8>().add(4).cast::<u16>().read() };
-    tag != torajs_rc::Tag::TypedArray as u16
+    (tag != want).then_some(msg)
 }
 
 /// `None` = this mid is not one ArrayBuffer.prototype owns, and the

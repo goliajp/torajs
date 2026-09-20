@@ -259,11 +259,11 @@ pub(crate) unsafe fn typedarray_accessor_call(recv: AnyValue, mid: i64) -> Optio
     if !(buf::ANY_METHOD_GET_TA_BUFFER..=buf::ANY_METHOD_GET_TA_LENGTH).contains(&mid) {
         return None;
     }
-    if crate::method_call_buffer::family_rejects_receiver(
+    if let Some(msg) = crate::method_call_buffer::family_rejects_receiver(
         crate::method_value::family::TYPEDARRAY_PROTO_FAMILY,
         recv,
     ) {
-        unsafe { __torajs_throw_type_error(c"this is not a typed array".as_ptr()) };
+        unsafe { __torajs_throw_type_error(msg.as_ptr()) };
         return Some(crate::nanbox::VALUE_UNDEFINED);
     }
     let n = |v: i64| crate::nanbox_encode::__torajs_anyv_box_i64(v);

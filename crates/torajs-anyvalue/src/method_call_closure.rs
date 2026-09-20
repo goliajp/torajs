@@ -324,8 +324,10 @@ pub(crate) unsafe fn dispatch(
                 // owns requires a typed array `this`; the re-dispatch
                 // below would run an Array or array-like body instead
                 // (`TypedArray.prototype.with.call([1, 2, 3], 0, 0)`).
-                if crate::method_call_buffer::family_rejects_receiver(*fam, this_arg) {
-                    __torajs_throw_type_error(c"this is not a typed array".as_ptr());
+                if let Some(msg) =
+                    crate::method_call_buffer::family_rejects_receiver(*fam, this_arg)
+                {
+                    __torajs_throw_type_error(msg.as_ptr());
                     return crate::nanbox::VALUE_UNDEFINED;
                 }
                 if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
