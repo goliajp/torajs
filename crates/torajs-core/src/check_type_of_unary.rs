@@ -16,9 +16,11 @@
 //!   LHS=0).
 //! - **`+`** (Plus, V3-18 m1.h.4 / spec §13.5.4) — ToNumber.
 //!   `Number`/`Boolean`/`Null`/`String`/`Undefined` → `Number`
-//!   (ToNumber(undefined) = NaN per §7.1.4); `BigInt` → TypeError
-//!   (spec — runtime support unnecessary, caught here); `Any` (P0.9)
-//!   → `Any` (identity-Mul to ToNumber, mirrors Neg's any_arith).
+//!   (ToNumber(undefined) = NaN per §7.1.4); `BigInt` → the TypeError
+//!   §7.1.4 mandates, **decided here and emitted** (band B — the
+//!   program runs and throws, rather than being refused); `Any`
+//!   (P0.9) → `Any` (identity-Mul to ToNumber, mirrors Neg's
+//!   any_arith).
 //! - **`~`** (BitNot, V3-18 m1.f / spec §13.5.6) — ToInt32 (via
 //!   ToNumber). `Number` → `Number`; `BigInt` → `BigInt` (V3-02:
 //!   `~x` ≡ `-x - 1n`); `Boolean`/`Null`/`Undefined`/`String` →
@@ -27,15 +29,36 @@
 //!   `__torajs_str_to_number` per S137).
 
 use crate::ast::{Ast, ExprId, UnaryOp};
-use crate::check::{Checker, Type, js_truthy_acceptable, rides_any_lane};
+use crate::check::{Checker, DiagPush, Type, js_truthy_acceptable, rides_any_lane};
 
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     op: UnaryOp,
     expr: ExprId,
 ) -> Result<Type, String> {
     let t = checker.type_of(ast, expr)?;
+    // Band B — §7.1.4 ToNumber refuses a BigInt outright, and unary
+    // `+` is nothing but ToNumber. The operand type is known here, so
+    // the outcome is too. The rejection this replaces said so itself:
+    // "`+` on bigint is a TypeError per spec".
+    if op == UnaryOp::Plus && t == Type::BigInt {
+        // The message the any lane already raises for `+bigint`, so
+        // the two lanes agree; it differs from bun's wording, which is
+        // pre-existing and not what this change is about (§7.1.4
+        // mandates the class, not the text).
+        let msg = "Cannot mix BigInt and other types, use explicit conversions".to_string();
+        checker.spec_throws.insert(eid, msg.clone());
+        checker.errors.push_warn(msg);
+        // `Number`, not `Any`: unary `+` produces a Number wherever it
+        // produces anything, so the enclosing expression keeps its
+        // typed lane (`function f(x: bigint): number { return +x }`
+        // still returns into an f64 slot) and nothing widens. The
+        // value is unreachable either way — see `ssa_lower_spec_throw`
+        // on why its shape still matters.
+        return Ok(Type::Number);
+    }
     match op {
         UnaryOp::Not => {
             if js_truthy_acceptable(&t) {
@@ -120,11 +143,12 @@ pub(crate) fn is_object_shaped(t: &Type) -> bool {
     )
 }
 
+/// The BigInt arm that used to live here is gone: `check` decides it
+/// above and emits the throw (band B), so this is only ever reached
+/// for the shapes ToNumber can answer.
 fn check_plus(t: Type) -> Result<Type, String> {
     if t == Type::Number || is_number_coercible(&t) {
         Ok(Type::Number)
-    } else if t == Type::BigInt {
-        Err("`+` on bigint is a TypeError per spec; use Number(x) for explicit coercion".into())
     } else {
         Err(format!(
             "`+` requires number or coercible operand, got {t:?}"

@@ -109,7 +109,7 @@ impl Checker {
                 // ToNumber/Int32 for the rest; BigInt special-cases;
                 // Any → Any). See
                 // [`crate::check_type_of_unary::check`].
-                crate::check_type_of_unary::check(self, ast, *op, *expr)
+                crate::check_type_of_unary::check(self, ast, eid, *op, *expr)
             }
             Expr::Assign { target, value } => {
                 // Target-shape dispatch (Ident / Member / Index /

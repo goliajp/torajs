@@ -27,10 +27,16 @@ use crate::ssa_lower::LowerCtx;
 ///
 /// The operands are lowered first and their values dropped on the
 /// floor: evaluation order is part of the semantics, the values are
-/// not (nothing downstream of an unconditional throw runs). The
-/// returned shape is the null pointer for the same reason the TDZ read
-/// returns one — the checker typed the expression `Any` so that the
-/// enclosing expression still types out, and the value is unreachable.
+/// not (nothing downstream of an unconditional throw runs).
+///
+/// **The unreachable value still needs the right SHAPE.** It is never
+/// read, but it is materialized: a consumer whose slot is an f64
+/// cannot hold a pointer, and the backend says so
+/// (`FPR materialization can't hold ConstPtrNull`). `+x` inside
+/// `function f(x: bigint): number` is exactly that — the return slot
+/// is f64 while the operand lane is not. So the shape is taken from
+/// the type the checker recorded for this expression, the same table
+/// every other lowering consults.
 pub(crate) fn try_emit(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
@@ -50,5 +56,15 @@ pub(crate) fn try_emit(
         None,
     );
     ctx.emit_throw_check(None);
-    Some(Operand::ConstPtrNull)
+    Some(dead_value_shaped_like(ctx, eid))
+}
+
+/// A value of the right shape that is never read. Only the register
+/// class matters — an f64-typed consumer needs a float, everything
+/// else takes the null pointer the TDZ read already uses.
+fn dead_value_shaped_like(ctx: &LowerCtx<'_>, eid: ExprId) -> Operand {
+    match ctx.expr_types.get(&eid) {
+        Some(crate::check::Type::Number) => Operand::ConstF64(0.0),
+        _ => Operand::ConstPtrNull,
+    }
 }

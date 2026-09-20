@@ -295,7 +295,13 @@ pub(crate) fn scan_expr(
             scan_expr(ast, *left, out, direct, fn_values, expr_types);
             scan_expr(ast, *right, out, direct, fn_values, expr_types);
         }
-        Expr::Unary { expr, .. } => scan_expr(ast, *expr, out, direct, fn_values, expr_types),
+        Expr::Unary { expr, .. } => {
+            // Band B, same reason as the BinOp arm above.
+            if ast.spec_throws.contains_key(&eid) {
+                *direct = true;
+            }
+            scan_expr(ast, *expr, out, direct, fn_values, expr_types)
+        }
         Expr::Member { obj, .. } => {
             // RFC 20260713 blade 6 — an any-receiver member READ lowers
             // to __torajs_any_member_get_tag, which records a pending
