@@ -257,7 +257,7 @@ pub(super) fn rewrite_classdecls_pass3(
         let mut own_statics: Vec<Stmt> = Vec::new();
         super::desugar_classes_statics::emit_static_inits(
             ast,
-            cname,
+            (cname, *decl_id),
             type_params,
             static_init,
             appended,

@@ -315,7 +315,7 @@ pub(super) fn positional_static_method_sites(
 /// ReferenceError, not a read of the eventual value.
 pub(super) fn emit_static_inits(
     ast: &mut Ast,
-    cname: &str,
+    (cname, decl_id): (&str, u32),
     type_params: &[String],
     static_init: &[StaticInit],
     appended: &mut Vec<Stmt>,
@@ -333,7 +333,7 @@ pub(super) fn emit_static_inits(
     // class object as `__unit` and is called from there, not here.
     let unit = ast.eval_unit_classes.contains(cname);
     for (block_idx, si) in static_init.iter().enumerate() {
-        emit_computed_static_stores_at(ast, cname, block_idx, own_statics);
+        emit_computed_static_stores_at(ast, (cname, decl_id), block_idx, own_statics);
         match si {
             StaticInit::Field(_) if unit => {}
             StaticInit::Field(sf) if !declared.insert(sf.name.clone()) => {
@@ -412,7 +412,7 @@ pub(super) fn emit_static_inits(
             }
         }
     }
-    emit_computed_static_stores_at(ast, cname, static_init.len(), own_statics);
+    emit_computed_static_stores_at(ast, (cname, decl_id), static_init.len(), own_statics);
 }
 
 /// The class object's own data entry for a static field, defined
@@ -446,15 +446,20 @@ fn push_static_field_reify(
 /// `k` first). Called before each step and once past the end.
 pub(super) fn emit_computed_static_stores_at(
     ast: &mut Ast,
-    cname: &str,
+    (cname, decl_id): (&str, u32),
     pos: usize,
     own_statics: &mut Vec<Stmt>,
 ) {
     let mut due: Vec<(usize, ExprId)> = ast
         .class_computed_static_fields
         .iter()
+        // By OWNER, not by name (RFC 20260921): a top-level
+        // `class F { static [k] = 41 }` used to emit the rows of a
+        // same-named class declared inside a function too, onto its
+        // own class object — last write won, so the top-level F
+        // answered the local one's value.
         .filter(|(c, s, _)| {
-            c == cname
+            super::class_computed_owner::owns(ast, s, decl_id)
                 && ast
                     .class_computed_static_field_pos
                     .get(&(c.clone(), s.clone()))
