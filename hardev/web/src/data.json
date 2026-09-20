@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T05:36:08.084Z",
+  "generatedAt": "2026-09-20T08:53:12.672Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T05:23:05Z",
-    "headSha": "b9d86df9d",
-    "elapsedSec": 542.08,
+    "ranAt": "2026-09-20T08:41:12Z",
+    "headSha": "65eba90cc",
+    "elapsedSec": 540.47,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34243,
+    "pass": 34277,
     "passNoOracle": 1711,
     "passNegative": 4568,
-    "passTotal": 40522,
+    "passTotal": 40556,
     "bug": 8589,
-    "incompatible": 4063,
+    "incompatible": 4029,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49111,
-    "passRateInScope": 76.21,
-    "passRateTrAccepted": 82.51
+    "trAccepted": 49145,
+    "passRateInScope": 76.27,
+    "passRateTrAccepted": 82.52
   },
   "torajs": {
-    "commit": "d834b3735",
-    "commitSubject": "chore(hardev): file-size stamp on the final HEAD",
+    "commit": "f6e928b6a",
+    "commitSubject": "chore(hardev): rotation close stamps @ 65eba90cc",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "d834b3735",
-      "subject": "chore(hardev): file-size stamp on the final HEAD"
+      "hash": "f6e928b6a",
+      "subject": "chore(hardev): rotation close stamps @ 65eba90cc"
     },
     {
-      "hash": "3516628c7",
-      "subject": "chore(hardev): rotation close stamps @ b9d86df9d"
+      "hash": "47d66727e",
+      "subject": "docs(roadmap): S0.2 gets a new baseline and S0.4 gets what the sweep found"
     },
     {
-      "hash": "b9d86df9d",
-      "subject": "docs: repair ch.1 3.1 — the root-cause note split a list in two"
+      "hash": "9c2060156",
+      "subject": "docs(language-spec): ch1 — the two constraints the sweep found, not the design"
     },
     {
-      "hash": "8a9abb313",
-      "subject": "docs: locate the BigInt runtime bug — ToPrimitive's number hint"
+      "hash": "65eba90cc",
+      "subject": "fix(hardev): the typed census sampled by position, so every rotation moved the ruler"
     },
     {
-      "hash": "e8e5329c7",
-      "subject": "docs: record S0's boundary, found by probing rather than by design"
+      "hash": "742f4da11",
+      "subject": "fix(check): band B needs both operands to be primitives"
     },
     {
-      "hash": "87d7fd2ce",
-      "subject": "docs: probe F3 with criterion 2 — half its verdict was wrong"
+      "hash": "c878a9c62",
+      "subject": "fix(ssa-lower): a BigInt compares across, and the test says so instead of listing"
     },
     {
-      "hash": "560383170",
-      "subject": "docs: language spec ch.1 — what the type system owes ES runtime semantics"
+      "hash": "c6c8a303c",
+      "subject": "style: rustfmt the three files this rotation left drifted"
     },
     {
-      "hash": "d8bf61499",
-      "subject": "feat: classify checker refusals by family, with S0's three-way verdict"
+      "hash": "a36275d29",
+      "subject": "fix(check): the private-field write path takes the hop the read path takes"
     },
     {
-      "hash": "ca3a497f3",
-      "subject": "chore: typed-coverage baseline — typed_ratio 0.7317 @ f7b74aa1f"
+      "hash": "0f50a9a14",
+      "subject": "feat(check): unary + on a BigInt — the reject that described itself"
     },
     {
-      "hash": "f7b74aa1f",
-      "subject": "feat: typed-coverage census, the ruler S0 is graded on"
+      "hash": "1baaa33af",
+      "subject": "fix(check): comparison against a BigInt — one side answers, one throws"
     },
     {
-      "hash": "f2ef76cda",
-      "subject": "docs: refresh P-SURF numbers onto the cleaned-up baseline"
+      "hash": "47673aecf",
+      "subject": "feat(check): decide a BigInt-mixed operator at compile time and emit the throw"
     },
     {
-      "hash": "c3de02b63",
-      "subject": "feat: clear the corpus-scope noise off the v1.0 gate predicate"
+      "hash": "c49fe1286",
+      "subject": "refactor(throw-info): move the operator raise predicates to a sibling"
     }
   ],
-  "headSha": "d834b3735",
+  "headSha": "f6e928b6a",
   "autorun": {
-    "total": 978,
+    "total": 979,
     "baselineTarget": 10,
-    "bySelf": 973,
+    "bySelf": 974,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789873427-4022",
-      "at": "2026-09-20T03:03:47Z",
-      "ts": 1789873427,
+      "rotationId": "r-1789882574-7119",
+      "at": "2026-09-20T05:36:14Z",
+      "ts": 1789882574,
       "trigger": "self",
-      "prevHead": "b4f26160d",
-      "handoffSha": "sha256:2ea3daf53bea3085b0c6b39993f9427cbcb3a65c93ab1f814ed73211010d6e9e",
-      "handoffAgeSec": 7,
+      "prevHead": "714a3ea2b",
+      "handoffSha": "sha256:0703d675d60e15dd3df3a26469baded76824441dbc6ccf63887208f8347417e1",
+      "handoffAgeSec": 17,
       "conformanceBefore": "4370/0/4",
-      "commitsInSession": 16
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789882574-7119",
+        "at": "2026-09-20T05:36:14Z",
+        "ts": 1789882574,
+        "trigger": "self",
+        "prevHead": "714a3ea2b",
+        "handoffSha": "sha256:0703d675d60e15dd3df3a26469baded76824441dbc6ccf63887208f8347417e1",
+        "handoffAgeSec": 17,
+        "conformanceBefore": "4370/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789873427-4022",
         "at": "2026-09-20T03:03:47Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 17,
         "conformanceBefore": "4291/0/4",
         "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789686874-5076",
-        "at": "2026-09-17T23:14:34Z",
-        "ts": 1789686874,
-        "trigger": "self",
-        "prevHead": "1138e3cb7",
-        "handoffSha": "sha256:4f726e1d0270d16c67fc3f0d11eefdeb96b4db560bcd37d53b0e3854fd488cd6",
-        "handoffAgeSec": 37,
-        "conformanceBefore": "4288/0/4",
-        "commitsInSession": 11
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
