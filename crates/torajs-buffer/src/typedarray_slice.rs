@@ -85,6 +85,21 @@ pub unsafe extern "C" fn __torajs_typedarray_subarray(
         // Step 12 TypedArraySpeciesCreate — the any-lane construct
         // channel resolved the constructor face before dispatching
         // here; the default view is minted unconditionally.
+        //
+        // What the create step carries with it is §23.2.5.1 step 11:
+        // InitializeTypedArrayFromArrayBuffer throws on a detached
+        // buffer. `mint` writes the fields and returns, so nothing
+        // asked — and `subarray` is the one method on this slab that
+        // does not validate its receiver (steps 4-6 read an
+        // out-of-bounds view as a length of 0 rather than a throw),
+        // so the detached buffer had no other gate to meet either.
+        // It reached `mint` and produced a view over freed memory.
+        if crate::arraybuffer::data_ptr(as_void_ptr(buffer)).is_null() {
+            __torajs_throw_type_error(
+                c"Cannot perform subarray on a detached ArrayBuffer".as_ptr(),
+            );
+            return VALUE_UNDEFINED;
+        }
         mint(kind, buffer, begin, new_len)
     }
 }
