@@ -95,16 +95,22 @@ pub(crate) fn try_match(
                         return Some(Err(e));
                     }
                 }
-                // S202 / S226 / S336 — accept String,
-                // Undefined, or Any in slot 0.
-                if let Some(arg0) = args.first() {
-                    let s_ty = match checker.type_of(ast, *arg0) {
-                        Ok(t) => t,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
-                        return Some(Err(format!("parseFloat arg must be string, got {s_ty:?}")));
-                    }
+                // §19.2.4 step 1 is ToString(string), which takes
+                // ANY value — `parseFloat(1.5)` is 1.5 and
+                // `parseFloat(null)` is NaN on every engine. The slot
+                // still types its argument (the visit records
+                // `expr_types`, which the lowerer reads), it just
+                // does not refuse what the spec coerces.
+                //
+                // `parseInt` above lost the same guard in rotation
+                // 461 with the same reasoning; this was the second
+                // spelling of one sentence, and only one of them had
+                // been corrected. `decode_any_to_str` boxes whatever
+                // it gets, so the lowering side was already there.
+                if let Some(arg0) = args.first()
+                    && let Err(e) = checker.type_of(ast, *arg0)
+                {
+                    return Some(Err(e));
                 }
                 Some(Ok(Type::Number))
             }
@@ -118,14 +124,15 @@ pub(crate) fn try_match(
                         return Some(Err(e));
                     }
                 }
-                if let Some(arg0) = args.first() {
-                    let s_ty = match checker.type_of(ast, *arg0) {
-                        Ok(t) => t,
-                        Err(e) => return Some(Err(e)),
-                    };
-                    if !matches!(s_ty, Type::String | Type::Undefined | Type::Any) {
-                        return Some(Err(format!("{name} arg must be string, got {s_ty:?}")));
-                    }
+                // Same ToString as `parseFloat` above — §19.2.6.x
+                // step 1 for the URI four, §B.2.1 step 1 for
+                // `escape` / `unescape`. `escape(null)` is "null" and
+                // `escape(1n)` is "1"; refusing them refused what the
+                // spec spells out.
+                if let Some(arg0) = args.first()
+                    && let Err(e) = checker.type_of(ast, *arg0)
+                {
+                    return Some(Err(e));
                 }
                 Some(Ok(Type::String))
             }
