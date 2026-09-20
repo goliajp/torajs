@@ -263,6 +263,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) -> Operand {
             ctx.lower_unary(*op, *expr)
         }
         Expr::Call { callee, args } => {
+            // Band B at a call position — see `ssa_lower_spec_throw`.
+            if let Some(v) = crate::ssa_lower_spec_throw::try_emit_call(ctx, eid, *callee, args) {
+                return v;
+            }
             // 61-layer dispatcher cascade + terminal direct-
             // call emit. See [`crate::ssa_lower_call::lower`].
             crate::ssa_lower_call::lower(ctx, eid, *callee, args)

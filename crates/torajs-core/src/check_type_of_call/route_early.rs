@@ -204,7 +204,8 @@ pub(crate) fn try_route(
     // target+sources identical struct types in this subset;
     // Object.values is polymorphic over Array / String / Any /
     // struct receivers.
-    if let Some(r) = crate::check_type_of_call_object_static::try_match(checker, ast, callee, args)
+    if let Some(r) =
+        crate::check_type_of_call_object_static::try_match(checker, ast, eid, callee, args)
     {
         return Some(r);
     }

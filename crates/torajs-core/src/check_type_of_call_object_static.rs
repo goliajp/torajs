@@ -33,7 +33,7 @@
 
 use crate::ast::PropKey;
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Type};
+use crate::check::{Checker, DiagPush, Type};
 
 /// A class instance is a struct; these two arms just never said so.
 ///
@@ -55,6 +55,7 @@ fn unwrap_class(checker: &Checker, ty: Type) -> Type {
 pub(crate) fn try_match(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
@@ -104,6 +105,14 @@ pub(crate) fn try_match(
                 }
             }
             return Some(Ok(Type::Any));
+        }
+        // Band B — §20.1.2.1 step 1 is ToObject(target), and
+        // ToObject throws on null and undefined. The type is known
+        // right here, so the throw is decided right here rather than
+        // re-derived at run time; the program still compiles and
+        // still throws. See `ssa_lower_spec_throw` and ch1 §4.
+        if matches!(target_ty, Type::Null | Type::Undefined) {
+            return Some(nullish_to_object(checker, ast, eid, &args[1..]));
         }
         let Type::Struct(t_fields) = &target_ty else {
             return Some(Err(format!(
@@ -215,6 +224,11 @@ pub(crate) fn try_match(
         if checker_shape_has_expando_bag(&arg_ty) {
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
+        // Band B, same step in §20.1.2.23 — see the Object.assign
+        // arm above.
+        if matches!(arg_ty, Type::Null | Type::Undefined) {
+            return Some(nullish_to_object(checker, ast, eid, &[]));
+        }
         let Type::Struct(fields) = &arg_ty else {
             return Some(Err(format!(
                 "Object.values requires a struct arg, got {arg_ty:?}"
@@ -251,6 +265,34 @@ pub(crate) fn try_match(
 /// * a get-only accessor accepts nothing (`None`) — ES §10.1.9 makes
 ///   the write a strict-mode `TypeError`, which SSA-lower emits, so it
 ///   must typecheck rather than be rejected.
+/// Band B for a nullish argument where the spec's first step is
+/// ToObject — §20.1.2.1 (`Object.assign`) and §20.1.2.23
+/// (`Object.values`) both begin there, and §7.1.18 answers null and
+/// undefined with a TypeError.
+///
+/// The remaining arguments are still TYPED here even though the call
+/// throws: §13.3.6.1 evaluates them before the call, so their side
+/// effects are observable, and the lowering that emits the throw
+/// reads `expr_types` to give each one its shape.
+///
+/// The message is the one `__torajs_anyv_assign` raises for the same
+/// input, so what moved is when the decision is made, not what the
+/// program prints.
+fn nullish_to_object(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    rest: &[ExprId],
+) -> Result<Type, String> {
+    const MSG: &str = "Cannot convert undefined or null to object";
+    for &a in rest {
+        checker.type_of(ast, a)?;
+    }
+    checker.spec_throws.insert(eid, MSG.to_string());
+    checker.errors.push_warn(MSG.to_string());
+    Ok(Type::Any)
+}
+
 pub(crate) fn own_property_sink_types(fields: &[(PropKey, Type)]) -> Vec<(PropKey, Option<Type>)> {
     let mut out: Vec<(PropKey, Option<Type>)> = Vec::new();
     for (name, ty) in fields {

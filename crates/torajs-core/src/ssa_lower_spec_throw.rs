@@ -18,7 +18,7 @@
 //! so what moved is when the decision is made, not what the program
 //! prints.
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -57,6 +57,37 @@ pub(crate) fn try_emit(
     );
     ctx.emit_throw_check(None);
     Some(dead_value_shaped_like(ctx, eid))
+}
+
+/// Band B at a CALL position — the operand list §13.3.6.1 asks for,
+/// then [`try_emit`].
+///
+/// That clause evaluates the callee's BASE and then the arguments
+/// before the call itself, so those side effects are observable even
+/// though the call was decided to throw: `Object.assign(null, f())`
+/// still runs `f`. A namespace name (`Object`, `Math`) is not a
+/// value expression in this lowering — there is nothing to evaluate
+/// and nothing to preserve — so it stays out of the list.
+pub(crate) fn try_emit_call(
+    ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
+    callee: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    if !ctx.ast.spec_throws.contains_key(&eid) {
+        return None;
+    }
+    let mut operands: Vec<ExprId> = Vec::new();
+    if let Expr::Member { obj, .. } = ctx.ast.get_expr(callee)
+        && !matches!(
+            ctx.ast.get_expr(*obj),
+            Expr::Ident(n) if crate::ast::free_vars_is_global_name(n)
+        )
+    {
+        operands.push(*obj);
+    }
+    operands.extend(args.iter().copied());
+    try_emit(ctx, eid, &operands)
 }
 
 /// A value of the right shape that is never read. Only the register
