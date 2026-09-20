@@ -351,9 +351,6 @@ fn check_ushr(l: Type, r: Type) -> Result<Type, String> {
     if l == Type::Number && r == Type::Number {
         return Ok(Type::Number);
     }
-    if l == Type::BigInt || r == Type::BigInt {
-        return Err("`>>>` is not defined on BigInt operands per spec".into());
-    }
     // RFC 20260716 刀 7 — Any operand routes to any_bitwise per
     // §13.12 (op=5 UShr — LHS ToUint32, result promoted to F64 if
     // ≥ 2^31).
@@ -370,6 +367,17 @@ fn check_ushr(l: Type, r: Type) -> Result<Type, String> {
     // §13.12 — a String side is ToNumber'd; same any_bitwise route.
     if string_numeric_pair(&l, &r) {
         return Ok(Type::Any);
+    }
+    // §13.12 — `>>>` has no BigInt form. A pair of PRIMITIVES never
+    // arrives here (band B decided it at the entry and recorded the
+    // throw), so what is left is a BigInt beside a shape whose
+    // ToPrimitive is user code: `({[Symbol.toPrimitive]() { throw }})
+    // >>> 0n` must raise what that code raises, and only the any
+    // kernel runs it in the right order. The lanes above route every
+    // such pair, so this is the message for what none of them
+    // claimed rather than a decision taken ahead of them.
+    if l == Type::BigInt || r == Type::BigInt {
+        return Err("`>>>` is not defined on BigInt operands per spec".into());
     }
     Err(format!(
         "bitwise op requires number operands, got {l:?} and {r:?}"
