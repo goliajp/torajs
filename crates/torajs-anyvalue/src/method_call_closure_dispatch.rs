@@ -171,6 +171,11 @@ pub unsafe extern "C" fn __torajs_any_call(
         if let Some((env, entry)) = closure_boxed_entry(recv) {
             return invoke_with_this(env, entry, VALUE_UNDEFINED, argv, argc);
         }
+        // §10.2.1 step 2 — a class object is callable, and what its
+        // [[Call]] does depends on whether tr injected it.
+        if let Some(v) = crate::construct::call_class_ctor(recv, argv, argc) {
+            return v;
+        }
         not_callable()
     }
 }
@@ -200,6 +205,11 @@ pub unsafe extern "C" fn __torajs_any_call_with_this(
         }
         if let Some((env, entry)) = closure_boxed_entry(recv) {
             return invoke_with_this(env, entry, this_arg, argv, argc);
+        }
+        // §10.2.1 step 2 twin — a class object ignores the explicit
+        // `this` exactly as `new` does.
+        if let Some(v) = crate::construct::call_class_ctor(recv, argv, argc) {
+            return v;
         }
         not_callable()
     }

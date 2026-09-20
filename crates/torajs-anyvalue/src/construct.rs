@@ -260,6 +260,63 @@ pub unsafe extern "C" fn __torajs_is_constructor(v: AnyValue) -> bool {
     unsafe { is_constructor(v) }
 }
 
+/// §10.2.1 step 2 over a class object that arrived in a CALL
+/// position — tr models one as a dynobj, so the any-lane dispatch
+/// reaches its `not_callable()` fall-through rather than any rule
+/// about classes. `None` when `av` is no class object at all.
+///
+/// Two answers, and which one depends on whether the compiler
+/// injected the class: the §20.5 Error hierarchy is injected, and
+/// every member of it is callable with `new`'s behaviour
+/// (§20.5.1.1 "Error(message) … performs the same action" and its
+/// NativeError / AggregateError twins), so `Error("m")` constructs.
+/// A class the user wrote is step 2's refusal.
+///
+/// The refusal used to exist in exactly one place — the bound-call
+/// path in `method_bind` — which is why `C.bind(null)()` named the
+/// rule and a plain `C()` said "value is not a function".
+///
+/// # Safety
+/// `argv` points at `argc` readable AnyValue slots, borrowed.
+pub(crate) unsafe fn call_class_ctor(
+    av: AnyValue,
+    argv: *const u64,
+    argc: i64,
+) -> Option<AnyValue> {
+    if !is_cell(av) {
+        return None;
+    }
+    let ptr = as_void_ptr(av);
+    if ptr.is_null() || !unsafe { is_class_ctor_cell(ptr) } {
+        return None;
+    }
+    if unsafe { class_is_intrinsic(ptr) } {
+        return Some(unsafe { __torajs_anyv_construct(av, argv, argc) });
+    }
+    unsafe {
+        __torajs_throw_type_error(c"class constructor cannot be invoked without 'new'".as_ptr());
+    }
+    Some(VALUE_UNDEFINED)
+}
+
+/// torajs-meta's intrinsic-class registry. The unit-test binary links
+/// without the staticlib graph, so tests see every class as
+/// user-written (same posture as `ctor_method`'s source-table stub).
+#[cfg(not(test))]
+#[inline]
+unsafe fn class_is_intrinsic(ptr: *mut c_void) -> bool {
+    unsafe extern "C" {
+        fn __torajs_class_is_intrinsic_cell(cell: *const c_void) -> i32;
+    }
+    unsafe { __torajs_class_is_intrinsic_cell(ptr) != 0 }
+}
+
+#[cfg(test)]
+#[inline]
+unsafe fn class_is_intrinsic(_ptr: *mut c_void) -> bool {
+    false
+}
+
 /// `new callee(argv[0..argc])` where `callee` is a runtime value.
 ///
 /// Answers the constructed object, owned by the caller. A callee that

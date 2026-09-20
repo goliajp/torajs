@@ -323,13 +323,14 @@ unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) 
                 )
             } else {
                 let Some((env2, entry2)) = closure_cell_entry(target as *mut c_void) else {
-                    // A bound CLASS called without `new` — §10.4.1.1
-                    // calls the target, whose [[Call]] is that error.
-                    if crate::construct::is_class_ctor_cell(target as *mut c_void) {
-                        __torajs_throw_type_error(
-                            c"class constructor cannot be invoked without 'new'".as_ptr(),
-                        );
-                        return VALUE_UNDEFINED;
+                    // §10.4.1.1 calls the target, so a bound class
+                    // gets the target's [[Call]] — the same rule the
+                    // plain lane runs, read from the same place. It
+                    // lived only here for a while, which is how
+                    // `C.bind(null)()` came to name the rule while a
+                    // plain `C()` said "value is not a function".
+                    if let Some(v) = crate::construct::call_class_ctor(target, buf, n) {
+                        return v;
                     }
                     return not_callable();
                 };

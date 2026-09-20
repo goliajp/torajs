@@ -43,6 +43,26 @@ pub extern "C" fn __torajs_class_mark_intrinsic(tag: i64) {
     unsafe { INTRINSIC_BY_TAG[tag as usize] = true };
 }
 
+/// Is `cell` the class object of an INJECTED class? The compiler
+/// injects exactly the §20.5 Error hierarchy, and every member of it
+/// is callable as a function with the same behaviour as `new`
+/// (§20.5.1.1, §20.5.6.2, §20.5.7.1) — which is the question the
+/// any-lane [[Call]] asks here. A user class answers 0 and gets
+/// §10.2.1 step 2's refusal instead.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_class_is_intrinsic_cell(cell: *const c_void) -> i32 {
+    if cell.is_null() {
+        return 0;
+    }
+    let tag = tag_of_class_cell(cell);
+    if tag < 0 {
+        return 0;
+    }
+    // SAFETY: single-threaded JS runtime, direct indexed read of an
+    // in-range tag.
+    i32::from(unsafe { INTRINSIC_BY_TAG[tag as usize] })
+}
+
 /// The tag whose REGISTERED class object is `cell` — one evaluation of
 /// a unit class answers its template's — or -1.
 pub(super) fn tag_of_class_cell(cell: *const c_void) -> i64 {
