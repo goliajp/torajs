@@ -8160,7 +8160,7 @@ naming in a roadmap until the groups above them fall.
 **Added 2026-09-20, and it runs first.** 定位（见本文件 Positioning 段）把
 这一条从"checker 的一个参数"改判为**这门语言的定义**。
 
-**它是什么。** core 835 条里的 **375 条（44.9%）不是 375 个缺口，是一条从未
+**它是什么。** core 815 条里的 **366 条（44.9%）不是 366 个缺口，是一条从未
 画过的边界**：tr 的 checker 拒收一个**合法**的 JS 程序，因为规范自己的
 **运行期** TypeError 被当成了**编译期**类型错误。
 
@@ -8176,10 +8176,18 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
 
 **为什么排第一。** 不定这条线，后面每一族都要重复付一遍「拒收还是降级」的
 判断，而这两个答案分别通向已被占住的两格（静态子集 / 类型擦除）。它也是
-单点影响最大的一条：gate 未归因 ≥4 簇 **37 → 21**（对比：修全部
-`not yet supported` 171 条只到 30 簇，修全部 parse/lex 202 条只到 32 簇）。
-而 **76% 的量藏在 ≤3 残尾里，gate 指标只露出 24%** —— 所以本组的验收判据
-不能是簇数。
+单点影响最大的一条 —— 在 `c3de02b63` 的清场基线（25 簇 / 144 条）上：
+
+| 做完什么 | gate 未归因 ≥4 簇 |
+|---|---|
+| 今天 | 25 簇 / 144 条 |
+| **S0（本组，366 条）** | **10 簇 / 73 条** |
+| S6（官方 harness ports，62 条） | 22 簇 / 121 条 |
+| S0 + S6 | **7 簇 / 50 条** |
+
+**一条语言定义抵得过十五个簇。** 而 366 条里 **76% 藏在 ≤3 残尾里，gate
+指标只露出 24%** —— 所以本组的验收判据**不能是簇数**，必须是 typed 覆盖率
+（S0.2）。
 
 **三分，不是二分**（取代 S5 原本的两条出路）：
 
@@ -9337,9 +9345,12 @@ and added 轴 E): **P0–P13 closed ✓ *and* P-SURF closed *and* 轴 B at
 target *and* 轴 E through E4**. The axes, with what each still owes —
 
 - **轴 A (spec)** — P13 close ✓, **P-SURF open** ← S7.2's predicate:
-  unattributed ≥ 4 clusters **37** (drives to 0), holding 246 cases,
-  register 2 · 118, core 835. Sweep @ `d12609951` (rotation 674).
-  **Re-framed 2026-09-20**: 375 of those 835 core cases (44.9%) are one
+  unattributed ≥ 4 clusters **25** (drives to 0), holding 144 cases,
+  register 4 · 334, core 815. Sweep @ `d12609951` (rotation 674),
+  re-clustered @ `c3de02b63` after the corpus-scope cleanup (annexB to
+  the post-v1.0 side per P15.2, SR-3 staging, SR-4 decorators — 37/246
+  before it). Path from here: **S0 → 10 clusters, S0 + S6 → 7.**
+  **Re-framed 2026-09-20**: 366 of those 815 core cases (44.9%) are one
   thing, not 375 — the checker refuses a *legal* JS program because the
   spec's own runtime TypeError is being treated as a compile-time type
   error (`assert.throws(TypeError, () => 1n & 1)` is a program that
