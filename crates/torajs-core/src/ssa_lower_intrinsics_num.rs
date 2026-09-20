@@ -38,6 +38,13 @@ pub(crate) struct NumIds {
     /// §7.1.22 `ToIndex` — the range test an index-like parameter
     /// runs over its Number before it becomes an index.
     pub num_to_index: FuncId,
+    /// §7.1.6 `ToInt32` — step 2 of the int32 sink, for the slots
+    /// whose kernel reads the low 32 bits of an i64 (`Math.imul` /
+    /// `Math.clz32`, whose step 1 is ToUint32; signed or unsigned is
+    /// the callee's reading of the same word). Not `FpToSi`: that is
+    /// ToInteger, which answers i64::MAX for Infinity and poison for
+    /// a runtime NaN.
+    pub num_to_int32: FuncId,
     pub num_parse_int: FuncId,
     pub num_parse_float: FuncId,
     pub num_is_integer_f: FuncId,
@@ -130,6 +137,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_to_index",
+            &[Type::F64],
+            Type::I64,
+        ),
+        num_to_int32: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_to_int32",
             &[Type::F64],
             Type::I64,
         ),

@@ -50,6 +50,30 @@ fn to_int32(n: f64) -> i32 {
     n_mod as u32 as i32
 }
 
+/// §7.1.6 ToInt32 as a call boundary, for the lanes that are not a
+/// binop. Named like `__torajs_to_index` (§7.1.22, in torajs-num):
+/// a spec abstract operation, not this crate's surface -- it lives
+/// here because this is where the one implementation of the step
+/// already was. `Math.imul` / `Math.clz32` read their arguments with
+/// ToUint32 (§21.3.2.19 / §21.3.2.11 step 1) and their kernels take
+/// the low 32 bits of an i64, so what they need is exactly the 32
+/// bits this returns — signed or unsigned is the callee's reading of
+/// the same word. The lowering used to reach that slot through
+/// `FpToSi`, which is ToInteger, not ToInt32: it answers i64::MAX for
+/// `Infinity` (`Math.clz32(Infinity)` came out 0 instead of 32) and
+/// poison for a runtime NaN (`Math.clz32({})`). This is the one
+/// implementation of the step; [`to_int32`] above is the same
+/// function, reached without a call from the binop lane.
+///
+/// # Safety
+///
+/// Takes and returns plain scalars; `unsafe` only to match the
+/// `extern "C"` shape every other kernel here has.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_to_int32(n: f64) -> i64 {
+    to_int32(n) as i64
+}
+
 /// ES spec §7.1.7 ToUint32 — same as ToInt32 but returns the low
 /// 32 bits interpreted as unsigned.
 #[inline]

@@ -8280,13 +8280,21 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
       **r678 落 S0.4 的强制转换族**，做法收敛成一句话：**每个强制转换族只
-      该有一条路，车道靠删门接上它**。三条路（`lower_to_number_operand`
+      该有一条路，车道靠删门接上它**。四条路（`lower_to_number_operand`
       /`lower_to_index_operand`、新建的 `coerce_to_f64_tonumber`、
-      `ssa_lower_str_str_tostring_slot` + `coerce_to_str`）覆盖
-      ToIntegerOrInfinity / ToNumber-到-f64-形参 / ToString-到-Str-槽 三族；
+      `ssa_lower_str_str_tostring_slot` + `coerce_to_str`、新建的
+      `coerce_to_i64_toint32`）覆盖 ToIntegerOrInfinity / ToNumber-到-f64-形参
+      / ToString-到-Str-槽 / ToInt32-到-i64-槽 四族；
       接上去的车道有 `copyWithin`/`fill` 的三个界、`Array.p.slice` 的两个界、
       `Math.min`/`max` 的变参、`Math` 全部一元与二元、`padStart`/`padEnd` 的
-      fill 槽、`indexOf`/`lastIndexOf` 的 needle、`String.p.normalize` 的 form。
+      fill 槽、`indexOf`/`lastIndexOf` 的 needle、`String.p.normalize` 的 form、
+      `Math.imul`/`clz32` 的两个整数槽。
+      **第四条路是被一次答错逼出来的**：`clz32` 先被接到 f64 那条路上，
+      收尾 sweep 把 `staging/sm/Math/clz32` 从拒收推成答错；而正确的收束
+      不是把名字留在门外（拒收与答错是同一格之外的两种走法），是给这一族
+      建它自己的路——§7.1.6 的步骤 2 此前由 `FpToSi` 顶替，那是 ToInteger，
+      于是 `Math.clz32(Infinity)` 答 0 而不是 32（`built-ins/Math/clz32/
+      infinity.js` 一直是 `bug`，与本轮无关），运行期 NaN 是 poison。
       **抖出两类 gate 结构性看不见的东西**：① 三处 `Any` 臂都漏了 throw
       check（一个抛出的 `valueOf` 把 pending throw 搁在 NaN 占位符后面）；
       ② `any` 盒子里装着 undefined 时，几个槽把它读成 ToNumber 的 `NaN→0`

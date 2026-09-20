@@ -58,4 +58,23 @@ impl<'a> LowerCtx<'a> {
             || fid == self.intrinsics.math_max
             || fid == self.intrinsics.math_atan2
     }
+
+    /// The int32 family — `Math.imul` / `Math.clz32`. The two
+    /// predicates above answer "does this take the ToNumber-to-f64
+    /// road", and these two do not: §21.3.2.19 / §21.3.2.11 step 1 is
+    /// ToUint32 and their kernels take i64, reading its low 32 bits.
+    /// Membership here and in those two is what
+    /// `check_type_of_call_math_any_widen` asks of every name it
+    /// claims; a name that is in neither reaches a sink that hands a
+    /// boxed operand to an integer slot (`Math.imul(o, 3)` answered
+    /// 12486576 for one rotation).
+    pub(crate) fn math_int32_arity(&self, fid: FuncId) -> Option<usize> {
+        if fid == self.intrinsics.math_imul {
+            Some(2)
+        } else if fid == self.intrinsics.math_clz32 {
+            Some(1)
+        } else {
+            None
+        }
+    }
 }

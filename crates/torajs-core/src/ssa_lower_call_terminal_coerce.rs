@@ -58,6 +58,18 @@ pub(crate) fn coerce_args(
         }
         return Vec::new();
     }
+    // §21.3.2.19 / §21.3.2.11 step 1 is ToUint32, not the ToNumber
+    // the two arms above feed: these kernels take i64 and read its
+    // low 32 bits. Same shape, different sink -- and going through
+    // the generic sig walk below meant `FpToSi`, which is ToInteger:
+    // `Math.clz32(Infinity)` answered 0 instead of 32.
+    if let Some(n) = ctx.math_int32_arity(target) {
+        debug_assert_eq!(argv.len(), n, "Math.* int32 arity");
+        for i in 0..n {
+            argv[i] = ctx.coerce_to_i64_toint32(argv[i]);
+        }
+        return Vec::new();
+    }
     let Some(sig_id) = ctx.fn_sig_ids.get(&target).copied() else {
         return Vec::new();
     };

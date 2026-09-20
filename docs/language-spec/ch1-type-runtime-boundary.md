@@ -414,13 +414,14 @@ emit 那次 throw」;**18 条 any 车道自己也错或根本没路**(`BigInt.as
 #### r678 —— 每个强制转换族只该有**一条路**,车道靠删门接上它
 
 r677 那条边界的正解不是「checker 与 lowering 一起改」,而是**先问那条路在不在**。
-三个族各自早就有一条写好的路,而车道是一条一条接上去的:
+四个族各自都有一条路(前三条早就写好,第四条是本轮建的),而车道是一条一条接上去的:
 
 | 族 | 那条路 | 它自己的 doc 怎么说 |
 |---|---|---|
 | ToNumber / ToIntegerOrInfinity | `LowerCtx::lower_to_number_operand` / `lower_to_index_operand` | 「a lane widens by deleting its shape gate and calling this, rather than by growing one more `Any` admission arm」 |
 | ToNumber 到一个 f64 形参 | `LowerCtx::coerce_to_f64_tonumber`(r678 新建) | `coerce_to_f64` 只发指令不切块,~60 个调用点缓存着块;要跑用户代码的那一档必须另开一个会分叉的入口 |
 | ToString 到一个 Str 槽 | `ssa_lower_str_str_tostring_slot::is_tostring_slot` + 既有的 `coerce_to_str` + park + throw check | r678 把 `replace`/`replaceAll` 写死的那个 `matches!` 换成一个具名谓词,`padStart` 的 fill 槽与 `indexOf` 的 needle 直接接上去 |
+| ToInt32 / ToUint32 到一个 i64 槽 | `LowerCtx::coerce_to_i64_toint32`(r678 新建)+ `math_int32_arity` | 「a lane widens by deleting its shape gate and calling this」—— 与第一条同一句话。它没有前身:这一族此前**根本没有路**,走的是通用 sig walk,也就是 `FpToSi` |
 
 **所以 S0.4 的一条施工记录长这样**:①认出这是哪个强制转换族;②问那条路在不在
 (在 → 只删 checker 的形状门 + 把车道接上去;不在 → 先建路,而建路是一次独立的
@@ -450,8 +451,23 @@ r677 那条边界的正解不是「checker 与 lowering 一起改」,而是**先
 (`__torajs_math_clz32` 是 `(i64)->i64`),它没有被同一次检查抓住,于是收尾 sweep 的
 verdict diff 把 `staging/sm/Math/clz32` 从 `incompatible` 推成 **`bug`** —— 从拒收变成
 答错,比拒收更坏。**可机械执行的形式**:这份名单里的每个名字都必须能在
-`is_math_unary` 或 `is_math_binary` 里找到;那两个判据就是喂给这条 f64 ABI 的东西,
-名单与它们的差集就是接错路的集合。加名字时重做这次取差。
+`is_math_unary`、`is_math_binary` 或 `math_int32_arity` 里找到 —— **那三个谓词就是
+三个 sink 本身**,名单与它们的并集的差集,就是「接到了通用 sig walk 上」的集合。
+加名字时重做这次取差。
+
+**而正确的收束不是把这两个名字留在门外。** 拒收 `Math.clz32({})` 与答错它是同一格
+之外的两种走法(vision §4),两种都不行。这一族缺的是**它自己的那条路**:§7.1.6
+ToInt32 —— 步骤 1 是 ToNumber(已有 `coerce_to_f64_tonumber`,带 throw check),
+步骤 2 才是此前被 `FpToSi` 顶替的那一步。两者不是一回事:`FpToSi` 是 ToInteger,
+它把 `Infinity` 交成 `i64::MAX`(于是 `Math.clz32(Infinity)` 答 0 而不是 32 ——
+**这是一条本仓从 r677 之前就带着的错误答案**,`built-ins/Math/clz32/infinity.js`
+一直是 `bug`),把运行期 NaN 交成 poison(`Math.clz32({})`)。路建起来之后,
+两个名字**回到**放宽名单里,而它们走的是第四条路。
+
+这条路的实现落在 `__torajs_to_int32`,与 §7.1.22 的 `__torajs_to_index` 同名族
+(`__torajs_<抽象操作>`,不带提供它的 crate 前缀),声明也放在同一个 intrinsic
+家族里。它的函数体就是 binop 车道里那份 `to_int32` —— **同一个实现**,binop 那边
+不经过调用直接用它,call-boundary 这边经过它。§7.1.6 在本仓只有一份。
 
 **还有一类与拒收无关、gate 结构性看不见的收获**:同一个族里,`any` 车道常常
 把「`any` 盒子里装着 undefined」读成 ToNumber 的 `NaN → 0`,而规范对某些槽把

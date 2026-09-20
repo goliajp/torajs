@@ -84,6 +84,8 @@ pub(crate) fn try_match(
                 | "min"
                 | "max"
                 | "atan2"
+                | "imul"
+                | "clz32"
         )
     {
         return None;
@@ -110,22 +112,21 @@ pub(crate) fn try_match(
     // asserts one operand.
     let arity_ok = match m_name.as_str() {
         "pow" | "atan2" => args.len() == 2,
-        // NOT `imul`, and NOT `clz32` -- §21.3.2.{19,11} read their
-        // arguments with ToUint32, and `__torajs_math_imul` /
-        // `__torajs_math_clz32` take `(i64, i64)` / `(i64)`. They are
-        // not on this road at all, and `is_math_unary` /
-        // `is_math_binary` -- the f64 ABI the coercion below feeds --
-        // exclude them for the same reason, so a widened call site
-        // hands a boxed operand to an integer slot. Widening `imul`
-        // answered 12486576 for `Math.imul(o, 3)`; widening `clz32`
+        // `imul` / `clz32` are claimed here too, but they do NOT ride
+        // the f64 road: §21.3.2.19 / §21.3.2.11 step 1 is ToUint32 and
+        // their kernels take i64, reading its low 32 bits. Their sink
+        // is `LowerCtx::coerce_to_i64_toint32` and their membership
+        // test is `LowerCtx::math_int32_arity`. Widening them onto the
+        // f64 road first answered 12486576 for `Math.imul(o, 3)` and
         // turned `staging/sm/Math/clz32` from a refusal into a wrong
-        // answer, which is worse. Their family is the int32 sink and
-        // it needs its own knife.
+        // answer, which is worse than the refusal.
         //
-        // Every other name in the list above IS in `is_math_unary` or
-        // `is_math_binary`; that is the membership test to redo
-        // whenever a name is added here.
-        "imul" => false,
+        // That is the standing test for this list: every name in it
+        // must be in `is_math_unary`, `is_math_binary`, or
+        // `math_int32_arity` -- those three ARE the sinks. A name in
+        // none of them reaches the generic sig walk, which coerces by
+        // the declared param type and never runs ToNumber.
+        "imul" => args.len() == 2,
         // `route_globals` runs first and its `math_min_max` arm claims
         // every arity of these two, so this is unreachable today --
         // written down so a route reorder cannot make it silent.

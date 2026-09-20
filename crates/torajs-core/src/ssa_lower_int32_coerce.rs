@@ -94,6 +94,46 @@ impl<'a> LowerCtx<'a> {
         }
     }
 
+    /// §7.1.6 ToInt32 as a sink — the one road into a parameter slot
+    /// whose kernel reads the low 32 bits (`Math.imul` / `Math.clz32`,
+    /// whose §21.3.2.{19,11} step 1 is ToUint32; signed or unsigned is
+    /// the callee's reading of the same word). A lane widens by
+    /// deleting its shape gate and calling this, rather than by
+    /// growing one more `Any` admission arm.
+    ///
+    /// Step 1 is ToNumber, which reaches every value and may run user
+    /// code, so it goes through [`Self::coerce_to_f64_tonumber`] —
+    /// that one throw-checks. Step 2 is the part [`Self::coerce_to_i64`]
+    /// gets wrong: it is ToInteger, so `Infinity` arrives as i64::MAX
+    /// (`Math.clz32(Infinity)` answered 0, not 32) and a runtime NaN
+    /// arrives as poison (`Math.clz32({})`). An operand that is
+    /// already an integer skips both steps: sign-extending its low 32
+    /// bits IS ToInt32, and it keeps `Math.imul(1, 2)` a constant.
+    ///
+    /// There is deliberately no compile-time fold for an f64 constant.
+    /// Folding means writing the modulo-2^32 walk a second time, and
+    /// two copies of a spec step that have to agree is how `1n > true`
+    /// answered `true` for a rotation (r676). The kernel is the one
+    /// implementation; `Math.clz32(Infinity)` pays one call, which is
+    /// not a shape anybody writes in a loop.
+    pub(crate) fn coerce_to_i64_toint32(&mut self, op: Operand) -> Operand {
+        match self.operand_ty(&op) {
+            Type::I64 => return self.emit_to_int32(op),
+            Type::Bool => {
+                let i = self.coerce_bool_to_i64(op);
+                return self.emit_to_int32(i);
+            }
+            _ => {}
+        }
+        let n = self.coerce_to_f64_tonumber(op);
+        Operand::Value(self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.num_to_int32, vec![n]),
+            Type::I64,
+            None,
+        ))
+    }
+
     /// V3-18 m1.h.40 — JS spec §7.1.6 ToInt32 for the bitwise-on-Number
     /// path. Constants fold at compile time (NaN / ±Inf → 0; finite
     /// truncates towards zero); SSA values use FpToSi (matching the
