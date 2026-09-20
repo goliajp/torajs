@@ -95,6 +95,15 @@ pub unsafe extern "C" fn __torajs_any_to_object(v: AnyValue) -> AnyValue {
             let w = unsafe { __torajs_symbol_wrapper_new(ptr as *mut u8) };
             return box_void_ptr(w as *mut c_void);
         }
+        // KNOWN GAP — a BigInt cell falls through to identity here,
+        // so `typeof Object(10n)` answers "bigint" where the spec
+        // and bun answer "object". §7.1.18 lists BigInt among the
+        // primitives that take a wrapper, and there is no BigInt
+        // wrapper type in the runtime yet (Number / Boolean /
+        // String / Symbol each have one). Building it is its own
+        // piece of work — the wrapper needs its own prototype and
+        // `valueOf` — and is filed rather than bodged here.
+        //
         // Identity — hand the caller a fresh +1 on the same cell.
         unsafe { __torajs_rc_inc(ptr) };
         return v;

@@ -38,6 +38,7 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_throw_check() -> i64;
+    fn __torajs_any_to_object(v: u64) -> u64;
     fn __torajs_any_member_get_tag(recv: u64, key: *const c_void) -> u64;
     fn __torajs_any_member_get_value(recv: u64, key: *const c_void) -> u64;
     fn __torajs_any_accessor_get(recv: u64, key: *const c_void, pair_bits: u64) -> u64;
@@ -75,6 +76,36 @@ pub unsafe extern "C" fn __torajs_anyv_assign(target: u64, source: u64) {
     }
     let mut t_slot = target;
     unsafe { copy_own_into(&mut t_slot, source, core::ptr::null()) };
+}
+
+/// §7.1.18 ToObject, the abstract operation — as opposed to
+/// §20.1.1.1 `Object(v)`, which [`__torajs_any_to_object`]
+/// implements and which differs in exactly one arm: `Object(null)`
+/// mints a fresh `{}` while ToObject(null) THROWS. Everything else
+/// is shared, so this is that one arm plus a delegation.
+///
+/// §20.1.2.1 step 1 is the caller: `Object.assign(1, ...)` answers a
+/// Number WRAPPER, not the number — the property writes go onto the
+/// wrapper and the wrapper is the call's result. Answering the
+/// primitive is a wrong value rather than a missing feature, which
+/// is why this sits in front of the walk instead of inside it.
+///
+/// Answers an OWNED value (a fresh wrapper for a primitive, `+1` on
+/// a heap cell). On the throwing arm the input rides back out and
+/// the caller's throw check takes over before it is read.
+///
+/// # Safety
+/// `v` is a live AnyValue bit pattern. Caller must check for a
+/// pending throw.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_object_strict(v: u64) -> u64 {
+    if v == VALUE_NULL_IMM || v == VALUE_UNDEFINED_IMM {
+        unsafe {
+            __torajs_throw_type_error(c"Cannot convert undefined or null to object".as_ptr());
+        }
+        return v;
+    }
+    unsafe { __torajs_any_to_object(v) }
 }
 
 /// `{ ...source }` into the dynobj lane's fresh literal — §7.3.25

@@ -92,7 +92,31 @@ pub(crate) fn try_lower(
             );
             (ctx.box_to_any(Operand::Value(dynobj)), true)
         } else {
-            (target_op, false)
+            // §20.1.2.1 step 1 is ToObject(target), and for a
+            // primitive that means the writes land on a WRAPPER and
+            // the wrapper is what the call answers —
+            // `typeof Object.assign(1, {})` is "object". Handing the
+            // primitive straight to the walk answered the primitive
+            // back, which is a wrong value rather than a missing
+            // feature, and `gate` cannot see it: no fixture here had
+            // a primitive target.
+            //
+            // The kernel throws on nullish, which the walk below also
+            // did — asking it HERE is what §20.1.2.1 orders, and it
+            // keeps the answer owned (a fresh wrapper, or +1 on a
+            // heap cell), so the result needs no second inc.
+            let to = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.anyv_to_object_strict,
+                    vec![target_op.clone()],
+                ),
+                Type::Any,
+                None,
+            );
+            ctx.emit_throw_check(None);
+            ctx.release_owned_temp(args[0], &target_op);
+            (Operand::Value(to), true)
         };
         for src_eid in &args[1..] {
             let s_raw = ctx.lower_expr(*src_eid);

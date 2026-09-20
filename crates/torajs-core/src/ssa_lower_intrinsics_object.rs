@@ -125,6 +125,11 @@ pub(crate) struct ObjectIds {
     /// `Object.assign` any-target runtime walk (§20.1.2.1 [[Get]]/
     /// [[Set]] per own enumerable key; one source per call).
     pub anyv_assign: FuncId,
+    /// §7.1.18 ToObject — the abstract operation, whose null /
+    /// undefined arm THROWS (unlike `any_to_object`, which is
+    /// §20.1.1.1 `Object(v)` and mints a fresh `{}` there).
+    /// §20.1.2.1 step 1 is the caller. Answers an owned value.
+    pub anyv_to_object_strict: FuncId,
     pub str_index_descriptor: FuncId,
     pub anyv_prevent_extensions: FuncId,
     pub anyv_reflect_prevent_extensions: FuncId,
@@ -278,6 +283,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         object_group_by: decl!("__torajs_object_group_by", [Any, Any], Any),
         map_group_by: decl!("__torajs_map_group_by", [Any, Any], Any),
         anyv_assign: decl!("__torajs_anyv_assign", [Any, Any], Void),
+        anyv_to_object_strict: decl!("__torajs_anyv_to_object_strict", [Any], Any),
         str_index_descriptor: decl!("__torajs_anyv_str_index_descriptor", [Ptr, I64], Any),
         anyv_prevent_extensions: decl!("__torajs_anyv_prevent_extensions", [Any], Any),
         anyv_reflect_prevent_extensions: decl!(
