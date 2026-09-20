@@ -59,97 +59,10 @@ pub(crate) fn try_match(
     callee: &ExprId,
     args: &Vec<ExprId>,
 ) -> Option<Result<Type, String>> {
-    // `Object.assign(target, ...sources)` per §20.1.2.1 —
-    // copy own enumerable properties from each source into
-    // target, left-to-right. Subset constraint: target and
-    // every source must be the SAME struct type (no field-
-    // superset / partial / mismatched-shape yet). Static-
-    // resolved at lower time as N×(field-by-field copy).
-    // Returns target so chains like `let r = Object.assign(...)`
-    // type-check. S127-3 extends prior single-source MVP to
-    // N sources (closes the most common Object.assign idiom
-    // — `assign({}, a, b)` merge — without runtime shape work).
-    if let Expr::Member {
-        obj: ns_id,
-        name: m_name,
-    } = ast.get_expr(*callee)
-        && m_name == "assign"
-        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
-        && ns == "Object"
-    {
-        if args.is_empty() {
-            return Some(Err(
-                "Object.assign requires at least a target arg".to_string()
-            ));
-        }
-        let target_ty = match checker.type_of(ast, args[0]) {
-            Ok(t) => unwrap_class(checker, t),
-            Err(e) => return Some(Err(e)),
-        };
-        // An `any` target takes the runtime §20.1.2.1 walk (the
-        // anyv_assign kernel) — sources just need to typecheck; any
-        // shape rides (struct literals box, any sources pass through).
-        //
-        // An empty-struct target (`Object.assign({}, ...)` idiom) has
-        // no slot for any source prop by definition, so the static
-        // subset gate has nothing to check against — route it through
-        // the same runtime walk. SSA-lower allocates a fresh dynobj as
-        // the real target (spec: assign returns target; an empty struct
-        // has no observable identity, so the swap is invisible) and
-        // answers Type::Any.
-        let empty_struct_target = matches!(&target_ty, Type::Struct(f) if f.is_empty());
-        if matches!(target_ty, Type::Any) || empty_struct_target {
-            for src_id in &args[1..] {
-                if let Err(e) = checker.type_of(ast, *src_id) {
-                    return Some(Err(e));
-                }
-            }
-            return Some(Ok(Type::Any));
-        }
-        // Band B — §20.1.2.1 step 1 is ToObject(target), and
-        // ToObject throws on null and undefined. The type is known
-        // right here, so the throw is decided right here rather than
-        // re-derived at run time; the program still compiles and
-        // still throws. See `ssa_lower_spec_throw` and ch1 §4.
-        if matches!(target_ty, Type::Null | Type::Undefined) {
-            return Some(nullish_to_object(checker, ast, eid, &args[1..]));
-        }
-        let Type::Struct(t_fields) = &target_ty else {
-            return Some(Err(format!(
-                "Object.assign target must be a struct, got {target_ty:?}"
-            )));
-        };
-        let sinks = own_property_sink_types(t_fields);
-        for (i, src_id) in args[1..].iter().enumerate() {
-            let source_ty = match checker.type_of(ast, *src_id) {
-                Ok(t) => unwrap_class(checker, t),
-                Err(e) => return Some(Err(e)),
-            };
-            let Type::Struct(s_fields) = &source_ty else {
-                return Some(Err(format!(
-                    "Object.assign source[{i}] must be a struct, got {source_ty:?}"
-                )));
-            };
-            for (key, read_ty) in own_property_types(s_fields) {
-                let Some((_, accepts)) = sinks.iter().find(|(k, _)| *k == key) else {
-                    return Some(Err(format!(
-                        "Object.assign source[{i}] has property `{}`, which the target struct has no slot for; target={target_ty:?}",
-                        key.lossy()
-                    )));
-                };
-                // A get-only target property accepts nothing — the write
-                // is a strict-mode TypeError (ES §10.1.9), which SSA-lower
-                // emits. It is a RUNTIME throw, so it must typecheck.
-                let Some(write_ty) = accepts else { continue };
-                if *write_ty != read_ty {
-                    return Some(Err(format!(
-                        "Object.assign source[{i}] property `{}` is {read_ty:?}, but the target takes {write_ty:?}",
-                        key.lossy()
-                    )));
-                }
-            }
-        }
-        return Some(Ok(target_ty));
+    // `Object.assign` is its own surface with its own subset rules;
+    // it lives next door so this one stays about `Object.values`.
+    if let Some(r) = try_match_assign(checker, ast, eid, callee, args) {
+        return Some(r);
     }
     // `Object.values(obj)` — result Array<T> for a
     // homogeneous struct (T = shared field type), resolved
@@ -250,6 +163,112 @@ pub(crate) fn try_match(
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
         return Some(Ok(Type::Array(Box::new(props[0].1.clone()))));
+    }
+    None
+}
+
+/// `Object.assign(target, ...sources)` per §20.1.2.1 — split out of
+/// [`try_match`] verbatim so each function is about one surface. The
+/// body below is unchanged; `None` means the callee is not this
+/// surface and the caller carries on to `Object.values`.
+fn try_match_assign(
+    checker: &mut Checker,
+    ast: &Ast,
+    eid: ExprId,
+    callee: &ExprId,
+    args: &Vec<ExprId>,
+) -> Option<Result<Type, String>> {
+    // `Object.assign(target, ...sources)` per §20.1.2.1 —
+    // copy own enumerable properties from each source into
+    // target, left-to-right. Subset constraint: target and
+    // every source must be the SAME struct type (no field-
+    // superset / partial / mismatched-shape yet). Static-
+    // resolved at lower time as N×(field-by-field copy).
+    // Returns target so chains like `let r = Object.assign(...)`
+    // type-check. S127-3 extends prior single-source MVP to
+    // N sources (closes the most common Object.assign idiom
+    // — `assign({}, a, b)` merge — without runtime shape work).
+    if let Expr::Member {
+        obj: ns_id,
+        name: m_name,
+    } = ast.get_expr(*callee)
+        && m_name == "assign"
+        && let Expr::Ident(ns) = ast.get_expr(*ns_id)
+        && ns == "Object"
+    {
+        if args.is_empty() {
+            return Some(Err(
+                "Object.assign requires at least a target arg".to_string()
+            ));
+        }
+        let target_ty = match checker.type_of(ast, args[0]) {
+            Ok(t) => unwrap_class(checker, t),
+            Err(e) => return Some(Err(e)),
+        };
+        // An `any` target takes the runtime §20.1.2.1 walk (the
+        // anyv_assign kernel) — sources just need to typecheck; any
+        // shape rides (struct literals box, any sources pass through).
+        //
+        // An empty-struct target (`Object.assign({}, ...)` idiom) has
+        // no slot for any source prop by definition, so the static
+        // subset gate has nothing to check against — route it through
+        // the same runtime walk. SSA-lower allocates a fresh dynobj as
+        // the real target (spec: assign returns target; an empty struct
+        // has no observable identity, so the swap is invisible) and
+        // answers Type::Any.
+        let empty_struct_target = matches!(&target_ty, Type::Struct(f) if f.is_empty());
+        if matches!(target_ty, Type::Any) || empty_struct_target {
+            for src_id in &args[1..] {
+                if let Err(e) = checker.type_of(ast, *src_id) {
+                    return Some(Err(e));
+                }
+            }
+            return Some(Ok(Type::Any));
+        }
+        // Band B — §20.1.2.1 step 1 is ToObject(target), and
+        // ToObject throws on null and undefined. The type is known
+        // right here, so the throw is decided right here rather than
+        // re-derived at run time; the program still compiles and
+        // still throws. See `ssa_lower_spec_throw` and ch1 §4.
+        if matches!(target_ty, Type::Null | Type::Undefined) {
+            return Some(nullish_to_object(checker, ast, eid, &args[1..]));
+        }
+        let Type::Struct(t_fields) = &target_ty else {
+            return Some(Err(format!(
+                "Object.assign target must be a struct, got {target_ty:?}"
+            )));
+        };
+        let sinks = own_property_sink_types(t_fields);
+        for (i, src_id) in args[1..].iter().enumerate() {
+            let source_ty = match checker.type_of(ast, *src_id) {
+                Ok(t) => unwrap_class(checker, t),
+                Err(e) => return Some(Err(e)),
+            };
+            let Type::Struct(s_fields) = &source_ty else {
+                return Some(Err(format!(
+                    "Object.assign source[{i}] must be a struct, got {source_ty:?}"
+                )));
+            };
+            for (key, read_ty) in own_property_types(s_fields) {
+                let Some((_, accepts)) = sinks.iter().find(|(k, _)| *k == key) else {
+                    return Some(Err(format!(
+                        "Object.assign source[{i}] has property `{}`, which the target struct has no slot for; target={target_ty:?}",
+                        key.lossy()
+                    )));
+                };
+                // A get-only target property accepts nothing — the write
+                // is a strict-mode TypeError (ES §10.1.9), which SSA-lower
+                // emits. It is a RUNTIME throw, so it must typecheck.
+                let Some(write_ty) = accepts else { continue };
+                if *write_ty != read_ty {
+                    return Some(Err(format!(
+                        "Object.assign source[{i}] property `{}` is {read_ty:?}, but the target takes {write_ty:?}",
+                        key.lossy()
+                    )));
+                }
+            }
+        }
+        return Some(Ok(target_ty));
     }
     None
 }
