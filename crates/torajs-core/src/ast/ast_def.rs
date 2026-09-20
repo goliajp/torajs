@@ -247,6 +247,14 @@ pub struct Ast {
     /// S = false, so a sloppy function's write to it is a silent
     /// no-op, while a write to a const throws in sloppy code too.
     pub const_writes: std::collections::HashSet<ExprId>,
+    /// Inits `desugar_uninit_let` SPLICED in — the binding was
+    /// written `let x;` and the first `x = EXPR` was promoted into
+    /// its init slot. After that rewrite the two spellings are
+    /// indistinguishable in the arena, and tsc judges them
+    /// differently: `var o; o = {j(){}}; o = {}` is an evolving
+    /// `any` and accepted, while `var o = {j(){}}; o = {}` is
+    /// TS2741. [`crate::let_widen`] is the reader.
+    pub spliced_uninit_inits: std::collections::HashSet<ExprId>,
     /// Operations the CHECKER proved can only throw, with the message
     /// to throw. `docs/language-spec/ch1-type-runtime-boundary.md`
     /// calls this band B: the spec defines a runtime behaviour for the

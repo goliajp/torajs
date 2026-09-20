@@ -278,7 +278,7 @@ impl Walker<'_> {
         for scope in self.scopes.iter().rev() {
             match scope.get(name) {
                 Some(Binding::Tracked { init, family }) => {
-                    if *family != rhs {
+                    if *family != rhs || self.object_shapes_disagree(*init, value) {
                         self.out.insert(*init);
                     }
                     return;
@@ -288,4 +288,56 @@ impl Walker<'_> {
             }
         }
     }
+
+    /// Two object literals assigned to the same binding are the same
+    /// `Family::Obj`, and for a binding WITH an initializer that is
+    /// the right answer: the init gave it a declared type, and
+    /// whether the second literal fits is the checker's question
+    /// (tsc agrees — `var o = {j(){}}; o = {}` is TS2741).
+    ///
+    /// A binding written `let x;` has no declared type to fit. tsc
+    /// types it as an evolving `any` and accepts every shape;
+    /// `desugar_uninit_let` hides the difference by promoting the
+    /// first assignment into the init slot, so the two spellings
+    /// arrive here looking alike and `Ast::spliced_uninit_inits` is
+    /// what tells them apart.
+    ///
+    /// Keyed on the field NAMES only, and that is a BOUNDARY rather
+    /// than agreement with tsc: an evolving `any` accepts every
+    /// shape, so tsc takes `val = {toString(){return {}}}` followed
+    /// by `val = {toString(){}}` as well, and tr still refuses it
+    /// (test262 `built-ins/Symbol/desc-to-string`). Telling those
+    /// two apart needs the VALUE types, which this pass runs too
+    /// early to have. The module doc's rule applies — a shape the
+    /// judgment misses keeps today's loud reject, never a silent
+    /// wrong — and widening on names alone is as far as a syntactic
+    /// judgment reaches.
+    fn object_shapes_disagree(&self, init: ExprId, value: ExprId) -> bool {
+        if !self.ast.spliced_uninit_inits.contains(&init) {
+            return false;
+        }
+        match (obj_keys(self.ast, init), obj_keys(self.ast, value)) {
+            (Some(a), Some(b)) => a != b,
+            _ => false,
+        }
+    }
+}
+
+/// The sorted field names of an object literal, or `None` for
+/// anything else. Computed keys carry no static name and make the
+/// shape unknowable, so a literal holding one answers `None` and
+/// never disagrees with anything.
+fn obj_keys(ast: &Ast, e: ExprId) -> Option<Vec<String>> {
+    let Expr::ObjectLit { fields } = ast.get_expr(strip_as(ast, e)) else {
+        return None;
+    };
+    let mut out = Vec::with_capacity(fields.len());
+    for (k, v) in fields {
+        if ast.objlit_computed_keys.contains_key(v) {
+            return None;
+        }
+        out.push(format!("{k:?}"));
+    }
+    out.sort_unstable();
+    Some(out)
 }

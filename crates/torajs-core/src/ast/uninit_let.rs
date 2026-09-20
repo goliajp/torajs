@@ -226,6 +226,10 @@ fn rewrite_uninit_in_stmts(stmts: &mut Vec<Stmt>, ast: &mut Ast, undef_eid: Expr
                 if let Stmt::LetDecl { init, .. } = &mut decl {
                     *init = value;
                 }
+                // The binding had NO initializer as written, and that
+                // is a typing fact this rewrite would otherwise erase
+                // — see `Ast::spliced_uninit_inits`.
+                ast.spliced_uninit_inits.insert(value);
                 // stmt_idx shifted down by the remove above.
                 stmts[stmt_idx - 1] = decl;
                 // The replaced assignment's Assign node and its
