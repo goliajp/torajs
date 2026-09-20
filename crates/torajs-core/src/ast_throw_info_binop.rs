@@ -47,7 +47,6 @@ fn is_arith_safe_primitive(t: Option<&crate::check::Type>) -> bool {
     )
 }
 
-
 /// Whether a binary operator with these operand types can record a
 /// throw. Two independent reasons, and the arm needs either.
 pub(crate) fn binop_raises(

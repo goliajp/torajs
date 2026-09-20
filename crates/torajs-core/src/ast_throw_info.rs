@@ -289,7 +289,11 @@ pub(crate) fn scan_expr(
             if ast.spec_throws.contains_key(&eid) {
                 *direct = true;
             }
-            if crate::ast_throw_info_binop::binop_raises(*op, expr_types.get(left), expr_types.get(right)) {
+            if crate::ast_throw_info_binop::binop_raises(
+                *op,
+                expr_types.get(left),
+                expr_types.get(right),
+            ) {
                 *direct = true;
             }
             scan_expr(ast, *left, out, direct, fn_values, expr_types);
