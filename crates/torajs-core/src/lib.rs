@@ -681,4 +681,5 @@ pub(crate) mod ssa_lower_undef_f64_source;
 pub mod ssa_lower_while_push_fast;
 pub mod staticlibs;
 pub(crate) mod type_ann_fnsig;
+pub(crate) mod typed_census;
 pub(crate) mod undef_f64_fields;
