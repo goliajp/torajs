@@ -45,12 +45,15 @@ pub(crate) unsafe fn own_entry_not_callable(
             }
             let info = __torajs_struct_field_info(layout, idx);
             let raw = (obj.cast::<u8>().add(info.field_byte_offset as usize) as *const u64).read();
-            let pair = match info.type_tag {
-                FIELD_TAG_ANY => closure_boxed_entry(raw),
-                FIELD_TAG_CLOSURE => closure_cell_entry(raw as *mut c_void),
-                _ => None,
-            };
-            pair.is_none()
+            match info.type_tag {
+                // §7.2.3 over the field's value. A Closure-typed slot
+                // holds a bare cell, which is callable by its type;
+                // an Any-typed one can hold any of the callable
+                // shapes, class objects included.
+                FIELD_TAG_ANY => !crate::construct::is_callable(raw),
+                FIELD_TAG_CLOSURE => closure_cell_entry(raw as *mut c_void).is_none(),
+                _ => true,
+            }
         } else {
             let key = name_str as *const c_void;
             let dtag = __torajs_dynobj_get_tag(obj, key);
@@ -79,7 +82,7 @@ pub(crate) unsafe fn own_entry_not_callable(
             }
             if dtag == 4 {
                 let cell = __torajs_dynobj_get_value(obj, key);
-                return closure_boxed_entry(cell).is_none();
+                return !crate::construct::is_callable(cell);
             }
             true
         }
@@ -106,7 +109,7 @@ pub(crate) unsafe fn arr_own_entry_not_callable(arr: *mut c_void, name_str: *con
         }
         if dtag == 4 {
             let cell = __torajs_arrprops_get_value(arr, key);
-            return closure_boxed_entry(cell).is_none();
+            return !crate::construct::is_callable(cell);
         }
         true
     }
