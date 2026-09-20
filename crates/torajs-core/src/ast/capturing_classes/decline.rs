@@ -26,19 +26,11 @@ use super::computed_keys::{key_binding, own_computed_members, sentinel_index};
 /// has to ask before it commits. [`super::try_rewrite_capturing_class`]
 /// answers by recording a decline reason the checker later reports,
 /// which would then name a class that went on to hoist fine.
-pub(crate) fn would_claim(
-    ast: &Ast,
-    s: &Stmt,
-    name_counts: &std::collections::HashMap<String, u32>,
-) -> bool {
-    let Stmt::ClassDecl { name, .. } = s else {
-        return false;
-    };
-    let name_unique = name_counts.get(name).copied().unwrap_or(0) <= 1;
-    decline_reason(ast, s, name_unique).is_none()
+pub(crate) fn would_claim(ast: &Ast, s: &Stmt) -> bool {
+    decline_reason(ast, s).is_none()
 }
 
-pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&'static str> {
+pub(super) fn decline_reason(ast: &Ast, s: &Stmt) -> Option<&'static str> {
     let Stmt::ClassDecl {
         name,
         decl_id: _,
@@ -114,22 +106,13 @@ pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&
     // key rides the same `__ccmk_<C>_<n>` binding a computed method
     // reads, and the store is `Object.defineProperty(K, key, { data
     // descriptor })` (CreateDataProperty's attributes), whose target
-    // and key are receiver-safe positions. What still gates it is
-    // OWNERSHIP: the side-table rows match by class NAME and the
-    // field leaves no trace on the class itself, so a name shared by
-    // two ClassDecls could install a sibling's fields — the silent
-    // direction. The hoist's program-wide census answers uniqueness.
-    if !name_unique
-        && ast
-            .class_computed_static_fields
-            .iter()
-            .any(|(c, _, _)| c == name)
-    {
-        return Some(
-            "it has a static field with a computed name and shares its class name \
-             with another class",
-        );
-    }
+    // and key are receiver-safe positions. Ownership used to gate it:
+    // the side-table rows matched by class NAME and the field leaves
+    // no trace on the class itself, so a name shared by two ClassDecls
+    // could install a sibling's fields. RFC 20260921 records the owner
+    // at the sentinel, so the lane reads its own rows and the refusal
+    // is gone — with it, the statics of a same-named class stop being
+    // deferred to the shared hoist, which ran them at program end.
     if let Some(m) = methods.iter().chain(static_methods.iter()).find(|m| {
         m.is_abstract
             || m.visibility != Visibility::Public
@@ -292,7 +275,7 @@ pub(crate) fn unclaimed_class_message(ast: &Ast, s: &Stmt) -> String {
         // Fallback re-decision has no census in hand — `false` takes
         // the conservative arm, and the recorded reason above is the
         // normal path anyway.
-        .or_else(|| decline_reason(ast, s, false))
+        .or_else(|| decline_reason(ast, s))
         .unwrap_or("the class desugar did not claim it");
     // A `__ClassExpr_<id>` here is a class EXPRESSION the parser
     // spliced next to its use site (393-01) — that spelling means

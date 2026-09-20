@@ -66,7 +66,7 @@ mod computed_keys;
 pub(crate) mod decline;
 mod extends;
 
-use super::{Ast, Expr, ExprId, Stmt};
+use super::{Ast, Expr, Stmt};
 
 mod install;
 mod own_binding;
@@ -142,13 +142,8 @@ pub(super) fn try_rewrite_capturing_class(
     stmts: &mut [Stmt],
     idx: usize,
     counter: &mut u32,
-    name_counts: &std::collections::HashMap<String, u32>,
 ) -> bool {
-    let name_unique = match &stmts[idx] {
-        Stmt::ClassDecl { name, .. } => name_counts.get(name).copied().unwrap_or(0) <= 1,
-        _ => false,
-    };
-    if let Some(why) = decline_reason(ast, &stmts[idx], name_unique) {
+    if let Some(why) = decline_reason(ast, &stmts[idx]) {
         // Record it HERE, where the decision is made. The checker is
         // what finally reports it, and by then the tree has moved.
         if let Stmt::ClassDecl { name, .. } = &stmts[idx] {
@@ -213,6 +208,7 @@ pub(super) fn try_rewrite_capturing_class(
 fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> Stmt {
     let Stmt::ClassDecl {
         name,
+        decl_id,
         parent,
         fields,
         ctor,
@@ -237,7 +233,7 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     if let Some(pid) = parent_id {
         ast.tombstone_expr(pid);
     }
-    install::drop_static_this_sites(ast, src_name, &static_methods, &static_init);
+    install::drop_static_this_sites(ast, decl_id, &static_methods, &static_init);
     let outer = name;
     let name = inner;
     // §15.7.14 evaluates every ComputedPropertyName once, in element
@@ -245,25 +241,12 @@ fn lower_to_es5(ast: &mut Ast, class: Stmt, src_name: &str, inner: String) -> St
     // an initializer does, because those run later (on call, on
     // construction). So all the keys come first, and what the class
     // body says about them is a read of the binding.
-    let ctor_body: &[Stmt] = ctor.as_ref().map_or(&[], |c| c.body.as_slice());
-    let member_names: Vec<&str> = methods
-        .iter()
-        .chain(static_methods.iter())
-        .filter_map(|m| m.name.as_str())
-        .collect();
-    // Computed STATIC fields (406-02) — their sentinels come from the
-    // side table by class name; `decline_reason` admits them only for
-    // a program-unique name, so the rows are provably this class's.
-    let static_cf: Vec<(usize, ExprId)> = ast
-        .class_computed_static_fields
-        .iter()
-        .filter(|(c, _, _)| c == src_name)
-        .filter_map(|(_, sent, init)| sentinel_index(sent).map(|n| (n, *init)))
-        .collect();
-    let mut own = own_computed_members(ast, src_name, ctor_body, &member_names);
-    own.extend(static_cf.iter().map(|(n, _)| *n));
-    own.sort_unstable();
-    own.dedup();
+    let (own, static_cf) = computed_keys::own_members_and_static_fields(
+        ast,
+        (src_name, decl_id),
+        ctor.as_ref().map_or(&[], |c| c.body.as_slice()),
+        (&methods, &static_methods),
+    );
     let mut out: Vec<Stmt> = Vec::new();
     // §15.7.14 step 5 (rotation 410) — a value-shaped heritage is
     // gated at class-definition time, BEFORE any member key

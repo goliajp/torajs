@@ -210,7 +210,7 @@ pub(super) fn define_member(
 /// class object as that ordinary receiver.
 pub(super) fn drop_static_this_sites(
     ast: &mut Ast,
-    src_name: &str,
+    decl_id: u32,
     static_methods: &[ClassMethod],
     static_init: &[StaticInit],
 ) {
@@ -221,7 +221,7 @@ pub(super) fn drop_static_this_sites(
     let computed_inits: Vec<ExprId> = ast
         .class_computed_static_fields
         .iter()
-        .filter(|(c, _, _)| c == src_name)
+        .filter(|(_, sent, _)| super::super::class_computed_owner::owns(ast, sent, decl_id))
         .map(|(_, _, init)| *init)
         .collect();
     let init_bodies: Vec<Vec<Stmt>> = static_init

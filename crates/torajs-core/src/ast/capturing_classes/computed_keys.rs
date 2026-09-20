@@ -95,3 +95,35 @@ pub(crate) fn keys_of(ast: &Ast, cname: &str, ns: &[usize]) -> Vec<(usize, ExprI
         })
         .collect()
 }
+
+/// The computed members this class declares, and the `(n, init)` rows
+/// of its computed STATIC fields — the two halves the ES5 lowering
+/// needs, lifted out of `lower_to_es5` at the size cap.
+///
+/// The static half is asked by OWNER (RFC 20260921): the side table is
+/// keyed by class name, and until the owner was recorded the lane had
+/// to refuse a class whose name another ClassDecl shared, because the
+/// rows it read could have been theirs.
+pub(crate) fn own_members_and_static_fields(
+    ast: &Ast,
+    (src_name, decl_id): (&str, u32),
+    ctor_body: &[Stmt],
+    (methods, static_methods): (&[crate::ast::ClassMethod], &[crate::ast::ClassMethod]),
+) -> (Vec<usize>, Vec<(usize, ExprId)>) {
+    let member_names: Vec<&str> = methods
+        .iter()
+        .chain(static_methods.iter())
+        .filter_map(|m| m.name.as_str())
+        .collect();
+    let static_cf: Vec<(usize, ExprId)> = ast
+        .class_computed_static_fields
+        .iter()
+        .filter(|(_, sent, _)| crate::ast::class_computed_owner::owns(ast, sent, decl_id))
+        .filter_map(|(_, sent, init)| sentinel_index(sent).map(|n| (n, *init)))
+        .collect();
+    let mut own = own_computed_members(ast, src_name, ctor_body, &member_names);
+    own.extend(static_cf.iter().map(|(n, _)| *n));
+    own.sort_unstable();
+    own.dedup();
+    (own, static_cf)
+}

@@ -95,7 +95,6 @@ pub(super) fn hoist_nested_classes(ast: &mut Ast) {
                 &mut stmts,
                 idx,
                 &mut counter,
-                &name_counts.classes,
             );
         }
     }
@@ -229,23 +228,13 @@ pub(super) fn walk_container(
         if !class_is_capture_free(ast, &stmts[idx], top_names)
             || (observable
                 && !unit_shape
-                && super::capturing_classes::decline::would_claim(
-                    ast,
-                    &stmts[idx],
-                    &name_counts.classes,
-                ))
+                && super::capturing_classes::decline::would_claim(ast, &stmts[idx]))
         {
             // The other half: a class that DOES read an outer local
             // cannot be lifted, and takes the runtime-value lane
             // instead (RFC 20260814-capturing-nested-class). Whatever
             // that lane declines stays here and stays loud.
-            super::capturing_classes::try_rewrite_capturing_class(
-                ast,
-                stmts,
-                idx,
-                counter,
-                &name_counts.classes,
-            );
+            super::capturing_classes::try_rewrite_capturing_class(ast, stmts, idx, counter);
             continue;
         }
         let old_name = match &stmts[idx] {
@@ -304,7 +293,7 @@ pub(super) fn walk_container(
                 stmts,
                 idx,
                 counter,
-                (name_counts, &hoisted[lifted_start..], &binding),
+                (&hoisted[lifted_start..], &binding),
             )
         {
             top_names.pop();
@@ -373,11 +362,7 @@ fn in_place_for_statics(
     stmts: &mut [Stmt],
     idx: usize,
     counter: &mut u32,
-    (names, lifted, name): (
-        &super::hoist_nested_classes_census::NameCensus,
-        &[Stmt],
-        &str,
-    ),
+    (lifted, name): (&[Stmt], &str),
 ) -> bool {
     let mut occ = super::class_unit_census::Occurrences::default();
     for s in lifted
@@ -387,12 +372,6 @@ fn in_place_for_statics(
         occ.stmt(ast, s, name);
     }
     occ.name == 0
-        && super::capturing_classes::decline::would_claim(ast, &stmts[idx], &names.classes)
-        && super::capturing_classes::try_rewrite_capturing_class(
-            ast,
-            stmts,
-            idx,
-            counter,
-            &names.classes,
-        )
+        && super::capturing_classes::decline::would_claim(ast, &stmts[idx])
+        && super::capturing_classes::try_rewrite_capturing_class(ast, stmts, idx, counter)
 }
