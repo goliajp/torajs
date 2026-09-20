@@ -48,10 +48,18 @@ pub(crate) unsafe fn class_ctor_method(
             return None;
         }
         let src = class_source_lookup(ptr);
-        if src.is_null() {
+        if !src.is_null() {
+            return Some(crate::nanbox_encode::__torajs_anyv_box_pointer(src));
+        }
+        // No recorded source — an injected class, which is what every
+        // builtin constructor read as a value is. §20.2.3.5's other
+        // branch is the native form, not the empty string that a
+        // fall-through here answered.
+        let native = class_native_form_lookup(ptr);
+        if native.is_null() {
             return None;
         }
-        Some(crate::nanbox_encode::__torajs_anyv_box_pointer(src))
+        Some(crate::nanbox_encode::__torajs_anyv_box_pointer(native))
     }
 }
 
@@ -72,5 +80,23 @@ unsafe fn class_source_lookup(cell: *const c_void) -> *mut c_void {
 #[cfg(test)]
 #[inline]
 unsafe fn class_source_lookup(_cell: *const c_void) -> *mut c_void {
+    core::ptr::null_mut()
+}
+
+/// torajs-meta's native-form twin of [`class_source_lookup`] — same
+/// table, the row's name instead of its source. Test stub for the
+/// same reason.
+#[cfg(not(test))]
+#[inline]
+unsafe fn class_native_form_lookup(cell: *const c_void) -> *mut c_void {
+    unsafe extern "C" {
+        fn __torajs_class_native_form_for_cell(cell: *const c_void) -> *mut c_void;
+    }
+    unsafe { __torajs_class_native_form_for_cell(cell) }
+}
+
+#[cfg(test)]
+#[inline]
+unsafe fn class_native_form_lookup(_cell: *const c_void) -> *mut c_void {
     core::ptr::null_mut()
 }

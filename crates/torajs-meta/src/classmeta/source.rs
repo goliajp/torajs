@@ -13,6 +13,22 @@ use core::ffi::c_void;
 
 use super::{MAX_CLASSES, in_range};
 
+/// Borrowed `(ptr, len)` over static name bytes — torajs-structmeta's
+/// `__torajs_struct_class_name` return shape (`instanceof_generic`
+/// keeps the same local mirror).
+#[repr(C)]
+struct StrSlice {
+    ptr: *const u8,
+    len: usize,
+}
+
+unsafe extern "C" {
+    /// torajs-structmeta — the class-name table row for `class_tag`.
+    fn __torajs_struct_class_name(class_tag: u32) -> StrSlice;
+    /// torajs-fnname — mint `function <name>() { [native code] }`.
+    fn __torajs_fn_native_form_str(name_ptr: *const u8, name_len: u32) -> *mut u8;
+}
+
 // Same shape as PROTOS_BY_TAG_IMM / CLASSES_BY_TAG_IMM: a
 // process-lifetime, single-threaded-runtime static table written by
 // direct indexing only (rust 2024 `static_mut_refs` posture — see
@@ -48,5 +64,34 @@ pub extern "C" fn __torajs_class_source_for_cell(cell: *const c_void) -> *mut c_
         -1 => core::ptr::null_mut(),
         // SAFETY: an in-range tag (the scan / record check bounds it).
         tag => unsafe { CLASS_SOURCE_BY_TAG[tag as usize] as *mut c_void },
+    }
+}
+
+/// The §20.2.3.5 native form for a registered class that recorded no
+/// source — `function Error() { [native code] }`. This is the
+/// fallback the module doc above names: an injected class (every
+/// builtin constructor read as a value is one) has no span into the
+/// user program, and answering an empty string there is not the
+/// spec's other branch, it is a missing one.
+///
+/// NULL when `cell` is no registered class or its tag has no name
+/// row, so the caller's existing miss path is unchanged.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_class_native_form_for_cell(cell: *const c_void) -> *mut c_void {
+    if cell.is_null() {
+        return core::ptr::null_mut();
+    }
+    let tag = super::intrinsic::tag_of_class_cell(cell);
+    if tag < 0 {
+        return core::ptr::null_mut();
+    }
+    // SAFETY: the two kernels read a table row and mint a Str; the
+    // slice they hand back points at immortal rodata name bytes.
+    unsafe {
+        let name = __torajs_struct_class_name(tag as u32);
+        if name.ptr.is_null() || name.len == 0 {
+            return core::ptr::null_mut();
+        }
+        __torajs_fn_native_form_str(name.ptr, name.len as u32) as *mut c_void
     }
 }
