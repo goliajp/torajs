@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T21:24:21.598Z",
+  "generatedAt": "2026-09-20T23:37:19.907Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T21:11:59Z",
-    "headSha": "a76e3988c",
-    "elapsedSec": 534.14,
+    "ranAt": "2026-09-20T23:25:55Z",
+    "headSha": "01f75cd77",
+    "elapsedSec": 547.59,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34395,
+    "pass": 34407,
     "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40682,
-    "bug": 8558,
+    "passTotal": 40694,
+    "bug": 8546,
     "incompatible": 3934,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49240,
-    "passRateInScope": 76.51,
-    "passRateTrAccepted": 82.62
+    "passRateInScope": 76.53,
+    "passRateTrAccepted": 82.64
   },
   "torajs": {
-    "commit": "5118547f3",
-    "commitSubject": "chore(hardev): file-size stamp on the clean rotation 680 tree",
+    "commit": "806554f75",
+    "commitSubject": "chore(hardev): rotation 681 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "5118547f3",
-      "subject": "chore(hardev): file-size stamp on the clean rotation 680 tree"
+      "hash": "806554f75",
+      "subject": "chore(hardev): rotation 681 close stamps"
     },
     {
-      "hash": "e85504e4e",
-      "subject": "chore(hardev): rotation 680 close stamps"
+      "hash": "760a85cd9",
+      "subject": "chore(hardev): file-size stamp on the clean rotation 681 tree"
     },
     {
-      "hash": "a76e3988c",
-      "subject": "fix: freeze and seal begin at PreventExtensions, and it can refuse"
+      "hash": "01f75cd77",
+      "subject": "fix: Reflect.apply takes a Proxy target"
     },
     {
-      "hash": "c84ebbc46",
-      "subject": "chore(hardev): sync to the build host by content, not by git status"
+      "hash": "5f422c95a",
+      "subject": "fix: instanceof knows a Proxy is callable"
     },
     {
-      "hash": "b465e4d9f",
-      "subject": "fix: subarray over a detached buffer is a TypeError, not a view"
+      "hash": "56363959c",
+      "subject": "fix: OrdinaryToPrimitive's IsCallable probe reads the shared predicate"
     },
     {
-      "hash": "85023856a",
-      "subject": "fix: instanceof reads the prototype's type, not just its address"
+      "hash": "df9facd30",
+      "subject": "fix: the promise lane's IsCallable was asking a different question"
     },
     {
-      "hash": "d213cfec4",
-      "subject": "refactor: OrdinaryHasInstance over a value target moves next door"
+      "hash": "71064d89d",
+      "subject": "fix: Symbol, BigInt and RegExp join the builtin-ctor call table"
     },
     {
-      "hash": "25b660dc9",
-      "subject": "fix: a heap cell is not the same question as an Object"
+      "hash": "930d1f9b6",
+      "subject": "refactor: lastIndex-as-a-property moves out of regex lifecycle"
     },
     {
-      "hash": "bfc5fe414",
-      "subject": "fix: ArrayBuffer and DataView join the receiver brand gate"
+      "hash": "6af998721",
+      "subject": "fix: a Proxy over a class is callable, like its target"
     },
     {
-      "hash": "dd926f4f5",
-      "subject": "fix: BigInt and Function join the ThisXValue brand gate"
+      "hash": "c73f09317",
+      "subject": "fix: a class object in a call position runs §10.2.1 step 2"
     },
     {
-      "hash": "3c7075262",
-      "subject": "fix: the IsRegExp needle slot gets a road, so an any needle stops crashing"
+      "hash": "ef0c80840",
+      "subject": "fix: ArrayBuffer.prototype.slice constructs with the species it resolved"
     },
     {
-      "hash": "d3487f022",
-      "subject": "refactor: the ThisXValue receiver shapes move next door"
+      "hash": "e9ae73354",
+      "subject": "fix: a builtin constructor's toString is the native form, not empty"
     }
   ],
-  "headSha": "5118547f3",
+  "headSha": "806554f75",
   "autorun": {
-    "total": 983,
+    "total": 984,
     "baselineTarget": 10,
-    "bySelf": 978,
+    "bySelf": 979,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789924395-5692",
-      "at": "2026-09-20T17:13:15Z",
-      "ts": 1789924395,
+      "rotationId": "r-1789939476-6ce1",
+      "at": "2026-09-20T21:24:36Z",
+      "ts": 1789939476,
       "trigger": "self",
-      "prevHead": "09c571d91",
-      "handoffSha": "sha256:36291793f7ec6038b56ed8cb0b1994099e8a799c9f997ddf13c82b085f9806b0",
-      "handoffAgeSec": 13,
-      "conformanceBefore": "4400/0/4",
-      "commitsInSession": 14
+      "prevHead": "4682d5531",
+      "handoffSha": "sha256:16fe49c5908b6cdb5364ca5087dd8a0e25fe80b25c8588cbf7f580e2ea22c74e",
+      "handoffAgeSec": 11,
+      "conformanceBefore": "4408/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789939476-6ce1",
+        "at": "2026-09-20T21:24:36Z",
+        "ts": 1789939476,
+        "trigger": "self",
+        "prevHead": "4682d5531",
+        "handoffSha": "sha256:16fe49c5908b6cdb5364ca5087dd8a0e25fe80b25c8588cbf7f580e2ea22c74e",
+        "handoffAgeSec": 11,
+        "conformanceBefore": "4408/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789924395-5692",
         "at": "2026-09-20T17:13:15Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:fe6972cd51f0745c08687d04b9a3fe3748a9ecf6928db35d3bb6c0a099b71562",
         "handoffAgeSec": 17,
         "conformanceBefore": "4345/0/4",
-        "commitsInSession": 16
-      },
-      {
-        "rotationId": "r-1789768413-0ae3",
-        "at": "2026-09-18T21:53:33Z",
-        "ts": 1789768413,
-        "trigger": "self",
-        "prevHead": "799d4514c",
-        "handoffSha": "sha256:1b5fddbb10717330b3f32b0b92fbee674f2e35f14841905f3f38f6b990abe25c",
-        "handoffAgeSec": 40,
-        "conformanceBefore": "4336/0/4",
         "commitsInSession": 16
       }
     ],
