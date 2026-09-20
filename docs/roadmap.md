@@ -8222,6 +8222,20 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
 
+**S0 的边界（2026-09-20 实测划出）。** 用判据 2 抽样 F3 时发现：它的
+运行期语义**不全是**对的。5 条里 2 条 tr 的 any 车道本身就错 ——
+`Object.assign(t, {a:1})`（t 为 `"x"`）不该抛却抛 TypeError（§20.1.2.1
+ToObject 给出 String 包装对象，它接得住这个属性）；`BigInt(v)`（v 为
+`{}`）该抛 SyntaxError 却抛 TypeError（§21.2.1.1；`any_to_bigint` 的
+String 分支写得是对的，所以真因在 `heap_to_primitive` 对 struct 的处理，
+未定位）。
+
+**这类不在 S0 范围内**：S0 管的是「运行期是对的，而 checker 不让它跑」；
+运行期本身错的是**底层机制缺口**，要先修运行期，然后才谈 typed 直出。
+两条已登记，归 L1。逐条落档（S0.1）因此必须**对每条跑一次判据 2**，
+不能按族批量判——族只决定先问哪个问题。详见
+`docs/language-spec/ch1-type-runtime-boundary.md` §3.1。
+
 #### S1 — `new` on a function, and the `this` that comes with it
 
 **The single largest structural gap found.** A three-line ES5
