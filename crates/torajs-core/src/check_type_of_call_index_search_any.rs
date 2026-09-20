@@ -54,7 +54,18 @@ pub(crate) fn try_match(
     let Type::Array(elem) = src_ty else {
         return None;
     };
-    if !matches!(*elem, Type::Number | Type::String) {
+    // The element side takes the same reasoning the needle side
+    // already got: §7.2.15 compares by TYPE first, so the element's
+    // own type is no more special than the needle's. What the arm
+    // needs is only that the element packs as a `(tag, value)` pair,
+    // which every immediate does — `[true, false].indexOf(1)` is -1,
+    // not a type error, and nine test262 cases stop on exactly this
+    // bar with `[undefined, undefined]` or `[true, false]`
+    // receivers.
+    if !matches!(
+        *elem,
+        Type::Number | Type::String | Type::Boolean | Type::Undefined | Type::Null
+    ) {
         return None;
     }
     let needle_ty = match checker.type_of(ast, args[0]) {
