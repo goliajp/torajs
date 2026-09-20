@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T08:53:12.672Z",
+  "generatedAt": "2026-09-20T12:29:42.010Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T08:41:12Z",
-    "headSha": "65eba90cc",
-    "elapsedSec": 540.47,
+    "ranAt": "2026-09-20T12:12:40Z",
+    "headSha": "a10d94e62",
+    "elapsedSec": 548.47,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34277,
-    "passNoOracle": 1711,
+    "pass": 34305,
+    "passNoOracle": 1714,
     "passNegative": 4568,
-    "passTotal": 40556,
+    "passTotal": 40587,
     "bug": 8589,
-    "incompatible": 4029,
+    "incompatible": 3998,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49145,
-    "passRateInScope": 76.27,
-    "passRateTrAccepted": 82.52
+    "trAccepted": 49176,
+    "passRateInScope": 76.33,
+    "passRateTrAccepted": 82.53
   },
   "torajs": {
-    "commit": "f6e928b6a",
-    "commitSubject": "chore(hardev): rotation close stamps @ 65eba90cc",
+    "commit": "c5d62050c",
+    "commitSubject": "chore(hardev): rotation close stamps @ a10d94e62",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "f6e928b6a",
-      "subject": "chore(hardev): rotation close stamps @ 65eba90cc"
+      "hash": "c5d62050c",
+      "subject": "chore(hardev): rotation close stamps @ a10d94e62"
     },
     {
-      "hash": "47d66727e",
-      "subject": "docs(roadmap): S0.2 gets a new baseline and S0.4 gets what the sweep found"
+      "hash": "024ee5d89",
+      "subject": "docs(language-spec): mark which half of the bare-declaration axis landed"
     },
     {
-      "hash": "9c2060156",
-      "subject": "docs(language-spec): ch1 — the two constraints the sweep found, not the design"
+      "hash": "a10d94e62",
+      "subject": "fix(parser): `this` is not a valid assignment target, at parse time"
     },
     {
-      "hash": "65eba90cc",
-      "subject": "fix(hardev): the typed census sampled by position, so every rotation moved the ruler"
+      "hash": "de8314adc",
+      "subject": "docs(language-spec): what the 105 lower-panic cases actually need built"
     },
     {
-      "hash": "742f4da11",
-      "subject": "fix(check): band B needs both operands to be primitives"
+      "hash": "db36bf904",
+      "subject": "feat(check): the element side of an index search compares by type too"
     },
     {
-      "hash": "c878a9c62",
-      "subject": "fix(ssa-lower): a BigInt compares across, and the test says so instead of listing"
+      "hash": "7b1b22d29",
+      "subject": "docs(language-spec): F2 is an implementation gap, not a throw"
     },
     {
-      "hash": "c6c8a303c",
-      "subject": "style: rustfmt the three files this rotation left drifted"
+      "hash": "ae51f2dec",
+      "subject": "feat(check): band B reaches a call position"
     },
     {
-      "hash": "a36275d29",
-      "subject": "fix(check): the private-field write path takes the hop the read path takes"
+      "hash": "6cb945fce",
+      "subject": "fix(object-assign): §20.1.2.1 step 1 is ToObject, and a primitive gets a wrapper"
     },
     {
-      "hash": "0f50a9a14",
-      "subject": "feat(check): unary + on a BigInt — the reject that described itself"
+      "hash": "751db1a62",
+      "subject": "feat(check): the ToString globals take any value, as the spec says twice"
     },
     {
-      "hash": "1baaa33af",
-      "subject": "fix(check): comparison against a BigInt — one side answers, one throws"
+      "hash": "5c21547b0",
+      "subject": "feat(check): `>>>` refuses a BigInt after the lanes, not ahead of them"
     },
     {
-      "hash": "47673aecf",
-      "subject": "feat(check): decide a BigInt-mixed operator at compile time and emit the throw"
+      "hash": "5c7b30554",
+      "subject": "feat(let-widen): a bare `let x;` has no declared type to reconcile shapes with"
     },
     {
-      "hash": "c49fe1286",
-      "subject": "refactor(throw-info): move the operator raise predicates to a sibling"
+      "hash": "f25db5393",
+      "subject": "docs(language-spec): ch1 — what tsc actually said about the refuse families"
     }
   ],
-  "headSha": "f6e928b6a",
+  "headSha": "c5d62050c",
   "autorun": {
-    "total": 979,
+    "total": 980,
     "baselineTarget": 10,
-    "bySelf": 974,
+    "bySelf": 975,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789882574-7119",
-      "at": "2026-09-20T05:36:14Z",
-      "ts": 1789882574,
+      "rotationId": "r-1789894431-2e95",
+      "at": "2026-09-20T08:53:51Z",
+      "ts": 1789894431,
       "trigger": "self",
-      "prevHead": "714a3ea2b",
-      "handoffSha": "sha256:0703d675d60e15dd3df3a26469baded76824441dbc6ccf63887208f8347417e1",
-      "handoffAgeSec": 17,
-      "conformanceBefore": "4370/0/4",
-      "commitsInSession": 15
+      "prevHead": "3924a0940",
+      "handoffSha": "sha256:bebdea3f20124929ef25406c6a1f69eefe0ccf332fc08f8589de3bc477fec8eb",
+      "handoffAgeSec": 4,
+      "conformanceBefore": "4378/0/4",
+      "commitsInSession": 19
     },
     "recent": [
+      {
+        "rotationId": "r-1789894431-2e95",
+        "at": "2026-09-20T08:53:51Z",
+        "ts": 1789894431,
+        "trigger": "self",
+        "prevHead": "3924a0940",
+        "handoffSha": "sha256:bebdea3f20124929ef25406c6a1f69eefe0ccf332fc08f8589de3bc477fec8eb",
+        "handoffAgeSec": 4,
+        "conformanceBefore": "4378/0/4",
+        "commitsInSession": 19
+      },
       {
         "rotationId": "r-1789882574-7119",
         "at": "2026-09-20T05:36:14Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 10,
         "conformanceBefore": "4299/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789694106-179b",
-        "at": "2026-09-18T01:15:06Z",
-        "ts": 1789694106,
-        "trigger": "self",
-        "prevHead": "02b1e4bc6",
-        "handoffSha": "sha256:0f145da215867b82589a0abddf50c10399c10775709bcd3fcb6d0f152fc57e32",
-        "handoffAgeSec": 17,
-        "conformanceBefore": "4291/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
