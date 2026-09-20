@@ -8229,9 +8229,16 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
 - [x] **S0.2** **typed 覆盖率量具** ✓ `f7b74aa1f`。编译端
       `crates/torajs-core/src/typed_census.rs`（数 `Checker::expr_types`，
       零新状态）+ 采集端 `hardev/autorun/typed_census.sh` + 自测。
-      **基线 @ `f7b74aa1f`：typed_ratio 0.7317**（240 样本全部有读数，
-      typed 81496 / any 29888 / scored 111384，stride 17）。
+      **基线 @ `65eba90cc`：typed_ratio 0.7599**（238 样本全部有读数，
+      typed 53020 / any 16750，crc32 取样）。
       **S0.4 的验收就读这个数：它必须涨。**
+      **r676 修了取样：它按序号 stride，于是加一条 fixture 就把后面每个
+      落点平移，跨轮读的是另一批文件。** 实测：同一二进制，把 r676 的 6 条
+      fixture 挪走，读数从 0.7247 逐字回到旧基线 0.7317（typed 81496 /
+      any 29888 / scored 111384）—— 那 −0.0070 全是语料成分。改按**路径
+      crc32** 选之后，新 fixture 只以 1/stride 概率新增样本、不挤走既有
+      样本，相邻两轮才可比；**0.7599 因此是新基线而不是旧序列的续点**
+      （样本集换了）。
       两条读它之前要知道的：① 分母是 checker 走过的表达式，不是源码
       表达式，且会随 desugar 漂——绝对数与比值并列报，比值只在相邻
       commit 之间读；② 语料用 conformance/cases 时 `refused` 恒为 0
@@ -8257,6 +8264,19 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       **有答案**的（步骤 5 把 BigInt 与 Number 按数学值比），所以 `1n < true`
       本就该跑通 —— 那是 checker 的缺口；而 Symbol 在任一侧都抛，那才是档 B。
       一族里两条相反的结论，正是 §3.3「逐条问」那条纪律的用处。
+      还有 F9（throw 的所有权账本，整族删）· F15（私有字段写路径）·
+      一元 `+`（`+1n`）。
+      **收尾 sweep 的 verdict diff 抓回两条本轮自造的错值**，两条 gate 都
+      全绿（那些形状本仓 fixture 一条都没有）：① 放宽 checker 接受
+      `1n > true`，而 lowering 另有一份手写类型清单没跟上 → tr 答 `true`
+      而规范答 `false`（`c878a9c62`，修法是把清单变成性质「恰好一侧是
+      BigInt」）；② 档 B 提前 emit 跳过了对象的 ToPrimitive，而那是**用户
+      代码**且 §13.15.3 先跑它 → `({[Symbol.toPrimitive]() { throw }}) >>> 0n`
+      抛错了类（`742f4da11`，判据 = 两个操作数都是 primitive）。
+      **由此多一条施工纪律**：落地之后读 verdict diff 里每一条
+      `incompatible → bug`，那是「接受了但答错」的签名。
+      **登记**：`any >>> bigint` 与 object × BigInt 今天仍被 checker 拒，
+      而 any 车道答得对 —— 路由过去是一次加宽，单独做。
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
 
