@@ -167,6 +167,11 @@ pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
         return obj_any;
     }
     let p = obj_any as *mut c_void;
+    // SetIntegrityLevel opens on `[[PreventExtensions]]`, before it
+    // looks at a single key — see `prevent_extensions_refuses`.
+    if unsafe { prevent_extensions_refuses(obj_any) } {
+        return obj_any;
+    }
     if unsafe { typed_array_elements_refuse(obj_any) } {
         return obj_any;
     }
@@ -175,6 +180,44 @@ pub unsafe extern "C" fn __torajs_anyv_seal(obj_any: u64) -> u64 {
     // SAFETY: a NULL bag (no expando ever written) is a no-op inside.
     unsafe { __torajs_dynobj_seal_entries(__torajs_cell_expando_bag(p)) };
     obj_any
+}
+
+/// §7.3.15 SetIntegrityLevel step 3-4 — "Let status be ?
+/// O.[[PreventExtensions]](). If status is false, return false", and
+/// §20.1.2.{6,20} turn that false into the TypeError `Object.freeze`
+/// and `Object.seal` raise.
+///
+/// Both of those begin at this step, and the step is the one
+/// [`__torajs_anyv_prevent_extensions`] already performs correctly a
+/// few lines up, Proxy arm and all. Freeze and seal went straight to
+/// the header markers instead, so a proxy whose trap refused was
+/// marked frozen on the proxy cell itself and the call answered
+/// normally — the rule was written once, for one of the three
+/// surfaces that open with it.
+///
+/// `true` when the caller must stop; the throw is already recorded.
+///
+/// # Safety
+/// `obj_any` is a live cell.
+unsafe fn prevent_extensions_refuses(obj_any: u64) -> bool {
+    // SAFETY: the caller pinned `obj_any` to a live cell.
+    if unsafe { heap_type_tag(obj_any as *const c_void) } != crate::reflect::TAG_PROXY {
+        // An ordinary object never refuses, so the step cannot fail
+        // and the markers below are the whole of it.
+        return false;
+    }
+    unsafe {
+        if __torajs_proxy_prevent_extensions(obj_any) == 0 {
+            if __torajs_throw_check() == 0 {
+                __torajs_throw_type_error(
+                    c"Cannot freeze or seal: proxy 'preventExtensions' trap returned falsish"
+                        .as_ptr(),
+                );
+            }
+            return true;
+        }
+    }
+    false
 }
 
 /// §7.3.14 step 5 on a typed array: SetIntegrityLevel defines every
@@ -229,6 +272,11 @@ pub unsafe extern "C" fn __torajs_anyv_freeze(obj_any: u64) -> u64 {
         return obj_any;
     }
     let p = obj_any as *mut c_void;
+    // SetIntegrityLevel opens on `[[PreventExtensions]]`, before it
+    // looks at a single key — see `prevent_extensions_refuses`.
+    if unsafe { prevent_extensions_refuses(obj_any) } {
+        return obj_any;
+    }
     if unsafe { typed_array_elements_refuse(obj_any) } {
         return obj_any;
     }
