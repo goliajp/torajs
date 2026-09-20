@@ -305,6 +305,27 @@ impl<'a> Parser<'a> {
                     self.at()
                 ));
             }
+            // §13.15.1 — `this`'s AssignmentTargetType is invalid, so
+            // `this = 1` is an EARLY error, not a runtime one. The
+            // distinction matters and test262 asserts it
+            // (`negative: phase: parse`): `const x = 1; x = 2` has a
+            // SIMPLE target and is §6.2.5.6's runtime TypeError,
+            // while this one never reaches evaluation at all.
+            //
+            // It used to be caught further down by accident — the
+            // module-level `this` desugars to an immutable binding
+            // named `__module_this`, and the checker refused writes
+            // to any immutable binding outright. Once that refusal
+            // became band B (a warning plus a runtime throw, which is
+            // right for a `const`), the three cases asserting the
+            // parse phase started failing. The accident is now a
+            // rule, in the place the rule belongs.
+            Expr::This => {
+                return Err(format!(
+                    "`this` is not a valid assignment target at {} (ES §13.15.1)",
+                    self.at()
+                ));
+            }
             Expr::Call { .. } | Expr::OptCall { .. } => {
                 return Err(format!(
                     "a call expression is not a valid assignment target at {} (ES §13.15.1)",
