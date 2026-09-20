@@ -25,7 +25,7 @@
 //! contract that now exists.
 
 use crate::ast::{Ast, ExprId};
-use crate::check::{Checker, Type};
+use crate::check::{Checker, DiagPush, Type};
 use crate::check_assignable::is_assignable_to_resolved;
 
 pub(crate) fn check(
@@ -158,7 +158,27 @@ pub(crate) fn check(
         return checker.type_of(ast, value);
     }
     if !info.mutable {
-        return Err(format!("cannot assign to const `{name}`"));
+        // Band B (`docs/language-spec/ch1-type-runtime-boundary.md`
+        // §4, row "spec defines a runtime error"): §6.2.5.6 PutValue
+        // reaches §9.1.1.1.5 SetMutableBinding, whose step 5 forces
+        // S to true for a STRICT immutable binding — which is what
+        // `const` / `using` / `await using` and an import binding
+        // create. So the spec's answer here is a runtime TypeError,
+        // not the absence of a program: test262's
+        // `using-invalid-assignment-*` are POSITIVE tests wrapping
+        // the write in `assert.throws(TypeError, ...)`, and they
+        // cannot run at all if the file is refused.
+        //
+        // bun refuses it too, and says why in its own message —
+        // "This assignment will throw because `x` is a constant".
+        // Both it and tsc know the outcome and neither hands back an
+        // executable; deciding it here and still emitting the throw
+        // is the position §4's table describes.
+        checker.const_writes.insert(target);
+        checker
+            .errors
+            .push_warn(format!("assignment to const `{name}` throws at run time"));
+        return checker.type_of(ast, value);
     }
     // ut3 assignment narrowing — validate against the DECLARED type
     // (ledger entry when currently narrowed): `b = null` after

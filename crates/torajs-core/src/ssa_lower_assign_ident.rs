@@ -75,7 +75,7 @@ mod throw;
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
-use throw::{lower_self_name_write_throw, lower_undeclared_write_throw};
+use throw::{lower_immutable_write_throw, lower_undeclared_write_throw};
 
 use crate::ssa_lower_assign_slot_fit::{
     check_local_coercion, coerce_for_global, coerce_for_local, global_coercion_compatible,
@@ -129,6 +129,13 @@ pub(crate) fn lower(
         // the check is unreachable — nothing to hand a consumer.
         return lower_undeclared_write_throw(ctx, &name, value, false);
     }
+    if ctx.ast.const_writes.contains(&target) {
+        // §9.1.1.1.5 SetMutableBinding step 5 forces S to true for a
+        // strict immutable binding, so this one does NOT get the
+        // sloppy no-op the self-name lane below takes — a write to a
+        // `const` throws in sloppy code too.
+        return lower_immutable_write_throw(ctx, value);
+    }
     if ctx.ast.self_name_writes.contains(&target) {
         // §15.5.5 (RFC 20260810) — write to the enclosing
         // fn-expression's self-name: an immutable function-env
@@ -145,7 +152,7 @@ pub(crate) fn lower(
             ctx.release_owned_temp(value, &v);
             return v;
         }
-        return lower_self_name_write_throw(ctx, value);
+        return lower_immutable_write_throw(ctx, value);
     }
     let v = if ctx.locals.get(&name).is_none()
         && let Some(slot_ty) = ctx.globals.get(&name).copied()

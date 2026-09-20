@@ -297,7 +297,7 @@ fn lower_obj_assign(
 /// §13.15.2 — the rhs evaluates first and its value drops (the throw
 /// makes it unobservable), then the readonly-assign raiser records the
 /// pending TypeError and the throw-check propagates it (the
-/// `lower_self_name_write_throw` shape). `undefined`'s shape stands in
+/// `lower_immutable_write_throw` shape). `undefined`'s shape stands in
 /// so the enclosing expression still types out.
 fn lower_private_method_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand {
     let v = ctx.lower_expr(value);

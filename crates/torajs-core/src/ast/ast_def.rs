@@ -233,6 +233,20 @@ pub struct Ast {
     /// Parked by `check_monomorph` on the owned post-check AST (same
     /// ride as `undeclared_reads`). Empty pre-check.
     pub self_name_writes: std::collections::HashSet<ExprId>,
+    /// Writes to a `const` / `using` / `await using` binding, or to an
+    /// import binding — §6.2.5.6 PutValue reaches §9.1.1.1.5
+    /// SetMutableBinding, and these are immutable **strict** bindings
+    /// (CreateImmutableBinding(N, true) / CreateImportBinding), so
+    /// step 5 forces S to true and the write raises TypeError at run
+    /// time. The checker marks the TARGET ident eid and the assign
+    /// lane raises through the same readonly-assign kernel
+    /// [`self_name_writes`] uses.
+    ///
+    /// Kept apart from that set because the STRICTNESS differs, not
+    /// the kernel: a fn-expression's self-name is created with
+    /// S = false, so a sloppy function's write to it is a silent
+    /// no-op, while a write to a const throws in sloppy code too.
+    pub const_writes: std::collections::HashSet<ExprId>,
     /// Operations the CHECKER proved can only throw, with the message
     /// to throw. `docs/language-spec/ch1-type-runtime-boundary.md`
     /// calls this band B: the spec defines a runtime behaviour for the

@@ -1,0 +1,6 @@
+A
+direct: TypeError
+x still 1
+rhs-first: TypeError seen 1 y still 1
+using-for: TypeError
+after: done

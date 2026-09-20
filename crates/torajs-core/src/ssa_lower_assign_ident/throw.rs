@@ -1,8 +1,9 @@
 //! The two throwing write lanes of [`super`] — a write to an
-//! unresolvable name in strict code (§6.2.5.6) and a write to a
-//! fn-expression's own self-name (§15.5.5). Split out at the 500-line
-//! limit (rotation 635); a child module reaches the parent's private
-//! items directly, so nothing changed visibility.
+//! unresolvable name in strict code (§6.2.5.6) and a write to an
+//! immutable binding (§15.5.5 a fn-expression's own self-name,
+//! §9.1.1.1.5 a `const`). Split out at the 500-line limit (rotation
+//! 635); a child module reaches the parent's private items directly,
+//! so nothing changed visibility.
 
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand};
@@ -16,11 +17,17 @@ use crate::ssa_lower::LowerCtx;
 /// side uses. The lane past the throw-check is unreachable;
 /// `undefined`'s shape stands in so the enclosing expression still
 /// types out.
+/// A write that lands on an immutable binding, whichever kind — the
+/// caller has already decided that, because the two kinds differ in
+/// WHEN they throw, not in what they throw: a fn-expression self-name
+/// is created with S = false and a sloppy write to it is a silent
+/// no-op, while a `const` is a strict binding and throws either way.
+///
 /// §13.15.2 — the RHS evaluates first and its value drops (the throw
 /// makes it unobservable), then the readonly-assign raiser records the
 /// pending TypeError and the throw-check propagates it. `undefined`'s
 /// shape stands in so the enclosing expression still types out.
-pub(super) fn lower_self_name_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand {
+pub(super) fn lower_immutable_write_throw(ctx: &mut LowerCtx<'_>, value: ExprId) -> Operand {
     lower_and_discard_rhs(ctx, value);
     let raiser = ctx.intrinsics.throw_readonly_assign;
     let cur_block = ctx.cur_block;

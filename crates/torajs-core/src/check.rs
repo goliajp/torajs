@@ -393,6 +393,12 @@ pub(crate) struct Checker {
     /// and a class body writing its own class name (§15.7.14 step 3 —
     /// the class scope's binding, which every method body is inside).
     pub(crate) self_name_writes: std::collections::HashSet<ExprId>,
+    /// Band B for the immutable-binding write (§6.2.5.6 PutValue →
+    /// §9.1.1.1.5 SetMutableBinding step 5). Rides to the lowerer
+    /// on the owned AST as [`crate::ast::Ast::const_writes`], which
+    /// carries why this is a set of its own rather than a member of
+    /// `self_name_writes`.
+    pub(crate) const_writes: std::collections::HashSet<ExprId>,
     /// Band B (`docs/language-spec/ch1-type-runtime-boundary.md`) —
     /// operations whose operand types make the throw decidable here.
     /// Rides to the lowerer on the owned AST as `Ast::spec_throws`.
