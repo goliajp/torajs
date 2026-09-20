@@ -1,0 +1,15 @@
+{
+  "tool": "typed-census",
+  "ranAt": "2026-09-20T04:36:58Z",
+  "headSha": "f7b74aa1f",
+  "headShaSource": "arg",
+  "verdict": "ok",
+  "samples": 240,
+  "hits": 240,
+  "typed": 81496,
+  "any": 29888,
+  "refused": 0,
+  "scored": 111384,
+  "typedRatio": "0.7317",
+  "stride": 17
+}

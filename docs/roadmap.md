@@ -8204,11 +8204,16 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
 
 - [ ] **S0.1** 375 条逐条归档到三档；判据必须**机械可判** ——「什么叫 spec
       为该操作定义了运行期语义」要能写成一个函数，不能逐条人判。
-- [ ] **S0.2** **typed 覆盖率量具**（`hardev/typed-census-latest.json`）：
-      编译期落进 typed / any / refused 三类的表达式占比。**本组唯一的机械
-      验收证据**；空语料 / 打点失效必须 exit 非 0
-      （`test/instrument-must-be-able-to-fail`）。打点位置先勘察 `ssa_lower`
-      的表达式发射点再定。
+- [x] **S0.2** **typed 覆盖率量具** ✓ `f7b74aa1f`。编译端
+      `crates/torajs-core/src/typed_census.rs`（数 `Checker::expr_types`，
+      零新状态）+ 采集端 `hardev/autorun/typed_census.sh` + 自测。
+      **基线 @ `f7b74aa1f`：typed_ratio 0.7317**（240 样本全部有读数，
+      typed 81496 / any 29888 / scored 111384，stride 17）。
+      **S0.4 的验收就读这个数：它必须涨。**
+      两条读它之前要知道的：① 分母是 checker 走过的表达式，不是源码
+      表达式，且会随 desugar 漂——绝对数与比值并列报，比值只在相邻
+      commit 之间读；② 语料用 conformance/cases 时 `refused` 恒为 0
+      （那些 fixture 本来就都能编），要量 refused 得换 test262 语料。
 - [ ] **S0.3** `docs/language-spec/ch1-type-runtime-boundary.md` —— 第一章
       正文 + **与 TypeScript 的差异表**。AssemblyScript / ArkTS / Static
       TypeScript 都有成文的"与 TS 的差异"，torajs 至今没有；这是"架构清晰"
