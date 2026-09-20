@@ -179,14 +179,22 @@ unsafe fn mint_cap_executor(rec: *mut CapRecord) -> *mut u8 {
     }
 }
 
-/// Is `v` a callable value in the §27.2.1.5 step-8/9 sense — a
-/// closure cell with a boxed dual entry (exactly what Call would
-/// accept)? Shared with the settle statics' GetPromiseResolve(C)
-/// gate (§27.2.4.1.1 step 2 asks the same question).
+/// §7.2.3 IsCallable — `construct::is_callable`, for the §27.2.1.5
+/// step-8/9 gate and the settle statics' GetPromiseResolve(C)
+/// (§27.2.4.1.1 step 2 asks the same question).
+///
+/// This was a fourth spelling of it, and it asked something slightly
+/// different: "a closure cell with a boxed dual entry — exactly what
+/// Call would accept". The two diverge on a class object, which Call
+/// does accept (and refuses on its own terms, §10.2.1 step 2), and on
+/// a closure whose adapter was never synthesized. Both now reach
+/// Call, which is where the refusal belongs: the spec puts IsCallable
+/// at the gate and the throw inside the Call, and a gate that
+/// pre-empts it answers the wrong question in the wrong place —
+/// `Promise.all([])` over a `C.resolve` that is a class has nothing
+/// to call at all, so the spec fulfills with `[]`.
 pub(crate) fn is_callable(v: u64) -> bool {
-    is_cell(v)
-        && unsafe { crate::method_call_closure_dispatch::closure_cell_entry(as_void_ptr(v)) }
-            .is_some()
+    unsafe { crate::construct::is_callable(v) }
 }
 
 /// §27.2.1.5 NewPromiseCapability(C) — `Some((promise, resolve,
