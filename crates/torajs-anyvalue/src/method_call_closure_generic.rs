@@ -13,10 +13,10 @@ use torajs_rc::{
     ANY_METHOD_VALUE_OF, Tag,
 };
 
+use crate::method_call_this_value_shapes as shapes;
 use crate::method_value_class::class_ctor_method;
 use crate::nanbox::{
-    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_null,
-    is_short_str, is_undefined,
+    AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_null, is_short_str, is_undefined,
 };
 
 unsafe extern "C" {
@@ -85,7 +85,7 @@ pub(crate) unsafe fn generic_builtin_this(
     }
     if fam == crate::method_value::family::ARR_PROTO_FAMILY
         && mid == ANY_METHOD_CONCAT
-        && is_prim_shaped(this_arg)
+        && shapes::is_prim_shaped(this_arg)
     {
         return Some(unsafe {
             crate::method_call_arraylike_concat::prim_method(this_arg, argv, argc)
@@ -216,8 +216,9 @@ pub(crate) unsafe fn generic_builtin_this(
     // toString is NOT generic for these prototypes).
     if matches!(mid, ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF) {
         let wrong_brand = (fam == crate::method_value::NUM_PROTO_FAMILY
-            && !is_number_shaped(this_arg))
-            || (fam == crate::method_value::BOOL_PROTO_FAMILY && !is_boolean_shaped(this_arg));
+            && !shapes::is_number_shaped(this_arg))
+            || (fam == crate::method_value::BOOL_PROTO_FAMILY
+                && !shapes::is_boolean_shaped(this_arg));
         if wrong_brand {
             unsafe {
                 __torajs_throw_type_error(
@@ -335,61 +336,6 @@ fn face_read_scan(
     None
 }
 
-/// thisNumberValue shape — a number immediate or a Number wrapper
-/// (whose thisNumberValue is its [[NumberData]]).
-fn is_number_shaped(v: AnyValue) -> bool {
-    if is_int32(v) || is_double(v) {
-        return true;
-    }
-    if !is_cell(v) {
-        return false;
-    }
-    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::NumberWrapper as u16
-}
-
-/// thisBooleanValue shape — a bool immediate or a Boolean wrapper.
-fn is_boolean_shaped(v: AnyValue) -> bool {
-    if is_bool(v) {
-        return true;
-    }
-    if !is_cell(v) {
-        return false;
-    }
-    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::BooleanWrapper as u16
-}
-
-/// A primitive shape whose ToObject mints a fresh wrapper — the
-/// receivers whose own dispatch arm would answer the WRONG concat
-/// (string concat on Str shapes, no-such on bool/number). Heap
-/// receivers (wrapper objects included) already ride the cell arm's
-/// seeded concat gate.
-fn is_prim_shaped(v: AnyValue) -> bool {
-    if is_bool(v) || is_int32(v) || is_double(v) || is_short_str(v) {
-        return true;
-    }
-    if !is_cell(v) {
-        return false;
-    }
-    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::Str as u16
-}
-
-/// §6.1.4-shape probe for the thisStringValue gate — a ShortStr
-/// immediate, a Str cell, or a String wrapper object (whose
-/// thisStringValue is its [[StringData]]).
-fn is_string_shaped(v: AnyValue) -> bool {
-    if is_short_str(v) {
-        return true;
-    }
-    if !is_cell(v) {
-        return false;
-    }
-    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::Str as u16 || tag == Tag::StringWrapper as u16
-}
-
 pub(crate) unsafe fn generic_str_this(
     mid: i64,
     this_arg: AnyValue,
@@ -409,7 +355,7 @@ pub(crate) unsafe fn generic_str_this(
         // a TypeError (RFC 20260721 G5); string shapes ride the
         // ordinary re-dispatch identity lane. toLocaleString is the
         // inherited generic (§20.1.4.6), never brand-checked here.
-        if str_family && mid != ANY_METHOD_TO_LOCALE_STRING && !is_string_shaped(this_arg) {
+        if str_family && mid != ANY_METHOD_TO_LOCALE_STRING && !shapes::is_string_shaped(this_arg) {
             unsafe {
                 __torajs_throw_type_error(
                     c"String.prototype method requires that |this| be a String".as_ptr(),

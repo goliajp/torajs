@@ -225,6 +225,7 @@ mod method_call_proto_patch;
 mod method_call_regexp;
 mod method_call_str;
 mod method_call_subclass;
+mod method_call_this_value_shapes;
 mod method_call_unit_guard;
 pub mod method_call_upsert;
 mod method_call_weak;
