@@ -278,6 +278,17 @@ pub(crate) fn scan_expr(
             );
         }
         Expr::BinOp { op, left, right } => {
+            // Band B — the checker decided this pair can only throw
+            // (`Ast::spec_throws`), and the lowering emits that raise
+            // unconditionally. Both operands are typed primitives
+            // (BigInt against Number is the shape), so the any-lane
+            // test does NOT catch it: without this line a named fn
+            // whose only raise is `1n & 1` is M4.3.b-skipped at its
+            // caller and the throw is swallowed crossing the fn
+            // boundary. Same reason `ident_read_raises` exists.
+            if ast.spec_throws.contains_key(&eid) {
+                *direct = true;
+            }
             if crate::ast_throw_info_binop::binop_raises(*op, expr_types.get(left), expr_types.get(right)) {
                 *direct = true;
             }

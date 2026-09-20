@@ -533,6 +533,10 @@ pub(crate) struct Intrinsics {
     pub(crate) global_var_declare: FuncId,
     pub(crate) global_fn_declare: FuncId,
     pub(crate) throw_reference_error_tdz: FuncId,
+    /// A TypeError the CHECKER already decided on — the typed lane
+    /// emits this call instead of a runtime type dispatch that can
+    /// only reach the same answer. See `Ast::spec_throws`.
+    pub(crate) throw_type_error_str: FuncId,
     pub(crate) throw_reference_error_super_delete: FuncId,
     pub(crate) class_computed_method_define: FuncId,
     pub(crate) fn_computed_name_define: FuncId,

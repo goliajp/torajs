@@ -101,7 +101,7 @@ impl Checker {
                 // Lt-Gt-Le-Ge / Eq-Neq-LooseEq-LooseNeq /
                 // LAnd-LOr). See
                 // [`crate::check_type_of_binop::check`].
-                crate::check_type_of_binop::check(self, ast, *op, *left, *right)
+                crate::check_type_of_binop::check(self, ast, eid, *op, (*left, *right))
             }
             Expr::Unary { op, expr } => {
                 // V3-18 m1.h.2 / m1.f / m1.h.4 / V3-02 — `!` / `-`

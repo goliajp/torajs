@@ -25,6 +25,11 @@ pub(crate) struct ErrorSlotIds {
     /// §20.5.8.1 InstallErrorCause — the non-enumerable `cause`
     /// install the injected ctors run (any receiver, any value).
     pub error_install_cause: FuncId,
+    /// A TypeError the CHECKER already decided on, carrying the
+    /// message it computed. Band B's emitter calls this instead of a
+    /// runtime type dispatch that could only reach the same answer —
+    /// see `Ast::spec_throws` and `ssa_lower_spec_throw`.
+    pub throw_type_error_str: FuncId,
 }
 
 pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId>) -> ErrorSlotIds {
@@ -40,6 +45,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_error_install_cause",
             &[Type::Any, Type::Any],
+            Type::Void,
+        ),
+        throw_type_error_str: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_throw_type_error_str",
+            &[Type::Str],
             Type::Void,
         ),
     }

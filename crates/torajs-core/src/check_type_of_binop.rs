@@ -36,7 +36,7 @@
 
 use crate::ast::{Ast, BinOp, ExprId};
 use crate::check::{
-    Checker, Type, js_add_coerces_to_number, js_arith_coerces_to_number, rides_any_lane,
+    Checker, DiagPush, Type, js_add_coerces_to_number, js_arith_coerces_to_number, rides_any_lane,
 };
 use crate::check_js_semantics::nullable_ptr_shaped;
 
@@ -46,10 +46,11 @@ use eq_logical::{check_equality, check_logical};
 pub(crate) fn check(
     checker: &mut Checker,
     ast: &Ast,
+    eid: ExprId,
     op: BinOp,
-    left: ExprId,
-    right: ExprId,
+    operands: (ExprId, ExprId),
 ) -> Result<Type, String> {
+    let (left, right) = operands;
     // Both operands are TYPED before either failure propagates.
     // `type_of` records into `expr_types` only on Ok, and the `?` on
     // the left used to skip the right's visit entirely — so in a
@@ -64,6 +65,15 @@ pub(crate) fn check(
     let l = checker.type_of(ast, left);
     let r = checker.type_of(ast, right);
     let (l, r) = (l?, r?);
+    // Band B before the per-op lanes: when the spec answers this pair
+    // with a throw and both types are known, the answer is decided
+    // HERE. The program still compiles and still throws — see
+    // `Ast::spec_throws` and `docs/language-spec/ch1-type-runtime-boundary.md`.
+    if let Some(msg) = crate::check_type_of_binop_spec_throw::spec_mandated_throw(op, &l, &r) {
+        checker.spec_throws.insert(eid, msg.clone());
+        checker.errors.push_warn(msg);
+        return Ok(Type::Any);
+    }
     match op {
         BinOp::Add => check_add(l, r),
         BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => check_arith(l, r),

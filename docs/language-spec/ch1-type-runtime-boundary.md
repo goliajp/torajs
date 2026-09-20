@@ -344,11 +344,22 @@ AssemblyScript、ArkTS、Static TypeScript 都有一份成文的「我与 TypeSc
    的 minter,已有三个调用方(`NaN = 1`、`Map()` 这类不可调用内建、
    嵌套函数写顶层 `const`)。
 
-**第三条是最省的通道**:它绕开 checker(不必碰 `Diagnostic`),也绕开
-前两条各自付过的死值代价(替身指针、接收者链上的 `read_raises` 走查);
+**第三条看起来最省** —— 它绕开 checker(不必碰 `Diagnostic`),也绕开
+前两条各自付过的死值代价(替身指针、接收者链上的 `read_raises` 走查),
 求值顺序也已经有先例处理(逗号运算符 / `Expr::Sequence` 前置实参,
-§13.3.6.2)。它缺的只有一样:**错误类名今天写死是 `TypeError`**,
-RangeError / SyntaxError 走不了。
+§13.3.6.2)。
+
+**但它对档 B 用不上,而这一点只有动手才看得见**:那个 minter 跑在
+`ast_pipeline` 里、**在 checker 之前**,而档 B 的判据按定义依赖类型 ——
+「两个操作数的类型不同」这句话在类型存在之前问不出来。throw-IIFE 能覆盖
+的只有字面量对(`1n & 1` 里两个字面量),覆盖不到
+`let n: bigint = 1n; n & 1`,而后者才是这一族的主体。
+
+**所以第四条先例是这一轮建的**,形状取自第二条(undeclared read):
+checker 记侧表 `Ast::spec_throws` → 经 monomorphization 交棒 → lowering
+读表并发射(`ssa_lower_spec_throw`)。它同时要在
+`ast_throw_info` 登记 may-throw,否则调用方的检查被剪掉、throw 跨函数
+边界静默消失 —— 前两条先例各自付过同一笔学费。
 
 ### 5.1 错误类别不可能从消息文本推出
 

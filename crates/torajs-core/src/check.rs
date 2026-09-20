@@ -393,6 +393,10 @@ pub(crate) struct Checker {
     /// and a class body writing its own class name (§15.7.14 step 3 —
     /// the class scope's binding, which every method body is inside).
     pub(crate) self_name_writes: std::collections::HashSet<ExprId>,
+    /// Band B (`docs/language-spec/ch1-type-runtime-boundary.md`) —
+    /// operations whose operand types make the throw decidable here.
+    /// Rides to the lowerer on the owned AST as `Ast::spec_throws`.
+    pub(crate) spec_throws: std::collections::HashMap<ExprId, String>,
     /// RFC 20260730-undeclared-ident 刀 3 — closure captures that
     /// resolved nowhere, keyed by the `Expr::Closure` construction
     /// site. `check_closure` skips them (the body's Ident read takes

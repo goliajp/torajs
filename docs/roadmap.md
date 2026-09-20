@@ -8245,6 +8245,14 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       r676 补 §3.0（F4 实测）与 §5 / §5.1（档 B 怎么落地，以及**错误类别
       不可能从消息文本推出**：366 条里字面出现错误类名的只有 1 条）。
 - [ ] **S0.4** 按分档表逐族落地，每族后量 typed 覆盖率 + gate。
+      **首批已落（r676）**：F12 switch 跨类型 clause（拒收 → 诊断 + 照跑）；
+      F1 的 BigInt 混合对（`1n & 1` 这一族，**编译期定案 + 无条件 throw**，
+      运行期零类型派发）。后者建起档 B 的第四条先例：checker 记
+      `Ast::spec_throws` → monomorphization 交棒 → `ssa_lower_spec_throw`
+      发射 + `ast_throw_info` 登记 may-throw。
+      **实施中推翻了 §5 原先的建议**：throw-IIFE minter 看着最省，但它跑在
+      checker **之前**，而档 B 的判据按定义依赖类型 —— 它只覆盖字面量对，
+      覆盖不到 `let n: bigint = 1n; n & 1`，而后者才是这一族的主体。
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
 

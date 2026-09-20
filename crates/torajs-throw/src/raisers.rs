@@ -181,3 +181,38 @@ pub unsafe extern "C" fn __torajs_ctor_no_super_throw() {
         )
     };
 }
+
+/// A TypeError whose message the COMPILER computed. The typed lane
+/// reaches this when the checker already knows the operation can only
+/// throw — `1n & 1` is the canonical one: §13.15.3 does ToNumeric on
+/// both sides and throws when the types disagree, and both types are
+/// known at compile time. bun has to run the two ToNumeric calls to
+/// find that out because it threw the types away; tsc knows but
+/// produces no executable. Here the decision is made once, at compile
+/// time, and what runs is this call — no type dispatch at all.
+///
+/// Distinct from [`__torajs_throw_type_error`] only in the argument:
+/// that one takes a C string owned by a runtime kernel, this one takes
+/// the interned tr Str the lowering already knows how to mint.
+///
+/// # Safety
+///
+/// `msg` must be a valid Str block pointer. Borrowed — only its bytes
+/// are read, so an interned literal is a legal argument.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_throw_type_error_str(msg: *mut c_void) {
+    let msg = msg as *const u8;
+    // SAFETY: msg is a valid Str block per caller invariant; len lives
+    // at STR_LEN_OFF.
+    let len = unsafe { (msg.add(STR_LEN_OFF) as *const u32).read() } as usize;
+    // SAFETY: returns an initialized Str header with len set; we own
+    // the rc = 1 allocation and hand it to throw_native_str below.
+    let err = unsafe { __torajs_str_alloc_pooled(len as u64) };
+    // SAFETY: dst spans `len` bytes past the payload offset of the
+    // fresh allocation; src is readable for `len` and cannot overlap
+    // it. The copy is what lets the caller pass a static literal.
+    unsafe {
+        ptr::copy_nonoverlapping(msg.add(STR_HDR_SIZE), err.add(STR_HDR_SIZE), len);
+        throw_native_str(SLOT_TYPE_ERROR as i64, err);
+    }
+}

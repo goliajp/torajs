@@ -233,6 +233,21 @@ pub struct Ast {
     /// Parked by `check_monomorph` on the owned post-check AST (same
     /// ride as `undeclared_reads`). Empty pre-check.
     pub self_name_writes: std::collections::HashSet<ExprId>,
+    /// Operations the CHECKER proved can only throw, with the message
+    /// to throw. `docs/language-spec/ch1-type-runtime-boundary.md`
+    /// calls this band B: the spec defines a runtime behaviour for the
+    /// operation (§13.15.3 ToNumeric disagreeing, §13.6, §7.1.4) and
+    /// both operand types are known at compile time, so the outcome is
+    /// decided here rather than re-derived at run time.
+    ///
+    /// This is the one thing neither neighbour can do: an engine that
+    /// erased the types must run the coercions to find out, and a type
+    /// checker that only reports produces no executable. The entry
+    /// means "evaluate the operands for their effects, then raise" —
+    /// `ssa_lower_spec_throw` emits exactly that, with no type
+    /// dispatch. Parked by `check_monomorph` on the owned post-check
+    /// AST (same ride as `undeclared_reads`). Empty pre-check.
+    pub spec_throws: std::collections::HashMap<ExprId, String>,
     /// §8.1.1.1 — top-level `let` / `const` occurrences written
     /// EARLIER in the statement list than the declaration, so the
     /// binding is in its temporal dead zone whenever they run. Reads

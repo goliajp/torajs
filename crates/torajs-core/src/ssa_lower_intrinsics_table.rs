@@ -457,6 +457,7 @@ pub(crate) fn build(
         global_var_declare: init_c.global_object.global_var_declare,
         global_fn_declare: init_c.global_object.global_fn_declare,
         throw_reference_error_tdz: init_c.any_substrate.throw_reference_error_tdz,
+        throw_type_error_str: init_c.error_slots.throw_type_error_str,
         throw_reference_error_super_delete: init_c.any_substrate.throw_reference_error_super_delete,
         class_computed_method_define: init_c.class_computed.computed_method_define,
         fn_computed_name_define: init_c.class_computed.fn_computed_name_define,

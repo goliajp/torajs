@@ -41,6 +41,12 @@ pub(crate) fn lower(
     left: ExprId,
     right: ExprId,
 ) -> Operand {
+    // Band B first: the checker already decided this pair can only
+    // throw (`Ast::spec_throws`), so there is nothing for the operator
+    // lanes below to dispatch on. See `ssa_lower_spec_throw`.
+    if let Some(v) = crate::ssa_lower_spec_throw::try_emit(ctx, eid, &[left, right]) {
+        return v;
+    }
     // M1.5 — short-circuit `&&` / `||` need control flow, not eager
     // evaluation. Route through their own lowering before calling
     // lower_binop (which assumes both operands are already lowered).

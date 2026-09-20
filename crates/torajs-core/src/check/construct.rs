@@ -49,6 +49,7 @@ impl Checker {
             undeclared_reads: std::collections::HashMap::new(),
             self_name_active: None,
             self_name_writes: std::collections::HashSet::new(),
+            spec_throws: std::collections::HashMap::new(),
             unresolved_captures: HashMap::new(),
             widen_clone_origin: HashMap::new(),
             toplevel_captures: Vec::new(),
