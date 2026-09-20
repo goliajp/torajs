@@ -41,8 +41,12 @@ FAMILIES = [
         "运算符操作数类型",
         "throw",
         r"(arithmetic|bitwise|comparison|shift|relational).*operands"
-        r"|not defined on BigInt operands|mixing BigInt",
-        "§13.15.3 ToNumeric 类型不等则抛;§6.1.6 BigInt 与 Number 不混用。"
+        r"|not defined on BigInt operands|mixing BigInt"
+        # `+` / `**` / 一元 `+` 与 bitwise 是同一句 ToNumeric,只是消息
+        # 没写 arithmetic/bitwise 这些词,纯正则漏网(r676 补)。
+        r"|requires matching number|on bigint is a TypeError",
+        "§13.15.3 ToNumeric 类型不等则抛;§6.1.6 BigInt 与 Number 不混用;"
+        "§13.6 `**` 同款;§7.1.4 ToNumber(BigInt) 抛。"
         "类型已知,编译期就能算出结果是抛。",
     ),
     (
@@ -108,6 +112,46 @@ FAMILIES = [
         "TS 类型系统自己的判断,spec 无对应。",
     ),
     (
+        "F11",
+        "迭代源/索引接收者类型",
+        "throw",
+        r"can't index into",
+        "§13.7.5.6 ForIn/OfHeadEvaluation → §7.4.2 GetIterator:非对象 / 无 "
+        "`@@iterator` 是**运行期** TypeError。今天这一族全是 for-of 头;"
+        "将来若混进裸 `false[0]`(JS 里合法,答 undefined)本族要 split。",
+    ),
+    (
+        "F12",
+        "switch case 与 scrutinee 类型不等",
+        "throw",
+        r"differs from scrutinee",
+        "§14.12.4 CaseBlockEvaluation 用 IsStrictlyEqual,而它是**全函数** —— "
+        "跨类型答 false,不是未定义。规范里没有「case 类型须等于 scrutinee」"
+        "这条约束,所以拒收是把 B 当成了 A。发射点的注释自己已经写对了这个"
+        "道理(为 `any` 开了口),只是没推到非 any 的跨类型对。",
+    ),
+    (
+        "F13",
+        "分支类型合一(ternary join)",
+        "any",
+        r"ternary branches differ",
+        "§13.14 ConditionalExpression 对两个分支的类型**零要求**。判据 4 说"
+        "「规范没有这个概念」→ 但它也**没有**对应的运行期错误,所以不是 A "
+        "是 C:join 到 Any。同文件已为「两个无共同祖先的用户类」定了 "
+        "join-to-Any 的 posture,这里只是没把 Struct/ClassRef/Number 的混合"
+        "也交给它。",
+    ),
+    (
+        "F15",
+        "私有字段未声明",
+        "throw",
+        r"private field `#.*is not declared",
+        "§15.7 把类体内每个 PrivateName 放进整个类体的作用域。引用**可解析**"
+        "时不匹配是 §7.3.32 PrivateElementFind 的运行期 brand check"
+        "(PrivateFieldSet step 4 TypeError);不可解析才是 §13.1 的早错。"
+        "读路径已经查过作用域表,**写路径漏了那一跳** —— 不是策略分歧。",
+    ),
+    (
         "F3",
         "内建实参/接收者类型",
         "throw",
@@ -123,6 +167,18 @@ FAMILIES = [
         "`BigInt({})` 该抛 SyntaxError 却抛 TypeError)。所以本族要再切:"
         "运行期已正确的才是档 B;运行期也错的属于底层机制缺口,不在 S0 范围。"
         "**逐条落档必须对每条跑一次 any-拼写探针,不能按族批量判。**",
+    ),
+    # ★ F14 必须排在 F3 **之后** —— `not yet supported` 与 F3 的
+    # `primitive-coercible` 有重叠,放前面会从 F3 偷走条目(实测 3 条)。
+    (
+        "F14",
+        "实现缺口(not-yet-supported)",
+        "gap",
+        r"not yet supported|only valid inside an array literal",
+        "**不是三分法的一档**,是 ch1 §3.1 划出的那条边界:这一族的成员各自"
+        "要跑一次判据 2 才知道自己在哪边 —— 运行期语义已正确的是档 B"
+        "(checker 白名单/形状漏项,直接进 S0.4);运行期本身有分歧的归 L1,"
+        "不在 S0 范围。标 gap 是为了不让它被当成一整族批量处理。",
     ),
 ]
 
@@ -175,10 +231,19 @@ def main() -> None:
     covered = len(refusals) - n0
     print(f"\n归族率 {covered * 100 // len(refusals)}% ({covered}/{len(refusals)})")
     print("\n三分法的账:")
-    for v in ("throw", "refuse", "split", "?"):
+    for v in ("throw", "refuse", "split", "any", "gap", "?"):
         if verdict_total[v]:
             print(f"  {v:<8}{verdict_total[v]:>5}  "
                   f"{verdict_total[v] * 100 // len(refusals)}%")
+    # 账目必须闭合。一个漏掉某个 verdict 的汇总与一个"这些条目不存在"
+    # 长得一样 —— 加一个 verdict 却忘了把它加进上面的遍历,正是这个量具
+    # 会骗人的方式(r676 当场踩过一次,360 对 366)。
+    booked = sum(verdict_total.values())
+    if booked != len(refusals):
+        sys.exit(
+            f"refusal_families: 账目不闭合 —— 汇总 {booked} 条,实际 "
+            f"{len(refusals)} 条。某个 verdict 没进上面的遍历列表。"
+        )
     print("\n★ 档位标在族上是起点不是终点 —— S0.1 要求逐条落档,族给的是默认值。")
 
 
