@@ -1681,7 +1681,35 @@ Unattributed head by directory: `built-ins/String` 50,
 33, `language/import` 29. Coverage curve: top-100 **55.4%**,
 top-200 **73.7%**, top-400 **87.8%**.
 
-**Latest @ `35eabf65b`** (2026-09-20, rotation 673). A class
+**Latest @ `d12609951`** (2026-09-20, rotation 674). A class NAME is
+not an identity: two functions may each declare `class A`, and neither
+collision rename runs early enough nor covers every class, so the
+`class_computed_*` side tables — keyed by name — let one declaration
+speak for every other of that name. The parser now records the owner
+where the `__ccm_<n>__` sentinel is minted, and `Stmt::ClassDecl`
+carries a `decl_id` (the variant has nine fields and no `..`, so the
+new one broke exactly its six construction points). Seven knives, each
+pointed at by whichever cell of a six-shape probe was still red after
+the last: a computed static field went missing, took a same-named
+sibling's plain static field with it, let a top-level class read a
+local one's value, and — where the capturing lane refused the class
+outright — pushed its statics to the shared hoist, which runs them at
+PROGRAM END. `C.toString()` was answering a same-named class's source
+text, which the RFC had written off as "a message, not a value" until
+a probe said otherwise.
+
+Gate predicate: **37** clusters of >= 4 holding **246** cases
+(unchanged), register 2 · 118 (SR-1 30 / SR-2 92), residue 348 · 471
+(56.4%), core 836 → **835 (−1)**. Sweep passTotal 40520 →
+**40522 (+2)**, bug 8590 → 8589, incompatible 4064 → 4063,
+conservation exact; verdict diff **2 changes, both forward** and both
+inside this family (`class/elements/fields-computed-name-static-
+computed-var-propname-prototype`, `class/elements/computed-property-
+abrupt-completition`), 0 regressions. The family itself is invisible
+to the clusters — both loud signatures score 0 in the bugs ndjson and
+the silent shapes have no signature at all. It was found by probe.
+
+**Prior @ `35eabf65b`** (2026-09-20, rotation 673). A class
 instance had no [[Prototype]] of its own — its class tag named it — so
 `Object.setPrototypeOf(inst, p)` and a `Reflect.construct` newTarget
 whose `prototype` differs from the class's had to throw `Cannot set
