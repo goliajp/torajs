@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-20T12:29:42.010Z",
+  "generatedAt": "2026-09-20T14:36:55.029Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-20T12:12:40Z",
-    "headSha": "a10d94e62",
-    "elapsedSec": 548.47,
+    "ranAt": "2026-09-20T14:25:48Z",
+    "headSha": "8e9ae78f8",
+    "elapsedSec": 533.87,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34305,
-    "passNoOracle": 1714,
+    "pass": 34332,
+    "passNoOracle": 1718,
     "passNegative": 4568,
-    "passTotal": 40587,
-    "bug": 8589,
-    "incompatible": 3998,
+    "passTotal": 40618,
+    "bug": 8586,
+    "incompatible": 3970,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49176,
-    "passRateInScope": 76.33,
-    "passRateTrAccepted": 82.53
+    "trAccepted": 49204,
+    "passRateInScope": 76.39,
+    "passRateTrAccepted": 82.55
   },
   "torajs": {
-    "commit": "c5d62050c",
-    "commitSubject": "chore(hardev): rotation close stamps @ a10d94e62",
+    "commit": "8e9ae78f8",
+    "commitSubject": "fix(ssa-lower): §7.1.6 ToInt32 is a road, and the int32 slots take it",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "c5d62050c",
-      "subject": "chore(hardev): rotation close stamps @ a10d94e62"
+      "hash": "8e9ae78f8",
+      "subject": "fix(ssa-lower): §7.1.6 ToInt32 is a road, and the int32 slots take it"
     },
     {
-      "hash": "024ee5d89",
-      "subject": "docs(language-spec): mark which half of the bare-declaration axis landed"
+      "hash": "326c22eaa",
+      "subject": "fix(check): a name in the Math widen list must name one of the sinks"
     },
     {
-      "hash": "a10d94e62",
-      "subject": "fix(parser): `this` is not a valid assignment target, at parse time"
+      "hash": "89fa8ffc5",
+      "subject": "docs(language-spec): every coercion family gets one road, and the lanes join it"
     },
     {
-      "hash": "de8314adc",
-      "subject": "docs(language-spec): what the 105 lower-panic cases actually need built"
+      "hash": "8b590392a",
+      "subject": "test(conformance): the two shapes rotation 676 answered wrong while green"
     },
     {
-      "hash": "db36bf904",
-      "subject": "feat(check): the element side of an index search compares by type too"
+      "hash": "5ff4c6f3a",
+      "subject": "refactor(ssa-lower): lift the undefined-substitution table out of populate_argv"
     },
     {
-      "hash": "7b1b22d29",
-      "subject": "docs(language-spec): F2 is an implementation gap, not a throw"
+      "hash": "7a66d3a1b",
+      "subject": "feat(runtime): escape / unescape have a value face"
     },
     {
-      "hash": "ae51f2dec",
-      "subject": "feat(check): band B reaches a call position"
+      "hash": "49b07ec08",
+      "subject": "fix(check): name the ToString slots once, and widen three lanes onto them"
     },
     {
-      "hash": "6cb945fce",
-      "subject": "fix(object-assign): §20.1.2.1 step 1 is ToObject, and a primitive gets a wrapper"
+      "hash": "e15edb16f",
+      "subject": "fix(ssa-lower): one ToNumber sink for every Math f64 parameter"
     },
     {
-      "hash": "751db1a62",
-      "subject": "feat(check): the ToString globals take any value, as the spec says twice"
+      "hash": "d3f9e5e39",
+      "subject": "fix(check): Array.prototype.slice reads both bounds through ToIntegerOrInfinity"
     },
     {
-      "hash": "5c21547b0",
-      "subject": "feat(check): `>>>` refuses a BigInt after the lanes, not ahead of them"
+      "hash": "eb805d2f7",
+      "subject": "fix(check): Math.min / Math.max coerce every argument, not three named shapes"
     },
     {
-      "hash": "5c7b30554",
-      "subject": "feat(let-widen): a bare `let x;` has no declared type to reconcile shapes with"
+      "hash": "1ffa63797",
+      "subject": "fix(tooling): a NUL byte in route_globals.rs made grep skip the file silently"
     },
     {
-      "hash": "f25db5393",
-      "subject": "docs(language-spec): ch1 — what tsc actually said about the refuse families"
+      "hash": "b951070bc",
+      "subject": "fix(check): copyWithin / fill read every bound through ToIntegerOrInfinity"
     }
   ],
-  "headSha": "c5d62050c",
+  "headSha": "8e9ae78f8",
   "autorun": {
-    "total": 980,
+    "total": 981,
     "baselineTarget": 10,
-    "bySelf": 975,
+    "bySelf": 976,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789894431-2e95",
-      "at": "2026-09-20T08:53:51Z",
-      "ts": 1789894431,
+      "rotationId": "r-1789907412-267e",
+      "at": "2026-09-20T12:30:12Z",
+      "ts": 1789907412,
       "trigger": "self",
-      "prevHead": "3924a0940",
-      "handoffSha": "sha256:bebdea3f20124929ef25406c6a1f69eefe0ccf332fc08f8589de3bc477fec8eb",
-      "handoffAgeSec": 4,
-      "conformanceBefore": "4378/0/4",
-      "commitsInSession": 19
+      "prevHead": "0af87d34b",
+      "handoffSha": "sha256:816fdd4619a5596b04adb98cd4186f1f9dd1b6eb9bc0723ef497739e3d521d3f",
+      "handoffAgeSec": 12,
+      "conformanceBefore": "4385/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1789907412-267e",
+        "at": "2026-09-20T12:30:12Z",
+        "ts": 1789907412,
+        "trigger": "self",
+        "prevHead": "0af87d34b",
+        "handoffSha": "sha256:816fdd4619a5596b04adb98cd4186f1f9dd1b6eb9bc0723ef497739e3d521d3f",
+        "handoffAgeSec": 12,
+        "conformanceBefore": "4385/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1789894431-2e95",
         "at": "2026-09-20T08:53:51Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:11294b55bff2237cddac796be6f0d3d05ba1f08ba9f1090e353247c1dd2e7419",
         "handoffAgeSec": 46,
         "conformanceBefore": "4308/0/4",
-        "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789707011-6d54",
-        "at": "2026-09-18T04:50:11Z",
-        "ts": 1789707011,
-        "trigger": "self",
-        "prevHead": "131978bc6",
-        "handoffSha": "sha256:9874dff02b7ea7600c914b8b072967ad3021e8baf08c1304a503ba32b364531e",
-        "handoffAgeSec": 10,
-        "conformanceBefore": "4299/0/4",
         "commitsInSession": 17
       }
     ],
