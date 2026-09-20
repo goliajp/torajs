@@ -108,6 +108,7 @@ mod combinator_elem;
 mod combinator_spec;
 mod compare;
 mod construct;
+mod construct_has_instance;
 mod construct_unit;
 mod ctor_return;
 mod date_from_value;

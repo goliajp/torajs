@@ -29,7 +29,7 @@
 //! 4. **IsCallable(target) is false → TypeError**, reached only when
 //!    no handler was found.
 //! 5. **OrdinaryHasInstance** — delegated to the existing prototype
-//!    walk in [`crate::construct::__torajs_instanceof_fn_value`], so
+//!    walk in [`crate::construct_has_instance::__torajs_instanceof_fn_value`], so
 //!    a callable target keeps the answer it already had.
 //!
 //! A handler that throws leaves the exception pending and answers
@@ -40,7 +40,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::construct::is_heap_object;
+use crate::construct_has_instance::is_heap_object;
 use crate::member_get_symbol::symbol_key_get;
 use crate::method_value::symbol_static::well_known_singleton;
 use crate::nanbox::{AnyValue, as_void_ptr};
@@ -141,7 +141,7 @@ pub(crate) unsafe fn ordinary_has_instance(v: AnyValue, target: AnyValue, strict
         }
         let cell = as_void_ptr(target);
         if cell_tag(cell) == Tag::Closure as u16 {
-            return crate::construct::__torajs_instanceof_fn_value(v, cell);
+            return crate::construct_has_instance::__torajs_instanceof_fn_value(v, cell);
         }
         // A CLASS object is callable in the spec sense — `typeof C`
         // answers "function" — but tr models it as a dynobj, so the
@@ -149,7 +149,7 @@ pub(crate) unsafe fn ordinary_has_instance(v: AnyValue, target: AnyValue, strict
         // whenever a class is used as a VALUE (`const T: any = C`,
         // `{ cls: C }`, a call returning one) rather than named, which
         // is exactly what a general right-hand side allows.
-        if let Some(r) = crate::construct::class_ctor_has_instance(v, cell) {
+        if let Some(r) = crate::construct_has_instance::class_ctor_has_instance(v, cell) {
             return r;
         }
         if strict {

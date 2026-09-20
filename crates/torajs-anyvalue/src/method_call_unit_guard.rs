@@ -65,7 +65,7 @@ pub(crate) unsafe fn refuses_receiver(face: *mut c_void, this_arg: AnyValue) -> 
             // evaluation's prototype on its chain (registered
             // deviation: the spec's brand is fixed at construction, a
             // re-linked chain moves this one).
-            if crate::construct::class_ctor_has_instance(this_arg, face_unit as *mut c_void)
+            if crate::construct_has_instance::class_ctor_has_instance(this_arg, face_unit as *mut c_void)
                 == Some(true)
             {
                 return false;
