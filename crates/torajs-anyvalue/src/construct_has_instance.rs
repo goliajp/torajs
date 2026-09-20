@@ -42,12 +42,41 @@ pub unsafe extern "C" fn __torajs_instanceof_fn_value(v: u64, cell: *mut c_void)
         if let Some((1, target, _)) = crate::method_bind::bound_cell_meta(cell) {
             return __torajs_instanceof_fn_value(v, target as *mut c_void);
         }
-        let Some((_ptag, pval)) = crate::closure_proto::fn_prototype_pair(cell) else {
+        // §7.3.22 step 3 — "If O is not an Object, return false".
+        // This precedes the Get, so a callable with a broken
+        // `.prototype` is not even consulted when the left side is a
+        // primitive: `1 instanceof f` is false, never a TypeError.
+        // `proto_chain_reaches` asks the same question at its own
+        // entry; hoisting it is what keeps step 3 ahead of step 5
+        // now that step 5 can raise.
+        if !is_heap_object(v) {
+            return false;
+        }
+        // §7.3.22 steps 4-5 — `Get(C, "prototype")` and then "If P is
+        // not an Object, throw a TypeError exception". The Get half
+        // was here; the type check was not, because the pair's TAG
+        // was dropped on the floor. `function f(){}; f.prototype =
+        // true; ({}) instanceof f` therefore walked the chain looking
+        // for the cell at address 1, never found it, and answered
+        // false where the spec raises.
+        //
+        // The question is the same one `Reflect.setPrototypeOf`'s
+        // proto gate asks, and `av_is_object` is where it is named: a
+        // heap cell is not enough, because a Str, a Symbol or a
+        // BigInt is a cell here and a primitive to the spec.
+        let Some((ptag, pval)) = crate::closure_proto::fn_prototype_pair(cell) else {
             __torajs_throw_type_error(
                 c"Function has non-object prototype in instanceof check".as_ptr(),
             );
             return false;
         };
+        let p = crate::nanbox_encode::__torajs_anyv_box_from_pair(ptag as i64, pval as i64);
+        if !crate::iter_zip_shared::av_is_object(p) {
+            __torajs_throw_type_error(
+                c"Function has non-object prototype in instanceof check".as_ptr(),
+            );
+            return false;
+        }
         proto_chain_reaches(v, pval)
     }
 }
@@ -109,10 +138,19 @@ pub(crate) unsafe fn class_ctor_has_instance(v: AnyValue, cell: *mut c_void) -> 
             return None;
         }
         let (ptag, pval) = crate::closure_proto::class_prototype_pair(cell)?;
-        // Tag 4 is `AnySlotTag::Heap` in the member-pair protocol;
-        // anything else is not an Object and step 6 rejects it.
-        if ptag != 4 {
-            return None;
+        // §7.3.22 step 6 — "If P is not an Object, throw a TypeError".
+        // This used to answer `None`, which means "not a class object"
+        // to the caller, and the caller's fallthrough raises "Right-hand
+        // side of 'instanceof' is not callable" — and only in strict
+        // mode. Two things wrong at once: the wrong error, and no error
+        // at all in sloppy code. It is the same step the closure lane
+        // above enforces, so it asks the same predicate.
+        let p = crate::nanbox_encode::__torajs_anyv_box_from_pair(ptag as i64, pval as i64);
+        if !crate::iter_zip_shared::av_is_object(p) {
+            __torajs_throw_type_error(
+                c"Function has non-object prototype in instanceof check".as_ptr(),
+            );
+            return Some(false);
         }
         Some(proto_chain_reaches(v, pval))
     }
