@@ -300,6 +300,14 @@ checker 说 Any 了,而 lowering 对 Number/Struct 这一对**不 box**,
 面(这里是 `typeof`),不能只重复 test262 碰巧覆盖到的那一格。闸开后答错
 (L1)说明要先修运行期;按族批量放宽会把一批拒收换成一批 silent-wrong。
 
+**探针写漏了还有最后一道**:收尾 sweep 的 verdict diff 里,
+`incompatible → bug` 就是「接受了但答错」的签名,一条一条读。这一轮它
+抓到了本轮自己造的两条 —— `1n > true` 答 true(lowering 的类型清单没跟着
+checker 放宽)与 `({[Symbol.toPrimitive]() { throw }}) >>> 0n` 抛错了类
+(档 B 提前 emit,跳过了对象的 ToPrimitive)。**两条 gate 都是全绿的**:
+这些形状只在 test262 里出现,本仓 fixture 一条都没有。所以这一格不是
+「顺便看看」,是纪律 —— 而看完之后要补的正是那两条缺席的 fixture。
+
 #### 量具自己被推翻了一次
 
 第一版的 docket 把 `exit 3` 读成「跑起来但答错」,于是 **203 条一次性搬
@@ -361,7 +369,8 @@ checker 记侧表 `Ast::spec_throws` → 经 monomorphization 交棒 → lowerin
 `ast_throw_info` 登记 may-throw,否则调用方的检查被剪掉、throw 跨函数
 边界静默消失 —— 前两条先例各自付过同一笔学费。
 
-**两条落地时才看得见的约束**:
+**四条落地时才看得见的约束**(后两条是这一轮的 sweep 事后抓到的,
+不是设计时想到的):
 
 1. **那个不可达的值仍然需要正确的形状。** 它永远不被读,但它要被
    materialize,而后端不肯把指针放进浮点寄存器:
@@ -372,6 +381,27 @@ checker 记侧表 `Ast::spec_throws` → 经 monomorphization 交棒 → lowerin
 2. **该表达式的类型不该一律写成 `Any`。** 一元 `+` 只要产出就产出
    Number,所以它记 Number,外层表达式因此留在 typed 车道上。写 Any
    是更省事的局部答案,也正是 §7 要防的那次交换。
+3. **档 B 的前提是「中间没有可观察的事」,而对象的 ToPrimitive 是用户
+   代码。** §13.15.3 先对**两个**操作数做 ToPrimitive,再由运算符拒绝
+   这一对 —— 那段用户代码要是先抛了,程序看到的就是它的错误。第一版
+   的 `>>>` 规则只要求**一侧**是 BigInt、Symbol 规则只要求一侧是
+   Symbol,于是另一侧可以是对象:
+   `({[Symbol.toPrimitive]() { throw new MyError() }}) >>> 0n` 被提前
+   emit 成 TypeError,而规范要的是 MyError(test262
+   `unsigned-right-shift/bigint-toprimitive`)。**判据是「两个操作数都
+   是 primitive」** —— 混合数值那一条规则从一开始就没这个洞,因为
+   `to_numeric_kind` 对「valueOf 看不见」的类型答 `None`,那正是同一个
+   性质写在了对的地方。`Any` 同样排除,理由相同而不是更弱:它背后可能
+   是对象。
+4. **放宽 checker 的接受面,必须同时问 lowering 认不认。** 这一轮把
+   `1n > true` 从拒收改成接受,而 lowering 里另有一份手写的类型清单
+   (`F64 | I64 | I32 | Str`)没跟上 —— tr 于是答 `true`,规范与它自己的
+   any kernel 都答 `false`。**拒收变成错值比拒收更坏**,而 gate 全绿:
+   这一对只在 test262 里出现。两处清单的正确修法不是把第二处也列全,
+   是把它变成一个**性质**(「恰好一侧是 BigInt」),性质不会跟一份清单
+   漂开。判据留在 §3.3 的施工纪律里:**落地一条之后,verdict diff 里
+   `incompatible → bug` 的每一条都要当场读**,它正是「接受了但答错」的
+   签名。
 
 ### 5.1 错误类别不可能从消息文本推出
 
