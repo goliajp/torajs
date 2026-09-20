@@ -377,6 +377,34 @@ checker 放宽)与 `({[Symbol.toPrimitive]() { throw }}) >>> 0n` 抛错了类
 这些形状只在 test262 里出现,本仓 fixture 一条都没有。所以这一格不是
 「顺便看看」,是纪律 —— 而看完之后要补的正是那两条缺席的 fixture。
 
+#### S0.4 的施工面 —— 210 条 lower panic 里,最大的一族长什么样
+
+`S0.4-lower` 是最大的一桶,而其中 **F3 占 105 条**。r677 把这 105 条按
+「**要建的那条路是什么**」而不是按消息文本分了一遍,得到 15 簇;前四簇:
+
+| 簇 | n | 形状 | 要建的路 |
+|---|--:|---|---|
+| ToNumber / ToNumeric 的数值实参 | 23 | `copyWithin` / `fill` 的索引、`Math.max` 的变参、`~`、`x++` | 实参非 Number 时装箱成 `Any`,调已有的 any 车道内建 |
+| ToObject 的 `Object.*` 首参 | 13 | `Object.assign` / `Object.values` | 同上;**其中 3 条 nullish 是档 B**(r677 已落地) |
+| ToBigInt | 12 | `BigInt(v)` 的对象实参、`BigInt.asIntN` 的 value | 前 6 条装箱即可;后 6 条连 `any` 都被拒,要新建 ToBigInt 入口 |
+| ToString 的字符串实参 | 11 | `String.p.indexOf` / `padStart` / `Symbol.for` / `parseFloat` | 同上(`parseFloat` 那条 r677 已落地) |
+
+**比簇更有决策价值的是另一维**:这 105 条里 **87 条的 any 车道今天就答得
+对**(实测 tr = bun),typed 车道要做的只是「装箱 → 调已有 kernel」或「直接
+emit 那次 throw」;**18 条 any 车道自己也错或根本没路**(`BigInt.asIntN` 6 ·
+`new Array(非 Number)` 5 · `Object.assign(基元, …)` 3 · Symbol 键与 String
+下标写 3 · `Math.sumPrecise` 1),那 18 条要先修运行期。
+
+判据钉死这一维的是一组 A/B:`Math.max(o as any, 1)` 崩在
+`cannot coerce Obj(StructId(0)) to f64`,而把同一个值先赋给 `const b: any = o`
+再 `Math.max(b, 1)` 答 `2` —— **kernel 对、装箱对,缺的只是调用点上那次装箱**。
+
+**r677 实测到的边界,写下来给下一轮**:这类放宽**不是一律只改 checker**。
+`String.padStart` 的 fill 槽放宽之后程序**静默退出**(第一行之后什么都没有,
+无错误消息)—— 那条 lowering 只接受 `Str`,checker 的门是它唯一的保护。所以
+每一条放宽都要**当场跑一条探针**,而且要看完整输出:少一行输出与「跑对了」
+在 `head -1` 下长得一样。
+
 #### 量具自己被推翻了一次
 
 第一版的 docket 把 `exit 3` 读成「跑起来但答错」,于是 **203 条一次性搬
