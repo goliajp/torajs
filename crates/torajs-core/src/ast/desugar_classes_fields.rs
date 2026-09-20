@@ -35,7 +35,7 @@ pub(super) fn compute_full_fields(
     // classes — no forward references to classes later in source
     // order (see module doc for the deferred exemption).
     let mut declared_so_far: HashSet<String> = HashSet::new();
-    for (_, cname, _tp, parent, _, _, _, _, _) in class_index {
+    for (_, cname, _tp, parent, _, _, _, _, _, _) in class_index {
         if let Some(p) = parent
             && !ast.class_expr_deferred.contains(cname)
             && !declared_so_far.contains(p)
@@ -61,14 +61,14 @@ pub(super) fn compute_full_fields(
     // Generic-parent substitution needs the parent's type-param list.
     let tp_by_class: HashMap<&str, &Vec<String>> = class_index
         .iter()
-        .map(|(_, cname, tp, _, _, _, _, _, _)| (cname.as_str(), tp))
+        .map(|(_, cname, tp, _, _, _, _, _, _, _)| (cname.as_str(), tp))
         .collect();
     let mut pending: Vec<&ClassIndexEntry> = class_index.iter().collect();
     while !pending.is_empty() {
         let before = pending.len();
         let mut next: Vec<&ClassIndexEntry> = Vec::new();
         for entry in pending {
-            let (_, cname, _tp, parent, fields, _, _, _, _) = entry;
+            let (_, cname, _tp, parent, fields, _, _, _, _, _) = entry;
             if let Some(p) = parent
                 && !full_fields.contains_key(p)
             {
@@ -146,7 +146,7 @@ pub(super) fn compute_full_fields(
             full_fields.insert(cname.clone(), combined);
         }
         if next.len() == before {
-            let (_, cname, _tp, parent, _, _, _, _, _) = next[0];
+            let (_, cname, _tp, parent, _, _, _, _, _, _) = next[0];
             let p = parent.as_deref().unwrap_or("<none>");
             panic!(
                 "M5.2: `{cname} extends {p}` — parent class `{p}` must be declared \

@@ -206,6 +206,14 @@ impl<'a> Parser<'a> {
                     self.ast
                         .class_computed_keys
                         .insert((name.to_string(), sentinel.clone()), key_expr);
+                    // RFC 20260921 — the owner, recorded where the
+                    // sentinel is minted so no later pass has to
+                    // reconstruct it from the (non-unique) class name.
+                    self.ast
+                        .class_computed_owner
+                        .entry(sentinel.clone())
+                        .or_default()
+                        .push(self.current_class_decl_id);
                     PropKey::from(sentinel)
                 }
             };

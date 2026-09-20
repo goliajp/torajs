@@ -105,6 +105,7 @@ pub fn parse_into_eval(
         desugar_id: id_offset,
         generator_fns: std::collections::HashMap::new(),
         current_class: None,
+        current_class_decl_id: 0,
         class_stack: Vec::new(),
         class_body_stmt_depths: Vec::new(),
         in_instance_field_init: false,

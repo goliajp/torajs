@@ -55,7 +55,7 @@ pub(super) fn synthesize_derived_default_ctors(
     }
     let by_name: std::collections::HashMap<String, ChainInfo> = class_index
         .iter()
-        .map(|(_, cname, tp, parent, _, _, ctor, _, _)| {
+        .map(|(_, cname, tp, parent, _, _, ctor, _, _, _)| {
             (
                 cname.clone(),
                 ChainInfo {
@@ -76,7 +76,7 @@ pub(super) fn synthesize_derived_default_ctors(
         })
         .collect();
     let max_hops = class_index.len();
-    for (_, cname, type_params, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+    for (_, cname, type_params, parent, _, _, ctor, _, _, _) in class_index.iter_mut() {
         // A derived class with field initializers and no `constructor`
         // still needs the implicit one. The parser turns its field
         // initializers into a ctor so they run at all, and that ctor

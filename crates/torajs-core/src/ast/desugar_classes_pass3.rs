@@ -132,6 +132,7 @@ pub(super) fn rewrite_classdecls_pass3(
         ctor,
         methods,
         static_methods,
+        decl_id,
     ) in class_index
     {
         let type_decl = Stmt::TypeDecl {
@@ -273,7 +274,15 @@ pub(super) fn rewrite_classdecls_pass3(
         // FIELD's store rides the static-init sequence at its own
         // position (628-05), only its key global is minted here.
         let mut patch: Vec<Stmt> = Vec::new();
-        emit_computed_member_reifies(ast, cname, methods, static_methods, &mut patch, full_fields);
+        emit_computed_member_reifies(
+            ast,
+            cname,
+            *decl_id,
+            methods,
+            static_methods,
+            &mut patch,
+            full_fields,
+        );
         patch.extend(own_statics);
         if !patch.is_empty() {
             computed_patches.push((*idx, patch));
@@ -294,6 +303,7 @@ pub(super) fn rewrite_classdecls_pass3(
 fn emit_computed_member_reifies(
     ast: &mut Ast,
     cname: &str,
+    decl_id: u32,
     methods: &[ClassMethod],
     static_methods: &[ClassMethod],
     patch: &mut Vec<Stmt>,
@@ -324,8 +334,15 @@ fn emit_computed_member_reifies(
             entries.push((n, sentinel.to_string(), kind, is_static, None));
         }
     }
-    for (fc, sentinel, init) in &ast.class_computed_static_fields {
-        if fc != cname {
+    for (_fc, sentinel, init) in &ast.class_computed_static_fields {
+        // RFC 20260921 — ownership, not name. A static computed field
+        // leaves no trace on the class, so this used to match by class
+        // NAME: two functions each declaring `class A { static [k] = … }`
+        // then emitted each other's rows, and the key-global `let` the
+        // sibling's row wanted did not exist in this scope — both
+        // classes answered `undefined`, and a plain static field on the
+        // same-named sibling went down with them.
+        if !super::class_computed_owner::owns(ast, sentinel, decl_id) {
             continue;
         }
         let Some(rest) = sentinel.strip_prefix("__ccm_") else {

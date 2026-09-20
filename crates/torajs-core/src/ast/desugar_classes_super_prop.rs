@@ -78,7 +78,7 @@ pub(super) fn rewrite_super_prop_sites(
     class_index: &[ClassIndexEntry],
     dynamic: bool,
 ) {
-    for (_, cname, _tp, parent, _, static_inits, ctor, methods, static_methods) in class_index {
+    for (_, cname, _tp, parent, _, static_inits, ctor, methods, static_methods, _) in class_index {
         // Instance context: ctor body (field inits are folded in) +
         // instance methods. Super base = <Parent>.prototype, receiver
         // spelling = `this` (Pass 2 rewrites it to `__this`). A class

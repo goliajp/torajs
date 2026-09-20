@@ -398,6 +398,24 @@ impl<'a> BodyCloner<'a> {
         // to rule out). The side-table rows keyed by the source id are
         // not copied with it — a cloned class re-registers its own.
         let decl_id = self.ast.mint_class_decl_id();
+        // The body was copied verbatim, member names included, so this
+        // clone declares the SAME `__ccm_<n>__` sentinels the source
+        // did — register it as a second owner of each, or pass 3 would
+        // emit the computed members for neither.
+        let src_sentinels: Vec<String> = self
+            .ast
+            .class_computed_keys
+            .keys()
+            .filter(|(c, _)| c == name)
+            .map(|(_, sent)| sent.clone())
+            .collect();
+        for sent in src_sentinels {
+            self.ast
+                .class_computed_owner
+                .entry(sent)
+                .or_default()
+                .push(decl_id);
+        }
         Stmt::ClassDecl {
             name: name.clone(),
             decl_id,

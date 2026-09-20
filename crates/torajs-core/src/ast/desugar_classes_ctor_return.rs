@@ -45,7 +45,7 @@ use crate::ast::PropKey;
 pub(super) fn collect(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
     let mut set: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut parent: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-    for (_, cname, _tp, p, _, _, ctor, _, _) in class_index {
+    for (_, cname, _tp, p, _, _, ctor, _, _, _) in class_index {
         if let Some(pname) = p.as_deref() {
             parent.insert(cname.as_str(), pname);
         }

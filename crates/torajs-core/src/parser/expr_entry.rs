@@ -176,6 +176,7 @@ impl<'a> Parser<'a> {
             desugar_id: self.desugar_id,
             generator_fns: std::mem::take(&mut self.generator_fns),
             current_class: self.current_class.clone(),
+            current_class_decl_id: self.current_class_decl_id,
             // `${this.#x}` inside the interpolation must
             // park its deferred private-ref site with the
             // SAME lexical class stack the surrounding

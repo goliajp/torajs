@@ -638,6 +638,10 @@ pub struct Ast {
     pub class_computed_keys: std::collections::HashMap<(String, String), ExprId>,
     /// RFC 20260921 — counter behind [`Self::mint_class_decl_id`].
     pub next_class_decl_id: u32,
+    /// RFC 20260921 — `__ccm_<n>__` sentinel → the `decl_id`s that
+    /// declare it; see `ast::class_computed_owner` for why the class
+    /// name cannot answer this and who may share a sentinel.
+    pub class_computed_owner: std::collections::HashMap<String, Vec<u32>>,
     /// RFC 20260802 刀 3 后半 — STATIC runtime-computed class FIELDS:
     /// `(class name, `__ccm_<n>__` sentinel, init ExprId)` in
     /// declaration order. The key expr lives in

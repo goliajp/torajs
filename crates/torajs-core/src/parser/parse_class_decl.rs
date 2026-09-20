@@ -48,6 +48,11 @@ impl<'a> Parser<'a> {
             saved_super_prop,
             saved_has_parent,
         } = h;
+        // RFC 20260921 — mint before the body: every computed member
+        // parsed below records this as its owner, and a nested class
+        // saves / restores it exactly as it does `current_class`.
+        let decl_id = self.ast.mint_class_decl_id();
+        let saved_decl_id = std::mem::replace(&mut self.current_class_decl_id, decl_id);
         let mut fields: Vec<(PropKey, String)> = Vec::new();
         let mut static_init: Vec<StaticInit> = Vec::new();
         let mut ctor: Option<ClassCtor> = None;
@@ -286,10 +291,10 @@ impl<'a> Parser<'a> {
         // skip this; the parser is in an error state and the value
         // is moot).
         self.current_class = saved_class;
+        self.current_class_decl_id = saved_decl_id;
         self.current_class_has_parent = saved_has_parent;
         self.super_prop_allowed = saved_super_prop;
         self.pop_class_scope(&name, &fields, &static_init, &methods, &static_methods)?;
-        let decl_id = self.ast.mint_class_decl_id();
         Ok(Stmt::ClassDecl {
             name,
             decl_id,

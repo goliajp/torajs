@@ -33,6 +33,7 @@ pub(super) type ClassIndexEntry = (
     Option<ClassCtor>,      // ctor
     Vec<ClassMethod>,       // methods
     Vec<ClassMethod>,       // static_methods
+    u32,                    // decl_id (RFC 20260921) — the name is not unique
 );
 
 /// RFC 20260718-error-message-own-prop 刀 3 — §9.2.2 [[Construct]]
@@ -48,7 +49,7 @@ pub(super) type ClassIndexEntry = (
 /// Runs on the mutable class_index BEFORE it freezes; the synthetic
 /// derived default ctors just synthesized carry a super() and skip.
 pub(super) fn append_no_super_throw(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) {
-    for (_, cname, _tp, parent, _, _, ctor, _, _) in class_index.iter_mut() {
+    for (_, cname, _tp, parent, _, _, ctor, _, _, _) in class_index.iter_mut() {
         if parent.is_none() {
             continue;
         }
@@ -80,7 +81,7 @@ pub(super) fn rewrite_super_ctor_calls(ast: &mut Ast, class_index: &[ClassIndexE
     // Pass 1.5 — rewrite `super(args)` inside each subclass's ctor body
     // into a Call to `__cm_<Parent>__ctor(__this, args)`. Must run before
     // pass 2 (which rewrites `Expr::This` and method-call shapes).
-    for (_, cname, _tp, parent, fields, _, ctor, methods, _) in class_index {
+    for (_, cname, _tp, parent, fields, _, ctor, methods, _, _) in class_index {
         let Some(c) = ctor.as_ref() else { continue };
         let mut super_sites: Vec<(ExprId, Vec<ExprId>)> = Vec::new();
         for s in &c.body {
@@ -209,7 +210,7 @@ pub(super) fn rewrite_super_method_calls(ast: &mut Ast, class_index: &[ClassInde
     // reads the static-method lists. Before the split every static
     // site was named `__cm_...` with a minted `this` and died loud on
     // an unknown identifier.
-    for (_, cname, _tp, parent, _, static_init, ctor, methods, static_methods) in class_index {
+    for (_, cname, _tp, parent, _, static_init, ctor, methods, static_methods, _) in class_index {
         // Rotation 371 — a builtin-heritage class was STRIPPED
         // (desugar_classes_builtin_heritage sets its parent to None
         // and records the builtin in `exotic_parent`); its

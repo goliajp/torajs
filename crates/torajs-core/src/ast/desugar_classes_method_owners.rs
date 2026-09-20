@@ -41,7 +41,7 @@ pub(super) fn compute_method_owners_and_chain_methods(
     // we walk in reverse to check the deepest class first. Tracks
     // every class that declares a method body, including overrides.
     let mut method_owners: HashMap<String, Vec<String>> = HashMap::new();
-    for (_, cname, _tp, _, _, _, _, methods, _) in class_index {
+    for (_, cname, _tp, _, _, _, _, methods, _, _) in class_index {
         for m in methods {
             // P8.2 — accessor methods (`get X` / `set X`) don't go through
             // the `__dispatch_<M>` method-dispatch path; `c.X` /

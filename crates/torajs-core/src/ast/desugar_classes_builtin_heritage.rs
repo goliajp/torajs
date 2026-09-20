@@ -202,7 +202,7 @@ fn builtin_proto_heir_tag(parent: &str) -> Option<i64> {
 pub(super) fn strip_builtin_heritage(ast: &mut Ast, class_index: &mut [ClassIndexEntry]) {
     let declared: std::collections::HashSet<String> =
         class_index.iter().map(|e| e.1.clone()).collect();
-    for (_, cname, _tp, parent, fields, _, ctor, _, _) in class_index.iter_mut() {
+    for (_, cname, _tp, parent, fields, _, ctor, _, _, _) in class_index.iter_mut() {
         let Some(p) = parent.as_ref() else { continue };
         // A user class of the same name shadows the builtin — the
         // ordinary declared-parent path handles it.

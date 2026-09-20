@@ -66,7 +66,7 @@ pub(super) fn build_static_member_rewrites(
     let mut static_member_rewrites: HashMap<(String, PropKey), String> = HashMap::new();
     let mut accessor_rewrites: StaticAccessorRewrites = HashMap::new();
     let mut inherited_owners: InheritedStaticOwners = HashMap::new();
-    for (_, cname, _, _, _, sis, _, _, sms) in class_index {
+    for (_, cname, _, _, _, sis, _, _, sms, _) in class_index {
         // P8.3-A3 — only StaticInit::Field entries are addressable as
         // `ClassName.member`; static blocks have no member name and are
         // emitted as `__sb_<C>__<idx>` named fns called at top level,
@@ -131,10 +131,10 @@ pub(super) fn build_static_member_rewrites(
     // chain in order.
     let parent_map: HashMap<String, Option<String>> = class_index
         .iter()
-        .map(|(_, c, _, p, _, _, _, _, _)| (c.clone(), p.clone()))
+        .map(|(_, c, _, p, _, _, _, _, _, _)| (c.clone(), p.clone()))
         .collect();
     let mut class_static_index: HashMap<String, (Vec<PropKey>, Vec<PropKey>)> = HashMap::new();
-    for (_, cname, _, _, _, sis, _, _, sms) in class_index {
+    for (_, cname, _, _, _, sis, _, _, sms, _) in class_index {
         class_static_index.insert(
             cname.clone(),
             (
@@ -156,7 +156,7 @@ pub(super) fn build_static_member_rewrites(
             ),
         );
     }
-    for (_, cname, _, parent, _, _, _, _, _) in class_index {
+    for (_, cname, _, parent, _, _, _, _, _, _) in class_index {
         // K5-1 — a derived unit class inherits statics the ordinary
         // way, through its class object's [[Prototype]]: an alias
         // would name the parent TEMPLATE's `__sf_` / `__sm_`.
@@ -221,7 +221,7 @@ pub(super) fn static_field_shadow_windows(
     class_index: &[ClassIndexEntry],
 ) -> HashMap<(String, PropKey), Vec<(u32, u32)>> {
     let mut out = HashMap::new();
-    for (_, cname, _, _, _, sis, _, _, sms) in class_index {
+    for (_, cname, _, _, _, sis, _, _, sms, _) in class_index {
         let mut first_field_idx: HashMap<&PropKey, usize> = HashMap::new();
         for (idx, si) in sis.iter().enumerate() {
             if let StaticInit::Field(sf) = si {
@@ -254,7 +254,7 @@ pub(super) fn positional_static_method_sites(
 ) -> HashMap<u32, String> {
     let windows = static_field_shadow_windows(ast, class_index);
     let mut out: HashMap<u32, String> = HashMap::new();
-    for (_, cname, _, _, _, _, _, _, sms) in class_index {
+    for (_, cname, _, _, _, _, _, _, sms, _) in class_index {
         for sm in sms.iter().filter(|sm| sm.accessor_kind.is_none()) {
             let Some(ranges) = windows.get(&(cname.clone(), sm.name.clone())) else {
                 continue;

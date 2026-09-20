@@ -64,7 +64,7 @@ pub(super) fn collect_abstract_classes(
     // Walk every concrete class's inheritance chain (root → leaf,
     // accumulating "unimplemented" abstract names along the way) and
     // verify that none survive into the concrete leaf.
-    for (_, cname, _, _, _, _, _, _, _) in class_index {
+    for (_, cname, _, _, _, _, _, _, _, _) in class_index {
         if abstract_classes.contains(cname) {
             continue;
         }

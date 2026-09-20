@@ -188,6 +188,11 @@ struct Parser<'a> {
     /// possible without static type info — those flow through as
     /// raw `#name` and typecheck/desugar can mangle later (P8.x).
     current_class: Option<String>,
+    /// RFC 20260921 — the `decl_id` of the class body being parsed,
+    /// minted right after its header so the members can record their
+    /// owner. Saved / restored around a nested class the same way
+    /// `current_class` is; 0 outside any class body.
+    current_class_decl_id: u32,
     /// Enclosing class-body scope ids, innermost LAST (ids index
     /// `ast.class_private_scopes`). Pushed/popped alongside
     /// `current_class` by `parse_class_decl_with_abstract`; snapshotted

@@ -17,7 +17,7 @@ use super::{Ast, Expr, PropKey, StaticInit, Stmt};
 pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) -> bool {
     let Stmt::ClassDecl {
         name,
-        decl_id: _,
+        decl_id,
         type_params,
         parent,
         is_abstract,
@@ -85,10 +85,8 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
     if !type_params.is_empty()
         || *is_abstract
         || !static_init_admits
-        || ast
-            .class_computed_static_fields
-            .iter()
-            .any(|(c, _, _)| c == name)
+        // By OWNER, not by name — see `class_computed_owner`.
+        || super::class_computed_owner::has_static_field(ast, *decl_id)
         // K4-1 — a plain static METHOD rides the unit: its body takes
         // the evaluation's class object as a leading `__unit` param
         // (a static `this` spells it), and `__cunit_C` defines one
@@ -110,7 +108,7 @@ pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) 
             .all(|m| (plain(&m.name) || private_method(&m.name)) && m.type_params.is_empty())
         || ast.builtin_class_parents.contains_key(name)
         || ast.class_expr_deferred.contains(name)
-        || ast.class_computed_keys.keys().any(|(c, _)| c == name)
+        || super::class_computed_owner::has_any(ast, *decl_id)
         || ast
             .class_computed_instance_fields
             .iter()

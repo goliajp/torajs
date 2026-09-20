@@ -249,11 +249,13 @@ pub(crate) fn this_enclosing_classes(
         Option<ClassCtor>,
         Vec<ClassMethod>,
         Vec<ClassMethod>,
+        u32,
     )],
 ) -> Vec<Option<usize>> {
     let mut enclosing: Vec<Option<usize>> = vec![None; ast.exprs.len()];
     let mut mask = vec![false; ast.exprs.len()];
-    for (ci, (_, _, _, _, _, _, ctor, methods, static_methods)) in class_index.iter().enumerate() {
+    for (ci, (_, _, _, _, _, _, ctor, methods, static_methods, _)) in class_index.iter().enumerate()
+    {
         mask.fill(false);
         for m in methods.iter().chain(static_methods.iter()) {
             crate::ast::body_owned_exprs(ast, &m.body, &mut mask);
@@ -304,6 +306,7 @@ pub(crate) fn receiver_is_this_builtin_field(
         Option<ClassCtor>,
         Vec<ClassMethod>,
         Vec<ClassMethod>,
+        u32,
     )],
 ) -> bool {
     let Expr::Member {
@@ -327,7 +330,7 @@ pub(crate) fn receiver_is_this_builtin_field(
     // Find the class entry and look up the field's type annotation.
     let cname = enclosing.unwrap_or(cname);
     let cls = class_index.iter().find(|(_, n, ..)| n == cname);
-    let Some((_, _, _, _, fields, _, _, _, _)) = cls else {
+    let Some((_, _, _, _, fields, _, _, _, _, _)) = cls else {
         return false;
     };
     let field_ty_ann = fields

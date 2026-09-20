@@ -42,7 +42,7 @@ pub(super) fn emit_dispatch_method_stubs(
         }
         // Locate the base owner's method to copy its signature.
         let base_owner = &owners[0];
-        let (_, _, base_tp, _, _, _, _, base_methods, _) = class_index
+        let (_, _, base_tp, _, _, _, _, base_methods, _, _) = class_index
             .iter()
             .find(|(_, n, ..)| n == base_owner)
             .expect("base owner must exist in class_index");

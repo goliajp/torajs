@@ -98,7 +98,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // Build the parent map and validate the inheritance graph.
     let mut parent_map: std::collections::HashMap<String, Option<String>> =
         std::collections::HashMap::new();
-    for (_, cname, _tp, parent, _, _, _, _, _) in &class_index {
+    for (_, cname, _tp, parent, _, _, _, _, _, _) in &class_index {
         parent_map.insert(cname.clone(), parent.clone());
     }
     // Make the parent map visible to post-desugar passes so `instanceof`
@@ -238,7 +238,7 @@ fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::Clas
     for (i, s) in ast.stmts.iter().enumerate() {
         if let Stmt::ClassDecl {
             name,
-            decl_id: _,
+            decl_id,
             type_params,
             parent,
             is_abstract: _,
@@ -275,6 +275,7 @@ fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::Clas
                 ctor.clone(),
                 methods.clone(),
                 static_methods.clone(),
+                *decl_id,
             ));
         }
     }

@@ -119,7 +119,7 @@ pub(super) fn run(ast: &mut Ast, class_index: &[ClassIndexEntry]) {
 /// it, so counting it left the cursor one short of every subclass's
 /// base (`cannot add a private element twice`).
 fn own_elements(entry: &ClassIndexEntry) -> (u32, Vec<&str>) {
-    let (_, _, _, _, fields, _, _, methods, _) = entry;
+    let (_, _, _, _, fields, _, _, methods, _, _) = entry;
     let brand = u32::from(methods.iter().any(|m| m.name.starts_with("__priv_")));
     let fields = fields
         .iter()

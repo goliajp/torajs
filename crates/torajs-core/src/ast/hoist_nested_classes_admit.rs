@@ -22,7 +22,7 @@ use super::*;
 /// see: its bodies only run when something calls them.
 pub(super) fn class_evaluation_is_observable(ast: &Ast, s: &Stmt) -> bool {
     let Stmt::ClassDecl {
-        name,
+        decl_id,
         methods,
         static_methods,
         static_init,
@@ -36,10 +36,11 @@ pub(super) fn class_evaluation_is_observable(ast: &Ast, s: &Stmt) -> bool {
             .iter()
             .chain(static_methods.iter())
             .any(|m| m.name.starts_with("__ccm_"))
-        || ast
-            .class_computed_static_fields
-            .iter()
-            .any(|(c, _, _)| c == name)
+        // By OWNER, not by name (RFC 20260921): asking the side table
+        // for the name answered for every same-named class, so one
+        // `class A { static [k] = 1 }` made a sibling
+        // `class A { static plain = 2 }` look observable too.
+        || super::class_computed_owner::has_static_field(ast, *decl_id)
 }
 
 /// Every body of the class resolves against top-level names only.

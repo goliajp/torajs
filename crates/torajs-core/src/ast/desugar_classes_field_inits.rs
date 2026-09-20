@@ -63,7 +63,7 @@ pub(super) fn compute_class_field_default_inits(
     // `combined_fields_map` (classes) and `type_alias_fields` (aliases).
     // This is what makes `__Gen_<X>` / `__step_<X>` fields work as
     // class fields on outer iterator classes (J.3 / I.2-inside-gen).
-    for (_, cname, _tp, _, _, _, _, _, _) in class_index {
+    for (_, cname, _tp, _, _, _, _, _, _, _) in class_index {
         let combined = full_fields.get(cname).unwrap().clone();
         let mut init_pairs: Vec<(PropKey, ExprId)> = Vec::with_capacity(combined.len());
         let mut prelude: Vec<Stmt> = Vec::new();

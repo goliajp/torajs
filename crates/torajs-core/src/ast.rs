@@ -48,6 +48,7 @@ mod await_ident_goal;
 mod build_factory;
 mod builtin_global_assign;
 pub(crate) mod capturing_classes;
+pub(crate) mod class_computed_owner;
 mod class_globals;
 mod class_globals_register;
 mod class_globals_shadow;
