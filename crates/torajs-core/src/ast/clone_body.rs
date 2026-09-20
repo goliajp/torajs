@@ -379,6 +379,7 @@ impl<'a> BodyCloner<'a> {
     fn clone_class_decl(&mut self, s: &Stmt) -> Stmt {
         let Stmt::ClassDecl {
             name,
+            decl_id: _,
             type_params,
             parent,
             is_abstract,
@@ -391,8 +392,15 @@ impl<'a> BodyCloner<'a> {
         else {
             unreachable!("caller matched ClassDecl");
         };
+        // RFC 20260921 — MINT, never copy: the clone is a second
+        // declaration, and sharing the source's id would trade a name
+        // collision for an id collision (the very thing the id exists
+        // to rule out). The side-table rows keyed by the source id are
+        // not copied with it — a cloned class re-registers its own.
+        let decl_id = self.ast.mint_class_decl_id();
         Stmt::ClassDecl {
             name: name.clone(),
+            decl_id,
             type_params: type_params.clone(),
             // The heritage is an arena expression (RFC 20260815);
             // a plain id copy would SHARE the node between the two

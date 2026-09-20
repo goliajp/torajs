@@ -41,6 +41,7 @@ pub(crate) fn would_claim(
 pub(super) fn decline_reason(ast: &Ast, s: &Stmt, name_unique: bool) -> Option<&'static str> {
     let Stmt::ClassDecl {
         name,
+        decl_id: _,
         type_params,
         parent,
         is_abstract,

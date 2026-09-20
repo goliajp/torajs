@@ -179,6 +179,7 @@ impl<'a> Formatter<'a> {
             } => self.fmt_type_decl(name, type_params, fields),
             Stmt::ClassDecl {
                 name,
+                decl_id: _,
                 type_params,
                 parent,
                 is_abstract,

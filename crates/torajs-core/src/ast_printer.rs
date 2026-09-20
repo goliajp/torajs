@@ -229,34 +229,7 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             }
             None => println!("{pad}Return"),
         },
-        Stmt::ClassDecl {
-            name,
-            type_params: _,
-            parent,
-            is_abstract: _,
-            fields,
-            static_init: _,
-            ctor,
-            methods,
-            static_methods: _,
-        } => {
-            // Debug printer: a bare-Ident heritage prints its name, a
-            // general heritage expression prints its arena id.
-            let parent_disp: Option<String> = parent.map(|pid| match ast.get_expr(pid) {
-                Expr::Ident(n) => n.clone(),
-                _ => format!("<expr #{}>", pid.0),
-            });
-            print_class_decl(
-                ast,
-                &pad,
-                name,
-                parent_disp.as_deref(),
-                fields,
-                ctor,
-                methods,
-                indent,
-            )
-        }
+        Stmt::ClassDecl { .. } => print_class_decl_stmt(ast, s, &pad, indent),
         Stmt::ImportDecl { source, .. } => {
             println!("{pad}ImportDecl {source:?}");
         }
@@ -267,6 +240,43 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             }
         }
     }
+}
+
+/// `Stmt::ClassDecl` arm — lifted out of [`print_stmt`] at the size
+/// cap. The exhaustive destructuring lives here, so a new field on the
+/// variant still stops at this file.
+fn print_class_decl_stmt(ast: &Ast, s: &Stmt, pad: &str, indent: usize) {
+    let Stmt::ClassDecl {
+        name,
+        decl_id: _,
+        type_params: _,
+        parent,
+        is_abstract: _,
+        fields,
+        static_init: _,
+        ctor,
+        methods,
+        static_methods: _,
+    } = s
+    else {
+        unreachable!("caller matched ClassDecl");
+    };
+    // Debug printer: a bare-Ident heritage prints its name, a general
+    // heritage expression prints its arena id.
+    let parent_disp: Option<String> = parent.map(|pid| match ast.get_expr(pid) {
+        Expr::Ident(n) => n.clone(),
+        _ => format!("<expr #{}>", pid.0),
+    });
+    print_class_decl(
+        ast,
+        pad,
+        name,
+        parent_disp.as_deref(),
+        fields,
+        ctor,
+        methods,
+        indent,
+    )
 }
 
 /// `Stmt::ForOfSplitIter` arm — parent / sep / body, each one indent

@@ -240,6 +240,14 @@ pub enum Stmt {
     /// SSA layer never sees `ClassDecl`.
     ClassDecl {
         name: String,
+        /// RFC 20260921 — this declaration's identity, minted by
+        /// [`crate::ast::Ast::mint_class_decl_id`]. The NAME is not an
+        /// identity: two functions may each declare `class A`, and the
+        /// collision renames do not run early enough (nor cover every
+        /// class) to make names unique. A side table that has to
+        /// answer "which ClassDecl owns this" keys on this instead.
+        /// 0 = a synthesized class with no declaration of its own.
+        decl_id: u32,
         /// Generic type params: `class Map<K, V> { ... }`. Threaded through
         /// to the desugared TypeDecl + every method's FnDecl. Same
         /// monomorphization machinery as standalone generic fns +

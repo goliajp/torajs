@@ -238,6 +238,7 @@ fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::Clas
     for (i, s) in ast.stmts.iter().enumerate() {
         if let Stmt::ClassDecl {
             name,
+            decl_id: _,
             type_params,
             parent,
             is_abstract: _,

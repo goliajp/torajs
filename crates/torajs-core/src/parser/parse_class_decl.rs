@@ -289,8 +289,10 @@ impl<'a> Parser<'a> {
         self.current_class_has_parent = saved_has_parent;
         self.super_prop_allowed = saved_super_prop;
         self.pop_class_scope(&name, &fields, &static_init, &methods, &static_methods)?;
+        let decl_id = self.ast.mint_class_decl_id();
         Ok(Stmt::ClassDecl {
             name,
+            decl_id,
             type_params,
             parent,
             is_abstract,

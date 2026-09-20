@@ -124,8 +124,10 @@ pub(super) fn build_error_data_subclass(
     ));
 
     let parent_ident = ast.add_expr(Expr::Ident("Error".to_string()));
+    let decl_id = ast.mint_class_decl_id();
     Stmt::ClassDecl {
         name: sub_name.to_string(),
+        decl_id,
         type_params: Vec::new(),
         parent: Some(parent_ident),
         is_abstract: false,

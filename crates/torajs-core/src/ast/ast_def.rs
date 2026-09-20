@@ -636,6 +636,8 @@ pub struct Ast {
     /// parse time and `Symbol.`-chains keep `__sym_<chain>__` (刀 1),
     /// so neither appears here.
     pub class_computed_keys: std::collections::HashMap<(String, String), ExprId>,
+    /// RFC 20260921 — counter behind [`Self::mint_class_decl_id`].
+    pub next_class_decl_id: u32,
     /// RFC 20260802 刀 3 后半 — STATIC runtime-computed class FIELDS:
     /// `(class name, `__ccm_<n>__` sentinel, init ExprId)` in
     /// declaration order. The key expr lives in
@@ -1547,6 +1549,14 @@ impl Ast {
     pub fn body_is_sloppy(&self, body: &[Stmt]) -> bool {
         self.program_is_sloppy()
             && !crate::ast::sloppy_this_prologue::has_use_strict_directive(body, &self.exprs)
+    }
+
+    /// RFC 20260921 — a fresh `Stmt::ClassDecl::decl_id` (see there).
+    /// Ids start at 1, leaving 0 the "no declaration of its own"
+    /// sentinel; every construction point mints, `BodyCloner` too.
+    pub fn mint_class_decl_id(&mut self) -> u32 {
+        self.next_class_decl_id += 1;
+        self.next_class_decl_id
     }
 
     pub fn add_expr(&mut self, e: Expr) -> ExprId {

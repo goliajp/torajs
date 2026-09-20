@@ -17,6 +17,7 @@ use super::{Ast, Expr, PropKey, StaticInit, Stmt};
 pub(super) fn admits_shape(ast: &Ast, cls: &Stmt, assumed_parent: Option<&str>) -> bool {
     let Stmt::ClassDecl {
         name,
+        decl_id: _,
         type_params,
         parent,
         is_abstract,

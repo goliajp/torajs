@@ -151,8 +151,10 @@ pub(super) fn build_error_class(ast: &mut Ast) -> Stmt {
         span: crate::lexer::Span { start: 0, end: 0 },
     };
 
+    let decl_id = ast.mint_class_decl_id();
     Stmt::ClassDecl {
         name: "Error".to_string(),
+        decl_id,
         type_params: Vec::new(),
         parent: None,
         is_abstract: false,
@@ -212,8 +214,10 @@ pub(super) fn build_error_subclass(ast: &mut Ast, sub_name: &str) -> Stmt {
     };
 
     let parent_ident = ast.add_expr(Expr::Ident("Error".to_string()));
+    let decl_id = ast.mint_class_decl_id();
     Stmt::ClassDecl {
         name: sub_name.to_string(),
+        decl_id,
         type_params: Vec::new(),
         parent: Some(parent_ident),
         is_abstract: false,

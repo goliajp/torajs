@@ -163,8 +163,10 @@ pub(super) fn assemble_generator_class_and_factory(
 
     let self_iter_method = self_iter_method(ast, &gen_name, &class_name);
 
+    let decl_id = ast.mint_class_decl_id();
     appended.push(Stmt::ClassDecl {
         name: class_name.clone(),
+        decl_id,
         type_params: Vec::new(),
         parent: None,
         is_abstract: false,
@@ -178,7 +180,30 @@ pub(super) fn assemble_generator_class_and_factory(
         static_methods: Vec::new(),
     });
 
-    // Replace the original generator FnDecl with a thin factory
+    replace_decl_with_factory(
+        ast,
+        idx,
+        gen_name,
+        gen_params,
+        class_name,
+        captures_arguments,
+    );
+}
+
+/// Replace the user's `function*` declaration with a thin factory
+/// returning `new __Gen_<name>(args)` — the second half of what
+/// [`assemble_generator_class_and_factory`] used to do inline, lifted
+/// out at the size cap. The seam is the "and" in that name: above it
+/// the generator CLASS is assembled, here the original declaration is
+/// replaced by a call into it.
+fn replace_decl_with_factory(
+    ast: &mut Ast,
+    idx: usize,
+    gen_name: String,
+    gen_params: Vec<Param>,
+    class_name: String,
+    captures_arguments: bool,
+) {
     // that returns `new __Gen_<name>(args)`.
     let mut factory_args: Vec<ExprId> = gen_params
         .iter()
