@@ -42,6 +42,20 @@ use crate::ssa_lower::LowerCtx;
 /// answered `true` off this very kernel. Packing both sides here
 /// routes the mixed pair to `any_compare`, which already carries the
 /// cross-type walk.
+///
+/// The test is a PROPERTY, not a list, and that is the point. It used
+/// to enumerate `F64 | I64 | I32 | Str` — the shapes someone had
+/// thought of — and the checker's own cross-type list sat in
+/// `check_compare` enumerating `Number | String`. Widening one of them
+/// without the other is silent wrong rather than a compile error:
+/// admitting `1n > true` in the checker while this list still said no
+/// made tr answer `true` where the spec (and the any kernel right
+/// here) say `false`, and test262's `bigint-and-boolean` moved from
+/// refused to wrong. Asking "is exactly one side a BigInt" cannot
+/// drift, because every shape that is not a BigInt reaches step 4
+/// through ToPrimitive + ToNumeric and `any_compare` walks exactly
+/// that. Pure `BigInt op BigInt` keeps its own kernel and is excluded
+/// by the same test.
 fn mixed_bigint_compare(op: AstBinOp, a: &Type, b: &Type) -> bool {
     if !matches!(
         op,
@@ -49,9 +63,7 @@ fn mixed_bigint_compare(op: AstBinOp, a: &Type, b: &Type) -> bool {
     ) {
         return false;
     }
-    let numeric_or_string = |t: &Type| matches!(t, Type::F64 | Type::I64 | Type::I32 | Type::Str);
-    matches!(a, Type::BigInt) && numeric_or_string(b)
-        || matches!(b, Type::BigInt) && numeric_or_string(a)
+    matches!(a, Type::BigInt) != matches!(b, Type::BigInt)
 }
 
 pub(crate) fn try_lower(
