@@ -69,7 +69,7 @@ pub fn desugar_classes(ast: &mut Ast) {
     // this-reading fn died with "bare `this` reached check.rs". Each
     // sub-pass already no-ops its class-keyed half on an empty index.
     super::desugar_classes_elements::dedupe_class_elements(ast);
-    let mut class_index = snapshot_class_index(ast);
+    let mut class_index = super::desugar_classes_index::snapshot_class_index(ast);
     // M5.N — a builtin parent (`extends Object`) strips to base-class
     // shape before any pass keyed on `parent` runs (see the sibling's
     // module doc for the two seams it handles).
@@ -218,72 +218,6 @@ pub fn desugar_classes(ast: &mut Ast) {
         accessor_getter_records,
         accessor_setter_records,
     );
-}
-
-/// Snapshot the class metadata (cloned out so `ast.stmts` can be
-/// mutated in-place without aliasing). M5.2 adds `parent` to the
-/// tuple — for inheritance flattening + super(args) rewriting;
-/// M-OO.4 adds the static-init / static-methods slices.
-///
-/// RFC 20260815 — the heritage is an expression; this static lane
-/// keys everything on the parent NAME, so only a bare-Ident heritage
-/// enters the index. A class whose heritage is a non-Ident expression
-/// is left OUT (never mapped to None — that would mis-file it as a
-/// root class, a silent wrong): it stays in `ast.stmts`, survives to
-/// check, and is reported loudly through the same
-/// `unclaimed_class_reasons` channel the capturing lane uses.
-fn snapshot_class_index(ast: &mut Ast) -> Vec<super::desugar_classes_super::ClassIndexEntry> {
-    let mut out = Vec::new();
-    let mut expr_heritage: Vec<String> = Vec::new();
-    for (i, s) in ast.stmts.iter().enumerate() {
-        if let Stmt::ClassDecl {
-            name,
-            decl_id,
-            type_params,
-            parent,
-            is_abstract: _,
-            fields,
-            static_init,
-            ctor,
-            methods,
-            static_methods,
-        } = s
-        {
-            let parent_name = ast.parent_ident_name(*parent).map(str::to_string);
-            if parent.is_some() && parent_name.is_none() {
-                expr_heritage.push(name.clone());
-                continue;
-            }
-            // A value-shaped parent (knife 2a) belongs to the
-            // capturing lane; one that reaches this snapshot was
-            // DECLINED there for a recorded reason — skip it (filing
-            // `__ccp<N>` as a class name would panic the forward-ref
-            // check) and let check report the decline.
-            if parent_name
-                .as_deref()
-                .is_some_and(|p| ast.es5_value_parents.contains(p))
-            {
-                continue;
-            }
-            out.push((
-                i,
-                name.clone(),
-                type_params.clone(),
-                parent_name,
-                fields.clone(),
-                static_init.clone(),
-                ctor.clone(),
-                methods.clone(),
-                static_methods.clone(),
-                *decl_id,
-            ));
-        }
-    }
-    for name in expr_heritage {
-        ast.unclaimed_class_reasons
-            .push((name, super::capturing_classes::EXPR_HERITAGE_REASON));
-    }
-    out
 }
 
 /// RFC 20260718-accessor-reify 刀 3 — rewrite static-accessor

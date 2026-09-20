@@ -91,6 +91,7 @@ mod desugar_classes_factory_params;
 mod desugar_classes_field_inits;
 mod desugar_classes_fields;
 mod desugar_classes_generic_twin;
+mod desugar_classes_index;
 mod desugar_classes_method_owners;
 mod desugar_classes_pass2;
 mod desugar_classes_pass2_calls;

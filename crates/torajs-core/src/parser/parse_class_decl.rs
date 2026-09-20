@@ -272,6 +272,9 @@ impl<'a> Parser<'a> {
         // text ends at the body's closing brace.
         let class_span = self.span_from(class_start);
         self.ast.class_decl_spans.insert(name.clone(), class_span);
+        self.ast
+            .class_decl_spans_by_decl
+            .insert(decl_id, class_span);
         // §15.7 — every part of a class is strict code, heritage
         // included, and the gates that judge after the parse have no
         // other way to learn it: they see byte offsets, not parser

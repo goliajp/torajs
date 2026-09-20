@@ -1210,6 +1210,12 @@ pub struct Ast {
     /// text (the same mismatch `clear_injected_spans` guards) — so
     /// those classes answer the native form.
     pub class_decl_spans: std::collections::HashMap<String, crate::lexer::Span>,
+    /// RFC 20260921 — the same spans keyed by `decl_id`. Two classes
+    /// may share a NAME, and the second parsed overwrote the first, so
+    /// `String(C)` answered a sibling's declaration text. The by-name
+    /// table above is rebuilt from this one once the desugar's renames
+    /// have made the names unique.
+    pub class_decl_spans_by_decl: std::collections::HashMap<u32, crate::lexer::Span>,
     /// Generator / async function-value EXPRESSIONS parsed for real
     /// (RFC 20260713-generator-fn-value-substrate). Keyed by the
     /// `Expr::ArrowFn` ExprId the parser emitted; `hoist_gen_fn_exprs`

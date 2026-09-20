@@ -84,8 +84,12 @@ pub fn parse_into_eval(
     // lib), handing the entry's toString slice a span into the lib's
     // text. A whole-program parse starts from an empty arena and
     // keeps its spans.
-    let nested_spans_snapshot =
-        (stmt_offset > 0 || id_offset > 0).then(|| target.class_decl_spans.clone());
+    let nested_spans_snapshot = (stmt_offset > 0 || id_offset > 0).then(|| {
+        (
+            target.class_decl_spans.clone(),
+            target.class_decl_spans_by_decl.clone(),
+        )
+    });
     // Same nested-parse story for the program-level `"use strict"`
     // verdict: an imported module is its own program and an eval text
     // is its own Script, so neither may answer the question "did the
@@ -152,8 +156,9 @@ pub fn parse_into_eval(
         Ok(r)
     });
     *target = p.ast;
-    if let Some(snap) = nested_spans_snapshot {
+    if let Some((snap, snap_by_decl)) = nested_spans_snapshot {
         target.class_decl_spans = snap;
+        target.class_decl_spans_by_decl = snap_by_decl;
     }
     if let Some(was) = nested_prologue {
         target.program_strict_prologue = was;
