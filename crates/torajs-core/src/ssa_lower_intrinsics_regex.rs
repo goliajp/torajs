@@ -86,6 +86,10 @@ pub(crate) struct RegexIds {
     /// `@@match`, 9 = `@@search`), the invoke leg runs GetMethod +
     /// Call(matcher, pattern, «S»).
     pub any_str_symbol_try: FuncId,
+    /// §22.1.3.{7,8,23} steps 3-5 over an Any needle — the `IsRegExp`
+    /// the startsWith / endsWith / includes slot runs BEFORE ToString.
+    /// Raises and answers nothing; the caller throw-checks.
+    pub anyv_reject_regexp_needle: FuncId,
     /// Two-extra-argument twin — §22.1.3.19 `@@replace` calls
     /// «O, replaceValue» (8 = `@@replace`).
     pub regex_replace: FuncId,
@@ -221,6 +225,14 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             // Trailing `want_exec` — see `want_exec_shape`.
             &[Type::Str, Type::RegExp, Type::I64],
             Type::Ptr,
+        ),
+        anyv_reject_regexp_needle: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_reject_regexp_needle",
+            // (needle, which) — `which` picks the message per method.
+            &[Type::Any, Type::I64],
+            Type::Void,
         ),
         any_str_symbol_try: declare_intrinsic(
             module,

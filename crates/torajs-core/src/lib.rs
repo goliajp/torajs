@@ -666,6 +666,7 @@ mod ssa_lower_str_str_argv_numslot;
 pub(crate) mod ssa_lower_str_str_defaults;
 pub(crate) mod ssa_lower_str_str_dispatch;
 pub(crate) mod ssa_lower_str_str_intrinsic;
+pub(crate) mod ssa_lower_str_str_needle_slot;
 pub(crate) mod ssa_lower_str_str_split;
 pub(crate) mod ssa_lower_str_str_tostring_slot;
 pub(crate) mod ssa_lower_str_str_trailing;

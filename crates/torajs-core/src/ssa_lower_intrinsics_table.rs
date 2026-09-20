@@ -210,6 +210,7 @@ pub(crate) fn build(
         regex_drop: init_b.regex.regex_drop,
         regex_match: init_b.regex.regex_match,
         any_str_symbol_try: init_b.regex.any_str_symbol_try,
+        anyv_reject_regexp_needle: init_b.regex.anyv_reject_regexp_needle,
         regex_replace: init_b.regex.regex_replace,
         regex_replace_all: init_b.regex.regex_replace_all,
         regex_replace_fn: init_b.regex.regex_replace_fn,

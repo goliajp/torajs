@@ -218,6 +218,15 @@ pub(crate) fn populate_argv(
             // statically-`undefined` spellings and answer the same
             // defaults as constants.
             argv.push(op);
+        } else if let Some(which) =
+            crate::check_type_of_call_string_isregexp_slot::isregexp_slot_which(method, i)
+        {
+            // §22.1.3.{7,8,23} steps 3-5 then step 7 — the one search
+            // slot that runs `IsRegExp` BEFORE it coerces. See
+            // [`crate::ssa_lower_str_str_needle_slot`] for why it is
+            // not on the ToString road next door and what its absence
+            // from BOTH roads used to cost.
+            argv.push(crate::ssa_lower_str_str_needle_slot::lower(ctx, a, which));
         } else if crate::ssa_lower_str_str_tostring_slot::is_tostring_slot(method, i) {
             // Every §7.1.17 ToString slot in this lane — see that
             // module for which they are and why `startsWith` is not

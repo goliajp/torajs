@@ -46,14 +46,18 @@ pub(crate) fn try_match(
     if !matches!(src_ty, Type::String) {
         return None;
     }
-    let needle_ty = match checker.type_of(ast, args[0]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(needle_ty, Type::String) {
-        return Some(Err(format!(
-            "String.{m_name} arg 0 must be string, got {needle_ty:?}"
-        )));
+    // Rotation 680 — the needle slot's own gate came down when it got
+    // a road. §22.1.3.{7,8,23} step 7 is `ToString(searchString)`,
+    // which reaches EVERY value, so demanding a `String` here refused
+    // programs the spec defines: `xs.startsWith(n, 0)` with `n: any`
+    // read "arg 0 must be string, got Any" while the 1-arg spelling
+    // of the same call compiled. The regex and symbol spellings are
+    // already gone by now — band B claimed them in
+    // `check_type_of_call_string_isregexp_slot` — and everything left
+    // is lowered by `ssa_lower_str_str_needle_slot`, which runs
+    // IsRegExp and then coerces.
+    if let Err(e) = checker.type_of(ast, args[0]) {
+        return Some(Err(e));
     }
     if let Err(e) = checker.type_of(ast, args[1]) {
         return Some(Err(e));

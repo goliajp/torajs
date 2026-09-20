@@ -124,6 +124,7 @@ mod index_any_method_call;
 mod index_any_set;
 mod index_any_struct;
 mod instanceof_dynamic;
+mod is_regexp;
 mod iter_any;
 mod iter_any_array_like;
 mod iter_any_await;
