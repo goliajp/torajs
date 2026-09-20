@@ -1,7 +1,7 @@
 {
   "tool": "gmalloc_scan",
-  "ranAt": "2026-09-20T03:01:29Z",
-  "headSha": "d12609951",
+  "ranAt": "2026-09-20T05:33:58Z",
+  "headSha": "b9d86df9d",
   "headShaSource": "arg",
   "verdict": "ok",
   "total": 3892,
