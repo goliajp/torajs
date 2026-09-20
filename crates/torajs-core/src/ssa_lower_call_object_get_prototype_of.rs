@@ -14,8 +14,11 @@
 //!   class-tag shortcut it used to take answered NULL for the latter).
 //! - `Type::Any`: route through `__torajs_get_proto_of_any` which reads
 //!   the `__proto__` field from the wrapped dynobj.
-//! - Other types: return ANY_NULL Any-box (tag 0 — no prototype
-//!   available). Pre-P4.2 the stub returned `ConstPtrNull` unconditionally.
+//! - Other types (Number / Boolean — the primitives that are not
+//!   refcounted): boxed and handed to the same classifier. ToObject
+//!   gives a primitive its wrapper, so it has a prototype like
+//!   anything else; the ANY_NULL this arm used to return made
+//!   `Object.getPrototypeOf(0) === Number.prototype` answer false.
 //!
 //! BORROW semantics: getPrototypeOf reads the argument's class tag /
 //! `__proto__` field but does not take ownership. For Ident args, leave
@@ -181,15 +184,27 @@ pub(crate) fn try_lower(
                 None,
             )
         }
-        _ => ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(0), Operand::ConstI64(0)],
-            ),
-            Type::Any,
-            None,
-        ),
+        // §20.1.2.12 step 1 is ToObject(obj), and a primitive is not
+        // "no prototype available" -- it gets its wrapper, whose
+        // [[Prototype]] is the matching %C.prototype%. Nullish is
+        // already gone (the gate above owns it), so what reaches here
+        // is a real primitive: Number and Boolean, the two the arm
+        // above misses because they are the only non-refcounted ones
+        // left. They answered ANY_NULL, so `Object.getPrototypeOf(0)
+        // === Number.prototype` was FALSE -- a wrong answer, not a
+        // refusal, which is why it sat in the bugs bucket rather than
+        // the incompatible one and no cluster pass ever looked at it.
+        // The any lane has always been right here, so the typed
+        // spelling reads the same answer off the same classifier.
+        _ => {
+            let boxed = ctx.box_to_any(v.clone());
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.get_proto_of_any, vec![boxed]),
+                Type::Any,
+                None,
+            )
+        }
     };
     if !arg_is_ident {
         // Temp value — we own the refcount, dec now.
