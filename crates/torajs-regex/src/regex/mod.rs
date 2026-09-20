@@ -29,6 +29,7 @@ pub mod compile_any;
 pub mod compile_aot;
 pub mod escape;
 pub mod lifecycle;
+pub mod lifecycle_last_index_desc;
 pub mod match_all;
 pub mod match_indices;
 pub mod match_op;
