@@ -411,6 +411,48 @@ emit 那次 throw」;**18 条 any 车道自己也错或根本没路**(`BigInt.as
 每一条放宽都要**当场跑一条探针**,而且要看完整输出:少一行输出与「跑对了」
 在 `head -1` 下长得一样。
 
+#### r678 —— 每个强制转换族只该有**一条路**,车道靠删门接上它
+
+r677 那条边界的正解不是「checker 与 lowering 一起改」,而是**先问那条路在不在**。
+三个族各自早就有一条写好的路,而车道是一条一条接上去的:
+
+| 族 | 那条路 | 它自己的 doc 怎么说 |
+|---|---|---|
+| ToNumber / ToIntegerOrInfinity | `LowerCtx::lower_to_number_operand` / `lower_to_index_operand` | 「a lane widens by deleting its shape gate and calling this, rather than by growing one more `Any` admission arm」 |
+| ToNumber 到一个 f64 形参 | `LowerCtx::coerce_to_f64_tonumber`(r678 新建) | `coerce_to_f64` 只发指令不切块,~60 个调用点缓存着块;要跑用户代码的那一档必须另开一个会分叉的入口 |
+| ToString 到一个 Str 槽 | `ssa_lower_str_str_tostring_slot::is_tostring_slot` + 既有的 `coerce_to_str` + park + throw check | r678 把 `replace`/`replaceAll` 写死的那个 `matches!` 换成一个具名谓词,`padStart` 的 fill 槽与 `indexOf` 的 needle 直接接上去 |
+
+**所以 S0.4 的一条施工记录长这样**:①认出这是哪个强制转换族;②问那条路在不在
+(在 → 只删 checker 的形状门 + 把车道接上去;不在 → 先建路,而建路是一次独立的
+设计);③探针读**完整输出**;④fixture 里放一条「用户 `valueOf`/`toString` 抛出」
+—— 那是「emit 的东西与原程序等价」的唯一证据,而它也是最容易漏掉 throw check 的
+地方(r678 实测:`Math.min/max` 的 `Any` 臂与 `coerce_args` 的 `Any` 臂**都**少了
+这次检查,一个抛出的 `valueOf` 会把 pending throw 搁在 NaN 占位符后面)。
+
+**三条路各自都有一个同形的洞:nullish 那一档**。`coerce_to_f64` 的 `Ptr` 臂
+把 null 与 undefined 一起答成 `+0`(注释自己写着「undefined 到不了这里」);
+`coerce_to_str` 更直接 —— 它对 `Ptr` **panic**,而消息还是它第一次被写出来时
+的那句「console multi-arg coercion of type Ptr not supported」。§7.1.17 对这两个
+值分别是 `"null"` 与 `"undefined"`,而**一个 `Ptr` 操作数分不出是哪一个** ——
+静态类型分得出,所以 nullish 那一档由调用点用字面量答,不进 sink。这不是补丁:
+`ssa_lower_str_str_argv` 里既有的几个 substitution 臂做的正是这件事,新车道只是
+接上同一个 `str_sub`。
+
+**接车道之前先问它属于哪个族,名字相邻不算数**(r678 当场付了一次代价):
+`Math.imul` 在 checker 里与 `pow` / `atan2` 合住一个文件(`math_pow_atan2_imul`),
+那份分组按的是**元数**,不是强制转换族。照着它把 `imul` 一起接上 ToNumber-到-f64
+那条路之后,`Math.imul({valueOf(){return 2}}, 3)` 答 **12486576** —— 装箱后的操作数
+被当成整数读了。§21.3.2.19 对它是 **ToUint32**,kernel 签名是 `(i64, i64)`,
+`is_math_binary`(那条 f64 ABI 的判据)本来就把它排除在外。**判据是 kernel 的签名
+与规范的那一步,不是它在哪个文件里。**
+
+**还有一类与拒收无关、gate 结构性看不见的收获**:同一个族里,`any` 车道常常
+把「`any` 盒子里装着 undefined」读成 ToNumber 的 `NaN → 0`,而规范对某些槽把
+`undefined` 读成**那个槽自己的默认值**。`const u: any = undefined` 时
+`xs.copyWithin(0, 1, u)` 一条都不复制,而所有引擎都复制尾巴 —— 这是**答错**不是
+拒收,本仓没有一条 fixture 写这个形状。接一条车道时顺手问一遍:**这个槽对
+`undefined` 的读法,和 ToNumber 对它的读法,是不是同一个答案?**
+
 #### 量具自己被推翻了一次
 
 第一版的 docket 把 `exit 3` 读成「跑起来但答错」,于是 **203 条一次性搬

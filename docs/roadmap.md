@@ -8279,6 +8279,24 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       而 any 车道答得对 —— 路由过去是一次加宽，单独做。
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
+      **r678 落 S0.4 的强制转换族**，做法收敛成一句话：**每个强制转换族只
+      该有一条路，车道靠删门接上它**。三条路（`lower_to_number_operand`
+      /`lower_to_index_operand`、新建的 `coerce_to_f64_tonumber`、
+      `ssa_lower_str_str_tostring_slot` + `coerce_to_str`）覆盖
+      ToIntegerOrInfinity / ToNumber-到-f64-形参 / ToString-到-Str-槽 三族；
+      接上去的车道有 `copyWithin`/`fill` 的三个界、`Array.p.slice` 的两个界、
+      `Math.min`/`max` 的变参、`Math` 全部一元与二元、`padStart`/`padEnd` 的
+      fill 槽、`indexOf`/`lastIndexOf` 的 needle、`String.p.normalize` 的 form。
+      **抖出两类 gate 结构性看不见的东西**：① 三处 `Any` 臂都漏了 throw
+      check（一个抛出的 `valueOf` 把 pending throw 搁在 NaN 占位符后面）；
+      ② `any` 盒子里装着 undefined 时，几个槽把它读成 ToNumber 的 `NaN→0`
+      而规范要读成该槽自己的默认值（`const u: any = undefined` 时
+      `xs.copyWithin(0,1,u)` 一条都不复制，而所有引擎都复制尾巴）——
+      这是**答错**不是拒收，本仓没有一条 fixture 写这个形状。
+      **登记（未做）**：`Object.{keys,values,entries,getOwnPropertyNames,
+      assign}` 的基元实参（§20.1.2.x 第一步是 ToObject，约 13 条，
+      lowering 里自称「第八份同样的清单」）· `BigInt.asIntN` 的 ToBigInt
+      入口 6 条 · `new Array(非 Number)` 5 条（后两者 any 车道也崩）。
 
 **S0 的边界（2026-09-20 实测划出）。** 用判据 2 抽样 F3 时发现：它的
 运行期语义**不全是**对的。5 条里 2 条 tr 的 any 车道本身就错 ——
