@@ -52,6 +52,18 @@ pub(crate) const NUM_PROTO_FAMILY: i64 = 0;
 /// The Boolean family's proto tag — its reified toString / valueOf
 /// brand-check thisBooleanValue (§20.3.3) on borrow re-dispatch.
 pub(crate) const BOOL_PROTO_FAMILY: i64 = 4;
+
+/// %ArrayBuffer.prototype% — §25.1.6's `[[ArrayBufferData]]` receivers.
+pub(crate) const ARRAYBUFFER_PROTO_FAMILY: i64 = 19;
+
+/// %DataView.prototype% — §25.3.4's `[[DataView]]` receivers.
+pub(crate) const DATAVIEW_PROTO_FAMILY: i64 = 32;
+
+/// %BigInt.prototype% — §21.2.3's `ThisBigIntValue` receivers.
+pub(crate) const BIGINT_PROTO_FAMILY: i64 = 6;
+
+/// %Function.prototype% — the row every Closure cell reads through.
+pub(crate) const FN_PROTO_FAMILY: i64 = 13;
 /// %Promise.prototype% — the `then` / `catch` / `finally` family
 /// (`recv_proto_family` maps `Tag::Promise` here).
 pub(crate) const PROMISE_PROTO_FAMILY: i64 = 10;
@@ -148,12 +160,12 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         t if t == Tag::Str as u16 => STR_PROTO_FAMILY,
         t if t == Tag::Obj as u16 || t == Tag::DynObj as u16 => 1,
         t if t == Tag::Arr as u16 => 2,
-        t if t == Tag::Closure as u16 => 13,
+        t if t == Tag::Closure as u16 => FN_PROTO_FAMILY,
         t if t == Tag::RegExp as u16 => 7,
         t if t == Tag::Date as u16 => 8,
         t if t == Tag::Symbol as u16 => 5,
         t if t == Tag::Promise as u16 => PROMISE_PROTO_FAMILY,
-        t if t == Tag::BigInt as u16 => 6,
+        t if t == Tag::BigInt as u16 => BIGINT_PROTO_FAMILY,
         t if t == Tag::Map as u16 => 11,
         t if t == Tag::Set as u16 => 12,
         t if t == Tag::WeakMap as u16 => 16,
@@ -166,7 +178,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         // intrinsic): per-kind rows would break §23.2.3.36's
         // requirement that all twelve see the SAME `values` function
         // object, and the shared parent is where the spec puts them.
-        t if t == Tag::ArrayBuffer as u16 => 19,
+        t if t == Tag::ArrayBuffer as u16 => ARRAYBUFFER_PROTO_FAMILY,
         t if t == Tag::TypedArray as u16 => TYPEDARRAY_PROTO_FAMILY,
         // §25.3.4 — DataView.prototype is its own singleton too, so
         // its row is exact for the same reason ArrayBuffer's is. Its
@@ -177,7 +189,7 @@ pub(crate) fn recv_proto_family(recv: AnyValue) -> i64 {
         // undefined because this walk had no row to reach it through
         // — the exact shape the doc above `inherited_dict` describes
         // for Map, one tag later.
-        t if t == Tag::DataView as u16 => 32,
+        t if t == Tag::DataView as u16 => DATAVIEW_PROTO_FAMILY,
         // Iterator-protocol cells hang off their PER-FAMILY prototype
         // (%ArrayIteratorPrototype% et al), which in turn hangs off
         // %Iterator.prototype%. They used to answer 15 flatly, which
