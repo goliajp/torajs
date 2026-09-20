@@ -217,7 +217,16 @@ fn try_match_assign(
         // has no observable identity, so the swap is invisible) and
         // answers Type::Any.
         let empty_struct_target = matches!(&target_ty, Type::Struct(f) if f.is_empty());
-        if matches!(target_ty, Type::Any) || empty_struct_target {
+        // ToObject(target) wraps a primitive too, and the wrapper is what
+        // the call answers (`typeof Object.assign(1, {})` is "object") --
+        // same runtime walk, reached the same way. BigInt stays out: the
+        // runtime has no BigInt wrapper yet, so `Object(10n)` is identity
+        // (a KNOWN GAP filed in to_object, not something to bodge here).
+        let primitive_target = matches!(
+            target_ty,
+            Type::Number | Type::Boolean | Type::String | Type::Symbol
+        );
+        if matches!(target_ty, Type::Any) || empty_struct_target || primitive_target {
             for src_id in &args[1..] {
                 if let Err(e) = checker.type_of(ast, *src_id) {
                     return Some(Err(e));

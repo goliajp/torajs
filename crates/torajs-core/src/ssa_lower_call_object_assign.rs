@@ -81,7 +81,15 @@ pub(crate) fn try_lower(
         &target_ty,
         Type::Obj(sid) if ctx.struct_layouts[sid.0 as usize].is_empty()
     );
-    if matches!(target_ty, Type::Any) || empty_struct_target {
+    // A primitive target takes the same route: ToObject wraps it and the
+    // wrapper is the answer. It is not `Any`, so it has to be boxed on
+    // the way into the kernel below -- which is exactly what that arm's
+    // comment has always described.
+    let primitive_target = matches!(
+        target_ty,
+        Type::I64 | Type::I32 | Type::F64 | Type::Bool | Type::Str | Type::Symbol
+    );
+    if matches!(target_ty, Type::Any) || empty_struct_target || primitive_target {
         let (walk_target, target_is_fresh) = if empty_struct_target {
             ctx.emit_drop_value(target_op, target_ty);
             let dynobj = ctx.f.append_inst(
@@ -105,12 +113,14 @@ pub(crate) fn try_lower(
             // did — asking it HERE is what §20.1.2.1 orders, and it
             // keeps the answer owned (a fresh wrapper, or +1 on a
             // heap cell), so the result needs no second inc.
+            let boxed = if matches!(target_ty, Type::Any) {
+                target_op.clone()
+            } else {
+                ctx.box_to_any(target_op.clone())
+            };
             let to = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.anyv_to_object_strict,
-                    vec![target_op.clone()],
-                ),
+                InstKind::Call(ctx.intrinsics.anyv_to_object_strict, vec![boxed]),
                 Type::Any,
                 None,
             );
