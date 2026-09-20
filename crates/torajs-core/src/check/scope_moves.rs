@@ -395,12 +395,21 @@ impl Checker {
     /// value, struct field write.
     ///
     /// TS-shape semantics: `let n = s; console.log(s);` works — both
-    /// bindings read the same heap. But ambiguous multi-rooted ownership
-    /// (`let n = s; let c = { name: s };` — s aliased AND moved into struct)
-    /// can't be statically resolved without a runtime mechanism we don't
-    /// have, so we **reject at compile time**: the second transfer of an
-    /// already-aliased binding is an error. The user restructures (e.g.
-    /// transfers from `n` instead of `s`).
+    /// bindings read the same heap.
+    ///
+    /// **A second transfer is no longer an error.** The reject that used
+    /// to stand here said, in its own commit message, that it "catches
+    /// multi-rooted ownership at compile time without needing runtime
+    /// support" — it was standing in for a retain contract the lowering
+    /// did not have. RFC `20260705-operand-ownership` retired that reject
+    /// on four lanes as the contract landed (assign-ident, assign-member,
+    /// index-assign, consuming params, −440 lines); throw and return were
+    /// the two stops it never reached. And throw never needed it:
+    /// `ssa_lower_stmt_throw` retains into the throw slot and leaves
+    /// every binding its drop, so the ledger's only observable effect
+    /// was the message. Ownership is not a concept ECMA-262 has, nor one
+    /// TypeScript has — see `docs/language-spec/ch1-type-runtime-boundary.md`
+    /// §3, family F9.
     ///
     /// Member / Index reads of obj's field are NOT transfers — the field's
     /// heap is owned by obj, and the new binding is an alias (handled at
@@ -410,18 +419,6 @@ impl Checker {
             let name = name.clone();
             if let Some(info) = self.lookup(&name) {
                 if info.ty.is_copy() {
-                    return;
-                }
-                if info.borrowed {
-                    self.errors.push_err(format!(
-                        "cannot transfer `{name}` — it aliases a value owned elsewhere; transfer from the owning binding instead"
-                    ));
-                    return;
-                }
-                if info.moved {
-                    self.errors.push_err(format!(
-                        "cannot transfer `{name}` — value was already aliased or moved earlier; transfer from the most recent binding instead"
-                    ));
                     return;
                 }
                 self.mark_moved(&name);

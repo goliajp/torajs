@@ -100,7 +100,7 @@ typed 覆盖率量具(`hardev/autorun/typed_census.sh`)是它唯一的机械证�
 | F6 const 重赋值 | 7 | A | 与 tsc 的 TS2588 对齐 |
 | F7 重复声明 | 7 | A | 早错,求值前拒 |
 | F14 实现缺口 | 4 | **gap** | 不是一档 —— 见下 |
-| F9 所有权/别名 | 3 | A(**待审**) | 既不是规范的也不是 TS 的 —— 见下 |
+| F9 所有权/别名 | 3 | **删**(§3.2) | 既不是规范的也不是 TS 的 |
 | F11 迭代源/索引接收者 | 2 | **B** | §13.7.5.6 → §7.4.2 GetIterator |
 | F12 switch case 类型 | 2 | **B** | §14.12.4 IsStrictlyEqual 是全函数 |
 | F13 ternary 分支合一 | 2 | **C** | §13.14 对分支类型零要求 |
@@ -194,6 +194,83 @@ bun 1.4.2,全部用 `any` 拼写绕开 checker):
 
 这也是判据 2 那条纪律的又一次兑现:被推翻的正是**本章上一节自己写下
 的理由**。理由写得越顺,越要拿一行探针问它。
+
+### 3.2 F9 的复核结果 —— 这一族不该存在
+
+§3 说 F9「最该被推翻」,因为该问的不是它归哪一档,而是**它是否该存在**。
+复核的结论是不该,依据不是立场而是三条代码事实:
+
+1. **它自述是替代品。** 引入它的 commit 写着「catches multi-rooted
+   ownership at compile time **without needing runtime support**」——
+   它站在一个当时缺席的 retain 契约的位置上。
+2. **那个契约早就到了,而且这一族已经被删过四次。** RFC
+   `20260705-operand-ownership` 随契约落地逐 lane 撤掉同一条拒收
+   (assign-ident / assign-member / index-assign / consuming params,
+   净 −440 行)。throw 与 return 是它没走到的两站。
+3. **throw 根本不 move。** `ssa_lower_stmt_throw` 的注释逐字反驳这条
+   检查:throw 向 throw slot 自取一份 stake,每个绑定保住自己的 drop。
+   checker 的 move 账本不流向 codegen(lowering 自己重新推导),所以
+   整条账本**唯一可观察的效果就是那条错误消息**。
+
+三条 test262 case 的形状也一致:同一个绑定被 `throw` 两次。
+
+**所以这不是「实现细节泄漏到诊断面」,它从头到尾只存在于诊断面。**
+所有权既不是 ECMA-262 的概念,也不是 TypeScript 的概念 —— 而本项目的
+设计原则禁止把 Rust 习语带进语言面。删。
+
+### 3.3 逐条实测 —— 366 条带闸跑一次的结果
+
+判据 2 的机械全量版(§2)跑完了:`TORAJS_S0_ADMIT=1` 下的一次全量 sweep,
+366 条各自的结局。
+
+| 桶 | 条数 | 含义 |
+|---|---:|---|
+| **B** | 79(21%) | 闸开即通过 —— 运行期语义早已正确,S0.4 落地即拿下 |
+| **S0.4-lower** | 213(58%) | 闸开后 `ssa_lower` panic —— 运行期路径**不存在** |
+| **S0.4-crash** | 8(2%) | 段错误 / 挂死 —— 同上,更贵 |
+| **S0.4-refused** | 2(0%) | 另一条拒收路(monomorphization) |
+| **L1** | 64(17%) | 跑起来但答案仍不对 —— 运行期缺口,不在 S0 范围 |
+
+**S0 的工作面因此是 223 条(61%),而不是 §3.1 读出来的那个数。**
+
+#### 这张表要两维读
+
+桶只回答「运行期在不在」,回答不了「该不该拒」—— 后者来自族的规范依据。
+两维交叉才是档位:
+
+|  | 族档 = throw(B) | 族档 = refuse(A) |
+|---|---|---|
+| 闸开 **pass** | S0.4 emit 那次 throw 即拿下 | **⚠ 复核** —— 拒收可能是错的 |
+| 闸开 **lower panic** | S0.4 要**建**这条路,不只是放行 | 符合预期:放行就崩,拒是对的 |
+| 闸开 **答错** | L1:先修运行期 | L1 |
+
+所以 F10(泛型,refuse)的 8/8 lower panic **不是待办**,F8(未知标识符,
+throw)的 23/23 lower panic **是**。
+
+#### 第三类东西:checker 推断过窄
+
+refuse 族里「闸开即通过」的格是这张表最值钱的地方。逐条看 F5 那九条,
+它们既不是档位问题,也不是运行期缺口:
+
+- `type mismatch on element assignment: array of Undefined, value is
+  Function` —— `let a = []` 被推成「元素类型 Undefined 的数组」,
+  而 tsc 推成 `any[]` 并接受。
+- `type mismatch assigning to __priv_C__field: field is Boolean, value
+  is Undefined` —— 逻辑赋值**短路时根本不赋值**,tsc 因此不报。
+
+**这是推断的缺陷,不是边界的位置。** 它与 §3.0 F4 那 11 条、§3.1 的
+F3-b 同属一类:族的规则没错,是这些条目本不该被它拦住。S0.4 逐族落地时
+自然会撞上,不需要在本章先行分类。
+
+#### 量具自己被推翻了一次
+
+第一版的 docket 把 `exit 3` 读成「跑起来但答错」,于是 **203 条一次性搬
+错了家**,S0 的工作面从 61% 缩成 0%。`exit 3` 是
+`cmd_build.rs` 的 panic hook —— `ssa_lower` panic 被捕获、印成
+`not yet supported:`、然后 `exit(3)`。**它是 S0.4 最大的一块,不是 L1。**
+
+这是 §2 那条纪律的第三次兑现,而这次被推翻的是量具本身:一张形状完全
+正常、百分比加起来也对的表,可以整体指向错误的结论。
 
 ## 4. 与 TypeScript 的差异
 

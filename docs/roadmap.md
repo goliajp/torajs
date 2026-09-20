@@ -8141,7 +8141,7 @@ re-derive with `cluster_incompat.py` before acting on any of them):
 
 | group | what | ≈ core cases |
 |---|---|---|
-| **S0** | **类型系统对 ES 运行期语义的责任边界（语言规范第一章）** | **375 @ `d12609951`（44.9% of core 835）** |
+| **S0** | **类型系统对 ES 运行期语义的责任边界（语言规范第一章）** | **366 @ `b9d86df9d`（44.9% of core 815）** |
 | S1 | `new` on a function + constructor `this` | 1900 + cascade |
 | S2 | generator / class-member syntax | 6700 |
 | S3 | name resolution at ssa-lower | 830 |
@@ -8202,8 +8202,20 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
 可执行物，**tr 编译期就知道**。三者里只有 tr 同时拿到「编译期知道」与
 「运行期照 spec」。
 
-- [ ] **S0.1** 375 条逐条归档到三档；判据必须**机械可判** ——「什么叫 spec
+- [ ] **S0.1** 366 条逐条归档到三档；判据必须**机械可判** ——「什么叫 spec
       为该操作定义了运行期语义」要能写成一个函数，不能逐条人判。
+      **归族已 100%**（`hardev/autorun/refusal_families.py`，15 族）：r676 补
+      F11 for-of 头 / F12 switch case / F13 ternary join / F15 私有字段写路径
+      四族，F1 扩正则吃进 `+` / `**` / 一元 `+`（+6），F14 标 `gap` 而**不是**
+      三档之一 —— 它标的是「这一族必须逐条问」。
+      **逐条的机械办法是 admit 闸**（`crates/torajs-core/src/s0_admit.rs`）：
+      `TORAJS_S0_ADMIT=1` 让 checker 的 Error 降级成 warning，于是每条被拒的
+      case **自己就是判据 2 的探针**，带闸跑一次全量 sweep、
+      `hardev/autorun/s0_docket.py` 直接读回档位。手写 `any` 探针是被拒程序的
+      **近似**，366 条就是 366 次近似出错的机会。
+      **F4 的 `split` 档被实测推翻**：31 条全是 dot 拼写、bracket 零条，
+      判据 3 的第二路在这批语料上没有对象（20 条落 A，11 条因 tsc 也接受而
+      出族 —— 那是 checker 缺口，与 §3.1 的 F3-b 同性质）。
 - [x] **S0.2** **typed 覆盖率量具** ✓ `f7b74aa1f`。编译端
       `crates/torajs-core/src/typed_census.rs`（数 `Checker::expr_types`，
       零新状态）+ 采集端 `hardev/autorun/typed_census.sh` + 自测。
@@ -8214,10 +8226,14 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       表达式，且会随 desugar 漂——绝对数与比值并列报，比值只在相邻
       commit 之间读；② 语料用 conformance/cases 时 `refused` 恒为 0
       （那些 fixture 本来就都能编），要量 refused 得换 test262 语料。
-- [ ] **S0.3** `docs/language-spec/ch1-type-runtime-boundary.md` —— 第一章
+- [x] **S0.3** ✓ `docs/language-spec/ch1-type-runtime-boundary.md` —— 第一章
       正文 + **与 TypeScript 的差异表**。AssemblyScript / ArkTS / Static
       TypeScript 都有成文的"与 TS 的差异"，torajs 至今没有；这是"架构清晰"
-      在文档层的落点。RFC：`.claude/rfcs/20260922-language-spec-ch1/`。
+      在文档层的落点。**正文入库在 `docs/`，不在 `.claude/`**（后者
+      gitignored，规范放那里会跟着开发者机器走丢）；RFC 目录
+      `.claude/rfcs/20260922-language-spec-ch1/` 只留施工记录与重跑方法。
+      r676 补 §3.0（F4 实测）与 §5 / §5.1（档 B 怎么落地，以及**错误类别
+      不可能从消息文本推出**：366 条里字面出现错误类名的只有 1 条）。
 - [ ] **S0.4** 按分档表逐族落地，每族后量 typed 覆盖率 + gate。
       **验收 = gate ≤ 21 簇 且 typed 覆盖率不降反升**（降 = 正在交出架构
       优势，当轮回退）且 bench median 不回归。
