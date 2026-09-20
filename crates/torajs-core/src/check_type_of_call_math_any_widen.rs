@@ -78,7 +78,6 @@ pub(crate) fn try_match(
                 | "atanh"
                 | "expm1"
                 | "log1p"
-                | "clz32"
                 | "fround"
                 | "f16round"
                 | "pow"
@@ -111,14 +110,21 @@ pub(crate) fn try_match(
     // asserts one operand.
     let arity_ok = match m_name.as_str() {
         "pow" | "atan2" => args.len() == 2,
-        // NOT `imul`, though `math_pow_atan2_imul` names it beside
-        // them: §21.3.2.19 reads its arguments with ToUint32 and
-        // `__torajs_math_imul` takes `(i64, i64)`, so it is not on
-        // this road at all -- `is_math_binary` (the f64 ABI the
-        // coercion below feeds) excludes it for the same reason.
-        // Widening it here produced 12486576 for `Math.imul(o, 3)`:
-        // the boxed operand reinterpreted as an integer. Its family is
-        // the int32 sink, and it needs its own knife.
+        // NOT `imul`, and NOT `clz32` -- §21.3.2.{19,11} read their
+        // arguments with ToUint32, and `__torajs_math_imul` /
+        // `__torajs_math_clz32` take `(i64, i64)` / `(i64)`. They are
+        // not on this road at all, and `is_math_unary` /
+        // `is_math_binary` -- the f64 ABI the coercion below feeds --
+        // exclude them for the same reason, so a widened call site
+        // hands a boxed operand to an integer slot. Widening `imul`
+        // answered 12486576 for `Math.imul(o, 3)`; widening `clz32`
+        // turned `staging/sm/Math/clz32` from a refusal into a wrong
+        // answer, which is worse. Their family is the int32 sink and
+        // it needs its own knife.
+        //
+        // Every other name in the list above IS in `is_math_unary` or
+        // `is_math_binary`; that is the membership test to redo
+        // whenever a name is added here.
         "imul" => false,
         // `route_globals` runs first and its `math_min_max` arm claims
         // every arity of these two, so this is unreachable today --

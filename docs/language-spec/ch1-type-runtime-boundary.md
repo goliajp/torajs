@@ -446,6 +446,13 @@ r677 那条边界的正解不是「checker 与 lowering 一起改」,而是**先
 `is_math_binary`(那条 f64 ABI 的判据)本来就把它排除在外。**判据是 kernel 的签名
 与规范的那一步,不是它在哪个文件里。**
 
+而这条判据**第一次只用对了一半**:同一份名单里 `clz32` 也不在 `is_math_unary` 里
+(`__torajs_math_clz32` 是 `(i64)->i64`),它没有被同一次检查抓住,于是收尾 sweep 的
+verdict diff 把 `staging/sm/Math/clz32` 从 `incompatible` 推成 **`bug`** —— 从拒收变成
+答错,比拒收更坏。**可机械执行的形式**:这份名单里的每个名字都必须能在
+`is_math_unary` 或 `is_math_binary` 里找到;那两个判据就是喂给这条 f64 ABI 的东西,
+名单与它们的差集就是接错路的集合。加名字时重做这次取差。
+
 **还有一类与拒收无关、gate 结构性看不见的收获**:同一个族里,`any` 车道常常
 把「`any` 盒子里装着 undefined」读成 ToNumber 的 `NaN → 0`,而规范对某些槽把
 `undefined` 读成**那个槽自己的默认值**。`const u: any = undefined` 时
