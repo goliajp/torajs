@@ -104,14 +104,15 @@ fn scan_seq(
             // test262 harness opens with `class Test262Error extends
             // Error {}` — it must not break the prefix.
             Stmt::ClassDecl {
-                name,
+                decl_id,
                 ctor,
                 methods,
                 static_methods,
                 static_init,
                 ..
             } => {
-                if !static_init.is_empty() || ast.class_computed_keys.keys().any(|(c, _)| c == name)
+                if !static_init.is_empty()
+                    || crate::ast::class_computed_owner::has_any(ast, *decl_id)
                 {
                     prefix_inert = false;
                 }

@@ -59,6 +59,7 @@ pub(super) fn class_evaluation_is_observable(ast: &Ast, s: &Stmt) -> bool {
 pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -> bool {
     let Stmt::ClassDecl {
         name,
+        decl_id,
         type_params,
         parent,
         ctor,
@@ -123,12 +124,11 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
     }
     // Which side-table rows are THIS class's is a question the name
     // cannot answer — two fn bodies each declaring `class K` share a
-    // key set — so the computed members are read back off the class
-    // itself. A computed STATIC FIELD leaves no trace on the class at
-    // all (it is neither a member nor a ctor-prefix write), so its
-    // initializer is still matched by name: over-answering there
-    // costs a same-named sibling's static field the hoist, which is
-    // the loud direction.
+    // key set. Methods and instance fields are read back off the class
+    // itself; a computed STATIC FIELD leaves no trace on it, so it is
+    // asked by the owner the parser recorded (RFC 20260921). Matching
+    // by name here used to cost a same-named sibling's static field
+    // the hoist.
     let ctor_body: &[Stmt] = ctor.as_ref().map_or(&[], |c| c.body.as_slice());
     let member_names: Vec<&str> = methods
         .iter()
@@ -142,7 +142,7 @@ pub(super) fn class_is_capture_free(ast: &Ast, s: &Stmt, top_names: &[String]) -
         .chain(
             ast.class_computed_static_fields
                 .iter()
-                .filter(|(c, _, _)| c == name)
+                .filter(|(_, sent, _)| super::class_computed_owner::owns(ast, sent, *decl_id))
                 .flat_map(|(c, sent, init)| {
                     // The KEY too (406-02) — it lives only under the
                     // side-table sentinel, so walking just the init
