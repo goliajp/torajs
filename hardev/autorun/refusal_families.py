@@ -52,9 +52,19 @@ FAMILIES = [
     (
         "F2",
         "调用非函数",
-        "throw",
+        "gap",
         r"not callable|is not a function|value is not a constructor",
-        "§7.3.14 Call 要求 IsCallable,否则 TypeError。",
+        "§7.3.14 Call 要求 IsCallable,否则 TypeError —— **但 r677 逐条读下来,"
+        "今天命中它的 15 条一条也不是这个**。15 条里 14 条的消息是同一句 "
+        "`not callable: type Object(\"Function\")`,而它们全都是 "
+        "`Function(p, \"return …\")` 这种**实参不是常量字符串**的动态函数构造:"
+        "`ast/desugar_eval/function_ctor.rs` 只在实参全为常量串时做 §20.2.1.1 的"
+        "文本装配,其余按模块 doc 明示的 honest-reject 留给今天的 loud reject"
+        "(运行期字符串要把编译器放进产物,那是 B 层)。`Function` 于是以"
+        "「一个不可调用的值」的形态落到通用调用检查上 —— 那句消息是二次症状,"
+        "不是判断。**档位因此是 gap(实现缺口),不是 throw。** "
+        "裸 `Function(\"a\",\"return a+1\")` 与 `new Function(…)` 今天都能跑,"
+        "实测与 bun 一致;差别只在实参是不是常量。",
     ),
     (
         "F4",
