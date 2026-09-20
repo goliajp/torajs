@@ -45,13 +45,16 @@ pub(crate) fn try_match(
         return None;
     }
     if args.len() < 2 {
+        // §21.3.2.{26,6,19} step 1 is ToNumber on each argument, and
+        // it reaches every value: `Math.pow({valueOf(){return 2}})` is
+        // NaN (the missing exponent is undefined -> NaN), not a type
+        // error. The gate that stood here admitted Number alone; the
+        // 2-arg shape below never had one, so one spelling of the same
+        // call answered and the other did not. ssa_lower coerces both
+        // through `coerce_to_f64_tonumber`.
         for &aid in args {
-            let aty = match checker.type_of(ast, aid) {
-                Ok(t) => t,
-                Err(e) => return Some(Err(e)),
-            };
-            if aty != Type::Number {
-                return Some(Err(format!("Math.{m} args must be number, got {aty:?}")));
+            if let Err(e) = checker.type_of(ast, aid) {
+                return Some(Err(e));
             }
         }
         return Some(Ok(Type::Number));

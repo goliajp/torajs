@@ -44,8 +44,25 @@ impl<'a> LowerCtx<'a> {
     /// Promote an i64 operand to f64. Constants are rewritten in place
     /// (cheaper than emitting a sitofp instruction LLVM would constant-fold
     /// anyway). Value operands emit an explicit InstKind::SiToFp.
+    ///
+    /// Panics on a shape it has no primitive rule for. That panic is
+    /// load-bearing: this sink emits INSTRUCTIONS only, never a block
+    /// split, and ~60 call sites append to a block they cached around
+    /// it. A slot whose spec step is ToNumber wants
+    /// [`Self::coerce_to_f64_tonumber`] instead — that one may branch.
     pub(crate) fn coerce_to_f64(&mut self, op: Operand) -> Operand {
-        match self.operand_ty(&op) {
+        self.try_coerce_to_f64(op.clone())
+            .unwrap_or_else(|| panic!("ssa-lower: cannot coerce {:?} to f64", self.operand_ty(&op)))
+    }
+
+    /// The primitive half of [`Self::coerce_to_f64`]: `Some` for every
+    /// shape §7.1.4 answers without running user code, `None` for the
+    /// rest. Split out so the ToNumber sink below can ask "is this one
+    /// of the cheap ones?" without keeping a second copy of the list —
+    /// two copies of a shape list that must change together is how
+    /// `1n > true` answered `true` for a rotation (r676).
+    fn try_coerce_to_f64(&mut self, op: Operand) -> Option<Operand> {
+        Some(match self.operand_ty(&op) {
             Type::F64 => op,
             Type::I64 => match op {
                 Operand::ConstI64(n) => Operand::ConstF64(n as f64),
@@ -105,8 +122,33 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(v)
             }
-            other => panic!("ssa-lower: cannot coerce {other:?} to f64"),
+            _ => return None,
+        })
+    }
+
+    /// ES §7.1.4 `ToNumber` at an f64 slot — the sink for a parameter
+    /// whose spec step is ToNumber, which **reaches every value**.
+    ///
+    /// `Math.abs`, `Math.pow` and friends each declare `Number` params,
+    /// and the lane's admission wedge used to name `Number`, then
+    /// `Any`, and refuse the rest: `Math.max({valueOf(){return 7}}, 1)`
+    /// died at lower time while the same value behind
+    /// `const b: any = o` answered 7 — kernel right, boxing right, the
+    /// call site simply never boxed.
+    ///
+    /// Unlike [`Self::coerce_to_f64`] this one may BRANCH: an object's
+    /// ToPrimitive is user code and can throw, so the emitted throw
+    /// check splits the current block. A caller that cached
+    /// `self.cur_block` before calling must re-read it after.
+    pub(crate) fn coerce_to_f64_tonumber(&mut self, op: Operand) -> Operand {
+        if self.operand_ty(&op) == Type::Any {
+            return self.coerce_any_to_number(op, Type::F64);
         }
+        if let Some(v) = self.try_coerce_to_f64(op.clone()) {
+            return v;
+        }
+        let boxed = self.box_to_any(op);
+        self.coerce_any_to_number(boxed, Type::F64)
     }
 
     /// P7.2b — coerce an Any operand to a concrete numeric: JS spec

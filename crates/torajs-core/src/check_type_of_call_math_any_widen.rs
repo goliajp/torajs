@@ -12,17 +12,21 @@
 //! here so the ssa_lower mirror routes `Any` through
 //! `anyv_to_number → F64 → Math helper`.
 //!
-//! Per-arg check: `Any` or `Number` passes; everything else
-//! (`String` / `Bool` / `Object` / ...) falls through to the
-//! strict method-table gate (returns `None` here, lets the
-//! cascade keep evaluating).
+//! S0.4 (rotation 678) — there is no per-arg check any more.
+//! ToNumber refuses nothing, so `String` / `Bool` / `Object`
+//! belong here with `Any`; ssa_lower's
+//! [`crate::ssa_lower::LowerCtx::coerce_to_f64_tonumber`] is the
+//! one road that serves all of them. An all-Number call still
+//! falls through, because the strict method-table is where this
+//! lane's ARITY is settled.
 //!
-//! `min` / `max` variadic stays one carve-out — the iter loop
-//! covers 0..N args uniformly.
+//! `min` / `max` never reach here at all: `route_globals` runs
+//! before this route and its `math_min_max` arm claims every
+//! arity of those two.
 //!
-//! Returns `Some(Ok(Type::Number))` only when at least one
-//! `Any` arg is seen AND every arg is `Number | Any`.
-//! `Some(Err(_))` only if recursive `type_of` on an arg fails.
+//! Returns `Some(Ok(Type::Number))` when at least one arg is not
+//! statically `Number`. `Some(Err(_))` only if recursive
+//! `type_of` on an arg fails.
 //! `None` for non-`Math.*` callee, non-matched method name,
 //! or all-Number args (let the strict table handle it).
 
@@ -85,21 +89,57 @@ pub(crate) fn try_match(
     {
         return None;
     }
-    let mut any_seen = false;
-    let mut all_ok = true;
+    // §21.3.2.* step 1 on every Math method that declares Number
+    // params is ToNumber, and ToNumber reaches EVERY value:
+    // `Math.abs({valueOf(){return -7}})` is 7 and `Math.abs({})` is
+    // NaN, neither a type error. S342 named `Any` and let every other
+    // non-Number shape fall through to the strict method-table gate,
+    // which refuses — so one spelling of a value answered while
+    // another died at lower time. The per-arg question is gone; what
+    // remains is only WHICH arm claims the call.
+    //
+    // An all-Number call still falls through, because the strict table
+    // is also where this lane's arity is settled: claiming those here
+    // would take `Math.abs()` away from `math_unary_0arg` and
+    // `Math.abs(1, 2)` away from the trailing-ignore arm.
+    // Arity stays exactly where it was. This arm has never checked it
+    // -- it did not need to, because it only ever claimed calls whose
+    // args were already `Number | Any`, and a wrong-arity one of those
+    // fell through to the strict method-table. Now that it claims
+    // every shape, it has to say which arities it is claiming, or
+    // `Math.abs(o, 2)` would arrive at a lowering whose argv walk
+    // asserts one operand.
+    let arity_ok = match m_name.as_str() {
+        "pow" | "atan2" => args.len() == 2,
+        // NOT `imul`, though `math_pow_atan2_imul` names it beside
+        // them: §21.3.2.19 reads its arguments with ToUint32 and
+        // `__torajs_math_imul` takes `(i64, i64)`, so it is not on
+        // this road at all -- `is_math_binary` (the f64 ABI the
+        // coercion below feeds) excludes it for the same reason.
+        // Widening it here produced 12486576 for `Math.imul(o, 3)`:
+        // the boxed operand reinterpreted as an integer. Its family is
+        // the int32 sink, and it needs its own knife.
+        "imul" => false,
+        // `route_globals` runs first and its `math_min_max` arm claims
+        // every arity of these two, so this is unreachable today --
+        // written down so a route reorder cannot make it silent.
+        "min" | "max" => false,
+        _ => args.len() == 1,
+    };
+    if !arity_ok {
+        return None;
+    }
+    let mut coerced_seen = false;
     for &aid in args {
         let aty = match checker.type_of(ast, aid) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if matches!(aty, Type::Any) {
-            any_seen = true;
-        } else if aty != Type::Number {
-            all_ok = false;
-            break;
+        if aty != Type::Number {
+            coerced_seen = true;
         }
     }
-    if any_seen && all_ok {
+    if coerced_seen {
         return Some(Ok(Type::Number));
     }
     None

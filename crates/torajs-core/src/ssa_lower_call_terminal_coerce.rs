@@ -36,16 +36,24 @@ pub(crate) fn coerce_args(
     // not reach a Math kernel, which would hand its payload back out
     // (`Math.abs` clears the sign bit and returns the pattern
     // unchanged). See [`crate::ssa_lower_f64_sentinel_canon`].
+    // The Math kernels take F64, and §21.3.2.* step 1 feeds them
+    // ToNumber -- which reaches every value. A local helper used to
+    // stand here special-casing `Any` and leaving everything else on
+    // `coerce_to_f64`, which PANICS on an object: `Math.abs(o)` died at
+    // lower time while `Math.abs(o as any)` answered. It also skipped
+    // the throw check, so a `valueOf` that throws stranded its pending
+    // throw behind a NaN placeholder. Both are `coerce_to_f64_tonumber`'s
+    // job, and it is the only sink either arm needs.
     if ctx.is_math_unary(target) {
         debug_assert_eq!(argv.len(), 1, "Math.* unary takes 1 arg");
-        argv[0] = coerce_to_f64_or_any_to_number(ctx, argv[0]);
+        argv[0] = ctx.coerce_to_f64_tonumber(argv[0]);
         argv[0] = canon_math_arg(ctx, argv[0].clone(), args.first().copied());
         return Vec::new();
     }
     if ctx.is_math_binary(target) {
         debug_assert_eq!(argv.len(), 2, "Math.* binary takes 2 args");
         for i in 0..2 {
-            argv[i] = coerce_to_f64_or_any_to_number(ctx, argv[i]);
+            argv[i] = ctx.coerce_to_f64_tonumber(argv[i]);
             argv[i] = canon_math_arg(ctx, argv[i].clone(), args.get(i).copied());
         }
         return Vec::new();
@@ -188,22 +196,4 @@ pub(crate) fn coerce_args_by_param_tys(
         );
     }
     coerce_owned
-}
-
-fn coerce_to_f64_or_any_to_number(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {
-    // S342 — Any-typed arg goes through any_to_number (ToNumber per
-    // spec §21.3.2.*) so the F64 ABI sees a clean f64.
-    // coerce_to_f64 wouldn't handle Any.
-    if ctx.operand_ty(&op) == Type::Any {
-        let cur_block = ctx.cur_block;
-        let f = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.any_to_number, vec![op]),
-            Type::F64,
-            None,
-        );
-        Operand::Value(f)
-    } else {
-        ctx.coerce_to_f64(op)
-    }
 }
