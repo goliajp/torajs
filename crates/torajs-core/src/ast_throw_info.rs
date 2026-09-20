@@ -48,7 +48,7 @@
 //! fail differently: an over-wide exempt entry swallows, an
 //! over-narrow default costs one cold TLS-load check.
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, Param, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 pub use crate::ast_throw_info_fixpoint::compute_may_throw_fns;
@@ -248,42 +248,6 @@ fn scan_stmt(
 /// element alone — and then the caller, having pruned its check,
 /// printed the ret sentinel. `console.log(w(a))` answered `null` where
 /// every engine throws.
-/// The operators `ssa_lower_binop_inner_any_arith::try_lower` routes
-/// to the any-lane kernels when an operand is not a primitive.
-fn is_operator_kernel_op(op: BinOp) -> bool {
-    matches!(
-        op,
-        BinOp::Add
-            | BinOp::Sub
-            | BinOp::Mul
-            | BinOp::Div
-            | BinOp::Mod
-            | BinOp::Pow
-            | BinOp::BitAnd
-            | BinOp::BitOr
-            | BinOp::BitXor
-            | BinOp::Shl
-            | BinOp::Shr
-            | BinOp::UShr
-            | BinOp::Lt
-            | BinOp::Le
-            | BinOp::Gt
-            | BinOp::Ge
-    )
-}
-
-/// An operand type whose operator lowering never reaches a kernel
-/// that records a throw: the typed number / string / bigint / boolean
-/// lanes and the null-ish coercions. Everything else — `any`, any
-/// object shape, a blank — may run user code or refuse a pair.
-fn is_arith_safe_primitive(t: Option<&crate::check::Type>) -> bool {
-    use crate::check::Type as T;
-    matches!(
-        t,
-        Some(T::Number | T::String | T::Boolean | T::BigInt | T::Null | T::Undefined | T::Void)
-    )
-}
-
 fn is_property_store(ast: &Ast, eid: ExprId) -> bool {
     matches!(ast.get_expr(eid), Expr::Member { .. } | Expr::Index { .. })
 }
@@ -314,39 +278,7 @@ pub(crate) fn scan_expr(
             );
         }
         Expr::BinOp { op, left, right } => {
-            // Rotation 623 — an operand the checker does not type as a
-            // primitive (an `any`, an object whose ToPrimitive runs
-            // user code, a blank) sends the operator to the any-lane
-            // kernels (any_add / any_arith / any_bitwise / any_compare),
-            // and those record a TypeError for a mixed BigInt pair, a
-            // Symbol operand or a throwing `valueOf`. The lowering
-            // checks right after the call, but a named fn whose only
-            // raise was this one was M4.3.b-skipped at its caller:
-            // `function f(a: any) { return a * 2n }` — `f(3)` printed
-            // the propagate sentinel (`[unknown-any-tag]`) and the
-            // TypeError surfaced statements later, uncaught. Typed
-            // number arithmetic stays unmarked (no hot-path cost).
-            if is_operator_kernel_op(*op)
-                && (!is_arith_safe_primitive(expr_types.get(left))
-                    || !is_arith_safe_primitive(expr_types.get(right)))
-            {
-                *direct = true;
-            }
-            // P7.4-a-b — a bigint Div/Mod/Pow/Shl/Shr lowers to a
-            // runtime helper that calls __torajs_throw_range_error
-            // (divide-by-zero / negative exponent / shift too large).
-            // This mirrors ssa_lower's runtime dispatch condition
-            // EXACTLY (op in the throwing set AND both operands typed
-            // BigInt) so it is precise: number `/ % ** << >>` is never
-            // flagged (no bench-tr hot-path throw-check regression),
-            // and every bigint throwing op is (no silent swallow
-            // across a named-fn boundary).
-            if matches!(
-                op,
-                BinOp::Div | BinOp::Mod | BinOp::Pow | BinOp::Shl | BinOp::Shr
-            ) && matches!(expr_types.get(left), Some(crate::check::Type::BigInt))
-                && matches!(expr_types.get(right), Some(crate::check::Type::BigInt))
-            {
+            if crate::ast_throw_info_binop::binop_raises(*op, expr_types.get(left), expr_types.get(right)) {
                 *direct = true;
             }
             scan_expr(ast, *left, out, direct, fn_values, expr_types);
