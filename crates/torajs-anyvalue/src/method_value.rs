@@ -126,8 +126,8 @@ pub(crate) const TABLE_SIZE: usize = 256;
 // the `family.rs` sibling; re-exported to keep the consumer face.
 pub(crate) mod family;
 pub(crate) use family::{
-    BOOL_PROTO_FAMILY, FAMILY_ROWS, NUM_PROTO_FAMILY, STR_PROTO_FAMILY, builtin_method_family,
-    recv_proto_family,
+    BIGINT_PROTO_FAMILY, BOOL_PROTO_FAMILY, FAMILY_ROWS, FN_PROTO_FAMILY, NUM_PROTO_FAMILY,
+    STR_PROTO_FAMILY, builtin_method_family, recv_proto_family,
 };
 
 /// Per-mid interned cells. Atomic-static, NOT `thread_local!` —

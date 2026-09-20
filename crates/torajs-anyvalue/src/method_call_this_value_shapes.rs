@@ -69,3 +69,25 @@ pub(crate) fn is_string_shaped(v: AnyValue) -> bool {
     tag == Tag::Str as u16 || tag == Tag::StringWrapper as u16
 }
 
+/// ThisBigIntValue shape — a BigInt cell. There is no BigInt wrapper
+/// object to admit here: `to_object.rs` records that gap in its own
+/// words ("a BigInt cell falls through to identity"), so the day one
+/// exists this predicate is where it joins.
+pub(crate) fn is_bigint_shaped(v: AnyValue) -> bool {
+    if !is_cell(v) {
+        return false;
+    }
+    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
+    tag == Tag::BigInt as u16
+}
+
+/// §20.2.3.5 step 4's subject — `Function.prototype.toString` is the
+/// one method on this list whose brand is "callable" rather than a
+/// primitive's internal data slot.
+pub(crate) fn is_callable_shaped(v: AnyValue) -> bool {
+    if !is_cell(v) {
+        return false;
+    }
+    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
+    tag == Tag::Closure as u16
+}
