@@ -19,6 +19,7 @@
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower_str_arr_fill::normalize_range_bound;
 
 impl<'a> LowerCtx<'a> {
     /// `xs.fill(v)` / `xs.fill(v, start)` / `xs.fill(v, start, end)`
@@ -100,18 +101,20 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        let start = if args.len() >= 2 {
-            let raw = self.lower_expr(args[1]);
-            self.relative_to_len(raw, Operand::Value(len_for_norm))
-        } else {
-            Operand::ConstI64(0)
-        };
-        let end = if args.len() >= 3 {
-            let raw = self.lower_expr(args[2]);
-            self.relative_to_len(raw, Operand::Value(len_for_norm))
-        } else {
-            Operand::Value(len_for_norm)
-        };
+        // §23.1.3.7 steps 4/6 read both bounds through
+        // ToIntegerOrInfinity, which refuses no value. This lane fed
+        // `lower_expr` straight into `relative_to_len`, whose doc says
+        // it takes an already-numeric index -- so null, undefined, an
+        // object with `valueOf` and a Symbol each reached
+        // `coerce_to_i64`'s fallthrough and died there as a
+        // compile-time refusal. The Copy lane has taken
+        // `normalize_range_bound` since r678; the two lanes differ in
+        // how an element is *stored*, never in how a bound is *read*,
+        // so the bound belongs to the same road. It also carries the
+        // two defaults this arm had to spell inline, plus the
+        // undefined-tag select that an `any` box needs.
+        let start = normalize_range_bound(self, args, 1, Operand::ConstI64(0), len_for_norm);
+        let end = normalize_range_bound(self, args, 2, Operand::Value(len_for_norm), len_for_norm);
         // S310 — lower-and-drop trailing args past the 3 useful
         // (value, start, end) slots per ES §23.1.3.7 trailing-arg
         // ignore. check.rs S246/S310 widen + ssa_lower_str S298
