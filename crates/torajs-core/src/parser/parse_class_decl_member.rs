@@ -140,91 +140,7 @@ impl<'a> Parser<'a> {
         // by emitting a synthetic name + advancing past `]`.
         let mut consumed_computed_name = false;
         let member_name = if matches!(self.peek(), Token::LBracket) {
-            self.pos += 1;
-            let key = match self.peek() {
-                // RFC 20260809 knife 4 — ONLY `Symbol.iterator` keeps
-                // the legacy `__sym_<chain>__` name fold: that
-                // encoding is what the iterator-protocol dispatch
-                // (`__cm_<C>____sym_Symbol_iterator__`, four lowering
-                // sites + the generator-class synth) resolves by
-                // NAME. Every other `Symbol.<x>` member key
-                // (dispose / asyncDispose / toPrimitive / …) falls
-                // through to the `_ =>` runtime-computed arm below,
-                // whose class-decl-position reify defines the member
-                // under the real Symbol cell — the fold gave those a
-                // fake string name no reader could ever reach
-                // (`c[Symbol.dispose]` answered undefined).
-                Token::Ident(head)
-                    if head == "Symbol"
-                        && matches!(
-                            self.tokens.get(self.pos + 1).map(|t| &t.token),
-                            Some(Token::Dot)
-                        )
-                        && matches!(
-                            self.tokens.get(self.pos + 2).map(|t| &t.token),
-                            Some(Token::Ident(n)) if n == "iterator"
-                        )
-                        && matches!(
-                            self.tokens.get(self.pos + 3).map(|t| &t.token),
-                            Some(Token::RBracket)
-                        ) =>
-                {
-                    self.pos += 3; // `Symbol` `.` `iterator`
-                    PropKey::from("__sym_Symbol_iterator__")
-                }
-                Token::String(s)
-                    if matches!(
-                        self.tokens.get(self.pos + 1).map(|t| &t.token),
-                        Some(Token::RBracket)
-                    ) =>
-                {
-                    let k = PropKey::from(s.clone());
-                    self.pos += 1;
-                    k
-                }
-                Token::Number(n)
-                    if matches!(
-                        self.tokens.get(self.pos + 1).map(|t| &t.token),
-                        Some(Token::RBracket)
-                    ) =>
-                {
-                    let k = crate::ast::number_prop_key(*n);
-                    self.pos += 1;
-                    k
-                }
-                _ => {
-                    // RFC 20260802 刀 2 — every other expression is a
-                    // RUNTIME computed key (§15.4 ClassElementName →
-                    // ComputedPropertyName evaluates at class-
-                    // definition time). The member installs under a
-                    // unique `__ccm_<n>__` sentinel through the
-                    // ordinary method / accessor machinery;
-                    // desugar_classes emits the ToPropertyKey +
-                    // define patch at the class-decl position.
-                    let key_expr = self.parse_assign()?;
-                    let sentinel = format!("__ccm_{}__", self.ast.class_computed_keys.len());
-                    self.ast
-                        .class_computed_keys
-                        .insert((name.to_string(), sentinel.clone()), key_expr);
-                    // RFC 20260921 — the owner, recorded where the
-                    // sentinel is minted so no later pass has to
-                    // reconstruct it from the (non-unique) class name.
-                    self.ast
-                        .class_computed_owner
-                        .entry(sentinel.clone())
-                        .or_default()
-                        .push(self.current_class_decl_id);
-                    PropKey::from(sentinel)
-                }
-            };
-            if !matches!(self.peek(), Token::RBracket) {
-                let t = self.peek().clone();
-                return Err(format!(
-                    "expected `]` to close computed class member key for `{name}`, got {t:?} at {}",
-                    self.at()
-                ));
-            }
-            self.pos += 1; // consume `]`
+            let key = self.parse_computed_member_name(name)?;
             consumed_computed_name = true;
             key
         } else {
@@ -306,5 +222,115 @@ impl<'a> Parser<'a> {
             }
         };
         Ok((member_name, consumed_computed_name))
+    }
+}
+
+impl<'a> Parser<'a> {
+    /// `[<key>]` — the computed half of a class member name, lifted out
+    /// of [`Parser::parse_class_member_name`] at the size cap. Consumes
+    /// the brackets and answers the name the member installs under: a
+    /// folded literal for the three compile-time shapes, a
+    /// `__ccm_<n>__` sentinel for a runtime key.
+    fn parse_computed_member_name(&mut self, name: &str) -> Result<PropKey, String> {
+        self.pos += 1;
+        let key = match self.peek() {
+            // RFC 20260809 knife 4 — ONLY `Symbol.iterator` keeps
+            // the legacy `__sym_<chain>__` name fold: that
+            // encoding is what the iterator-protocol dispatch
+            // (`__cm_<C>____sym_Symbol_iterator__`, four lowering
+            // sites + the generator-class synth) resolves by
+            // NAME. Every other `Symbol.<x>` member key
+            // (dispose / asyncDispose / toPrimitive / …) falls
+            // through to the `_ =>` runtime-computed arm below,
+            // whose class-decl-position reify defines the member
+            // under the real Symbol cell — the fold gave those a
+            // fake string name no reader could ever reach
+            // (`c[Symbol.dispose]` answered undefined).
+            Token::Ident(head)
+                if head == "Symbol"
+                    && matches!(
+                        self.tokens.get(self.pos + 1).map(|t| &t.token),
+                        Some(Token::Dot)
+                    )
+                    && matches!(
+                        self.tokens.get(self.pos + 2).map(|t| &t.token),
+                        Some(Token::Ident(n)) if n == "iterator"
+                    )
+                    && matches!(
+                        self.tokens.get(self.pos + 3).map(|t| &t.token),
+                        Some(Token::RBracket)
+                    ) =>
+            {
+                self.pos += 3; // `Symbol` `.` `iterator`
+                PropKey::from("__sym_Symbol_iterator__")
+            }
+            Token::String(s)
+                if matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.token),
+                    Some(Token::RBracket)
+                ) =>
+            {
+                let k = PropKey::from(s.clone());
+                self.pos += 1;
+                k
+            }
+            Token::Number(n)
+                if matches!(
+                    self.tokens.get(self.pos + 1).map(|t| &t.token),
+                    Some(Token::RBracket)
+                ) =>
+            {
+                let k = crate::ast::number_prop_key(*n);
+                self.pos += 1;
+                k
+            }
+            _ => {
+                // RFC 20260802 刀 2 — every other expression is a
+                // RUNTIME computed key (§15.4 ClassElementName →
+                // ComputedPropertyName evaluates at class-
+                // definition time). The member installs under a
+                // unique `__ccm_<n>__` sentinel through the
+                // ordinary method / accessor machinery;
+                // desugar_classes emits the ToPropertyKey +
+                // define patch at the class-decl position.
+                let key_expr = self.parse_assign()?;
+                let sentinel = format!("__ccm_{}__", self.ast.class_computed_keys.len());
+                self.ast
+                    .class_computed_keys
+                    .insert((name.to_string(), sentinel.clone()), key_expr);
+                // §15.7.14 — a ComputedPropertyName evaluates
+                // during ClassDefinitionEvaluation, BEFORE the
+                // class binding is initialized, so a key that
+                // reads the class's own name is a dead-zone read
+                // (`class C { static [C.name] = 1 }` throws, and
+                // tr already throws). Marked here, like a for-of
+                // head's, or the end-of-pipeline check would add
+                // a spurious `unknown identifier` warning on top
+                // of the correct ReferenceError.
+                super::forof_binding::mark_dead_reads(
+                    &mut self.ast,
+                    key_expr,
+                    std::slice::from_ref(&name.to_string()),
+                );
+                // RFC 20260921 — the owner, recorded where the
+                // sentinel is minted so no later pass has to
+                // reconstruct it from the (non-unique) class name.
+                self.ast
+                    .class_computed_owner
+                    .entry(sentinel.clone())
+                    .or_default()
+                    .push(self.current_class_decl_id);
+                PropKey::from(sentinel)
+            }
+        };
+        if !matches!(self.peek(), Token::RBracket) {
+            let t = self.peek().clone();
+            return Err(format!(
+                "expected `]` to close computed class member key for `{name}`, got {t:?} at {}",
+                self.at()
+            ));
+        }
+        self.pos += 1; // consume
+        Ok(key)
     }
 }

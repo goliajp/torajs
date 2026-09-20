@@ -407,7 +407,7 @@ impl<'a> Parser<'a> {
 
 /// Mark every `Ident` read of one of `names` under `eid` — including
 /// inside a function expression's body — as a dead-zone read.
-fn mark_dead_reads(ast: &mut Ast, eid: ExprId, names: &[String]) {
+pub(super) fn mark_dead_reads(ast: &mut Ast, eid: ExprId, names: &[String]) {
     match ast.get_expr(eid) {
         Expr::Ident(n) if names.iter().any(|m| m == n) => {
             ast.tdz_reads.insert(eid);
