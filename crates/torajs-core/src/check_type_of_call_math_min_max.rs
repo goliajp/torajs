@@ -22,8 +22,8 @@
 //!   variadic Math.min/max path routes Any through
 //!   `anyv_to_number → F64` (math_to_f64 closure).
 //!
-//! Returns `Some(Ok(Number))` on match; `Some(Err(_))` on
-//! non-Number/Undefined/Any arg; `None` otherwise.
+//! Returns `Some(Ok(Number))` on match; `Some(Err(_))` only when a
+//! recursive `type_of` fails; `None` otherwise.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -39,13 +39,15 @@ pub(crate) fn try_match(
         && ns == "Math"
         && (m == "min" || m == "max")
     {
+        // §21.3.2.{24,25} step 2 is ToNumber on every argument, and
+        // ToNumber reaches every value: `Math.max({}, 1)` is NaN,
+        // `Math.max({valueOf(){return 7}}, 1)` is 7. S228 / S342
+        // admitted Number | Undefined | Any by name and refused the
+        // rest; the shape gate is gone. ssa_lower mirrors this
+        // through `lower_to_number_operand`.
         for &aid in args {
-            let aty = match checker.type_of(ast, aid) {
-                Ok(t) => t,
-                Err(e) => return Some(Err(e)),
-            };
-            if !matches!(aty, Type::Number | Type::Undefined | Type::Any) {
-                return Some(Err(format!("Math.{m} args must be number, got {aty:?}")));
+            if let Err(e) = checker.type_of(ast, aid) {
+                return Some(Err(e));
             }
         }
         return Some(Ok(Type::Number));

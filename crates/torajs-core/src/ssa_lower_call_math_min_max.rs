@@ -26,6 +26,14 @@
 //!   `__torajs_anyv_to_number` → F64 instead of `coerce_to_f64`
 //!   (which can't handle Any). Applies to the 1-arg fast path AND
 //!   the variadic reduction.
+//! - **S0.4 (rotation 678)** — that S342 arm named `Any` and left
+//!   every other non-Number shape on `coerce_to_f64`, which panics:
+//!   `Math.max({valueOf(){return 7}}, 1)` died at lower time while
+//!   the same value behind `const b: any = o` answered 7. Both arms
+//!   collapse into [`LowerCtx::lower_to_number_operand`] — the one
+//!   §7.1.4 road, which also emits the throw check S342 never did
+//!   (a user `valueOf` that throws used to strand its pending throw
+//!   behind a NaN placeholder).
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not the
 //! `Math.{min|max}` Member-Ident shape).
@@ -83,15 +91,12 @@ pub(crate) fn try_lower(
         ctx.intrinsics.math_max
     };
     if args.len() == 1 {
-        let op = ctx.lower_expr(args[0]);
-        return Some(coerce_arg(ctx, op));
+        return Some(coerce_arg(ctx, args[0]));
     }
     let arg_ids: Vec<ExprId> = args.to_vec();
-    let head = ctx.lower_expr(arg_ids[0]);
-    let mut acc = coerce_arg(ctx, head);
+    let mut acc = coerce_arg(ctx, arg_ids[0]);
     for aid in arg_ids.iter().skip(1) {
-        let next_op = ctx.lower_expr(*aid);
-        let next_v = coerce_arg(ctx, next_op);
+        let next_v = coerce_arg(ctx, *aid);
         let cur_block = ctx.cur_block;
         let v = ctx.f.append_inst(
             cur_block,
@@ -104,17 +109,12 @@ pub(crate) fn try_lower(
     Some(acc)
 }
 
-fn coerce_arg(ctx: &mut LowerCtx<'_>, op: Operand) -> Operand {
-    if ctx.operand_ty(&op) == Type::Any {
-        let cur_block = ctx.cur_block;
-        let f = ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(ctx.intrinsics.any_to_number, vec![op]),
-            Type::F64,
-            None,
-        );
-        Operand::Value(f)
-    } else {
-        ctx.coerce_to_f64(op)
-    }
+/// Lower one operand and bring it to the F64 the `math_min` /
+/// `math_max` kernels take. §21.3.2.{24,25} step 2 is ToNumber on
+/// each argument and it refuses nothing, so the shape question is
+/// settled once by `lower_to_number_operand`; the `coerce_to_f64`
+/// after it only widens an integer result (no-op on an F64).
+fn coerce_arg(ctx: &mut LowerCtx<'_>, eid: ExprId) -> Operand {
+    let n = ctx.lower_to_number_operand(eid);
+    ctx.coerce_to_f64(n)
 }
