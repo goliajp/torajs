@@ -71,21 +71,44 @@ FAMILIES = [
         r"type mismatch|mismatch assigning|element assignment"
         r"|assignment to .* mismatch|slot is",
         "JS 没有变量类型这个概念,spec 因此没有对应的运行期语义。"
-        "这是 TS 语言面自己的东西,编译期拒是对的。",
+        "这是 TS 语言面自己的东西,编译期拒是对的。"
+        "**r677 逐条过 tsc:51 条里 39 条 tsc 同判(默认值正确),"
+        "12 条 tsc 接受 = checker 推断过窄**,不占档位,是加宽点。"
+        "六条轴见 ch1 §3.3:裸 `var x;` 后赋两种形状(7)· 循环体内裸 "
+        "`let`(1)· 生成器函数表达式各铸一个名义 ClassRef(1)· "
+        "`var x = {}` 之后赋任意对象(1)· getter-only 改赋 setter-only(1)· "
+        "只抛出的箭头函数返回 never(1)。",
     ),
     (
         "F6",
         "const 重赋值",
-        "refuse",
+        "throw",
         r"cannot assign to const",
-        "spec 侧是运行期 TypeError,但 tsc 是编译期 TS2588 —— 与 tsc 对齐。",
+        "**r677 推翻了原来的 refuse**:§6.2.5.6 PutValue → §9.1.1.1.5 "
+        "SetMutableBinding 步骤 5 对 strict immutable binding 强制 "
+        "S = true,所以规范给的是运行期 TypeError,而 test262 的四条 "
+        "`using-invalid-assignment-*` 是把写包在 "
+        "`assert.throws(TypeError, ...)` 里的 **positive** 测试 —— 文件被拒"
+        "就一条断言都跑不了。tsc 报 TS2588、bun 报「This assignment will "
+        "throw」,两者都知道结果却都不给可执行物,而 ch1 §4 的表早就把这一行"
+        "归了档 B。已落地(`Ast::const_writes` → `lower_immutable_write_throw`),"
+        "下一次 sweep 这一族应当归零。",
     ),
     (
         "F7",
         "重复声明",
         "refuse",
         r"redeclaration|duplicate",
-        "早错(SyntaxError),spec 要求在求值前拒。",
+        "早错(SyntaxError),spec 要求在求值前拒 —— 规则本身没错,**但 r677 "
+        "逐条读源码发现今天命中它的七条一条都不是真重复声明**:五条是自引用"
+        "模块被处理多遍或 namespace desugar 把绑定铸进用户作用域"
+        "(`instn-once` / `eval-self-once` / `export-star-as-dflt` / "
+        "`own-property-keys-binding-types` / `import-defer-does-not-evaluate` —— "
+        "被点名的 `dflt1` / `named` / `ns_1_2` 在源码里各只声明一次),"
+        "一条是 `export function` 铸两遍(`verify-dfs`),一条是 harness 与 "
+        "case 各写一个 `var $262`(同作用域 `var` 重复声明在 JS 里合法)。"
+        "前六条属 L1 模块机制缺口,末一条是收窄。**族的默认值与命中它的条目"
+        "可以整体不一致** —— 这是逐条落档存在的理由。",
     ),
     # ★ F16 必须排在 F8 之前 —— 两者消息同形,差别只在名字是谁铸的。
     (
