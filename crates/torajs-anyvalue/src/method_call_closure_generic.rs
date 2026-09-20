@@ -237,7 +237,7 @@ pub(crate) unsafe fn generic_builtin_this(
             || (fam == crate::method_value::BIGINT_PROTO_FAMILY
                 && !shapes::is_bigint_shaped(this_arg))
             || (fam == crate::method_value::FN_PROTO_FAMILY
-                && !shapes::is_callable_shaped(this_arg));
+                && !unsafe { crate::construct::is_callable(this_arg) });
         if wrong_brand {
             unsafe {
                 __torajs_throw_type_error(

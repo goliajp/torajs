@@ -133,6 +133,43 @@ pub(crate) fn ctor_entry(key: u64) -> u64 {
     0
 }
 
+/// ES §7.2.3 IsCallable — does this value have a [[Call]] internal
+/// method? Three cell shapes carry one in tr, and this is the only
+/// place that enumerates them:
+///
+/// - a `Closure` cell — every ordinary function, arrow and method;
+/// - a `__class_<C>` singleton dynobj — a class constructor HAS
+///   [[Call]] (that is why §10.2.1 step 2 can refuse it by name);
+///   builtin constructors read as values are these too, so
+///   `String(Error)` asks this question;
+/// - a Proxy whose target is callable (§10.5.14 step 7 fixes the
+///   answer at creation).
+///
+/// §13.5.3 step 9 defines `typeof` as this predicate, so
+/// [`crate::inspect::typeof_any`] answers "function" from here
+/// rather than re-listing the shapes. Prefer this over
+/// re-deriving the list: the class-constructor row was missing
+/// from every hand-rolled copy in this crate, which is how
+/// `String(Error)` came to throw.
+///
+/// # Safety
+/// `av` must be a live AnyValue.
+pub(crate) unsafe fn is_callable(av: AnyValue) -> bool {
+    if !is_cell(av) {
+        return false;
+    }
+    let ptr = as_void_ptr(av);
+    if ptr.is_null() {
+        return false;
+    }
+    if crate::proxy::is_proxy(av) {
+        return unsafe { crate::proxy_callable::proxy_is_callable(av) };
+    }
+    // SAFETY: caller guarantees a live heap block.
+    let hdr = unsafe { &*(ptr as *const HeapHeader) };
+    hdr.type_tag == Tag::Closure as u16 || unsafe { is_class_ctor_cell(ptr) }
+}
+
 /// ES §7.2.4 IsConstructor, over the shapes tr can answer for today.
 ///
 /// A class object is a dynobj carrying `FLAG_DYNOBJ_CLASS_CTOR` — the

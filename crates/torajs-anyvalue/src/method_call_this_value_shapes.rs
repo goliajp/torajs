@@ -81,13 +81,9 @@ pub(crate) fn is_bigint_shaped(v: AnyValue) -> bool {
     tag == Tag::BigInt as u16
 }
 
-/// §20.2.3.5 step 4's subject — `Function.prototype.toString` is the
-/// one method on this list whose brand is "callable" rather than a
-/// primitive's internal data slot.
-pub(crate) fn is_callable_shaped(v: AnyValue) -> bool {
-    if !is_cell(v) {
-        return false;
-    }
-    let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::Closure as u16
-}
+// §20.2.3.5 step 4's subject is IsCallable, not a primitive's
+// internal data slot, so it is NOT a shape predicate and does not
+// live here — the gate next door reads `construct::is_callable`
+// (ES §7.2.3) directly. A copy did live here for one rotation and
+// listed only `Tag::Closure`, which made `String(Error)` throw:
+// a builtin constructor read as a value is a `__class_<C>` dynobj.
