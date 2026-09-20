@@ -266,10 +266,32 @@ fn lower_symbols_arm(
     arg_ty: &Type,
 ) -> Operand {
     let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Symbol);
-    if matches!(arg_ty, Type::Any) {
+    // §20.1.2.10 step 1 is ToObject, and ToObject(null) / ToObject(
+    // undefined) throws. The typed arm below reasons about what a CELL
+    // holds; a nullish value is not a cell and never reaches that
+    // question, so "provably holds no symbol keys" does not cover it.
+    // It took the compile-time empty array anyway, which made
+    // `Object.getOwnPropertySymbols(undefined)` answer [] where every
+    // engine throws -- a wrong answer rather than a refusal, so it sat
+    // in the bugs bucket where no cluster pass looks. The any lane has
+    // always raised it (the doc above says so); route nullish there.
+    let recv_is_nullish = matches!(
+        ctx.expr_types.get(&recv_eid),
+        Some(crate::check::Type::Null) | Some(crate::check::Type::Undefined)
+    );
+    let runtime_arg = if matches!(arg_ty, Type::Any) {
+        Some(arg_op.clone())
+    } else if recv_is_nullish {
+        // null and undefined differ in tag but not here: the helper
+        // tests both with one comparison and raises one message.
+        Some(ctx.box_to_any(arg_op.clone()))
+    } else {
+        None
+    };
+    if let Some(boxed) = runtime_arg {
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.anyv_own_symbols, vec![arg_op]),
+            InstKind::Call(ctx.intrinsics.anyv_own_symbols, vec![boxed]),
             Type::Arr(arr_id),
             None,
         );
