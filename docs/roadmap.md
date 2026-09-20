@@ -92,6 +92,12 @@ bun-aot / bun-jsc / nodejs / go / rust 各自对位。perf push 跟 spec 推进
 **bench-tr 0 regression 是每 commit 的硬阈值**；每 N phase 做一次
 perf-focused push 拉新 case 进 SOTA 范围。
 
+**（2026-09-20 定位补注）** 这条终态定义**本来就是 native-ceiling 口径**
+—— 它要求严格优于 **rust**，不只是优于 bun，而且 SOTA 口径取的是
+work-only（剥掉固定启动成本）。v1.0 gate 轴 B 的 `median tr/bun-aot ≤ 0.33`
+是它的**阶段性投影**（一个可收敛的数字目标），不是它的替代。两者并存：
+gate 判 v1.0 能不能发，本段判"性能极致"到没到。
+
 **SOTA 的口径（2026-08-21 收紧，见 `P-PERF`）**：总墙钟领先**不算**
 SOTA，因为它会被我们的固定启动成本红利掩盖。判据是
 **work-only = `run_ms − startup_ms`**（`startup` case 就是纯固定成本）
@@ -146,9 +152,11 @@ retrofit**。这是 ceiling-first early framing 实践 — vision 现在落，�
 takagi：「全平台也必须拉入 v1」。
 
 终态：v1.0 在**五个 ISA × 格式 × ABI 组合**上产出可运行的 native
-binary，不是单一 `aarch64-apple-darwin`。差异化叙事本身要求这一条 ——
-「AOT 出 native 小产物」如果只在一种机器上成立，那它不是一个 runtime
-的属性，是一次移植的属性。
+binary，不是单一 `aarch64-apple-darwin`。**（2026-09-20 定位重述）**
+原文的理由写的是"差异化叙事本身要求这一条 ——「AOT 出 native 小产物」
+如果只在一种机器上成立，那它不是一个 runtime 的属性，是一次移植的
+属性"。产物大小是**读数**，不是差异化；更硬的理由是定位本身：**一门
+语言套件只活在一台机器上，就还不配叫语言套件**（见 Positioning 段）。
 
 **当前面（2026-08-30 实测）**：三个维度各自只走了一格。
 
@@ -230,6 +238,9 @@ Windows x64）。E5 post-v1.0。按第五设计原则，这里没有「先做一
    参考实现一致"，不是"正确"。No Rust-flavoured idioms in user code.
 6. **Full TS coverage as a roadmap target** — every TS feature bun
    supports has a roadmap phase. Compile errors point at the phase.
+   **（2026-09-20 定位补注）** bun 在这里是**下界不是分母**：规范里有而
+   bun 没有实现的特性，同样进 roadmap（design-principles §5 test262 纪律
+   已写明"bun 没过我们也要试一试"）。本条给的是覆盖面的**最小值**。
    **（2026-08-21 重述）**"anything bun runs" 是**方向，不是一份可穷尽
    的清单**：bun 1.4 一次新增 8 个内建（`Bun.Image` / `WebView` /
    `markdown` / `cron` / `Terminal` / `JSON5` / `XML` / `Archive`）并
@@ -1663,7 +1674,9 @@ whitelist).
 P6). Yet tr rejects 26476 core test262 cases at the checker. The old
 gate — "P0–P13 closed" — is therefore satisfied and simultaneously
 meaningless: the checklist enumerated the substrate we set out to build,
-not the surface a TS runtime has to present. P-SURF is that surface,
+not the surface a language in the TS syntax family has to present
+(2026-09-20: the original read "a TS runtime" — see Positioning).
+P-SURF is that surface,
 and unlike the trunk above it is **derived from measurement rather than
 from design intent**.
 
@@ -9316,7 +9329,7 @@ kind, being a silent wrong answer rather than a refusal.
 substrate-checklists all closed = v1.0". As of 2026-07-26 all 84 boxes
 are ticked and tr still rejects 26476 core test262 cases. The checklist
 measured the substrate we planned; it never measured the surface. A
-gate that a runtime can satisfy while failing half its corpus is not a
+gate that a language implementation can satisfy while failing half its corpus is not a
 gate.
 
 **Current definition** (2026-08-30, after takagi raised 轴 B's target
@@ -9733,6 +9746,11 @@ vs bun 3.21 —— 领先 10.7×**。**不要动它**;任何破坏该检测的�
 **同语义的对手是 bun**(该 cell tr 20.8 vs bun 41.1 = 快 1.98×);
 rust/go 是**另一个程序的硬件天花板**,不是同题竞品。与
 methodology §1「计时比较的是不同的工作」同族。
+**(2026-09-20 定位补注)** 这一句在**判输赢**的语境下不变:拿 `[]int64`
+的程序判 `number` 程序的胜负,比较的是不同的工作。但同一行读数在**判距离**
+的语境下**正是那把尺** —— Positioning 段说"性能极致的刻度是 native
+ceiling",指的就是它:不是"我们输给 rust 了",而是"离物理上限还有多远"。
+两个语境各问各的问题,`medianVsRust` 属于后者,`tr/bun` 属于前者。
 
 **明确不要攻**(已在 parity,或归因错误 —— 记在此防重复):
 `xs[j]` 的元素访问(已是一条 AGU-scaled `ldr`,与 rust 同形)/
@@ -9800,8 +9818,12 @@ coalescing(链外,估中性)。
    让每 crate 只出一个 `.o` —— 引用一个符号就拉进整个 crate。
 6. **启动比 native 地板慢 1.0–1.2 ms**（三轮一致：+0.99 / +1.04 /
    +1.24 vs 同机 Rust hello world 1.351 ms）。而 bun 1.4 把 Linux 启动
-   从 10.9 降到 5.1 ms —— **对手正在我们的头号差异化轴上追赶**，
-   我们的启动优势从 3.1× 掉到 2.0×。
+   从 10.9 降到 5.1 ms —— 我们的启动优势从 3.1× 掉到 2.0×。
+   **（2026-09-20 定位重述）** 原文写的是"对手正在我们的**头号差异化轴**
+   上追赶"。启动时间是**读数**，不是差异化轴（定位见 Positioning 段）。
+   bun 变快说明这个读数的领先在缩小，**不说明定位受威胁** —— 定位是那一格
+   （完整语义 + 类型参与 codegen），不会因为对手启动变快而改变。这条仍然
+   要攻，理由是"离 native 地板还差 1.0–1.2 ms"，不是"对手追上来了"。
 
 ### 执行项（顺序执行，不是候选清单）
 
@@ -9885,10 +9907,15 @@ coalescing(链外,估中性)。
 
 ### 为什么这不是「一次移植」
 
-tr 的差异化是「AOT 出 native 小产物、启动快」。这三条如果只在
-`aarch64-apple-darwin` 上成立，它们就不是这个 runtime 的属性。更实际
-的一面：**服务端几乎全是 Linux**，而 tr 今天在服务端一行都跑不了 ——
-一个 TS runtime 缺席 Linux，等于缺席它最大的使用场景。
+**（2026-09-20 定位重述）** 原文把立项理由挂在「tr 的差异化是 AOT 出
+native 小产物、启动快，这三条如果只在 `aarch64-apple-darwin` 上成立，
+它们就不是这个 runtime 的属性」上 —— 那三条是**读数**，不是差异化。
+真正的理由更硬：**一门语言套件只活在一台机器上，就还不配叫语言套件**
+（定位见 Positioning 段）。E0 是 torajs 第一次够格用它自己定位里那个
+名词的那一步。
+
+更实际的一面：**服务端几乎全是 Linux**，而 tr 今天在服务端一行都跑不了
+—— 一门缺席 Linux 的语言，等于缺席它最大的使用场景。
 
 ### 一个别人没有的结构优势：交叉编译几乎是白拿的
 
