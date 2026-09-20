@@ -50,7 +50,8 @@ SUBS = [
 ]
 
 # Surfaces that belong to a documented post-v1.0 phase (P14 Proxy/Reflect,
-# P16 multi-thread, and the Temporal / TypedArray / Intl backlog items).
+# P15.2 annexB legacy, P16 multi-thread, and the Temporal / TypedArray /
+# Intl backlog items).
 # They are excluded from the gate predicate — not from the census, where
 # they are reported separately so the split stays visible.
 #
@@ -87,6 +88,13 @@ UNKNOWN_IDENT = re.compile(r"unknown ident(?:ifier)? `([^`]*)`")
 
 def is_post_v1(path: str, msg: str) -> bool:
     if path.startswith("test/intl402"):
+        return True
+    # annexB legacy semantics is P15.2, a documented post-v1.0 phase, so by
+    # this function's own definition ("outside a documented post-v1.0 phase")
+    # it never belonged in core. The exclusion table simply missed it until
+    # 2026-09-20. This is a classification fix, not a scope decision — which
+    # is why it lands here and not as a register entry.
+    if path.startswith("test/annexB"):
         return True
     if any(t in path for t in POST_V1_PATH):
         return True
@@ -151,7 +159,11 @@ def attributed_paths(entries, paths):
     out = {}
     for e in entries:
         pred = e["predicate"]
-        if pred["kind"] in ("test262-flag", "test262-feature"):
+        if pred["kind"] == "test262-path":
+            # Pure path predicate. Unlike the frontmatter kinds it needs no
+            # corpus checkout, so it still answers on a bare clone.
+            out[e["id"]] = {p for p in paths if p.startswith(pred["prefix"])}
+        elif pred["kind"] in ("test262-flag", "test262-feature"):
             if not corpus.is_dir():
                 print(f"  !! register {e['id']}: corpus not found at {corpus}, predicate skipped")
                 out[e["id"]] = set()
