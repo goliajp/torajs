@@ -45,22 +45,42 @@ pub(crate) fn check_switch(
     checker.scopes.push(HashMap::new());
     for c in cases {
         match checker.type_of(ast, c.value) {
-            Ok(t) if t == scrut_ty => {}
-            // §14.12.4 selects a clause with IsStrictlyEqual, which is
-            // total — it answers false across types rather than being
-            // undefined for them. So the only thing worth refusing is
-            // a pair that can never be equal, and `any` is never that
-            // pair: it is exactly the type whose runtime value is
-            // unknown. TypeScript agrees ("not comparable" is its
-            // wording, and `any` is comparable to everything).
+            // `any` on either side is the type whose runtime value is
+            // unknown, so nothing can be said about it here.
+            Ok(t) if t == scrut_ty || t == Type::Any || scrut_ty == Type::Any => {}
+            // §14.12.4 selects a clause with IsStrictlyEqual, and that
+            // predicate is TOTAL: across types it answers `false`, it is
+            // not undefined for them. So no pair of types is an error
+            // here — a cross-type clause is simply one that never gets
+            // selected, and §14.12.4 moves to the next.
             //
-            // Which the `with` desugar makes routine rather than
-            // exotic: a guarded read is a conditional over the object,
-            // so `switch (x)` in a `with` body has an `any` scrutinee
-            // and every ordinary `case 1:` was refused.
-            Ok(t) if t == Type::Any || scrut_ty == Type::Any => {}
-            Ok(t) => checker.errors.push_err(format!(
-                "switch case value type {t:?} differs from scrutinee {scrut_ty:?}"
+            // The refusal that used to stand here had the reasoning
+            // right and stopped halfway: it opened a hole for `any` on
+            // exactly this ground ("any is comparable to everything")
+            // and then refused every other cross-type pair. Which is
+            // band B in
+            // `docs/language-spec/ch1-type-runtime-boundary.md` — a
+            // runtime answer treated as a compile-time error.
+            //
+            // TypeScript does flag part of this — `case 0:` under a
+            // string scrutinee is TS2678 "not comparable" (`case null:`
+            // is not). That diagnostic has value and is kept; what is
+            // dropped is the REFUSAL. This is exactly the row ch1 §4
+            // draws between the two: tsc reports and produces no
+            // executable, tr reports AND emits the behaviour the spec
+            // asks for. The undeclared-identifier path has been shaped
+            // this way for a while — a warning, and the program runs.
+            //
+            // The typed spelling is where tr is AHEAD here, not behind:
+            // with the scrutinee's type in hand, "never selected" is
+            // decidable at compile time, while an engine that erased the
+            // type has to run the comparison to find out. What must not
+            // be skipped is the clause EXPRESSION — CaseClauseIsSelected
+            // evaluates it before comparing, so a side effect in a
+            // never-matching case is observable (the fixture pins this).
+            Ok(t) => checker.errors.push_warn(format!(
+                "switch case value type {t:?} can never equal scrutinee \
+                 {scrut_ty:?} — this clause is never selected"
             )),
             Err(e) => checker.errors.push_err(e),
         }

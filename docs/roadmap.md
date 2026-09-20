@@ -8216,6 +8216,16 @@ assert.throws(TypeError, function() { [].find({}); }); // §23.1.3.9
       **F4 的 `split` 档被实测推翻**：31 条全是 dot 拼写、bracket 零条，
       判据 3 的第二路在这批语料上没有对象（20 条落 A，11 条因 tsc 也接受而
       出族 —— 那是 checker 缺口，与 §3.1 的 F3-b 同性质）。
+      **逐条实测的账（r676，带闸全量 sweep）**：B 79（21%，闸开即通过，
+      运行期早已正确）· **S0.4 的工作面 223（61%）**= lower panic 213 +
+      crash 8 + 另一条拒收路 2 · L1 64（17%，跑起来但答案仍不对）。
+      **这张表要两维读**：桶只说「运行期在不在」，族说「该不该拒」——
+      F10（泛型，refuse）的 8/8 lower panic 不是待办，而 refuse 族里
+      闸开即通过的格（F5 九条 / F7 两条）才是族默认值被推翻的候选。
+      两次推翻记在 ch1 §3.3：① 量具第一版把 `exit 3`（ssa_lower panic）
+      读成「跑起来但答错」，**203 条一次性搬出 S0**；② F8「未知标识符」
+      23/23 的名字**全部带 `__` 前缀**，是 desugar 的内部符号而非用户
+      标识符 —— 整族归 L1，新族 F16 承接。
 - [x] **S0.2** **typed 覆盖率量具** ✓ `f7b74aa1f`。编译端
       `crates/torajs-core/src/typed_census.rs`（数 `Checker::expr_types`，
       零新状态）+ 采集端 `hardev/autorun/typed_census.sh` + 自测。

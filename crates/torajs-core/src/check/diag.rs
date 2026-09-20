@@ -68,7 +68,11 @@ impl Diagnostic {
 /// attachment swaps `push_err(msg)` for `push_err_at(eid, msg)`.
 pub(crate) trait DiagPush {
     fn push_err(&mut self, msg: String);
-    #[allow(dead_code)] // undeclared-read warnings synthesize at end of pipeline instead
+    /// Diagnose without refusing — the tsc posture that
+    /// `docs/language-spec/ch1-type-runtime-boundary.md` §4 draws as the
+    /// row where tr differs from tsc: report AND emit the behaviour the
+    /// spec asks for. (Undeclared reads reach the same end through their
+    /// own mark set, synthesized at the end of the pipeline.)
     fn push_warn(&mut self, msg: String);
     /// Span-aware variant. Looks up the source span from `ast.expr_spans`.
     #[allow(dead_code)]
