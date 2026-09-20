@@ -60,37 +60,20 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if m_name == "fill" {
-        if aty0 != inner && !matches!(inner, Type::Any) {
-            return Some(Err(format!(
-                "Array.fill arg 0 (value) must match elem type {:?}, got {aty0:?}",
-                inner
-            )));
-        }
-    } else if !matches!(aty0, Type::Number | Type::Undefined) {
+    if m_name == "fill" && aty0 != inner && !matches!(inner, Type::Any) {
         return Some(Err(format!(
-            "Array.copyWithin arg 0 (target) must be number, got {aty0:?}"
+            "Array.fill arg 0 (value) must match elem type {:?}, got {aty0:?}",
+            inner
         )));
     }
-    let aty1 = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(aty1, Type::Number | Type::Undefined) {
-        return Some(Err(format!(
-            "Array.{m_name} arg 1 must be number, got {aty1:?}"
-        )));
-    }
-    let aty2 = match checker.type_of(ast, args[2]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(aty2, Type::Number | Type::Undefined) {
-        return Some(Err(format!(
-            "Array.{m_name} arg 2 must be number, got {aty2:?}"
-        )));
-    }
-    for &a in args.iter().skip(3) {
+    // Only `fill`'s arg 0 is elem-typed. Every remaining slot here is
+    // a length-relative BOUND, and §23.1.3.{4,7} put ToIntegerOrInfinity
+    // on each — which refuses no value. The 1-3-arg siblings dropped
+    // their shape gates for the same reason; this arm (the >=4-arg
+    // trailing-ignore shape) is the same lane and must not keep one, or
+    // `xs.copyWithin(0, true, 3, junk)` would refuse while
+    // `xs.copyWithin(0, true, 3)` runs.
+    for &a in args.iter().skip(1) {
         if let Err(e) = checker.type_of(ast, a) {
             return Some(Err(e));
         }

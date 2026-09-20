@@ -20,6 +20,13 @@
 //!   step 5/9: ToIntegerOrInfinity accepts arbitrary-typed
 //!   input. Sister to S334 (Array.slice Any). ssa_lower
 //!   mirror decodes via anyv_to_number → coerce_to_i64.
+//! - **S0.4 (rotation 678)** — S218 / S335 named three
+//!   admitted shapes and refused the rest, but
+//!   ToIntegerOrInfinity refuses nothing:
+//!   `[1,2,3].fill(9, true)` fills from 1 and
+//!   `.fill(9, {valueOf(){return 2}})` from 2. The bound
+//!   slots carry no shape gate at all now — only arg 0, the
+//!   VALUE, is elem-typed.
 //!
 //! `Array<Any>.fill(v)` accepts a cross-type fill value —
 //! ssa_lower routes through `arr_fill_any` which NaN-boxes
@@ -72,26 +79,14 @@ pub(crate) fn try_match(
             **elem
         )));
     }
-    if args.len() >= 2 {
-        let start_ty = match checker.type_of(ast, args[1]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if start_ty != Type::Number && start_ty != Type::Undefined && start_ty != Type::Any {
-            return Some(Err(format!(
-                "Array.fill arg 1 (start) must be number, got {start_ty:?}"
-            )));
-        }
-    }
-    if args.len() == 3 {
-        let end_ty = match checker.type_of(ast, args[2]) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if end_ty != Type::Number && end_ty != Type::Undefined && end_ty != Type::Any {
-            return Some(Err(format!(
-                "Array.fill arg 2 (end) must be number, got {end_ty:?}"
-            )));
+    // §23.1.3.7 steps 4/6 are ToIntegerOrInfinity on start / end, and
+    // that reaches every value — `[1,2,3].fill(9, true)` fills from 1,
+    // `.fill(9, {valueOf(){return 2}})` from 2. Only arg 0 (the VALUE)
+    // is elem-typed; the two bounds carry no shape gate. ssa_lower
+    // mirrors this through `normalize_range_bound`.
+    for a in args.iter().skip(1) {
+        if let Err(e) = checker.type_of(ast, *a) {
+            return Some(Err(e));
         }
     }
     Some(Ok(Type::Array(Box::new((**elem).clone()))))

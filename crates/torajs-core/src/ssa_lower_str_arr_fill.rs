@@ -26,7 +26,18 @@ use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 ///   invoked on a ConstPtrNull/I64 undef sentinel.
 /// - S335 — Any slot decodes via `any_to_number → coerce_to_i64`
 ///   before `relative_to_len` (ToIntegerOrInfinity accepts
-///   arbitrary-typed input; sister to S334).
+///   arbitrary-typed input; sister to S334). It also asks the box's
+///   TAG, because an `any` may be HOLDING undefined and ToNumber
+///   answers `NaN → 0` for it — which is this slot's default only
+///   for target/start, never for `end`: `xs.copyWithin(0, 1, u)`
+///   with `const u: any = undefined` copied nothing while every
+///   engine copies the tail.
+/// - Every other static type routes through
+///   [`LowerCtx::lower_to_number_operand`] rather than reaching
+///   `lower_expr` directly. §23.1.3.{4,7} step 3 is
+///   ToIntegerOrInfinity, which refuses no value: `.copyWithin(0,
+///   true)` and `.fill(9, {valueOf(){return 2}})` are ordinary
+///   programs, and a user `valueOf` runs (and may throw) here.
 /// - V3-18 wedge — negatives count from the end via
 ///   `relative_to_len` (max(len + n, 0) for n < 0, len for
 ///   n >= len); the arr_fill C runtime only does plain min/max
@@ -52,18 +63,12 @@ pub(crate) fn normalize_range_bound(
     if is_undef {
         default_op
     } else if is_any {
-        let raw = ctx.lower_expr(args[idx]);
-        let f = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-            Type::F64,
-            None,
-        );
-        let i = ctx.coerce_to_i64(Operand::Value(f));
-        ctx.relative_to_len(i, Operand::Value(len_for_norm))
+        let (tag, num, _) = ctx.any_slot_tag_number_index(args[idx]);
+        let rel = ctx.relative_to_len(num, Operand::Value(len_for_norm));
+        ctx.select_on_undef_tag(tag, default_op, rel, "__range_bound")
     } else {
-        let raw = ctx.lower_expr(args[idx]);
-        ctx.relative_to_len(raw, Operand::Value(len_for_norm))
+        let n = ctx.lower_to_number_operand(args[idx]);
+        ctx.relative_to_len(n, Operand::Value(len_for_norm))
     }
 }
 

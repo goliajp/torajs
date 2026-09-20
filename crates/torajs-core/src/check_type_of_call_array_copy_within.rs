@@ -26,11 +26,16 @@
 //! each arg goes through ToIntegerOrInfinity which accepts
 //! arbitrary-typed input. Sister to S334.
 //!
+//! S0.4 (rotation 678) — S219 / S335 admitted three shapes
+//! and refused the rest, which is not what
+//! ToIntegerOrInfinity says: it reaches EVERY value. The
+//! shape gate is gone; only `type_of`'s own errors
+//! propagate now.
+//!
 //! Returns `Some(Ok(Type::Array(elem)))` when the receiver
-//! is `Type::Array<T>` AND 1 <= args.len() <= 3 AND every
-//! arg is `Number | Undefined | Any`. `Some(Err(_))` on
-//! arg type mismatch (exhaustive — does NOT fall through)
-//! or recursive `type_of` failure. `None` otherwise (non-
+//! is `Type::Array<T>` AND 1 <= args.len() <= 3.
+//! `Some(Err(_))` on recursive `type_of` failure. `None`
+//! otherwise (non-
 //! copyWithin callee, arity 0 or >3, or non-Array receiver
 //! — cascade falls through).
 
@@ -60,15 +65,19 @@ pub(crate) fn try_match(
     let Type::Array(elem) = &src_ty else {
         return None;
     };
-    for (i, a) in args.iter().enumerate() {
-        let a_ty = match checker.type_of(ast, *a) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if a_ty != Type::Number && a_ty != Type::Undefined && a_ty != Type::Any {
-            return Some(Err(format!(
-                "Array.copyWithin arg {i} must be number, got {a_ty:?}"
-            )));
+    // §23.1.3.4 step 3 is ToIntegerOrInfinity on each of target /
+    // start / end, and that reaches every value:
+    // `[1,2,3,4,5].copyWithin(0, true)` is `2,3,4,5,5` and
+    // `.copyWithin(0, {valueOf(){return 1}})` is the same, neither a
+    // type error. The shape gate that used to stand here admitted
+    // Number / Undefined / Any and refused the rest — the same wedge
+    // rotation 544 deleted from `Array.prototype.at`. `type_of` still
+    // runs: it records the operand's type and propagates its errors.
+    // ssa_lower mirrors this through `normalize_range_bound`, which
+    // routes a non-Number through `lower_to_number_operand`.
+    for a in args.iter() {
+        if let Err(e) = checker.type_of(ast, *a) {
+            return Some(Err(e));
         }
     }
     Some(Ok(Type::Array(elem.clone())))
