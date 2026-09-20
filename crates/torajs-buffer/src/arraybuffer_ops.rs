@@ -9,16 +9,21 @@
 use core::ffi::c_char;
 
 use torajs_anyvalue::__torajs_anyv_box_pointer;
-use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
+use torajs_anyvalue::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, box_double};
 
 use crate::arraybuffer::{
     BYTE_LEN_OFF, NOT_RESIZABLE, allocate, byte_len, data_ptr, is_arraybuffer, max_byte_len,
 };
 
 unsafe extern "C" {
-    /// torajs-anyvalue — §7.3.20 species constructor-face guard
-    /// (`buffer_species.rs`).
-    fn __torajs_buffer_species_guard(recv: AnyValue) -> i64;
+    /// torajs-anyvalue — §7.3.20 SpeciesConstructor, the constructor
+    /// itself and owned (`buffer_species.rs`); `undefined` means "no
+    /// species face", or "one that threw" when a throw is pending.
+    fn __torajs_buffer_species_ctor(recv: AnyValue) -> AnyValue;
+    /// torajs-anyvalue — `new callee(argv…)` for a runtime callee
+    /// (`construct.rs`); answers the object, owned.
+    fn __torajs_anyv_construct(callee: AnyValue, argv: *const u64, argc: i64) -> AnyValue;
+    fn __torajs_anyv_rc_dec(v: AnyValue);
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_throw_range_error(msg: *const u8);
     fn __torajs_throw_check() -> i64;
@@ -155,30 +160,91 @@ pub unsafe extern "C" fn __torajs_arraybuffer_slice(
             }
             clamp_relative(to_integer_or_infinity(n), len)
         };
-        // §25.1.6.16 step 14 — the species constructor-face read
-        // (`species.rs`); a poisoned instance `constructor` throws
-        // before any allocation.
-        if __torajs_buffer_species_guard(av) != 0 {
+        // §25.1.6.7 — newLen is fixed by the two clamps above, and it
+        // is the argument Construct receives, so it is computed before
+        // the species face is read (which can run user code).
+        let new_len = (last - first).max(0);
+        let product = slice_product(av, new_len);
+        if product == VALUE_UNDEFINED {
             return VALUE_UNDEFINED;
         }
-        // The coercions above can run user code, so the source may
-        // have been detached (or shrunk) since the length was read.
+        // Both the coercions AND the species constructor can run user
+        // code, so the SOURCE may have been detached (or shrunk) since
+        // its length was read. This sits after the Construct for that
+        // reason — the spec rechecks O here, not earlier.
         let src = data_ptr(ptr);
         if src.is_null() {
+            __torajs_anyv_rc_dec(product);
             __torajs_throw_type_error(c"ArrayBuffer.prototype.slice: buffer is detached".as_ptr());
-            return VALUE_UNDEFINED;
-        }
-        let new_len = (last - first).max(0);
-        let cell = allocate(new_len, NOT_RESIZABLE);
-        if cell.is_null() {
-            __torajs_throw_range_error(b"ArrayBuffer allocation failed\0".as_ptr());
             return VALUE_UNDEFINED;
         }
         let copy = new_len.min((byte_len(ptr) - first).max(0));
         if copy > 0 {
-            core::ptr::copy_nonoverlapping(src.add(first as usize), data_ptr(cell), copy as usize);
+            core::ptr::copy_nonoverlapping(
+                src.add(first as usize),
+                data_ptr(as_void_ptr(product)),
+                copy as usize,
+            );
         }
-        __torajs_anyv_box_pointer(cell)
+        product
+    }
+}
+
+/// §25.1.6.7 — what `slice` copies its bytes INTO:
+/// `Construct(SpeciesConstructor(O, %ArrayBuffer%), « 𝔽(newLen) »)`,
+/// or a plain %ArrayBuffer% when there is no species face.
+///
+/// `undefined` on every failure, throw already raised, so the caller
+/// returns it as its own completion.
+///
+/// The four checks after Construct are the spec's, and test262 has a
+/// case behind each: a product that is not an ArrayBuffer, one that
+/// came back already detached, the SOURCE handed back as its own
+/// slice, and one too small to hold `newLen` bytes. IsImmutableBuffer
+/// is the fifth and is deliberately absent — the immutable-arraybuffer
+/// proposal has no substrate in tr at all, so there is no predicate to
+/// ask, and `sliceToImmutable` would fail before reaching here anyway.
+///
+/// # Safety
+/// `av` is a live ArrayBuffer AnyValue.
+unsafe fn slice_product(av: AnyValue, new_len: i64) -> AnyValue {
+    unsafe {
+        let ctor = __torajs_buffer_species_ctor(av);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        if ctor == VALUE_UNDEFINED {
+            let cell = allocate(new_len, NOT_RESIZABLE);
+            if cell.is_null() {
+                __torajs_throw_range_error(b"ArrayBuffer allocation failed\0".as_ptr());
+                return VALUE_UNDEFINED;
+            }
+            return __torajs_anyv_box_pointer(cell);
+        }
+        let argv = [box_double(new_len as f64)];
+        let product = __torajs_anyv_construct(ctor, argv.as_ptr(), 1);
+        __torajs_anyv_rc_dec(ctor);
+        if __torajs_throw_check() != 0 {
+            __torajs_anyv_rc_dec(product);
+            return VALUE_UNDEFINED;
+        }
+        let refused = if !is_arraybuffer(product) {
+            Some(c"ArrayBuffer.prototype.slice: species constructor did not return an ArrayBuffer")
+        } else if data_ptr(as_void_ptr(product)).is_null() {
+            Some(c"ArrayBuffer.prototype.slice: species constructor returned a detached buffer")
+        } else if product == av {
+            Some(c"ArrayBuffer.prototype.slice: species constructor returned the source buffer")
+        } else if byte_len(as_void_ptr(product)) < new_len {
+            Some(c"ArrayBuffer.prototype.slice: species constructor returned too small a buffer")
+        } else {
+            None
+        };
+        if let Some(msg) = refused {
+            __torajs_anyv_rc_dec(product);
+            __torajs_throw_type_error(msg.as_ptr());
+            return VALUE_UNDEFINED;
+        }
+        product
     }
 }
 

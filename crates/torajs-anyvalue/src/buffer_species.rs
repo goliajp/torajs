@@ -13,9 +13,9 @@
 //! - an object constructor's `@@species` is read through the
 //!   symbol-key walk — a getter runs, undefined / null default,
 //!   a non-constructor is the step-8 TypeError;
-//! - a species CONSTRUCTOR still yields the default product — the
-//!   foreign construct channel (the Array family's transplant,
-//!   `method_call_arr_species`) is the recorded follow-up.
+//! - a species CONSTRUCTOR is handed to the caller, which Constructs
+//!   with it (ArrayBuffer `slice`) or transplants into its product
+//!   (the Array family, `method_call_arr_species`).
 
 use core::ffi::c_void;
 
@@ -23,7 +23,7 @@ use torajs_rc::Tag;
 
 use crate::construct::is_constructor;
 use crate::member_get_symbol::symbol_key_pair;
-use crate::nanbox::{AnyValue, as_void_ptr};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr};
 
 /// Alphabetical index of `Symbol.species` in the §6.1.5.1 well-known
 /// table (torajs-str `WELL_KNOWN_DESCS`).
@@ -44,26 +44,28 @@ unsafe extern "C" {
     fn __torajs_subclass_proto(cell: *const c_void) -> u64;
 }
 
-/// §23.2.4.1 step 2 / §7.3.20 — 1 = a throw is pending (the caller
-/// returns undefined), 0 = proceed with the default constructor's
-/// product. Reached from torajs-buffer's `slice` / `subarray` /
-/// ArrayBuffer `slice` kernels over the C edge and from the map /
-/// filter walkers in this crate.
+/// §7.3.20 SpeciesConstructor across the C edge — the constructor
+/// ITSELF, owned by the caller, for ArrayBuffer `slice` to Construct
+/// with. The one caller is `torajs-buffer`'s slice kernel.
+///
+/// `undefined` covers both non-constructor outcomes, and the caller
+/// separates them with `__torajs_throw_check()` (a peek, not a
+/// consume): a face that threw left the throw pending, a defaulting
+/// one did not.
+///
+/// It used to answer a VERDICT and drop the constructor on the floor
+/// — `release_species_product` right here. So `@@species` was read,
+/// resolved, found runnable, and then discarded, and the product came
+/// back a plain %ArrayBuffer% whatever the subclass asked for. The
+/// resolve below is unchanged; carrying its answer out is the fix.
 ///
 /// # Safety
 /// `recv` is a live AnyValue.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_buffer_species_guard(recv: AnyValue) -> i64 {
+pub unsafe extern "C" fn __torajs_buffer_species_ctor(recv: AnyValue) -> AnyValue {
     match unsafe { ta_species_resolve(recv) } {
-        SpeciesResolved::Threw => 1,
-        SpeciesResolved::Default => 0,
-        // A real species constructor: this guard's callers have no
-        // construct channel (ArrayBuffer `slice`), so the product
-        // stays the default's — recorded, same wording as before.
-        SpeciesResolved::Ctor(c) => {
-            unsafe { crate::method_call_arr_species::release_species_product(c) };
-            0
-        }
+        SpeciesResolved::Ctor(c) => c,
+        SpeciesResolved::Threw | SpeciesResolved::Default => VALUE_UNDEFINED,
     }
 }
 
