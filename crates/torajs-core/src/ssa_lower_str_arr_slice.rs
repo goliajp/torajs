@@ -82,41 +82,35 @@ pub(crate) fn try_dispatch(
         // ToIntegerOrInfinity accepts arbitrary-typed input. Decode
         // Any via anyv_to_number → coerce_to_i64 so the helper's
         // (Arr, i64, i64) ABI sees clean i64s. Sister to S332/S333.
-        let arg0_any = args
-            .first()
-            .map(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Any)))
-            .unwrap_or(false);
         let arg1_any = args
             .get(1)
             .map(|a| matches!(ctx.expr_types.get(a), Some(crate::check::Type::Any)))
             .unwrap_or(false);
+        // S0.4 (rotation 678) — ToIntegerOrInfinity refuses no value,
+        // so neither arm asks what SHAPE the operand is:
+        // `lower_to_index_operand` takes a Number straight through and
+        // routes everything else through §7.1.4 (a user `valueOf` runs
+        // and may throw). What `arg1_any` still buys is a different
+        // question — an `any` may be HOLDING undefined, and
+        // §23.1.3.28 step 4 reads that as `len`, not as ToNumber's
+        // `NaN → 0`.
         let start = if args.is_empty() || arg0_undef {
             Operand::ConstI64(0)
-        } else if arg0_any {
-            let raw = ctx.lower_expr(args[0]);
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                Type::F64,
-                None,
-            );
-            ctx.coerce_to_i64(Operand::Value(f))
         } else {
-            ctx.lower_expr(args[0])
+            ctx.lower_to_index_operand(args[0])
         };
         argv.push(start);
         let end = if args.len() >= 2 && !arg1_undef {
             if arg1_any {
-                let raw = ctx.lower_expr(args[1]);
-                let f = ctx.f.append_inst(
+                let len = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_number, vec![raw]),
-                    Type::F64,
+                    InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+                    Type::I64,
                     None,
                 );
-                ctx.coerce_to_i64(Operand::Value(f))
+                ctx.lower_to_index_or_undef_default(args[1], Operand::Value(len), "__slice_end")
             } else {
-                ctx.lower_expr(args[1])
+                ctx.lower_to_index_operand(args[1])
             }
         } else {
             // Load receiver's len from offset 8.

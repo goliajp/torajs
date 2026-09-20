@@ -52,16 +52,14 @@ pub(crate) fn try_match(
     let Type::Array(elem) = &src_ty else {
         return None;
     };
+    // §23.1.3.28 steps 3/4 are ToIntegerOrInfinity on start / end, and
+    // that reaches every value — `[1,2,3].slice({valueOf(){return 1}})`
+    // is `[2,3]`, not a type error. S334 admitted Undefined and Any by
+    // name and refused the rest; the shape gate is gone. ssa_lower
+    // mirrors this through `lower_to_index_operand`.
     for &aid in args {
-        let aty = match checker.type_of(ast, aid) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if matches!(aty, Type::Undefined | Type::Any) {
-            continue;
-        }
-        if aty != Type::Number {
-            return Some(Err(format!("Array.slice arg must be number, got {aty:?}")));
+        if let Err(e) = checker.type_of(ast, aid) {
+            return Some(Err(e));
         }
     }
     Some(Ok(Type::Array(Box::new((**elem).clone()))))
