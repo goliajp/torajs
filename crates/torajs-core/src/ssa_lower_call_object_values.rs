@@ -167,10 +167,9 @@ pub(crate) fn try_lower(
     // The refusal this removes was the lowering's alone. `const x: any
     // = m; Object.keys(x)` already answered correctly through the Any
     // arm below; only the spelling that kept its static type died, at
-    // "requires a struct arg, got Map". Eighth copy of the same list.
-    let (arg_op, arg_ty) = if !matches!(arg_ty, Type::Obj(_))
-        && crate::ssa_lower_index::shape_has_expando_bag(&arg_ty)
-    {
+    // "requires a struct arg, got Map". The three copies of this
+    // block are one predicate now.
+    let (arg_op, arg_ty) = if crate::ssa_lower_index::to_object_needs_boxing(&arg_ty) {
         (ctx.box_to_any(arg_op), Type::Any)
     } else {
         (arg_op, arg_ty)

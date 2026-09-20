@@ -208,20 +208,20 @@ pub(crate) fn try_match(
         if matches!(arg_ty, Type::Any) {
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
-        // Cluster #4 follow-up (rotation 235) — a Function receiver:
-        // the lowering boxes the closure cell and the runtime
-        // own-values walk answers the expando props (a plain fn
-        // answers [] — the §20.2.4 virtual face is non-enumerable).
-        if matches!(arg_ty, Type::Function(..)) {
-            return Some(Ok(Type::Array(Box::new(Type::Any))));
-        }
-        // A bag-only shape answers its property bag, the way a Function
-        // receiver two arms up does: the lowering boxes it and the
-        // runtime own-values walk reads the bag. Same question the SSA
-        // side asks as `shape_has_expando_bag` — but the checker has
-        // its OWN Type enum, so the two lists cannot be shared and each
-        // must point at the other instead.
-        if checker_shape_has_expando_bag(&arg_ty) {
+        // Three shapes, one answer: ask the runtime. A Function gives
+        // its expando props (its §20.2.4 face is non-enumerable); a
+        // bag-only shape gives its bag; a non-string primitive gives
+        // its wrapper's own enumerable face, which §20.1.2.23 step 1's
+        // ToObject makes empty. String took its own arm above because
+        // its wrapper DOES carry index keys; nullish leaves via band B
+        // below. All three box at the lowering and ride one walk.
+        // (Bag list mirrors SSA's `shape_has_expando_bag` — separate
+        // Type enums, so the two point at each other instead.)
+        if matches!(
+            arg_ty,
+            Type::Function(..) | Type::Number | Type::Boolean | Type::BigInt | Type::Symbol
+        ) || checker_shape_has_expando_bag(&arg_ty)
+        {
             return Some(Ok(Type::Array(Box::new(Type::Any))));
         }
         // Band B, same step in §20.1.2.23 — see the Object.assign

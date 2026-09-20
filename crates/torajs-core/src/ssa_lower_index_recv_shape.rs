@@ -53,6 +53,26 @@ pub(crate) fn shape_has_expando_bag(ty: &Type) -> bool {
     )
 }
 
+/// §20.1.2.x — the ToObject surfaces (`Object.{keys,values,entries,
+/// getOwnPropertyNames}`) ask one question at their boxing point: does
+/// this receiver go to the runtime to be dispatched by tag? Only three
+/// kinds reach that point — a struct whose layout is known at compile
+/// time, something already `Any`, and everything else; `Arr`, `Str` and
+/// `Closure` each return from their own typed arm before it.
+///
+/// It used to ask [`shape_has_expando_bag`] instead, and that list has
+/// only object kinds on it, so no primitive and no nullish could get
+/// in: they fell through to a `panic!` and the program was refused.
+/// But ToObject is defined for every one of them — nullish throws a
+/// TypeError, and every other primitive gets a wrapper whose own
+/// enumerable face is empty. All three kernels document exactly that
+/// case and have always answered it correctly; it was only the typed
+/// spelling that died at the door, while the same value spelled `any`
+/// went through.
+pub(crate) fn to_object_needs_boxing(ty: &Type) -> bool {
+    !matches!(ty, Type::Obj(_) | Type::Any)
+}
+
 /// §10.1.8.1 — indexing a PRIMITIVE is an ordinary [[Get]] through
 /// its wrapper, so `(1)[0]` and `true[0]` answer undefined rather
 /// than refusing to compile. These receivers carry no expando bag,

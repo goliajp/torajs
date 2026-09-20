@@ -44,7 +44,7 @@ use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
-pub(crate) use crate::ssa_lower_index_recv_shape::shape_has_expando_bag;
+pub(crate) use crate::ssa_lower_index_recv_shape::{shape_has_expando_bag, to_object_needs_boxing};
 
 pub(crate) use crate::ssa_lower_index_any_key::{
     lower_any_index_str_key, lower_any_index_symbol_key, lower_any_key, lower_array_any_index,
