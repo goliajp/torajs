@@ -82,16 +82,21 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    if let Some(arg1) = args.get(1) {
-        let aty = match checker.type_of(ast, *arg1) {
-            Ok(t) => t,
-            Err(e) => return Some(Err(e)),
-        };
-        if !matches!(aty, Type::String | Type::Undefined) {
-            return Some(Err(format!(
-                "String.{m_name} arg 1 must be string, got {aty:?}"
-            )));
-        }
+    // Rotation 678 — the fill slot is ToString (§22.1.3.16.1 step 5),
+    // the same family as the maxLength slot above is ToLength, and it
+    // coerces just as freely: `'x'.padStart(4, 12)` is "121x" and
+    // `.padStart(4, {toString(){return '-'}})` is "---x". The gate
+    // that stood here admitted String | Undefined and refused the
+    // rest; the comment above already called this "a different
+    // family", which was true of the COERCION and not of whether one
+    // happens. ssa_lower mirrors this through the ToString-slot
+    // predicate (`ssa_lower_str_str_tostring_slot`) -- widening this
+    // gate alone made the program exit silently after its first line
+    // (rotation 677), because the helper ABI declares `Str`.
+    if let Some(arg1) = args.get(1)
+        && let Err(e) = checker.type_of(ast, *arg1)
+    {
+        return Some(Err(e));
     }
     Some(Ok(Type::String))
 }

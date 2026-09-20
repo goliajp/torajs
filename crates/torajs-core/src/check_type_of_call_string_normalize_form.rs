@@ -53,13 +53,15 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
+    // §22.1.3.14 step 3: `undefined` takes the "NFC" default, and
+    // every OTHER value is ToString'd -- then step 4 raises a
+    // RangeError unless the result is one of the four forms. So
+    // `'a'.normalize(null)` is a RangeError at RUN time (bun agrees),
+    // not a compile-time refusal, and
+    // `.normalize({toString(){return 'NFC'}})` normalizes. The gate
+    // that stood here refused both.
     if matches!(aty, Type::Undefined) {
         return Some(Ok(Type::String));
-    }
-    if !matches!(aty, Type::String) {
-        return Some(Err(format!(
-            "String.normalize arg must be string, got {aty:?}"
-        )));
     }
     Some(Ok(Type::String))
 }

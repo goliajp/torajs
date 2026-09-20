@@ -46,14 +46,15 @@ pub(crate) fn try_match(
     if !matches!(src_ty, Type::String) {
         return None;
     }
-    let needle_ty = match checker.type_of(ast, args[0]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(needle_ty, Type::String) {
-        return Some(Err(format!(
-            "String.{m_name} arg 0 must be string, got {needle_ty:?}"
-        )));
+    // §22.1.3.9 step 3 / §22.1.3.11 step 3 are ToString on the search
+    // string, which reaches every value:
+    // `'abc'.indexOf({toString(){return 'b'}})` is 1. Rotation 544
+    // dropped the gate on the POSITION slot below for the same
+    // reason and left this one standing -- one sentence, written
+    // once, applied to half of what it covers. ssa_lower mirrors it
+    // through the ToString-slot predicate.
+    if let Err(e) = checker.type_of(ast, args[0]) {
+        return Some(Err(e));
     }
     if let Err(e) = checker.type_of(ast, args[1]) {
         return Some(Err(e));

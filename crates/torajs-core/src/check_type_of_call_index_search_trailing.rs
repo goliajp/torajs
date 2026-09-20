@@ -66,7 +66,16 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if !matches!(needle_ty, Type::String | Type::Undefined) {
+        // Rotation 678 — `indexOf` / `lastIndexOf` put a plain
+        // ToString on this slot (§22.1.3.9 / §22.1.3.11 step 3), so
+        // it takes every value and the 2-arg sibling dropped its gate
+        // for the same reason. The other three do NOT: §22.1.3.{7,8,23}
+        // run `IsRegExp` BEFORE the coercion and raise a TypeError on
+        // a regex, which is a different question and keeps its gate
+        // until that check exists.
+        if matches!(m_name.as_str(), "includes" | "startsWith" | "endsWith")
+            && !matches!(needle_ty, Type::String | Type::Undefined)
+        {
             return Some(Err(format!(
                 "String.{m_name} arg 0 must be string, got {needle_ty:?}"
             )));

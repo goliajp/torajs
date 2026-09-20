@@ -85,10 +85,52 @@ pub(crate) fn try_dispatch(
                 ctx.expr_types.get(&args[0]),
                 Some(crate::check::Type::Undefined)
             );
+        // Rotation 678 — §22.1.3.14 step 3 is ToString on the form,
+        // so this slot takes every value: `'a'.normalize(null)` is
+        // the kernel's RangeError ("null" is not a valid form) and
+        // `'a'.normalize({toString(){return 'NFC'}})` normalizes. The
+        // raw `lower_expr` that stood here handed a non-Str operand
+        // to a helper whose ABI declares `Str`, so the checker gate
+        // was its only protection. This short-circuit sits OUTSIDE
+        // the argv walk's owned watermark, so the minted Str is
+        // dropped here rather than parked.
+        let mut form_owned: Option<(Operand, usize)> = None;
+        // §7.1.17 ToString(null) is "null" -- a form the kernel then
+        // rejects with a RangeError, which is what every engine
+        // answers. It takes the literal rather than `coerce_to_str`,
+        // which panics on a `Ptr` operand (it cannot tell null from
+        // undefined there; the static type can).
+        let null_form = !args.is_empty()
+            && matches!(ctx.expr_types.get(&args[0]), Some(crate::check::Type::Null));
         let form_op = if args.is_empty() || undef_form {
             Operand::Value(ctx.intern_string_literal("NFC"))
+        } else if null_form {
+            Operand::Value(ctx.intern_string_literal("null"))
         } else {
-            ctx.lower_expr(args[0])
+            let raw = ctx.lower_expr(args[0]);
+            let raw_ty = ctx.operand_ty(&raw);
+            if matches!(raw_ty, Type::Str | Type::Substr) {
+                raw
+            } else {
+                let coerced = ctx.coerce_to_str(raw.clone(), raw_ty);
+                let raw_owned = raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(args[0]);
+                let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw.clone(), raw_ty));
+                // The coerced Str is ours whether or not the user
+                // toString threw (kernel placeholder contract), so it
+                // rides the throw edge too.
+                // It stays parked across the kernel call as well:
+                // `normalize(null)` reaches the kernel and the kernel
+                // RAISES (invalid form), so the throw edge after the
+                // call has to drop it too.
+                let coerced_tok = ctx.push_throw_temp(coerced.clone(), Type::Str);
+                ctx.emit_throw_check(None);
+                ctx.unpark_owned_temp(raw_tok);
+                if raw_owned {
+                    ctx.emit_drop_value(raw, raw_ty);
+                }
+                form_owned = Some((coerced.clone(), coerced_tok));
+                coerced
+            }
         };
         let v = ctx.f.append_inst(
             ctx.cur_block,
@@ -100,6 +142,10 @@ pub(crate) fn try_dispatch(
             let _ = ctx.lower_expr(a);
         }
         ctx.emit_throw_check(None);
+        if let Some((op, tok)) = form_owned {
+            ctx.pop_throw_temp(tok);
+            ctx.emit_drop_value(op, Type::Str);
+        }
         return Some(Operand::Value(v));
     }
     // ES402 sup-string.prototype.tolocale{upper,lower}case —

@@ -187,15 +187,33 @@ pub(crate) fn populate_argv(
             // statically-`undefined` spellings and answer the same
             // defaults as constants.
             argv.push(op);
-        } else if matches!(method, "replace" | "replaceAll") && i < 2 {
-            // RFC 20260712 chunk B — non-regex searchValue and
-            // non-fn replaceValue are ToString-coerced per
-            // §22.1.3.19 steps 3/6 (a throwing user toString
-            // propagates; argv order keeps searchValue first). A
-            // str-shaped arg passes through; anything else routes
-            // via coerce_to_str + throw check. Fresh-owned
-            // operands park in temps.argv_owned so the drop lands
-            // AFTER the helper call.
+        } else if crate::ssa_lower_str_str_tostring_slot::is_tostring_slot(method, i) {
+            // Every §7.1.17 ToString slot in this lane — see that
+            // module for which they are and why `startsWith` is not
+            // one. RFC 20260712 chunk B built this road for
+            // `replace` / `replaceAll` (§22.1.3.19 steps 3/6: a
+            // throwing user toString propagates; argv order keeps
+            // searchValue first); rotation 678 moved the condition
+            // behind a named predicate and the `padStart` fill slot
+            // and the `indexOf` needle onto it. A str-shaped arg
+            // passes through; anything else routes via
+            // coerce_to_str + throw check. Fresh-owned operands park
+            // in temps.argv_owned so the drop lands AFTER the helper
+            // call.
+            //
+            // The two nullish spellings take the literal instead:
+            // §7.1.17 answers "null" / "undefined" for them, and
+            // `coerce_to_str` PANICS on a `Ptr` operand because it
+            // cannot tell the two apart there. The static type can,
+            // and `str_sub` is the same helper the substitution arms
+            // above use. (`padStart`'s fill slot reaches this only
+            // for `null` -- `undefined` means " " per §22.1.3.16.1
+            // and is claimed by `undef_space_at_arg1_pad`.)
+            if arg_undef || arg_null {
+                let u = str_sub(ctx);
+                argv.push(u);
+                continue;
+            }
             let raw = ctx.lower_expr(a);
             let raw_ty = ctx.operand_ty(&raw);
             if matches!(raw_ty, Type::Str | Type::Substr) {
