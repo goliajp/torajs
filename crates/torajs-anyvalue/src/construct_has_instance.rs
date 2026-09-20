@@ -17,6 +17,7 @@ use crate::nanbox::{AnyValue, as_void_ptr, is_cell};
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_anyv_get_proto_of_any(v: u64) -> u64;
+    fn __torajs_throw_check() -> i64;
 }
 
 /// §7.3.22 OrdinaryHasInstance(C, O) where C is a plain-fn VALUE —
@@ -112,6 +113,40 @@ pub(crate) unsafe fn proto_chain_reaches(v: AnyValue, pval: u64) -> bool {
             cur = next;
         }
         false
+    }
+}
+
+/// §7.3.22 for a target that is a PROXY. Steps 4-7 are ordinary:
+/// `Get(C, "prototype")` runs the proxy's `get` trap, and the answer
+/// is walked against V's chain exactly as for any other callable.
+/// There is no proxy-specific rule here — step 1's IsCallable is the
+/// only place a proxy differs, and it reads through to the target.
+///
+/// `None` when `target` is not a proxy. A proxy that is not callable
+/// is the caller's step-1 decision, not this function's.
+///
+/// # Safety
+/// `target` is a live AnyValue over a Proxy cell.
+pub(crate) unsafe fn proxy_has_instance(v: AnyValue, target: AnyValue) -> Option<bool> {
+    if !crate::proxy::is_proxy(target) {
+        return None;
+    }
+    unsafe {
+        let p = crate::proxy::get_named(target, b"prototype");
+        if __torajs_throw_check() != 0 {
+            return Some(false);
+        }
+        // §7.3.22 step 6 — "If P is not an Object, throw a TypeError".
+        if !crate::iter_zip_shared::av_is_object(p) {
+            crate::nanbox_ffi::__torajs_anyv_rc_dec(p);
+            __torajs_throw_type_error(
+                c"Function has non-object prototype in instanceof check".as_ptr(),
+            );
+            return Some(false);
+        }
+        let out = proto_chain_reaches(v, as_void_ptr(p) as u64);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(p);
+        Some(out)
     }
 }
 

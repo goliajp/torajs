@@ -152,6 +152,21 @@ pub(crate) unsafe fn ordinary_has_instance(v: AnyValue, target: AnyValue, strict
         if let Some(r) = crate::construct_has_instance::class_ctor_has_instance(v, cell) {
             return r;
         }
+        // §10.5.14 step 7 fixed a Proxy's [[Call]] from its target, so
+        // step 1 admits a proxy over any callable; steps 4-7 are then
+        // ordinary, with the `get` trap running on "prototype".
+        if crate::proxy::is_proxy(target) {
+            if crate::construct::is_callable(target) {
+                if let Some(r) = crate::construct_has_instance::proxy_has_instance(v, target) {
+                    return r;
+                }
+            } else if strict {
+                __torajs_throw_type_error(
+                    c"Right-hand side of 'instanceof' is not callable".as_ptr(),
+                );
+            }
+            return false;
+        }
         if strict {
             __torajs_throw_type_error(c"Right-hand side of 'instanceof' is not callable".as_ptr());
         }
