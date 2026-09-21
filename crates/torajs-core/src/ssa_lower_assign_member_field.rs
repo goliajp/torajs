@@ -365,7 +365,8 @@ fn fit_to_field(
     // W4 — align the stored value with the field width (mirrors the
     // index-assign site; the reverse direction means the width
     // analysis missed this write).
-    match (field_ty, ctx.operand_ty(&v)) {
+    let v_ty = ctx.operand_ty(&v);
+    match (field_ty, v_ty) {
         (Type::F64, Type::I64) => (ctx.coerce_to_f64(v), false),
         (Type::I64, Type::F64) => panic!(
             "ssa-lower: f64 value into an i64 struct field — \
@@ -384,6 +385,20 @@ fn fit_to_field(
             (ctx.box_to_any_from_expr(value, v), false)
         }
         (Type::Any, Type::Ptr) if matches!(v, Operand::ConstPtrNull) => {
+            (ctx.box_to_any_from_expr(value, v), false)
+        }
+        // …and a heap source whose slot may be holding the generic
+        // immortal cell. The raw store is right for a live heap
+        // value — the slot reads a pointer back and the reader tags
+        // it — but the cell is a pointer too, so `o.v = xs.find(p)`
+        // on a miss left `typeof o.v` answering "object" for a value
+        // that IS undefined. The same expr-aware box the two arms
+        // above take settles it, branchlessly (tag = 4 + (val ==
+        // sentinel)); a live value comes back out of the box as
+        // itself. Nothing is minted — the box wraps the source
+        // expression's own reference, which is why the caller's
+        // retain still answers the right question.
+        (Type::Any, _) if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, value, v_ty) => {
             (ctx.box_to_any_from_expr(value, v), false)
         }
         // S2.26 (RFC 20260727-dstr-assignment 刀 4) — the reverse
