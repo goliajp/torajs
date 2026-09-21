@@ -580,6 +580,7 @@ mod ssa_lower_new_collection;
 pub(crate) mod ssa_lower_new_dynamic;
 pub(crate) mod ssa_lower_new_finreg;
 pub(crate) mod ssa_lower_nullable_guard;
+pub(crate) mod ssa_lower_nullable_guard_emit;
 pub(crate) mod ssa_lower_nullish;
 pub(crate) mod ssa_lower_number_coerce;
 pub mod ssa_lower_obj_escape;

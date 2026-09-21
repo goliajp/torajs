@@ -24,7 +24,10 @@
 //! inner-loop bench shape).
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand};
+
+pub(crate) use crate::ssa_lower_nullable_guard_emit::{
+    emit_nullable_arr_guard, emit_nullable_str_guard, emit_undefable_heap_guard,
+};
 use crate::ssa_lower::LowerCtx;
 
 /// True when `obj`'s value may legally be null per the checker's
@@ -41,23 +44,6 @@ pub(crate) fn is_nullable_arr_source(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
         }
         _ => false,
     }
-}
-
-/// Emit the null guard when `obj` is a nullable-arr source or an
-/// undefable-heap source (RFC 20260722 chunk B — an `Arr[]`
-/// find/findLast miss answers the generic undefined cell, and the
-/// kernel throws on it too); no-op otherwise. `arr_val` must be the
-/// already-lowered receiver.
-pub(crate) fn emit_nullable_arr_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, arr_val: &Operand) {
-    if !is_nullable_arr_source(ctx, obj) && !is_undefable_heap_source(ctx, obj) {
-        return;
-    }
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.arr_null_check, vec![arr_val.clone()]),
-    );
-    ctx.emit_throw_check(None);
 }
 
 /// RFC 20260725-fallthrough-return knives 1-2 — true when `eid` calls
@@ -398,24 +384,6 @@ pub(crate) fn spells_undef_with_generic_cell(t: &crate::check::Type) -> bool {
     }
 }
 
-/// Emit the heap nullish guard when `obj` is an undefable-heap
-/// source; no-op otherwise. `obj_val` must be the already-lowered
-/// receiver. Same shape as [`emit_nullable_str_guard`]:
-/// `heap_nullish_check` arms a catchable TypeError on NULL or the
-/// generic undefined cell, the throw-check right after diverts
-/// before the member read dereferences.
-pub(crate) fn emit_undefable_heap_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, obj_val: &Operand) {
-    if !is_undefable_heap_source(ctx, obj) {
-        return;
-    }
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.heap_nullish_check, vec![obj_val.clone()]),
-    );
-    ctx.emit_throw_check(None);
-}
-
 /// RFC 20260707 residual chunk — true when a Substr-typed
 /// expression may hold the Substr-shaped undefined sentinel
 /// (string INDEX read, OOB → sentinel): `s[i]` on a string-typed
@@ -432,23 +400,4 @@ pub(crate) fn is_undefable_substr_source(ctx: &LowerCtx<'_>, eid: ExprId) -> boo
         Expr::As { expr, .. } => is_undefable_substr_source(ctx, *expr),
         _ => false,
     }
-}
-
-/// Emit the Str null guard when `obj` is a nullable-str source or
-/// an undefable-substr source (string index read — its slot may
-/// hold the Substr-shaped sentinel); no-op otherwise. `str_val`
-/// must be the already-lowered receiver. Same shape as
-/// [`emit_nullable_arr_guard`]: `str_null_check` arms a catchable
-/// TypeError on any nullish repr, the throw-check right after
-/// diverts before the inline `.length` load dereferences.
-pub(crate) fn emit_nullable_str_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, str_val: &Operand) {
-    if !is_nullable_str_source(ctx, obj) && !is_undefable_substr_source(ctx, obj) {
-        return;
-    }
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.str_null_check, vec![str_val.clone()]),
-    );
-    ctx.emit_throw_check(None);
 }
