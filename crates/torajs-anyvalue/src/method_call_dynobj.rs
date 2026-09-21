@@ -148,28 +148,7 @@ pub(crate) unsafe fn dynobj_method(
             // monkey-patch (`o.valueOf = fn`) always wins; a
             // resolved-but-not-callable entry keeps the TypeError.
             if dtag == 5 {
-                // `get_tag` conflates absent with an own entry
-                // STORING undefined; the latter shadows the
-                // prototype, so `{toString: undefined}.toString()`
-                // is the resolved-not-callable TypeError, not the
-                // inherited "[object Object]".
-                if __torajs_dynobj_has(obj, key) != 0 {
-                    return not_callable();
-                }
-                // A private name never resolves up the chain of a
-                // class object (`B.callS()` reaching `A`'s `#sm`).
-                if torajs_rc::str_wtf8::StrWtf8::of(key)
-                    .as_bytes()
-                    .starts_with(b"__priv_")
-                    && crate::member_get_private::class_object_lacks_private(obj, key)
-                {
-                    return crate::nanbox::VALUE_UNDEFINED;
-                }
-                // knife 2 — user chain first; this = receiver.
-                if let Some(r) = proto_chain_method(obj, name_str, recv_slot, argv, argc) {
-                    return r;
-                }
-                return object_proto_fallback(obj, mid, name_str, false, recv_slot, argv, argc);
+                return no_own_entry_method(obj, mid, name_str, key, recv_slot, argv, argc);
             }
             // ANY_HEAP = 4 — a plain closure-cell property.
             if dtag == 4 {
@@ -310,6 +289,52 @@ pub(crate) unsafe fn dynobj_method(
             return object_proto_fallback(obj, mid, name_str, false, recv_slot, argv, argc);
         }
         not_callable()
+    }
+}
+
+/// The `dtag == 5` answer: the receiver has no own entry under this
+/// name, so the call resolves against the INHERITED surface. Four
+/// outcomes, in the order the spec reaches them.
+///
+/// Split out of [`dynobj_method`] under the 200-line function
+/// discipline — verbatim, including the `get_tag` conflation the
+/// first arm exists to undo.
+///
+/// # Safety
+/// `obj` is a live dynobj, `key` is `name_str` re-spelled as the
+/// property key, and `argv` holds `argc` live slots.
+unsafe fn no_own_entry_method(
+    obj: *mut c_void,
+    mid: i64,
+    name_str: *const u8,
+    key: *const c_void,
+    recv_slot: *mut u64,
+    argv: *const u64,
+    argc: i64,
+) -> AnyValue {
+    unsafe {
+        // `get_tag` conflates absent with an own entry STORING
+        // undefined; the latter shadows the prototype, so
+        // `{toString: undefined}.toString()` is the
+        // resolved-not-callable TypeError, not the inherited
+        // "[object Object]".
+        if __torajs_dynobj_has(obj, key) != 0 {
+            return not_callable();
+        }
+        // A private name never resolves up the chain of a class
+        // object (`B.callS()` reaching `A`'s `#sm`).
+        if torajs_rc::str_wtf8::StrWtf8::of(key)
+            .as_bytes()
+            .starts_with(b"__priv_")
+            && crate::member_get_private::class_object_lacks_private(obj, key)
+        {
+            return crate::nanbox::VALUE_UNDEFINED;
+        }
+        // knife 2 — user chain first; this = receiver.
+        if let Some(r) = proto_chain_method(obj, name_str, recv_slot, argv, argc) {
+            return r;
+        }
+        object_proto_fallback(obj, mid, name_str, false, recv_slot, argv, argc)
     }
 }
 
