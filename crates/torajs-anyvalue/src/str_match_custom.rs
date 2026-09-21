@@ -20,7 +20,7 @@
 
 use core::ffi::c_void;
 
-use crate::iter_any_get_method::callable_entry;
+use crate::iter_any_get_method::callable_method;
 use crate::method_call_closure_dispatch::invoke_with_this;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
@@ -162,7 +162,7 @@ unsafe fn call_matcher(
     wk_idx: i64,
 ) -> AnyValue {
     unsafe {
-        let Some((env, entry)) = callable_entry(tag, payload, not_a_function_msg(wk_idx)) else {
+        let Some(m) = callable_method(tag, payload, arg, not_a_function_msg(wk_idx)) else {
             return VALUE_UNDEFINED;
         };
         // The receiver string is the first argument; argv slots are
@@ -170,6 +170,6 @@ unsafe fn call_matcher(
         // when `argc` is 2.
         let s_any = __torajs_anyv_box_from_pair(4, recv_str as i64);
         let argv = [s_any, extra];
-        invoke_with_this(env, entry, arg, argv.as_ptr(), argc)
+        invoke_with_this(m.env(), m.entry(), arg, argv.as_ptr(), argc)
     }
 }

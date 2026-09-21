@@ -43,7 +43,7 @@ use torajs_rc::ANY_METHOD_NEXT;
 use crate::member_get::__torajs_any_member_get_tag;
 use crate::member_get_value::__torajs_any_member_get_value;
 use crate::method_call::__torajs_any_method_call;
-use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_with_this};
+use crate::method_call_closure_dispatch::invoke_with_this;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 use crate::nanbox_ffi::{__torajs_anyv_rc_dec, __torajs_anyv_to_bool};
@@ -74,30 +74,41 @@ const TAG_NULL: u64 = 0;
 
 /// §7.3.11 GetMethod steps 3-4 over an already-read property pair:
 /// `None` when the property is absent or nullish (the caller's own
-/// spec step decides what that means), the closure's `(env, entry)`
-/// when it is callable, and a recorded TypeError otherwise.
+/// spec step decides what that means), a callable pair when step 4's
+/// IsCallable holds, and a recorded TypeError otherwise.
+///
+/// Step 4 is §7.2.3, and this used to spell it as `closure_cell_entry`
+/// — a closure-cell test. The other two shapes that operation names
+/// have no `(env, entry)` of their own, so every symbol-keyed
+/// protocol hook built on this one refused them:
+/// `o[Symbol.iterator] = new Proxy(fn, {})` said "value is not
+/// iterable", and `@@toPrimitive`, `@@match` and an iterator's
+/// `return` each said their own version of the same wrong thing.
+///
+/// Swapping the predicate alone would hand the caller a null entry to
+/// jump to, so a shape without a pair gets a thunk bound to
+/// `this_arg` — the receiver the caller was going to invoke with. The
+/// guard owns it: hold the returned `Callback` across the call.
 ///
 /// # Safety
-/// `(tag, payload)` is a live borrowed member pair.
-pub(crate) unsafe fn callable_entry(
+/// `(tag, payload)` is a live borrowed member pair; `this_arg` stays
+/// alive across the returned guard's lifetime.
+pub(crate) unsafe fn callable_method(
     tag: u64,
     payload: u64,
+    this_arg: AnyValue,
     not_a_function: &core::ffi::CStr,
-) -> Option<(*mut c_void, u64)> {
+) -> Option<crate::callback_resolve::Callback> {
     unsafe {
         if tag == TAG_UNDEF || tag == TAG_NULL {
             return None;
         }
         let method = __torajs_anyv_box_from_pair(tag as i64, payload as i64);
-        let entry = if is_cell(method) {
-            closure_cell_entry(as_void_ptr(method) as *mut c_void)
-        } else {
-            None
-        };
-        if entry.is_none() {
+        let cb = crate::callback_resolve::resolve(method, this_arg);
+        if cb.is_none() {
             __torajs_throw_type_error(not_a_function.as_ptr());
         }
-        entry
+        cb
     }
 }
 
@@ -215,7 +226,7 @@ pub(crate) unsafe fn get_iterator_wk(
         // runs its getter. The borrow-shaped pair answers the sentinel
         // instead, and this lane read it as a VALUE: neither undefined
         // nor null, so it slipped past the gate below into
-        // `callable_entry`, which boxed it into something no closure
+        // `callable_method`, which boxed it into something no closure
         // lookup recognises — every accessor spelling threw
         // "Symbol.iterator is not a function" with the getter never
         // running (RFC 20260828 knife 3b).
@@ -279,14 +290,14 @@ unsafe fn iterator_from_method(
         // a fallback: `o[Symbol.iterator] = 5` must throw rather than
         // quietly iterating `o` some other way. A nullish one is the
         // same refusal here, since GetIterator has no other source.
-        let Some((env, entry)) = callable_entry(tag, payload, not_a_function) else {
+        let Some(m) = callable_method(tag, payload, recv, not_a_function) else {
             if __torajs_throw_check() == 0 {
                 __torajs_throw_type_error(c"value is not iterable".as_ptr());
             }
             return GetIterator::Threw;
         };
         let argv: [u64; 0] = [];
-        let iter = invoke_with_this(env, entry, recv, argv.as_ptr(), 0);
+        let iter = invoke_with_this(m.env(), m.entry(), recv, argv.as_ptr(), 0);
         if __torajs_throw_check() != 0 {
             return GetIterator::Threw;
         }
@@ -408,11 +419,11 @@ pub(crate) unsafe fn generic_iter_close(iter: AnyValue) {
         };
         // §7.4.9 step 4 — GetMethod answering undefined ends the
         // close; an iterator without a `return` is closed already.
-        let Some((env, entry)) = callable_entry(tag, payload, c"return is not a function") else {
+        let Some(m) = callable_method(tag, payload, iter, c"return is not a function") else {
             return;
         };
         let argv: [u64; 0] = [];
-        let result = invoke_with_this(env, entry, iter, argv.as_ptr(), 0);
+        let result = invoke_with_this(m.env(), m.entry(), iter, argv.as_ptr(), 0);
         if __torajs_throw_check() == 0 {
             // §7.4.6 step 9 — non-Object answer → TypeError (the
             // shared reject; original-throw precedence is the abrupt

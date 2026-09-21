@@ -206,7 +206,7 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
         // runs its getter. The borrow-shaped pair answers the sentinel
         // instead, and this lane is the RFC's B shape: the sentinel is
         // neither undefined nor null, so it slipped past the nullish
-        // gate and reached `callable_entry`, which boxed it into
+        // gate and reached `callable_method`, which boxed it into
         // something no closure lookup recognises — every accessor form
         // threw "Symbol.toPrimitive is not a function" with the getter
         // never running, `throw` inside the getter included.
@@ -225,12 +225,13 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
         // A getter-produced hook is ours; `env` below aliases its cell,
         // so `hook_pair` has to outlive the call — which, held as a
         // guard, it does by construction.
-        let entry = crate::iter_any_get_method::callable_entry(
+        let hook = crate::iter_any_get_method::callable_method(
             tag,
             payload,
+            recv,
             c"Symbol.toPrimitive is not a function",
         );
-        let Some((env, entry)) = entry else {
+        let Some(hook) = hook else {
             // Present but not callable — the TypeError is recorded;
             // a type-correct placeholder lets the caller unwind.
             return Exotic::Answered(Some(crate::nanbox::VALUE_UNDEFINED));
@@ -238,8 +239,8 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
         let hint_cell = __torajs_str_alloc(hint.as_ptr(), hint.len() as i64);
         let argv = [box_pointer(hint_cell as *mut HeapHeader)];
         let out = crate::method_call_closure_dispatch::invoke_with_this(
-            env,
-            entry,
+            hook.env(),
+            hook.entry(),
             recv,
             argv.as_ptr(),
             1,
