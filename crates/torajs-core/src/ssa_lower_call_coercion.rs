@@ -128,6 +128,29 @@ pub(crate) fn emit_to_number(
     arg_op: Operand,
     arg_ty: Type,
 ) -> Operand {
+    // A pointer-shaped slot the checker typed `T | undefined` holds
+    // the generic immortal cell for its undefined, and the arms
+    // below read the slot as a live value of its own type: the Obj
+    // arm would hand the cell to OrdinaryToPrimitive, the Arr arm
+    // would read a length off it. §7.1.4 step 2 answers NaN for
+    // undefined, which is what `Number(q)` on a possibly absent q is
+    // asking for.
+    //
+    // Same pair of predicates, and the same boundary, as the
+    // ToString sibling next door: `box_to_any_from_expr` re-encodes
+    // the cell as ANY_UNDEF and the §7.1.4 kernel answers NaN, while
+    // a live pointer boxes exactly as the heap arm below boxes it.
+    // Self-gating on the checker's nullable typing.
+    if arg_ty.spells_undef_with_generic_cell()
+        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, arg_eid)
+    {
+        let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
+        let n = ctx.coerce_any_to_number(boxed, Type::F64);
+        // A user `valueOf` on the live side can throw.
+        ctx.emit_throw_check(None);
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        return n;
+    }
     match arg_ty {
         Type::I64 | Type::F64 => arg_op,
         Type::Bool => ctx.coerce_bool_to_i64(arg_op),

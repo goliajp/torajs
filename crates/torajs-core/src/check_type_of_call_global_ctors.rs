@@ -211,6 +211,15 @@ fn try_primitive_coercion_ctor(
                     // shapes for as long as it has run them.
                     | Type::Struct(_)
                     | Type::ClassRef(_)
+                    // §7.1.4 takes every value, and both faces of a
+                    // `T | undefined` are already on this list — the
+                    // T, and Undefined itself, which answers NaN.
+                    // Refusing the union refused the spelling that
+                    // needs the call most: `Number(q)` on a possibly
+                    // absent q is how you ask for NaN instead of a
+                    // crash. The `String` arm below admitted it in an
+                    // earlier rotation and this one was left behind.
+                    | Type::Nullable(_)
                     // §21.1.1.1 step 3 — the explicit Number() call
                     // is the one legal BigInt→Number conversion
                     // (𝔽(ℝ(value))); implicit ToNumber keeps
