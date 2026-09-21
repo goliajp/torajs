@@ -42,6 +42,23 @@ impl<'a> LowerCtx<'a> {
             return (Operand::ConstI64(5), Operand::ConstI64(0));
         }
         let transfers = self.expr_transfers_ownership(value);
+        // The same reasoning one step further. A POINTER slot's
+        // `undefined` is an in-band address rather than a spelling
+        // the SSA type tells apart, so its tag is a runtime question
+        // — 4 + (val == sentinel) — and the packer below can only
+        // answer ANY_HEAP. `b[0] = xs.find(p)` on a miss therefore
+        // put the immortal cell in an `any` element wearing a heap
+        // tag, and `typeof b[0]` answered "object". The share is the
+        // ordinary refcounted one (the inc no-ops on the sentinel
+        // through the runtime's static gate), so it runs here rather
+        // than below.
+        if crate::ssa_lower_nullable_guard::holds_undef_cell(self, value, v_ty) {
+            if !transfers {
+                self.emit_rc_inc(v_raw.clone());
+            }
+            self.emit_arr_mark_kind(v_raw);
+            return self.heap_slot_tag_value(v_raw.clone());
+        }
         let (tag_op, value_op) = self.pack_any_slot_value(v_raw, v_ty, !transfers);
         if !transfers && !matches!(v_ty, Type::Any) && v_ty.is_refcounted() {
             self.emit_rc_inc(v_raw.clone());
