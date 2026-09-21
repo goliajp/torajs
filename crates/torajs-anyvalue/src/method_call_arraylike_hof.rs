@@ -19,7 +19,7 @@ use torajs_rc::{
 };
 
 use crate::method_call::{
-    MAX_BOXED_ARGS, closure_boxed_entry, invoke_boxed, not_callable, recv_first_shift,
+    MAX_BOXED_ARGS, invoke_boxed, not_callable, recv_first_shift,
 };
 use crate::method_call_arraylike::{arraylike_get, arraylike_has};
 use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_TRUE, VALUE_UNDEFINED};
@@ -159,9 +159,11 @@ pub(crate) unsafe fn arraylike_hof(
         }
     };
     unsafe {
-        let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+        // §23.1.3.x step 3 IsCallable — §7.2.3's three shapes.
+        let Some(cb) = crate::callback_resolve::resolve(arg_at(0), arg_at(1)) else {
             return not_callable();
         };
+        let (cb_env, cb_entry) = (cb.env(), cb.entry());
         let obj_boxed = __torajs_anyv_box_pointer(obj);
         match mid {
             m if m == ANY_METHOD_REDUCE || m == ANY_METHOD_REDUCE_RIGHT => {

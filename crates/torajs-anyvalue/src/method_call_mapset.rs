@@ -38,7 +38,7 @@ use torajs_rc::{
     ANY_METHOD_SYMMETRIC_DIFFERENCE, ANY_METHOD_UNION, ANY_METHOD_VALUES, Tag,
 };
 
-use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, method_no_such, not_callable};
+use crate::method_call::{MAX_BOXED_ARGS, method_no_such, not_callable};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
@@ -218,10 +218,11 @@ pub(crate) unsafe fn map_set_method(
                 __torajs_anyv_box_from_pair(2, __torajs_map_size(m))
             }
             m2 if m2 == ANY_METHOD_FOR_EACH => {
-                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+                // §24.1.3.5 / §24.2.4.7 step 3 IsCallable — §7.2.3.
+                let Some(cb) = crate::callback_resolve::resolve(arg_at(0), arg_at(1)) else {
                     return not_callable();
                 };
-                map_set_for_each(m, is_set, cb_env, cb_entry, arg_at(1))
+                map_set_for_each(m, is_set, cb.env(), cb.entry(), arg_at(1))
             }
             m2 if is_set
                 && matches!(

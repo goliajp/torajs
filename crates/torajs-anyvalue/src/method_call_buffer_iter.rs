@@ -39,7 +39,7 @@
 use core::ffi::c_void;
 
 use crate::method_call::not_callable;
-use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_boxed, recv_first_shift};
+use crate::method_call_closure_dispatch::{invoke_boxed, recv_first_shift};
 use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_TRUE, VALUE_UNDEFINED, box_double};
 
 unsafe extern "C" {
@@ -59,6 +59,10 @@ unsafe extern "C" {
 struct Callback {
     env: *mut c_void,
     entry: u64,
+    /// Keeps the thunk alive when the callback was a shape with no
+    /// pair of its own (§7.2.3 admits three, only one has one).
+    /// `None` for an ordinary closure, where `env` is the argument's.
+    _own: Option<crate::callback_resolve::Callback>,
     /// argv slot shift for a receiver-first closure — hoisted out of
     /// the loop, one flags read per walk.
     shift: usize,
@@ -106,19 +110,20 @@ unsafe fn prologue(recv: AnyValue, arg: &dyn Fn(i64) -> AnyValue) -> Option<(i64
     if len < 0 {
         return None;
     }
-    let (env, entry) = match unsafe { closure_boxed_entry(arg(0)) } {
-        Some(pair) => pair,
-        None => {
-            unsafe { not_callable() };
-            return None;
-        }
+    // §23.2.3.x step 3 is IsCallable(callbackfn) — §7.2.3, which
+    // admits three shapes, only one of which has a boxed pair.
+    let Some(own) = (unsafe { crate::callback_resolve::resolve(arg(0), arg(1)) }) else {
+        unsafe { not_callable() };
+        return None;
     };
+    let (env, entry) = (own.env(), own.entry());
     let shift = unsafe { recv_first_shift(env) };
     Some((
         len,
         Callback {
             env,
             entry,
+            _own: Some(own),
             shift,
             this_arg: arg(1),
         },

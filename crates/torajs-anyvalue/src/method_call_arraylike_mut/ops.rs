@@ -8,13 +8,20 @@ use super::*;
 
 pub(super) unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> AnyValue {
     unsafe {
-        let (cb_env, cb_entry, has_cb) = if is_undefined(cmp) {
-            (core::ptr::null_mut(), 0u64, 0i64)
+        // §23.1.3.30 step 1 IsCallable — §7.2.3; `own` keeps a
+        // minted thunk alive for the whole sort.
+        let own = if is_undefined(cmp) {
+            None
         } else {
-            let Some((e, en)) = closure_boxed_entry(cmp) else {
+            let Some(c) = crate::callback_resolve::resolve(cmp, crate::nanbox::VALUE_UNDEFINED)
+            else {
                 return not_callable();
             };
-            (e, en, 1)
+            Some(c)
+        };
+        let (cb_env, cb_entry, has_cb) = match &own {
+            None => (core::ptr::null_mut(), 0u64, 0i64),
+            Some(c) => (c.env(), c.entry(), 1),
         };
         let mut tmp = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
         let mut count: i64 = 0;

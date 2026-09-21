@@ -24,7 +24,7 @@ use torajs_rc::{
     ANY_METHOD_SHIFT, ANY_METHOD_SORT, ANY_METHOD_SPLICE, ANY_METHOD_UNSHIFT,
 };
 
-use crate::method_call::{closure_boxed_entry, not_callable, to_index};
+use crate::method_call::{not_callable, to_index};
 use crate::method_call_arraylike::{arraylike_get, arraylike_has};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_undefined};
 use crate::nanbox_encode::{

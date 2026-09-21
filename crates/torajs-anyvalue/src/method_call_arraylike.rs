@@ -172,15 +172,23 @@ pub(crate) unsafe fn arraylike_method(
         // IsCallable check is ordered after len): a non-callable
         // comparefn must throw before the length getter's side
         // effects fire.
-        let sorted_cb = if mid == ANY_METHOD_TO_SORTED {
-            if is_undefined(arg_at(0)) {
-                Some((core::ptr::null_mut(), 0u64, 0i64))
-            } else {
-                match crate::method_call::closure_boxed_entry(arg_at(0)) {
-                    Some((env, entry)) => Some((env, entry, 1i64)),
-                    None => return crate::method_call::not_callable(),
-                }
+        // §23.1.3.34 step 1 IsCallable — §7.2.3, so the comparator
+        // may be a shape with no pair of its own and a thunk gets
+        // minted. `sorted_own` owns it for as long as the walk below
+        // holds the pair.
+        let sorted_own = if mid == ANY_METHOD_TO_SORTED && !is_undefined(arg_at(0)) {
+            match crate::callback_resolve::resolve(arg_at(0), VALUE_UNDEFINED) {
+                Some(c) => Some(c),
+                None => return crate::method_call::not_callable(),
             }
+        } else {
+            None
+        };
+        let sorted_cb = if mid == ANY_METHOD_TO_SORTED {
+            Some(match &sorted_own {
+                None => (core::ptr::null_mut(), 0u64, 0i64),
+                Some(c) => (c.env(), c.entry(), 1i64),
+            })
         } else {
             None
         };

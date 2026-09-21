@@ -29,7 +29,7 @@ use core::ffi::c_void;
 
 use crate::loose_eq::bigint_ffi::__torajs_bigint_cmp;
 use crate::method_call::not_callable;
-use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_boxed, recv_first_shift};
+use crate::method_call_closure_dispatch::{invoke_boxed, recv_first_shift};
 use crate::nanbox::{
     AnyValue, VALUE_UNDEFINED, as_double, as_int32, as_void_ptr, is_cell, is_double, is_int32,
     is_undefined,
@@ -206,13 +206,23 @@ pub(crate) unsafe fn typedarray_sort(
         // Step 1 runs BEFORE the receiver is validated, so a
         // non-callable comparator on a detached array reports the
         // comparator, not the buffer.
-        let cmp = if is_undefined(cmp_arg) {
-            Cmp::Default
+        // Step 1 is IsCallable — §7.2.3, not a closure-cell probe.
+        // `own` holds the thunk (if one was needed) for the whole
+        // sort; the comparator is called with `this` undefined.
+        let own = if is_undefined(cmp_arg) {
+            None
         } else {
-            match closure_boxed_entry(cmp_arg) {
-                Some((env, entry)) => Cmp::User { env, entry },
+            match crate::callback_resolve::resolve(cmp_arg, VALUE_UNDEFINED) {
+                Some(c) => Some(c),
                 None => return not_callable(),
             }
+        };
+        let cmp = match &own {
+            None => Cmp::Default,
+            Some(c) => Cmp::User {
+                env: c.env(),
+                entry: c.entry(),
+            },
         };
         let len = __torajs_typedarray_validate(recv);
         if len < 0 {
