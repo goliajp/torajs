@@ -100,6 +100,7 @@ mod arr_proto_probe;
 mod array_from;
 mod buffer_proto_accessors;
 mod buffer_species;
+mod call_non_closure;
 mod call_spread;
 mod callback_resolve;
 pub(crate) mod closure_proto;

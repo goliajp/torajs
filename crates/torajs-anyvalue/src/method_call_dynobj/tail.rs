@@ -168,6 +168,18 @@ pub(crate) unsafe fn struct_method(
                         let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
                         return crate::method_call::invoke_with_this(env, entry, recv, argv, argc);
                     }
+                    // §7.2.3 over an Any-typed slot — the pair
+                    // probe above is a closure-cell test, and a
+                    // callable Proxy or a class object has no pair
+                    // to jump to. Neither is a miss.
+                    if info.type_tag == FIELD_TAG_ANY {
+                        let recv = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, obj as i64);
+                        if let Some(v) =
+                            crate::call_non_closure::call_with_this(raw, recv, argv, argc)
+                        {
+                            return v;
+                        }
+                    }
                     // A resolved field that isn't callable keeps the
                     // TypeError — never shadowed by the fallback.
                     return not_callable();

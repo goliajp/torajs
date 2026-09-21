@@ -269,6 +269,18 @@ pub(crate) unsafe fn dynobj_method(
                     }
                     return crate::method_call::invoke_boxed(env, entry, argv, argc);
                 }
+                // §7.2.3 — the pair probe above answers only for a
+                // closure cell, and an own entry can just as well
+                // hold a callable Proxy or a class object. Missing
+                // the pair is not "not callable".
+                if let Some(v) = crate::call_non_closure::call_with_this(
+                    cell,
+                    __torajs_anyv_box_pointer(obj),
+                    argv,
+                    argc,
+                ) {
+                    return v;
+                }
             }
             if dtag == ANY_ACCESSOR_TAG
                 && let Some(v) = accessor_callee(obj, key, argv, argc)
