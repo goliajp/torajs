@@ -92,7 +92,7 @@ pub(crate) fn try_lower(
     } else {
         arg_op
     };
-    let arg_ty = ctx.operand_ty(&arg_op);
+    let (arg_op, arg_ty) = crate::ssa_lower_nullable_guard::to_object_arg(ctx, args[0], arg_op);
 
     // W-O — Array receiver: bun returns a fresh shallow array of slot
     // values. Reuses the deep-clone pattern (arr_slice + per-element

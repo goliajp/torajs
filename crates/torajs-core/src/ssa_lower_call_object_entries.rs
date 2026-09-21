@@ -107,7 +107,7 @@ pub(crate) fn try_lower(
     } else {
         arg_op
     };
-    let arg_ty = ctx.operand_ty(&arg_op);
+    let (arg_op, arg_ty) = crate::ssa_lower_nullable_guard::to_object_arg(ctx, args[0], arg_op);
 
     // W-O-3 — Array receiver: bun returns Arr<Arr<[idx_str, val], 2>>.
     if let Type::Arr(arr_id) = arg_ty {

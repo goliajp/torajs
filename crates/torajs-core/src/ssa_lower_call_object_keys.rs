@@ -127,7 +127,7 @@ pub(crate) fn try_lower(
     } else {
         arg_op
     };
-    let arg_ty = ctx.operand_ty(&arg_op);
+    let (arg_op, arg_ty) = crate::ssa_lower_nullable_guard::to_object_arg(ctx, args[0], arg_op);
     if m_name == "getOwnPropertySymbols" {
         return Some(lower_symbols_arm(ctx, args[0], arg_op, &arg_raw, &arg_ty));
     }
