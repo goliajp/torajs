@@ -114,6 +114,24 @@ fn lower_inner(ctx: &mut LowerCtx<'_>, eid: ExprId, lhs: ExprId, rhs: ExprId) ->
         }
         return rhs_op;
     }
+    // The checker widened this join to `Any` because the union of
+    // the two sides has no name in its lattice (`o ?? "dflt"` on
+    // `o: { a: number } | undefined`). It used to refuse those, so
+    // this lane is new rather than a typed one being given up.
+    //
+    // The slot below is sized by lhs's own SSA type and the two
+    // sides no longer share it, so widen — and widen by BOXING THE
+    // LHS and taking the any-lhs lane above, rather than by growing
+    // a second nullish test per shape. That lane's tag test is the
+    // one question every shape answers the same way, and
+    // `box_to_any_from_expr` is exactly the map onto it: the
+    // generic cell, the F64 sentinel NaN and the string oddballs
+    // all re-encode to ANY_UNDEF on the way in, which is why the
+    // any world never has to know which family the slot came from.
+    if matches!(ctx.expr_types.get(&eid), Some(check_mod::Type::Any)) && lhs_ty != Type::Any {
+        let boxed = ctx.box_to_any_from_expr(lhs, lhs_op);
+        return lower_any_lhs(ctx, eid, lhs, boxed, rhs);
+    }
     lower_generic_ptr_lhs(ctx, eid, lhs_op, lhs_ty, lhs, rhs)
 }
 

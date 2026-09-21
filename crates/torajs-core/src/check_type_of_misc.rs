@@ -135,9 +135,35 @@ pub(crate) fn check_nullish(
     if let Some(joined) = crate::check_type_compare::class_join(ast, &inner, &rhs_core) {
         return Ok(joined);
     }
-    Err(format!(
-        "`??` rhs type {rhs_ty:?} does not match lhs inner {inner:?}"
-    ))
+    // §13.4.2 puts no condition on the two sides: the operator picks
+    // one of them and the result is the union. TS spells that union
+    // `NonNullable<L> | R`; this lattice has no general union, only
+    // `Nullable(T)`, and until now everything it could not spell it
+    // REFUSED — `o ?? "dflt"` on `o: { a: number } | undefined`, the
+    // single most ordinary use of the operator this type exists for,
+    // did not compile. Six of the seven spellings probed were refused.
+    //
+    // One of them the lattice CAN spell, so it stays typed rather
+    // than being handed to the any lane: a `null` rhs makes the
+    // result `T | null`, which is `Nullable(inner)` — the same
+    // pointer-shaped slot, so the lowering is unchanged.
+    //
+    // An `undefined` rhs is NOT the same case, even though the
+    // lattice would accept the same spelling for it: `Nullable`
+    // collapses null and undefined into one pointer slot, so the
+    // answer to `o ?? undefined` came back as `null`. It goes to the
+    // any lane below, where the box keeps the two apart by tag.
+    if matches!(rhs_ty, Type::Null) {
+        return Ok(Type::Nullable(Box::new(inner)));
+    }
+    // Everything else is a union with no name here. `Any` is its
+    // narrowest sound supertype in this lattice, and the lowering
+    // widens both sides into it the way the `Any` lhs lane above
+    // already does. This is not a typed path being given up — there
+    // was no path: the alternative is refusing a program §13.4.2
+    // fully specifies.
+    let _ = inner;
+    Ok(Type::Any)
 }
 
 pub(crate) fn check_opt_chain(
