@@ -111,11 +111,28 @@ fn resolve_type_ann_inner(
             .map(|inner| Type::Array(Box::new(inner)));
     }
     // Nullable wrapper produced by the parser when it sees `T | null`.
+    //
+    // `any` absorbs it. TypeScript folds a union with `any` into `any`
+    // — checked against the tsc in this repo under `--strict`: for
+    // `type X = any | undefined`, `0 extends (1 & X)` is `true` and
+    // `const c: string` accepts a value of type X. So `x?: any` and
+    // `any | undefined` both denote `any`, and nothing downstream may
+    // treat them as narrower.
+    //
+    // Wrapping them was not a narrower type but a type with NO member
+    // lane at all: `Nullable(Any)` has no arm in the member ladder, so
+    // it fell through to the terminal miss and `r.length` / `r.join()`
+    // / `r[0]` were REFUSED — the any lane, which exists precisely so
+    // that an unknown shape still compiles, was unreachable through
+    // this spelling.
     if let Some(rest) = name.strip_prefix("__nullable(")
         && let Some(inner) = rest.strip_suffix(')')
     {
         return resolve_type_ann_inner(inner, aliases, type_params, generic_aliases, in_flight)
-            .map(|t| Type::Nullable(Box::new(t)));
+            .map(|t| match t {
+                Type::Any => Type::Any,
+                other => Type::Nullable(Box::new(other)),
+            });
     }
     if name == "null" {
         return Some(Type::Null);
