@@ -288,7 +288,7 @@ mod tdz_reads;
 mod this_param;
 mod toplevel_this;
 mod uncallable_builtins;
-mod uninit_let;
+pub(crate) mod uninit_let;
 mod var_hoist;
 mod var_hoist_eval_sites;
 mod var_hoist_recurse;

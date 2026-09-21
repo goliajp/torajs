@@ -79,7 +79,7 @@ pub fn desugar_uninit_let(ast: &mut Ast) {
 ///
 /// A T that already admits undefined, or already admits everything,
 /// is returned unchanged.
-fn no_init_type_ann(t: &str) -> String {
+pub(crate) fn no_init_type_ann(t: &str) -> String {
     match t {
         "any" | "undefined" | "null" => t.to_string(),
         _ if t.starts_with("__nullable(") => t.to_string(),

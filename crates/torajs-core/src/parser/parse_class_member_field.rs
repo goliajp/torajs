@@ -85,15 +85,13 @@ impl<'a> Parser<'a> {
             // cursor lands on the type and reads it as a member.
             self.pos += 2 + marker.shift();
         }
-        let ty = self.parse_type_ann()?;
+        let mut ty = self.parse_type_ann()?;
         // §9.2 — `p?: T` IS `p: T | undefined`, which is the same
         // marker the parameter position wraps. Written-out
         // `T | undefined` already arrives wrapped, hence the guard.
-        let ty = if marker.is_optional() && !ty.starts_with("__nullable(") {
-            format!("__nullable({ty})")
-        } else {
-            ty
-        };
+        if marker.is_optional() && !ty.starts_with("__nullable(") {
+            ty = format!("__nullable({ty})");
+        }
         let visibility = explicit_visibility.unwrap_or(ast::Visibility::Public);
         if visibility != ast::Visibility::Public {
             self.ast
@@ -106,24 +104,46 @@ impl<'a> Parser<'a> {
                 .insert((name.to_string(), member_name.clone()));
         }
         if is_static {
-            match self.peek() {
-                Token::Eq => self.pos += 1,
-                t => {
-                    let mn = member_name.lossy();
-                    return Err(format!(
-                        "static field `{mn}` requires an initializer (`= ...`), got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            // 420-03 — a static field initializer's `this` is the class
-            // object too (§15.7.14 runs it with the class as receiver),
-            // so register the token the way a static method body's is.
-            let saved_static_this =
-                std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
-            let init = self.parse_assign();
-            self.static_this_class = saved_static_this;
-            let init = init?;
+            let init = if matches!(self.peek(), Token::Eq) {
+                self.pos += 1;
+                // 420-03 — a static field initializer's `this` is the
+                // class object too (§15.7.14 runs it with the class as
+                // receiver), so register the token the way a static
+                // method body's is.
+                let saved_static_this =
+                    std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
+                let init = self.parse_assign();
+                self.static_this_class = saved_static_this;
+                init?
+            } else {
+                // §7.3.32 DefineField step 6 — "Else, let initValue be
+                // undefined". A static field with no initializer IS
+                // defined, and its value is `undefined`. This used to
+                // be a parse error, which refuses a program tsc
+                // accepts: strictPropertyInitialization checks
+                // instance properties only, and the read side agrees
+                // — `A.v` types `number` there, unsoundly and on
+                // purpose (microsoft/TypeScript#27899).
+                //
+                // The slot is widened rather than left at `T`, and
+                // that is the whole decision. A `number` slot has a
+                // NaN sentinel it could carry instead, which keeps
+                // the declared type — but the recognition of that
+                // sentinel does not survive a function-call boundary
+                // yet, so `static g(): number { return C.v }` answers
+                // NaN where the spec says undefined. Widening turns
+                // that same program into a refusal (the return type
+                // mismatch), and a refusal is the honest half of the
+                // trade: nothing this declaration admits answers a
+                // wrong value.
+                //
+                // `no_init_type_ann` is the rule already: `let x: T;`
+                // with no reachable write gets exactly this treatment
+                // one desugar later. The static position was refused
+                // before it could reach it.
+                ty = crate::ast::uninit_let::no_init_type_ann(&ty);
+                self.ast.add_expr(Expr::Ident("undefined".into()))
+            };
             if matches!(self.peek(), Token::Semi) {
                 self.pos += 1;
             }
