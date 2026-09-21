@@ -157,6 +157,40 @@ pub(crate) fn try_lower(
         }
         return Some(sentinel);
     }
+    // A pointer-shaped slot the checker typed `T | undefined` holds
+    // the generic immortal cell for its undefined, and the static
+    // unfold below monomorphizes against the shape the slot COULD
+    // hold — a premise that is false exactly when it is holding that
+    // cell. So `const o: { a: number } | undefined = undefined;
+    // JSON.stringify(o)` read the cell as a live struct and printed
+    // `{"a":8752868413093667698}` — whatever the field offset landed
+    // on. The array spelling answered an empty string; the class one
+    // printed the same garbage. Every engine answers `undefined`
+    // (§25.5.2 step 12).
+    //
+    // The step-12 arm above only fires on a statically `Undefined`
+    // argument, and this slot is not that: at run time it is either
+    // the cell or a live value, so the verdict cannot be made here.
+    // The any lane already makes it at run time and is §25.5.2
+    // itself — it answers the undefined VALUE for the cell and
+    // serializes a live one exactly as the unfold would, gap
+    // included. Hand it the boxed slot and take that walk.
+    //
+    // Self-gating on the checker's nullable typing: a slot that was
+    // never nullable keeps the static unfold, so no program that
+    // could not reach the bug pays for it.
+    if arg_ty.spells_undef_with_generic_cell()
+        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, args[0])
+    {
+        let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
+        let out = crate::ssa_lower_json_stringify::emit_any_walk(ctx, boxed, gap.clone(), 0);
+        if let Some(g) = gap {
+            ctx.emit_drop_value(g, Type::Str);
+        }
+        ctx.release_owned_temp(args[0], &arg_raw);
+        release_extra_args(ctx, &replacer_raw, &space_raw);
+        return Some(out);
+    }
     let out = crate::ssa_lower_json_stringify::lower_top(ctx, arg_op, arg_ty, arg_fe, gap.clone());
     if let Some(g) = gap {
         ctx.emit_drop_value(g, Type::Str);
