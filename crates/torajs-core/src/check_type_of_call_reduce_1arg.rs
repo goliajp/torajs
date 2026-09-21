@@ -15,8 +15,10 @@
 //! Returns `Some(Ok(elem))` on match against an `Array<elem>`
 //! receiver; `Some(Err(_))` on receiver / callback typecheck
 //! failure; `None` when callee isn't `.reduce` / `.reduceRight`,
-//! args.len() != 1, or the receiver isn't `Array<_>` (fall
-//! through to the regular method-table dispatch).
+//! args.len() != 1, the receiver isn't `Array<_>`, or the CALLBACK
+//! types `any` (fall through to the regular method-table dispatch —
+//! for the last of those, to the any-callback arm that routes the
+//! whole call to the runtime lane).
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -39,8 +41,21 @@ pub(crate) fn try_match(
             Err(e) => return Some(Err(e)),
         };
         if let Type::Array(elem) = &recv_ty {
-            if let Err(e) = checker.type_of(ast, args[0]) {
-                return Some(Err(e));
+            let cb_ty = match checker.type_of(ast, args[0]) {
+                Ok(t) => t,
+                Err(e) => return Some(Err(e)),
+            };
+            // An `any` callback is not this arm's to claim. Answering
+            // the element type here is also a decision about the
+            // LOWERING: a typed call runs the inline loop, whose
+            // per-element call needs the callback's static signature,
+            // and an Any operand there is `call_fn_value: expected
+            // Closure or FnSig`. Declining lets the any-callback arm
+            // record the callee as Any so the runtime kernel walks it
+            // — which is what the 2-arg spelling has always done, and
+            // why `xs.reduce(p, 0)` ran while `xs.reduce(p)` refused.
+            if matches!(cb_ty, Type::Any) {
+                return None;
             }
             return Some(Ok((**elem).clone()));
         }
