@@ -147,6 +147,30 @@ fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operan
     if let Some(op) = try_lower_dynamic_target(ctx, v.clone(), class_name) {
         return op;
     }
+    // §7.3.22 step 3 — OrdinaryHasInstance answers false when V is
+    // not an Object, and a slot the checker typed `T | undefined`
+    // is not one whenever it is holding its undefined, which a
+    // pointer-shaped slot spells with the generic immortal cell.
+    //
+    // The fold below reads only the SSA type, and that type is the
+    // shape the slot COULD hold: `const xs: number[] | undefined =
+    // undefined; xs instanceof Array` folded to a constant `true`,
+    // and `o instanceof Object` with it. A constant, so nothing
+    // downstream could recover.
+    //
+    // Deliberately after the dynamic-target check: §13.10.2 step 2
+    // gives an `@@hasInstance` handler the answer for ANY V,
+    // undefined included, so it must not be pre-empted. After that,
+    // hand the boxed slot to the runtime dispatch — the same line
+    // the re-parenting case below already uses — which reads the
+    // tag and answers step 3 for the cell and the real walk for a
+    // live pointer.
+    if actual_ty.spells_undef_with_generic_cell()
+        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, expr)
+    {
+        let boxed = ctx.box_to_any_from_expr(expr, v);
+        return lower_any_dispatch(ctx, boxed, class_name);
+    }
     if let Some(r) = try_compile_time_fold(actual_ty, class_name) {
         return Operand::ConstBool(r);
     }
