@@ -98,8 +98,8 @@ impl<'a> LowerCtx<'a> {
         // transfer their fresh reference into the slot instead.
         let transfers = self.expr_transfers_ownership(arg_id);
         let v_ty = self.operand_ty(&v_raw);
-        let (tag, push_val): (i64, Operand) = match v_ty {
-            Type::I64 | Type::I32 => (2, v_raw),
+        let (tag, push_val): (Operand, Operand) = match v_ty {
+            Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
             Type::F64 => {
                 let bits = self.f.append_inst(
                     self.cur_block,
@@ -107,7 +107,7 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                (3, Operand::Value(bits))
+                (Operand::ConstI64(3), Operand::Value(bits))
             }
             Type::Bool => {
                 let zext = self.f.append_inst(
@@ -116,7 +116,7 @@ impl<'a> LowerCtx<'a> {
                     Type::I64,
                     None,
                 );
-                (1, Operand::Value(zext))
+                (Operand::ConstI64(1), Operand::Value(zext))
             }
             // Type::Any must be handled BEFORE the is_refcounted
             // catch-all (Type::Any is itself refcounted — the
@@ -170,6 +170,23 @@ impl<'a> LowerCtx<'a> {
                 );
                 return Operand::Value(new_len);
             }
+            // A pointer slot's in-band `undefined` is a real
+            // address, and the catch-all below stamps ANY_HEAP over
+            // it: `box.push(xs.find(p))` on a miss put the immortal
+            // cell in an Any slot wearing a heap tag, so `typeof
+            // box[0]` answered "object". The tag is a runtime value
+            // here — 4 + (val == sentinel) — which is why this pair
+            // is `(Operand, Operand)` rather than a literal. Same
+            // ownership as the catch-all; the inc and the kind mark
+            // both no-op on the sentinel through the runtime's
+            // static gates.
+            _ if crate::ssa_lower_nullable_guard::holds_undef_cell(self, arg_id, v_ty) => {
+                if !transfers {
+                    self.emit_rc_inc(v_raw.clone());
+                }
+                self.emit_arr_mark_kind(&v_raw);
+                self.heap_slot_tag_value(v_raw)
+            }
             _ if v_ty.is_refcounted() => {
                 // ANY_HEAP slot — a borrow-shape arg takes +1 so
                 // the slot owns a balanced ref while the source
@@ -178,20 +195,35 @@ impl<'a> LowerCtx<'a> {
                 if !transfers {
                     self.emit_rc_inc(v_raw.clone());
                 }
-                (4, v_raw)
+                (Operand::ConstI64(4), v_raw)
             }
             Type::Ptr => {
                 if matches!(v_raw, Operand::ConstPtrNull) {
-                    (0, Operand::ConstI64(0))
+                    // Lowering collapses `undefined` and `null` to the
+                    // same ConstPtrNull, so the tag has to come from
+                    // the expression's frontend type — the reason
+                    // `lower_to_tag_value_raw` starts by asking it.
+                    // This copy of the pack did not, and stamped
+                    // ANY_NULL over both: `b.push(undefined)` made
+                    // `typeof b[0]` answer "object".
+                    let tag = if matches!(
+                        self.expr_types.get(&arg_id),
+                        Some(crate::check::Type::Undefined)
+                    ) {
+                        5
+                    } else {
+                        0
+                    };
+                    (Operand::ConstI64(tag), Operand::ConstI64(0))
                 } else {
-                    (4, v_raw)
+                    (Operand::ConstI64(4), v_raw)
                 }
             }
             _ => panic!("ssa-lower: Array<Any>.push unsupported value type {v_ty:?}"),
         };
         let new_arr = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(grow_fid, vec![cur_arr, Operand::ConstI64(tag), push_val]),
+            InstKind::Call(grow_fid, vec![cur_arr, tag, push_val]),
             arr_ty,
             None,
         );
