@@ -189,6 +189,15 @@ pub(crate) fn lower(
     ctx.close_scope_frame();
 }
 
+/// `true` when this clause value is the `undefined` literal — the
+/// global, not a local of that name, which would shadow it and
+/// would not lower to the null pointer anyway. Same test the any
+/// boundary makes (`box_to_any_from_expr`).
+fn is_undefined_literal(ctx: &LowerCtx, value: crate::ast::ExprId) -> bool {
+    matches!(ctx.ast.get_expr(value), Expr::Ident(n) if n == "undefined")
+        && ctx.locals.get("undefined").is_none()
+}
+
 /// One clause's IsStrictlyEqual compare against the scrutinee
 /// (§14.12.4), specialized on the scrutinee's static type — see the
 /// module doc for the per-type shapes.
@@ -279,6 +288,41 @@ fn emit_case_compare(
                 // ruled out; the Any path always emits a call.
                 _ => unreachable!("strict-eq Any path returns a value"),
             }
+        }
+        // §14.12.4 selects with IsStrictlyEqual, and a
+        // pointer-shaped slot spells its undefined with the
+        // per-type immortal cell, not NULL. The `undefined` clause
+        // value lowers to `ConstPtrNull`, so the raw `ICmp` at the
+        // bottom compared the cell against NULL — never equal. The
+        // clause was never selected and `switch (o) { case
+        // undefined: }` on a slot holding undefined fell through to
+        // `default`, which is the answer for the one value the
+        // clause exists to catch.
+        //
+        // The `===` spelling of this exact test has compared
+        // against the sentinel ADDRESS since RFC 20260710
+        // (`ssa_lower_binop_null_undef`). This site could not reuse
+        // it: that lowering reads the per-binop id state the
+        // `Expr::Binary` arm records, and a case clause never goes
+        // through that arm. So the comparison is spelled here, from
+        // the same helper that mints the address.
+        //
+        // `case null:` needs nothing — NULL is how null is spelled
+        // in the slot, and the bottom arm already compares it.
+        // Self-gating on the checker's nullable typing.
+        _ if scrut_ty.spells_undef_with_generic_cell()
+            && is_undefined_literal(ctx, value)
+            && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, scrutinee) =>
+        {
+            let sentinel = ctx
+                .str_undef_sentinel_for(scrut_ty)
+                .expect("guard admits only sentinel-capable slot types");
+            ctx.f.append_inst(
+                cmp_blk,
+                InstKind::ICmp(IPred::Eq, scrut_val, sentinel),
+                Type::Bool,
+                None,
+            )
         }
         // The mirror: an integer scrutinee against a fractional
         // clause value (`case 1.5`) compares in f64 — IsStrictlyEqual

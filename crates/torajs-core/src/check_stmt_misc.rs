@@ -24,6 +24,46 @@ use std::collections::HashMap;
 use crate::ast::{Ast, ExprId, Stmt, SwitchCase};
 use crate::check::{Checker, DiagPush, Type};
 
+/// `true` when a `case undefined:` / `case null:` clause CAN be
+/// selected under this scrutinee, whatever the checker's type for
+/// it says.
+///
+/// The "never selected" warning next door rests on the type being
+/// the whole truth about what the slot holds, and for a
+/// pointer-shaped one it is not: the immortal cell and the null
+/// pointer are both in-band values of that slot, and they arrive
+/// by roads the type does not record — a `find` miss, `pop` on an
+/// empty array, an unwritten field, an out-of-range index. The
+/// checker types all of those as a bare `T`.
+///
+/// So the warning was telling the programmer the opposite of the
+/// truth for exactly the clause that catches those values, while
+/// the run-time answer (once the lowering compares against the
+/// right address) is that the clause IS selected.
+fn nullish_clause_is_reachable(scrut_ty: &Type, clause_ty: &Type) -> bool {
+    if !matches!(clause_ty, Type::Undefined | Type::Null) {
+        return false;
+    }
+    matches!(
+        scrut_ty,
+        Type::Struct(_)
+            | Type::ClassRef(_)
+            | Type::Array(_)
+            | Type::Nullable(_)
+            | Type::Date
+            | Type::RegExp
+            | Type::Map
+            | Type::Set
+            | Type::Promise(_)
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::MapIter
+            | Type::ArrIter
+    )
+}
+
+
 pub(crate) fn check_switch(
     checker: &mut Checker,
     ast: &Ast,
@@ -47,7 +87,20 @@ pub(crate) fn check_switch(
         match checker.type_of(ast, c.value) {
             // `any` on either side is the type whose runtime value is
             // unknown, so nothing can be said about it here.
-            Ok(t) if t == scrut_ty || t == Type::Any || scrut_ty == Type::Any => {}
+            Ok(t)
+                if t == scrut_ty
+                    || t == Type::Any
+                    || scrut_ty == Type::Any
+                    // A `T | undefined` scrutinee has three faces a
+                    // clause can equal: the T, `undefined`, and
+                    // `null` — the lattice spells the last two as
+                    // one slot but IsStrictlyEqual keeps them apart.
+                    // Warning "never selected" on `case undefined:`
+                    // under exactly the type that exists to carry
+                    // undefined said the opposite of the truth.
+                    || matches!(&scrut_ty, Type::Nullable(inner)
+                        if t == Type::Undefined || t == Type::Null || t == **inner)
+                    || nullish_clause_is_reachable(&scrut_ty, &t) => {}
             // §14.12.4 selects a clause with IsStrictlyEqual, and that
             // predicate is TOTAL: across types it answers `false`, it is
             // not undefined for them. So no pair of types is an error
