@@ -23,6 +23,12 @@ pub(crate) struct JsonRawIds {
     /// substitute any node's value at run time), so the whole walk
     /// happens in the kernel.
     pub json_stringify_full: FuncId,
+    /// §25.5.2.3 with step 2 already done. The struct lane calls the
+    /// `toJSON` hook in the compiler — it has the static signature and
+    /// the property key the runtime's own step 2 does not pass — so
+    /// its answer is serialized as a VALUE. The ordinary entry would
+    /// run step 2 a second time, on the result.
+    pub json_stringify_value: FuncId,
     /// RFC 20260801-ns-object-value (JSON extension) — the `JSON`
     /// namespace singleton in a value position.
     pub ns_object_json: FuncId,
@@ -56,6 +62,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_anyv_json_stringify_full",
             &[Type::Any, Type::Any, Type::Str, Type::I64],
+            Type::Str,
+        ),
+        json_stringify_value: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_json_stringify_value",
+            &[Type::Any, Type::Str, Type::I64],
             Type::Str,
         ),
         json_is_raw_json: declare_intrinsic(

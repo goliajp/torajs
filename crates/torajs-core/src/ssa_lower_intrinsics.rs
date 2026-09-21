@@ -489,6 +489,7 @@ pub(crate) struct Intrinsics {
     pub(crate) ns_static_bind: FuncId,
     pub(crate) anyv_json_stringify: FuncId,
     pub(crate) anyv_json_stringify_gap: FuncId,
+    pub(crate) json_stringify_value: FuncId,
     pub(crate) anyv_json_gap_str: FuncId,
     pub(crate) json_stringify_full: FuncId,
     pub(crate) json_raw_json: FuncId,

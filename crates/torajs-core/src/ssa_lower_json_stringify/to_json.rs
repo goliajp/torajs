@@ -172,7 +172,20 @@ pub(super) fn try_lower_hook(
     if matches!(ret_ty, Type::Void) {
         return Some(Operand::Value(ctx.intern_string_literal("null")));
     }
-    let out = super::lower_shape(ctx, got.clone(), ret_ty, None, gap, depth);
+    // §25.5.2.3 — step 2 just ran, so what follows is the VALUE half
+    // of the operation and must not run it again. An `Any` answer
+    // used to take `lower_shape`'s any arm, which is the whole
+    // property operation including step 2: a hook whose result has a
+    // `toJSON` of its own answered the INNER hook's value, and
+    // `{p:{toJSON:()=>({toJSON:()=>17})}}` came out `{"p":17}` where
+    // the spec and every engine say `{"p":{}}`. The runtime has the
+    // two halves as separate entries now; every other answer type
+    // keeps the static unfold, which never ran step 2 to begin with.
+    let out = if matches!(ret_ty, Type::Any) {
+        super::emit_any_walk_value(ctx, got.clone(), gap, depth)
+    } else {
+        super::lower_shape(ctx, got.clone(), ret_ty, None, gap, depth)
+    };
     ctx.emit_drop_value(got, ret_ty);
     Some(out)
 }

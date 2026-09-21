@@ -24,6 +24,40 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_gap(
     unsafe { stringify_with_gap_at(v, gap, depth.max(0) as u32) }
 }
 
+/// §25.5.2.3 with step 2 ALREADY DONE — serialize a value that is
+/// itself a `toJSON` hook's answer.
+///
+/// The struct lane calls the hook in the compiler: it has the static
+/// signature and the property key, which the runtime's own step 2
+/// does not pass. Handing that answer to the ordinary entry then ran
+/// step 2 a second time, on the result — so a hook whose result has
+/// a `toJSON` of its own answered the INNER hook's value where
+/// §25.5.2.3 says the call happens once
+/// (`{p:{toJSON:()=>({toJSON:()=>17})}}` is `{"p":{}}`, not
+/// `{"p":17}`). The two halves of that operation now have an entry
+/// each.
+///
+/// # Safety
+/// As [`__torajs_anyv_json_stringify_gap`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_json_stringify_value(
+    v: AnyValue,
+    gap: *const u8,
+    depth: i64,
+) -> *mut u8 {
+    unsafe {
+        let st = St::plain(gap);
+        let sb = __torajs_jsb_new(64);
+        let wrote = write_value(sb, v, depth.max(0) as u32, &st);
+        let s = __torajs_jsb_finalize(sb);
+        if wrote == Wrote::Nothing || __torajs_throw_check() != 0 {
+            __torajs_str_drop(s as *mut c_void);
+            return __torajs_str_undef();
+        }
+        s
+    }
+}
+
 /// ES §25.5.2.1 steps 5-8 — normalize a `space` argument into a gap,
 /// handed back as a Str cell. A Number (or Number object) becomes
 /// `min(10, ToIntegerOrInfinity(space))` spaces, a String (or String

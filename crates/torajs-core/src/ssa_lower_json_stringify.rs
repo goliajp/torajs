@@ -155,6 +155,31 @@ pub(super) fn emit_any_walk(
     Operand::Value(v)
 }
 
+/// [`emit_any_walk`]'s value-only twin — §25.5.2.3 with step 2 already
+/// done. The struct lane's `toJSON` road calls the hook in the
+/// compiler, so its answer is serialized as a value; running the whole
+/// property operation over it again applies the hook a second time.
+/// A gapless call passes a NULL gap rather than taking the other
+/// entry, because the value entry is the one that skips step 2 and
+/// there is no gapless spelling of it.
+pub(super) fn emit_any_walk_value(
+    ctx: &mut LowerCtx,
+    val_op: Operand,
+    gap: Option<Operand>,
+    depth: u32,
+) -> Operand {
+    let g = gap.unwrap_or(Operand::ConstPtrNull);
+    Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.json_stringify_value,
+            vec![val_op, g, Operand::ConstI64(depth as i64)],
+        ),
+        Type::Str,
+        None,
+    ))
+}
+
 /// Peel the `Nullable` wrapper the checker puts around pointer-shaped
 /// types — the JSON walk cares about the payload's shape, and the
 /// null case is settled by the composite arms' own null gate.

@@ -48,6 +48,20 @@ console.log("as a field   ", attempt(() => JSON.stringify({ w: new C() })));
 console.log("in an array  ", attempt(() => JSON.stringify([new C()])));
 console.log("hookless cls ", attempt(() => JSON.stringify(new Plain())));
 
+// §25.5.2.3 — the hook is called ONCE per property. Its answer is
+// then serialized as a value, so an answer carrying a `toJSON` of its
+// own does not get that one called too. The struct lane calls the
+// hook in the compiler (it has the signature and the key), and handing
+// the answer back to the whole property operation ran step 2 again.
+console.log("once, nested ", attempt(() =>
+  JSON.stringify({ p: { toJSON: function () { return { toJSON: function () { return 17; } }; } } })));
+console.log("once, gapped ", attempt(() =>
+  JSON.stringify({ p: { toJSON: function () { return { toJSON: function () { return 17; } }; } } }, null, 1)));
+console.log("once, typed  ", attempt(() => {
+  const inner: any = { toJSON: () => 17 };
+  return JSON.stringify({ p: { toJSON: () => inner } });
+}));
+
 // The receiver reaches the hook.
 class R {
   v = 4;
