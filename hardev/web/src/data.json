@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-21T08:53:44.348Z",
+  "generatedAt": "2026-09-21T17:55:40.200Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-21T08:41:18Z",
-    "headSha": "33db4653a",
-    "elapsedSec": 532.19,
+    "ranAt": "2026-09-21T17:43:52Z",
+    "headSha": "8643cba9b",
+    "elapsedSec": 539.89,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 82.69
   },
   "torajs": {
-    "commit": "bcd94dd7c",
-    "commitSubject": "chore(hardev): rotation 684 close stamps",
+    "commit": "8643cba9b",
+    "commitSubject": "refactor: one name for \"is this slot holding the cell\", and a gate guard",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "bcd94dd7c",
-      "subject": "chore(hardev): rotation 684 close stamps"
+      "hash": "8643cba9b",
+      "subject": "refactor: one name for \"is this slot holding the cell\", and a gate guard"
     },
     {
-      "hash": "33db4653a",
-      "subject": "fix: the toJSON hook is called once, and its answer is serialized as a value"
+      "hash": "5802488f9",
+      "subject": "fix: throwing a slot that is holding undefined throws undefined"
     },
     {
-      "hash": "a79af2099",
-      "subject": "fix: ToString of a pointer slot that is holding undefined answers undefined"
+      "hash": "d4b269a9a",
+      "subject": "fix: Array.isArray stops folding true for a slot holding undefined"
     },
     {
-      "hash": "33eb67b25",
-      "subject": "refactor: lift the Symbol arm out of the typed ToString cascade"
+      "hash": "79fd1e5b3",
+      "subject": "fix: the three ToObject surfaces throw for a slot holding undefined"
     },
     {
-      "hash": "9e264307b",
-      "subject": "fix: a static field with no initializer is defined as undefined, not refused"
+      "hash": "8c9795b24",
+      "subject": "refactor: move the three nullable-guard emitters out of the predicates"
     },
     {
-      "hash": "413fa6931",
-      "subject": "fix: new Map / new Set stop refusing an array-literal argument, and stop reading past a short entry"
+      "hash": "d3ac54754",
+      "subject": "fix: `case undefined:` is selected when the slot is holding undefined"
     },
     {
-      "hash": "2cbfe39b3",
-      "subject": "fix: the typed regex replace lane accepts an any replacement"
+      "hash": "ec5fa21fc",
+      "subject": "fix: `instanceof` stops folding true for a slot that is holding undefined"
     },
     {
-      "hash": "7da7b9e1f",
-      "subject": "fix: the toJSON hook is found on a nominal cell too, in both lanes"
+      "hash": "2895df519",
+      "subject": "refactor: move `instanceof`'s two pure lookups into a fold sibling"
     },
     {
-      "hash": "57abf92d4",
-      "subject": "refactor: lift the JSON array walk's separator emit out of the loop body"
+      "hash": "8f6886394",
+      "subject": "fix: Number() accepts a slot the checker typed `T | undefined`"
     },
     {
-      "hash": "195327f9a",
-      "subject": "fix: reduce with an any callback stops being claimed by the 1-arg typed arm"
+      "hash": "3b57717f0",
+      "subject": "fix: `+` on a pointer slot that is holding undefined answers \"undefined\""
     },
     {
-      "hash": "3f2c63724",
-      "subject": "fix: an @@hasInstance handler asks IsCallable, not whether it is a closure cell"
+      "hash": "064037817",
+      "subject": "fix: `??` no longer refuses the pairs whose union this lattice cannot name"
     },
     {
-      "hash": "d3d47ebba",
-      "subject": "fix: the closure-path branch of the symbol-hook fixture never advanced its iterator"
+      "hash": "fb53a7cd2",
+      "subject": "refactor: move the `delete` type rule out of the small-arms file"
     }
   ],
-  "headSha": "bcd94dd7c",
+  "headSha": "8643cba9b",
   "autorun": {
-    "total": 987,
+    "total": 988,
     "baselineTarget": 10,
-    "bySelf": 982,
+    "bySelf": 983,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789969118-048c",
-      "at": "2026-09-21T05:38:38Z",
-      "ts": 1789969118,
+      "rotationId": "r-1789980873-1825",
+      "at": "2026-09-21T08:54:33Z",
+      "ts": 1789980873,
       "trigger": "self",
-      "prevHead": "531b3d6e3",
-      "handoffSha": "sha256:4d92b94c1c20ba6eec6dd887e182d47adde400a09eb5a5670aba21b79619d7e4",
-      "handoffAgeSec": 1,
-      "conformanceBefore": "4439/0/4",
-      "commitsInSession": 15
+      "prevHead": "9744eb486",
+      "handoffSha": "sha256:5533ef5df2493051d8c91ba9941ba7e7dcf042de414bc35238d2d394ba75e924",
+      "handoffAgeSec": 5,
+      "conformanceBefore": "4448/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1789980873-1825",
+        "at": "2026-09-21T08:54:33Z",
+        "ts": 1789980873,
+        "trigger": "self",
+        "prevHead": "9744eb486",
+        "handoffSha": "sha256:5533ef5df2493051d8c91ba9941ba7e7dcf042de414bc35238d2d394ba75e924",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "4448/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1789969118-048c",
         "at": "2026-09-21T05:38:38Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 17,
         "conformanceBefore": "4370/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789873427-4022",
-        "at": "2026-09-20T03:03:47Z",
-        "ts": 1789873427,
-        "trigger": "self",
-        "prevHead": "b4f26160d",
-        "handoffSha": "sha256:2ea3daf53bea3085b0c6b39993f9427cbcb3a65c93ab1f814ed73211010d6e9e",
-        "handoffAgeSec": 7,
-        "conformanceBefore": "4370/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
