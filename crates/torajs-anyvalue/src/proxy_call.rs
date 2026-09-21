@@ -84,6 +84,21 @@ pub(crate) unsafe fn method_call(
                 if let Some(v) = user_method_on_proxy(recv, name_str, argv, argc) {
                     return v;
                 }
+                // §20.2.3.5 step 4 — the one method whose answer
+                // turns on the RECEIVER's identity rather than the
+                // resolved function's. Forwarding to the target (what
+                // every other method does here, and what makes a
+                // trap-less proxy cheap) would hand back the target's
+                // source text; the receiver is the proxy, and a proxy
+                // has no [[SourceText]]. `toLocaleString` arrives too
+                // — §20.1.3.5 is `Invoke(O, "toString")`, so it asks
+                // the same question about the same receiver.
+                if (mid == torajs_rc::ANY_METHOD_TO_STRING
+                    || mid == torajs_rc::ANY_METHOD_TO_LOCALE_STRING)
+                    && let Some(v) = crate::proxy_callable::proxy_to_string_form(recv)
+                {
+                    return v;
+                }
                 return crate::method_call::any_method_call_inner(
                     target, mid, name_str, recv_slot, argv, argc,
                 );

@@ -26,6 +26,7 @@ unsafe extern "C" {
     fn __torajs_arr_alloc_any(cap: u64) -> *mut u8;
     fn __torajs_arr_push_any(arr: *mut c_void, tag: u64, value: u64) -> *mut u8;
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_fn_native_form_str(name_ptr: *const u8, name_len: u32) -> *mut u8;
 }
 
 /// Materialize `argv` as the `Array<Any>` both traps take.
@@ -180,6 +181,35 @@ pub(crate) unsafe fn proxy_is_callable(v: AnyValue) -> bool {
 /// `v` is a live Proxy AnyValue.
 pub(crate) unsafe fn proxy_is_constructor(v: AnyValue) -> bool {
     (unsafe { header_flags(v) } & torajs_rc::FLAG_PROXY_CONSTRUCTOR) != 0
+}
+
+/// §20.2.3.5 step 4 — what `Function.prototype.toString` answers for
+/// a Proxy receiver. A Proxy has no [[SourceText]] slot (step 2) and
+/// is not a built-in function object (step 3), so a CALLABLE one
+/// lands on step 4's "implementation-defined representation with the
+/// syntax of a NativeFunction". JSC — so bun — spells it
+/// `function ProxyObject() { [native code] }`.
+///
+/// `None` when `v` is not a callable proxy: a non-callable one is
+/// step 5's TypeError through `Function.prototype.toString`, and
+/// plain `String(p)` on it resolves `Object.prototype.toString`
+/// instead. Either way the caller keeps the path it had.
+///
+/// The target's own source is the one answer that is WRONG here —
+/// forwarding the dispatch to the target (which is what a trap-less
+/// proxy does for every other method) hands back `function add(a,b)
+/// {…}` / `class C{}`, and test262's `assertNativeFunction` reads
+/// exactly that string against the NativeFunction grammar.
+///
+/// # Safety
+/// `v` is a live AnyValue.
+pub(crate) unsafe fn proxy_to_string_form(v: AnyValue) -> Option<AnyValue> {
+    if !crate::proxy::is_proxy(v) || !unsafe { proxy_is_callable(v) } {
+        return None;
+    }
+    const NAME: &[u8] = b"ProxyObject";
+    let s = unsafe { __torajs_fn_native_form_str(NAME.as_ptr(), NAME.len() as u32) };
+    Some(crate::nanbox::box_void_ptr(s as *mut c_void))
 }
 
 /// The proxy cell's header flags word.

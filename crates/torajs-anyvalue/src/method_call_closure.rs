@@ -330,6 +330,21 @@ pub(crate) unsafe fn dispatch(
                     __torajs_throw_type_error(msg.as_ptr());
                     return crate::nanbox::VALUE_UNDEFINED;
                 }
+                // §20.2.3.5 step 4 — `Function.prototype.toString`
+                // reached with a callable Proxy as `this`, either
+                // spelled `.call(p)` or resolved through the proxy's
+                // own `get` trap. Row 13 is `Function.prototype`'s
+                // own `toString` (§8.3 gives each prototype a
+                // distinct function object, and `intern_family` keeps
+                // the row), so this is that method and no other —
+                // `Object.prototype.toString.call(p)` sits on row 1
+                // and still answers `[object Function]`.
+                if *fam == crate::method_value::family::FN_PROTO_FAMILY
+                    && *mid == torajs_rc::ANY_METHOD_TO_STRING
+                    && let Some(out) = crate::proxy_callable::proxy_to_string_form(this_arg)
+                {
+                    return out;
+                }
                 if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
                     return out;
                 }
