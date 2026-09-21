@@ -239,6 +239,10 @@ fn emit_field(
     // emit decision anyway (the separator / key concat carries no
     // user-observable effect, so moving it after is free).
     let hook_key = Operand::Value(ctx.intern_string_literal(&key));
+    // A nominal field whose `toJSON` hook takes the runtime walk
+    // answers the same sentinel an `any` slot does, so it needs the
+    // same probe below.
+    let hook_walks = super::to_json::takes_runtime_walk(ctx, fty, fe.as_ref());
     let field_str = super::lower_keyed(
         ctx,
         field_v.clone(),
@@ -258,7 +262,7 @@ fn emit_field(
     // callable, a Symbol) and the any-lane walk reports all three as
     // the undefined-Str sentinel. Every typed lane answers real
     // text, so the probe sits behind that static gate.
-    let merge_blk = if matches!(fty, Type::Any) {
+    let merge_blk = if matches!(fty, Type::Any) || hook_walks {
         let merge = merge_blk.unwrap_or_else(|| ctx.f.add_block());
         let is_nothing = ctx.f.append_inst(
             ctx.cur_block,

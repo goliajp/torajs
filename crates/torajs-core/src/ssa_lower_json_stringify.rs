@@ -117,7 +117,8 @@ pub(crate) fn lower_keyed(
     depth: u32,
 ) -> Operand {
     if let Type::Obj(sid) = ty
-        && let Some(out) = to_json::try_lower_hook(ctx, &val_op, sid, key, gap.clone(), depth)
+        && let Some(out) =
+            to_json::try_lower_hook(ctx, &val_op, sid, key, fe.as_ref(), gap.clone(), depth)
     {
         return out;
     }

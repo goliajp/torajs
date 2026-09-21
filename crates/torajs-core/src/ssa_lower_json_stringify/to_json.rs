@@ -28,9 +28,95 @@ fn to_json_slot(ctx: &LowerCtx, sid: StructId) -> Option<(u64, crate::ssa::SigId
         })
 }
 
+/// True when the layout's `toJSON` field types `Any` — a hook this
+/// lane cannot call, because the call it emits needs a static
+/// signature and the slot has none.
+///
+/// It is not "no hook". §25.5.2 step 2 asks IsCallable of whatever
+/// the property holds, and the value in an Any slot is routinely a
+/// function: `{ toJSON: new Proxy(fn, {}) }` serialized to
+/// `{"toJSON":{}}` — the hook itself, as data, from a program that
+/// compiled and ran. The `any` spelling of the same object had been
+/// answering correctly since rotation 683; the struct lane is the
+/// other layer of that fix.
+/// Does the value's CLASS carry a `toJSON` method? The hook then
+/// lives in the class's method table, and the layout — which is all
+/// [`to_json_slot`] can see — does not mention it. So
+/// `class C { a = 1; toJSON() { return 9 } }` serialized as
+/// `{"a":1}`: not a refusal, a wrong document, in plain JavaScript
+/// with no proxy anywhere near it.
+///
+/// Read off the FRONTEND type, because the layout id cannot answer
+/// it: `class C { a }` and `class D { a }` intern to one StructId
+/// (the note on `ssa_lower_member_obj_field::class_name_of_expr`).
+/// An inherited hook counts, so the parent chain is walked.
+fn class_has_to_json(ctx: &LowerCtx, fe: Option<&crate::check::Type>) -> bool {
+    match fe {
+        // A named class answers precisely, chain included.
+        Some(crate::check::Type::ClassRef(name)) => {
+            let mut cur = Some(name.clone());
+            while let Some(c) = cur {
+                if ctx.fn_table.contains_key(&format!("__cm_{c}__toJSON")) {
+                    return true;
+                }
+                cur = ctx.ast.class_parents.get(&c).cloned().flatten();
+            }
+            false
+        }
+        // A structural type IS its layout, so `to_json_slot` above has
+        // already seen everything there is to see.
+        Some(crate::check::Type::Struct(_)) => false,
+        // Otherwise the frontend type is gone — erased by an `as any`,
+        // or lost through a hook's own result — and the layout id
+        // cannot stand in for it, because same-shape classes intern to
+        // one StructId. Unfolding here is a claim that no hook exists,
+        // and that claim is exactly what cannot be made.
+        //
+        // So the question narrows to one the module CAN answer: does
+        // any class in this program declare `toJSON` at all? Almost
+        // never — and when the answer is no, every value takes the
+        // unfold it took before, unchanged.
+        _ => ctx
+            .fn_table
+            .keys()
+            .any(|k| k.starts_with("__cm_") && k.ends_with("__toJSON")),
+    }
+}
+
+fn to_json_slot_is_any(ctx: &LowerCtx, sid: StructId) -> bool {
+    ctx.struct_layouts[sid.0 as usize]
+        .iter()
+        .any(|(fname, fty)| matches!((fname.as_str(), fty), (Some("toJSON"), Type::Any)))
+}
+
+/// Does this value's hook go to the RUNTIME walk rather than to
+/// either compiled road — the layout's own call, or the field
+/// unfold?
+///
+/// Callers need this before the walk, not only inside it: the
+/// runtime walk reports "serializes to nothing" as the undefined-Str
+/// sentinel, and the composite walks translate that into §25.5.2.4
+/// step 8.b's omission. They gate that translation on the static
+/// shape, so a value that changes road has to change their gate too
+/// — otherwise a hook answering `undefined` writes the word into the
+/// document.
+pub(super) fn takes_runtime_walk(
+    ctx: &LowerCtx,
+    ty: &Type,
+    fe: Option<&crate::check::Type>,
+) -> bool {
+    matches!(ty, Type::Obj(sid) if to_json_slot_is_any(ctx, *sid) || class_has_to_json(ctx, fe))
+}
+
 /// Emit `ToString(? Call(value.toJSON, value, «key»))` when the
 /// layout has one, else `None` so the caller unfolds the fields as
 /// before.
+///
+/// An Any-typed slot takes neither road: the value boxes and the
+/// runtime walk serializes it, which is where §25.5.2 step 2's
+/// IsCallable already lives. Same posture as the BigInt / Symbol arm
+/// of `lower_shape` — hand the case to the lane that implements it
+/// rather than grow a second copy here.
 ///
 /// The hook's declared return type drives the recursion, so a
 /// `toJSON` answering a string quotes, one answering an object
@@ -43,9 +129,16 @@ pub(super) fn try_lower_hook(
     val_op: &Operand,
     sid: StructId,
     key: Option<Operand>,
+    fe: Option<&crate::check::Type>,
     gap: Option<Operand>,
     depth: u32,
 ) -> Option<Operand> {
+    if takes_runtime_walk(ctx, &Type::Obj(sid), fe) {
+        let boxed = ctx.box_to_any(val_op.clone());
+        let out = super::emit_any_walk(ctx, boxed, gap, depth);
+        ctx.emit_throw_check(None);
+        return Some(out);
+    }
     let (field_off, sig_id) = to_json_slot(ctx, sid)?;
     let obj_ptr = match val_op {
         Operand::Value(v) => *v,

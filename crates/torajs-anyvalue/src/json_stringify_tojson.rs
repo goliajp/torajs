@@ -13,6 +13,7 @@
 //! test262's `obj.toJSON = fn` expando shape lands).
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use torajs_rc::Tag;
 
@@ -32,6 +33,61 @@ unsafe extern "C" {
     fn __torajs_dynobj_iter_key(obj: *const c_void, i: u64) -> *mut c_void;
     fn __torajs_dynobj_iter_value(obj: *const c_void, i: u64) -> u64;
     fn __torajs_dynobj_iter_order(obj: *const c_void, out: *mut u64, cap: u64) -> u64;
+
+    fn __torajs_str_alloc_ascii(p: *const u8, n: i64) -> *mut u8;
+}
+
+/// The interned `"toJSON"` key the struct arm reads with. Minted
+/// once and never released — every consumer only READS it (same
+/// posture as the iterator protocol's `next` / `return` keys).
+static NAME_TO_JSON: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+
+/// The struct arm's own §25.5.2.3 step 2 probe: `Get(value,
+/// "toJSON")` over a NOMINAL cell, which reaches a layout field and a
+/// class method alike.
+///
+/// A struct used to answer "no hook" unconditionally — the module's
+/// recorded boundary said the dynobj lane was where the expando shape
+/// lands, which is true and was never the whole story:
+/// `class C { toJSON() { return 9 } }` serialized as its FIELDS in
+/// every lane, and so did an object literal whose `toJSON` types
+/// `any`. Neither refuses anything; both answer a wrong document.
+///
+/// # Safety
+/// `recv` is a live AnyValue holding the struct cell.
+unsafe fn struct_tojson_entry(recv: AnyValue) -> Option<AnyValue> {
+    unsafe {
+        let mut key = NAME_TO_JSON.load(Ordering::Acquire);
+        if key.is_null() {
+            let fresh = __torajs_str_alloc_ascii(b"toJSON".as_ptr(), 6);
+            key = match NAME_TO_JSON.compare_exchange(
+                core::ptr::null_mut(),
+                fresh,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => fresh,
+                Err(winner) => {
+                    crate::__torajs_str_drop(fresh as *mut c_void);
+                    winner
+                }
+            };
+        }
+        let k = key as *const c_void;
+        // Only a heap value can be callable, so a miss, a primitive
+        // and an accessor sentinel all mean "walk the fields".
+        if crate::member_get::__torajs_any_member_get_tag(recv, k) != 4 {
+            return None;
+        }
+        let payload = crate::member_get_value::__torajs_any_member_get_value(recv, k);
+        if payload == 0 {
+            return None;
+        }
+        Some(crate::nanbox_encode::__torajs_anyv_box_from_pair(
+            4,
+            payload as i64,
+        ))
+    }
 }
 
 /// Apply the toJSON hook to `v` if it is a DynObj with a callable
@@ -64,7 +120,21 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         // A DynObj consults its own entries; an Arr consults its
         // expando props dynobj (`arr.toJSON = fn` lands there —
         // torajs_arr::layout::ARR_PROPS_OFF slot at +24).
-        let holder = if tag == Tag::DynObj as u16 {
+        // A nominal struct keeps its properties in a layout, not in a
+        // props bag, so the iteration below cannot see them. Ask the
+        // ordinary member read instead — it reaches a layout field
+        // and a class method alike.
+        let entry = if tag == Tag::Obj as u16 {
+            match struct_tojson_entry(v) {
+                Some(e) => Some(e),
+                None => return None,
+            }
+        } else {
+            None
+        };
+        let holder = if entry.is_some() {
+            core::ptr::null()
+        } else if tag == Tag::DynObj as u16 {
             ptr as *const c_void
         } else if tag == Tag::Arr as u16 {
             let props = (ptr.cast::<u8>().add(ARR_PROPS_OFF) as *const *const c_void).read();
@@ -75,7 +145,10 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         } else {
             return None;
         };
-        let entry = find_tojson_entry(holder)?;
+        let entry = match entry {
+            Some(e) => e,
+            None => find_tojson_entry(holder)?,
+        };
         if !is_cell(entry) {
             return None;
         }

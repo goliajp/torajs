@@ -335,7 +335,11 @@ fn lower_arr_walk(
             gap.clone(),
             depth + 1,
         );
-        if matches!(elem_ty, Type::Any) {
+        // A nominal element whose `toJSON` hook takes the runtime
+        // walk answers the same sentinel an `any` element does.
+        if matches!(elem_ty, Type::Any)
+            || super::to_json::takes_runtime_walk(ctx, &elem_ty, fe_elem.as_ref())
+        {
             coerce_sentinel_to_null(ctx, walked)
         } else {
             walked
