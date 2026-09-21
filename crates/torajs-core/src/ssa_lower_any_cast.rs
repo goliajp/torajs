@@ -60,6 +60,19 @@ impl crate::ssa_lower::LowerCtx<'_> {
             if matches!(inner_ty, Type::Ptr) {
                 return self.box_to_any_from_expr(inner, inner_op);
             }
+            // A heap value otherwise passes through this cast wearing
+            // its static SSA type, which is right until that type is
+            // the only thing that knows the slot's `undefined` is an
+            // in-band address. After the cast nothing downstream can
+            // ask the question any more — the type says `any` and the
+            // source is an `As` — so `"x" + (r as any)` walked the
+            // immortal cell and `(r as any) * 2` called it. Re-encode
+            // here, where both halves of the question are still in
+            // hand; `box_to_any_from_expr` spells it branchlessly
+            // (tag = 4 + (val == sentinel)).
+            if crate::ssa_lower_nullable_guard::holds_undef_cell(self, inner, inner_ty) {
+                return self.box_to_any_from_expr(inner, inner_op);
+            }
         }
         // Unbox direction (b1) — `<Any-valued> as T` must materialize
         // the annotated primitive face. Pre-fix only `number` had an
