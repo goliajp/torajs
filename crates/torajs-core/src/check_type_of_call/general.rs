@@ -169,6 +169,20 @@ pub(crate) fn general_call(
             &arg_ty,
             arg_id,
         ) {
+            // §7.2 middle tier — a callback slot handed a value no
+            // type of which is callable. The spec has a runtime
+            // answer for that (throw, after the arguments evaluate),
+            // so refusing the program here would be the static-subset
+            // answer. See `super::callback_slot_throw`.
+            if let Some(msg) =
+                super::callback_slot_throw::message_for(ast, *callee, param_ty, &arg_ty)
+            {
+                for &rest in &args[i + 1..] {
+                    checker.type_of(ast, rest)?;
+                }
+                checker.spec_throws.insert(eid, msg);
+                return Ok(*ret);
+            }
             return Err(format!(
                 "argument {i}: expected {param_ty:?}, got {arg_ty:?}"
             ));
