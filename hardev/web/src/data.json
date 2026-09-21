@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-21T03:14:09.242Z",
+  "generatedAt": "2026-09-21T05:37:07.270Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-21T03:00:30Z",
-    "headSha": "3f4f225c8",
-    "elapsedSec": 529.28,
+    "ranAt": "2026-09-21T05:25:22Z",
+    "headSha": "a68f9931d",
+    "elapsedSec": 541.29,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34420,
+    "pass": 34441,
     "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40707,
-    "bug": 8533,
-    "incompatible": 3934,
+    "passTotal": 40728,
+    "bug": 8528,
+    "incompatible": 3918,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49240,
-    "passRateInScope": 76.55,
-    "passRateTrAccepted": 82.67
+    "trAccepted": 49256,
+    "passRateInScope": 76.59,
+    "passRateTrAccepted": 82.69
   },
   "torajs": {
-    "commit": "3f4f225c8",
-    "commitSubject": "fix: only the Error hierarchy constructs on a plain call",
+    "commit": "49f7321ce",
+    "commitSubject": "chore(hardev): rotation 683 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "3f4f225c8",
-      "subject": "fix: only the Error hierarchy constructs on a plain call"
+      "hash": "49f7321ce",
+      "subject": "chore(hardev): rotation 683 close stamps"
     },
     {
-      "hash": "6b3467b94",
-      "subject": "refactor: the arguments-object synthesis calls move to their own file"
+      "hash": "a68f9931d",
+      "subject": "fix: the JSON toJSON hook asks IsCallable, not which lane drives it"
     },
     {
-      "hash": "8db1f9754",
-      "subject": "fix: the last callback positions ask IsCallable"
+      "hash": "0dab5f488",
+      "subject": "fix: String.replace asks IsCallable, not whether it holds a closure cell"
     },
     {
-      "hash": "b26a9faf5",
-      "subject": "fix: the remaining higher-order gates ask IsCallable too"
+      "hash": "95ecb582b",
+      "subject": "fix: Map and Set forEach join the any-callback lane"
     },
     {
-      "hash": "3011520b3",
-      "subject": "fix: a promise reaction handler asks IsCallable, not \"is this a closure\""
+      "hash": "bde44b3f9",
+      "subject": "fix: the callback-slot throw checks the receiver, not just the method name"
     },
     {
-      "hash": "979255f9f",
-      "subject": "fix: JSON's reviver and replacer ask IsCallable, not \"is this a closure\""
+      "hash": "bf0fcbbc5",
+      "subject": "fix: a non-callable promise handler is an empty slot, not a refusal"
     },
     {
-      "hash": "8c9bc5c4e",
-      "subject": "fix: array higher-order callbacks take every callable shape"
+      "hash": "ad0903f51",
+      "subject": "refactor: the promise reaction arms move out of the route-early dispatcher"
     },
     {
-      "hash": "b6f6ee34b",
-      "subject": "fix: call/apply/bind on a proxy go through [[Get]] first"
+      "hash": "3ebc2f44f",
+      "subject": "fix: a callback slot handed a known non-callable throws instead of refusing"
     },
     {
-      "hash": "e2ac36357",
-      "subject": "fix: bind's target is the value it was called on, proxies included"
+      "hash": "69188d18c",
+      "subject": "fix: sort and toSorted join the any-callback lane, and stop panicking"
     },
     {
-      "hash": "3cebafb6a",
-      "subject": "fix: an injected intrinsic's factory is reachable from the call position"
+      "hash": "ff3aff45f",
+      "subject": "fix: the class-field arguments ban follows the text into a direct eval"
     },
     {
-      "hash": "8acbb8ab6",
-      "subject": "fix: the spread call enters its fixed-argc twin instead of restating it"
+      "hash": "4c82b9e1a",
+      "subject": "refactor: the Contains recursion gets its leaf as an argument"
     },
     {
-      "hash": "6d63429b7",
-      "subject": "fix: the [object Function] badge asks IsCallable, not a shape list"
+      "hash": "1da5098f5",
+      "subject": "fix: a bound function asks IsConstructor of its target as a value"
     }
   ],
-  "headSha": "3f4f225c8",
+  "headSha": "49f7321ce",
   "autorun": {
-    "total": 985,
+    "total": 986,
     "baselineTarget": 10,
-    "bySelf": 980,
+    "bySelf": 981,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1789947548-3bf6",
-      "at": "2026-09-20T23:39:08Z",
-      "ts": 1789947548,
+      "rotationId": "r-1789960521-2617",
+      "at": "2026-09-21T03:15:21Z",
+      "ts": 1789960521,
       "trigger": "self",
-      "prevHead": "fb43845c2",
-      "handoffSha": "sha256:340cd995cf0a4cdc0f88c9ec0addb34c09e97fdc37c114f67c9fa7a8d7fb1081",
-      "handoffAgeSec": 26,
-      "conformanceBefore": "4418/0/4",
-      "commitsInSession": 17
+      "prevHead": "2a61f527e",
+      "handoffSha": "sha256:542cdfc3925c0ddb69c27577178eb284f382df09b40dc213f2ad547ab87f7b64",
+      "handoffAgeSec": 79,
+      "conformanceBefore": "4431/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1789960521-2617",
+        "at": "2026-09-21T03:15:21Z",
+        "ts": 1789960521,
+        "trigger": "self",
+        "prevHead": "2a61f527e",
+        "handoffSha": "sha256:542cdfc3925c0ddb69c27577178eb284f382df09b40dc213f2ad547ab87f7b64",
+        "handoffAgeSec": 79,
+        "conformanceBefore": "4431/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1789947548-3bf6",
         "at": "2026-09-20T23:39:08Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:696d1befda8b65cab9a394c93221fe2caca319e927b1e0275e8ddeb69bbf93c9",
         "handoffAgeSec": 1,
         "conformanceBefore": "4362/0/4",
-        "commitsInSession": 16
-      },
-      {
-        "rotationId": "r-1789835108-0b27",
-        "at": "2026-09-19T16:25:08Z",
-        "ts": 1789835108,
-        "trigger": "self",
-        "prevHead": "dbdfde094",
-        "handoffSha": "sha256:55a9c1356e57f4cc9ee0680f6590e3af62bd31a44e433a47c6c0b2513d0efd6d",
-        "handoffAgeSec": 16,
-        "conformanceBefore": "4352/0/4",
         "commitsInSession": 16
       }
     ],
