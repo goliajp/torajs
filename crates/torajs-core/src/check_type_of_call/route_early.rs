@@ -138,23 +138,11 @@ pub(crate) fn try_route(
     if let Some(r) = crate::check_type_of_call_in_op::try_match_priv(checker, ast, callee, args) {
         return Some(r);
     }
-    // Promise<T>.then / .catch early-route arms (T-19.l 2-arg
-    // shape, T-19.o heterogeneous T→U + P10.7 Promise<Any>,
-    // P10.2-A1.1 Promise<Undefined>, P10.2-A4 Promise<Array<U>>)
-    // — see [`crate::check_type_of_call_promise_then`] (chunk
-    // 207 — first sub-batch of check_type_of_call.rs per-shape
-    // decomposition). All 4 patterns must run BEFORE the
-    // regular method-table dispatch because the table's
-    // static signature fixes arg count and inner-T constraint.
-    // `.finally` is not handled there — its `() => void` shape is
-    // the table arm's, and every OTHER return shape is the arm
-    // below's (§27.2.5.3 declares `onFinally` as `() => any`).
-    if let Some(r) = crate::check_type_of_call_promise_then::try_match(checker, ast, callee, args) {
-        return Some(r);
-    }
-    if let Some(r) =
-        crate::check_type_of_call_promise_finally::try_match(checker, ast, callee, args)
-    {
+    // The promise reaction group (`.then` / `.catch` / `.finally`)
+    // lives in a sibling — see [`super::route_early_promise`]. It
+    // still runs exactly here, and the arms inside it keep their
+    // order relative to each other.
+    if let Some(r) = super::route_early_promise::try_route(checker, ast, callee, args) {
         return Some(r);
     }
     // Global bare-Ident ctor / coercion call shapes

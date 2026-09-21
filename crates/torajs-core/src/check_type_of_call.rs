@@ -25,6 +25,7 @@ mod general;
 mod route_arity_widen;
 mod route_collections;
 mod route_early;
+mod route_early_promise;
 mod route_fn_value;
 mod route_globals;
 mod route_namespace_trailing;
