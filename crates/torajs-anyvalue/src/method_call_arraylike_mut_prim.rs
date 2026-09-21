@@ -74,8 +74,7 @@ pub(crate) unsafe fn prim_mut_method(
             {
                 if m == ANY_METHOD_SORT && argc > 0 {
                     let cmp = *argv;
-                    if !is_undefined(cmp) && !crate::construct::is_callable(cmp)
-                    {
+                    if !is_undefined(cmp) && !crate::construct::is_callable(cmp) {
                         return Some(crate::method_call::not_callable());
                     }
                 }

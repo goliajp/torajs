@@ -433,7 +433,10 @@ unsafe fn arr_method_callback(
             let cb = if is_undefined(arg_at(0)) {
                 None
             } else {
-                Some(crate::callback_resolve::resolve(arg_at(0), VALUE_UNDEFINED)?)
+                Some(crate::callback_resolve::resolve(
+                    arg_at(0),
+                    VALUE_UNDEFINED,
+                )?)
             };
             let (cb_env, cb_entry, has_cb) = match &cb {
                 None => (core::ptr::null_mut(), 0u64, 0i64),

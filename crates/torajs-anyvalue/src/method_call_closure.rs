@@ -354,7 +354,8 @@ pub(crate) unsafe fn dispatch(
                 // name and the proxy falls out as "not a function".
                 if *fam == crate::method_value::family::FN_PROTO_FAMILY
                     && crate::proxy::is_proxy(this_arg)
-                    && let Some(out) = crate::proxy_call::callable_forwarder(this_arg, *mid, argv, argc)
+                    && let Some(out) =
+                        crate::proxy_call::callable_forwarder(this_arg, *mid, argv, argc)
                 {
                     return out;
                 }

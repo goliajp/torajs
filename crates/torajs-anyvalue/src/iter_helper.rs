@@ -24,10 +24,10 @@ use core::ffi::c_void;
 
 // The `{ value, done }` mint lives with the IteratorResult reads;
 // re-exported so the method faces keep their import face.
+use crate::as_void_ptr;
 pub(crate) use crate::iter_any_result::iter_result_obj;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
-use crate::as_void_ptr;
 use torajs_rc::Tag;
 
 /// Helper kinds (the `kind` byte).

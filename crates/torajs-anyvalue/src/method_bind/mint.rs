@@ -10,9 +10,9 @@ use core::ffi::c_void;
 use torajs_rc::Tag;
 
 use super::{
-    BOUND_ARGC_OFF, BOUND_ARGS_OFF, BOUND_KIND_OFF, BOUND_LEN_OFF, BOUND_NAME_OFF, BOUND_THIS_OFF,
-    BOUND_TARGET_OFF, CLOSURE_BOXED_ENTRY_OFF, CLOSURE_DROP_FN_OFF, CLOSURE_FN_ADDR_OFF,
-    CLOSURE_PROPS_OFF, CLOSURE_TRACE_FN_OFF, __torajs_anyv_box_pointer, bound_drop, bound_entry,
+    __torajs_anyv_box_pointer, BOUND_ARGC_OFF, BOUND_ARGS_OFF, BOUND_KIND_OFF, BOUND_LEN_OFF,
+    BOUND_NAME_OFF, BOUND_TARGET_OFF, BOUND_THIS_OFF, CLOSURE_BOXED_ENTRY_OFF, CLOSURE_DROP_FN_OFF,
+    CLOSURE_FN_ADDR_OFF, CLOSURE_PROPS_OFF, CLOSURE_TRACE_FN_OFF, bound_drop, bound_entry,
     bound_layout, bound_trace, native_entry,
 };
 use crate::nanbox::AnyValue;

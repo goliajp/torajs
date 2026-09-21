@@ -18,9 +18,7 @@ use torajs_rc::{
     ANY_METHOD_REDUCE, ANY_METHOD_REDUCE_RIGHT, ANY_METHOD_SOME, Tag,
 };
 
-use crate::method_call::{
-    MAX_BOXED_ARGS, invoke_boxed, not_callable, recv_first_shift,
-};
+use crate::method_call::{MAX_BOXED_ARGS, invoke_boxed, not_callable, recv_first_shift};
 use crate::method_call_arraylike::{arraylike_get, arraylike_has};
 use crate::nanbox::{AnyValue, VALUE_FALSE, VALUE_TRUE, VALUE_UNDEFINED};
 use crate::nanbox_encode::{

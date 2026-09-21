@@ -142,11 +142,7 @@ unsafe fn internalize(
     }
 }
 
-unsafe fn internalize_array_children(
-    val_av: AnyValue,
-    arr: *mut c_void,
-    reviver: AnyValue,
-) {
+unsafe fn internalize_array_children(val_av: AnyValue, arr: *mut c_void, reviver: AnyValue) {
     unsafe {
         let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
         for i in 0..len {
@@ -169,11 +165,7 @@ unsafe fn internalize_array_children(
     }
 }
 
-unsafe fn internalize_object_children(
-    val_av: AnyValue,
-    obj: *mut c_void,
-    reviver: AnyValue,
-) {
+unsafe fn internalize_object_children(val_av: AnyValue, obj: *mut c_void, reviver: AnyValue) {
     unsafe {
         let len = __torajs_dynobj_iter_len(obj);
         if len == 0 {
