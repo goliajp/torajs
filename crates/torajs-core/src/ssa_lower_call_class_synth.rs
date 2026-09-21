@@ -46,6 +46,13 @@ use crate::ssa_lower_call_class_synth_reify as reify;
 use crate::ssa_lower_call_class_synth_reify_computed as reify_computed;
 
 mod class_ref;
+// r682 file-size split — the two `arguments`-object synthesis calls
+// moved to a sibling. They were lodgers here: this file's own doc
+// says "Four arms share the same shape", and the arguments pair is
+// not one of the four — it registers no class and resolves no class
+// name. Parent answers "how a class is told to the runtime"; the
+// sibling answers "how the arguments object is minted and stamped".
+use crate::ssa_lower_call_arguments_synth as arguments_synth;
 
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
@@ -155,8 +162,8 @@ pub(crate) fn try_lower(
         n if n.ends_with("_subclass_alloc_self") || n.contains("_subclass_super") => {
             crate::ssa_lower_call_exotic_subclass::try_lower(ctx, n, args)
         }
-        "__torajs_arguments_materialize" => try_lower_arguments_materialize(ctx, args),
-        "__torajs_arguments_mark" => try_lower_arguments_mark(ctx, args),
+        "__torajs_arguments_materialize" => arguments_synth::try_lower_materialize(ctx, args),
+        "__torajs_arguments_mark" => arguments_synth::try_lower_mark(ctx, args),
         // §10.4.4.6 step 21 — the strict `arguments.callee` read:
         // one no-arg runtime call answering undefined with the
         // pending %ThrowTypeError% TypeError.
@@ -235,54 +242,6 @@ fn try_lower_genfn_chain(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Oper
 }
 
 /// RFC 20260708-closure-argv-face — expand the synthetic
-/// `__torajs_arguments_materialize(__torajs_argv, <argc>)`
-/// call (desugar_arguments_object prepends it to full-arguments
-/// closure bodies) into `arr_alloc_any(argc)` + `arr_any_push(arr,
-/// argv, argc, NULL)`. cap == argc so the push never relocates; the
-/// runtime incs every stored heap cell (argv slots stay borrowed by
-/// the adapter's caller). Result is the fresh Arr<Any> the
-/// `__torajs_arguments: any[]` binding owns (scope drop reclaims).
-fn try_lower_arguments_materialize(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 2 {
-        return None;
-    }
-    let argv = ctx.lower_expr(args[0]);
-    let argc = ctx.lower_expr(args[1]);
-    let arr_id = crate::ssa_lower::intern_arr_layout(ctx.arr_layouts, Type::Any);
-    let arr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_alloc_any, vec![argc.clone()]),
-        Type::Arr(arr_id),
-        None,
-    );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_any_push,
-            vec![Operand::Value(arr), argv, argc, Operand::ConstPtrNull],
-        ),
-    );
-    Some(Operand::Value(arr))
-}
-
-/// `__torajs_arguments_mark(__torajs_arguments)` — the
-/// FLAG_ARR_ARGUMENTS stamp statement both desugar lanes append
-/// right after the mint (§10.4.4 arguments-exotic `"length"`
-/// attributes; the keyed readers gate on the bit). The operand is
-/// the binding's Arr pointer — a borrowed read, no rc movement.
-fn try_lower_arguments_mark(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<Operand> {
-    if args.len() != 1 {
-        return None;
-    }
-    let arr = ctx.lower_expr(args[0]);
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.arr_mark_arguments, vec![arr]),
-    );
-    Some(Operand::ConstI64(0))
-}
-
 /// `__torajs_is_constructor(x)` — §7.2.4 as a predicate: one Any in,
 /// Bool out.
 ///

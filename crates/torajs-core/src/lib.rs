@@ -331,6 +331,7 @@ pub(crate) mod ssa_lower_call_bare_globals;
 pub(crate) mod ssa_lower_call_bigint_as_int_n;
 pub(crate) mod ssa_lower_call_bigint_ctor;
 pub(crate) mod ssa_lower_call_bun_runtime;
+pub(crate) mod ssa_lower_call_arguments_synth;
 pub(crate) mod ssa_lower_call_class_synth;
 pub(crate) mod ssa_lower_call_class_synth_computed_field;
 pub(crate) mod ssa_lower_call_class_synth_ctorret;
