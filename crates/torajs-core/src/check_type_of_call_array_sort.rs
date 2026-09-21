@@ -18,9 +18,11 @@
 //!   default path. (1-arg non-Undefined falls through to the
 //!   regular comparator-type-check path.)
 //! - **S276** 2+-arg `(cmp, ...trailing)` — per ES §23.1.3.
-//!   {30,33} trailing-arg ignore. Accept any `cmp` shape
-//!   (`Function | Any | Undefined`), typecheck-and-drop
-//!   trailing exprs.
+//!   {30,33} trailing-arg ignore. Accepts `Function | Undefined`
+//!   and typechecks-and-drops the trailing exprs. An `Any`
+//!   comparator falls through to the any-lane arm instead: this
+//!   arm answers `Array<elem>`, which keeps the call in the typed
+//!   lane, and the typed comparator site has no `Any` shape.
 //!
 //! Returns `Some(Ok(Array<elem>))` on matched Array-receiver
 //! shapes; `Some(Err(_))` on type_of error in a checked arg;
@@ -85,7 +87,16 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(aty0, Type::Function(..) | Type::Any | Type::Undefined) {
+    // `Any` is NOT admitted here, deliberately. This arm keeps the
+    // call in the typed lane, and the typed lane's comparator site
+    // (`ssa_lower_call_fn_value`) knows only `Closure | FnSig` — an
+    // `Any` comparator reached it and panicked the compiler, so
+    // `xs.sort(p, extra)` was a legal program tr could not build
+    // while `xs.sort(p)` merely refused. Falling through hands both
+    // spellings to `check_type_of_call_arr_hof_any_cb`, which sends
+    // the whole call to the any lane where §7.2.3 is answered at
+    // run time.
+    if !matches!(aty0, Type::Function(..) | Type::Undefined) {
         return None;
     }
     for &a in &args[1..] {

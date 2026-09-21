@@ -24,13 +24,20 @@
 //! bits.
 //!
 //! The allowlist is the method set the any-lane callback kernels
-//! serve MINUS `sort`: sort mutates the receiver in place, and an
-//! in-place any-lane write back into a typed `Arr<T>` block is an
-//! unaudited repr boundary (loud reject keeps it visible).
-//! `findLast` / `findLastIndex` / `flatMap` joined in rotation 401
-//! knife 6 — their kernels (`find_loop` modes 4/5, the flatMap
-//! walk) run the same recv-shifted walk, measured thisArg-correct
-//! on the any-receiver spelling. `toSorted` stays out with sort.
+//! serve. `findLast` / `findLastIndex` / `flatMap` joined in
+//! rotation 401 knife 6 — their kernels (`find_loop` modes 4/5, the
+//! flatMap walk) run the same recv-shifted walk, measured
+//! thisArg-correct on the any-receiver spelling.
+//!
+//! `sort` / `toSorted` joined in rotation 683. They had been held
+//! out on the ground that sort mutates in place and "an in-place
+//! any-lane write back into a typed `Arr<T>` block is an unaudited
+//! repr boundary" — a note written 2026-08-14, while the kernel had
+//! become kind-aware on 2026-07-11: `torajs-arr/src/sort.rs` reboxes
+//! by `header.arr_elem_kind()` and permutes slots in place, and the
+//! lane boundary itself stamps that kind
+//! (`ssa_lower_any_method_call`'s `emit_arr_mark_kind`). The reason
+//! outlived the thing it was about.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -58,6 +65,8 @@ pub(crate) fn try_match(
             | "flatMap"
             | "reduce"
             | "reduceRight"
+            | "sort"
+            | "toSorted"
     ) || args.is_empty()
     {
         return None;
