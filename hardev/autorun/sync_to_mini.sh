@@ -28,6 +28,31 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 [ -f "$REPO/Cargo.toml" ] || { echo "sync_to_mini: $REPO is not the repo root" >&2; exit 2; }
 cd "$REPO"
 
+# Refuse to move source while a gate is running on that tree.
+#
+# A conformance gate exec's `target/<profile>/tr` per fixture, so a
+# build started underneath it swaps the binary mid-run and the two
+# halves of the result belong to different commits. The rule has been
+# written down since rotation 78; rotation 686 broke it twice in one
+# session anyway, both times a few seconds after launching a gate in
+# the background, when the next knife's pre-flight felt like the next
+# thing to do. A rule that is only in a document is a rule that gets
+# skipped while the document is true, so it lives here now, where the
+# skip is not available.
+#
+# Override with SYNC_ALLOW_DURING_GATE=1 when the gate is one you have
+# already decided to discard.
+if [ "${SYNC_ALLOW_DURING_GATE:-0}" != "1" ]; then
+  running="$(ssh "$HOST" 'pgrep -f torajs-conformance | wc -l' 2>/dev/null | tr -d " ")"
+  if [ -n "$running" ] && [ "$running" != "0" ]; then
+    echo "sync_to_mini: a conformance gate is running on $HOST ($running processes)." >&2
+    echo "  Building now would swap the binary under it. Wait for it, or" >&2
+    echo "  kill it and re-run: ssh $HOST pkill -f torajs-conformance" >&2
+    echo "  (SYNC_ALLOW_DURING_GATE=1 to override.)" >&2
+    exit 3
+  fi
+fi
+
 rsync -rlc --no-times --delete --exclude 'target/' crates/ "$HOST:$REMOTE/crates/"
 rsync -rlc --no-times --delete conformance/cases/ "$HOST:$REMOTE/conformance/cases/"
 rsync -rlc --no-times hardev/autorun/ "$HOST:$REMOTE/hardev/autorun/"

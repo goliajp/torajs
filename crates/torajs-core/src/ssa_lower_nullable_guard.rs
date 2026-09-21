@@ -301,10 +301,11 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
 /// ask, and asking only one of them is wrong in both directions: the
 /// TYPE says whether this slot family has a cell at all, and the
 /// SOURCE says whether this particular value could have come from a
-/// road that hands one out. Written out five separate times in one
-/// rotation while closing ToString, JSON.stringify, `+`, `Number()`
-/// and `instanceof`, which is four times too many for a question
-/// with one answer.
+/// road that hands one out. It had eight hand-written copies
+/// before it had a name, two of them inside the any boundary
+/// itself with the halves in the other order — which is seven too
+/// many for a question with one answer, and is how a consumer
+/// ends up asking half of it.
 ///
 /// Consumers that answer `true` here should hand the value to the
 /// any boundary (`box_to_any_from_expr`), which re-encodes the cell

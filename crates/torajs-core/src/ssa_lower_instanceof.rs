@@ -165,9 +165,7 @@ fn lower_named(ctx: &mut LowerCtx<'_>, expr: ExprId, class_name: &str) -> Operan
     // the re-parenting case below already uses — which reads the
     // tag and answers step 3 for the cell and the real walk for a
     // live pointer.
-    if actual_ty.spells_undef_with_generic_cell()
-        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, expr)
-    {
+    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, expr, actual_ty) {
         let boxed = ctx.box_to_any_from_expr(expr, v);
         return lower_any_dispatch(ctx, boxed, class_name);
     }

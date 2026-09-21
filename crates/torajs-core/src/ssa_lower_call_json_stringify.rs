@@ -179,9 +179,7 @@ pub(crate) fn try_lower(
     // Self-gating on the checker's nullable typing: a slot that was
     // never nullable keeps the static unfold, so no program that
     // could not reach the bug pays for it.
-    if arg_ty.spells_undef_with_generic_cell()
-        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, args[0])
-    {
+    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, args[0], arg_ty) {
         let boxed = ctx.box_to_any_from_expr(args[0], arg_op);
         let out = crate::ssa_lower_json_stringify::emit_any_walk(ctx, boxed, gap.clone(), 0);
         if let Some(g) = gap {

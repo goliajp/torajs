@@ -141,9 +141,7 @@ pub(crate) fn emit_to_number(
     // the cell as ANY_UNDEF and the §7.1.4 kernel answers NaN, while
     // a live pointer boxes exactly as the heap arm below boxes it.
     // Self-gating on the checker's nullable typing.
-    if arg_ty.spells_undef_with_generic_cell()
-        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, arg_eid)
-    {
+    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, arg_eid, arg_ty) {
         let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
         let n = ctx.coerce_any_to_number(boxed, Type::F64);
         // A user `valueOf` on the live side can throw.

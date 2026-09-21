@@ -310,9 +310,8 @@ fn emit_case_compare(
         // `case null:` needs nothing — NULL is how null is spelled
         // in the slot, and the bottom arm already compares it.
         // Self-gating on the checker's nullable typing.
-        _ if scrut_ty.spells_undef_with_generic_cell()
-            && is_undefined_literal(ctx, value)
-            && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, scrutinee) =>
+        _ if is_undefined_literal(ctx, value)
+            && crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, scrutinee, scrut_ty) =>
         {
             let sentinel = ctx
                 .str_undef_sentinel_for(scrut_ty)

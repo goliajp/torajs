@@ -77,9 +77,7 @@ pub(crate) fn emit_to_string_inner(
     // §7.1.17 kernel answers "undefined". Self-gating: a slot the
     // checker did not type nullable never reaches it, so no typed
     // spelling moves.
-    if arg_ty.spells_undef_with_generic_cell()
-        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, arg_eid)
-    {
+    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, arg_eid, arg_ty) {
         return emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring);
     }
     match arg_ty {

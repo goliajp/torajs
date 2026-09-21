@@ -87,9 +87,7 @@ impl<'a> LowerCtx<'a> {
         // oddball. Zero branches: tag = 4 + (val == sentinel), and
         // `anyv_box_from_pair` tag 5 ignores the payload. Plain heap
         // sources keep the zero-cmp encoding below.
-        if crate::ssa_lower_nullable_guard::is_undefable_heap_source(self, eid)
-            && val_ty.spells_undef_with_generic_cell()
-        {
+        if crate::ssa_lower_nullable_guard::holds_undef_cell(self, eid, val_ty) {
             // Ownership mirrors box_to_any's refcounted arm (chunk
             // 753 — pure encoding, the caller owns the stake story);
             // the typed-arr kind mark self-gates on the sentinel's
@@ -154,9 +152,7 @@ impl<'a> LowerCtx<'a> {
         // mirrors box_to_tag_value's refcounted arm (slot takes its
         // +1); the inc and the kind mark both no-op on the sentinel
         // through the runtime static gates.
-        if crate::ssa_lower_nullable_guard::is_undefable_heap_source(self, eid)
-            && val_ty.spells_undef_with_generic_cell()
-        {
+        if crate::ssa_lower_nullable_guard::holds_undef_cell(self, eid, val_ty) {
             self.emit_rc_inc(val.clone());
             self.emit_arr_mark_kind(&val);
             let (tag, v) = self.heap_slot_tag_value(val.clone());
