@@ -66,14 +66,6 @@ pub(crate) unsafe fn method_call(
             __torajs_throw_type_error(c"cannot call private method on a Proxy".as_ptr());
             return VALUE_UNDEFINED;
         }
-        // `p.call(t, …)` / `p.apply(t, list)` on a CALLABLE proxy is
-        // still a [[Call]] on the proxy — §20.2.3.3 passes its own
-        // receiver through as the thisArgument, so forwarding the
-        // dispatch to the target would skip the `apply` trap and
-        // hand the target itself the call.
-        if let Some(v) = callable_forwarder(recv, mid, argv, argc) {
-            return v;
-        }
         let Ok(__s) = crate::proxy::live_slots(as_void_ptr(recv)) else {
             return VALUE_UNDEFINED;
         };
@@ -81,6 +73,25 @@ pub(crate) unsafe fn method_call(
         match crate::proxy::trap(handler, b"get") {
             Err(()) => return VALUE_UNDEFINED,
             Ok(None) => {
+                // `p.call(t, …)` / `p.apply(t, list)` / `p.bind(…)`
+                // on a CALLABLE proxy is still an operation on the
+                // PROXY — §20.2.3.3 passes its own receiver through
+                // as the thisArgument, so forwarding the dispatch to
+                // the target would skip the `apply` trap and hand
+                // the target itself the call.
+                //
+                // Only in this branch. With no `get` trap the
+                // §7.3.2 `GetV(p, name)` cannot be observed and
+                // cannot answer anything but the intrinsic, so the
+                // short-circuit is exact. With one, the read is a
+                // fact of the program: it must run, and it may
+                // answer something else entirely. That path resolves
+                // the function below and re-enters this forwarder
+                // through the builtin dispatch once the trap has
+                // handed back the intrinsic.
+                if let Some(v) = callable_forwarder(recv, mid, argv, argc) {
+                    return v;
+                }
                 if let Some(v) = user_method_on_proxy(recv, name_str, argv, argc) {
                     return v;
                 }
@@ -110,7 +121,11 @@ pub(crate) unsafe fn method_call(
             crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
             return VALUE_UNDEFINED;
         }
-        if crate::method_call_closure_dispatch::closure_boxed_entry(f).is_none() {
+        // §7.3.2 step 3's Call — so the question is §7.2.3, and a
+        // trap is free to answer with a class object or another
+        // proxy. Asking for a boxed dual entry admitted only the
+        // closure shape.
+        if !crate::construct::is_callable(f) {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(f);
             __torajs_throw_type_error(c"proxy property is not a function".as_ptr());
             return VALUE_UNDEFINED;
@@ -170,7 +185,7 @@ unsafe fn user_method_on_proxy(
 /// # Safety
 /// `recv` is a live Proxy AnyValue; `argv` points at `argc` slots
 /// alive across the call.
-unsafe fn callable_forwarder(
+pub(crate) unsafe fn callable_forwarder(
     recv: AnyValue,
     mid: i64,
     argv: *const u64,

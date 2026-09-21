@@ -345,6 +345,19 @@ pub(crate) unsafe fn dispatch(
                 {
                     return out;
                 }
+                // §20.2.3.{2,3,4} with a callable Proxy as `this`.
+                // The proxy dispatch short-circuits these three
+                // itself, but only when the handler has no `get`
+                // trap; with one, §7.3.2's read runs first and hands
+                // the intrinsic back here, `this` still the proxy.
+                // Without this arm the re-dispatch below loses the
+                // name and the proxy falls out as "not a function".
+                if *fam == crate::method_value::family::FN_PROTO_FAMILY
+                    && crate::proxy::is_proxy(this_arg)
+                    && let Some(out) = crate::proxy_call::callable_forwarder(this_arg, *mid, argv, argc)
+                {
+                    return out;
+                }
                 if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
                     return out;
                 }
