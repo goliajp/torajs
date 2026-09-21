@@ -14,7 +14,7 @@
 
 use core::ffi::c_void;
 
-use crate::method_call::{MAX_BOXED_ARGS, closure_boxed_entry, recv_first_shift};
+use crate::method_call::{MAX_BOXED_ARGS, recv_first_shift};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
@@ -73,11 +73,13 @@ pub(crate) unsafe fn map_get_or_insert_computed(
         }
     };
     unsafe {
-        let Some((cb_env, cb_entry)) = closure_boxed_entry(cb_av) else {
+        // The proposal's step 4 is IsCallable — §7.2.3, three shapes.
+        let Some(cb) = crate::callback_resolve::resolve(cb_av, VALUE_UNDEFINED) else {
             release_key();
             __torajs_throw_type_error(c"callbackfn is not a function".as_ptr());
             return VALUE_UNDEFINED;
         };
+        let (cb_env, cb_entry) = (cb.env(), cb.entry());
         if p.is_null() {
             release_key();
             return VALUE_UNDEFINED;

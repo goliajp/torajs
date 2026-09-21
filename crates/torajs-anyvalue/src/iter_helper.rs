@@ -25,12 +25,9 @@ use core::ffi::c_void;
 // The `{ value, done }` mint lives with the IteratorResult reads;
 // re-exported so the method faces keep their import face.
 pub(crate) use crate::iter_any_result::iter_result_obj;
-use crate::method_call_closure_dispatch::{
-    closure_cell_entry, invoke_boxed, invoke_boxed_recv_first, recv_first_shift,
-};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
-use crate::{as_void_ptr, is_cell};
+use crate::as_void_ptr;
 use torajs_rc::Tag;
 
 /// Helper kinds (the `kind` byte).
@@ -148,9 +145,9 @@ pub(crate) unsafe fn iter_helper_mint(recv: AnyValue, kind: u8, fn_av: AnyValue)
         }
         n.trunc().to_bits()
     } else {
-        if !is_cell(fn_av)
-            || unsafe { closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) }.is_none()
-        {
+        // §27.1.4.x step 2 IsCallable — §7.2.3, and the cell stores
+        // the VALUE, so no pair has to be carried across the steps.
+        if !unsafe { crate::construct::is_callable(fn_av) } {
             unsafe {
                 close_on_validation_abrupt(recv);
                 __torajs_throw_type_error(c"Iterator helper callback is not a function".as_ptr());
@@ -327,23 +324,20 @@ unsafe fn iter_helper_step_inner(ptr: *mut c_void, out: *mut AnyValue) -> i64 {
                 return 1;
             }
             let fn_av = (ptr.cast::<u8>().add(FN_OFF) as *const u64).read();
-            let Some((env, entry)) = closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) else {
-                // Unreachable by construction (mint validated) —
-                // treat as done rather than UB.
-                crate::nanbox_ffi::__torajs_anyv_rc_dec(item);
-                (ptr.cast::<u8>().add(ALIVE_OFF)).write(0);
-                return 0;
-            };
             // 𝔽(counter) rides the i64 lane (numerically identical).
             let counter_av = crate::__torajs_anyv_box_from_pair(2, counter as i64) as u64;
             let argv = [item, counter_av];
-            // §27.1.4.x 5.b — Call(mapper/predicate, undefined, …):
-            // same receiver-first seeding as the eager consumers.
-            let result = if recv_first_shift(env) != 0 {
-                invoke_boxed_recv_first(env, entry, VALUE_UNDEFINED, argv.as_ptr(), 2)
-            } else {
-                invoke_boxed(env, entry, argv.as_ptr(), 2)
-            };
+            // §27.1.4.x 5.b — Call(mapper/predicate, undefined, …).
+            // The cell holds the callable itself, so the call is the
+            // ordinary explicit-`this` kernel: it knows all three of
+            // §7.2.3's shapes and does the receiver-first seeding
+            // the eager consumers do, in one place.
+            let result = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+                fn_av,
+                VALUE_UNDEFINED,
+                argv.as_ptr(),
+                2,
+            );
             if __torajs_throw_check() != 0 {
                 // §27.1.4.6 step 5.b.v — callback threw: close the
                 // underlying (under the stashed throw, so its

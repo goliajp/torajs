@@ -8,11 +8,10 @@
 use core::ffi::c_void;
 
 use crate::method_call_closure_dispatch::{
-    closure_cell_entry, invoke_boxed, invoke_boxed_recv_first, recv_first_shift,
+    invoke_boxed, invoke_boxed_recv_first, recv_first_shift,
 };
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
-use crate::{as_void_ptr, is_cell};
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
@@ -79,14 +78,14 @@ pub(crate) unsafe fn iter_eager(
         } else {
             VALUE_UNDEFINED
         };
-        let Some((env, entry)) = (if is_cell(fn_av) {
-            closure_cell_entry(as_void_ptr(fn_av) as *mut c_void)
-        } else {
-            None
-        }) else {
+        // §27.1.4.x step 2 IsCallable — §7.2.3's three shapes; a
+        // shape with no pair of its own gets a thunk, owned by
+        // `own` for the whole walk below.
+        let Some(own) = crate::callback_resolve::resolve(fn_av, VALUE_UNDEFINED) else {
             __torajs_throw_type_error(c"Iterator helper callback is not a function".as_ptr());
             return VALUE_UNDEFINED;
         };
+        let (env, entry) = (own.env(), own.entry());
         let recv = ptr as u64;
         // §27.1.4.x step 3 GetIteratorDirect — the callable check
         // above precedes the one next-method Get, per spec order.

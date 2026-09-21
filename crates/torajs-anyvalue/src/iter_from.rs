@@ -22,7 +22,7 @@ use crate::iter_helper::{
     ALIVE_OFF, COUNTER_OFF, FN_OFF, INNER_OFF, UNDERLYING_OFF, iter_helper_mint_wrap,
     iter_result_obj,
 };
-use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_boxed, invoke_with_this};
+use crate::method_call_closure_dispatch::{closure_cell_entry, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_short_str};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
 use torajs_rc::Tag;
@@ -244,15 +244,21 @@ pub(crate) unsafe fn iter_flat_map_step(ptr: *mut c_void, out: *mut AnyValue) ->
             let counter = (p.add(COUNTER_OFF) as *const u64).read();
             (p.add(COUNTER_OFF) as *mut u64).write(counter + 1);
             let fn_av = (p.add(FN_OFF) as *const u64).read();
-            let Some((env, entry)) = closure_cell_entry(as_void_ptr(fn_av) as *mut c_void) else {
-                // Unreachable by construction (mint validated).
-                __torajs_anyv_rc_dec(item);
-                (p.add(ALIVE_OFF)).write(0);
-                return 0;
-            };
             let counter_av = crate::__torajs_anyv_box_from_pair(2, counter as i64) as u64;
             let argv = [item, counter_av];
-            let mapped = invoke_boxed(env, entry, argv.as_ptr(), 2);
+            // §27.1.4.5 step 5.b — Call(mapper, undefined, …). The
+            // cell holds the callable itself, so this is the
+            // ordinary explicit-`this` kernel, which knows all three
+            // of §7.2.3's shapes. Probing for a closure-cell pair
+            // here found none for a Proxy mapper and read that as
+            // "iterator exhausted": `.flatMap(proxyFn)` answered an
+            // EMPTY sequence, with no throw.
+            let mapped = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+                fn_av,
+                crate::nanbox::VALUE_UNDEFINED,
+                argv.as_ptr(),
+                2,
+            );
             __torajs_anyv_rc_dec(item);
             if __torajs_throw_check() != 0 {
                 // Step 5.b.iv — mapper threw: close the outer

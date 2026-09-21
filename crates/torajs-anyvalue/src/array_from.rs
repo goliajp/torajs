@@ -36,7 +36,6 @@ use crate::iter_any_get_method::{
     GetIterator, generic_iter_close, generic_iter_step, get_iterator,
 };
 use crate::method_call_arr_species::{store_elem, write_product_length};
-use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, box_int32, box_void_ptr, is_undefined};
 
 unsafe extern "C" {
@@ -53,7 +52,12 @@ unsafe extern "C" {
 
 /// The mapfn face after the step-2 gate: `None` = no mapping,
 /// `Some((env, entry))` = the boxed callable pair.
-pub(crate) type MapPair = Option<(*mut c_void, u64)>;
+/// §23.1.2.1 step 4's mapfn, or `None` when absent. It holds the
+/// VALUE: step 4.a asks IsCallable (§7.2.3), and two of the three
+/// shapes that answers for have no (env, boxed entry) pair, so a
+/// pair could only ever carry one of them. The thisArg is also
+/// per-call here, which a pair cannot carry either.
+pub(crate) type MapPair = Option<AnyValue>;
 
 /// The typed lowering's escape route (B6 刀 3 —
 /// `from_mapfn_routes_kernel` shapes): a direct `Array.from(src,
@@ -101,12 +105,11 @@ pub(crate) unsafe fn mapping_gate(mapfn: AnyValue, msg: &core::ffi::CStr) -> Res
         if is_undefined(mapfn) {
             return Ok(None);
         }
-        match closure_boxed_entry(mapfn) {
-            Some(pair) => Ok(Some(pair)),
-            None => {
-                __torajs_throw_type_error(msg.as_ptr());
-                Err(())
-            }
+        if crate::construct::is_callable(mapfn) {
+            Ok(Some(mapfn))
+        } else {
+            __torajs_throw_type_error(msg.as_ptr());
+            Err(())
         }
     }
 }
@@ -168,11 +171,16 @@ pub(crate) unsafe fn map_elem(
     k: i64,
 ) -> Result<AnyValue, ()> {
     unsafe {
-        let Some((env, entry)) = map_pair else {
+        let Some(mapfn) = map_pair else {
             return Ok(owned);
         };
         let call_argv = [owned, box_int32(k as i32) as u64];
-        let mapped = invoke_with_this(env, entry, this_arg, call_argv.as_ptr(), 2);
+        let mapped = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+            mapfn,
+            this_arg,
+            call_argv.as_ptr(),
+            2,
+        );
         crate::nanbox_ffi::__torajs_anyv_rc_dec(owned);
         if __torajs_throw_check() != 0 {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(mapped);

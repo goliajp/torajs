@@ -228,15 +228,19 @@ unsafe fn weakmap_upsert(
     computed: bool,
 ) -> AnyValue {
     unsafe {
-        let cb = if computed {
-            let Some(pair) = crate::method_call::closure_boxed_entry(arg_av) else {
+        // Same §7.2.3 gate as the Map twin; `own` keeps a minted
+        // thunk alive for as long as the pair is in hand.
+        let own = if computed {
+            let Some(c) = crate::callback_resolve::resolve(arg_av, crate::nanbox::VALUE_UNDEFINED)
+            else {
                 __torajs_throw_type_error(c"callbackfn is not a function".as_ptr());
                 return VALUE_UNDEFINED;
             };
-            Some(pair)
+            Some(c)
         } else {
             None
         };
+        let cb = own.as_ref().map(|c| (c.env(), c.entry()));
         if __torajs_weakmap_has(ptr, key) != 0 {
             // Kernel hit comes +1-owned (the `get` contract above).
             return __torajs_weakmap_get(ptr, key);
