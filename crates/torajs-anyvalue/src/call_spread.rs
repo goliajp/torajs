@@ -10,17 +10,18 @@
 //! Each kernel converts the array's 16-byte tag/value slots into
 //! the 8-byte NaN-box argv the dispatch layer speaks
 //! (`__torajs_arr_get_any_boxed` — a BORROW per slot, the array
-//! keeps every element's stake alive across the call) and enters
-//! the same dispatch tail as its fixed-argc twin: the closure boxed
-//! dual entry for a bare call, `any_method_call_inner` + the
-//! builtin-proto patch consult for a method call. argv slots stay
-//! borrowed; the caller drops the args array after the call, which
-//! releases the elements.
+//! keeps every element's stake alive across the call) and then
+//! CALLS its fixed-argc twin. Unpacking the list is the whole of
+//! what a spread adds; every verdict about the callee belongs to
+//! the twin, and a kernel here that re-states one will drift from
+//! it (the bare-call kernel did, and lost two of §7.2.3's three
+//! callable shapes). argv slots stay borrowed; the caller drops the
+//! args array after the call, which releases the elements.
 
 use core::ffi::c_void;
 
 use crate::method_call::{ANY_METHOD_NO_SUCH, any_method_call_inner, not_callable};
-use crate::method_call_closure_dispatch::{MAX_BOXED_ARGS, closure_boxed_entry, invoke_with_this};
+use crate::method_call_closure_dispatch::MAX_BOXED_ARGS;
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 
 unsafe extern "C" {
@@ -59,11 +60,17 @@ unsafe fn with_argv<F: FnOnce(*const u64, i64) -> AnyValue>(
     }
 }
 
-/// `f(a, ...xs)` — the bare-callee flavor. Same verdict split as
-/// [`crate::method_call_closure_dispatch::__torajs_any_call`]: a
-/// closure cell with a boxed dual entry invokes (thisArg undefined
-/// per §10.2.1.2 strict OrdinaryCallBindThis), anything else is a
-/// catchable TypeError.
+/// `f(a, ...xs)` — the bare-callee flavor. Unpacks the array and
+/// enters [`crate::method_call_closure_dispatch::__torajs_any_call`],
+/// the same way the construct and super-method kernels below enter
+/// their own twins: §7.2.3 says three shapes are callable, and the
+/// twin is where all three are written down.
+///
+/// It used to re-implement the tail with the closure arm alone, so
+/// `f(...xs)` refused a callable Proxy and a class object that
+/// `f(x)` on the very same value accepted — the spread was not a
+/// different operation, only a different spelling of the argument
+/// list.
 ///
 /// # Safety
 /// `recv` is a valid AnyValue; `args_arr` is a live `Array<Any>`
@@ -74,12 +81,9 @@ pub unsafe extern "C" fn __torajs_any_call_spread(
     args_arr: *const c_void,
 ) -> AnyValue {
     unsafe {
-        if let Some((env, entry)) = closure_boxed_entry(recv) {
-            return with_argv(args_arr, |argv, argc| {
-                invoke_with_this(env, entry, VALUE_UNDEFINED, argv, argc)
-            });
-        }
-        not_callable()
+        with_argv(args_arr, |argv, argc| {
+            crate::method_call_closure_dispatch::__torajs_any_call(recv, argv, argc)
+        })
     }
 }
 
