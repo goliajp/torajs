@@ -173,6 +173,7 @@ mod member_set_receiver;
 mod member_set_struct;
 mod member_set_symbol;
 mod member_set_wrapper;
+mod callback_resolve;
 mod method_bind;
 mod method_call;
 pub(crate) mod method_call_bool;

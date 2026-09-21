@@ -55,8 +55,6 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::Tag;
-
 use crate::method_call::{MAX_BOXED_ARGS, not_callable};
 use crate::method_value::{builtin_method_family, builtin_method_mid, native_entry};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
@@ -85,6 +83,12 @@ const CLOSURE_DROP_FN_OFF: usize = 16;
 const CLOSURE_PROPS_OFF: usize = 24;
 const CLOSURE_BOXED_ENTRY_OFF: usize = 32;
 const CLOSURE_TRACE_FN_OFF: usize = 40;
+// r682 file-size split — "how a bound cell is made" moved to the
+// child module (the parent crossed 500 when the callback thunk
+// joined it). Same-crate child: every private item here stays
+// reachable through `super::`.
+pub(crate) mod mint;
+
 const BOUND_KIND_OFF: usize = 48;
 const BOUND_TARGET_OFF: usize = 56;
 const BOUND_THIS_OFF: usize = 64;
@@ -144,30 +148,7 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
             return VALUE_UNDEFINED;
         }
 
-        let cell = std::alloc::alloc_zeroed(bound_layout(n));
-        *(cell as *mut u32) = 1;
-        *(cell.add(4) as *mut u16) = Tag::Closure as u16;
-        *(cell.add(6) as *mut u16) = 0;
-        *(cell.add(CLOSURE_FN_ADDR_OFF) as *mut u64) = native_entry as *const () as u64;
-        *(cell.add(CLOSURE_DROP_FN_OFF) as *mut u64) = bound_drop as *const () as u64;
-        *(cell.add(CLOSURE_PROPS_OFF) as *mut u64) = 0;
-        *(cell.add(CLOSURE_BOXED_ENTRY_OFF) as *mut u64) = bound_entry as *const () as u64;
-        *(cell.add(CLOSURE_TRACE_FN_OFF) as *mut u64) = bound_trace as *const () as u64;
-        *(cell.add(BOUND_KIND_OFF) as *mut u64) = kind;
-        *(cell.add(BOUND_TARGET_OFF) as *mut u64) = target;
-        // The cell takes its own stake on the captured values
-        // (NaN-box-safe: immediates no-op).
-        crate::nanbox_ffi::__torajs_anyv_rc_inc(this_arg);
-        *(cell.add(BOUND_THIS_OFF) as *mut u64) = this_arg;
-        *(cell.add(BOUND_ARGC_OFF) as *mut u64) = n as u64;
-        *(cell.add(BOUND_LEN_OFF) as *mut f64) = len;
-        *(cell.add(BOUND_NAME_OFF) as *mut u64) = name as u64;
-        for i in 0..n {
-            let av = *argv.add(1 + i);
-            crate::nanbox_ffi::__torajs_anyv_rc_inc(av);
-            *(cell.add(BOUND_ARGS_OFF + i * 8) as *mut u64) = av;
-        }
-        __torajs_anyv_box_pointer(cell as *mut c_void)
+        mint::mint_bound(kind, target, this_arg, argv.add(1), n, len, name)
     }
 }
 

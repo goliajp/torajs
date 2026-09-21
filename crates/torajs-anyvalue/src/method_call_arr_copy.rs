@@ -17,7 +17,7 @@ use torajs_rc::{
 };
 
 use crate::index_any::MIRROR_ARR_LEN_OFF;
-use crate::method_call::{closure_boxed_entry, method_no_such, not_callable, to_index};
+use crate::method_call::{method_no_such, not_callable, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_undefined};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
 
@@ -169,9 +169,10 @@ pub(crate) unsafe fn arr_method_ext(
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
             m if m == ANY_METHOD_FLAT_MAP => {
-                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+                let Some(cb) = crate::callback_resolve::resolve(arg_at(0), arg_at(1)) else {
                     return not_callable();
                 };
+                let (cb_env, cb_entry) = (cb.env(), cb.entry());
                 let mapped = __torajs_arr_any_map(arr, cb_env, cb_entry, arg_at(1));
                 if !is_cell(mapped) {
                     // Callback threw — the pending throw propagates.
@@ -183,9 +184,10 @@ pub(crate) unsafe fn arr_method_ext(
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
             m if m == ANY_METHOD_FIND_LAST || m == ANY_METHOD_FIND_LAST_INDEX => {
-                let Some((cb_env, cb_entry)) = closure_boxed_entry(arg_at(0)) else {
+                let Some(cb) = crate::callback_resolve::resolve(arg_at(0), arg_at(1)) else {
                     return not_callable();
                 };
+                let (cb_env, cb_entry) = (cb.env(), cb.entry());
                 if m == ANY_METHOD_FIND_LAST {
                     __torajs_arr_any_find_last(arr, cb_env, cb_entry, arg_at(1))
                 } else {
@@ -214,13 +216,18 @@ pub(crate) unsafe fn arr_method_ext(
                 // §23.1.3.34 — comparator admit mirrors the base
                 // arm's sort (resolve BEFORE the copy so a
                 // non-callable doesn't leak the fresh array).
-                let (cb_env, cb_entry, has_cb) = if is_undefined(arg_at(0)) {
-                    (core::ptr::null_mut(), 0u64, 0i64)
+                let cb = if is_undefined(arg_at(0)) {
+                    None
                 } else {
-                    let Some((e, en)) = closure_boxed_entry(arg_at(0)) else {
+                    let Some(c) = crate::callback_resolve::resolve(arg_at(0), VALUE_UNDEFINED)
+                    else {
                         return not_callable();
                     };
-                    (e, en, 1)
+                    Some(c)
+                };
+                let (cb_env, cb_entry, has_cb) = match &cb {
+                    None => (core::ptr::null_mut(), 0u64, 0i64),
+                    Some(c) => (c.env(), c.entry(), 1),
                 };
                 let p = __torajs_arr_any_slice(arr as *const u8, 0, i64::MAX);
                 let q = __torajs_arr_any_sort(p, cb_env, cb_entry, has_cb);

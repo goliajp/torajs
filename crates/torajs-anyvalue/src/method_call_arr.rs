@@ -20,7 +20,7 @@ use torajs_rc::{
 };
 
 use crate::index_any::MIRROR_ARR_LEN_OFF;
-use crate::method_call::{closure_boxed_entry, not_callable, to_index};
+use crate::method_call::{not_callable, to_index};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_undefined};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_i64, __torajs_anyv_box_pointer,
@@ -388,7 +388,7 @@ unsafe fn arr_method_inner(
 
 /// `true` iff `mid` is a callback-shaped method (`arg_at(0)` is a
 /// callable / comparator whose entry pair the [`arr_method_callback`]
-/// helper reads via [`closure_boxed_entry`]).
+/// helper reads via [`crate::callback_resolve::resolve`]).
 fn is_callback_method(mid: i64) -> bool {
     mid == ANY_METHOD_MAP
         || mid == ANY_METHOD_FILTER
@@ -427,18 +427,30 @@ unsafe fn arr_method_callback(
         if mid == ANY_METHOD_SORT {
             // §23.1.3.30 step 1 — an undefined comparator is the
             // ToString default; a present non-callable throws.
-            let (cb_env, cb_entry, has_cb) = if is_undefined(arg_at(0)) {
-                (core::ptr::null_mut(), 0u64, 0i64)
+            // §7.2.3 decides "callable", not the closure probe: the
+            // comparator is called with `this` undefined (step 4's
+            // Call passes it), so the thunk carries that.
+            let cb = if is_undefined(arg_at(0)) {
+                None
             } else {
-                let (e, en) = closure_boxed_entry(arg_at(0))?;
-                (e, en, 1)
+                Some(crate::callback_resolve::resolve(arg_at(0), VALUE_UNDEFINED)?)
+            };
+            let (cb_env, cb_entry, has_cb) = match &cb {
+                None => (core::ptr::null_mut(), 0u64, 0i64),
+                Some(c) => (c.env(), c.entry(), 1),
             };
             let p = __torajs_arr_any_sort(arr as *mut u8, cb_env, cb_entry, has_cb);
             // The receiver is the return value (chaining).
             torajs_rc::__torajs_rc_inc(p as *mut c_void);
             return Some(__torajs_anyv_box_pointer(p as *mut c_void));
         }
-        let (cb_env, cb_entry) = closure_boxed_entry(arg_at(0))?;
+        // §23.1.3.x step 2 is IsCallable(callbackfn), and step 3's
+        // Call hands it `thisArg`. A real closure takes thisArg
+        // through the kernel's receiver channel below; a thunk
+        // carries it, and the kernel drops its copy because a thunk
+        // is not receiver-first.
+        let cb = crate::callback_resolve::resolve(arg_at(0), arg_at(1))?;
+        let (cb_env, cb_entry) = (cb.env(), cb.entry());
         let raw = if mid == ANY_METHOD_MAP {
             __torajs_arr_any_map(arr, cb_env, cb_entry, arg_at(1))
         } else if mid == ANY_METHOD_FILTER {
