@@ -325,15 +325,15 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
         // called `"a-b".split("-")` an arguments object. Until the
         // identity has a signal of its own, both answer "Array".
         t if t == Tag::Arr as u16 => b"Array",
-        t if t == Tag::Closure as u16 => b"Function",
-        // §20.1.3.6 step 6 — IsCallable answers the "Function" badge.
-        // A class constructor is a dynobj carrying [[Call]] via
-        // FLAG_DYNOBJ_CLASS_CTOR (420-06).
-        t if t == Tag::DynObj as u16
-            && unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() }
-                & torajs_rc::FLAG_DYNOBJ_CLASS_CTOR
-                != 0 =>
-        {
+        // §20.1.3.6 step 6 — the badge IS IsCallable, so it is §7.2.3
+        // and nothing else. Spelling the shapes out here named two of
+        // the three (a closure cell; a class object, which is a dynobj
+        // carrying [[Call]] via FLAG_DYNOBJ_CLASS_CTOR, 420-06) and
+        // missed the callable Proxy, which fell past every arm to
+        // "Object". Step 4's Array is above and step 11's Date /
+        // step 12's RegExp are below, so the shared ask sits exactly
+        // here and the walk keeps spec order.
+        _ if unsafe { crate::construct::is_callable(crate::nanbox::box_void_ptr(ptr)) } => {
             b"Function"
         }
         t if t == Tag::Date as u16 => b"Date",
