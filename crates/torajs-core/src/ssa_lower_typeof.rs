@@ -278,8 +278,7 @@ fn lower_by_ssa_type_inner(ctx: &mut LowerCtx<'_>, expr: ExprId, v: Operand, ty:
         // instead of the static fold, answering with whatever name
         // the live value would have carried. Everything else keeps
         // the zero-cost literal.
-        t if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, expr, t) =>
-        {
+        t if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, expr, t) => {
             let live = static_type_name(t);
             return crate::ssa_lower_typeof_runtime::emit_heap_typeof_runtime(ctx, v, live);
         }

@@ -63,7 +63,6 @@ fn nullish_clause_is_reachable(scrut_ty: &Type, clause_ty: &Type) -> bool {
     )
 }
 
-
 pub(crate) fn check_switch(
     checker: &mut Checker,
     ast: &Ast,

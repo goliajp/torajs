@@ -25,10 +25,10 @@
 
 use crate::ast::{Expr, ExprId};
 
+use crate::ssa_lower::LowerCtx;
 pub(crate) use crate::ssa_lower_nullable_guard_emit::{
     emit_nullable_arr_guard, emit_nullable_str_guard, emit_undefable_heap_guard,
 };
-use crate::ssa_lower::LowerCtx;
 
 /// True when `obj`'s value may legally be null per the checker's
 /// Nullable<Array> typing (exec/match result).
@@ -311,11 +311,7 @@ pub(crate) fn is_undefable_heap_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool 
 /// any boundary (`box_to_any_from_expr`), which re-encodes the cell
 /// as ANY_UNDEF, rather than reading it as a live value of its
 /// static type.
-pub(crate) fn holds_undef_cell(
-    ctx: &LowerCtx<'_>,
-    eid: ExprId,
-    ty: crate::ssa::Type,
-) -> bool {
+pub(crate) fn holds_undef_cell(ctx: &LowerCtx<'_>, eid: ExprId, ty: crate::ssa::Type) -> bool {
     ty.spells_undef_with_generic_cell() && is_undefable_heap_source(ctx, eid)
 }
 
