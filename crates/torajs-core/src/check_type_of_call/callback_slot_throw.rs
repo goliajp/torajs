@@ -42,7 +42,7 @@
 //! false, throw a TypeError exception", and nothing rides along.
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::Type;
+use crate::check::{Checker, Type};
 
 /// The runtime's own words for a value that resolved and cannot be
 /// invoked (`torajs_anyvalue::method_call::not_callable`), so the
@@ -53,6 +53,7 @@ const MSG: &str = "value is not a function on this any receiver";
 /// `Some(message)` when this call is certain to reach a spec step
 /// that asks IsCallable of an argument and to fail it.
 pub(super) fn message_for(
+    checker: &mut Checker,
     ast: &Ast,
     callee: ExprId,
     param_ty: &Type,
@@ -61,9 +62,29 @@ pub(super) fn message_for(
     if !matches!(param_ty, Type::Function(..)) {
         return None;
     }
-    let Expr::Member { name, .. } = ast.get_expr(callee) else {
+    let Expr::Member { obj, name } = ast.get_expr(callee) else {
         return None;
     };
+    // The RECEIVER has to be a builtin collection, not just the
+    // method name. A user object can own a property called `map`
+    // whose function never calls what it is handed — `({ map: (cb)
+    // => "no" }).map({})` answers "no" in every engine — and there
+    // is no spec clause about it, so the honest answer there is the
+    // ordinary type error (§7.2 first tier: statically provable and
+    // no runtime semantics to defer to). Keyed on the name alone
+    // this turned that refusal into a wrong TypeError, which is a
+    // worse trade than the refusal. Class methods do not reach here
+    // at all — desugaring rewrites them to an Ident callee — but
+    // object literals keep their Member spelling, so the check has
+    // to be written rather than inherited.
+    let recv_ok = match checker.type_of(ast, *obj) {
+        Ok(Type::Array(_)) => true,
+        Ok(Type::Map) | Ok(Type::Set) => name == "forEach",
+        _ => false,
+    };
+    if !recv_ok {
+        return None;
+    }
     if !matches!(
         name.as_str(),
         "map"

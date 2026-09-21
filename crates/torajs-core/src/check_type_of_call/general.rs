@@ -175,7 +175,7 @@ pub(crate) fn general_call(
             // so refusing the program here would be the static-subset
             // answer. See `super::callback_slot_throw`.
             if let Some(msg) =
-                super::callback_slot_throw::message_for(ast, *callee, param_ty, &arg_ty)
+                super::callback_slot_throw::message_for(checker, ast, *callee, param_ty, &arg_ty)
             {
                 for &rest in &args[i + 1..] {
                     checker.type_of(ast, rest)?;

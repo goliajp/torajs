@@ -78,3 +78,22 @@ console.log("toSorted undef   ", attempt(() => [3, 1, 2].toSorted(undefined).joi
 // And a real callback is untouched — this keeps its typed lane.
 console.log("typed callback   ", [1, 2, 3].filter((x: number) => x > 1).join(","));
 console.log("typed find       ", String([1, 2, 3].find((x: number) => x > 1)));
+
+// The RECEIVER is checked too, not just the method name — but that
+// half CANNOT be pinned here. A user object can own a `map` whose
+// function never calls what it is handed
+// (`({ map: (cb) => "no" }).map({})` answers "no" in every engine),
+// and no spec clause says otherwise, so the right answer there is
+// the ordinary type error — which refuses the whole program and so
+// cannot share a fixture with runnable rows. The runner AOT-builds
+// every case, so there is no refusal-fixture shape either. Keyed on
+// the method name alone that pair answered `threw:TypeError`; the
+// receiver check is what makes it a refusal again, and it is
+// registered rather than pinned.
+//
+// Map and Set forEach DO say throw (§24.1.3.5 step 3 / §24.2.3.6
+// step 3), so they are named on the receiver side.
+const m = new Map<any, any>([[1, 2]]);
+console.log("map forEach obj  ", attempt(() => m.forEach({})));
+const st = new Set<any>([1]);
+console.log("set forEach num  ", attempt(() => st.forEach(5)));
