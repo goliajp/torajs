@@ -64,9 +64,11 @@ use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 mod dynamic;
+mod fold;
 mod tags;
 
 use dynamic::{emit_has_instance, has_any_encoding, lower_general_rhs, try_lower_dynamic_target};
+use fold::{builtin_proto_tag, try_compile_time_fold};
 use tags::{compute_descendant_tags, generic_half_tags};
 
 /// Which of the two lanes the right-hand side takes.
@@ -189,55 +191,6 @@ fn lower_iterator_instanceof(ctx: &mut LowerCtx<'_>, v: Operand, actual_ty: Type
     Operand::Value(r)
 }
 
-fn try_compile_time_fold(actual_ty: Type, class_name: &str) -> Option<bool> {
-    if matches!(actual_ty, Type::Any) {
-        return match class_name {
-            // RFC 20260716 刀 2 — `x instanceof {Number,String,Boolean}`
-            // for Any x now dispatches at runtime against
-            // Tag::*Wrapper; Symbol joined 2026-08-19 (`Object(sym)`
-            // mints a Tag::SymbolWrapper = 24 cell, surfaced by the
-            // deepEqual.js boxed-symbol self-test). BigInt stays
-            // compile-time false — `Object(bigint)` performs no
-            // boxing today, so no wrapper cell can ever exist.
-            "BigInt" => Some(false),
-            _ => None,
-        };
-    }
-    match (class_name, &actual_ty) {
-        ("Array", Type::Arr(_)) => Some(true),
-        ("Array", _) => Some(false),
-        ("Function", Type::Closure(_)) | ("Function", Type::FnSig(_)) => Some(true),
-        ("Function", _) => Some(false),
-        ("Object", Type::Obj(_)) => Some(true),
-        ("Object", Type::Arr(_)) => Some(true),
-        ("Object", Type::Date) => Some(true),
-        ("Object", Type::RegExp) => Some(true),
-        ("Object", Type::Promise) => Some(true),
-        ("Object", Type::Map | Type::Set | Type::WeakMap | Type::WeakSet) => Some(true),
-        ("Object", Type::MapIter | Type::ArrIter) => Some(true),
-        ("Object", Type::Closure(_)) | ("Object", Type::FnSig(_)) => Some(true),
-        ("Object", _) => Some(false),
-        ("Number" | "String" | "Boolean" | "BigInt" | "Symbol", _) => Some(false),
-        ("Date", Type::Date) => Some(true),
-        ("Date", _) => Some(false),
-        ("RegExp", Type::RegExp) => Some(true),
-        ("RegExp", _) => Some(false),
-        ("Promise", Type::Promise) => Some(true),
-        ("Promise", _) => Some(false),
-        ("Map", Type::Map) => Some(true),
-        ("Map", _) => Some(false),
-        ("Set", Type::Set) => Some(true),
-        ("Set", _) => Some(false),
-        ("WeakMap", Type::WeakMap) => Some(true),
-        ("WeakMap", _) => Some(false),
-        ("WeakSet", Type::WeakSet) => Some(true),
-        ("WeakSet", _) => Some(false),
-        ("WeakRef", Type::WeakRef) => Some(true),
-        ("WeakRef", _) => Some(false),
-        _ => None,
-    }
-}
-
 fn lower_any_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {
     // RFC 20260823-typedarray-substrate 刀 2 — the eleven typed
     // arrays share ONE heap tag, so the tag test every other builtin
@@ -358,29 +311,6 @@ fn try_lower_fn_value(ctx: &mut LowerCtx<'_>, v_any: Operand, class_name: &str) 
         ctx, &fwd, fid, closure_ty, false,
     )?;
     Some(emit_has_instance(ctx, v_any, cell, Some(closure_ty)))
-}
-
-fn builtin_proto_tag(class_name: &str) -> Option<i64> {
-    Some(match class_name {
-        "Number" => 0,
-        "Array" => 2,
-        "String" => 3,
-        "Boolean" => 4,
-        "Symbol" => 5,
-        "RegExp" => 7,
-        "Date" => 8,
-        "Promise" => 10,
-        "Map" => 11,
-        "Set" => 12,
-        "Function" => 13,
-        "WeakMap" => 16,
-        "WeakSet" => 17,
-        "WeakRef" => 18,
-        "ArrayBuffer" => 19,
-        "DataView" => 32,
-        "FinalizationRegistry" => 39,
-        _ => return None,
-    })
 }
 
 fn lower_typed_obj_dispatch(ctx: &mut LowerCtx<'_>, v: Operand, class_name: &str) -> Operand {
