@@ -213,7 +213,7 @@ impl Checker {
                 // (array holes) are recorded loud boundaries. The
                 // absent-key case is legal (answers true), so only
                 // the receiver is typechecked — never the property.
-                crate::check_type_of_misc::check_delete(self, ast, *expr)
+                crate::check_type_of_delete::check_delete(self, ast, *expr)
             }
             Expr::Nullish { lhs, rhs } => {
                 // `lhs ?? rhs` — Nullable/Null/Undef/Any lhs +
