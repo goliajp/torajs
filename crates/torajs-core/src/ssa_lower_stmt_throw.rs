@@ -139,6 +139,31 @@ pub(crate) fn lower(ctx: &mut LowerCtx, eid: ExprId) {
             Type::Ptr if matches!(v, Operand::ConstPtrNull) => {
                 (Operand::ConstI64(0), Operand::ConstI64(0))
             }
+            // A pointer-shaped slot the checker typed `T | undefined`
+            // is holding undefined whenever it holds the generic
+            // immortal cell, and the arm below tags every refcounted
+            // pointer ANY_HEAP regardless: `throw q` handed the catch
+            // binding a heap value whose `typeof` was "object" and
+            // whose text was "[object Object]", where every engine
+            // gives back `undefined`.
+            //
+            // The verdict is a run-time one — the same slot can be
+            // holding a live pointer — so it takes the encoding built
+            // for exactly this, the one `box_to_any_from_expr` and
+            // `lower_to_tag_value_raw` already use: `tag = 4 + (val ==
+            // cell)`, branchless, payload ignored on the undefined
+            // side. The retain and the kind mark stay: both no-op on
+            // the sentinel through their runtime static gates, and
+            // the live side needs them exactly as before.
+            _ if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, src_eid, v_ty) => {
+                let needs_retain = matches!(ctx.ast.get_expr(src_eid), Expr::Ident(_))
+                    || !ctx.expr_transfers_ownership(src_eid);
+                if needs_retain {
+                    ctx.emit_rc_inc(v.clone());
+                }
+                ctx.emit_arr_mark_kind(&v);
+                ctx.heap_slot_tag_value(v)
+            }
             _ if v_ty.is_refcounted() => {
                 // Any read that does not already hand its reference
                 // over — a binding (owned or borrowed), a member or
