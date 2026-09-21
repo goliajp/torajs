@@ -272,16 +272,20 @@ pub unsafe extern "C" fn __torajs_str_replace_any_repl(
     all: i64,
 ) -> *mut c_void {
     unsafe {
-        if is_cell(repl_av) {
-            let p = as_void_ptr(repl_av);
-            let tag = (p.cast::<u8>().add(4) as *const u16).read();
-            if tag == Tag::Closure as u16 {
-                return if all != 0 {
-                    __torajs_str_replace_all_fn(s, needle, p)
-                } else {
-                    __torajs_str_replace_fn(s, needle, p)
-                };
-            }
+        // §7.2.3, not "is this a closure cell": a callable Proxy
+        // and a class object are callable too, and answering no
+        // here does not refuse the program — it takes step 12's
+        // ToString leg and splices the value's source text into
+        // the result. The other two shapes have no cell of their
+        // own, so a thunk is minted, exactly as the array
+        // higher-order kernels do; the guard holds it across the
+        // call below.
+        if let Some(cb) = crate::callback_resolve::resolve(repl_av, VALUE_UNDEFINED) {
+            return if all != 0 {
+                __torajs_str_replace_all_fn(s, needle, cb.env())
+            } else {
+                __torajs_str_replace_fn(s, needle, cb.env())
+            };
         }
         let repl = __torajs_anyv_to_str(repl_av) as *const c_void;
         if __torajs_throw_check() != 0 {
