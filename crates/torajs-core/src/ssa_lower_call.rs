@@ -50,6 +50,11 @@ pub(crate) fn lower(
     if let Some(op) = crate::ssa_lower_call_reparent_guard::try_lower(ctx, eid, callee, args) {
         return op;
     }
+    // §6.2.5.5 GetValue on `r.join` is `ToObject(r)` when `r` holds
+    // the cell — a TypeError, and one that precedes the argument
+    // list. Armed here, ahead of the cascade, because every typed
+    // arm below reads the receiver as a live value of its own type.
+    crate::ssa_lower_call_undef_recv::arm(ctx, callee);
     dispatch(ctx, eid, callee, args)
 }
 

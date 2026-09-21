@@ -434,6 +434,7 @@ pub(crate) mod ssa_lower_call_typedarray;
 mod ssa_lower_call_typedarray_static;
 mod ssa_lower_call_uint8array_static;
 pub(crate) mod ssa_lower_call_uncallable;
+pub(crate) mod ssa_lower_call_undef_recv;
 pub(crate) mod ssa_lower_call_universal_methods;
 pub(crate) mod ssa_lower_call_vtable_dispatch;
 pub(crate) mod ssa_lower_call_weakref_collections;
