@@ -1,16 +1,16 @@
 {
   "tool": "typed-census",
-  "ranAt": "2026-09-21T03:11:39Z",
-  "headSha": "3f4f225c8",
+  "ranAt": "2026-09-21T05:36:40Z",
+  "headSha": "a68f9931d",
   "headShaSource": "arg",
   "verdict": "ok",
-  "samples": 242,
-  "hits": 242,
-  "typed": 54086,
-  "any": 17056,
+  "samples": 244,
+  "hits": 244,
+  "typed": 54775,
+  "any": 17267,
   "refused": 0,
-  "scored": 71142,
+  "scored": 72042,
   "typedRatio": "0.7603",
   "stride": 17,
-  "corpusFiles": 4130
+  "corpusFiles": 4138
 }
