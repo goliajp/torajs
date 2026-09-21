@@ -77,7 +77,15 @@ pub(crate) fn try_lower(
         return Some(Operand::ConstBool(false));
     }
     let arg_op = ctx.lower_expr(args[0]);
-    let arg_ty = ctx.operand_ty(&arg_op);
+    // §7.2.2 step 2 wants an Array EXOTIC object, and a slot the
+    // checker typed `T | undefined` is not one whenever it is
+    // holding the generic immortal cell. The fold below reads only
+    // the SSA type, which is the shape the slot COULD hold, so
+    // `Array.isArray(r)` on a `find` miss answered a constant
+    // `true`. The any lane already answers step 2 at run time
+    // (probed: false for the cell, true for a live array), and the
+    // boundary re-encodes the cell on the way in.
+    let (arg_op, arg_ty) = crate::ssa_lower_nullable_guard::to_object_arg(ctx, args[0], arg_op);
     // RECORDED GAP (517-06) — §7.2.2 step 2 wants an Array EXOTIC
     // object, and an arguments object is not one. tr desugars
     // `arguments` into a plain `__torajs_arguments` array local, so
