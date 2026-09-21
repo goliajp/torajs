@@ -45,13 +45,6 @@ pub(crate) fn arm(ctx: &mut LowerCtx<'_>, callee: ExprId) {
         return;
     }
     let recv = ctx.lower_expr(obj);
-    // The SOURCE says this value could have come from a miss; the
-    // TYPE says whether this slot family spells `undefined` with the
-    // cell at all. Both, or the guard fires on a family whose
-    // `undefined` is a different bit pattern entirely.
-    let ty = ctx.operand_ty(&recv);
-    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, obj, ty) {
-        crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &recv);
-    }
+    crate::ssa_lower_nullable_guard::emit_undef_cell_guard(ctx, obj, &recv);
     ctx.redispatch_lowered = Some((obj, recv));
 }

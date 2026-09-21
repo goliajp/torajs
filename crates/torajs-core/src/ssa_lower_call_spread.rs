@@ -368,6 +368,10 @@ pub(crate) fn build_args_arr(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand
         if let Expr::Spread { expr } = ctx.ast.get_expr(aid) {
             let inner = *expr;
             let src = ctx.lower_expr(inner);
+            // Same §13.2.4.1 GetIterator step as the array-literal
+            // spread: a source holding the cell is `undefined`, and
+            // the typed routes below read its backing store.
+            crate::ssa_lower_nullable_guard::emit_undef_cell_guard(ctx, inner, &src);
             let mut src = src;
             let mut src_ty = ctx.operand_ty(&src);
             // String sources unfold per Unicode CODE POINT (§13.2.4.1

@@ -173,6 +173,15 @@ fn repr_disagrees(first: &Type, ty: &Type) -> bool {
 fn elem_value_ty(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Option<Type>, String> {
     if let Expr::Spread { expr } = ast.get_expr(eid) {
         let src_ty = checker.type_of(ast, *expr)?;
+        // §13.2.4.1 puts no static condition on the source: GetIterator
+        // decides at runtime, and `undefined` fails there (§7.3.10) —
+        // the throw the lowering now arms. A `T | undefined` source
+        // therefore spreads as `T` does, and refusing it here refused
+        // a program the spec has an answer for.
+        let src_ty = match src_ty {
+            Type::Nullable(inner) => *inner,
+            other => other,
+        };
         return match src_ty {
             Type::Array(inner) => Ok(Some(*inner)),
             Type::String => Ok(Some(Type::String)),

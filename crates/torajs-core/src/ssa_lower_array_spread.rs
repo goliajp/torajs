@@ -204,6 +204,12 @@ fn elem_types_agree(tys: &[Type]) -> bool {
 
 fn lower_spread_source(ctx: &mut LowerCtx<'_>, inner: ExprId) -> (Operand, Type, bool, bool) {
     let mut v = ctx.lower_expr(inner);
+    // §13.2.4.1 runs every spread through GetIterator, and
+    // GetMethod(undefined, @@iterator) is a TypeError (§7.3.10 step
+    // 2, RequireObjectCoercible). The typed lanes below read the
+    // backing store instead, so `[...xs.find(p)]` on a miss walked
+    // the immortal cell itself.
+    crate::ssa_lower_nullable_guard::emit_undef_cell_guard(ctx, inner, &v);
     let mut v_ty = ctx.operand_ty(&v);
     // Set once a walk replaces the user's value with a fresh array —
     // see `LoweredItem::minted`.

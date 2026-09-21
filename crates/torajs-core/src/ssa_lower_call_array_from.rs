@@ -72,6 +72,12 @@ pub(crate) fn try_lower(
     // at the end so side-effect exprs fire per ES §23.1.2.1 trailing-arg
     // ignore.
     let arg_op = ctx.lower_expr(args[0]);
+    // §23.1.2.1 step 4 is GetMethod(items, @@iterator), which reads a
+    // property off `items` — a TypeError for undefined. The typed
+    // route below reads the source's backing store instead, and
+    // `apply_rest_args` spells `g(...r)` as `Array.from(r)`, so a
+    // rest-parameter call with a source holding the cell died here.
+    crate::ssa_lower_nullable_guard::emit_undef_cell_guard(ctx, args[0], &arg_op);
     let arg_ty = ctx.operand_ty(&arg_op);
     let src_arr_op = materialize_src(ctx, arg_op, arg_ty, args[0]);
     if args.len() == 1 {

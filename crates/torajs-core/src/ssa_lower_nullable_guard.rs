@@ -27,7 +27,8 @@ use crate::ast::{Expr, ExprId};
 
 use crate::ssa_lower::LowerCtx;
 pub(crate) use crate::ssa_lower_nullable_guard_emit::{
-    emit_nullable_arr_guard, emit_nullable_str_guard, emit_undefable_heap_guard,
+    emit_nullable_arr_guard, emit_nullable_str_guard, emit_undef_cell_guard,
+    emit_undefable_heap_guard,
 };
 
 /// True when `obj`'s value may legally be null per the checker's

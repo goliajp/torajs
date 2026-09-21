@@ -55,6 +55,24 @@ pub(crate) fn emit_undefable_heap_guard(ctx: &mut LowerCtx<'_>, obj: ExprId, obj
     ctx.emit_throw_check(None);
 }
 
+/// Emit the heap nullish guard when `v`'s slot may be holding the
+/// generic immortal cell right now — the SOURCE and the TYPE both,
+/// which is the pair [`crate::ssa_lower_nullable_guard::holds_undef_cell`]
+/// answers.
+///
+/// [`emit_undefable_heap_guard`] asks the source alone, which is
+/// right at a site that already knows its value is pointer-shaped
+/// (a Map / Date / regex receiver). A site that sees several slot
+/// families needs the type question too, or the guard fires on one
+/// whose `undefined` is a different bit pattern entirely — an F64
+/// slot spells it NaN, a Str slot with an oddball.
+pub(crate) fn emit_undef_cell_guard(ctx: &mut LowerCtx<'_>, eid: ExprId, v: &Operand) {
+    let ty = ctx.operand_ty(v);
+    if crate::ssa_lower_nullable_guard::holds_undef_cell(ctx, eid, ty) {
+        emit_undefable_heap_guard(ctx, eid, v);
+    }
+}
+
 /// Emit the Str null guard when `obj` is a nullable-str source or
 /// an undefable-substr source (string index read — its slot may
 /// hold the Substr-shaped sentinel); no-op otherwise. `str_val`
