@@ -119,10 +119,19 @@ pub(super) enum EvalRefusal {
 /// complete `ArrowFn` (a fn expression out of the refused text) and
 /// lowers it as if the user had written it.
 fn neutralize(ast: &mut Ast, exprs_before: usize, why: EvalRefusal) -> EvalRefusal {
+    blank_appended_exprs(ast, exprs_before);
+    why
+}
+
+/// The same blanking for a caller that parsed a source only to ASK
+/// something of it and is throwing the answer away — a decision pass
+/// that rewrites the call into a throw, say. The statements it drops
+/// orphan their expressions exactly as a refusal's do, and the arena
+/// walkers cannot tell the two apart.
+pub(super) fn blank_appended_exprs(ast: &mut Ast, exprs_before: usize) {
     for e in ast.exprs[exprs_before..].iter_mut() {
         *e = Expr::Bool(false);
     }
-    why
 }
 
 pub(super) fn parse_eval_source(

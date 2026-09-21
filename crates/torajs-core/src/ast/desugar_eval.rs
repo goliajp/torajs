@@ -127,6 +127,7 @@
 //!   completes normally): a statement rewrite in statement position,
 //!   a throw-IIFE in value position (`completion.rs`).
 
+mod class_field_arguments;
 mod collapse;
 mod completion;
 mod completion_stmt;
@@ -173,6 +174,11 @@ pub fn desugar_eval(ast: &mut Ast) {
         // `arguments`. Must also run before the value collapse, for
         // the same swallowed-throw reason.
         param_default_arrow::rewrite_arrow_param_default_arguments_evals(ast);
+        // §19.2.1.1 step 12's other half, and before the collapse for
+        // the same swallowed-throw reason: a direct eval called from a
+        // class field initializer may not bring `arguments` in — the
+        // §15.7.1 prohibition follows the text into the eval.
+        class_field_arguments::rewrite_class_field_arguments_evals(ast);
         // §16.1.7 steps 3-5 for `$262.evalScript`: a Script whose
         // declarations collide with the bindings in force throws when
         // evaluated — decided on the program as written, before any

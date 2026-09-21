@@ -523,6 +523,17 @@ pub struct Ast {
     /// initialization, not an assignment, and is the only store a
     /// `const_lifted_fields` member admits.
     pub lifted_init_assigns: std::collections::HashSet<ExprId>,
+    /// §15.7.1 — the root expression of every class field
+    /// initializer, instance and static, named and computed, recorded
+    /// where the early error is already checked.
+    ///
+    /// The ClassDecl a later pass sees no longer shows the instance
+    /// ones: the parser folds them into the constructor prefix as
+    /// `this.x = init`. §19.2.1.1 extends the same ContainsArguments
+    /// prohibition to code a DIRECT EVAL brings into that position,
+    /// and that check runs after the fold — so the position has to be
+    /// written down while it is still visible.
+    pub class_field_init_roots: Vec<ExprId>,
     /// P8.2 — accessor descriptor side-channel maps (ES §10.1.7).
     /// `(class_name, property_name) → return_type` for getters and
     /// `(class_name, property_name) → param_type` for setters. Populated

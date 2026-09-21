@@ -114,6 +114,7 @@ impl<'a> Parser<'a> {
         // `field_inits` (instance) or `static_init` (static), so the
         // pre-call marks identify exactly this member's initializer.
         for (_, init) in &field_inits[field_inits_mark..] {
+            self.ast.class_field_init_roots.push(*init);
             if super::class_field_early_errors::init_contains_arguments(&self.ast, *init) {
                 return Err(format!(
                     "`arguments` is not allowed in a class field initializer in class `{name}` at {} (ES §15.7.1)",
@@ -122,6 +123,9 @@ impl<'a> Parser<'a> {
             }
         }
         for si in &static_init[static_init_mark..] {
+            if let StaticInit::Field(f) = si {
+                self.ast.class_field_init_roots.push(f.init);
+            }
             if let StaticInit::Field(f) = si
                 && super::class_field_early_errors::init_contains_arguments(&self.ast, f.init)
             {
