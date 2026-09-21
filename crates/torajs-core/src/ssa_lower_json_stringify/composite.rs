@@ -189,6 +189,62 @@ pub(super) fn concat_close_indent(
 }
 
 /// The non-null walk body of [`lower_arr`] (verbatim pre-655 arm).
+/// Append the element separator before every element but the first,
+/// leaving `ctx.cur_block` on the join where the element itself is
+/// serialized.
+///
+/// Split out of [`lower_arr_walk`] under the 200-line function
+/// discipline — verbatim, ledger drop included.
+fn emit_elem_separator(
+    ctx: &mut LowerCtx,
+    acc: crate::ssa::ValueId,
+    comma: crate::ssa::ValueId,
+    i_now: crate::ssa::ValueId,
+) {
+    let need_sep = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Sgt, Operand::Value(i_now), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let sep_blk = ctx.f.add_block();
+    let no_sep_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(need_sep),
+            then_blk: sep_blk,
+            else_blk: no_sep_blk,
+        },
+    );
+    ctx.cur_block = sep_blk;
+    let acc_now = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::Str, Operand::Value(acc), 0),
+        Type::Str,
+        None,
+    );
+    let with_sep = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.str_concat,
+            vec![Operand::Value(acc_now), Operand::Value(comma)],
+        ),
+        Type::Str,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(with_sep), Operand::Value(acc), 0),
+    );
+    // 642 ledger — release the pre-concat accumulator (str_concat
+    // answers a fresh Str; the first-iteration "[" literal is a
+    // FLAG_STATIC_LITERAL no-op through the same drop).
+    ctx.emit_drop_value(Operand::Value(acc_now), Type::Str);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(no_sep_blk));
+    ctx.cur_block = no_sep_blk;
+}
+
 fn lower_arr_walk(
     ctx: &mut LowerCtx,
     val_op: Operand,
@@ -247,48 +303,7 @@ fn lower_arr_walk(
         },
     );
     ctx.cur_block = body_blk;
-    let need_sep = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Sgt, Operand::Value(i_now), Operand::ConstI64(0)),
-        Type::Bool,
-        None,
-    );
-    let sep_blk = ctx.f.add_block();
-    let no_sep_blk = ctx.f.add_block();
-    ctx.f.set_term(
-        ctx.cur_block,
-        Terminator::CondBr {
-            cond: Operand::Value(need_sep),
-            then_blk: sep_blk,
-            else_blk: no_sep_blk,
-        },
-    );
-    ctx.cur_block = sep_blk;
-    let acc_now = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::Str, Operand::Value(acc), 0),
-        Type::Str,
-        None,
-    );
-    let with_sep = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.str_concat,
-            vec![Operand::Value(acc_now), Operand::Value(comma)],
-        ),
-        Type::Str,
-        None,
-    );
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Store(Operand::Value(with_sep), Operand::Value(acc), 0),
-    );
-    // 642 ledger — release the pre-concat accumulator (str_concat
-    // answers a fresh Str; the first-iteration "[" literal is a
-    // FLAG_STATIC_LITERAL no-op through the same drop).
-    ctx.emit_drop_value(Operand::Value(acc_now), Type::Str);
-    ctx.f.set_term(ctx.cur_block, Terminator::Br(no_sep_blk));
-    ctx.cur_block = no_sep_blk;
+    emit_elem_separator(ctx, acc, comma, i_now);
     let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now), 3, false);
     let elem = ctx.f.append_inst(
