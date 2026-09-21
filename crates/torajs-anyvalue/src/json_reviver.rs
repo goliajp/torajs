@@ -8,8 +8,8 @@
 //! non-string keys, but numeric spellings sort first), children
 //! before the holder. Each visited property calls
 //! `reviver.call(holder, name, val)` through the uniform boxed ABI
-//! (`invoke_with_this` — a FLAG_CLOSURE_RECV_FIRST reviver receives
-//! the holder as `this`); an `undefined` answer deletes the property
+//! (the explicit-`this` call kernel — a FLAG_CLOSURE_RECV_FIRST
+//! reviver receives the holder as `this`); an `undefined` answer deletes the property
 //! (array slots approximate the spec's delete-into-hole as an
 //! undefined store — torajs arrays are dense), any other answer
 //! replaces it.
@@ -28,7 +28,6 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_with_this};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell, is_undefined};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
@@ -75,9 +74,13 @@ pub unsafe extern "C" fn __torajs_json_parse_reviver(
             return VALUE_UNDEFINED;
         }
         // §25.5.1 step 7 — IsCallable(reviver) false: unfiltered.
-        let Some((cell, entry)) = closure_boxed_entry(reviver) else {
+        // §7.2.3, not a closure-cell probe: a callable Proxy and a
+        // class object have no boxed pair, and reading them as "not
+        // callable" here does not refuse the program, it silently
+        // returns the document unfiltered.
+        if !crate::construct::is_callable(reviver) {
             return root;
-        };
+        }
         // Steps 8-10 — root holder `{ "": root }`; root ownership
         // transfers into the holder entry.
         let mut holder = __torajs_dynobj_alloc();
@@ -89,7 +92,7 @@ pub unsafe extern "C" fn __torajs_json_parse_reviver(
         __torajs_dynobj_set(&mut holder, k_root.cast(), t as u64, v as u64);
         let holder_av = __torajs_anyv_box_from_pair(ANY_HEAP as i64, holder as i64);
         let val = __torajs_dynobj_iter_value(holder, 0);
-        let out = internalize(holder_av, k_root.cast(), val, cell, entry);
+        let out = internalize(holder_av, k_root.cast(), val, reviver);
         __torajs_str_drop(k_root.cast());
         crate::nanbox_ffi::__torajs_anyv_rc_dec(holder_av);
         if __torajs_throw_check() != 0 {
@@ -111,17 +114,16 @@ unsafe fn internalize(
     holder_av: AnyValue,
     name_key: *mut c_void,
     val: AnyValue,
-    cell: *mut c_void,
-    entry: u64,
+    reviver: AnyValue,
 ) -> AnyValue {
     unsafe {
         if is_cell(val) {
             let ptr = as_void_ptr(val);
             let type_tag = (ptr.cast::<u8>().add(4) as *const u16).read();
             if type_tag == Tag::Arr as u16 {
-                internalize_array_children(val, ptr, cell, entry);
+                internalize_array_children(val, ptr, reviver);
             } else if type_tag == Tag::DynObj as u16 {
-                internalize_object_children(val, ptr, cell, entry);
+                internalize_object_children(val, ptr, reviver);
             }
             if __torajs_throw_check() != 0 {
                 return VALUE_UNDEFINED;
@@ -131,22 +133,26 @@ unsafe fn internalize(
         // the answer is owned.
         let name_boxed = __torajs_anyv_box_from_pair(ANY_HEAP as i64, name_key as i64);
         let argv = [name_boxed, val];
-        invoke_with_this(cell, entry, holder_av, argv.as_ptr(), 2)
+        crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+            reviver,
+            holder_av,
+            argv.as_ptr(),
+            2,
+        )
     }
 }
 
 unsafe fn internalize_array_children(
     val_av: AnyValue,
     arr: *mut c_void,
-    cell: *mut c_void,
-    entry: u64,
+    reviver: AnyValue,
 ) {
     unsafe {
         let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
         for i in 0..len {
             let child = __torajs_arr_get_any_boxed(arr, i);
             let key = index_key(i);
-            let r = internalize(val_av, key.cast(), child, cell, entry);
+            let r = internalize(val_av, key.cast(), child, reviver);
             __torajs_str_drop(key.cast());
             if __torajs_throw_check() != 0 {
                 release(r);
@@ -166,8 +172,7 @@ unsafe fn internalize_array_children(
 unsafe fn internalize_object_children(
     val_av: AnyValue,
     obj: *mut c_void,
-    cell: *mut c_void,
-    entry: u64,
+    reviver: AnyValue,
 ) {
     unsafe {
         let len = __torajs_dynobj_iter_len(obj);
@@ -186,7 +191,7 @@ unsafe fn internalize_object_children(
             // cell alive across the call.
             crate::payload_rc_inc(ANY_HEAP as i64, key as i64);
             let child = __torajs_dynobj_iter_value(obj, idx);
-            let r = internalize(val_av, key, child, cell, entry);
+            let r = internalize(val_av, key, child, reviver);
             if __torajs_throw_check() != 0 {
                 release(r);
                 __torajs_str_drop(key);

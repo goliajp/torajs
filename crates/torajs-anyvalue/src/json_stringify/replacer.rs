@@ -31,7 +31,6 @@
 use core::ffi::c_void;
 
 use super::*;
-use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_with_this};
 use crate::nanbox::box_void_ptr;
 
 unsafe extern "C" {
@@ -55,11 +54,18 @@ pub(crate) struct St {
     /// carries its encoding, instead of its bytes being pushed as
     /// Latin-1 units.
     pub gap: *const u8,
-    /// §25.5.2 step 4.a `[[ReplacerFunction]]` — the callable's
-    /// (env cell, boxed entry) pair. `None` when the argument is
-    /// absent or not callable, which is exactly when the spec
-    /// ignores it.
-    pub replacer: Option<(*mut c_void, u64)>,
+    /// §25.5.2 step 4.a `[[ReplacerFunction]]` — the callable
+    /// itself. `None` when the argument is absent or not callable,
+    /// which is exactly when the spec ignores it.
+    ///
+    /// It holds the VALUE, not an (env, boxed entry) pair. The pair
+    /// is a closure-cell probe, and §25.5.2 step 4.a asks §7.2.3:
+    /// a callable Proxy and a class object have no pair, so they
+    /// read as `None` — and `None` here means "no replacer given",
+    /// which is a silent wrong answer rather than a refusal. The
+    /// call below is the ordinary explicit-`this` kernel, which
+    /// holds all three shapes.
+    pub replacer: Option<AnyValue>,
     /// §25.5.2.1 step 4.b `[[PropertyList]]` — the owned Str keys an
     /// ARRAY replacer names, in list order. Mutually exclusive with
     /// [`Self::replacer`] (step 4 takes the callable branch first),
@@ -117,7 +123,11 @@ pub unsafe extern "C" fn __torajs_anyv_json_stringify_full(
         // takes a callable, step 4.b an Array. A string / number /
         // null in that slot is discarded by the spec, so answering
         // neither is the spec's own answer, not a shortcut.
-        let fun = closure_boxed_entry(replacer);
+        let fun = if crate::construct::is_callable(replacer) {
+            Some(replacer)
+        } else {
+            None
+        };
         let st = St {
             gap,
             property_list: if fun.is_none() {
@@ -254,12 +264,17 @@ pub(super) unsafe fn apply(
     value: AnyValue,
     owned: bool,
 ) -> (AnyValue, bool) {
-    let Some((env, entry)) = st.replacer else {
+    let Some(fun) = st.replacer else {
         return (value, owned);
     };
     unsafe {
         let argv = [box_void_ptr(key), value];
-        let r = invoke_with_this(env, entry, holder, argv.as_ptr(), 2);
+        let r = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+            fun,
+            holder,
+            argv.as_ptr(),
+            2,
+        );
         if owned {
             crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
         }
