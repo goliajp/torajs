@@ -24,7 +24,11 @@
 //! bits.
 //!
 //! The allowlist is the method set the any-lane callback kernels
-//! serve. `findLast` / `findLastIndex` / `flatMap` joined in
+//! serve. `Map.forEach` / `Set.forEach` are in it too — §24.1.3.5
+//! and §24.2.4.7 give them the same step-3 IsCallable and
+//! `method_call_mapset`'s arm resolves through the same
+//! `callback_resolve` — which is why this module is no longer named
+//! for Array alone. `findLast` / `findLastIndex` / `flatMap` joined in
 //! rotation 401 knife 6 — their kernels (`find_loop` modes 4/5, the
 //! flatMap walk) run the same recv-shifted walk, measured
 //! thisArg-correct on the any-receiver spelling.
@@ -74,7 +78,14 @@ pub(crate) fn try_match(
     let Ok(obj_ty) = checker.type_of(ast, *obj) else {
         return None;
     };
-    if !matches!(obj_ty, Type::Array(_)) {
+    // `forEach` is the one name three receivers share, and all
+    // three route to the same any-lane resolver.
+    let recv_ok = match obj_ty {
+        Type::Array(_) => true,
+        Type::Map | Type::Set => name == "forEach",
+        _ => false,
+    };
+    if !recv_ok {
         return None;
     }
     let cb_ty = match checker.type_of(ast, args[0]) {

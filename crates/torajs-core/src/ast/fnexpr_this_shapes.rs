@@ -338,7 +338,7 @@ fn inline_fnexpr_call_arg_idents(exprs: &[Expr]) -> std::collections::HashSet<Ex
 ///
 /// 1. the `as any` shell makes the checker see `Any` in the slot, so
 ///    the call routes through the any-lane HOF wedge
-///    (`check_type_of_call_arr_hof_any_cb`) on a typed receiver and
+///    (`check_type_of_call_hof_any_cb`) on a typed receiver and
 ///    the any-method route on an `any` one — never the typed inline
 ///    loop, whose argv does not shift;
 /// 2. the receiver is an inline array literal or a binding the

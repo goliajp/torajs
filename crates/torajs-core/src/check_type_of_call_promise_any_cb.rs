@@ -18,7 +18,7 @@
 //! the source value with its own repr. What was missing is the
 //! checker's permission to send the call there.
 //!
-//! This is the `check_type_of_call_arr_hof_any_cb` move, applied to
+//! This is the `check_type_of_call_hof_any_cb` move, applied to
 //! the other family: record the callee as Any so
 //! `ssa_lower_any_method_call` claims the whole call, and let the
 //! runtime decide. A handler that IS a matching function is not

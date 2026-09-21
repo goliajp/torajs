@@ -93,7 +93,7 @@ pub(crate) fn try_match(
     // `Any` comparator reached it and panicked the compiler, so
     // `xs.sort(p, extra)` was a legal program tr could not build
     // while `xs.sort(p)` merely refused. Falling through hands both
-    // spellings to `check_type_of_call_arr_hof_any_cb`, which sends
+    // spellings to `check_type_of_call_hof_any_cb`, which sends
     // the whole call to the any lane where §7.2.3 is answered at
     // run time.
     if !matches!(aty0, Type::Function(..) | Type::Undefined) {
