@@ -117,6 +117,27 @@ pub(crate) fn factory_always_admitted(
     cname: &str,
 ) -> bool {
     promise_heirs.contains(cname)
+        // An INJECTED intrinsic (`Error` and the NativeError family,
+        // the two disposable stacks) is admitted unconditionally,
+        // because §10.2.1 step 2 does not refuse it: `Error("m")`
+        // CONSTRUCTS (§20.5.1.1 step 1 treats a call and a `new`
+        // alike), and `call_class_ctor` sends it straight down the
+        // construct channel. So the call position is a consumer of
+        // the factory, and it is one the syntactic probe below
+        // cannot see — `program_constructs_from_value` enumerates
+        // the shapes that reach [[Construct]] through a `new`, and
+        // this one arrives through a plain call. `Error("m")` in a
+        // program with no `new`-through-value anywhere answered
+        // "this constructor cannot be reached through a runtime
+        // value yet" about a constructor the program had named
+        // directly.
+        //
+        // `intrinsic_classes` is the compile-time mirror of the
+        // runtime's `class_is_intrinsic`, which is the very test
+        // `call_class_ctor` makes — so the set admitted here is
+        // exactly the set that can arrive, and no user class pays
+        // for it.
+        || ast.intrinsic_classes.contains(cname)
         || crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname).is_some_and(
             |r| r == "Array" || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r),
         )
