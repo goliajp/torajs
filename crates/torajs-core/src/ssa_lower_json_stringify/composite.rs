@@ -20,9 +20,40 @@ pub(super) fn with_null_gate(
     walk: impl FnOnce(&mut LowerCtx) -> Operand,
 ) -> Operand {
     let out_slot = ctx.alloca_in_entry(Type::Str, Some(slot_name));
-    let is_null = ctx.f.append_inst(
+    let is_null_ptr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::ICmp(IPred::Eq, val_op.clone(), Operand::ConstPtrNull),
+        Type::Bool,
+        None,
+    );
+    // …and the generic immortal cell, which is a pointer slot's
+    // in-band `undefined`. §25.5.2.4 step 8.a gives an array element
+    // that serializes to nothing the text `null`, which is what this
+    // gate already answers — the walk behind it would instead read
+    // the cell as a live value of the slot's static type, which is
+    // how `JSON.stringify([xs.find(p)])` on a miss became a SIGSEGV.
+    // An object PROPERTY holding the cell never reaches here: that
+    // lane omits the key first, through `__torajs_is_undef_cell`.
+    let val_ty = ctx.operand_ty(val_op);
+    let sentinel = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM.to_string()),
+        val_ty,
+        None,
+    );
+    let is_cell = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, val_op.clone(), Operand::Value(sentinel)),
+        Type::Bool,
+        None,
+    );
+    let is_null = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            crate::ssa::BinOp::Or,
+            Operand::Value(is_null_ptr),
+            Operand::Value(is_cell),
+        ),
         Type::Bool,
         None,
     );

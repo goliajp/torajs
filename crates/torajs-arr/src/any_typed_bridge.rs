@@ -320,6 +320,18 @@ pub(crate) unsafe fn typed_slot_anyvalue_borrowed(arr: *const u8, i: u64) -> u64
             // A NULL heap slot is a hole — undefined per spec, never
             // a boxed null pointer.
             ARR_KIND_HEAP if raw == 0 => __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0),
+            // …and so is the generic immortal cell, which is a
+            // pointer slot's IN-BAND `undefined` (the same value
+            // `__torajs_heap_nullish_check` tests for). Boxing it as
+            // ANY_HEAP handed every any-lane element walk an address
+            // that is not a live value of the element type:
+            // `[xs.find(p)].join()` on a miss ran ToString against
+            // the cell, and `JSON.stringify` of the same array walked
+            // it as an array. This is the one place a typed slot
+            // becomes an AnyValue, so both are the same answer here.
+            ARR_KIND_HEAP if torajs_rc::undef_cell::is_undef_cell(raw as *const u8) => {
+                __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
+            }
             ARR_KIND_HEAP => __torajs_anyv_box_from_pair(ANY_HEAP as i64, raw as i64),
             kind => {
                 debug_assert!(
