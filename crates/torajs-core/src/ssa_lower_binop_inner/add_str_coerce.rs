@@ -128,6 +128,49 @@ pub(super) fn coerce_nullable_ptr_to_str(ctx: &mut LowerCtx, v: Operand) -> (Ope
     );
     ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
     ctx.cur_block = arr_blk;
+    // The test above is against NULL, which is how `null` is spelled
+    // in this slot — not how `undefined` is. A pointer-shaped slot
+    // spells its undefined with the per-type immortal cell, and that
+    // address rode the live-value arm straight into `coerce_to_str`,
+    // which asked the cell for a `toString` it does not have: `const
+    // o: { a: number } | undefined = undefined; "" + o` threw where
+    // every engine prints "undefined" (§13.15.3 → ToString(undefined)).
+    // Same bug the ToString call face had, in the operator's own
+    // coercion.
+    //
+    // So split the live arm once more. Slot types with no sentinel
+    // keep the two-way shape they had.
+    if let Some(sentinel) = ctx.str_undef_sentinel_for(ctx.operand_ty(&v)) {
+        let undef_blk = ctx.f.add_block();
+        let live_blk = ctx.f.add_block();
+        let is_undef = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Eq, v.clone(), sentinel),
+            Type::Bool,
+            None,
+        );
+        ctx.f.set_term(
+            ctx.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(is_undef),
+                then_blk: undef_blk,
+                else_blk: live_blk,
+            },
+        );
+        ctx.cur_block = undef_blk;
+        let u = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.undefined_to_str, vec![]),
+            Type::Str,
+            None,
+        );
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(Operand::Value(u), Operand::Value(slot), 0),
+        );
+        ctx.f.set_term(ctx.cur_block, Terminator::Br(merge));
+        ctx.cur_block = live_blk;
+    }
     let (s, _minted) = coerce_to_str(ctx, v, false);
     ctx.f
         .append_void(ctx.cur_block, InstKind::Store(s, Operand::Value(slot), 0));
