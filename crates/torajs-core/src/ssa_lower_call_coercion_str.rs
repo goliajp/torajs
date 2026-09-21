@@ -59,6 +59,29 @@ pub(crate) fn emit_to_string_inner(
     arg_ty: Type,
     implicit_tostring: bool,
 ) -> Operand {
+    // A pointer-shaped slot the checker typed `T | undefined` holds
+    // the generic immortal cell for its undefined, and every arm
+    // below reads the slot as a live value of its own type: the Obj
+    // arm handed the cell to the ToPrimitive ladder, which looked for
+    // `toString` on a cell that has none and threw "value is not a
+    // function"; the Closure arm asked the source registry and got
+    // `function () { [native code] }`. `const o: { a: number } |
+    // undefined = undefined; String(o)` — a program every engine
+    // answers "undefined" for.
+    //
+    // The nullish pre-check in front of this function only ever
+    // tested NULL, which is `null`'s in-band spelling, not
+    // undefined's. So ask the question the lowering already has a
+    // predicate for and hand the value to the any boundary, where
+    // `box_to_any_from_expr` re-encodes the cell as ANY_UNDEF and the
+    // §7.1.17 kernel answers "undefined". Self-gating: a slot the
+    // checker did not type nullable never reaches it, so no typed
+    // spelling moves.
+    if arg_ty.spells_undef_with_generic_cell()
+        && crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, arg_eid)
+    {
+        return emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring);
+    }
     match arg_ty {
         Type::Str | Type::Substr => {
             // Identity pass-through: the result IS the arg value, and
