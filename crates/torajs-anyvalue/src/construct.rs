@@ -203,7 +203,8 @@ pub(crate) unsafe fn is_constructor(av: AnyValue) -> bool {
 /// (§10.4.1.2: BoundFunctionCreate copies the slot iff the target has
 /// one). A kind-0 bound target is a builtin prototype method — no
 /// [[Construct]] — and a bound-over-bound chain recurses to whatever
-/// sits at the bottom.
+/// sits at the bottom, through [`is_constructor`] so that every link
+/// of the chain gets the Proxy row too.
 ///
 /// # Safety
 /// `ptr` is a live heap cell.
@@ -228,7 +229,13 @@ unsafe fn is_constructor_cell(ptr: *mut c_void) -> bool {
         return true;
     }
     match unsafe { crate::method_bind::bound_cell_meta(ptr) } {
-        Some((1, target, _)) => unsafe { is_constructor_cell(target as *mut c_void) },
+        // Back to the value-level entry, not this one: a bound
+        // target is a whole AnyValue (a cell pointer is its own
+        // encoding), and the Proxy row lives up there. Recursing
+        // into the cell level instead would ask "is this cell
+        // shaped like a constructor?" of a Proxy — a question no
+        // Proxy answers yes to, however constructible its target.
+        Some((1, target, _)) => unsafe { is_constructor(target) },
         _ => false,
     }
 }
