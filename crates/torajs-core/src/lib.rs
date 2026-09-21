@@ -166,6 +166,7 @@ pub(crate) mod check_type_of_call_object_static_proto;
 pub(crate) mod check_type_of_call_p1_thisarg;
 pub(crate) mod check_type_of_call_primitive_proto_trailing;
 pub(crate) mod check_type_of_call_promise_all;
+pub(crate) mod check_type_of_call_promise_any_cb;
 pub(crate) mod check_type_of_call_promise_finally;
 pub(crate) mod check_type_of_call_promise_then;
 pub(crate) mod check_type_of_call_promise_then_nullable;

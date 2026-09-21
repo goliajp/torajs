@@ -26,6 +26,14 @@ pub(super) fn try_route(
     // `.finally` is not handled there — its `() => void` shape is
     // the table arm's, and every OTHER return shape is the arm
     // below's (§27.2.5.3 declares `onFinally` as `() => any`).
+    // §27.2.5.4 step 3/4 first: a handler that is not statically a
+    // function is an EMPTY slot per spec, and the typed arms below
+    // can only express a matching signature. See
+    // [`crate::check_type_of_call_promise_any_cb`].
+    if let Some(r) = crate::check_type_of_call_promise_any_cb::try_match(checker, ast, callee, args)
+    {
+        return Some(r);
+    }
     if let Some(r) = crate::check_type_of_call_promise_then::try_match(checker, ast, callee, args) {
         return Some(r);
     }
