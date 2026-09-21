@@ -243,13 +243,6 @@ fn check_weak_set(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<T
 /// literal argument keeps exactly the acceptance it had before the
 /// walk existed — the static branches above, or the loud refusal —
 /// and the defect stays where it is, loud, for its own blade.
-fn is_array_literal_arg(ast: &Ast, mut eid: ExprId) -> bool {
-    while let Expr::As { expr, .. } = ast.get_expr(eid) {
-        eid = *expr;
-    }
-    matches!(ast.get_expr(eid), Expr::Array(_))
-}
-
 fn check_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
     // S133-5 — `new Map([[k, v], ...])` static array-literal-of-
     // pair-arrays initializer. ssa-lower unrolls to map_create +
@@ -290,12 +283,6 @@ fn check_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
             return Ok(Type::Map);
         }
     }
-    if args.len() == 1 && is_array_literal_arg(ast, args[0]) {
-        return Err(format!(
-            "`new Map(...)` with iterable initializer not yet supported (got {} args)",
-            args.len()
-        ));
-    }
     // §24.1.1.1 step 7 — anything else is a general iterable (or a
     // nullish argument, which adds nothing); the runtime walk owns
     // it. A second argument is ignored per §17.
@@ -327,12 +314,6 @@ fn check_set(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
         if matches!(arg_ty, Type::Array(_)) {
             return Ok(Type::Set);
         }
-    }
-    if args.len() == 1 && is_array_literal_arg(ast, args[0]) {
-        return Err(format!(
-            "`new Set(...)` with iterable initializer not yet supported (got {} args)",
-            args.len()
-        ));
     }
     // §24.2.2.1 step 7 — as Map above.
     for &arg in args {

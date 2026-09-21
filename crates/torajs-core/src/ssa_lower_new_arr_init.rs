@@ -91,12 +91,79 @@ pub(crate) fn lower_map_from_arr(
         Type::Arr(inner_id),
         None,
     );
+    emit_pair_entry(ctx, &map_op, inner_arr, inner_elem_ty);
+    bump_loop_i(ctx, i_slot);
+    let cb = ctx.cur_block;
+    ctx.f.set_term(cb, Terminator::Br(header_blk));
+    ctx.cur_block = after_blk;
+    // Rotation 325 — an owned source temp only; an ident-bound borrow
+    // keeps its binding's stake (the unconditional drop double-freed
+    // the pair arrays out from under the binding — census underflow
+    // on check-map-init-arr-001).
+    if arg_owned {
+        ctx.emit_drop_value(Operand::Value(outer_arr), arg_ty);
+    }
+    map_op
+}
+
+/// §24.1.1.1 step 8 for one entry — `Get(entry, "0")` and
+/// `Get(entry, "1")`, then `Set`.
+///
+/// Two roads, because the fast one cannot answer a short entry.
+/// Reading slot 1 with a raw `LoadDyn` is a slot-buffer read past
+/// the end when the entry holds fewer than two elements, and what
+/// comes back is whatever the allocator left there — read as a heap
+/// pointer by the boxing below, which is a SIGSEGV
+/// (`new Map([["a"]])`). Nothing refused that program on the way
+/// down: the checker's own gate against it was a refusal of the
+/// whole `new Map(<array literal>)` family, and it was hiding this.
+///
+/// So a length test picks the road. Two or more elements keeps the
+/// typed loads exactly as they were; anything shorter goes through
+/// `__torajs_arr_index_get`, which is this Get spelled once for the
+/// whole runtime — bounds, holes and the prototype continuation
+/// included — and answers `undefined` where the spec does. Each arm
+/// does its own `map_set` and then joins, so nothing has to be
+/// merged across the branch.
+fn emit_pair_entry(
+    ctx: &mut LowerCtx<'_>,
+    map_op: &Operand,
+    inner_arr: crate::ssa::ValueId,
+    inner_elem_ty: Type,
+) {
+    let cur_block = ctx.cur_block;
+    let inner_len = ctx.f.append_inst(
+        cur_block,
+        InstKind::Load(Type::I64, Operand::Value(inner_arr), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    let full = ctx.f.append_inst(
+        cur_block,
+        InstKind::ICmp(IPred::Sge, Operand::Value(inner_len), Operand::ConstI64(2)),
+        Type::Bool,
+        None,
+    );
+    let fast_blk = ctx.f.add_block();
+    let slow_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(full),
+            then_blk: fast_blk,
+            else_blk: slow_blk,
+        },
+    );
+
     // An Array<Any> slot is one 8-byte NaN-boxed AnyValue, same
     // stride as every other array (`torajs-arr` any.rs). This site
     // used to scale Any slots by 16 — the legacy (tag, value) pair
     // layout — which is invisible at index 0 and put the value read
     // of `new Map(pairs)` one slot past the pair, so every mixed-type
     // entry landed with a null value.
+    ctx.cur_block = fast_blk;
     let (k_base, k_off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(inner_arr), Operand::ConstI64(0), 3, false);
     let (v_base, v_off) =
@@ -124,18 +191,43 @@ pub(crate) fn lower_map_from_arr(
             vec![map_op.clone(), k_tag, k_val, v_tag, v_val],
         ),
     );
-    bump_loop_i(ctx, i_slot);
     let cb = ctx.cur_block;
-    ctx.f.set_term(cb, Terminator::Br(header_blk));
-    ctx.cur_block = after_blk;
-    // Rotation 325 — an owned source temp only; an ident-bound borrow
-    // keeps its binding's stake (the unconditional drop double-freed
-    // the pair arrays out from under the binding — census underflow
-    // on check-map-init-arr-001).
-    if arg_owned {
-        ctx.emit_drop_value(Operand::Value(outer_arr), arg_ty);
-    }
-    map_op
+    ctx.f.set_term(cb, Terminator::Br(join_blk));
+
+    ctx.cur_block = slow_blk;
+    let idx_get = ctx.intrinsics.arr_index_get;
+    let cur_block = ctx.cur_block;
+    let k_any = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            idx_get,
+            vec![Operand::Value(inner_arr), Operand::ConstI64(0)],
+        ),
+        Type::Any,
+        None,
+    );
+    let v_any = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(
+            idx_get,
+            vec![Operand::Value(inner_arr), Operand::ConstI64(1)],
+        ),
+        Type::Any,
+        None,
+    );
+    let (k_tag, k_val) = ctx.box_to_tag_value(Operand::Value(k_any));
+    let (v_tag, v_val) = ctx.box_to_tag_value(Operand::Value(v_any));
+    let cur_block = ctx.cur_block;
+    ctx.f.append_void(
+        cur_block,
+        InstKind::Call(
+            ctx.intrinsics.map_set,
+            vec![map_op.clone(), k_tag, k_val, v_tag, v_val],
+        ),
+    );
+    let cb = ctx.cur_block;
+    ctx.f.set_term(cb, Terminator::Br(join_blk));
+    ctx.cur_block = join_blk;
 }
 
 pub(crate) fn lower_set_from_arr(
