@@ -25,7 +25,7 @@ use core::ffi::c_void;
 
 use torajs_rc::{__torajs_rc_inc, ANY_METHOD_CATCH, ANY_METHOD_FINALLY, ANY_METHOD_THEN};
 
-use crate::method_call_closure_dispatch::{closure_boxed_entry, invoke_boxed};
+use crate::method_call_closure_dispatch::invoke_boxed;
 use crate::nanbox::{AnyValue, VALUE_NULL, VALUE_UNDEFINED};
 use crate::nanbox_encode::{
     __torajs_anyv_box_from_pair, __torajs_anyv_box_pointer, __torajs_anyv_box_str_slot,
@@ -176,10 +176,21 @@ pub(crate) unsafe fn promise_method(
         {
             return Some(v);
         }
-        // §27.2.5.4 step 3/4 — non-callable handler slot is EMPTY.
-        let (ok_env, ok_entry) = closure_boxed_entry(ok_av).unwrap_or((core::ptr::null_mut(), 0));
-        let (err_env, err_entry) =
-            closure_boxed_entry(err_av).unwrap_or((core::ptr::null_mut(), 0));
+        // §27.2.5.4 step 3/4 — a non-callable handler slot is EMPTY,
+        // and "callable" is §7.2.3. Probing for a closure-cell pair
+        // read a Proxy and a class as empty, which does not refuse
+        // the program: it forwards the source value as if no handler
+        // had been written. The reaction record takes its own stake
+        // on the env below and drops it when it runs, so a thunk
+        // minted here is owned from that point on.
+        let ok_cb = crate::callback_resolve::resolve(ok_av, VALUE_UNDEFINED);
+        let err_cb = crate::callback_resolve::resolve(err_av, VALUE_UNDEFINED);
+        let (ok_env, ok_entry) = ok_cb
+            .as_ref()
+            .map_or((core::ptr::null_mut(), 0), |c| (c.env(), c.entry()));
+        let (err_env, err_entry) = err_cb
+            .as_ref()
+            .map_or((core::ptr::null_mut(), 0), |c| (c.env(), c.entry()));
         let result = __torajs_promise_alloc_pending();
         // Pre-stamp the pending result — a chained `.then` attaches
         // BEFORE this cell settles, and its attach-time gate must

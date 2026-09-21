@@ -19,7 +19,7 @@ use core::ffi::c_void;
 use torajs_rc::__torajs_rc_inc;
 
 use crate::buffer_species::SpeciesResolved;
-use crate::method_call_closure_dispatch::{__torajs_any_call, closure_boxed_entry, invoke_boxed};
+use crate::method_call_closure_dispatch::{__torajs_any_call, invoke_boxed};
 use crate::method_call_promise::{
     P_PROPS_OFF, P_REPR_OFF, P_STATE_OFF, P_VALUE_OFF, STATE_REJECTED, box_settled,
 };
@@ -124,9 +124,18 @@ pub(crate) unsafe fn then_via_species(
         let cap = crate::promise_capability::new_promise_capability(c);
         __torajs_anyv_rc_dec(c);
         let (promise, resolve, reject) = cap?;
-        let (ok_env, ok_entry) = closure_boxed_entry(ok_av).unwrap_or((core::ptr::null_mut(), 0));
-        let (err_env, err_entry) =
-            closure_boxed_entry(err_av).unwrap_or((core::ptr::null_mut(), 0));
+        // §27.2.5.4 step 3/4 twin — same §7.2.3 question as the
+        // base arm, same reason the closure probe was the wrong
+        // one: an empty slot FORWARDS, so a Proxy handler was not
+        // refused, it was ignored.
+        let ok_cb = crate::callback_resolve::resolve(ok_av, VALUE_UNDEFINED);
+        let err_cb = crate::callback_resolve::resolve(err_av, VALUE_UNDEFINED);
+        let (ok_env, ok_entry) = ok_cb
+            .as_ref()
+            .map_or((core::ptr::null_mut(), 0), |c| (c.env(), c.entry()));
+        let (err_env, err_entry) = err_cb
+            .as_ref()
+            .map_or((core::ptr::null_mut(), 0), |c| (c.env(), c.entry()));
         let a = malloc(core::mem::size_of::<ThenCapArg>()) as *mut ThenCapArg;
         a.write(ThenCapArg {
             source: cell,
