@@ -45,6 +45,36 @@ pub(super) fn init_contains_arguments(ast: &Ast, eid: ExprId) -> bool {
     expr_contains(ast, eid, ContainsSym::Arguments)
 }
 
+/// The Contains recursion with its leaf left open: `hit` is asked of
+/// every expression slot the walk reaches, and a `true` answer
+/// short-circuits it.
+///
+/// The boundary rule — pierce arrows, stop at anything that binds its
+/// own function environment — IS the content of §8.4.1, so it gets
+/// one implementation. §19.2.1.1 extends the same field-initializer
+/// prohibition to code arriving through a direct eval, and
+/// `ast::desugar_eval::class_field_eval_arguments` rides this walk to
+/// find those call sites rather than spelling the boundary a second
+/// time.
+pub(crate) fn expr_walk(ast: &Ast, eid: ExprId, hit: &mut dyn FnMut(ExprId) -> bool) -> bool {
+    expr_contains_inner(ast, eid, None, hit)
+}
+
+/// Statement-list twin of [`expr_walk`] — a class static block's
+/// StatementList enters here.
+pub(crate) fn stmt_walk(ast: &Ast, s: &Stmt, hit: &mut dyn FnMut(ExprId) -> bool) -> bool {
+    stmt_contains_inner(ast, s, None, hit)
+}
+
+/// The leaf §8.4.1 / §8.5.1 look for, asked of one slot.
+fn leaf_is(ast: &Ast, eid: ExprId, sym: ContainsSym) -> bool {
+    match ast.get_expr(eid) {
+        Expr::Ident(n) => sym == ContainsSym::Arguments && n == "arguments",
+        Expr::NewTarget => sym == ContainsSym::NewTarget,
+        _ => false,
+    }
+}
+
 /// ContainsArguments of a ClassStaticBlockStatementList. §15.7.1
 /// states the same early error twice — once for a field initializer,
 /// once for a static block — and one walk answers both: `arguments`
@@ -59,19 +89,41 @@ pub(super) fn static_block_contains_arguments(ast: &Ast, stmts: &[Stmt]) -> bool
         .any(|s| stmt_contains(ast, s, ContainsSym::Arguments))
 }
 
-fn params_contain(ast: &Ast, params: &[Param], sym: ContainsSym) -> bool {
-    // Arrow-param defaults evaluate in the outer `arguments` scope
-    // (§8.4.1 recurses on the full ArrowFunction production).
-    params
-        .iter()
-        .any(|p| p.default.is_some_and(|d| expr_contains(ast, d, sym)))
+fn expr_contains(ast: &Ast, eid: ExprId, sym: ContainsSym) -> bool {
+    expr_contains_inner(ast, eid, Some(sym), &mut |_| false)
 }
 
-fn expr_contains(ast: &Ast, eid: ExprId, sym: ContainsSym) -> bool {
+fn stmt_contains(ast: &Ast, s: &Stmt, sym: ContainsSym) -> bool {
+    stmt_contains_inner(ast, s, Some(sym), &mut |_| false)
+}
+
+fn params_contain(
+    ast: &Ast,
+    params: &[Param],
+    sym: Option<ContainsSym>,
+    hit: &mut dyn FnMut(ExprId) -> bool,
+) -> bool {
+    // Arrow-param defaults evaluate in the outer `arguments` scope
+    // (§8.4.1 recurses on the full ArrowFunction production).
+    params.iter().any(|p| {
+        p.default
+            .is_some_and(|d| expr_contains_inner(ast, d, sym, hit))
+    })
+}
+
+fn expr_contains_inner(
+    ast: &Ast,
+    eid: ExprId,
+    sym: Option<ContainsSym>,
+    hit: &mut dyn FnMut(ExprId) -> bool,
+) -> bool {
+    if sym.is_some_and(|s| leaf_is(ast, eid, s)) || hit(eid) {
+        return true;
+    }
     match ast.get_expr(eid) {
-        Expr::Ident(n) => sym == ContainsSym::Arguments && n == "arguments",
-        Expr::NewTarget => sym == ContainsSym::NewTarget,
-        Expr::String(_)
+        Expr::Ident(_)
+        | Expr::NewTarget
+        | Expr::String(_)
         | Expr::Number(_)
         | Expr::BigInt { .. }
         | Expr::Bool(_)
@@ -98,7 +150,9 @@ fn expr_contains(ast: &Ast, eid: ExprId, sym: ContainsSym) -> bool {
         | Expr::OptIndex {
             obj: left,
             index: right,
-        } => expr_contains(ast, *left, sym) || expr_contains(ast, *right, sym),
+        } => {
+            expr_contains_inner(ast, *left, sym, hit) || expr_contains_inner(ast, *right, sym, hit)
+        }
         Expr::Unary { expr, .. }
         | Expr::TypeOf { expr }
         | Expr::Delete { expr }
@@ -106,28 +160,31 @@ fn expr_contains(ast: &Ast, eid: ExprId, sym: ContainsSym) -> bool {
         | Expr::As { expr, .. }
         | Expr::PostIncr { target: expr, .. }
         | Expr::Member { obj: expr, .. }
-        | Expr::OptChain { obj: expr, .. } => expr_contains(ast, *expr, sym),
+        | Expr::OptChain { obj: expr, .. } => expr_contains_inner(ast, *expr, sym, hit),
         Expr::InstanceOf { expr, rhs } => {
-            expr_contains(ast, *expr, sym) || expr_contains(ast, *rhs, sym)
+            expr_contains_inner(ast, *expr, sym, hit) || expr_contains_inner(ast, *rhs, sym, hit)
         }
         Expr::Call { callee, args }
         | Expr::OptCall { callee, args }
         | Expr::NewDynamic { callee, args } => {
-            expr_contains(ast, *callee, sym) || args.iter().any(|a| expr_contains(ast, *a, sym))
+            expr_contains_inner(ast, *callee, sym, hit)
+                || args.iter().any(|a| expr_contains_inner(ast, *a, sym, hit))
         }
         Expr::New { args, .. } | Expr::Super { args } => {
-            args.iter().any(|a| expr_contains(ast, *a, sym))
+            args.iter().any(|a| expr_contains_inner(ast, *a, sym, hit))
         }
-        Expr::Array(items) => items.iter().any(|a| expr_contains(ast, *a, sym)),
-        Expr::ObjectLit { fields } => fields.iter().any(|(_, v)| expr_contains(ast, *v, sym)),
+        Expr::Array(items) => items.iter().any(|a| expr_contains_inner(ast, *a, sym, hit)),
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .any(|(_, v)| expr_contains_inner(ast, *v, sym, hit)),
         Expr::Ternary {
             cond,
             then_branch,
             else_branch,
         } => {
-            expr_contains(ast, *cond, sym)
-                || expr_contains(ast, *then_branch, sym)
-                || expr_contains(ast, *else_branch, sym)
+            expr_contains_inner(ast, *cond, sym, hit)
+                || expr_contains_inner(ast, *then_branch, sym, hit)
+                || expr_contains_inner(ast, *else_branch, sym, hit)
         }
         Expr::ArrowFn { params, body, .. } => {
             // fn-expr / generator-expr share this node — those bind
@@ -142,44 +199,52 @@ fn expr_contains(ast: &Ast, eid: ExprId, sym: ContainsSym) -> bool {
             {
                 return false;
             }
-            params_contain(ast, params, sym) || body.iter().any(|s| stmt_contains(ast, s, sym))
+            params_contain(ast, params, sym, hit)
+                || body.iter().any(|s| stmt_contains_inner(ast, s, sym, hit))
         }
     }
 }
 
-fn stmt_contains(ast: &Ast, s: &Stmt, sym: ContainsSym) -> bool {
+fn stmt_contains_inner(
+    ast: &Ast,
+    s: &Stmt,
+    sym: Option<ContainsSym>,
+    hit: &mut dyn FnMut(ExprId) -> bool,
+) -> bool {
     match s {
-        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => expr_contains(ast, *e, sym),
-        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => expr_contains(ast, *init, sym),
-        Stmt::YieldInto { value, .. } => expr_contains(ast, *value, sym),
-        Stmt::Return(e) => e.is_some_and(|e| expr_contains(ast, e, sym)),
+        Stmt::Expr(e) | Stmt::Throw(e) | Stmt::Yield(e) => expr_contains_inner(ast, *e, sym, hit),
+        Stmt::LetDecl { init, .. } | Stmt::UsingDecl { init, .. } => {
+            expr_contains_inner(ast, *init, sym, hit)
+        }
+        Stmt::YieldInto { value, .. } => expr_contains_inner(ast, *value, sym, hit),
+        Stmt::Return(e) => e.is_some_and(|e| expr_contains_inner(ast, e, sym, hit)),
         Stmt::If {
             cond,
             then_branch,
             else_branch,
         } => {
-            expr_contains(ast, *cond, sym)
-                || stmt_contains(ast, then_branch, sym)
+            expr_contains_inner(ast, *cond, sym, hit)
+                || stmt_contains_inner(ast, then_branch, sym, hit)
                 || else_branch
                     .as_deref()
-                    .is_some_and(|s| stmt_contains(ast, s, sym))
+                    .is_some_and(|s| stmt_contains_inner(ast, s, sym, hit))
         }
         Stmt::While { cond, body } | Stmt::DoWhile { body, cond } => {
-            expr_contains(ast, *cond, sym) || stmt_contains(ast, body, sym)
+            expr_contains_inner(ast, *cond, sym, hit) || stmt_contains_inner(ast, body, sym, hit)
         }
         Stmt::Switch {
             scrutinee,
             cases,
             default,
         } => {
-            expr_contains(ast, *scrutinee, sym)
+            expr_contains_inner(ast, *scrutinee, sym, hit)
                 || cases.iter().any(|c| {
-                    expr_contains(ast, c.value, sym)
-                        || c.body.iter().any(|s| stmt_contains(ast, s, sym))
+                    expr_contains_inner(ast, c.value, sym, hit)
+                        || c.body.iter().any(|s| stmt_contains_inner(ast, s, sym, hit))
                 })
                 || default
                     .as_ref()
-                    .is_some_and(|b| b.iter().any(|s| stmt_contains(ast, s, sym)))
+                    .is_some_and(|b| b.iter().any(|s| stmt_contains_inner(ast, s, sym, hit)))
         }
         Stmt::For {
             init,
@@ -187,17 +252,18 @@ fn stmt_contains(ast: &Ast, s: &Stmt, sym: ContainsSym) -> bool {
             step,
             body,
         } => {
-            init.as_deref().is_some_and(|s| stmt_contains(ast, s, sym))
-                || cond.is_some_and(|e| expr_contains(ast, e, sym))
-                || step.is_some_and(|e| expr_contains(ast, e, sym))
-                || stmt_contains(ast, body, sym)
+            init.as_deref()
+                .is_some_and(|s| stmt_contains_inner(ast, s, sym, hit))
+                || cond.is_some_and(|e| expr_contains_inner(ast, e, sym, hit))
+                || step.is_some_and(|e| expr_contains_inner(ast, e, sym, hit))
+                || stmt_contains_inner(ast, body, sym, hit)
         }
         Stmt::ForOfSplitIter {
             parent, sep, body, ..
         } => {
-            expr_contains(ast, *parent, sym)
-                || expr_contains(ast, *sep, sym)
-                || stmt_contains(ast, body, sym)
+            expr_contains_inner(ast, *parent, sym, hit)
+                || expr_contains_inner(ast, *sep, sym, hit)
+                || stmt_contains_inner(ast, body, sym, hit)
         }
         Stmt::ForOf {
             elem_expr,
@@ -205,27 +271,31 @@ fn stmt_contains(ast: &Ast, s: &Stmt, sym: ContainsSym) -> bool {
             forin_obj,
             ..
         } => {
-            expr_contains(ast, *elem_expr, sym)
-                || forin_obj.is_some_and(|e| expr_contains(ast, e, sym))
-                || stmt_contains(ast, body, sym)
+            expr_contains_inner(ast, *elem_expr, sym, hit)
+                || forin_obj.is_some_and(|e| expr_contains_inner(ast, e, sym, hit))
+                || stmt_contains_inner(ast, body, sym, hit)
         }
-        Stmt::Labeled { body, .. } => stmt_contains(ast, body, sym),
+        Stmt::Labeled { body, .. } => stmt_contains_inner(ast, body, sym, hit),
         Stmt::Try {
             body,
             catch_body,
             finally_body,
             ..
         } => {
-            body.iter().any(|s| stmt_contains(ast, s, sym))
-                || catch_body.iter().any(|s| stmt_contains(ast, s, sym))
+            body.iter().any(|s| stmt_contains_inner(ast, s, sym, hit))
+                || catch_body
+                    .iter()
+                    .any(|s| stmt_contains_inner(ast, s, sym, hit))
                 || finally_body
                     .as_ref()
-                    .is_some_and(|b| b.iter().any(|s| stmt_contains(ast, s, sym)))
+                    .is_some_and(|b| b.iter().any(|s| stmt_contains_inner(ast, s, sym, hit)))
         }
-        Stmt::Block(stmts) | Stmt::Multi(stmts) => stmts.iter().any(|s| stmt_contains(ast, s, sym)),
-        Stmt::ExportDecl { inner, .. } => {
-            inner.as_deref().is_some_and(|s| stmt_contains(ast, s, sym))
+        Stmt::Block(stmts) | Stmt::Multi(stmts) => {
+            stmts.iter().any(|s| stmt_contains_inner(ast, s, sym, hit))
         }
+        Stmt::ExportDecl { inner, .. } => inner
+            .as_deref()
+            .is_some_and(|s| stmt_contains_inner(ast, s, sym, hit)),
         // `function` decls and nested classes bind their own
         // `arguments` scope (methods / initializers re-check when
         // they parse); the rest carry no expressions.

@@ -37,7 +37,7 @@ use crate::lexer::{self, Spanned, Token};
 
 mod arrow_fn;
 mod class_element_name;
-mod class_field_early_errors;
+pub(crate) mod class_field_early_errors;
 pub use class_field_early_errors::global_code_contains_new_target;
 mod class_field_inits;
 mod class_member;
