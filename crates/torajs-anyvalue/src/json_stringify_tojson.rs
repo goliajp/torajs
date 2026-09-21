@@ -79,14 +79,40 @@ pub(crate) unsafe fn apply_tojson(v: AnyValue) -> Option<AnyValue> {
         if !is_cell(entry) {
             return None;
         }
-        let target = crate::method_call_closure::call_target(as_void_ptr(entry))?;
         let this_box = crate::nanbox_encode::__torajs_anyv_box_from_pair(4, ptr as i64);
-        Some(crate::method_call_closure::dispatch(
-            &target,
-            this_box,
-            core::ptr::null(),
-            0,
-        ))
+        if let Some(target) = crate::method_call_closure::call_target(as_void_ptr(entry)) {
+            return Some(crate::method_call_closure::dispatch(
+                &target,
+                this_box,
+                core::ptr::null(),
+                0,
+            ));
+        }
+        // §25.5.2.3 step 2 asks IsCallable, and `call_target`
+        // answers a narrower question: which closure-shaped lane
+        // drives this cell. The other two shapes §7.2.3 names have
+        // no such lane, so they were read as "no hook" — and that
+        // does not refuse the program, it serializes the hook
+        // itself: `JSON.stringify({ toJSON: new Proxy(fn, {}) })`
+        // answered `{"toJSON":{}}` where every engine answers what
+        // the hook returns. A wrong document, from a program that
+        // compiled and ran.
+        //
+        // The explicit-`this` kernel holds all three shapes (it
+        // runs the `apply` trap for a proxy), so the fallback is
+        // that one. The lane above is untouched, so no hook that
+        // works today changes route.
+        if !crate::construct::is_callable(entry) {
+            return None;
+        }
+        Some(
+            crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+                entry,
+                this_box,
+                core::ptr::null(),
+                0,
+            ),
+        )
     }
 }
 
