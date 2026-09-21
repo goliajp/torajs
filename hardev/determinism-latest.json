@@ -1,7 +1,7 @@
 {
   "tool": "build_determinism",
-  "ranAt": "2026-09-21T05:28:46Z",
-  "headSha": "a68f9931d",
+  "ranAt": "2026-09-21T08:44:42Z",
+  "headSha": "33db4653a",
   "headShaSource": "arg",
   "verdict": "ok",
   "cases": 46,
