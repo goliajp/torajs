@@ -169,28 +169,7 @@ pub(crate) fn emit_to_string_inner(
         // implicit kernel through a tag-4 box instead — §13.2.8.6
         // ToString(Symbol) throws (the box is a pure encode; the
         // kernel only reads the borrow).
-        Type::Symbol => {
-            if implicit_tostring {
-                let boxed = ctx.box_to_any(arg_op.clone());
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(ctx.intrinsics.any_to_str_box, vec![boxed]),
-                    Type::Str,
-                    None,
-                );
-                ctx.release_owned_temp(arg_eid, &arg_op);
-                ctx.emit_throw_check(None);
-                return Operand::Value(v);
-            }
-            let v = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.symbol_to_str, vec![arg_op.clone()]),
-                Type::Str,
-                None,
-            );
-            ctx.release_owned_temp(arg_eid, &arg_op);
-            Operand::Value(v)
-        }
+        Type::Symbol => emit_symbol_to_string(ctx, arg_eid, arg_op, implicit_tostring),
         Type::Arr(elem_arr_id) => crate::ssa_lower_coerce_arr::emit_to_string(
             ctx,
             arg_eid,
@@ -247,6 +226,37 @@ pub(crate) fn emit_to_string_inner(
     }
 }
 
+/// The one type the two faces disagree on. Split out of
+/// [`emit_to_string_inner`] under the 200-line function discipline —
+/// verbatim, both legs and the throw check.
+fn emit_symbol_to_string(
+    ctx: &mut LowerCtx<'_>,
+    arg_eid: ExprId,
+    arg_op: Operand,
+    implicit_tostring: bool,
+) -> Operand {
+    if implicit_tostring {
+        let boxed = ctx.box_to_any(arg_op.clone());
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.any_to_str_box, vec![boxed]),
+            Type::Str,
+            None,
+        );
+        ctx.release_owned_temp(arg_eid, &arg_op);
+        ctx.emit_throw_check(None);
+        return Operand::Value(v);
+    }
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.symbol_to_str, vec![arg_op.clone()]),
+        Type::Str,
+        None,
+    );
+    ctx.release_owned_temp(arg_eid, &arg_op);
+    Operand::Value(v)
+}
+
 /// The any-boundary route: box the cell and call the very kernel the
 /// `any` spelling takes. Body of the arm above, lifted out so the arm
 /// is its type list and nothing else.
@@ -256,7 +266,17 @@ fn emit_boxed_to_string(
     arg_op: Operand,
     implicit_tostring: bool,
 ) -> Operand {
-    let boxed = ctx.box_to_any(arg_op.clone());
+    // The expression-aware box, not the value-only one: a
+    // pointer-shaped slot the checker typed `T | undefined` carries
+    // the generic immortal cell for its undefined, and a plain
+    // `box_to_any` encodes that cell as an ordinary heap object. The
+    // kernel then ran the ToPrimitive ladder over a cell that has no
+    // methods — `String(o)` on `const o: { a: number } | undefined =
+    // undefined` threw "value is not a function" instead of
+    // answering "undefined". The guarded box re-encodes the sentinel
+    // as ANY_UNDEF, which is what every other any-boundary in the
+    // lowering already hands the runtime.
+    let boxed = ctx.box_to_any_from_expr(arg_eid, arg_op.clone());
     let fid = if implicit_tostring {
         ctx.intrinsics.any_to_str_box
     } else {
