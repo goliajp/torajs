@@ -39,7 +39,14 @@ pub(crate) struct ClassComputedIds {
     pub class_source_register: FuncId,
     /// RFC 20260920-struct-user-proto K3 — `class_mark_intrinsic(tag)`:
     /// the class stands in for a spec intrinsic (`Ast::intrinsic_classes`).
+    /// This is the §10.1.13 default-prototype fact ONLY.
     pub class_mark_intrinsic: FuncId,
+    /// `class_mark_call_constructs(tag)`: calling the class without
+    /// `new` constructs (§20.5.1.1). Driven by
+    /// `Ast::injected_error_classes`, which is a STRICT SUBSET of
+    /// `intrinsic_classes` — the disposable stacks are intrinsics
+    /// whose plain call must throw.
+    pub class_mark_call_constructs: FuncId,
 }
 
 pub(crate) fn declare(
@@ -79,6 +86,13 @@ pub(crate) fn declare(
             module,
             fn_table,
             "__torajs_class_mark_intrinsic",
+            &[Type::I64],
+            Type::Void,
+        ),
+        class_mark_call_constructs: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_class_mark_call_constructs",
             &[Type::I64],
             Type::Void,
         ),

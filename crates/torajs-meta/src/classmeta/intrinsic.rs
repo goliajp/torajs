@@ -17,6 +17,10 @@ use super::{CLASSES_BY_TAG_IMM, MAX_CLASSES, in_range};
 // Same shape and posture as CLASS_SOURCE_BY_TAG (source.rs).
 static mut INTRINSIC_BY_TAG: [bool; MAX_CLASSES] = [false; MAX_CLASSES];
 
+/// The §20.5.1.1 fact, which is NOT the one above. See
+/// [`__torajs_class_call_constructs_cell`].
+static mut CALL_CONSTRUCTS_BY_TAG: [bool; MAX_CLASSES] = [false; MAX_CLASSES];
+
 /// `%Function.prototype%`'s builtin-proto tag (torajs-rc
 /// `builtin_proto::FUNCTION_PROTO_TAG`).
 const FUNCTION_PROTO_TAG: i64 = 13;
@@ -43,12 +47,21 @@ pub extern "C" fn __torajs_class_mark_intrinsic(tag: i64) {
     unsafe { INTRINSIC_BY_TAG[tag as usize] = true };
 }
 
-/// Is `cell` the class object of an INJECTED class? The compiler
-/// injects exactly the §20.5 Error hierarchy, and every member of it
-/// is callable as a function with the same behaviour as `new`
-/// (§20.5.1.1, §20.5.6.2, §20.5.7.1) — which is the question the
-/// any-lane [[Call]] asks here. A user class answers 0 and gets
-/// §10.2.1 step 2's refusal instead.
+/// Is `cell` the class object of an INJECTED class? This answers the
+/// §10.1.13 question only — which prototype an object gets when
+/// `newTarget.prototype` is not an object.
+///
+/// It once also answered "is this callable as a function", on the
+/// reasoning recorded in this file's first version: the compiler
+/// injected exactly the §20.5 Error hierarchy, and every member of
+/// THAT is callable with the same behaviour as `new` (§20.5.1.1,
+/// §20.5.6.2, §20.5.7.1). The set stopped being the Error hierarchy
+/// when `DisposableStack` / `AsyncDisposableStack` joined it for the
+/// §10.1.13 question, and the older reader kept asking — so
+/// `DisposableStack()` CONSTRUCTED where its own step 1 says to
+/// throw. Two questions, one flag, and the one that changed was not
+/// the one being read. [`__torajs_class_call_constructs_cell`] is
+/// the other question, marked from its own compile-time set.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_class_is_intrinsic_cell(cell: *const c_void) -> i32 {
     if cell.is_null() {
@@ -61,6 +74,39 @@ pub extern "C" fn __torajs_class_is_intrinsic_cell(cell: *const c_void) -> i32 {
     // SAFETY: single-threaded JS runtime, direct indexed read of an
     // in-range tag.
     i32::from(unsafe { INTRINSIC_BY_TAG[tag as usize] })
+}
+
+/// Record that calling class `tag` without `new` CONSTRUCTS. Emitted
+/// after `class_register` for the classes in
+/// `Ast::injected_error_classes` — the §20.5 hierarchy and nothing
+/// else.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_class_mark_call_constructs(tag: i64) {
+    if !in_range(tag) {
+        return;
+    }
+    // SAFETY: single-threaded JS runtime, direct indexed write.
+    unsafe { CALL_CONSTRUCTS_BY_TAG[tag as usize] = true };
+}
+
+/// Does a plain call of `cell` construct? True for the §20.5 Error
+/// hierarchy (§20.5.1.1 step 1 treats a call and a `new` alike, and
+/// §20.5.6.2 / §20.5.7.1 say the same for NativeError and
+/// AggregateError). Every other class — user-written, and the
+/// injected intrinsics that are ordinary classes — answers 0 and
+/// gets §10.2.1 step 2's refusal.
+#[unsafe(no_mangle)]
+pub extern "C" fn __torajs_class_call_constructs_cell(cell: *const c_void) -> i32 {
+    if cell.is_null() {
+        return 0;
+    }
+    let tag = tag_of_class_cell(cell);
+    if tag < 0 {
+        return 0;
+    }
+    // SAFETY: single-threaded JS runtime, direct indexed read of an
+    // in-range tag.
+    i32::from(unsafe { CALL_CONSTRUCTS_BY_TAG[tag as usize] })
 }
 
 /// The tag whose REGISTERED class object is `cell` — one evaluation of

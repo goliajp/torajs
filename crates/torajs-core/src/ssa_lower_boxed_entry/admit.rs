@@ -132,12 +132,15 @@ pub(crate) fn factory_always_admitted(
         // value yet" about a constructor the program had named
         // directly.
         //
-        // `intrinsic_classes` is the compile-time mirror of the
-        // runtime's `class_is_intrinsic`, which is the very test
+        // `injected_error_classes` is the compile-time mirror of the
+        // runtime's `class_call_constructs`, which is the very test
         // `call_class_ctor` makes — so the set admitted here is
         // exactly the set that can arrive, and no user class pays
-        // for it.
-        || ast.intrinsic_classes.contains(cname)
+        // for it. NOT `intrinsic_classes`: that set also holds the
+        // disposable stacks, which are intrinsics for the §10.1.13
+        // prototype question but ordinary classes for this one —
+        // their plain call throws and never reaches a factory.
+        || ast.injected_error_classes.contains(cname)
         || crate::ast::desugar_classes_builtin_heritage::exotic_root_parent(ast, cname).is_some_and(
             |r| r == "Array" || crate::ast::desugar_classes_builtin_heritage::is_typedarray_ctor(r),
         )

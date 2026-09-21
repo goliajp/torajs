@@ -467,6 +467,7 @@ pub(crate) fn build(
         class_computed_accessor_define: init_c.class_computed.computed_accessor_define,
         class_source_register: init_c.class_computed.class_source_register,
         class_mark_intrinsic: init_c.class_computed.class_mark_intrinsic,
+        class_mark_call_constructs: init_c.class_computed.class_mark_call_constructs,
         arr_subclass_alloc: init_c.subclass.arr_subclass_alloc,
         arr_subclass_super_len: init_c.subclass.arr_subclass_super_len,
         arr_subclass_super_elems: init_c.subclass.arr_subclass_super_elems,

@@ -384,6 +384,17 @@ fn try_lower_class_register(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Option<O
                 InstKind::Call(mark, vec![Operand::ConstI64(tag as i64)]),
             );
         }
+        // §20.5.1.1 — a separate fact from the one above, and a
+        // strictly smaller set: the Error hierarchy constructs on a
+        // plain call, the disposable stacks (intrinsics for the
+        // §10.1.13 question) throw on one.
+        if ctx.ast.injected_error_classes.contains(&cname) {
+            let mark = ctx.intrinsics.class_mark_call_constructs;
+            ctx.f.append_void(
+                cur_block,
+                InstKind::Call(mark, vec![Operand::ConstI64(tag as i64)]),
+            );
+        }
         emit_ctor_register(ctx, &cname, class_op.clone());
         // rotation 186 — the register kernel defines `constructor`
         // + reified methods onto the PROTOTYPE dynobj, which may

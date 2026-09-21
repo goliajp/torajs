@@ -290,7 +290,7 @@ pub(crate) unsafe fn call_class_ctor(
     if ptr.is_null() || !unsafe { is_class_ctor_cell(ptr) } {
         return None;
     }
-    if unsafe { class_is_intrinsic(ptr) } {
+    if unsafe { class_call_constructs(ptr) } {
         return Some(unsafe { __torajs_anyv_construct(av, argv, argc) });
     }
     unsafe {
@@ -299,21 +299,25 @@ pub(crate) unsafe fn call_class_ctor(
     Some(VALUE_UNDEFINED)
 }
 
-/// torajs-meta's intrinsic-class registry. The unit-test binary links
-/// without the staticlib graph, so tests see every class as
-/// user-written (same posture as `ctor_method`'s source-table stub).
+/// torajs-meta's §20.5.1.1 registry — does a plain call of this
+/// class CONSTRUCT? That is the Error hierarchy and nothing else,
+/// which is NOT the same set as "injected intrinsic" (the disposable
+/// stacks are intrinsics for the §10.1.13 prototype question, and
+/// their plain call throws). The unit-test binary links without the
+/// staticlib graph, so tests see every class as user-written (same
+/// posture as `ctor_method`'s source-table stub).
 #[cfg(not(test))]
 #[inline]
-unsafe fn class_is_intrinsic(ptr: *mut c_void) -> bool {
+unsafe fn class_call_constructs(ptr: *mut c_void) -> bool {
     unsafe extern "C" {
-        fn __torajs_class_is_intrinsic_cell(cell: *const c_void) -> i32;
+        fn __torajs_class_call_constructs_cell(cell: *const c_void) -> i32;
     }
-    unsafe { __torajs_class_is_intrinsic_cell(ptr) != 0 }
+    unsafe { __torajs_class_call_constructs_cell(ptr) != 0 }
 }
 
 #[cfg(test)]
 #[inline]
-unsafe fn class_is_intrinsic(_ptr: *mut c_void) -> bool {
+unsafe fn class_call_constructs(_ptr: *mut c_void) -> bool {
     false
 }
 
