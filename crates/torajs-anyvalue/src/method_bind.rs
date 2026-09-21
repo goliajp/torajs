@@ -57,7 +57,7 @@ use core::ffi::c_void;
 
 use torajs_rc::Tag;
 
-use crate::method_call::{MAX_BOXED_ARGS, closure_cell_entry, invoke_with_this, not_callable};
+use crate::method_call::{MAX_BOXED_ARGS, not_callable};
 use crate::method_value::{builtin_method_family, builtin_method_mid, native_entry};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED};
 use crate::nanbox_encode::__torajs_anyv_box_pointer;
@@ -111,7 +111,10 @@ pub(crate) unsafe fn bind_cell(ptr: *mut c_void, argv: *const u64, argc: i64) ->
         // closures, other bound cells) dispatches through it.
         let (kind, target) = if let Some(mid) = builtin_method_mid(ptr) {
             (0u64, pack_builtin_target(mid, builtin_method_family(ptr)))
-        } else if closure_cell_entry(ptr).is_some() || crate::construct::is_class_ctor_cell(ptr) {
+        } else if crate::construct::is_callable(crate::nanbox::box_void_ptr(ptr)) {
+            // §20.2.3.2 step 2 is IsCallable, so the gate is §7.2.3
+            // — listing the shapes here admitted the closure and the
+            // class and turned a callable Proxy away.
             torajs_rc::__torajs_rc_inc(ptr);
             (1u64, ptr as u64)
         } else {
@@ -322,23 +325,21 @@ unsafe extern "C" fn bound_entry(env: *mut c_void, argv: *const u64, argc: i64) 
                     n,
                 )
             } else {
-                let Some((env2, entry2)) = closure_cell_entry(target as *mut c_void) else {
-                    // §10.4.1.1 calls the target, so a bound class
-                    // gets the target's [[Call]] — the same rule the
-                    // plain lane runs, read from the same place. It
-                    // lived only here for a while, which is how
-                    // `C.bind(null)()` came to name the rule while a
-                    // plain `C()` said "value is not a function".
-                    if let Some(v) = crate::construct::call_class_ctor(target, buf, n) {
-                        return v;
-                    }
-                    return not_callable();
-                };
-                // The bound this rides the receiver channel — a
-                // recv-first target takes it in argv[0] (RFC
-                // 20260717-objlit-anylane-recv knife 2d), a plain
-                // closure drops it.
-                invoke_with_this(env2, entry2, bound_this, buf, n)
+                // §10.4.1.1 step 5 is `Call(target, boundThis, args)`
+                // — the ordinary call, on whatever the target is. So
+                // this is the explicit-`this` kernel and nothing
+                // else: it holds all three of §7.2.3's callable
+                // shapes, routes the bound this through the receiver
+                // channel (a recv-first target takes it in argv[0],
+                // RFC 20260717-objlit-anylane-recv knife 2d; a plain
+                // closure drops it), and runs a callable Proxy's
+                // `apply` trap. Spelling the dispatch out here named
+                // the closure and the class and missed the proxy —
+                // `p.bind(null, 5)()` returned undefined instead of
+                // running the trap.
+                crate::method_call_closure_dispatch::__torajs_any_call_with_this(
+                    target, bound_this, buf, n,
+                )
             }
         };
 

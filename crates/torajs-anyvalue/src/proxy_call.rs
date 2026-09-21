@@ -199,6 +199,16 @@ unsafe fn callable_forwarder(
             };
             return Some(crate::proxy_callable::apply_with_list(recv, this_arg, list));
         }
+        // §20.2.3.2 step 4 — [[BoundTargetFunction]] is the value
+        // `bind` was called ON, and here that value is the proxy.
+        // Forwarding the dispatch to the target (the trap-less
+        // default below) bound the target instead, and the bound
+        // function then called it directly: every trap was gone, so
+        // `p.bind(null, 5)()` on a proxy with an `apply` trap
+        // answered undefined.
+        if mid == torajs_rc::ANY_METHOD_BIND {
+            return Some(crate::method_bind::bind_cell(as_void_ptr(recv), argv, argc));
+        }
         None
     }
 }
