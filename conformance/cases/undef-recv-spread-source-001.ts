@@ -58,13 +58,29 @@ try {
   console.log("for-of", "threw", (e as Error).constructor.name);
 }
 
-// --- the annotated spelling of the same slot
+// --- the annotated spelling of the same slot. Both of these were
+// compile-time refusals: `Array.from`'s checker arm already
+// admitted a source typed `undefined`, but not one that MIGHT be.
 const a: number[] | undefined = undefined;
 try {
   console.log("annotated", "ok", [...a].length);
 } catch (e) {
   console.log("annotated", "threw", (e as Error).constructor.name);
 }
+try {
+  console.log("annotated-from", "ok", Array.from(a).length);
+} catch (e) {
+  console.log("annotated-from", "threw", (e as Error).constructor.name);
+}
+try {
+  console.log("annotated-rest", "ok", g(...a));
+} catch (e) {
+  console.log("annotated-rest", "threw", (e as Error).constructor.name);
+}
+
+// --- and the same annotated slot holding a live value
+const liveA: number[] | undefined = [4, 5];
+console.log(Array.from(liveA).join("-"), [...liveA].join("-"), g(...liveA));
 
 // --- live sources are untouched, in every family the lanes know
 const live = [[1, 2], [3]];

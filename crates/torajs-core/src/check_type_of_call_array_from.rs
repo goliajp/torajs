@@ -116,6 +116,18 @@ pub(crate) fn try_match(
             if matches!(arg_ty, Type::Null | Type::Undefined) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
+            // …and so is one that MIGHT be nullish. `T | undefined`
+            // is the live `T` walk with that same runtime throw in
+            // front of it (the guard `ssa_lower_call_array_from`
+            // arms), so it answers what `T` answers. Refusing it
+            // also refused every `g(...a)` on a declared rest
+            // parameter: `apply_rest_args` spells that call
+            // `Array.from(a)`.
+            if let Type::Nullable(inner) = &arg_ty
+                && let Type::Array(elem) = &**inner
+            {
+                return Some(Ok(Type::Array(elem.clone())));
+            }
             // Fall through to the static-sig path; the String
             // overload already covered there throws a sensible
             // arity / type mismatch otherwise.
