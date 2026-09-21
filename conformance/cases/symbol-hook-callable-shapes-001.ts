@@ -82,6 +82,6 @@ console.log("nullish hook ", attempt(() => nullish * 1));
 const plain: any = {};
 plain[Symbol.iterator] = function () {
   let i = 0;
-  return { next: () => (i < 2 ? { value: i * 10, done: false } : { done: true }) };
+  return { next: () => (i < 2 ? { value: i++ * 10, done: false } : { done: true }) };
 };
 console.log("closure iter ", attempt(() => [...plain].join(",")));
