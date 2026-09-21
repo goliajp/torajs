@@ -180,6 +180,21 @@ pub(crate) unsafe fn ordinary_has_instance(v: AnyValue, target: AnyValue, strict
 unsafe fn call_has_instance(v: AnyValue, target: AnyValue, cell: *mut c_void) -> bool {
     unsafe {
         if cell_tag(cell) != Tag::Closure as u16 {
+            // §7.2.3 names two more callable shapes, and neither has a
+            // closure cell to classify — reading the tag alone made
+            // `o[Symbol.hasInstance] = new Proxy(fn, {})` answer "not
+            // callable" about a value `typeof` calls a function. Each
+            // of the two has a call protocol of its own; a shape that
+            // has neither keeps the step-2 TypeError below.
+            let handler = crate::nanbox_encode::__torajs_anyv_box_pointer(cell);
+            let argv = [v];
+            if let Some(raw) =
+                crate::call_non_closure::call_with_this(handler, target, argv.as_ptr(), 1)
+            {
+                let b = crate::nanbox_ffi::__torajs_anyv_to_bool(raw);
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(raw);
+                return b;
+            }
             __torajs_throw_type_error(c"Symbol.hasInstance handler is not callable".as_ptr());
             return false;
         }
