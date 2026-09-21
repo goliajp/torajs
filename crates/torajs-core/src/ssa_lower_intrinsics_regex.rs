@@ -94,6 +94,12 @@ pub(crate) struct RegexIds {
     /// «O, replaceValue» (8 = `@@replace`).
     pub regex_replace: FuncId,
     pub regex_replace_all: FuncId,
+    /// §22.1.3.19 step 5 with the replacement in an `any` slot — the
+    /// typed regex lane's own IsCallable, asked at run time. The
+    /// capture count comes off the RegExp cell rather than from a
+    /// declared callback shape, which is the one thing the static
+    /// lane cannot supply for an unknown callable.
+    pub regex_replace_any_repl: FuncId,
     pub regex_replace_fn: FuncId,
     pub regex_replace_all_fn: FuncId,
     pub regex_split: FuncId,
@@ -261,6 +267,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             fn_table,
             "__torajs_str_replace_all_regex",
             &[Type::Str, Type::RegExp, Type::Str],
+            Type::Str,
+        ),
+        regex_replace_any_repl: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_regex_replace_any_repl",
+            &[Type::Str, Type::RegExp, Type::Any, Type::I64],
             Type::Str,
         ),
         regex_replace_fn: declare_intrinsic(

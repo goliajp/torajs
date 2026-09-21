@@ -213,6 +213,7 @@ pub(crate) fn build(
         anyv_reject_regexp_needle: init_b.regex.anyv_reject_regexp_needle,
         regex_replace: init_b.regex.regex_replace,
         regex_replace_all: init_b.regex.regex_replace_all,
+        regex_replace_any_repl: init_b.regex.regex_replace_any_repl,
         regex_replace_fn: init_b.regex.regex_replace_fn,
         regex_replace_all_fn: init_b.regex.regex_replace_all_fn,
         regex_split: init_b.regex.regex_split,

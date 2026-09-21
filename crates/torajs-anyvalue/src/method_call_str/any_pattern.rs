@@ -301,3 +301,66 @@ pub unsafe extern "C" fn __torajs_str_replace_any_repl(
         out
     }
 }
+
+/// §22.1.3.19 step 5 for a TYPED `Str.replace(/re/, repl)` whose
+/// replacement arrived in an `any` slot.
+///
+/// The typed regex lane classified the replacement statically — Str
+/// or Closure, and nothing else — so an `any` replacement was
+/// refused at lowering. That refusal is not the spec's: step 5 is
+/// IsCallable, asked at run time, and both answers have a kernel
+/// here already. The one thing the typed lane could not supply is
+/// the capture count a callback expects, because it derives that
+/// from the callback's declared shape; the any-receiver kernel reads
+/// it off the RegExp cell instead, which is what an unknown callback
+/// needs.
+///
+/// The literal-needle twin above ([`__torajs_str_replace_any_repl`])
+/// is the same operation with the same posture; the two differ only
+/// in which pair of kernels they reach.
+///
+/// Answers an OWNED Str cell, so the result stays `Type::Str` and
+/// the call site keeps its static type — the point of doing this
+/// here rather than sending the whole call to the any lane.
+///
+/// # Safety
+/// `s` is a live Str cell and `re` a live RegExp cell; `repl_av`
+/// carries a valid AnyValue bit pattern.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_str_regex_replace_any_repl(
+    s: *const c_void,
+    re: *const c_void,
+    repl_av: AnyValue,
+    all: i64,
+) -> *mut c_void {
+    unsafe {
+        // §7.2.3 over the replacement, exactly as the literal-needle
+        // twin asks it — a callable Proxy and a class object have no
+        // closure cell, and the kernel wants one, so they get a
+        // thunk. The guard holds it across the call.
+        let out = match crate::callback_resolve::resolve(repl_av, VALUE_UNDEFINED) {
+            Some(cb) => super::__torajs_str_any_replace_regex_fn(s as *const u8, re, cb.env(), all),
+            None => {
+                let repl = __torajs_anyv_to_str(repl_av);
+                if __torajs_throw_check() != 0 {
+                    __torajs_str_drop(repl as *mut c_void);
+                    return core::ptr::null_mut();
+                }
+                let v = super::__torajs_str_any_replace_regex(
+                    s as *const u8,
+                    re,
+                    repl as *const u8,
+                    all,
+                );
+                __torajs_str_drop(repl as *mut c_void);
+                v
+            }
+        };
+        // The any-receiver kernels answer a boxed value; the typed
+        // caller's slot is a Str cell, and ToString over an answer
+        // that is already a string is the identity plus a stake.
+        let cell = __torajs_anyv_to_str(out);
+        crate::nanbox_ffi::__torajs_anyv_rc_dec(out);
+        cell as *mut c_void
+    }
+}

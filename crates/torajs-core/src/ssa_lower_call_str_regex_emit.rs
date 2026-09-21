@@ -296,12 +296,24 @@ pub(crate) fn emit_replace(
             };
             (fid, Some((n_caps_actual, has_off_input)))
         }
+        // §22.1.3.19 step 5 is IsCallable, asked at RUN time, and an
+        // `any` replacement is the one shape this lane cannot answer
+        // statically — it used to refuse the program instead
+        // (`s.replace(/b/, getRepl())`, and every `any`-annotated
+        // parameter). The kernel asks the question and reaches the
+        // same two legs; the call keeps its `Type::Str`, which is why
+        // it goes here rather than to the any lane.
+        (Type::Any, _) => (ctx.intrinsics.regex_replace_any_repl, None),
         _ => {
             panic!("ssa-lower: s.{method}(re, repl) — repl must be Str or Closure, got {repl_ty:?}")
         }
     };
 
+    let any_repl = matches!(repl_ty, Type::Any);
     let mut call_args = vec![recv_op, re_op, repl];
+    if any_repl {
+        call_args.push(Operand::ConstI64((method == "replaceAll") as i64));
+    }
     if let Some((n_caps, has_off_input)) = opt_extras {
         call_args.push(Operand::ConstI64(n_caps as i64));
         call_args.push(Operand::ConstI64(has_off_input as i64));
@@ -316,6 +328,12 @@ pub(crate) fn emit_replace(
     // in the replacement slot after the runtime call consumed it
     // (the Str-repl shape is a borrow and stays untouched).
     ctx.release_owned_temp(args[1], &repl);
+    // The any-replacement kernel can leave a pending throw from
+    // ToString(replaceValue) — or from the callback's own body — so
+    // both spellings need the check, not just replaceAll's.
+    if any_repl {
+        ctx.emit_throw_check(None);
+    }
     // §22.1.5 — replaceAll throws a TypeError on a non-global RegExp; the
     // kernel records the pending throw, so propagate it here (mirrors the
     // matchAll §22.1.3.13 post-call check). `replace` accepts any regex.

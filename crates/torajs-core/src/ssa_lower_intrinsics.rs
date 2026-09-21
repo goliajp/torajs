@@ -256,6 +256,7 @@ pub(crate) struct Intrinsics {
     /// `s.replaceAll(re, fn)`. 3rd arg is the closure env block (env+8
     /// = lifted body's fn_addr). Runtime invokes (env, match_str) ->
     /// ret_str per match.
+    pub(crate) regex_replace_any_repl: FuncId,
     pub(crate) regex_replace_fn: FuncId,
     pub(crate) regex_replace_all_fn: FuncId,
     pub(crate) regex_split: FuncId,
