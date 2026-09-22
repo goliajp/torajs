@@ -229,6 +229,7 @@ pub(crate) mod check_type_of_member_iterator;
 pub(crate) mod check_type_of_member_misc;
 pub(crate) mod check_type_of_member_namespace;
 pub(crate) mod check_type_of_member_namespace_io;
+pub(crate) mod check_type_of_member_nullable_recv;
 pub(crate) mod check_type_of_member_object_generic;
 pub(crate) mod check_type_of_member_object_meta;
 pub(crate) mod check_type_of_member_prim;
