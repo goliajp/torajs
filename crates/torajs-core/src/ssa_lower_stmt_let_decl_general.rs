@@ -178,6 +178,20 @@ pub(crate) fn record_binding_flags(
     if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, init) {
         ctx.nullable_str_lets.insert(name.to_string());
     }
+    // A BARE `string` annotation over an `any` init holds the slot's
+    // undefined sentinel when the value is undefined — the let-init
+    // conversion answers the sentinel rather than the text
+    // "undefined". So the binding can carry it although the
+    // annotation never said so, and `typeof` has to ask instead of
+    // folding: `let bare: string = (undefined as any)` compared equal
+    // to undefined while `typeof bare` still said "string". The
+    // nullable-annotation arm below covers the case where the program
+    // did say so.
+    if type_ann.is_some_and(|a| a.as_str() == "string")
+        && matches!(ctx.expr_types.get(&init), Some(crate::check::Type::Any))
+    {
+        ctx.nullable_str_lets.insert(name.to_string());
+    }
     // A WRITTEN `T | null` / `T | undefined` says the same thing the
     // init-shape probes above infer, and says it directly. Every
     // registry here reads the INIT; the annotation — the one piece of

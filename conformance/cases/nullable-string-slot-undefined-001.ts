@@ -8,13 +8,9 @@
 // adapter (the same kernel this now calls), a missing argument, an
 // `undefined` literal. Only the let annotation ran the real ToString.
 //
-// Three neighbours are NOT fixed here and are registered instead:
+// Two neighbours are NOT fixed here and are registered instead:
 //   - `null as any` into the same slot still answers the text "null";
-//     the Str slot has no null sentinel, only an undefined one.
-//   - `typeof` on a non-nullable `string` slot folds to "string" at
-//     compile time, so `let bare: string = (undefined as any)` reports
-//     "string" where bun reports "undefined" (the value compares equal
-//     to undefined either way, which is what this file pins).
+//     the Str slot has an undefined sentinel and no null one.
 //   - boxing the sentinel back into an `any` re-spells it as the text,
 //     so `(bare as any) === "undefined"` is true here and false in bun.
 
@@ -24,10 +20,15 @@ console.log("undef", s === undefined, typeof s, JSON.stringify(s));
 let ok: string | undefined = ("x" as any);
 console.log("value", ok === "x", ok!.length);
 
-// Same boundary without the union: the value still compares equal to
-// undefined rather than to the text.
+// Same boundary without the union. The annotation never said the slot
+// could hold undefined, but the conversion above puts the sentinel
+// there anyway, so `typeof` has to ask instead of folding to "string"
+// the way a plain `string` binding still does.
 let bare: string = (undefined as any);
-console.log("bare", bare === undefined);
+console.log("bare", bare === undefined, typeof bare);
+
+const plain: string = "lit";
+console.log("plain", typeof plain);
 
 // The real ToString is untouched — these all still spell it out.
 console.log("tostring", String(undefined), String(null), `${undefined}`);
