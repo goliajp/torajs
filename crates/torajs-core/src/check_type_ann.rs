@@ -176,7 +176,8 @@ fn resolve_type_ann_inner(
             in_flight,
         );
     }
-    if let Some(hit) = resolve_internal_marker(name, aliases, type_params, generic_aliases, in_flight)
+    if let Some(hit) =
+        resolve_internal_marker(name, aliases, type_params, generic_aliases, in_flight)
     {
         return hit;
     }
