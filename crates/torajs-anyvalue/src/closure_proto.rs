@@ -39,6 +39,8 @@ pub(crate) mod ctor_species_accessor;
 /// private mint plumbing.
 pub(crate) mod iter_proto;
 mod iter_proto_accessors;
+/// The Symbol / Date prototypes' own `[Symbol.toPrimitive]`.
+pub(crate) mod to_primitive_proto;
 /// %TypedArray.prototype%'s `[Symbol.toStringTag]` accessor.
 pub(crate) mod typedarray_proto_accessor;
 

@@ -302,6 +302,9 @@ pub unsafe extern "C" fn __torajs_proto_symbol_keys_install(proto: *mut c_void, 
     unsafe {
         crate::closure_proto::typedarray_proto_accessor::install_bytes_per_element(proto, idx)
     };
+    // §20.4.3.5 / §21.4.4.45 — before the Symbol prototype's
+    // `@@toStringTag` (the mint installs that next), in clause order.
+    unsafe { crate::closure_proto::to_primitive_proto::install(proto, idx) };
     let is_array = idx == torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64;
     let Some((family, mid)) = proto_tag_iterator_alias(idx) else {
         return;

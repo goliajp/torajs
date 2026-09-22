@@ -128,7 +128,7 @@ static BPE_KEY_CELL: AtomicU64 = AtomicU64::new(0);
 /// `proto` is the freshly allocated dynobj.
 pub(crate) unsafe fn install(proto: *mut c_void) {
     unsafe {
-        let get_cell = mint_symbol_method_cell(tag_get, b"get [Symbol.toStringTag]");
+        let get_cell = mint_symbol_method_cell(tag_get, b"get [Symbol.toStringTag]", 0);
         let pair = __torajs_accessor_pair_new(
             get_cell.cast(),
             core::ptr::null_mut(),

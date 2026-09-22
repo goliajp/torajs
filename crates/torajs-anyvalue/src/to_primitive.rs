@@ -206,11 +206,10 @@ enum Exotic {
 /// runs instead (`o[Symbol.toPrimitive] = null` coerces through
 /// valueOf, unlike the @@iterator lane where nullish refuses).
 ///
-/// tr's builtin prototypes carry no `@@toPrimitive` reify (the F0
-/// table covers @@iterator / @@dispose / RegExp protocol only), so
-/// the symbol walk only ever answers a property a user actually
-/// wrote — Date's builtin §21.4.4.45 default→string mapping stays
-/// the tag special-case in [`heap_to_primitive_default`].
+/// The builtin hooks — §20.4.3.5 on Symbol.prototype and §21.4.4.45
+/// on Date.prototype — are real entries on those prototypes
+/// (`closure_proto::to_primitive_proto`), so the walk finds them, or
+/// whatever a program redefined or deleted them to.
 #[cfg(not(test))]
 unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
     unsafe {
@@ -236,18 +235,6 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
             return Exotic::Answered(Some(crate::nanbox::VALUE_UNDEFINED));
         }
         if tag == TAG_UNDEF || tag == TAG_NULL {
-            // §20.4.3.5 — the one builtin `@@toPrimitive` the chain
-            // reaches without a user write: Symbol.prototype's, which
-            // answers thisSymbolValue. Without it a Symbol wrapper
-            // fell to OrdinaryToPrimitive, found Symbol.prototype.
-            // toString and stringified — `String(Object(Symbol()))`
-            // answered "Symbol()" where every engine throws (the
-            // unwrapped Symbol then fails ToString / ToNumber).
-            if (*(cell as *const HeapHeader)).tag() == Tag::SymbolWrapper {
-                let inner = (cell.cast::<u8>().add(8) as *const *mut c_void).read();
-                torajs_rc::__torajs_rc_inc(inner);
-                return Exotic::Answered(Some(box_pointer(inner as *mut HeapHeader)));
-            }
             // Nullish carries no cell, so the guard drops to nothing.
             return Exotic::NoHook;
         }
@@ -298,21 +285,17 @@ unsafe fn exotic_to_primitive(_cell: *mut c_void, _hint: &[u8]) -> Exotic {
     Exotic::NoHook
 }
 
-/// `ToPrimitive(cell)` with the DEFAULT hint (§7.1.1 step 1.c): a
-/// user `@@toPrimitive` receives `"default"`; without one, every
-/// ordinary object treats default as number order, but a Date's
-/// builtin `@@toPrimitive` maps default to string order
-/// (§21.4.4.45) — `date == str` compares the toString form, not
-/// the epoch millis. Loose-equality's object arm (§7.2.14 steps
-/// 11-12) and the `+` operator are the consumers.
+/// `ToPrimitive(cell)` with the DEFAULT hint (§7.1.1 step 1.c): an
+/// `@@toPrimitive` receives `"default"` (a Date's builtin one maps it
+/// to string order, §21.4.4.45); without one, default is number
+/// order. Loose-equality's object arm (§7.2.14 steps 11-12) and the
+/// `+` operator are the consumers.
 pub(crate) unsafe fn heap_to_primitive_default(cell: *mut c_void) -> Option<AnyValue> {
     match unsafe { exotic_to_primitive(cell, b"default") } {
         Exotic::Answered(r) => return r,
         Exotic::NoHook => {}
     }
-    let h = unsafe { &*(cell as *const HeapHeader) };
-    let hint_string = matches!(h.tag(), Tag::Date);
-    unsafe { ordinary_to_primitive(cell, hint_string) }
+    unsafe { ordinary_to_primitive(cell, false) }
 }
 
 /// `ToPrimitive(cell)` with hint number (`hint_string == false`) or
@@ -366,7 +349,10 @@ unsafe fn name_key(slot: &AtomicPtr<u8>, name: &[u8]) -> *mut u8 {
 /// picks the method order (`toString` → `valueOf` for hint string,
 /// reversed for hint number). Same return protocol as
 /// [`heap_to_primitive`].
-unsafe fn ordinary_to_primitive(cell: *mut c_void, hint_string: bool) -> Option<AnyValue> {
+pub(crate) unsafe fn ordinary_to_primitive(
+    cell: *mut c_void,
+    hint_string: bool,
+) -> Option<AnyValue> {
     let recv = box_pointer(cell as *mut HeapHeader);
     let to_string = (ANY_METHOD_TO_STRING, &NAME_TO_STRING, &b"toString"[..]);
     let value_of = (ANY_METHOD_VALUE_OF, &NAME_VALUE_OF, &b"valueOf"[..]);

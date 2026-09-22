@@ -66,7 +66,7 @@ pub(crate) fn owns_species(proto_tag: i64) -> bool {
 pub(crate) unsafe fn install(proto_tag: i64, props_slot: *mut *mut c_void) {
     unsafe {
         *props_slot = __torajs_dynobj_alloc();
-        let get_cell = mint_symbol_method_cell(iter_proto_self_entry, b"get [Symbol.species]");
+        let get_cell = mint_symbol_method_cell(iter_proto_self_entry, b"get [Symbol.species]", 0);
         let pair = __torajs_accessor_pair_new(
             get_cell.cast(),
             core::ptr::null_mut(),

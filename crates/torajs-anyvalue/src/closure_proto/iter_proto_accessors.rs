@@ -180,8 +180,8 @@ pub(crate) unsafe fn install(proto: *mut c_void) {
         ),
     ] {
         unsafe {
-            let get_cell = mint_symbol_method_cell(get_entry, get_name);
-            let set_cell = mint_symbol_method_cell(set_entry, set_name);
+            let get_cell = mint_symbol_method_cell(get_entry, get_name, 0);
+            let set_cell = mint_symbol_method_cell(set_entry, set_name, 0);
             let pair =
                 __torajs_accessor_pair_new(get_cell.cast(), set_cell.cast(), ACC_KINDS_BOXED_BOTH);
             let mut slot = proto;

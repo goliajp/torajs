@@ -116,11 +116,12 @@ unsafe extern "C" fn iter_proto_dispose_entry(
 
 /// Mint one prototype-method cell: reject-closure body + receiver in
 /// argv[0] + `name` / `length` own reflection entries (the
-/// `gen_step_method_cell` posture; both spec functions have length 0
-/// and bracketed names that never intern back to a string key).
+/// `gen_step_method_cell` posture; the names are bracketed and never
+/// intern back to a string key).
 pub(super) unsafe fn mint_symbol_method_cell(
     entry: unsafe extern "C" fn(*mut c_void, *const u64, i64) -> u64,
     name: &[u8],
+    length: u64,
 ) -> *mut u8 {
     let cell = mint_reject_closure_cell(entry);
     unsafe {
@@ -140,7 +141,7 @@ pub(super) unsafe fn mint_symbol_method_cell(
             props_slot,
             interned_key(&LENGTH_KEY_CELL, b"length"),
             ANY_I64,
-            0,
+            length,
             REFLECT_ENTRY_FLAGS,
         );
     }
@@ -172,7 +173,8 @@ pub unsafe extern "C" fn __torajs_iterator_proto_install(proto: *mut c_void) {
         ),
         (WK_DISPOSE, iter_proto_dispose_entry, b"[Symbol.dispose]"),
     ] {
-        let cell = unsafe { mint_symbol_method_cell(entry, name) };
+        // Both §27.1.2.1 and §27.1.4.1 have length 0.
+        let cell = unsafe { mint_symbol_method_cell(entry, name, 0) };
         let key = symbol_static::well_known_singleton(idx) as *mut c_void;
         let mut slot = proto;
         unsafe {
@@ -290,7 +292,8 @@ pub unsafe extern "C" fn __torajs_gen_asyncdispose_cell() -> *mut u8 {
     if p != 0 {
         return p as *mut u8;
     }
-    let cell = unsafe { mint_symbol_method_cell(gen_asyncdispose_entry, b"[Symbol.asyncDispose]") };
+    let cell =
+        unsafe { mint_symbol_method_cell(gen_asyncdispose_entry, b"[Symbol.asyncDispose]", 0) };
     ASYNCDISPOSE_CELL.store(cell as u64, Ordering::Relaxed);
     cell
 }
@@ -331,7 +334,7 @@ pub unsafe extern "C" fn __torajs_gen_asynciterator_cell() -> *mut u8 {
         return p as *mut u8;
     }
     let cell =
-        unsafe { mint_symbol_method_cell(gen_asynciterator_entry, b"[Symbol.asyncIterator]") };
+        unsafe { mint_symbol_method_cell(gen_asynciterator_entry, b"[Symbol.asyncIterator]", 0) };
     ASYNCITERATOR_CELL.store(cell as u64, Ordering::Relaxed);
     cell
 }
