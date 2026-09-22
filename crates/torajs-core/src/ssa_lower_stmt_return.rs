@@ -329,6 +329,22 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
         return ctx.coerce_any_to_number(op, ctx.f.ret);
     }
+    if matches!(ctx.f.ret, Type::Str | Type::I64 | Type::F64 | Type::Bool)
+        && actual.is_refcounted()
+        && actual != Type::Any
+        && actual != ctx.f.ret
+        && !(ctx.f.ret == Type::Str && actual == Type::Substr)
+    {
+        // A heap value reaches a primitive return only through
+        // `x as any`, which lowers to x's own repr: the checker admits
+        // Any into the declared type, and the callback's contextual
+        // `=> string` made `"abc".replace(/b/, () => [9, 8] as any)`
+        // hand the ARRAY pointer back as a Str (`a` + garbage + `c`).
+        // Box it and take the Any arms: ToString / ToNumber /
+        // ToBoolean, with the box's stake settled there.
+        let boxed = ctx.box_to_any(op);
+        return coerce_to_ret(ctx, boxed, None);
+    }
     if actual == Type::Any && matches!(ctx.f.ret, Type::Closure(_)) {
         // 403-03 — an Any box crossing a fn-typed return boundary
         // (`effective_ret_ty`'s any-binding upgrade). The kernel
