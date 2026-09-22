@@ -1,6 +1,7 @@
 mod ast_pipeline;
 mod cmd_build;
 mod cmd_build_dispatch_judge;
+mod cmd_build_dispatch_judge_obj_world;
 mod cmd_build_dispatch_stubs;
 mod cmd_build_elide;
 mod cmd_build_elide_class;

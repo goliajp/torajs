@@ -30,6 +30,10 @@
 use torajs_core::ssa::{InstKind, Module, Operand};
 use torajs_rc::any_method_family as fam;
 
+use crate::cmd_build_dispatch_judge_obj_world::{
+    COERCION_KEEP, COERCION_PREFIXES, KERNEL_PROBE_PREFIXES,
+};
+
 /// Mid-carrying dispatch intrinsics: (symbol, index of the mid in
 /// the call's operand list). Closed set — every ssa_lower site that
 /// hands a compile-time mid to the runtime dispatcher calls one of
@@ -64,90 +68,6 @@ const FALLBACK_PREFIXES: [&str; 5] = [
     "__torajs_builtin_proto_method_value",
     "__torajs_anyv_construct",
 ];
-
-/// Any→primitive coercion surface: these kernels run the spec
-/// OrdinaryToPrimitive machinery (toString / valueOf mids) against
-/// arbitrary heap receivers, `await` resolves thenables, and
-/// JSON.stringify consults toJSON. The mids they re-dispatch enter
-/// a family ARM only for: user objects' own valueOf/toString
-/// (dynobj / struct / closure expandos), Array.prototype.toString
-/// (= join, in the arr arm), and the per-family exotic coercions
-/// (Date valueOf, RegExp toString, TypedArray join, Symbol/BigInt
-/// throw faces) — the latter group is covered by the PREFIX map,
-/// because a value of those families cannot exist without its
-/// construction/usage symbols being emitted. So a coercion hit
-/// keeps the OBJ-world four, not everything. (The prologue's error
-/// constructors emit `anyv_to_str_pair` in every program — the
-/// spec ToString(message) — which is why this must not be a
-/// fallback trigger: it would kill the judgment for the empty
-/// program too.)
-const COERCION_PREFIXES: [&str; 18] = [
-    // The array join kernels run the coercion per ELEMENT rather
-    // than on themselves, so the scan never saw `anyv_to_str` in
-    // the user `.o` and judged the obj world unreachable. Every
-    // face of that: `[{x:1}].join("|")` answered `undefined`, and
-    // so did `String([{x:1}])` — but the one that names it is
-    // `[{toString(){return "T";}}].join(",")`, where a user method
-    // the spec requires to run simply did not. (No sibling entry is
-    // needed: `arr_join_exotic` is a runtime-internal delegate to
-    // this kernel and is never a lowering's callee, and the locale
-    // lanes already worked because they reach their element's own
-    // toLocaleString through a mid the scan does see.)
-    "__torajs_arr_join_any",
-    "__torajs_anyv_to_number",
-    // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
-    "__torajs_anyv_incr_",
-    "__torajs_anyv_number_ctor",
-    "__torajs_anyv_to_str",
-    "__torajs_anyv_to_display_str",
-    "__torajs_any_to_bigint",
-    "__torajs_any_to_object",
-    "__torajs_anyv_add_pair",
-    "__torajs_anyv_arith_pair",
-    "__torajs_anyv_loose_eq",
-    "__torajs_anyv_json_stringify",
-    // §7.1.19 ToPropertyKey is ToPrimitive first, so a keyed read or
-    // write whose KEY is a heap value runs the same OrdinaryToPrimitive
-    // machinery the entries above do — `o[k]` where `k` is an object
-    // or a function asks `k` for its `toString`. Rotation 608: with a
-    // FUNCTION key admitted, nothing else in such a program emits a
-    // `__torajs_closure_*` symbol, so the closure arm was stubbed and
-    // `o[() => {}]` reached the loud reject instead of the key "() =>
-    // {}". The object-key half (rotation 438) was reachable the same
-    // way and only ever worked because a program with an object key
-    // also had dynobj symbols. The four keyed kernels are here for
-    // the same reason as the seam itself: they run ToPropertyKey on
-    // the key INSIDE the runtime, so the seam symbol never appears in
-    // the user `.o` and only the kernel names are visible to the scan
-    // (`__torajs_any_index_method_call` stays a FALLBACK trigger — it
-    // also interns a mid, which is strictly more than a coercion).
-    "__torajs_anyv_to_property_key",
-    "__torajs_any_index_get",
-    "__torajs_any_index_get_keyed",
-    "__torajs_any_index_set",
-    "__torajs_any_index_set_keyed",
-    "__torajs_anyv_await",
-];
-
-/// Kernels that PROBE user objects internally — spec machinery that
-/// reads a constructor / species / descriptor off an arbitrary
-/// object and so re-enters the dispatcher with obj-world receivers
-/// (defineProperty's ToNumber(value) runs a user valueOf; the
-/// array species guard reads `.constructor` through the expando
-/// probe). Emitting one keeps the obj-world four, same as a
-/// coercion hit. (The `class_*_define` registration faces are NOT
-/// here — their descriptors are compiler-built and the prologue
-/// emits them in every program.)
-const KERNEL_PROBE_PREFIXES: [&str; 4] = [
-    "__torajs_arr_species_guard",
-    "__torajs_dynobj_define",
-    "__torajs_arr_define",
-    "__torajs_anyv_define_props_source_gate",
-];
-
-/// What a coercion hit keeps — see [`COERCION_PREFIXES`]. Shared
-/// truth with the per-static table (`torajs_rc::ns_static_judge`).
-const COERCION_KEEP: u16 = fam::FAM_OBJ_WORLD;
 
 /// Emitted symbols that put a namespace / globalThis object (or a
 /// reified static cell) into the any world — the only compiler-
