@@ -30,9 +30,7 @@
 use torajs_core::ssa::{InstKind, Module, Operand};
 use torajs_rc::any_method_family as fam;
 
-use crate::cmd_build_dispatch_judge_obj_world::{
-    COERCION_KEEP, COERCION_PREFIXES, KERNEL_PROBE_PREFIXES,
-};
+use crate::cmd_build_dispatch_judge_obj_world::{COERCION_KEEP, COERCION_PREFIXES};
 
 /// Mid-carrying dispatch intrinsics: (symbol, index of the mid in
 /// the call's operand list). Closed set — every ssa_lower site that
@@ -324,12 +322,6 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
                         eprintln!("[judge] fallback trigger: {name}");
                     }
                     fallback = true;
-                }
-                if KERNEL_PROBE_PREFIXES.iter().any(|p| name.starts_with(p)) {
-                    if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {
-                        eprintln!("[judge] kernel-probe keep: {} calls {name}", f.name);
-                    }
-                    keep_bits |= COERCION_KEEP;
                 }
                 if !synth_error_fn && COERCION_PREFIXES.iter().any(|p| name.starts_with(p)) {
                     if diag && keep_bits & COERCION_KEEP != COERCION_KEEP {
