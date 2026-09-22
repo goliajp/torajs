@@ -35,7 +35,6 @@
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
-use crate::check_assignable::is_assignable_to_resolved;
 
 pub(crate) fn try_check(
     checker: &mut Checker,
@@ -323,18 +322,9 @@ fn check_set(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
 
 fn check_array(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
     if args.len() == 1 {
-        let arg_ty = checker.type_of(ast, args[0])?;
-        if !is_assignable_to_resolved(
-            &Type::Number,
-            &arg_ty,
-            &checker.class_structs,
-            &checker.aliases,
-            &checker.generic_alias_decls,
-        ) {
-            return Err(format!(
-                "`new Array(...)` 1-arg form: arg must be number, got {arg_ty:?}"
-            ));
-        }
+        // §23.1.1.1 step 4 — a Number is the length, anything else is
+        // the single element (`new Array("3")` is `["3"]`).
+        let _ = checker.type_of(ast, args[0])?;
         Ok(Type::Array(Box::new(Type::Any)))
     } else {
         Err(format!(

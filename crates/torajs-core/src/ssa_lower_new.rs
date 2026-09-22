@@ -382,9 +382,16 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     // `['3']`, length 1), so the whole dispatch is one borrowing
     // kernel doing the runtime tag test.
     let arg_ty = ctx.operand_ty(&arg_val);
-    let is_any = matches!(arg_ty, Type::Any);
+    let is_any = !matches!(arg_ty, Type::I64 | Type::I32 | Type::F64);
     let (alloc_name, alloc_arg) = if is_any {
-        ("__torajs_arr_new_from_any", arg_val.clone())
+        // Any, or a statically non-Number operand: the box keeps a
+        // `T | undefined` slot's undefined as undefined.
+        let boxed = if arg_ty == Type::Any {
+            arg_val.clone()
+        } else {
+            ctx.box_to_any_from_expr(args[0], arg_val.clone())
+        };
+        ("__torajs_arr_new_from_any", boxed)
     } else if matches!(arg_ty, Type::F64) {
         ("__torajs_arr_alloc_any_filled_f64", arg_val.clone())
     } else {
