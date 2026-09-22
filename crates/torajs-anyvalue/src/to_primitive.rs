@@ -232,6 +232,18 @@ unsafe fn exotic_to_primitive(cell: *mut c_void, hint: &[u8]) -> Exotic {
             return Exotic::Answered(Some(crate::nanbox::VALUE_UNDEFINED));
         }
         if tag == TAG_UNDEF || tag == TAG_NULL {
+            // §20.4.3.5 — the one builtin `@@toPrimitive` the chain
+            // reaches without a user write: Symbol.prototype's, which
+            // answers thisSymbolValue. Without it a Symbol wrapper
+            // fell to OrdinaryToPrimitive, found Symbol.prototype.
+            // toString and stringified — `String(Object(Symbol()))`
+            // answered "Symbol()" where every engine throws (the
+            // unwrapped Symbol then fails ToString / ToNumber).
+            if (*(cell as *const HeapHeader)).tag() == Tag::SymbolWrapper {
+                let inner = (cell.cast::<u8>().add(8) as *const *mut c_void).read();
+                torajs_rc::__torajs_rc_inc(inner);
+                return Exotic::Answered(Some(box_pointer(inner as *mut HeapHeader)));
+            }
             // Nullish carries no cell, so the guard drops to nothing.
             return Exotic::NoHook;
         }
