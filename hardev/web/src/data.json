@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T03:10:06.627Z",
+  "generatedAt": "2026-09-22T06:06:11.752Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-22T02:50:16Z",
-    "headSha": "f8eb0d4c7",
-    "elapsedSec": 540.02,
+    "ranAt": "2026-09-22T05:54:23Z",
+    "headSha": "a300a4cc3",
+    "elapsedSec": 542.37,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34444,
+    "pass": 34459,
     "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40731,
-    "bug": 8526,
-    "incompatible": 3917,
+    "passTotal": 40746,
+    "bug": 8529,
+    "incompatible": 3899,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49257,
-    "passRateInScope": 76.6,
+    "trAccepted": 49275,
+    "passRateInScope": 76.63,
     "passRateTrAccepted": 82.69
   },
   "torajs": {
-    "commit": "a60a60c8d",
-    "commitSubject": "chore(hardev): rotation 688 close stamps",
+    "commit": "9f5243356",
+    "commitSubject": "chore(hardev): rotation 689 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "a60a60c8d",
-      "subject": "chore(hardev): rotation 688 close stamps"
+      "hash": "9f5243356",
+      "subject": "chore(hardev): rotation 689 close stamps"
     },
     {
-      "hash": "f8eb0d4c7",
-      "subject": "style: rustfmt the file 221181f0b left unformatted"
+      "hash": "a300a4cc3",
+      "subject": "fix: a callable replaceValue on the generic replace lane refuses instead of stringifying"
     },
     {
-      "hash": "c5387e8e5",
-      "subject": "fix: method-call wedges read a possibly-absent receiver the way the member lane does"
+      "hash": "ef09f40b0",
+      "subject": "fix: the class-method demotion probe checks every receiver shape"
     },
     {
-      "hash": "cac43ed2d",
-      "subject": "fix: a member write on a possibly-absent receiver compiles and refuses after its right-hand side"
+      "hash": "847b0c5dd",
+      "subject": "fix: new Number / new String take the callable forms' argument domain"
     },
     {
-      "hash": "bf1fefdb5",
-      "subject": "fix: indexing a possibly-undefined string compiles and raises the TypeError after the key evaluates"
+      "hash": "70783a9c3",
+      "subject": "fix: new RegExp evaluates and ignores arguments past the flags"
     },
     {
-      "hash": "12e550271",
-      "subject": "fix: an update expression on a possibly-undefined receiver raises the TypeError instead of loading through it"
+      "hash": "908b7efe4",
+      "subject": "fix: new Array with a single non-Number argument makes a one-element array"
     },
     {
-      "hash": "04098c091",
-      "subject": "fix: a possibly-undefined string receiver reaches the member lane, with its own call-side guard"
+      "hash": "e4c92a64b",
+      "subject": "fix: a computed RegExp argument rides the regex lane of the string methods"
     },
     {
-      "hash": "e59507e81",
-      "subject": "fix: a method call on a possibly-undefined class receiver compiles and raises the TypeError before its arguments"
+      "hash": "3ffc86f4c",
+      "subject": "fix: keep the obj-world arms when a string kernel coerces an any pattern"
     },
     {
-      "hash": "c4470bc16",
-      "subject": "fix: a scalar's possibly-undefined receiver answers its member read from the any lane"
+      "hash": "2346686ba",
+      "subject": "refactor: move the obj-world re-entry tables out of the dispatch judge"
     },
     {
-      "hash": "66e4e5ec8",
-      "subject": "refactor: what a possibly-undefined receiver decays to moves to its own file"
+      "hash": "f0178f90e",
+      "subject": "fix: the 1-arg indexOf / lastIndexOf take any search value"
     },
     {
-      "hash": "28663eacb",
-      "subject": "fix: a possibly-undefined receiver reaches the member lane for every pointer-shaped type, not just arrays"
+      "hash": "4b7698e1b",
+      "subject": "fix: value-only ToString answers a BigInt's digits, not its console form"
     },
     {
-      "hash": "a915ac3a9",
-      "subject": "fix: any absorbs the optional wrapper, so a possibly-undefined any still has a member lane"
+      "hash": "f97d5db0b",
+      "subject": "fix: new WeakRef accepts any argument count"
     }
   ],
-  "headSha": "a60a60c8d",
+  "headSha": "9f5243356",
   "autorun": {
-    "total": 990,
+    "total": 991,
     "baselineTarget": 10,
-    "bySelf": 985,
+    "bySelf": 986,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790031328-65c7",
-      "at": "2026-09-21T22:55:28Z",
-      "ts": 1790031328,
+      "rotationId": "r-1790046685-4a21",
+      "at": "2026-09-22T03:11:25Z",
+      "ts": 1790046685,
       "trigger": "self",
-      "prevHead": "874bbc28b",
-      "handoffSha": "sha256:188f5fd56654343287bcedb9facee941ed67ef54679073511de00924fad6379a",
-      "handoffAgeSec": 70,
-      "conformanceBefore": "4463/0/4",
-      "commitsInSession": 13
+      "prevHead": "1f5cb13a8",
+      "handoffSha": "sha256:95ad0774fb94a718941228325813d1e194bddf8f0084b0f4a9c02ed81f36eded",
+      "handoffAgeSec": 18,
+      "conformanceBefore": "4472/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1790046685-4a21",
+        "at": "2026-09-22T03:11:25Z",
+        "ts": 1790046685,
+        "trigger": "self",
+        "prevHead": "1f5cb13a8",
+        "handoffSha": "sha256:95ad0774fb94a718941228325813d1e194bddf8f0084b0f4a9c02ed81f36eded",
+        "handoffAgeSec": 18,
+        "conformanceBefore": "4472/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1790031328-65c7",
         "at": "2026-09-21T22:55:28Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 6,
         "conformanceBefore": "4393/0/4",
         "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789907412-267e",
-        "at": "2026-09-20T12:30:12Z",
-        "ts": 1789907412,
-        "trigger": "self",
-        "prevHead": "0af87d34b",
-        "handoffSha": "sha256:816fdd4619a5596b04adb98cd4186f1f9dd1b6eb9bc0723ef497739e3d521d3f",
-        "handoffAgeSec": 12,
-        "conformanceBefore": "4385/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
