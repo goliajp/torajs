@@ -199,26 +199,20 @@ pub(crate) fn emit_to_string_inner(
             implicit_tostring,
         ),
         Type::Obj(_) => emit_struct_to_string(ctx, arg_eid, arg_op),
-        // RFC 20260719-fn-tostring-source B5 — ToString(fn) is its
-        // toString(): the registry erased-source kernel keyed on the
-        // raw fn_addr (FnSig slot) or the closure cell (env-first
-        // repr). The template-substitution String() wrap rides this.
-        Type::FnSig(_) => Operand::Value(ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.fn_source_str, vec![arg_op]),
-            Type::Str,
-            None,
-        )),
-        Type::Closure(_) => {
-            let s = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.closure_source_str, vec![arg_op.clone()]),
-                Type::Str,
-                None,
-            );
-            ctx.release_owned_temp(arg_eid, &arg_op);
-            Operand::Value(s)
-        }
+        // A FnSig slot is a bare code address; the kernel finds the
+        // function object (its canonical cell) and runs the same
+        // ToPrimitive walk the Closure arm below gets from the any
+        // kernel — the registry's source row only when no cell exists.
+        Type::FnSig(_) => emit_fnsig_to_str(ctx, arg_op, 1),
+        // §7.1.17 step 9 — ToString(fn) is ToPrimitive(fn, string),
+        // i.e. OrdinaryToPrimitive over the function OBJECT: its own
+        // `toString` / `valueOf` decide before the source text does.
+        // This arm used to call the registry's source kernel
+        // directly, so `f.toString = () => "x"; String(f)` answered
+        // the source while `String(f as any)` answered "x" — the any
+        // kernel has always run the ladder, and its closure arm falls
+        // back to the same registry row when no hook is installed.
+        Type::Closure(_) => emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring),
         // §7.1.17 ToString takes every value. A typed spelling whose
         // repr is a heap cell simply has no dedicated kernel here, so
         // it boxes at the any boundary and takes the very kernel the
@@ -245,6 +239,28 @@ pub(crate) fn emit_to_string_inner(
         | Type::Promise => emit_boxed_to_string(ctx, arg_eid, arg_op, implicit_tostring),
         _ => panic!("ssa-lower: String() with arg type {arg_ty:?} not yet supported"),
     }
+}
+
+/// §7.1.17 step 9 over a FnSig slot — `hint_string` 1 for String() /
+/// templates, 0 for the `+` position (§13.15.3 default hint). The
+/// kernel can record a pending throw (a user hook that throws, or both
+/// hooks answering objects).
+pub(crate) fn emit_fnsig_to_str(
+    ctx: &mut LowerCtx<'_>,
+    fn_op: Operand,
+    hint_string: i64,
+) -> Operand {
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.fnsig_to_primitive_str,
+            vec![fn_op, Operand::ConstI64(hint_string)],
+        ),
+        Type::Str,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    Operand::Value(v)
 }
 
 /// The one type the two faces disagree on. Split out of

@@ -769,6 +769,7 @@ pub(crate) struct Intrinsics {
     /// receiver (raw fn body vaddr → registry name Str, miss `""`).
     pub(crate) fn_name_str: FuncId,
     pub(crate) fn_source_str: FuncId,
+    pub(crate) fnsig_to_primitive_str: FuncId,
     pub(crate) closure_source_str: FuncId,
     /// RFC 20260721 刀 9 — plain-fn `.prototype` materialization.
     pub(crate) closure_prototype_any: FuncId,

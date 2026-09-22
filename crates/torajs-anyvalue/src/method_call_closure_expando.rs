@@ -21,6 +21,29 @@ unsafe extern "C" {
     fn __torajs_anyv_box_pointer(p: *mut c_void) -> AnyValue;
 }
 
+/// True when `ptr` is a function object carrying an OWN entry under
+/// `name_str` — the case where Object.prototype's answer must not be
+/// given before the closure arm's expando probe runs.
+///
+/// The cell-wide `valueOf` identity arm in `method_call_cell` sits in
+/// front of every per-tag arm and excluded the shapes that keep
+/// properties (dynobj / struct / array / Date) but not a function,
+/// whose properties live in its lazy props bag. So
+/// `f.valueOf = () => 7; f.valueOf()` answered `f`, while reading
+/// `f.valueOf` and calling it answered 7 — and OrdinaryToPrimitive,
+/// which dispatches by method id, never reached the user's hook
+/// (`String(f)` after `f.toString = undefined`, test262
+/// S15.5.2.1_A1_T11).
+pub(crate) unsafe fn own_entry_shadows(ptr: *mut c_void, tag: u16, name_str: *const u8) -> bool {
+    if tag != Tag::Closure as u16 || name_str.is_null() {
+        return false;
+    }
+    unsafe {
+        let props = crate::member_get_layout::closure_props(ptr);
+        !props.is_null() && __torajs_dynobj_get_tag(props, name_str as *const c_void) != 5
+    }
+}
+
 /// A plain closure stored as an expando ON A FUNCTION VALUE, invoked
 /// with the function as its receiver. `None` leaves the call to the
 /// props-bag walk exactly as before.

@@ -310,6 +310,47 @@ pub unsafe extern "C" fn __torajs_closure_source_str(ptr: *mut c_void) -> *mut u
     }
 }
 
+/// ToString of a FnSig slot (§7.1.17 step 9 → ToPrimitive over the
+/// function object). The slot holds a bare code address, so the
+/// object is the fn's canonical cell: when one is bound, the any
+/// kernel runs OrdinaryToPrimitive on it — its own `toString` /
+/// `valueOf` decide, and its closure arm falls back to the same
+/// registry row. `hint_string` is 1 for String() / templates and 0
+/// for the `+` position (§13.15.3, default hint: valueOf first).
+///
+/// Without a cell there is no object to walk and the registry's
+/// source row answers. That is exact only when no property was
+/// written either: a write before any cell exists lands in the fn
+/// node's own bag, which this does not read. Rotation 637 mints every
+/// top-level function's cell at program start, which is where
+/// patched functions live in practice. May record a pending throw (a
+/// hook that throws, or both hooks answering objects) — the caller
+/// checks.
+///
+/// # Safety
+/// `fn_addr` is a code address the registry knows.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fnsig_to_primitive_str(
+    fn_addr: u64,
+    hint_string: i64,
+) -> *mut c_void {
+    unsafe extern "C" {
+        fn __torajs_fnprops_cell(fn_ptr: *mut c_void) -> *mut c_void;
+    }
+    unsafe {
+        let cell = __torajs_fnprops_cell(fn_addr as *mut c_void);
+        if cell.is_null() {
+            return __torajs_fn_source_str(fn_addr) as *mut c_void;
+        }
+        let heap = torajs_rc::AnySlotTag::Heap as i64;
+        if hint_string != 0 {
+            crate::coerce::any_to_str(heap, cell as i64)
+        } else {
+            crate::coerce::any_to_str_prim(heap, cell as i64)
+        }
+    }
+}
+
 /// §20.2.3.5 for a BOUND cell — the native-code form spelled with
 /// the TARGET's name, which is where JSC (so bun) puts it. The
 /// compiler's old static bind wrapper answered this off its fn-name

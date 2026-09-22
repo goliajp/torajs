@@ -648,6 +648,7 @@ pub(crate) fn build(
         fnsig_to_str: init_c.print_freeze.fnsig_to_str,
         fn_name_str: init_c.print_freeze.fn_name_str,
         fn_source_str: init_c.print_freeze.fn_source_str,
+        fnsig_to_primitive_str: init_c.print_freeze.fnsig_to_primitive_str,
         closure_source_str: init_c.print_freeze.closure_source_str,
         closure_prototype_any: init_c.print_freeze.closure_prototype_any,
         closure_length_or: init_c.print_freeze.closure_length_or,

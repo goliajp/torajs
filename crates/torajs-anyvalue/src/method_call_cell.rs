@@ -281,6 +281,7 @@ pub(crate) unsafe fn cell_method(
         && tag != Tag::DynObj as u16
         && tag != Tag::Obj as u16
         && tag != Tag::Arr as u16
+        && !unsafe { crate::method_call_closure_expando::own_entry_shadows(ptr, tag, name_str) }
     {
         unsafe { __torajs_rc_inc(ptr) };
         return Some(recv);

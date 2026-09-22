@@ -250,6 +250,23 @@ fn lookup_bag(fn_ptr: *mut c_void) -> *mut c_void {
     }
 }
 
+/// The fn's canonical forward cell (RFC 20260804-fnprops-canonical-
+/// cell), NULL when none was ever bound. Borrowed — the cell is a
+/// per-fn singleton that lives for the program. A FnSig slot is a
+/// bare code address; this is the only way from it to the function
+/// OBJECT whose own properties a ToPrimitive walk has to consult.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_fnprops_cell(fn_ptr: *mut c_void) -> *mut c_void {
+    let _g = FNPROPS_LOCK.lock();
+    // SAFETY: lock held → exclusive (shared-immutable here) access.
+    let buckets = unsafe { &*BUCKETS.0.get() };
+    let n = unsafe { find_in_bucket(buckets, bucket_of(fn_ptr as usize), fn_ptr as usize) };
+    if n.is_null() {
+        return ptr::null_mut();
+    }
+    unsafe { (*n).cell as *mut c_void }
+}
+
 /// `fn.x` — return the slot's tag, or `ANY_UNDEF` if no fnprops
 /// entry / no key.
 #[unsafe(no_mangle)]

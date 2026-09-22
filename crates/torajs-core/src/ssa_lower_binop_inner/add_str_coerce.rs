@@ -264,27 +264,14 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
             );
             (Operand::Value(r), true)
         }
-        // RFC 20260719-fn-tostring-source B5 — fn side of a Str
-        // concat: the erased-source toString kernels (mirror of the
-        // String() lane's emit_to_string arms).
-        Type::FnSig(_) => {
-            let r = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.fn_source_str, vec![v]),
-                Type::Str,
-                None,
-            );
-            (Operand::Value(r), true)
-        }
-        Type::Closure(_) => {
-            let r = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.closure_source_str, vec![v]),
-                Type::Str,
-                None,
-            );
-            (Operand::Value(r), true)
-        }
+        // A fn side is a function OBJECT: ToPrimitive with the default
+        // hint (valueOf first) over its canonical cell, the registry's
+        // source row when none is bound. The closure side rides the
+        // heap list below for the same walk.
+        Type::FnSig(_) => (
+            crate::ssa_lower_call_coercion_str::emit_fnsig_to_str(ctx, v, 0),
+            true,
+        ),
         // Rotation 437 — the RegExp side of a Str concat: the
         // §22.2.6.14 toString kernel ("/source/flags"), reached
         // through the any-lane heap dispatch the same way the Obj
@@ -309,7 +296,12 @@ pub(crate) fn coerce_to_str(ctx: &mut LowerCtx, v: Operand, undefable: bool) -> 
         | Type::MapIter
         | Type::ArrIter
         | Type::Date
-        | Type::Promise => {
+        | Type::Promise
+        // §13.15.3 — a closure side is a function OBJECT: ToPrimitive
+        // (default hint) runs its own `valueOf` / `toString` before
+        // the kernel's closure arm falls back to the source row. The
+        // direct source kernel this arm used to call skipped both.
+        | Type::Closure(_) => {
             let raw = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::PtrToInt(v.clone()),

@@ -94,6 +94,19 @@ unsafe fn skip_not_callable(cell: *mut c_void, name_str: *const u8) -> bool {
         Tag::Arr => unsafe {
             crate::method_call_dynobj::arr_own_entry_not_callable(cell, name_str)
         },
+        // A function object's own properties live in its lazy props
+        // dynobj — `f.toString = undefined` shadows
+        // Function.prototype.toString the same way, and ToString(f)
+        // moves on to `valueOf` (test262 String S15.5.2.1_A1_T11).
+        Tag::Closure => unsafe {
+            let props = crate::member_get_layout::closure_props(cell);
+            !props.is_null()
+                && crate::method_call_dynobj::own_entry_not_callable(
+                    props as *mut c_void,
+                    false,
+                    name_str,
+                )
+        },
         _ => false,
     }
 }
