@@ -24,7 +24,7 @@
 //! bookkeeping (which genuinely differs — who owns a freshly minted
 //! temp, and when it is released, is a per-lane fact).
 
-use crate::ast::ExprId;
+use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
@@ -147,7 +147,28 @@ pub(crate) fn emit_arg_conv(
         return emit_arg_conv(ctx, expected, arg, boxed, owned);
     }
     use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
-    if let Some(v) = ctx.checked_cast(op.clone(), expected, CastSlot::Pass, CastScope::Annotated) {
+    // RFC 20260922 C1 — the cast decision is about a boundary the
+    // PROGRAM wrote. Two edges reaching here are compiler-authored
+    // and are not that:
+    //
+    // - the spread lane's declared-parameter unpack hands this
+    //   function the Spread node in place of a per-argument
+    //   expression, because there is none: the value came off argv,
+    //   and past the end of a short spread §10.2.11 says the
+    //   parameter simply IS undefined.
+    // - `apply_spread_args` expands a trailing spread against a
+    //   fixed-arity callee into one `src[j]` read per parameter, and
+    //   a source too short to cover them reads past its end.
+    //
+    // Casting either turns a legal program into a TypeError — the
+    // `super-spread-into-declared-ctor` / `check-fn-spread-short-source`
+    // shapes, one per edge.
+    let synthetic_edge = matches!(ctx.ast.get_expr(arg), Expr::Spread { .. })
+        || ctx.ast.spread_filled_args.contains(&arg);
+    if !synthetic_edge
+        && let Some(v) =
+            ctx.checked_cast(op.clone(), expected, CastSlot::Pass, CastScope::Annotated)
+    {
         if expected == Type::Str {
             owned.push((v.clone(), Type::Str));
         }

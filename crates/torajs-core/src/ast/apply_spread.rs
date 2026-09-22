@@ -301,7 +301,10 @@ fn expand_call(ast: &mut Ast, rw: Rewrite) {
         // element families threw too — the guard was standing in
         // front of a hole rather than describing a rule.
         let index = ast.add_expr(Expr::Number(j as f64));
-        new_args.push(ast.add_expr(Expr::Index { obj, index }));
+        let read = ast.add_expr(Expr::Index { obj, index });
+        // Not an expression the program wrote — see the field's doc.
+        ast.spread_filled_args.insert(read);
+        new_args.push(read);
     }
     let Expr::Call { callee, .. } = &ast.exprs[rw.call_idx] else {
         unreachable!()

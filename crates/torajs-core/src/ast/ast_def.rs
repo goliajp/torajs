@@ -1123,6 +1123,16 @@ pub struct Ast {
     /// `gr(1, 2)` on `function gr(...xs) { arguments.length }`
     /// answered 1 — the packed list's width.
     pub rest_packed_sites: std::collections::HashMap<ExprId, usize>,
+    /// The `src[j]` reads `apply_spread_args` mints when it expands a
+    /// trailing spread against a fixed-arity callee. They occupy an
+    /// argument position but are not expressions the program wrote:
+    /// the value comes off the spread source at a position the source
+    /// may not reach, and §10.4.2.1 answers `undefined` there — which
+    /// §10.2.11 then says the parameter simply IS. A boundary the
+    /// program did not write is not one the checked-cast decision is
+    /// about (RFC 20260922-any-to-typed-checked-cast C1); casting it
+    /// turns `strs(...oneElement)` into a TypeError.
+    pub spread_filled_args: std::collections::HashSet<ExprId>,
     /// The `undefined` idents `apply_default_args` mints for an
     /// ARITY HOLE — a parameter with no default sitting in front of
     /// one that has it, so the pad has to write something to reach
