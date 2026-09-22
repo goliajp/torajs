@@ -352,6 +352,16 @@ unsafe fn expando_descriptor(cell: *const c_void, key: *const c_void) -> u64 {
 /// # Safety
 /// `cell` is a live `Tag::Obj` heap pointer (caller checked the header
 /// tag); `key` is a live `Str` pointer (caller checked non-NULL).
+/// Whether NaN-box `v` holds an `AccessorPair` cell (a heap cell box is
+/// the raw pointer: top 16 bits and the other-type bit clear).
+fn is_accessor_pair_box(v: u64) -> bool {
+    v != 0
+        && v & 0xFFFF_0000_0000_0000 == 0
+        && v & 0x02 == 0
+        && unsafe { (v as *const u8).add(4).cast::<u16>().read() }
+            == crate::obj_own_keys_layout::TAG_ACCESSOR_PAIR
+}
+
 pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_void) -> u64 {
     // class_tag (u32 @ +8) → layout entry. 0 / out-of-range → no layout.
     let class_tag = unsafe {
@@ -399,6 +409,22 @@ pub(crate) unsafe fn struct_cell_descriptor(cell: *const c_void, key: *const c_v
     } != 0
     {
         return VALUE_UNDEFINED_IMM;
+    }
+    // A field redefined as an accessor keeps its AccessorPair in the
+    // sidecar entry, whose dict face describes it (get / set /
+    // enumerable / configurable); the slot's bits are not the property.
+    let mut shadow = 0u64;
+    if unsafe {
+        crate::struct_field_attrs::__torajs_obj_field_shadow(
+            cell,
+            key_bytes,
+            key_len as u32,
+            &mut shadow,
+        )
+    } != 0
+        && is_accessor_pair_box(shadow)
+    {
+        return unsafe { expando_descriptor(cell, key) };
     }
     // Read the raw 8-byte slot at the field's byte offset, box per type.
     let info = unsafe { __torajs_struct_field_info(layout, idx) };

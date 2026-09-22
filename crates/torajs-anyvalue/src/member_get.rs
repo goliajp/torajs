@@ -223,7 +223,9 @@ pub unsafe extern "C" fn __torajs_any_member_get_tag(recv: AnyValue, key: *const
             // expando dict is an OWN face: it answers before the
             // prototype chain (§10.1.8.1 own-first). NULL slot =
             // never written, fall through.
-            if crate::struct_probe::expando_own_has(ptr, key) {
+            if crate::struct_probe::expando_own_has(ptr, key)
+                || crate::struct_probe::declared_accessor_sidecar(ptr, key)
+            {
                 return __torajs_dynobj_get_tag(crate::member_get_layout::struct_props(ptr), key);
             }
             // L3b ⑧ — an own-face miss reads through the class

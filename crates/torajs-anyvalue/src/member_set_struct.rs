@@ -28,6 +28,10 @@ unsafe extern "C" {
     /// torajs-dynobj — the field's live W/E/C bits, `-1` when the
     /// layout declares nothing under `key`.
     fn __torajs_obj_declared_field_attrs(obj: *mut c_void, key: *mut c_void) -> i64;
+    fn __torajs_dynobj_get_value(obj: *const c_void, key: *const c_void) -> u64;
+    /// torajs-dynobj — setter dispatch; `0` = getter-only accessor.
+    fn __torajs_accessor_invoke_setter(pair: *const c_void, recv_anyv: u64, value_anyv: u64)
+    -> i32;
 }
 
 /// `torajs_dynobj::layout::BUCKET_FLAG_WRITABLE` mirror.
@@ -65,6 +69,23 @@ pub(crate) unsafe fn set_obj_member(
             // The setter borrowed the value out of argv; the write
             // path owns the payload it was handed.
             drop_payload(tag, value);
+            return Some(1);
+        }
+        // A declared field redefined as an accessor keeps its pair in
+        // the sidecar (`struct_probe::declared_accessor_sidecar`): the
+        // write runs its setter — the dict accessor arm's ledger, the
+        // setter consuming the value — and a getter-only pair refuses.
+        if crate::struct_probe::declared_accessor_sidecar(ptr, key) {
+            let props = crate::member_get_layout::struct_props(ptr);
+            let pair = __torajs_dynobj_get_value(props, key) as *const c_void;
+            if __torajs_accessor_invoke_setter(pair, recv, value_anyv) == 0 {
+                if throw_on_refusal {
+                    crate::member_set::__torajs_throw_type_error(
+                        c"Attempted to assign to readonly property.".as_ptr(),
+                    );
+                }
+                return Some(0);
+            }
             return Some(1);
         }
         // RFC 20260718-error-message-own-prop — a class-layout

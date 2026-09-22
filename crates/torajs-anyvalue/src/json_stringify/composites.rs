@@ -420,7 +420,22 @@ unsafe fn struct_slot_entry(
         if key_len == name.len {
             let mut value: u64 = 0;
             if __torajs_struct_field_read_anyv(ptr, name.ptr, name.len as u32, &mut value) == 0 {
-                return SlotEntry::Skip;
+                // A field redefined as an accessor is no data slot any
+                // more; its getter answers (§25.5.2 walks [[Get]]).
+                let bytes = core::slice::from_raw_parts(name.ptr, name.len);
+                let Some(value) = crate::struct_probe::declared_accessor_get_bytes(ptr, bytes)
+                else {
+                    return SlotEntry::Skip;
+                };
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(value);
+                    return SlotEntry::Threw;
+                }
+                return SlotEntry::Emit {
+                    key,
+                    value,
+                    owned: true,
+                };
             }
             return SlotEntry::Emit {
                 key,

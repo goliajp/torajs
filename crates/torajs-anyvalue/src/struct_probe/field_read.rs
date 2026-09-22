@@ -103,6 +103,7 @@ unsafe extern "C" {
     /// torajs-dynobj — entry removal; drops the deletion record on revive.
     fn __torajs_dynobj_delete(obj: *mut c_void, key: *const c_void) -> i32;
     fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
+    fn __torajs_dynobj_get_tag(obj: *const c_void, key: *const c_void) -> u64;
 }
 
 /// RFC 20260915 — is the DECLARED field `key` of `ptr` deleted?
@@ -144,6 +145,56 @@ pub(crate) unsafe fn struct_layout_declares(ptr: *const c_void, key: *const c_vo
 ///
 /// # Safety
 /// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell.
+/// Whether `v` boxes an `AccessorPair` cell.
+///
+/// # Safety
+/// A heap payload of `v` is a live cell.
+unsafe fn is_accessor_pair_box(v: u64) -> bool {
+    if crate::nanbox_encode::__torajs_anyv_unbox_tag(v) as u64 != AnySlotTag::Heap as u64 {
+        return false;
+    }
+    let cell = crate::nanbox_encode::__torajs_anyv_unbox_value(v) as *const u8;
+    !cell.is_null()
+        && unsafe { cell.add(4).cast::<u16>().read() } == torajs_rc::Tag::AccessorPair as u16
+}
+
+/// Whether `key` names a DECLARED field that was redefined as an
+/// accessor — its AccessorPair lives in the `+24` sidecar entry,
+/// which is an own property with the ordinary dict accessor faces.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer; `key` a live Str cell.
+pub(crate) unsafe fn declared_accessor_sidecar(ptr: *const c_void, key: *const c_void) -> bool {
+    let props = unsafe { crate::member_get_layout::struct_props(ptr) };
+    !props.is_null()
+        && unsafe { __torajs_dynobj_has(props, key) } != 0
+        && unsafe { __torajs_dynobj_get_tag(props, key) } == crate::struct_probe::ANY_ACCESSOR_TAG
+        && unsafe { struct_layout_declares(ptr, key) }
+}
+
+/// [[Get]] of a declared field redefined as an accessor, by name bytes
+/// — the getter's owned answer, or `None` when `name` is no such field.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+pub(crate) unsafe fn declared_accessor_get_bytes(
+    ptr: *mut c_void,
+    name: &[u8],
+) -> Option<AnyValue> {
+    unsafe {
+        let key = __torajs_str_alloc(name.as_ptr(), name.len() as i64) as *const c_void;
+        let out = if declared_accessor_sidecar(ptr, key) {
+            let props = crate::member_get_layout::struct_props(ptr);
+            let pair = __torajs_dynobj_get_value(props, key) as *const c_void;
+            Some(__torajs_accessor_invoke_getter(pair, box_void_ptr(ptr)))
+        } else {
+            None
+        };
+        __torajs_str_drop(key as *mut c_void);
+        out
+    }
+}
+
 pub(crate) unsafe fn expando_own_has(ptr: *const c_void, key: *const c_void) -> bool {
     let props = unsafe { crate::member_get_layout::struct_props(ptr) };
     !props.is_null()
@@ -225,6 +276,15 @@ unsafe fn struct_field_raw(ptr: *mut c_void, name: &[u8]) -> Option<(u8, u64, *m
     let mut shadow = 0u64;
     if unsafe { __torajs_obj_field_shadow(ptr, name.as_ptr(), name.len() as u32, &mut shadow) } != 0
     {
+        // A field redefined as an accessor (`Object.defineProperty(
+        // inst, "x", { get })`) parks its AccessorPair here: it is no
+        // longer a DATA field, and the readers find it in the dict
+        // with the accessor faces every expando entry already has
+        // ([`declared_accessor_sidecar`]). Reading it as data answered
+        // the pair itself (`[object]`).
+        if unsafe { is_accessor_pair_box(shadow) } {
+            return None;
+        }
         return Some((0, shadow, core::ptr::null_mut()));
     }
     let info = unsafe { __torajs_struct_field_info(layout, idx) };
