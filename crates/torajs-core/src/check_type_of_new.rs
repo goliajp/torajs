@@ -199,14 +199,13 @@ fn check_string_wrapper(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Re
     Ok(Type::Any)
 }
 
+/// §26.1.1.1 — any argument count is legal: a missing target is
+/// `undefined`, which CanBeHeldWeakly rejects at runtime (TypeError from
+/// the kernel), and extra arguments are evaluated and ignored (§13.3.5).
 fn check_weak_ref(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
-    if args.len() != 1 {
-        return Err(format!(
-            "`new WeakRef(...)` requires exactly 1 argument, got {}",
-            args.len()
-        ));
+    for &arg in args {
+        let _ = checker.type_of(ast, arg)?;
     }
-    let _ = checker.type_of(ast, args[0])?;
     Ok(Type::WeakRef)
 }
 
