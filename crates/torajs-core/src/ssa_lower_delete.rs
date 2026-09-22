@@ -121,7 +121,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, operand: ExprId) -> Operand {
                 let Operand::Value(key_v) = key_op else {
                     panic!("ssa-lower: delete key lowered to a non-value operand");
                 };
-                let coerce_owned = k_ty == Type::Substr;
+                // Every coerced key is this site's own Str: the number
+                // and bigint ToStrings mint one (a Substr flattens into
+                // one), and the boolean face hands back an interned
+                // literal whose release is a no-op. Only a Str key (the
+                // identity arm) and a Symbol key (not coerced) belong to
+                // someone else. Releasing just the Substr case leaked a
+                // Str per `delete o[i]` (300k: 11.8 MB vs 2.1 MB).
+                let coerce_owned = !matches!(k_ty, Type::Str | Type::Symbol);
                 (
                     recv,
                     key_v,

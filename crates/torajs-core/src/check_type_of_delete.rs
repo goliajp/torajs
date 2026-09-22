@@ -169,17 +169,22 @@ pub(crate) fn check_delete(
             // requires. This gate had no missing implementation behind
             // it.
             //
-            // BigInt is deliberately still out: that coercer appends the
-            // `n` suffix (it serves BigInt *printing*), so it would name
-            // an entry no property has and delete would answer true
-            // having removed nothing — silent-wrong, which is worse than
-            // this loud refusal.
+            // BigInt and Boolean take the same road: §7.1.17 answers
+            // "12" for `12n` and "true" for `true`, and the key coercer
+            // is that ToString (rotation 689 split the console face,
+            // which appended the `n` suffix, out of it — the reason
+            // BigInt used to be refused here).
             if !matches!(
                 idx_ty,
-                Type::String | Type::Symbol | Type::Any | Type::Number
+                Type::String
+                    | Type::Symbol
+                    | Type::Any
+                    | Type::Number
+                    | Type::BigInt
+                    | Type::Boolean
             ) {
                 return Err(format!(
-                    "`delete` key must be a string, number or symbol (got {idx_ty:?})"
+                    "`delete` key must be a string, number, bigint, boolean or symbol (got {idx_ty:?})"
                 ));
             }
             Ok(Type::Boolean)
