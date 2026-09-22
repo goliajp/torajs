@@ -200,6 +200,7 @@ impl Type {
                 | Type::Undefined
                 | Type::RegExp
                 | Type::BigInt
+                | Type::Symbol
         )
     }
 }
