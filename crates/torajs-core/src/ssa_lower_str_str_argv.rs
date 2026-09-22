@@ -276,6 +276,19 @@ pub(crate) fn populate_argv(
                 }
                 argv.push(s);
             } else {
+                // §22.1.3.19 step 5 — a callable replaceValue is CALLED,
+                // never ToString'd. The functional-replace lanes claim it
+                // upstream; one that reaches this tower (an `any` search
+                // value in a program that rewrites a symbol face) has no
+                // lane yet, and a refusal beats inserting its source text.
+                if matches!(method, "replace" | "replaceAll")
+                    && i == 1
+                    && matches!(raw_ty, Type::FnSig(_) | Type::Closure(_))
+                {
+                    panic!(
+                        "ssa-lower: callable replaceValue on the generic {method} lane not supported"
+                    );
+                }
                 // No value-only arm (an array, a Symbol, a collection):
                 // the complete ToString, implicit face — a Symbol throws
                 // (§7.1.17 step 2). It releases the raw temp itself.
