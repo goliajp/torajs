@@ -55,12 +55,7 @@ pub(crate) fn try_lower_setter_call(
     let v = ctx.lower_expr(value);
     // Chunk 566 — SHARE: no consume. The value passes to the setter
     // as a +0 borrow; the setter body's own field store takes the
-    // field's +1 (struct-field share below), so a borrow-shape rhs
-    // keeps the source binding's stake and an owned temp releases
-    // its surplus after the call. Recorded edge (RFC 20260705
-    // ledger): a non-storing setter + a consumer binding the assign
-    // result reads a released temp — assign-result ownership is its
-    // own lane.
+    // field's +1 (struct-field share below).
     let transfers = ctx.expr_transfers_ownership(value);
     // F2-fix, generalized (rotation 240) — this is a direct Call, so
     // the argument crosses the same lane boundary as any direct
@@ -103,11 +98,13 @@ pub(crate) fn try_lower_setter_call(
     for (op, ty) in owned {
         ctx.emit_drop_value(op, ty);
     }
+    // The setter borrowed the value; the assignment's consumer gets the
+    // owned stake, so a non-storing setter no longer leaves a kept result
+    // pointing at a released temp.
     let v_ty = ctx.operand_ty(&v);
-    if transfers && v_ty.is_refcounted() {
-        ctx.emit_drop_value(v.clone(), v_ty);
-    }
-    Some(v)
+    Some(crate::ssa_lower_assign_member::finish_assign_value(
+        ctx, eid, v, v_ty, transfers,
+    ))
 }
 
 pub(crate) fn lower_struct_field_store(
