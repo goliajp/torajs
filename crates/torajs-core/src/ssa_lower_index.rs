@@ -89,7 +89,7 @@ pub(crate) fn lower_from_value(
     let arr_ty = ctx.operand_ty(&arr_val);
     if matches!(arr_ty, Type::Str | Type::Substr) {
         return crate::ssa_lower_index_any_key::lower_str_recv_index(
-            ctx, eid, arr_val, arr_ty, index,
+            ctx, eid, obj, arr_val, arr_ty, index,
         );
     }
     // Chunk 753 — struct receiver + dynamic index: encode the struct

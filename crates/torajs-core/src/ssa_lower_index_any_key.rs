@@ -99,10 +99,22 @@ pub(crate) fn lower_typed_arr_any_key(
 pub(crate) fn lower_str_recv_index(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
+    obj: ExprId,
     arr_val: Operand,
     arr_ty: Type,
     index: ExprId,
 ) -> Operand {
+    // A possibly-absent str receiver: §13.3.2.1 evaluates the key
+    // (step 3) before the read's GetValue reaches §7.1.20 ToObject, so
+    // the key lowers first and is parked for the lane below, then the
+    // guard runs. The kernel is the one the `.length` read uses; it
+    // recognises NULL and both "undefined" sentinel blocks. Without it
+    // `s[0]` on an absent `string | undefined` answered undefined.
+    if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, obj) {
+        let key = ctx.lower_expr(index);
+        crate::ssa_lower_nullable_guard::emit_nullable_str_guard(ctx, obj, &arr_val);
+        ctx.redispatch_lowered = Some((index, key));
+    }
     if ctx
         .expr_types
         .get(&index)

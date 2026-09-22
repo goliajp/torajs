@@ -123,6 +123,18 @@ pub(crate) fn check(
             Type::Array(elem) => Ok(*elem),
             _ => unreachable!(),
         },
+        // The same decay for a str receiver, answering what the plain
+        // `Type::String` arms above answer. Its absent value (NULL or
+        // the "undefined" sentinel block) is caught by the str guard
+        // kernel the member read already uses, so `s[0]` on an absent
+        // `string | undefined` raises §7.1.20's TypeError.
+        Type::Nullable(inner) if matches!(*inner, Type::String) => {
+            if string_key_domain(&idx_ty) {
+                Ok(Type::Any)
+            } else {
+                Ok(Type::String)
+            }
+        }
         Type::Any => Ok(Type::Any),
         other => Err(format!("can't index into {other:?}")),
     }
@@ -165,6 +177,9 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // anything else reads through to the method surface or a miss.
         // Only the NUMBER key keeps the narrow String answer below.
         Type::String => string_key_domain(&idx_ty),
+        // Same domain for a possibly-absent string: the absent case is
+        // the str guard's TypeError, not a narrower key set.
+        Type::Nullable(ref inner) if **inner == Type::String => string_key_domain(&idx_ty),
         // `m[Symbol.iterator]()` is an ordinary property read off the
         // prototype surface, with no element lane to collide with —
         // and for RegExp the same shape (r289; §22.2.6's well-known-
