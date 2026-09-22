@@ -114,20 +114,9 @@ fn check_number_wrapper(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Re
         );
     }
     let arg_ty = checker.type_of(ast, args[0])?;
-    if !matches!(
-        arg_ty,
-        Type::Number
-            | Type::Boolean
-            | Type::Null
-            | Type::Undefined
-            | Type::String
-            | Type::BigInt
-            | Type::Any
-            | Type::Array(_)
-    ) {
+    if !crate::check_type_of_call_global_ctors::coercion_ctor_admits("Number", &arg_ty) {
         return Err(format!(
-            "`new Number({arg_ty:?})`: primitive-coercible arg not yet supported \
-             (RFC 20260716 刀 2 follow-up)"
+            "`new Number({arg_ty:?})`: coercion not yet supported"
         ));
     }
     for &arg in args.iter().skip(1) {
@@ -172,24 +161,12 @@ fn check_string_wrapper(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Re
         );
     }
     let arg_ty = checker.type_of(ast, args[0])?;
-    // Same coercion lattice as the callable `String(x)` (see
-    // check_type_of_call_global_ctors) — ToString accepts every
-    // primitive plus Any / Array / Struct.
-    if !matches!(
-        arg_ty,
-        Type::Number
-            | Type::Boolean
-            | Type::Null
-            | Type::Undefined
-            | Type::String
-            | Type::BigInt
-            | Type::Any
-            | Type::Array(_)
-            | Type::Struct(_)
-    ) {
+    // The callable `String(x)`'s list; a Symbol is admitted and throws at
+    // runtime here (§22.1.1.1 step 2: with a NewTarget it is ToString, not
+    // SymbolDescriptiveString).
+    if !crate::check_type_of_call_global_ctors::coercion_ctor_admits("String", &arg_ty) {
         return Err(format!(
-            "`new String({arg_ty:?})`: primitive-coercible arg not yet supported \
-             (RFC 20260716 刀 2b follow-up)"
+            "`new String({arg_ty:?})`: coercion not yet supported"
         ));
     }
     for &arg in args.iter().skip(1) {

@@ -254,6 +254,7 @@ fn lower_number_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arg_ty = ctx.operand_ty(&arg_op);
     let num_op = crate::ssa_lower_call_coercion::emit_to_number(ctx, arg_eid, arg_op, arg_ty);
     let f64_op = ctx.coerce_to_f64(num_op);
+    crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &[], &args[1..]);
     let cur_block = ctx.cur_block;
     let ptr_v = ctx.f.append_inst(
         cur_block,
@@ -272,6 +273,7 @@ fn lower_boolean_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arg_op = ctx.lower_expr(arg_eid);
     let bool_op = ctx.coerce_to_bool(arg_op.clone());
     ctx.release_owned_temp(arg_eid, &arg_op);
+    crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &[], &args[1..]);
     let cur_block = ctx.cur_block;
     let ptr_v = ctx.f.append_inst(
         cur_block,
@@ -293,8 +295,10 @@ fn lower_string_wrapper(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let arg_eid = args[0];
     let arg_op = ctx.lower_expr(arg_eid);
     let arg_ty = ctx.operand_ty(&arg_op);
-    let str_op =
-        crate::ssa_lower_call_coercion::emit_to_string(ctx, arg_eid, arg_op, arg_ty, false);
+    // Implicit face: with a NewTarget, §22.1.1.1 step 2 is ToString, so
+    // a Symbol throws instead of answering its descriptive string.
+    let str_op = crate::ssa_lower_call_coercion::emit_to_string(ctx, arg_eid, arg_op, arg_ty, true);
+    crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &[], &args[1..]);
     let cur_block = ctx.cur_block;
     let ptr_v = ctx.f.append_inst(
         cur_block,

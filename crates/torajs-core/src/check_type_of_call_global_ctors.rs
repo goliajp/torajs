@@ -188,124 +188,7 @@ fn try_primitive_coercion_ctor(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        let ok = match n {
-            "Boolean" => true,
-            // P1.5 — Number(undefined) === NaN per spec §7.1.4.
-            // String(undefined) === "undefined" per §7.1.17.
-            // S172 — Number(Array<T>) routes through ToPrimitive("string") =
-            // arr.join(",") then ToNumber(String) (bun parity: Number([]) === 0,
-            // Number([1]) === 1, Number([1,2]) === NaN).
-            "Number" => matches!(
-                arg_ty,
-                Type::Number
-                    | Type::Boolean
-                    | Type::Null
-                    | Type::Undefined
-                    | Type::String
-                    | Type::Any
-                    | Type::Array(_)
-                    // §7.1.4 step 8 — an object answers whatever
-                    // OrdinaryToPrimitive(number) does: its own
-                    // `valueOf` when it has one, NaN otherwise. The
-                    // String arm beside this one has admitted both
-                    // shapes for as long as it has run them.
-                    | Type::Struct(_)
-                    | Type::ClassRef(_)
-                    // §7.1.4 takes every value, and both faces of a
-                    // `T | undefined` are already on this list — the
-                    // T, and Undefined itself, which answers NaN.
-                    // Refusing the union refused the spelling that
-                    // needs the call most: `Number(q)` on a possibly
-                    // absent q is how you ask for NaN instead of a
-                    // crash. The `String` arm below admitted it in an
-                    // earlier rotation and this one was left behind.
-                    | Type::Nullable(_)
-                    // §21.1.1.1 step 3 — the explicit Number() call
-                    // is the one legal BigInt→Number conversion
-                    // (𝔽(ℝ(value))); implicit ToNumber keeps
-                    // throwing.
-                    | Type::BigInt
-                    // §7.1.4 step 8 again — the heap cells run the
-                    // same OrdinaryToPrimitive(number) ladder the
-                    // Struct arm above runs. A Date answers its
-                    // timestamp through `valueOf`; the rest fall to
-                    // `toString` and NaN. Same ten as the `String`
-                    // arm below, minus nothing.
-                    | Type::RegExp
-                    | Type::Map
-                    | Type::Set
-                    | Type::WeakMap
-                    | Type::WeakSet
-                    | Type::WeakRef
-                    | Type::MapIter
-                    | Type::ArrIter
-                    | Type::Date
-                    | Type::Promise(_)
-            ),
-            // S137 — `String(arr)` routes to arr_join (ES §22.1.3.30 same path
-            // as `arr.toString`); `String(struct)` is the generic Object
-            // `[object Object]` per §20.1.4.4. Generic dynobj branch lands when
-            // the dynobj-toString substrate ships.
-            // rotation 141 — Symbol admitted: §22.1.1 step 1.a, the explicit
-            // String() call is the one legal Symbol stringify position
-            // (SymbolDescriptiveString).
-            // RFC 20260719-fn-tostring-source B5 — Function admitted:
-            // ToString(fn) = its toString() = the type-erased source
-            // (fn_source_str kernel; the template-substitution String() wrap
-            // rides this).
-            "String" => matches!(
-                arg_ty,
-                Type::Number
-                    | Type::Boolean
-                    | Type::Null
-                    | Type::Undefined
-                    | Type::String
-                    | Type::Any
-                    | Type::Array(_)
-                    | Type::Struct(_)
-                    | Type::Symbol
-                    | Type::Function(..)
-                    // A class instance is an ordinary object here:
-                    // §7.1.17 runs OrdinaryToPrimitive, which finds
-                    // the class's own `toString` when it declares one
-                    // and Object.prototype's otherwise. The any lane
-                    // already answered both; only the typed spelling
-                    // was turned away.
-                    | Type::ClassRef(_)
-                    // §22.1.1.1 takes ANY value, and both faces of a
-                    // `T | null` are already on this list — the T,
-                    // and Null itself. Refusing the union refused the
-                    // one spelling that needs the call most:
-                    // `String(q)` on a possibly-null q is how you ask
-                    // for "null" instead of a crash.
-                    | Type::Nullable(_)
-                    // §7.1.17 takes every value, and the any lane
-                    // already answered these four off the same
-                    // kernel: "10" for a BigInt, "[object Map]" /
-                    // "[object Set]", the source text of a RegExp.
-                    // Only the typed spelling was turned away, so
-                    // `String(10n)` was a compile error while
-                    // `String(10n as any)` was not.
-                    | Type::BigInt
-                    | Type::Map
-                    | Type::Set
-                    | Type::RegExp
-                    // Same sentence, the rest of the heap cells: the
-                    // kernel reads the header tag, so a Date answers
-                    // its date string and the weak pair / the two
-                    // iterators / a Promise answer §20.1.4.4. Adding
-                    // four of them in one rotation and stopping is
-                    // how a list like this stays half-written.
-                    | Type::Date
-                    | Type::WeakMap
-                    | Type::WeakSet
-                    | Type::WeakRef
-                    | Type::MapIter
-                    | Type::ArrIter
-                    | Type::Promise(_)
-            ),
-            _ => false,
-        };
+        let ok = coercion_ctor_admits(n, &arg_ty);
         if !ok {
             return Some(Err(format!(
                 "{n}({arg_ty:?}) coercion not yet supported (V3-18 m1.h.9 follow-up)"
@@ -313,4 +196,129 @@ fn try_primitive_coercion_ctor(
         }
     }
     Some(Ok(result_ty))
+}
+
+/// Which argument types the callable `Number(x)` / `String(x)` /
+/// `Boolean(x)` admit. `new Number(x)` / `new String(x)` ask the same
+/// question (§21.1.1.1 / §22.1.1.1 run the same ToNumeric / ToString on
+/// the argument), so the list exists once.
+pub(crate) fn coercion_ctor_admits(n: &str, arg_ty: &Type) -> bool {
+    match n {
+        "Boolean" => true,
+        // P1.5 — Number(undefined) === NaN per spec §7.1.4.
+        // String(undefined) === "undefined" per §7.1.17.
+        // S172 — Number(Array<T>) routes through ToPrimitive("string") =
+        // arr.join(",") then ToNumber(String) (bun parity: Number([]) === 0,
+        // Number([1]) === 1, Number([1,2]) === NaN).
+        "Number" => matches!(
+            arg_ty,
+            Type::Number
+            | Type::Boolean
+            | Type::Null
+            | Type::Undefined
+            | Type::String
+            | Type::Any
+            | Type::Array(_)
+            // §7.1.4 step 8 — an object answers whatever
+            // OrdinaryToPrimitive(number) does: its own
+            // `valueOf` when it has one, NaN otherwise. The
+            // String arm beside this one has admitted both
+            // shapes for as long as it has run them.
+            | Type::Struct(_)
+            | Type::ClassRef(_)
+            // §7.1.4 takes every value, and both faces of a
+            // `T | undefined` are already on this list — the
+            // T, and Undefined itself, which answers NaN.
+            // Refusing the union refused the spelling that
+            // needs the call most: `Number(q)` on a possibly
+            // absent q is how you ask for NaN instead of a
+            // crash. The `String` arm below admitted it in an
+            // earlier rotation and this one was left behind.
+            | Type::Nullable(_)
+            // §21.1.1.1 step 3 — the explicit Number() call
+            // is the one legal BigInt→Number conversion
+            // (𝔽(ℝ(value))); implicit ToNumber keeps
+            // throwing.
+            | Type::BigInt
+            // §7.1.4 step 8 again — the heap cells run the
+            // same OrdinaryToPrimitive(number) ladder the
+            // Struct arm above runs. A Date answers its
+            // timestamp through `valueOf`; the rest fall to
+            // `toString` and NaN. Same ten as the `String`
+            // arm below, minus nothing.
+            | Type::RegExp
+            | Type::Map
+            | Type::Set
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Date
+            | Type::Promise(_)
+        ),
+        // S137 — `String(arr)` routes to arr_join (ES §22.1.3.30 same path
+        // as `arr.toString`); `String(struct)` is the generic Object
+        // `[object Object]` per §20.1.4.4. Generic dynobj branch lands when
+        // the dynobj-toString substrate ships.
+        // rotation 141 — Symbol admitted: §22.1.1 step 1.a, the explicit
+        // String() call is the one legal Symbol stringify position
+        // (SymbolDescriptiveString).
+        // RFC 20260719-fn-tostring-source B5 — Function admitted:
+        // ToString(fn) = its toString() = the type-erased source
+        // (fn_source_str kernel; the template-substitution String() wrap
+        // rides this).
+        "String" => matches!(
+            arg_ty,
+            Type::Number
+            | Type::Boolean
+            | Type::Null
+            | Type::Undefined
+            | Type::String
+            | Type::Any
+            | Type::Array(_)
+            | Type::Struct(_)
+            | Type::Symbol
+            | Type::Function(..)
+            // A class instance is an ordinary object here:
+            // §7.1.17 runs OrdinaryToPrimitive, which finds
+            // the class's own `toString` when it declares one
+            // and Object.prototype's otherwise. The any lane
+            // already answered both; only the typed spelling
+            // was turned away.
+            | Type::ClassRef(_)
+            // §22.1.1.1 takes ANY value, and both faces of a
+            // `T | null` are already on this list — the T,
+            // and Null itself. Refusing the union refused the
+            // one spelling that needs the call most:
+            // `String(q)` on a possibly-null q is how you ask
+            // for "null" instead of a crash.
+            | Type::Nullable(_)
+            // §7.1.17 takes every value, and the any lane
+            // already answered these four off the same
+            // kernel: "10" for a BigInt, "[object Map]" /
+            // "[object Set]", the source text of a RegExp.
+            // Only the typed spelling was turned away, so
+            // `String(10n)` was a compile error while
+            // `String(10n as any)` was not.
+            | Type::BigInt
+            | Type::Map
+            | Type::Set
+            | Type::RegExp
+            // Same sentence, the rest of the heap cells: the
+            // kernel reads the header tag, so a Date answers
+            // its date string and the weak pair / the two
+            // iterators / a Promise answer §20.1.4.4. Adding
+            // four of them in one rotation and stopping is
+            // how a list like this stays half-written.
+            | Type::Date
+            | Type::WeakMap
+            | Type::WeakSet
+            | Type::WeakRef
+            | Type::MapIter
+            | Type::ArrIter
+            | Type::Promise(_)
+        ),
+        _ => false,
+    }
 }
