@@ -74,9 +74,29 @@ pub unsafe extern "C" fn __torajs_arr_subclass_alloc(class_tag: i64, len: u64) -
 /// # Safety
 /// `this_av` is the factory's freshly minted subclass instance boxed
 /// ANY_HEAP (or any non-cell box, answered back unchanged); `len_av`
-/// is any boxed value (ToNumber runs here, §23.1.2.1 step 4).
+/// is any boxed value — a Number is the length, anything else the
+/// only element (§23.1.1.1).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_subclass_super_len(this_av: u64, len_av: u64) -> u64 {
+    // §23.1.1.1 step 5.b-c: a single argument that is not a Number is
+    // the array's only element, never a length — `super({})` /
+    // `super("s")` build `[v]`. (Running ToNumber here made `super(o)`
+    // read o's valueOf as the length and `super({})` a RangeError.)
+    // AnySlotTag I64 = 2 / F64 = 3.
+    if !matches!(unsafe { __torajs_anyv_unbox_tag(len_av) }, 2 | 3) {
+        unsafe {
+            let p = __torajs_anyv_unbox_value(this_av) as *mut u8;
+            if p.is_null() {
+                return this_av;
+            }
+            // The instance left the alloc empty, so this append is
+            // index 0; the cell survives growth. Fresh owned answer,
+            // same account as the length leg below.
+            crate::any::__torajs_arr_push_any_boxed(p, len_av);
+            __torajs_rc_inc(p as *mut c_void);
+        }
+        return this_av;
+    }
     let len = unsafe { __torajs_anyv_to_number(len_av) };
     const MAX_ARRAY_LEN: f64 = u32::MAX as f64;
     if !(len >= 0.0 && len <= MAX_ARRAY_LEN && (len as u64) as f64 == len) {
@@ -111,6 +131,8 @@ unsafe extern "C" {
     fn __torajs_throw_range_error(msg: *const u8);
     /// torajs-anyvalue — ToNumber over a boxed any (§7.1.4).
     fn __torajs_anyv_to_number(v: u64) -> f64;
+    /// torajs-anyvalue — the AnySlotTag of a boxed value.
+    fn __torajs_anyv_unbox_tag(v: u64) -> i64;
 }
 
 /// `super(a, b, ...)` with 2+ arguments inside an Array-subclass
