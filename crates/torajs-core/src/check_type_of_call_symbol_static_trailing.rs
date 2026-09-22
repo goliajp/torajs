@@ -77,6 +77,13 @@ pub(crate) fn try_match(
     if arg0_ty == Type::Any {
         return Some(Ok(Type::Any));
     }
+    // §20.4.2.2 step 1 is ToString(key), which takes every value;
+    // the signature table's `(string) => symbol` refused
+    // `Symbol.for(12)` and `Symbol.for({ toString })`. The lowering
+    // routes a non-string key through the ToString kernel.
+    if m_name == "for" {
+        return Some(Ok(Type::Symbol));
+    }
     if args.len() < 2 {
         // Typed 1-arg form keeps its pre-existing general_call route.
         return None;

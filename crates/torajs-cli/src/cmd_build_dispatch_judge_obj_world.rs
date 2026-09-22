@@ -23,7 +23,7 @@ use torajs_rc::any_method_family as fam;
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-pub(crate) const COERCION_PREFIXES: [&str; 23] = [
+pub(crate) const COERCION_PREFIXES: [&str; 24] = [
     // The array join kernels run the coercion per ELEMENT rather
     // than on themselves, so the scan never saw `anyv_to_str` in
     // the user `.o` and judged the obj world unreachable. Every
@@ -81,6 +81,10 @@ pub(crate) const COERCION_PREFIXES: [&str; 23] = [
     "__torajs_regexp_from_any",
     "__torajs_regex_compile_any",
     "__torajs_str_split_any_sep",
+    // §20.4.2.2 Symbol.for step 1 — ToString(key) inside the kernel:
+    // `Symbol.for(q)` with `q` a `{toString}` object reached the
+    // stubbed dynobj / struct arm.
+    "__torajs_symbol_for_any",
 ];
 
 /// Kernels that PROBE user objects internally — spec machinery that

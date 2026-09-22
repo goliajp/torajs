@@ -65,10 +65,23 @@ pub(crate) fn try_lower(
     // slot cannot spell — NULL printed "null" and static typeof
     // said "string". The box is the pure tag-4 encode (kernel
     // borrows, the brand check trivially passes a Symbol cell).
-    let arg_is_any = ctx.operand_ty(&arg_op) == Type::Any;
-    if arg_is_any || m_name == "keyFor" {
+    //
+    // `for` takes this lane for every non-string key too. The typed
+    // kernel's ABI is `str`, and an `x as any` cast lowers to x's own
+    // repr: `Symbol.for(o as any)` with `o` a struct handed the
+    // struct pointer to that kernel as a string (the description read
+    // as NUL bytes). §20.4.2.2 step 1 is ToString(key) over any value.
+    let arg_ty = ctx.operand_ty(&arg_op);
+    let arg_is_any = arg_ty == Type::Any;
+    let for_non_str = m_name == "for" && !matches!(arg_ty, Type::Str | Type::Substr);
+    if arg_is_any || for_non_str || m_name == "keyFor" {
         let (fid, arg_any) = if m_name == "for" {
-            (ctx.intrinsics.symbol_for_any, arg_op.clone())
+            let key = if arg_is_any {
+                arg_op.clone()
+            } else {
+                ctx.box_to_any_from_expr(args[0], arg_op.clone())
+            };
+            (ctx.intrinsics.symbol_for_any, key)
         } else if arg_is_any {
             (ctx.intrinsics.symbol_key_for_any, arg_op.clone())
         } else {
@@ -84,6 +97,25 @@ pub(crate) fn try_lower(
         );
         ctx.emit_throw_check(None);
         ctx.release_owned_temp(args[0], &arg_op);
+        if for_non_str && !arg_is_any {
+            // The checker types a typed-key `Symbol.for` as `Symbol`;
+            // the kernel answers the registry's symbol cell (borrowed,
+            // exactly like the typed kernel), boxed. A throw already
+            // unwound at the check above, so the payload is live.
+            let raw = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_unbox_value, vec![Operand::Value(v)]),
+                Type::I64,
+                None,
+            );
+            let sym = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::IntToPtr(Operand::Value(raw)),
+                Type::Symbol,
+                None,
+            );
+            return Some(Operand::Value(sym));
+        }
         return Some(Operand::Value(v));
     }
     let (fid, ret_ty) = (ctx.intrinsics.symbol_for, Type::Symbol);
