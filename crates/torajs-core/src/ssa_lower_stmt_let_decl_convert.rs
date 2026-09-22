@@ -48,7 +48,26 @@ pub(crate) fn maybe_any_to_typed_scalar(
     init: ExprId,
     init_val: Operand,
 ) -> (Operand, bool) {
-    if type_ann.is_none() || ctx.operand_ty(&init_val) != Type::Any {
+    if type_ann.is_none() {
+        return (init_val, false);
+    }
+    // A heap value reaching a scalar slot: it gets here through `as
+    // any`, which lowers to the value's OWN representation while the
+    // checker admits Any into the slot — so the operand's static type
+    // is the heap one and none of the Any arms below ever see it. The
+    // slot then read the POINTER as its scalar: `let s: string = ([4]
+    // as any)` answered "\u0001". Boxing is an rc-neutral encode of
+    // the init's own reference (the same step the argument position
+    // has always taken), so `release_owned_temp` below still settles
+    // the original.
+    let source = init_val.clone();
+    let init_val =
+        if crate::ssa_lower_call_arg_conv::heap_into_primitive(ty, ctx.operand_ty(&init_val)) {
+            ctx.box_to_any(init_val)
+        } else {
+            init_val
+        };
+    if ctx.operand_ty(&init_val) != Type::Any {
         return (init_val, false);
     }
     use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
@@ -96,7 +115,9 @@ pub(crate) fn maybe_any_to_typed_scalar(
         Type::Bool => ctx.coerce_to_bool(init_val.clone()),
         _ => return (init_val, false),
     };
-    ctx.release_owned_temp(init, &init_val);
+    // The original reference, not the box: boxing above re-encoded it
+    // rather than taking a stake of its own.
+    ctx.release_owned_temp(init, &source);
     (decoded, true)
 }
 

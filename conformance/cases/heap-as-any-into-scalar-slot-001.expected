@@ -1,0 +1,5 @@
+arr->str "4"
+arr->num 4
+arr->bool true
+obj->str "[object Object]"
+str->str ok
