@@ -27,6 +27,36 @@ unsafe extern "C" {
         name: *const u8,
         name_len: u32,
     ) -> *const c_void;
+    /// torajs-meta — the class's `__proto_<C>` AnyValue, borrowed (0
+    /// when the tag names no registered class).
+    fn __torajs_proto_cell_raw(tag: i64) -> u64;
+}
+
+/// The subclass's own prototype object when `recv` is an exotic
+/// subclass instance whose class defines a method named `key` —
+/// §10.1.8.1 step 3 reads `C.prototype` before the builtin prototype,
+/// so a property read (not only a call) must answer the class's own
+/// function object there. `None` leaves the builtin surface in charge.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell; a cell payload of `recv` is live.
+pub(crate) unsafe fn subclass_proto_for(recv: AnyValue, key: *const c_void) -> Option<AnyValue> {
+    if key.is_null() || !crate::nanbox::is_cell(recv) {
+        return None;
+    }
+    let ptr = crate::nanbox::as_void_ptr(recv);
+    // SAFETY: a cell box points at a live heap header; flags at +6.
+    let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+    if flags & torajs_rc::FLAG_SUBCLASSED == 0 {
+        return None;
+    }
+    // SAFETY: the flag says the side table knows this cell; `key` is
+    // a live Str cell per the contract.
+    unsafe {
+        subclass_adapter(ptr, key.cast())?;
+        let proto = __torajs_proto_cell_raw(__torajs_subclass_class_tag(ptr));
+        (proto != 0).then_some(proto)
+    }
 }
 
 /// The class-method adapter the receiver's own class defines under

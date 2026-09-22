@@ -368,6 +368,10 @@ unsafe fn dynobj_arm_value(ptr: *mut c_void, recv: AnyValue, key: *const c_void)
 /// # Safety
 /// `key` is NULL or a live Str cell.
 unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
+    // Mirror of the tag channel's subclass step.
+    if let Some(proto) = unsafe { crate::method_call_subclass::subclass_proto_for(recv, key) } {
+        return unsafe { __torajs_any_member_get_value(proto, key) };
+    }
     // L3b ④ — `.constructor` (mirror of the tag channel).
     if let Some(cell) = unsafe { crate::method_value::ctor_cell_for_recv(recv, key) } {
         return cell as u64;

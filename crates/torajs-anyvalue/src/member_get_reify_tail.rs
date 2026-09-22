@@ -21,6 +21,11 @@ use crate::nanbox::AnyValue;
 /// # Safety
 /// `key` is NULL or a live Str cell.
 pub(crate) unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
+    // An exotic subclass's own method sits between the receiver and
+    // the builtin prototype (§10.1.8.1).
+    if let Some(proto) = unsafe { crate::method_call_subclass::subclass_proto_for(recv, key) } {
+        return unsafe { __torajs_any_member_get_tag(proto, key) };
+    }
     // L3b ④ — `.constructor` answers the receiver family's interned
     // builtin-constructor cell (own-face shadows already probed).
     if unsafe { crate::method_value::ctor_cell_for_recv(recv, key) }.is_some() {
