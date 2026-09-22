@@ -105,11 +105,10 @@ fn is_builtin_container_ty(t: &Type) -> bool {
 impl Checker {
     /// Demotion decision point (hop 2 above). Returns `Some(result)`
     /// when the call demotes — the caller returns it verbatim —
-    /// `None` when the speculative rewrite stands. The receiver probe
-    /// is restricted to Ident / Member shapes: their `type_of` is a
-    /// pure lookup, so the extra probe call can't double-count any
-    /// affine bookkeeping. A receiver whose `type_of` errors never
-    /// demotes (the original path surfaces its own error).
+    /// `None` when the speculative rewrite stands. Every receiver shape
+    /// is probed (checker state keys on the ExprId, so a second
+    /// `type_of` re-inserts the same values). A receiver whose `type_of`
+    /// errors never demotes (the original path surfaces its own error).
     pub(crate) fn try_demote_cm_rewrite(
         &mut self,
         ast: &Ast,
@@ -151,23 +150,18 @@ impl Checker {
         // because that class is the only one owning the name. The
         // probe walks the same sub-expressions an `Expr::Call`
         // receiver does, under the same double-probe reasoning.
-        // `Expr::New` stays out: it types as `ClassRef`, which never
-        // demotes, and probing it would re-walk constructor arguments
-        // for no decision.
-        if !matches!(
-            ast.get_expr(recv_eid),
-            Expr::Ident(_)
-                | Expr::Member { .. }
-                | Expr::Call { .. }
-                | Expr::NewDynamic { .. }
-                | Expr::As { .. }
-                | Expr::Number(_)
-                | Expr::String(_)
-                | Expr::Bool(_)
-                | Expr::BigInt { .. }
-        ) {
-            return None;
-        }
+        // Rotation 689 — every receiver shape is probed. This used to be
+        // a whitelist (Ident / Member / Call / As / literals / ...) on
+        // the grounds that a second `type_of` might double-count affine
+        // bookkeeping; that state retired in chunk 568, and the Call arm
+        // already double-probes arbitrary argument shapes. What the
+        // whitelist left out ran the only-owner class's method body on a
+        // receiver that is no instance of it: `new Boolean(0).valueOf()`
+        // (the `Expr::New` left after desugar is always a built-in
+        // constructor — a user class's `new C()` is `Call __new_C` by
+        // now), `xs[0].valueOf()` on an `any[]`, `(c ? a : b).valueOf()`,
+        // `(a ?? b).valueOf()` — all answered 7 from `class P { valueOf()
+        // { return 7 } }`, silently.
         let Ok(recv_ty) = self.type_of(ast, recv_eid) else {
             return None;
         };
