@@ -8,16 +8,17 @@
 //! answer objects does the coercion throw a catchable TypeError
 //! (test262 trim 15.5.4.20-2-42 asserts both get called).
 //!
-//! Dispatch reuses [`crate::method_call::any_method_call_inner`] —
-//! own/patched entries win, and the inherited Object.prototype
-//! surface (`valueOf` → receiver, `toString` → "[object Object]")
-//! provides the spec default when the receiver has neither.
-//! RFC 20260712-string-proto-cluster chunk C.
+//! Each method name is §7.1.1.1's literal shape: `Get(O, name)`
+//! through the one receiver-aware [[Get]] (own entries, accessors,
+//! Proxy traps, the prototype chain, the builtin cell a prototype
+//! carries), IsCallable, then `Call` with `O` as this (RFC
+//! 20260922-to-primitive-get-call S4). A borrowed root toString /
+//! valueOf answers through the direct table, not the method dispatch.
 
 use core::ffi::c_void;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
-use torajs_rc::{ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, HeapHeader, Tag};
+use torajs_rc::{HeapHeader, Tag};
 
 use crate::nanbox::{AnyValue, as_void_ptr, box_pointer, is_cell};
 use crate::nanbox_ffi::__torajs_anyv_rc_dec;
@@ -45,112 +46,24 @@ const TAG_UNDEF: u64 = 5;
 #[cfg(not(test))]
 const TAG_NULL: u64 = 0;
 
-/// Method-dispatch indirection: the real
-/// [`crate::method_call::any_method_call_inner`] reaches the whole
-/// per-tag dispatch universe (dynobj / date / map / str-any
-/// helpers), whose extern symbols only exist in the shipped
-/// staticlib link. The unit-test binary must not pull that graph
-/// past `-dead_strip` (coerce.rs is test-reachable), so tests get a
-/// no-hook stub — the inherited-prototype default is exercised by
-/// conformance, not unit tests.
+/// §7.1.1.1 steps 5.a-5.b for one method name: `Get(O, name)` —
+/// own entry, accessor getter, Proxy trap, prototype chain, the
+/// builtin cell a prototype carries, all through the one [[Get]] —
+/// then IsCallable, then `Call(method, O)`. `None` is "not callable,
+/// try the next name"; `Some(out)` is the method's answer, or the
+/// placeholder under a pending throw (from the Get or the call) the
+/// caller's check unwinds.
 #[cfg(not(test))]
-#[inline]
-unsafe fn dispatch_method(recv: AnyValue, mid: i64, name_str: *const u8) -> AnyValue {
-    unsafe {
-        crate::method_call::any_method_call_inner(
-            recv,
-            mid,
-            name_str,
-            core::ptr::null_mut(),
-            core::ptr::null(),
-            0,
-        )
-    }
-}
-
-#[cfg(test)]
-#[inline]
-unsafe fn dispatch_method(_recv: AnyValue, _mid: i64, _name_str: *const u8) -> AnyValue {
-    crate::nanbox::VALUE_UNDEFINED
-}
-
-/// §7.1.1.1 IsCallable probe — an own struct/dynobj entry holding a
-/// non-callable value makes OrdinaryToPrimitive skip that method
-/// name (`{toString: void 0, valueOf: fn}` coerces through valueOf;
-/// pre-fix the dispatch's not-callable TypeError was mistaken for a
-/// user throw and propagated — test262 search A1_T9).
-#[cfg(not(test))]
-unsafe fn skip_not_callable(cell: *mut c_void, name_str: *const u8) -> bool {
-    let h = unsafe { &*(cell as *const HeapHeader) };
-    match h.tag() {
-        Tag::Obj => unsafe {
-            crate::method_call_dynobj::own_entry_not_callable(cell, true, name_str)
-        },
-        Tag::DynObj => unsafe {
-            crate::method_call_dynobj::own_entry_not_callable(cell, false, name_str)
-        },
-        // An Arr's monkey-patches land in the side-props expando —
-        // `arr.toString = undefined` shadows the builtin the same way
-        // (RFC 20260717 own-undefined-shadow family, arr leg).
-        Tag::Arr => unsafe {
-            crate::method_call_dynobj::arr_own_entry_not_callable(cell, name_str)
-        },
-        // A function object's own properties live in its lazy props
-        // dynobj — `f.toString = undefined` shadows
-        // Function.prototype.toString the same way, and ToString(f)
-        // moves on to `valueOf` (test262 String S15.5.2.1_A1_T11).
-        Tag::Closure => unsafe {
-            let props = crate::member_get_layout::closure_props(cell);
-            !props.is_null()
-                && crate::method_call_dynobj::own_entry_not_callable(
-                    props as *mut c_void,
-                    false,
-                    name_str,
-                )
-        },
-        _ => false,
-    }
-}
-
-#[cfg(test)]
-unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
-    false
-}
-
-/// §7.1.1.1 step 5 over an ACCESSOR entry — `Get(O, name)` runs the
-/// getter (`get valueOf() { … }`, the test262 toPrimitiveObserver
-/// shape), and the callable it answers is `Call`ed with `O` as this.
-/// `None` when the name is not an accessor on `recv` (the data /
-/// builtin path keeps its dispatch); `Some(None)` when the getter
-/// answered a non-callable (step 5.b — released, the caller moves to
-/// the next name); `Some(Some(out))` is the method's answer, or the
-/// placeholder under a pending throw the caller's check unwinds.
-#[cfg(not(test))]
-unsafe fn accessor_method_call(recv: AnyValue, key: *const u8) -> Option<Option<AnyValue>> {
-    // §10.5.8 — a Proxy's [[Get]] is its `get` trap, and §7.1.1.1
-    // step 5 is that Get followed by IsCallable: a trap answering a
-    // non-callable for `toString` moves the walk on to `valueOf`.
-    // The method dispatch this used to leave proxies to reads the
-    // same trap but raises "not a function" on a non-callable answer
-    // (staging string-pad-start-end: `String(proxy)` threw where every
-    // engine reads valueOf). So a proxy takes the Get-then-Call road
-    // for every name, running the trap exactly once per name.
-    let via_get = crate::proxy::is_proxy(recv);
+unsafe fn get_and_call(recv: AnyValue, key: *const u8) -> Option<AnyValue> {
     unsafe {
         let key = key as *const c_void;
-        if !via_get
-            && crate::member_get::__torajs_any_member_get_tag(recv, key)
-                != crate::struct_probe::ANY_ACCESSOR_TAG
-        {
-            return None;
-        }
         let f = crate::member_get_receiver::__torajs_any_member_get_with_receiver(recv, key, recv);
         if __torajs_throw_check() != 0 {
-            return Some(Some(f));
+            return Some(f);
         }
         if !crate::promise_capability::is_callable(f) {
             __torajs_anyv_rc_dec(f);
-            return Some(None);
+            return None;
         }
         let out = crate::method_call_closure_dispatch::__torajs_any_call_with_this(
             f,
@@ -159,13 +72,18 @@ unsafe fn accessor_method_call(recv: AnyValue, key: *const u8) -> Option<Option<
             0,
         );
         __torajs_anyv_rc_dec(f);
-        Some(Some(out))
+        Some(out)
     }
 }
 
+/// The unit-test binary must not pull the [[Get]] / [[Call]] graph
+/// past `-dead_strip` (coerce.rs is test-reachable, and that graph's
+/// extern symbols exist only in the shipped staticlib link), so tests
+/// get a method that answers undefined — the inherited-prototype walk
+/// is exercised by conformance, not unit tests.
 #[cfg(test)]
-unsafe fn accessor_method_call(_recv: AnyValue, _key: *const u8) -> Option<Option<AnyValue>> {
-    None
+unsafe fn get_and_call(_recv: AnyValue, _key: *const u8) -> Option<AnyValue> {
+    Some(crate::nanbox::VALUE_UNDEFINED)
 }
 
 /// A NaN-boxed value is an "object" for ToPrimitive purposes iff it
@@ -354,41 +272,23 @@ pub(crate) unsafe fn ordinary_to_primitive(
     hint_string: bool,
 ) -> Option<AnyValue> {
     let recv = box_pointer(cell as *mut HeapHeader);
-    let to_string = (ANY_METHOD_TO_STRING, &NAME_TO_STRING, &b"toString"[..]);
-    let value_of = (ANY_METHOD_VALUE_OF, &NAME_VALUE_OF, &b"valueOf"[..]);
+    let to_string = (&NAME_TO_STRING, &b"toString"[..]);
+    let value_of = (&NAME_VALUE_OF, &b"valueOf"[..]);
     let order = if hint_string {
         [to_string, value_of]
     } else {
         [value_of, to_string]
     };
-    for (mid, slot, name) in order {
+    for (slot, name) in order {
         let key = unsafe { name_key(slot, name) };
-        // An accessor entry answers through its getter (rotation 646
-        // — the not-callable probe read the AccessorPair as a
-        // non-callable value and skipped the name).
-        let out = match unsafe { accessor_method_call(recv, key) } {
-            Some(Some(out)) => out,
-            Some(None) => continue,
-            None => {
-                if unsafe { skip_not_callable(cell, key) } {
-                    continue;
-                }
-                unsafe { dispatch_method(recv, mid, key) }
-            }
+        let Some(out) = (unsafe { get_and_call(recv, key) }) else {
+            continue;
         };
         if unsafe { __torajs_throw_check() } != 0 {
-            // The user method threw — propagate by returning a
-            // primitive placeholder; the pending throw unwinds at
-            // the caller's next check point.
+            // The Get or the method threw — propagate by returning a
+            // placeholder; the pending throw unwinds at the caller's
+            // next check point.
             return Some(out);
-        }
-        // The receiver's arm knows no such method — §7.1.1.1 step 5
-        // reads that as "not callable" and moves to the next name.
-        // The sentinel is a quiet-NaN bit pattern that answers false
-        // to `is_object_value`, so accepting it here handed the walk
-        // a NaN dressed as a primitive.
-        if out == crate::method_call::ANY_METHOD_NO_SUCH {
-            continue;
         }
         if !is_object_value(out) {
             return Some(out);

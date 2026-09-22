@@ -1,11 +1,13 @@
-//! IsCallable own-entry probes and the nominal-struct method arm —
-//! split out of the parent under the 500-line file discipline
-//! (rotation 146). A child module reaches its parent's private items,
-//! so the extern block, the method-id constants and the shared
-//! helpers stay private with no visibility churn.
+//! The nominal-struct method arm — split out of the parent under the
+//! 500-line file discipline (rotation 146). A child module reaches its
+//! parent's private items, so the extern block, the method-id
+//! constants and the shared helpers stay private with no visibility
+//! churn.
 //!
-//! Verbatim move; the §7.1.1.1 skip semantics and the cfg_attr that
-//! stubs the probe under test builds travel unchanged.
+//! The IsCallable own-entry probes that used to live beside it went
+//! with OrdinaryToPrimitive's own dispatch: §7.1.1.1 asks IsCallable
+//! of what `Get` answered, so the walk has no reason to probe a
+//! receiver's own entries for callability any more.
 
 use core::ffi::c_void;
 
@@ -15,105 +17,6 @@ use super::*;
 /// `METHOD_FLAG_TWIN_PRIMARY` (the record's adapter is the
 /// recv-first `__cmany_` twin; see 404-01).
 const METHOD_FLAG_TWIN_PRIMARY: u32 = 2;
-
-/// RFC 20260712 chunk C fix — OrdinaryToPrimitive's IsCallable
-/// probe: true iff the receiver has an OWN entry under `name_str`
-/// whose value is NOT callable. §7.1.1.1 skips such an entry and
-/// tries the next method (`{toString: void 0, valueOf: fn}`), while
-/// an explicit `o.toString()` method call keeps the TypeError —
-/// so the skip lives here as a probe, not inside the dispatch.
-/// Absent entries answer false (the inherited prototype surface is
-/// callable); accessor entries answer false (the getter-as-callee
-/// dispatch path resolves them).
-#[cfg_attr(test, allow(dead_code))] // test builds stub the to_primitive probe
-pub(crate) unsafe fn own_entry_not_callable(
-    obj: *mut c_void,
-    is_struct: bool,
-    name_str: *const u8,
-) -> bool {
-    unsafe {
-        if is_struct {
-            let class_tag = (obj.cast::<u8>().add(OBJ_CLASS_TAG_OFF) as *const u32).read();
-            let layout = __torajs_struct_layout_lookup(class_tag);
-            if layout.is_null() {
-                return false;
-            }
-            let k = torajs_rc::str_wtf8::StrWtf8::of(name_str.cast());
-            let idx = __torajs_struct_field_find(layout, k.as_ptr(), k.len());
-            if idx == u32::MAX {
-                return false;
-            }
-            let info = __torajs_struct_field_info(layout, idx);
-            let raw = (obj.cast::<u8>().add(info.field_byte_offset as usize) as *const u64).read();
-            match info.type_tag {
-                // §7.2.3 over the field's value. A Closure-typed slot
-                // holds a bare cell, which is callable by its type;
-                // an Any-typed one can hold any of the callable
-                // shapes, class objects included.
-                FIELD_TAG_ANY => !crate::construct::is_callable(raw),
-                FIELD_TAG_CLOSURE => closure_cell_entry(raw as *mut c_void).is_none(),
-                _ => true,
-            }
-        } else {
-            let key = name_str as *const c_void;
-            let dtag = __torajs_dynobj_get_tag(obj, key);
-            if dtag == 5 {
-                // `get_tag` answers ANY_UNDEF both for an absent key
-                // and for an own entry STORING undefined — but the
-                // own entry shadows the prototype (§7.1.1.1 skips a
-                // non-callable method name: `{toString: undefined,
-                // valueOf}` coerces through valueOf, not through the
-                // inherited "[object Object]"). Disambiguate with the
-                // own-key probe.
-                if __torajs_dynobj_has(obj, key) != 0 {
-                    return true;
-                }
-                // Absent own key: an ordinary dict inherits the
-                // builtin Object.prototype method surface, so the
-                // dispatch proceeds — unless this is a null-
-                // prototype dict (`Object.create(null)`), which
-                // inherits nothing (mirror of torajs-dynobj's
-                // DYNOBJ_HDR_FLAG_NULL_PROTO, header bit 6).
-                let flags = (obj.cast::<u8>().add(6) as *const u16).read();
-                return flags & (1 << 6) != 0;
-            }
-            if dtag == ANY_ACCESSOR_TAG {
-                return false;
-            }
-            if dtag == 4 {
-                let cell = __torajs_dynobj_get_value(obj, key);
-                return !crate::construct::is_callable(cell);
-            }
-            true
-        }
-    }
-}
-
-/// Arr twin of [`own_entry_not_callable`] — probes the side-props
-/// expando so OrdinaryToPrimitive skips a shadowing non-callable
-/// (`arr.toString = undefined` coerces through valueOf / the both-
-/// exhausted TypeError, not through the builtin join). The only
-/// consumer is `to_primitive::skip_not_callable`, whose real body is
-/// `cfg(not(test))` (the dispatch graph doesn't link in the unit-test
-/// binary) — hence the test-profile dead-code allowance.
-#[cfg_attr(test, allow(dead_code))]
-pub(crate) unsafe fn arr_own_entry_not_callable(arr: *mut c_void, name_str: *const u8) -> bool {
-    unsafe {
-        let key = name_str as *const c_void;
-        let dtag = __torajs_arrprops_get_tag(arr, key);
-        if dtag == 5 {
-            return __torajs_arrprops_has(arr, key) != 0;
-        }
-        if dtag == ANY_ACCESSOR_TAG {
-            return false;
-        }
-        if dtag == 4 {
-            let cell = __torajs_arrprops_get_value(arr, key);
-            return !crate::construct::is_callable(cell);
-        }
-        true
-    }
-}
 
 /// `Tag::Obj` arm — see module doc. `obj` is the struct cell, and
 /// the field slot read is a borrow (the receiver owns it and

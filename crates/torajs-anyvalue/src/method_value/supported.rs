@@ -41,13 +41,37 @@ fn supplier_tombstoned(recv: AnyValue, mid: i64) -> bool {
     // prototypes sit between their cells and %Iterator.prototype%, so
     // `delete Iterator.prototype.map` reaches `[1].values().map`
     // only if the walk actually takes that middle link.
+    supplier_tag(recv, mid).is_none() && owner_on_chain(recv, mid)
+}
+
+/// The nearest prototype on the receiver's chain that still supplies
+/// `mid` — `None` when no prototype owns it, or every owner that does
+/// has it deleted. Deleting `Array.prototype.toString` does not hide
+/// `Object.prototype`'s: §10.1.8.1 keeps walking, so the nearest
+/// SURVIVING owner is the supplier, and its cell is the one a read
+/// answers.
+pub(crate) fn supplier_tag(recv: AnyValue, mid: i64) -> Option<i64> {
+    let mut tag = recv_proto_family(recv);
+    while tag >= 0 {
+        // SAFETY: pure bitmask read, range-checked inside.
+        let deleted =
+            unsafe { torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) != 0 };
+        if proto_tag_family_owns(tag, mid) && !deleted {
+            return Some(tag);
+        }
+        tag = torajs_rc::builtin_proto::proto_parent_tag(tag);
+    }
+    None
+}
+
+/// Does any prototype on the chain own `mid` at all? Separates "the
+/// name was deleted everywhere" from "no builtin prototype has it"
+/// (the second keeps the support table's own answer).
+fn owner_on_chain(recv: AnyValue, mid: i64) -> bool {
     let mut tag = recv_proto_family(recv);
     while tag >= 0 {
         if proto_tag_family_owns(tag, mid) {
-            // SAFETY: pure bitmask read, range-checked inside.
-            return unsafe {
-                torajs_rc::builtin_proto::__torajs_builtin_proto_is_deleted(tag, mid) != 0
-            };
+            return true;
         }
         tag = torajs_rc::builtin_proto::proto_parent_tag(tag);
     }

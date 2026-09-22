@@ -463,7 +463,11 @@ pub(crate) unsafe fn builtin_method_lookup(recv: AnyValue, key: *const c_void) -
     } else {
         mid
     };
-    Some(builtin_method_cell(recv_proto_family(recv), mid))
+    // The supplier is the nearest prototype on the chain that still
+    // owns the name (a deleted one is walked past), so its cell is
+    // what the read answers.
+    let family = supported::supplier_tag(recv, mid).unwrap_or_else(|| recv_proto_family(recv));
+    Some(builtin_method_cell(family, mid))
 }
 
 /// True iff the boxed value is a live `Tag::Set` heap cell.
