@@ -89,6 +89,7 @@ use std::ptr::NonNull;
 use torajs_rc::{__torajs_rc_inc, AnySlotTag, HeapHeader, Tag};
 
 mod anyv_await;
+mod anyv_cast;
 mod arg_struct_coerce;
 mod arith;
 mod arith_bigint;
