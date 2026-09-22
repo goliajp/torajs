@@ -37,6 +37,7 @@ use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, OBJ_HEADER_SIZE};
 use crate::ssa_lower_arr_grow_kernel::emit_grow_kernel_checked;
+use crate::ssa_lower_checked_cast::Admits;
 
 /// Try to lower `<recv>.push(v)`. Returns `Some(new_len)` when one of the
 /// four legal receiver shapes (local Ident, K.8 global Ident, `xs[i]`
@@ -381,6 +382,7 @@ pub(crate) fn coerce_push_value(
         elem_ty,
         crate::ssa_lower_checked_cast::CastSlot::Store,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
+        Admits::Exact,
     );
     val = match (elem_ty, ctx.operand_ty(&val)) {
         _ if cast.is_some() => {

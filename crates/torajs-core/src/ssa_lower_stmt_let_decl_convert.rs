@@ -51,8 +51,22 @@ pub(crate) fn maybe_any_to_typed_scalar(
     if type_ann.is_none() || ctx.operand_ty(&init_val) != Type::Any {
         return (init_val, false);
     }
-    use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
-    let cast = ctx.checked_cast(init_val.clone(), ty, CastSlot::Assign, CastScope::Annotated);
+    use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
+    // `string | undefined` is storage-identical to `string` by the time
+    // `ty` exists, so the annotation text is the only place left that
+    // knows the union admits undefined. Without this the cast rejects
+    // the union's own member and a legal program becomes a TypeError.
+    let admits = match type_ann {
+        Some(t) if t.starts_with("__nullable(") => Admits::OrUndefined,
+        _ => Admits::Exact,
+    };
+    let cast = ctx.checked_cast(
+        init_val.clone(),
+        ty,
+        CastSlot::Assign,
+        CastScope::Annotated,
+        admits,
+    );
     let decoded = match ty {
         _ if cast.is_some() => cast.expect("guard just tested it"),
         Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val.clone(), ty),

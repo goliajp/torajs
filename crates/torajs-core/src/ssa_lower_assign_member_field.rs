@@ -7,6 +7,7 @@
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{IPred, InstKind, Operand, StructId, Terminator, Type};
 use crate::ssa_lower::{LowerCtx, OBJ_HEADER_SIZE};
+use crate::ssa_lower_checked_cast::Admits;
 
 pub(crate) fn try_lower_setter_call(
     ctx: &mut LowerCtx<'_>,
@@ -383,6 +384,7 @@ fn fit_to_field(
         field_ty,
         crate::ssa_lower_checked_cast::CastSlot::Store,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
+        Admits::Exact,
     ) {
         return (cast, field_ty == Type::Str);
     }

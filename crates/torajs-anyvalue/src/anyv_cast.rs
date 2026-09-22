@@ -31,6 +31,9 @@ use crate::nanbox::{
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const c_char);
     fn __torajs_rc_inc(p: *mut c_void);
+    /// The Str slot's undefined sentinel — what a `string | undefined`
+    /// slot holds when the union's other member arrives.
+    fn __torajs_str_undef() -> *mut u8;
 }
 
 /// The `typeof` answer for `v`, as the word the message prints.
@@ -158,6 +161,34 @@ pub unsafe extern "C" fn __torajs_anyv_cast_str(v: AnyValue, site: *const u8) ->
     }
     unsafe { reject(v, site) };
     core::ptr::null_mut()
+}
+
+/// As [`__torajs_anyv_cast_str`], for a slot whose annotation admits
+/// `undefined` (`string | undefined`). The union member passes as the
+/// Str slot's undefined sentinel — the same spelling the gate-off path
+/// and the boxed parameter adapter give it — and everything that is
+/// neither a string nor undefined is still rejected.
+///
+/// Nullable information does not survive into SSA (`__nullable(T)` is
+/// storage-identical to `T`, `ssa_lower_parse_type`), so the lowering
+/// reads it off the annotation text and picks this kernel there.
+///
+/// `null` is NOT admitted: the Str slot has an undefined sentinel and
+/// no null one, so `string | null` still rejects. That gap is the same
+/// one `nullable-string-slot-undefined-001` registers for the gate-off
+/// path, and both ends want the one fix.
+///
+/// # Safety
+/// As [`__torajs_anyv_cast_number`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_cast_str_or_undef(
+    v: AnyValue,
+    site: *const u8,
+) -> *mut c_void {
+    if is_undefined(v) {
+        return unsafe { __torajs_str_undef() } as *mut c_void;
+    }
+    unsafe { __torajs_anyv_cast_str(v, site) }
 }
 
 /// Cast into a slot holding one heap family (`tag` is its

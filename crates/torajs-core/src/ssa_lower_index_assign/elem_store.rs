@@ -7,6 +7,7 @@
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_checked_cast::Admits;
 
 impl LowerCtx<'_> {
     /// W4 — align the stored value with the element's width, and
@@ -34,6 +35,7 @@ impl LowerCtx<'_> {
             elem_ty,
             crate::ssa_lower_checked_cast::CastSlot::Store,
             crate::ssa_lower_checked_cast::CastScope::Inferred,
+            Admits::Exact,
         ) {
             self.release_owned_temp(value, &v);
             return (cast, true);

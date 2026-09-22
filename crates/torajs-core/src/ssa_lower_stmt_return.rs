@@ -329,9 +329,15 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     if actual == Type::Any && !ctx.ast.contextual_ret_fns.contains(&ctx.f.name) {
         // RFC 20260922 S0 — a return type the program wrote casts; a
         // contextual seed keeps the spec's own coercion below.
-        use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
+        use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
         let ret = ctx.f.ret;
-        if let Some(v) = ctx.checked_cast(op.clone(), ret, CastSlot::Return, CastScope::Annotated) {
+        if let Some(v) = ctx.checked_cast(
+            op.clone(),
+            ret,
+            CastSlot::Return,
+            CastScope::Annotated,
+            Admits::Exact,
+        ) {
             if ret == Type::Str {
                 ctx.emit_drop_value(op, Type::Any);
             }

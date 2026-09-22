@@ -18,6 +18,9 @@ pub(crate) struct AnyCastIds {
     pub anyv_cast_bool: FuncId,
     /// `string` slot: an owned Str, or NULL after the reject.
     pub anyv_cast_str: FuncId,
+    /// The `string | undefined` variant: the union's other member
+    /// passes as the Str slot's undefined sentinel.
+    pub anyv_cast_str_or_undef: FuncId,
     /// One heap family by tag: the cell with +1, or NULL.
     pub anyv_cast_cell: FuncId,
 }
@@ -38,6 +41,11 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             Type::Bool,
         ),
         anyv_cast_str: decl("__torajs_anyv_cast_str", &[Type::Any, Type::Str], Type::Str),
+        anyv_cast_str_or_undef: decl(
+            "__torajs_anyv_cast_str_or_undef",
+            &[Type::Any, Type::Str],
+            Type::Str,
+        ),
         anyv_cast_cell: decl(
             "__torajs_anyv_cast_cell",
             &[Type::Any, Type::I64, Type::Str],

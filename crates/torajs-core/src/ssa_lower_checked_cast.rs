@@ -39,6 +39,18 @@ pub(crate) enum CastScope {
     Inferred,
 }
 
+/// Whether the slot's annotation admits `undefined` beside its type.
+/// SSA storage cannot answer this — `__nullable(T)` is storage- and
+/// ABI-identical to `T` (`ssa_lower_parse_type`) — so the boundary
+/// reads it off the annotation text it already holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Admits {
+    /// Exactly the target type.
+    Exact,
+    /// The target type or `undefined` (`string | undefined`).
+    OrUndefined,
+}
+
 /// What the boundary does with the value — the verb of the message.
 #[derive(Clone, Copy)]
 pub(crate) enum CastSlot {
@@ -101,6 +113,7 @@ impl LowerCtx<'_> {
         target: Type,
         slot: CastSlot,
         scope: CastScope,
+        admits: Admits,
     ) -> Option<Operand> {
         if !gate_covers(scope) || self.operand_ty(&op) != Type::Any {
             return None;
@@ -108,6 +121,9 @@ impl LowerCtx<'_> {
         let site = site_text(slot, target)?;
         let (kernel, ret) = match target {
             Type::F64 | Type::I64 => (self.intrinsics.anyv_cast_number, Type::F64),
+            Type::Str if admits == Admits::OrUndefined => {
+                (self.intrinsics.anyv_cast_str_or_undef, Type::Str)
+            }
             Type::Str => (self.intrinsics.anyv_cast_str, Type::Str),
             _ => (self.intrinsics.anyv_cast_bool, Type::Bool),
         };

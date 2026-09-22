@@ -8,6 +8,7 @@
 use crate::ast::ExprId;
 use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower_checked_cast::Admits;
 /// An `Arr<Substr>` value (a split product, or an alias of one) meeting
 /// an `Arr<Str>` slot — a local or global being assigned, a parameter,
 /// a setter's value. The views cannot live in that slot — its readers
@@ -130,6 +131,7 @@ pub(super) fn coerce_for_global(
         slot_ty,
         crate::ssa_lower_checked_cast::CastSlot::Assign,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
+        Admits::Exact,
     ) {
         cast
     } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
@@ -222,6 +224,7 @@ pub(super) fn coerce_for_local(
         snap_ty,
         crate::ssa_lower_checked_cast::CastSlot::Assign,
         crate::ssa_lower_checked_cast::CastScope::Inferred,
+        Admits::Exact,
     ) {
         cast
     } else if matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any {

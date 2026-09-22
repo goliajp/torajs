@@ -146,7 +146,7 @@ pub(crate) fn emit_arg_conv(
         let boxed = ctx.box_to_any(op);
         return emit_arg_conv(ctx, expected, arg, boxed, owned);
     }
-    use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
+    use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
     // RFC 20260922 C1 — the cast decision is about a boundary the
     // PROGRAM wrote. Two edges reaching here are compiler-authored
     // and are not that:
@@ -166,8 +166,13 @@ pub(crate) fn emit_arg_conv(
     let synthetic_edge = matches!(ctx.ast.get_expr(arg), Expr::Spread { .. })
         || ctx.ast.spread_filled_args.contains(&arg);
     if !synthetic_edge
-        && let Some(v) =
-            ctx.checked_cast(op.clone(), expected, CastSlot::Pass, CastScope::Annotated)
+        && let Some(v) = ctx.checked_cast(
+            op.clone(),
+            expected,
+            CastSlot::Pass,
+            CastScope::Annotated,
+            Admits::Exact,
+        )
     {
         if expected == Type::Str {
             owned.push((v.clone(), Type::Str));
