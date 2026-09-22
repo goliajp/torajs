@@ -341,12 +341,7 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
     if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
         return ctx.coerce_any_to_number(op, ctx.f.ret);
     }
-    if matches!(ctx.f.ret, Type::Str | Type::I64 | Type::F64 | Type::Bool)
-        && actual.is_refcounted()
-        && actual != Type::Any
-        && actual != ctx.f.ret
-        && !(ctx.f.ret == Type::Str && actual == Type::Substr)
-    {
+    if crate::ssa_lower_call_arg_conv::heap_into_primitive(ctx.f.ret, actual) {
         // A heap value reaches a primitive return only through
         // `x as any`, which lowers to x's own repr: the checker admits
         // Any into the declared type, and the callback's contextual

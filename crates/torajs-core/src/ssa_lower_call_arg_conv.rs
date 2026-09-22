@@ -78,6 +78,19 @@ pub(crate) fn arg_conv(expected: Type, actual: Type) -> ArgConv {
     }
 }
 
+/// A heap value meeting a primitive slot (`string` / `number` /
+/// `boolean`) of another type. It gets there only through `x as any`,
+/// which lowers to x's own representation while the checker admits
+/// Any into the slot — so the value has to be boxed and take the Any
+/// conversion, or its pointer is read as the slot's type.
+pub(crate) fn heap_into_primitive(expected: Type, actual: Type) -> bool {
+    matches!(expected, Type::Str | Type::I64 | Type::F64 | Type::Bool)
+        && actual.is_refcounted()
+        && actual != Type::Any
+        && actual != expected
+        && !(expected == Type::Str && actual == Type::Substr)
+}
+
 /// Emit whatever the contract says this argument needs, and answer the
 /// operand that belongs in `argv`.
 ///
@@ -126,6 +139,12 @@ pub(crate) fn emit_arg_conv(
         let copy = crate::ssa_lower_assign_slot_fit::copy_views_out(ctx, expected, op);
         owned.push((copy.clone(), expected));
         return copy;
+    }
+    if heap_into_primitive(expected, actual) {
+        // The box is an rc-neutral encode of the argument's own
+        // reference; the lane still releases the argument as itself.
+        let boxed = ctx.box_to_any(op);
+        return emit_arg_conv(ctx, expected, arg, boxed, owned);
     }
     use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
     if let Some(v) = ctx.checked_cast(op.clone(), expected, CastSlot::Pass, CastScope::Annotated) {
