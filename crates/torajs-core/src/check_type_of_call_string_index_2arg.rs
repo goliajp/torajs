@@ -18,7 +18,8 @@
 //! Returns `Some(Ok(Number))` on String-receiver match;
 //! `Some(Err(_))` on bad needle / fromIndex type; `None`
 //! otherwise (non-String receiver, non-{indexOf,lastIndexOf},
-//! or arity ≠ 2).
+//! or arity outside 1..=2 — the 1-arg form's search slot is the same
+//! ToString slot, and the signature table would pin it to `String`).
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -36,7 +37,7 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if !matches!(m_name.as_str(), "indexOf" | "lastIndexOf") || args.len() != 2 {
+    if !matches!(m_name.as_str(), "indexOf" | "lastIndexOf") || !(1..=2).contains(&args.len()) {
         return None;
     }
     let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
@@ -56,7 +57,9 @@ pub(crate) fn try_match(
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));
     }
-    if let Err(e) = checker.type_of(ast, args[1]) {
+    if let Some(&pos) = args.get(1)
+        && let Err(e) = checker.type_of(ast, pos)
+    {
         return Some(Err(e));
     }
     // Rotation 544 — §22.1.3.8 step 4 / §22.1.3.10 step 5 coerce
