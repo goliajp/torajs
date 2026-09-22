@@ -41,7 +41,7 @@ use torajs_rc::any_method_family as fam;
 /// be a fallback trigger: it would kill the judgment for the empty
 /// program too. `SYNTH_ERROR_FNS` in the judge is what keeps that
 /// per-program tax off; it cannot retire while ToString is here.)
-pub(crate) const COERCION_PREFIXES: [&str; 49] = [
+pub(crate) const COERCION_PREFIXES: [&str; 53] = [
     "__torajs_anyv_to_number",
     // `x++` / `x--` run ToNumeric in the kernel (`eval++` asks for valueOf).
     "__torajs_anyv_incr_",
@@ -101,6 +101,17 @@ pub(crate) const COERCION_PREFIXES: [&str; 49] = [
     "__torajs_accessor_invoke_getter",
     "__torajs_array_from_dyn",
     "__torajs_json_parse_reviver",
+    // Rotation 693, second wave: wiring the proxy `get` trap into the
+    // symbol-key read (§10.5.1 applies to every key kind) gave the
+    // symbol lane a dispatcher edge it did not have before, and these
+    // four reach it. `__torajs_iterator_from` had left the table
+    // earlier the same rotation, on the measurement before that edge
+    // existed — which is the census doing its job in both directions
+    // rather than a list being edited by hand.
+    "__torajs_any_str_symbol_try",
+    "__torajs_anyv_reject_regexp_needle",
+    "__torajs_iterator_concat",
+    "__torajs_iterator_from",
     // a builtin collection subclass's `super(iterable)` walks it.
     "__torajs_map_subclass_super",
     "__torajs_set_subclass_super",
