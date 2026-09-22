@@ -206,9 +206,10 @@ pub(crate) fn try_dispatch(
 ///   RangeError on a structurally invalid tag),
 /// - `Arr<_>` → the anyvalue-side CanonicalizeLocaleList walk
 ///   (`str_locale_case_arr`),
-/// - anything else → `None`; the caller falls through to the
-///   generic locale-dropping dispatch (number/bool locales are a
-///   length-0 array-like = host default).
+/// - anything else (an `any`, `null`, an object, a primitive) → the
+///   same walk over the boxed value (`str_locale_case_any`, §9.2.1:
+///   `null` throws, a primitive has no elements, an object is an
+///   array-like).
 ///
 /// The caller owns trailing-arg eval-and-drop plus the
 /// `emit_throw_check`. Shared with the Substr-receiver dispatch in
@@ -250,7 +251,21 @@ pub(crate) fn lower_locale_case(
             );
             Some(Operand::Value(v))
         }
-        _ => None,
+        _ => {
+            let op = ctx.lower_expr(args[0]);
+            let boxed = ctx.box_to_any_from_expr(args[0], op);
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.str_locale_case_any,
+                    vec![recv_op, boxed.clone(), Operand::ConstI64(upper as i64)],
+                ),
+                Type::Str,
+                None,
+            );
+            ctx.release_owned_temp(args[0], &boxed);
+            Some(Operand::Value(v))
+        }
     }
 }
 

@@ -175,7 +175,7 @@ pub(crate) const COERCION_PREFIXES: [&str; 89] = [
     "__torajs_regex_get_last_index",
     "__torajs_set_relation_setlike",
     "__torajs_set_setop_setlike",
-    "__torajs_str_locale_case_arr",
+    "__torajs_str_locale_case_",
     "__torajs_str_replace_all_fn",
     "__torajs_str_replace_fn",
     "__torajs_typedarray_create",
