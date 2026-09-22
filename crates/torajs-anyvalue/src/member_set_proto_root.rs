@@ -98,7 +98,7 @@ unsafe fn implicit_parent(ptr: *mut c_void) -> Option<u64> {
         // the ordinary root — the typed arrays are the standing case,
         // because the %TypedArray%.prototype link between them and it
         // is a recorded gap. Standing in the root is what every read
-        // lane already does for them (`member_get_symbol::chain_next`,
+        // lane already does for them (`member_get_symbol::dict::chain_next`,
         // `member_get_proto_root`), so the two sides keep answering
         // the same chain instead of inventing a third.
         let family =

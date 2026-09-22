@@ -208,7 +208,7 @@ pub unsafe extern "C" fn __torajs_any_prop_has(recv: AnyValue, key: *const c_voi
         let Some((ptr, t)) = recv_cell(recv) else {
             return 0;
         };
-        let dict = unsafe { crate::member_get_symbol::own_dict(ptr, t) };
+        let dict = unsafe { crate::member_get_symbol::dict::own_dict(ptr, t) };
         return (!dict.is_null() && unsafe { __torajs_dynobj_has(dict, key) } != 0) as i64;
     }
     if is_short_str(recv) {

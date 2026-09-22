@@ -177,7 +177,7 @@ unsafe fn any_prop_delete_impl(recv: AnyValue, key: *const c_void, throw_on_refu
         let Some((ptr, t)) = recv_cell(recv) else {
             return 1;
         };
-        let dict = unsafe { crate::member_get_symbol::own_dict(ptr, t) };
+        let dict = unsafe { crate::member_get_symbol::dict::own_dict(ptr, t) };
         if dict.is_null() {
             return 1;
         }
