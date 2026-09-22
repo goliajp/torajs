@@ -61,6 +61,22 @@ pub(crate) fn try_lower(
         return None;
     }
     let obj = *obj;
+    // A program that may replace the method gets the live dispatch —
+    // the fold below would answer the source text regardless.
+    let fn_typed = matches!(
+        ctx.expr_types.get(&obj),
+        Some(crate::check::Type::Function(..))
+    );
+    if fn_typed
+        && !crate::ssa_lower_call_fn_tostring_patch::names_top_level_fn(ctx, obj)
+        && namespace_static_native_form(ctx, obj).is_none()
+        && crate::ssa_lower_call_fn_tostring_patch::program_may_patch_to_string(
+            ctx.ast,
+            ctx.expr_types,
+        )
+    {
+        return Some(crate::ssa_lower_call_fn_tostring_patch::dispatch(ctx, obj));
+    }
     if let Expr::Ident(fn_name_ref) = ctx.ast.get_expr(obj) {
         let fn_name_ref = fn_name_ref.clone();
         if let Some((decl_name, span)) = ctx.ast.stmts.iter().find_map(|s| match s {

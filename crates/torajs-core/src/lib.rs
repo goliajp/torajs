@@ -362,6 +362,7 @@ pub(crate) mod ssa_lower_call_exotic_subclass;
 pub(crate) mod ssa_lower_call_fn_call_value;
 pub(crate) mod ssa_lower_call_fn_indirect;
 pub(crate) mod ssa_lower_call_fn_tostring;
+pub(crate) mod ssa_lower_call_fn_tostring_patch;
 pub(crate) mod ssa_lower_call_fn_value;
 pub(crate) mod ssa_lower_call_fs_promises;
 pub(crate) mod ssa_lower_call_has_own;
