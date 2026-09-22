@@ -53,6 +53,18 @@ pub(crate) fn arm(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) {
     if matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any)) {
         return;
     }
+    // A str receiver spells its absent value differently — NULL, or
+    // an immortal str block whose text is "undefined" — so the generic
+    // cell test above cannot see it, and without this arm
+    // `s.toUpperCase()` on a `string | undefined` holding undefined
+    // answered "UNDEFINED". Same position, same parking; the kernel is
+    // the one the `.length` read already uses.
+    if crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, obj) {
+        let recv = ctx.lower_expr(obj);
+        crate::ssa_lower_nullable_guard_emit::emit_nullable_str_guard(ctx, obj, &recv);
+        ctx.redispatch_lowered = Some((obj, recv));
+        return;
+    }
     if !crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, obj) {
         return;
     }

@@ -36,21 +36,19 @@ pub(crate) enum Decay {
 /// the same slot as `T`", and its own doc says to move all of its
 /// sites together rather than spell the list again.
 ///
-/// String is held back, and only here. Its read side is guarded
-/// (`is_nullable_str_source` -> `__torajs_str_null_check`) but its
-/// call side is not, and a str slot's absent value is a real str block
-/// spelling "undefined" — decaying it would turn `s.toUpperCase()`
-/// from a refusal into `"UNDEFINED"`. A refusal is wrong; a wrong
-/// answer is worse. It decays once that guard exists.
+/// String decays like the rest. Its absent value is spelled
+/// differently (NULL, or an immortal str block reading "undefined"),
+/// so it has its own guard kernel, `__torajs_str_null_check`, armed
+/// on reads by `is_nullable_str_source` and on method calls by
+/// `ssa_lower_call_undef_recv::arm`. Until the call side existed this
+/// line held String back, because decaying it would have turned
+/// `s.toUpperCase()` from a refusal into `"UNDEFINED"`.
 pub(crate) fn decay(obj_ty: Type) -> Decay {
     if matches!(obj_ty, Type::Nullable(_)) && rides_any_lane(&obj_ty) {
         return Decay::AnyLane;
     }
     match obj_ty {
-        Type::Nullable(inner)
-            if !matches!(*inner, Type::String)
-                && nullable_ptr_shaped(&Type::Nullable(inner.clone())) =>
-        {
+        Type::Nullable(inner) if nullable_ptr_shaped(&Type::Nullable(inner.clone())) => {
             Decay::To(*inner)
         }
         other => Decay::To(other),
