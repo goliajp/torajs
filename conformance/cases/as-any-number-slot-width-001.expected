@@ -1,0 +1,7 @@
+str-frac 2.5
+str-neg -0.125
+map-nan true
+regex-nan true
+str-int 7 true
+date 5
+any-var 2.5

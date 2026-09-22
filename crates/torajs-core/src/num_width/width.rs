@@ -182,6 +182,18 @@ impl<'a> Analysis<'a> {
                     && matches!(self.expr_types.get(expr), Some(crate::check::Type::Any))
                 {
                     W::F64
+                } else if matches!(ty_ann.as_str(), "any" | "unknown" | "object") {
+                    // The other direction, same reason. A value leaves
+                    // the typed world here, and whatever of it reaches a
+                    // number slot is materialized by a ToNumber whose
+                    // result is an f64 — the width of what went IN says
+                    // nothing about it. `let n: number = ("2.5" as any)`
+                    // answered 2: the source is a Str, which is not a
+                    // number source at all, so the slot kept its default
+                    // I64 and truncated the 2.5 the ToNumber produced.
+                    // (`as any` over something already Any takes this
+                    // arm too, which is where it was already heading.)
+                    W::F64
                 } else {
                     self.width_of(*expr, scope)
                 }
