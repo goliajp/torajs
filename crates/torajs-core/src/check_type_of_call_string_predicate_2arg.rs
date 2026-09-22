@@ -1,5 +1,5 @@
 //! `String.{startsWith,endsWith,includes}(needle, position?)`
-//! 2-arg arm extracted from
+//! 1-/2-arg arm extracted from
 //! [`crate::check_type_of_call::check`]'s top-level cascade
 //! (chunk 232 — twenty-fifth sub-batch of
 //! check_type_of_call.rs per-shape decomposition).
@@ -36,7 +36,12 @@ pub(crate) fn try_match(
     else {
         return None;
     };
-    if !matches!(m_name.as_str(), "startsWith" | "endsWith" | "includes") || args.len() != 2 {
+    // The 1-arg form's needle is the same slot, and the signature
+    // table would pin it to `String` (`s.includes({toString})` was a
+    // compile error while `s.includes({toString}, 0)` built).
+    if !matches!(m_name.as_str(), "startsWith" | "endsWith" | "includes")
+        || !(1..=2).contains(&args.len())
+    {
         return None;
     }
     let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
@@ -59,7 +64,9 @@ pub(crate) fn try_match(
     if let Err(e) = checker.type_of(ast, args[0]) {
         return Some(Err(e));
     }
-    if let Err(e) = checker.type_of(ast, args[1]) {
+    if let Some(&pos) = args.get(1)
+        && let Err(e) = checker.type_of(ast, pos)
+    {
         return Some(Err(e));
     }
     // Rotation 544 — §22.1.3.{22,7,14} coerce this slot. `endsWith`
