@@ -163,6 +163,14 @@ pub(crate) fn builtin_method_supported(recv: AnyValue, mid: i64) -> bool {
         // now: the SymbolDescriptiveString and radix toString arms
         // are reached through the universal answer above, and valueOf
         // through the identity arm at the top.
+        // §21.1.3 / §22.1.3 — a wrapper object inherits the same
+        // prototype its primitive does (`recv_proto_family` maps both
+        // to the same row), so it reads the same methods. Without a
+        // row here `typeof new Number(3).toFixed` answered undefined
+        // while the call worked, and a class extending Number saw
+        // none of them. Boolean.prototype's two answer above.
+        t if t == Tag::NumberWrapper as u16 => num_supports(mid),
+        t if t == Tag::StringWrapper as u16 => str_supports(mid),
         t if t == Tag::DynObj as u16 || t == Tag::Obj as u16 => {
             (torajs_rc::ANY_METHOD_DEFINE_GETTER..=torajs_rc::ANY_METHOD_LOOKUP_SETTER)
                 .contains(&mid)
