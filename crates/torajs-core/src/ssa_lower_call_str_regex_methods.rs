@@ -205,7 +205,14 @@ fn classify_lanes(ctx: &LowerCtx<'_>, args: &[ExprId], name: &str) -> Lanes {
     // args via Type::Any signature. A v0.2 #1.c follow-up can broaden the
     // detection — for now the literal + ident forms cover the dominant
     // idioms and all the test262 cases at hand.
-    let arg0_is_regex = match ctx.ast.get_expr(args[0]) {
+    // Any expression the checker typed RegExp is one — `new RegExp(p)`
+    // with a non-literal `p` survives desugar as `Expr::New`, and
+    // routing it to the coerce lane compiled its OWN source text
+    // (`"/b0/"`) as the pattern: `s.match(new RegExp(p))` answered null.
+    let arg0_is_regex = matches!(
+        ctx.expr_types.get(&args[0]),
+        Some(crate::check::Type::RegExp)
+    ) || match ctx.ast.get_expr(args[0]) {
         Expr::Regex { .. } => true,
         Expr::Ident(n) => ctx
             .locals
@@ -424,11 +431,16 @@ pub(crate) fn try_lower(
     let result = match name.as_str() {
         "match" => emit_match(ctx, recv_op.clone(), re_op.clone(), args, arr_id, callee),
         "matchAll" => emit_match_all(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
-        "split" => emit_split(ctx, recv_op.clone(), re_op, args, arr_id),
-        "replace" | "replaceAll" => emit_replace(ctx, recv_op.clone(), re_op, &name, args),
-        "search" => emit_search(ctx, recv_op.clone(), re_op, args),
+        "split" => emit_split(ctx, recv_op.clone(), re_op.clone(), args, arr_id),
+        "replace" | "replaceAll" => emit_replace(ctx, recv_op.clone(), re_op.clone(), &name, args),
+        "search" => emit_search(ctx, recv_op.clone(), re_op.clone(), args),
         _ => unreachable!(),
     };
+    if !minted_regex {
+        // A fresh RegExp argument (`s.match(new RegExp(p))`) is an owned
+        // temp the kernels only borrowed; a literal or a binding is not.
+        ctx.release_owned_temp(args[0], &re_op);
+    }
     if minted_regex {
         let (fid, drop_args) = match coerced_from {
             Some(av) => (ctx.intrinsics.regexp_drop_if_coerced, vec![av, re_op]),
