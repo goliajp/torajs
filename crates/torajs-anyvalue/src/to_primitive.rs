@@ -15,6 +15,7 @@
 //! RFC 20260712-string-proto-cluster chunk C.
 
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicPtr, Ordering};
 
 use torajs_rc::{ANY_METHOD_TO_STRING, ANY_METHOD_VALUE_OF, HeapHeader, Tag};
 
@@ -333,43 +334,62 @@ pub(crate) unsafe fn heap_to_primitive(cell: *mut c_void, hint_string: bool) -> 
     unsafe { ordinary_to_primitive(cell, hint_string) }
 }
 
+/// The two method-name keys, minted once and never dropped — every
+/// coercion of a heap value used to allocate and free both (RFC
+/// 20260922-to-primitive-get-call S0). The callees below only borrow
+/// the key; the static's +1 keeps the cell alive for the process.
+static NAME_TO_STRING: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+static NAME_VALUE_OF: AtomicPtr<u8> = AtomicPtr::new(core::ptr::null_mut());
+
+/// The immortal Str cell spelling `name`, minted on first use.
+unsafe fn name_key(slot: &AtomicPtr<u8>, name: &[u8]) -> *mut u8 {
+    let key = slot.load(Ordering::Acquire);
+    if !key.is_null() {
+        return key;
+    }
+    let fresh = unsafe { __torajs_str_alloc(name.as_ptr(), name.len() as i64) };
+    match slot.compare_exchange(
+        core::ptr::null_mut(),
+        fresh,
+        Ordering::AcqRel,
+        Ordering::Acquire,
+    ) {
+        Ok(_) => fresh,
+        Err(winner) => {
+            unsafe { __torajs_str_drop(fresh as *mut c_void) };
+            winner
+        }
+    }
+}
+
 /// OrdinaryToPrimitive (§7.1.1.1) over a heap cell. `hint_string`
 /// picks the method order (`toString` → `valueOf` for hint string,
 /// reversed for hint number). Same return protocol as
 /// [`heap_to_primitive`].
 unsafe fn ordinary_to_primitive(cell: *mut c_void, hint_string: bool) -> Option<AnyValue> {
     let recv = box_pointer(cell as *mut HeapHeader);
-    let order: [(i64, &[u8]); 2] = if hint_string {
-        [
-            (ANY_METHOD_TO_STRING, b"toString"),
-            (ANY_METHOD_VALUE_OF, b"valueOf"),
-        ]
+    let to_string = (ANY_METHOD_TO_STRING, &NAME_TO_STRING, &b"toString"[..]);
+    let value_of = (ANY_METHOD_VALUE_OF, &NAME_VALUE_OF, &b"valueOf"[..]);
+    let order = if hint_string {
+        [to_string, value_of]
     } else {
-        [
-            (ANY_METHOD_VALUE_OF, b"valueOf"),
-            (ANY_METHOD_TO_STRING, b"toString"),
-        ]
+        [value_of, to_string]
     };
-    for (mid, name) in order {
-        let key = unsafe { __torajs_str_alloc(name.as_ptr(), name.len() as i64) };
+    for (mid, slot, name) in order {
+        let key = unsafe { name_key(slot, name) };
         // An accessor entry answers through its getter (rotation 646
         // — the not-callable probe read the AccessorPair as a
         // non-callable value and skipped the name).
         let out = match unsafe { accessor_method_call(recv, key) } {
             Some(Some(out)) => out,
-            Some(None) => {
-                unsafe { __torajs_str_drop(key as *mut c_void) };
-                continue;
-            }
+            Some(None) => continue,
             None => {
                 if unsafe { skip_not_callable(cell, key) } {
-                    unsafe { __torajs_str_drop(key as *mut c_void) };
                     continue;
                 }
                 unsafe { dispatch_method(recv, mid, key) }
             }
         };
-        unsafe { __torajs_str_drop(key as *mut c_void) };
         if unsafe { __torajs_throw_check() } != 0 {
             // The user method threw — propagate by returning a
             // primitive placeholder; the pending throw unwinds at
