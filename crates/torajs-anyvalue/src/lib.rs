@@ -228,6 +228,7 @@ mod method_call_promise_invoke;
 mod method_call_promise_species;
 mod method_call_proto_patch;
 mod method_call_regexp;
+mod method_call_root_direct;
 mod method_call_str;
 mod method_call_subclass;
 mod method_call_this_value_shapes;

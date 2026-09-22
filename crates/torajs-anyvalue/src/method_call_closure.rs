@@ -156,24 +156,7 @@ pub(crate) unsafe fn closure_method(
             // fall to the JSC native form inside the kernel.
             // §20.2.3.5 — toLocaleString is toString's answer.
             m if m == ANY_METHOD_TO_STRING || m == ANY_METHOD_TO_LOCALE_STRING => {
-                if let Some(name) = crate::method_value::builtin_method_name(ptr) {
-                    // A reified builtin method cell is never in the
-                    // registry — mint the named native form directly.
-                    return crate::nanbox::box_void_ptr(__torajs_fn_native_form_str(
-                        name.as_ptr(),
-                        name.len() as u32,
-                    ) as *mut c_void);
-                }
-                // 566-04 — a cell this lane's own `.bind` minted has
-                // no registry row; §20.2.3.5's native form spells it
-                // with the TARGET's name, which its `.name` holds.
-                if let Some(form) = crate::name_get::bound_native_form(ptr) {
-                    return crate::nanbox::box_void_ptr(form as *mut c_void);
-                }
-                // B6c — a class-method face resolves its adapter's
-                // registry row (the erased method-shorthand source).
-                let fn_addr = crate::method_value_class::registry_addr(ptr);
-                crate::nanbox::box_void_ptr(__torajs_fn_source_str(fn_addr) as *mut c_void)
+                closure_to_string_direct(ptr)
             }
             _ => {
                 // RFC 20260721 刀 3 — dynamic-key invoke of a ctor
@@ -362,6 +345,11 @@ pub(crate) unsafe fn dispatch(
                 if let Some(out) = generic_builtin_this(*mid, this_arg, argv, argc, *fam) {
                     return out;
                 }
+                if let Some(out) =
+                    crate::method_call_root_direct::root_owned_direct(*mid, *fam, this_arg)
+                {
+                    return out;
+                }
                 crate::method_call::any_method_redispatch(this_arg, *mid, argv, argc)
             }
         }
@@ -372,3 +360,32 @@ pub(crate) unsafe fn dispatch(
 // §22.1.3 ToString(this) coerce) live in the sibling; re-exported so
 // every station keeps its `method_call_closure::` path.
 pub(crate) use crate::method_call_closure_generic::generic_builtin_this;
+
+/// §20.2.3.5 Function.prototype.toString over a closure cell — the arm
+/// body, callable without the method dispatch (the root direct table
+/// calls it for a borrowed `Function.prototype.toString`).
+///
+/// # Safety
+/// `ptr` is a live `Tag::Closure` cell.
+pub(crate) unsafe fn closure_to_string_direct(ptr: *mut c_void) -> AnyValue {
+    unsafe {
+        if let Some(name) = crate::method_value::builtin_method_name(ptr) {
+            // A reified builtin method cell is never in the
+            // registry — mint the named native form directly.
+            return crate::nanbox::box_void_ptr(__torajs_fn_native_form_str(
+                name.as_ptr(),
+                name.len() as u32,
+            ) as *mut c_void);
+        }
+        // 566-04 — a cell this lane's own `.bind` minted has
+        // no registry row; §20.2.3.5's native form spells it
+        // with the TARGET's name, which its `.name` holds.
+        if let Some(form) = crate::name_get::bound_native_form(ptr) {
+            return crate::nanbox::box_void_ptr(form as *mut c_void);
+        }
+        // B6c — a class-method face resolves its adapter's
+        // registry row (the erased method-shorthand source).
+        let fn_addr = crate::method_value_class::registry_addr(ptr);
+        crate::nanbox::box_void_ptr(__torajs_fn_source_str(fn_addr) as *mut c_void)
+    }
+}

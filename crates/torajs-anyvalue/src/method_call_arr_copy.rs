@@ -110,6 +110,32 @@ pub unsafe extern "C" fn __torajs_arr_flat_runtime_depth(arr: *const u8, depth_a
     }
 }
 
+/// §23.1.3.36 Array.prototype.toString over an array receiver — the
+/// arm body, callable without the method dispatch (the root direct
+/// table calls it for a borrowed `Array.prototype.toString`).
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+pub(crate) unsafe fn arr_to_string_direct(arr: *mut c_void) -> u64 {
+    unsafe {
+        // Step 2 is `Get(array, "join")` — a lookup, so a patched /
+        // own / subclass / non-callable join is what the call
+        // resolves to. `None` = nothing shadows the kernel, which is
+        // the unpatched program and the fast path below.
+        if let Some(out) =
+            crate::method_call_arr_to_string::spec_to_string(arr, __torajs_anyv_box_pointer(arr))
+        {
+            return out;
+        }
+        // Step 4 with the kernel as `func`: join under the default ","
+        // separator.
+        let sep = __torajs_str_alloc(c",".as_ptr() as *const u8, 1);
+        let out = __torajs_arr_any_join(arr as *const u8, sep as *const u8);
+        __torajs_str_drop(sep as *mut c_void);
+        out
+    }
+}
+
 /// Extension id-switch — see module doc. `arr` / `argv` contracts
 /// mirror [`crate::method_call_arr::arr_method`].
 pub(crate) unsafe fn arr_method_ext(
@@ -141,25 +167,7 @@ pub(crate) unsafe fn arr_method_ext(
                 torajs_rc::__torajs_rc_inc(av as *mut c_void);
                 av
             }
-            m if m == ANY_METHOD_TO_STRING => {
-                // §23.1.3.36 step 2 is `Get(array, "join")` — a
-                // lookup, so a patched / own / subclass /
-                // non-callable join is what the call resolves to.
-                // `None` = nothing shadows the kernel, which is the
-                // unpatched program and the fast path below.
-                if let Some(out) = crate::method_call_arr_to_string::spec_to_string(
-                    arr,
-                    __torajs_anyv_box_pointer(arr),
-                ) {
-                    return out;
-                }
-                // Step 4 with the kernel as `func`: join under the
-                // default "," separator.
-                let sep = __torajs_str_alloc(c",".as_ptr() as *const u8, 1);
-                let out = __torajs_arr_any_join(arr as *const u8, sep as *const u8);
-                __torajs_str_drop(sep as *mut c_void);
-                out
-            }
+            m if m == ANY_METHOD_TO_STRING => arr_to_string_direct(arr),
             m if m == ANY_METHOD_FLAT => {
                 // §23.1.3.13 — default depth 1; Infinity saturates
                 // to i64::MAX inside to_index and terminates through
