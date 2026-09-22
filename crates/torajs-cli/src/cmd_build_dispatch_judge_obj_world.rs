@@ -23,7 +23,7 @@ use torajs_rc::any_method_family as fam;
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-pub(crate) const COERCION_PREFIXES: [&str; 37] = [
+pub(crate) const COERCION_PREFIXES: [&str; 88] = [
     // The array join kernels run the coercion per ELEMENT rather
     // than on themselves, so the scan never saw `anyv_to_str` in
     // the user `.o` and judged the obj world unreachable. Every
@@ -113,8 +113,72 @@ pub(crate) const COERCION_PREFIXES: [&str; 37] = [
     "__torajs_regex_subclass_super",
     "__torajs_string_wrapper_subclass_super",
     "__torajs_number_wrapper_subclass_super",
-    "__torajs_date_subclass_super_components",
+    "__torajs_date_subclass_super",
     "__torajs_typedarray_subclass_super",
+    // Rotation 691's mechanical census (`cmd_build_dispatch_judge_census`)
+    // — kernels whose bodies reach the coercion seam, or a kernel above,
+    // through private helpers. Four were probed live loud-rejects:
+    // `a.length = obj` on an any array (ArraySetLength inside
+    // `any_member_set`), `new Date(obj)` (§21.4.2.1 ToPrimitive),
+    // `JSON.parse(obj)` (§25.5.1 ToString(text)). The rest answered
+    // right in the probe only because another symbol of the same
+    // program happened to keep the arms.
+    "__torajs_any_member_set",
+    // ToPropertyKey(key) inside `k in o`, `delete o[k]` and the
+    // any-lane accessor / length / name reads.
+    "__torajs_any_accessor_get",
+    "__torajs_any_has_property",
+    "__torajs_any_length_get",
+    "__torajs_any_name_get",
+    "__torajs_any_prop_delete",
+    "__torajs_array_from_dyn",
+    "__torajs_json_parse_reviver",
+    // a builtin collection subclass's `super(iterable)` walks it.
+    "__torajs_map_subclass_super",
+    "__torajs_set_subclass_super",
+    "__torajs_weakmap_subclass_super",
+    "__torajs_weakset_subclass_super",
+    "__torajs_anyv_arg_to_struct",
+    "__torajs_anyv_from_entries",
+    "__torajs_anyv_json_gap_str",
+    "__torajs_anyv_own_entries",
+    "__torajs_anyv_own_values",
+    "__torajs_anyv_to_object_strict",
+    "__torajs_arr_flat_runtime_depth",
+    "__torajs_arr_iter_step",
+    "__torajs_arr_subclass_super_len",
+    "__torajs_arr_typed_to_locale_string",
+    "__torajs_bigint_ctor_any",
+    "__torajs_closure_name_str",
+    "__torajs_collection_add_static",
+    "__torajs_collection_init_from_iterable",
+    "__torajs_dataview_create",
+    "__torajs_date_from_value",
+    "__torajs_error_tostring_dispatch",
+    "__torajs_fnsig_to_primitive_str",
+    "__torajs_instanceof_dynamic",
+    "__torajs_iterator_from",
+    "__torajs_iterator_zip",
+    "__torajs_json_parse_any",
+    "__torajs_json_raw_json",
+    "__torajs_object_group_by",
+    "__torajs_priv_field_define",
+    // the combinators walk an arbitrary iterable (§27.2.4.1.1): its
+    // `next` is dispatched on whatever `@@iterator` answered.
+    "__torajs_promise_all_",
+    "__torajs_promise_allsettled_",
+    "__torajs_promise_any_",
+    "__torajs_promise_race_",
+    "__torajs_reflect_apply",
+    "__torajs_reflect_construct",
+    "__torajs_regex_compile_inplace",
+    "__torajs_regex_get_last_index",
+    "__torajs_set_relation_setlike",
+    "__torajs_set_setop_setlike",
+    "__torajs_str_locale_case_arr",
+    "__torajs_str_replace_all_fn",
+    "__torajs_str_replace_fn",
+    "__torajs_typedarray_create",
 ];
 
 /// Kernels that PROBE user objects internally — spec machinery that

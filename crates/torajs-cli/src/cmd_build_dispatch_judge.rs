@@ -39,7 +39,7 @@ use crate::cmd_build_dispatch_judge_obj_world::{
 /// hands a compile-time mid to the runtime dispatcher calls one of
 /// these (`grep any_method_id crates/torajs-core/src` enumerates
 /// the sites; checker-side interns route to these on lowering).
-const MID_CARRIERS: [(&str, usize); 7] = [
+pub(crate) const MID_CARRIERS: [(&str, usize); 7] = [
     ("__torajs_any_method_call", 1),
     ("__torajs_any_method_call_opt", 1),
     ("__torajs_any_method_probe", 1),
@@ -55,7 +55,7 @@ const MID_CARRIERS: [(&str, usize); 7] = [
 /// (`__torajs_ns_static_cell` left this list when the per-static
 /// table landed — its constant id resolves through
 /// [`torajs_rc::ns_static_judge`] instead.)
-const FALLBACK_PREFIXES: [&str; 5] = [
+pub(crate) const FALLBACK_PREFIXES: [&str; 5] = [
     // `recv[key](args…)` — the key is a runtime value, the mid
     // interns at runtime (ToPropertyKey dispatch).
     "__torajs_any_index_method_call",
@@ -122,7 +122,7 @@ const SYNTH_ERROR_FNS: [&str; 16] = [
 /// iterable-init adders ride `map_`/`set_` (SET/ADD + the iterable
 /// walk), the iterator protocol rides `any_iter`/`*_iter_`, and
 /// generator steps ride `genfn_`/`closure_install_gen_proto`.
-const PREFIX_FAMILIES: [(&str, u16); 34] = [
+pub(crate) const PREFIX_FAMILIES: [(&str, u16); 34] = [
     // the array toLocaleString kernels walk Invoke(elem,
     // "toLocaleString") over ANY element value — the any-lane walk
     // directly, the typed kernels once the receiver is exotic (an
@@ -389,8 +389,12 @@ pub(crate) fn judge(module: &Module) -> DispatchJudgment {
     if !observed.is_empty() {
         // the dynobj / struct / closure expando worlds probe USER
         // properties under any mid — receiver shape, not mid value,
-        // decides entry, so any dispatch at all keeps them.
-        keep_bits |= fam::FAM_DYNOBJ | fam::FAM_STRUCT | fam::FAM_CLOSURE;
+        // decides entry, so any dispatch at all keeps them. The array
+        // arm too: a method kernel coerces its ARGUMENTS inside the
+        // runtime, and an array argument's ToString enters the arr arm
+        // (`s.padStart(5, [7, 8])` with `s: any` reached its loud
+        // reject, rotation 691).
+        keep_bits |= fam::FAM_OBJ_WORLD;
     }
 
     if diag {

@@ -1,6 +1,8 @@
 mod ast_pipeline;
 mod cmd_build;
 mod cmd_build_dispatch_judge;
+#[cfg(test)]
+mod cmd_build_dispatch_judge_census;
 mod cmd_build_dispatch_judge_obj_world;
 mod cmd_build_dispatch_stubs;
 mod cmd_build_elide;
