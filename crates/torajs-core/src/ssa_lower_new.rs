@@ -324,12 +324,7 @@ fn lower_weakref(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let parked = temp
         .as_ref()
         .and_then(|(eid, raw)| ctx.park_owned_temp(*eid, raw));
-    // §13.3.5 — ArgumentListEvaluation runs every argument before
-    // Construct; the ones past the target are evaluated and dropped.
-    for &a in args.iter().skip(1) {
-        let extra = ctx.lower_expr(a);
-        ctx.release_owned_temp(a, &extra);
-    }
+    crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &[], args.get(1..).unwrap_or(&[]));
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
@@ -430,6 +425,8 @@ fn lower_regexp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
     let flag_info = if args.len() >= 2 {
         let f = ctx.lower_expr(args[1]);
         let fty = ctx.operand_ty(&f);
+        let read = [(args[0], pat_op.clone()), (args[1], f.clone())];
+        crate::ssa_lower_new_extra_args::lower_ignored_args(ctx, &read, &args[2..]);
         Some((f, fty))
     } else {
         None

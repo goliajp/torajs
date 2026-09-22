@@ -335,19 +335,18 @@ fn check_array(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type
 }
 
 fn check_regexp(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {
-    if args.is_empty() || args.len() > 2 {
-        return Err(format!(
-            "`new RegExp(...)` requires 1 or 2 arguments, got {}",
-            args.len()
-        ));
+    if args.is_empty() {
+        return Err(
+            "`new RegExp()` with no arguments reached check.rs (desugar didn't run?)".into(),
+        );
     }
     // §22.2.3.1 — the pattern domain is the whole value domain (a
     // RegExp pattern copies source/flags per step 5, everything else
     // runs ToString per step 6; the compile_any kernel dispatches at
     // run time), and undefined flags default to the pattern's. The
     // old String-only gate predates the RegExp(...)-as-function
-    // rewrite (rotation 267); it survives only as the argument-count
-    // check above.
+    // rewrite (rotation 267); extra arguments are evaluated and ignored
+    // (§13.3.5).
     for arg in args {
         checker.type_of(ast, *arg)?;
     }
