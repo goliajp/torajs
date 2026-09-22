@@ -74,6 +74,7 @@ pub(crate) fn check(
         return Ok(Type::Any);
     }
     let obj_ty = match nullable_recv::decay(obj_ty) {
+        nullable_recv::Decay::AnyLane => return Ok(Type::Any),
         nullable_recv::Decay::To(t) => t,
     };
     enforce_visibility(checker, ast, obj, name)?;
