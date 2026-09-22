@@ -23,6 +23,7 @@ use core::ffi::c_void;
 // longer read here: that slot normally holds the own-absence
 // sentinel, so the value comes from the resolver instead.
 const OBJ_MESSAGE_OFF: usize = 32;
+const OBJ_PROPS_OFF: usize = 24;
 const STR_LEN_OFF: usize = 8;
 
 unsafe extern "C" {
@@ -61,6 +62,14 @@ unsafe fn str_len(s: *const u8) -> u32 {
 /// `name` fields at the fixed offsets hold Str pointers or NULL).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_error_to_string(p: *const u8) -> *mut u8 {
+    // The fixed-offset lane reads the Str slots; a value the program
+    // stored that a Str slot cannot hold (`e.name = { toString() … }`,
+    // a number, an accessor) lives in the instance's own props. Then
+    // only the spec's own steps — `? Get` + `? ToString` — answer:
+    // `String(e)` printed `Error: m` with the stored name ignored.
+    if !unsafe { (p.add(OBJ_PROPS_OFF) as *const *const u8).read() }.is_null() {
+        return unsafe { get_steps(p as u64) };
+    }
     // §20.5.3.2 — `name` normally lives on `<C>.prototype`, not on the
     // instance, so the slot at the fixed offset holds the own-absence
     // sentinel unless user code assigned `this.name`. The resolver
@@ -227,6 +236,17 @@ pub unsafe extern "C" fn __torajs_error_proto_to_string(recv: u64) -> *mut u8 {
     if tag == 1 && flags & (1 << 7) != 0 {
         return unsafe { __torajs_error_to_string(p) };
     }
+    unsafe { get_steps(recv) }
+}
+
+/// §20.5.3.4 steps 3-10 over an object `recv`: `? Get(O, "name")`
+/// (undefined → "Error") / `? Get(O, "message")` (undefined → "")
+/// through the generic member lane. Owned Str, or NULL on a pending
+/// throw.
+///
+/// # Safety
+/// `recv` boxes a live heap object.
+unsafe fn get_steps(recv: u64) -> *mut u8 {
     unsafe {
         let name = match get_tostring_step(recv, b"name") {
             Err(()) => return core::ptr::null_mut(),

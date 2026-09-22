@@ -38,6 +38,13 @@ unsafe extern "C" {
     // mint + identity probe (RFC 20260707 chunk 2/3).
     fn __torajs_str_undef() -> *mut u8;
     fn __torajs_str_is_undef(p: *const u8) -> i64;
+    // torajs-meta — the field's any-lane shadow value, if any.
+    fn __torajs_obj_field_shadow(
+        cell: *const c_void,
+        name: *const u8,
+        name_len: u32,
+        out: *mut u64,
+    ) -> i64;
     fn __torajs_str_drop(s: *mut c_void);
     // torajs-rc — frozen header bit (ES §7.3.14: frozen ⇒ every data
     // property [[Writable]] = false).
@@ -113,10 +120,23 @@ unsafe fn error_field_is_absent(ptr: *const c_void, field: &[u8]) -> bool {
     match unsafe { error_slot(ptr, field) } {
         Some(slot) => {
             let raw = unsafe { slot.read() };
-            raw != 0 && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+            raw != 0
+                && unsafe { __torajs_str_is_undef(raw as *const u8) } != 0
+                && !unsafe { has_shadow(ptr, field) }
         }
         None => false,
     }
+}
+
+/// Whether the any lane parked a value the Str slot cannot hold in the
+/// field's sidecar (`e.name = {…}` / `42` / `undefined`, RFC 20260915-
+/// declared-field-shadow): that is the own property, not an absence.
+///
+/// # Safety
+/// `ptr` is a live `Tag::Obj` heap pointer.
+unsafe fn has_shadow(ptr: *const c_void, field: &[u8]) -> bool {
+    let mut word = 0u64;
+    unsafe { __torajs_obj_field_shadow(ptr, field.as_ptr(), field.len() as u32, &mut word) != 0 }
 }
 
 /// Whether `ptr` is a `FLAG_ERROR` cell whose `message` slot holds
