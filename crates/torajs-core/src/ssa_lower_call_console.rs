@@ -183,7 +183,7 @@ fn lower_multi_arg(ctx: &mut LowerCtx<'_>, method: &'static str, args: &[ExprId]
     for (i, &aid) in args.iter().enumerate() {
         let arg = ctx.lower_expr(aid);
         let arg_ty = ctx.operand_ty(&arg);
-        let s_op = ctx.coerce_to_str(arg.clone(), arg_ty);
+        let s_op = ctx.console_display_str(arg.clone(), arg_ty);
         // Chunk 717 — an owned any-member read consumed by the join:
         // the Str coercion mints a fresh cell (borrowing the box), so
         // the read's own stake releases here. Chunk 721 widened the

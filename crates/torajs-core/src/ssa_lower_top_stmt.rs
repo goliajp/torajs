@@ -97,7 +97,7 @@ impl<'a> LowerCtx<'a> {
              * apart. The coercer answers a fresh-owned Str (static
              * "undefined" on the sentinel arm; drop no-ops). */
             if arg_ty == Type::BigInt {
-                let owned = self.coerce_to_str(arg.clone(), Type::BigInt);
+                let owned = self.console_display_str(arg.clone(), Type::BigInt);
                 let target = self.console_print_target(Type::Str);
                 self.emit_console_print(method, target, owned.clone());
                 self.emit_drop_value(owned, Type::Str);
@@ -173,7 +173,7 @@ impl<'a> LowerCtx<'a> {
             for (i, &aid) in arg_ids.iter().enumerate() {
                 let arg = self.lower_expr(aid);
                 let arg_ty = self.operand_ty(&arg);
-                let s_op = self.coerce_to_str(arg, arg_ty);
+                let s_op = self.console_display_str(arg, arg_ty);
                 if i > 0 {
                     let prev = acc.unwrap();
                     let with_sep = self.f.append_inst(

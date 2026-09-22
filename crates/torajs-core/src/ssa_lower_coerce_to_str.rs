@@ -18,7 +18,16 @@ use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
     pub(crate) fn coerce_to_str(&mut self, val: Operand, ty: Type) -> Operand {
-        match ty {
+        self.try_coerce_to_str(val, ty).unwrap_or_else(|| {
+            panic!("ssa-lower: value-only ToString of type {ty:?} not supported")
+        })
+    }
+
+    /// The value-only ToString: `None` for a type with no arm here, which
+    /// a caller holding the operand's `ExprId` hands to the complete
+    /// §7.1.17 lowering in `ssa_lower_call_coercion_str::emit_to_string`.
+    pub(crate) fn try_coerce_to_str(&mut self, val: Operand, ty: Type) -> Option<Operand> {
+        Some(match ty {
             Type::Str => val,
             Type::Substr => {
                 let v = self.f.append_inst(
@@ -81,82 +90,11 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(v)
             }
-            Type::BigInt => {
-                /* T-25 — bigint_to_string + concat with `"n"` to
-                 * match node/bun's console.log formatting. The
-                 * caller will drop the resulting Str. The BigInt
-                 * input itself is dropped by the caller's binding-
-                 * lifetime walk; nothing to do here.
-                 *
-                 * Rotation 326 — an OOB / miss read of a BigInt slot
-                 * answers the immortal generic undefined cell
-                 * (§10.4.2.1 family), and this was the one print
-                 * lane that read the cell's CONTENT: bigint_to_string
-                 * walked limbs that aren't there (`console.log(bs[5])`
-                 * was a two-line SIGBUS). Branch on the ADDRESS like
-                 * every other consumer of the family; the sentinel arm
-                 * answers the static "undefined" literal (rc no-op
-                 * under the caller's drop). */
-                let sentinel = self
-                    .str_undef_sentinel_for(Type::BigInt)
-                    .expect("BigInt spells undefined with the generic cell");
-                let is_undef = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ICmp(crate::ssa::IPred::Eq, val.clone(), sentinel),
-                    Type::Bool,
-                    None,
-                );
-                let undef_blk = self.f.add_block();
-                let big_blk = self.f.add_block();
-                let after_blk = self.f.add_block();
-                let slot = self.alloca_in_entry(Type::Str, Some("__c_bigint"));
-                self.f.set_term(
-                    self.cur_block,
-                    Terminator::CondBr {
-                        cond: Operand::Value(is_undef),
-                        then_blk: undef_blk,
-                        else_blk: big_blk,
-                    },
-                );
-                self.cur_block = undef_blk;
-                let undef_lit = self.intern_string_literal("undefined");
-                self.f.append_void(
-                    undef_blk,
-                    InstKind::Store(Operand::Value(undef_lit), Operand::Value(slot), 0),
-                );
-                self.f.set_term(undef_blk, Terminator::Br(after_blk));
-                self.cur_block = big_blk;
-                let body = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.bigint_to_string, vec![val]),
-                    Type::Str,
-                    None,
-                );
-                let n_lit = self.intern_string_literal("n");
-                let formatted = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.str_concat,
-                        vec![Operand::Value(body), Operand::Value(n_lit)],
-                    ),
-                    Type::Str,
-                    None,
-                );
-                self.emit_drop_value(Operand::Value(body), Type::Str);
-                self.f.append_void(
-                    self.cur_block,
-                    InstKind::Store(Operand::Value(formatted), Operand::Value(slot), 0),
-                );
-                self.f.set_term(self.cur_block, Terminator::Br(after_blk));
-                self.cur_block = after_blk;
-                let v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::Str, Operand::Value(slot), 0),
-                    Type::Str,
-                    None,
-                );
-                Operand::Value(v)
-            }
+            // §7.1.17 step 1 / §21.2.3.3 — ToString of a BigInt is its
+            // digits; the `n` suffix is console formatting only
+            // (`console_display_str`). Property keys and ToString slots
+            // read this arm.
+            Type::BigInt => self.bigint_to_str(val, false),
             Type::Any => {
                 /* Any-boxed value (catch param default / dynobj
                  * lookup result / etc.): split into tag + raw value
@@ -251,9 +189,89 @@ impl<'a> LowerCtx<'a> {
                 );
                 Operand::Value(v)
             }
-            other => {
-                panic!("ssa-lower: console multi-arg coercion of type {other:?} not supported")
-            }
+            _ => return None,
+        })
+    }
+
+    /// `console.log` formatting: a BigInt prints with its `n` suffix
+    /// (node / bun), every other type as [`Self::coerce_to_str`].
+    pub(crate) fn console_display_str(&mut self, val: Operand, ty: Type) -> Operand {
+        if ty == Type::BigInt {
+            return self.bigint_to_str(val, true);
         }
+        self.coerce_to_str(val, ty)
+    }
+
+    /// Rotation 326 — an OOB / miss read of a BigInt slot answers the
+    /// immortal generic undefined cell (§10.4.2.1 family); branch on the
+    /// ADDRESS like every other consumer of the family, the sentinel arm
+    /// answering the static "undefined" literal (rc no-op under the
+    /// caller's drop) instead of walking limbs that aren't there.
+    /// Fresh-owned result; the BigInt input stays the caller's.
+    fn bigint_to_str(&mut self, val: Operand, display: bool) -> Operand {
+        let sentinel = self
+            .str_undef_sentinel_for(Type::BigInt)
+            .expect("BigInt spells undefined with the generic cell");
+        let is_undef = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(crate::ssa::IPred::Eq, val.clone(), sentinel),
+            Type::Bool,
+            None,
+        );
+        let undef_blk = self.f.add_block();
+        let big_blk = self.f.add_block();
+        let after_blk = self.f.add_block();
+        let slot = self.alloca_in_entry(Type::Str, Some("__c_bigint"));
+        self.f.set_term(
+            self.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(is_undef),
+                then_blk: undef_blk,
+                else_blk: big_blk,
+            },
+        );
+        self.cur_block = undef_blk;
+        let undef_lit = self.intern_string_literal("undefined");
+        self.f.append_void(
+            undef_blk,
+            InstKind::Store(Operand::Value(undef_lit), Operand::Value(slot), 0),
+        );
+        self.f.set_term(undef_blk, Terminator::Br(after_blk));
+        self.cur_block = big_blk;
+        let body = self.f.append_inst(
+            self.cur_block,
+            InstKind::Call(self.intrinsics.bigint_to_string, vec![val]),
+            Type::Str,
+            None,
+        );
+        let formatted = if display {
+            let n_lit = self.intern_string_literal("n");
+            let f = self.f.append_inst(
+                self.cur_block,
+                InstKind::Call(
+                    self.intrinsics.str_concat,
+                    vec![Operand::Value(body), Operand::Value(n_lit)],
+                ),
+                Type::Str,
+                None,
+            );
+            self.emit_drop_value(Operand::Value(body), Type::Str);
+            f
+        } else {
+            body
+        };
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(formatted), Operand::Value(slot), 0),
+        );
+        self.f.set_term(self.cur_block, Terminator::Br(after_blk));
+        self.cur_block = after_blk;
+        let v = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(Type::Str, Operand::Value(slot), 0),
+            Type::Str,
+            None,
+        );
+        Operand::Value(v)
     }
 }

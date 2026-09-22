@@ -261,12 +261,11 @@ pub(crate) fn populate_argv(
                     ctx.park_argv_owned(raw.clone(), raw_ty);
                 }
                 argv.push(raw);
-            } else {
+            } else if let Some(s) = ctx.try_coerce_to_str(raw.clone(), raw_ty) {
                 // Rotation 550 — the coerced Str is ours whether or
                 // not the toString threw (kernel placeholder
                 // contract), and the raw operand is still live across
                 // the check: park both so the throw path drops them.
-                let s = ctx.coerce_to_str(raw.clone(), raw_ty);
                 let raw_owned = raw_ty.is_refcounted() && ctx.expr_is_fresh_owned(a);
                 let raw_tok = raw_owned.then(|| ctx.push_throw_temp(raw.clone(), raw_ty));
                 ctx.park_argv_owned(s.clone(), Type::Str);
@@ -275,6 +274,14 @@ pub(crate) fn populate_argv(
                 if raw_owned {
                     ctx.emit_drop_value(raw, raw_ty);
                 }
+                argv.push(s);
+            } else {
+                // No value-only arm (an array, a Symbol, a collection):
+                // the complete ToString, implicit face — a Symbol throws
+                // (§7.1.17 step 2). It releases the raw temp itself.
+                let s =
+                    crate::ssa_lower_call_coercion_str::emit_to_string(ctx, a, raw, raw_ty, true);
+                ctx.park_argv_owned(s.clone(), Type::Str);
                 argv.push(s);
             }
         } else {
