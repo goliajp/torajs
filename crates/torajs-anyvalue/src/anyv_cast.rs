@@ -11,11 +11,15 @@
 //! of the slot's type through unchanged, and record a TypeError for
 //! anything else — loud, never a silently different value.
 //!
-//! `site` is a compile-time C string naming the slot, with one `{}`
-//! where the runtime `typeof` class of the rejected value goes:
+//! `site` is a compile-time Str literal (the lowering's interned
+//! string block) naming the slot, with one `{}` where the runtime
+//! `typeof` class of the rejected value goes:
 //! `cannot assign {} to \`n: number\``.
 
 use core::ffi::{c_char, c_void};
+
+use crate::STR_HDR_SIZE;
+use crate::member_set::STR_LEN_OFF;
 
 use torajs_rc::Tag;
 
@@ -98,9 +102,11 @@ fn format_msg<'a>(site: &[u8], class: &[u8], buf: &'a mut [u8; 256]) -> &'a [u8]
 /// Record the TypeError for a value that is not of the slot's type.
 ///
 /// # Safety
-/// `site` is a NUL-terminated C string; a cell payload of `v` is live.
-unsafe fn reject(v: AnyValue, site: *const c_char) {
-    let site = unsafe { core::ffi::CStr::from_ptr(site) }.to_bytes();
+/// `site` is a live Str block with a one-byte-per-unit payload; a cell
+/// payload of `v` is live.
+unsafe fn reject(v: AnyValue, site: *const u8) {
+    let len = unsafe { site.add(STR_LEN_OFF).cast::<u32>().read_unaligned() } as usize;
+    let site = unsafe { core::slice::from_raw_parts(site.add(STR_HDR_SIZE), len) };
     let mut buf = [0u8; 256];
     let msg = format_msg(site, unsafe { typeof_class(v) }, &mut buf);
     unsafe { __torajs_throw_type_error(msg.as_ptr() as *const c_char) };
@@ -110,9 +116,9 @@ unsafe fn reject(v: AnyValue, site: *const c_char) {
 /// answers NaN (the caller's throw check unwinds before it is used).
 ///
 /// # Safety
-/// `site` is a NUL-terminated C string; a cell payload of `v` is live.
+/// `site` is a live Str literal block; a cell payload of `v` is live.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_cast_number(v: AnyValue, site: *const c_char) -> f64 {
+pub unsafe extern "C" fn __torajs_anyv_cast_number(v: AnyValue, site: *const u8) -> f64 {
     if is_int32(v) {
         return as_int32(v) as f64;
     }
@@ -128,7 +134,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_number(v: AnyValue, site: *const c_c
 /// # Safety
 /// As [`__torajs_anyv_cast_number`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_cast_bool(v: AnyValue, site: *const c_char) -> bool {
+pub unsafe extern "C" fn __torajs_anyv_cast_bool(v: AnyValue, site: *const u8) -> bool {
     if is_bool(v) {
         return as_bool(v);
     }
@@ -143,7 +149,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_bool(v: AnyValue, site: *const c_cha
 /// # Safety
 /// As [`__torajs_anyv_cast_number`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_anyv_cast_str(v: AnyValue, site: *const c_char) -> *mut c_void {
+pub unsafe extern "C" fn __torajs_anyv_cast_str(v: AnyValue, site: *const u8) -> *mut c_void {
     let is_str = is_short_str(v) || (is_cell(v) && unsafe { cell_tag(v) } == Tag::Str as u16);
     if is_str {
         // ToString of a string is the string itself: no user code
@@ -165,7 +171,7 @@ pub unsafe extern "C" fn __torajs_anyv_cast_str(v: AnyValue, site: *const c_char
 pub unsafe extern "C" fn __torajs_anyv_cast_cell(
     v: AnyValue,
     tag: u16,
-    site: *const c_char,
+    site: *const u8,
 ) -> *mut c_void {
     if is_cell(v) && unsafe { cell_tag(v) } == tag {
         let p = as_void_ptr(v);
@@ -217,12 +223,12 @@ mod tests {
     #[test]
     fn a_number_passes_the_number_cast_unchanged() {
         unsafe {
-            assert_eq!(__torajs_anyv_cast_number(box_int32(7), c"s".as_ptr()), 7.0);
+            assert_eq!(__torajs_anyv_cast_number(box_int32(7), b"s".as_ptr()), 7.0);
             assert_eq!(
-                __torajs_anyv_cast_number(box_double(2.5), c"s".as_ptr()),
+                __torajs_anyv_cast_number(box_double(2.5), b"s".as_ptr()),
                 2.5
             );
-            assert!(__torajs_anyv_cast_bool(VALUE_TRUE, c"s".as_ptr()));
+            assert!(__torajs_anyv_cast_bool(VALUE_TRUE, b"s".as_ptr()));
         }
     }
 }

@@ -44,16 +44,24 @@ const SEAMS: [&str; 3] = [
 /// Census hits that stay out of the table, each with the reason no
 /// user object can reach its coercion without the program emitting a
 /// symbol that keeps the obj world anyway.
-const EXEMPT: [(&str, &str); 1] = [(
-    // keeping the obj world here costs every `str.match(re)` program
-    // its arm strip (~49 KB on the nine bench regex cells, r690 A/B).
-    "__torajs_str_match_regex",
-    "its only coercion is ToNumber of a BOXED lastIndex, and a user \
+const EXEMPT: [(&str, &str); 2] = [
+    (
+        "__torajs_anyv_cast_str",
+        "it calls the ToString seam only after testing that the value \
+         already IS a string (short-str immediate or a Str cell), where \
+         ToString is the identity and no user code can run",
+    ),
+    (
+        // keeping the obj world here costs every `str.match(re)` program
+        // its arm strip (~49 KB on the nine bench regex cells, r690 A/B).
+        "__torajs_str_match_regex",
+        "its only coercion is ToNumber of a BOXED lastIndex, and a user \
      object reaches that slot only through `__torajs_any_member_set*` \
      or `__torajs_dynobj_define` (the `__torajs_regex_last_index_\
      store_boxed` / `_define` callers; member_get_value's call re-stores \
      a ShortStr already there) — both keep the obj world",
-)];
+    ),
+];
 
 type Key = (String, String);
 

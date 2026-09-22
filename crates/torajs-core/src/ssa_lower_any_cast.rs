@@ -83,6 +83,21 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // string / bigint mint an owned value the consuming lane
         // releases like any other owned temp.
         if inner_ty == Type::Any {
+            use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
+            let target = match ty_ann {
+                "number" => Type::F64,
+                "string" => Type::Str,
+                "boolean" => Type::Bool,
+                _ => Type::Void,
+            };
+            if let Some(v) = self.checked_cast(
+                inner_op.clone(),
+                target,
+                CastSlot::Cast,
+                CastScope::Annotated,
+            ) {
+                return v;
+            }
             match ty_ann {
                 "number" => return self.coerce_any_to_number(inner_op, Type::F64),
                 "string" => return self.coerce_to_str(inner_op, Type::Any),

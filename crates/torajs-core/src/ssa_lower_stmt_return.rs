@@ -326,6 +326,18 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         }
         return ctx.box_to_any(op);
     }
+    if actual == Type::Any && !ctx.ast.contextual_ret_fns.contains(&ctx.f.name) {
+        // RFC 20260922 S0 — a return type the program wrote casts; a
+        // contextual seed keeps the spec's own coercion below.
+        use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
+        let ret = ctx.f.ret;
+        if let Some(v) = ctx.checked_cast(op.clone(), ret, CastSlot::Return, CastScope::Annotated) {
+            if ret == Type::Str {
+                ctx.emit_drop_value(op, Type::Any);
+            }
+            return v;
+        }
+    }
     if actual == Type::Any && matches!(ctx.f.ret, Type::I64 | Type::F64) {
         return ctx.coerce_any_to_number(op, ctx.f.ret);
     }

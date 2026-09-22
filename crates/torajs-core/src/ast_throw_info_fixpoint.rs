@@ -35,6 +35,10 @@ pub fn compute_may_throw_fns(
         } = stmt
         {
             let (mut direct, mut called) = fn_throw_info(ast, params, body, expr_types);
+            // RFC 20260922 S0 — a checked cast can raise at any typed
+            // boundary, which this scan does not model; the measurement
+            // gate keeps every caller's check instead.
+            direct |= crate::ssa_lower_checked_cast::gate_on();
             // Rotation 552 (551-04) — a call through a fn-valued let
             // the fixed point cannot resolve is a call to a statically
             // unknown target: conservative may-throw, the same rule

@@ -51,7 +51,10 @@ pub(crate) fn maybe_any_to_typed_scalar(
     if type_ann.is_none() || ctx.operand_ty(&init_val) != Type::Any {
         return (init_val, false);
     }
+    use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
+    let cast = ctx.checked_cast(init_val.clone(), ty, CastSlot::Assign, CastScope::Annotated);
     let decoded = match ty {
+        _ if cast.is_some() => cast.expect("guard just tested it"),
         Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val.clone(), ty),
         Type::Str => ctx.coerce_to_str(init_val.clone(), Type::Any),
         // §7.1.2 ToBoolean via coerce_to_bool's Any arm. Without this

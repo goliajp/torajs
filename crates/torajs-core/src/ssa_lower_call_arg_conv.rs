@@ -127,6 +127,13 @@ pub(crate) fn emit_arg_conv(
         owned.push((copy.clone(), expected));
         return copy;
     }
+    use crate::ssa_lower_checked_cast::{CastScope, CastSlot};
+    if let Some(v) = ctx.checked_cast(op.clone(), expected, CastSlot::Pass, CastScope::Annotated) {
+        if expected == Type::Str {
+            owned.push((v.clone(), Type::Str));
+        }
+        return v;
+    }
     match arg_conv(expected, actual) {
         ArgConv::None => op,
         ArgConv::ToF64 => ctx.coerce_to_f64(op),

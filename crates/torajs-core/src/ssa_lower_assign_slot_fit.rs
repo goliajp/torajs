@@ -125,6 +125,13 @@ pub(super) fn coerce_for_global(
         coerce_arr_views_to_owned(ctx, slot_ty, v_ty, v, value)
     } else if slot_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
+    } else if let Some(cast) = ctx.checked_cast(
+        v.clone(),
+        slot_ty,
+        crate::ssa_lower_checked_cast::CastSlot::Assign,
+        crate::ssa_lower_checked_cast::CastScope::Inferred,
+    ) {
+        cast
     } else if matches!(slot_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
         ctx.coerce_any_to_number(v, slot_ty)
     } else if slot_ty == Type::Bool && v_ty == Type::Any {
@@ -210,6 +217,13 @@ pub(super) fn coerce_for_local(
         ctx.box_to_any_from_expr(value, v)
     } else if snap_ty == Type::F64 && v_ty == Type::I64 {
         ctx.coerce_to_f64(v)
+    } else if let Some(cast) = ctx.checked_cast(
+        v.clone(),
+        snap_ty,
+        crate::ssa_lower_checked_cast::CastSlot::Assign,
+        crate::ssa_lower_checked_cast::CastScope::Inferred,
+    ) {
+        cast
     } else if matches!(snap_ty, Type::I64 | Type::F64) && v_ty == Type::Any {
         ctx.coerce_any_to_number(v, snap_ty)
     } else if snap_ty == Type::Bool && v_ty == Type::Any {

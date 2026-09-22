@@ -376,7 +376,20 @@ pub(crate) fn coerce_push_value(
     ctx.emit_arr_mark_kind(&val);
     val = ctx.coerce_bool_to_i64(val);
     let mut val_owned_from_substr = false;
+    let cast = ctx.checked_cast(
+        val.clone(),
+        elem_ty,
+        crate::ssa_lower_checked_cast::CastSlot::Store,
+        crate::ssa_lower_checked_cast::CastScope::Inferred,
+    );
     val = match (elem_ty, ctx.operand_ty(&val)) {
+        _ if cast.is_some() => {
+            if ctx.expr_transfers_ownership(arg_eid) {
+                ctx.emit_drop_value(val, Type::Any);
+            }
+            val_owned_from_substr = elem_ty == Type::Str;
+            cast.expect("guard just tested it")
+        }
         (Type::F64, Type::I64) => ctx.coerce_to_f64(val),
         // Any arg into a scalar/Str elem slot — unbox at the store
         // boundary (checker push/unshift 1-arg Any admit pairing).

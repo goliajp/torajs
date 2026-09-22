@@ -378,6 +378,14 @@ fn fit_to_field(
     // index-assign site; the reverse direction means the width
     // analysis missed this write).
     let v_ty = ctx.operand_ty(&v);
+    if let Some(cast) = ctx.checked_cast(
+        v.clone(),
+        field_ty,
+        crate::ssa_lower_checked_cast::CastSlot::Store,
+        crate::ssa_lower_checked_cast::CastScope::Inferred,
+    ) {
+        return (cast, field_ty == Type::Str);
+    }
     match (field_ty, v_ty) {
         (Type::F64, Type::I64) => (ctx.coerce_to_f64(v), false),
         (Type::I64, Type::F64) => panic!(

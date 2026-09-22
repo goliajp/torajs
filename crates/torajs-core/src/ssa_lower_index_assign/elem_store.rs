@@ -29,6 +29,15 @@ impl LowerCtx<'_> {
         v: Operand,
         transfers: bool,
     ) -> (Operand, bool) {
+        if let Some(cast) = self.checked_cast(
+            v.clone(),
+            elem_ty,
+            crate::ssa_lower_checked_cast::CastSlot::Store,
+            crate::ssa_lower_checked_cast::CastScope::Inferred,
+        ) {
+            self.release_owned_temp(value, &v);
+            return (cast, true);
+        }
         match (elem_ty, self.operand_ty(&v)) {
             (Type::F64, Type::I64) => (self.coerce_to_f64(v), transfers),
             (Type::I64, Type::F64) => panic!(
