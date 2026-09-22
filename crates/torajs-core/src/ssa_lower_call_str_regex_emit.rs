@@ -194,7 +194,7 @@ pub(crate) fn emit_replace(
     method: &str,
     args: &[ExprId],
 ) -> Operand {
-    let repl = ctx.lower_expr(args[1]);
+    let mut repl = ctx.lower_expr(args[1]);
     // S321 — ES §22.1.3.{18,19} silently ignore args past (regex,
     // replacement). Pre-S321 the `debug_assert_eq!(args.len(), 2)` carve-out
     // (release-build assert disabled) skipped lowering args[2..] →
@@ -204,7 +204,18 @@ pub(crate) fn emit_replace(
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
-    let repl_ty = ctx.operand_ty(&repl);
+    let mut repl_ty = ctx.operand_ty(&repl);
+    // A callback whose return is not a Str (`(): any => …`) cannot use
+    // the typed callback ABI below, which splices the returned Str
+    // as-is; the any-replacement kernel calls it through the boxed
+    // entry and runs §22.2.6.11 step 14.k ToString on whatever it
+    // answers.
+    if let Type::Closure(sig_id) = repl_ty
+        && ctx.fn_sigs[sig_id.0 as usize].1 != Type::Str
+    {
+        repl = ctx.box_to_any(repl);
+        repl_ty = Type::Any;
+    }
     // P9.5-A1 / A1.1 — fn-callback dispatch. Repl is either Str (existing
     // $&/$N expand_repl path) or Closure (env+8 ABI runtime invoke, with
     // N capture Strs built from saves[] per match).
