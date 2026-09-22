@@ -246,6 +246,12 @@ fn lower_member(
 ) -> Operand {
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
+    // §13.4.2.1 — the old value is GetValue(lhs), which is §7.1.20
+    // ToObject on a possibly-absent receiver: the TypeError comes
+    // before any load. The any lane's kernel raises it on its own.
+    if !matches!(obj_ty, Type::Any) {
+        crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
+    }
     // Length-write knife (rotation 270) — `xs.length--` / `++` on an
     // array: load the len, step, route the store through the
     // §10.4.2.5 resize helper (mirrors `lower_arr_length_assign`;
