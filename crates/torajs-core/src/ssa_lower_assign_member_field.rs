@@ -112,6 +112,7 @@ pub(crate) fn try_lower_setter_call(
 
 pub(crate) fn lower_struct_field_store(
     ctx: &mut LowerCtx<'_>,
+    obj: ExprId,
     obj_val: Operand,
     sid: StructId,
     field: &str,
@@ -144,7 +145,8 @@ pub(crate) fn lower_struct_field_store(
     // as a static literal (no rc traffic), and the header test that
     // was already happening covers both bits at once — an instance
     // that is neither frozen nor redefined pays exactly what it did.
-    emit_field_writable_guard(ctx, obj_val.clone(), field);
+    // It runs after the right-hand side (below): §10.1.9.2 [[Set]] is
+    // inside PutValue, which §13.15.2 reaches only once the value exists.
     // V3-06 — `this.kids = []` in a constructor. Mirrors the K.6
     // LetDecl-global path: empty array literals lack inferable
     // element type on their own, so we allocate from the field's
@@ -256,6 +258,19 @@ pub(crate) fn lower_struct_field_store(
         }
         v
     };
+    // §13.15.2 — the value exists before PutValue asks anything of the
+    // base. An absent receiver (§7.1.20 ToObject) and a frozen or
+    // redefined field (§10.1.9.2) both refuse here, after the rhs; the
+    // value is parked as a throw temp so either refusal releases the
+    // stake it took above. The nullish test is self-gating: a receiver
+    // that cannot be absent emits nothing.
+    let v_ty = ctx.operand_ty(&v);
+    let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v.clone(), v_ty));
+    crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
+    emit_field_writable_guard(ctx, obj_val.clone(), field);
+    if let Some(token) = parked {
+        ctx.pop_throw_temp(token);
+    }
     // Drop the old field value if non-Copy.
     if !field_ty.is_copy() {
         let cur_block = ctx.cur_block;

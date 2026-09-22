@@ -54,3 +54,24 @@ pub(crate) fn decay(obj_ty: Type) -> Decay {
         other => Decay::To(other),
     }
 }
+
+/// What a member WRITE's receiver decays to.
+///
+/// The same pointer-shaped decay as [`decay`], narrower on two sides.
+/// A write to a property of an absent base is §6.2.5.6 PutValue ->
+/// §7.1.20 ToObject, the same TypeError as the read, raised by the
+/// store lanes after the right-hand side has evaluated. The scalars
+/// and String keep their answer: a property write on a primitive is a
+/// strict-mode TypeError on a live value too, which is its own
+/// question and not this one.
+pub(crate) fn decay_for_write(obj_ty: Type) -> Type {
+    match obj_ty {
+        Type::Nullable(inner)
+            if !matches!(*inner, Type::String)
+                && nullable_ptr_shaped(&Type::Nullable(inner.clone())) =>
+        {
+            *inner
+        }
+        other => other,
+    }
+}

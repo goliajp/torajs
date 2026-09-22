@@ -291,7 +291,9 @@ fn lower_obj_assign(
             ctx, eid, boxed, field, value, &None, false,
         );
     }
-    crate::ssa_lower_assign_member_field::lower_struct_field_store(ctx, obj_val, sid, field, value)
+    crate::ssa_lower_assign_member_field::lower_struct_field_store(
+        ctx, obj, obj_val, sid, field, value,
+    )
 }
 
 /// §13.15.2 — the rhs evaluates first and its value drops (the throw

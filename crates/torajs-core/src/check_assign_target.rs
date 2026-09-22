@@ -62,7 +62,8 @@ pub(crate) fn check_member(
     // RFC 20260715-nominal-class-identity — a class instance's type is
     // its NAME (`ClassRef(C)`); every structural step below needs the
     // shape behind it.
-    let obj_ty_nominal = checker.type_of(ast, obj)?;
+    let obj_ty_nominal =
+        crate::check_type_of_member_nullable_recv::decay_for_write(checker.type_of(ast, obj)?);
     // Cow flavor — the common already-resolved Struct receiver
     // borrows instead of deep-cloning its whole field list per
     // assignment (rotation 268: O(N²) clone stall on wide structs).
