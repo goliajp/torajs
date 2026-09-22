@@ -198,6 +198,33 @@ pub(crate) unsafe fn symbol_key_has(recv: AnyValue, key: *const c_void) -> bool 
 /// Cell receivers are live heap pointers; `key` is a live Symbol cell.
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) unsafe fn symbol_key_get(recv: AnyValue, key: *const c_void) -> OwnedPair {
+    // §10.5.1 [[Get]] on a proxy runs the `get` trap whatever the key
+    // kind is. A symbol read the PROGRAM writes (`p[Symbol.x]`) already
+    // trapped — it enters through the member-get cascade, which
+    // consults the handler on its way in. A read the RUNTIME makes did
+    // not: this is the entry ToPrimitive uses to ask for
+    // `@@toPrimitive` and `Object.prototype.toString` to ask for
+    // `@@toStringTag`, and both walked straight past the handler into
+    // the target's own dict. `String(proxy)` therefore showed the
+    // handler one key where bun shows three.
+    //
+    // The trap's answer is owned, which is what this face returns;
+    // `symbol_key_pair` below is the borrowed shape and has no way to
+    // carry a freshly minted value, which is why the step belongs here
+    // rather than one level down.
+    if crate::proxy::is_proxy(recv)
+        && let Some((ptr, _)) = recv_cell(recv)
+    {
+        let got = unsafe { crate::proxy::get(ptr, key, recv) };
+        if unsafe { __torajs_throw_check() } != 0 {
+            return OwnedPair::borrowed(TAG_UNDEF, 0);
+        }
+        return OwnedPair {
+            tag: unsafe { __torajs_anyv_unbox_tag(got) } as u64,
+            payload: unsafe { __torajs_anyv_unbox_value(got) } as u64,
+            owned: true,
+        };
+    }
     let (tag, value) = unsafe { symbol_key_pair(recv, key) };
     if tag != crate::struct_probe::ANY_ACCESSOR_TAG {
         return OwnedPair::borrowed(tag, value);
