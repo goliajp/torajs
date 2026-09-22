@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T12:19:32.119Z",
+  "generatedAt": "2026-09-22T19:48:32.668Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-22T12:07:30Z",
-    "headSha": "e44e649df7e3754f1ea081dcb89abcfa241b630b",
-    "elapsedSec": 542.11,
+    "ranAt": "2026-09-22T19:30:04Z",
+    "headSha": "6c2557d0038bdad02c4f54537be9b82d4c098f7a",
+    "elapsedSec": 541.04,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34485,
+    "pass": 34510,
     "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40772,
-    "bug": 8515,
+    "passTotal": 40797,
+    "bug": 8490,
     "incompatible": 3887,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49287,
-    "passRateInScope": 76.68,
-    "passRateTrAccepted": 82.72
+    "passRateInScope": 76.72,
+    "passRateTrAccepted": 82.77
   },
   "torajs": {
-    "commit": "32d385a0f",
-    "commitSubject": "chore(hardev): file-size stamp on the clean rotation 691 tree",
+    "commit": "26b74f505",
+    "commitSubject": "chore(hardev): rotation 692 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "32d385a0f",
-      "subject": "chore(hardev): file-size stamp on the clean rotation 691 tree"
+      "hash": "26b74f505",
+      "subject": "chore(hardev): rotation 692 close stamps"
     },
     {
-      "hash": "94f8f728e",
-      "subject": "chore(hardev): rotation 691 close stamps"
+      "hash": "6c2557d00",
+      "subject": "fix: a patch on the receiver's own prototype is what a read answers"
     },
     {
-      "hash": "e44e649df",
-      "subject": "fix: a string parameter filled through the boxed entry keeps undefined"
+      "hash": "a3d02473f",
+      "subject": "refactor: OrdinaryToPrimitive is Get, IsCallable, Call"
     },
     {
-      "hash": "da978511a",
-      "subject": "fix: toLocale{Upper,Lower}Case canonicalizes any locales argument"
+      "hash": "cbefa66f3",
+      "subject": "fix: a replace callback's capture parameter is string | undefined"
     },
     {
-      "hash": "21a6c85ba",
-      "subject": "feat: record which callback return types the context seeded"
+      "hash": "84aee6c94",
+      "subject": "fix: a built-in set accessor function has length 1"
     },
     {
-      "hash": "9bb25f8e1",
-      "subject": "fix: the error toString kernel keeps the obj world in the dispatch judgment"
+      "hash": "72b6bdf28",
+      "subject": "fix: a wrapper object reads the prototype methods its primitive does"
     },
     {
-      "hash": "a0b36cb29",
-      "subject": "test: any-bodied callbacks in builtin and typed-parameter positions"
+      "hash": "4c1ed5e91",
+      "subject": "refactor: a borrowed root toString / valueOf calls its kernel directly"
     },
     {
-      "hash": "bd5fc793e",
-      "subject": "feat: checked-cast kernels for any values entering annotated slots"
+      "hash": "80904c28b",
+      "subject": "fix: a patched toString reaches a typed function value's toString()"
     },
     {
-      "hash": "95e1a8c60",
-      "subject": "fix: a declared class field redefined as an accessor behaves as one"
+      "hash": "bcc7d6378",
+      "subject": "fix: `x.size` on an any receiver is an ordinary property read"
     },
     {
-      "hash": "fe90a1c30",
-      "subject": "fix: an error's name or message stored past its Str slot is its own property"
+      "hash": "a1eff8c5d",
+      "subject": "feat: Symbol.prototype and Date.prototype own a real [Symbol.toPrimitive]"
     },
     {
-      "hash": "d1446f279",
-      "subject": "fix: a regex replace callback declaring a non-string return is called boxed"
+      "hash": "b1b3dfc97",
+      "subject": "fix: a borrowed toString / valueOf runs on its own prototype's slot"
     },
     {
-      "hash": "e42cd62e7",
-      "subject": "fix: a heap value returned through a primitive return type is coerced"
+      "hash": "e1b7ac641",
+      "subject": "fix: a property read on an exotic subclass instance finds the class method"
     }
   ],
-  "headSha": "32d385a0f",
+  "headSha": "26b74f505",
   "autorun": {
-    "total": 993,
+    "total": 994,
     "baselineTarget": 10,
-    "bySelf": 988,
+    "bySelf": 989,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790067485-587b",
-      "at": "2026-09-22T08:58:05Z",
-      "ts": 1790067485,
+      "rotationId": "r-1790079639-1ba5",
+      "at": "2026-09-22T12:20:39Z",
+      "ts": 1790079639,
       "trigger": "self",
-      "prevHead": "673efc910",
-      "handoffSha": "sha256:b5c2c9685fc0a71c5d1489d97c1967a99135d4230ac8831e6d4318c9ca1fd155",
+      "prevHead": "b76145a6f",
+      "handoffSha": "sha256:fb16c3bb8312f74c77fc0cc38822f502e17e6b600d49f9efd1ba8d87014efc71",
       "handoffAgeSec": 2,
-      "conformanceBefore": "4501/0/4",
+      "conformanceBefore": "4512/0/4",
       "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1790079639-1ba5",
+        "at": "2026-09-22T12:20:39Z",
+        "ts": 1790079639,
+        "trigger": "self",
+        "prevHead": "b76145a6f",
+        "handoffSha": "sha256:fb16c3bb8312f74c77fc0cc38822f502e17e6b600d49f9efd1ba8d87014efc71",
+        "handoffAgeSec": 2,
+        "conformanceBefore": "4512/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1790067485-587b",
         "at": "2026-09-22T08:58:05Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 26,
         "conformanceBefore": "4418/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1789939476-6ce1",
-        "at": "2026-09-20T21:24:36Z",
-        "ts": 1789939476,
-        "trigger": "self",
-        "prevHead": "4682d5531",
-        "handoffSha": "sha256:16fe49c5908b6cdb5364ca5087dd8a0e25fe80b25c8588cbf7f580e2ea22c74e",
-        "handoffAgeSec": 11,
-        "conformanceBefore": "4408/0/4",
-        "commitsInSession": 15
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
