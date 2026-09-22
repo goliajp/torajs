@@ -23,7 +23,7 @@ use torajs_rc::any_method_family as fam;
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-pub(crate) const COERCION_PREFIXES: [&str; 88] = [
+pub(crate) const COERCION_PREFIXES: [&str; 89] = [
     // The array join kernels run the coercion per ELEMENT rather
     // than on themselves, so the scan never saw `anyv_to_str` in
     // the user `.o` and judged the obj world unreachable. Every
@@ -179,6 +179,10 @@ pub(crate) const COERCION_PREFIXES: [&str; 88] = [
     "__torajs_str_replace_all_fn",
     "__torajs_str_replace_fn",
     "__torajs_typedarray_create",
+    // Error.prototype.toString runs §20.5.3.4's Get + ToString once the
+    // instance carries own props (a `name` / `message` stored past its
+    // Str slot).
+    "__torajs_error_to_string",
 ];
 
 /// Kernels that PROBE user objects internally — spec machinery that
