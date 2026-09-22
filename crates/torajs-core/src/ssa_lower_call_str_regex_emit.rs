@@ -339,16 +339,26 @@ pub(crate) fn emit_replace(
     // in the replacement slot after the runtime call consumed it
     // (the Str-repl shape is a borrow and stays untouched).
     ctx.release_owned_temp(args[1], &repl);
-    // The any-replacement kernel can leave a pending throw from
-    // ToString(replaceValue) — or from the callback's own body — so
-    // both spellings need the check, not just replaceAll's.
-    if any_repl {
-        ctx.emit_throw_check(None);
-    }
-    // §22.1.5 — replaceAll throws a TypeError on a non-global RegExp; the
-    // kernel records the pending throw, so propagate it here (mirrors the
-    // matchAll §22.1.3.13 post-call check). `replace` accepts any regex.
-    if method == "replaceAll" {
+    // Three ways this call leaves a pending throw, and every one of
+    // them needs the check right here — otherwise it rides past the
+    // `try` the program wrote around the replace and ends the process
+    // uncaught:
+    //
+    // - the any-replacement kernel's ToString(replaceValue);
+    // - §22.1.5, replaceAll on a non-global RegExp (mirrors the
+    //   matchAll §22.1.3.13 post-call check; `replace` accepts any
+    //   regex);
+    // - **a callback that threw** — its own `throw`, or a guard the
+    //   KERNEL raised inside it, such as a method call on the
+    //   `string | undefined` an unmatched capture group binds.
+    //
+    // The third is why the typed-callback spelling of `replace` was
+    // the one shape with no check: it is neither `any_repl` nor
+    // `replaceAll`, so `"x".replace(/(y)?x/, (m, p1) => p1.toUpperCase())`
+    // exited uncaught with the `try` standing right there. An explicit
+    // `throw` in the same callback was caught, which is what made it
+    // read as a regex bug rather than a missing check.
+    if any_repl || opt_extras.is_some() || method == "replaceAll" {
         ctx.emit_throw_check(None);
     }
     Operand::Value(v)

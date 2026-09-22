@@ -211,9 +211,8 @@ unsafe fn replace_fn_inner(
 
 /// The typed lanes' invoke strategy — build the callback's declared
 /// `n_caps` capture Strs and transmute-dispatch through
-/// [`invoke_replace_cb`]. Never `Err`: the typed callback's pending
-/// throw rides the caller's own throw check after the whole walk
-/// (pre-existing typed-lane contract, unchanged).
+/// [`invoke_replace_cb`]. `Err` on a callback that left a pending
+/// throw, which ends the walk the way the boxed lane's does.
 unsafe fn typed_invoke(
     closure_env: *mut c_void,
     n_caps: i64,
@@ -243,6 +242,25 @@ unsafe fn typed_invoke(
     };
     for cap in caps.iter().take(n_caps as usize) {
         unsafe { __torajs_str_drop(*cap) };
+    }
+    // §22.2.6.11 step 14.j — a callback that throws ends the walk
+    // right there. The typed lane used to let the pending throw ride
+    // all the way to the caller's check after the WHOLE walk, with
+    // three visible consequences: the remaining matches still ran the
+    // callback (`"axbxc".replace(/(y)?x/g, cb)` called it twice where
+    // the spec calls it once), the throwing replace's result was
+    // spliced and returned, and the throw surfaced so late that the
+    // `try` around the replace no longer covered it — it exited the
+    // program uncaught. A throw the callback raised itself was always
+    // caught; only one the KERNEL raised inside it (a method-call
+    // guard on the `string | undefined` an unmatched capture group
+    // binds) took this path, which is why it read as a regex bug.
+    //
+    // `ret_str` is deliberately not released here, matching the boxed
+    // lane: on the throw path the callback never returned a value to
+    // own.
+    if unsafe { __torajs_throw_check() } != 0 {
+        return Err(());
     }
     Ok(ret_str)
 }
