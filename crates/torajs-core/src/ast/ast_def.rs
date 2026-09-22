@@ -270,6 +270,15 @@ pub struct Ast {
     /// dispatch. Parked by `check_monomorph` on the owned post-check
     /// AST (same ride as `undeclared_reads`). Empty pre-check.
     pub spec_throws: std::collections::HashMap<ExprId, String>,
+    /// Lifted closures whose return type was SEEDED from the position
+    /// they were passed to (a builtin callback slot, a fn-typed
+    /// parameter / binding), not written by the user. The annotation
+    /// is the context's guess, so a value that breaks it is converted
+    /// the way the spec converts that callback's result, where a
+    /// user-written return annotation is a checked cast (RFC
+    /// 20260922-any-to-typed-checked-cast, slice S1b). Filled by
+    /// `apply_closure_ann_updates` at the one point it writes the seed.
+    pub contextual_ret_fns: std::collections::HashSet<String>,
     /// §8.1.1.1 — top-level `let` / `const` occurrences written
     /// EARLIER in the statement list than the declaration, so the
     /// binding is in its temporal dead zone whenever they run. Reads

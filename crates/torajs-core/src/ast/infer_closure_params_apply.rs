@@ -28,7 +28,7 @@ pub(super) fn apply_closure_ann_updates(
     if updates.is_empty() && param_only_updates.is_empty() && view_promotes.is_empty() {
         return;
     }
-    let (stmts, exprs) = (&mut ast.stmts, &ast.exprs);
+    let (stmts, exprs, seeded) = (&mut ast.stmts, &ast.exprs, &mut ast.contextual_ret_fns);
     for stmt in stmts.iter_mut() {
         if let Stmt::FnDecl {
             name,
@@ -89,6 +89,7 @@ pub(super) fn apply_closure_ann_updates(
                         new_ret_ann.clone()
                     };
                     *return_type = Some(ann);
+                    seeded.insert(name.clone());
                 }
             }
             if let Some(new_param_anns) = param_only_updates.get(name) {
