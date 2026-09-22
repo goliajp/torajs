@@ -56,7 +56,25 @@ pub(crate) fn maybe_any_to_typed_scalar(
     let decoded = match ty {
         _ if cast.is_some() => cast.expect("guard just tested it"),
         Type::I64 | Type::F64 => ctx.coerce_any_to_number(init_val.clone(), ty),
-        Type::Str => ctx.coerce_to_str(init_val.clone(), Type::Any),
+        // A declared `string` slot, not a ToString site: `undefined`
+        // keeps the Str undefined sentinel. Running the real §7.1.17
+        // here spelled it as the six-letter TEXT "undefined" (and
+        // `null` as "null"), so `let s: string | undefined = (undefined
+        // as any)` answered a 9-character string — `s === undefined`
+        // false, `typeof s` "string", where bun says undefined. The
+        // sentinel is what every other boundary into a Str slot
+        // already uses: the boxed param adapter
+        // (`__torajs_anyv_to_str_param`, the same kernel), a missing
+        // argument, and `str_undef_sentinel_for`'s literal path.
+        Type::Str => {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.any_to_str_slot, vec![init_val.clone()]),
+                Type::Str,
+                None,
+            );
+            Operand::Value(v)
+        }
         // §7.1.2 ToBoolean via coerce_to_bool's Any arm. Without this
         // row a `boolean` binding took the box's raw BITS (a `false`
         // box is a non-zero pattern — every any-held value read as

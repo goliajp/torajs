@@ -786,6 +786,7 @@ pub(crate) struct Intrinsics {
     /// receiver (cell → method/bound/registry name chain).
     pub(crate) closure_name_str: FuncId,
     pub(crate) any_to_str: FuncId,
+    pub(crate) any_to_str_slot: FuncId,
     pub(crate) any_sort_undef_pre: FuncId,
     pub(crate) any_to_str_prim: FuncId,
     pub(crate) any_to_str_box: FuncId,
