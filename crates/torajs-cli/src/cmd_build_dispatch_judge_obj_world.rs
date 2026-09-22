@@ -23,7 +23,7 @@ use torajs_rc::any_method_family as fam;
 /// spec ToString(message) — which is why this must not be a
 /// fallback trigger: it would kill the judgment for the empty
 /// program too.)
-pub(crate) const COERCION_PREFIXES: [&str; 30] = [
+pub(crate) const COERCION_PREFIXES: [&str; 37] = [
     // The array join kernels run the coercion per ELEMENT rather
     // than on themselves, so the scan never saw `anyv_to_str` in
     // the user `.o` and judged the obj world unreachable. Every
@@ -98,6 +98,23 @@ pub(crate) const COERCION_PREFIXES: [&str; 30] = [
     // { length: q } })`.
     "__torajs_arraybuffer_create",
     "__torajs_string_raw",
+    // §10.4.2.4 ArraySetLength runs ToNumber(Desc.[[Value]]) twice:
+    // `xs.length = q`.
+    "__torajs_arr_set_length_",
+    // §13.3.7.1 `super[k]`: ToPropertyKey(k) in the kernel, every
+    // face (get / set / call / optional call / update).
+    "__torajs_anyv_super_prop_",
+    // A builtin subclass's `super(v)` coerces v inside the kernel the
+    // way the builtin constructor would (§22.2.4.1 ToString(pattern),
+    // §22.1.1.1 ToString, §21.1.1.1 ToNumeric, §21.4.2.1
+    // ToPrimitive, §23.2.5.1 ToIndex). The Array twin is absent on
+    // purpose: §23.1.1.1 takes a non-Number single argument as the
+    // only element, so its kernel never coerces an object.
+    "__torajs_regex_subclass_super",
+    "__torajs_string_wrapper_subclass_super",
+    "__torajs_number_wrapper_subclass_super",
+    "__torajs_date_subclass_super_components",
+    "__torajs_typedarray_subclass_super",
 ];
 
 /// Kernels that PROBE user objects internally — spec machinery that
