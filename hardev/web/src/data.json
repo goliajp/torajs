@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T08:57:14.513Z",
+  "generatedAt": "2026-09-22T12:19:32.119Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-22T08:45:22Z",
-    "headSha": "2f3205d786bbbeb3ecb34e1bce09d6955ff6099b",
-    "elapsedSec": 541.21,
+    "ranAt": "2026-09-22T12:07:30Z",
+    "headSha": "e44e649df7e3754f1ea081dcb89abcfa241b630b",
+    "elapsedSec": 542.11,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34479,
+    "pass": 34485,
     "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40766,
-    "bug": 8514,
-    "incompatible": 3894,
+    "passTotal": 40772,
+    "bug": 8515,
+    "incompatible": 3887,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49280,
-    "passRateInScope": 76.67,
+    "trAccepted": 49287,
+    "passRateInScope": 76.68,
     "passRateTrAccepted": 82.72
   },
   "torajs": {
-    "commit": "eaa98284a",
-    "commitSubject": "chore(hardev): rotation 690 close stamps",
+    "commit": "32d385a0f",
+    "commitSubject": "chore(hardev): file-size stamp on the clean rotation 691 tree",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "eaa98284a",
-      "subject": "chore(hardev): rotation 690 close stamps"
+      "hash": "32d385a0f",
+      "subject": "chore(hardev): file-size stamp on the clean rotation 691 tree"
     },
     {
-      "hash": "2f3205d78",
-      "subject": "fix: ToPropertyKey keys by a Symbol its key's ToPrimitive answers"
+      "hash": "94f8f728e",
+      "subject": "chore(hardev): rotation 691 close stamps"
     },
     {
-      "hash": "484a15ec8",
-      "subject": "fix: an owned temporary array is a valid push / pop / shift / unshift receiver"
+      "hash": "e44e649df",
+      "subject": "fix: a string parameter filled through the boxed entry keeps undefined"
     },
     {
-      "hash": "26421b6e7",
-      "subject": "refactor: move the mutator receiver resolver and the push grow kernel into siblings"
+      "hash": "da978511a",
+      "subject": "fix: toLocale{Upper,Lower}Case canonicalizes any locales argument"
     },
     {
-      "hash": "8171834d1",
-      "subject": "fix: a Symbol in a callback slot or callee position is the runtime TypeError"
+      "hash": "21a6c85ba",
+      "subject": "feat: record which callback return types the context seeded"
     },
     {
-      "hash": "c6617867a",
-      "subject": "fix: delete takes bigint and boolean keys and releases every coerced key"
+      "hash": "9bb25f8e1",
+      "subject": "fix: the error toString kernel keeps the obj world in the dispatch judgment"
     },
     {
-      "hash": "0bc115393",
-      "subject": "fix: OrdinaryToPrimitive over a Proxy is Get, then IsCallable, then Call"
+      "hash": "a0b36cb29",
+      "subject": "test: any-bodied callbacks in builtin and typed-parameter positions"
     },
     {
-      "hash": "5eee0236f",
-      "subject": "fix: an Array subclass's single non-Number super(v) makes v the only element"
+      "hash": "bd5fc793e",
+      "subject": "feat: checked-cast kernels for any values entering annotated slots"
     },
     {
-      "hash": "c9ed2389b",
-      "subject": "fix: the dispatch judgment keeps the object arms for length writes, super[k] and builtin-subclass super(v)"
+      "hash": "95e1a8c60",
+      "subject": "fix: a declared class field redefined as an accessor behaves as one"
     },
     {
-      "hash": "3e8854b20",
-      "subject": "fix: the dispatch judgment keeps the object arms for six coercing kernels"
+      "hash": "fe90a1c30",
+      "subject": "fix: an error's name or message stored past its Str slot is its own property"
     },
     {
-      "hash": "697315c63",
-      "subject": "fix: the 1-arg includes / startsWith / endsWith take any needle"
+      "hash": "d1446f279",
+      "subject": "fix: a regex replace callback declaring a non-string return is called boxed"
     },
     {
-      "hash": "8635f9fc2",
-      "subject": "fix: Symbol.for takes any key and runs ToString on it"
+      "hash": "e42cd62e7",
+      "subject": "fix: a heap value returned through a primitive return type is coerced"
     }
   ],
-  "headSha": "eaa98284a",
+  "headSha": "32d385a0f",
   "autorun": {
-    "total": 992,
+    "total": 993,
     "baselineTarget": 10,
-    "bySelf": 987,
+    "bySelf": 988,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790057261-57e3",
-      "at": "2026-09-22T06:07:41Z",
-      "ts": 1790057261,
+      "rotationId": "r-1790067485-587b",
+      "at": "2026-09-22T08:58:05Z",
+      "ts": 1790067485,
       "trigger": "self",
-      "prevHead": "de821e86f",
-      "handoffSha": "sha256:b4b6ee5b407c85aa174263e7e4c7d725106a3ebd29819c8392da18b31c440d00",
+      "prevHead": "673efc910",
+      "handoffSha": "sha256:b5c2c9685fc0a71c5d1489d97c1967a99135d4230ac8831e6d4318c9ca1fd155",
       "handoffAgeSec": 2,
-      "conformanceBefore": "4483/0/4",
-      "commitsInSession": 16
+      "conformanceBefore": "4501/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1790067485-587b",
+        "at": "2026-09-22T08:58:05Z",
+        "ts": 1790067485,
+        "trigger": "self",
+        "prevHead": "673efc910",
+        "handoffSha": "sha256:b5c2c9685fc0a71c5d1489d97c1967a99135d4230ac8831e6d4318c9ca1fd155",
+        "handoffAgeSec": 2,
+        "conformanceBefore": "4501/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1790057261-57e3",
         "at": "2026-09-22T06:07:41Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 11,
         "conformanceBefore": "4408/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789924395-5692",
-        "at": "2026-09-20T17:13:15Z",
-        "ts": 1789924395,
-        "trigger": "self",
-        "prevHead": "09c571d91",
-        "handoffSha": "sha256:36291793f7ec6038b56ed8cb0b1994099e8a799c9f997ddf13c82b085f9806b0",
-        "handoffAgeSec": 13,
-        "conformanceBefore": "4400/0/4",
-        "commitsInSession": 14
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
