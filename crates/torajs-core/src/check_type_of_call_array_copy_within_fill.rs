@@ -48,7 +48,7 @@ pub(crate) fn try_match(
     if !matches!(m_name.as_str(), "copyWithin" | "fill") || args.len() < 4 {
         return None;
     }
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };

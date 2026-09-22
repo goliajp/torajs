@@ -49,7 +49,7 @@ pub(crate) fn try_match(
         return None;
     }
     if args.is_empty() {
-        let src_ty = match checker.type_of(ast, *src_id) {
+        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
@@ -66,7 +66,7 @@ pub(crate) fn try_match(
         if arg_ty != Type::Undefined {
             return None;
         }
-        let src_ty = match checker.type_of(ast, *src_id) {
+        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
@@ -76,7 +76,7 @@ pub(crate) fn try_match(
         return None;
     }
     // args.len() >= 2 — S276 trailing-arg ignore + S303 Undefined cmp.
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };

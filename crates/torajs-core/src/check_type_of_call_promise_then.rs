@@ -104,7 +104,7 @@ fn try_then_two_arg(
         && m_name == "then"
         && args.len() == 2
     {
-        let src_ty = match checker.type_of(ast, *src_id) {
+        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
@@ -236,7 +236,7 @@ fn try_then_heterogeneous(
         && (m_name == "then" || m_name == "catch")
         && args.len() == 1
     {
-        let src_ty = match checker.type_of(ast, *src_id) {
+        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
@@ -385,7 +385,7 @@ fn try_then_array(
         && (m_name == "then" || m_name == "catch")
         && args.len() == 1
     {
-        let src_ty = match checker.type_of(ast, *src_id) {
+        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };

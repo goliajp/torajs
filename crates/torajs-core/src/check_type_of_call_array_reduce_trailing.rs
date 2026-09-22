@@ -47,7 +47,7 @@ pub(crate) fn try_match(
     if args.len() < 3 {
         return None;
     }
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };

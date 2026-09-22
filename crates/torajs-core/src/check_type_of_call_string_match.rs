@@ -54,7 +54,7 @@ pub(crate) fn try_match(
         if m_name != "match" || !any_pattern_may_carry_matcher(ast, args[0]) {
             return None;
         }
-        let src_ty = match checker.type_of(ast, *src_id) {
+        let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
@@ -70,7 +70,7 @@ pub(crate) fn try_match(
         }
         return Some(Ok(Type::Any));
     }
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
@@ -129,7 +129,7 @@ pub(crate) fn try_match_replace(
     {
         return None;
     }
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
@@ -246,7 +246,7 @@ pub(crate) fn try_match_split(
     {
         return None;
     }
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };

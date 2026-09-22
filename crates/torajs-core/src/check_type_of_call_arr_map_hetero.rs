@@ -38,7 +38,7 @@ pub(crate) fn try_match(
     if m_name != "map" || args.is_empty() {
         return None;
     }
-    let src_ty = match checker.type_of(ast, *src_id) {
+    let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(_) => return None,
     };

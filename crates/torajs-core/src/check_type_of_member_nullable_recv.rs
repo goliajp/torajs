@@ -10,7 +10,8 @@
 //! Three answers, and the file exists so that they are decided in one
 //! place rather than at each member arm.
 
-use crate::check::Type;
+use crate::ast::{Ast, ExprId};
+use crate::check::{Checker, Type};
 use crate::check_js_semantics::{nullable_ptr_shaped, rides_any_lane};
 
 /// What the member ladder should look the receiver up as.
@@ -74,4 +75,26 @@ pub(crate) fn decay_for_write(obj_ty: Type) -> Type {
         }
         other => other,
     }
+}
+
+/// The type a method-call wedge should read its receiver as.
+///
+/// The typed wedges (`r.join()`, `s.slice(1)`, ...) each destructure the
+/// receiver's type (`let Type::Array(elem) = &src_ty`), so a `Nullable`
+/// receiver made every one of them decline — and the call fell through
+/// to the member table, whose signatures spell optional trailing
+/// parameters as required. `r.join()` on a `number[] | undefined`
+/// failed "expected 1 argument(s), got 0" while `r.join("-")` passed.
+/// The wedges were never wrong about the receiver; they were asked the
+/// wrong type.
+///
+/// This is the member lane's [`decay`] asked from the call side, so the
+/// two cannot disagree about which receivers decay. The type the
+/// checker RECORDS for the receiver is untouched — the lowering arms
+/// its receiver guard off that record, which still says `Nullable`.
+pub(crate) fn receiver_type(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+    Ok(match decay(checker.type_of(ast, eid)?) {
+        Decay::AnyLane => Type::Any,
+        Decay::To(t) => t,
+    })
 }

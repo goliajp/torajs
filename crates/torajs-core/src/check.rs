@@ -123,6 +123,8 @@ pub(crate) use crate::check_js_semantics::{
     js_arith_coerces_to_number, js_loose_eq_supported, js_truthy_acceptable, narrow_within_lane,
     nullable_receiver_admits, rides_any_lane,
 };
+// The receiver a method-call wedge reads — see its doc.
+pub(crate) use crate::check_type_of_member_nullable_recv::receiver_type;
 
 /// V3-05 — substitute `Type::ClassRef(name)` with whatever the
 /// current `aliases[name]` is. Recurses through wrapper variants
