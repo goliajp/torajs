@@ -72,13 +72,36 @@ pub(crate) fn check(
     {
         return Ok(Type::Any);
     }
-    // RC-4 F1a — Nullable<Array<T>> receiver (un-narrowed
-    // exec/match result) decays to the bare array for member
-    // lookup; the null case is a runtime TypeError at the
-    // lowering-side guard, matching JS null-deref semantics.
-    // Other Nullable receivers keep the existing reject.
+    // A `Nullable<T>` receiver decays to `T` for member lookup, and
+    // the undefined case becomes the runtime TypeError §7.1.18 asks
+    // for, raised by the lowering-side guard. §13.3.4 puts no static
+    // condition on the base of a property access — the throw lives in
+    // GetValue -> ToObject, at run time — so refusing here refused a
+    // program the spec fully defines, and did so on `s.length`,
+    // `o.a`, `m.size` and every other surface at once.
+    //
+    // Which `T` may decay is the same question [`nullable_ptr_shaped`]
+    // already answers for three other sites ("is `Nullable<T>` the
+    // same slot as `T`"), so it is asked by name rather than spelled
+    // a fourth time. The two scalars are excluded there because their
+    // nullable rides the NaN-boxed any lane, where the member read is
+    // already answered.
+    //
+    // String is held back here, and only here: its READ side is
+    // guarded (`is_nullable_str_source` -> `__torajs_str_null_check`)
+    // but its CALL side is not, and a str slot's absent value is a
+    // real str block spelling "undefined" — decaying it would turn
+    // `s.toUpperCase()` from a refusal into `"UNDEFINED"`, which is
+    // worse than the refusal. It decays once that guard exists.
     let obj_ty = match obj_ty {
-        Type::Nullable(inner) if matches!(*inner, Type::Array(_)) => *inner,
+        Type::Nullable(inner)
+            if !matches!(*inner, Type::String)
+                && crate::check_js_semantics::nullable_ptr_shaped(&Type::Nullable(
+                    inner.clone(),
+                )) =>
+        {
+            *inner
+        }
         other => other,
     };
     enforce_visibility(checker, ast, obj, name)?;
