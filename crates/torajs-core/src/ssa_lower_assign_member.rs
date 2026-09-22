@@ -111,7 +111,7 @@ pub(crate) fn lower(
 /// reference, so keepers transfer without inc'ing and discard sites
 /// release — not a borrow whitelist. The mint runs before the owned
 /// temp's own release so the value never passes through zero.
-fn finish_assign_value(
+pub(crate) fn finish_assign_value(
     ctx: &mut LowerCtx<'_>,
     eid: ExprId,
     v: Operand,
@@ -261,9 +261,14 @@ fn lower_obj_assign(
     ) {
         return v;
     }
-    if let Some(v) =
-        crate::ssa_lower_assign_member_objlit::try_lower(ctx, obj_val.clone(), sid, field, value)
-    {
+    if let Some(v) = crate::ssa_lower_assign_member_objlit::try_lower(
+        ctx,
+        eid,
+        obj_val.clone(),
+        sid,
+        field,
+        value,
+    ) {
         return v;
     }
     // Rotation 373 — the checker admitted a name the layout never

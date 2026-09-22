@@ -17,6 +17,7 @@ use crate::ssa_lower::LowerCtx;
 /// from a structurally-equal alias (RFC §2.1).
 pub(crate) fn try_lower(
     ctx: &mut LowerCtx<'_>,
+    eid: ExprId,
     obj_val: Operand,
     sid: StructId,
     field: &str,
@@ -32,14 +33,34 @@ pub(crate) fn try_lower(
         return None;
     };
     let offset = crate::ssa_lower::OBJ_HEADER_SIZE + idx as u64 * 8;
-    crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call(
+    // §13.15.2 step 1.e / §6.2.5.6 — the right-hand side is evaluated
+    // ONCE, before PutValue reaches [[Set]] and reads the setter out of
+    // the slot. The same operand is the setter's argument and the
+    // assignment's value (not whatever the setter body returned).
+    let op = ctx.lower_expr(value);
+    let user_params = ctx.fn_sigs[sig_id.0 as usize].0.clone();
+    let mut argv = [op.clone()];
+    let coerce_owned = crate::ssa_lower_call_terminal_coerce::coerce_args_by_param_tys(
+        ctx,
+        &user_params,
+        std::slice::from_ref(&value),
+        &mut argv,
+    );
+    crate::ssa_lower_call_struct_method_dispatch::emit_receiver_closure_call_ops(
         ctx,
         obj_val,
         offset,
         sig_id,
-        std::slice::from_ref(&value),
+        argv.to_vec(),
     );
-    // An assignment evaluates to the assigned value, not to whatever the
-    // setter body returned.
-    Some(ctx.lower_expr(value))
+    for (o, ty) in coerce_owned {
+        ctx.emit_drop_value(o, ty);
+    }
+    // The setter borrowed the value; the assignment's consumer gets the
+    // owned stake (a fresh rhs transfers its own, a borrowed one is inc'd).
+    let transfers = ctx.expr_transfers_ownership(value);
+    let ty = ctx.operand_ty(&op);
+    Some(crate::ssa_lower_assign_member::finish_assign_value(
+        ctx, eid, op, ty, transfers,
+    ))
 }
