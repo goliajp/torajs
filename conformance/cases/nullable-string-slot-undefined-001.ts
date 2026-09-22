@@ -8,11 +8,12 @@
 // adapter (the same kernel this now calls), a missing argument, an
 // `undefined` literal. Only the let annotation ran the real ToString.
 //
-// Two neighbours are NOT fixed here and are registered instead:
-//   - `null as any` into the same slot still answers the text "null";
-//     the Str slot has an undefined sentinel and no null one.
-//   - boxing the sentinel back into an `any` re-spells it as the text,
-//     so `(bare as any) === "undefined"` is true here and false in bun.
+// One neighbour is NOT fixed and is registered instead: `null as any`
+// into the same slot still answers the text "null", because the Str
+// slot has an undefined sentinel and no null one. Giving it one means
+// a second immortal cell plus every station that recognises the first
+// (drop, strict-eq, print, the any boundary) learning about it — its
+// own piece of work.
 
 let s: string | undefined = (undefined as any);
 console.log("undef", s === undefined, typeof s, JSON.stringify(s));
@@ -29,6 +30,12 @@ console.log("bare", bare === undefined, typeof bare);
 
 const plain: string = "lit";
 console.log("plain", typeof plain);
+
+// Crossing back into `any` re-encodes the sentinel as undefined rather
+// than re-spelling it as the text — both spellings of the crossing.
+const boxed: any = s;
+console.log("boxed", boxed === undefined, typeof boxed);
+console.log("asany", (bare as any) === undefined, (bare as any) === "undefined");
 
 // The real ToString is untouched — these all still spell it out.
 console.log("tostring", String(undefined), String(null), `${undefined}`);
