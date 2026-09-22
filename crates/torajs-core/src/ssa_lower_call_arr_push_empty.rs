@@ -1,4 +1,5 @@
-//! `xs.push()` — the empty-argument push (rotation 651).
+//! `xs.push()` — the empty-argument push (rotation 651); the empty
+//! `xs.unshift()` rides it too (`ssa_lower_arr_variadic`).
 //!
 //! §23.1.3.23 with no arguments appends nothing and answers the
 //! length (test262 S15.4.4.7_A1_T1 and siblings). The typed push arm

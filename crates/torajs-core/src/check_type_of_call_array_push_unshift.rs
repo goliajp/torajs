@@ -4,13 +4,13 @@
 //! check_type_of_call.rs per-shape decomposition).
 //!
 //! V3-18 wedge — Array.push / Array.unshift accept a variable
-//! number of args per JS spec §22.1.3.20 / §22.1.3.34. Each
+//! number of args per JS spec §23.1.3.23 / §23.1.3.35. Each
 //! arg is appended (or prepended) in order. Pre-fix tora's
-//! strict 1-arg signature rejected the multi-arg form. Subset
-//! typecheck enforces every arg matches the element type and
-//! returns Void (push's new-length return is not surfaced).
+//! strict 1-arg signature rejected the multi-arg form. Every arg
+//! must be assignable to the element type (an `any[]` takes
+//! anything), and the call answers the new length.
 //!
-//! Returns `Some(Ok(Void))` on Array-receiver match with all
+//! Returns `Some(Ok(Number))` on Array-receiver match with all
 //! args type-compatible; `Some(Err(_))` on type mismatch;
 //! `None` otherwise (non-Array receiver, non-{push,unshift},
 //! or arity = 1 which falls to the generic arg-unify path).
@@ -50,8 +50,8 @@ pub(crate) fn try_match(
         // shape keeps the generic arg-unify path and its admit stack
         // (Nullable match / empty-[] contextual / container widen),
         // so only the Any-arg form is intercepted; the ret is the
-        // member-table's Number (new length), unlike the variadic
-        // arm's unsurfaced Void below.
+        // member-table's Number (new length), the same answer the
+        // variadic arm below gives.
         if !matches!(inner, Type::Number | Type::String) {
             return None;
         }
@@ -69,12 +69,15 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if aty != inner && aty != Type::Any {
+        let admitted = inner == Type::Any
+            || aty == Type::Any
+            || crate::check_assignable::is_assignable_to(&inner, &aty);
+        if !admitted {
             return Some(Err(format!(
                 "Array.{m_name} arg {i}: expected element type {:?}, got {aty:?}",
                 inner
             )));
         }
     }
-    Some(Ok(Type::Void))
+    Some(Ok(Type::Number))
 }

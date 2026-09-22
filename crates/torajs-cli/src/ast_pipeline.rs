@@ -402,7 +402,6 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::desugar_function_prototype_methods(ast);
     ast::desugar_uninit_let(ast);
     ast::desugar_var_hoist(ast);
-    ast::desugar_variadic_push(ast);
     // Before it — the arguments-object collectors key on arena
     // `Ident`s naming a fn, and this pass removes exactly such a name,
     // so they should read the shape it leaves. Before the static

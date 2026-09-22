@@ -263,7 +263,6 @@ fn compute_diagnostics(uri: &Uri, text: &str) -> Vec<Diagnostic> {
         torajs_core::ast::wrap_escaping_fn_ident_bindings(&mut ast);
         torajs_core::ast::desugar_function_prototype_methods(&mut ast);
         torajs_core::ast::desugar_uninit_let(&mut ast);
-        torajs_core::ast::desugar_variadic_push(&mut ast);
         torajs_core::ast::demote_dynamic_spread_method_calls(&mut ast);
         torajs_core::ast::desugar_arguments_object(&mut ast);
         torajs_core::ast::synthesize_script_global_fns(&mut ast);

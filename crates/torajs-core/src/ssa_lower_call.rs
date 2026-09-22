@@ -413,6 +413,10 @@ fn try_dispatch_c(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) -> Op
     if let Some(op) = crate::ssa_lower_call_console::try_lower(ctx, callee, args) {
         return Some(op);
     }
+    // `xs.push(a, b)` / `xs.unshift(a, b)` / `xs.unshift()`.
+    if let Some(r) = crate::ssa_lower_arr_variadic::try_lower(ctx, callee, args) {
+        return Some(r);
+    }
     if let Some(r) = ctx.try_lower_arr_pop_shift_unshift(callee, args) {
         return Some(r);
     }
