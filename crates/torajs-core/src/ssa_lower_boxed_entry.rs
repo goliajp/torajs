@@ -126,10 +126,12 @@ pub(crate) fn synthesize_boxed_entries(
     }
     // Single-value ToString (the intrinsics table only carries the
     // pair ABI) — declared once, lazily with the first adapter.
+    // `undefined` keeps the Str undefined sentinel (a param, not a
+    // ToString site).
     let anyv_to_str = crate::ssa_lower_synthesize_main::declare_intrinsic(
         module,
         fn_table,
-        "__torajs_anyv_to_str",
+        "__torajs_anyv_to_str_param",
         &[Type::Any],
         Type::Ptr,
     );

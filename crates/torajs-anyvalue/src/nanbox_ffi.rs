@@ -39,6 +39,8 @@ use crate::nanbox_ffi_materialize::{
 // ============================================================
 
 unsafe extern "C" {
+    /// torajs-str — the Str slot's undefined sentinel (immortal).
+    fn __torajs_str_undef() -> *mut u8;
     fn __torajs_str_eq(a: *const u8, b: *const u8) -> i64;
     fn __torajs_value_drop_heap(child: *mut c_void);
     /// Heap+Str → number parse. Used by ShortStr ToNumber after
@@ -172,6 +174,25 @@ pub unsafe extern "C" fn __torajs_anyv_to_display_str(v: AnyValue) -> *mut c_voi
             }
             return unsafe { __torajs_symbol_to_str(ptr) as *mut c_void };
         }
+    }
+    unsafe { __torajs_anyv_to_str(v) }
+}
+
+/// A boxed argument landing in a `string` parameter: `undefined` stays
+/// `undefined` — the Str slot's undefined sentinel, the same spelling a
+/// missing argument gets — and any other value is ToString'd. The
+/// boxed-call adapters fill Str params through this; ToString on
+/// `undefined` handed a replacer's unmatched capture group over as the
+/// text `"undefined"` (§22.2.6.11 passes `undefined` for it). Owned
+/// (the sentinel's rc traffic is a no-op).
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_str_param(v: AnyValue) -> *mut c_void {
+    if is_undefined(v) {
+        return unsafe { __torajs_str_undef() } as *mut c_void;
     }
     unsafe { __torajs_anyv_to_str(v) }
 }
