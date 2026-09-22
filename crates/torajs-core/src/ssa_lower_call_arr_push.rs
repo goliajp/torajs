@@ -91,7 +91,14 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
             ctx.ast.get_expr(tail),
             Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
         );
-    if !borrowed_comma && !matches!(ctx.ast.get_expr(recv_id), Expr::Index { .. }) {
+    // An owned temporary array (`[1, 2].push(3)`, `mk().push(v)`) is
+    // the same cell-is-the-receiver story, released after the push.
+    let owned_temp = ctx.expr_owned_shape(recv_id)
+        && matches!(
+            ctx.expr_types.get(&recv_id),
+            Some(crate::check::Type::Array(_))
+        );
+    if !borrowed_comma && !owned_temp && !matches!(ctx.ast.get_expr(recv_id), Expr::Index { .. }) {
         return None;
     }
     let recv_val = ctx.lower_expr(recv_id);
@@ -100,9 +107,13 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         Type::Arr(id) => id,
         _ => return None,
     };
+    let tok = ctx.park_owned_temp(recv_id, &recv_val);
     let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
     if matches!(elem_ty, Type::Any) {
-        return Some(ctx.emit_arr_any_push_at_value(recv_val, args[0], recv_ty));
+        let n = ctx.emit_arr_any_push_at_value(recv_val.clone(), args[0], recv_ty);
+        ctx.unpark_owned_temp(tok);
+        ctx.release_owned_temp(recv_id, &recv_val);
+        return Some(n);
     }
     let (val, val_owned_from_substr) = coerce_push_value(ctx, args[0], elem_ty);
     let push_arg = ctx.raw_slot_arg(val.clone());
@@ -113,7 +124,7 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
     let new_arr = emit_grow_kernel_checked(
         ctx,
         ctx.intrinsics.arr_push,
-        recv_val,
+        recv_val.clone(),
         push_arg,
         args[0],
         val,
@@ -127,6 +138,8 @@ fn try_lower_index(ctx: &mut LowerCtx<'_>, recv_id: ExprId, args: &[ExprId]) -> 
         Type::I64,
         None,
     );
+    ctx.unpark_owned_temp(tok);
+    ctx.release_owned_temp(recv_id, &recv_val);
     Some(Operand::Value(new_len))
 }
 

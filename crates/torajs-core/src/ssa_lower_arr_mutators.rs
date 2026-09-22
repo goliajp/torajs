@@ -38,13 +38,18 @@ impl<'a> LowerCtx<'a> {
         callee: ExprId,
         args: &[ExprId],
     ) -> Option<Operand> {
-        if let Some(r) = self.try_arr_pop(callee, args) {
-            return Some(r);
+        let temp = self.lower_mutator_temp(callee, args);
+        let r = self
+            .try_arr_pop(callee, args)
+            .or_else(|| self.try_arr_shift(callee, args))
+            .or_else(|| self.try_arr_unshift(callee, args));
+        if let Some(tok) = temp {
+            // A pre-lowered receiver has a resolver arm, and none of
+            // the three declines after resolving it.
+            debug_assert!(r.is_some(), "mutator declined a pre-lowered temp receiver");
+            self.release_mutator_temp(tok);
         }
-        if let Some(r) = self.try_arr_shift(callee, args) {
-            return Some(r);
-        }
-        self.try_arr_unshift(callee, args)
+        r
     }
 
     /// bug-327 C1 — shared empty-array guard for `pop` / `shift`.

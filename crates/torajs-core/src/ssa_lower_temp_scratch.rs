@@ -33,6 +33,11 @@ pub(crate) struct TempScratch {
     /// badDesc) } catch {}` churned 175MB against a 1.9MB flat
     /// baseline.
     pub(crate) throw_live: Vec<Option<ThrowTemp>>,
+    /// An owned temporary array receiver of `pop` / `shift` /
+    /// `unshift` (`[1, 2].pop()`, `mk().shift()`), lowered once by the
+    /// dispatcher so the receiver resolver can hand it to the arm and
+    /// the dispatcher can release it after (`ssa_lower_arr_mutator_recv`).
+    pub(crate) mutator_recv: Option<(crate::ast::ExprId, Operand)>,
 }
 
 /// One parked temp: a value with its drop type, or a relocation slot

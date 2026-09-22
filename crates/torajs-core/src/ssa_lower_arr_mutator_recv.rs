@@ -75,7 +75,62 @@ impl<'a> LowerCtx<'a> {
                 }
                 None
             }
-            _ => None,
+            _ => match &self.temps.mutator_recv {
+                Some((id, op)) if *id == recv_id => {
+                    let op = op.clone();
+                    let ty = self.operand_ty(&op);
+                    Some((op, ty))
+                }
+                _ => None,
+            },
+        }
+    }
+
+    /// An owned temporary array as the receiver of a mutator —
+    /// `[1, 2].pop()`, `mk().shift()`, `[0].unshift(v)`. Legal
+    /// programs every engine runs; the resolver above only knew
+    /// places (bindings, fields, elements), so these died at lowering
+    /// with "unsupported member call shape". B1 fixed the cell across
+    /// grow, so the temp needs no write-back: lower it once here,
+    /// park it for the throw edges the arm may emit, and let
+    /// [`Self::release_mutator_temp`] drop it after the arm.
+    ///
+    /// Gated to the arms' own admission (`unshift` takes one argument)
+    /// so a declined call never sees its receiver evaluated twice.
+    pub(crate) fn lower_mutator_temp(
+        &mut self,
+        callee: ExprId,
+        args: &[ExprId],
+    ) -> Option<Option<usize>> {
+        let Expr::Member { obj, name } = self.ast.get_expr(callee) else {
+            return None;
+        };
+        let admitted =
+            matches!(name.as_str(), "pop" | "shift") || (name == "unshift" && args.len() == 1);
+        let obj = *obj;
+        if !admitted
+            || !self.expr_owned_shape(obj)
+            || !matches!(
+                self.expr_types.get(&obj),
+                Some(crate::check::Type::Array(_))
+            )
+        {
+            return None;
+        }
+        let op = self.lower_expr(obj);
+        if !matches!(self.operand_ty(&op), Type::Arr(_)) {
+            return None;
+        }
+        let tok = self.park_owned_temp(obj, &op);
+        self.temps.mutator_recv = Some((obj, op));
+        Some(tok)
+    }
+
+    /// The release half of [`Self::lower_mutator_temp`].
+    pub(crate) fn release_mutator_temp(&mut self, tok: Option<usize>) {
+        if let Some((obj, op)) = self.temps.mutator_recv.take() {
+            self.unpark_owned_temp(tok);
+            self.release_owned_temp(obj, &op);
         }
     }
 }
