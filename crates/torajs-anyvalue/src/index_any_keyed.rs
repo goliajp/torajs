@@ -25,6 +25,8 @@ use torajs_rc::Tag;
 
 unsafe extern "C" {
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// torajs-throw — pending-throw probe (non-consuming).
+    fn __torajs_throw_check() -> i64;
     /// torajs-str — release a heap Str reference (the temp ToString
     /// key minted below).
     fn __torajs_str_drop(s: *mut c_void);
@@ -61,6 +63,33 @@ pub unsafe extern "C" fn __torajs_anyv_to_property_key(key: AnyValue) -> *mut c_
             if tag == Tag::Symbol as u16 || tag == Tag::Str as u16 {
                 __torajs_rc_inc(ptr);
                 return ptr;
+            }
+            // Step 1 is ToPrimitive(key, string), and its answer can be
+            // a Symbol — a Symbol wrapper's always is (§20.4.3.5), and
+            // so is a `toString` that returns one. Step 2 keeps that
+            // Symbol as the key; only a non-Symbol primitive goes on
+            // to ToString. Skipping straight to ToString threw
+            // "Cannot convert a symbol to a string" for `o[Object(s)]`.
+            if crate::to_primitive::is_object_value(key) {
+                let Some(prim) = crate::to_primitive::heap_to_primitive(ptr, true) else {
+                    return core::ptr::null_mut();
+                };
+                // A hook that threw answers a placeholder with the
+                // throw pending.
+                if __torajs_throw_check() != 0 {
+                    crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
+                    return core::ptr::null_mut();
+                }
+                if is_cell(prim)
+                    && (as_void_ptr(prim) as *const u8).add(4).cast::<u16>().read()
+                        == Tag::Symbol as u16
+                {
+                    // `prim` is an owned share — it becomes the answer.
+                    return as_void_ptr(prim);
+                }
+                let s = crate::nanbox_ffi::__torajs_anyv_to_str(prim) as *mut c_void;
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(prim);
+                return s;
             }
         }
         crate::nanbox_ffi::__torajs_anyv_to_str(key) as *mut c_void
@@ -215,13 +244,13 @@ unsafe fn any_index_set_keyed_impl(
             __torajs_throw_type_error(c"cannot set properties of null or undefined".as_ptr());
             return 0;
         }
-        let kstr = crate::nanbox_ffi::__torajs_anyv_to_str(key);
-        if kstr.is_null() {
+        let kcell = __torajs_anyv_to_property_key(key);
+        if kcell.is_null() {
             return 0;
         }
         let wrote =
-            crate::member_set::any_member_set_impl(slot, kstr, tag, value, -1, throw_on_refusal);
-        __torajs_str_drop(kstr);
+            crate::member_set::any_member_set_impl(slot, kcell, tag, value, -1, throw_on_refusal);
+        __torajs_anyv_property_key_drop(kcell);
         wrote
     }
 }
@@ -266,15 +295,14 @@ pub unsafe extern "C" fn __torajs_any_index_get_keyed(recv: AnyValue, key: AnyVa
         if !require_object_coercible(recv) {
             return crate::nanbox::VALUE_UNDEFINED;
         }
-        // §7.1.19 step 3 — ToString(key), probe, release the temp.
-        // Symbols never reach here (cell arm above), so the §7.1.17
-        // implicit-coercion TypeError face stays untouched.
-        let kstr = crate::nanbox_ffi::__torajs_anyv_to_str(key);
-        if kstr.is_null() {
+        // §7.1.19 steps 1-3 — the key cell (a Symbol when the key's
+        // ToPrimitive answers one), probe, release the temp.
+        let kcell = __torajs_anyv_to_property_key(key);
+        if kcell.is_null() {
             return crate::nanbox::VALUE_UNDEFINED;
         }
-        let out = probe_key_cell(recv, kstr as *const c_void);
-        __torajs_str_drop(kstr);
+        let out = probe_key_cell(recv, kcell as *const c_void);
+        __torajs_anyv_property_key_drop(kcell);
         out
     }
 }
@@ -327,12 +355,12 @@ unsafe fn proxy_keyed_get(recv: AnyValue, key: AnyValue) -> AnyValue {
                 return crate::proxy::get_key_cell(recv, ptr as *const c_void);
             }
         }
-        let s = crate::nanbox_ffi::__torajs_anyv_to_str(key) as *mut c_void;
+        let s = __torajs_anyv_to_property_key(key);
         if s.is_null() {
             return crate::nanbox::VALUE_UNDEFINED;
         }
         let out = crate::proxy::get_key_cell(recv, s as *const c_void);
-        __torajs_str_drop(s);
+        __torajs_anyv_property_key_drop(s);
         out
     }
 }

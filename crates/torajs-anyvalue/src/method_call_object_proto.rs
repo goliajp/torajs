@@ -118,37 +118,23 @@ pub(crate) unsafe fn own_prop_probe(
     } else {
         VALUE_UNDEFINED
     };
-    let sym_key = unsafe { symbol_key_cell(key_av) };
-    let key = match sym_key {
-        Some(cell) => cell,
-        None => unsafe { crate::nanbox_ffi::__torajs_anyv_to_str(key_av) as *const c_void },
-    };
+    // The shared §7.1.19 kernel: a Symbol wrapper (or any key whose
+    // ToPrimitive answers a Symbol) keys by that Symbol, not by the
+    // ToString that would throw on it. NULL = a pending throw.
+    let key = unsafe { crate::index_any_keyed::__torajs_anyv_to_property_key(key_av) };
+    if key.is_null() {
+        return crate::nanbox::VALUE_FALSE;
+    }
     let hit = if mid == ANY_METHOD_HAS_OWN_PROPERTY {
         unsafe { crate::prop_has::__torajs_any_prop_has(recv, key) }
     } else {
         unsafe { crate::prop_enumerable::__torajs_any_prop_enumerable(recv, key) }
     };
-    if sym_key.is_none() {
-        unsafe { __torajs_str_drop(key as *mut c_void) };
-    }
+    unsafe { crate::index_any_keyed::__torajs_anyv_property_key_drop(key) };
     if hit != 0 {
         crate::nanbox::VALUE_TRUE
     } else {
         crate::nanbox::VALUE_FALSE
-    }
-}
-
-/// The argument as a borrowed `Tag::Symbol` key cell, or `None` when it
-/// is any other value (which §7.1.19 step 3 sends through ToString).
-///
-/// # Safety
-/// `v` carries a valid AnyValue bit pattern.
-unsafe fn symbol_key_cell(v: AnyValue) -> Option<*const c_void> {
-    let (ptr, t) = crate::member_get::recv_cell(v)?;
-    if t == Tag::Symbol as u16 {
-        Some(ptr as *const c_void)
-    } else {
-        None
     }
 }
 
