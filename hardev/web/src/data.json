@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-22T06:06:11.752Z",
+  "generatedAt": "2026-09-22T08:57:14.513Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-22T05:54:23Z",
-    "headSha": "a300a4cc3",
-    "elapsedSec": 542.37,
+    "ranAt": "2026-09-22T08:45:22Z",
+    "headSha": "2f3205d786bbbeb3ecb34e1bce09d6955ff6099b",
+    "elapsedSec": 541.21,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34459,
+    "pass": 34479,
     "passNoOracle": 1719,
     "passNegative": 4568,
-    "passTotal": 40746,
-    "bug": 8529,
-    "incompatible": 3899,
+    "passTotal": 40766,
+    "bug": 8514,
+    "incompatible": 3894,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49275,
-    "passRateInScope": 76.63,
-    "passRateTrAccepted": 82.69
+    "trAccepted": 49280,
+    "passRateInScope": 76.67,
+    "passRateTrAccepted": 82.72
   },
   "torajs": {
-    "commit": "9f5243356",
-    "commitSubject": "chore(hardev): rotation 689 close stamps",
+    "commit": "eaa98284a",
+    "commitSubject": "chore(hardev): rotation 690 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "9f5243356",
-      "subject": "chore(hardev): rotation 689 close stamps"
+      "hash": "eaa98284a",
+      "subject": "chore(hardev): rotation 690 close stamps"
     },
     {
-      "hash": "a300a4cc3",
-      "subject": "fix: a callable replaceValue on the generic replace lane refuses instead of stringifying"
+      "hash": "2f3205d78",
+      "subject": "fix: ToPropertyKey keys by a Symbol its key's ToPrimitive answers"
     },
     {
-      "hash": "ef09f40b0",
-      "subject": "fix: the class-method demotion probe checks every receiver shape"
+      "hash": "484a15ec8",
+      "subject": "fix: an owned temporary array is a valid push / pop / shift / unshift receiver"
     },
     {
-      "hash": "847b0c5dd",
-      "subject": "fix: new Number / new String take the callable forms' argument domain"
+      "hash": "26421b6e7",
+      "subject": "refactor: move the mutator receiver resolver and the push grow kernel into siblings"
     },
     {
-      "hash": "70783a9c3",
-      "subject": "fix: new RegExp evaluates and ignores arguments past the flags"
+      "hash": "8171834d1",
+      "subject": "fix: a Symbol in a callback slot or callee position is the runtime TypeError"
     },
     {
-      "hash": "908b7efe4",
-      "subject": "fix: new Array with a single non-Number argument makes a one-element array"
+      "hash": "c6617867a",
+      "subject": "fix: delete takes bigint and boolean keys and releases every coerced key"
     },
     {
-      "hash": "e4c92a64b",
-      "subject": "fix: a computed RegExp argument rides the regex lane of the string methods"
+      "hash": "0bc115393",
+      "subject": "fix: OrdinaryToPrimitive over a Proxy is Get, then IsCallable, then Call"
     },
     {
-      "hash": "3ffc86f4c",
-      "subject": "fix: keep the obj-world arms when a string kernel coerces an any pattern"
+      "hash": "5eee0236f",
+      "subject": "fix: an Array subclass's single non-Number super(v) makes v the only element"
     },
     {
-      "hash": "2346686ba",
-      "subject": "refactor: move the obj-world re-entry tables out of the dispatch judge"
+      "hash": "c9ed2389b",
+      "subject": "fix: the dispatch judgment keeps the object arms for length writes, super[k] and builtin-subclass super(v)"
     },
     {
-      "hash": "f0178f90e",
-      "subject": "fix: the 1-arg indexOf / lastIndexOf take any search value"
+      "hash": "3e8854b20",
+      "subject": "fix: the dispatch judgment keeps the object arms for six coercing kernels"
     },
     {
-      "hash": "4b7698e1b",
-      "subject": "fix: value-only ToString answers a BigInt's digits, not its console form"
+      "hash": "697315c63",
+      "subject": "fix: the 1-arg includes / startsWith / endsWith take any needle"
     },
     {
-      "hash": "f97d5db0b",
-      "subject": "fix: new WeakRef accepts any argument count"
+      "hash": "8635f9fc2",
+      "subject": "fix: Symbol.for takes any key and runs ToString on it"
     }
   ],
-  "headSha": "9f5243356",
+  "headSha": "eaa98284a",
   "autorun": {
-    "total": 991,
+    "total": 992,
     "baselineTarget": 10,
-    "bySelf": 986,
+    "bySelf": 987,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790046685-4a21",
-      "at": "2026-09-22T03:11:25Z",
-      "ts": 1790046685,
+      "rotationId": "r-1790057261-57e3",
+      "at": "2026-09-22T06:07:41Z",
+      "ts": 1790057261,
       "trigger": "self",
-      "prevHead": "1f5cb13a8",
-      "handoffSha": "sha256:95ad0774fb94a718941228325813d1e194bddf8f0084b0f4a9c02ed81f36eded",
-      "handoffAgeSec": 18,
-      "conformanceBefore": "4472/0/4",
-      "commitsInSession": 15
+      "prevHead": "de821e86f",
+      "handoffSha": "sha256:b4b6ee5b407c85aa174263e7e4c7d725106a3ebd29819c8392da18b31c440d00",
+      "handoffAgeSec": 2,
+      "conformanceBefore": "4483/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1790057261-57e3",
+        "at": "2026-09-22T06:07:41Z",
+        "ts": 1790057261,
+        "trigger": "self",
+        "prevHead": "de821e86f",
+        "handoffSha": "sha256:b4b6ee5b407c85aa174263e7e4c7d725106a3ebd29819c8392da18b31c440d00",
+        "handoffAgeSec": 2,
+        "conformanceBefore": "4483/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1790046685-4a21",
         "at": "2026-09-22T03:11:25Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:36291793f7ec6038b56ed8cb0b1994099e8a799c9f997ddf13c82b085f9806b0",
         "handoffAgeSec": 13,
         "conformanceBefore": "4400/0/4",
-        "commitsInSession": 14
-      },
-      {
-        "rotationId": "r-1789915070-71c7",
-        "at": "2026-09-20T14:37:50Z",
-        "ts": 1789915070,
-        "trigger": "self",
-        "prevHead": "6ec8f07a8",
-        "handoffSha": "sha256:81177b7362cdb92284f0c30af6aa5ef404302cb7c47966809d1649e2e8ae1564",
-        "handoffAgeSec": 6,
-        "conformanceBefore": "4393/0/4",
         "commitsInSession": 14
       }
     ],
