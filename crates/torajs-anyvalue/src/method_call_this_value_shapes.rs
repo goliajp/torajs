@@ -6,13 +6,48 @@
 //! 500-line file cap. Verbatim move; these four answer one question
 //! each and the gate next door reads them.
 //!
-//! Each abstract operation admits the primitive AND its wrapper
-//! object, because the wrapper's internal data slot is what the
+//! Each abstract operation admits the primitive, its wrapper object
+//! and the builtin prototype singleton, because the wrapper's internal data slot is what the
 //! operation reads — `Number.prototype.toString.call(new Number(1))`
 //! is 1, not a TypeError.
 
 use crate::nanbox::{AnyValue, as_void_ptr, is_bool, is_cell, is_double, is_int32, is_short_str};
 use torajs_rc::Tag;
+use torajs_rc::builtin_proto::{
+    __torajs_peek_builtin_prototype, BOOLEAN_PROTO_TAG, NUMBER_PROTO_TAG, STRING_PROTO_TAG,
+};
+
+/// Is `v` the `<Ctor>.prototype` singleton of builtin `proto_tag`? The
+/// Number / Boolean / String prototypes are themselves ordinary
+/// objects WITH the primitive's internal slot (§21.1.3 +0, §20.3.3
+/// false, §22.1.3 the empty string), so each this-value operation
+/// admits its own prototype.
+fn is_proto_singleton(v: AnyValue, proto_tag: usize) -> bool {
+    // SAFETY: the peek only reads an atomic slot; NULL (never minted)
+    // cannot equal a live cell.
+    let proto = unsafe { __torajs_peek_builtin_prototype(proto_tag as i64) };
+    !proto.is_null() && as_void_ptr(v) == proto
+}
+
+/// The internal slot value of the Number / Boolean / String prototype
+/// singleton, when `v` is the one whose family `fam` names — what the
+/// family's this-value operation reads off it (+0, false, "").
+pub(crate) fn proto_singleton_data(v: AnyValue, fam: i64) -> Option<AnyValue> {
+    use crate::method_value::{BOOL_PROTO_FAMILY, NUM_PROTO_FAMILY, STR_PROTO_FAMILY};
+    if !is_cell(v) {
+        return None;
+    }
+    if fam == NUM_PROTO_FAMILY && is_proto_singleton(v, NUMBER_PROTO_TAG) {
+        return Some(crate::nanbox::box_int32(0));
+    }
+    if fam == BOOL_PROTO_FAMILY && is_proto_singleton(v, BOOLEAN_PROTO_TAG) {
+        return Some(crate::nanbox::VALUE_FALSE);
+    }
+    if fam == STR_PROTO_FAMILY && is_proto_singleton(v, STRING_PROTO_TAG) {
+        return crate::nanbox::try_box_short_str(b"");
+    }
+    None
+}
 
 /// thisNumberValue shape — a number immediate or a Number wrapper
 /// (whose thisNumberValue is its [[NumberData]]).
@@ -24,7 +59,7 @@ pub(crate) fn is_number_shaped(v: AnyValue) -> bool {
         return false;
     }
     let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::NumberWrapper as u16
+    tag == Tag::NumberWrapper as u16 || is_proto_singleton(v, NUMBER_PROTO_TAG)
 }
 
 /// thisBooleanValue shape — a bool immediate or a Boolean wrapper.
@@ -36,7 +71,7 @@ pub(crate) fn is_boolean_shaped(v: AnyValue) -> bool {
         return false;
     }
     let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::BooleanWrapper as u16
+    tag == Tag::BooleanWrapper as u16 || is_proto_singleton(v, BOOLEAN_PROTO_TAG)
 }
 
 /// A primitive shape whose ToObject mints a fresh wrapper — the
@@ -66,7 +101,9 @@ pub(crate) fn is_string_shaped(v: AnyValue) -> bool {
         return false;
     }
     let tag = unsafe { (as_void_ptr(v).cast::<u8>().add(4) as *const u16).read() };
-    tag == Tag::Str as u16 || tag == Tag::StringWrapper as u16
+    tag == Tag::Str as u16
+        || tag == Tag::StringWrapper as u16
+        || is_proto_singleton(v, STRING_PROTO_TAG)
 }
 
 /// ThisBigIntValue shape — a BigInt cell. There is no BigInt wrapper

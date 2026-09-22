@@ -209,27 +209,59 @@ pub(crate) unsafe fn generic_builtin_this(
             return Some(VALUE_UNDEFINED);
         }
     }
-    // §21.1.3 thisNumberValue / §20.3.3 thisBooleanValue /
-    // §21.2.3 ThisBigIntValue — a toString / valueOf /
-    // toLocaleString minted on one of these prototypes and borrowed
-    // onto a receiver of the wrong brand is a TypeError (rotation
-    // 204, mirror of the String family's thisStringValue gate below;
-    // toString is NOT generic for these prototypes).
-    //
-    // Rotation 680 — BigInt and Function joined, and `toLocaleString`
-    // joined the mid list. The rule was right and reached half of
-    // what it covers: §21.2.3.{1,2,3} all begin "Let x be ?
-    // ThisBigIntValue(this value)" and §20.2.3.5 step 4 throws when
-    // `this` is not callable, so `BigInt.prototype.toString.call(1)`
-    // and `Function.prototype.toString.call({})` answered a value
-    // where the spec raises. §21.1.3.4 puts Number's
-    // `toLocaleString` on thisNumberValue too, which is why the mid
-    // list grew rather than a second family list appearing beside
-    // this one.
+    if let Some(out) = unsafe { this_value_gate(mid, this_arg, argv, argc, fam) } {
+        return Some(out);
+    }
+    unsafe {
+        generic_str_this(
+            mid,
+            this_arg,
+            argv,
+            argc,
+            fam == crate::method_value::STR_PROTO_FAMILY,
+        )
+    }
+}
+
+/// §21.1.3 thisNumberValue / §20.3.3 thisBooleanValue /
+/// §21.2.3 ThisBigIntValue — a toString / valueOf /
+/// toLocaleString minted on one of these prototypes and borrowed
+/// onto a receiver of the wrong brand is a TypeError (rotation
+/// 204, mirror of the String family's thisStringValue gate below;
+/// toString is NOT generic for these prototypes).
+///
+/// Rotation 680 — BigInt and Function joined, and `toLocaleString`
+/// joined the mid list. The rule was right and reached half of
+/// what it covers: §21.2.3.{1,2,3} all begin "Let x be ?
+/// ThisBigIntValue(this value)" and §20.2.3.5 step 4 throws when
+/// `this` is not callable, so `BigInt.prototype.toString.call(1)`
+/// and `Function.prototype.toString.call({})` answered a value
+/// where the spec raises. §21.1.3.4 puts Number's
+/// `toLocaleString` on thisNumberValue too, which is why the mid
+/// list grew rather than a second family list appearing beside
+/// this one.
+///
+/// `Some` is the whole answer (the slot's value re-dispatched, or the
+/// recorded TypeError); `None` continues to the generic lanes.
+unsafe fn this_value_gate(
+    mid: i64,
+    this_arg: AnyValue,
+    argv: *const u64,
+    argc: i64,
+    fam: i64,
+) -> Option<AnyValue> {
     if matches!(
         mid,
         ANY_METHOD_TO_STRING | ANY_METHOD_VALUE_OF | ANY_METHOD_TO_LOCALE_STRING
     ) {
+        // The prototype singleton carries the primitive's slot
+        // (§21.1.3 / §20.3.3 / §22.1.3): the operation runs on that
+        // value.
+        if let Some(data) = shapes::proto_singleton_data(this_arg, fam) {
+            return Some(unsafe {
+                crate::method_call::any_method_redispatch(data, mid, argv, argc)
+            });
+        }
         let wrong_brand = (fam == crate::method_value::NUM_PROTO_FAMILY
             && !shapes::is_number_shaped(this_arg))
             || (fam == crate::method_value::BOOL_PROTO_FAMILY
@@ -247,15 +279,7 @@ pub(crate) unsafe fn generic_builtin_this(
             return Some(VALUE_UNDEFINED);
         }
     }
-    unsafe {
-        generic_str_this(
-            mid,
-            this_arg,
-            argv,
-            argc,
-            fam == crate::method_value::STR_PROTO_FAMILY,
-        )
-    }
+    None
 }
 
 /// §23.1.3.{5,19,35} — the Array iterator flavors over a receiver that
