@@ -164,6 +164,15 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
     {
         return Ok(Type::String);
     }
+    // §13.15.3 with a nullable STRING on one side and anything but a
+    // String on the other: the union's two faces disagree about the
+    // operator — `"a" + undefined` concatenates while
+    // `undefined + undefined` is NaN — so the answer is the one the
+    // any lane's kernel decides at run time. The String pairs answer
+    // above (both faces concatenate).
+    if (nullable_str(&l) && r != Type::String) || (nullable_str(&r) && l != Type::String) {
+        return Ok(Type::Any);
+    }
     // P0.6 — Any operand on either side: ssa_lower routes through
     // __torajs_any_add (ToPrimitive Default → concat or numeric add).
     if rides_any_lane(&l) || rides_any_lane(&r) {
@@ -184,6 +193,12 @@ fn check_add(l: Type, r: Type) -> Result<Type, String> {
     Err(format!(
         "`+` requires matching number/string/bigint operands or string+number, got {l:?} and {r:?}"
     ))
+}
+
+/// `string | undefined` / `string | null` — the union whose two faces
+/// answer different operators.
+fn nullable_str(t: &Type) -> bool {
+    matches!(t, Type::Nullable(inner) if **inner == Type::String)
 }
 
 /// One side is an object, and the other is one the numeric lanes can

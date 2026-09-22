@@ -276,6 +276,23 @@ fn box_object_operands_for_any_lane(
         (obj_lane && crate::ssa_lower_unary::is_number_coercible_obj(t))
             || (str_lane && stringish(&t))
     };
+    // §13.15.3 with a `string | undefined` on one side and a
+    // non-String on the other: the union's faces answer different
+    // operators, so the kernel decides at run time (the checker types
+    // the expression Any for the same reason). Without this the pair
+    // took the concat lane and `p1 + 1` read the sentinel's own text.
+    // A plain String on the other side keeps the concat lane (both
+    // faces concatenate there); another nullable string does not —
+    // `undefined + undefined` is NaN.
+    let plain_str = |nullable: bool, stringish: bool| stringish && !nullable;
+    let nullable_str_pair = matches!(op, AstBinOp::Add)
+        && ((ctx.binop.left_nullable_str && !plain_str(ctx.binop.right_nullable_str, b_str))
+            || (ctx.binop.right_nullable_str && !plain_str(ctx.binop.left_nullable_str, a_str)));
+    if nullable_str_pair {
+        let a = if a_str { ctx.box_to_any(a) } else { a };
+        let b = if b_str { ctx.box_to_any(b) } else { b };
+        return (a, b);
+    }
     let a_obj = coercible(ctx, &a);
     let b_obj = coercible(ctx, &b);
     if !a_obj && !b_obj {

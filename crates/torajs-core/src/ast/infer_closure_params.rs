@@ -30,18 +30,29 @@ use crate::ssa_lower_free_helpers::count_capture_groups;
 /// Annotations for a `<string>.replace(re, cb)` callback's user params,
 /// shaped by the callback's user-param count `p` and the regex's static
 /// capture count `n_caps` (`None` when the regex isn't a literal). The
-/// match + captures are Strings; an optional trailing pair is
-/// `(offset: number, input: string)`. A shape fitting neither accepted
-/// lane form (`[Str; C+1]` or `[Str; C+1, number, string]`) annotates
-/// only the match (param 0) — always a String — and leaves the rest for
-/// the regex lane to loud-reject (never mis-typed).
+/// match is a String; a CAPTURE is `string | undefined` — §22.2.6.11
+/// step 14.f hands undefined for a group that did not participate, so
+/// a `string` seed made `typeof p1` fold to "string", `p1 === undefined`
+/// fold to false and `p1.toUpperCase()` read the sentinel's text. The
+/// optional trailing pair is `(offset: number, input: string)`. A shape
+/// fitting neither accepted lane form (`[Str; C+1]` or
+/// `[Str; C+1, number, string]`) annotates only the match (param 0) —
+/// always a String — and leaves the rest for the regex lane to
+/// loud-reject (never mis-typed).
+///
+/// Both spellings are the same SSA slot (a nullable string is a Str
+/// with the undefined sentinel), so the callback ABI is unchanged.
 fn replace_cb_param_anns(p: usize, n_caps: Option<usize>) -> Vec<String> {
+    let capture = || "__nullable(string)".to_string();
     if let Some(c) = n_caps {
         if p == c + 1 {
-            return vec!["string".to_string(); p];
+            let mut v = vec!["string".to_string()];
+            v.extend(std::iter::repeat_n(capture(), c));
+            return v;
         }
         if p == c + 3 {
-            let mut v = vec!["string".to_string(); c + 1];
+            let mut v = vec!["string".to_string()];
+            v.extend(std::iter::repeat_n(capture(), c));
             v.push("number".to_string());
             v.push("string".to_string());
             return v;
@@ -290,7 +301,11 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             for (_arg_idx, fn_name) in &closure_args {
                 let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
                 let param_anns = replace_cb_param_anns(p, n_caps);
-                updates.insert(fn_name.clone(), (param_anns, "string".into()));
+                // The body may hand back a capture as-is, so the
+                // declared return follows the capture spelling; both
+                // are the same Str slot and the lane's `ret == Str`
+                // check still holds.
+                updates.insert(fn_name.clone(), (param_anns, "__nullable(string)".into()));
             }
             continue;
         }

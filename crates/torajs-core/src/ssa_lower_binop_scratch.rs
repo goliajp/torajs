@@ -48,6 +48,14 @@ pub(crate) struct BinopScratch {
     /// ToString(null) instead of handing NULL to `arr_join`.
     pub(crate) left_nullable_ptr: bool,
     pub(crate) right_nullable_ptr: bool,
+    /// The operand is a nullable-STRING source (checker type
+    /// `string | undefined`, SSA repr a Str with the undefined
+    /// sentinel in band). `+` reads these: the union's two faces
+    /// answer different operators (`"a" + undefined` concatenates,
+    /// `undefined + 1` is NaN), so the pair belongs to the any lane
+    /// whenever the other side is not a String.
+    pub(crate) left_nullable_str: bool,
+    pub(crate) right_nullable_str: bool,
     /// S9 square carve — set when both Mul operands are the same identifier
     /// (`x * x`): a value times itself can never be negative×zero, so -0 is
     /// unmintable and the int path keeps (mirrors the `width_of` square
