@@ -54,7 +54,7 @@ pub(crate) fn lower(
     // the cell — a TypeError, and one that precedes the argument
     // list. Armed here, ahead of the cascade, because every typed
     // arm below reads the receiver as a live value of its own type.
-    crate::ssa_lower_call_undef_recv::arm(ctx, callee);
+    crate::ssa_lower_call_undef_recv::arm(ctx, callee, args);
     dispatch(ctx, eid, callee, args)
 }
 

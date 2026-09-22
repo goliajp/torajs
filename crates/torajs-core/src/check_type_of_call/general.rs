@@ -301,6 +301,9 @@ fn arg_admitted(
     if nullable_into_defaulted_param(ast, callee, i, param_ty, arg_ty) {
         return true;
     }
+    if is_class_method && i == 0 && crate::check::nullable_receiver_admits(param_ty, arg_ty) {
+        return true;
+    }
     // RFC 20260715-nominal-class-identity — a class instance types as
     // its NAME, so every structural wedge below (subclass prefix,
     // Nullable match, callback subtype, container widen) needs the

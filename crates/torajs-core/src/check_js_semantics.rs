@@ -89,6 +89,26 @@ pub(crate) fn handler_param_admits(param: &Type, given: &Type) -> bool {
     }
 }
 
+/// May a `Nullable<T>` receiver fill a method's receiver slot of `T`?
+///
+/// A class method call passes its receiver as argument 0, typed as the
+/// class. §13.3.6.1 evaluates the member reference first — GetValue on
+/// it is where §7.1.20 ToObject raises the TypeError for an absent
+/// base, before any argument is evaluated — so a possibly-undefined
+/// receiver is not a reason to refuse the call. It is the same slot as
+/// `T` for every pointer shape ([`nullable_ptr_shaped`]), and the
+/// lowering arms its receiver guard off this same checker type.
+///
+/// This is [`handler_param_admits`] seen from the other side: there
+/// the PARAM is the wider one, here the ARGUMENT is, and the runtime
+/// guard is what makes the narrower slot safe to fill.
+pub(crate) fn nullable_receiver_admits(param: &Type, given: &Type) -> bool {
+    match given {
+        Type::Nullable(inner) => inner.as_ref() == param && nullable_ptr_shaped(given),
+        _ => false,
+    }
+}
+
 /// The type a narrow may install, given the type it replaces.
 ///
 /// Narrowing answers "what can this binding hold from here on"; it

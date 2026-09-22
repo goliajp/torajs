@@ -31,11 +31,23 @@ use crate::ssa_lower::LowerCtx;
 /// callee is a member read off a receiver that may be holding the
 /// cell. The lowered receiver is parked for the dispatcher below,
 /// so this never changes how many times the receiver is evaluated.
-pub(crate) fn arm(ctx: &mut LowerCtx<'_>, callee: ExprId) {
-    let Expr::Member { obj, .. } = ctx.ast.get_expr(callee) else {
-        return;
+///
+/// A class method call reaches here already rewritten to
+/// `__cm_C__m(receiver, …)` — an Ident callee with the receiver as
+/// argument 0 — so the member test alone never saw it, and the
+/// method's body was inlined straight onto the absent receiver
+/// (`c.m()` on a `C | undefined` holding undefined was a SIGSEGV).
+/// It is the same receiver in a different position; the guard and
+/// the parking are unchanged.
+pub(crate) fn arm(ctx: &mut LowerCtx<'_>, callee: ExprId, args: &[ExprId]) {
+    let obj = match ctx.ast.get_expr(callee) {
+        Expr::Member { obj, .. } => *obj,
+        Expr::Ident(name) if crate::check::is_class_method_name(name) => match args.first() {
+            Some(recv) => *recv,
+            None => return,
+        },
+        _ => return,
     };
-    let obj = *obj;
     // The any lane re-encodes the cell on its way into the box
     // (`ssa_lower_any_box`) and its kernel answers §7.1.18 already.
     if matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Any)) {
