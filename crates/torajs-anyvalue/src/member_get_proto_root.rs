@@ -58,6 +58,28 @@ pub(crate) unsafe fn proto_chain_expando(recv: AnyValue, key: *const c_void) -> 
     unsafe { patch_slot_chain(start, key) }
 }
 
+/// What the program installed on the receiver's OWN family prototype —
+/// the level whose builtin methods the reify probe is about to offer.
+/// §10.1.8.1 asks one prototype for everything it owns before moving
+/// up, and a user entry there REPLACED the builtin of that name
+/// (`Date.prototype.toString = f`), so it has to be asked first. A
+/// patch further up the chain is not this question: the nearer
+/// prototype's own builtin wins over it, which is what the walk at the
+/// end of the reify probe keeps.
+///
+/// # Safety
+/// `key` is NULL or a live Str cell.
+pub(crate) unsafe fn family_patch(recv: AnyValue, key: *const c_void) -> Option<(i64, i64)> {
+    if key.is_null() {
+        return None;
+    }
+    let fam = crate::method_value::family::recv_proto_family(recv);
+    if fam < 0 {
+        return None;
+    }
+    unsafe { peek_own(fam, key) }
+}
+
 /// One prototype's own entry for a METHOD name, then the chain root's
 /// (§10.1.9.2, 521-05). PEEKs rather than materializes, because the
 /// call channel's miss exit has to stay allocation-free and a

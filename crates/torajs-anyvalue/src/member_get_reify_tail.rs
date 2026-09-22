@@ -26,6 +26,12 @@ pub(crate) unsafe fn reify_tag(recv: AnyValue, key: *const c_void) -> u64 {
     if let Some(proto) = unsafe { crate::method_call_subclass::subclass_proto_for(recv, key) } {
         return unsafe { __torajs_any_member_get_tag(proto, key) };
     }
+    // A user entry on the receiver's own family prototype replaced the
+    // builtin of that name (§10.1.8.1 — one prototype answers for
+    // everything it owns before the walk moves up).
+    if let Some((t, _)) = unsafe { crate::member_get_proto_root::family_patch(recv, key) } {
+        return t as u64;
+    }
     // L3b ④ — `.constructor` answers the receiver family's interned
     // builtin-constructor cell (own-face shadows already probed).
     if unsafe { crate::method_value::ctor_cell_for_recv(recv, key) }.is_some() {

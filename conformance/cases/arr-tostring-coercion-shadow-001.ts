@@ -48,3 +48,12 @@ console.log("gone String:", String(t))
 console.log("gone plus  :", t + "")
 console.log("gone tmpl  :", `${t}`)
 console.log("gone method:", t.toString())
+
+// A patch on the receiver's OWN family prototype replaces the builtin
+// of that name for a coercion too, not only for a method call.
+;(Date.prototype as any).toString = function () { return 1 }
+;(Date.prototype as any).valueOf = function () { return 0 }
+const d: any = new Date(0)
+console.log("date tmpl  :", `${d}`)
+console.log("date plus  :", d + "")
+console.log("date eqtrue:", d == true, d == false)

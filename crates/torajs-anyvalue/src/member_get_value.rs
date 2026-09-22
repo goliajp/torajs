@@ -372,6 +372,10 @@ unsafe fn reify_value(recv: AnyValue, key: *const c_void) -> u64 {
     if let Some(proto) = unsafe { crate::method_call_subclass::subclass_proto_for(recv, key) } {
         return unsafe { __torajs_any_member_get_value(proto, key) };
     }
+    // Mirror of the tag channel's family-prototype patch step.
+    if let Some((_, v)) = unsafe { crate::member_get_proto_root::family_patch(recv, key) } {
+        return v as u64;
+    }
     // L3b ④ — `.constructor` (mirror of the tag channel).
     if let Some(cell) = unsafe { crate::method_value::ctor_cell_for_recv(recv, key) } {
         return cell as u64;
