@@ -126,17 +126,20 @@ unsafe fn skip_not_callable(_cell: *mut c_void, _name_str: *const u8) -> bool {
 /// placeholder under a pending throw the caller's check unwinds.
 #[cfg(not(test))]
 unsafe fn accessor_method_call(recv: AnyValue, key: *const u8) -> Option<Option<AnyValue>> {
-    // §10.5.8 — a Proxy answers the accessor sentinel for EVERY key
-    // (its trap runs inside the accessor get), which is not "this
-    // name is an accessor": the proxy keeps the method dispatch
-    // below, where its [[Get]] / [[Call]] traps already run.
-    if crate::proxy::is_proxy(recv) {
-        return None;
-    }
+    // §10.5.8 — a Proxy's [[Get]] is its `get` trap, and §7.1.1.1
+    // step 5 is that Get followed by IsCallable: a trap answering a
+    // non-callable for `toString` moves the walk on to `valueOf`.
+    // The method dispatch this used to leave proxies to reads the
+    // same trap but raises "not a function" on a non-callable answer
+    // (staging string-pad-start-end: `String(proxy)` threw where every
+    // engine reads valueOf). So a proxy takes the Get-then-Call road
+    // for every name, running the trap exactly once per name.
+    let via_get = crate::proxy::is_proxy(recv);
     unsafe {
         let key = key as *const c_void;
-        if crate::member_get::__torajs_any_member_get_tag(recv, key)
-            != crate::struct_probe::ANY_ACCESSOR_TAG
+        if !via_get
+            && crate::member_get::__torajs_any_member_get_tag(recv, key)
+                != crate::struct_probe::ANY_ACCESSOR_TAG
         {
             return None;
         }
