@@ -84,6 +84,10 @@ pub(crate) struct PrintFreezeIds {
     /// sentinel instead of becoming the text "undefined". The pair
     /// kernel above is the real §7.1.17 and must stay that way.
     pub any_to_str_slot: FuncId,
+    /// The number twin of `any_to_str_slot`: an Any landing in a
+    /// declared `number` SLOT a kernel fills keeps the F64 undefined
+    /// sentinel instead of taking §7.1.4. Not for `Number(x)`.
+    pub any_to_f64_slot: FuncId,
     /// §23.1.3.30.2 steps 5-8 pre-probe for Any elements (刀 7 G8a).
     pub any_sort_undef_pre: FuncId,
     /// §13.15.3 concat-position twin — ToPrimitive(default) first.
@@ -276,6 +280,13 @@ pub(crate) fn declare(
             "__torajs_anyv_to_str_param",
             &[Type::Any],
             Type::Str,
+        ),
+        any_to_f64_slot: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_anyv_to_f64_slot",
+            &[Type::Any],
+            Type::F64,
         ),
         any_sort_undef_pre: declare_intrinsic(
             module,

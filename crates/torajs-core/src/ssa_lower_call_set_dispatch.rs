@@ -380,6 +380,17 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     // (avoids double-drop on a shared box).
     let v_box1 = box_pair(ctx, kt_v, kv_v);
     let v_box2 = box_pair(ctx, kt_v, kv_v);
+    // §24.2.3.6 hands the member as BOTH the value and the key, so a
+    // declared `number` parameter takes each through the slot kernel
+    // (Map.forEach's twin: the generic conversion runs §7.1.4 and
+    // spends the F64 sentinel for an ordinary NaN).
+    let has_this = this_arg.is_some();
+    let a0 = crate::ssa_lower_call_map_foreach::slot_value_for_typed_param(
+        ctx, fn_ty, has_this, 0, v_box1,
+    );
+    let a1 = crate::ssa_lower_call_map_foreach::slot_value_for_typed_param(
+        ctx, fn_ty, has_this, 1, v_box2,
+    );
     // Rotation 363 — argv-face callback: boxed variadic pack, not
     // the direct call (map_dispatch mirror; borrows only, so the
     // transfer inc is skipped).
@@ -392,7 +403,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
             ctx,
             &fn_val,
             fn_ty,
-            vec![Operand::Value(v_box1), Operand::Value(v_box2), recv_op],
+            vec![a0.clone(), a1.clone(), recv_op],
             0,
             3,
         );
@@ -400,7 +411,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
         // The Set rides as the 3rd callback arg by borrow (Map.forEach
         // mirror, rotation 552 — the transfer inc here leaked the
         // receiver per walk).
-        let mut cb_args = vec![Operand::Value(v_box1), Operand::Value(v_box2), recv_op];
+        let mut cb_args = vec![a0, a1, recv_op];
         if let Some(t) = &this_arg {
             cb_args.insert(0, t.clone());
         }

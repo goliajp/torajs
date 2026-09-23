@@ -628,6 +628,9 @@ pub(crate) struct Intrinsics {
     pub(crate) any_typeof: FuncId,
     pub(crate) any_to_bool: FuncId,
     pub(crate) any_to_number: FuncId,
+    /// `__torajs_anyv_to_f64_slot` — the slot-filling twin of
+    /// `any_to_number`: `undefined` keeps the F64 sentinel.
+    pub(crate) any_to_f64_slot: FuncId,
     pub(crate) any_to_bigint: FuncId,
     pub(crate) any_to_object: FuncId,
     pub(crate) any_add: FuncId,

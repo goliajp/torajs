@@ -146,6 +146,14 @@ pub(crate) fn emit_map_for_each(
     let vv_v = load_i64(ctx, vv_slot);
     let k_box = box_pair(ctx, kt_v, kv_v);
     let v_box = box_pair(ctx, vt_v, vv_v);
+    // A typed `number` callback parameter takes the value through the
+    // slot kernel rather than through the generic Any -> number
+    // conversion the call boundary would pick: that one runs §7.1.4,
+    // which turns the undefined tag into an ordinary NaN and spends
+    // the F64 sentinel the parameter could have carried. `typeof v`
+    // then answered "number" where `m.get(k)` on the same entry
+    // answered "undefined".
+    let v_arg = slot_value_for_typed_param(ctx, fn_ty, this_arg.is_some(), 0, v_box);
     // Rotation 363 — an argv-face callback (collector's HOF-anon
     // arm admits `forEach` on ANY receiver spelling, this channel
     // included) must not take the direct / devirt call: its
@@ -163,7 +171,7 @@ pub(crate) fn emit_map_for_each(
             ctx,
             &fn_val,
             fn_ty,
-            vec![Operand::Value(v_box), Operand::Value(k_box), recv_op],
+            vec![v_arg.clone(), Operand::Value(k_box), recv_op],
             0,
             3,
         );
@@ -176,7 +184,7 @@ pub(crate) fn emit_map_for_each(
         // no matching release anywhere, so every walk that reached
         // its callback once leaked the whole receiver (387MB / 600k
         // single-entry maps, throw or no throw).
-        let mut cb_args = vec![Operand::Value(v_box), Operand::Value(k_box), recv_op];
+        let mut cb_args = vec![v_arg.clone(), Operand::Value(k_box), recv_op];
         if let Some(t) = &this_arg {
             cb_args.insert(0, t.clone());
         }
@@ -222,4 +230,35 @@ fn box_pair(ctx: &mut LowerCtx<'_>, tag: ValueId, val: ValueId) -> ValueId {
         Type::Any,
         None,
     )
+}
+
+/// The value operand a callback's user parameter `idx` takes it at.
+///
+/// An Any box everywhere except a declared `number` parameter, which
+/// takes the F64 slot kernel — see the call site for why the generic
+/// conversion is the wrong one there. Answering the box unchanged is
+/// what every other parameter shape wants, so the check is one
+/// signature lookup on a cold path. Shared with the Set lane, whose
+/// callback takes the member twice.
+pub(crate) fn slot_value_for_typed_param(
+    ctx: &mut LowerCtx<'_>,
+    fn_ty: Type,
+    has_this: bool,
+    idx: usize,
+    v_box: ValueId,
+) -> Operand {
+    let boxed = Operand::Value(v_box);
+    let skip = usize::from(has_this) + idx;
+    let Some(tys) = ctx.sig_param_tys(fn_ty) else {
+        return boxed;
+    };
+    if tys.get(skip) != Some(&Type::F64) {
+        return boxed;
+    }
+    Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_to_f64_slot, vec![boxed]),
+        Type::F64,
+        None,
+    ))
 }

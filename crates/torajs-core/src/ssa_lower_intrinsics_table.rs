@@ -662,6 +662,7 @@ pub(crate) fn build(
         closure_name_str: init_c.print_freeze.closure_name_str,
         any_to_str: init_c.print_freeze.any_to_str,
         any_to_str_slot: init_c.print_freeze.any_to_str_slot,
+        any_to_f64_slot: init_c.print_freeze.any_to_f64_slot,
         any_sort_undef_pre: init_c.print_freeze.any_sort_undef_pre,
         any_to_str_prim: init_c.print_freeze.any_to_str_prim,
         any_to_str_box: init_c.print_freeze.any_to_str_box,

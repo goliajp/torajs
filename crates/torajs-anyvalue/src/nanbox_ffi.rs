@@ -117,6 +117,30 @@ pub unsafe extern "C" fn __torajs_anyv_rc_dec(v: AnyValue) {
 /// # Safety
 ///
 /// Cell case: encoded pointer must be valid.
+/// An Any value landing in a declared `number` SLOT — a callback
+/// parameter a kernel fills, not an expression `ToNumber` runs on.
+/// `undefined` keeps the F64 undefined sentinel; everything else takes
+/// §7.1.4.
+///
+/// The two are different questions. `Number(undefined)` is NaN and
+/// this must never be used for it. A slot is the other case: the F64
+/// sentinel exists precisely so a `number` slot can carry `undefined`,
+/// and running ToNumber on the way in spends that representation for
+/// an ordinary NaN — `m.forEach(v => typeof v)` over a Map whose value
+/// is an out-of-range read answered "number" where the entry itself
+/// (`m.get(k)`) answered "undefined".
+///
+/// # Safety
+///
+/// Cell case: encoded pointer must be valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_anyv_to_f64_slot(v: AnyValue) -> f64 {
+    if is_undefined(v) {
+        return f64::from_bits(torajs_rc::F64_UNDEF_SENTINEL_BITS);
+    }
+    unsafe { __torajs_anyv_to_number(v) }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_to_number(v: AnyValue) -> f64 {
     if is_int32(v) {
