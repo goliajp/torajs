@@ -453,6 +453,7 @@ pub(crate) fn analyze(
         fallthrough_fns,
         tables.params,
         tables.elems,
+        tables.fields,
         objlit_shape_f64,
         a.proven_reads,
         a.by_name,

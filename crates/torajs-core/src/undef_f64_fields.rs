@@ -63,6 +63,15 @@ use std::collections::HashSet;
 /// Fill both sentinel sets on `ctx`, to a fixpoint. Run after the
 /// context exists and before its body is lowered.
 pub(crate) fn prime(ctx: &mut LowerCtx<'_>) {
+    // Seed from the analysis's own answer before walking. The walk
+    // below can only see what THIS context's bindings hold, so a
+    // field written from a tainted parameter (`this.v = v` in a
+    // constructor, `{ v: v }` in a factory) was invisible to it: the
+    // parameter belongs to the function being called, and the read
+    // is lowered in the caller. The analysis table is by name and
+    // program-wide, so it knows; it just had no way to say so.
+    let seeded: Vec<_> = ctx.num_f64_slots.sentinel_fields().iter().cloned().collect();
+    ctx.undefable_f64_fields.extend(seeded);
     loop {
         let fields = collect(ctx, crate::ssa_lower_undef_f64_source::is_undef_f64_source);
         // The Str sentinel's field set, collected by the same walk

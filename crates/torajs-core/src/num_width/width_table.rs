@@ -44,6 +44,16 @@ pub(crate) struct WidthTable {
     /// per-function — so the answer has to come from here, the way a
     /// tainted parameter's does.
     sentinel_elems: HashSet<String>,
+    /// Field names some write fills with the sentinel. The lowering
+    /// side keeps its own mirror of this question
+    /// (`crate::undef_f64_fields`), but that mirror is primed per
+    /// function context and asks its own predicate, whose `Ident`
+    /// arm can only see bindings of the function being lowered. A
+    /// constructor's `this.v = v` therefore marked nothing when the
+    /// read `b.v` was lowered somewhere else, and `new Box(zs[9])`
+    /// read back a plain number. This is the analysis's answer,
+    /// which is by name and program-wide, handed over as a seed.
+    sentinel_fields: HashSet<PropKey>,
     /// W4 shape-join (rotation 371) — per ordered-field-name shape,
     /// the fields whose width floats on ANY same-shaped literal.
     /// Layout slot width is family-wide (same-shaped literals share
@@ -82,6 +92,7 @@ impl WidthTable {
         fallthrough_fns: HashSet<String>,
         undef_sentinel_params: HashSet<(String, String)>,
         sentinel_elems: HashSet<String>,
+        sentinel_fields: HashSet<PropKey>,
         objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
         index_read_proven: HashSet<ExprId>,
         by_name: HashMap<String, Vec<SlotKey>>,
@@ -95,6 +106,7 @@ impl WidthTable {
             fallthrough_fns,
             undef_sentinel_params,
             sentinel_elems,
+            sentinel_fields,
             objlit_shape_f64,
             index_read_proven,
             by_name,
@@ -158,6 +170,12 @@ impl WidthTable {
     /// True when some write filled an element of the container bound
     /// to `name` with a sentinel-bearing value, so a loop variable
     /// taken off it may hold one.
+    /// The analysis's sentinel field names, for the lowering mirror
+    /// to seed itself with (see the field doc).
+    pub(crate) fn sentinel_fields(&self) -> &HashSet<PropKey> {
+        &self.sentinel_fields
+    }
+
     pub(crate) fn container_elem_takes_sentinel(&self, name: &str) -> bool {
         self.sentinel_elems.contains(name)
     }
