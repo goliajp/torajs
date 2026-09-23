@@ -272,24 +272,6 @@ pub(super) struct Analysis<'a> {
     pub(super) proven_reads: HashSet<ExprId>,
 }
 
-/// Every generic `type` declaration by name, as `(type params, fields)`
-/// — the shapes the alias hookups instantiate per use site.
-fn collect_generic_decls(ast: &Ast) -> HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> {
-    let mut out = HashMap::new();
-    for stmt in &ast.stmts {
-        if let Stmt::TypeDecl {
-            name,
-            type_params,
-            fields,
-        } = stmt
-            && !type_params.is_empty()
-        {
-            out.insert(name.clone(), (type_params.clone(), fields.clone()));
-        }
-    }
-    out
-}
-
 /// Full analysis result — the F64 slot classes plus the container
 /// alias classes that answer elem/field width queries (W4). Call
 /// after monomorphization (the analyzed AST must be the one lowering
@@ -309,7 +291,7 @@ pub(crate) fn analyze(
     let mut classes: Vec<String> = ast.class_parents.keys().cloned().collect();
     classes.sort();
     let nominal_aliases = alias::nominal_alias_names(ast);
-    let generic_decls = collect_generic_decls(ast);
+    let generic_decls = analyze_tables::collect_generic_decls(ast);
 
     let mut a = Analysis {
         ast,

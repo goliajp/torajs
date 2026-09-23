@@ -215,3 +215,23 @@ pub(super) fn collect_objlit_shape_f64(
     }
     objlit_shape_f64
 }
+
+/// Every generic `type` declaration by name, as `(type params, fields)`
+/// — the shapes the alias hookups instantiate per use site.
+pub(super) fn collect_generic_decls(
+    ast: &Ast,
+) -> HashMap<String, (Vec<String>, Vec<(PropKey, String)>)> {
+    let mut out = HashMap::new();
+    for stmt in &ast.stmts {
+        if let Stmt::TypeDecl {
+            name,
+            type_params,
+            fields,
+        } = stmt
+            && !type_params.is_empty()
+        {
+            out.insert(name.clone(), (type_params.clone(), fields.clone()));
+        }
+    }
+    out
+}
