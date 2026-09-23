@@ -95,7 +95,15 @@ impl<'a> Parser<'a> {
         // non-static ones, so it is not the class's constructor and
         // takes the plain-method branch below (rotation 575 — tr used
         // to refuse it, a refusal of programs every engine runs).
-        let is_ctor_branch = member_name == "constructor" && !is_static;
+        //
+        // §15.7.2 ConstructorMethod reads PropName, and §8.2's PropName
+        // of a ComputedPropertyName is EMPTY — so `["constructor"]() {}`
+        // is never the constructor either, however the expression
+        // evaluates. It is an ordinary prototype method that happens to
+        // land on the "constructor" key at run time, overwriting the
+        // one the class installed. Two of them in one body are two
+        // ordinary methods, not two constructors.
+        let is_ctor_branch = member_name == "constructor" && !is_static && !consumed_computed_name;
         let type_params = self.parse_class_method_type_params(name, is_ctor_branch)?;
         let (params, promoted_props, destr_lets) = if is_ctor_branch {
             let (p, pr, dl) = self.parse_ctor_param_list()?;
