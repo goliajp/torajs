@@ -263,8 +263,22 @@ fn lower_aggregate(ctx: &mut LowerCtx<'_>, eid: ExprId, method: &str, args: &[Ex
     // promiseResolve. The `as any` spelling is the only road such an
     // array has here — the checker rejects it bare. Boxing marks the
     // element kind, so the any-lane iteration decodes slots right.
+    //
+    // Rotation 697 — the sync kernels walk the backing store and never
+    // run §27.2.4.1 step 3 GetIterator, which is sound only while an
+    // Array's iteration IS that store. `Object.defineProperty(xs,
+    // Symbol.iterator, { get() { throw } })` makes it observable: the
+    // spec rejects the combinator's promise with what the getter threw,
+    // and tr instead answered as if the array were empty (`all` /
+    // `allSettled` FULFILLED, `race` stayed pending forever, `any`
+    // rejected with an empty AggregateError). The module-wide census is
+    // the same one the typed spread lanes consult, so a program that
+    // never writes the hook pays nothing and keeps the store walk.
     let sync_elem_form = match arg_ty {
-        Type::Arr(aid) => matches!(ctx.arr_layouts[aid.0 as usize], Type::Promise | Type::Any),
+        Type::Arr(aid) => {
+            matches!(ctx.arr_layouts[aid.0 as usize], Type::Promise | Type::Any)
+                && !ctx.proto_shadow.iterator_hook_written()
+        }
         _ => false,
     };
     if !sync_elem_form {
