@@ -144,4 +144,12 @@ fn getter_hands_back_sentinel(ctx: &LowerCtx<'_>, name: &str) -> bool {
         .any(|((_, prop), fname)| {
             prop.as_wtf8() == key && ctx.num_f64_slots.returns_undef_on_fallthrough(fname)
         })
+        // Those two tables are keyed by declaring CLASS. An object
+        // literal has no class, so `{ get g() { return zs[9] } }` was
+        // absent from both and `src.g` read the sentinel as a plain
+        // number — while the identical getter written on a class has
+        // answered `undefined` since the accessor arm landed.
+        || crate::ast::accessor_lookup::objlit_getter_fns(ctx.ast, name)
+            .iter()
+            .any(|fname| ctx.num_f64_slots.returns_undef_on_fallthrough(fname))
 }

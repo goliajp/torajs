@@ -34,6 +34,39 @@ pub(crate) struct AccessorHit {
     pub subst: Vec<(String, String)>,
 }
 
+/// The lifted function names of OBJECT-LITERAL getters for `prop`.
+///
+/// A class accessor is recorded in `ast.accessor_getters` under its
+/// declaring class, which is what the walks below resolve. An object
+/// literal has no class to record under: the parser rewrites `get x()
+/// {…}` into a `__getter_x` field holding an arrow, and the lift
+/// turns that arrow into a `Closure { fn_name }`. So the only place
+/// the connection survives is the literal itself, and the only way to
+/// ask is by property name.
+///
+/// By name and across every literal in the program, like the sentinel
+/// tables that call this: two literals with a `g` getter answer both
+/// names, and a caller that is asking "can a read of `.g` hand back
+/// the sentinel" wants exactly that union.
+pub(crate) fn objlit_getter_fns<'a>(ast: &'a Ast, prop: &str) -> Vec<&'a str> {
+    let slot = torajs_wtf8::Wtf8Buf::from(format!("__getter_{prop}"));
+    let mut out = Vec::new();
+    for id in 0..ast.exprs.len() {
+        let super::Expr::ObjectLit { fields } = ast.get_expr(super::ExprId(id as u32)) else {
+            continue;
+        };
+        for (fname, value) in fields {
+            if fname.as_wtf8() != slot.as_ref() {
+                continue;
+            }
+            if let super::Expr::Closure { fn_name, .. } = ast.get_expr(*value) {
+                out.push(fn_name.as_str());
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn accessor_getter_in_chain(
     ast: &Ast,
     cls_key: &str,
