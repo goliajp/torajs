@@ -16,12 +16,11 @@
 //! - **Explicit undefined** — `array_splice_2arg_undef` rewrites the
 //!   two-argument shape, which for splice means deleteCount 0 rather
 //!   than "to the end". It is in neither of the other groups.
-//! - **Extra trailing args** — `math_date_trailing_ignore` and
-//!   `direct_trailing_ignore`. RFC 20260810 S3.5 made that universal
-//!   in `general_call` itself, ABOVE the arity gate, so by the time
-//!   control reaches this chain there are no extra args left for
-//!   either to see. Kept for one more rotation so their removal is
-//!   its own commit with its own gate.
+//! Extra trailing args used to be a third group here, one wedge for
+//! Math / Date receivers and one for a bare-Ident or IIFE callee.
+//! [`drop_extra_args`] below says the same thing for every callee and
+//! runs right after this chain, so both were doing its work over a
+//! subset; they are gone.
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
@@ -66,25 +65,6 @@ pub(super) fn apply(
     crate::check_type_of_call_array_at_narrow::apply(checker, ast, callee, effective_args, params)?;
     // Array/String search-method 0-arg arity narrow wedge (chunk 303).
     crate::check_type_of_call_search_0arg::apply(checker, ast, callee, effective_args, params)?;
-    // S243 / S250 — Math.* / Date.<static> trailing-arg ignore wedge
-    // (chunk 304).
-    crate::check_type_of_call_math_date_trailing_ignore::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
-    // Direct-call (bare-Ident / IIFE callee) trailing-arg ignore
-    // wedge — ES §13.3.6.1 evaluates every arg, the callee binds
-    // only its declared formals.
-    crate::check_type_of_call_direct_trailing_ignore::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
     Ok(())
 }
 
@@ -98,9 +78,10 @@ pub(super) fn apply(
 /// closure wedge (check_type_of_call_closure_argc): the general
 /// rule covers its list.
 ///
-/// This is the rule the two trailing-ignore wedges above were
-/// written before, and why they no longer see anything: it runs
-/// first and leaves no extra arg behind.
+/// It is also why the two trailing-ignore wedges that used to sit at
+/// the end of [`apply`] are gone: each typed the extras and truncated
+/// exactly as this does, over a subset of the callees, one line
+/// earlier.
 pub(super) fn drop_extra_args(
     checker: &mut Checker,
     ast: &Ast,
