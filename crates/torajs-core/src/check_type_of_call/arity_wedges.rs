@@ -115,3 +115,43 @@ pub(super) fn drop_extra_args(
     }
     Ok(())
 }
+
+/// §7.2 middle tier at a callback slot the call left EMPTY.
+///
+/// §18 binds a missing argument to undefined, and the method's own
+/// clause then says "If IsCallable(callbackfn) is false, throw a
+/// TypeError" — a runtime answer, so refusing `[].flatMap()` would be
+/// the static-subset one. Answers that throw's message, having typed
+/// the arguments the call DID supply so a type error inside one stays
+/// loud.
+///
+/// The predicate is [`super::callback_slot_throw::message_for`],
+/// handed the undefined §18 supplies: it is the one place that knows
+/// which receivers and which method names carry such a clause, and
+/// that `sort` / `toSorted` read a missing comparator as "no
+/// comparator" instead. Missing arguments are always trailing, so the
+/// first unpaired param is the slot in question.
+pub(super) fn missing_callback_throw(
+    checker: &mut Checker,
+    ast: &Ast,
+    callee: &ExprId,
+    params: &[Type],
+    effective_args: &[ExprId],
+) -> Result<Option<String>, String> {
+    if effective_args.len() >= params.len() {
+        return Ok(None);
+    }
+    let Some(msg) = super::callback_slot_throw::message_for(
+        checker,
+        ast,
+        *callee,
+        &params[effective_args.len()],
+        &Type::Undefined,
+    ) else {
+        return Ok(None);
+    };
+    for a in effective_args {
+        checker.type_of(ast, *a)?;
+    }
+    Ok(Some(msg))
+}

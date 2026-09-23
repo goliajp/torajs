@@ -126,6 +126,14 @@ pub(crate) fn general_call(
     }
     super::arity_wedges::apply(checker, ast, callee, &mut effective_args, &mut params)?;
     super::arity_wedges::drop_extra_args(checker, ast, &mut effective_args, &params)?;
+    // §18 hands a missing argument undefined, and some slots have a
+    // clause that throws on it — the sibling names which.
+    if let Some(msg) =
+        super::arity_wedges::missing_callback_throw(checker, ast, callee, &params, &effective_args)?
+    {
+        checker.spec_throws.insert(eid, msg);
+        return Ok(*ret);
+    }
     if params.len() != effective_args.len() {
         // A variadic callee has no exact arity to name: what the call
         // fell short of is its FIXED prefix, and only a slot undefined
