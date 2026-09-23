@@ -88,6 +88,15 @@ pub fn type_to_ann(ty: &Type) -> String {
             format!("__struct({})", parts.join("|"))
         }
         Type::Function(args, ret) => fn_ann("__fn", args, ret),
+        // A builtin namespace / constructor VALUE (`Array`, `Math`, `Map`
+        // passed as an argument) has no SSA spelling of its own: its name
+        // is either unknown to `parse_type` (`Array` panicked) or names
+        // the INSTANCE type (`Map` would type the constructor as a Map).
+        // The value lowers as `any`, which is what an explicit
+        // `o: any` parameter already does.
+        Type::Object(name) if crate::check_type_of_ident::NS_OBJECT_IDENTS.contains(name) => {
+            "any".into()
+        }
         Type::Object(name) => (*name).into(),
         // A class reference IS its own canonical annotation — the class
         // name — and ssa_lower::parse_type resolves it against the SSA
