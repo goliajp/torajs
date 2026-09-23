@@ -276,7 +276,7 @@ fn collect_class_metadata(ast: &Ast) -> ClassMetadata {
 }
 
 /// P4.2 Phase B — `let __proto_<C>: any = {}` + `let __class_<C>: any
-/// = { name, prototype: __proto_<C>, length }` for every class. The
+/// = { length, name, prototype: __proto_<C> }` for every class. The
 /// `prototype` field is the value that `C.prototype` reads — same
 /// any-box that `Object.getPrototypeOf(instance)` returns, so identity
 /// holds across both paths via the P4.0 nested-Any-dynobj fix.
@@ -318,11 +318,21 @@ fn emit_prototype_and_class_stmts(ast: &mut Ast, meta: &ClassMetadata, out: &mut
         } else {
             ast.add_expr(Expr::Number(meta.class_lengths[cname] as f64))
         };
+        // §10.2.5 ClassDefinitionEvaluation runs SetFunctionLength →
+        // SetFunctionName → MakeConstructor, so a class object's own
+        // keys come out `length, name, prototype` — the order test262's
+        // computed-property-names/class/static/method-*-order family
+        // asserts. The dynobj keeps insertion order (`lower_dynobj_init`
+        // walks `fields` in place, and `dynobj_keys_walk` never
+        // reorders), so this vec IS the answer. The eval-unit twin
+        // (`class_unit::make_unit`) has always written it this way; all
+        // three values are a literal or a hoisted `__sm_<C>__` FnDecl
+        // reference, so reading them in a different order is pure.
         let obj_expr = ast.add_expr(Expr::ObjectLit {
             fields: vec![
+                ("length".into(), length_expr),
                 ("name".into(), name_expr),
                 ("prototype".into(), proto_ident),
-                ("length".into(), length_expr),
             ],
         });
         out.push(Stmt::LetDecl {
