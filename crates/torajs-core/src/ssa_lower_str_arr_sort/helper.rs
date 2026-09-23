@@ -175,19 +175,21 @@ pub(super) fn emit_exotic_divert(
         },
     );
     ctx.cur_block = slow;
-    let boxed_cmp = cmp_val.clone().map(|cv| ctx.box_to_any(cv));
-    let cmp_arg = boxed_cmp.clone().unwrap_or_else(|| {
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
-            Type::Any,
-            None,
-        );
-        Operand::Value(v)
-    });
+    let cmp_arg = cmp_val
+        .clone()
+        .map(|cv| ctx.box_to_any(cv))
+        .unwrap_or_else(|| {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            );
+            Operand::Value(v)
+        });
     let r = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
@@ -198,11 +200,10 @@ pub(super) fn emit_exotic_divert(
         None,
     );
     // The kernel answers the receiver +1 (or undefined after a throw);
-    // the caller mints its own chaining stake.
+    // the caller mints its own chaining stake. The comparator's box is
+    // a pure encoding (`box_to_any` moves no stake), so it is not
+    // released here — `release_cmp_temp` owns the comparator's.
     ctx.emit_drop_value(Operand::Value(r), Type::Any);
-    if let Some(b) = boxed_cmp {
-        ctx.emit_drop_value(b, Type::Any);
-    }
     ctx.emit_throw_check(None);
     ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
     ctx.cur_block = fast;
