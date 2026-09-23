@@ -7,12 +7,53 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{STATE_REJECTED, as_promise};
+use crate::layout::{REPR_ANY, REPR_HEAP, STATE_REJECTED, as_promise};
 
 unsafe extern "C" {
     fn __torajs_rc_inc(p: *mut c_void);
     fn __torajs_value_drop_heap(p: *mut c_void);
     fn __torajs_microtask_enqueue(fn_: crate::layout::MicrotaskFn, arg: i64);
+    /// torajs-anyvalue — §27.2.1.3 steps 2.f-2.l over an already
+    /// pending cell: reads `then` off the value, and either rejects
+    /// with an abrupt read or enqueues the
+    /// NewPromiseResolveThenableJob. Answers 1 when it took the value
+    /// (consuming its stake), 0 to let the caller settle as before.
+    fn __torajs_anyv_promise_settle_thenable(result: *mut c_void, repr: i64, value: i64) -> i64;
+}
+
+/// §27.2.1.3 step 2.f at a combinator's RESULT — the capability's
+/// resolve function reads `then` off whatever it is handed, and a
+/// combinator hands it an array.
+///
+/// In every ordinary program that array is a plain array and this
+/// costs one property lookup per combinator call. But
+/// `Array.prototype.then` makes it a thenable, and the spec adopts it
+/// — `Promise.all([])` answers what that `then` resolves with, not
+/// the array. tr fulfilled with the array, and when the `then` read
+/// THREW it fulfilled anyway where the spec rejects, which is a
+/// failure turned into a success.
+///
+/// Ownership is the whole difficulty. The cell already holds the
+/// value and owes its stake, while the hook CONSUMES that stake when
+/// it adopts. So the cell hands ownership over before the call and is
+/// left holding nothing; if the hook declines (a plain array, the
+/// common case), the value goes back exactly as it was. Getting this
+/// wrong is a double free at the cell's own drop, not a visible bug.
+unsafe fn result_adopted_as_thenable(p: *mut c_void, repr: u8, value: i64, is_heap: u8) -> bool {
+    if is_heap == 0 || !matches!(repr, REPR_HEAP | REPR_ANY) {
+        return false;
+    }
+    unsafe {
+        let pp = as_promise(p);
+        (*pp).value = 0;
+        (*pp).value_is_heap = 0;
+        if __torajs_anyv_promise_settle_thenable(p, repr as i64, value) != 0 {
+            return true;
+        }
+        (*pp).value = value;
+        (*pp).value_is_heap = is_heap;
+        false
+    }
 }
 
 /// Deferred-settle microtask (L3b combinator residual face ② fix).
@@ -29,8 +70,10 @@ unsafe extern "C" fn deferred_settle_dispatch(arg: i64) {
         (*pp)._pad[0] = 0;
         let v = (*pp).value;
         if target == STATE_REJECTED {
+            // Rejection performs no thenable absorption (§27.2.1.3.1
+            // is the resolve side only) — a promise reason included.
             crate::state::__torajs_promise_reject(p, v);
-        } else {
+        } else if !result_adopted_as_thenable(p, (*pp).value_repr, v, (*pp).value_is_heap) {
             crate::state::__torajs_promise_resolve(p, v);
         }
         __torajs_value_drop_heap(p);
@@ -95,6 +138,25 @@ pub(crate) unsafe fn settle_result(
     unsafe {
         if len != 0 {
             return defer_settle(state, value, is_heap, repr);
+        }
+        // The empty answer goes through the same `then` read, and it
+        // is the shape that actually reaches it: `Promise.all([])`
+        // resolves with a freshly built array, which
+        // `Array.prototype.then` turns into a thenable. Minting
+        // PENDING and settling in place keeps the synchronous tick
+        // this function exists to preserve — `resolve` on a cell with
+        // no callbacks attached is the same transition
+        // `alloc_fulfilled` performs.
+        if state != STATE_REJECTED && is_heap != 0 && matches!(repr, REPR_HEAP | REPR_ANY) {
+            let p = crate::pool::__torajs_promise_alloc_pending();
+            let pp = as_promise(p);
+            (*pp).value_repr = repr;
+            (*pp).value_is_heap = is_heap;
+            if __torajs_anyv_promise_settle_thenable(p, repr as i64, value) != 0 {
+                return p;
+            }
+            crate::state::__torajs_promise_resolve(p, value);
+            return p;
         }
         let p = match (state, is_heap) {
             (STATE_REJECTED, 0) => crate::pool::__torajs_promise_alloc_rejected(value),
