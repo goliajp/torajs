@@ -260,6 +260,26 @@ impl<'a> Parser<'a> {
         r
     }
 
+    /// §15.4.1 — SuperProperty is legal anywhere inside a
+    /// MethodDefinition, its FormalParameters included: a parameter's
+    /// default initializer is evaluated with the method's
+    /// [[HomeObject]] in scope, so `{ m(x = super.toString) {} }` is a
+    /// legal object literal. Both object-method sites used to raise
+    /// the flag only around the BODY — the parameter list parses
+    /// before that, so a default landed on the position gate
+    /// (`primary_new_super.rs`) and the whole literal was refused.
+    /// Twin of [`Self::with_async_params`] next door.
+    pub(super) fn with_super_prop<T>(
+        &mut self,
+        allowed: bool,
+        f: impl FnOnce(&mut Self) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let saved = std::mem::replace(&mut self.super_prop_allowed, allowed);
+        let r = f(self);
+        self.super_prop_allowed = saved;
+        r
+    }
+
     /// §13.15.1 / §13.4.2-5 AssignmentTargetType early errors —
     /// every assignment / update form (`=`, compounds, `++`/`--`)
     /// routes its target through here.

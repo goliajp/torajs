@@ -49,7 +49,8 @@
 //!   would be the silent wrong this table exists to prevent.
 //!
 use super::super_collect_prop::{
-    SuperPropSite, SuperPropSites, collect_superprop_in_stmt, delete_operands,
+    SuperPropSite, SuperPropSites, collect_superprop_in_expr, collect_superprop_in_stmt,
+    delete_operands,
 };
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -172,9 +173,20 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
     let mut supercalls: Vec<ExprId> = Vec::new();
     let mut nested_home = false;
     for &mv in &method_values {
-        let Expr::ArrowFn { body, .. } = ast.get_expr(mv) else {
+        let Expr::ArrowFn { params, body, .. } = ast.get_expr(mv) else {
             continue;
         };
+        // §15.4.1 — a parameter's default initializer is inside the
+        // MethodDefinition, so `{ m(x = super.toString) {} }` is legal
+        // and its marker belongs to THIS home. The default is
+        // evaluated with the method's `this` in scope (measured:
+        // `{ v: 7, m(x = this.v) { return x } }.m()` answers 7), which
+        // is the receiver these kernels carry. Scanning only the body
+        // left the marker to reach the checker as an unknown ident.
+        for d in params.iter().filter_map(|p| p.default) {
+            collect_superprop_in_expr(ast, d, &mut prop);
+            scan_extra_expr(ast, d, &mut supercalls, &mut nested_home);
+        }
         for st in body {
             collect_superprop_in_stmt(ast, st, &mut prop);
             scan_extra(ast, st, &mut supercalls, &mut nested_home);

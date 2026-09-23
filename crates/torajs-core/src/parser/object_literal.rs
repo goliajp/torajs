@@ -379,8 +379,11 @@ impl<'a> Parser<'a> {
         err_ctx: &str,
         is_async: bool,
     ) -> Result<ExprId, String> {
-        let (mut params, destr_lets) =
-            self.with_async_params(is_async, |p| p.parse_param_list())?;
+        // §15.4.1 — a parameter default is inside the MethodDefinition,
+        // so `super.x` there sees the same [[HomeObject]] the body does.
+        let (mut params, destr_lets) = self.with_super_prop(true, |p| {
+            p.with_async_params(is_async, |p| p.parse_param_list())
+        })?;
         // Method shorthand and accessors are method definitions.
         self.finish_formal_params(&params, &destr_lets, true)?;
         if infer_defaults {

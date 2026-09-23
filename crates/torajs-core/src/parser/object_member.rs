@@ -77,7 +77,16 @@ impl<'a> Parser<'a> {
         // Params — reuse the standard param parser (handles
         // destructuring + type anns).
         // This form IS the async shorthand, so its params are [+Await].
-        let (mut params, destr_lets) = self.with_async_params(true, |p| p.parse_param_list())?;
+        // §15.4.1 / §15.7.1 — an async object method is a
+        // MethodDefinition: it HAS a [[HomeObject]], so `super.x`
+        // parses (in the parameter defaults as well as the body), and
+        // it has no constructor role, so `super()` is an early
+        // SyntaxError. This site used to set neither flag, so both
+        // inherited whatever enclosed the literal — `{ async m() {
+        // await super.method() } }` was refused at parse.
+        let (mut params, destr_lets) = self.with_super_prop(true, |p| {
+            p.with_async_params(true, |p| p.parse_param_list())
+        })?;
         self.finish_formal_params(&params, &destr_lets, true)?;
         // 刀 1b — method-position default params infer their ann
         // from the default (see param_list.rs).
@@ -104,6 +113,8 @@ impl<'a> Parser<'a> {
         // §15.8.1 — this IS an async body: await is legal.
         let saved_await = std::mem::replace(&mut self.await_allowed, true);
         let saved_await_res = std::mem::replace(&mut self.await_reserved, true);
+        let saved_super_prop = std::mem::replace(&mut self.super_prop_allowed, true);
+        let saved_super_call = std::mem::replace(&mut self.super_call_allowed, false);
         let strict_outer = self.in_strict_fn;
         let mut body = Vec::new();
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
@@ -115,12 +126,16 @@ impl<'a> Parser<'a> {
                 Err(e) => {
                     self.await_allowed = saved_await;
                     self.await_reserved = saved_await_res;
+                    self.super_prop_allowed = saved_super_prop;
+                    self.super_call_allowed = saved_super_call;
                     return Err(e);
                 }
             }
         }
         self.await_allowed = saved_await;
         self.await_reserved = saved_await_res;
+        self.super_prop_allowed = saved_super_prop;
+        self.super_call_allowed = saved_super_call;
         match self.peek() {
             Token::RBrace => self.pos += 1,
             t => {

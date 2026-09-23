@@ -114,8 +114,12 @@ impl<'a> Parser<'a> {
         // §15.5.1 — the generator bit swaps in BEFORE the param list
         // (FormalParameters[+Yield]); error paths do not restore.
         let saved_gen = std::mem::replace(&mut self.in_generator, true);
-        let (mut params, destr_lets) =
-            self.with_async_params(is_async, |p| p.parse_param_list())?;
+        // §15.4.1 — same as the ordinary object method next door: a
+        // parameter default is inside the MethodDefinition, so its
+        // `super.x` sees the [[HomeObject]] the body sees.
+        let (mut params, destr_lets) = self.with_super_prop(true, |p| {
+            p.with_async_params(is_async, |p| p.parse_param_list())
+        })?;
         self.infer_default_param_anns(&mut params);
         self.finish_formal_params(&params, &destr_lets, true)?;
 
