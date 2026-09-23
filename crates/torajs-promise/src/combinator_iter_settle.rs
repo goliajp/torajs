@@ -32,6 +32,10 @@ unsafe extern "C" {
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_promise_reject(p: *mut c_void, reason: i64);
     fn __torajs_promise_resolve(p: *mut c_void, value: i64);
+    /// torajs-anyvalue — §27.2.1.3.2 in full: adopt a %Promise% cell,
+    /// queue a user thenable's job, reject on an abrupt `then` read,
+    /// fulfill anything else. `v` is owned and transfers in.
+    fn __torajs_promise_resolve_protocol(p: *mut c_void, v: u64);
     /// torajs-cycle — scrub a dying cell from the root buffer.
     fn __torajs_cycle_unbuffer(p: *mut c_void);
 }
@@ -152,10 +156,19 @@ unsafe extern "C" fn all_resolve_elem_entry(env: *mut c_void, argv: *const u64, 
     }
 }
 
-/// Settle the outer with a boxed value — first settle wins. The
-/// fulfilled face is `any` / `race`'s resolveElement, the rejected
-/// face is the result capability's [[Reject]] every mode but
-/// `allSettled` hands out.
+/// Settle the outer with a boxed value — first settle wins. Both
+/// faces here ARE the result capability's own functions: §27.2.4.5.1
+/// step j hands `race` the pair straight through, and §27.2.4.6.1
+/// step j gives `any` the [[Resolve]] alongside its own rejectElement
+/// (`all` / `allSettled` are the modes whose resolveElement parks a
+/// value, and they use the other entries).
+///
+/// So the fulfilled face runs the whole resolve-function protocol
+/// (§27.2.1.3.2), not a raw fulfill: an override that resolves with a
+/// thenable must have it adopted. `Promise.race([p])` with
+/// `p.then = r => r({then(res){res(v)}})` answered the thenable object
+/// itself, because the kernel it called reads no `then`. The rejected
+/// face keeps the raw kernel — [[Reject]] never adopts (§27.2.1.3.1).
 unsafe fn settle_outer(env: *mut c_void, argv: *const u64, argc: i64, rejected: bool) -> u64 {
     unsafe {
         if claim_already(env) {
@@ -170,7 +183,7 @@ unsafe fn settle_outer(env: *mut c_void, argv: *const u64, argc: i64, rejected: 
                 if rejected {
                     __torajs_promise_reject((*b).result, v as i64);
                 } else {
-                    __torajs_promise_resolve((*b).result, v as i64);
+                    __torajs_promise_resolve_protocol((*b).result, v);
                 }
             }
         }
