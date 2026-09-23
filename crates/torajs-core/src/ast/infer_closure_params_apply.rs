@@ -85,6 +85,34 @@ pub(super) fn apply_closure_ann_updates(
                     let ann = if new_ret_ann == "boolean" {
                         infer_return_ann(exprs, body, params, &std::collections::HashMap::new())
                             .unwrap_or_else(|| "any".to_string())
+                    } else if let Some(folded) = new_ret_ann
+                        .strip_prefix("__folded(")
+                        .and_then(|r| r.strip_suffix(')'))
+                    {
+                        // A seed the SPEC converts rather than
+                        // requires — sort's comparator result goes
+                        // through ToNumber (§23.1.3.30). Pin it only
+                        // when the body already produces that type,
+                        // which keeps every numeric comparator on the
+                        // typed lane it has always taken; anything
+                        // else seeds `any`, where the kernel's own
+                        // conversion is already correct and the
+                        // callback-subtype rule admits an `Any` ret
+                        // against the typed formal.
+                        //
+                        // Sniffing and pinning the sniffed type would
+                        // not do: `return "1"` sniffs `string`, and a
+                        // String ret is neither the formal nor `Any`,
+                        // so it would be refused one step later.
+                        match infer_return_ann(
+                            exprs,
+                            body,
+                            params,
+                            &std::collections::HashMap::new(),
+                        ) {
+                            Some(a) if a == folded => a,
+                            _ => "any".to_string(),
+                        }
                     } else {
                         new_ret_ann.clone()
                     };

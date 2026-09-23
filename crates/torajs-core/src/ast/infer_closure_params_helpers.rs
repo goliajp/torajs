@@ -439,3 +439,59 @@ pub(super) fn apply_user_fn_callee_hint(
 // param-only seeds) lives in the sibling
 // `infer_closure_params_hof.rs` — moved when the cluster-#1 blade-2
 // position seeds pushed this file past the 500-line cap.
+
+/// The callback annotations an Array method's argument slot declares
+/// — `(param annotations, return annotation)`, or `None` when the
+/// method takes no callback this pass seeds.
+///
+/// A `__folded(T)` return means the SPEC converts the callback's
+/// result to `T` rather than requiring it; `apply_closure_ann_updates`
+/// turns it into a pin or into `any` depending on what the body
+/// actually produces.
+pub(super) fn hof_expected_anns(name: &str, elem_ann: &str) -> Option<(Vec<String>, String)> {
+    // Per-method expected (param annotations, return annotation).
+    // Spec §23.1.3 callback positions — (elem, index, srcArray);
+    // the apply step writes only as many as the closure declares.
+    // srcArray is `any[]` (kind-aware Arr<Any> view) — see
+    // [`hof_pos_anns`] above for why.
+    let pos3 = |ret: &str| {
+        Some((
+            vec![
+                elem_ann.to_string(),
+                "number".to_string(),
+                "any[]".to_string(),
+            ],
+            ret.to_string(),
+        ))
+    };
+    match name {
+        // §23.1.3.30 SortCompare runs ToNumber over whatever the
+        // comparator hands back, so "number" here is what the
+        // sort WANTS, not what the callback is required to
+        // produce. Seeding it as a pin made `(a, b) => a > b`,
+        // `return "1"` and `return undefined` — all three legal,
+        // all three right on the any lane — return-type
+        // mismatches. `__folded(…)` marks a seed the spec
+        // converts; see `apply_closure_ann_updates`.
+        //
+        // `toSorted` is the same signature (§23.1.3.34) and was
+        // absent from this table entirely, so its comparator got
+        // no parameter types either and failed one step later, at
+        // the argument check.
+        "sort" | "toSorted" => Some((
+            vec![elem_ann.to_string(), elem_ann.to_string()],
+            "__folded(number)".into(),
+        )),
+        "map" => unreachable!("map handled by param-only arm above"),
+        "filter" => pos3("boolean"),
+        "forEach" => pos3("void"),
+        "find" | "findLast" => pos3("boolean"),
+        "findIndex" | "findLastIndex" => pos3("boolean"),
+        "some" | "every" => pos3("boolean"),
+        "flatMap" => unreachable!("flatMap handled by param-only arm above"),
+        "reduce" | "reduceRight" => {
+            unreachable!("reduce/reduceRight handled by param-only arm above")
+        }
+        _ => None,
+    }
+}

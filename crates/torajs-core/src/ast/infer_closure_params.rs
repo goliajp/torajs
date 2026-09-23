@@ -353,35 +353,11 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
         ) {
             continue;
         }
-        // Per-method expected (param annotations, return annotation).
-        // Spec §23.1.3 callback positions — (elem, index, srcArray);
-        // the apply step writes only as many as the closure declares.
-        // srcArray is `any[]` (kind-aware Arr<Any> view) — see
-        // `hof_pos_anns` in infer_closure_params_helpers for why.
-        let pos3 = |ret: &str| {
-            Some((
-                vec![elem_ann.clone(), "number".to_string(), "any[]".to_string()],
-                ret.to_string(),
-            ))
-        };
-        let expected: Option<(Vec<String>, String)> = match name.as_str() {
-            "sort" => Some((vec![elem_ann.clone(), elem_ann.clone()], "number".into())),
-            "map" => unreachable!("map handled by param-only arm above"),
-            "filter" => pos3("boolean"),
-            "forEach" => pos3("void"),
-            "find" | "findLast" => pos3("boolean"),
-            "findIndex" | "findLastIndex" => pos3("boolean"),
-            "some" | "every" => pos3("boolean"),
-            "flatMap" => unreachable!("flatMap handled by param-only arm above"),
-            "reduce" | "reduceRight" => {
-                unreachable!("reduce/reduceRight handled by param-only arm above")
-            }
-            _ => None,
-        };
+        let expected = super::infer_closure_params_helpers::hof_expected_anns(&name, &elem_ann);
         let Some(expected) = expected else { continue };
         for (_arg_idx, fn_name) in &closure_args {
             updates.insert(fn_name.clone(), expected.clone());
-            if name != "sort" {
+            if !matches!(name.as_str(), "sort" | "toSorted") {
                 view_promotes.insert(fn_name.clone(), (2, elem_ann.clone()));
             }
         }
