@@ -451,6 +451,7 @@ pub(crate) fn analyze(
         a.nominal_aliases,
         fallthrough_fns,
         tables.params,
+        tables.elems,
         objlit_shape_f64,
         a.proven_reads,
         a.by_name,

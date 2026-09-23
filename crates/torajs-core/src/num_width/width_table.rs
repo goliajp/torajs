@@ -38,6 +38,12 @@ pub(crate) struct WidthTable {
     /// own body asks here, because the value arrives from a caller
     /// lowered separately and nothing else records it.
     undef_sentinel_params: HashSet<(String, String)>,
+    /// Container bindings some write fills an ELEMENT of with the
+    /// sentinel. A for-of over one binds a loop variable the body
+    /// reads by name, and the binding registry the body consults is
+    /// per-function — so the answer has to come from here, the way a
+    /// tainted parameter's does.
+    sentinel_elems: HashSet<String>,
     /// W4 shape-join (rotation 371) — per ordered-field-name shape,
     /// the fields whose width floats on ANY same-shaped literal.
     /// Layout slot width is family-wide (same-shaped literals share
@@ -75,6 +81,7 @@ impl WidthTable {
         nominal_aliases: HashSet<String>,
         fallthrough_fns: HashSet<String>,
         undef_sentinel_params: HashSet<(String, String)>,
+        sentinel_elems: HashSet<String>,
         objlit_shape_f64: HashMap<Vec<PropKey>, HashSet<PropKey>>,
         index_read_proven: HashSet<ExprId>,
         by_name: HashMap<String, Vec<SlotKey>>,
@@ -87,6 +94,7 @@ impl WidthTable {
             nominal_aliases,
             fallthrough_fns,
             undef_sentinel_params,
+            sentinel_elems,
             objlit_shape_f64,
             index_read_proven,
             by_name,
@@ -145,6 +153,13 @@ impl WidthTable {
     pub(crate) fn param_takes_undef_sentinel(&self, fn_name: &str, param: &str) -> bool {
         self.undef_sentinel_params
             .contains(&(fn_name.to_string(), param.to_string()))
+    }
+
+    /// True when some write filled an element of the container bound
+    /// to `name` with a sentinel-bearing value, so a loop variable
+    /// taken off it may hold one.
+    pub(crate) fn container_elem_takes_sentinel(&self, name: &str) -> bool {
+        self.sentinel_elems.contains(name)
     }
 
     pub(crate) fn is_nominal_alias(&self, name: &str) -> bool {
