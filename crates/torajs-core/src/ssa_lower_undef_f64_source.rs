@@ -92,7 +92,10 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         // one bits compare; blanket-true for every `number` field
         // would instead arm the ToNumber step on arithmetic that can
         // never see a sentinel.
-        Expr::Member { name, .. } => ctx.undefable_f64_fields.contains(Wtf8::new(name)),
+        Expr::Member { name, .. } => {
+            ctx.undefable_f64_fields.contains(Wtf8::new(name))
+                || getter_hands_back_sentinel(ctx, name)
+        }
         // The value-transparent wrappers — the same set the 11-A1
         // escape visitor names in `collect_value_flow_idents`. What
         // comes out is what went in, so the question passes straight
@@ -115,4 +118,30 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         Expr::As { expr, .. } => is_undef_f64_source(ctx, *expr),
         _ => false,
     }
+}
+
+/// Whether reading property `name` runs a getter whose body can hand
+/// the sentinel back.
+///
+/// An accessor read is still an `Expr::Member`, so it took the field
+/// arm above — which asks whether some WRITE filled a field of that
+/// name. A getter name is never written, so the answer was always no
+/// and `get g() { return this.a }` reported `typeof` "number" for an
+/// `undefined` that `typeof c.a` on the same value reported right.
+///
+/// The fall-through table already knows which functions hand one back
+/// (`body_returns_sentinel` reaches the getter's synthesised FnDecl
+/// through the same field set), so this is the name -> fn hop that was
+/// missing. Over-broad across two classes sharing an accessor name,
+/// which costs one bits compare — the same trade the field arm above
+/// documents.
+fn getter_hands_back_sentinel(ctx: &LowerCtx<'_>, name: &str) -> bool {
+    let key = Wtf8::new(name);
+    ctx.ast
+        .accessor_getters
+        .iter()
+        .chain(ctx.ast.static_accessor_getters.iter())
+        .any(|((_, prop), fname)| {
+            prop.as_wtf8() == key && ctx.num_f64_slots.returns_undef_on_fallthrough(fname)
+        })
 }
