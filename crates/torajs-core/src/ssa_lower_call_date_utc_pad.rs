@@ -8,11 +8,12 @@
 //! The runtime intrinsic `__torajs_date_utc_components` is statically
 //! signed with 7 f64 args (spec ToNumber — NaN components invalidate); this arm pads trailing components with the
 //! spec defaults (month=0, day=1, hour=0, min=0, sec=0, ms=0) when
-//! the call site omits them. The 7-arg form falls through to the
-//! generic resolve_callee path unchanged.
+//! the call site omits them, the zero-argument form included. The
+//! 7-arg form falls through to the generic resolve_callee path
+//! unchanged.
 //!
 //! Returns `Some(op)` on hit; `None` on miss (callee not
-//! `Date.UTC(...)` Member-Ident, args empty, or arity already ≥ 7).
+//! `Date.UTC(...)` Member-Ident, or arity already ≥ 7).
 
 use crate::ast::{Expr, ExprId};
 use crate::ssa::{InstKind, Operand, Type};
@@ -37,7 +38,7 @@ pub(crate) fn try_lower(
     let Expr::Ident(ns) = ctx.ast.get_expr(ns_id) else {
         return None;
     };
-    if ns != "Date" || args.is_empty() || args.len() >= 7 {
+    if ns != "Date" || args.len() >= 7 {
         return None;
     }
     let mut arg_ops: Vec<Operand> = args
@@ -47,9 +48,12 @@ pub(crate) fn try_lower(
             ctx.coerce_to_f64(v)
         })
         .collect();
-    // defaults indexed by position (year=required so skipped;
-    // month=0 day=1 hour=0 min=0 sec=0 ms=0)
-    let defaults = [0.0f64, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+    // defaults indexed by position. Slot 0 is only ever read by the
+    // zero-argument call, where §18 hands `year` undefined and step 1
+    // is ToNumber(undefined) = NaN — which the kernel carries through
+    // to a NaN result. The rest are the clause's own "else let x be"
+    // values: month=0 day=1 hour=0 min=0 sec=0 ms=0.
+    let defaults = [f64::NAN, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0];
     while arg_ops.len() < 7 {
         arg_ops.push(Operand::ConstF64(defaults[arg_ops.len()]));
     }

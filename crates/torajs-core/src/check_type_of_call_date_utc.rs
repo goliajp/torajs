@@ -10,9 +10,15 @@
 //! defaults overloads (1..=6 args). The 7-arg form keeps
 //! using the static-sig path unchanged.
 //!
+//! The zero-argument form is in that overload too: §18 binds the
+//! missing `year` to undefined and step 1's ToNumber answers NaN,
+//! which TimeClip carries out as the result. Refusing it would be
+//! the static-subset answer to a program the spec has a value for
+//! (test262 `Date/UTC/no-arg.js`).
+//!
 //! Returns `Some(Ok(Number))` on match; `Some(Err(_))` on
 //! arg typecheck failure; `None` when callee isn't
-//! `Date.UTC` or arg count is outside 1..=6.
+//! `Date.UTC` or arg count is outside 0..=6.
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -30,7 +36,7 @@ pub(crate) fn try_match(
         && m_name == "UTC"
         && let Expr::Ident(ns) = ast.get_expr(*ns_id)
         && ns == "Date"
-        && (1..=6).contains(&args.len())
+        && (0..=6).contains(&args.len())
     {
         for a in args {
             if let Err(e) = checker.type_of(ast, *a) {
