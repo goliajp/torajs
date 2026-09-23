@@ -62,6 +62,14 @@ unsafe extern "C" {
     /// thisArg (§27.2.4.1.3 step 6.i), and a recv-first builtin
     /// static cell reads it from there.
     fn __torajs_any_call_with_this(recv: u64, this_arg: u64, argv: *const u64, argc: i64) -> u64;
+    /// torajs-anyvalue — §27.2.4.7 PromiseResolve(%Promise%, x), the
+    /// kernel `await` and `Promise.resolve(any)` already share. Four
+    /// arms: a native cell whose `constructor` is %Promise% passes
+    /// through, a subclass instance is adopted by a fresh cell, a
+    /// user thenable answers a pending cell the
+    /// NewPromiseResolveThenableJob settles, anything else fulfills.
+    /// Owned in, owned out.
+    fn __torajs_anyv_promise_resolve(bits: i64) -> *mut c_void;
     /// torajs-anyvalue — §7.4.9 IteratorClose under a pending throw
     /// (stash, close, swallow the close's own throw, restore).
     fn __torajs_iter_close_abrupt(iter: u64);
@@ -151,11 +159,28 @@ pub(crate) unsafe fn dyn_iter(
                     return close_and_reject(items, iter_slot, b);
                 }
                 elem = ret;
+            } else {
+                // The same §27.2.4.1.3 step 6.i, with the BUILTIN
+                // resolve. Without it a non-promise element was taken
+                // for an already-fulfilled value, so a thenable was
+                // handed on as itself: `Promise.race([thenable, "B"])`
+                // answered the thenable object, and a thenable that
+                // called its `reject` fulfilled instead of rejecting.
+                //
+                // `elem` arrives owned from the iterator step and the
+                // kernel consumes that stake; the answer is an owned
+                // cell, and boxing it is pure encoding. An abrupt
+                // `then` GET does not surface here — the kernel turns
+                // it into a rejected cell, which is what §27.2.1.3
+                // step 2.g asks for (the iterator is NOT closed for
+                // it; only step 6.i's own abrupt closes, and this
+                // kernel has none).
+                let cell = __torajs_anyv_promise_resolve(elem as i64);
+                elem = __torajs_anyv_box_from_pair(4, cell as i64);
             }
-            // Per-element `then` observation — promise cells only
-            // (a plain value's promiseResolve wrapper wears the
-            // builtin `then`; the user-thenable protocol is the
-            // codebase-wide PromiseResolveThenableJob gap).
+            // Per-element `then` observation over the promise the
+            // step above resolved to — §27.2.4.1.2 step 5.o reads
+            // `then` off THAT promise, not off the element.
             if let Some(pp) = crate::combinator_any::slot_promise(elem) {
                 (*pp).has_handler = 1;
                 let user_then = __torajs_promise_then_observed(pp as *mut c_void);

@@ -270,7 +270,11 @@ pub unsafe extern "C" fn __torajs_promise_allsettled_sync(
     // An `Array<Any>` input carries NaN-box slots — route to the
     // any-lane sibling (same gate as all / race / any).
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
-        return unsafe { crate::combinator_any::allsettled_sync_any(promises_arr, record_tags) };
+        // §27.2.4.2.1 step 5.f — the same per-element `promiseResolve`
+        // the other three take; see the note on `all`.
+        return unsafe {
+            crate::combinator_patched::run_allsettled_builtin(promises_arr, record_tags)
+        };
     }
     // A pending element is the one thing the walk below cannot answer;
     // it used to reject the result with a placeholder, which is a

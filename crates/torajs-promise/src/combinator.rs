@@ -162,7 +162,13 @@ pub unsafe extern "C" fn __torajs_promise_all_sync(
     // plain-value elements) — the raw-pointer walk below would
     // dereference immediates; route to the any-lane sibling.
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
-        return unsafe { crate::combinator_any::all_sync_any(promises_arr) };
+        // §27.2.4.1.2 step 5.f and siblings — every element goes
+        // through `promiseResolve` BEFORE anything attaches to it, so
+        // the walk below sees only promises. Without it a thenable
+        // element was taken for an already-fulfilled value and handed
+        // on as itself. The patched lane above does the same thing
+        // with the user's override; this is its builtin twin.
+        return unsafe { crate::combinator_patched::run_all_builtin(promises_arr) };
     }
     // A genuinely pending element is the one thing the walk below
     // cannot answer: it used to reject the result with a placeholder,
@@ -276,7 +282,13 @@ pub unsafe extern "C" fn __torajs_promise_race_sync(promises_arr: *mut c_void) -
         return unsafe { crate::combinator_patched::run_race(promises_arr) };
     }
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
-        return unsafe { crate::combinator_any::race_sync_any(promises_arr) };
+        // §27.2.4.1.2 step 5.f and siblings — every element goes
+        // through `promiseResolve` BEFORE anything attaches to it, so
+        // the walk below sees only promises. Without it a thenable
+        // element was taken for an already-fulfilled value and handed
+        // on as itself. The patched lane above does the same thing
+        // with the user's override; this is its builtin twin.
+        return unsafe { crate::combinator_patched::run_race_builtin(promises_arr) };
     }
     unsafe { absorb_inputs(promises_arr) };
     let len = unsafe { arr_len(promises_arr) };
@@ -386,7 +398,13 @@ pub unsafe extern "C" fn __torajs_promise_any_sync(promises_arr: *mut c_void) ->
         return unsafe { crate::combinator_patched::run_any(promises_arr) };
     }
     if unsafe { crate::combinator_any::arr_is_any(promises_arr) } {
-        return unsafe { crate::combinator_any::any_sync_any(promises_arr) };
+        // §27.2.4.1.2 step 5.f and siblings — every element goes
+        // through `promiseResolve` BEFORE anything attaches to it, so
+        // the walk below sees only promises. Without it a thenable
+        // element was taken for an already-fulfilled value and handed
+        // on as itself. The patched lane above does the same thing
+        // with the user's override; this is its builtin twin.
+        return unsafe { crate::combinator_patched::run_any_builtin(promises_arr) };
     }
     // A genuinely pending element is the one thing the walk below
     // cannot answer — it used to make `Promise.any([asyncCall(),

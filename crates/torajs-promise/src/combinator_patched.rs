@@ -45,6 +45,29 @@ unsafe extern "C" {
     fn __torajs_throw_check() -> i64;
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
     fn __torajs_value_drop_heap(p: *mut c_void);
+    fn __torajs_anyv_rc_inc(v: u64);
+    /// torajs-anyvalue — §27.2.4.7 PromiseResolve(%Promise%, x), the
+    /// kernel `await` and `Promise.resolve(any)` already share.
+    /// Owned in, owned out.
+    fn __torajs_anyv_promise_resolve(bits: i64) -> *mut c_void;
+}
+
+/// Which `promiseResolve` the element walk runs — the user's override,
+/// or the builtin.
+///
+/// The spec text is the same either way (§27.2.4.1.2 step 5.f and its
+/// siblings): every element goes through `promiseResolve` before
+/// anything attaches to it. Only the patched half was ever written,
+/// so with the builtin in place a non-promise element was taken for an
+/// already-fulfilled value — `Promise.race([thenable, "B"])` answered
+/// the thenable object itself, and a thenable that called its `reject`
+/// fulfilled instead.
+#[derive(Clone, Copy)]
+pub(crate) enum Resolver {
+    /// `Call(promiseResolve, C, «v»)` with the user's override.
+    User,
+    /// %Promise%'s own, through the any-lane kernel.
+    Builtin,
 }
 
 /// Whether `Promise.resolve` carries a user patch — the combinator
@@ -56,17 +79,27 @@ pub(crate) unsafe fn consult_active() -> bool {
 /// `Call(promiseResolve, C, «v»)` over every element; the collected
 /// answers as an owned any-shape array, or the rejected promise an
 /// abrupt element produced.
-unsafe fn resolve_elements(arr: *mut c_void) -> Result<*mut c_void, *mut c_void> {
+unsafe fn resolve_elements(
+    arr: *mut c_void,
+    resolver: Resolver,
+) -> Result<*mut c_void, *mut c_void> {
     unsafe {
         // §27.2.4.1 step 1 — GetPromiseResolve runs ONCE before the
         // element walk (the get-once family counts the read; an
         // accessor getter's abrupt rejects before any element is
-        // resolved, and so does a non-callable slot).
-        let pr = __torajs_promise_ctor_get_static(0);
-        if __torajs_throw_check() != 0 {
-            return Err(crate::combinator_dyn::reject_with_pending_throw());
-        }
-        let ctor = __torajs_promise_ctor_box();
+        // resolved, and so does a non-callable slot). The builtin has
+        // no slot to read and cannot be abrupt, so it skips straight
+        // to the walk.
+        let (pr, ctor) = match resolver {
+            Resolver::User => {
+                let pr = __torajs_promise_ctor_get_static(0);
+                if __torajs_throw_check() != 0 {
+                    return Err(crate::combinator_dyn::reject_with_pending_throw());
+                }
+                (pr, __torajs_promise_ctor_box())
+            }
+            Resolver::Builtin => (0, 0),
+        };
         let len = arr_len(arr);
         let is_any = crate::combinator_any::arr_is_any(arr);
         let mut items: Vec<u64> = Vec::with_capacity(len as usize);
@@ -79,16 +112,33 @@ unsafe fn resolve_elements(arr: *mut c_void) -> Result<*mut c_void, *mut c_void>
             } else {
                 __torajs_anyv_box_from_pair(4, arr_slot_ptr(arr, i) as i64)
             };
-            let one = [v];
-            let ret = __torajs_any_call_with_this(pr, ctor, one.as_ptr(), 1);
-            if __torajs_throw_check() == 0 && crate::combinator_any::slot_promise(ret).is_none() {
-                // The typed lane's return contract — see module doc.
-                __torajs_anyv_rc_dec(ret);
-                __torajs_throw_type_error(
-                    c"the patched Promise.resolve answered a non-promise into a typed slot"
-                        .as_ptr(),
-                );
-            }
+            let ret = match resolver {
+                Resolver::User => {
+                    let one = [v];
+                    let ret = __torajs_any_call_with_this(pr, ctor, one.as_ptr(), 1);
+                    if __torajs_throw_check() == 0
+                        && crate::combinator_any::slot_promise(ret).is_none()
+                    {
+                        // The typed lane's return contract — see module doc.
+                        __torajs_anyv_rc_dec(ret);
+                        __torajs_throw_type_error(
+                            c"the patched Promise.resolve answered a non-promise into a typed slot"
+                                .as_ptr(),
+                        );
+                    }
+                    ret
+                }
+                Resolver::Builtin => {
+                    // The slot is BORROWED, and the kernel consumes a
+                    // stake; the answer is an owned cell and boxing it
+                    // is pure encoding. An abrupt `then` GET comes back
+                    // as a rejected cell rather than a pending throw
+                    // (§27.2.1.3 step 2.g), so no abrupt check here.
+                    __torajs_anyv_rc_inc(v);
+                    let cell = __torajs_anyv_promise_resolve(v as i64);
+                    __torajs_anyv_box_from_pair(4, cell as i64)
+                }
+            };
             if __torajs_throw_check() != 0 {
                 for it in items {
                     __torajs_anyv_rc_dec(it);
@@ -106,9 +156,13 @@ unsafe fn resolve_elements(arr: *mut c_void) -> Result<*mut c_void, *mut c_void>
 /// Collect-then-delegate over one any-lane sibling; the temp array's
 /// stake releases after the sibling incs what it keeps (the
 /// `combinator_iter` delegate shape).
-unsafe fn run(arr: *mut c_void, sibling: fn(*mut c_void) -> *mut c_void) -> *mut c_void {
+unsafe fn run(
+    arr: *mut c_void,
+    sibling: fn(*mut c_void) -> *mut c_void,
+    resolver: Resolver,
+) -> *mut c_void {
     unsafe {
-        match resolve_elements(arr) {
+        match resolve_elements(arr, resolver) {
             Err(rejected) => rejected,
             Ok(new_arr) => {
                 let out = sibling(new_arr);
@@ -120,20 +174,46 @@ unsafe fn run(arr: *mut c_void, sibling: fn(*mut c_void) -> *mut c_void) -> *mut
 }
 
 pub(crate) unsafe fn run_all(arr: *mut c_void) -> *mut c_void {
-    unsafe { run(arr, |a| crate::combinator_any::all_sync_any(a)) }
+    unsafe {
+        run(
+            arr,
+            |a| crate::combinator_any::all_sync_any(a),
+            Resolver::User,
+        )
+    }
 }
 
 pub(crate) unsafe fn run_race(arr: *mut c_void) -> *mut c_void {
-    unsafe { run(arr, |a| crate::combinator_any::race_sync_any(a)) }
+    unsafe {
+        run(
+            arr,
+            |a| crate::combinator_any::race_sync_any(a),
+            Resolver::User,
+        )
+    }
 }
 
 pub(crate) unsafe fn run_any(arr: *mut c_void) -> *mut c_void {
-    unsafe { run(arr, |a| crate::combinator_any::any_sync_any(a)) }
+    unsafe {
+        run(
+            arr,
+            |a| crate::combinator_any::any_sync_any(a),
+            Resolver::User,
+        )
+    }
 }
 
 pub(crate) unsafe fn run_allsettled(arr: *mut c_void, record_tags: u64) -> *mut c_void {
+    unsafe { run_allsettled_with(arr, record_tags, Resolver::User) }
+}
+
+unsafe fn run_allsettled_with(
+    arr: *mut c_void,
+    record_tags: u64,
+    resolver: Resolver,
+) -> *mut c_void {
     unsafe {
-        match resolve_elements(arr) {
+        match resolve_elements(arr, resolver) {
             Err(rejected) => rejected,
             Ok(new_arr) => {
                 let out = crate::combinator_any::allsettled_sync_any(new_arr, record_tags);
@@ -142,4 +222,41 @@ pub(crate) unsafe fn run_allsettled(arr: *mut c_void, record_tags: u64) -> *mut 
             }
         }
     }
+}
+
+/// The builtin-resolve twins. The `*_sync_any` siblings walk an array
+/// whose every slot is already a promise, which is what the spec
+/// guarantees after step 5.f — these make that true.
+pub(crate) unsafe fn run_all_builtin(arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        run(
+            arr,
+            |a| crate::combinator_any::all_sync_any(a),
+            Resolver::Builtin,
+        )
+    }
+}
+
+pub(crate) unsafe fn run_race_builtin(arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        run(
+            arr,
+            |a| crate::combinator_any::race_sync_any(a),
+            Resolver::Builtin,
+        )
+    }
+}
+
+pub(crate) unsafe fn run_any_builtin(arr: *mut c_void) -> *mut c_void {
+    unsafe {
+        run(
+            arr,
+            |a| crate::combinator_any::any_sync_any(a),
+            Resolver::Builtin,
+        )
+    }
+}
+
+pub(crate) unsafe fn run_allsettled_builtin(arr: *mut c_void, record_tags: u64) -> *mut c_void {
+    unsafe { run_allsettled_with(arr, record_tags, Resolver::Builtin) }
 }
