@@ -224,6 +224,7 @@ mod method_call_object_proto_own;
 mod method_call_object_proto_tag;
 mod method_call_prelude;
 mod method_call_promise;
+mod method_call_promise_ffi;
 mod method_call_promise_invoke;
 mod method_call_promise_species;
 mod method_call_proto_patch;
