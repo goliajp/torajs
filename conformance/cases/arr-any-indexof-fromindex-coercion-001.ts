@@ -25,3 +25,17 @@ try {
 // the two must agree.
 const t: number[] = [0, 1, 2, 1];
 console.log(t.indexOf(1, "3E0" as any), t.lastIndexOf(1, undefined as any));
+
+// §23.1.3.17 step 3 / §23.1.3.20 step 3 — `len = 0` answers -1 BEFORE
+// step 4 converts fromIndex, so on an empty receiver the conversion never
+// runs: a throwing or side-effecting valueOf is not reached. (The argument
+// expression itself is still evaluated — that is §13.3.6.1, not step 4.)
+let conversions = 0;
+const hostile: any = { valueOf() { conversions++; throw new Error("converted"); } };
+const empty: any[] = [];
+console.log(empty.indexOf(2, hostile), empty.lastIndexOf(2, hostile), conversions);
+let evaluated = 0;
+console.log(empty.indexOf(2, (evaluated++, hostile)), evaluated, conversions);
+// A non-empty receiver does convert, in order.
+try { [1].indexOf(1, hostile); console.log("NO THROW"); }
+catch (e: any) { console.log(e.message, conversions); }

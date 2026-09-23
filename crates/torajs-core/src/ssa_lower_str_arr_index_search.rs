@@ -246,8 +246,10 @@ fn lower_any_index_of(
             Type::I64 => f_raw,
             Type::F64 => ctx.coerce_to_i64(f_raw),
             Type::Any => {
-                let n = ctx.coerce_any_to_number(f_raw, Type::F64);
-                ctx.coerce_to_i64(n)
+                let len = any_arr_len(ctx, recv_op.clone());
+                crate::ssa_lower_str_arr_index_bounds::coerce_from_index_after_len_check(
+                    ctx, len, f_raw,
+                )
             }
             // §23.1.3.{17,20} step 4 — `fromIndex` IS present here, so
             // there is no default left to take: every remaining
@@ -269,8 +271,10 @@ fn lower_any_index_of(
                     Operand::ConstI64(0)
                 } else {
                     let boxed = ctx.box_to_any_from_expr(args[1], f_raw);
-                    let n = ctx.coerce_any_to_number(boxed, Type::F64);
-                    ctx.coerce_to_i64(n)
+                    let len = any_arr_len(ctx, recv_op.clone());
+                    crate::ssa_lower_str_arr_index_bounds::coerce_from_index_after_len_check(
+                        ctx, len, boxed,
+                    )
                 }
             }
         }
@@ -356,4 +360,15 @@ fn emit_elem_load(
             None,
         )
     }
+}
+
+/// The receiver's length word — the one step §23.1.3.17/.20 take before
+/// the fromIndex conversion.
+fn any_arr_len(ctx: &mut LowerCtx, recv_op: Operand) -> Operand {
+    Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+        Type::I64,
+        None,
+    ))
 }

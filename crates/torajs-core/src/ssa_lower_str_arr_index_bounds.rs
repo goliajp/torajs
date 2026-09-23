@@ -54,13 +54,13 @@ pub(crate) fn normalize_from_index(
             } else {
                 ctx.box_to_any_from_expr(args[1], v)
             };
-            let f = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_to_number, vec![v]),
-                Type::F64,
-                None,
-            );
-            Operand::Value(f)
+            // Deferred behind the length test, and with a throw check —
+            // the raw `any_to_number` call this used had neither, so a
+            // throwing `valueOf` ran on an empty receiver AND its throw
+            // surfaced only at some later check, after the call had
+            // already answered (`try { [1].indexOf(1, hostile) }` printed
+            // past the call and threw outside the try).
+            coerce_from_index_after_len_check(ctx, Operand::Value(len_v), v)
         } else {
             ctx.lower_expr(args[1])
         };
@@ -193,4 +193,62 @@ pub(crate) fn normalize_from_index(
             InstKind::Store(Operand::ConstI64(0), Operand::Value(i_slot), 0),
         );
     }
+}
+
+/// §23.1.3.17 step 3 / §23.1.3.20 step 3 — `If len = 0, return -1`
+/// comes BEFORE step 4's `ToIntegerOrInfinity(fromIndex)`, so on an
+/// empty receiver the coercion must not run at all: a `valueOf` that
+/// throws, or that has a side effect, is never reached
+/// (`[].indexOf(2, {valueOf(){ throw … }})` answers -1). The argument
+/// EXPRESSION has already been evaluated by the caller (§13.3.6.1); only
+/// the conversion is deferred, into the non-empty branch.
+///
+/// On the empty branch the slot gets 0, which the kernel never reads
+/// past its own length test — it answers -1 for an empty array whatever
+/// `from` holds. `boxed` is an Any operand, `len` the receiver's length.
+/// Shared by the `Arr<Any>` lane and the typed-element lane.
+pub(crate) fn coerce_from_index_after_len_check(
+    ctx: &mut LowerCtx,
+    len: Operand,
+    boxed: Operand,
+) -> Operand {
+    let slot = ctx.alloca_in_entry(Type::I64, Some("__from_idx"));
+    let is_empty = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, len, Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let empty_blk = ctx.f.add_block();
+    let coerce_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(is_empty),
+            then_blk: empty_blk,
+            else_blk: coerce_blk,
+        },
+    );
+    ctx.f.append_void(
+        empty_blk,
+        InstKind::Store(Operand::ConstI64(0), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(empty_blk, Terminator::Br(join_blk));
+    // The conversion may run user code and emits its own throw check,
+    // which can move `cur_block` — store and branch from wherever it
+    // leaves us.
+    ctx.cur_block = coerce_blk;
+    let n = ctx.coerce_any_to_number(boxed, Type::F64);
+    let i = ctx.coerce_to_i64(n);
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Store(i, Operand::Value(slot), 0));
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join_blk));
+    ctx.cur_block = join_blk;
+    Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(slot), 0),
+        Type::I64,
+        None,
+    ))
 }
