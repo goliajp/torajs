@@ -234,11 +234,11 @@ pub(crate) fn lower_break(ctx: &mut LowerCtx, label: Option<&str>) {
     if let Some(&fb) = ctx.try_finally_stack.last()
         && ctx.try_finally_loop_depth.last().copied() == Some(ctx.loop_stack.len())
     {
-        let flag = match ctx.pending_break_flag {
+        let flag = match ctx.pending.break_flag {
             Some(f) => f,
             None => {
                 let f = ctx.alloca_bool_flag_in_entry(Some("__pending_break"));
-                ctx.pending_break_flag = Some(f);
+                ctx.pending.break_flag = Some(f);
                 f
             }
         };
@@ -281,11 +281,11 @@ pub(crate) fn lower_continue(ctx: &mut LowerCtx, label: Option<&str>) {
     if let Some(&fb) = ctx.try_finally_stack.last()
         && ctx.try_finally_loop_depth.last().copied() == Some(ctx.loop_stack.len())
     {
-        let flag = match ctx.pending_continue_flag {
+        let flag = match ctx.pending.continue_flag {
             Some(f) => f,
             None => {
                 let f = ctx.alloca_bool_flag_in_entry(Some("__pending_continue"));
-                ctx.pending_continue_flag = Some(f);
+                ctx.pending.continue_flag = Some(f);
                 f
             }
         };

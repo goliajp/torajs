@@ -23,7 +23,7 @@
 //! then the frame is re-entered by a loop) is a no-op rather than a
 //! double free.
 
-use crate::ssa::{BlockId, InstKind, Operand};
+use crate::ssa::{BlockId, InstKind, Operand, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// A block control can transfer to from inside deeper scope frames,
@@ -174,4 +174,29 @@ impl LowerCtx<'_> {
             self.locals.insert(name, prev);
         }
     }
+}
+
+/// The four lazily-allocated slots a `finally` tail reads to decide
+/// which non-local exit is still pending when the finally body ends.
+///
+/// One family, one lifecycle: each is None until the first `return` /
+/// `break` / `continue` inside a try-with-finally observes that its
+/// jump has to flow through the finally, at which point the site
+/// allocates the slot and sets it, and the finally tail checks it to
+/// choose between resuming the exit and continuing normally. They sit
+/// together because reading any one of them without the others is
+/// never the question being asked.
+#[derive(Default)]
+pub(crate) struct PendingExits {
+    /// Alloca slot for a pending return value across finally blocks.
+    /// Type matches the enclosing fn's ret type.
+    pub(crate) return_slot: Option<ValueId>,
+    /// Companion bool flag for [`Self::return_slot`] — set by a
+    /// Return inside a try-with-finally, checked at the finally tail.
+    pub(crate) return_flag: Option<ValueId>,
+    /// Bool slot allocated on the first break-inside-finally; set by
+    /// the break site, checked at the finally tail.
+    pub(crate) break_flag: Option<ValueId>,
+    /// Same shape for continue.
+    pub(crate) continue_flag: Option<ValueId>,
 }

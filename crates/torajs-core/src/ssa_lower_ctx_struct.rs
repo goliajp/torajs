@@ -139,7 +139,7 @@ pub(crate) struct LowerCtx<'a> {
     /// review #0001 fix — innermost-active finally block whose body
     /// should run before the enclosing fn's `return` actually fires.
     /// `Stmt::Return` inside a try-with-finally pushes its value into
-    /// `pending_return_slot` (fn-wide), sets `pending_return_flag`, and
+    /// `pending.return_slot` (fn-wide), sets `pending.return_flag`, and
     /// branches to the top of this stack. The finally tail dispatches:
     /// pending_return AND we're outermost → `load + ret`; otherwise →
     /// `br` to the next outer finally to keep unwinding. Each entry
@@ -151,15 +151,9 @@ pub(crate) struct LowerCtx<'a> {
     /// iterator there; `return` leaves for the epilogue instead, so it
     /// emits the same §7.4.9 close + slot release for each frame here.
     pub(crate) for_of_teardown_stack: Vec<crate::ssa_lower_for_of_teardown::ForOfTeardown>,
-    /// Lazily-allocated alloca slot for a pending return value across
-    /// finally blocks. Type matches the enclosing fn's ret type. None
-    /// until the first try-with-finally lowering observes a return
-    /// would need to flow through it.
-    pub(crate) pending_return_slot: Option<ValueId>,
-    /// Companion bool flag for `pending_return_slot` — set by Return
-    /// inside a try-with-finally, checked at finally tail to decide
-    /// whether to ret vs continue normally.
-    pub(crate) pending_return_flag: Option<ValueId>,
+    /// The non-local exits a `finally` tail has to resume — one
+    /// family, documented on [`crate::ssa_lower_scope_exit::PendingExits`].
+    pub(crate) pending: crate::ssa_lower_scope_exit::PendingExits,
     /// 403-02 — the named fn-expression SELF binding's slot in the fn
     /// currently lowering (bound by `emit_closure_env_preamble`; None
     /// when there is no self slot or a same-named param shadowed it).
@@ -225,12 +219,6 @@ pub(crate) struct LowerCtx<'a> {
     /// this, `for { try { break } finally { … } }` would skip the
     /// finally body — spec violation.
     pub(crate) try_finally_loop_depth: Vec<usize>,
-    /// Bool slot allocated lazily on first break-inside-finally; set by
-    /// the break site, checked at finally tail. Same lifecycle as
-    /// `pending_return_flag`.
-    pub(crate) pending_break_flag: Option<ValueId>,
-    /// Same shape for continue.
-    pub(crate) pending_continue_flag: Option<ValueId>,
     /// Loop control-flow stack — innermost loop on top. M1.7. Each entry
     /// is `(continue_target, break_target)`: a `break` inside the loop
     /// body branches to break_target; a `continue` branches to

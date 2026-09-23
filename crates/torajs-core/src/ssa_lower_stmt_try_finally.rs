@@ -48,10 +48,10 @@ pub(crate) fn lower(ctx: &mut LowerCtx, fb: BlockId, fbody: &[Stmt], after_blk: 
         emit_o5_restore(ctx, saved_active_slot, saved_tag_slot, saved_value_slot);
         emit_throw_propagate(ctx);
         emit_pending_return(ctx);
-        if let Some(flag) = ctx.pending_break_flag {
+        if let Some(flag) = ctx.pending.break_flag {
             emit_pending_loop_flag(ctx, flag, true, after_blk);
         }
-        if let Some(flag) = ctx.pending_continue_flag {
+        if let Some(flag) = ctx.pending.continue_flag {
             emit_pending_loop_flag(ctx, flag, false, after_blk);
         }
         emit_pending_label_flags(ctx);
@@ -231,10 +231,10 @@ fn emit_throw_propagate(ctx: &mut LowerCtx) {
 /// Void function has a flag and no slot (`ssa_lower_stmt_return`):
 /// its pending return is `Ret(None)`.
 fn emit_pending_return(ctx: &mut LowerCtx) {
-    let Some(flag) = ctx.pending_return_flag else {
+    let Some(flag) = ctx.pending.return_flag else {
         return;
     };
-    let slot = ctx.pending_return_slot;
+    let slot = ctx.pending.return_slot;
     let f = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::Bool, Operand::Value(flag), 0),

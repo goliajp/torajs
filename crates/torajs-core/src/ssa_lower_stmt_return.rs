@@ -239,7 +239,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
         // *) died on exactly that alloca. The flag alone carries the
         // pending return; `emit_pending_return` answers `Ret(None)`
         // when there is no slot.
-        let slot = match (ctx.pending_return_slot, ret_ty) {
+        let slot = match (ctx.pending.return_slot, ret_ty) {
             (Some(s), _) => Some(s),
             (None, Type::Void) => None,
             (None, _) => {
@@ -250,11 +250,11 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
                 // tail WITHOUT returning. No initialiser needed — the
                 // flag gates every read of this slot.
                 let s = ctx.alloca_in_entry(ret_ty, Some("__pending_ret"));
-                ctx.pending_return_slot = Some(s);
+                ctx.pending.return_slot = Some(s);
                 Some(s)
             }
         };
-        let flag = match ctx.pending_return_flag {
+        let flag = match ctx.pending.return_flag {
             Some(f) => f,
             None => {
                 // Entry-allocated and zeroed, like its `__pending_break`
@@ -265,7 +265,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, maybe: Option<crate::ast::ExprId>) {
                 // fall-through path became reachable — it used to be
                 // terminated `unreachable`.
                 let f = ctx.alloca_bool_flag_in_entry(Some("__pending_flag"));
-                ctx.pending_return_flag = Some(f);
+                ctx.pending.return_flag = Some(f);
                 f
             }
         };
