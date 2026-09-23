@@ -14,7 +14,13 @@
 //!
 //! [`probe_then`] answers the Get + IsCallable pair, leaving native
 //! promise cells to the callers' existing adoption (an attach, no
-//! job — the fast path engines take for `await`). [`enqueue_thenable_
+//! job — the fast path engines take for `await`) UNLESS the cell
+//! carries an own `then` ([`has_own_then`]): step 8 reads the
+//! property off every Object, so an override is the resolution's
+//! `then` even on a promise. §27.2.4.7 PromiseResolve is a different
+//! algorithm — it compares `constructor` and returns x itself, never
+//! reading `then` — so the kernel below answers that step before it
+//! reaches the probe. [`enqueue_thenable_
 //! job`] is the job; its resolving pair is a FRESH `[[AlreadyResolved]]`
 //! record over the same promise (`promise_with_resolvers::
 //! mint_resolving_pair`), which is why that record is per pair. The
@@ -26,7 +32,7 @@
 
 use core::ffi::c_void;
 
-use crate::nanbox::{AnyValue, VALUE_UNDEFINED, is_cell};
+use crate::nanbox::{AnyValue, VALUE_UNDEFINED, as_void_ptr, is_cell};
 use crate::promise_with_resolvers::{
     P_IS_HEAP_OFF, P_REPR_OFF, REPR_ANY, is_native_promise, mint_resolving_pair,
 };
@@ -40,6 +46,8 @@ unsafe extern "C" {
     /// the transferred ref on the box.
     fn __torajs_promise_resolve_any(bits: i64) -> *mut c_void;
     fn __torajs_promise_reject_any(bits: i64) -> *mut c_void;
+    /// torajs-dynobj — own-entry existence probe over an expando bag.
+    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
     fn __torajs_str_alloc(bytes: *const u8, len: i64) -> *mut u8;
     fn __torajs_str_drop(s: *mut c_void);
     fn __torajs_throw_check() -> i64;
@@ -68,7 +76,7 @@ pub(crate) enum ThenProbe {
 /// `v` is a live AnyValue.
 pub(crate) unsafe fn probe_then(v: AnyValue) -> ThenProbe {
     unsafe {
-        if !is_cell(v) || is_native_promise(v) {
+        if !is_cell(v) || (is_native_promise(v) && !has_own_then(v)) {
             return ThenProbe::NotThenable;
         }
         // The full [[Get]] — an accessor `then` runs against the
@@ -86,6 +94,35 @@ pub(crate) unsafe fn probe_then(v: AnyValue) -> ThenProbe {
             return ThenProbe::NotThenable;
         }
         ThenProbe::Callable(f)
+    }
+}
+
+/// Does this native %Promise% cell carry an OWN `then`?
+///
+/// §27.2.1.3.2 step 8 reads `then` off every Object, so a promise is
+/// only the callers' adopt-by-attach shape while `Promise.prototype
+/// .then` is the one that read answers. A user store (`p.then = f`)
+/// lands in the cell's lazy expando bag, which is NULL until the
+/// first such write — so the normal program pays one load and a
+/// branch, and the string only gets minted for a cell that has a bag
+/// at all.
+///
+/// Own-entry, not the full Get: a bag holding some OTHER expando must
+/// keep the fast path, because falling through would hand the job the
+/// builtin `then` and spend a microtask tick the adopt does not.
+///
+/// # Safety
+/// `v` is a live AnyValue that [`is_native_promise`] accepted.
+pub(crate) unsafe fn has_own_then(v: AnyValue) -> bool {
+    unsafe {
+        let props = crate::member_get_layout::promise_props(as_void_ptr(v));
+        if props.is_null() {
+            return false;
+        }
+        let k = __torajs_str_alloc(b"then".as_ptr(), 4);
+        let hit = __torajs_dynobj_has(props, k.cast()) != 0;
+        __torajs_str_drop(k.cast());
+        hit
     }
 }
 
@@ -268,15 +305,23 @@ pub unsafe extern "C" fn __torajs_anyv_promise_resolve(bits: i64) -> *mut c_void
         // test262 `arg-uniq-ctor` / `arg-non-thenable`-family shape).
         // Until rotation 650 every native promise took the identity
         // road.
-        if is_native_promise(v) && !constructor_is_builtin_promise(v) {
-            let p = __torajs_promise_alloc_pending();
-            p.cast::<u8>().add(P_REPR_OFF).write(REPR_ANY);
-            p.cast::<u8>().add(P_IS_HEAP_OFF).write(1);
-            crate::promise_with_resolvers::adopt_promise(p, crate::nanbox::as_void_ptr(v));
-            // The caller transferred one ref on the box; the
-            // adoption took its own stake above.
-            crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
-            return p;
+        if is_native_promise(v) {
+            if !constructor_is_builtin_promise(v) {
+                let p = __torajs_promise_alloc_pending();
+                p.cast::<u8>().add(P_REPR_OFF).write(REPR_ANY);
+                p.cast::<u8>().add(P_IS_HEAP_OFF).write(1);
+                crate::promise_with_resolvers::adopt_promise(p, crate::nanbox::as_void_ptr(v));
+                // The caller transferred one ref on the box; the
+                // adoption took its own stake above.
+                crate::nanbox_ffi::__torajs_anyv_rc_dec(v);
+                return p;
+            }
+            // Step 2 returns x ITSELF — PromiseResolve never reads
+            // `then`. That read belongs to §27.2.1.3.2, whose probe
+            // an own `then` does divert; routing this step through it
+            // too would break the identity `Promise.all` relies on to
+            // Invoke the override (step 5.r over the SAME cell).
+            return __torajs_promise_resolve_any(bits);
         }
         match probe_then(v) {
             ThenProbe::NotThenable => __torajs_promise_resolve_any(bits),

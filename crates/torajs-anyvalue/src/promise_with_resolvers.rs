@@ -364,7 +364,11 @@ unsafe fn settle(env: *mut c_void, argv: *const u64, argc: i64, rejected: bool) 
                 __torajs_promise_reject(p, reason as i64);
                 return VALUE_UNDEFINED;
             }
-            if is_native_promise(v) {
+            // §27.2.1.3.2 step 8 — the Get runs over EVERY object, so
+            // a promise carrying its own `then` resolves through that
+            // override's job, not through the attach. The bag load is
+            // the whole cost for a cell that never took a store.
+            if is_native_promise(v) && !crate::promise_thenable::has_own_then(v) {
                 adopt_promise(p, as_void_ptr(v));
                 return VALUE_UNDEFINED;
             }
