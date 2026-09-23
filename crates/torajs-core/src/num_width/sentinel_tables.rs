@@ -190,13 +190,39 @@ pub(super) fn is_sentinel_source(
         // return has answered `undefined` since the lowering-stage
         // twin of this set existed.
         Expr::Member { name, .. } => t.fields.contains(Wtf8::new(name)),
-        // A binding reads back what its declaration or some assignment
-        // put in it. [`body_returns_sentinel`] has tracked this WITHIN
-        // one body since it existed — it has to, to decide whether
-        // `return a` after `a = zs[9]` hands one back. Nothing tracked
-        // it ACROSS bodies, so a value read through a binding and read
-        // inline gave two answers at a kernel boundary.
-        Expr::Ident(n) => t.lets.contains(n),
+        // A binding reads back what its declaration or some
+        // assignment put in it, and a PARAMETER reads back what some
+        // call site handed it.
+        //
+        // The binding half has been tracked WITHIN one body since
+        // `body_returns_sentinel` existed — it has to, to decide
+        // whether `return a` after `a = zs[9]` hands one back — but
+        // nothing tracked it across bodies, so a value read through
+        // a binding and read inline gave two answers at a kernel
+        // boundary.
+        //
+        // The parameter half was missing entirely, and a sentinel
+        // therefore stopped at the first typed parameter it reached:
+        // `g(zs[9])` armed `g`'s `p`, but `h(p)` inside `g` asked
+        // this predicate about `p` and got false, so `h`'s `q` was
+        // never armed. The same gap left `ys.forEach(x =>
+        // ws.push(x))` open — `x` is on the parameter table, and the
+        // push that fills `ws` reads it through here.
+        //
+        // The match is by NAME, not by the `(fn, param)` pair the
+        // table is keyed on, because this predicate runs over the
+        // expression arena and the arena carries no owner: there is
+        // no ExprId → enclosing-function map anywhere in the crate,
+        // so the pair's first half is not recoverable here.
+        // `body_returns_sentinel` is the one caller that does hold a
+        // function name, and it stays exact. By name is the same
+        // trade the other four tables already make, and in the same
+        // direction — a parameter named `x` in an unrelated function
+        // costs one predictable compare at a consumer, while missing
+        // one prints NaN where the program should see `undefined`.
+        // Arming reads the slot type, it never sets it
+        // (`ssa_lower_fn`'s seeding), so nothing widens.
+        Expr::Ident(n) => t.lets.contains(n) || t.params.iter().any(|(_, param)| param == n),
         Expr::Nullish { rhs, .. } => is_sentinel_source(a, *rhs, t),
         Expr::Sequence { right, .. } => is_sentinel_source(a, *right, t),
         Expr::Assign { value, .. } => is_sentinel_source(a, *value, t),
