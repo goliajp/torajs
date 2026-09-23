@@ -229,13 +229,13 @@ pub(super) fn collect_hof_elem_params(
     };
     match name.as_str() {
         m if ELEM_FIRST_HOFS.contains(&m) => {
-            // Only the first. §24.2.3.6 hands a Set member as BOTH
-            // the value and the key, so the second parameter holds
-            // the same thing — but the width pass seeds that one I64
-            // while the first is F64, and an I64 slot cannot spell
-            // the sentinel at all. Registered; the fix is a width
-            // one, not a taint one.
             taint_param(a, &fn_name, 0, out);
+            // §24.2.3.6 hands a Set member as BOTH the value and the
+            // key. An Array index and a Map key are not elements, so
+            // this is the one receiver shape it applies to.
+            if m == "forEach" && matches!(a.expr_types.get(obj), Some(crate::check::Type::Set)) {
+                taint_param(a, &fn_name, 1, out);
+            }
         }
         // The accumulator is parameter 0; the element is parameter 1.
         "reduce" | "reduceRight" => taint_param(a, &fn_name, 1, out),

@@ -151,15 +151,38 @@ impl<'a> Analysis<'a> {
     /// feedback missed the accumulator entirely — the array-005 FPR
     /// abort).
     fn wire_elem_to_cb_param(&mut self, ek: &SlotKey, cb_arg: ExprId) {
+        self.wire_elem_to_cb_param_at(ek, cb_arg, 0);
+    }
+
+    /// The same wiring for a callback parameter other than the first.
+    ///
+    /// §24.2.3.6 hands a Set member as BOTH the value and the key, so
+    /// both of a Set `forEach` callback's first two parameters see the
+    /// receiver's elements. Without the second one it took the default
+    /// I64 while the first was F64 — and an I64 slot cannot spell the
+    /// undefined sentinel at all, so `s.forEach((v, v2) => typeof v2)`
+    /// answered "number" for a member `typeof v` reported `undefined`.
+    /// An Array index and a Map key are not elements, which is why
+    /// this is not folded into the arm above.
+    fn wire_elem_to_cb_param_at(&mut self, ek: &SlotKey, cb_arg: ExprId, idx: usize) {
         if let Some(cb) = self.callee_fn_name(cb_arg)
-            && let Some(p0) = self.callback_params(&cb).first().cloned()
+            && let Some(p) = self.callback_params(&cb).get(idx).cloned()
         {
-            let pk = SlotKey::Param(cb, p0);
+            let pk = SlotKey::Param(cb, p);
             self.c_edges
                 .entry(ek.clone())
                 .or_default()
                 .push((pk.clone(), false));
             self.nested_unions.push((ek.clone(), pk));
+        }
+    }
+
+    /// `forEach`'s element wiring, which is per-receiver: a Set hands
+    /// the member twice (see [`Self::wire_elem_to_cb_param_at`]).
+    fn wire_foreach_params(&mut self, ek: &SlotKey, cb_arg: ExprId, recv: ExprId) {
+        self.wire_elem_to_cb_param_at(ek, cb_arg, 0);
+        if matches!(self.expr_types.get(&recv), Some(crate::check::Type::Set)) {
+            self.wire_elem_to_cb_param_at(ek, cb_arg, 1);
         }
     }
 
@@ -267,7 +290,11 @@ impl<'a> Analysis<'a> {
             "map" | "forEach" | "filter" | "find" | "findLast" | "findIndex" | "some" | "every"
             | "flatMap" => {
                 if let Some(a0) = args.first() {
-                    self.wire_elem_to_cb_param(&ek, *a0);
+                    if name == "forEach" {
+                        self.wire_foreach_params(&ek, *a0, obj);
+                    } else {
+                        self.wire_elem_to_cb_param(&ek, *a0);
+                    }
                 }
             }
             "sort" | "toSorted" => {

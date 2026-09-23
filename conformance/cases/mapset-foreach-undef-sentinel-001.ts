@@ -15,10 +15,11 @@ for (const [k, v] of m) {
 
 const s = new Set<number>();
 s.add(zs[9]);
-// Only the first parameter: §24.2.3.6 hands the member twice, but
-// the width pass seeds the second one I64, which cannot spell the
-// sentinel at all — a width gap, registered separately.
-s.forEach((v) => console.log("set", typeof v, v === undefined));
+// §24.2.3.6 hands the member as BOTH the value and the key, so both
+// parameters carry it.
+s.forEach((v, v2) =>
+  console.log("set", typeof v, v === undefined, typeof v2, v2 === undefined),
+);
 
 // Live entries keep the plain number lane, arithmetic and all.
 const live = new Map<string, number>();
