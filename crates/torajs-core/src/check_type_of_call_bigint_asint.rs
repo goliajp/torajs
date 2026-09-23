@@ -17,30 +17,37 @@
 //! because `bits` needed to stop being shape-checked here. Step 1
 //! of both algorithms is `ToIndex(bits)`, a COERCION followed by a
 //! range test, so `BigInt.asIntN("-2.5", 0n)` is a RangeError
-//! raised at runtime and not a compile-time refusal. `value` keeps
-//! its `Type::BigInt` requirement: §21.2.2.{1,2} step 2 is
-//! `ToBigInt`, whose failures are TypeErrors tr does not yet raise
-//! from this position (L3b).
+//! raised at runtime and not a compile-time refusal.
 //!
-//! Receiver / m_name / arity matrix:
-//! - `Type::Object("BigInt")` + m_name ∈ {asIntN, asUintN}
-//!   + args.len() >= 2:
-//!     - args[0] (bits) — any shape; coerced by `ToIndex` at
-//!       runtime
-//!     - args[1] (value) must be `Type::BigInt` else
-//!       `Some(Err("BigInt.{m_name} arg 1 (value) must be
-//!       bigint, got {aty1:?}"))`
+//! Rotation 698 — `value` stopped being shape-checked for the same
+//! reason. Step 2 is `ToBigInt(value)`, also a coercion: §7.1.13
+//! converts a Boolean and a parseable String, runs an Object's
+//! ToPrimitive, and raises a TypeError only for a Number / nullish /
+//! Symbol. Refusing every non-`BigInt` shape here turned ten test262
+//! files' worth of legal programs into compile errors
+//! (`BigInt.asIntN(3, true)`, `(4, "0xa")`, `(4, [10n])`, an `any`
+//! operand). The whole of §7.1.13 has been behind
+//! `LowerCtx::coerce_any_to_bigint` since RFC 20260720 knife 5b-2,
+//! and the lowering twin routes every non-`BigInt` operand through it.
+//! A MISSING value slot is `undefined`, which is one of the TypeError
+//! shapes — so the zero- and one-argument forms belong to this arm
+//! too, instead of falling onto the arity gate.
+//!
+//! Receiver / m_name matrix:
+//! - `Type::Object("BigInt")` + m_name ∈ {asIntN, asUintN}:
+//!     - no args — §21.2.2.{1,2} run `ToIndex(undefined)` = 0 and
+//!       then throw at step 2; `Some(Ok(Type::BigInt))`
+//!     - args[0] (bits) — any shape; coerced by `ToIndex` at runtime
+//!     - args[1] (value) — any shape; coerced by `ToBigInt`
 //!     - args[2..] type_of'd for side-effect validation
 //!     - returns `Some(Ok(Type::BigInt))`
 //!
 //! Returns:
 //! - `Some(Ok(Type::BigInt))` on success
-//! - `Some(Err(_))` on receiver / arg type_of failure or
-//!   typed-arg mismatch
+//! - `Some(Err(_))` on receiver / arg type_of failure
 //! - `None` otherwise (non-Member callee, m_name not in
-//!   {asIntN, asUintN}, args.len() < 2, or non-BigInt
-//!   receiver — cascade falls through to the S309
-//!   Object.fromEntries wedge and beyond)
+//!   {asIntN, asUintN}, or non-BigInt receiver — cascade falls
+//!   through to the S309 Object.fromEntries wedge and beyond)
 
 use crate::ast::{Ast, Expr, ExprId};
 use crate::check::{Checker, Type};
@@ -61,15 +68,21 @@ pub(crate) fn try_match(
     if !matches!(m_name.as_str(), "asIntN" | "asUintN") {
         return None;
     }
-    if args.len() < 2 {
-        return None;
-    }
     let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
     if !matches!(src_ty, Type::Object("BigInt")) {
         return None;
+    }
+    if args.is_empty() {
+        // `BigInt.asIntN()` — §21.2.2.1 step 1 is `ToIndex(undefined)`
+        // = 0 (§7.1.22 gives ToIntegerOrInfinity(undefined) = 0, and
+        // nothing observable runs), step 2 is `ToBigInt(undefined)`,
+        // which is a TypeError. The answer is a runtime throw, not a
+        // refusal, so this arm owns the shape instead of dropping it
+        // on the arity gate.
+        return Some(Ok(Type::BigInt));
     }
     let aty0 = match checker.type_of(ast, args[0]) {
         Ok(t) => t,
@@ -80,14 +93,18 @@ pub(crate) fn try_match(
     // runtime where the Number still is one. `let _ = aty0;` keeps
     // the type_of call, whose own errors stay loud.
     let _ = aty0;
-    let aty1 = match checker.type_of(ast, args[1]) {
-        Ok(t) => t,
-        Err(e) => return Some(Err(e)),
-    };
-    if !matches!(aty1, Type::BigInt) {
-        return Some(Err(format!(
-            "BigInt.{m_name} arg 1 (value) must be bigint, got {aty1:?}"
-        )));
+    // §21.2.2.{1,2} step 2 is `ToBigInt(value)` — a coercion, so every
+    // operand shape reaches it and the answer is whatever §7.1.13 says:
+    // a Boolean or a parseable String converts, an Object runs its
+    // ToPrimitive, a Number / nullish / Symbol is a TypeError. Refusing
+    // the non-BigInt shapes here turned ten test262 files' worth of
+    // legal programs into compile errors. The any-lane kernel behind
+    // `coerce_any_to_bigint` has carried the whole of §7.1.13 since RFC
+    // 20260720 knife 5b-2; the lowering twin routes through it.
+    if let Some(&value_arg) = args.get(1)
+        && let Err(e) = checker.type_of(ast, value_arg)
+    {
+        return Some(Err(e));
     }
     for &a in args.iter().skip(2) {
         if let Err(e) = checker.type_of(ast, a) {

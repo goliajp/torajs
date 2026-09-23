@@ -30,9 +30,6 @@ pub(crate) fn try_lower(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
-    if args.len() < 2 {
-        return None;
-    }
     let Expr::Member {
         obj: ns_id,
         name: m_name,
@@ -58,20 +55,58 @@ pub(crate) fn try_lower(
     // `asIntN(Infinity, 0n)` and `asIntN(2**53, 0n)` should be
     // RangeErrors and were not, and `asIntN(NaN, 255n)` should be
     // `0n` (ToIndex(NaN) = 0) and answered `255n`.
-    let bits_num = ctx.lower_to_number_operand(args[0]);
-    let bits_f64 = ctx.coerce_to_f64(bits_num);
-    let cur_block = ctx.cur_block;
-    let bits_i64 = Operand::Value(ctx.f.append_inst(
-        cur_block,
-        InstKind::Call(ctx.intrinsics.num_to_index, vec![bits_f64]),
-        Type::I64,
-        None,
-    ));
+    // A missing `bits` is `ToIndex(undefined)` = 0 (§7.1.22 — nothing
+    // observable runs), so the kernel takes the constant and the
+    // algorithm proceeds to step 2, where the missing value throws.
+    let bits_i64 = match args.first() {
+        None => Operand::ConstI64(0),
+        Some(&bits_arg) => {
+            let bits_num = ctx.lower_to_number_operand(bits_arg);
+            let bits_f64 = ctx.coerce_to_f64(bits_num);
+            let cur_block = ctx.cur_block;
+            Operand::Value(ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(ctx.intrinsics.num_to_index, vec![bits_f64]),
+                Type::I64,
+                None,
+            ))
+        }
+    };
     // §13.3.6.1 evaluates every argument before the call, and step 1
     // runs after that — so the RangeError propagates here, between
     // the operands and the kernel.
     ctx.emit_throw_check(None);
-    let val_op = ctx.lower_expr(args[1]);
+    // §21.2.2.{1,2} step 2 — `ToBigInt(value)`. A `BigInt`-typed
+    // operand is already the answer; every other shape (and a missing
+    // slot, which is `undefined`) goes through the §7.1.13 kernel,
+    // whose rejects land on the pending-throw channel the check below
+    // unwinds. The coerced result is a FRESH OWNED BigInt, so it is
+    // released after the borrow-shaped kernel call rather than through
+    // `release_owned_temp`, which reads the source expression's shape.
+    let (val_op, coerced) = match args.get(1) {
+        Some(&value_arg) => {
+            let raw = ctx.lower_expr(value_arg);
+            if matches!(ctx.operand_ty(&raw), Type::BigInt) {
+                (raw, false)
+            } else {
+                let boxed = ctx.box_to_any_from_expr(value_arg, raw);
+                (ctx.coerce_any_to_bigint(boxed), true)
+            }
+        }
+        None => {
+            let cur_block = ctx.cur_block;
+            let undef = Operand::Value(ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.any_box,
+                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+                ),
+                Type::Any,
+                None,
+            ));
+            (ctx.coerce_any_to_bigint(undef), true)
+        }
+    };
     for &a in args.iter().skip(2) {
         let _ = ctx.lower_expr(a);
     }
@@ -91,7 +126,11 @@ pub(crate) fn try_lower(
     // result), so an Ident arg keeps its stake and its scope drop —
     // the old consume path orphaned that stake (RFC 20260705 ledger
     // #3). Owned temps release here.
-    ctx.release_owned_temp(args[1], &val_op);
+    if coerced {
+        ctx.emit_drop_value(val_op.clone(), Type::BigInt);
+    } else {
+        ctx.release_owned_temp(args[1], &val_op);
+    }
     ctx.emit_throw_check(None);
     Some(Operand::Value(v))
 }
