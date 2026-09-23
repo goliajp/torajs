@@ -27,6 +27,28 @@ use crate::nanbox_encode::{
 };
 use crate::nanbox_ffi::__torajs_anyv_to_bool;
 
+// `__torajs_arr_mark_last_hole` is declared apart from the block above
+// because this crate's lib test links without torajs-arr's staticlib.
+// Every other `__torajs_arr_*` extern here is reached only from code the
+// test binary strips; this one is not, so the test build takes a no-op —
+// no test in this crate drives the array-like map walker, and the
+// shipped path is untouched.
+#[cfg(not(test))]
+unsafe extern "C" {
+    /// torajs-arr — turn the last pushed slot into a HOLE (§10.4.2's
+    /// absent index), the pair the array-literal elision lowering and
+    /// the Arr kernel's own map both emit.
+    fn __torajs_arr_mark_last_hole(arr: *mut c_void);
+}
+
+#[cfg(test)]
+unsafe fn __torajs_arr_mark_last_hole(_arr: *mut c_void) {}
+
+/// torajs-arr's slot `(tag, value)` encoding — 5 is `undefined`
+/// (`torajs-arr`'s `ANY_UNDEF`). Tag 0 is `null`, which is what the
+/// map hole filler below used to push.
+const ARR_TAG_UNDEFINED: u64 = 5;
+
 unsafe extern "C" {
     /// torajs-throw — pending-throw flag (1 = a throw is recorded).
     fn __torajs_throw_check() -> i64;
@@ -227,10 +249,20 @@ pub(crate) unsafe fn arraylike_hof(
                 let mut k: i64 = 0;
                 while k < len {
                     if !arraylike_has(obj, k) {
-                        // Dense-emulation boundary: map keeps result
-                        // indexes aligned by filling undefined.
+                        // §23.1.3.20 step 5.c — map sets the result's
+                        // index only when the source HAS that index, so
+                        // an absent one leaves a HOLE in the product.
+                        // The filler kept indexes aligned but used tag
+                        // 0, which is `null`: the slot read back as
+                        // null, `typeof` said "object" and `k in result`
+                        // said true, where all three must report
+                        // absence. Push undefined and mark it — the pair
+                        // the Arr kernel's own map arm emits
+                        // (`method_any_hof.rs`).
                         if mid == ANY_METHOD_MAP {
-                            product = __torajs_arr_push_any(product as *mut c_void, 0, 0);
+                            product =
+                                __torajs_arr_push_any(product as *mut c_void, ARR_TAG_UNDEFINED, 0);
+                            __torajs_arr_mark_last_hole(product as *mut c_void);
                         }
                         k += 1;
                         continue;
