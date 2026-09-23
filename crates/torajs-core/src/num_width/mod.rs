@@ -43,12 +43,14 @@ mod json_seed;
 mod let_names;
 mod mono;
 mod sentinel_hof;
+mod sentinel_member_reads;
 mod sentinel_tables;
 mod slot_abi;
 mod walk;
 mod width;
 mod width_table;
 
+pub(crate) use container_promise::awaited_promise_inner_of;
 pub(crate) use fnsig::{fn_type_canon, split_fn_type};
 pub(crate) use mono::{NumWidth, compute_typevar_widths};
 pub(crate) use width_table::WidthTable;
@@ -270,6 +272,12 @@ pub(super) struct Analysis<'a> {
     /// element widths below are only sound under this proof (the
     /// field's doc on `WidthTable` says why).
     pub(super) proven_reads: HashSet<ExprId>,
+    /// Member reads that carry the sentinel with no container key to
+    /// carry it for them (`sentinel_member_reads`). Filled after the
+    /// sentinel tables close and before the walk, because `width.rs`
+    /// reads it per expression and the getter half costs an arena
+    /// scan to answer.
+    pub(super) sentinel_member_reads: HashSet<ExprId>,
 }
 
 /// Full analysis result — the F64 slot classes plus the container
@@ -319,6 +327,7 @@ pub(crate) fn analyze(
         bounds_stack: Vec::new(),
         lower_settled: bounds_lower::settled_guards(ast),
         proven_reads: HashSet::new(),
+        sentinel_member_reads: HashSet::new(),
     };
 
     // Top-level statements walk under the "" scope; fn bodies under
@@ -337,6 +346,11 @@ pub(crate) fn analyze(
     // call site tainted is one of the ways it can. The two answers
     // feed each other, so they are closed together first.
     let tables = close_sentinel_tables(&a, &ast.stmts);
+    // Those tables answer by name; the widths the walk is about to
+    // assign also need the two shapes that have no name (see
+    // `sentinel_member_reads`), and they need them before the walk
+    // starts, not after.
+    a.sentinel_member_reads = sentinel_member_reads::freeze(&tables);
     let mut fallthrough_fns: HashSet<String> = tables.fns.clone();
     for stmt in &ast.stmts {
         if let Stmt::FnDecl { .. } = stmt {

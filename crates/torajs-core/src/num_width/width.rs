@@ -213,6 +213,21 @@ impl<'a> Analysis<'a> {
             // (string literals etc.) stay NotNum — their props are
             // runtime-typed independent of the width table.
             Expr::Member { .. } | Expr::Index { .. } => {
+                // Ahead of the lattice: the two reads that can hand
+                // the sentinel back with no key to carry it (an
+                // awaited `Promise<number>`, an accessor whose getter
+                // falls through — `sentinel_member_reads`). Whatever
+                // slot such a read lands in has to be F64, because
+                // the sentinel is a NaN bit pattern and an I64 slot
+                // cannot spell one. Lowering arms both shapes
+                // unconditionally; arming a slot this analysis left
+                // I64 arms nothing at all, and the resulting `NaN`
+                // where the program should see `undefined` looks
+                // exactly like the taint table having missed the
+                // value (RFC 20260923 §3.3c).
+                if self.sentinel_member_reads.contains(&eid) {
+                    return W::F64;
+                }
                 match self.container_key_lookup(eid, scope) {
                     Some(k) => W::Num(vec![(k, false)]),
                     None => W::NotNum,

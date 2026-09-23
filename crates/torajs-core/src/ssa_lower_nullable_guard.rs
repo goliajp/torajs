@@ -63,30 +63,16 @@ pub(crate) fn callee_falls_through(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
     )
 }
 
-/// `await p` parses to `p.value`, so this answers the inner type of the
-/// promise being awaited (`None` for any other expression).
-///
-/// A promise's value slot carries whatever settled it, and an async body
-/// that runs off its end settles with that width's undefined sentinel
-/// (ES §10.2.1.4 step 11) — as does any sentinel-bearing value handed to
-/// `Promise.resolve`. Every "may this hold the sentinel" predicate
-/// consults it for its own width. Over-broad for the promises that
-/// always settle with a real value: one predictable compare, never
-/// wrong.
+/// `await p` parses to `p.value` — the lowering-side spelling of
+/// [`crate::num_width::awaited_promise_inner_of`], which is where the
+/// shape lives because the width analysis has to agree with it
+/// exactly. Every "may this hold the sentinel" predicate consults it
+/// for its own width.
 pub(crate) fn awaited_promise_inner<'c>(
     ctx: &'c LowerCtx<'_>,
     eid: ExprId,
 ) -> Option<&'c crate::check::Type> {
-    let Expr::Member { obj, name } = ctx.ast.get_expr(eid) else {
-        return None;
-    };
-    if name != "value" {
-        return None;
-    }
-    match ctx.expr_types.get(obj) {
-        Some(crate::check::Type::Promise(inner)) => Some(inner),
-        _ => None,
-    }
+    crate::num_width::awaited_promise_inner_of(ctx.ast, ctx.expr_types, eid)
 }
 
 /// RFC 20260707-undefined-sentinel-repr chunk 1 — true when a

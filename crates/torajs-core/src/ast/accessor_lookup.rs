@@ -67,6 +67,37 @@ pub(crate) fn objlit_getter_fns<'a>(ast: &'a Ast, prop: &str) -> Vec<&'a str> {
     out
 }
 
+/// Every function a read of property `prop` can run as a getter:
+/// instance accessors, static accessors, and object-literal getters.
+///
+/// The three live in three tables keyed three different ways — the
+/// first two by DECLARING CLASS, the third only by the literal's own
+/// `__getter_<prop>` field — so asking "which function does reading
+/// `.g` run" means asking all three and taking the union. By name
+/// and program-wide, which is the same trade the sentinel tables
+/// already make: two classes with a `g` accessor answer both, and a
+/// caller weighing "can this read hand back the sentinel" wants the
+/// union, because missing one is silent and including one costs a
+/// predictable compare.
+///
+/// The caller supplies its own "and can that function hand one back"
+/// test, because the two callers ask it of different objects at
+/// different times: the width analysis asks the sentinel table it is
+/// still closing, lowering asks the finished width table. The
+/// name -> function hop is the half that must not be spelled twice.
+pub(crate) fn getter_fn_names<'a>(ast: &'a Ast, prop: &str) -> Vec<&'a str> {
+    let key = torajs_wtf8::Wtf8::new(prop);
+    let mut out: Vec<&'a str> = ast
+        .accessor_getters
+        .iter()
+        .chain(ast.static_accessor_getters.iter())
+        .filter(|((_, p), _)| p.as_wtf8() == key)
+        .map(|(_, f)| f.as_str())
+        .collect();
+    out.extend(objlit_getter_fns(ast, prop));
+    out
+}
+
 pub(crate) fn accessor_getter_in_chain(
     ast: &Ast,
     cls_key: &str,

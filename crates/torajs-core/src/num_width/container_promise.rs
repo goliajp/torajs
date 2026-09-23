@@ -8,7 +8,43 @@
 //! largest block that says so.
 
 use super::{Analysis, Scope, SlotKey};
-use crate::ast::ExprId;
+use crate::ast::{Ast, Expr, ExprId};
+use std::collections::HashMap;
+
+/// `await p` parses to `p.value`, so this answers the inner type of
+/// the promise being awaited (`None` for any other expression).
+///
+/// A promise's value slot carries whatever settled it, and an async
+/// body that runs off its end settles with that width's undefined
+/// sentinel (ES §10.2.1.4 step 11) — as does any sentinel-bearing
+/// value handed to `Promise.resolve`. Over-broad for the promises
+/// that always settle with a real value: one predictable compare,
+/// never wrong.
+///
+/// It lives here, in the module about the Promise value point, rather
+/// than beside either caller, because BOTH phases need it and they
+/// need it to mean the same thing. Lowering asks in order to arm the
+/// read; this analysis asks in order to give the slot the read lands
+/// in the width an armed read requires. Those two answers disagreeing
+/// is not a small bug — arming a slot that is not wide enough to hold
+/// the sentinel is a silent no-op (RFC 20260923 §3.3c), and it looks
+/// exactly like the table having missed the value.
+pub(crate) fn awaited_promise_inner_of<'t>(
+    ast: &Ast,
+    expr_types: &'t HashMap<ExprId, crate::check::Type>,
+    eid: ExprId,
+) -> Option<&'t crate::check::Type> {
+    let Expr::Member { obj, name } = ast.get_expr(eid) else {
+        return None;
+    };
+    if name != "value" {
+        return None;
+    }
+    match expr_types.get(obj) {
+        Some(crate::check::Type::Promise(inner)) => Some(inner),
+        _ => None,
+    }
+}
 
 impl Analysis<'_> {
     /// ②.6b — value-point wiring for the Promise statics. The

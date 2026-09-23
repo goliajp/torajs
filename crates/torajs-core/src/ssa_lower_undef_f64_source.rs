@@ -136,20 +136,12 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// which costs one bits compare — the same trade the field arm above
 /// documents.
 fn getter_hands_back_sentinel(ctx: &LowerCtx<'_>, name: &str) -> bool {
-    let key = Wtf8::new(name);
-    ctx.ast
-        .accessor_getters
+    // The three getter tables (instance / static / object-literal)
+    // are keyed three different ways; `getter_fn_names` is the one
+    // spelling of that union, shared with the width analysis, which
+    // asks the same question one phase earlier against the sentinel
+    // table it is still closing.
+    crate::ast::accessor_lookup::getter_fn_names(ctx.ast, name)
         .iter()
-        .chain(ctx.ast.static_accessor_getters.iter())
-        .any(|((_, prop), fname)| {
-            prop.as_wtf8() == key && ctx.num_f64_slots.returns_undef_on_fallthrough(fname)
-        })
-        // Those two tables are keyed by declaring CLASS. An object
-        // literal has no class, so `{ get g() { return zs[9] } }` was
-        // absent from both and `src.g` read the sentinel as a plain
-        // number — while the identical getter written on a class has
-        // answered `undefined` since the accessor arm landed.
-        || crate::ast::accessor_lookup::objlit_getter_fns(ctx.ast, name)
-            .iter()
-            .any(|fname| ctx.num_f64_slots.returns_undef_on_fallthrough(fname))
+        .any(|fname| ctx.num_f64_slots.returns_undef_on_fallthrough(fname))
 }

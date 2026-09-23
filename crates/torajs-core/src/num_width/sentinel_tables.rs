@@ -29,6 +29,11 @@ pub(super) struct SentinelTables {
     pub(super) elems: HashSet<String>,
     /// Binding names some declaration or assignment fills with one.
     pub(super) lets: HashSet<String>,
+    /// The two shapes that have no name to be recorded under
+    /// (`super::sentinel_member_reads`). Collected once, before the
+    /// closure below starts, because they do not depend on how far it
+    /// has got — only the `fns` test applied to them does.
+    pub(super) members: super::sentinel_member_reads::MemberCandidates,
 }
 
 /// Close the fall-through table and its tainted-parameter mirror
@@ -51,6 +56,7 @@ pub(super) struct SentinelTables {
 /// names are finite, so it terminates.
 pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> SentinelTables {
     let mut t = SentinelTables::default();
+    t.members = super::sentinel_member_reads::collect_member_candidates(a);
     loop {
         let n = (
             t.fns.len(),
@@ -189,7 +195,18 @@ pub(super) fn is_sentinel_source(
         // return r.v }` printed NaN while the identical read outside a
         // return has answered `undefined` since the lowering-stage
         // twin of this set existed.
-        Expr::Member { name, .. } => t.fields.contains(Wtf8::new(name)),
+        //
+        // The two shapes with no field write behind them ride the
+        // same arm: a read that runs a getter whose body falls
+        // through, and an awaited `Promise<number>`. Neither is a
+        // write to a field of that name, so the set above never saw
+        // either, and `const u = src.g; g(u)` left `u` untainted
+        // while `typeof src.g` read in place has answered `undefined`
+        // since the lowering-side accessor arm landed.
+        Expr::Member { name, .. } => {
+            t.fields.contains(Wtf8::new(name))
+                || super::sentinel_member_reads::hands_back_sentinel(t, eid)
+        }
         // A binding reads back what its declaration or some
         // assignment put in it, and a PARAMETER reads back what some
         // call site handed it.
