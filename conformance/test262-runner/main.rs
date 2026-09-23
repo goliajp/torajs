@@ -810,7 +810,7 @@ fn run_case(
     let bun_ok = bun_success && (!is_async || verdict::async_completed(&bun_stdout));
 
     if bun_ok {
-        verdict::judge_oracle(&out, &bun_stdout)
+        verdict::judge_oracle(&out, &bun_stdout, is_async)
     } else {
         // bun itself failed — not a skip (takagi 2026-06-13): test262
         // positive cases self-validate through the assert harness.
@@ -886,7 +886,7 @@ fn run_raw_case(
     // `raw` cases carry no harness, so there is no assert surface to
     // self-validate against — without bun there is nothing to compare.
     if bun_success {
-        verdict::judge_oracle(&out, &bun_stdout)
+        verdict::judge_oracle(&out, &bun_stdout, false)
     } else {
         verdict::judge_no_oracle(&out, false)
     }

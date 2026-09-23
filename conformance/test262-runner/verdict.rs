@@ -296,7 +296,27 @@ pub fn judge_no_oracle(out: &std::process::Output, is_async: bool) -> Outcome {
 }
 
 /// Judge a positive case with a live bun oracle (legacy path).
-pub fn judge_oracle(out: &std::process::Output, bun_stdout: &[u8]) -> Outcome {
+///
+/// `is_async` splits the one bucket this path used to collapse. An
+/// async case that exits 0 with stdout unlike bun's can be three
+/// different things — an assertion that threw and printed the failure
+/// marker, a promise chain that never drove `$DONE` at all, or output
+/// that differs for some ordinary reason — and all three arrived here
+/// as `stdout-mismatch` carrying the `(no stderr)` placeholder,
+/// because the failure marker goes to STDOUT and `failure_line` reads
+/// stderr.
+///
+/// [`judge_no_oracle`] has always made this split, with the
+/// no-metric-inflation note above it. The same question was being
+/// answered two ways depending on whether bun happened to complete,
+/// which made the collapsed bucket unusable as a progress measure:
+/// 146 cases sat in it at rotation 696 and nothing could say how many
+/// were failing assertions rather than silent exits.
+///
+/// The verdict itself does not move — `Pass` is still byte equality,
+/// and every case that was a `Bug` stays one. Only the bucket gets
+/// its name back.
+pub fn judge_oracle(out: &std::process::Output, bun_stdout: &[u8], is_async: bool) -> Outcome {
     if out.status.success() && out.stdout == bun_stdout {
         return Outcome::Pass;
     }
@@ -307,17 +327,32 @@ pub fn judge_oracle(out: &std::process::Output, bun_stdout: &[u8]) -> Outcome {
             msg: first_line,
         };
     }
-    let kind = if !out.status.success() {
-        if let Some(code) = out.status.code() {
-            format!("exit {code}")
-        } else {
-            "killed".to_string()
-        }
-    } else {
-        "stdout-mismatch".to_string()
-    };
+    if !out.status.success() {
+        let kind = match out.status.code() {
+            Some(code) => format!("exit {code}"),
+            None => "killed".to_string(),
+        };
+        return Outcome::Bug {
+            kind,
+            msg: failure_line(out),
+        };
+    }
+    if is_async && !async_completed(&out.stdout) {
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let (kind, msg) = match stdout.lines().find(|l| l.starts_with(ASYNC_FAILURE)) {
+            Some(fail_line) => ("async-failure", fail_line.to_string()),
+            None => (
+                "async-incomplete",
+                format!("exit 0 without {ASYNC_COMPLETE}"),
+            ),
+        };
+        return Outcome::Bug {
+            kind: kind.to_string(),
+            msg,
+        };
+    }
     Outcome::Bug {
-        kind,
+        kind: "stdout-mismatch".to_string(),
         msg: failure_line(out),
     }
 }
@@ -346,7 +381,7 @@ mod tests {
             "warning: unknown identifier `u`\nerror: uncaught TypeError: nope\n",
         );
         assert!(matches!(
-            judge_oracle(&o, b""),
+            judge_oracle(&o, b"", false),
             Outcome::Bug { msg, .. } if msg == "error: uncaught TypeError: nope"
         ));
     }
@@ -354,7 +389,57 @@ mod tests {
     #[test]
     fn bug_message_falls_back_to_the_first_line() {
         let o = out(139, "");
-        assert!(matches!(judge_oracle(&o, b""), Outcome::Bug { msg, .. } if msg == "(no stderr)"));
+        assert!(
+            matches!(judge_oracle(&o, b"", false), Outcome::Bug { msg, .. } if msg == "(no stderr)")
+        );
+    }
+
+    // The three shapes the oracle path used to collapse into one
+    // `stdout-mismatch` / `(no stderr)` row. The marker goes to
+    // STDOUT, which is why the stderr-reading fallback had nothing to
+    // say about any of them.
+    #[test]
+    fn async_assertion_failure_names_itself() {
+        let o = out_stdout(0, "Test262:AsyncTestFailure:Test262Error: wrong value\n");
+        assert!(matches!(
+            judge_oracle(&o, ASYNC_COMPLETE.as_bytes(), true),
+            Outcome::Bug { kind, msg }
+                if kind == "async-failure" && msg.contains("wrong value")
+        ));
+    }
+
+    #[test]
+    fn async_never_completing_names_itself() {
+        let o = out_stdout(0, "");
+        assert!(matches!(
+            judge_oracle(&o, ASYNC_COMPLETE.as_bytes(), true),
+            Outcome::Bug { kind, msg }
+                if kind == "async-incomplete" && msg.contains(ASYNC_COMPLETE)
+        ));
+    }
+
+    // The split must not reach a case that is not async, or a plain
+    // stdout difference would start reporting itself as a promise
+    // that never settled.
+    #[test]
+    fn a_sync_stdout_difference_is_still_stdout_mismatch() {
+        let o = out_stdout(0, "7\n");
+        assert!(matches!(
+            judge_oracle(&o, b"8\n", false),
+            Outcome::Bug { kind, .. } if kind == "stdout-mismatch"
+        ));
+    }
+
+    // An async case that DID complete and still differs is an
+    // ordinary mismatch — the marker is present, so neither async
+    // bucket applies.
+    #[test]
+    fn a_completed_async_case_that_differs_is_not_bucketed_as_async() {
+        let o = out_stdout(0, &format!("extra\n{ASYNC_COMPLETE}\n"));
+        assert!(matches!(
+            judge_oracle(&o, ASYNC_COMPLETE.as_bytes(), true),
+            Outcome::Bug { kind, .. } if kind == "stdout-mismatch"
+        ));
     }
 
     #[test]

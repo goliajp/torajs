@@ -55,6 +55,14 @@ fi
 
 rsync -rlc --no-times --delete --exclude 'target/' crates/ "$HOST:$REMOTE/crates/"
 rsync -rlc --no-times --delete conformance/cases/ "$HOST:$REMOTE/conformance/cases/"
+# The RUNNER's own source, not just the fixtures it walks. Rotation 696
+# changed how `judge_oracle` buckets an async verdict and the change
+# could not reach mini — where the sweep actually runs — because only
+# `cases/` was ever sent. Same shape as the `hardev/autorun/` gap
+# rotation 619 paid for: a directory outside the channel looks exactly
+# like a directory whose contents happen to match.
+rsync -rlc --no-times --delete --exclude 'target/' conformance/test262-runner/ \
+  "$HOST:$REMOTE/conformance/test262-runner/"
 rsync -rlc --no-times hardev/autorun/ "$HOST:$REMOTE/hardev/autorun/"
 rsync -rlc --no-times --delete --exclude 'target/' bench/ "$HOST:$REMOTE/bench/"
 
@@ -66,4 +74,4 @@ if [ -n "$DIFFS" ]; then
   echo "$DIFFS" >&2
   exit 1
 fi
-echo "sync_to_mini: crates/ conformance/cases/ hardev/autorun/ bench/ in sync with $HOST"
+echo "sync_to_mini: crates/ conformance/{cases,test262-runner}/ hardev/autorun/ bench/ in sync with $HOST"
