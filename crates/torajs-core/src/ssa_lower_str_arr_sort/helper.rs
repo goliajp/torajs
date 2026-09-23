@@ -5,7 +5,7 @@
 //! O(n log n) merge sort in torajs-arr that calls the comparator
 //! back through the closure ABI.
 
-use crate::ssa::{InstKind, Operand, Type, ValueId};
+use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Emit the `__torajs_arr_sort_cb` helper call when the comparator
@@ -113,4 +113,98 @@ fn sort_helper_mode(ctx: &LowerCtx<'_>, cmp_ty: Type, elem_ty: Type) -> Option<i
             | ((has_env as i64) << 2)
             | ((elem_str as i64) << 3),
     )
+}
+
+/// §23.1.3.30 SortIndexedProperties for a boxed-element receiver that
+/// carries a hole shadow or an accessor index (`FLAG_ARR_EXOTIC_INDEX`):
+/// the kernel stages `HasProperty` / `Get` per index (a hole is skipped
+/// and a getter runs), sorts the staged values, then `Set`s them back
+/// and `DeletePropertyOrThrow`s the tail. Both fast paths permute raw
+/// slots, which leaves a hole's shadow where it was and never runs an
+/// accessor — `[3, , 1].sort()` answered `[1, <hole>, undefined]`.
+///
+/// Only an `any`-element array can carry the flag (an unboxed slot has
+/// no value meaning absent — see `ssa_lower_arr_hole_gate`), so typed
+/// receivers emit nothing. The header test runs once per call, outside
+/// any loop. Returns the join block and leaves `cur_block` at the fast
+/// path; `None` when nothing was emitted.
+///
+/// Recorded gap: a bare `FnSig` comparator has no `any` box spelling
+/// here, so that shape keeps the fast path.
+pub(super) fn emit_exotic_divert(
+    ctx: &mut LowerCtx<'_>,
+    arr_ptr: ValueId,
+    cmp_val: &Option<Operand>,
+    cmp_ty: &Option<Type>,
+    elem_ty: Type,
+) -> Option<BlockId> {
+    if elem_ty != Type::Any
+        || matches!(cmp_ty, Some(t) if !matches!(t, Type::Closure(_) | Type::Any))
+    {
+        return None;
+    }
+    // Header word is `[refcount u32 | tag u16 | flags u16]`.
+    let mask = (torajs_rc::FLAG_ARR_EXOTIC_INDEX as i64) << 48;
+    let hdr = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
+        Type::I64,
+        None,
+    );
+    let bits = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(BinOp::And, Operand::Value(hdr), Operand::ConstI64(mask)),
+        Type::I64,
+        None,
+    );
+    let exotic = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Ne, Operand::Value(bits), Operand::ConstI64(0)),
+        Type::Bool,
+        None,
+    );
+    let slow = ctx.f.add_block();
+    let fast = ctx.f.add_block();
+    let join = ctx.f.add_block();
+    ctx.f.set_term(
+        ctx.cur_block,
+        Terminator::CondBr {
+            cond: Operand::Value(exotic),
+            then_blk: slow,
+            else_blk: fast,
+        },
+    );
+    ctx.cur_block = slow;
+    let boxed_cmp = cmp_val.clone().map(|cv| ctx.box_to_any(cv));
+    let cmp_arg = boxed_cmp.clone().unwrap_or_else(|| {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        Operand::Value(v)
+    });
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_sort_exotic,
+            vec![Operand::Value(arr_ptr), cmp_arg],
+        ),
+        Type::Any,
+        None,
+    );
+    // The kernel answers the receiver +1 (or undefined after a throw);
+    // the caller mints its own chaining stake.
+    ctx.emit_drop_value(Operand::Value(r), Type::Any);
+    if let Some(b) = boxed_cmp {
+        ctx.emit_drop_value(b, Type::Any);
+    }
+    ctx.emit_throw_check(None);
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+    ctx.cur_block = fast;
+    Some(join)
 }

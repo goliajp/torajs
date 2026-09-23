@@ -58,6 +58,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_any_slice: FuncId,
     pub arr_any_to_reversed: FuncId,
     pub arr_has_index: FuncId,
+    pub arr_sort_exotic: FuncId,
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_typed_set_grow: FuncId,
@@ -143,6 +144,9 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         // (hole shadows + prototype digit keys; clean in-bounds
         // stays one flag test).
         arr_has_index: decl!("__torajs_arr_has_index", [Ptr, I64], I64),
+        // §23.1.3.30 SortIndexedProperties over a receiver with a hole
+        // shadow or an accessor index (HasProperty / Get / Set / Delete).
+        arr_sort_exotic: decl!("__torajs_arr_sort_exotic", [Ptr, Any], Any),
         arr_set_any: decl!("__torajs_arr_set_any", [Ptr, I64, I64, I64], Void),
         arr_set_any_grow: decl!("__torajs_arr_set_any_grow", [Ptr, I64, I64, I64], Ptr),
         arr_typed_set_grow: decl!("__torajs_arr_typed_set_grow", [Ptr, I64, I64], Void),

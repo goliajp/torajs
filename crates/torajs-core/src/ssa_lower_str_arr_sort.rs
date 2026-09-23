@@ -206,17 +206,17 @@ pub(crate) fn try_dispatch(
             Operand::Value(arr_ptr),
             Operand::Value(writes),
         );
-        if helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, elem_ty, arr_ptr) {
-            // RFC 20260705 owned-result invariant: in-place sort answers
-            // the receiver — the chaining result carries its own ref.
-            // toSorted answers the fresh clone which is already owned.
-            if method == "sort" {
-                ctx.emit_rc_inc(Operand::Value(arr_ptr));
-            }
-            release_cmp_temp(ctx, args, &cmp_val);
-            return Some(Operand::Value(arr_ptr));
+        let divert_join = helper::emit_exotic_divert(ctx, arr_ptr, &cmp_val, &cmp_ty, elem_ty);
+        if !helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, elem_ty, arr_ptr) {
+            emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, &route);
         }
-        emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, &route);
+        if let Some(join) = divert_join {
+            ctx.f.set_term(ctx.cur_block, Terminator::Br(join));
+            ctx.cur_block = join;
+        }
+        // RFC 20260705 owned-result invariant: in-place sort answers
+        // the receiver — the chaining result carries its own ref.
+        // toSorted answers the fresh clone which is already owned.
         if method == "sort" {
             ctx.emit_rc_inc(Operand::Value(arr_ptr));
         }

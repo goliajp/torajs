@@ -163,3 +163,23 @@ pub(super) unsafe fn do_copy_within(
         __torajs_anyv_box_pointer(*obj)
     }
 }
+
+/// `__torajs_arr_sort_exotic(arr, cmp)` — `Array.prototype.sort` over
+/// an Array cell that carries a hole shadow or an accessor index
+/// (`FLAG_ARR_EXOTIC_INDEX`). §23.1.3.30 SortIndexedProperties reads
+/// every index through `HasProperty` / `Get` and writes back through
+/// `Set` / `DeletePropertyOrThrow`, which is exactly [`do_sort`]; the
+/// raw-slot merge sort cannot answer it (a hole's shadow stays where
+/// it was, and an accessor never runs). Answers the receiver +1, or
+/// undefined with a pending throw.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell; `cmp` is borrowed.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_sort_exotic(arr: *mut c_void, cmp: AnyValue) -> AnyValue {
+    unsafe {
+        let len = (arr.cast::<u8>().add(crate::index_any::MIRROR_ARR_LEN_OFF) as *const u64).read();
+        let mut obj = arr;
+        do_sort(&mut obj, len as i64, cmp)
+    }
+}

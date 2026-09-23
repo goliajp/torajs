@@ -17,7 +17,7 @@
 
 use core::ffi::c_void;
 
-mod ops;
+pub(crate) mod ops;
 
 use torajs_rc::{
     ANY_METHOD_COPY_WITHIN, ANY_METHOD_FILL, ANY_METHOD_POP, ANY_METHOD_PUSH, ANY_METHOD_REVERSE,
