@@ -41,8 +41,38 @@ pub(crate) fn try_lower(
     if ns != "Symbol" {
         return None;
     }
+    // The zero-argument call is the any lane with the undefined §18
+    // supplies: `symbol_for_any` runs ToString over it ("undefined")
+    // and `symbol_key_for_any` the §20.4.2.8 brand check (a
+    // TypeError). Neither typed kernel can take it — `symbol_for`'s
+    // ABI is a Str pointer, and the sentinel cell a typed undefined
+    // would spell reads back BY ADDRESS as undefined from the
+    // registry's description.
     if args.is_empty() {
-        return None;
+        let cur_block = ctx.cur_block;
+        let undef = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(
+                ctx.intrinsics.any_box,
+                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
+            ),
+            Type::Any,
+            None,
+        );
+        let fid = if m_name == "for" {
+            ctx.intrinsics.symbol_for_any
+        } else {
+            ctx.intrinsics.symbol_key_for_any
+        };
+        let cur_block = ctx.cur_block;
+        let v = ctx.f.append_inst(
+            cur_block,
+            InstKind::Call(fid, vec![Operand::Value(undef)]),
+            Type::Any,
+            None,
+        );
+        ctx.emit_throw_check(None);
+        return Some(Operand::Value(v));
     }
     let arg_op = ctx.lower_expr(args[0]);
     // S302 — lower-and-drop trailing args[1..] per S272 idiom so

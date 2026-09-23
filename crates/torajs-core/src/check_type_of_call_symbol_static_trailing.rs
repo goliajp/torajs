@@ -57,8 +57,13 @@ pub(crate) fn try_match(
     if !matches!(m_name.as_str(), "for" | "keyFor") {
         return None;
     }
+    // §18 binds a missing argument to undefined, and both clauses
+    // have a value for it: §20.4.2.4 step 1 is ToString(undefined) =
+    // "undefined", and §20.4.2.8 step 1 rejects a non-Symbol with a
+    // TypeError. Both are the any lane's answers, so the zero-argument
+    // call types the way an `any` argument does.
     if args.is_empty() {
-        return None;
+        return Some(Ok(Type::Any));
     }
     let arg0_ty = match checker.type_of(ast, args[0]) {
         Ok(t) => t,
