@@ -52,18 +52,31 @@ unsafe extern "C" {
 /// Invoke the callback with `(v, k, O)` — `v`'s stake stays with
 /// the caller; the return is owned. A recv-first callback (RFC
 /// 20260717-objlit-anylane-recv knife 2e) shifts the triple up one
-/// slot so `__this` reads the buffer's `undefined` (no-thisArg HOF,
-/// `this = undefined`).
+/// slot, and `this_arg` rides that slot.
+///
+/// §23.1.3.{12,15,16,17,23,25,29} all spell step 3 as
+/// `Call(callbackfn, thisArg, «kValue, k, O»)`, so the second argument
+/// of the HOF is the callback's receiver. This site used to leave the
+/// slot at the buffer's `undefined`, so every callback run against an
+/// array-LIKE receiver saw `this === undefined` no matter what was
+/// passed — while the same call on a real array honoured it (the Arr
+/// kernel's `method_any_hof.rs` does exactly this). A method with no
+/// thisArg parameter in the spec passes `VALUE_UNDEFINED` here, which
+/// is what the slot already held.
 unsafe fn call_cb(
     cb_env: *mut c_void,
     cb_entry: u64,
     v: AnyValue,
     k: i64,
     obj_boxed: AnyValue,
+    this_arg: AnyValue,
 ) -> AnyValue {
     unsafe {
         let s = recv_first_shift(cb_env);
         let mut argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+        if s == 1 {
+            argv[0] = this_arg;
+        }
         argv[s] = v;
         argv[s + 1] = __torajs_anyv_box_i64(k);
         argv[s + 2] = obj_boxed;
@@ -106,6 +119,7 @@ unsafe fn arraylike_find(
     cb_env: *mut c_void,
     cb_entry: u64,
     obj_boxed: AnyValue,
+    this_arg: AnyValue,
 ) -> AnyValue {
     unsafe {
         let right = mid == ANY_METHOD_FIND_LAST || mid == ANY_METHOD_FIND_LAST_INDEX;
@@ -115,7 +129,7 @@ unsafe fn arraylike_find(
             let k = if right { len - 1 - step } else { step };
             step += 1;
             let v = arraylike_get(obj, k);
-            let r = call_cb(cb_env, cb_entry, v, k, obj_boxed);
+            let r = call_cb(cb_env, cb_entry, v, k, obj_boxed, this_arg);
             if __torajs_throw_check() != 0 {
                 __torajs_value_drop_heap(v as *mut c_void);
                 __torajs_value_drop_heap(r as *mut c_void);
@@ -163,6 +177,11 @@ pub(crate) unsafe fn arraylike_hof(
         };
         let (cb_env, cb_entry) = (cb.env(), cb.entry());
         let obj_boxed = __torajs_anyv_box_pointer(obj);
+        // §23.1.3.{12,15,16,17,23,25,29} step 3 — the second argument is
+        // `thisArg`. `reduce` / `reduceRight` take an initialValue in
+        // that position instead and call with `undefined` (§23.1.3.24
+        // step 6.d.i / §23.1.3.25), so their arm never reads this.
+        let this_arg = arg_at(1);
         match mid {
             m if m == ANY_METHOD_REDUCE || m == ANY_METHOD_REDUCE_RIGHT => {
                 let right = m == ANY_METHOD_REDUCE_RIGHT;
@@ -217,7 +236,7 @@ pub(crate) unsafe fn arraylike_hof(
                 || m == ANY_METHOD_FIND_LAST
                 || m == ANY_METHOD_FIND_LAST_INDEX =>
             {
-                arraylike_find(obj, m, len, cb_env, cb_entry, obj_boxed)
+                arraylike_find(obj, m, len, cb_env, cb_entry, obj_boxed, this_arg)
             }
             // every / some / forEach / map / filter — has-gated walk.
             _ => {
@@ -255,7 +274,7 @@ pub(crate) unsafe fn arraylike_hof(
                         continue;
                     }
                     let v = arraylike_get(obj, k);
-                    let r = call_cb(cb_env, cb_entry, v, k, obj_boxed);
+                    let r = call_cb(cb_env, cb_entry, v, k, obj_boxed, this_arg);
                     if __torajs_throw_check() != 0 {
                         __torajs_value_drop_heap(v as *mut c_void);
                         __torajs_value_drop_heap(r as *mut c_void);
