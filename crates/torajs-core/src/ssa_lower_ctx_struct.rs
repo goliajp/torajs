@@ -154,6 +154,12 @@ pub(crate) struct LowerCtx<'a> {
     /// The non-local exits a `finally` tail has to resume — one
     /// family, documented on [`crate::ssa_lower_scope_exit::PendingExits`].
     pub(crate) pending: crate::ssa_lower_scope_exit::PendingExits,
+    /// The callee of the `Stmt::Expr` currently lowering, when that
+    /// statement IS a call — the one position where an expression's
+    /// value provably cannot be observed. Set and restored by the
+    /// statement dispatcher; compared by ExprId, so a stale entry can
+    /// only ever match the site that wrote it.
+    pub(crate) discarded_stmt_call: Option<ExprId>,
     /// 403-02 — the named fn-expression SELF binding's slot in the fn
     /// currently lowering (bound by `emit_closure_env_preamble`; None
     /// when there is no self slot or a same-named param shadowed it).

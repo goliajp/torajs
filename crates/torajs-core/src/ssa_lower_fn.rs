@@ -144,6 +144,7 @@ pub(crate) fn lower_fn(
         for_of_teardown_stack: Vec::new(),
         try_finally_loop_depth: Vec::new(),
         pending: Default::default(),
+        discarded_stmt_call: None,
         self_name_slot: None,
         locals: HashMap::new(),
         variadic_locals,

@@ -425,6 +425,11 @@ impl crate::ssa_lower::LowerCtx<'_> {
         // Rotation 652 — a `.then` on a cell carrying its OWN `then`
         // is an Invoke of that override (§27.2.5.4 is only the
         // builtin's body); the sibling probes the cell and splits.
+        // §27.2.5.1 — the override answers whatever it returns, which
+        // need not be a promise. In statement position there is no
+        // slot for it to not fit in, so the sibling's typed return
+        // contract is skipped there (the value is dropped instead).
+        let discarded = self.discarded_stmt_call == Some(callee);
         let v = crate::ssa_lower_promise_chain_own_then::lower_chain_with_own_then_probe(
             self,
             src_op.clone(),
@@ -432,6 +437,7 @@ impl crate::ssa_lower::LowerCtx<'_> {
             m_name,
             args,
             &arg_ops,
+            discarded,
         );
         // T-15.g.7 — drop fresh source after .then.
         // Now that promise_drop is rc-aware AND

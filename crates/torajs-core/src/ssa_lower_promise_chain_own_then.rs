@@ -23,6 +23,17 @@
 //! their patched block dispatches the call's own name, and the
 //! runtime's Promise arm turns it into the Invoke.
 //!
+//! The typed return contract has one exception, and it is the whole
+//! of what `discarded` carries: §27.2.5.1 lets the override answer
+//! anything, and `promise_patched_result` makes that loud because a
+//! `Type::Promise` slot cannot hold it. In statement position there
+//! is no slot — `Promise.resolve(p).then(f)` as a whole statement
+//! reads nothing back — so the answer is released and the join loads
+//! a null Promise. Every other position keeps the loud refusal: it is
+//! better than a silently wrong `typeof`, which is what answering a
+//! stand-in promise would give (test262
+//! `Promise/resolve/resolve-prms-cstm-then`).
+//!
 //! The async machinery's driver (`__w.then(...)` over the
 //! `__torajs_await_resolve` result, rotation 651-05) takes no probe:
 //! it is §27.7.5.3 Await = PerformPromiseThen, which never reads
@@ -42,6 +53,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     m_name: &str,
     args: &[ExprId],
     arg_ops: &[Operand],
+    discarded: bool,
 ) -> ValueId {
     // A handler the patched block could not box — a raw FnSig with no
     // forwarder minted for it — keeps the site on the typed lane it
@@ -96,7 +108,7 @@ pub(crate) fn lower_chain_with_own_then_probe(
     ctx.f.set_term(fast_end, Terminator::Br(after_blk));
 
     ctx.cur_block = patched_blk;
-    let patched_val = lower_own_then_invoke(ctx, src_op, m_name, args, arg_ops);
+    let patched_val = lower_own_then_invoke(ctx, src_op, m_name, args, arg_ops, discarded);
     let patched_end = ctx.cur_block;
     ctx.f.append_void(
         patched_end,
@@ -164,6 +176,7 @@ fn lower_own_then_invoke(
     m_name: &str,
     args: &[ExprId],
     arg_ops: &[Operand],
+    discarded: bool,
 ) -> Operand {
     ctx.emit_rc_inc(src_op.clone());
     let recv = ctx.box_to_any(src_op);
@@ -231,6 +244,15 @@ fn lower_own_then_invoke(
     }
     ctx.emit_drop_value(recv, Type::Any);
     ctx.emit_throw_check_owned(None, Operand::Value(result), Type::Any);
+    // No slot, no contract: an expression statement reads nothing back,
+    // so the override's answer is released and the join loads a null
+    // Promise (its drop is a no-op). `promise_patched_result` refusing
+    // a non-promise is about what a `Type::Promise` SLOT can hold, and
+    // here there is none.
+    if discarded {
+        ctx.emit_drop_value(Operand::Value(result), Type::Any);
+        return Operand::ConstPtrNull;
+    }
     let cur_block = ctx.cur_block;
     let out = ctx.f.append_inst(
         cur_block,

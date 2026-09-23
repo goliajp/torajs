@@ -95,6 +95,7 @@ pub(crate) fn synthesize_main(
             try_finally_stack: Vec::new(),
             for_of_teardown_stack: Vec::new(),
             pending: Default::default(),
+            discarded_stmt_call: None,
             self_name_slot: None,
             try_finally_loop_depth: Vec::new(),
             locals: HashMap::new(),

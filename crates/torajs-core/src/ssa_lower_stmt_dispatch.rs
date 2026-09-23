@@ -25,7 +25,7 @@
 //!   `FnDecl` / `ClassDecl` inside a nested scope (planned hoisting)
 //!   and any other unimplemented statement shape.
 
-use crate::ast::Stmt;
+use crate::ast::{Expr, Stmt};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
@@ -166,7 +166,19 @@ impl<'a> LowerCtx<'a> {
                 }
                 // Result discarded. Expression may still produce SSA insts as
                 // side effects (its own value), e.g. nested Calls.
+                //
+                // A lowering that has to answer a TYPED value can use
+                // this: here there is no slot, so a contract about
+                // what fits in one does not apply. Only the root
+                // call's callee is recorded — anything deeper feeds
+                // an operand that IS read.
+                let saved_discard = self.discarded_stmt_call;
+                self.discarded_stmt_call = match self.ast.get_expr(*eid) {
+                    Expr::Call { callee, .. } => Some(*callee),
+                    _ => None,
+                };
                 let op = self.lower_expr(*eid);
+                self.discarded_stmt_call = saved_discard;
                 // RFC 20260705 owned-result invariant — the shape
                 // predicate + release live in `release_owned_temp`
                 // (ssa_lower_rc_emit); Ternary/Nullish over Calls
