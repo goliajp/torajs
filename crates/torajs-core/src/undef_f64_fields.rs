@@ -70,7 +70,12 @@ pub(crate) fn prime(ctx: &mut LowerCtx<'_>) {
     // parameter belongs to the function being called, and the read
     // is lowered in the caller. The analysis table is by name and
     // program-wide, so it knows; it just had no way to say so.
-    let seeded: Vec<_> = ctx.num_f64_slots.sentinel_fields().iter().cloned().collect();
+    let seeded: Vec<_> = ctx
+        .num_f64_slots
+        .sentinel_fields()
+        .iter()
+        .cloned()
+        .collect();
     ctx.undefable_f64_fields.extend(seeded);
     loop {
         let fields = collect(ctx, crate::ssa_lower_undef_f64_source::is_undef_f64_source);

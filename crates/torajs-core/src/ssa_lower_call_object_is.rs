@@ -181,10 +181,10 @@ pub(crate) fn try_lower(
     // is true, so `Object.is(u, NaN)` answered true where the spec
     // wants false. Only the undefined half is shared with strict
     // equality; the kernel keeps deciding the numbers.
-    let a_armed = a_ty == Type::F64
-        && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[0]);
-    let b_armed = a_ty == Type::F64
-        && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[1]);
+    let a_armed =
+        a_ty == Type::F64 && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[0]);
+    let b_armed =
+        a_ty == Type::F64 && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[1]);
     let result_v = match a_ty {
         Type::F64 => {
             let plain = ctx.f.append_inst(
