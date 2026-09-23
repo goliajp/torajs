@@ -54,3 +54,14 @@ console.log("h", h.v);
 let calls = 0;
 const i: { n: number } = { get n() { calls += 1; return calls; } };
 console.log("i", i.n, i.n, i.n, calls);
+
+// An `any`-annotated accessor literal read by a NAMED function is a
+// data global, and that is a different lowering lane from the two
+// above. Setting the annotation aside there loses the global outright
+// — the inference path answers "no slot" for an object literal, so
+// the binding gets no home and the read becomes `unknown ident`.
+// Nothing but a named-fn reader puts a binding on that lane, which is
+// why the conformance gate caught this and the probe did not.
+const j: any = { get v() { return 7; } };
+function readJ(): number { return j.v; }
+console.log("j", readJ());

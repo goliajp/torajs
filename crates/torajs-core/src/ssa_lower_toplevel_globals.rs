@@ -101,11 +101,19 @@ pub(crate) fn collect_toplevel_globals(
             // it here would hand the global a data field where the
             // value has a getter closure. The inference path is the
             // one the same literal takes unannotated, and it is right.
-            let accessor_layout = expr_types
-                .get(init)
-                .is_some_and(crate::check_accessor_objlit_slot::layout_carries_accessor);
-            let slot_ty = match type_ann.as_ref().filter(|_| !accessor_layout) {
-                Some(ann) => annotated_slot_ty(
+            //
+            // The parse decides, not the annotation's presence: only
+            // an `Obj` / `Arr` slot denotes a concrete LAYOUT that a
+            // literal's accessor slots can conflict with. An `any`
+            // annotation is a box whose dynamic member lane serves
+            // accessors already — and setting it aside here loses the
+            // global entirely, because the inference path answers
+            // `None` for an object literal and the binding then has
+            // no home at all (`const t: any = { get then() { … } }`
+            // became `unknown ident t`, which the conformance gate
+            // caught and no probe would have).
+            let annotated = type_ann.as_ref().and_then(|ann| {
+                annotated_slot_ty(
                     ann,
                     name,
                     *init,
@@ -118,7 +126,15 @@ pub(crate) fn collect_toplevel_globals(
                     struct_layouts,
                     inst_memo,
                     num_f64_slots,
-                ),
+                )
+            });
+            let accessor_layout = matches!(annotated, Some(Type::Obj(_) | Type::Arr(_)))
+                && expr_types
+                    .get(init)
+                    .is_some_and(crate::check_accessor_objlit_slot::layout_carries_accessor);
+            let slot_ty = match annotated.filter(|_| !accessor_layout) {
+                Some(t) => Some(t),
+                None if type_ann.is_some() && !accessor_layout => None,
                 None => inferred_slot_ty(
                     name,
                     *init,
