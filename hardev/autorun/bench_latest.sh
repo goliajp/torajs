@@ -70,8 +70,15 @@ stamp = {
     "tool": "bench",
     "ranAt": datetime.datetime.now(datetime.timezone.utc)
                  .strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "headSha": doc.get("git_sha"),
-    "headShaSource": "results-file",
+    # The harness stamps the sha of the tree it ran on, and that tree
+    # is mini's — which takes source by rsync while its git HEAD stays
+    # behind, so the recorded sha names a commit the run did not
+    # measure (`…-dirty` on top of a sha from days ago). The test262
+    # sweep grew a `--head-sha` for exactly this in rotation 598; this
+    # side kept stamping the wrong one. HARDEV_HEAD_SHA is the dev-side
+    # answer, and `headShaSource` says which one a reader is holding.
+    "headSha": os.environ.get("HARDEV_HEAD_SHA") or doc.get("git_sha"),
+    "headShaSource": "env" if os.environ.get("HARDEV_HEAD_SHA") else "results-file",
     "verdict": "ok",
     "source": src,
     "benchRanAt": doc.get("started_at"),
