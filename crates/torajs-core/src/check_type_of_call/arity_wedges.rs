@@ -87,3 +87,31 @@ pub(super) fn apply(
     )?;
     Ok(())
 }
+
+/// RFC 20260810-indirect-argc-abi S3.5 — beyond-arity calls are
+/// universally admitted (ES §13.3.6.1: every argument evaluates,
+/// extras never bind a parameter). The extras still typecheck —
+/// a type error inside one stays loud — then drop out of the
+/// pairing; the lowering lanes evaluate them for their side
+/// effects without letting them enter argv, and argc-carrying
+/// ABIs pass the REAL count. Replaces the name-keyed length-only
+/// closure wedge (check_type_of_call_closure_argc): the general
+/// rule covers its list.
+///
+/// This is the rule the two trailing-ignore wedges above were
+/// written before, and why they no longer see anything: it runs
+/// first and leaves no extra arg behind.
+pub(super) fn drop_extra_args(
+    checker: &mut Checker,
+    ast: &Ast,
+    effective_args: &mut Vec<ExprId>,
+    params: &[Type],
+) -> Result<(), String> {
+    if effective_args.len() > params.len() {
+        for a in &effective_args[params.len()..] {
+            checker.type_of(ast, *a)?;
+        }
+        effective_args.truncate(params.len());
+    }
+    Ok(())
+}

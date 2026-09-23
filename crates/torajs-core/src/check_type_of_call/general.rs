@@ -125,21 +125,7 @@ pub(crate) fn general_call(
         return r;
     }
     super::arity_wedges::apply(checker, ast, callee, &mut effective_args, &mut params)?;
-    // RFC 20260810-indirect-argc-abi S3.5 — beyond-arity calls are
-    // universally admitted (ES §13.3.6.1: every argument evaluates,
-    // extras never bind a parameter). The extras still typecheck —
-    // a type error inside one stays loud — then drop out of the
-    // pairing; the lowering lanes evaluate them for their side
-    // effects without letting them enter argv, and argc-carrying
-    // ABIs pass the REAL count. Replaces the name-keyed length-only
-    // closure wedge (check_type_of_call_closure_argc): the general
-    // rule covers its list.
-    if effective_args.len() > params.len() {
-        for a in &effective_args[params.len()..] {
-            checker.type_of(ast, *a)?;
-        }
-        effective_args.truncate(params.len());
-    }
+    super::arity_wedges::drop_extra_args(checker, ast, &mut effective_args, &params)?;
     if params.len() != effective_args.len() {
         // A variadic callee has no exact arity to name: what the call
         // fell short of is its FIXED prefix, and only a slot undefined
