@@ -229,6 +229,25 @@ fn collect_sentinel_lets(a: &Analysis<'_>, t: &SentinelTables, stmts: &[Stmt]) -
                         out.insert(n.clone());
                     }
                 }
+                // `stmt_children_ref` stops at a nested function's
+                // body on purpose — a function is its own scope, and
+                // the passes that share that walker enter one
+                // deliberately. This table does not work that way:
+                // the doc above says "by name and across bodies",
+                // and every other collector here reads the whole
+                // arena. Only these two statement walkers were
+                // confined to the top level, so `function f() {
+                // const u = zs[9]; g(u) }` never registered `u` and
+                // `g`'s typed parameter read the sentinel as a plain
+                // number — `typeof p` answered "number" where the
+                // same declaration one scope up answers "undefined".
+                // The lowering-side mirror of this table
+                // (`undef_f64_fields::prime`) has always walked fn
+                // bodies; this is the analysis side catching up to
+                // its own doc and to that mirror at once.
+                Stmt::FnDecl { body, .. } => {
+                    walk(a, t, &body.iter().collect::<Vec<_>>(), out);
+                }
                 _ => {}
             }
             walk(

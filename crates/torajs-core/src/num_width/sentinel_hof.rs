@@ -194,6 +194,14 @@ fn collect_literal_decls(
         {
             out.insert(name.clone());
         }
+        // The element table's half of the same gap the `lets`
+        // collector had: a container literal declared inside a
+        // function body never registered, so `function f() { const
+        // ys = [zs[9]]; for (const x of ys) … }` handed the loop
+        // variable a raw sentinel.
+        if let Stmt::FnDecl { body, .. } = s {
+            collect_literal_decls(a, t, &body.iter().collect::<Vec<_>>(), out);
+        }
         collect_literal_decls(
             a,
             t,
