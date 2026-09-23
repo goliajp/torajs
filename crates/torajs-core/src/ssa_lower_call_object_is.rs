@@ -174,16 +174,45 @@ pub(crate) fn try_lower(
     }
 
     let cur_block = ctx.cur_block;
+    // Either F64 side may be a slot the sentinel analysis armed, and
+    // SameValue makes undefined equal only to itself (§7.2.10 → the
+    // SameValueNonNumber of §7.2.16). The kernel only ever sees
+    // bits, and the sentinel rides a quiet NaN — SameValue(NaN, NaN)
+    // is true, so `Object.is(u, NaN)` answered true where the spec
+    // wants false. Only the undefined half is shared with strict
+    // equality; the kernel keeps deciding the numbers.
+    let a_armed = a_ty == Type::F64
+        && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[0]);
+    let b_armed = a_ty == Type::F64
+        && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[1]);
     let result_v = match a_ty {
-        Type::F64 => ctx.f.append_inst(
-            cur_block,
-            InstKind::Call(
-                ctx.intrinsics.object_is_f64,
-                vec![a_op.clone(), b_op.clone()],
-            ),
-            Type::Bool,
-            None,
-        ),
+        Type::F64 => {
+            let plain = ctx.f.append_inst(
+                cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.object_is_f64,
+                    vec![a_op.clone(), b_op.clone()],
+                ),
+                Type::Bool,
+                None,
+            );
+            if a_armed || b_armed {
+                let folded = crate::ssa_lower_binop_f64_sentinel_eq::eq_with_sentinel(
+                    ctx,
+                    Operand::Value(plain),
+                    a_op.clone(),
+                    b_op.clone(),
+                    a_armed,
+                    b_armed,
+                );
+                match folded {
+                    Operand::Value(v) => v,
+                    _ => plain,
+                }
+            } else {
+                plain
+            }
+        }
         Type::Str => ctx.f.append_inst(
             cur_block,
             InstKind::Call(ctx.intrinsics.str_eq, vec![a_op.clone(), b_op.clone()]),

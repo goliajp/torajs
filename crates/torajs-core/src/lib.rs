@@ -304,6 +304,7 @@ pub(crate) mod ssa_lower_binop;
 pub(crate) mod ssa_lower_binop_inner;
 pub(crate) mod ssa_lower_binop_inner_any_arith;
 pub(crate) mod ssa_lower_binop_inner_bigint;
+pub(crate) mod ssa_lower_binop_f64_sentinel_eq;
 pub(crate) mod ssa_lower_binop_inner_f64;
 pub(crate) mod ssa_lower_binop_inner_i64;
 pub(crate) mod ssa_lower_binop_inner_str_cmp;

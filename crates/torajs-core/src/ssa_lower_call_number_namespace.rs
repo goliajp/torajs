@@ -218,9 +218,42 @@ fn lower_is_predicate(ctx: &mut LowerCtx<'_>, m_name: &str, args: &[ExprId]) -> 
     };
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(target, vec![arg_op]),
+        InstKind::Call(target, vec![arg_op.clone()]),
         Type::Bool,
         None,
     );
+    // §21.1.2.4 does not coerce: a non-Number argument is false, so
+    // `Number.isNaN(undefined)` is false on every engine. The F64
+    // `undefined` sentinel rides a quiet NaN, so the kernel — which
+    // only ever sees bits — answered true for a slot holding one.
+    //
+    // The three siblings need no such gate, because undefined and
+    // NaN agree on all of them: isFinite false, isInteger false,
+    // isSafeInteger false. `isNaN` is the one predicate the two
+    // values disagree on, which is exactly why it is the one that
+    // was wrong.
+    if m_name == "isNaN"
+        && arg_ty == Type::F64
+        && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[0])
+    {
+        let is_undef = ctx.f64_is_sentinel(arg_op);
+        let not_undef = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(crate::ssa::BinOp::Xor, is_undef, Operand::ConstBool(true)),
+            Type::Bool,
+            None,
+        );
+        let both = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(
+                crate::ssa::BinOp::And,
+                Operand::Value(v),
+                Operand::Value(not_undef),
+            ),
+            Type::Bool,
+            None,
+        );
+        return Operand::Value(both);
+    }
     Operand::Value(v)
 }

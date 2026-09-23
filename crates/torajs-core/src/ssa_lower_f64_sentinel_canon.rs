@@ -45,16 +45,25 @@ use crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS;
 const PLAIN_QNAN_BITS: i64 = 0x7FF8_0000_0000_0000u64 as i64;
 
 impl LowerCtx<'_> {
-    /// Replace the sentinel bit pattern with a plain quiet NaN,
-    /// leaving every other value — NaN or not — untouched.
-    pub(crate) fn canon_f64_away_from_sentinel(&mut self, v: Operand) -> Operand {
+    /// Whether this F64 operand wears the `undefined` sentinel's bit
+    /// pattern.
+    ///
+    /// FPCR.DN is what makes the answer trustworthy: the machine
+    /// cannot produce this payload, so a true here means the value
+    /// came from one of the spec's twelve "the property is not
+    /// there" exits and nothing else. Every consumer that would
+    /// otherwise read the bits as a plain f64 asks this first — the
+    /// callers are the ones the predicate `is_undef_f64_source` has
+    /// already armed, so a value that cannot be a sentinel emits
+    /// nothing.
+    pub(crate) fn f64_is_sentinel(&mut self, v: Operand) -> Operand {
         let bits = self.f.append_inst(
             self.cur_block,
-            InstKind::BitCastF64ToI64(v.clone()),
+            InstKind::BitCastF64ToI64(v),
             Type::I64,
             None,
         );
-        let is_sentinel = self.f.append_inst(
+        let eq = self.f.append_inst(
             self.cur_block,
             InstKind::ICmp(
                 IPred::Eq,
@@ -64,6 +73,13 @@ impl LowerCtx<'_> {
             Type::Bool,
             None,
         );
+        Operand::Value(eq)
+    }
+
+    /// Replace the sentinel bit pattern with a plain quiet NaN,
+    /// leaving every other value — NaN or not — untouched.
+    pub(crate) fn canon_f64_away_from_sentinel(&mut self, v: Operand) -> Operand {
+        let is_sentinel = self.f64_is_sentinel(v.clone());
         let plain_blk = self.f.add_block();
         let keep_blk = self.f.add_block();
         let merge = self.f.add_block();
@@ -72,7 +88,7 @@ impl LowerCtx<'_> {
         self.f.set_term(
             cb,
             Terminator::CondBr {
-                cond: Operand::Value(is_sentinel),
+                cond: is_sentinel,
                 then_blk: plain_blk,
                 else_blk: keep_blk,
             },

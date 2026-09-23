@@ -75,6 +75,23 @@ pub(crate) fn lower_float_path(
         AstBinOp::Gt => ctx.fcmp(FPred::Ogt, af, bf),
         AstBinOp::Le => ctx.fcmp(FPred::Ole, af, bf),
         AstBinOp::Ge => ctx.fcmp(FPred::Oge, af, bf),
+        // Either side may be a slot the sentinel analysis armed, and
+        // undefined is equal only to itself (§7.2.16) — a plain FCmp
+        // sees two quiet NaNs and answers by IEEE rules instead. The
+        // sibling folds to exactly this call when neither side is
+        // armed.
+        AstBinOp::Eq | AstBinOp::LooseEq | AstBinOp::Neq | AstBinOp::LooseNeq
+            if ctx.binop.left_f64_undefable || ctx.binop.right_f64_undefable =>
+        {
+            crate::ssa_lower_binop_f64_sentinel_eq::strict_eq_f64(
+                ctx,
+                af,
+                bf,
+                ctx.binop.left_f64_undefable,
+                ctx.binop.right_f64_undefable,
+                matches!(op, AstBinOp::Neq | AstBinOp::LooseNeq),
+            )
+        }
         AstBinOp::Eq | AstBinOp::LooseEq => ctx.fcmp(FPred::Oeq, af, bf),
         // V3-18 m1.h.32 — NaN !== NaN must be true per JS
         // spec §7.2.16. FCmp::One (ordered-not-equal)
