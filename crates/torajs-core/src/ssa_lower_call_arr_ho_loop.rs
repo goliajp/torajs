@@ -65,6 +65,7 @@ pub(crate) fn begin_loop(
     dst_arr_ty: Type,
     src_elem_ty: Type,
     reduce_no_init: bool,
+    seed_start: Option<ValueId>,
 ) -> LoopFrame {
     let header_blk = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
@@ -95,7 +96,18 @@ pub(crate) fn begin_loop(
         Type::I64,
         None,
     );
-    let init_i: Operand = if method == "reduceRight" {
+    let init_i: Operand = if let Some(k) = seed_start {
+        // The seed was the first present element; visiting resumes
+        // one step past it.
+        let step = if method == "reduceRight" { -1 } else { 1 };
+        let i_init = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(k), Operand::ConstI64(step)),
+            Type::I64,
+            None,
+        );
+        Operand::Value(i_init)
+    } else if method == "reduceRight" {
         let seed_step = if reduce_no_init { 2 } else { 1 };
         let i_init = ctx.f.append_inst(
             ctx.cur_block,

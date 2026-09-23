@@ -292,18 +292,24 @@ pub unsafe extern "C" fn __torajs_arr_any_reduce(
             __torajs_rc_inc(init as *mut c_void);
             acc = init;
         } else {
-            if len == 0 {
-                if right != 0 {
-                    crate::throw_empty::__torajs_arr_throw_reduce_right_empty();
-                } else {
-                    crate::throw_empty::__torajs_arr_throw_reduce_empty();
-                }
+            i = crate::throw_empty::__torajs_arr_reduce_seed_index(arr as *mut c_void, right);
+            if i < 0 {
                 return undef();
             }
             acc = crate::index_any::__torajs_arr_index_get(arr, i);
+            if __torajs_throw_check() != 0 {
+                return undef();
+            }
             i += step;
         }
         while i >= 0 && i < len {
+            // Step 9.b — a hole is not visited. `len` is the step-2
+            // snapshot, so an index the callback deleted (or a length
+            // it shrank) answers absent here too.
+            if crate::define_hole::__torajs_arr_has_index(arr as *mut c_void, i) == 0 {
+                i += step;
+                continue;
+            }
             let v = crate::index_any::__torajs_arr_index_get(arr, i);
             let mut argv = [undef(); ARGV_SLOTS];
             argv[s] = acc;

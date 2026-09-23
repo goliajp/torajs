@@ -110,11 +110,14 @@ pub(crate) fn prepare_acc_slot(
     acc_ty: Type,
     reduce_no_init: bool,
     init_op: Option<Operand>,
-) -> Option<ValueId> {
+) -> (Option<ValueId>, Option<ValueId>) {
     if !matches!(method, "reduce" | "reduceRight") {
-        return None;
+        return (None, None);
     }
-    if reduce_no_init {
+    // A boxed-element source can hold holes: the seed is the first
+    // PRESENT element, found by the runtime (see `emit_present_seed`).
+    let present_seed = reduce_no_init && elem_ty == Type::Any;
+    if reduce_no_init && !present_seed {
         // Empty-arr guard: branch to throw_blk which calls the helper +
         // emit_throw_check; fall-through Br'd to continue_blk so the IR
         // validates (helper always sets throw_active → fall unreachable
@@ -155,7 +158,12 @@ pub(crate) fn prepare_acc_slot(
         ctx.f.set_term(cb2, Terminator::Br(continue_blk));
         ctx.cur_block = continue_blk;
     }
-    let init_v = if reduce_no_init {
+    let mut seed_start = None;
+    let init_v = if present_seed {
+        let (k, v) = emit_present_seed(ctx, method, src_arr);
+        seed_start = Some(k);
+        v
+    } else if reduce_no_init {
         let len_for_seed = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
@@ -235,7 +243,37 @@ pub(crate) fn prepare_acc_slot(
         ctx.cur_block,
         InstKind::Store(init_v, Operand::Value(slot), 0),
     );
-    Some(slot)
+    (Some(slot), seed_start)
+}
+
+/// §23.1.3.24 / §23.1.3.25 step 8 over a boxed-element source: the
+/// runtime answers the first present index in visiting order (or
+/// records the TypeError for an array with none), and the seed is that
+/// element's [[Get]] — owned, since a getter may have produced it. The
+/// loop starts one step past it (`begin_loop`'s `seed_start`).
+fn emit_present_seed(ctx: &mut LowerCtx<'_>, method: &str, src_arr: ValueId) -> (ValueId, Operand) {
+    let right = (method == "reduceRight") as i64;
+    let k = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_reduce_seed_index,
+            vec![Operand::Value(src_arr), Operand::ConstI64(right)],
+        ),
+        Type::I64,
+        None,
+    );
+    ctx.emit_throw_check(None);
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_index_get,
+            vec![Operand::Value(src_arr), Operand::Value(k)],
+        ),
+        Type::Any,
+        None,
+    );
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Any);
+    (k, Operand::Value(v))
 }
 
 /// The product array type of `map` / `filter`: map takes the closure's

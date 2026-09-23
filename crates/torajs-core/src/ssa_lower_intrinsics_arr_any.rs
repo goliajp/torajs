@@ -60,6 +60,7 @@ pub(crate) struct ArrAnyIds {
     pub arr_has_index: FuncId,
     pub arr_sort_exotic: FuncId,
     pub arr_any_concat: FuncId,
+    pub arr_reduce_seed_index: FuncId,
     pub arr_set_any: FuncId,
     pub arr_set_any_grow: FuncId,
     pub arr_typed_set_grow: FuncId,
@@ -150,6 +151,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_sort_exotic: decl!("__torajs_arr_sort_exotic", [Ptr, Any], Any),
         // concat's seed: the receiver as item 0 of §23.1.3.1 step 5.
         arr_any_concat: decl!("__torajs_arr_any_concat", [Ptr, Ptr, I64], Ptr),
+        // reduce's seed: the first present index (§23.1.3.24 step 8).
+        arr_reduce_seed_index: decl!("__torajs_arr_reduce_seed_index", [Ptr, I64], I64),
         arr_set_any: decl!("__torajs_arr_set_any", [Ptr, I64, I64, I64], Void),
         arr_set_any_grow: decl!("__torajs_arr_set_any_grow", [Ptr, I64, I64, I64], Ptr),
         arr_typed_set_grow: decl!("__torajs_arr_typed_set_grow", [Ptr, I64, I64], Void),

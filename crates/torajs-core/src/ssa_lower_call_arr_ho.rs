@@ -150,7 +150,7 @@ fn lower_higher_order(
     };
     let acc_ty = resolve_acc_ty(ctx, fn_ty, elem_ty, is_reduce_family, &reduce_init_op);
     let reduce_no_init = matches!(method.as_str(), "reduce" | "reduceRight") && args.len() == 1;
-    let acc_slot = prepare_acc_slot(
+    let (acc_slot, seed_start) = prepare_acc_slot(
         ctx,
         &method,
         args,
@@ -185,6 +185,7 @@ fn lower_higher_order(
         dst_arr_ty,
         elem_ty,
         reduce_no_init,
+        seed_start,
     );
     // 550-01 — the growing dst (map / filter) is ours until the exit
     // loads it out; a callback that throws mid-loop releases it
