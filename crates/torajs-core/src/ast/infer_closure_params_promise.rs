@@ -129,10 +129,25 @@ fn resolve_arg_ann(
 /// the body as a null and fails there, which is where bun fails. A
 /// handler that writes its own annotation keeps it (the seed only ever
 /// fills an absent one).
+/// Only the FULFILLED handler receives the promise's inner value.
+/// `.catch(cb)` and `.then(onOk, onErr)`'s second argument receive the
+/// rejection reason, which §27.2.5.4 leaves to whatever was thrown —
+/// unrelated to the inner type. Seeding those with it made a rejection
+/// handler read its reason through the wrong width: `.catch(e =>
+/// typeof e)` on a `Promise<number>` rejected with a string answered
+/// `"number"`, because the boxed reason reaches an `REPR_F64`
+/// parameter and `settle_param` answers NaN for a non-numeric box.
+/// `any` is the honest seed there, for the same reason the nullable
+/// case above takes it.
+fn reason_position(method: &str, arg_idx: usize) -> bool {
+    method == "catch" || arg_idx >= 1
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn seed_then_catch_params(
     ast: &Ast,
     obj: ExprId,
+    method: &str,
     all_anns: &std::collections::HashMap<String, String>,
     fn_ret_anns: &std::collections::HashMap<String, Option<String>>,
     closure_args: &[(usize, String)],
@@ -147,10 +162,15 @@ pub(super) fn seed_then_catch_params(
     } else {
         inner_ann
     };
-    for (_arg_idx, fn_name) in closure_args {
+    for (arg_idx, fn_name) in closure_args {
         let p = fn_user_param_count.get(fn_name).copied().unwrap_or(1);
         if p >= 1 {
-            param_only_updates.insert(fn_name.clone(), vec![seed.clone(); p]);
+            let s = if reason_position(method, *arg_idx) {
+                "any".to_string()
+            } else {
+                seed.clone()
+            };
+            param_only_updates.insert(fn_name.clone(), vec![s; p]);
         }
     }
 }

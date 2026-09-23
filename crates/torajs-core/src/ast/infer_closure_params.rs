@@ -272,6 +272,7 @@ pub fn infer_anonymous_closure_params(ast: &mut Ast) {
             super::infer_closure_params_promise::seed_then_catch_params(
                 ast,
                 obj,
+                &name,
                 &all_anns,
                 &fn_ret_anns,
                 &closure_args,
