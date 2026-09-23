@@ -1,5 +1,6 @@
 //! Which names can answer the `undefined` sentinel — functions,
-//! parameters, fields — and the one predicate that decides it.
+//! parameters, fields, container elements — and the one predicate
+//! that decides it.
 //!
 //! Split out of `fallthrough.rs` under the 500-line discipline when
 //! the field set made three name sets where there had been one. That
@@ -13,7 +14,7 @@ use crate::ast::{Expr, Stmt};
 use std::collections::HashSet;
 use torajs_wtf8::Wtf8;
 
-/// The three name sets the sentinel question needs. They feed each
+/// The four name sets the sentinel question needs. They feed each
 /// other, so they are closed together — see [`close_sentinel_tables`].
 #[derive(Default)]
 pub(super) struct SentinelTables {
@@ -24,6 +25,8 @@ pub(super) struct SentinelTables {
     pub(super) params: HashSet<(String, String)>,
     /// Field names some write hands one.
     pub(super) fields: HashSet<PropKey>,
+    /// Container bindings some write fills an ELEMENT of with one.
+    pub(super) elems: HashSet<String>,
 }
 
 /// Close the fall-through table and its tainted-parameter mirror
@@ -47,7 +50,9 @@ pub(super) struct SentinelTables {
 pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> SentinelTables {
     let mut t = SentinelTables::default();
     loop {
-        let n = (t.fns.len(), t.params.len(), t.fields.len());
+        let n = (t.fns.len(), t.params.len(), t.fields.len(), t.elems.len());
+        t.elems
+            .extend(super::sentinel_hof::collect_sentinel_elems(a, &t, stmts));
         t.params.extend(collect_undef_sentinel_params(a, &t));
         t.fields.extend(collect_sentinel_fields(a, &t));
         for stmt in stmts {
@@ -69,7 +74,7 @@ pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> Sentine
             }
         }
         alias_fallthrough_closures(a.ast, &mut t.fns);
-        if (t.fns.len(), t.params.len(), t.fields.len()) == n {
+        if (t.fns.len(), t.params.len(), t.fields.len(), t.elems.len()) == n {
             return t;
         }
     }
@@ -207,6 +212,7 @@ fn collect_undef_sentinel_params(
         };
         let Expr::Ident(f) = a.ast.get_expr(*callee) else {
             super::sentinel_hof::collect_reduce_seed(a, t, *callee, args, &lifted, &mut out);
+            super::sentinel_hof::collect_hof_elem_params(a, t, *callee, args, &lifted, &mut out);
             continue;
         };
         // An arrow is lifted to a `__closure_N` FnDecl before this

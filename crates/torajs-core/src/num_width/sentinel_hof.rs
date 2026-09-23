@@ -50,13 +50,187 @@ pub(super) fn collect_reduce_seed(
     if !is_sentinel_source(a, *seed, t) {
         return;
     }
-    let fn_name = match a.ast.get_expr(*cb) {
-        Expr::Closure { fn_name, .. } => fn_name.clone(),
-        Expr::Ident(n) => lifted.get(n).cloned().unwrap_or_else(|| n.clone()),
-        _ => return,
+    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
+        return;
     };
-    if let Some(p) = a.user_params(&fn_name).first() {
-        out.insert((fn_name.clone(), p.clone()));
+    taint_param(a, &fn_name, 0, out);
+}
+
+/// The FnDecl an argument in callback position names. An arrow is
+/// lifted to a `__closure_N` before this analysis runs, so a spelled
+/// binding resolves through the same alias map the positional
+/// collector uses.
+fn callback_fn_name(
+    a: &Analysis<'_>,
+    cb: crate::ast::ExprId,
+    lifted: &std::collections::HashMap<String, String>,
+) -> Option<String> {
+    match a.ast.get_expr(cb) {
+        Expr::Closure { fn_name, .. } => Some(fn_name.clone()),
+        Expr::Ident(n) => Some(lifted.get(n).cloned().unwrap_or_else(|| n.clone())),
+        _ => None,
+    }
+}
+
+/// Record that parameter `idx` of `fn_name` can be handed a sentinel.
+/// `user_params` skips the `__env` a capturing closure carries, so the
+/// index is the one the source spells.
+fn taint_param(a: &Analysis<'_>, fn_name: &str, idx: usize, out: &mut HashSet<(String, String)>) {
+    if let Some(p) = a.user_params(fn_name).get(idx) {
+        out.insert((fn_name.to_string(), p.clone()));
+    }
+}
+
+/// Array-method names whose callback takes the ELEMENT as its first
+/// user parameter (§23.1.3). `sort` / `toSorted` take two elements and
+/// are handled beside this list; `reduce` takes the accumulator first
+/// and has its own arm above.
+const ELEM_FIRST_HOFS: &[&str] = &[
+    "forEach",
+    "map",
+    "filter",
+    "find",
+    "findLast",
+    "findIndex",
+    "findLastIndex",
+    "some",
+    "every",
+    "flatMap",
+];
+
+/// Writes that can put a sentinel into a container's elements, by the
+/// index of the arguments that become elements. `splice` drops two
+/// leading positions (start, deleteCount) before its items.
+fn elem_writing_args(method: &str, args: &[crate::ast::ExprId]) -> &'static [usize] {
+    match method {
+        "push" | "unshift" | "fill" => &[0, 1, 2, 3],
+        "splice" | "toSpliced" => &[2, 3, 4, 5],
+        _ => {
+            let _ = args;
+            &[]
+        }
+    }
+}
+
+/// Container bindings some write fills with a value that answers the
+/// sentinel — `ys.push(zs[9])`, `ys[0] = zs[9]`, `const ys = [zs[9]]`.
+///
+/// The element itself reads back right: `ys[0]` is an `Index` and the
+/// predicate calls that a source unconditionally. What is lost is the
+/// hop through a KERNEL — `ys.forEach(cb)` loads the element and hands
+/// it to `cb` at the element's own width, and nothing told `cb` the
+/// value can be a sentinel, so `typeof x` inside answered "number".
+///
+/// By binding name, like the other three sets: two containers sharing
+/// a name cost one predictable compare inside a callback, and missing
+/// one prints NaN where the program should see `undefined`.
+pub(super) fn collect_sentinel_elems(
+    a: &Analysis<'_>,
+    t: &SentinelTables,
+    stmts: &[Stmt],
+) -> HashSet<String> {
+    let mut out = HashSet::new();
+    for eid in 0..a.ast.exprs.len() {
+        let eid = crate::ast::ExprId(eid as u32);
+        match a.ast.get_expr(eid) {
+            Expr::Call { callee, args } => {
+                let Expr::Member { obj, name } = a.ast.get_expr(*callee) else {
+                    continue;
+                };
+                let Expr::Ident(recv) = a.ast.get_expr(*obj) else {
+                    continue;
+                };
+                if elem_writing_args(name.as_str(), args)
+                    .iter()
+                    .filter_map(|i| args.get(*i))
+                    .any(|w| is_sentinel_source(a, *w, t))
+                {
+                    out.insert(recv.clone());
+                }
+            }
+            Expr::Assign { target, value } => {
+                if let Expr::Index { obj, .. } = a.ast.get_expr(*target)
+                    && let Expr::Ident(recv) = a.ast.get_expr(*obj)
+                    && is_sentinel_source(a, *value, t)
+                {
+                    out.insert(recv.clone());
+                }
+                if let Expr::Ident(recv) = a.ast.get_expr(*target)
+                    && literal_holds_sentinel(a, t, *value)
+                {
+                    out.insert(recv.clone());
+                }
+            }
+            _ => {}
+        }
+    }
+    collect_literal_decls(a, t, &stmts.iter().collect::<Vec<_>>(), &mut out);
+    out
+}
+
+/// An array literal with a sentinel-bearing element. A declaration is
+/// a statement, so its name is not reachable from any expression id —
+/// which is why this half walks statements.
+fn literal_holds_sentinel(a: &Analysis<'_>, t: &SentinelTables, eid: crate::ast::ExprId) -> bool {
+    let Expr::Array(els) = a.ast.get_expr(eid) else {
+        return false;
+    };
+    els.iter().any(|e| is_sentinel_source(a, *e, t))
+}
+
+fn collect_literal_decls(
+    a: &Analysis<'_>,
+    t: &SentinelTables,
+    stmts: &[&Stmt],
+    out: &mut HashSet<String>,
+) {
+    for s in stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && literal_holds_sentinel(a, t, *init)
+        {
+            out.insert(name.clone());
+        }
+        collect_literal_decls(
+            a,
+            t,
+            &crate::ast::desugar_with::walk::stmt_children_ref(s),
+            out,
+        );
+    }
+}
+
+/// `X.<hof>(cb)` where `X`'s elements can hold a sentinel — the kernel
+/// loads an element and hands it over at the element's own width, so
+/// the callback's element parameter is sentinel-capable.
+pub(super) fn collect_hof_elem_params(
+    a: &Analysis<'_>,
+    t: &SentinelTables,
+    callee: crate::ast::ExprId,
+    args: &[crate::ast::ExprId],
+    lifted: &std::collections::HashMap<String, String>,
+    out: &mut HashSet<(String, String)>,
+) {
+    let Expr::Member { obj, name } = a.ast.get_expr(callee) else {
+        return;
+    };
+    let Expr::Ident(recv) = a.ast.get_expr(*obj) else {
+        return;
+    };
+    if !t.elems.contains(recv) {
+        return;
+    }
+    let Some(cb) = args.first() else { return };
+    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
+        return;
+    };
+    match name.as_str() {
+        m if ELEM_FIRST_HOFS.contains(&m) => taint_param(a, &fn_name, 0, out),
+        // The accumulator is parameter 0; the element is parameter 1.
+        "reduce" | "reduceRight" => taint_param(a, &fn_name, 1, out),
+        // `sort` / `toSorted` are deliberately absent: §23.1.3.30
+        // step 3 sorts undefined elements to the end WITHOUT calling
+        // the comparator, so its parameters can never see one.
+        _ => {}
     }
 }
 
