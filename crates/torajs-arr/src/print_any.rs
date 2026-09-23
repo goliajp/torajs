@@ -188,6 +188,13 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
         let head = *(p.add(ARR_HEAD_OFF) as *const u32);
         let slot_at =
             |i: u64| -> u64 { *(arr_data(p).add((head as usize + i as usize) * 8) as *const u64) };
+        // A hole — slot (`0`) or shadow (`F_HOLE`) — prints in a run.
+        let mop = crate::layout::needs_index_mop(p);
+        let is_hole = |i: u64| -> bool {
+            slot_at(i) == 0
+                || mop
+                    && crate::define::__torajs_arr_index_flags(arr, i) & crate::define::F_HOLE != 0
+        };
         // bun's open-bracket decision (ConsoleObject.zig:2410-2462),
         // made once after peeking ONLY the first element's tag:
         // full-break when len > 10, or the first element is
@@ -228,9 +235,9 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             }
             // A run of slot holes prints as bun's `N x empty items`
             // (one element of the list, whatever N is).
-            if slot_at(i) == 0 {
+            if is_hole(i) {
                 let mut n = 0;
-                while i < len && slot_at(i) == 0 {
+                while i < len && is_hole(i) {
                     n += 1;
                     i += 1;
                 }

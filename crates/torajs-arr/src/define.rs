@@ -100,7 +100,7 @@ pub(crate) const ANY_HEAP: u64 = 4;
 pub(crate) const ANY_UNDEF: u64 = 5;
 
 /// Canonical array-index parse — `arr_reflect.rs` (torajs-meta) twin.
-fn canonical_index(bytes: &[u8]) -> Option<u64> {
+pub(crate) fn canonical_index(bytes: &[u8]) -> Option<u64> {
     if bytes.is_empty() || bytes.len() > 10 {
         return None;
     }

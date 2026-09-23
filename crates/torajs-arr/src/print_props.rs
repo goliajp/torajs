@@ -78,11 +78,19 @@ pub(crate) unsafe fn put_arrprops(arr: *mut c_void, indent: u32) {
     if len == 0 {
         return;
     }
+    let arr_len = unsafe { *((arr as *const u8).add(crate::layout::ARR_LEN_OFF) as *const u64) };
     let order = unsafe { malloc(len as usize * 8) } as *mut u64;
     let n = unsafe { __torajs_dynobj_iter_print_order_after_index(dynobj, order, len) };
     for j in 0..n {
         let i = unsafe { *order.add(j as usize) };
         let key = unsafe { __torajs_dynobj_iter_key(dynobj, i) };
+        // An index below `length` is the element itself (printed by the
+        // element walk); its entry here is a shadow — a hole or a
+        // redefined attribute set — never a row of its own.
+        let spelling = unsafe { torajs_rc::str_wtf8::StrWtf8::of(key) };
+        if crate::define::canonical_index(spelling.as_bytes()).is_some_and(|k| k < arr_len) {
+            continue;
+        }
         // An array has index keys, so bun never takes the fast walk
         // on it: an enumerable `@@toStringTag` prints as a row.
         if unsafe {
