@@ -234,6 +234,56 @@ pub(super) fn collect_hof_elem_params(
     }
 }
 
+/// `Promise.resolve(X).then(cb)` where `X` answers the sentinel — the
+/// promise settles with that value and §27.2.5.4 hands it to the
+/// fulfilled handler, so the handler's first parameter can hold one.
+///
+/// Not `.catch` and not `.then`'s second argument: those receive the
+/// rejection reason, which has nothing to do with what resolved.
+pub(super) fn collect_promise_then_param(
+    a: &Analysis<'_>,
+    t: &SentinelTables,
+    callee: crate::ast::ExprId,
+    args: &[crate::ast::ExprId],
+    lifted: &std::collections::HashMap<String, String>,
+    out: &mut HashSet<(String, String)>,
+) {
+    let Expr::Member { obj, name } = a.ast.get_expr(callee) else {
+        return;
+    };
+    if name != "then" {
+        return;
+    }
+    let Expr::Call {
+        callee: inner,
+        args: settled,
+    } = a.ast.get_expr(*obj)
+    else {
+        return;
+    };
+    let Expr::Member {
+        obj: ctor,
+        name: method,
+    } = a.ast.get_expr(*inner)
+    else {
+        return;
+    };
+    if method != "resolve" || !matches!(a.ast.get_expr(*ctor), Expr::Ident(n) if n == "Promise") {
+        return;
+    }
+    if !settled
+        .first()
+        .is_some_and(|x| is_sentinel_source(a, *x, t))
+    {
+        return;
+    }
+    let Some(cb) = args.first() else { return };
+    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
+        return;
+    };
+    taint_param(a, &fn_name, 0, out);
+}
+
 /// Binding name → the `__closure_N` FnDecl an arrow assigned to it was
 /// lifted into, following plain re-bindings (`const j = h`) to a
 /// fixpoint so a chain declared out of walk order still resolves.

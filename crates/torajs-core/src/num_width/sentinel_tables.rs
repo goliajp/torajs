@@ -1,6 +1,6 @@
 //! Which names can answer the `undefined` sentinel — functions,
-//! parameters, fields, container elements — and the one predicate
-//! that decides it.
+//! parameters, fields, container elements, bindings — and the one
+//! predicate that decides it.
 //!
 //! Split out of `fallthrough.rs` under the 500-line discipline when
 //! the field set made three name sets where there had been one. That
@@ -14,7 +14,7 @@ use crate::ast::{Expr, Stmt};
 use std::collections::HashSet;
 use torajs_wtf8::Wtf8;
 
-/// The four name sets the sentinel question needs. They feed each
+/// The five name sets the sentinel question needs. They feed each
 /// other, so they are closed together — see [`close_sentinel_tables`].
 #[derive(Default)]
 pub(super) struct SentinelTables {
@@ -27,6 +27,8 @@ pub(super) struct SentinelTables {
     pub(super) fields: HashSet<PropKey>,
     /// Container bindings some write fills an ELEMENT of with one.
     pub(super) elems: HashSet<String>,
+    /// Binding names some declaration or assignment fills with one.
+    pub(super) lets: HashSet<String>,
 }
 
 /// Close the fall-through table and its tainted-parameter mirror
@@ -50,7 +52,14 @@ pub(super) struct SentinelTables {
 pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> SentinelTables {
     let mut t = SentinelTables::default();
     loop {
-        let n = (t.fns.len(), t.params.len(), t.fields.len(), t.elems.len());
+        let n = (
+            t.fns.len(),
+            t.params.len(),
+            t.fields.len(),
+            t.elems.len(),
+            t.lets.len(),
+        );
+        t.lets.extend(collect_sentinel_lets(a, &t, stmts));
         t.elems
             .extend(super::sentinel_hof::collect_sentinel_elems(a, &t, stmts));
         t.params.extend(collect_undef_sentinel_params(a, &t));
@@ -74,7 +83,14 @@ pub(super) fn close_sentinel_tables(a: &Analysis<'_>, stmts: &[Stmt]) -> Sentine
             }
         }
         alias_fallthrough_closures(a.ast, &mut t.fns);
-        if (t.fns.len(), t.params.len(), t.fields.len(), t.elems.len()) == n {
+        if (
+            t.fns.len(),
+            t.params.len(),
+            t.fields.len(),
+            t.elems.len(),
+            t.lets.len(),
+        ) == n
+        {
             return t;
         }
     }
@@ -174,12 +190,58 @@ pub(super) fn is_sentinel_source(
         // return has answered `undefined` since the lowering-stage
         // twin of this set existed.
         Expr::Member { name, .. } => t.fields.contains(Wtf8::new(name)),
+        // A binding reads back what its declaration or some assignment
+        // put in it. [`body_returns_sentinel`] has tracked this WITHIN
+        // one body since it existed — it has to, to decide whether
+        // `return a` after `a = zs[9]` hands one back. Nothing tracked
+        // it ACROSS bodies, so a value read through a binding and read
+        // inline gave two answers at a kernel boundary.
+        Expr::Ident(n) => t.lets.contains(n),
         Expr::Nullish { rhs, .. } => is_sentinel_source(a, *rhs, t),
         Expr::Sequence { right, .. } => is_sentinel_source(a, *right, t),
         Expr::Assign { value, .. } => is_sentinel_source(a, *value, t),
         Expr::As { expr, .. } => is_sentinel_source(a, *expr, t),
         _ => false,
     }
+}
+
+/// Binding names whose declaration or some assignment fills them with
+/// a value that answers the sentinel.
+///
+/// By name and across bodies, like the other four: two functions with
+/// a local `u` cost one predictable compare at the consumer, while
+/// missing one prints NaN where the program should see `undefined`.
+/// Walking statements rather than the expression arena is what a
+/// declaration needs — a `LetDecl` is a statement, and its name is not
+/// reachable from any expression id.
+fn collect_sentinel_lets(a: &Analysis<'_>, t: &SentinelTables, stmts: &[Stmt]) -> HashSet<String> {
+    fn walk(a: &Analysis<'_>, t: &SentinelTables, stmts: &[&Stmt], out: &mut HashSet<String>) {
+        for s in stmts {
+            match s {
+                Stmt::LetDecl { name, init, .. } if is_sentinel_source(a, *init, t) => {
+                    out.insert(name.clone());
+                }
+                Stmt::Expr(e) => {
+                    if let Expr::Assign { target, value } = a.ast.get_expr(*e)
+                        && let Expr::Ident(n) = a.ast.get_expr(*target)
+                        && is_sentinel_source(a, *value, t)
+                    {
+                        out.insert(n.clone());
+                    }
+                }
+                _ => {}
+            }
+            walk(
+                a,
+                t,
+                &crate::ast::desugar_with::walk::stmt_children_ref(s),
+                out,
+            );
+        }
+    }
+    let mut out = HashSet::new();
+    walk(a, t, &stmts.iter().collect::<Vec<_>>(), &mut out);
+    out
 }
 
 /// The mirror of the fall-through table: which **parameters** can be
@@ -213,6 +275,7 @@ fn collect_undef_sentinel_params(
         let Expr::Ident(f) = a.ast.get_expr(*callee) else {
             super::sentinel_hof::collect_reduce_seed(a, t, *callee, args, &lifted, &mut out);
             super::sentinel_hof::collect_hof_elem_params(a, t, *callee, args, &lifted, &mut out);
+            super::sentinel_hof::collect_promise_then_param(a, t, *callee, args, &lifted, &mut out);
             continue;
         };
         // An arrow is lifted to a `__closure_N` FnDecl before this
