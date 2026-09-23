@@ -163,20 +163,26 @@ pub unsafe extern "C" fn __torajs_anyv_cast_str(v: AnyValue, site: *const u8) ->
     core::ptr::null_mut()
 }
 
-/// As [`__torajs_anyv_cast_str`], for a slot whose annotation admits
-/// `undefined` (`string | undefined`). The union member passes as the
-/// Str slot's undefined sentinel — the same spelling the gate-off path
-/// and the boxed parameter adapter give it — and everything that is
-/// neither a string nor undefined is still rejected.
+/// As [`__torajs_anyv_cast_str`], for a slot whose annotation admits a
+/// nullish value beside its type (`string | undefined`, `string |
+/// null`). Both members pass in their own spelling — the immortal
+/// undefined sentinel and the NULL pointer (RFC 20260707 chunk 2) —
+/// and everything that is neither a string nor nullish is rejected.
+///
+/// One kernel serves both unions because the parser folds `| null` and
+/// `| undefined` into the same `__nullable(` marker: SSA cannot tell
+/// them apart by the time the boundary picks a kernel, and neither can
+/// this. Admitting both is the choice that never rejects a member the
+/// program wrote; the price is that `string | undefined` also lets a
+/// `null` through, which the annotation did not name.
 ///
 /// Nullable information does not survive into SSA (`__nullable(T)` is
 /// storage-identical to `T`, `ssa_lower_parse_type`), so the lowering
 /// reads it off the annotation text and picks this kernel there.
 ///
-/// `null` is NOT admitted: the Str slot has an undefined sentinel and
-/// no null one, so `string | null` still rejects. That gap is the same
-/// one `nullable-string-slot-undefined-001` registers for the gate-off
-/// path, and both ends want the one fix.
+/// NULL is also this function's rejection answer; the two are told
+/// apart the way every other kernel here is, by whether a pending
+/// throw was recorded.
 ///
 /// # Safety
 /// As [`__torajs_anyv_cast_number`].
@@ -187,6 +193,9 @@ pub unsafe extern "C" fn __torajs_anyv_cast_str_or_undef(
 ) -> *mut c_void {
     if is_undefined(v) {
         return unsafe { __torajs_str_undef() } as *mut c_void;
+    }
+    if is_null(v) {
+        return core::ptr::null_mut();
     }
     unsafe { __torajs_anyv_cast_str(v, site) }
 }

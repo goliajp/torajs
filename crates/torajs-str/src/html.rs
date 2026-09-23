@@ -115,8 +115,16 @@ impl UnitWriter<'_> {
 
 /// B.2.2.2.1 CreateHTML(string, tag, attribute, value): a fresh
 /// refcount=1 Str holding `<tag attribute="escaped(value)">S</tag>`.
-/// `attr` empty ⇔ the no-attribute forms. `s` / `val` may be NULL
-/// (the JS `undefined` value → the text "undefined").
+/// `attr` empty ⇔ the no-attribute forms.
+///
+/// NULL here means the JS `undefined` value, which is a LOCAL protocol
+/// between this kernel and `ssa_lower_str_html`: that lane spells an
+/// absent or `undefined` argument as `ConstPtrNull` rather than
+/// materializing the sentinel, and nothing else reaches these
+/// parameters. Everywhere else a NULL in a Str slot is JS `null` (RFC
+/// 20260707 chunk 2, and chunk 4 flipped `concat`); this pair is the
+/// last place still using the old spelling, and the two ends have to
+/// move together.
 unsafe fn create_html(s: *const u8, tag: &[u8], attr: &[u8], val: *const u8) -> *mut u8 {
     // NULL operands materialize the "undefined" literal once and
     // recurse with real cells (concat's F1b-2 idiom).

@@ -178,13 +178,21 @@ pub unsafe extern "C" fn __torajs_anyv_to_display_str(v: AnyValue) -> *mut c_voi
     unsafe { __torajs_anyv_to_str(v) }
 }
 
-/// A boxed argument landing in a `string` parameter: `undefined` stays
-/// `undefined` — the Str slot's undefined sentinel, the same spelling a
-/// missing argument gets — and any other value is ToString'd. The
-/// boxed-call adapters fill Str params through this; ToString on
-/// `undefined` handed a replacer's unmatched capture group over as the
-/// text `"undefined"` (§22.2.6.11 passes `undefined` for it). Owned
-/// (the sentinel's rc traffic is a no-op).
+/// A boxed value landing in a declared `string` slot: the two nullish
+/// values keep their own spelling and everything else is ToString'd.
+/// The boxed-call adapters, the let-init conversion and the nullable
+/// return all fill Str slots through this; ToString on `undefined`
+/// handed a replacer's unmatched capture group over as the text
+/// `"undefined"` (§22.2.6.11 passes `undefined` for it), and ToString
+/// on `null` answered the four-character text `"null"` for a `let s:
+/// string | null = (null as any)` — `s === null` false, `typeof s`
+/// "string". Owned (neither spelling carries rc traffic: the sentinel
+/// is immortal and NULL is not a block).
+///
+/// The two spellings are not symmetric because the representations are
+/// not: `undefined` is the immortal sentinel cell's address, `null` is
+/// the NULL pointer (RFC 20260707 chunk 2 — one runtime value used to
+/// carry both, and the sentinel is what split them).
 ///
 /// # Safety
 ///
@@ -193,6 +201,9 @@ pub unsafe extern "C" fn __torajs_anyv_to_display_str(v: AnyValue) -> *mut c_voi
 pub unsafe extern "C" fn __torajs_anyv_to_str_param(v: AnyValue) -> *mut c_void {
     if is_undefined(v) {
         return unsafe { __torajs_str_undef() } as *mut c_void;
+    }
+    if is_null(v) {
+        return core::ptr::null_mut();
     }
     unsafe { __torajs_anyv_to_str(v) }
 }

@@ -145,10 +145,10 @@ fn eq_different_lengths_short_circuit() {
     }
 }
 
-// RC-4 F1b-2 — a NULL ptr in a Str-typed slot denotes the JS
-// `undefined` value (uncaptured regex groups, `[.., undefined]`
-// array-literal slots). eq is identity, concat is the text
-// "undefined"; neither derefs the NULL.
+// RFC 20260707 — a NULL ptr in a Str-typed slot denotes the JS
+// `null` value (chunk 2 gave `undefined` its own immortal sentinel
+// cell). eq is identity, concat is the text "null"; neither derefs
+// the NULL.
 
 #[test]
 fn eq_null_operands_identity() {
@@ -156,26 +156,30 @@ fn eq_null_operands_identity() {
     assert_eq!(
         unsafe { __torajs_str_eq(std::ptr::null(), std::ptr::null()) },
         1,
-        "undefined === undefined"
+        "null === null"
     );
     assert_eq!(
         unsafe { __torajs_str_eq(std::ptr::null(), s) },
         0,
-        "undefined === \"undefined\" is a type mismatch, never content"
+        "null === \"undefined\" is a type mismatch, never content"
     );
     assert_eq!(unsafe { __torajs_str_eq(s, std::ptr::null()) }, 0);
     unsafe { __torajs_str_free(s) };
 }
 
+/// RFC 20260707 chunk 4 — NULL in a Str slot is JS `null`, so
+/// ToString of it is "null". `undefined` has its own immortal cell
+/// since chunk 2; this test asserted the pre-sentinel reading, when
+/// one runtime value carried both.
 #[test]
-fn concat_null_operand_is_undefined_text() {
+fn concat_null_operand_is_null_text() {
     let a = make_str(b"x: ");
     let r = unsafe { __torajs_str_concat(a, std::ptr::null()) };
-    assert_eq!(read_str(r), b"x: undefined");
+    assert_eq!(read_str(r), b"x: null");
     let l = unsafe { __torajs_str_concat(std::ptr::null(), a) };
-    assert_eq!(read_str(l), b"undefinedx: ");
+    assert_eq!(read_str(l), b"nullx: ");
     let both = unsafe { __torajs_str_concat(std::ptr::null(), std::ptr::null()) };
-    assert_eq!(read_str(both), b"undefinedundefined");
+    assert_eq!(read_str(both), b"nullnull");
     unsafe {
         __torajs_str_free(a);
         __torajs_str_free(r);

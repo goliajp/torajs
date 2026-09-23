@@ -80,7 +80,7 @@ fn write_side(src: &[u8], dst: &mut [u8], src_is_latin1: bool, dst_is_latin1: bo
 /// releases it). `b` is borrowed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u8 {
-    // A null operand is the `undefined` spelling (RC-4 F1b-2);
+    // A null operand is the JS `null` value (RFC 20260707 chunk 4);
     // `concat` already owns that path. Cold either way.
     if a.is_null() || b.is_null() {
         let r = unsafe { __torajs_str_concat(a, b) };
@@ -313,10 +313,14 @@ mod tests {
     }
 
     #[test]
-    fn a_null_operand_still_spells_undefined() {
+    fn a_null_operand_spells_null() {
+        // Chunk 2 gave `undefined` the immortal sentinel cell; NULL
+        // went back to meaning JS `null`, and chunk 4 flipped the two
+        // arms that still read it the old way. This test asserted the
+        // old reading.
         let acc = latin1(b"ab");
         let out = unsafe { __torajs_str_append(acc, core::ptr::null()) };
-        assert_eq!(read(out).0, b"abundefined");
+        assert_eq!(read(out).0, b"abnull");
         unsafe { __torajs_str_free(out) };
     }
 

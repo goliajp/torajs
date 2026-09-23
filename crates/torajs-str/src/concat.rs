@@ -82,21 +82,25 @@ pub(crate) fn widen_latin1_into_utf16(src: &[u8], dst: &mut [u8]) {
 /// a fresh refcount=1 Str block owned by the caller.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut u8 {
-    // RC-4 F1b-2 — a NULL ptr in a Str-typed slot denotes the JS
-    // `undefined` value (uncaptured regex group, `[.., undefined]`
-    // array-literal slot, typed OOB elem load); ES §13.15.3
-    // ToString(undefined) concats the text "undefined". Cold path:
-    // materialize the literal, recurse, drop the temp.
+    // RFC 20260707 chunk 4 — a NULL ptr in a Str-typed slot denotes
+    // the JS `null` value; ES §13.15.3 ToString(null) concats the text
+    // "null". This arm read it as `undefined` under the pre-sentinel
+    // 591 convention, when one runtime value carried both; chunk 2
+    // gave `undefined` the immortal sentinel cell and left NULL to
+    // mean what it says. Every producer named in the old comment
+    // (uncaptured capture group, `[.., undefined]` literal slot, typed
+    // OOB elem load) spells the sentinel now. Cold path: materialize
+    // the literal, recurse, drop the temp.
     if a.is_null() || b.is_null() {
-        let undef = unsafe { crate::literals::__torajs_undefined_to_str() };
+        let null_s = unsafe { crate::literals::__torajs_null_to_str() };
         let r = if a.is_null() && b.is_null() {
-            unsafe { __torajs_str_concat(undef, undef) }
+            unsafe { __torajs_str_concat(null_s, null_s) }
         } else if a.is_null() {
-            unsafe { __torajs_str_concat(undef, b) }
+            unsafe { __torajs_str_concat(null_s, b) }
         } else {
-            unsafe { __torajs_str_concat(a, undef) }
+            unsafe { __torajs_str_concat(a, null_s) }
         };
-        unsafe { crate::str_drop::__torajs_str_drop(undef) };
+        unsafe { crate::str_drop::__torajs_str_drop(null_s) };
         return r;
     }
     let a_len = unsafe { str_len(a) };
