@@ -111,6 +111,30 @@ pub unsafe extern "C" fn __torajs_any_has_property(recv: AnyValue, key: *const c
         return unsafe { torajs_rc::in_op_any::__torajs_in_op_any_str(recv as i64, key.cast()) }
             as i64;
     }
+    // An Array's chain is %Array.prototype% (itself an Arr cell), then
+    // %Object.prototype% — the same two hops `__torajs_arr_index_get`
+    // takes for a hole. Stopping at own made SortIndexedProperties skip
+    // a hole that `Array.prototype[k]` fills (§23.1.3.30 step 4.a).
+    if tag == Tag::Arr as u16 {
+        use torajs_rc::builtin_proto::{
+            __torajs_get_builtin_prototype, ARRAY_PROTO_TAG, OBJECT_PROTO_TAG,
+        };
+        let ap = unsafe { __torajs_get_builtin_prototype(ARRAY_PROTO_TAG as i64) };
+        let parent = if !ap.is_null() && !core::ptr::eq(ap.cast::<u8>(), ptr.cast::<u8>()) {
+            ap
+        } else {
+            unsafe { __torajs_get_builtin_prototype(OBJECT_PROTO_TAG as i64) }
+        };
+        if parent.is_null() {
+            return 0;
+        }
+        return unsafe {
+            __torajs_any_has_property(
+                crate::nanbox_encode::__torajs_anyv_box_from_pair(4, parent as i64),
+                key,
+            )
+        };
+    }
     if tag != Tag::DynObj as u16 {
         return 0;
     }
