@@ -107,6 +107,8 @@ const ARR_PROPS_OFF: usize = 24;
 // Byte offset of `cap` (u32) — the materialized-extent bound while
 // `FLAG_ARR_SPARSE_TAIL` is up (torajs-arr `layout::ARR_CAP_OFF`).
 const ARR_CAP_OFF: usize = 16;
+/// Mirror of torajs-arr `layout::ARR_DATA_PTR_OFF` — the slot buffer.
+const ARR_DATA_PTR_OFF: usize = 32;
 
 // Tag value ssa_lower emits for NaN-boxed heap pointers (mirrors
 // `ANY_TAG_HEAP = 4` from torajs-anyvalue / ssa_lower).
@@ -213,10 +215,16 @@ pub unsafe extern "C" fn __torajs_in_op_any_num(v: i64, key: i64) -> bool {
             // to the string face below, whose chain walk consults the
             // Array.prototype / %Object.prototype% digit keys.
             // Exotic-index header bit gates the probe.
-            let mut hole = false;
-            if unsafe { *((ptr as *const u8).add(6) as *const u16) } & crate::FLAG_ARR_EXOTIC_INDEX
-                != 0
-            {
+            let flags = unsafe { *((ptr as *const u8).add(6) as *const u16) };
+            // A slot hole (`FLAG_ARR_ANY_HOLEY` on an Any cell, whose
+            // head is always 0): the element slot holds the reserved 0.
+            const HOLEY: u16 = crate::FLAG_ARR_ANY | crate::FLAG_ARR_ANY_HOLEY;
+            let mut hole = flags & HOLEY == HOLEY
+                && unsafe {
+                    let data = *((ptr as *const u8).add(ARR_DATA_PTR_OFF) as *const *const u64);
+                    *data.add(key as usize) == 0
+                };
+            if !hole && flags & crate::FLAG_ARR_EXOTIC_INDEX != 0 {
                 let key_str = unsafe { __torajs_num_to_string_radix_i(key, 10) };
                 if !key_str.is_null() {
                     let props =

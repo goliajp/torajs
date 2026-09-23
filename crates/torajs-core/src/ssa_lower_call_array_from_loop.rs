@@ -202,6 +202,11 @@ pub(crate) fn emit_map_loop(
         src_elem_ty,
         None,
     );
+    let elem = if src_elem_ty == Type::Any {
+        ctx.emit_any_slot_hole_as_undefined(elem)
+    } else {
+        elem
+    };
     // Borrowed-read: refcounted elem types need rc_inc so mapFn's
     // parameter ownership balances against the src walker keeping its
     // slot.

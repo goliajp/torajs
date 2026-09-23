@@ -58,11 +58,80 @@ impl LowerCtx<'_> {
     /// index of it be absent? Emitted before the loop so the body's
     /// branch is a register test on a loop-invariant value.
     pub(crate) fn emit_hof_sparse_probe(&mut self, arr: ValueId) -> ValueId {
+        self.emit_arr_index_mop_probe(arr, torajs_rc::FLAG_ARR_SPARSE_TAIL)
+    }
+
+    /// An element read straight out of an `Arr<Any>` slot, with a slot
+    /// hole (`FLAG_ARR_ANY_HOLEY` — the reserved encoding `0`) turned
+    /// into the `undefined` a read of it answers. For the lanes that
+    /// load raw slots and hand the value on (to a callback, into a
+    /// collection) instead of going through the `arr_get_any_*`
+    /// kernels, which do this themselves. (`Select` only forms after
+    /// the egraph pass, so the choice is a slot and a branch.)
+    pub(crate) fn emit_any_slot_hole_as_undefined(&mut self, v: ValueId) -> ValueId {
+        let slot = self.alloca(Type::Any, Some("__hole_norm"));
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+        );
+        let bits = self.f.append_inst(
+            self.cur_block,
+            InstKind::PtrToInt(Operand::Value(v)),
+            Type::I64,
+            None,
+        );
+        let is_hole = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let undef_blk = self.f.add_block();
+        let cont_blk = self.f.add_block();
+        let cur = self.cur_block;
+        self.f.set_term(
+            cur,
+            Terminator::CondBr {
+                cond: Operand::Value(is_hole),
+                then_blk: undef_blk,
+                else_blk: cont_blk,
+            },
+        );
+        self.cur_block = undef_blk;
+        let undef = self.f.append_inst(
+            undef_blk,
+            InstKind::IntToPtr(Operand::ConstI64(0x0A)),
+            Type::Any,
+            None,
+        );
+        self.f.append_void(
+            undef_blk,
+            InstKind::Store(Operand::Value(undef), Operand::Value(slot), 0),
+        );
+        self.f.set_term(undef_blk, Terminator::Br(cont_blk));
+        self.cur_block = cont_blk;
+        self.f.append_inst(
+            cont_blk,
+            InstKind::Load(Type::Any, Operand::Value(slot), 0),
+            Type::Any,
+            None,
+        )
+    }
+
+    /// Can an index of `arr` be anything but a plain own data property:
+    /// a shadow hole / accessor (`FLAG_ARR_EXOTIC_INDEX`), a slot hole
+    /// (`FLAG_ARR_ANY_HOLEY` — which means that only together with
+    /// `FLAG_ARR_ANY`, bit 10 being the element kind on a typed cell,
+    /// and a static `Arr<Any>` view can front a typed cell), or any of
+    /// `extra`? The lowering's spelling of torajs-arr
+    /// `layout::needs_index_mop`.
+    pub(crate) fn emit_arr_index_mop_probe(&mut self, arr: ValueId, extra: u16) -> ValueId {
         // Header word is `[refcount u32 | tag u16 | flags u16]`, so a
         // flags bit N sits at bit 48+N of the I64 load.
         const FLAGS_SHIFT: u32 = 48;
-        let mask = ((torajs_rc::FLAG_ARR_EXOTIC_INDEX | torajs_rc::FLAG_ARR_SPARSE_TAIL) as i64)
-            << FLAGS_SHIFT;
+        let any_mask = ((torajs_rc::FLAG_ARR_EXOTIC_INDEX | extra) as i64) << FLAGS_SHIFT;
+        let holey =
+            ((torajs_rc::FLAG_ARR_ANY | torajs_rc::FLAG_ARR_ANY_HOLEY) as i64) << FLAGS_SHIFT;
         let hdr = self.f.append_inst(
             self.cur_block,
             InstKind::Load(Type::I64, Operand::Value(arr), 0),
@@ -71,13 +140,31 @@ impl LowerCtx<'_> {
         );
         let bits = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(BinOp::And, Operand::Value(hdr), Operand::ConstI64(mask)),
+            InstKind::BinOp(BinOp::And, Operand::Value(hdr), Operand::ConstI64(any_mask)),
             Type::I64,
+            None,
+        );
+        let exotic = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(bits), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        let hbits = self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(BinOp::And, Operand::Value(hdr), Operand::ConstI64(holey)),
+            Type::I64,
+            None,
+        );
+        let is_holey = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Eq, Operand::Value(hbits), Operand::ConstI64(holey)),
+            Type::Bool,
             None,
         );
         self.f.append_inst(
             self.cur_block,
-            InstKind::ICmp(IPred::Ne, Operand::Value(bits), Operand::ConstI64(0)),
+            InstKind::BinOp(BinOp::Or, Operand::Value(exotic), Operand::Value(is_holey)),
             Type::Bool,
             None,
         )

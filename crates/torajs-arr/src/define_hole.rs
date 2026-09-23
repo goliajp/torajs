@@ -158,7 +158,8 @@ pub(crate) unsafe fn splice_remap_holes(
     let mut moved: Vec<i64> = Vec::new();
     for idx in start.max(0)..old_len {
         let key = unsafe { crate::define::mint_index_key(idx as u64) };
-        let is_hole = unsafe { index_flags_with_key(arr, key as *const c_void) } & F_HOLE != 0;
+        let is_hole =
+            unsafe { index_flags_with_key(arr, key as *const c_void, idx as u64) } & F_HOLE != 0;
         if is_hole {
             // Revive the stale shadow — the kernel already moved /
             // overwrote the slot itself.
@@ -200,7 +201,7 @@ pub unsafe extern "C" fn __torajs_arr_delete_index(
     if idx >= len {
         return 1;
     }
-    let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
+    let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void, idx) };
     if cur_flags & F_HOLE != 0 {
         return 1;
     }
@@ -259,7 +260,7 @@ pub(crate) unsafe fn shrink_purge_shadows(arr: *mut c_void, new_len: u64, old_le
         i -= 1;
         let key = unsafe { crate::define::mint_index_key(i) };
         if unsafe { __torajs_dynobj_has(props, key as *const c_void) } != 0 {
-            let f = unsafe { index_flags_with_key(arr, key as *const c_void) };
+            let f = unsafe { index_flags_with_key(arr, key as *const c_void, i) };
             if f & F_HOLE == 0 && f & F_CONFIGURABLE == 0 {
                 unsafe { __torajs_str_drop(key as *mut c_void) };
                 return i + 1;
@@ -299,7 +300,13 @@ pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i
         // finds nothing, the chain consults prototype digit keys).
         let in_tail = hflags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0
             && (idx as u64) >= crate::layout::arr_live_extent(arr as *const u8);
-        if (idx as u64) < len && !exotic && !in_tail {
+        // A slot hole (FLAG_ARR_ANY_HOLEY) is absent the same way —
+        // the walk below then asks the prototype.
+        if (idx as u64) < len
+            && !exotic
+            && !in_tail
+            && !crate::layout::any_slot_is_hole(arr as *const u8, idx as u64)
+        {
             return 1;
         }
         // Exotic (hole shadows possible) or OOB (prototype digit

@@ -20,7 +20,7 @@
 //!    classes are injectable now — build_error_data_subclass).
 //! 3. **`new Array(...)` P0.10 MVP** — 0 args → `[]`; ≥2 args →
 //!    `[a, b, ...]`; 1-arg numeric stays as `Expr::New` (ssa_lower
-//!    routes to `__torajs_arr_alloc_any_filled(n)`).
+//!    routes to `__torajs_arr_alloc_any_holes(n)`).
 //! 4. **`new Object()`** 0-arg → `{}` (ES §20.1.1.1).
 //! 5. **`new RegExp(pattern?, flags?)`** with constant-string args →
 //!    `Expr::Regex { pattern, flags }` literal (ES §22.2.3.1).

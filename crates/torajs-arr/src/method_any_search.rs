@@ -84,9 +84,7 @@ unsafe fn proto_index_present(idx: u64) -> bool {
             // suffices for accessor entries.
             let len = (ap.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read();
             if idx < len
-                && (crate::define::header_flags(ap as *const c_void)
-                    & torajs_rc::FLAG_ARR_EXOTIC_INDEX
-                    == 0
+                && (!crate::layout::needs_index_mop(ap as *const u8)
                     || crate::define::__torajs_arr_index_flags(ap as *const c_void, idx)
                         & crate::define::F_HOLE
                         == 0)
@@ -134,8 +132,7 @@ unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bo
         // undefined); includes (§23.1.3.16, same_value_zero) has no
         // such step and DOES find undefined in a hole. Zero cost
         // for ordinary arrays via the exotic-index header bit.
-        let skip_holes = !same_value_zero
-            && crate::define::header_flags(arr) & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
+        let skip_holes = !same_value_zero && crate::layout::needs_index_mop(arr as *const u8);
         let mut i = norm_from(from, len);
         while i < len {
             if skip_holes
@@ -202,7 +199,7 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
         }
         let len = *((arr as *const u8).add(ARR_LEN_OFF) as *const u64) as i64;
         // §23.1.3.20 step 8.a — HasProperty gate, see `search`.
-        let skip_holes = crate::define::header_flags(arr) & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
+        let skip_holes = crate::layout::needs_index_mop(arr as *const u8);
         let mut i = if from >= len {
             len - 1
         } else if from < 0 {

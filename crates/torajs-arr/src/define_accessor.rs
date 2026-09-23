@@ -144,7 +144,7 @@ pub(crate) unsafe fn define_index_accessor(
         };
     }
 
-    let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
+    let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void, idx) };
     if cur_flags & F_HOLE != 0 {
         // A hole is an absent property — fresh CreateProperty over the
         // extensible check; clear the sentinel entry outright so the

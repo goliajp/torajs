@@ -242,7 +242,14 @@ pub unsafe extern "C" fn __torajs_arr_extend_any(dst: *mut u8, src: *const u8) -
             // src is technically *const u8; cast via *mut for the
             // shared slot accessor (read-only is fine).
             let src_mut = src as *mut u8;
-            let av = *slot_anyvalue_ptr(src_mut, i);
+            let mut av = *slot_anyvalue_ptr(src_mut, i);
+            // A slot hole copies as the undefined its read answers —
+            // spread and the other Get-shaped copies riding this kernel
+            // produce no holes (concat asks for the hole-keeping walk
+            // before it gets here).
+            if av == 0 {
+                av = crate::layout::VALUE_UNDEFINED_IMM;
+            }
             // rc_inc is NaN-box-safe — no-op for non-cell immediates,
             // bumps the wrapped heap pointer's refcount for cells.
             __torajs_rc_inc(av as *mut c_void);
@@ -449,6 +456,10 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
     let outer_mut = outer as *mut u8;
     for i in 0..outer_len {
         let av = unsafe { *slot_anyvalue_ptr(outer_mut, i) };
+        // §23.1.3.13.1 FlattenIntoArray step 3.b — a hole is skipped.
+        if av == 0 {
+            continue;
+        }
         let tag = unsafe { __torajs_anyv_unbox_tag(av) } as u64;
         let value = unsafe { __torajs_anyv_unbox_value(av) };
         if tag == ANY_HEAP {

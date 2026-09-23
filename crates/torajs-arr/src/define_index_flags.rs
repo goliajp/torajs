@@ -54,7 +54,10 @@ fn apply_integrity_level(flags: u64, hflags: u16) -> u64 {
 /// exists, the implicit defaults otherwise, in both cases masked by
 /// the cell's integrity level. `key` is the caller's index Str
 /// (avoids a re-mint).
-pub(crate) unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void) -> u64 {
+pub(crate) unsafe fn index_flags_with_key(arr: *const c_void, key: *const c_void, idx: u64) -> u64 {
+    if unsafe { crate::layout::any_slot_is_hole(arr as *const u8, idx) } {
+        return F_HOLE;
+    }
     let hflags = unsafe { header_flags(arr) };
     if hflags & FLAG_ARR_EXOTIC_INDEX == 0 {
         return apply_integrity_level(FLAGS_DEFAULT, hflags);
@@ -85,11 +88,14 @@ pub unsafe extern "C" fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) 
     {
         return F_HOLE;
     }
+    if unsafe { crate::layout::any_slot_is_hole(arr as *const u8, idx) } {
+        return F_HOLE;
+    }
     if hflags & FLAG_ARR_EXOTIC_INDEX == 0 {
         return apply_integrity_level(FLAGS_DEFAULT, hflags);
     }
     let key = unsafe { mint_index_key(idx) };
-    let flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
+    let flags = unsafe { index_flags_with_key(arr, key as *const c_void, idx) };
     unsafe { __torajs_str_drop(key as *mut c_void) };
     flags
 }

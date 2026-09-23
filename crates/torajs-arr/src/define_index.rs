@@ -77,7 +77,7 @@ pub(crate) unsafe fn define_index(
     let has_value = flags_byte & P_VALUE != 0;
 
     if idx < len {
-        let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void) };
+        let cur_flags = unsafe { index_flags_with_key(arr, key as *const c_void, idx) };
         // A hole is an absent property — the define is a fresh
         // CreateDataProperty (extensible check, no current-flags
         // validation) that revives the index (chunk C).

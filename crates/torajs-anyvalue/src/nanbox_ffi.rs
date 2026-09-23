@@ -267,8 +267,9 @@ pub unsafe extern "C" fn __torajs_anyv_to_str(v: AnyValue) -> *mut c_void {
     if is_cell(v) {
         return unsafe { any_to_str(AnySlotTag::Heap as i64, v as i64) };
     }
-    // Defensive — unreachable in well-formed runtime.
-    unsafe { any_to_str(AnySlotTag::Null as i64, 0) }
+    // `v == 0` — the array slot HOLE (`FLAG_ARR_ANY_HOLEY`), which
+    // reads as undefined.
+    unsafe { any_to_str(AnySlotTag::Undef as i64, 0) }
 }
 
 /// `ToBoolean(v)` per ES §7.1.2. Falsy: `null`, `undefined`,

@@ -337,8 +337,10 @@ pub extern "C" fn __torajs_anyv_unbox_tag(v: AnyValue) -> i64 {
         // the materialize cost goes away.
         AnySlotTag::Heap as i64
     } else {
-        // Defensive — `v == 0` (uninitialized slot) treated as Null.
-        AnySlotTag::Null as i64
+        // `v == 0` is the array slot HOLE (`FLAG_ARR_ANY_HOLEY`): a read
+        // that reaches it without the prototype walk answers undefined,
+        // never null.
+        AnySlotTag::Undef as i64
     }
 }
 

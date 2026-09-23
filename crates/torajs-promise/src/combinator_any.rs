@@ -61,14 +61,21 @@ pub(crate) unsafe fn arr_is_any(arr: *mut c_void) -> bool {
     unsafe { (*((arr as *mut u8).add(6) as *const u16)) & FLAG_ARR_ANY != 0 }
 }
 
-/// Raw NaN-box bits of logical slot `i` (8B stride behind the data
-/// pointer — the combinator `arr_slot_ptr` walk, bits not pointer).
+/// NaN-box bits of logical slot `i` (8B stride behind the data
+/// pointer — the combinator `arr_slot_ptr` walk, bits not pointer). A
+/// slot hole (`FLAG_ARR_ANY_HOLEY`, bits `0`) answers the `undefined`
+/// immediate: the combinators iterate the input, and iterating an
+/// array reads a hole as undefined.
 pub(crate) unsafe fn any_slot(arr: *mut c_void, i: u64) -> u64 {
+    const VALUE_UNDEFINED_IMM: u64 = 0x0A;
     unsafe {
         let bytes = arr as *mut u8;
         let head = *(bytes.add(ARR_HEAD_OFF) as *const u32) as u64;
         let data = *(bytes.add(ARR_DATA_PTR_OFF) as *const *mut u8);
-        *(data.add(((head + i) * 8) as usize) as *const u64)
+        match *(data.add(((head + i) * 8) as usize) as *const u64) {
+            0 => VALUE_UNDEFINED_IMM,
+            bits => bits,
+        }
     }
 }
 

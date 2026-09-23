@@ -39,9 +39,7 @@ unsafe extern "C" {
 /// `__torajs_arr_join_exotic` link seam (`crate::exotic_seam`).
 #[inline]
 unsafe fn is_exotic(arr: *const u8) -> bool {
-    unsafe {
-        (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
-    }
+    unsafe { crate::layout::needs_index_mop(arr) }
 }
 
 #[inline]

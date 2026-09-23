@@ -70,8 +70,7 @@ pub unsafe extern "C" fn __torajs_concat_needs_spec(av: AnyValue) -> i64 {
         return 1;
     }
     unsafe {
-        let flags = (ptr.cast::<u8>().add(6) as *const u16).read();
-        if flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+        if crate::method_call_arraylike_mut::ops::arr_needs_index_mop(ptr) {
             return 1;
         }
         let sym = __torajs_symbol_well_known(WK_IS_CONCAT_SPREADABLE);

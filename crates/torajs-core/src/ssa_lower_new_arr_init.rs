@@ -181,6 +181,14 @@ fn emit_pair_entry(
         inner_elem_ty,
         None,
     );
+    let (k_loaded, v_loaded) = if inner_elem_ty == Type::Any {
+        (
+            ctx.emit_any_slot_hole_as_undefined(k_loaded),
+            ctx.emit_any_slot_hole_as_undefined(v_loaded),
+        )
+    } else {
+        (k_loaded, v_loaded)
+    };
     let (k_tag, k_val) = ctx.box_to_tag_value(Operand::Value(k_loaded));
     let (v_tag, v_val) = ctx.box_to_tag_value(Operand::Value(v_loaded));
     let cur_block = ctx.cur_block;
@@ -301,6 +309,11 @@ pub(crate) fn lower_set_from_arr(
         elem_ty,
         None,
     );
+    let elem = if elem_ty == Type::Any {
+        ctx.emit_any_slot_hole_as_undefined(elem)
+    } else {
+        elem
+    };
     let (k_tag, k_val) = ctx.box_to_tag_value(Operand::Value(elem));
     let cur_block = ctx.cur_block;
     ctx.f.append_void(

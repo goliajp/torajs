@@ -164,6 +164,20 @@ pub(super) unsafe fn do_copy_within(
     }
 }
 
+/// Can an index of this Array cell be something other than a plain own
+/// data property — a shadow hole / accessor (`FLAG_ARR_EXOTIC_INDEX`) or
+/// a slot hole (`FLAG_ARR_ANY_HOLEY`, meaningful only with
+/// `FLAG_ARR_ANY`: bit 10 is the element kind on a typed cell)? Mirrors
+/// torajs-arr `layout::needs_index_mop`.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell.
+pub(crate) unsafe fn arr_needs_index_mop(arr: *const c_void) -> bool {
+    const HOLEY: u16 = torajs_rc::FLAG_ARR_ANY | torajs_rc::FLAG_ARR_ANY_HOLEY;
+    let flags = unsafe { (*(arr as *const torajs_rc::HeapHeader)).flags };
+    flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 || flags & HOLEY == HOLEY
+}
+
 /// `__torajs_arr_sort_exotic(arr, cmp)` — `Array.prototype.sort` over
 /// an Array cell that carries a hole shadow or an accessor index
 /// (`FLAG_ARR_EXOTIC_INDEX`). §23.1.3.30 SortIndexedProperties reads

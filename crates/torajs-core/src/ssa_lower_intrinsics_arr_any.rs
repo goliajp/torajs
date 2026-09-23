@@ -107,6 +107,8 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
     // anonymous; keep it inside `declare` so the registration order
     // mirrors the pre-extract inline source.
     let _ = decl!("__torajs_arr_alloc_any_filled", [I64], Ptr);
+    // `new Array(n)` — every index a hole (§23.1.2.1 ArrayCreate).
+    let _ = decl!("__torajs_arr_alloc_any_holes", [I64], Ptr);
     // §23.1.2.1 step 4.b — f64 entry for non-integer-provable Number
     // operands; keeps the fractional/NaN/Infinity bits the i64
     // coercion erases so the ToUint32(len) != len RangeError fires.

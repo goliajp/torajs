@@ -222,13 +222,13 @@ pub use arr_kind::{
 };
 pub use color::{COLOR_MASK, COLOR_SHIFT, Color};
 pub use flags::{
-    FLAG_ARR_ANY, FLAG_ARR_ARGUMENTS, FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO,
-    FLAG_ARR_SPARSE_TAIL, FLAG_BUFFERED, FLAG_CLASS_METHOD_THIS_FREE, FLAG_CLOSURE_NS_STATIC,
-    FLAG_CLOSURE_RECV_FIRST, FLAG_DYNOBJ_CLASS_CTOR, FLAG_DYNOBJ_MODULE_NS, FLAG_DYNOBJ_RAW_JSON,
-    FLAG_ERROR, FLAG_FN_ASYNC, FLAG_FN_GENERATOR, FLAG_FN_LENGTH_DELETED, FLAG_FN_NAME_DELETED,
-    FLAG_FN_PROTO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_OBJ_EXOTIC_FIELD, FLAG_OBJ_EXPANDO,
-    FLAG_OBJ_USER_PROTO, FLAG_PROXY_CALLABLE, FLAG_PROXY_CONSTRUCTOR, FLAG_SEALED,
-    FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, FLAG_SUBCLASSED,
+    FLAG_ARR_ANY, FLAG_ARR_ANY_HOLEY, FLAG_ARR_ARGUMENTS, FLAG_ARR_EXOTIC_INDEX,
+    FLAG_ARR_LENGTH_RO, FLAG_ARR_SPARSE_TAIL, FLAG_BUFFERED, FLAG_CLASS_METHOD_THIS_FREE,
+    FLAG_CLOSURE_NS_STATIC, FLAG_CLOSURE_RECV_FIRST, FLAG_DYNOBJ_CLASS_CTOR, FLAG_DYNOBJ_MODULE_NS,
+    FLAG_DYNOBJ_RAW_JSON, FLAG_ERROR, FLAG_FN_ASYNC, FLAG_FN_GENERATOR, FLAG_FN_LENGTH_DELETED,
+    FLAG_FN_NAME_DELETED, FLAG_FN_PROTO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_OBJ_EXOTIC_FIELD,
+    FLAG_OBJ_EXPANDO, FLAG_OBJ_USER_PROTO, FLAG_PROXY_CALLABLE, FLAG_PROXY_CONSTRUCTOR,
+    FLAG_SEALED, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, FLAG_SUBCLASSED,
 };
 pub use ns_static::{
     NS_STATIC_UNKNOWN, NsStaticRow, ns_static_id, ns_static_is_deleted, ns_static_mark_deleted,
@@ -620,6 +620,16 @@ mod tests {
             FLAG_ARR_ARGUMENTS,
         ];
         for (i, a) in arr_flags.iter().enumerate() {
+            // HOLEY shares bit 10 with the kind field BY DESIGN (a kind is
+            // only ever set on a typed cell, HOLEY only on an Any cell),
+            // so it is checked against the other Arr flags separately.
+            if *a != ARR_ELEM_KIND_MASK {
+                assert_eq!(
+                    a & FLAG_ARR_ANY_HOLEY,
+                    0,
+                    "Arr flag {a:#06x} overlaps HOLEY"
+                );
+            }
             for b in &arr_flags[i + 1..] {
                 assert_eq!(a & b, 0, "Arr flags {a:#06x} / {b:#06x} overlap");
             }

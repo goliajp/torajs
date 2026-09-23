@@ -108,6 +108,44 @@ pub unsafe fn arr_live_extent(arr: *const u8) -> u64 {
     }
 }
 
+/// The NaN-box `undefined` immediate — what a slot hole reads as.
+pub(crate) const VALUE_UNDEFINED_IMM: u64 = 0x0000_0000_0000_000A;
+
+/// Can an index of this cell be something other than a plain own data
+/// property — a shadow hole or accessor (`FLAG_ARR_EXOTIC_INDEX`), or a
+/// slot hole (`FLAG_ARR_ANY_HOLEY`, which only means that on an Any
+/// cell: bit 10 is the element kind on a typed one)? The walks that read
+/// per index through [[Get]] / HasProperty take the slow read when this
+/// answers true.
+///
+/// # Safety
+/// `arr` must be a live array cell.
+#[inline]
+pub unsafe fn needs_index_mop(arr: *const u8) -> bool {
+    const HOLEY: u16 = torajs_rc::FLAG_ARR_ANY | torajs_rc::FLAG_ARR_ANY_HOLEY;
+    let flags = unsafe { *(arr.add(6) as *const u16) };
+    flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 || flags & HOLEY == HOLEY
+}
+
+/// Is index `idx` a slot HOLE — a `FLAG_ARR_ANY` cell whose element
+/// slot holds the reserved encoding `0` (`torajs_rc::FLAG_ARR_ANY_HOLEY`)?
+/// The one spelling of that question; the sparse tail
+/// (`FLAG_ARR_SPARSE_TAIL`, indices with no slot at all) and the shadow
+/// hole (`FLAG_ARR_EXOTIC_INDEX`) are asked separately by their callers.
+///
+/// # Safety
+/// `arr` must be a live array cell.
+#[inline]
+pub unsafe fn any_slot_is_hole(arr: *const u8, idx: u64) -> bool {
+    const BOTH: u16 = torajs_rc::FLAG_ARR_ANY | torajs_rc::FLAG_ARR_ANY_HOLEY;
+    unsafe {
+        let flags = *(arr.add(6) as *const u16);
+        flags & BOTH == BOTH
+            && idx < arr_live_extent(arr)
+            && *(arr_data(arr).add(idx as usize * 8) as *const u64) == 0
+    }
+}
+
 /// Copy the element-descriptor bits (`FLAG_ARR_ANY` +
 /// `ARR_ELEM_KIND_*`) from `src`'s header onto the fresh derive
 /// product `dst`. Every clone that memcpys slots verbatim (slice /

@@ -36,6 +36,8 @@ unsafe extern "C" {
     /// torajs-mmalloc libc-compat — v0.7-A2 step 6b cutover.
     #[link_name = "__torajs_libc_malloc"]
     fn malloc(n: usize) -> *mut c_void;
+    #[link_name = "__torajs_libc_calloc"]
+    fn calloc(nmemb: usize, size: usize) -> *mut c_void;
     #[link_name = "__torajs_libc_free"]
     fn free(p: *mut c_void);
 
@@ -239,19 +241,7 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any(cap: u64) -> *mut u8 {
 /// `__torajs_arr_set_at_any`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
-    // §23.1.2.1 step 4.b — a length outside [0, 2^32-1] is a
-    // RangeError (test262-bug-corpus RC-4 F5: `new Array(-1)` arrives
-    // as 0xFFFF..FF u64 and SIGSEGVd through the overflowed malloc).
-    // Message matches bun/JSC for uncaught-print byte parity. The
-    // throw helper RETURNS; ssa_lower's emit_throw_check right after
-    // the call diverts before the NULL is touched.
-    const MAX_ARRAY_LEN: u64 = u32::MAX as u64;
-    if n > MAX_ARRAY_LEN {
-        unsafe {
-            __torajs_throw_range_error(
-                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
-            );
-        }
+    if !length_in_range(n) {
         return core::ptr::null_mut();
     }
     unsafe {
@@ -263,6 +253,48 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled(n: u64) -> *mut u8 {
             for k in 0..n {
                 *slot_anyvalue_ptr(p, k) = undef;
             }
+        }
+        p
+    }
+}
+
+/// §23.1.2.1 step 4.b — a length outside [0, 2^32-1] is a RangeError
+/// (test262-bug-corpus RC-4 F5: `new Array(-1)` arrives as 0xFFFF..FF
+/// u64 and SIGSEGVd through the overflowed malloc). Message matches
+/// bun/JSC for uncaught-print byte parity. The throw helper RETURNS;
+/// ssa_lower's emit_throw_check right after the call diverts before
+/// the NULL is touched.
+fn length_in_range(n: u64) -> bool {
+    const MAX_ARRAY_LEN: u64 = u32::MAX as u64;
+    if n > MAX_ARRAY_LEN {
+        unsafe {
+            __torajs_throw_range_error(
+                b"Array length must be a positive integer of safe magnitude.\0".as_ptr(),
+            );
+        }
+        return false;
+    }
+    true
+}
+
+/// `__torajs_arr_alloc_any_holes(n)` — `new Array(n)` per §23.1.2.1:
+/// ArrayCreate sets `length` and creates NO element — every index is a
+/// hole. The slots are the reserved encoding `0`
+/// (`FLAG_ARR_ANY_HOLEY`), which `calloc` hands over already (lazily,
+/// page by page: `new Array(1e6)` touches nothing until written), and a
+/// later store simply overwrites one. The Array-constructor lanes all
+/// land here; `__torajs_arr_alloc_any_filled` stays for the runtime
+/// callers that fill every slot themselves.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_alloc_any_holes(n: u64) -> *mut u8 {
+    if !length_in_range(n) {
+        return core::ptr::null_mut();
+    }
+    unsafe {
+        let p = calloc(1, ARR_CELL_SIZE + (n as usize) * ANY_SLOT_BYTES) as *mut u8;
+        write_header_any(p, n, n as u32);
+        if n > 0 {
+            (*(p as *mut HeapHeader)).flags |= torajs_rc::FLAG_ARR_ANY_HOLEY;
         }
         p
     }
@@ -290,7 +322,7 @@ pub unsafe extern "C" fn __torajs_arr_alloc_any_filled_f64(len: f64) -> *mut u8 
         }
         return core::ptr::null_mut();
     }
-    unsafe { __torajs_arr_alloc_any_filled(len as u64) }
+    unsafe { __torajs_arr_alloc_any_holes(len as u64) }
 }
 
 /// `__torajs_arr_new_from_any(v)` — `new Array(len)` for an Any
@@ -310,7 +342,7 @@ pub unsafe extern "C" fn __torajs_arr_new_from_any(v: u64) -> *mut u8 {
     unsafe {
         let tag = __torajs_anyv_unbox_tag(v);
         if tag == AnySlotTag::I64 as i64 {
-            return __torajs_arr_alloc_any_filled(__torajs_anyv_unbox_value(v) as u64);
+            return __torajs_arr_alloc_any_holes(__torajs_anyv_unbox_value(v) as u64);
         }
         if tag == AnySlotTag::F64 as i64 {
             return __torajs_arr_alloc_any_filled_f64(f64::from_bits(

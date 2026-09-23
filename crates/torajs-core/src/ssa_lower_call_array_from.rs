@@ -200,6 +200,24 @@ fn materialize_src(
             None,
         );
         let out_id = ctx.copied_arr_layout(arr_id);
+        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+        if elem_ty == Type::Any {
+            // A boxed-element source can hold holes and accessor
+            // indices; §23.1.2.1 iterates it, so each index is a [[Get]]
+            // (a hole reads undefined, a getter runs) — the flag-aware
+            // copy does that and takes its own stake per slot.
+            let cloned = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    ctx.intrinsics.arr_any_slice,
+                    vec![arg_op, Operand::ConstI64(0), Operand::Value(len)],
+                ),
+                Type::Arr(out_id),
+                None,
+            );
+            ctx.emit_throw_check_owned(None, Operand::Value(cloned), Type::Arr(out_id));
+            return Operand::Value(cloned);
+        }
         let cloned = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
@@ -211,7 +229,6 @@ fn materialize_src(
             Type::Arr(out_id),
             None,
         );
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         if elem_ty.is_refcounted() {
             let cloned_len = ctx.f.append_inst(
                 ctx.cur_block,

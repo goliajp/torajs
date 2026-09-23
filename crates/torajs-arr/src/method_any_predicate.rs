@@ -58,6 +58,15 @@ unsafe fn find_loop(
         let mut step: u64 = 0;
         while step < len {
             let i = if right { len - 1 - step } else { step };
+            // §23.1.3.6 / §23.1.3.29 step 5.b — every / some visit
+            // present indices only; the find family (§23.1.3.9-12)
+            // Gets every index, holes included.
+            if mode < 2
+                && crate::define_hole::__torajs_arr_has_index(arr as *mut c_void, i as i64) == 0
+            {
+                step += 1;
+                continue;
+            }
             let v = crate::index_any::__torajs_arr_index_get(arr, i as i64);
             let mut argv = [undef(); ARGV_SLOTS];
             if s == 1 {

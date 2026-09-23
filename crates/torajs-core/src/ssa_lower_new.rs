@@ -14,7 +14,7 @@
 //!   `ssa_lower_new_collection`, which also owns the shared
 //!   iterable walk the weak pair reaches through
 //!   `lower_simple_create`.
-//! - **Array(n)** 1-arg form — `__torajs_arr_alloc_any_filled(n)`
+//! - **Array(n)** 1-arg form — `__torajs_arr_alloc_any_holes(n)`
 //!   via fn_table lookup (intrinsic not in Intrinsics struct);
 //!   F64 operands route to `__torajs_arr_alloc_any_filled_f64` so the
 //!   §23.1.2.1 ToUint32(len) != len RangeError sees the raw bits;
@@ -395,7 +395,7 @@ fn lower_array_n(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
         ("__torajs_arr_alloc_any_filled_f64", arg_val.clone())
     } else {
         (
-            "__torajs_arr_alloc_any_filled",
+            "__torajs_arr_alloc_any_holes",
             ctx.coerce_to_i64(arg_val.clone()),
         )
     };

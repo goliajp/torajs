@@ -207,7 +207,8 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
             put_bytes(b"[ ");
             __torajs_inspect_line_add(2);
         }
-        for i in 0..len {
+        let mut i = 0;
+        while i < len {
             if i > 0 {
                 // Comma first, then the wrap check (bun's mid-loop
                 // `printComma` → `goodTimeForANewLine`): the line
@@ -225,7 +226,19 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
                     __torajs_inspect_line_add(1);
                 }
             }
+            // A run of slot holes prints as bun's `N x empty items`
+            // (one element of the list, whatever N is).
+            if slot_at(i) == 0 {
+                let mut n = 0;
+                while i < len && slot_at(i) == 0 {
+                    n += 1;
+                    i += 1;
+                }
+                put_empty_items(n);
+                continue;
+            }
             __torajs_print_anyv_inline_at(slot_at(i), my_indent);
+            i += 1;
         }
         // Trailing `, key: value` expando props — an `any`-typed
         // array takes them like any object (`a.k = 4`, `a[sym] =`).
@@ -253,5 +266,31 @@ pub(crate) unsafe fn print_any_at(arr: *const c_void, indent: u32) {
 unsafe fn put_indent(n: u32) {
     for _ in 0..n {
         unsafe { put_byte(b' ') };
+    }
+}
+
+/// `empty item` / `N x empty items` — bun's rendering of a run of
+/// array holes.
+unsafe fn put_empty_items(n: u64) {
+    unsafe {
+        if n == 1 {
+            put_bytes(b"empty item");
+            __torajs_inspect_line_add(10);
+            return;
+        }
+        let mut buf = [0u8; 20];
+        let mut k = buf.len();
+        let mut m = n;
+        loop {
+            k -= 1;
+            buf[k] = b'0' + (m % 10) as u8;
+            m /= 10;
+            if m == 0 {
+                break;
+            }
+        }
+        put_bytes(&buf[k..]);
+        put_bytes(b" x empty items");
+        __torajs_inspect_line_add((buf.len() - k + 14) as u32);
     }
 }

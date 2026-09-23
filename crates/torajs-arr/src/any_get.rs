@@ -53,7 +53,13 @@ pub unsafe extern "C" fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) 
         if (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY == 0 {
             return crate::any_typed_bridge::typed_slot_anyvalue_borrowed(arr_u8, i);
         }
-        *slot_anyvalue_ptr(arr_u8 as *mut u8, i)
+        let av = *slot_anyvalue_ptr(arr_u8 as *mut u8, i);
+        // A slot hole reads undefined on the borrow lanes, the same
+        // proto-blind answer the sparse tail gives above.
+        if av == 0 {
+            return __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
+        }
+        av
     }
 }
 
@@ -119,6 +125,20 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
             && i >= crate::layout::arr_live_extent(arr_u8)
         {
             return ANY_UNDEF;
+        }
+        // A slot hole: [[Get]] continues to the prototype. The pair
+        // API cannot hand an owned product across two calls without a
+        // seat for it, and the slot IS the hole, so the rare case of a
+        // prototype digit key demotes this index to a shadow hole
+        // first — after which the branch below caches the product the
+        // way it always has. With no prototype key it is undefined.
+        if crate::layout::any_slot_is_hole(arr_u8, i) {
+            let product = crate::index_any::__torajs_arr_proto_index_get(arr, i as i64);
+            if product == __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0) {
+                return ANY_UNDEF;
+            }
+            __torajs_value_drop_heap(product as *mut c_void);
+            crate::define_hole::mark_hole_range(arr as *mut c_void, i, i + 1);
         }
         if (*(arr as *const HeapHeader)).flags & FLAG_ARR_EXOTIC_INDEX != 0
             && (*(arr as *const HeapHeader)).flags & FLAG_ARR_ANY != 0

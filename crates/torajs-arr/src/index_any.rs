@@ -154,6 +154,11 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
         let slot = arr_data(p).add(((head + idx as u64) as usize) * 8);
         let raw = *(slot as *const u64);
         if header.flags & FLAG_ARR_ANY != 0 {
+            // A slot hole (FLAG_ARR_ANY_HOLEY) — the prototype
+            // continuation, like every other kind of hole.
+            if raw == 0 {
+                return __torajs_arr_proto_index_get(arr, idx);
+            }
             // NaN-box slot — the slot keeps its own reference, the
             // returned copy takes another (+1 for cells, no-op for
             // immediates).

@@ -5,7 +5,7 @@
 //! O(n log n) merge sort in torajs-arr that calls the comparator
 //! back through the closure ABI.
 
-use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 /// Emit the `__torajs_arr_sort_cb` helper call when the comparator
@@ -116,7 +116,7 @@ fn sort_helper_mode(ctx: &LowerCtx<'_>, cmp_ty: Type, elem_ty: Type) -> Option<i
 }
 
 /// §23.1.3.30 SortIndexedProperties for a boxed-element receiver that
-/// carries a hole shadow or an accessor index (`FLAG_ARR_EXOTIC_INDEX`):
+/// carries a hole (shadow or slot) or an accessor index:
 /// the kernel stages `HasProperty` / `Get` per index (a hole is skipped
 /// and a getter runs), sorts the staged values, then `Set`s them back
 /// and `DeletePropertyOrThrow`s the tail. Both fast paths permute raw
@@ -143,26 +143,9 @@ pub(super) fn emit_exotic_divert(
     {
         return None;
     }
-    // Header word is `[refcount u32 | tag u16 | flags u16]`.
-    let mask = (torajs_rc::FLAG_ARR_EXOTIC_INDEX as i64) << 48;
-    let hdr = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, Operand::Value(arr_ptr), 0),
-        Type::I64,
-        None,
-    );
-    let bits = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::BinOp(BinOp::And, Operand::Value(hdr), Operand::ConstI64(mask)),
-        Type::I64,
-        None,
-    );
-    let exotic = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::ICmp(IPred::Ne, Operand::Value(bits), Operand::ConstI64(0)),
-        Type::Bool,
-        None,
-    );
+    // A hole (shadow or slot) or an accessor index — the one header
+    // test the other per-index MOP gates use.
+    let exotic = ctx.emit_arr_index_mop_probe(arr_ptr, 0);
     let slow = ctx.f.add_block();
     let fast = ctx.f.add_block();
     let join = ctx.f.add_block();

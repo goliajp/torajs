@@ -74,7 +74,7 @@ pub unsafe extern "C" fn __torajs_arr_index_strs(len: i64) -> *mut c_void {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_index_strs_of(arr: *const c_void) -> *mut c_void {
     let len = unsafe { arr_walk_bound(arr) };
-    let exotic = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() } & (1 << 15) != 0;
+    let exotic = unsafe { arr_needs_index_probe(arr) };
     if !exotic {
         return unsafe { __torajs_arr_index_strs(len) };
     }
@@ -99,6 +99,19 @@ const ARR_F_HOLE: u64 = 1 << 3;
 /// 20260810-arr-sparse-grow) — same local-mirror shape as the exotic
 /// bit read below.
 const ARR_F_SPARSE_TAIL: u16 = 1 << 6;
+
+/// Can an index of this Array be absent or non-default — a shadow hole /
+/// accessor (`FLAG_ARR_EXOTIC_INDEX`, bit 15) or a slot hole
+/// (`FLAG_ARR_ANY_HOLEY`, bit 10, meaningful only with `FLAG_ARR_ANY`,
+/// bit 3 — bit 10 is the element kind on a typed cell)? Then the key
+/// walks ask the per-index funnel instead of minting `0..len` in bulk.
+/// Mirrors torajs-arr `layout::needs_index_mop`.
+unsafe fn arr_needs_index_probe(arr: *const c_void) -> bool {
+    const EXOTIC: u16 = 1 << 15;
+    const HOLEY: u16 = (1 << 3) | (1 << 10);
+    let flags = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() };
+    flags & EXOTIC != 0 || flags & HOLEY == HOLEY
+}
 
 /// Materialized-extent bound for the index walks — `len`, unless the
 /// cell carries a sparse tail: `[extent, len)` is implicit holes with
@@ -147,7 +160,7 @@ const DYNOBJ_FLAG_ENUMERABLE: u64 = 1 << 1;
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_keys_only_of(arr: *const c_void) -> *mut c_void {
     let len = unsafe { arr_walk_bound(arr) };
-    let exotic = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() } & (1 << 15) != 0;
+    let exotic = unsafe { arr_needs_index_probe(arr) };
     if !exotic {
         return unsafe { __torajs_arr_keys_only(len) };
     }

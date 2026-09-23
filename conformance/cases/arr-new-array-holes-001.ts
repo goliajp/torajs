@@ -1,0 +1,41 @@
+// §23.1.2.1 ArrayCreate: `new Array(n)` creates no element — every index
+// is a hole (a NaN-box `0` slot under FLAG_ARR_ANY_HOLEY).
+const a = new Array(3);
+console.log(a.length, 0 in a, a.hasOwnProperty(1), Object.keys(a).length, a[0]);
+console.log(a);
+let calls = 0;
+a.forEach(() => calls++);
+console.log(calls, a.map(x => 1).length, a.filter(() => true).length, a.some(() => true), a.every(() => false));
+console.log(a.join("-"), a.indexOf(undefined), a.includes(undefined), JSON.stringify(a));
+console.log([...a], Array.from(a));
+a[1] = "x";
+console.log(a, 1 in a, 0 in a, a.join());
+const b: any = new Array(4);
+b[3] = 7;
+console.log(b.reduce((p: any, c: any) => p + c), b.length);
+try { new Array(5).reduce((p: any, c: any) => p); } catch (e: any) { console.log("TypeError", e instanceof TypeError); }
+const c = new Array(2);
+c[1] = 1;
+c.sort();
+console.log(c[0], 0 in c, 1 in c, c.length);
+(Array.prototype as any)[0] = "proto";
+console.log(new Array(2)[0], 0 in new Array(2));
+delete (Array.prototype as any)[0];
+const big = new Array(100000);
+big[99999] = 1;
+console.log(big.length, big.indexOf(1), Object.keys(big).length);
+const s = new Set(new Array(2) as any[]);
+console.log(s.size, s.has(undefined));
+console.log(Array.from(new Array(2), (v, i) => [v, i]));
+const cc = [0].concat(new Array(2));
+console.log(cc.length, 1 in cc);
+for (const v of new Array(2)) console.log("of", v);
+console.log(new Array(12));
+const s2 = new Array(3);
+s2[0] = 3; s2[2] = 1;
+s2.sort();
+console.log(s2[0], s2[1], 2 in s2, s2.length);
+const t2: any = new Array(3);
+t2[1] = "b";
+t2.sort((a: any, b: any) => 0);
+console.log(t2[0], 1 in t2, 2 in t2);

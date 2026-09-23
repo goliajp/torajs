@@ -175,7 +175,7 @@ pub unsafe extern "C" fn __torajs_arr_concat(a: *const u8, b: *const u8) -> *mut
 pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
     unsafe {
         let flags = (*(arr as *const torajs_rc::HeapHeader)).flags;
-        if flags & torajs_rc::FLAG_ARR_ANY != 0 && flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0 {
+        if flags & torajs_rc::FLAG_ARR_ANY != 0 && crate::layout::needs_index_mop(arr) {
             return crate::reverse_mop::reverse_mop(arr);
         }
     }

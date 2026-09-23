@@ -427,9 +427,7 @@ unsafe fn arr_method_callback(
         if mid == ANY_METHOD_SORT {
             // A hole shadow or an accessor index needs the per-index
             // Has / Get / Set / Delete walk; the kernel permutes raw slots.
-            if (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX
-                != 0
-            {
+            if crate::method_call_arraylike_mut::ops::arr_needs_index_mop(arr) {
                 use crate::method_call_arraylike_mut::ops::__torajs_arr_sort_exotic;
                 return Some(__torajs_arr_sort_exotic(arr, arg_at(0)));
             }

@@ -19,7 +19,8 @@
 //! | 7     | [`FLAG_ERROR`] (Obj) / [`FLAG_ARR_LENGTH_RO`] (Arr) / [`FLAG_FN_ASYNC`] (Closure) | disjoint-by-tag |
 //! | 8     | [`FLAG_NON_EXTENSIBLE`] | universal |
 //! | 9     | [`FLAG_SEALED`] | universal |
-//! | 10-12 | element-kind field (`arr_kind.rs`) | Arr |
+//! | 10-12 | element-kind field (`arr_kind.rs`) | Arr, typed cells only |
+//! | 10    | [`FLAG_ARR_ANY_HOLEY`] | Arr with [`FLAG_ARR_ANY`] (the kind field stays UNSET there) |
 //! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) | disjoint-by-tag with Arr kind |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
@@ -194,6 +195,26 @@ pub const FLAG_CLASS_METHOD_THIS_FREE: u16 = 1 << 6;
 /// Bit 6 is Tag::Arr-private (disjoint-by-tag reuse of the DynObj
 /// NULL_PROTO / Closure this-free bit).
 pub const FLAG_ARR_SPARSE_TAIL: u16 = 1 << 6;
+/// A [`FLAG_ARR_ANY`] cell may hold a HOLE: an element slot whose value
+/// is the reserved NaN-box encoding `0` (no value encodes to it — the
+/// f64 offset puts `+0.0` at `0x0007_…`, and `nan_box_is_cell_like(0)`
+/// is false, so rc / drop / cycle walks already pass over it). A hole is
+/// not an own property: HasProperty answers false, [[Get]] continues to
+/// the prototype, enumeration and the HasProperty-gated methods skip it,
+/// and a store simply overwrites it. The same representation JSC uses
+/// (an empty `JSValue()` in contiguous storage).
+///
+/// Sticky: set by whatever writes a hole, never cleared — a dense cell
+/// that still carries it is correct, only slower on the gated lanes.
+/// Readers that permute or copy raw slots consult it the way they
+/// consult [`FLAG_ARR_EXOTIC_INDEX`]; element STORES do not (overwriting
+/// a hole needs nothing), which is why it is a separate bit.
+///
+/// Bit 10 is the element-kind field on a typed cell; an Any cell keeps
+/// that field UNSET (`arr_kind.rs`), and every kind reader tests
+/// `FLAG_ARR_ANY` first, so the bit is free there. Only ever set on a
+/// `FLAG_ARR_ANY` cell.
+pub const FLAG_ARR_ANY_HOLEY: u16 = 1 << 10;
 /// `Tag::Arr` cell carries at least one array index with non-default
 /// property attributes (RFC 20260712-arr-exotic-define chunk B) — set
 /// by `Object.defineProperty(arr, index, desc)` when the resulting

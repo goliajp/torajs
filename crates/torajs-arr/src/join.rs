@@ -92,9 +92,7 @@ unsafe fn slot_addr(arr: *const u8, i: u64) -> *const u8 {
 /// prototype digit keys). One predictable bit test on the fast path.
 #[inline]
 unsafe fn is_exotic(arr: *const u8) -> bool {
-    unsafe {
-        (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
-    }
+    unsafe { crate::layout::needs_index_mop(arr) }
 }
 
 /// Separator's contribution to the output encoding: it only

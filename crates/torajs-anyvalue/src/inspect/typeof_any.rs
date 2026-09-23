@@ -74,7 +74,7 @@ pub unsafe extern "C" fn __torajs_anyv_typeof(v: AnyValue) -> *mut u8 {
         };
         return alloc_literal(kind);
     }
-    // Defensive — uninitialized slot (v == 0) reads as "object"
-    // (matches `typeof null` per spec).
-    alloc_literal(b"object")
+    // `v == 0` is the array slot HOLE (`FLAG_ARR_ANY_HOLEY`) — read,
+    // it is undefined.
+    alloc_literal(b"undefined")
 }

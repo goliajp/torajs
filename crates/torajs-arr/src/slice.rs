@@ -165,7 +165,7 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
             *(p.add(ARR_HEAD_OFF) as *mut u32) = 0;
             *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
             *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
-            let exotic = flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
+            let exotic = crate::layout::needs_index_mop(arr);
             for i in 0..out_len as usize {
                 let av = if exotic {
                     // §23.1.3.25 / §23.1.3.34 ride [[Get]] — an
@@ -236,8 +236,7 @@ pub unsafe extern "C" fn __torajs_arr_any_to_reversed(arr: *const u8) -> *mut u8
         *(p.add(ARR_HEAD_OFF) as *mut u32) = 0;
         *(p.add(ARR_PROPS_OFF) as *mut u64) = 0;
         *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
-        let flags = (*(arr as *const HeapHeader)).flags;
-        let exotic = flags & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0;
+        let exotic = crate::layout::needs_index_mop(arr);
         for i in 0..len as usize {
             let av = if exotic {
                 crate::index_any::__torajs_arr_index_get(

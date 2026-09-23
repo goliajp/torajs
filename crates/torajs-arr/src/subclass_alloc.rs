@@ -17,7 +17,7 @@
 
 use core::ffi::c_void;
 
-use crate::alloc::__torajs_arr_alloc_any_filled;
+use crate::alloc::__torajs_arr_alloc_any_holes;
 
 unsafe extern "C" {
     /// torajs-meta — record the fresh instance's class identity
@@ -49,7 +49,7 @@ use crate::any::{__torajs_arr_extend_any, ANY_HEAP, ANY_UNDEF};
 /// `class_tag` is the class's registered tag.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_subclass_alloc(class_tag: i64, len: u64) -> u64 {
-    let p = unsafe { __torajs_arr_alloc_any_filled(len) };
+    let p = unsafe { __torajs_arr_alloc_any_holes(len) };
     if p.is_null() {
         return unsafe { __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0) };
     }
