@@ -67,62 +67,29 @@ impl<'a> Parser<'a> {
                 ));
             }
         }
-        // P0.10 — computed-key method shorthand `{ [expr]() { ... } }`
-        // per ES spec §13.2.5 ComputedPropertyName + MethodDefinition.
-        // Used pervasively for `Symbol.toPrimitive` / `Symbol.iterator`
-        // hooks. tora has no Symbol.X dispatch substrate (lands with
-        // P3 / P7 iterator-protocol), so the field carries a stub
-        // value just like getter/setter shorthand. The parse must
-        // succeed so the surrounding object literal still compiles.
+        // P0.10 — computed-key method shorthand `{ ["k"]() { ... } }`
+        // (§13.2.5 ComputedPropertyName + MethodDefinition). The key
+        // folded to a static name above, so this is `{ k() {} }` with
+        // extra brackets and the body parses through the shared
+        // method tail — which is what puts the value in
+        // `objlit_method_exprs` and gives it the `__this` receiver.
+        // It used to be walked paren/brace-balanced and thrown away
+        // for an `Expr::Null` stub (the note said tora had no Symbol
+        // dispatch substrate yet), leaving the key present with a
+        // non-function value: `typeof o.b` answered "object" and
+        // `o.b()` threw. The runtime-key twin
+        // (`parse_runtime_computed_property`) has parsed for real
+        // since 刀 1; this is the literal-fold half catching up.
         if matches!(self.peek(), Token::LParen) {
-            // Drop the param list with paren-balance.
-            let mut depth = 1i32;
-            self.pos += 1;
-            while depth > 0 {
-                match self.peek() {
-                    Token::LParen => depth += 1,
-                    Token::RParen => depth -= 1,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unexpected eof in computed-key method shorthand params at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
+            let value = self.parse_method_like_value_async(
+                member_start_pos,
+                false,
+                "computed-key method shorthand",
+                is_async,
+            )?;
+            if is_async {
+                self.ast.async_fn_value_exprs.insert(value);
             }
-            // Optional return type ann.
-            if matches!(self.peek(), Token::Colon) {
-                self.pos += 1;
-                let _ = self.parse_type_ann()?;
-            }
-            // Drop the body with brace-balance.
-            match self.peek() {
-                Token::LBrace => self.pos += 1,
-                t => {
-                    return Err(format!(
-                        "expected `{{` after computed-key method shorthand header, got {t:?} at {}",
-                        self.at()
-                    ));
-                }
-            }
-            let mut depth = 1i32;
-            while depth > 0 {
-                match self.peek() {
-                    Token::LBrace => depth += 1,
-                    Token::RBrace => depth -= 1,
-                    Token::Eof => {
-                        return Err(format!(
-                            "unexpected eof in computed-key method shorthand body at {}",
-                            self.at()
-                        ));
-                    }
-                    _ => {}
-                }
-                self.pos += 1;
-            }
-            let value = self.ast.add_expr(Expr::Null);
             self.mark_computed_proto_own(&key, value);
             return Ok(Some((key, value)));
         }
