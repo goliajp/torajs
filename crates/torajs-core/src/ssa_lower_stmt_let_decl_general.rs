@@ -260,7 +260,9 @@ pub(crate) fn record_binding_flags(
     // gives min/max-style variadic spec semantics for free). The id
     // registers alongside so the `.length` member fold answers the
     // table's spec length, not the checker-sig param count.
-    if let Some(id) = ns_static_member_init_id(ctx, init) {
+    if let Some(id) =
+        crate::ssa_lower_stmt_let_decl_method_value::ns_static_member_init_id(ctx, init)
+    {
         ctx.variadic_locals.insert(name.to_string());
         ctx.ns_static_locals.insert(name.to_string(), id);
     }
@@ -270,7 +272,9 @@ pub(crate) fn record_binding_flags(
     // is the typed-slot boundary throw, its boxed entry the spec
     // this-undefined TypeError. The mid registers alongside so the
     // `.length` / `.name` folds answer the spec meta row.
-    if let Some(mid_fam) = builtin_mv_member_init_mid(ctx, init) {
+    if let Some(mid_fam) =
+        crate::ssa_lower_stmt_let_decl_method_value::builtin_mv_member_init_mid(ctx, init)
+    {
         ctx.variadic_locals.insert(name.to_string());
         ctx.builtin_mv_locals.insert(name.to_string(), mid_fam);
     }
@@ -289,66 +293,6 @@ pub(crate) fn record_binding_flags(
     if crate::ssa_lower_nullable_guard::is_undefable_heap_source(ctx, init) {
         ctx.undefable_heap_lets.insert(name.to_string());
     }
-}
-
-/// The table id when `init` is a namespace-static VALUE read
-/// (`Math.max`) — the same three-part gate the member lowering mints
-/// under: table hit + obj typed `Type::Object` (a user binding
-/// shadowing `Math` never matches) + member typed `Function`.
-pub(crate) fn ns_static_member_init_id(ctx: &LowerCtx, init: ExprId) -> Option<i64> {
-    // rotation 368 — a bare global function property (`const p =
-    // parseInt`) is the same cell through the ident lane; the alias
-    // registers variadic so its calls take the boxed dual entry.
-    if let Expr::Ident(gname) = ctx.ast.get_expr(init)
-        && let Some(id) = crate::ssa_lower_ident::bare_global_ns_static_id(gname)
-        && matches!(
-            ctx.expr_types.get(&init),
-            Some(crate::check::Type::Function(..))
-        )
-    {
-        return Some(id);
-    }
-    let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
-        return None;
-    };
-    let Expr::Ident(ns) = ctx.ast.get_expr(*obj) else {
-        return None;
-    };
-    let id = torajs_rc::ns_static_id(ns, name);
-    if id != torajs_rc::NS_STATIC_UNKNOWN
-        && matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Object(_)))
-        && matches!(
-            ctx.expr_types.get(&init),
-            Some(crate::check::Type::Function(..))
-        )
-    {
-        Some(id)
-    } else {
-        None
-    }
-}
-
-/// The `(mid, proto family)` when `init` is a primitive-receiver
-/// builtin method VALUE read (`s.slice` / `n.toString`) — the same
-/// gate the member lowering mints under: the receiver types to a
-/// prototype family + member typed `Function` + the name interns to
-/// a mid with a spec meta row.
-pub(crate) fn builtin_mv_member_init_mid(ctx: &LowerCtx, init: ExprId) -> Option<(i64, i64)> {
-    let Expr::Member { obj, name } = ctx.ast.get_expr(init) else {
-        return None;
-    };
-    let fam = crate::ssa_lower_member::mv_family_of_checker_ty(ctx.expr_types.get(obj)?)?;
-    if !matches!(
-        ctx.expr_types.get(&init),
-        Some(crate::check::Type::Function(..))
-    ) {
-        return None;
-    }
-    let mid = torajs_rc::any_method_id(name);
-    if mid == torajs_rc::ANY_METHOD_UNKNOWN || torajs_rc::any_method_meta(mid).is_none() {
-        return None;
-    }
-    Some((mid, fam))
 }
 
 /// Stage 3 — materialize the binding's slot (capture box for

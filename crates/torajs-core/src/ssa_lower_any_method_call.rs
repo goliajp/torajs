@@ -201,8 +201,10 @@ fn non_any_recv_admitted(ctx: &LowerCtx<'_>, callee: ExprId, obj: &ExprId, name:
         && (matches!(
             ctx.ast.get_expr(*obj),
             Expr::Ident(n) if ctx.builtin_mv_locals.contains_key(n)
-        ) || crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, *obj)
-            .is_some());
+        ) || crate::ssa_lower_stmt_let_decl_method_value::builtin_mv_member_init_mid(
+            ctx, *obj,
+        )
+        .is_some());
     // RFC 20260808-construct-channel B6 刀 2 — the same surfaces
     // on a reified NAMESPACE-STATIC read (`Array.from.call(C,…)`)
     // ride the any lane: the baked cell's runtime dispatch honors

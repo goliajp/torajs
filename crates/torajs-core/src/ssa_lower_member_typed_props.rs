@@ -206,7 +206,7 @@ fn ns_static_id_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<i64> {
     {
         return Some(*id);
     }
-    crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj)
+    crate::ssa_lower_stmt_let_decl_method_value::ns_static_member_init_id(ctx, obj)
 }
 
 /// The builtin `(method id, proto family)` of a member READ
@@ -220,7 +220,7 @@ fn builtin_mv_mid_of_obj(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<(i64, i64)> 
     {
         return Some(*mid_fam);
     }
-    crate::ssa_lower_stmt_let_decl_general::builtin_mv_member_init_mid(ctx, obj)
+    crate::ssa_lower_stmt_let_decl_method_value::builtin_mv_member_init_mid(ctx, obj)
 }
 
 /// The builtin-proto tag whose interned ctor cell a typed

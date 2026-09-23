@@ -193,7 +193,7 @@ fn lower_member_receiver(
     rest: &[ExprId],
 ) -> Option<Operand> {
     let is_ns_static =
-        crate::ssa_lower_stmt_let_decl_general::ns_static_member_init_id(ctx, obj).is_some();
+        crate::ssa_lower_stmt_let_decl_method_value::ns_static_member_init_id(ctx, obj).is_some();
     let callee_op = ctx.lower_expr(obj);
     let callee_ty = ctx.operand_ty(&callee_op);
     // §20.2.3.3 step 3 — the thisArg evaluates after the callee
