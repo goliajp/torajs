@@ -57,7 +57,19 @@ pub(crate) unsafe fn reject_with_pending_throw() -> *mut c_void {
         let tag = __torajs_throw_take_tag();
         let value = __torajs_throw_take();
         let boxed = __torajs_anyv_box_from_pair(tag, value);
-        crate::combinator::defer_settle(STATE_REJECTED, boxed as i64, 1, REPR_ANY)
+        // §27.2.4.1 step 3 and siblings — IfAbruptRejectPromise
+        // rejects the capability RIGHT THERE. The deferral the normal
+        // path takes exists because the spec settles a non-empty
+        // combinator through a round of element jobs; an abrupt
+        // GetIterator has no elements and runs no jobs, so deferring
+        // put the rejection handler one microtask late
+        // (`Promise.all(poisonedIterable).then(_, h)` ran `h` after a
+        // plain `Promise.resolve(0).then`, where bun runs it before).
+        //
+        // `settle_result` with len 0 is exactly "settle synchronously"
+        // and already carries that posture for the empty answer, so
+        // this reuses it rather than spelling the same mint again.
+        crate::combinator::settle_result(0, STATE_REJECTED, boxed as i64, 1, REPR_ANY)
     }
 }
 
