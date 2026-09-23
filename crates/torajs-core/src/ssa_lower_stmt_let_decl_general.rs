@@ -22,13 +22,27 @@ use crate::ssa_lower_parse_type::parse_type;
 /// annotation (parse + re-repr + width promote + container widen),
 /// or the empty-`[]` Arr<Any> default, or the Void placeholder for
 /// annotation-less inits (inferred after lowering).
+///
+/// The second half of the answer is whether the annotation was SET
+/// ASIDE: an initializer whose own layout carries accessor slots
+/// keeps that layout, because the annotation only gated admission in
+/// the checker (`check_accessor_objlit_slot`). Adopting it here would
+/// give the slot a data field where the value has a getter closure,
+/// and `o.v` would read the closure pointer as a number — the trade
+/// rotation 695 measured and reverted.
+///
+/// It is returned rather than recomputed by the caller because the
+/// caller needs the same verdict for its own "infer from the lowered
+/// init" gate, and `parse_type` interns layouts: asking twice is not
+/// free, and two spellings of one rule is how the predicates in this
+/// area drifted in the first place.
 pub(crate) fn initial_let_ty(
     ctx: &mut LowerCtx,
     name: &str,
     type_ann: Option<&String>,
     init: ExprId,
     mutable: bool,
-) -> Type {
+) -> (Type, bool) {
     if type_ann.is_some() {
         let parsed = parse_type(
             type_ann.map(|s| s.as_str()),
@@ -66,31 +80,48 @@ pub(crate) fn initial_let_ty(
             }
             t => t,
         };
+        // `Obj` / `Arr` are the annotations that denote a concrete
+        // LAYOUT, and only those conflict with a literal's accessor
+        // slots. An `any` annotation is a box whose dynamic member
+        // lane serves accessors already, and the checker's ordinary
+        // assignability check passes for it — so it keeps winning
+        // here, exactly as it did before.
+        if matches!(parsed, Type::Obj(_) | Type::Arr(_))
+            && ctx
+                .expr_types
+                .get(&init)
+                .is_some_and(crate::check_accessor_objlit_slot::layout_carries_accessor)
+        {
+            return (Type::Void, true);
+        }
         if parsed == Type::I64
             && type_ann.map(|s| s.as_str()) == Some("number")
             && ctx
                 .num_f64_slots
                 .slot_is_f64(&ctx.num_width_local_key(name))
         {
-            Type::F64
+            (Type::F64, false)
         } else {
-            crate::ssa_lower_container_width::widen_container_ty(
-                parsed,
-                type_ann.map(|s| s.as_str()),
-                &ctx.num_width_local_key(name),
-                ctx.num_f64_slots,
-                ctx.arr_layouts,
-                ctx.struct_layouts,
-                ctx.fn_sigs,
+            (
+                crate::ssa_lower_container_width::widen_container_ty(
+                    parsed,
+                    type_ann.map(|s| s.as_str()),
+                    &ctx.num_width_local_key(name),
+                    ctx.num_f64_slots,
+                    ctx.arr_layouts,
+                    ctx.struct_layouts,
+                    ctx.fn_sigs,
+                ),
+                false,
             )
         }
     } else if let Expr::Array(els) = ctx.ast.get_expr(init)
         && els.is_empty()
     {
         let arr_id = intern_arr_layout(ctx.arr_layouts, Type::Any);
-        Type::Arr(arr_id)
+        (Type::Arr(arr_id), false)
     } else {
-        Type::Void
+        (Type::Void, false)
     }
 }
 

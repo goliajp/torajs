@@ -126,22 +126,47 @@ pub(crate) fn check(
                 &checker.aliases,
                 &checker.generic_alias_decls,
             );
-            if !fn_slot_widened
-                && !is_assignable_to_resolved(
+            // An initializer carrying accessor slots is compared
+            // through the property each one implements, and KEEPS its
+            // own layout — see `check_accessor_objlit_slot` for why
+            // adopting the annotation instead turns a refusal into a
+            // closure pointer printed as a number.
+            let ordinary = fn_slot_widened
+                || is_assignable_to_resolved(
                     &ann_ty,
                     &init_ty,
                     &checker.class_structs,
                     &checker.aliases,
                     &checker.generic_alias_decls,
-                )
-            {
+                );
+            // Only where the ordinary comparison FAILS, which is what
+            // keeps an `any` annotation winning: it admits the literal
+            // outright, so the projection never runs and the binding
+            // stays the box its dynamic member lane expects.
+            let accessor_layout = !ordinary
+                && crate::check_accessor_objlit_slot::admits(
+                    &ann_ty,
+                    &init_ty,
+                    &checker.class_structs,
+                    &checker.aliases,
+                    &checker.generic_alias_decls,
+                );
+            if !ordinary && !accessor_layout {
                 checker.errors.push_err(format!(
                     "type mismatch on `{name}`: declared {ann_ty:?}, init has {init_ty:?}"
                 ));
                 return;
             }
-            apply_contextual_array_ann(checker, ast, init, &ann_ty);
-            ann_ty
+            if accessor_layout {
+                // Pushing the annotation's element type onto the
+                // literal is the same adoption by another route: it
+                // retypes each element to the data-field shape, and
+                // `xs[0].v` reads the getter closure as a number.
+                init_ty
+            } else {
+                apply_contextual_array_ann(checker, ast, init, &ann_ty);
+                ann_ty
+            }
         }
     };
     let final_ty = widen_binding_ty(checker, ast, init, type_ann.is_none(), final_ty);

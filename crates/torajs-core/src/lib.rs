@@ -40,6 +40,7 @@ pub(crate) mod ast_throw_info_call;
 pub(crate) mod ast_throw_info_fixpoint;
 pub(crate) mod builtin_proto_shadow;
 pub mod check;
+pub(crate) mod check_accessor_objlit_slot;
 pub(crate) mod check_assign_ident;
 pub(crate) mod check_assign_narrow;
 pub(crate) mod check_assign_target;

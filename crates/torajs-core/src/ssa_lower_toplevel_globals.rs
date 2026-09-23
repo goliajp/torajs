@@ -95,7 +95,16 @@ pub(crate) fn collect_toplevel_globals(
             // K.3b — slot type. With an annotation, parse it; without
             // one, run the gated shape inference. Both helpers answer
             // `None` for shapes that keep the K.1 main-local behavior.
-            let slot_ty = match type_ann {
+            // An initializer whose own layout carries accessor slots
+            // keeps that layout; the annotation only gated admission
+            // in the checker (`check_accessor_objlit_slot`). Parsing
+            // it here would hand the global a data field where the
+            // value has a getter closure. The inference path is the
+            // one the same literal takes unannotated, and it is right.
+            let accessor_layout = expr_types
+                .get(init)
+                .is_some_and(crate::check_accessor_objlit_slot::layout_carries_accessor);
+            let slot_ty = match type_ann.as_ref().filter(|_| !accessor_layout) {
                 Some(ann) => annotated_slot_ty(
                     ann,
                     name,

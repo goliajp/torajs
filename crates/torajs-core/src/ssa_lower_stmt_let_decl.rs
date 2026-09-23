@@ -74,7 +74,11 @@ pub(crate) fn lower(
     }
     // General path. Stage helpers live in
     // [`crate::ssa_lower_stmt_let_decl_general`] (chunk 764).
-    let mut ty =
+    // `layout_follows_value` — the annotation was set aside because
+    // the initializer's own layout carries accessor slots; from here
+    // on this declaration behaves as an unannotated one, which is the
+    // path that same literal already takes when nothing is written.
+    let (mut ty, layout_follows_value) =
         crate::ssa_lower_stmt_let_decl_general::initial_let_ty(ctx, name, type_ann, init, mutable);
     // RC-4 F1c — defineProperty receiver: unannotated ObjectLit
     // binding lowers through the P3.2 dynobj-init lane (`any`),
@@ -216,7 +220,12 @@ pub(crate) fn lower(
     finalize_and_bind(
         ctx,
         name,
-        type_ann,
+        // A set-aside annotation is passed on as no annotation at
+        // all: the one thing the rest of this declaration asks
+        // `type_ann` is whether to infer the slot type from the
+        // lowered initializer, and for an accessor-carrying literal
+        // the answer is yes.
+        if layout_follows_value { None } else { type_ann },
         init,
         ty,
         init_val,

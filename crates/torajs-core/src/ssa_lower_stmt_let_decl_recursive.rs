@@ -130,7 +130,7 @@ fn box_ty(
     mutable: bool,
 ) -> Option<Type> {
     let ty = if type_ann.is_some() {
-        crate::ssa_lower_stmt_let_decl_general::initial_let_ty(ctx, name, type_ann, init, mutable)
+        crate::ssa_lower_stmt_let_decl_general::initial_let_ty(ctx, name, type_ann, init, mutable).0
     } else {
         crate::ssa_lower_closure::closure_value_ty(ctx, fn_name)
     };
