@@ -249,13 +249,28 @@ fn lower_any_index_of(
                 let n = ctx.coerce_any_to_number(f_raw, Type::F64);
                 ctx.coerce_to_i64(n)
             }
-            // Undefined and exotic shapes take the spec
-            // defaults (indexOf 0 / lastIndexOf end).
+            // §23.1.3.{17,20} step 4 — `fromIndex` IS present here, so
+            // there is no default left to take: every remaining
+            // spelling (`"3"`, `true`, `{valueOf(){…}}`) is the same
+            // ToIntegerOrInfinity question once boxed, and a `valueOf`
+            // that answers an object is the TypeError §7.1.1 owes.
+            // Folding them to 0 / end made `[0,1,2].indexOf(1, "3E0")`
+            // answer 1 where the spec says -1, and made
+            // `lastIndexOf(x, undefined)` scan from the end where step 5
+            // starts it at index 0 (present, and ToIntegerOrInfinity of
+            // undefined is 0). The typed-element twin
+            // (`ssa_lower_str_arr_index_bounds.rs`) has read it this way
+            // since rotation 629; this is the `Arr<Any>` half catching up.
             _ => {
-                if want_last {
-                    Operand::ConstI64(i64::MAX)
-                } else {
+                if matches!(
+                    ctx.expr_types.get(&args[1]),
+                    Some(crate::check::Type::Undefined)
+                ) {
                     Operand::ConstI64(0)
+                } else {
+                    let boxed = ctx.box_to_any_from_expr(args[1], f_raw);
+                    let n = ctx.coerce_any_to_number(boxed, Type::F64);
+                    ctx.coerce_to_i64(n)
                 }
             }
         }
