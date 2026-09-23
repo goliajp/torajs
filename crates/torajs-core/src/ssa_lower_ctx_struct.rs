@@ -403,6 +403,10 @@ pub(crate) struct LowerCtx<'a> {
     /// loads on these receivers emit the `arr_null_check` guard so
     /// a miss (null) is a catchable TypeError, not a SIGSEGV.
     pub(crate) nullable_arr_lets: std::collections::HashSet<String>,
+    /// Whether this function's RETURN annotation admits `undefined`
+    /// (`string | undefined`). Storage drops the nullable bit, so the
+    /// return boundary reads it here — see `coerce_to_ret`.
+    pub(crate) ret_ann_nullable: bool,
     /// RFC 20260707-undefined-sentinel-repr chunk 1 — binding names
     /// whose let-init is an element load off a nullable-arr source
     /// (`const c = m[1]` with m an exec/match binding) or an alias

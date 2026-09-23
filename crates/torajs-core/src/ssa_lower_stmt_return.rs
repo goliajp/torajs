@@ -326,17 +326,43 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         }
         return ctx.box_to_any(op);
     }
+    // RFC 20260710 C1 at the RETURN position — a literal `undefined`
+    // handed back through a sentinel-capable declared `T | undefined`
+    // must arrive as that width's undefined cell, not as the NULL its
+    // literal lowers to. The argument position has taken this step
+    // since C1; the return did not, so `function u(): string |
+    // undefined { return undefined }` answered `typeof` "object" and
+    // `u() === undefined` false. Only the written-nullable return
+    // takes it: a bare `string` return folds its call sites' typeof to
+    // the literal, so putting the sentinel there would make one
+    // binding read two ways (the `7a6947f11` shape, still open for the
+    // bare face).
+    if ctx.ret_ann_nullable
+        && let Some(eid) = maybe
+        && matches!(
+            ctx.expr_types.get(&eid),
+            Some(crate::check::Type::Undefined)
+        )
+        && let Some(sentinel) = ctx.str_undef_sentinel_for(ctx.f.ret)
+    {
+        return sentinel;
+    }
     if actual == Type::Any && !ctx.ast.contextual_ret_fns.contains(&ctx.f.name) {
         // RFC 20260922 S0 — a return type the program wrote casts; a
         // contextual seed keeps the spec's own coercion below.
         use crate::ssa_lower_checked_cast::{Admits, CastScope, CastSlot};
         let ret = ctx.f.ret;
+        let admits = if ctx.ret_ann_nullable {
+            Admits::OrUndefined
+        } else {
+            Admits::Exact
+        };
         if let Some(v) = ctx.checked_cast(
             op.clone(),
             ret,
             CastSlot::Return,
             CastScope::Annotated,
-            Admits::Exact,
+            admits,
         ) {
             if ret == Type::Str {
                 ctx.emit_drop_value(op, Type::Any);
@@ -401,9 +427,24 @@ fn coerce_to_ret(ctx: &mut LowerCtx, op: Operand, maybe: Option<crate::ast::Expr
         // deref'd as a Str pointer by the caller — heap results
         // only survived because a cell box IS the raw pointer).
         // The Any box's own stake settles via the box drop.
+        //
+        // A declared `string | undefined` return is not a ToString
+        // site for its own member: running §7.1.17 there spelled
+        // `undefined` as the nine-character TEXT, so `g() === undefined`
+        // was false and `typeof g()` "string" where bun says undefined.
+        // The `_param` kernel is the same ToString with the sentinel
+        // short-circuit the let-init and boxed-parameter boundaries
+        // already take; the checker types the call `Nullable(String)`,
+        // so typeof / eq / print at the call site already take their
+        // two-state runtime branch rather than folding.
+        let kernel = if ctx.ret_ann_nullable {
+            ctx.intrinsics.any_to_str_slot
+        } else {
+            ctx.intrinsics.any_to_str_box
+        };
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_to_str_box, vec![op]),
+            InstKind::Call(kernel, vec![op]),
             Type::Str,
             None,
         );
