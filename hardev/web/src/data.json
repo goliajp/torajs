@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T00:17:05.213Z",
+  "generatedAt": "2026-09-23T04:51:09.795Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,9 +9,9 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-23T00:15:57Z",
-    "headSha": "4ad4623d4",
-    "elapsedSec": 885.89,
+    "ranAt": "2026-09-23T04:38:50Z",
+    "headSha": "649e06678",
+    "elapsedSec": 540.24,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 82.78
   },
   "torajs": {
-    "commit": "4470476c6",
-    "commitSubject": "chore(hardev): re-sweep on the final HEAD",
+    "commit": "649e06678",
+    "commitSubject": "fix: a Set callback's second parameter is the member, not an index",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "4470476c6",
-      "subject": "chore(hardev): re-sweep on the final HEAD"
+      "hash": "649e06678",
+      "subject": "fix: a Set callback's second parameter is the member, not an index"
     },
     {
-      "hash": "4ad4623d4",
-      "subject": "fix: the symbol lane gained a dispatcher edge, and four kernels reach it"
+      "hash": "f77a36832",
+      "subject": "refactor: move the Promise width wiring to a sibling"
     },
     {
-      "hash": "01346d7bc",
-      "subject": "chore(hardev): rotation 693 close stamps"
+      "hash": "19891d751",
+      "subject": "fix: a Map or Set entry keeps its sentinel into a typed forEach callback"
     },
     {
-      "hash": "bf000c5e3",
-      "subject": "test: pin the sentinel's crossing back into any, and retire a stale note"
+      "hash": "127c3592c",
+      "subject": "fix: a promise resolved through a binding keeps its sentinel"
     },
     {
-      "hash": "7a6947f11",
-      "subject": "fix: a slot that can hold the sentinel cannot fold its typeof"
+      "hash": "a7a05e450",
+      "subject": "fix: a for-of loop variable inherits its container's element taint"
     },
     {
-      "hash": "d7cf26526",
-      "subject": "fix: a value leaving the typed world has no width to inherit"
+      "hash": "18f068a02",
+      "subject": "fix: a container written a sentinel taints its HOF callback's element"
     },
     {
-      "hash": "9fc09ee6c",
-      "subject": "fix: a heap value in a scalar slot was read as its own address"
+      "hash": "86215ecfc",
+      "subject": "refactor: move the non-positional call shapes to a sibling"
     },
     {
-      "hash": "99c5dcb4a",
-      "subject": "fix: a union's own member is not a value to reject"
+      "hash": "b4a0143fc",
+      "subject": "test: pin the sentinel surviving a binding across five boundaries"
     },
     {
-      "hash": "cc0dd4d35",
-      "subject": "fix: a declared string slot is not a ToString site"
+      "hash": "f229b3fcf",
+      "subject": "fix: a reduce seed carrying the sentinel taints the accumulator"
     },
     {
-      "hash": "e68a08c08",
-      "subject": "fix: a throwing replace callback ends the walk and reaches the try"
+      "hash": "e06d10441",
+      "subject": "fix: a getter handing back the OOB sentinel is a sentinel source"
     },
     {
-      "hash": "bf7bac0b4",
-      "subject": "fix: a proxy's get trap runs for the symbol keys the runtime asks for"
+      "hash": "5ed9f737b",
+      "subject": "fix: a rejection handler's parameter is not the promise's inner type"
     },
     {
-      "hash": "f495b53a5",
-      "subject": "refactor: where a symbol-keyed property lives is its own question"
+      "hash": "3633382c7",
+      "subject": "fix: null reaching a declared string slot is null, not the text \"null\""
     }
   ],
-  "headSha": "4470476c6",
+  "headSha": "649e06678",
   "autorun": {
-    "total": 995,
+    "total": 996,
     "baselineTarget": 10,
-    "bySelf": 990,
+    "bySelf": 991,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790106534-5bb9",
-      "at": "2026-09-22T19:48:54Z",
-      "ts": 1790106534,
+      "rotationId": "r-1790122678-7099",
+      "at": "2026-09-23T00:17:58Z",
+      "ts": 1790122678,
       "trigger": "self",
-      "prevHead": "9a2cec028",
-      "handoffSha": "sha256:eb6100d43f02928156e15d9b272077e6f54568a5caa2452a5b1fb9a9b41b1f3e",
-      "handoffAgeSec": 26,
-      "conformanceBefore": "4524/0/4",
-      "commitsInSession": 16
+      "prevHead": "dbab32e63",
+      "handoffSha": "sha256:2295592f2d4dc0ee7155c77c722eec360bc2b8fa5b21ebbb8f4cd3602e0dcf3f",
+      "handoffAgeSec": 10,
+      "conformanceBefore": "4529/0/4",
+      "commitsInSession": 17
     },
     "recent": [
+      {
+        "rotationId": "r-1790122678-7099",
+        "at": "2026-09-23T00:17:58Z",
+        "ts": 1790122678,
+        "trigger": "self",
+        "prevHead": "dbab32e63",
+        "handoffSha": "sha256:2295592f2d4dc0ee7155c77c722eec360bc2b8fa5b21ebbb8f4cd3602e0dcf3f",
+        "handoffAgeSec": 10,
+        "conformanceBefore": "4529/0/4",
+        "commitsInSession": 17
+      },
       {
         "rotationId": "r-1790106534-5bb9",
         "at": "2026-09-22T19:48:54Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 1,
         "conformanceBefore": "4439/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1789960521-2617",
-        "at": "2026-09-21T03:15:21Z",
-        "ts": 1789960521,
-        "trigger": "self",
-        "prevHead": "2a61f527e",
-        "handoffSha": "sha256:542cdfc3925c0ddb69c27577178eb284f382df09b40dc213f2ad547ab87f7b64",
-        "handoffAgeSec": 79,
-        "conformanceBefore": "4431/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
