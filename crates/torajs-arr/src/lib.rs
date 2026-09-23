@@ -167,6 +167,17 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 
 #[cfg(test)]
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_concat_needs_spec(_av: u64) -> i64 {
+    0
+}
+#[cfg(test)]
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_concat_spread_spec(dst: *mut u8, _av: u64) -> *mut u8 {
+    dst
+}
+
+#[cfg(test)]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const core::ffi::c_char) {
     panic!(
         "torajs-arr unit-test stub: __torajs_throw_type_error should not be called from cargo test paths"

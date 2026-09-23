@@ -27,24 +27,22 @@ fn lower_concat_any_recv(
     arr_id: crate::ssa::ArrId,
     args: &[ExprId],
 ) -> Operand {
-    // Seed: fresh flag-aware shallow copy — ES §23.1.3.2 concat
-    // never mutates the receiver, and the extend helpers below
-    // append in place.
-    let len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, recv_op.clone(), ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
+    // Seed: the receiver as item 0 of §23.1.3.1 step 5, into a fresh
+    // product — concat never mutates the receiver, and the extend
+    // helpers below append in place. The zero-argument kernel is that
+    // step alone: a clean receiver is the flag-aware slice copy, one
+    // with a hole or an `@@isConcatSpreadable` takes the spec walk (a
+    // Get copy would read the hole as undefined).
     let seed = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(
-            ctx.intrinsics.arr_any_slice,
-            vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+            ctx.intrinsics.arr_any_concat,
+            vec![recv_op, Operand::ConstPtrNull, Operand::ConstI64(0)],
         ),
         Type::Arr(arr_id),
         None,
     );
+    ctx.emit_throw_check_owned(None, Operand::Value(seed), Type::Arr(arr_id));
     extend_any_acc_with_args(ctx, arr_id, Operand::Value(seed), args)
 }
 
@@ -73,12 +71,10 @@ fn extend_any_acc_with_args(
             Type::Arr(oid) => {
                 let oet = ctx.arr_layouts[oid.0 as usize];
                 if matches!(oet, Type::Any) {
-                    ctx.f.append_inst(
-                        ctx.cur_block,
-                        InstKind::Call(ctx.intrinsics.arr_extend_any, vec![acc, other.clone()]),
-                        Type::Arr(arr_id),
-                        None,
-                    )
+                    // A boxed-element array can carry holes, accessor
+                    // indices or an `@@isConcatSpreadable` — the any-arg
+                    // kernel asks, and only then leaves the slot copy.
+                    concat_boxed_arg(ctx, arr_id, acc, other.clone())
                 } else {
                     // Rotation 545 — a typed arg's elements cross
                     // into the any world here; when they are
@@ -105,12 +101,14 @@ fn extend_any_acc_with_args(
             // per slot. This arm previously fell to the packed
             // single-element append below — a silent wrong for an
             // Any holding an array.
-            Type::Any => ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.arr_concat_any_arg, vec![acc, other.clone()]),
-                Type::Arr(arr_id),
-                None,
-            ),
+            Type::Any => concat_any_arg(ctx, arr_id, acc, other.clone()),
+            // An object may carry `@@isConcatSpreadable` (§7.3.22) —
+            // same runtime question as an Any argument.
+            t if t.is_refcounted()
+                && !matches!(t, Type::Str | Type::Substr | Type::Symbol | Type::BigInt) =>
+            {
+                concat_boxed_arg(ctx, arr_id, acc, other.clone())
+            }
             _ => {
                 // ES §23.1.3.2 — non-array arg appends as a single
                 // element. pack_any_elem incs refcounted values /
@@ -132,6 +130,39 @@ fn extend_any_acc_with_args(
         }
     }
     acc
+}
+
+/// Box a statically-typed object argument and hand it to the any-arg
+/// kernel (its §23.1.3.1 step 5 decides spread vs append). `box_to_any`
+/// is a pure encoding, so the box borrows the argument's stake and the
+/// kernel takes its own per slot — nothing to release here.
+fn concat_boxed_arg(
+    ctx: &mut LowerCtx<'_>,
+    arr_id: crate::ssa::ArrId,
+    acc: Operand,
+    other: Operand,
+) -> crate::ssa::ValueId {
+    let boxed = ctx.box_to_any(other);
+    concat_any_arg(ctx, arr_id, acc, boxed)
+}
+
+/// One `arr_concat_any_arg` step over a borrowed Any. The kernel reaches
+/// user getters (`@@isConcatSpreadable`, `length`, accessor indices); a
+/// throw releases the running product.
+fn concat_any_arg(
+    ctx: &mut LowerCtx<'_>,
+    arr_id: crate::ssa::ArrId,
+    acc: Operand,
+    any: Operand,
+) -> crate::ssa::ValueId {
+    let v = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_concat_any_arg, vec![acc, any]),
+        Type::Arr(arr_id),
+        None,
+    );
+    ctx.emit_throw_check_owned(None, Operand::Value(v), Type::Arr(arr_id));
+    v
 }
 
 /// NaN-box elem tag for a typed array's element type — the scheme

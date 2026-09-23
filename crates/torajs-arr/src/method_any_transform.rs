@@ -36,6 +36,12 @@ unsafe extern "C" {
     /// Cross-tier — torajs-throw catchable TypeError (records via
     /// TLS; the caller's emit_throw_check propagates).
     fn __torajs_throw_type_error(msg: *const core::ffi::c_char);
+    /// Cross-tier — torajs-anyvalue. §23.1.3.1 step 5 for an item the
+    /// raw-slot spread cannot answer (`@@isConcatSpreadable`, holes,
+    /// accessor indices, non-array objects, Proxies).
+    fn __torajs_concat_needs_spec(av: u64) -> i64;
+    fn __torajs_concat_spread_spec(dst: *mut u8, av: u64) -> *mut u8;
+    fn __torajs_throw_check() -> i64;
 }
 
 #[inline]
@@ -89,6 +95,15 @@ pub unsafe extern "C" fn __torajs_arr_any_concat(
     argc: i64,
 ) -> *mut u8 {
     unsafe {
+        // The receiver is item 0 of §23.1.3.1 step 5 like any other.
+        if __torajs_concat_needs_spec(arr as u64) != 0 {
+            let dst = crate::__torajs_arr_alloc_any(argc as u64 + 1);
+            let dst = __torajs_concat_spread_spec(dst, arr as u64);
+            if __torajs_throw_check() != 0 {
+                return dst;
+            }
+            return concat_extend_args(dst, argv, argc);
+        }
         let dst = crate::slice::__torajs_arr_any_slice(arr, 0, i64::MAX);
         if (*(dst as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY == 0 {
             crate::any_typed_bridge::transition_fresh_to_any(dst);
@@ -120,6 +135,13 @@ unsafe fn concat_extend_args(mut dst: *mut u8, argv: *const u64, argc: i64) -> *
     unsafe {
         for k in 0..argc {
             let av = *argv.add(k as usize);
+            if __torajs_concat_needs_spec(av) != 0 {
+                dst = __torajs_concat_spread_spec(dst, av);
+                if __torajs_throw_check() != 0 {
+                    return dst;
+                }
+                continue;
+            }
             // §23.1.3.1 spread test — the cell bit-test runs BEFORE
             // any unbox: a ShortStr reports tag Heap, and
             // unbox_value materializes it into an owned Str this
@@ -165,6 +187,14 @@ pub unsafe extern "C" fn __torajs_arr_any_concat_generic(
 ) -> *mut u8 {
     unsafe {
         let mut dst = crate::__torajs_arr_alloc_any(argc as u64 + 1);
+        // An `@@isConcatSpreadable` receiver spreads (§7.3.22).
+        if __torajs_concat_needs_spec(recv) != 0 {
+            dst = __torajs_concat_spread_spec(dst, recv);
+            if __torajs_throw_check() != 0 {
+                return dst;
+            }
+            return concat_extend_args(dst, argv, argc);
+        }
         // The seed slot takes its own stake — recv is borrowed.
         __torajs_rc_inc(recv as *mut c_void);
         dst = crate::any::__torajs_arr_push_any(
