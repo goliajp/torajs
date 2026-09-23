@@ -35,8 +35,14 @@
 //!   stores onto the RECEIVER otherwise, which is exactly the split
 //!   the kernel's two object operands express.
 //!
+//!   UPDATES (`super.x++` and its three spellings) go through the
+//!   same four kernels the class pass uses: the read is off the base
+//!   and the write lands on the receiver, fused so the node answers
+//!   the old value (postfix) or the new one (prefix). The key is
+//!   evaluated once, by the kernel.
+//!
 //!   left loud (marker → unknown ident, same posture as the class
-//!   pass): `super.x++`; `super.m?.()`; a literal in any position
+//!   pass): `super.m?.()`; a literal in any position
 //!   other than a declaration init; and a method whose body nests
 //!   ANOTHER literal-with-method — the inner method's markers belong
 //!   to the inner home, and rewriting them against the outer one
@@ -264,6 +270,36 @@ fn claim_literal(ast: &mut Ast, objlit: ExprId, counter: &mut u32) -> Option<Str
         let node = super_prop_kernel_call(ast, &home, key, Kernel::Set(value));
         ast.exprs[assign.0 as usize] = node;
     }
+    // Updates: the whole UpdateExpression becomes the kernel call.
+    // `target` — the Member / Index the marker hung off — is nulled
+    // the way the class pass nulls it, so no orphan keeps a reference
+    // to the marker ident.
+    let updates: Vec<(ExprId, ExprId, KeyPlan, bool, bool)> = prop
+        .sites
+        .iter()
+        .filter_map(|s| match s {
+            SuperPropSite::Update {
+                node,
+                target,
+                is_inc,
+                is_prefix,
+            } => {
+                let plan = match ast.get_expr(*target) {
+                    Expr::Member { name, .. } => KeyPlan::Name(name.clone()),
+                    Expr::Index { index, .. } => KeyPlan::Computed(*index),
+                    _ => return None,
+                };
+                Some((*node, *target, plan, *is_inc, *is_prefix))
+            }
+            _ => None,
+        })
+        .collect();
+    for (node, target, plan, is_inc, is_prefix) in updates {
+        let key = plan.mint(ast);
+        let call = super_prop_kernel_call(ast, &home, key, Kernel::Update(is_inc, is_prefix));
+        ast.exprs[node.0 as usize] = call;
+        ast.exprs[target.0 as usize] = Expr::Null;
+    }
     let calls: Vec<(ExprId, KeyPlan)> = prop
         .sites
         .iter()
@@ -321,6 +357,8 @@ enum Kernel {
     Get,
     Set(ExprId),
     Call(ExprId),
+    /// `(is_inc, is_prefix)` — which of the four update kernels.
+    Update(bool, bool),
 }
 
 /// `__torajs_super_prop_{get,set,call}(base, key, …, __this)`.
@@ -340,6 +378,10 @@ fn super_prop_kernel_call(ast: &mut Ast, home: &str, key: ExprId, kind: Kernel) 
         Kernel::Get => ("__torajs_super_prop_get", vec![base, key, recv]),
         Kernel::Set(v) => ("__torajs_super_prop_set", vec![base, key, v, recv]),
         Kernel::Call(pack) => ("__torajs_super_prop_call", vec![base, key, recv, pack]),
+        Kernel::Update(is_inc, is_prefix) => (
+            super::desugar_classes_super_prop_mint::update_fn(is_inc, is_prefix),
+            vec![base, key, recv],
+        ),
     };
     let callee = ast.add_expr(Expr::Ident(name.to_string()));
     Expr::Call { callee, args }
