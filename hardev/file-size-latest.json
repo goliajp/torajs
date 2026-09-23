@@ -1,7 +1,7 @@
 {
   "tool": "file_size_audit",
-  "ranAt": "2026-09-23T12:49:25Z",
-  "headSha": "2438fed17-dirty",
+  "ranAt": "2026-09-23T13:26:08Z",
+  "headSha": "f5bbc7087-dirty",
   "headShaSource": "local-git",
   "verdict": "ok",
   "filesNew": 0,
