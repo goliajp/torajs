@@ -183,54 +183,16 @@ pub(crate) unsafe fn arraylike_hof(
         // step 6.d.i / §23.1.3.25), so their arm never reads this.
         let this_arg = arg_at(1);
         match mid {
-            m if m == ANY_METHOD_REDUCE || m == ANY_METHOD_REDUCE_RIGHT => {
-                let right = m == ANY_METHOD_REDUCE_RIGHT;
-                let has_init = argc >= 2;
-                let mut acc = if has_init { arg_at(1) } else { VALUE_UNDEFINED };
-                if has_init {
-                    // The borrowed init becomes the owned accumulator.
-                    torajs_rc::__torajs_rc_inc(acc as *mut c_void);
-                }
-                let mut seeded = has_init;
-                let mut step: i64 = 0;
-                while step < len {
-                    let k = if right { len - 1 - step } else { step };
-                    step += 1;
-                    if !arraylike_has(obj, k) {
-                        continue;
-                    }
-                    let v = arraylike_get(obj, k);
-                    if !seeded {
-                        acc = v;
-                        seeded = true;
-                        continue;
-                    }
-                    // Recv-first shift — see `call_cb`.
-                    let s = recv_first_shift(cb_env);
-                    let mut cb_argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
-                    cb_argv[s] = acc;
-                    cb_argv[s + 1] = v;
-                    cb_argv[s + 2] = __torajs_anyv_box_i64(k);
-                    cb_argv[s + 3] = obj_boxed;
-                    let r = invoke_boxed(cb_env, cb_entry, cb_argv.as_ptr(), (4 + s) as i64);
-                    __torajs_value_drop_heap(acc as *mut c_void);
-                    __torajs_value_drop_heap(v as *mut c_void);
-                    if __torajs_throw_check() != 0 {
-                        __torajs_value_drop_heap(r as *mut c_void);
-                        return VALUE_UNDEFINED;
-                    }
-                    acc = r;
-                }
-                if !seeded {
-                    if right {
-                        __torajs_arr_throw_reduce_right_empty();
-                    } else {
-                        __torajs_arr_throw_reduce_empty();
-                    }
-                    return VALUE_UNDEFINED;
-                }
-                acc
-            }
+            m if m == ANY_METHOD_REDUCE || m == ANY_METHOD_REDUCE_RIGHT => arraylike_reduce(
+                obj,
+                m,
+                len,
+                cb_env,
+                cb_entry,
+                obj_boxed,
+                arg_at(1),
+                argc >= 2,
+            ),
             m if m == ANY_METHOD_FIND
                 || m == ANY_METHOD_FIND_INDEX
                 || m == ANY_METHOD_FIND_LAST
@@ -348,5 +310,71 @@ pub(crate) unsafe fn arraylike_hof(
                 }
             }
         }
+    }
+}
+
+/// §23.1.3.24 / §23.1.3.25 on an array-like receiver — the has-gated
+/// fold, lifted out of [`arraylike_hof`]'s match so that dispatcher
+/// stays inside the function-size limit. `init` is the call's second
+/// argument and `has_init` whether it was supplied; unlike the other
+/// walkers there is no thisArg here — §23.1.3.24 step 6.d.i calls with
+/// `undefined`, which is what the argv buffer already holds.
+#[allow(clippy::too_many_arguments)]
+unsafe fn arraylike_reduce(
+    obj: *mut c_void,
+    m: i64,
+    len: i64,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    obj_boxed: AnyValue,
+    init: AnyValue,
+    has_init: bool,
+) -> AnyValue {
+    unsafe {
+        let right = m == ANY_METHOD_REDUCE_RIGHT;
+        let mut acc = if has_init { init } else { VALUE_UNDEFINED };
+        if has_init {
+            // The borrowed init becomes the owned accumulator.
+            torajs_rc::__torajs_rc_inc(acc as *mut c_void);
+        }
+        let mut seeded = has_init;
+        let mut step: i64 = 0;
+        while step < len {
+            let k = if right { len - 1 - step } else { step };
+            step += 1;
+            if !arraylike_has(obj, k) {
+                continue;
+            }
+            let v = arraylike_get(obj, k);
+            if !seeded {
+                acc = v;
+                seeded = true;
+                continue;
+            }
+            // Recv-first shift — see `call_cb`.
+            let s = recv_first_shift(cb_env);
+            let mut cb_argv = [VALUE_UNDEFINED; MAX_BOXED_ARGS];
+            cb_argv[s] = acc;
+            cb_argv[s + 1] = v;
+            cb_argv[s + 2] = __torajs_anyv_box_i64(k);
+            cb_argv[s + 3] = obj_boxed;
+            let r = invoke_boxed(cb_env, cb_entry, cb_argv.as_ptr(), (4 + s) as i64);
+            __torajs_value_drop_heap(acc as *mut c_void);
+            __torajs_value_drop_heap(v as *mut c_void);
+            if __torajs_throw_check() != 0 {
+                __torajs_value_drop_heap(r as *mut c_void);
+                return VALUE_UNDEFINED;
+            }
+            acc = r;
+        }
+        if !seeded {
+            if right {
+                __torajs_arr_throw_reduce_right_empty();
+            } else {
+                __torajs_arr_throw_reduce_empty();
+            }
+            return VALUE_UNDEFINED;
+        }
+        acc
     }
 }
