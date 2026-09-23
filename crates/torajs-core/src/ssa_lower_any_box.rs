@@ -37,8 +37,20 @@ impl<'a> LowerCtx<'a> {
             Some(crate::check::Type::Undefined)
         ) || (matches!(self.ast.get_expr(eid), Expr::Ident(n) if n == "undefined")
             && self.locals.get("undefined").is_none());
+        // A call whose checker type is `Void` answers `undefined` — the
+        // method's own "return undefined" step. Its lowering may hand
+        // back a placeholder operand of some other SSA type
+        // (`forEach`'s arm uses `ConstI64(0)`), so boxing by the
+        // OPERAND's type encoded the placeholder instead:
+        // `JSON.stringify([xs.forEach(f)])` answered "[0]" where
+        // §25.5.2 serializes an undefined array element as "null".
+        // `box_to_any` already has the right arm for a genuinely
+        // `Type::Void` operand; this is the same answer for the case
+        // where only the expression knows.
+        let is_undef =
+            is_undef || matches!(self.expr_types.get(&eid), Some(crate::check::Type::Void));
         let val_ty = self.operand_ty(&val);
-        if is_undef && matches!(val_ty, Type::Ptr) {
+        if is_undef && matches!(val_ty, Type::Ptr | Type::I64 | Type::Void) {
             // ANY_UNDEF=5, payload 0.
             let v = self.f.append_inst(
                 self.cur_block,
