@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-23T16:57:57.146Z",
+  "generatedAt": "2026-09-23T21:36:35.018Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-23T16:35:21Z",
-    "headSha": "145283135",
-    "elapsedSec": 548.05,
+    "ranAt": "2026-09-23T21:24:27Z",
+    "headSha": "c1c59bf61",
+    "elapsedSec": 549.54,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34557,
-    "passNoOracle": 1720,
+    "pass": 34633,
+    "passNoOracle": 1721,
     "passNegative": 4568,
-    "passTotal": 40845,
-    "bug": 8451,
-    "incompatible": 3878,
+    "passTotal": 40922,
+    "bug": 8385,
+    "incompatible": 3867,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49296,
-    "passRateInScope": 76.81,
-    "passRateTrAccepted": 82.86
+    "trAccepted": 49307,
+    "passRateInScope": 76.96,
+    "passRateTrAccepted": 82.99
   },
   "torajs": {
-    "commit": "2707c1802",
-    "commitSubject": "chore(hardev): rotation 697 close stamps",
+    "commit": "304d81a7c",
+    "commitSubject": "chore(hardev): rotation 698 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "2707c1802",
-      "subject": "chore(hardev): rotation 697 close stamps"
+      "hash": "304d81a7c",
+      "subject": "chore(hardev): rotation 698 close stamps"
     },
     {
-      "hash": "145283135",
-      "subject": "feat(symbol): Symbol.for() and Symbol.keyFor() have answers, not refusals"
+      "hash": "c1c59bf61",
+      "subject": "fix(array): an empty receiver answers -1 before fromIndex is converted"
     },
     {
-      "hash": "fe23c1ebb",
-      "subject": "fix(promise): a combinator's array argument still goes through GetIterator"
+      "hash": "7875ac527",
+      "subject": "fix(lowering): a void-typed call boxes as undefined, not as its placeholder"
     },
     {
-      "hash": "41acf5093",
-      "subject": "fix(promise): no slot, no contract — a discarded chain call over an own `then`"
+      "hash": "f9c89f68c",
+      "subject": "fix(array): map over an array-like leaves a hole where the source had none"
     },
     {
-      "hash": "bb879c473",
-      "subject": "refactor(ssa): group the pending-exit slots into one struct"
+      "hash": "c480200ed",
+      "subject": "refactor(array): lift the array-like reduce arm out of the HOF dispatcher"
     },
     {
-      "hash": "744b72a55",
-      "subject": "feat(super): `super.x++` in an object-literal method"
+      "hash": "f6715cb68",
+      "subject": "fix(array): deleting an accessor index removes it instead of running its setter"
     },
     {
-      "hash": "4dbf1b77a",
-      "subject": "fix(parser): a computed `[\"constructor\"]` is not the constructor"
+      "hash": "450b8e159",
+      "subject": "fix(array): an array-like receiver's HOF callback gets the thisArg it was passed"
     },
     {
-      "hash": "97c0f97ff",
-      "subject": "refactor(check): delete two trailing-ignore wedges the general rule subsumes"
+      "hash": "2f9abe340",
+      "subject": "fix(array): a present fromIndex is coerced, not folded to the default"
     },
     {
-      "hash": "fff7430ac",
-      "subject": "feat(date): Date.UTC() is NaN, not a refusal"
+      "hash": "68f6fb069",
+      "subject": "feat(objlit): a method's parameter default is inside the method, so super parses there"
     },
     {
-      "hash": "efc4b5e52",
-      "subject": "feat(check): a callback slot left EMPTY is the spec's TypeError, not ours"
+      "hash": "f07f818e5",
+      "subject": "feat(bigint): asIntN / asUintN coerce their value operand instead of refusing it"
     },
     {
-      "hash": "c070f57a3",
-      "subject": "refactor(check): move the beyond-arity rule next to the wedges it retired"
+      "hash": "319e671eb",
+      "subject": "fix(promise): race / any hand the element's `then` the real resolve function"
     },
     {
-      "hash": "c2571dfbc",
-      "subject": "refactor(check): move the arity-shaping wedge chain to a sibling"
+      "hash": "6203ba467",
+      "subject": "refactor(promise): move the cross-crate promise FFI faces to their own file"
     }
   ],
-  "headSha": "2707c1802",
+  "headSha": "304d81a7c",
   "autorun": {
-    "total": 999,
+    "total": 1000,
     "baselineTarget": 10,
-    "bySelf": 994,
+    "bySelf": 995,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790171638-072c",
-      "at": "2026-09-23T13:53:58Z",
-      "ts": 1790171638,
+      "rotationId": "r-1790182847-2e73",
+      "at": "2026-09-23T17:00:47Z",
+      "ts": 1790182847,
       "trigger": "self",
-      "prevHead": "822b732bb",
-      "handoffSha": "sha256:d811a9a4a073a2ee40f8b203130abae45fc6b25dac499de14e45753a4eb14b84",
-      "handoffAgeSec": 14,
-      "conformanceBefore": "4559/0/4",
-      "commitsInSession": 15
+      "prevHead": "4a5813e36",
+      "handoffSha": "sha256:e903aaf1527fc95c00e44067d166e492e5bbdf54cd1df55a0c38e348ef873f3e",
+      "handoffAgeSec": 1,
+      "conformanceBefore": "4568/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1790182847-2e73",
+        "at": "2026-09-23T17:00:47Z",
+        "ts": 1790182847,
+        "trigger": "self",
+        "prevHead": "4a5813e36",
+        "handoffSha": "sha256:e903aaf1527fc95c00e44067d166e492e5bbdf54cd1df55a0c38e348ef873f3e",
+        "handoffAgeSec": 1,
+        "conformanceBefore": "4568/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1790171638-072c",
         "at": "2026-09-23T13:53:58Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 18,
         "conformanceBefore": "4472/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1790031328-65c7",
-        "at": "2026-09-21T22:55:28Z",
-        "ts": 1790031328,
-        "trigger": "self",
-        "prevHead": "874bbc28b",
-        "handoffSha": "sha256:188f5fd56654343287bcedb9facee941ed67ef54679073511de00924fad6379a",
-        "handoffAgeSec": 70,
-        "conformanceBefore": "4463/0/4",
-        "commitsInSession": 13
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
