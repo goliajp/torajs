@@ -2,9 +2,9 @@
 //! [`crate::check_type_of_call::check`] — runs after every
 //! early-route segment declines. Body verbatim from the
 //! pre-split cascade: Type::Function destructure, p1_thisarg /
-//! t28_pad / date_setter_narrow / splice narrows / at narrow /
-//! search_0arg / math_date_trailing wedges, arity gate, per-arg
-//! subtype loop + consume bitmap.
+//! t28_pad, the arity-shaping wedge chain (now
+//! [`super::arity_wedges`]), arity gate, per-arg subtype loop +
+//! consume bitmap.
 
 use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Type};
@@ -124,7 +124,7 @@ pub(crate) fn general_call(
     ) {
         return r;
     }
-    apply_arity_narrow_wedges(checker, ast, callee, &mut effective_args, &mut params)?;
+    super::arity_wedges::apply(checker, ast, callee, &mut effective_args, &mut params)?;
     // RFC 20260810-indirect-argc-abi S3.5 — beyond-arity calls are
     // universally admitted (ES §13.3.6.1: every argument evaluates,
     // extras never bind a parameter). The extras still typecheck —
@@ -202,68 +202,6 @@ pub(crate) fn general_call(
         crate::check_stmt_let_decl::apply_contextual_array_ann(checker, ast, *arg_id, param_ty);
     }
     Ok(*ret)
-}
-
-/// Post-T-28 arity-shaping wedge chain — the per-method narrows
-/// (Date setters / splice / at / search-0arg) plus the trailing-arg
-/// ignore pair (Math-Date receivers, then the direct bare-Ident /
-/// IIFE callee). All same-shape `apply(..)?` calls with no early
-/// return; each wedge's contract lives in its own module doc.
-fn apply_arity_narrow_wedges(
-    checker: &mut Checker,
-    ast: &Ast,
-    callee: &ExprId,
-    effective_args: &mut Vec<ExprId>,
-    params: &mut Vec<Type>,
-) -> Result<(), String> {
-    // Date per-field setter arity narrow wedge (chunk 299).
-    crate::check_type_of_call_date_setter_narrow::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
-    // `arr.splice` / `arr.toSpliced` arity narrow wedge (chunk 300).
-    crate::check_type_of_call_array_splice_narrow::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
-    // S237 splice/toSpliced 2-arg-undef arity narrow wedge (chunk 301).
-    crate::check_type_of_call_array_splice_2arg_undef::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
-    // `arr.at` / `s.at` 0-arg arity narrow wedge (chunk 302).
-    crate::check_type_of_call_array_at_narrow::apply(checker, ast, callee, effective_args, params)?;
-    // Array/String search-method 0-arg arity narrow wedge (chunk 303).
-    crate::check_type_of_call_search_0arg::apply(checker, ast, callee, effective_args, params)?;
-    // S243 / S250 — Math.* / Date.<static> trailing-arg ignore wedge
-    // (chunk 304).
-    crate::check_type_of_call_math_date_trailing_ignore::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
-    // Direct-call (bare-Ident / IIFE callee) trailing-arg ignore
-    // wedge — ES §13.3.6.1 evaluates every arg, the callee binds
-    // only its declared formals.
-    crate::check_type_of_call_direct_trailing_ignore::apply(
-        checker,
-        ast,
-        callee,
-        effective_args,
-        params,
-    )?;
-    Ok(())
 }
 
 /// Per-arg admit predicate — strict equality plus the accumulated
