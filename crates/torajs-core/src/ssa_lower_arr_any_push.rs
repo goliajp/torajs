@@ -93,150 +93,19 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let v_raw = self.lower_expr(arg_id);
         // Chunk 565 — pushing a value is a SHARE of the source
-        // binding, never a move: no consume. Borrow-shape args take
-        // +1 for the slot; owned temps (Call / BinOp / view mints)
-        // transfer their fresh reference into the slot instead.
-        let transfers = self.expr_transfers_ownership(arg_id);
+        // binding, never a move: the index-assign packer already
+        // gives a borrow-shape arg the slot's +1 and lets an owned
+        // temp transfer. This was a third copy of that pack.
         let v_ty = self.operand_ty(&v_raw);
-        let (tag, push_val): (Operand, Operand) = match v_ty {
-            Type::I64 | Type::I32 => (Operand::ConstI64(2), v_raw),
-            Type::F64 => {
-                let bits = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BitCastF64ToI64(v_raw),
-                    Type::I64,
-                    None,
-                );
-                (Operand::ConstI64(3), Operand::Value(bits))
-            }
-            Type::Bool => {
-                let zext = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ZExtBoolToI64(v_raw),
-                    Type::I64,
-                    None,
-                );
-                (Operand::ConstI64(1), Operand::Value(zext))
-            }
-            // Type::Any must be handled BEFORE the is_refcounted
-            // catch-all (Type::Any is itself refcounted — the
-            // catch-all's raw header inc only worked by grace of
-            // rc_inc's nan_box_is_cell_like guard, and stamped
-            // tag=4 over immediates). Decode the (tag, value) pair
-            // so the slot records the real runtime tag.
-            Type::Any => {
-                let tag_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(self.intrinsics.any_unbox_tag, vec![v_raw.clone()]),
-                    Type::I64,
-                    None,
-                );
-                // Chunk 610 — borrow-shape args take the slot's +1
-                // through the owned unbox (fuses the old separate
-                // payload_rc_inc, which double-counted a ShortStr's
-                // materialized rc=1 Str and leaked); an owned temp
-                // transfers its fresh reference via the plain unbox
-                // (a ShortStr materialization IS that fresh ref).
-                let unbox_fid = if transfers {
-                    self.intrinsics.any_unbox_value
-                } else {
-                    self.intrinsics.any_unbox_value_owned
-                };
-                let val_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(unbox_fid, vec![v_raw.clone()]),
-                    Type::I64,
-                    None,
-                );
-                let new_arr = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Call(
-                        grow_fid,
-                        vec![cur_arr, Operand::Value(tag_v), Operand::Value(val_v)],
-                    ),
-                    arr_ty,
-                    None,
-                );
-                // Chunk 628 — a typed block behind the Arr<Any> view
-                // records a pending TypeError on kind mismatch;
-                // propagate it (pre-fix the throw sat silently).
-                self.emit_throw_check(None);
-                // B1 — cell fixed across grow; slot write-back retired.
-                let new_len = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(new_arr), ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
-                return Operand::Value(new_len);
-            }
-            // A pointer slot's in-band `undefined` is a real
-            // address, and the catch-all below stamps ANY_HEAP over
-            // it: `box.push(xs.find(p))` on a miss put the immortal
-            // cell in an Any slot wearing a heap tag, so `typeof
-            // box[0]` answered "object". The tag is a runtime value
-            // here — 4 + (val == sentinel) — which is why this pair
-            // is `(Operand, Operand)` rather than a literal. Same
-            // ownership as the catch-all; the inc and the kind mark
-            // both no-op on the sentinel through the runtime's
-            // static gates.
-            _ if crate::ssa_lower_nullable_guard::holds_undef_cell(self, arg_id, v_ty) => {
-                if !transfers {
-                    self.emit_rc_inc(v_raw.clone());
-                }
-                self.emit_arr_mark_kind(&v_raw);
-                self.heap_slot_tag_value(v_raw)
-            }
-            // A string's `undefined` is its own immortal cell (an
-            // out-of-range read, a find miss): the same runtime tag.
-            Type::Str => {
-                if !transfers {
-                    self.emit_rc_inc(v_raw.clone());
-                }
-                self.heap_slot_tag_value(v_raw)
-            }
-            _ if v_ty.is_refcounted() => {
-                // ANY_HEAP slot — a borrow-shape arg takes +1 so
-                // the slot owns a balanced ref while the source
-                // binding keeps its stake; an owned temp transfers
-                // its fresh reference (chunk 565).
-                if !transfers {
-                    self.emit_rc_inc(v_raw.clone());
-                }
-                (Operand::ConstI64(4), v_raw)
-            }
-            Type::Ptr => {
-                if matches!(v_raw, Operand::ConstPtrNull) {
-                    // Lowering collapses `undefined` and `null` to the
-                    // same ConstPtrNull, so the tag has to come from
-                    // the expression's frontend type — the reason
-                    // `lower_to_tag_value_raw` starts by asking it.
-                    // This copy of the pack did not, and stamped
-                    // ANY_NULL over both: `b.push(undefined)` made
-                    // `typeof b[0]` answer "object".
-                    let tag = if matches!(
-                        self.expr_types.get(&arg_id),
-                        Some(crate::check::Type::Undefined)
-                    ) {
-                        5
-                    } else {
-                        0
-                    };
-                    (Operand::ConstI64(tag), Operand::ConstI64(0))
-                } else {
-                    (Operand::ConstI64(4), v_raw)
-                }
-            }
-            _ => panic!("ssa-lower: Array<Any>.push unsupported value type {v_ty:?}"),
-        };
+        let (tag, push_val) = self.pack_any_slot_value_shared(arg_id, &v_raw, v_ty);
         let new_arr = self.f.append_inst(
             self.cur_block,
             InstKind::Call(grow_fid, vec![cur_arr, tag, push_val]),
             arr_ty,
             None,
         );
-        // Chunk 628 — kind-mismatch pending TypeError propagation
-        // (see the Any arm above).
+        // Chunk 628 — a typed block behind the Arr<Any> view records
+        // a pending TypeError on kind mismatch; propagate it.
         self.emit_throw_check(None);
         // B1 — cell fixed across grow; slot write-back retired.
         let new_len = self.f.append_inst(
