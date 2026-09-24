@@ -41,6 +41,9 @@ const ARR_HEAD_OFF: usize = 20;
 pub const ANY_METHOD_THREW: u64 = u64::MAX;
 
 unsafe extern "C" {
+    /// Cross-tier — torajs-anyvalue. `pop` / `shift` through the
+    /// array-like arm's per-index [[Get]] / Delete / Set sequence.
+    fn __torajs_arr_mutate_generic(arr: *mut c_void, mid: i64) -> u64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
@@ -190,6 +193,11 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
         }
+        // A hole or an accessor index: the element's [[Get]] runs before
+        // the length Set, and may be what makes the Set throw.
+        if crate::layout::needs_index_mop(arr as *const u8) {
+            return __torajs_arr_mutate_generic(arr, torajs_rc::ANY_METHOD_POP);
+        }
         // RFC 20260713 blade 4 — frozen / RO-length receivers throw
         // before the empty short-circuit (§23.1.3.20 step 3.b); a
         // SEALED one too, since the popped element must be
@@ -242,6 +250,10 @@ pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
             b"sparse array tail is not yet supported in Array.prototype.shift\0".as_ptr(),
         ) {
             return __torajs_anyv_box_from_pair(5, 0);
+        }
+        // pop's twin: the per-index walk for a hole / accessor index.
+        if crate::layout::needs_index_mop(arr as *const u8) {
+            return __torajs_arr_mutate_generic(arr, torajs_rc::ANY_METHOD_SHIFT);
         }
         // RFC 20260713 blade 4 — pop's twin; the lock raiser the typed
         // lane uses (a sealed receiver's partial move included, see

@@ -197,3 +197,30 @@ pub unsafe extern "C" fn __torajs_arr_sort_exotic(arr: *mut c_void, cmp: AnyValu
         do_sort(&mut obj, len as i64, cmp)
     }
 }
+
+/// `__torajs_arr_mutate_generic(arr, mid)` — `pop` / `shift` over an
+/// Array cell whose indices need the per-index walk (a hole or an
+/// accessor index, [`arr_needs_index_mop`]). §23.1.3.22 / §23.1.3.27
+/// read through [[Get]] BEFORE the length Set: a getter reached through
+/// a hole runs (and may freeze the array, which the Set then answers
+/// with the TypeError). The array-like arm is exactly that sequence.
+/// Answers the removed element (owned), or undefined with a pending
+/// throw.
+///
+/// # Safety
+/// `arr` is a live `Tag::Arr` cell; `mid` is `ANY_METHOD_POP` or
+/// `ANY_METHOD_SHIFT`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_mutate_generic(arr: *mut c_void, mid: i64) -> AnyValue {
+    unsafe {
+        let len = (arr.cast::<u8>().add(crate::index_any::MIRROR_ARR_LEN_OFF) as *const u64).read();
+        super::arraylike_mut(
+            arr,
+            mid,
+            len as i64,
+            core::ptr::null_mut(),
+            core::ptr::null(),
+            0,
+        )
+    }
+}
