@@ -123,10 +123,7 @@ pub(crate) fn emit_map_loop(
     // with the full §23.1.2.1 «kValue, k» pair; the declared ret
     // still drives the dst layout — the variadic conv unboxes the
     // result back to it.
-    let argv_face = matches!(ctx.ast.get_expr(args[1]),
-        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
-        || matches!(ctx.ast.get_expr(args[1]),
-            Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n));
+    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, args[1]);
     let known_fid: Option<FuncId> = if argv_face {
         None
     } else {

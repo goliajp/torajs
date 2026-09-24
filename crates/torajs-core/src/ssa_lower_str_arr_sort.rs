@@ -156,10 +156,7 @@ pub(crate) fn try_dispatch(
         // params to equal the element type; the argv head never does).
         let argv_face = cmp_val.is_some()
             && args.first().is_some_and(|&a0| {
-                matches!(ctx.ast.get_expr(a0),
-                    Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
-                    || matches!(ctx.ast.get_expr(a0),
-                        Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n))
+                crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, a0)
             });
         // RFC 20260905 residue 1 — a promoted comparator (the same
         // static test the HOF lane makes) owns a leading `__this`;

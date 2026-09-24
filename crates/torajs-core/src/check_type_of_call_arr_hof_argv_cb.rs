@@ -60,12 +60,7 @@ pub(crate) fn try_match(
     // call: the inline closure the collector's HOF-anon arm admitted,
     // and (rotation 363 knife 3) a binding the safe-chain walk let
     // through to the callback slot.
-    let is_argv_cb = match ast.get_expr(args[0]) {
-        Expr::Closure { fn_name, .. } => ast.closure_argv_fns.contains(fn_name),
-        Expr::Ident(n) => ast.closure_argv_locals.contains(n),
-        _ => false,
-    };
-    if !is_argv_cb {
+    if !crate::ast::argv_face_callback::is_argv_face_callback(ast, args[0]) {
         return None;
     }
     let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {

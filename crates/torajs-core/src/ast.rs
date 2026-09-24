@@ -43,6 +43,7 @@ mod arguments_object_synth;
 mod arguments_object_this_first_argv;
 mod arguments_object_walkers;
 mod arguments_object_walkers_return;
+pub(crate) mod argv_face_callback;
 mod arrow_arguments_alias;
 mod await_ident_goal;
 mod build_factory;

@@ -394,10 +394,7 @@ fn emit_set_for_each(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) 
     // Rotation 363 — argv-face callback: boxed variadic pack, not
     // the direct call (map_dispatch mirror; borrows only, so the
     // transfer inc is skipped).
-    let argv_face = matches!(ctx.ast.get_expr(args[0]),
-        Expr::Closure { fn_name, .. } if ctx.ast.closure_argv_fns.contains(fn_name))
-        || matches!(ctx.ast.get_expr(args[0]),
-            Expr::Ident(n) if ctx.ast.closure_argv_locals.contains(n));
+    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, args[0]);
     if argv_face {
         let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
             ctx,
