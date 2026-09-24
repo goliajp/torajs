@@ -2014,6 +2014,7 @@ mod tests {
         __torajs_arr_any_reduce,
         __torajs_arr_any_shift,
         __torajs_arr_any_slice,
+        __torajs_arr_any_slice_keep_holes,
         __torajs_arr_any_some,
         __torajs_arr_any_sort,
         __torajs_arr_any_splice,

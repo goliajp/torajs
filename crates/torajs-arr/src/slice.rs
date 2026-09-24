@@ -140,6 +140,34 @@ fn clamp_range(ilen: i64, start: i64, end: i64) -> (i64, i64) {
 /// fresh owned (+1 rc) array of the same slot layout.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8 {
+    unsafe { any_slice(arr, start, end, Holes::Read) }
+}
+
+/// `Array.prototype.slice` itself — [`__torajs_arr_any_slice`] with the
+/// §23.1.3.28 HasProperty step: a hole of the receiver stays a hole of
+/// the product instead of becoming an own `undefined`.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_any_slice`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_any_slice_keep_holes(
+    arr: *const u8,
+    start: i64,
+    end: i64,
+) -> *mut u8 {
+    unsafe { any_slice(arr, start, end, Holes::Keep) }
+}
+
+/// What a copy does with an absent index of an exotic receiver.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Holes {
+    /// [[Get]]: the index reads `undefined` (or a prototype's value).
+    Read,
+    /// HasProperty first: an absent index stays absent.
+    Keep,
+}
+
+unsafe fn any_slice(arr: *const u8, start: i64, end: i64, holes: Holes) -> *mut u8 {
     unsafe {
         // RFC 20260810 刀 D — the bulk copy has no slots behind the
         // tail; loud reject until slice grows real sparse support.
@@ -167,6 +195,20 @@ pub unsafe extern "C" fn __torajs_arr_any_slice(arr: *const u8, start: i64, end:
             *(p.add(ARR_DATA_PTR_OFF) as *mut *mut u8) = p.add(ARR_CELL_SIZE);
             let exotic = crate::layout::needs_index_mop(arr);
             for i in 0..out_len as usize {
+                // §23.1.3.28 step 12.b: only a PRESENT index is copied —
+                // an absent one leaves the product's index absent too
+                // (the slot-value hole). The other callers are Get-shaped
+                // copies (toReversed, Array.from, a concat seed) and read
+                // it as `undefined`.
+                if exotic
+                    && holes == Holes::Keep
+                    && crate::define_hole::__torajs_arr_has_index(arr as *mut c_void, lo + i as i64)
+                        == 0
+                {
+                    *(arr_data(p).add(i * ANY_SLOT_BYTES) as *mut u64) = 0;
+                    (*(p as *mut HeapHeader)).flags |= torajs_rc::FLAG_ARR_ANY_HOLEY;
+                    continue;
+                }
                 let av = if exotic {
                     // §23.1.3.25 / §23.1.3.34 ride [[Get]] — an
                     // accessor index reads through its getter and a

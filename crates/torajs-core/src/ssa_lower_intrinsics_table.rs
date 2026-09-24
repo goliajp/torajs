@@ -308,6 +308,7 @@ pub(crate) fn build(
         arr_extend_any: init_b.arr_any.arr_extend_any,
         arr_concat_any_arg: init_b.arr_any.arr_concat_any_arg,
         arr_any_slice: init_b.arr_any.arr_any_slice,
+        arr_any_slice_keep_holes: init_b.arr_any.arr_any_slice_keep_holes,
         arr_any_to_reversed: init_b.arr_any.arr_any_to_reversed,
         arr_has_index: init_b.arr_any.arr_has_index,
         arr_sort_exotic: init_b.arr_any.arr_sort_exotic,

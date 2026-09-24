@@ -70,7 +70,9 @@ unsafe extern "C" {
     fn __torajs_arr_any_join(arr: *const u8, sep: *const u8) -> u64;
     /// torajs-arr — kind-aware slice for any receivers (C4+); the
     /// returned array is fresh +1 rc, same slot layout as the source.
-    fn __torajs_arr_any_slice(arr: *const u8, start: i64, end: i64) -> *mut u8;
+    /// torajs-arr — `slice` with the §23.1.3.28 HasProperty step
+    /// (a receiver hole stays a product hole).
+    fn __torajs_arr_any_slice_keep_holes(arr: *const u8, start: i64, end: i64) -> *mut u8;
     /// torajs-arr — variadic kind-aware concat (fresh +1 rc).
     fn __torajs_arr_any_concat(arr: *const u8, argv: *const u64, argc: i64) -> *mut u8;
     /// torajs-arr — kind-aware fill (`(tag, value)` pair form);
@@ -375,7 +377,7 @@ unsafe fn arr_method_inner(
                 // the str arm's slice).
                 let start = to_index(arg_at(0), 0);
                 let end = to_index(arg_at(1), i64::MAX);
-                let p = __torajs_arr_any_slice(arr as *const u8, start, end);
+                let p = __torajs_arr_any_slice_keep_holes(arr as *const u8, start, end);
                 __torajs_anyv_box_pointer(p as *mut c_void)
             }
             // Copy-family / reflection extension arms (chunk 1, RFC

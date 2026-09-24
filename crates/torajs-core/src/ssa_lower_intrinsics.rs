@@ -364,6 +364,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_extend_any: FuncId,
     pub(crate) arr_concat_any_arg: FuncId,
     pub(crate) arr_any_slice: FuncId,
+    pub(crate) arr_any_slice_keep_holes: FuncId,
     pub(crate) arr_any_to_reversed: FuncId,
     pub(crate) arr_has_index: FuncId,
     pub(crate) arr_sort_exotic: FuncId,

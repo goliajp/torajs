@@ -131,7 +131,7 @@ pub(crate) fn try_dispatch(
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         let elem_is_any = matches!(elem_ty, Type::Any);
         let slice_fid = if elem_is_any {
-            ctx.intrinsics.arr_any_slice
+            ctx.intrinsics.arr_any_slice_keep_holes
         } else {
             ctx.intrinsics.arr_slice
         };
