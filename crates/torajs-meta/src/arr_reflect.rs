@@ -111,15 +111,19 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
         // data length instead — configurable true, and a deleted one
         // has no own entry at all (the hole tombstone; the state
         // kernel reads it off the expando bag).
+        // A WRITTEN one (state 3) lives in the bag: the expando
+        // delegate below answers its entry, the callee face's pattern.
         let args_state = unsafe { __torajs_arr_arguments_length_state(arr, key) };
         if args_state == 2 {
             return VALUE_UNDEFINED_IMM;
         }
-        let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
-        let flags = unsafe { arr.cast::<u8>().add(6).cast::<u16>().read() };
-        let writable = (flags & ARR_FLAG_LENGTH_RO == 0) as u64;
-        let configurable = (args_state == 1) as u64;
-        return unsafe { build_data_descriptor(2, len, writable, 0, configurable) };
+        if args_state != 3 {
+            let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
+            let flags = unsafe { arr.cast::<u8>().add(6).cast::<u16>().read() };
+            let writable = (flags & ARR_FLAG_LENGTH_RO == 0) as u64;
+            let configurable = (args_state == 1) as u64;
+            return unsafe { build_data_descriptor(2, len, writable, 0, configurable) };
+        }
     }
     if bytes == b"callee" && unsafe { __torajs_arr_is_arguments(arr) } != 0 {
         // RFC 20260810-sloppy-goal-arguments S2 — the callee face

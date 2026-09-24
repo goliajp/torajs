@@ -120,6 +120,12 @@ pub(crate) unsafe fn dynobj_keys_append(
         if skip_index_shadow && unsafe { key_is_canonical_index(key) } {
             continue;
         }
+        // Both index-domain receivers (Arr, String wrapper) already
+        // listed `"length"` on the gOPN surface; an arguments object
+        // whose length was written keeps it in the bag as well.
+        if skip_index_shadow && include_nonenum != 0 && unsafe { key_bytes_are(key, b"length") } {
+            continue;
+        }
         if skip_fn_virtual
             && unsafe {
                 key_bytes_are(key, b"prototype")

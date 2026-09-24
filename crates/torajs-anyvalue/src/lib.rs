@@ -768,6 +768,15 @@ mod tests {
         0
     }
     #[unsafe(no_mangle)]
+    pub unsafe extern "C" fn __torajs_arr_arguments_length_set(
+        _arr: *mut core::ffi::c_void,
+        _key: *mut core::ffi::c_void,
+        _tag: u64,
+        _value: u64,
+    ) -> i64 {
+        0
+    }
+    #[unsafe(no_mangle)]
     pub unsafe extern "C" fn __torajs_arr_arguments_callee_state(
         _arr: *const core::ffi::c_void,
         _key: *const core::ffi::c_void,

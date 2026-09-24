@@ -307,10 +307,13 @@ pub(crate) unsafe fn arr_own_pair(ptr: *mut c_void, key: *const c_void) -> Optio
         // into the prototype walk (an Object.prototype `length`
         // accessor is observable there); the deleted state is a
         // narrow verifyProperty probe window, L3b.
-        if unsafe { __torajs_arr_arguments_length_state(ptr, key) } == 2 {
-            return Some((5, 0));
+        match unsafe { __torajs_arr_arguments_length_state(ptr, key) } {
+            2 => return Some((5, 0)),
+            // A written arguments length lives in the props bag, which
+            // the caller reads next.
+            3 => return None,
+            _ => return Some((AnySlotTag::I64 as u64, len)),
         }
-        return Some((AnySlotTag::I64 as u64, len));
     }
     let idx = canonical_index(bytes)?;
     if idx >= len {

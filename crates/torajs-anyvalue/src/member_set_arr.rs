@@ -12,6 +12,15 @@ use crate::member_set::{__torajs_throw_type_error, drop_payload};
 use crate::nanbox_encode::__torajs_anyv_box_from_pair;
 
 unsafe extern "C" {
+    /// torajs-arr — the arguments object's ordinary `length` write
+    /// (0 = not an arguments object).
+    fn __torajs_arr_arguments_length_set(
+        arr: *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+    ) -> i64;
+    fn __torajs_throw_check() -> i64;
     /// torajs-arr — expando write through the lazily-allocated
     /// props dynobj.
     fn __torajs_arrprops_set(arr_ptr: *mut c_void, key: *const c_void, tag: i64, value: i64);
@@ -77,6 +86,11 @@ pub(crate) unsafe fn set_arr_member(
         // but reads answered the old element), and a "length"
         // key missed the resize path.
         if hint == ANY_WPROP_ARR_LENGTH || crate::prop_has::key_is(key, b"length") {
+            // §10.4.4 — an arguments object's length is an ordinary data
+            // property; ArraySetLength below is the Array's rule.
+            if __torajs_arr_arguments_length_set(ptr, key, tag, value) != 0 {
+                return (__torajs_throw_check() == 0) as i64;
+            }
             // §28.1.13 Reflect.set — every refusal the kernel decides
             // (a non-writable length, a seal's shrink, a stopped shrink)
             // answers false through the soft flavor.
