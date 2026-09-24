@@ -157,14 +157,17 @@ pub unsafe extern "C" fn __torajs_any_name_get(recv: AnyValue) -> AnyValue {
             let dtag = __torajs_dynobj_get_tag(ptr, key as *const c_void);
             let dval = __torajs_dynobj_get_value(ptr, key as *const c_void);
             let has_own = __torajs_dynobj_has(ptr, key as *const c_void);
-            __torajs_str_drop(key as *mut c_void);
             if dtag != 5 || has_own != 0 {
                 // Present entry (a stored undefined shadows the
-                // chain). The probe pair is a borrow — the returned
-                // box owns its own reference.
-                crate::payload_rc_inc(dtag as i64, dval as i64);
-                return crate::nanbox_encode::__torajs_anyv_box_from_pair(dtag as i64, dval as i64);
+                // chain). A data pair boxes owned and an accessor
+                // entry runs its getter — the Closure arm's rule: a
+                // class whose `static set name(v)` has no getter
+                // answered its raw accessor pair, which read as null.
+                let v = crate::len_get::box_probe_pair(dtag, dval, recv, key as *const c_void);
+                __torajs_str_drop(key as *mut c_void);
+                return v;
             }
+            __torajs_str_drop(key as *mut c_void);
             // §10.1.8.1 OrdinaryGet — the user [[Prototype]] chain
             // answers before undefined (RFC 20260721 刀 5 R-F:
             // `Object.create(parent)` shapes inherit a defined
