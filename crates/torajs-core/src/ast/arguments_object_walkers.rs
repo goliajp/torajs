@@ -83,6 +83,17 @@ pub(crate) fn body_has_any_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::AnyTouch))
 }
 
+/// Whether the top-level declaration `name` reads its `arguments`
+/// object at all — length, index, or whole-object escape. Such a
+/// declaration's definition carries the hidden argc (and argv) slots
+/// of its tier, which its FnSig value's signature does not show.
+pub(crate) fn fn_decl_reads_arguments(ast: &Ast, name: &str) -> bool {
+    ast.stmts.iter().any(|s| {
+        matches!(s, Stmt::FnDecl { name: n, body, .. }
+            if n == name && body_has_any_arguments_touch(ast, body))
+    })
+}
+
 pub(super) fn stmt_uses_dynamic_arguments(ast: &Ast, s: &Stmt) -> bool {
     match s {
         Stmt::Expr(eid) | Stmt::Throw(eid) | Stmt::Yield(eid) => {

@@ -66,9 +66,7 @@
 use super::apply_args::peel_hidden_params;
 use super::apply_spread_evidence::collect_array_evident;
 use super::arguments_object_method_argv::{decl_admits, old_signature_lane};
-use super::arguments_object_walkers::{
-    body_has_any_arguments_touch, body_has_bare_arguments_assign,
-};
+use super::arguments_object_walkers::{body_has_bare_arguments_assign, fn_decl_reads_arguments};
 use super::forwarders_object::snapshot_fn_sigs;
 use super::spread_callee_wrap::static_expander_takes;
 use super::{Ast, Expr, ExprId, Stmt};
@@ -117,7 +115,7 @@ pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
         // trimmed tail (`c.m(...[1,2,3])` on `m(a)` answered
         // `arguments.length` 1). So the expander's claim is not
         // consulted for those sites — the face decides them below.
-        if !body_reads_arguments(ast, name) && static_expander_takes(ast, args, user, &evident) {
+        if !fn_decl_reads_arguments(ast, name) && static_expander_takes(ast, args, user, &evident) {
             continue;
         }
         // A default the CALL SITE still has to write in is one the
@@ -140,7 +138,7 @@ pub fn demote_dynamic_spread_method_calls(ast: &mut Ast) {
         .iter()
         .map(|(_, _, _, n)| n)
         .filter(|n| {
-            body_reads_arguments(ast, n) && !face_will_admit(ast, n, &old_sig_lane, &restores)
+            fn_decl_reads_arguments(ast, n) && !face_will_admit(ast, n, &old_sig_lane, &restores)
         })
         .cloned()
         .collect();
@@ -194,15 +192,6 @@ fn face_will_admit(
         .all(|(i, e)| !matches!(e, Expr::Ident(n) if n == name) || cleared.contains(&i))
 }
 
-/// Whether the named FnDecl's body reads its `arguments` object at
-/// all — length, index, or whole-object escape.
-fn body_reads_arguments(ast: &Ast, name: &str) -> bool {
-    ast.stmts.iter().any(|s| match s {
-        Stmt::FnDecl { name: n, body, .. } if n == name => body_has_any_arguments_touch(ast, body),
-        _ => false,
-    })
-}
-
 /// The pad `materialize_expr_defaults` leaves where a default used to
 /// be spelled.
 fn is_undefined(ast: &Ast, d: ExprId) -> bool {
@@ -242,7 +231,7 @@ mod tests {
             }],
             vec![Stmt::Expr(n)],
         ));
-        assert!(!body_reads_arguments(&ast, "__cm_C__m"));
+        assert!(!fn_decl_reads_arguments(&ast, "__cm_C__m"));
     }
 
     /// One that does keeps the loud reject — the count it would need
@@ -257,7 +246,7 @@ mod tests {
         });
         ast.stmts
             .push(fn_decl("__cm_C__m", Vec::new(), vec![Stmt::Expr(len)]));
-        assert!(body_reads_arguments(&ast, "__cm_C__m"));
+        assert!(fn_decl_reads_arguments(&ast, "__cm_C__m"));
     }
 
     /// An unknown name answers no — a site with no signature to read
@@ -265,7 +254,7 @@ mod tests {
     #[test]
     fn a_name_with_no_declaration_reads_nothing() {
         let ast = Ast::default();
-        assert!(!body_reads_arguments(&ast, "__cm_C__m"));
+        assert!(!fn_decl_reads_arguments(&ast, "__cm_C__m"));
     }
 
     /// A name the `__dispatch_` / vtable lanes can reach is refused

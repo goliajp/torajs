@@ -178,11 +178,8 @@ impl<'a> FnToClosureCollector<'a> {
             let Expr::Ident(n) = self.ast.get_expr(arg) else {
                 continue;
             };
-            let reads_arguments = self.fn_sigs.contains_key(n)
-                && self.ast.stmts.iter().any(|s| {
-                    matches!(s, Stmt::FnDecl { name, body, .. }
-                        if name == n && crate::ast::body_has_any_arguments_touch(self.ast, body))
-                });
+            let reads_arguments =
+                self.fn_sigs.contains_key(n) && crate::ast::fn_decl_reads_arguments(self.ast, n);
             if reads_arguments
                 && !self.is_generator_family_ident(arg)
                 && !self.rewrites.iter().any(|(e, _)| *e == arg)
