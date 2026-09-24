@@ -60,7 +60,14 @@ unsafe fn emit_elem(kind: TypedKind, slot: *const u8) {
             }
             TypedKind::F64 => {
                 let v = *(slot as *const f64);
-                if v.is_nan() {
+                // The undefined sentinel is a number[] slot's spelling
+                // of `undefined` (a hole read, `[...a]` over one) —
+                // every typed read answers it as undefined, and so
+                // does the printer. Any other NaN is NaN.
+                if v.to_bits() == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+                    put_bytes(b"undefined");
+                    __torajs_inspect_line_add(9);
+                } else if v.is_nan() {
                     put_bytes(b"NaN");
                     __torajs_inspect_line_add(3);
                 } else if v == f64::INFINITY {
