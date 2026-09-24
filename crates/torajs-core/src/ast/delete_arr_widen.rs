@@ -41,6 +41,14 @@
 //! about a shape the class desugar changes; disagreeing costs today's
 //! answer and never a new wrong one.
 //!
+//! The same holds for an accessor. `Object.defineProperty(a, "0",
+//! { get })` asks an index to stop being a data slot, and a typed cell
+//! has nowhere to keep the pair: the runtime declined it silently, so
+//! the getter never ran and the program went on reading the old
+//! element. A binding the program installs an accessor on (or hands
+//! to `defineProperties`, or to `defineProperty` with a descriptor
+//! this pass cannot read) widens the same way.
+//!
 //! Runs in the prelude beside the other `delete` triage, before
 //! anything reads element types.
 
@@ -63,6 +71,11 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
         };
         if let Expr::Ident(n) = &ast.exprs[recv.0 as usize] {
             names.insert(n.clone());
+        }
+    }
+    for e in &ast.exprs {
+        if let Some(n) = accessor_define_target(&ast.exprs, e) {
+            names.insert(n.to_string());
         }
     }
     if names.is_empty() {
@@ -114,5 +127,42 @@ fn peel_as<'e>(exprs: &'e [Expr], mut e: ExprId) -> &'e Expr {
             Expr::As { expr, .. } => e = *expr,
             other => return other,
         }
+    }
+}
+
+/// The binding an `Object.defineProperty` / `Reflect.defineProperty`
+/// call may install an accessor on, or an `Object.defineProperties`
+/// call targets. A literal descriptor with neither `get` nor `set` is
+/// a data definition the typed cell holds already.
+fn accessor_define_target<'e>(exprs: &'e [Expr], e: &Expr) -> Option<&'e str> {
+    let Expr::Call { callee, args } = e else {
+        return None;
+    };
+    let Expr::Member { obj, name } = &exprs[callee.0 as usize] else {
+        return None;
+    };
+    let Expr::Ident(ns) = &exprs[obj.0 as usize] else {
+        return None;
+    };
+    let target = match (ns.as_str(), name.as_str()) {
+        ("Object", "defineProperties") => args.first()?,
+        ("Object" | "Reflect", "defineProperty") => {
+            let reads_accessor = match args.get(2).map(|d| peel_as(exprs, *d)) {
+                Some(Expr::ObjectLit { fields }) => fields
+                    .iter()
+                    .any(|(k, _)| matches!(k.lossy().as_ref(), "get" | "set")),
+                Some(_) => true,
+                None => false,
+            };
+            if !reads_accessor {
+                return None;
+            }
+            args.first()?
+        }
+        _ => return None,
+    };
+    match peel_as(exprs, *target) {
+        Expr::Ident(n) => Some(n),
+        _ => None,
     }
 }
