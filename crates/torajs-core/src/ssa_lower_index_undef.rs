@@ -121,3 +121,69 @@ pub(crate) fn null_slot_is_hole(
     ctx.f.set_term(hole_blk, Terminator::Br(merge));
     ctx.cur_block = elem_blk;
 }
+
+/// Does a typed element of `elem_ty` carry `undefined` as itself, to
+/// wherever it goes next? A string or pointer does (an immortal
+/// undefined cell). An `F64` spells it as a sentinel NaN only the
+/// consumers that test for it understand — boxed or pushed, it is
+/// NaN — and integer / boolean elements have no spelling.
+pub(crate) fn has_undef_spelling(elem_ty: Type) -> bool {
+    elem_ty == Type::Str || elem_ty.spells_undef_with_generic_cell()
+}
+
+/// `Get(O, k)` on a typed source whose length may have dropped below
+/// `k` since the loop read it: `undefined` past the current length,
+/// otherwise the element `read` loads. For the find family (§23.1.3.9
+/// visits every index below the ORIGINAL length); the cut-off slots
+/// are never loaded — on a pointer source the shrink released them.
+pub(crate) fn emit_get_past_length(
+    ctx: &mut LowerCtx<'_>,
+    arr: ValueId,
+    i: ValueId,
+    elem_ty: Type,
+    read: impl FnOnce(&mut LowerCtx<'_>) -> ValueId,
+) -> ValueId {
+    let slot = ctx.alloca_in_entry(elem_ty, Some("__get_elem"));
+    let read_blk = ctx.f.add_block();
+    let past_blk = ctx.f.add_block();
+    let merge = ctx.f.add_block();
+    let len_now = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(
+            Type::I64,
+            Operand::Value(arr),
+            crate::ssa_lower::ARR_LEN_OFF,
+        ),
+        Type::I64,
+        None,
+    );
+    let in_range = ctx.cmp(IPred::Slt, Operand::Value(i), Operand::Value(len_now));
+    let cur = ctx.cur_block;
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: in_range,
+            then_blk: read_blk,
+            else_blk: past_blk,
+        },
+    );
+    let (undef, _) = oob_undef_value(ctx, past_blk, elem_ty);
+    ctx.f
+        .append_void(past_blk, InstKind::Store(undef, Operand::Value(slot), 0));
+    ctx.f.set_term(past_blk, Terminator::Br(merge));
+    ctx.cur_block = read_blk;
+    let v = read(ctx);
+    let cur = ctx.cur_block;
+    ctx.f.append_void(
+        cur,
+        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(cur, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    ctx.f.append_inst(
+        merge,
+        InstKind::Load(elem_ty, Operand::Value(slot), 0),
+        elem_ty,
+        None,
+    )
+}

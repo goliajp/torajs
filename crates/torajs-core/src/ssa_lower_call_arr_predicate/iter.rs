@@ -115,7 +115,7 @@ pub(super) fn emit_predicate_iter(
         gate,
         result_slot,
         argv_face,
-        len_gate && (method == "some" || method == "every"),
+        len_gate,
     );
     ctx.cur_block = after_blk;
     let r = ctx.f.append_inst(
@@ -208,11 +208,23 @@ fn emit_body_and_step(
     let next_blk = ctx.f.add_block();
     if let Some((es, os, of)) = gate {
         ctx.emit_hof_present_gate(src_arr, i_now2, next_blk, es, os, of);
-    } else if len_gate {
+    } else if len_gate && (method == "some" || method == "every") {
         // A typed source its predicate may shorten (`hof_len_shrink`).
         ctx.emit_hof_len_gate(src_arr, i_now2, next_blk);
     }
-    let elem = read_elem(ctx, gate.map(|(es, _, _)| es), elem_ty, src_arr, i_now2);
+    // The find family has no HasProperty step (§23.1.3.9): an index
+    // the predicate cut off is visited, with Get's `undefined`.
+    let elem = if len_gate
+        && gate.is_none()
+        && crate::ssa_lower_index_undef::has_undef_spelling(elem_ty)
+        && !(method == "some" || method == "every")
+    {
+        crate::ssa_lower_index_undef::emit_get_past_length(ctx, src_arr, i_now2, elem_ty, |ctx| {
+            read_elem(ctx, None, elem_ty, src_arr, i_now2)
+        })
+    } else {
+        read_elem(ctx, gate.map(|(es, _, _)| es), elem_ty, src_arr, i_now2)
+    };
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret predicate
     // returns `undefined`; ToBoolean folds every hit test to false
     // (ES §23.1.3.{8-11,30}). Emit the call for its side effects
