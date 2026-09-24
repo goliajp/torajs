@@ -304,16 +304,17 @@ unsafe fn dynobj_index_get(obj: *mut c_void, idx: i64) -> AnyValue {
             }
             // Walk to the parent; a null-proto host ends the chain,
             // an implicit-chain root falls to %Object.prototype%.
-            // Non-dynobj parents (Object.create(arr)) stay on the
-            // absent answer — their inherent faces are the recorded
-            // G9d follow-up.
+            // A non-dynobj parent (`Object.create(arr)`, a constructor
+            // whose `prototype` is an array) answers through its own
+            // inherent face and chain — the whole [[Get]] of the rest of
+            // the walk, which is what §10.1.8.1 step 3 asks for.
             match crate::member_get_own::user_proto_cell(host) {
                 Some(parent)
                     if (parent as *const u8).add(4).cast::<u16>().read() == Tag::DynObj as u16 =>
                 {
                     host = parent as *const c_void;
                 }
-                Some(_) => break VALUE_UNDEFINED,
+                Some(parent) => break __torajs_any_index_get(parent, idx),
                 None => {
                     let flags = host.cast::<u8>().add(6).cast::<u16>().read();
                     if flags & crate::member_get_own::DYNOBJ_HDR_FLAG_NULL_PROTO != 0 {
