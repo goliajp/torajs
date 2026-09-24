@@ -139,20 +139,6 @@ pub(crate) fn collect_named_eval_positions(ast: &Ast) -> HashMap<ExprId, String>
     // exactly one syntactic position, so the sweep never collides with
     // the walk above.
     for e in &ast.exprs {
-        // K4-2 — a unit class's static field initializer
-        // (§15.7.10 ClassFieldDefinition is a NamedEvaluation by the
-        // field name). A private field's `#x` spelling is not
-        // recoverable from its mangled key here; it stays anonymous.
-        if let Expr::Call { callee, args } = e
-            && let Expr::Ident(c) = ast.get_expr(*callee)
-            && c == super::class_unit::UNIT_STATIC_FIELD_DEFINE
-            && let [_, key, init] = args.as_slice()
-            && let Expr::String(key) = ast.get_expr(*key)
-            && let Some(key) = key.as_str()
-            && !key.starts_with("__priv_")
-        {
-            map.insert(unwrap_as(ast, *init), key.to_string());
-        }
         if let Expr::ObjectLit { fields } = e {
             for (fname, val) in fields {
                 // 565-03 — a COMPUTED key gives no syntactic name: the
@@ -183,6 +169,15 @@ pub(crate) fn collect_named_eval_positions(ast: &Ast) -> HashMap<ExprId, String>
                 }
             }
         }
+    }
+    // §15.7.10 ClassFieldDefinitionEvaluation — every field initializer
+    // is a NamedEvaluation by the field's name (a private field's is
+    // its description, `#x`), which the parser recorded before the
+    // class desugared. Overlaid last: the `__sf_<C>__<k>` slot or the
+    // constructor store the initializer now sits in names nothing the
+    // user wrote.
+    for (init, name) in &ast.field_init_names {
+        map.insert(unwrap_as(ast, *init), name.clone());
     }
     map
 }

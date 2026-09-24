@@ -114,7 +114,9 @@ impl<'a> Parser<'a> {
                     std::mem::replace(&mut self.static_this_class, Some(name.to_string()));
                 let init = self.parse_assign();
                 self.static_this_class = saved_static_this;
-                init?
+                let init = init?;
+                self.name_field_init(name, &member_name, init);
+                init
             } else {
                 // §7.3.32 DefineField step 6 — "Else, let initValue be
                 // undefined". A static field with no initializer IS
@@ -176,12 +178,7 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
             }
             if let Some(init_expr) = init {
-                // 564-02 — §8.4 NamedEvaluation, the annotated-field
-                // twin of the untyped arm.
-                if let Some(key) = member_name.as_str() {
-                    let key = key.to_string();
-                    self.name_anonymous_class_expr(&key, init_expr);
-                }
+                self.name_field_init(name, &member_name, init_expr);
                 field_inits.push((member_name.clone(), init_expr));
             }
             fields.push((member_name, ty));

@@ -315,6 +315,27 @@ impl<'a> Parser<'a> {
     /// rebinding or reassignment of the name drops the alias and falls
     /// back to the dynamic path instead of silently binding the old
     /// class.
+    /// §15.7.10 ClassFieldDefinitionEvaluation — a field's initializer
+    /// is a NamedEvaluation with the field's name: `x = function () {}`
+    /// names the function "x", and a Private Name gives its
+    /// description, so `#x = () => 1` names it "#x" (`name` of the key
+    /// `__priv_<class>__x`). An anonymous class takes it here; a
+    /// function is named by the lowering, which reads
+    /// `Ast::field_init_names` back after the class has desugared into
+    /// `__sf_<C>__<k>` slots and constructor stores whose own names are
+    /// tr's, not the user's.
+    pub(super) fn name_field_init(&mut self, class: &str, key: &PropKey, init: ExprId) {
+        let Some(k) = key.as_str() else {
+            return;
+        };
+        let display = match k.strip_prefix(&format!("__priv_{class}__")) {
+            Some(raw) => format!("#{raw}"),
+            None => k.to_string(),
+        };
+        self.name_anonymous_class_expr(&display, init);
+        self.ast.field_init_names.insert(init, display);
+    }
+
     /// ES §8.4 NamedEvaluation — an anonymous class expression takes
     /// the name of the binding it is assigned to. The parser has
     /// already replaced the expression with its `__ClassExpr_<id>`

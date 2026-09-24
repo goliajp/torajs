@@ -19,6 +19,11 @@ pub struct Ast {
     /// ExprId is safe: modules parse into one shared arena
     /// (`parse_into`), no renumbering.
     pub fn_expr_self_names: std::collections::HashMap<ExprId, String>,
+    /// Class-field initializer → the field's name (`#x` for a private
+    /// field), recorded by the parser (`name_field_init`) before the
+    /// class desugars into slots whose names are tr's. §15.7.10: the
+    /// initializer is a NamedEvaluation with it.
+    pub field_init_names: std::collections::HashMap<ExprId, String>,
     /// Lifted-closure name (`__closure_N`) → fn-expression
     /// self-name, translated from `fn_expr_self_names` by
     /// `lift_arrow_fns`; overlaid LAST in pass-2B's NamedEvaluation
