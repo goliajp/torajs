@@ -104,7 +104,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_set_length_any: decl!("__torajs_arr_set_length_any", [Ptr, I64, I64], Void),
         arr_set_length_truncate_scalar: decl!(
             "__torajs_arr_set_length_truncate_scalar",
-            [Ptr, I64, I64, I64],
+            [Ptr, I64, I64],
             Void
         ),
         arr_to_reversed: decl!("__torajs_arr_to_reversed", [Ptr], Ptr),

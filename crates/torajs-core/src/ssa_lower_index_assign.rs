@@ -391,12 +391,7 @@ impl<'a> LowerCtx<'a> {
             self.cur_block,
             InstKind::Call(
                 self.intrinsics.arr_typed_set_grow,
-                vec![
-                    arr_val.clone(),
-                    idx_val.clone(),
-                    raw_v,
-                    crate::ssa_lower_index_undef::typed_hole_raw(elem_ty),
-                ],
+                vec![arr_val.clone(), idx_val.clone(), raw_v],
             ),
         );
         self.emit_throw_check(None);

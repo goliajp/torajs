@@ -192,11 +192,7 @@ fn lower_arr_length_assign(
     } else {
         ctx.intrinsics.arr_set_length_any
     };
-    let mut argv = vec![obj_val, tag, val_op];
-    if truncate_scalar {
-        let elem_ty = elem_ty.expect("truncate_scalar is gated on an element type");
-        argv.push(crate::ssa_lower_index_undef::typed_hole_raw(elem_ty));
-    }
+    let argv = vec![obj_val, tag, val_op];
     let cur_block = ctx.cur_block;
     ctx.f.append_void(cur_block, InstKind::Call(helper, argv));
     ctx.emit_throw_check(None);

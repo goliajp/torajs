@@ -187,20 +187,3 @@ pub(crate) fn emit_get_past_length(
         None,
     )
 }
-
-/// The raw slot word a hole of a typed `elem_ty` cell holds — the
-/// compiler-side twin of torajs-arr `grow_store::typed_hole_raw`. An
-/// f64 element spells it with the undefined sentinel, which the typed
-/// read above already answers as `undefined` (an index read of a
-/// `number[]` is an undefined-f64 source) and which arithmetic turns
-/// into the default NaN, ToNumber(undefined). Every other element type
-/// keeps 0: a NULL pointer slot is read as a hole
-/// ([`null_slot_is_hole`]); an integer or boolean slot has no word for
-/// it yet.
-pub(crate) fn typed_hole_raw(elem_ty: Type) -> Operand {
-    if elem_ty == Type::F64 {
-        Operand::ConstI64(F64_UNDEF_SENTINEL_BITS as i64)
-    } else {
-        Operand::ConstI64(0)
-    }
-}

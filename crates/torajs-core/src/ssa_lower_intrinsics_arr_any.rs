@@ -161,7 +161,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_reduce_seed_index: decl!("__torajs_arr_reduce_seed_index", [Ptr, I64], I64),
         arr_set_any: decl!("__torajs_arr_set_any", [Ptr, I64, I64, I64], Void),
         arr_set_any_grow: decl!("__torajs_arr_set_any_grow", [Ptr, I64, I64, I64], Ptr),
-        arr_typed_set_grow: decl!("__torajs_arr_typed_set_grow", [Ptr, I64, I64, I64], Void),
+        arr_typed_set_grow: decl!("__torajs_arr_typed_set_grow", [Ptr, I64, I64], Void),
         arr_index_revive_idx: decl!("__torajs_arr_index_revive_idx", [Ptr, I64], Void),
         arr_index_check_store: decl!("__torajs_arr_index_check_store", [Ptr, I64], Void),
         arr_null_check: decl!("__torajs_arr_null_check", [Ptr], Void),
