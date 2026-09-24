@@ -186,6 +186,14 @@ fn toplevel_let_init(ast: &Ast, n: &str) -> Option<ExprId> {
 /// boxed spelling has no probe coverage. Closure-valued members
 /// admit since the same rotation's face ② — see that arm's comment.
 pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
+    slot_safe(ast, e, 0)
+}
+
+/// How many `const b = [a]` hops [`names_heap_literal`] follows —
+/// also what bounds a static cycle (`const a = [b]; const b = [a]`).
+const MAX_LITERAL_HOPS: u8 = 8;
+
+fn slot_safe(ast: &Ast, e: ExprId, hops: u8) -> bool {
     match ast.get_expr(e) {
         Expr::Number(_) | Expr::String(_) | Expr::Bool(_) | Expr::BigInt { .. } | Expr::Null => {
             true
@@ -219,9 +227,9 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
                 || (head_ok
                     && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
                     && !name.starts_with("__")))
-                && any_slot_safe_value(ast, *val)
+                && slot_safe(ast, *val, hops)
         }),
-        Expr::Array(els) => els.iter().all(|el| any_slot_safe_value(ast, *el)),
+        Expr::Array(els) => els.iter().all(|el| slot_safe(ast, *el, hops)),
         // A call result boxes like any other value; only the
         // `__new_` factory spelling (class instances) stays out —
         // see the fn doc.
@@ -261,12 +269,45 @@ pub(crate) fn any_slot_safe_value(ast: &Ast, e: ExprId) -> bool {
         Expr::Ident(_) => {
             crate::ast_refs::closure_alias_fn_canon(ast, e).is_some_and(|c| !c.contains("__rest("))
                 || crate::ast_refs::infer_toplevel_slot_shape(ast, e).is_some()
+                || names_heap_literal(ast, e, hops)
         }
         // Statically-shaped expressions (operator results, top-level
         // aliases, `Symbol()`) are certainly non-callable — the
         // shape table only answers primitives.
         _ => crate::ast_refs::infer_toplevel_slot_shape(ast, e).is_some(),
     }
+}
+
+/// A member that NAMES a top-level array or object literal binding
+/// (`const d1 = [d0, d0]`, `const c1 = { x: c0 }` with `const d0 =
+/// [1]`) holds an ordinary heap value; boxing it into the Any slot is
+/// the same store `const d1: any[] = [d0, d0]` performs, and that
+/// spelling already read right from a named fn. Refused, ONE such
+/// member kept the whole binding main-local and every named-fn read
+/// answered "unknown identifier" (the rotation 592 pattern, one hop
+/// further). The name must resolve to the single top-level `let` /
+/// `const` (`unique_toplevel_binding`, the closure-alias argument),
+/// whose literal is itself admissible. A literal with a method member
+/// stays out: a nominal receiver boxed into an any slot is the
+/// 546-03 shape the (k) leg below exists for.
+fn names_heap_literal(ast: &Ast, e: ExprId, hops: u8) -> bool {
+    let Expr::Ident(n) = ast.get_expr(e) else {
+        return false;
+    };
+    if hops >= MAX_LITERAL_HOPS {
+        return false;
+    }
+    let Some((init, _)) = crate::ast_refs::unique_toplevel_binding(ast, n) else {
+        return false;
+    };
+    let literal = match ast.get_expr(init) {
+        Expr::Array(_) => true,
+        Expr::ObjectLit { fields } => fields
+            .iter()
+            .all(|(_, v)| !matches!(ast.get_expr(*v), Expr::Closure { .. })),
+        _ => false,
+    };
+    literal && slot_safe(ast, init, hops + 1)
 }
 
 /// The (k) leg of `objlit_nominal_anylane` — method-bearing top-level

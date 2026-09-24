@@ -116,7 +116,7 @@ pub fn closure_alias_fn_canon(ast: &Ast, init: ExprId) -> Option<String> {
 /// than one. `var` is not a candidate (its hoisted home is not this
 /// slot), and a `var` of the same name does not make the `const`
 /// ambiguous either: a program with both is not one this resolves.
-fn unique_toplevel_binding<'a>(ast: &'a Ast, name: &str) -> Option<(ExprId, Option<&'a str>)> {
+pub fn unique_toplevel_binding<'a>(ast: &'a Ast, name: &str) -> Option<(ExprId, Option<&'a str>)> {
     let mut found: Option<(ExprId, Option<&'a str>)> = None;
     for s in crate::ast::toplevel_stmts_flat(ast) {
         let Stmt::LetDecl {
