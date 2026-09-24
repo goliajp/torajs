@@ -302,6 +302,7 @@ pub use apply_args_materialize::materialize_expr_defaults;
 pub use apply_rest_args::apply_rest_args;
 pub use apply_spread::apply_spread_args;
 pub use arguments_object::desugar_arguments_object;
+pub(crate) use arguments_object_walkers::body_has_any_arguments_touch;
 pub use arrow_arguments_alias::alias_arrow_arguments;
 pub(crate) use build_factory::build_factory_body;
 pub use builtin_global_assign::demote_assigned_builtin_globals;

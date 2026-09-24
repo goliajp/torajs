@@ -79,7 +79,7 @@ pub(crate) fn body_has_non_length_arguments_touch(ast: &Ast, body: &[Stmt]) -> b
 /// [`ScanFor::AnyTouch`] for why neither Length nor NonLengthTouch
 /// alone can answer this (the `.length` member and the inside of a
 /// `delete` each fall dark in one of them).
-pub(super) fn body_has_any_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
+pub(crate) fn body_has_any_arguments_touch(ast: &Ast, body: &[Stmt]) -> bool {
     body.iter().any(|s| stmt_scan(ast, s, ScanFor::AnyTouch))
 }
 

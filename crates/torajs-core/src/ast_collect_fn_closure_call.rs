@@ -327,6 +327,7 @@ impl<'a> FnToClosureCollector<'a> {
             }
         }
         // 651-01 — a swallowed `.call` / `.apply` keeps its Ident receiver.
+        self.mark_arguments_reading_args(callee, args);
         if !self.is_swallowed_fn_proto_callee(callee, args) {
             self.walk_expr(*callee);
         }

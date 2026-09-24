@@ -158,6 +158,40 @@ pub(crate) use crate::ast_collect_bindings::{
 impl<'a> FnToClosureCollector<'a> {
     /// Mark `eid` for the forwarder rewrite when it is a bare
     /// top-FnDecl Ident. Answers whether it matched.
+    /// A declaration whose body reads `arguments` never leaves as a
+    /// raw FnSig argument. Its definition carries the hidden argc (and
+    /// argv) slots of the head-less tier, which a FnSig value's
+    /// signature does not show, so a lane that direct-calls the value
+    /// handed the first callback argument to the argc slot:
+    /// `const xs: number[] = [5, 6]; xs.map(function f(v) { return
+    /// arguments.length })` answered `5,6`. The relay knows the tiers
+    /// — it forwards its own true argc and, through its boxed entry,
+    /// the argv — and it is what an untyped receiver's call already
+    /// got. Generator factories keep their own lanes, and so does a
+    /// call to a known declaration: its declared parameter types
+    /// decide the argument's repr on their own axis.
+    pub(crate) fn mark_arguments_reading_args(&mut self, callee: &ExprId, args: &[ExprId]) {
+        if matches!(self.ast.get_expr(*callee), Expr::Ident(n) if self.fn_sigs.contains_key(n)) {
+            return;
+        }
+        for &arg in args {
+            let Expr::Ident(n) = self.ast.get_expr(arg) else {
+                continue;
+            };
+            let reads_arguments = self.fn_sigs.contains_key(n)
+                && self.ast.stmts.iter().any(|s| {
+                    matches!(s, Stmt::FnDecl { name, body, .. }
+                        if name == n && crate::ast::body_has_any_arguments_touch(self.ast, body))
+                });
+            if reads_arguments
+                && !self.is_generator_family_ident(arg)
+                && !self.rewrites.iter().any(|(e, _)| *e == arg)
+            {
+                self.try_mark(arg);
+            }
+        }
+    }
+
     pub(crate) fn try_mark(&mut self, eid: ExprId) -> bool {
         if let Expr::Ident(name) = self.ast.get_expr(eid)
             && self.fn_sigs.contains_key(name)
