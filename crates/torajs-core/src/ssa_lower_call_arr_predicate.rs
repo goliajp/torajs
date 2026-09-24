@@ -120,6 +120,8 @@ pub(crate) fn try_lower(
         result_ty,
         result_slot,
         argv_face,
+        elem_ty != Type::Any
+            && crate::ast::hof_len_shrink::hof_len_may_shrink(ctx.ast, obj, args[0], 2),
     );
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,

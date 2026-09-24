@@ -45,6 +45,10 @@ pub(crate) struct LoopFrame {
     /// call. `begin_loop` decides, `end_loop_and_produce` settles the
     /// length word it left stale.
     pub(crate) dst_fast: Option<PreReserveState>,
+    /// A typed source the callback may shorten (`hof_len_shrink`):
+    /// each visit first checks the index against the current length.
+    /// The caller sets it; `begin_loop` leaves it off.
+    pub(crate) len_gate: bool,
 }
 
 /// Set up i_slot + init_i, fast-path `arr_reserve(dst, len)` for
@@ -213,6 +217,7 @@ pub(crate) fn begin_loop(
         owned_slot,
         owned_flag,
         dst_fast,
+        len_gate: false,
     }
 }
 
@@ -298,6 +303,13 @@ pub(crate) fn emit_per_method_body(
             ctx.f.set_term(absent_blk, Terminator::Br(work_blk));
             ctx.cur_block = work_blk;
             Some(es)
+        }
+        // A typed source only loses an index to a shorter length.
+        // `map` into a typed product has no way to say hole and keeps
+        // the recorded boundary above.
+        (None, None, None, Some(skip_blk)) if frame.len_gate => {
+            ctx.emit_hof_len_gate(src_arr, i_now2, skip_blk);
+            None
         }
         _ => None,
     };

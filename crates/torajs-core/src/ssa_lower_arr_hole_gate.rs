@@ -54,6 +54,43 @@ use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, Val
 use crate::ssa_lower::LowerCtx;
 
 impl LowerCtx<'_> {
+    /// The whole §23.1.3 HasProperty test on a TYPED source whose
+    /// callback may shorten it (`hof_len_shrink`): nothing else can
+    /// make an index below the original length absent there. Re-read
+    /// `length` and branch to `skip_blk` past it; `cur_block` is left
+    /// where the visit is emitted. The loop bound stays the length
+    /// read once before the loop (§23.1.3 step 3) — this is the
+    /// any-source gate's dense arm, without the slot box.
+    pub(crate) fn emit_hof_len_gate(&mut self, arr: ValueId, i: ValueId, skip_blk: BlockId) {
+        let read_blk = self.f.add_block();
+        let len_now = self.f.append_inst(
+            self.cur_block,
+            InstKind::Load(
+                Type::I64,
+                Operand::Value(arr),
+                crate::ssa_lower::ARR_LEN_OFF,
+            ),
+            Type::I64,
+            None,
+        );
+        let in_range = self.f.append_inst(
+            self.cur_block,
+            InstKind::ICmp(IPred::Slt, Operand::Value(i), Operand::Value(len_now)),
+            Type::Bool,
+            None,
+        );
+        let cur = self.cur_block;
+        self.f.set_term(
+            cur,
+            Terminator::CondBr {
+                cond: Operand::Value(in_range),
+                then_blk: read_blk,
+                else_blk: skip_blk,
+            },
+        );
+        self.cur_block = read_blk;
+    }
+
     /// Read the array's header ONCE, in the loop's preheader: can any
     /// index of it be absent? Emitted before the loop so the body's
     /// branch is a register test on a loop-invariant value.

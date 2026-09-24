@@ -1092,6 +1092,9 @@ pub struct Ast {
     /// `arguments_object_headless_argv`) requires every arena
     /// reference to the name be a call callee, so no site is missed.
     pub headless_argv_fns: std::collections::HashSet<String>,
+    /// Which array callback loops may see their typed source shrink
+    /// while they run (`hof_len_shrink` has the whole question).
+    pub hof_len_shrinks: super::HofLenShrinks,
     /// Head-less fns whose body reads argument VALUES at all —
     /// [`Self::headless_argv_fns`] plus the ones that wanted the
     /// channel and could not have it (a rest tail, a bare

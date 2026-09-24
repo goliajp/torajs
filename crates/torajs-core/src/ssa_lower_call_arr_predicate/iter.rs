@@ -24,6 +24,7 @@ pub(super) fn emit_predicate_iter(
     result_ty: Type,
     result_slot: ValueId,
     argv_face: bool,
+    len_gate: bool,
 ) -> Operand {
     let is_reverse = method == "findLastIndex" || method == "findLast";
     let i_slot = ctx.alloca(Type::I64, Some("__pred_i"));
@@ -114,6 +115,7 @@ pub(super) fn emit_predicate_iter(
         gate,
         result_slot,
         argv_face,
+        len_gate && (method == "some" || method == "every"),
     );
     ctx.cur_block = after_blk;
     let r = ctx.f.append_inst(
@@ -190,6 +192,7 @@ fn emit_body_and_step(
     gate: Option<(ValueId, ValueId, ValueId)>,
     result_slot: ValueId,
     argv_face: bool,
+    len_gate: bool,
 ) {
     // body — load elem, run predicate
     ctx.cur_block = body_blk;
@@ -205,6 +208,9 @@ fn emit_body_and_step(
     let next_blk = ctx.f.add_block();
     if let Some((es, os, of)) = gate {
         ctx.emit_hof_present_gate(src_arr, i_now2, next_blk, es, os, of);
+    } else if len_gate {
+        // A typed source its predicate may shorten (`hof_len_shrink`).
+        ctx.emit_hof_len_gate(src_arr, i_now2, next_blk);
     }
     let elem = read_elem(ctx, gate.map(|(es, _, _)| es), elem_ty, src_arr, i_now2);
     // RC-1 (RFC 20260706-test262-bug-corpus) — a Void-ret predicate

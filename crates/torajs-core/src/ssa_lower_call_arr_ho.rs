@@ -174,7 +174,7 @@ fn lower_higher_order(
     // synthetic argv pointer. The loop body routes it through the
     // boxed variadic dispatch instead (emit_argv_face_call).
     let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
-    let frame = begin_loop(
+    let mut frame = begin_loop(
         ctx,
         &method,
         src_arr,
@@ -184,6 +184,13 @@ fn lower_higher_order(
         reduce_no_init,
         seed_start,
     );
+    frame.len_gate = elem_ty != Type::Any
+        && crate::ast::hof_len_shrink::hof_len_may_shrink(
+            ctx.ast,
+            obj,
+            args[0],
+            if is_reduce { 3 } else { 2 },
+        );
     // 550-01 — the growing dst (map / filter) is ours until the exit
     // loads it out; a callback that throws mid-loop releases it
     // through the slot (push relocates, so the pointer itself cannot

@@ -409,6 +409,10 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     // the site), and after `materialize_expr_defaults`, whose output
     // its default gate reads.
     ast::demote_dynamic_spread_method_calls(ast);
+    // Before the arguments rewrite: a callback that reads
+    // `arguments` can reach its source through it, and the scan asks
+    // that of the body as the program wrote it.
+    ast::collect_hof_len_shrinks(ast);
     ast::desugar_arguments_object(ast);
     // RFC 20260912-global-var-cell knife 3 — a script's top-level
     // function declarations reach the global object. After the argv

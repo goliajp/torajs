@@ -195,6 +195,7 @@ mod free_vars_hoisted_names;
 mod gen_fn_expr;
 mod globalthis_member;
 mod heritage;
+pub(crate) mod hof_len_shrink;
 mod hoist_gen_fn_exprs;
 mod hoist_gen_fn_exprs_decls;
 mod hoist_gen_fn_exprs_names;
@@ -359,6 +360,7 @@ pub(crate) use free_vars::free_idents_of_stmt;
 pub(crate) use free_vars::is_global_name as free_vars_is_global_name;
 pub use gen_fn_expr::{GenEnvInfo, GenFnExprInfo, GenFnExprKind, gen_env_methods_by_wrapper};
 pub use globalthis_member::desugar_globalthis_members;
+pub use hof_len_shrink::{HofLenShrinks, collect_hof_len_shrinks};
 pub use hoist_gen_fn_exprs::hoist_gen_fn_exprs;
 pub(crate) use hoist_gen_fn_exprs_self_write::rewrite_self_name_writes;
 pub(crate) use implicit_generics_infer::{
