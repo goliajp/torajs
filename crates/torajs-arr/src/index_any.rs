@@ -119,6 +119,14 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
         }
         let p = arr as *const u8;
         let len = *(p.add(ARR_LEN_OFF) as *const u64);
+        if idx >= 0
+            && crate::arguments_index_bag::in_bag(arr, idx as u64, len)
+            && let Some(b) = crate::arguments_index_bag::bag_get_borrowed(arr, idx as u64)
+        {
+            // The bag keeps its reference; the answer takes another.
+            __torajs_rc_inc(b as *mut c_void);
+            return b;
+        }
         if idx < 0 || idx as u64 >= len {
             // §10.1.8.1 step 3 — no own element: [[Get]] continues to
             // the Array.prototype / %Object.prototype% digit keys

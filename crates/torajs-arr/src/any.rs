@@ -323,6 +323,12 @@ pub unsafe extern "C" fn __torajs_arr_set_any_grow(
             return crate::any_typed_bridge::typed_set_grow(arr, i, tag, value);
         }
         let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        // §10.4.4 — past an arguments object's elements is an
+        // ordinary own property; `length` does not move.
+        if crate::arguments_index_bag::in_bag(arr as *const c_void, i, len) {
+            crate::arguments_index_bag::bag_store(arr as *mut c_void, i, tag, value);
+            return arr;
+        }
         // Sparse tail (RFC 20260810) — an index with no slot behind
         // it, in-tail OR past the end (the plain grow lane below
         // widens `cap` without materializing `[extent, len)`, which

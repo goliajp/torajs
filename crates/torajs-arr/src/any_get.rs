@@ -39,6 +39,11 @@ pub unsafe extern "C" fn __torajs_arr_get_any_boxed(arr: *const c_void, i: u64) 
         let arr_u8 = arr as *const u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
+            if crate::arguments_index_bag::in_bag(arr, i, len)
+                && let Some(b) = crate::arguments_index_bag::bag_get_borrowed(arr, i)
+            {
+                return b;
+            }
             return __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0);
         }
         // Sparse tail (RFC 20260810) — no slot behind `[extent,
@@ -114,6 +119,11 @@ pub unsafe extern "C" fn __torajs_arr_get_any_tag(arr: *const c_void, i: u64) ->
         let arr_u8 = arr as *const u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
+            if crate::arguments_index_bag::in_bag(arr, i, len)
+                && let Some(b) = crate::arguments_index_bag::bag_get_borrowed(arr, i)
+            {
+                return __torajs_anyv_unbox_tag(b) as u64;
+            }
             return ANY_UNDEF;
         }
         // Sparse tail — undefined, paired with `get_any_value`'s 0.
@@ -197,6 +207,11 @@ pub unsafe extern "C" fn __torajs_arr_get_any_value(arr: *const c_void, i: u64) 
         let arr_u8 = arr as *const u8;
         let len = *(arr_u8.add(ARR_LEN_OFF) as *const u64);
         if i >= len {
+            if crate::arguments_index_bag::in_bag(arr, i, len)
+                && let Some(b) = crate::arguments_index_bag::bag_get_borrowed(arr, i)
+            {
+                return __torajs_anyv_unbox_value(b) as u64;
+            }
             return 0;
         }
         // Sparse tail — 0, pairing get_any_tag's ANY_UNDEF.

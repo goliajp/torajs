@@ -155,7 +155,13 @@ pub(crate) unsafe fn arr_cell_descriptor(arr: *const c_void, key: *const c_void)
             }
         }
     }
-    if let Some(idx) = canonical_index(bytes) {
+    // §10.4.4 — past an arguments object's elements an index is an
+    // ordinary property of its props bag: the expando walk below.
+    let bag_index = canonical_index(bytes).is_some_and(|idx| {
+        idx >= unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() }
+            && unsafe { __torajs_arr_is_arguments(arr) } != 0
+    });
+    if let Some(idx) = canonical_index(bytes).filter(|_| !bag_index) {
         let len = unsafe { arr.cast::<u8>().add(ARR_LEN_OFF).cast::<u64>().read() };
         if idx >= len {
             return VALUE_UNDEFINED_IMM;

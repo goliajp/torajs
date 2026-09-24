@@ -214,6 +214,13 @@ pub unsafe extern "C" fn __torajs_arr_delete_index(
     idx: u64,
 ) -> i32 {
     let len = unsafe { (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
+    if unsafe { crate::arguments_index_bag::in_bag(arr, idx, len) } {
+        // No such property: deleting it succeeds.
+        if unsafe { crate::props::__torajs_arrprops_has(arr, key) } == 0 {
+            return 1;
+        }
+        return unsafe { crate::props::__torajs_arrprops_delete(arr, key) };
+    }
     if idx >= len {
         return 1;
     }
