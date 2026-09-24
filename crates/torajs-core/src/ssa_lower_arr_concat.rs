@@ -301,11 +301,12 @@ fn lower_concat_typed(
     let out_elem = ctx.arr_layouts[out_id.0 as usize];
     let recv_len = load_len(ctx, recv_op.clone());
     if args.is_empty() {
-        // 0-arg form ≡ shallow copy; the copied slots own nothing yet.
+        // 0-arg form ≡ shallow copy (holes stay holes, like the array
+        // arguments below); the copied slots own nothing yet.
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
-                ctx.intrinsics.arr_slice,
+                ctx.intrinsics.arr_slice_keep_holes,
                 vec![recv_op, Operand::ConstI64(0), Operand::Value(recv_len)],
             ),
             Type::Arr(out_id),
@@ -429,9 +430,11 @@ fn load_len(ctx: &mut LowerCtx<'_>, arr: Operand) -> crate::ssa::ValueId {
     )
 }
 
-/// Append every slot of `src` to `dst` (capacity pre-summed) and, for
-/// a refcounted product, adopt the copied range by the SOURCE's
-/// element type — a view source materializes, an owned source incs.
+/// Append every slot of `src` to `dst` (capacity pre-summed), keeping
+/// its holes holes (§23.1.3.1 step 5.c.iv copies only what `exists`),
+/// and, for a refcounted product, adopt the copied range by the
+/// SOURCE's element type — a view source materializes, an owned source
+/// incs.
 fn copy_arr_range(
     ctx: &mut LowerCtx<'_>,
     dst: &Operand,
@@ -442,7 +445,7 @@ fn copy_arr_range(
     let old_len = owned_slots.then(|| load_len(ctx, dst.clone()));
     ctx.f.append_void(
         ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.arr_extend_unchecked, vec![dst.clone(), src]),
+        InstKind::Call(ctx.intrinsics.arr_extend_keep_holes, vec![dst.clone(), src]),
     );
     if let Some(old) = old_len {
         let new_len = load_len(ctx, dst.clone());

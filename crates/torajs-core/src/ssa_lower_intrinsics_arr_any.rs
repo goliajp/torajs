@@ -60,6 +60,7 @@ pub(crate) struct ArrAnyIds {
     /// (a hole stays a hole); `arr_any_slice` is the Get-shaped one.
     pub arr_any_slice_keep_holes: FuncId,
     pub arr_slice_keep_holes: FuncId,
+    pub arr_extend_keep_holes: FuncId,
     pub arr_any_to_reversed: FuncId,
     pub arr_has_index: FuncId,
     pub arr_sort_exotic: FuncId,
@@ -147,6 +148,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_any_slice: decl!("__torajs_arr_any_slice", [Ptr, I64, I64], Ptr),
         arr_any_slice_keep_holes: decl!("__torajs_arr_any_slice_keep_holes", [Ptr, I64, I64], Ptr),
         arr_slice_keep_holes: decl!("__torajs_arr_slice_keep_holes", [Ptr, I64, I64], Ptr),
+        arr_extend_keep_holes: decl!("__torajs_arr_extend_keep_holes", [Ptr, Ptr], Void),
         // 刀 13b — §23.1.3.33 high→low [[Get]]-order reverse copy
         // (getter side effects observed by later lower-index reads).
         arr_any_to_reversed: decl!("__torajs_arr_any_to_reversed", [Ptr], Ptr),

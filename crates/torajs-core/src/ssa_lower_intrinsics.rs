@@ -368,6 +368,9 @@ pub(crate) struct Intrinsics {
     /// `slice` over a typed receiver: the bulk copy plus the source's
     /// holes marked on the product (§23.1.3.28 step 12.b).
     pub(crate) arr_slice_keep_holes: FuncId,
+    /// concat's typed append: `arr_extend_unchecked` plus the source's
+    /// holes marked on the product (§23.1.3.1 step 5.c.iv).
+    pub(crate) arr_extend_keep_holes: FuncId,
     pub(crate) arr_any_to_reversed: FuncId,
     pub(crate) arr_has_index: FuncId,
     pub(crate) arr_sort_exotic: FuncId,

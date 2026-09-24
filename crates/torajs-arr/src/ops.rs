@@ -64,6 +64,30 @@ pub unsafe extern "C" fn __torajs_arr_push_unchecked(arr: *mut c_void, val: i64)
 /// `dst` must have capacity for the extra `src.len` elements.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_extend_unchecked(dst: *mut u8, src: *const u8) {
+    unsafe { extend_slots(dst, src) }
+}
+
+/// `concat`'s append of an array argument (and of the receiver itself):
+/// [`__torajs_arr_extend_unchecked`], then §23.1.3.1 step 5.c.iv — an
+/// index the source does not have stays absent in the product. The
+/// spread lane keeps the plain kernel: `[...a]` reads a hole through
+/// the iterator as `undefined`. A dense source pays one header test.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_extend_unchecked`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_extend_keep_holes(dst: *mut u8, src: *const u8) {
+    unsafe {
+        let at = *(dst.add(ARR_LEN_OFF) as *const u64);
+        extend_slots(dst, src);
+        if crate::layout::needs_index_mop(src) {
+            let n = *(src.add(ARR_LEN_OFF) as *const u64);
+            crate::define_hole::copy_hole_marks(src, 0, dst, at, n);
+        }
+    }
+}
+
+unsafe fn extend_slots(dst: *mut u8, src: *const u8) {
     unsafe {
         let dst_len = *(dst.add(ARR_LEN_OFF) as *const u64);
         let src_len = *(src.add(ARR_LEN_OFF) as *const u64);
