@@ -108,6 +108,26 @@ pub(crate) unsafe fn mark_hole_range(arr: *mut c_void, from: u64, to: u64) {
     }
 }
 
+/// Carry the holes of `src[from .. from + n]` onto `dst[at .. at + n]`
+/// — the copy kernels that keep holes (§23.1.3.28 slice, §23.1.3.1
+/// concat) move slot words in bulk, and a typed slot's word does not say
+/// absent; the shadow does. Callers screen on `needs_index_mop(src)`.
+///
+/// Recorded boundary: a hole a prototype digit key fills is present to
+/// HasProperty, and the spec copies that key's value; this marks it a
+/// hole (the same boundary as the typed callback-method copy).
+pub(crate) unsafe fn copy_hole_marks(src: *const u8, from: u64, dst: *mut u8, at: u64, n: u64) {
+    for k in 0..n {
+        let hole = unsafe {
+            crate::define_index_flags::__torajs_arr_index_flags(src as *const c_void, from + k)
+        } & F_HOLE
+            != 0;
+        if hole {
+            unsafe { mark_hole_range(dst as *mut c_void, at + k, at + k + 1) };
+        }
+    }
+}
+
 /// Mark the LAST pushed slot a HOLE (§13.2.4 elision — the slot
 /// reads undefined but is not an own property: `1 in [0,,2]` is
 /// false, indexOf skips it). Every caller pushes a slot and marks it

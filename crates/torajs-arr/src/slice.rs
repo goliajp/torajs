@@ -158,6 +158,35 @@ pub unsafe extern "C" fn __torajs_arr_any_slice_keep_holes(
     unsafe { any_slice(arr, start, end, Holes::Keep) }
 }
 
+/// `Array.prototype.slice` over a TYPED receiver — the bulk copy of
+/// [`__torajs_arr_slice`], then §23.1.3.28 step 12.b: an index the
+/// receiver does not have (a hole a write past the end or a longer
+/// length left) stays absent in the product. The hole's slot word is
+/// copied with the rest, so a later read of the product answers the
+/// same as a read of the receiver. A dense receiver pays one header
+/// test. The other `arr_slice` callers are Get-shaped copies
+/// (Array.from, toSorted, toSpliced …) and keep reading holes as
+/// `undefined`.
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_slice`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_slice_keep_holes(
+    arr: *const u8,
+    start: i64,
+    end: i64,
+) -> *mut u8 {
+    unsafe {
+        let p = __torajs_arr_slice(arr, start, end);
+        if crate::layout::needs_index_mop(arr) {
+            let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+            let (lo, hi) = clamp_range(len as i64, start, end);
+            crate::define_hole::copy_hole_marks(arr, lo as u64, p, 0, (hi - lo) as u64);
+        }
+        p
+    }
+}
+
 /// What a copy does with an absent index of an exotic receiver.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Holes {

@@ -130,10 +130,12 @@ pub(crate) fn try_dispatch(
         // raw inc walk below must not run (double-inc).
         let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
         let elem_is_any = matches!(elem_ty, Type::Any);
+        // Both keep the receiver's holes as holes of the product
+        // (§23.1.3.28 step 12.b — only a present index is copied).
         let slice_fid = if elem_is_any {
             ctx.intrinsics.arr_any_slice_keep_holes
         } else {
-            ctx.intrinsics.arr_slice
+            ctx.intrinsics.arr_slice_keep_holes
         };
         // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do not
         // leave their split block — rotation 468).
