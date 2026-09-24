@@ -113,10 +113,18 @@ pub(crate) unsafe fn mark_hole_range(arr: *mut c_void, from: u64, to: u64) {
 /// false, indexOf skips it). Every caller pushes a slot and marks it
 /// immediately, so `len - 1` is the index and the fresh slot carries
 /// default attributes, which is why the delete below cannot refuse.
-/// Three of them: the array-literal elision lowering, and `map`'s
-/// hole arm on either tier (§23.1.3.21 step 6.c — the product keeps
-/// the source's length, so a skipped index arrives as a hole instead
-/// of shortening the result).
+/// Four of them: the array-literal elision lowering, and `map`'s
+/// hole arm on the static lane, the Arr kernel and the array-like
+/// walker (§23.1.3.21 step 6.c — the product keeps the source's
+/// length, so a skipped index arrives as a hole instead of shortening
+/// the result).
+///
+/// Every caller's cell is an Any cell, so the hole is the slot value
+/// `0` under `FLAG_ARR_ANY_HOLEY` — the `new Array(n)` representation
+/// — instead of a shadow entry keyed by a minted index string. The
+/// pushed slot holds the `undefined` immediate, which owns nothing,
+/// so overwriting it releases nothing. A typed cell (none today)
+/// keeps the shadow: its slots have no reserved encoding.
 ///
 /// # Safety
 /// `arr` is a live `Tag::Arr` heap pointer.
@@ -127,6 +135,14 @@ pub unsafe extern "C" fn __torajs_arr_mark_last_hole(arr: *mut c_void) {
         return;
     }
     let idx = len - 1;
+    if unsafe { crate::define::header_flags(arr) } & torajs_rc::FLAG_ARR_ANY != 0 {
+        unsafe {
+            let p = arr.cast::<u8>();
+            *(crate::layout::arr_data(p).add(idx as usize * 8) as *mut u64) = 0;
+            (*(p as *mut torajs_rc::HeapHeader)).flags |= torajs_rc::FLAG_ARR_ANY_HOLEY;
+        }
+        return;
+    }
     let key = unsafe { crate::define::mint_index_key(idx) };
     unsafe {
         __torajs_arr_delete_index(arr, key as *mut c_void, idx);
