@@ -93,9 +93,13 @@ pub(super) fn unbox_args(
         }
         let arg = match pty {
             Type::Any => av,
+            // A parameter is a slot, not a ToNumber operand: an
+            // `undefined` argument (a hole a kernel read, a missing
+            // one) keeps the sentinel, which reads as NaN wherever
+            // nothing asks and as `undefined` where something does.
             Type::F64 => Operand::Value(f.append_inst(
                 entry,
-                InstKind::Call(intr.any_to_number, vec![av]),
+                InstKind::Call(intr.any_to_f64_slot, vec![av]),
                 Type::F64,
                 None,
             )),

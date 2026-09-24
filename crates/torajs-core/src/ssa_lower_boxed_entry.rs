@@ -47,6 +47,9 @@ pub(crate) struct BoxedEntryIntrinsics {
     pub(crate) any_box: FuncId,
     /// `__torajs_anyv_to_number(v) -> f64` (ES ToNumber).
     pub(crate) any_to_number: FuncId,
+    /// `__torajs_anyv_to_f64_slot(v) -> f64` — ToNumber, except that
+    /// `undefined` keeps the F64 sentinel (a `number` parameter slot).
+    pub(crate) any_to_f64_slot: FuncId,
     /// `__torajs_anyv_to_bool(v) -> bool` (ES ToBoolean).
     pub(crate) any_to_bool: FuncId,
     /// `__torajs_anyv_unbox_value(v) -> i64` (cell ptr bits).

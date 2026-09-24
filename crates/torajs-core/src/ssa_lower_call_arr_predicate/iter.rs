@@ -128,6 +128,30 @@ pub(super) fn emit_predicate_iter(
     Operand::Value(r)
 }
 
+/// The element as the predicate's first argument. An element holding
+/// its type's undefined — the F64 sentinel or a pointer type's
+/// undefined cell, a hole the find family reads with [[Get]]
+/// (§23.1.3.9) or a stored undefined — is `undefined` to an `any`
+/// parameter, not the NaN or the heap box the plain box makes.
+fn pred_elem_arg(
+    ctx: &mut LowerCtx<'_>,
+    elem: ValueId,
+    elem_ty: Type,
+    fn_ty: Type,
+    argv_face: bool,
+) -> Operand {
+    let sig_first = ctx.sig_param_tys(fn_ty).and_then(|p| p.first().copied());
+    if argv_face || sig_first != Some(Type::Any) {
+        Operand::Value(elem)
+    } else if elem_ty == Type::F64 {
+        ctx.box_f64_or_undef(Operand::Value(elem))
+    } else if crate::ssa_lower_index_undef::has_undef_spelling(elem_ty) {
+        ctx.box_heap_slot_or_undef(Operand::Value(elem))
+    } else {
+        Operand::Value(elem)
+    }
+}
+
 /// The element the predicate sees: the gate's slot when the source is
 /// boxed and gated (rotation 652), else the kind-aware borrowed-box
 /// helper for an Any element (RFC 20260707 chunk 625 — a typed block
@@ -161,9 +185,31 @@ fn read_elem(
     }
     let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(i_now), 3, false);
-    ctx.f.append_inst(
+    let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::LoadDyn(elem_ty, off_base, off),
+        elem_ty,
+        None,
+    );
+    if !crate::ssa_lower_index_undef::has_undef_spelling(elem_ty) {
+        return v;
+    }
+    // A hole of a pointer cell is a NULL slot, which [[Get]] answers
+    // with `undefined` — and the find family visits holes (§23.1.3.9):
+    // the predicate gets the type's own undefined, not a NULL.
+    let slot = ctx.alloca_in_entry(elem_ty, Some("__pred_elem"));
+    let merge = ctx.f.add_block();
+    crate::ssa_lower_index_undef::null_slot_is_hole(ctx, v, elem_ty, slot, merge);
+    let cur = ctx.cur_block;
+    ctx.f.append_void(
+        cur,
+        InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(cur, Terminator::Br(merge));
+    ctx.cur_block = merge;
+    ctx.f.append_inst(
+        merge,
+        InstKind::Load(elem_ty, Operand::Value(slot), 0),
         elem_ty,
         None,
     )
@@ -251,7 +297,8 @@ fn emit_body_and_step(
     if let Some(t) = this_arg {
         pred_args.push(t.clone());
     }
-    pred_args.push(Operand::Value(elem));
+    let elem_arg = pred_elem_arg(ctx, elem, elem_ty, fn_ty, argv_face);
+    pred_args.push(elem_arg);
     if cb_arity >= 2 {
         pred_args.push(Operand::Value(i_now2));
     }

@@ -235,16 +235,30 @@ pub(super) fn collect_hof_elem_params(
     let Expr::Member { obj, name } = a.ast.get_expr(callee) else {
         return;
     };
+    let Some(cb) = args.first() else { return };
+    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
+        return;
+    };
+    // The find family reads every index below length with [[Get]]
+    // (§23.1.3.9 — no HasProperty step), so a hole reaches the callback
+    // as the sentinel it holds. Where the holes came from is not
+    // tracked (`mk().findIndex(cb)`, a container filled in another
+    // function), and the receiver's static type may already be `any`
+    // here, so every receiver counts; a slot that cannot hold a
+    // sentinel pays nothing for it.
+    if matches!(
+        name.as_str(),
+        "find" | "findLast" | "findIndex" | "findLastIndex"
+    ) {
+        taint_param(a, &fn_name, 0, out);
+        return;
+    }
     let Expr::Ident(recv) = a.ast.get_expr(*obj) else {
         return;
     };
     if !t.elems.contains(recv) {
         return;
     }
-    let Some(cb) = args.first() else { return };
-    let Some(fn_name) = callback_fn_name(a, *cb, lifted) else {
-        return;
-    };
     match name.as_str() {
         m if ELEM_FIRST_HOFS.contains(&m) => {
             taint_param(a, &fn_name, 0, out);
