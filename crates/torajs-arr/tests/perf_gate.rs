@@ -42,6 +42,30 @@ pub unsafe extern "C" fn __torajs_throw_type_error(_msg: *const std::ffi::c_char
     panic!("perf_gate: a grow kernel refused an extensible array");
 }
 
+/// `__torajs_arr_shift` carries a typed cell's hole marks with its
+/// slots (`shift_holes`, out of line), which reaches the expando dynobj
+/// and the weak-ref registry — cross-tier externs this standalone test
+/// does not link. Every array here is dense, so the path never runs;
+/// the stubs only satisfy the linker (no arguments: only the symbol
+/// name is resolved), and panic if one is ever reached.
+macro_rules! unreachable_extern {
+    ($($name:ident),*) => {$(
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name() {
+            panic!(concat!("perf_gate: dense arrays never reach ", stringify!($name)));
+        }
+    )*};
+}
+unreachable_extern!(
+    __torajs_dynobj_alloc,
+    __torajs_dynobj_delete,
+    __torajs_dynobj_entry_is_hole,
+    __torajs_dynobj_get_flags,
+    __torajs_dynobj_has,
+    __torajs_dynobj_set_entry_hole,
+    __torajs_weakref_target_dying
+);
+
 fn time_median<F: FnMut()>(mut op: F, samples: usize) -> Duration {
     let mut times = Vec::with_capacity(samples);
     for _ in 0..samples {

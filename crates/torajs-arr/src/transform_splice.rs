@@ -55,17 +55,7 @@ pub unsafe extern "C" fn __torajs_arr_splice(
     }
     let len = unsafe { arr_len(arr) } as i64;
     let (actual_start, actual_delete) = normalize_splice_range(start, delete_count, len);
-    let removed = unsafe { arr_alloc_with(actual_delete as u64, actual_delete as u64) };
-    unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
-    if actual_delete > 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                data_ptr(arr).add(actual_start as usize * 8),
-                data_ptr_raw(removed, 0),
-                actual_delete as usize * 8,
-            );
-        }
-    }
+    let removed = unsafe { removed_slice(arr, actual_start, actual_delete) };
     let trailing = len - actual_start - actual_delete;
     if trailing > 0 && actual_delete > 0 {
         unsafe {
@@ -85,6 +75,25 @@ pub unsafe extern "C" fn __torajs_arr_splice(
             0,
             len,
         );
+    }
+    removed
+}
+
+/// The removed range `arr[start .. start + n)` as a fresh array with
+/// the receiver's element descriptor — its slot words and, for a
+/// receiver that can hold holes, its holes (§23.1.3.31 step 11 copies
+/// only present indexes). The words TRANSFER their references.
+unsafe fn removed_slice(arr: *mut u8, start: i64, n: i64) -> *mut u8 {
+    let removed = unsafe { arr_alloc_with(n as u64, n as u64) };
+    unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
+    if n > 0 {
+        unsafe {
+            let from = data_ptr(arr).add(start as usize * 8);
+            core::ptr::copy_nonoverlapping(from, data_ptr_raw(removed, 0), n as usize * 8);
+            if crate::layout::needs_index_mop(arr) {
+                crate::define_hole::copy_hole_marks(arr, start as u64, removed, 0, n as u64);
+            }
+        }
     }
     removed
 }
@@ -249,17 +258,7 @@ pub unsafe extern "C" fn __torajs_arr_splice_items(
         }
     }
 
-    let removed = unsafe { arr_alloc_with(actual_delete as u64, actual_delete as u64) };
-    unsafe { crate::layout::copy_elem_desc_bits(arr, removed) };
-    if actual_delete > 0 {
-        unsafe {
-            core::ptr::copy_nonoverlapping(
-                arr_data(arr).add(actual_start as usize * 8),
-                data_ptr_raw(removed, 0),
-                actual_delete as usize * 8,
-            );
-        }
-    }
+    let removed = unsafe { removed_slice(arr, actual_start, actual_delete) };
 
     let diff = n_items - actual_delete;
     let new_len = len + diff;

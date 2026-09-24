@@ -199,7 +199,12 @@ impl<'a> LowerCtx<'a> {
                 // RFC 20260713 blade 4 — frozen / RO-length receivers
                 // throw before the empty short-circuit (§23.1.3.20
                 // step 3.b writes length even when empty).
-                self.emit_arr_len_lock_guard(arr_op.clone(), ArrLenLock::DeleteTail);
+                let lock = if elem_ty == Type::Any {
+                    ArrLenLock::DeleteTail
+                } else {
+                    ArrLenLock::DeleteTailTyped
+                };
+                self.emit_arr_len_lock_guard(arr_op.clone(), lock);
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime pop (typed-behind-any blocks rebox
                 // per elem kind; empty → undefined built in). The old

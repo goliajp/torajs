@@ -6,7 +6,9 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::{FLAG_ARR_LENGTH_RO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED};
+use torajs_rc::{
+    FLAG_ARR_EXOTIC_INDEX, FLAG_ARR_LENGTH_RO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_SEALED,
+};
 
 use crate::define::{
     F_CONFIGURABLE, F_ENUMERABLE, F_WRITABLE, P_CONFIGURABLE, P_ENUMERABLE, P_VALUE, P_WRITABLE,
@@ -304,6 +306,17 @@ pub unsafe extern "C" fn __torajs_arr_delete_tail_guard(arr: *const c_void) -> i
         unsafe {
             __torajs_throw_type_error(c"Attempted to assign to readonly property.".as_ptr());
         }
+        return 1;
+    }
+    // Step 4.d deletes the popped index, and with it any shadow entry:
+    // a typed hole's mark left past the new length printed as a
+    // `"3": …` expando, and the next push landed in a hole. The typed
+    // lowering routes `FLAG_ARR_EXOTIC_INDEX` here for this.
+    if flags & FLAG_ARR_EXOTIC_INDEX != 0
+        && unsafe { crate::define_hole::shrink_purge_shadows(arr as *mut c_void, len - 1, len) }
+            != len - 1
+    {
+        unsafe { __torajs_throw_type_error(c"Unable to delete property.".as_ptr()) };
         return 1;
     }
     0

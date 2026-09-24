@@ -22,6 +22,10 @@ use crate::ssa_lower::{ARR_DATA_PTR_OFF, LowerCtx};
 pub(crate) enum ArrLenLock {
     ShiftDown,
     DeleteTail,
+    /// `DeleteTail` for a typed receiver: a shadow mark (a hole) also
+    /// sends it to the raiser, which drops the popped index's entry.
+    /// Not for Any — its runtime pop runs the index's getter first.
+    DeleteTailTyped,
 }
 
 impl<'a> LowerCtx<'a> {
@@ -55,10 +59,16 @@ impl<'a> LowerCtx<'a> {
     pub(crate) fn emit_arr_len_lock_guard(&mut self, arr: Operand, lock: ArrLenLock) {
         // FLAG_FROZEN | FLAG_ARR_LENGTH_RO | FLAG_SEALED — both shapes
         // delete the tail, and a sealed element is not configurable.
-        let lock_bits: i64 = 16 + 128 + 512;
+        // A typed pop adds FLAG_ARR_EXOTIC_INDEX.
+        let lock_bits: i64 = match lock {
+            ArrLenLock::ShiftDown | ArrLenLock::DeleteTail => 16 + 128 + 512,
+            ArrLenLock::DeleteTailTyped => 16 + 128 + 512 + 32768,
+        };
         let raiser = match lock {
             ArrLenLock::ShiftDown => self.intrinsics.arr_shift_guard,
-            ArrLenLock::DeleteTail => self.intrinsics.arr_delete_tail_guard,
+            ArrLenLock::DeleteTail | ArrLenLock::DeleteTailTyped => {
+                self.intrinsics.arr_delete_tail_guard
+            }
         };
         let hdr = self.f.append_inst(
             self.cur_block,

@@ -227,6 +227,10 @@ pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
         lo += 1;
         hi -= 1;
     }
+    if unsafe { crate::layout::needs_index_mop(arr) } {
+        let last = len - 1;
+        unsafe { crate::define_hole::move_holes(arr.cast(), len, len, |i| Some(last - i)) };
+    }
     arr
 }
 
@@ -240,6 +244,19 @@ pub unsafe extern "C" fn __torajs_arr_reverse(arr: *mut u8) -> *mut u8 {
 /// in the SSA layer).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_unshift(arr: *mut u8, v: i64) -> *mut u8 {
+    let old_len = unsafe { arr_len(arr) };
+    unsafe { unshift_slot(arr, v) };
+    if unsafe { arr_len(arr) } > old_len && unsafe { crate::layout::needs_index_mop(arr) } {
+        unsafe {
+            crate::define_hole::move_holes(arr.cast(), old_len, old_len + 1, |i| Some(i + 1))
+        };
+    }
+    arr
+}
+
+/// The slot half of [`__torajs_arr_unshift`]: guard, then store `v`
+/// at logical slot 0.
+unsafe fn unshift_slot(arr: *mut u8, v: i64) -> *mut u8 {
     // A new index on a non-extensible receiver is a TypeError
     // (`__torajs_arr_extend_guard`). Nothing to release here, and that
     // is deliberate: on this lane the raw slot value is BORROWED at
@@ -347,6 +364,21 @@ pub unsafe extern "C" fn __torajs_arr_copy_within(
             count as usize * 8,
         );
     }
+    if unsafe { crate::layout::needs_index_mop(arr) } {
+        let (lo, to, count) = (lo as u64, to as u64, count as u64);
+        for h in unsafe { crate::define_hole::take_holes(arr.cast(), 0, len as u64) } {
+            // A hole outside the target keeps its place; one in the
+            // source range also lands at its copy (§23.1.3.4 step
+            // 16.c DeletePropertyOrThrow).
+            if !(to..to + count).contains(&h) {
+                unsafe { crate::define_hole::mark_hole_range(arr.cast(), h, h + 1) };
+            }
+            if (lo..lo + count).contains(&h) {
+                let n = h - lo + to;
+                unsafe { crate::define_hole::mark_hole_range(arr.cast(), n, n + 1) };
+            }
+        }
+    }
     arr
 }
 
@@ -388,6 +420,12 @@ pub unsafe extern "C" fn __torajs_arr_fill(
     }
     for i in lo..hi {
         unsafe { (data_ptr(arr).add(i as usize * 8) as *mut i64).write(value) };
+    }
+    if lo < hi && unsafe { crate::layout::needs_index_mop(arr) } {
+        // A filled index is present again; the rest keep their marks.
+        let (lo, hi, len) = (lo as u64, hi as u64, len as u64);
+        let keep = |i| (i < lo || i >= hi).then_some(i);
+        unsafe { crate::define_hole::move_holes(arr.cast(), len, len, keep) };
     }
     arr
 }

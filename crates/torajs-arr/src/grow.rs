@@ -197,8 +197,24 @@ pub unsafe extern "C" fn __torajs_arr_shift(arr: *mut u8) -> i64 {
         *head_p = (head + 1) as u32;
         let len_p = arr.add(ARR_HDR_LEN_OFF) as *mut u64;
         *len_p -= 1;
+        if crate::define::header_flags(arr as *const c_void) & torajs_rc::FLAG_ARR_EXOTIC_INDEX != 0
+        {
+            shift_holes(arr, *len_p + 1);
+        }
         v
     }
+}
+
+/// §23.1.3.27 step 6 moves every index down one, holes included — a
+/// typed hole is a shadow mark keyed by index, so the marks move with
+/// the slots the head bump just moved. Out of line: the queue loop
+/// never carries a mark.
+#[cold]
+#[inline(never)]
+unsafe fn shift_holes(arr: *mut u8, old_len: u64) {
+    unsafe {
+        crate::define_hole::move_holes(arr.cast(), old_len, old_len - 1, |i| i.checked_sub(1))
+    };
 }
 
 /// Grow an array's data buffer to fit at least `new_cap` elements.

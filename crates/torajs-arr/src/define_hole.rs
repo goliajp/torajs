@@ -174,9 +174,8 @@ pub unsafe extern "C" fn __torajs_arr_mark_last_hole(arr: *mut c_void) {
 /// exotic-index HOLE shadows are keyed by index string, so a hole
 /// must travel with its slot (ES §14.7.5: an unvisited deleted index
 /// is never enumerated — sm/splice-suppresses-unvisited-indexes).
-/// Snapshot the affected range's holes, revive every stale shadow,
-/// re-mark each tail hole at its shifted position (dropped when it
-/// lands outside the new length). Non-hole attribute shadows stay
+/// Each tail hole is re-marked at its shifted position (dropped when
+/// it lands outside the new length). Non-hole attribute shadows stay
 /// put (recorded boundary — the G7/G14 exotic-flag design owns full
 /// attribute motion).
 pub(crate) unsafe fn splice_remap_holes(
@@ -186,38 +185,67 @@ pub(crate) unsafe fn splice_remap_holes(
     inserted: i64,
     old_len: i64,
 ) {
-    if unsafe { crate::define::header_flags(arr) } & FLAG_ARR_EXOTIC_INDEX == 0 {
-        return;
-    }
     let delta = inserted - deleted;
     let new_len = old_len + delta;
-    let mut moved: Vec<i64> = Vec::new();
-    for idx in start.max(0)..old_len {
-        let key = unsafe { crate::define::mint_index_key(idx as u64) };
-        let is_hole =
-            unsafe { index_flags_with_key(arr, key as *const c_void, idx as u64) } & F_HOLE != 0;
-        if is_hole {
-            // Revive the stale shadow — the kernel already moved /
-            // overwrote the slot itself.
-            unsafe { store_shadow(arr, key as *mut c_void, FLAGS_DEFAULT) };
-            let nidx = idx + delta;
-            if idx >= start + deleted && (0..new_len).contains(&nidx) {
-                moved.push(nidx);
+    for idx in unsafe { take_holes(arr, start.max(0) as u64, old_len as u64) } {
+        let (idx, nidx) = (idx as i64, idx as i64 + delta);
+        if idx >= start + deleted && (0..new_len).contains(&nidx) {
+            unsafe { mark_hole_range(arr, nidx as u64, nidx as u64 + 1) };
+        }
+    }
+}
+
+/// Carry the holes below `old_len` through an in-place move that put
+/// the slot at `i` at `to(i)` (`None`: the move dropped it). The
+/// kernels move slot words, and a typed slot's word does not say
+/// absent — the shadow does (§23.1.3.26 reverse, .27 shift, .30
+/// unshift, .7 fill: a hole moves as DeletePropertyOrThrow at the
+/// slot's new index). Callers screen on `needs_index_mop`.
+pub(crate) unsafe fn move_holes(
+    arr: *mut c_void,
+    old_len: u64,
+    new_len: u64,
+    to: impl Fn(u64) -> Option<u64>,
+) {
+    for h in unsafe { take_holes(arr, 0, old_len) } {
+        if let Some(n) = to(h)
+            && n < new_len
+        {
+            unsafe { mark_hole_range(arr, n, n + 1) };
+        }
+    }
+}
+
+/// The holes of `arr[from .. old_len)`, each shadow entry dropped so
+/// the caller can re-mark it where its move put the slot. Dropping
+/// (not reviving to default attributes) leaves no entry at an index
+/// the move carried past the new length — a revived one printed as a
+/// `"3": undefined` expando after `splice(1, 2)`. Shadow entries only
+/// exist below the materialized extent, which a sparse tail bounds by
+/// the capacity.
+pub(crate) unsafe fn take_holes(arr: *mut c_void, from: u64, old_len: u64) -> Vec<u64> {
+    let mut holes = Vec::new();
+    let flags = unsafe { crate::define::header_flags(arr) };
+    if flags & FLAG_ARR_EXOTIC_INDEX == 0 {
+        return holes;
+    }
+    let mut bound = old_len;
+    if flags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0 {
+        let cap = unsafe { *(arr.cast::<u8>().add(crate::layout::ARR_CAP_OFF) as *const u32) };
+        bound = bound.min(cap as u64);
+    }
+    let props = unsafe { *props_slot(arr) };
+    for idx in from..bound {
+        let key = unsafe { crate::define::mint_index_key(idx) };
+        if unsafe { index_flags_with_key(arr, key as *const c_void, idx) } & F_HOLE != 0 {
+            holes.push(idx);
+            if !props.is_null() {
+                unsafe { __torajs_dynobj_delete(props, key as *const c_void) };
             }
         }
         unsafe { __torajs_str_drop(key as *mut c_void) };
     }
-    if moved.is_empty() {
-        return;
-    }
-    unsafe {
-        let slot = crate::exotic_seam::__torajs_arr_props_attach(arr);
-        for nidx in moved {
-            let key = crate::define::mint_index_key(nidx as u64);
-            __torajs_dynobj_set_entry_hole(slot, key as *mut c_void);
-            __torajs_str_drop(key as *mut c_void);
-        }
-    }
+    holes
 }
 
 /// §10.4.2 [[Delete]] on a canonical index — `delete arr[i]`.
