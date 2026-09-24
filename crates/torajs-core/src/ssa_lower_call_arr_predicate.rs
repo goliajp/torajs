@@ -107,7 +107,7 @@ pub(crate) fn try_lower(
     // argv pointer. The loop body routes it through the boxed
     // variadic dispatch instead (`emit_argv_face_call`), packing the
     // full §23.1.3.{5-10,30} «kValue, k, O» triple.
-    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, args[0]);
+    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
     let (result_ty, result_slot) = setup_result_slot(ctx, &name, elem_ty);
     let out = emit_predicate_iter(
         ctx,

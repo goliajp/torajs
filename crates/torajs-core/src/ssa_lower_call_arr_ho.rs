@@ -173,7 +173,7 @@ fn lower_higher_order(
     // take the direct / devirt call: its reshaped sig leads with the
     // synthetic argv pointer. The loop body routes it through the
     // boxed variadic dispatch instead (emit_argv_face_call).
-    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, args[0]);
+    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
     let frame = begin_loop(
         ctx,
         &method,

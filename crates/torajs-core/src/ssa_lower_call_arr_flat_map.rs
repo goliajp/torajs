@@ -78,7 +78,7 @@ pub(crate) fn try_lower(
     // ret still drives `dst_shape` — the variadic conv unboxes the
     // result back to it, so the downstream scalar / inner-walk
     // split is unchanged.
-    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, args[0]);
+    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
     let cb_ret_ty = match fn_ty {
         Type::FnSig(s) | Type::Closure(s) => ctx.fn_sigs[s.0 as usize].1,
         _ => panic!("flatMap callback must be callable"),

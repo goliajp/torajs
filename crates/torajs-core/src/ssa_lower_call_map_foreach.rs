@@ -162,7 +162,7 @@ pub(crate) fn emit_map_for_each(
     // silent no-op loop). Route through the boxed variadic pack —
     // borrows only, the adapter's materialize incs what it stores,
     // so the direct lane's per-iteration transfer inc is skipped.
-    let argv_face = crate::ast::argv_face_callback::is_argv_face_callback(ctx.ast, args[0]);
+    let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
     if argv_face {
         let _ = crate::ssa_lower_call_arr_ho_loop::emit_argv_face_call(
             ctx,
