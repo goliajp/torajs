@@ -297,20 +297,20 @@ pub(crate) unsafe fn shrink_purge_shadows(arr: *mut c_void, new_len: u64, old_le
     new_len
 }
 
-unsafe extern "C" {
-    /// torajs-anyvalue — §7.3.11 HasProperty walk (live index + hole
-    /// shadows + expando + prototype chain).
-    fn __torajs_arr_forin_key_live(arr: *mut c_void, key: *const c_void) -> i64;
-}
-
 /// §7.3.11 HasProperty for a numeric key on an Array receiver — the
-/// static `in` lane's kernel (RFC 20260721 刀 13d). Pre-fix the lane
-/// was a raw `0 <= key < len` bounds check, blind to hole shadows
-/// (`delete` / length-grow / elision) and to prototype digit keys —
-/// `i in arr` answered true for a hole and false for an
-/// Array.prototype-supplied index. A clean in-bounds index answers 1
-/// with one flag test; everything else continues through the full
-/// walk.
+/// static `in` lane's kernel (RFC 20260721 刀 13d) and the §23.1.3
+/// present gate of the array callback methods. Own: an index below
+/// `length` whose attribute flags carry no HOLE — the same answer the
+/// any tier's own probe gives an `Arr` receiver (`any_prop_has`), and
+/// `__torajs_arr_index_flags` already folds the sparse tail, the slot
+/// hole and the shadow hole into that bit (and answers a plain array
+/// with one flag test). Absent own: the chain ([`proto_index_present`]).
+///
+/// Both halves stay inside this crate on purpose. The own half used to
+/// go through the any tier's generic HasProperty walk and the prototype
+/// half through the minting prototype getter; either one linked the
+/// whole builtin-prototype machinery into every program that asks
+/// about an index (≈800 KB of a release `forEach` product).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i64 {
     unsafe {
@@ -318,52 +318,58 @@ pub unsafe extern "C" fn __torajs_arr_has_index(arr: *mut c_void, idx: i64) -> i
             return 0;
         }
         let len = (arr.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
-        let hflags = crate::define::header_flags(arr);
-        let exotic = hflags & FLAG_ARR_EXOTIC_INDEX != 0;
-        // Sparse tail (RFC 20260810) — implicit holes are absent as
-        // own properties: fall through to the walk (shadow probe
-        // finds nothing, the chain consults prototype digit keys).
-        let in_tail = hflags & torajs_rc::FLAG_ARR_SPARSE_TAIL != 0
-            && (idx as u64) >= crate::layout::arr_live_extent(arr as *const u8);
-        // A slot hole (FLAG_ARR_ANY_HOLEY) is absent the same way —
-        // the walk below then asks the prototype.
         if (idx as u64) < len
-            && !exotic
-            && !in_tail
-            && !crate::layout::any_slot_is_hole(arr as *const u8, idx as u64)
+            && crate::define_index_flags::__torajs_arr_index_flags(arr, idx as u64) & F_HOLE == 0
         {
             return 1;
         }
-        // Exotic (hole shadows possible) or OOB (prototype digit
-        // keys) — mint the canonical key and walk.
-        let key = crate::define::mint_index_key(idx as u64);
-        let live = __torajs_arr_forin_key_live(arr, key as *const c_void);
-        __torajs_str_drop(key as *mut c_void);
-        if live != 0 {
-            return 1;
-        }
         // §7.3.11 does not stop at own: a hole is absent from the
-        // receiver, and HasProperty then asks the prototype. That
-        // matters because `Array.prototype` is an `Arr` cell of its own
-        // and a digit key installed on it — `Array.prototype[0] = v`, or
-        // an accessor pair from `Object.defineProperty` — makes the
-        // receiver's hole a property after all. The walk above answers
-        // only about `arr` itself (`__torajs_any_has_property` stops at
-        // own for a non-DynObj receiver), so the step is taken here.
-        //
-        // Six test262 cases turn on it: `[, 1].forEach(cb)` with a
-        // setter installed at `Array.prototype[0]` must call the
-        // callback for index 0 with `undefined`.
-        //
-        // One level. `Object.prototype`'s digit keys sit above this and
-        // stay unanswered — the same boundary the receiver-side walk
-        // already draws, and no test in the corpus reaches past it.
-        let proto = torajs_rc::builtin_proto::__torajs_get_builtin_prototype(
-            torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64,
-        );
-        if proto.is_null() || core::ptr::eq(proto.cast::<u8>(), arr.cast::<u8>()) {
-            return 0;
+        // receiver, and HasProperty then asks the chain.
+        proto_index_present(idx as u64) as i64
+    }
+}
+
+/// The chain half of HasProperty for an index key on an Array: the
+/// digit keys of %Array.prototype% (an `Arr` cell of its own —
+/// `Array.prototype[0] = v`, or an accessor pair from
+/// `Object.defineProperty`) and of %Object.prototype% above it. The one
+/// home for this walk: `in` / the §23.1.3 present gate
+/// ([`__torajs_arr_has_index`]) and the indexOf / lastIndexOf skip
+/// (`method_any_search`) all ask it. Six test262 cases turn on the
+/// first level (`[, 1].forEach(cb)` with a setter at
+/// `Array.prototype[0]` calls the callback for index 0);
+/// `arr-has-property-proto-chain-001` on the second.
+///
+/// Peek, never mint: a digit key can only be written onto a prototype
+/// through a cell somebody already fetched, so an empty slot means
+/// there is none to find. Minting here installed the whole builtin
+/// prototype set on first use and linked that machinery into every
+/// program that asks about an index. HasProperty never runs a getter,
+/// so presence alone answers for accessor entries.
+pub(crate) unsafe fn proto_index_present(idx: u64) -> bool {
+    use torajs_rc::builtin_proto::{
+        __torajs_peek_builtin_prototype, ARRAY_PROTO_TAG, OBJECT_PROTO_TAG,
+    };
+    unsafe {
+        let ap = __torajs_peek_builtin_prototype(ARRAY_PROTO_TAG as i64);
+        if !ap.is_null() {
+            let len = (ap.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read();
+            if idx < len
+                && crate::define_index_flags::__torajs_arr_index_flags(ap, idx) & F_HOLE == 0
+            {
+                return true;
+            }
         }
-        __torajs_arr_has_index(proto, idx)
+        let op = __torajs_peek_builtin_prototype(OBJECT_PROTO_TAG as i64);
+        if op.is_null() {
+            return false;
+        }
+        let key = crate::define::mint_index_key(idx);
+        // A deleted proto index leaves a hole tombstone — raw presence
+        // alone would resurrect it.
+        let r = __torajs_dynobj_has(op, key as *const c_void) != 0
+            && __torajs_dynobj_entry_is_hole(op, key as *const c_void) == 0;
+        __torajs_str_drop(key as *mut c_void);
+        r
     }
 }

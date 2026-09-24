@@ -34,13 +34,6 @@ unsafe extern "C" {
     /// Cross-tier — universal NaN-box-safe heap dropper (releases
     /// the +1 each `arr_index_get` read takes for cells).
     fn __torajs_value_drop_heap(p: *mut c_void);
-    /// torajs-rc — builtin `<Ctor>.prototype` singleton (2 = Array).
-    fn __torajs_get_builtin_prototype(tag: i64) -> *mut c_void;
-    /// torajs-dynobj — own-entry presence + hole tombstone probe.
-    fn __torajs_dynobj_has(obj: *const c_void, key: *const c_void) -> i32;
-    fn __torajs_dynobj_entry_is_hole(obj: *const c_void, key: *const c_void) -> i32;
-    /// torajs-str — release an owned Str.
-    fn __torajs_str_drop(s: *mut c_void);
     /// torajs-throw — pending-throw probe. An index read through an
     /// accessor getter may throw; the scan must abort at that slot
     /// (§23.1.3.17 step 9.b.ii ReturnIfAbrupt — later getters are
@@ -64,53 +57,6 @@ unsafe fn is_nan_boxed(v: u64) -> bool {
             && f64::from_bits(__torajs_anyv_unbox_value(v) as u64).is_nan()
     }
 }
-
-/// §23.1.3.17 step 9.a — HasProperty walks the CHAIN: a hole whose
-/// index exists on Array.prototype (a defineProperty'd shadow /
-/// accessor on the tag-2 singleton) is NOT skipped; the element
-/// read then answers the proto entry for real (刀 5 G3 —
-/// `__torajs_arr_index_get`'s hole exit probes the singleton digit
-/// keys, getters included). Cold: only consulted when the receiver
-/// is exotic AND the slot is a hole.
-unsafe fn proto_index_present(idx: u64) -> bool {
-    unsafe {
-        let ap = __torajs_get_builtin_prototype(2);
-        if !ap.is_null() {
-            // The singleton's digit-key data lives in its OWN element
-            // storage (`Array.prototype[1] = v` grows it; an accessor
-            // define gap-fills to in-bounds). In-bounds is present
-            // unless the singleton's own slot is a hole tombstone —
-            // and HasProperty never runs a getter, so presence alone
-            // suffices for accessor entries.
-            let len = (ap.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read();
-            if idx < len
-                && (!crate::layout::needs_index_mop(ap as *const u8)
-                    || crate::define::__torajs_arr_index_flags(ap as *const c_void, idx)
-                        & crate::define::F_HOLE
-                        == 0)
-            {
-                return true;
-            }
-        }
-        // %Object.prototype% chain tail — a plain dynobj host.
-        let op = __torajs_get_builtin_prototype(OBJECT_PROTO_TAG_I64);
-        if op.is_null() {
-            return false;
-        }
-        let key = crate::define::mint_index_key(idx);
-        // A deleted proto index leaves a hole tombstone — raw
-        // presence alone would resurrect it.
-        let r = __torajs_dynobj_has(op as *const c_void, key as *const c_void) != 0
-            && __torajs_dynobj_entry_is_hole(op as *const c_void, key as *const c_void) == 0;
-        __torajs_str_drop(key as *mut c_void);
-        r
-    }
-}
-
-/// `torajs_rc::builtin_proto::OBJECT_PROTO_TAG` mirror (the crate
-/// resolves the registry through the link-time extern, so the tag
-/// constant mirrors inline).
-const OBJECT_PROTO_TAG_I64: i64 = 1;
 
 /// Shared search loop — answers the first index `>= from` whose
 /// slot matches, or -1. `same_value_zero` adds the NaN row.
@@ -138,7 +84,7 @@ unsafe fn search(arr: *const c_void, needle: u64, from: i64, same_value_zero: bo
             if skip_holes
                 && crate::define::__torajs_arr_index_flags(arr, i as u64) & crate::define::F_HOLE
                     != 0
-                && !proto_index_present(i as u64)
+                && !crate::define_hole::proto_index_present(i as u64)
             {
                 i += 1;
                 continue;
@@ -211,7 +157,7 @@ pub unsafe extern "C" fn __torajs_arr_any_last_index_of(
             if skip_holes
                 && crate::define::__torajs_arr_index_flags(arr, i as u64) & crate::define::F_HOLE
                     != 0
-                && !proto_index_present(i as u64)
+                && !crate::define_hole::proto_index_present(i as u64)
             {
                 i -= 1;
                 continue;
