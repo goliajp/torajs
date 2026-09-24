@@ -3,7 +3,7 @@
 //! (`lower_typed_index_checked`'s out-of-range exit) when that file
 //! reached its 500-line limit.
 
-use crate::ssa::{BlockId, InstKind, Operand, Type};
+use crate::ssa::{BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM;
 use crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM;
@@ -79,4 +79,45 @@ pub(crate) fn oob_undef_value(
         }
     };
     (oob_val, oob_throws)
+}
+
+/// A hole in a typed array whose elements are pointers (strings,
+/// objects, arrays, functions …) is a NULL slot: the runtime fills a
+/// grown gap with zero and marks it absent, and every any-lane reader
+/// already answers `undefined` for it (`torajs-arr` `index_any.rs`).
+/// The typed read handed the NULL on as an element — `s[4] = "z"` on
+/// `["x", "y"]` made `s[3]` print `null` — so here it takes the same
+/// `undefined` the out-of-range exit answers (§10.1.8.1: no own
+/// element, and no prototype key a typed read would consult).
+/// Scalar elements have no such slot value and emit nothing.
+///
+/// `v` is the element just loaded; on return `cur_block` continues
+/// with it, the hole having stored into `slot` and gone to `merge`.
+pub(crate) fn null_slot_is_hole(
+    ctx: &mut LowerCtx<'_>,
+    v: ValueId,
+    elem_ty: Type,
+    slot: ValueId,
+    merge: BlockId,
+) {
+    if !(elem_ty == Type::Str || elem_ty.spells_undef_with_generic_cell()) {
+        return;
+    }
+    let hole_blk = ctx.f.add_block();
+    let elem_blk = ctx.f.add_block();
+    let is_null = ctx.cmp(IPred::Eq, Operand::Value(v), Operand::ConstPtrNull);
+    let cur = ctx.cur_block;
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: is_null,
+            then_blk: hole_blk,
+            else_blk: elem_blk,
+        },
+    );
+    let (undef, _) = oob_undef_value(ctx, hole_blk, elem_ty);
+    ctx.f
+        .append_void(hole_blk, InstKind::Store(undef, Operand::Value(slot), 0));
+    ctx.f.set_term(hole_blk, Terminator::Br(merge));
+    ctx.cur_block = elem_blk;
 }

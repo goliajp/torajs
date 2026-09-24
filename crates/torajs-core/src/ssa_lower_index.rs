@@ -397,6 +397,7 @@ pub(crate) fn lower_typed_index_checked(
         elem_ty,
         None,
     );
+    crate::ssa_lower_index_undef::null_slot_is_hole(ctx, v, elem_ty, slot, merge);
     let stored = if promote_bool {
         ctx.cur_block = cur;
         ctx.box_to_any(Operand::Value(v))
