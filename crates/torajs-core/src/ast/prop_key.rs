@@ -190,15 +190,21 @@ impl fmt::Debug for PropKey {
     }
 }
 
-/// ES Number-to-property-key spelling: integral finite values print
-/// as integers (`0` not `0.0`), everything else takes the shortest
-/// float form — matching bun's serialization.
+/// ES Number-to-property-key spelling: §7.1.19 ToPropertyKey is
+/// §7.1.17 ToString, which for a Number is §6.1.6.1.20 Number::toString
+/// — the same bytes the runtime's `String(n)` produces. A literal key
+/// is spelled by that rule, not by the source text or by Rust's float
+/// formatting: `get 0.0000001()` names "1e-7", `1e21` names "1e+21",
+/// `0x10` names "16". ToString(-0) is "0".
 pub fn number_prop_key(n: f64) -> PropKey {
-    if n.is_finite() && n == n.trunc() && n.abs() < 1e21 {
-        PropKey::from(format!("{}", n as i64))
-    } else {
-        PropKey::from(format!("{n}"))
-    }
+    let mut buf = [0u8; 32];
+    let n = if n == 0.0 { 0.0 } else { n };
+    let len = torajs_fmt::dtoa::format_f64_into(n, &mut buf);
+    PropKey::from(
+        core::str::from_utf8(&buf[..len])
+            .expect("Number::toString writes ASCII")
+            .to_string(),
+    )
 }
 
 /// A compile-time literal index expression folded to its property

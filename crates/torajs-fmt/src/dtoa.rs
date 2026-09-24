@@ -46,9 +46,12 @@ pub unsafe extern "C" fn __torajs_fmt_dtoa(d: f64, out_buf: *mut u8, out_cap: us
     written as i32
 }
 
-/// Pure-Rust implementation (no unsafe, no extern). Exercised by
-/// the unit test suite via direct call.
-fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
+/// Pure-Rust implementation (no unsafe, no extern): writes the
+/// JS-spec ToString-of-Number bytes of `d` into `buf` (≥ 32 bytes)
+/// and returns how many it wrote. The compiler calls it directly to
+/// spell a numeric property key (§7.1.19 → §7.1.17); the unit tests
+/// call it the same way.
+pub fn format_f64_into(d: f64, buf: &mut [u8]) -> usize {
     // Step 1: NaN per ES §6.1.6.1.13 step 1.
     if d.is_nan() {
         return write_literal(buf, b"NaN");
