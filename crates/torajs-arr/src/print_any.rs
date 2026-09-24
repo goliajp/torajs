@@ -277,8 +277,8 @@ unsafe fn put_indent(n: u32) {
 }
 
 /// `empty item` / `N x empty items` — bun's rendering of a run of
-/// array holes.
-unsafe fn put_empty_items(n: u64) {
+/// array holes (the typed walker prints its runs with it too).
+pub(crate) unsafe fn put_empty_items(n: u64) {
     unsafe {
         if n == 1 {
             put_bytes(b"empty item");

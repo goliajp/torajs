@@ -135,7 +135,18 @@ pub(crate) unsafe fn print_typed_at(arr: *const u8, indent: u32, kind: TypedKind
             put_bytes(b"[ ");
             __torajs_inspect_line_add(2);
         }
-        for i in 0..len {
+        // A typed slot has no value that means absent (0 is a number),
+        // so only the shadow says hole — a write past the end or a
+        // longer length leaves them (§10.4.2.1). A run prints as bun's
+        // `N x empty items`, one element of the list.
+        let mop = crate::layout::needs_index_mop(arr);
+        let is_hole = |i: u64| -> bool {
+            mop && crate::define::__torajs_arr_index_flags(arr as *const c_void, i)
+                & crate::define::F_HOLE
+                != 0
+        };
+        let mut i = 0;
+        while i < len {
             if i > 0 {
                 put_byte(b',');
                 __torajs_inspect_line_add(1);
@@ -149,7 +160,17 @@ pub(crate) unsafe fn print_typed_at(arr: *const u8, indent: u32, kind: TypedKind
                     __torajs_inspect_line_add(1);
                 }
             }
+            if is_hole(i) {
+                let mut n = 0;
+                while i < len && is_hole(i) {
+                    n += 1;
+                    i += 1;
+                }
+                crate::print_any::put_empty_items(n);
+                continue;
+            }
             emit_elem(kind, crate::print::slot_addr(arr, head, i));
+            i += 1;
         }
         // Composite trailing `, key: value` props (regex exec
         // results etc). Unaccounted — prop-carrying arrays are
