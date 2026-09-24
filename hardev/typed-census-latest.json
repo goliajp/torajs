@@ -1,7 +1,7 @@
 {
   "tool": "typed-census",
-  "ranAt": "2026-09-24T01:14:20Z",
-  "headSha": "0fdb10349",
+  "ranAt": "2026-09-24T04:50:34Z",
+  "headSha": "416fe72f1",
   "headShaSource": "arg",
   "verdict": "ok",
   "samples": 254,
@@ -12,5 +12,5 @@
   "scored": 75207,
   "typedRatio": "0.7606",
   "stride": 17,
-  "corpusFiles": 4289
+  "corpusFiles": 4300
 }
