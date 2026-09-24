@@ -110,19 +110,26 @@ pub(crate) unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
 ///
 /// # Safety
 /// `outer` must be a valid Array<Array<T>> (slots hold valid Array
-/// pointers).
+/// pointers, or NULL for a hole).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_flat(outer: *const u8) -> *mut u8 {
     let outer_len = unsafe { arr_len(outer) };
     let mut total: u64 = 0;
     for i in 0..outer_len {
         let inner = unsafe { (data_ptr(outer).add(i as usize * 8) as *const *const u8).read() };
+        // A hole of the outer cell is a NULL slot — absent to step 3.b.
+        if inner.is_null() {
+            continue;
+        }
         total += unsafe { arr_len(inner) };
     }
     let p = unsafe { arr_alloc_with(total, total) };
     let mut cursor = 0usize;
     for i in 0..outer_len {
         let inner = unsafe { (data_ptr(outer).add(i as usize * 8) as *const *const u8).read() };
+        if inner.is_null() {
+            continue;
+        }
         // Product slots come from the inner arrays — inherit their
         // element-descriptor bits (uniform T per the checker).
         unsafe { crate::layout::copy_elem_desc_bits(inner, p) };

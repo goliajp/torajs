@@ -282,7 +282,7 @@ fn try_flat(
             panic!("ssa-lower: flat depth must be a number literal");
         };
         if depth == 0 {
-            return Some(emit_shallow_clone(ctx, recv_op, recv_ty));
+            return Some(emit_flat_leaf_copy(ctx, recv_op, recv_ty));
         }
         let mut cur = recv_op;
         let mut cur_ty = recv_ty;
@@ -313,7 +313,7 @@ fn try_flat(
                 // "flat" at this depth, but flat() must still return a
                 // fresh array. Emit a shallow clone (arr_slice + rc_inc
                 // range on refcounted elem) — same shape as depth=0.
-                cur = emit_shallow_clone(ctx, cur, cur_ty);
+                cur = emit_flat_leaf_copy(ctx, cur, cur_ty);
                 break;
             };
             let v = ctx.f.append_inst(
@@ -339,25 +339,18 @@ fn try_flat(
 /// Shallow clone of one array layer — `arr_slice(op, 0, len)` plus a
 /// per-element rc_inc range on refcounted layouts. Shared by the
 /// `flat(0)` fold and the non-Array-slot early stop.
-fn emit_shallow_clone(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand {
-    let len = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::Load(Type::I64, op, ARR_LEN_OFF),
-        Type::I64,
-        None,
-    );
-    // The clone of an `Arr<Substr>` is `Arr<Str>` (views do not leave
-    // their split block — rotation 468).
+/// FlattenIntoArray at a layer whose elements are not arrays: a fresh
+/// copy that still asks HasProperty per index (§23.1.3.13.1 step 3.b),
+/// so a hole of a typed source is left out — `arr_slice` is Get-shaped
+/// and copied it as `undefined`. A dense source is the plain copy.
+fn emit_flat_leaf_copy(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand {
     let out_ty = match ty {
         Type::Arr(arr_id) => Type::Arr(ctx.copied_arr_layout(arr_id)),
         other => other,
     };
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.arr_slice,
-            vec![op, Operand::ConstI64(0), Operand::Value(len)],
-        ),
+        InstKind::Call(ctx.intrinsics.arr_flat_present, vec![op]),
         out_ty,
         None,
     );

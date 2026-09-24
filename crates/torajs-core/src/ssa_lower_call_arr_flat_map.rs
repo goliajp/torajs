@@ -100,6 +100,7 @@ pub(crate) fn try_lower(
         oa,
     } = open_outer_loop(ctx, dst_elem_ty, dst_arr_ty, src_arr);
 
+    emit_outer_present_gate(ctx, src_arr, i_now, i_slot, oh);
     // ob: load src[i], call closure(elem) → inner_arr.
     let src_elem_ty = ctx.arr_layouts[match arr_ty {
         Type::Arr(id) => id.0 as usize,
@@ -350,6 +351,58 @@ fn lower_promoted_this(
         let _ = ctx.lower_expr(a);
     }
     (this_arg, this_temp)
+}
+
+/// §23.1.3.13.1 step 3.b — FlattenIntoArray asks HasProperty before
+/// it reads an index, so a hole is not mapped. The header test runs per
+/// step (a callback can make holes, and each step already calls it and
+/// pushes); only a cell that can have holes asks `arr_has_index`, and
+/// an absent index steps straight to the next.
+fn emit_outer_present_gate(
+    ctx: &mut LowerCtx<'_>,
+    src_arr: ValueId,
+    i_now: ValueId,
+    i_slot: ValueId,
+    oh: BlockId,
+) {
+    let holey = ctx.emit_hof_sparse_probe(src_arr);
+    let ask_blk = ctx.f.add_block();
+    let skip_blk = ctx.f.add_block();
+    let visit_blk = ctx.f.add_block();
+    let cur = ctx.cur_block;
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: Operand::Value(holey),
+            then_blk: ask_blk,
+            else_blk: visit_blk,
+        },
+    );
+    ctx.cur_block = ask_blk;
+    ctx.emit_hof_typed_gate(
+        crate::ssa_lower_arr_hole_gate::TypedGate::Present,
+        src_arr,
+        i_now,
+        skip_blk,
+    );
+    let cur = ctx.cur_block;
+    ctx.f.set_term(cur, Terminator::Br(visit_blk));
+    let i_next = ctx.f.append_inst(
+        skip_blk,
+        InstKind::BinOp(
+            crate::ssa::BinOp::Add,
+            Operand::Value(i_now),
+            Operand::ConstI64(1),
+        ),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        skip_blk,
+        InstKind::Store(Operand::Value(i_next), Operand::Value(i_slot), 0),
+    );
+    ctx.f.set_term(skip_blk, Terminator::Br(oh));
+    ctx.cur_block = visit_blk;
 }
 
 /// T-13.5: head-aware offset for the flatMap src walk. RFC 20260707
