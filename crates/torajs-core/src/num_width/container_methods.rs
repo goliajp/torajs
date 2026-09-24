@@ -299,6 +299,23 @@ impl<'a> Analysis<'a> {
                 self.nested_unions.push((ek.clone(), ak));
             }
         }
+        // §23.1.3.1 — `concat` copies its container arguments' slot
+        // bits into a product of the receiver's class, and pushes its
+        // scalar arguments into it. The result-key arm joins those
+        // classes too, but only when something asks for the result's
+        // key: `console.log(a.concat([9]))` never does, so `[9]` kept
+        // its own narrow class and its i64 bits were read back as f64
+        // (9 printed 4.4e-323). Every call site joins them here.
+        if name == "concat" {
+            for &a in args {
+                let w = self.width_of(a, scope);
+                self.add_container_constraint(ek.clone(), w);
+                if let Some(ak) = self.container_key_of(a, scope) {
+                    self.mark_containerish(&ak);
+                    self.uf.union(&recv, &ak);
+                }
+            }
+        }
         if answers_undef_sentinel(&name) {
             self.add_container_constraint(ek.clone(), super::W::F64);
         }
