@@ -119,6 +119,10 @@ impl<'a> LowerCtx<'a> {
                 );
                 (Operand::Value(tag_v), Operand::Value(val_v))
             }
+            // A Str slot holds the undefined cell for `undefined` (an
+            // out-of-range read, a find miss): tag it ANY_UNDEF, or the
+            // element reads back as the string "undefined".
+            Type::Str => self.heap_slot_tag_value(v_raw.clone()),
             _ if v_ty.is_refcounted() => (Operand::ConstI64(4), v_raw.clone()),
             Type::Ptr => {
                 // Frontend `null` lowers to Type::Ptr

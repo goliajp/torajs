@@ -187,6 +187,14 @@ impl<'a> LowerCtx<'a> {
                 self.emit_arr_mark_kind(&v_raw);
                 self.heap_slot_tag_value(v_raw)
             }
+            // A string's `undefined` is its own immortal cell (an
+            // out-of-range read, a find miss): the same runtime tag.
+            Type::Str => {
+                if !transfers {
+                    self.emit_rc_inc(v_raw.clone());
+                }
+                self.heap_slot_tag_value(v_raw)
+            }
             _ if v_ty.is_refcounted() => {
                 // ANY_HEAP slot — a borrow-shape arg takes +1 so
                 // the slot owns a balanced ref while the source

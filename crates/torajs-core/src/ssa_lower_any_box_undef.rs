@@ -18,9 +18,15 @@ impl<'a> LowerCtx<'a> {
     /// caller keeps its arm's own ownership discipline.
     pub(crate) fn heap_slot_tag_value(&mut self, val: Operand) -> (Operand, Operand) {
         let val_ty = self.operand_ty(&val);
+        // A string spells undefined with its own Str-shaped cell.
+        let sym = if val_ty == Type::Str {
+            crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM
+        } else {
+            crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM
+        };
         let sentinel = self.f.append_inst(
             self.cur_block,
-            InstKind::GlobalRef(crate::ssa_lower_binop_null_undef::UNDEF_CELL_SYM.to_string()),
+            InstKind::GlobalRef(sym.to_string()),
             val_ty,
             None,
         );
