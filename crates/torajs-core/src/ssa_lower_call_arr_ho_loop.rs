@@ -280,6 +280,25 @@ pub(crate) fn emit_per_method_body(
             ctx.emit_hof_present_gate(src_arr, i_now2, skip_blk, es, os, of);
             Some(es)
         }
+        // A `map` whose product cannot hole still reads through the
+        // gate — an accessor index runs its getter, a hole a prototype
+        // key fills reads that key — but its "absent" exit visits the
+        // index with undefined instead of skipping it (the recorded
+        // boundary above: the product has no way to say hole).
+        (Some(es), Some(os), Some(of), None) => {
+            let absent_blk = ctx.f.add_block();
+            ctx.emit_hof_present_gate(src_arr, i_now2, absent_blk, es, os, of);
+            let work_blk = ctx.cur_block;
+            ctx.cur_block = absent_blk;
+            let undef = dispatch::emit_undef_any_box(ctx);
+            ctx.f.append_void(
+                absent_blk,
+                InstKind::Store(Operand::Value(undef), Operand::Value(es), 0),
+            );
+            ctx.f.set_term(absent_blk, Terminator::Br(work_blk));
+            ctx.cur_block = work_blk;
+            Some(es)
+        }
         _ => None,
     };
     // T-13.5: head-aware offset for map/filter/reduce src walk.
