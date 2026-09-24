@@ -21,8 +21,9 @@
 //! `None` lets the caller fall through to the next M2/M3/M4 arm below.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type, ValueId};
+use crate::ssa::{InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_arr_hole_gate::TypedGate;
 
 mod iter;
 use iter::emit_predicate_iter;
@@ -109,20 +110,63 @@ pub(crate) fn try_lower(
     // full §23.1.3.{5-10,30} «kValue, k, O» triple.
     let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
     let (result_ty, result_slot) = setup_result_slot(ctx, &name, elem_ty);
-    let out = emit_predicate_iter(
-        ctx,
-        &name,
-        src_arr,
-        elem_ty,
-        fn_val,
-        fn_ty,
-        this_arg.as_ref(),
-        result_ty,
-        result_slot,
-        argv_face,
-        elem_ty != Type::Any
-            && crate::ast::hof_len_shrink::hof_len_may_shrink(ctx.ast, obj, args[0], 2),
-    );
+    let len_gate = elem_ty != Type::Any
+        && crate::ast::hof_len_shrink::hof_len_may_shrink(ctx.ast, obj, args[0], 2);
+    let dense_gate = if len_gate {
+        TypedGate::Len
+    } else {
+        TypedGate::None
+    };
+    let emit = |ctx: &mut LowerCtx<'_>, gate: TypedGate| {
+        emit_predicate_iter(
+            ctx,
+            &name,
+            src_arr,
+            elem_ty,
+            fn_val.clone(),
+            fn_ty,
+            this_arg.as_ref(),
+            result_ty,
+            result_slot,
+            argv_face,
+            gate,
+        )
+    };
+    // §23.1.3.{29,6} — `some` / `every` skip holes, and a TYPED source
+    // can have them. Same shape as the callback-method family
+    // (`ssa_lower_call_arr_ho::emit_versioned`): the header is read
+    // once, a dense array runs today's loop, a holey one the copy that
+    // asks at each step; both write `result_slot`.
+    let out = if elem_ty != Type::Any && (name == "some" || name == "every") {
+        let holey = ctx.emit_hof_sparse_probe(src_arr);
+        let dense_blk = ctx.f.add_block();
+        let holey_blk = ctx.f.add_block();
+        let join_blk = ctx.f.add_block();
+        let cur = ctx.cur_block;
+        ctx.f.set_term(
+            cur,
+            Terminator::CondBr {
+                cond: Operand::Value(holey),
+                then_blk: holey_blk,
+                else_blk: dense_blk,
+            },
+        );
+        for (blk, gate) in [(dense_blk, dense_gate), (holey_blk, TypedGate::Present)] {
+            ctx.cur_block = blk;
+            let _ = emit(ctx, gate);
+            let end = ctx.cur_block;
+            ctx.f.set_term(end, Terminator::Br(join_blk));
+        }
+        ctx.cur_block = join_blk;
+        Operand::Value(ctx.f.append_inst(
+            join_blk,
+            InstKind::Load(result_ty, Operand::Value(result_slot), 0),
+            result_ty,
+            None,
+        ))
+    } else {
+        emit(ctx, dense_gate)
+    };
     // RFC 20260705 chunk 552 — release owned-shape temps after the
     // loop consumed them (inline arrow's minted env in the cb slot,
     // Call/New-shaped receiver, the boxed thisArg's payload).

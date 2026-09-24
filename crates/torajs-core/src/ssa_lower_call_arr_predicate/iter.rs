@@ -7,6 +7,7 @@
 
 use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
+use crate::ssa_lower_arr_hole_gate::TypedGate;
 
 /// Emit the full predicate-iter loop: i_slot init + forward/reverse cmp +
 /// body (load elem → call predicate → branch hit/next) + i++ step + after-
@@ -24,7 +25,7 @@ pub(super) fn emit_predicate_iter(
     result_ty: Type,
     result_slot: ValueId,
     argv_face: bool,
-    len_gate: bool,
+    typed_gate: TypedGate,
 ) -> Operand {
     let is_reverse = method == "findLastIndex" || method == "findLast";
     let i_slot = ctx.alloca(Type::I64, Some("__pred_i"));
@@ -115,7 +116,7 @@ pub(super) fn emit_predicate_iter(
         gate,
         result_slot,
         argv_face,
-        len_gate,
+        typed_gate,
     );
     ctx.cur_block = after_blk;
     let r = ctx.f.append_inst(
@@ -192,7 +193,7 @@ fn emit_body_and_step(
     gate: Option<(ValueId, ValueId, ValueId)>,
     result_slot: ValueId,
     argv_face: bool,
-    len_gate: bool,
+    typed_gate: TypedGate,
 ) {
     // body — load elem, run predicate
     ctx.cur_block = body_blk;
@@ -208,13 +209,14 @@ fn emit_body_and_step(
     let next_blk = ctx.f.add_block();
     if let Some((es, os, of)) = gate {
         ctx.emit_hof_present_gate(src_arr, i_now2, next_blk, es, os, of);
-    } else if len_gate && (method == "some" || method == "every") {
-        // A typed source its predicate may shorten (`hof_len_shrink`).
-        ctx.emit_hof_len_gate(src_arr, i_now2, next_blk);
+    } else if typed_gate != TypedGate::None && (method == "some" || method == "every") {
+        // A typed source its predicate may shorten (`hof_len_shrink`),
+        // or — in the loop copy a holey array runs — one with holes.
+        ctx.emit_hof_typed_gate(typed_gate, src_arr, i_now2, next_blk);
     }
     // The find family has no HasProperty step (§23.1.3.9): an index
     // the predicate cut off is visited, with Get's `undefined`.
-    let elem = if len_gate
+    let elem = if typed_gate == TypedGate::Len
         && gate.is_none()
         && crate::ssa_lower_index_undef::has_undef_spelling(elem_ty)
         && !(method == "some" || method == "every")
