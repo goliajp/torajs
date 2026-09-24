@@ -454,10 +454,17 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
     // grow on demand so over-estimating isn't required.
     let mut dst = unsafe { crate::alloc::__torajs_arr_alloc_any(outer_len) };
     let outer_mut = outer as *mut u8;
+    let outer_mop = unsafe { crate::layout::needs_index_mop(outer) };
     for i in 0..outer_len {
         let av = unsafe { *slot_anyvalue_ptr(outer_mut, i) };
-        // §23.1.3.13.1 FlattenIntoArray step 3.b — a hole is skipped.
-        if av == 0 {
+        // §23.1.3.13.1 FlattenIntoArray step 3.b — a hole is skipped:
+        // a slot hole reads `0`, a shadow hole only answers the funnel.
+        if av == 0
+            || (outer_mop
+                && unsafe {
+                    crate::define_hole::__torajs_arr_has_index(outer_mut.cast(), i as i64)
+                } == 0)
+        {
             continue;
         }
         let tag = unsafe { __torajs_anyv_unbox_tag(av) } as u64;
@@ -471,7 +478,11 @@ pub unsafe extern "C" fn __torajs_arr_flat_any(outer: *const u8) -> *mut u8 {
                 // their recorded elem kind (pre-fix they carried
                 // through as a single scalar-looking element).
                 if inner_type_tag == TAG_ARR {
-                    dst = unsafe { __torajs_arr_extend_any(dst, inner) };
+                    dst = if unsafe { crate::layout::needs_index_mop(inner) } {
+                        unsafe { crate::flat_present::extend_present(dst, inner) }
+                    } else {
+                        unsafe { __torajs_arr_extend_any(dst, inner) }
+                    };
                     continue;
                 }
             }

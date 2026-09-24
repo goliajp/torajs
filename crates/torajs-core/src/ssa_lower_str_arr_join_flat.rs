@@ -11,7 +11,7 @@
 //! trying the remaining branches.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{InstKind, Operand, Type};
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// Try to lower `<Arr>.join | toString | toLocaleString | flat (...)`
@@ -322,6 +322,12 @@ fn try_flat(
                 outer_elem,
                 None,
             );
+            // The kernel copies slots without taking a share (it can't
+            // tell a pointer slot from a scalar one); the product owns
+            // one per element, so adopt the range when `T` is
+            // refcounted — the drop of a flat product of strings used
+            // to release the source's strings.
+            adopt_product_range(ctx, v, outer_elem);
             cur = Operand::Value(v);
             cur_ty = outer_elem;
         }
@@ -355,22 +361,31 @@ fn emit_shallow_clone(ctx: &mut LowerCtx<'_>, op: Operand, ty: Type) -> Operand 
         out_ty,
         None,
     );
-    if let Type::Arr(arr_id) = ty {
-        let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
-        if elem_ty.is_refcounted() {
-            let len2 = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            ctx.emit_adopt_copied_range(
-                Operand::Value(v),
-                elem_ty,
-                Operand::ConstI64(0),
-                Operand::Value(len2),
-            );
-        }
-    }
+    adopt_product_range(ctx, v, ty);
     Operand::Value(v)
+}
+
+/// Take one share per element of a fresh product whose slots were
+/// copied borrowed (`arr_slice` / `arr_flat`), when its element type is
+/// refcounted.
+fn adopt_product_range(ctx: &mut LowerCtx<'_>, v: ValueId, ty: Type) {
+    let Type::Arr(arr_id) = ty else {
+        return;
+    };
+    let elem_ty = ctx.arr_layouts[arr_id.0 as usize];
+    if !elem_ty.is_refcounted() {
+        return;
+    }
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(v), ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    ctx.emit_adopt_copied_range(
+        Operand::Value(v),
+        elem_ty,
+        Operand::ConstI64(0),
+        Operand::Value(len),
+    );
 }

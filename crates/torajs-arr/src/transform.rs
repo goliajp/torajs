@@ -99,7 +99,14 @@ pub(crate) unsafe fn arr_alloc_with(len: u64, cap: u64) -> *mut u8 {
 /// `arr.flat()` (depth-1) — single-level flatten of `Array<Array<T>>`
 /// into a new `Array<T>`. Each inner slot's pointer is dereferenced
 /// to read the inner array's slots, which get bulk-memcpy'd into the
-/// result buffer.
+/// result buffer. The copied slots are BORROWED: the lowering adopts
+/// the product's range afterwards (`emit_adopt_copied_range`), since
+/// only it knows whether `T` is refcounted.
+///
+/// §23.1.3.13.1 step 3.b skips an index HasProperty answers false for:
+/// an inner array that can hold holes (`needs_index_mop`) is copied
+/// index by index, holes left out, and the product's length is what
+/// was copied.
 ///
 /// # Safety
 /// `outer` must be a valid Array<Array<T>> (slots hold valid Array
@@ -120,6 +127,21 @@ pub unsafe extern "C" fn __torajs_arr_flat(outer: *const u8) -> *mut u8 {
         // element-descriptor bits (uniform T per the checker).
         unsafe { crate::layout::copy_elem_desc_bits(inner, p) };
         let inner_len = unsafe { arr_len(inner) } as usize;
+        if unsafe { crate::layout::needs_index_mop(inner) } {
+            for k in 0..inner_len as u64 {
+                let f =
+                    unsafe { crate::define_index_flags::__torajs_arr_index_flags(inner.cast(), k) };
+                if f & crate::define::F_HOLE != 0 {
+                    continue;
+                }
+                unsafe {
+                    *(data_ptr_raw(p, 0).add(cursor) as *mut u64) =
+                        *(data_ptr(inner).add(k as usize * 8) as *const u64)
+                };
+                cursor += 8;
+            }
+            continue;
+        }
         if inner_len > 0 {
             unsafe {
                 core::ptr::copy_nonoverlapping(
@@ -131,6 +153,7 @@ pub unsafe extern "C" fn __torajs_arr_flat(outer: *const u8) -> *mut u8 {
             cursor += inner_len * 8;
         }
     }
+    unsafe { (p.add(ARR_LEN_OFF) as *mut u64).write((cursor / 8) as u64) };
     p
 }
 
