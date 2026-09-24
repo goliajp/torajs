@@ -184,6 +184,7 @@ mod fnexpr_this_unclaimed;
 mod fold_fromentries;
 mod forwarder_synth;
 mod forwarders;
+pub(crate) mod forwarders_let_init_axis;
 mod forwarders_object;
 mod forwarders_object_mismatch;
 mod forwarders_object_synth;
