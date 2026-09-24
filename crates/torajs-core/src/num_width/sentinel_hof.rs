@@ -153,9 +153,19 @@ pub(super) fn collect_sentinel_elems(
                 }
             }
             Expr::Assign { target, value } => {
+                // An index write past the end, or a longer `length`,
+                // leaves holes — and a hole of a number[] holds the
+                // sentinel. Whether the index is past the end is not
+                // known here, so every index or length write counts
+                // (the predicate may be generous, never clever).
                 if let Expr::Index { obj, .. } = a.ast.get_expr(*target)
                     && let Expr::Ident(recv) = a.ast.get_expr(*obj)
-                    && is_sentinel_source(a, *value, t)
+                {
+                    out.insert(recv.clone());
+                }
+                if let Expr::Member { obj, name } = a.ast.get_expr(*target)
+                    && name == "length"
+                    && let Expr::Ident(recv) = a.ast.get_expr(*obj)
                 {
                     out.insert(recv.clone());
                 }
