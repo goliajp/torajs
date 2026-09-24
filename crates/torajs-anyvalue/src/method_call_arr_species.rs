@@ -17,8 +17,8 @@
 //! - read the constructor's `@@species` (the §10.1.8.1 symbol-key
 //!   walk — an own or inherited entry);
 //! - undefined / null → default Array (steps 7.b-8);
-//! - a callable — a class object or a closure cell with a boxed
-//!   dual entry — RUNS with the receiver's length as its argument
+//! - a constructor — a class object or a plain-`function` closure
+//!   cell (`FLAG_FN_PROTO`) — RUNS with the receiver's length as its argument
 //!   (step 10 Construct(C, « len »)); its throw propagates. The
 //!   product is handed back to the dispatcher (RFC 20260808
 //!   construct-channel B3): `concat` derives INTO it
@@ -38,7 +38,6 @@ use crate::construct::is_constructor;
 // re-export keeps every `method_call_arr_species::store_elem`-shaped
 // caller face byte-identical.
 use crate::member_get_symbol::symbol_key_get;
-use crate::method_call::{closure_boxed_entry, invoke_with_this};
 use crate::method_call_arr_species_len::species_ctor_len;
 pub(crate) use crate::method_call_arr_species_store::{
     append_spread, concat_into_foreign, store_elem, write_product_length,
@@ -304,8 +303,8 @@ pub(crate) unsafe fn arr_species_object_face(arr: *mut c_void, ctor_len: i64) ->
 
 /// Step 10 `Construct(C, « len »)` over the shapes tr can run: a
 /// class object takes the real [[Construct]] kernel, a closure cell
-/// with `FLAG_FN_PROTO` the plain-fn construct kernel (B1), a bare
-/// boxed dual entry the call-semantics fallback (this = undefined).
+/// with `FLAG_FN_PROTO` the plain-fn construct kernel (B1); any other
+/// value — a non-constructor callable included — is the TypeError.
 unsafe fn run_species_ctor(ctor_len: i64, species: AnyValue) -> SpeciesOutcome {
     unsafe {
         let len_boxed = __torajs_anyv_box_i64(ctor_len);
@@ -323,14 +322,17 @@ unsafe fn run_species_ctor(ctor_len: i64, species: AnyValue) -> SpeciesOutcome {
 pub(crate) unsafe fn run_species_ctor_argv(species: AnyValue, argv: &[AnyValue]) -> SpeciesOutcome {
     unsafe {
         let n = argv.len() as i64;
-        let product = if is_constructor(species) {
-            crate::construct::__torajs_anyv_construct(species, argv.as_ptr(), n)
-        } else if let Some((env, entry)) = closure_boxed_entry(species) {
-            invoke_with_this(env, entry, VALUE_UNDEFINED, argv.as_ptr(), n)
-        } else {
+        // Step 10 `If IsConstructor(C) is false, throw a TypeError`.
+        // A callable that is not a constructor (`parseInt`, an arrow,
+        // a method) used to be CALLED here with this = undefined; on an
+        // empty receiver its product was then discarded as "not an
+        // Arr", so the TypeError never surfaced
+        // (create-species-non-ctor, five methods).
+        if !is_constructor(species) {
             __torajs_throw_type_error(c"array species constructor is not a constructor".as_ptr());
             return SpeciesOutcome::Threw;
-        };
+        }
+        let product = crate::construct::__torajs_anyv_construct(species, argv.as_ptr(), n);
         if __torajs_throw_check() != 0 {
             if is_cell(product) && !as_void_ptr(product).is_null() {
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(product);
