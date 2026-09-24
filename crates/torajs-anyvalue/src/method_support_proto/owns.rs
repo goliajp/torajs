@@ -158,14 +158,18 @@ pub(crate) fn proto_tag_family_owns(tag: i64, mid: i64) -> bool {
         17 => weakset_supports(mid),
         18 => weakref_supports(mid),
         39 => crate::method_support::finreg_supports(mid),
-        // %ArrayBuffer.prototype% (§25.1.6) owns slice + resize. The
-        // four accessors are not methods and live in the accessor
-        // table, not here (RFC 20260823-typedarray-substrate 刀 4).
-        //
-        19 => matches!(
-            mid,
-            torajs_rc::ANY_METHOD_SLICE | torajs_rc::ANY_METHOD_RESIZE
-        ),
+        // %ArrayBuffer.prototype% (§25.1.6) — the same table the
+        // instance dispatch answers from (slice / resize / transfer /
+        // transferToFixedLength); the row used to spell two of the
+        // four by hand, so `ArrayBuffer.prototype.transfer` read
+        // undefined while `ab.transfer` worked. The four accessors
+        // are not methods and live in the accessor table (RFC
+        // 20260823-typedarray-substrate 刀 4).
+        19 => crate::method_support::arraybuffer_supports(mid),
+        // %DataView.prototype% (§25.3.4) — its twenty get/set methods
+        // had no row at all: every one read undefined off the
+        // prototype while the instance call resolved.
+        32 => crate::method_support::dataview_supports(mid),
         // §23.2.3 — %TypedArray.prototype% owns every typed-array
         // method (RFC 20260916-typedarray-intrinsic), including a
         // `toString` that IS `Array.prototype.toString` (§23.2.3.33,

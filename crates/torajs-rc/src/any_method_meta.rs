@@ -226,6 +226,38 @@ pub fn any_method_meta(mid: i64) -> Option<(&'static str, u32)> {
 /// prototypes' own names. Extracted family; a miss falls through to
 /// [`iter_method_meta`], so the parent's `None` is unchanged.
 fn buffer_method_meta(mid: i64) -> Option<(&'static str, u32)> {
+    use crate::any_method_buffer::{ANY_METHOD_DV_GET_INT8, ANY_METHOD_DV_SET_BIGUINT64};
+    // §25.3.4 — the DataView pairs are consecutive, get before set:
+    // `getX(byteOffset [, littleEndian])` has length 1,
+    // `setX(byteOffset, value [, littleEndian])` length 2.
+    if (ANY_METHOD_DV_GET_INT8..=ANY_METHOD_DV_SET_BIGUINT64).contains(&mid) {
+        const NAMES: [&str; 22] = [
+            "getInt8",
+            "setInt8",
+            "getUint8",
+            "setUint8",
+            "getInt16",
+            "setInt16",
+            "getUint16",
+            "setUint16",
+            "getInt32",
+            "setInt32",
+            "getUint32",
+            "setUint32",
+            "getFloat16",
+            "setFloat16",
+            "getFloat32",
+            "setFloat32",
+            "getFloat64",
+            "setFloat64",
+            "getBigInt64",
+            "setBigInt64",
+            "getBigUint64",
+            "setBigUint64",
+        ];
+        let k = (mid - ANY_METHOD_DV_GET_INT8) as usize;
+        return Some((NAMES[k], 1 + (k % 2) as u32));
+    }
     Some(match mid {
         ANY_METHOD_RESIZE => ("resize", 1),
         ANY_METHOD_SUBARRAY => ("subarray", 2),

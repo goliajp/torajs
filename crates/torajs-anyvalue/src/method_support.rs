@@ -320,16 +320,16 @@ pub(crate) fn date_supports(mid: i64) -> bool {
     )
 }
 
-/// §25.1.6 `ArrayBuffer.prototype`'s own methods (RFC
-/// 20260823-typedarray-substrate). The accessors (`byteLength`,
-/// `maxByteLength`, `resizable`, `detached`) are getters, not
-/// methods, and answer through the member-read face instead.
 /// §25.3.4 `DataView.prototype`'s own methods — exactly the set
 /// `method_call_buffer_dataview::dataview_method` resolves.
 pub(crate) fn dataview_supports(mid: i64) -> bool {
     crate::method_call_buffer_dataview::dataview_mid(mid).is_some()
 }
 
+/// §25.1.6 `ArrayBuffer.prototype`'s own methods (RFC
+/// 20260823-typedarray-substrate). The accessors (`byteLength`,
+/// `maxByteLength`, `resizable`, `detached`) are getters, not
+/// methods, and answer through the member-read face instead.
 pub(crate) fn arraybuffer_supports(mid: i64) -> bool {
     matches!(
         mid,
