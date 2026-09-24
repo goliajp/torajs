@@ -282,3 +282,28 @@ unsafe fn kind_mismatch(tag: u64, value: u64) {
         );
     }
 }
+
+/// §10.4.2 [[Delete]]'s storage half on a typed cell of pointer
+/// elements (`ARR_KIND_HEAP` — strings, objects, arrays): release the
+/// element and leave the slot NULL, which every reader of such a cell
+/// answers as `undefined` (the any lanes above; the typed read funnel
+/// since `ssa_lower_index_undef::null_slot_is_hole`). The caller marks
+/// the index absent. `false` for a scalar kind, whose slots have no
+/// value that means absent.
+///
+/// # Safety
+/// `arr` is a live typed `Tag::Arr` heap pointer; `idx < len`.
+pub(crate) unsafe fn clear_heap_slot(arr: *mut c_void, idx: u64) -> bool {
+    unsafe {
+        let header = &*(arr as *const HeapHeader);
+        if header.flags & FLAG_ARR_ANY != 0 || header.arr_elem_kind() != ARR_KIND_HEAP {
+            return false;
+        }
+        let p = arr as *mut u8;
+        let head = *(p.add(ARR_HEAD_OFF) as *const u32) as u64;
+        let slot = arr_data(p).add(((head + idx) as usize) * 8) as *mut u64;
+        __torajs_value_drop_heap(*slot as *mut c_void);
+        *slot = 0;
+        true
+    }
+}

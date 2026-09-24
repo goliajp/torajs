@@ -242,7 +242,9 @@ pub unsafe extern "C" fn __torajs_arr_delete_index(
     // `delete arr[1]` threw instead of deleting. The shadow entry the
     // hole sentinel replaces below is what the delete actually
     // removes, so the store has nothing to do on that index.
-    if unsafe { crate::define_accessor::__torajs_arr_index_accessor(arr, idx) }.is_null() {
+    if unsafe { crate::define_accessor::__torajs_arr_index_accessor(arr, idx) }.is_null()
+        && !unsafe { crate::index_any::clear_heap_slot(arr, idx) }
+    {
         unsafe { crate::index_any::__torajs_arr_index_set(arr, idx as i64, ANY_UNDEF, 0) };
     }
     let slot = unsafe { crate::exotic_seam::__torajs_arr_props_attach(arr) };
