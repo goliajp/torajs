@@ -164,6 +164,13 @@ pub(crate) unsafe fn define_index_accessor(
         if !props.is_null() {
             unsafe { __torajs_dynobj_delete(props, key as *const c_void) };
         }
+        // A slot hole (the encoding `0`) answers absent before the
+        // shadow is consulted, so the accessor would stay invisible:
+        // the slot takes the dead `undefined` every accessor index
+        // holds. (A shadow hole's slot already holds it.)
+        if unsafe { crate::layout::any_slot_is_hole(arr as *const u8, idx) } {
+            unsafe { clear_element_slot(arr, idx) };
+        }
         return unsafe {
             define_shadow_accessor(arr, key, tag, value, flags_byte, throw_on_refusal)
         };
