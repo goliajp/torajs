@@ -70,9 +70,8 @@ fn length_write_refuses_flavored(
 ///   RangeError via `__torajs_throw_range_error`, do not touch `len`.
 /// - Valid `N <= old_len`: write `len = N`. Backing storage is kept
 ///   (matches V8 / JSC behavior — `cap` doesn't shrink on truncate).
-/// - Valid `N > old_len`: silent no-op. typed `Array<scalar>` can't
-///   represent the "hole / undefined" the spec wants there; the
-///   `Array<Any>` extend path is a substrate-mid follow-up.
+/// - Valid `N > old_len`: grow; the new indexes are holes holding
+///   `hole` (see the grow arm below).
 ///
 /// # Safety
 /// `arr` must be a live `Array<T>` heap block. Caller picks this
@@ -83,6 +82,7 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
     arr: *mut u8,
     tag: i64,
     value: i64,
+    hole: i64,
 ) {
     let n: f64 = match tag {
         0 | 1 => 0.0,
@@ -139,11 +139,12 @@ pub unsafe extern "C" fn __torajs_arr_set_length_truncate_scalar(
         unsafe { *len_ptr = new_n };
         return;
     }
-    // Grow (RFC 20260721 刀 5 G3) — raw-0 fill, every new index a
-    // HOLE (not an own property; reads through the any tier consult
-    // the prototype digit keys). The typed STATIC load keeps its
-    // raw-0 blindness — recorded L3b.
-    unsafe { grow_slots_as_holes(arr, old_len, new_n, 0) };
+    // Grow (RFC 20260721 刀 5 G3) — every new index a HOLE (not an
+    // own property; reads through the any tier consult the prototype
+    // digit keys), filled with the word the element type spells a hole
+    // with (`hole`, from the compiler: the undefined sentinel for an
+    // f64 slot, 0 otherwise).
+    unsafe { grow_slots_as_holes(arr, old_len, new_n, hole as u64) };
 }
 
 /// `arr.length = N` / `defineProperty(arr, "length", { value: N })`
@@ -307,7 +308,11 @@ unsafe fn set_length_any_impl(arr: *mut u8, tag: i64, value: i64, throw_on_refus
     // slots fill with the undefined immediate (0x0A), raw-kind slots
     // with 0; either way each new index is marked a HOLE, so the
     // fill value is never an own property answer.
-    let fill = if is_any { 0x0A } else { 0 };
+    let fill = if is_any {
+        0x0A
+    } else {
+        crate::grow_store::typed_hole_raw(header.arr_elem_kind())
+    };
     unsafe { grow_slots_as_holes(arr, old, new_n, fill) };
     1
 }

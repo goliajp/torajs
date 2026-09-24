@@ -30,14 +30,30 @@ unsafe extern "C" {
     fn __torajs_value_drop_heap(p: *mut c_void);
 }
 
+/// The raw slot word a hole of a typed cell of element kind `kind`
+/// holds: an f64 slot takes the undefined sentinel NaN, which every
+/// typed f64 read already answers as `undefined` and which arithmetic
+/// turns into the default NaN — ToNumber(undefined). Every other kind
+/// has no such word and keeps 0 (the pointer kinds read a NULL slot as
+/// a hole; the integer kinds cannot spell one yet). The compiler
+/// passes the same word from the element's static type
+/// (`ssa_lower_index_undef::typed_hole_raw`).
+pub(crate) fn typed_hole_raw(kind: u16) -> u64 {
+    if kind == torajs_rc::ARR_KIND_F64 {
+        torajs_rc::F64_UNDEF_SENTINEL_BITS
+    } else {
+        0
+    }
+}
+
 /// Grow a typed block to hold a store at index `i >= len`: compact
 /// the deque head, grow the data buffer (2× amortized, matching
 /// `__torajs_arr_set_any_grow`, so an index-append loop stays O(1)
-/// amortized), zero-fill the `[len, i)` gap, store `raw` at `i`, set
-/// `len = i + 1`, and mark the gap indexes HOLES (§10.4.2.1 — the
-/// grown slots are not own properties; `i` itself IS, so it stays
+/// amortized), fill the `[len, i)` gap with `hole`, store `raw` at
+/// `i`, set `len = i + 1`, and mark the gap indexes HOLES (§10.4.2.1 —
+/// the grown slots are not own properties; `i` itself IS, so it stays
 /// unmarked and a plain append pays no shadow cost).
-pub(crate) unsafe fn typed_grow_store(arr: *mut u8, i: u64, raw: u64) {
+pub(crate) unsafe fn typed_grow_store(arr: *mut u8, i: u64, raw: u64, hole: u64) {
     unsafe {
         let old = *(arr.add(ARR_LEN_OFF) as *const u64);
         let head = *(arr.add(ARR_HEAD_OFF) as *const u32) as usize;
@@ -56,7 +72,7 @@ pub(crate) unsafe fn typed_grow_store(arr: *mut u8, i: u64, raw: u64) {
         }
         let slots = arr_data(arr);
         for k in old..i {
-            *(slots.add(k as usize * 8) as *mut u64) = 0;
+            *(slots.add(k as usize * 8) as *mut u64) = hole;
         }
         *(slots.add(i as usize * 8) as *mut u64) = raw;
         *(arr.add(ARR_LEN_OFF) as *mut u64) = i + 1;
@@ -69,7 +85,8 @@ pub(crate) unsafe fn typed_grow_store(arr: *mut u8, i: u64, raw: u64) {
 /// `__torajs_arr_set_any_grow`'s grow path. `v` is the raw 8-byte
 /// slot value (f64 bit-punned, heap cell transferred — the slot
 /// takes the caller's +1; a reject arm drops it for HEAP-kind
-/// elements so the stake never leaks).
+/// elements so the stake never leaks). `hole` is the raw word the gap
+/// below `i` takes ([`typed_hole_raw`] of the element type).
 ///
 /// - `i < 0` — RangeError (a negative index is a string-keyed
 ///   property per ES; that lane is a recorded boundary).
@@ -80,7 +97,7 @@ pub(crate) unsafe fn typed_grow_store(arr: *mut u8, i: u64, raw: u64) {
 /// `arr` is a valid non-Any typed array heap pointer; caller checks
 /// for a pending throw after return.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_typed_set_grow(arr: *mut u8, i: i64, v: i64) {
+pub unsafe extern "C" fn __torajs_arr_typed_set_grow(arr: *mut u8, i: i64, v: i64, hole: i64) {
     unsafe {
         let is_heap_kind =
             (*(arr as *const torajs_rc::HeapHeader)).arr_elem_kind() == torajs_rc::ARR_KIND_HEAP;
@@ -104,6 +121,6 @@ pub unsafe extern "C" fn __torajs_arr_typed_set_grow(arr: *mut u8, i: i64, v: i6
             );
             return;
         }
-        typed_grow_store(arr, i as u64, v as u64);
+        typed_grow_store(arr, i as u64, v as u64, hole as u64);
     }
 }

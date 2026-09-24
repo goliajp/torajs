@@ -40,19 +40,15 @@ pub(crate) fn lower_arr_length(
         Type::Arr(arr_id) => ctx.arr_layouts[arr_id.0 as usize],
         _ => unreachable!("gated on Type::Arr above"),
     };
+    let mut argv = vec![obj_val, Operand::ConstI64(2), Operand::Value(new_v)];
     let helper = if matches!(elem_ty, Type::I64 | Type::F64 | Type::Bool) {
+        argv.push(crate::ssa_lower_index_undef::typed_hole_raw(elem_ty));
         ctx.intrinsics.arr_set_length_truncate_scalar
     } else {
         ctx.intrinsics.arr_set_length_any
     };
     let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Call(
-            helper,
-            vec![obj_val, Operand::ConstI64(2), Operand::Value(new_v)],
-        ),
-    );
+    ctx.f.append_void(cur_block, InstKind::Call(helper, argv));
     ctx.emit_throw_check(None);
     if step.is_prefix {
         Operand::Value(new_v)
