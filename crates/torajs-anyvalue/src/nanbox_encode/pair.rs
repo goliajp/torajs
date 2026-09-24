@@ -135,7 +135,18 @@ pub unsafe extern "C" fn __torajs_anyv_strict_eq_imm_pair(l: AnyValue, rt: i64, 
 /// Same as [`__torajs_anyv_strict_eq_imm_pair`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_anyv_svz_imm_pair(l: AnyValue, rt: i64, rv: i64) -> bool {
-    let r = rebuild_imm(rt, rv);
+    // A number[] element holding the undefined sentinel is `undefined`
+    // — a hole (includes has no HasProperty step, so it reads one as
+    // undefined) or a stored undefined. Read as a double it is a NaN,
+    // which would answer `includes(NaN)` true and `includes(undefined)`
+    // false, both backwards. The strict entry keeps the raw pair:
+    // indexOf's typed scan does not skip holes yet, and there
+    // `indexOf(undefined)` must not find one.
+    let r = if rt == 3 && rv as u64 == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+        VALUE_UNDEFINED
+    } else {
+        rebuild_imm(rt, rv)
+    };
     let l_nan = is_double(l) && as_double(l).is_nan();
     let r_nan = is_double(r) && as_double(r).is_nan();
     if l_nan && r_nan {

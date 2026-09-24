@@ -99,6 +99,21 @@ pub(crate) fn emit_compare(
                 Type::Bool,
                 None,
             );
+            // The undefined sentinel is a NaN too, but it is
+            // `undefined` (a hole of a number[] reads as one — includes
+            // has no HasProperty step): two NaNs are the same value only
+            // when both or neither are the sentinel.
+            let same_face = same_sentinel_face(ctx, elem, &needle);
+            let both_nan = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(
+                    SsaBinOp::And,
+                    Operand::Value(both_nan),
+                    Operand::Value(same_face),
+                ),
+                Type::Bool,
+                None,
+            );
             ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::BinOp(
@@ -223,6 +238,44 @@ pub(crate) fn emit_compare(
             None,
         ),
     }
+}
+
+/// Whether `elem` and `needle` are both, or both not, the F64
+/// undefined sentinel.
+fn same_sentinel_face(ctx: &mut LowerCtx<'_>, elem: ValueId, needle: &Operand) -> ValueId {
+    let sentinel = crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64;
+    let mut is_sentinel = |op: Operand| {
+        let bits = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::BitCastF64ToI64(op),
+            Type::I64,
+            None,
+        );
+        ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(sentinel)),
+            Type::Bool,
+            None,
+        )
+    };
+    let e = is_sentinel(Operand::Value(elem));
+    let n = is_sentinel(needle.clone());
+    let differ = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(SsaBinOp::Xor, Operand::Value(e), Operand::Value(n)),
+        Type::Bool,
+        None,
+    );
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::BinOp(
+            SsaBinOp::Xor,
+            Operand::Value(differ),
+            Operand::ConstBool(true),
+        ),
+        Type::Bool,
+        None,
+    )
 }
 
 /// An `any` needle over a typed-element receiver (checker
