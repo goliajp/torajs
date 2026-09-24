@@ -18,6 +18,27 @@ use torajs_rc::Tag;
 
 use super::{builtin_method_cell, symbol_static};
 
+/// §22.2.6's RegExp protocol methods as (alphabetical WELL_KNOWN_NAMES
+/// index, mid), in the clause order their prototype entries are
+/// created — @@match, @@matchAll, @@replace, @@search, @@split. The
+/// instance read and the prototype install both walk this one table.
+const REGEXP_PROTOCOL: [(i64, i64); 5] = [
+    (6, torajs_rc::ANY_METHOD_MATCH),
+    (7, torajs_rc::ANY_METHOD_MATCH_ALL),
+    (8, torajs_rc::ANY_METHOD_REPLACE),
+    (9, torajs_rc::ANY_METHOD_SEARCH),
+    (11, torajs_rc::ANY_METHOD_SPLIT),
+];
+
+/// The RegExp proto row (`family.rs`), which is also its prototype
+/// tag (`torajs-rc/builtin_proto.rs`: RegExp = 7).
+pub(crate) const REGEXP_FAMILY: i64 = 7;
+
+/// Is `mid` one of the [`REGEXP_PROTOCOL`] methods?
+pub(crate) fn regexp_protocol_mid(mid: i64) -> bool {
+    REGEXP_PROTOCOL.iter().any(|&(_, m)| m == mid)
+}
+
 /// Well-known-symbol method read off a native tag.
 ///
 /// `[Symbol.iterator]` — RFC 20260728-gen-forof-yieldstar F0. The
@@ -45,16 +66,9 @@ pub(crate) unsafe fn builtin_symbol_method_lookup(
     // Alphabetical WELL_KNOWN_NAMES indices; the singletons are
     // immortal so pointer identity IS symbol identity.
     if recv_tag == Tag::RegExp as u16 {
-        for (idx, mid) in [
-            (6, torajs_rc::ANY_METHOD_MATCH),
-            (7, torajs_rc::ANY_METHOD_MATCH_ALL),
-            (8, torajs_rc::ANY_METHOD_REPLACE),
-            (9, torajs_rc::ANY_METHOD_SEARCH),
-            (11, torajs_rc::ANY_METHOD_SPLIT),
-        ] {
+        for (idx, mid) in REGEXP_PROTOCOL {
             if key == symbol_static::well_known_singleton(idx) {
-                // Family 7 = the RegExp proto row (`family.rs`).
-                return Some(builtin_method_cell(7, mid));
+                return Some(builtin_method_cell(REGEXP_FAMILY, mid));
             }
         }
         return None;
@@ -190,6 +204,36 @@ fn proto_tag_iterator_alias(proto_tag: i64) -> Option<(i64, i64)> {
     })
 }
 
+/// §22.2.6.8 / .9 / .11 / .12 / .15 — `RegExp.prototype`'s five
+/// symbol-keyed protocol methods as real own entries, the same interned
+/// cells an instance's `re[Symbol.search]` answers. Before this only
+/// the instance read existed: `RegExp.prototype[Symbol.search]` read
+/// undefined, so every `.call(fakeRe, …)` spelling of the protocol —
+/// the way the spec's own tests drive it with a plain object as `this`
+/// — threw on calling undefined.
+///
+/// # Safety
+/// `proto` is the freshly allocated `RegExp.prototype` dynobj.
+unsafe fn install_regexp_protocol(proto: *mut c_void) {
+    let mut slot = proto;
+    for (idx, mid) in REGEXP_PROTOCOL {
+        let key = symbol_static::well_known_singleton(idx);
+        if key.is_null() {
+            return;
+        }
+        let cell = builtin_method_cell(REGEXP_FAMILY, mid);
+        unsafe {
+            __torajs_dynobj_define_plain(
+                &mut slot,
+                key as *mut c_void,
+                ANY_HEAP,
+                cell as u64,
+                METHOD_ENTRY_FLAGS,
+            )
+        };
+    }
+}
+
 /// §23.1.3.44 — the method names a `with` block must NOT bring into
 /// scope, in the clause's creation order. `Object.keys` on the
 /// unscopables object answers that order, so it is observable and this
@@ -305,6 +349,10 @@ pub unsafe extern "C" fn __torajs_proto_symbol_keys_install(proto: *mut c_void, 
     // §20.4.3.5 / §21.4.4.45 — before the Symbol prototype's
     // `@@toStringTag` (the mint installs that next), in clause order.
     unsafe { crate::closure_proto::to_primitive_proto::install(proto, idx) };
+    if idx == REGEXP_FAMILY {
+        unsafe { install_regexp_protocol(proto) };
+        return;
+    }
     let is_array = idx == torajs_rc::builtin_proto::ARRAY_PROTO_TAG as i64;
     let Some((family, mid)) = proto_tag_iterator_alias(idx) else {
         return;

@@ -109,7 +109,9 @@ pub(crate) use supported::builtin_method_supported;
 
 // r290 file-size split — the well-known-symbol reify table.
 pub(crate) mod symbol_lookup;
-pub(crate) use symbol_lookup::builtin_symbol_method_lookup;
+pub(crate) use symbol_lookup::{
+    REGEXP_FAMILY as REGEXP_PROTO_FAMILY, builtin_symbol_method_lookup, regexp_protocol_mid,
+};
 
 /// Interned name Str layout — mirror of torajs-str
 /// `layout::{STR_LEN_OFF, STR_DATA_OFF}` + the `IS_LATIN1` flags
