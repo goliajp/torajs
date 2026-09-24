@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T01:14:40.475Z",
+  "generatedAt": "2026-09-24T04:50:58.623Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-24T01:03:00Z",
-    "headSha": "0fdb10349",
-    "elapsedSec": 553.54,
+    "ranAt": "2026-09-24T04:39:09Z",
+    "headSha": "416fe72f1",
+    "elapsedSec": 545.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34766,
-    "passNoOracle": 1721,
+    "pass": 34839,
+    "passNoOracle": 1750,
     "passNegative": 4568,
-    "passTotal": 41055,
-    "bug": 8255,
+    "passTotal": 41157,
+    "bug": 8153,
     "incompatible": 3864,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49310,
-    "passRateInScope": 77.21,
-    "passRateTrAccepted": 83.26
+    "passRateInScope": 77.4,
+    "passRateTrAccepted": 83.47
   },
   "torajs": {
-    "commit": "b9a2a779a",
-    "commitSubject": "chore(hardev): rotation 699 close stamps",
+    "commit": "395058b36",
+    "commitSubject": "chore(hardev): rotation 700 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "b9a2a779a",
-      "subject": "chore(hardev): rotation 699 close stamps"
+      "hash": "395058b36",
+      "subject": "chore(hardev): rotation 700 close stamps"
     },
     {
-      "hash": "0fdb10349",
-      "subject": "fix(any): an index read continues into a non-dynobj prototype"
+      "hash": "664ddc664",
+      "subject": "chore(hardev): rotation 700 close stamps"
     },
     {
-      "hash": "d2f55d501",
-      "subject": "fix(array): a map with a non-holing product reads accessor indices through the gate"
+      "hash": "416fe72f1",
+      "subject": "fix(buffer): DataView.prototype and ArrayBuffer.prototype own their methods"
     },
     {
-      "hash": "23c0c650e",
-      "subject": "fix(array): pop / shift over a hole run the element's [[Get]] before the length Set"
+      "hash": "51483db5d",
+      "subject": "fix(array): slice keeps the receiver's holes"
     },
     {
-      "hash": "786cfe607",
-      "subject": "fix(print): a shadow hole prints as `empty item`, not as an expando row"
+      "hash": "43f48cf74",
+      "subject": "fix(arr): an arguments object's length is an ordinary data property on write"
     },
     {
-      "hash": "e53100e04",
-      "subject": "feat(array): holes as a slot value — `new Array(n)` creates no element"
+      "hash": "e82b61a2e",
+      "subject": "fix(rc): the arguments object gets an identity bit a split block does not share"
     },
     {
-      "hash": "bc680a762",
-      "subject": "fix(array): reduce seeds from the first present element and skips holes"
+      "hash": "da055f021",
+      "subject": "fix(core): a literal member naming a top-level array or object binding promotes"
     },
     {
-      "hash": "667d87354",
-      "subject": "fix(check): a builtin namespace value instantiates an implicit generic as `any`"
+      "hash": "e1489dad5",
+      "subject": "refactor(array): literal elisions and map holes are slot-value holes"
     },
     {
-      "hash": "4dbdb72db",
-      "subject": "fix(array): the exotic sort divert no longer releases the comparator"
+      "hash": "7f15ddcb4",
+      "subject": "fix(array): an accessor defined over a slot hole replaces the hole"
     },
     {
-      "hash": "1947fc86a",
-      "subject": "fix(array): concat asks IsConcatSpreadable and keeps holes"
+      "hash": "196d676d9",
+      "subject": "fix(meta): Object.entries / values over an array skip holes and index shadows"
     },
     {
-      "hash": "6c35419e5",
-      "subject": "fix(array): sort over a hole or an accessor index runs SortIndexedProperties"
+      "hash": "8c53291cb",
+      "subject": "refactor(meta): move the Arr-cell values/entries walk to obj_own_values_arr"
     },
     {
-      "hash": "1bc6909de",
-      "subject": "fix(any): HasProperty on an Array walks Array.prototype then Object.prototype"
+      "hash": "455bba548",
+      "subject": "fix(array): flat takes a share per copied element and skips holes"
     }
   ],
-  "headSha": "b9a2a779a",
+  "headSha": "395058b36",
   "autorun": {
-    "total": 1001,
+    "total": 1002,
     "baselineTarget": 10,
-    "bySelf": 996,
+    "bySelf": 997,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790199436-4a6c",
-      "at": "2026-09-23T21:37:16Z",
-      "ts": 1790199436,
+      "rotationId": "r-1790212585-6c1e",
+      "at": "2026-09-24T01:16:25Z",
+      "ts": 1790212585,
       "trigger": "self",
-      "prevHead": "758c3da2d",
-      "handoffSha": "sha256:07ca1f9e7227d45d74396c97096316ffed2e0f4d5f14c421b2a9781a13fc94e5",
-      "handoffAgeSec": 8,
-      "conformanceBefore": "4578/0/4",
-      "commitsInSession": 16
+      "prevHead": "09d1e61f1",
+      "handoffSha": "sha256:2aca1ebeeaa27ec3ce5c024376a7d295513348186f14ca98044f5cacb3132792",
+      "handoffAgeSec": 16,
+      "conformanceBefore": "4589/0/4",
+      "commitsInSession": 14
     },
     "recent": [
+      {
+        "rotationId": "r-1790212585-6c1e",
+        "at": "2026-09-24T01:16:25Z",
+        "ts": 1790212585,
+        "trigger": "self",
+        "prevHead": "09d1e61f1",
+        "handoffSha": "sha256:2aca1ebeeaa27ec3ce5c024376a7d295513348186f14ca98044f5cacb3132792",
+        "handoffAgeSec": 16,
+        "conformanceBefore": "4589/0/4",
+        "commitsInSession": 14
+      },
       {
         "rotationId": "r-1790199436-4a6c",
         "at": "2026-09-23T21:37:16Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 2,
         "conformanceBefore": "4501/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1790057261-57e3",
-        "at": "2026-09-22T06:07:41Z",
-        "ts": 1790057261,
-        "trigger": "self",
-        "prevHead": "de821e86f",
-        "handoffSha": "sha256:b4b6ee5b407c85aa174263e7e4c7d725106a3ebd29819c8392da18b31c440d00",
-        "handoffAgeSec": 2,
-        "conformanceBefore": "4483/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
