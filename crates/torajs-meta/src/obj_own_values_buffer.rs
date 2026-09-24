@@ -10,7 +10,7 @@ use core::ffi::c_void;
 use crate::obj_own_keys_layout::{
     ANY_HEAP_TAG, ARRAYBUFFER_PROPS_OFF, KIND_CHAIN_HEAP, TYPEDARRAY_PROPS_OFF,
 };
-use crate::obj_own_values::{dynobj_entries_append, dynobj_values_append};
+use crate::obj_own_values::{IndexShadows, dynobj_entries_append, dynobj_values_append};
 
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
@@ -52,7 +52,7 @@ pub(crate) unsafe fn typedarray_cell_values(v: u64, cell: *const c_void) -> *mut
     if props.is_null() {
         return arr as *mut c_void;
     }
-    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+    unsafe { dynobj_values_append(props, arr, IndexShadows::Keep) as *mut c_void }
 }
 
 /// ArrayBuffer `Object.values`: the bag alone (promise-arm shape).
@@ -65,7 +65,7 @@ pub(crate) unsafe fn arraybuffer_cell_values(cell: *const c_void) -> *mut c_void
     if props.is_null() {
         return arr as *mut c_void;
     }
-    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+    unsafe { dynobj_values_append(props, arr, IndexShadows::Keep) as *mut c_void }
 }
 
 /// Typed-array `Object.entries`: `[idx_str, elem]` pairs then the
@@ -90,7 +90,7 @@ pub(crate) unsafe fn typedarray_cell_entries(v: u64, cell: *const c_void) -> *mu
     }
     let props = unsafe { bag(cell, TYPEDARRAY_PROPS_OFF) };
     if !props.is_null() {
-        outer = unsafe { dynobj_entries_append(props, outer) };
+        outer = unsafe { dynobj_entries_append(props, outer, IndexShadows::Keep) };
     }
     unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
     outer as *mut c_void
@@ -104,7 +104,7 @@ pub(crate) unsafe fn arraybuffer_cell_entries(cell: *const c_void) -> *mut c_voi
     let mut outer = unsafe { __torajs_arr_alloc(0) };
     let props = unsafe { bag(cell, ARRAYBUFFER_PROPS_OFF) };
     if !props.is_null() {
-        outer = unsafe { dynobj_entries_append(props, outer) };
+        outer = unsafe { dynobj_entries_append(props, outer, IndexShadows::Keep) };
     }
     unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
     outer as *mut c_void

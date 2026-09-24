@@ -6,7 +6,7 @@
 use core::ffi::c_void;
 
 use crate::obj_own_keys::{ANY_HEAP_TAG, ARR_LEN_OFF, ARR_PROPS_OFF, KIND_CHAIN_HEAP};
-use crate::obj_own_values::{dynobj_entries_append, dynobj_values_append};
+use crate::obj_own_values::{IndexShadows, dynobj_entries_append, dynobj_values_append};
 
 unsafe extern "C" {
     fn __torajs_arr_alloc(cap: u64) -> *mut u8;
@@ -19,6 +19,17 @@ unsafe extern "C" {
     fn __torajs_i64_to_str(n: i64) -> *mut u8;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value_owned(v: u64) -> i64;
+    /// torajs-arr — the per-index own-property funnel (slot hole,
+    /// shadow hole, sparse tail).
+    fn __torajs_arr_index_flags(arr: *const c_void, idx: u64) -> u64;
+}
+
+/// Is index `i` absent from `cell` — a hole of any representation?
+/// §7.3.24 EnumerableOwnProperties walks OwnPropertyKeys, which holds
+/// no key for a hole; the element walk used to box one as `undefined`
+/// (`Object.entries(new Array(2))` answered two pairs).
+unsafe fn index_is_hole(cell: *const c_void, probe: bool, i: u64) -> bool {
+    probe && unsafe { __torajs_arr_index_flags(cell, i) } & crate::own_names::ARR_F_HOLE != 0
 }
 
 /// Arr-cell values: kind-aware element walk (borrowed box read →
@@ -26,7 +37,11 @@ unsafe extern "C" {
 pub(crate) unsafe fn arr_cell_values(cell: *const c_void) -> *mut c_void {
     let len = unsafe { (cell.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
     let mut arr = unsafe { __torajs_arr_alloc_any(len) };
+    let probe = unsafe { crate::own_names::arr_needs_index_probe(cell) };
     for i in 0..len {
+        if unsafe { index_is_hole(cell, probe, i) } {
+            continue;
+        }
         let b = unsafe { __torajs_arr_get_any_boxed(cell, i) };
         let t = unsafe { __torajs_anyv_unbox_tag(b) };
         let val = unsafe { __torajs_anyv_unbox_value_owned(b) };
@@ -37,7 +52,7 @@ pub(crate) unsafe fn arr_cell_values(cell: *const c_void) -> *mut c_void {
     if props.is_null() {
         return arr as *mut c_void;
     }
-    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+    unsafe { dynobj_values_append(props, arr, IndexShadows::Skip) as *mut c_void }
 }
 
 /// Arr-cell entries: `[[idx_str, elem], ...]` pairs plus the expando
@@ -45,7 +60,11 @@ pub(crate) unsafe fn arr_cell_values(cell: *const c_void) -> *mut c_void {
 pub(crate) unsafe fn arr_cell_entries(cell: *const c_void) -> *mut c_void {
     let len = unsafe { (cell.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
     let mut outer = unsafe { __torajs_arr_alloc(len) };
+    let probe = unsafe { crate::own_names::arr_needs_index_probe(cell) };
     for i in 0..len {
+        if unsafe { index_is_hole(cell, probe, i) } {
+            continue;
+        }
         let idx_str = unsafe { __torajs_i64_to_str(i as i64) };
         let b = unsafe { __torajs_arr_get_any_boxed(cell, i) };
         let t = unsafe { __torajs_anyv_unbox_tag(b) };
@@ -60,7 +79,7 @@ pub(crate) unsafe fn arr_cell_entries(cell: *const c_void) -> *mut c_void {
     let props =
         unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;
     if !props.is_null() {
-        outer = unsafe { dynobj_entries_append(props, outer) };
+        outer = unsafe { dynobj_entries_append(props, outer, IndexShadows::Skip) };
     }
     unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
     outer as *mut c_void

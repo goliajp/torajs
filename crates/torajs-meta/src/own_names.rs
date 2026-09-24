@@ -93,7 +93,7 @@ pub unsafe extern "C" fn __torajs_arr_index_strs_of(arr: *const c_void) -> *mut 
 
 /// `arr_index_flags` result bit 3 — deleted index (hole;
 /// `torajs_arr::define::F_HOLE` mirror, RFC 20260713 chunk C).
-const ARR_F_HOLE: u64 = 1 << 3;
+pub(crate) const ARR_F_HOLE: u64 = 1 << 3;
 
 /// `torajs_rc::FLAG_ARR_SPARSE_TAIL` mirror (bit 6, RFC
 /// 20260810-arr-sparse-grow) — same local-mirror shape as the exotic
@@ -106,7 +106,7 @@ const ARR_F_SPARSE_TAIL: u16 = 1 << 6;
 /// bit 3 — bit 10 is the element kind on a typed cell)? Then the key
 /// walks ask the per-index funnel instead of minting `0..len` in bulk.
 /// Mirrors torajs-arr `layout::needs_index_mop`.
-unsafe fn arr_needs_index_probe(arr: *const c_void) -> bool {
+pub(crate) unsafe fn arr_needs_index_probe(arr: *const c_void) -> bool {
     const EXOTIC: u16 = 1 << 15;
     const HOLEY: u16 = (1 << 3) | (1 << 10);
     let flags = unsafe { (arr.cast::<u8>().add(6) as *const u16).read() };

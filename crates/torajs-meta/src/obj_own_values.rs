@@ -103,10 +103,24 @@ unsafe fn entry_value_pair(obj: *const c_void, i: u64) -> (u64, u64) {
         as u64)
 }
 
+/// Does a props-bag walk list canonical-index keys? An Array's bag
+/// holds per-index shadow entries (holes, revived or re-attributed
+/// indices) whose values the element walk already answered, so its
+/// tail skips them — the `skip_index_shadow` of the keys walk.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum IndexShadows {
+    Skip,
+    Keep,
+}
+
 /// Append a live DynObj walk's values onto the `Arr<Any>` `arr` in ES
 /// §10.1.11.1 order, enumerable-only. Returns the (possibly
 /// reallocated) array.
-pub(crate) unsafe fn dynobj_values_append(obj: *const c_void, mut arr: *mut u8) -> *mut u8 {
+pub(crate) unsafe fn dynobj_values_append(
+    obj: *const c_void,
+    mut arr: *mut u8,
+    index: IndexShadows,
+) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
     let n = unsafe { __torajs_dynobj_iter_order(obj, order.as_mut_ptr(), len) };
@@ -115,7 +129,8 @@ pub(crate) unsafe fn dynobj_values_append(obj: *const c_void, mut arr: *mut u8) 
         if flags & FLAG_ENUMERABLE == 0 {
             continue;
         }
-        if unsafe { __torajs_dynobj_iter_key(obj, i) }.is_null() {
+        let key = unsafe { __torajs_dynobj_iter_key(obj, i) };
+        if key.is_null() || unsafe { is_skipped_index(index, key) } {
             continue;
         }
         let (tag, val) = unsafe { entry_value_pair(obj, i) };
@@ -127,7 +142,11 @@ pub(crate) unsafe fn dynobj_values_append(obj: *const c_void, mut arr: *mut u8) 
 /// Append a live DynObj walk's `[key, value]` pairs onto the 8-byte-
 /// slot `outer` in ES order, enumerable-only. Returns the (possibly
 /// reallocated) array; the caller stamps the elem kind once.
-pub(crate) unsafe fn dynobj_entries_append(obj: *const c_void, mut outer: *mut u8) -> *mut u8 {
+pub(crate) unsafe fn dynobj_entries_append(
+    obj: *const c_void,
+    mut outer: *mut u8,
+    index: IndexShadows,
+) -> *mut u8 {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let mut order = vec![0u64; len as usize];
     let n = unsafe { __torajs_dynobj_iter_order(obj, order.as_mut_ptr(), len) };
@@ -137,7 +156,7 @@ pub(crate) unsafe fn dynobj_entries_append(obj: *const c_void, mut outer: *mut u
             continue;
         }
         let key = unsafe { __torajs_dynobj_iter_key(obj, i) };
-        if key.is_null() {
+        if key.is_null() || unsafe { is_skipped_index(index, key) } {
             continue;
         }
         // Borrowed key → the inner pair takes its own share.
@@ -152,12 +171,17 @@ pub(crate) unsafe fn dynobj_entries_append(obj: *const c_void, mut outer: *mut u
     outer
 }
 
+unsafe fn is_skipped_index(index: IndexShadows, key: *const c_void) -> bool {
+    index == IndexShadows::Skip
+        && unsafe { crate::obj_own_keys_key_shape::key_is_canonical_index(key) }
+}
+
 /// Build the value `Arr<Any>` from a live DynObj walk
 /// (`Object.values`, §20.1.2.22).
 unsafe fn dynobj_values_walk(obj: *const c_void) -> *mut c_void {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let arr = unsafe { __torajs_arr_alloc_any(len) };
-    unsafe { dynobj_values_append(obj, arr) as *mut c_void }
+    unsafe { dynobj_values_append(obj, arr, IndexShadows::Keep) as *mut c_void }
 }
 
 /// Build the `[key, value]` pair `Arr<Arr<Any>>` from a live DynObj
@@ -165,7 +189,7 @@ unsafe fn dynobj_values_walk(obj: *const c_void) -> *mut c_void {
 unsafe fn dynobj_entries_walk(obj: *const c_void) -> *mut c_void {
     let len = unsafe { __torajs_dynobj_iter_len(obj) };
     let outer = unsafe { __torajs_arr_alloc(len) };
-    let outer = unsafe { dynobj_entries_append(obj, outer) };
+    let outer = unsafe { dynobj_entries_append(obj, outer, IndexShadows::Keep) };
     unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
     outer as *mut c_void
 }
@@ -270,7 +294,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                 if props.is_null() {
                     arr as *mut c_void
                 } else {
-                    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+                    unsafe { dynobj_values_append(props, arr, IndexShadows::Keep) as *mut c_void }
                 }
             }
             TAG_OBJ_CELL => unsafe { crate::struct_enum::__torajs_anyv_struct_values(v) },
@@ -306,7 +330,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                 if props.is_null() {
                     arr as *mut c_void
                 } else {
-                    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+                    unsafe { dynobj_values_append(props, arr, IndexShadows::Keep) as *mut c_void }
                 }
             }
             // §10.4.3.3 — StringWrapper's [[StringData]] per-index
@@ -322,7 +346,10 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                 if props.is_null() {
                     arr
                 } else {
-                    unsafe { dynobj_values_append(props, arr as *mut u8) as *mut c_void }
+                    unsafe {
+                        dynobj_values_append(props, arr as *mut u8, IndexShadows::Keep)
+                            as *mut c_void
+                    }
                 }
             }
             // Number / Boolean / Symbol wrappers carry no inherent own
@@ -334,7 +361,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
                 if props.is_null() {
                     arr as *mut c_void
                 } else {
-                    unsafe { dynobj_values_append(props, arr) as *mut c_void }
+                    unsafe { dynobj_values_append(props, arr, IndexShadows::Keep) as *mut c_void }
                 }
             }
             _ => unsafe { __torajs_arr_alloc_any(0) as *mut c_void },
@@ -385,7 +412,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 let outer = if props.is_null() {
                     outer
                 } else {
-                    unsafe { dynobj_entries_append(props, outer) }
+                    unsafe { dynobj_entries_append(props, outer, IndexShadows::Keep) }
                 };
                 unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
                 outer as *mut c_void
@@ -411,7 +438,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 let outer = if props.is_null() {
                     outer
                 } else {
-                    unsafe { dynobj_entries_append(props, outer) }
+                    unsafe { dynobj_entries_append(props, outer, IndexShadows::Keep) }
                 };
                 unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
                 outer as *mut c_void
@@ -429,7 +456,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 let outer = if props.is_null() {
                     outer
                 } else {
-                    unsafe { dynobj_entries_append(props, outer) }
+                    unsafe { dynobj_entries_append(props, outer, IndexShadows::Keep) }
                 };
                 unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
                 outer as *mut c_void
@@ -440,7 +467,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
                 let outer = if props.is_null() {
                     outer
                 } else {
-                    unsafe { dynobj_entries_append(props, outer) }
+                    unsafe { dynobj_entries_append(props, outer, IndexShadows::Keep) }
                 };
                 unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
                 outer as *mut c_void
