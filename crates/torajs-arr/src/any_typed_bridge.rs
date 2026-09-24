@@ -249,7 +249,7 @@ pub(crate) unsafe fn typed_set_grow(arr: *mut u8, i: u64, tag: u64, value: u64) 
                 }
             }
         };
-        crate::grow_store::typed_grow_store(arr, i, raw);
+        crate::grow_store::typed_grow_store(arr, i, raw, crate::grow_store::typed_hole_raw(kind));
         arr
     }
 }
@@ -315,6 +315,10 @@ pub(crate) unsafe fn typed_slot_anyvalue_borrowed(arr: *const u8, i: u64) -> u64
         let header = &*(arr as *const HeapHeader);
         match header.arr_elem_kind() {
             ARR_KIND_I64 => __torajs_anyv_box_from_pair(2, raw as i64),
+            // An f64 hole holds the undefined sentinel NaN.
+            ARR_KIND_F64 if raw == torajs_rc::F64_UNDEF_SENTINEL_BITS => {
+                __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
+            }
             ARR_KIND_F64 => __torajs_anyv_box_from_pair(3, raw as i64),
             ARR_KIND_BOOL => __torajs_anyv_box_from_pair(1, raw as i64),
             // A NULL heap slot is a hole — undefined per spec, never
