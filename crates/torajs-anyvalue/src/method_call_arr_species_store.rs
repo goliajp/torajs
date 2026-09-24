@@ -33,13 +33,32 @@ unsafe extern "C" {
     );
 }
 
+// Declared apart because this crate's lib test links without
+// torajs-arr's staticlib and does not strip `store_elem`; the test
+// build takes a no-op (no test here drives a species product).
+#[cfg(not(test))]
+unsafe extern "C" {
+    /// torajs-arr — §10.4.2.1 ArrayDefineOwnProperty (throwing
+    /// flavor), same flags-byte encoding; an ANY_HEAP value transfers
+    /// one rc.
+    fn __torajs_arr_define(
+        arr: *mut c_void,
+        key: *mut c_void,
+        tag: u64,
+        value: u64,
+        flags_byte: u64,
+    );
+}
+
+#[cfg(test)]
+unsafe fn __torajs_arr_define(_: *mut c_void, _: *mut c_void, _: u64, _: u64, _: u64) {}
+
 /// §23.1.3.1 concat with A = the species product (B3 first cut):
 /// spread the receiver, then each argument (a `Tag::Arr` heap
 /// argument spreads, everything else appends as one element — the
 /// same `@@isConcatSpreadable`-free subset the default-product
-/// kernel implements), writing each element through the any-lane
-/// index-set kernel (CreateDataPropertyOrThrow approximation), then
-/// set `length`. An abrupt store (frozen product, non-writable
+/// kernel implements), writing each element through [`store_elem`]
+/// (CreateDataPropertyOrThrow), then set `length`. An abrupt store (frozen product, non-writable
 /// index) stops the derive and propagates — the product is released
 /// and the dispatcher answers undefined.
 ///
@@ -134,16 +153,39 @@ const DEFINE_ALL_TRUE: u64 = 0x7F;
 /// non-writable entry and refuse a non-configurable one (the
 /// create-species-with-non-* t262 quartet); the set-semantics
 /// shortcut this replaces threw on `writable: false` however
-/// configurable the entry was. Every other product shape keeps the
-/// any-lane index-set kernel (an Arr product's fresh dense slots
-/// have no attributes to collide with; that kernel also threads the
-/// product slot so a resize relocation writes the fresh cell back).
+/// configurable the entry was. An Arr product takes §10.4.2.1
+/// ArrayDefineOwnProperty the same way: a species constructor may
+/// hand back an array whose index it already defined non-writable
+/// (target-array-with-non-writable-property, four methods), so its
+/// slots are not attribute-free. Every other product shape keeps the
+/// any-lane index-set kernel (it threads the product slot so a
+/// resize relocation writes the fresh cell back).
 /// `false` when the store recorded a pending throw.
 pub(crate) unsafe fn store_elem(product: &mut AnyValue, idx: i64, owned_elem: AnyValue) -> bool {
     unsafe {
         if is_cell(*product) {
             let p = as_void_ptr(*product);
-            if !p.is_null() && (p.cast::<u8>().add(4) as *const u16).read() == Tag::DynObj as u16 {
+            let tag = if p.is_null() {
+                0
+            } else {
+                (p.cast::<u8>().add(4) as *const u16).read()
+            };
+            if tag == Tag::Arr as u16 {
+                // Arr grow never relocates the cell (slots live behind
+                // a data pointer), so no slot to thread back.
+                let digits = idx.to_string();
+                let key = __torajs_str_alloc(digits.as_ptr(), digits.len() as i64);
+                __torajs_arr_define(
+                    p,
+                    key as *mut c_void,
+                    crate::nanbox_encode::__torajs_anyv_unbox_tag(owned_elem) as u64,
+                    crate::nanbox_encode::__torajs_anyv_unbox_value(owned_elem) as u64,
+                    DEFINE_ALL_TRUE,
+                );
+                __torajs_str_drop(key as *mut c_void);
+                return __torajs_throw_check() == 0;
+            }
+            if tag == Tag::DynObj as u16 {
                 let digits = idx.to_string();
                 let key = __torajs_str_alloc(digits.as_ptr(), digits.len() as i64);
                 let mut obj = p;
