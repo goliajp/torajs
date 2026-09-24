@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T11:42:29.846Z",
+  "generatedAt": "2026-09-24T22:24:18.068Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,18 +9,18 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-24T11:30:56Z",
-    "headSha": "5e1dcff56",
-    "elapsedSec": 558.01,
+    "ranAt": "2026-09-24T22:12:37Z",
+    "headSha": "d127ff631",
+    "elapsedSec": 567.96,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34902,
+    "pass": 34904,
     "passNoOracle": 1755,
     "passNegative": 4568,
-    "passTotal": 41225,
-    "bug": 8087,
+    "passTotal": 41227,
+    "bug": 8085,
     "incompatible": 3862,
     "bunSkip": 2854,
     "harnessError": 0,
@@ -30,8 +30,8 @@
     "passRateTrAccepted": 83.6
   },
   "torajs": {
-    "commit": "5ac674e12",
-    "commitSubject": "chore(hardev): rotation 702 close stamps",
+    "commit": "66076c120",
+    "commitSubject": "chore(hardev): rotation 703 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "5ac674e12",
-      "subject": "chore(hardev): rotation 702 close stamps"
+      "hash": "66076c120",
+      "subject": "chore(hardev): rotation 703 close stamps"
     },
     {
-      "hash": "5e1dcff56",
-      "subject": "fix(regexp): RegExp.prototype owns its symbol-keyed protocol methods"
+      "hash": "d127ff631",
+      "subject": "fix(arr): includes over a number[] reads a hole as undefined"
     },
     {
-      "hash": "c6b0b49cb",
-      "subject": "fix(any): a name accessor on an object cell runs its getter"
+      "hash": "3669a1f00",
+      "subject": "fix(width): a container with index or length writes may hold the sentinel"
     },
     {
-      "hash": "eb85d1009",
-      "subject": "fix(class): a field initializer is named by the field"
+      "hash": "4409f43aa",
+      "subject": "fix(arr): concat over typed arrays keeps their holes"
     },
     {
-      "hash": "048b3728a",
-      "subject": "fix(parser): a numeric property name is spelled by Number::toString"
+      "hash": "287d806bf",
+      "subject": "fix(arr): slice over a typed receiver keeps its holes"
     },
     {
-      "hash": "937bda237",
-      "subject": "revert: a hole in a typed f64 array holds the undefined sentinel"
+      "hash": "6714ca735",
+      "subject": "fix(arr): a number[] prints its undefined sentinel as undefined"
     },
     {
-      "hash": "848115698",
+      "hash": "f6904d3ba",
+      "subject": "fix(width): concat joins its arguments' class at every call site"
+    },
+    {
+      "hash": "4a02a7689",
+      "subject": "refactor(width): namespace-receiver calls get their own effects helper"
+    },
+    {
+      "hash": "69cff36c7",
       "subject": "fix(arr): a hole in a typed f64 array holds the undefined sentinel"
     },
     {
-      "hash": "311d4c5b0",
-      "subject": "refactor(closure-param-tag): the default-value marking round moves out of the fixpoint body"
+      "hash": "cafe5a4bc",
+      "subject": "fix(arr): a typed array prints its holes"
     },
     {
-      "hash": "7d23c3c15",
-      "subject": "refactor(forwarders): the let-init axis moves out, its admission split from its bookkeeping"
+      "hash": "6970a0570",
+      "subject": "fix(arr): typed-source some / every skip holes"
     },
     {
-      "hash": "81f56f861",
-      "subject": "refactor(arguments): one predicate for a declaration that reads arguments"
-    },
-    {
-      "hash": "3cb639bc1",
-      "subject": "fix(any): a string view's undefined stays undefined when stored into an any array"
-    },
-    {
-      "hash": "008ad60f2",
-      "subject": "refactor(any): Array<Any> push / unshift pack through the shared slot packer"
+      "hash": "94f566d60",
+      "subject": "fix(arr): typed-source callback methods skip holes"
     }
   ],
-  "headSha": "5ac674e12",
+  "headSha": "66076c120",
   "autorun": {
-    "total": 1004,
+    "total": 1005,
     "baselineTarget": 10,
-    "bySelf": 999,
+    "bySelf": 1000,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790239297-5784",
-      "at": "2026-09-24T08:41:37Z",
-      "ts": 1790239297,
+      "rotationId": "r-1790250214-028e",
+      "at": "2026-09-24T11:43:34Z",
+      "ts": 1790250214,
       "trigger": "self",
-      "prevHead": "b99c98bf9",
-      "handoffSha": "sha256:584725b469c6ee868c2edadf1850b8807711c16cbdf6d9dc7da09f026fbb12ae",
-      "handoffAgeSec": 8,
-      "conformanceBefore": "4611/0/4",
-      "commitsInSession": 17
+      "prevHead": "08490e490",
+      "handoffSha": "sha256:0fc21270c0bd7bc299d3fe111bbd5c4beeca60b8479fde9c7414fc46d406d422",
+      "handoffAgeSec": 15,
+      "conformanceBefore": "4616/0/4",
+      "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1790250214-028e",
+        "at": "2026-09-24T11:43:34Z",
+        "ts": 1790250214,
+        "trigger": "self",
+        "prevHead": "08490e490",
+        "handoffSha": "sha256:0fc21270c0bd7bc299d3fe111bbd5c4beeca60b8479fde9c7414fc46d406d422",
+        "handoffAgeSec": 15,
+        "conformanceBefore": "4616/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1790239297-5784",
         "at": "2026-09-24T08:41:37Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 10,
         "conformanceBefore": "4529/0/4",
         "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1790106534-5bb9",
-        "at": "2026-09-22T19:48:54Z",
-        "ts": 1790106534,
-        "trigger": "self",
-        "prevHead": "9a2cec028",
-        "handoffSha": "sha256:eb6100d43f02928156e15d9b272077e6f54568a5caa2452a5b1fb9a9b41b1f3e",
-        "handoffAgeSec": 26,
-        "conformanceBefore": "4524/0/4",
-        "commitsInSession": 16
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
