@@ -62,15 +62,10 @@ pub unsafe fn is_array_spec(v: i64) -> Result<bool, ()> {
         };
         let type_tag = unsafe { *((ptr as *const u8).add(HDR_TYPE_TAG_OFF) as *const u16) };
         if type_tag != TAG_PROXY {
-            // RECORDED GAP (517-06): an arguments object is NOT an
-            // Array exotic object and §7.2.2 owes it a `false`, but
-            // tr mints it as an Arr cell and has no reliable way to
-            // tell the two apart — FLAG_ARR_ARGUMENTS shares bit 1
-            // with FLAG_SPLIT_BLOCK on the same tag, and the element
-            // kind that might have separated them depends on when a
-            // split block gets materialized. So this answers `true`
-            // for `arguments`, as it always has.
-            return Ok(type_tag == TAG_ARR);
+            // An arguments object is an Arr cell in tr but NOT an
+            // Array exotic object: §7.2.2 answers false for it.
+            let flags = unsafe { *((ptr as *const u8).add(6) as *const u16) };
+            return Ok(type_tag == TAG_ARR && !crate::arr_flags_are_arguments(flags));
         }
         let handler = unsafe { *((ptr as *const u8).add(PROXY_HANDLER_OFF) as *const i64) };
         if handler == ANY_VALUE_NULL {

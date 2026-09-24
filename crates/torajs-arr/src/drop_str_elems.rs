@@ -77,8 +77,8 @@ unsafe fn release_is_noop(cell: *mut u8) -> bool {
 /// ([`crate::substr_materialize`]) marks the kind when it replaces
 /// the views, as does the typed→any boundary. The first slot's own
 /// header is checked too (`FLAG_SUBSTR_INLINE`): bit 1 of the flags
-/// word is also `FLAG_ARR_ARGUMENTS` on `Tag::Arr`, so the block flag
-/// alone is not proof of the layout.
+/// word used to be `FLAG_ARR_ARGUMENTS` on `Tag::Arr` as well, and the
+/// block flag alone still does not prove the inline-substr layout.
 #[inline]
 unsafe fn pristine_split_block(header: &HeapHeader, first: *mut u8) -> bool {
     header.flags & FLAG_SPLIT_BLOCK != 0

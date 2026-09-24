@@ -304,13 +304,17 @@ pub(crate) unsafe fn cell_badge(ptr: *mut c_void, tag: u16) -> &'static [u8] {
     }
     match tag {
         t if t == Tag::Str as u16 => b"String",
-        // RECORDED GAP (517-06) — §20.1.3.6 step 5 owes an arguments
-        // object the "Arguments" badge, but tr mints it as an Arr
-        // cell and FLAG_ARR_ARGUMENTS shares bit 1 with
-        // FLAG_SPLIT_BLOCK on that same tag, so reading the bit
-        // called `"a-b".split("-")` an arguments object. Until the
-        // identity has a signal of its own, both answer "Array".
-        t if t == Tag::Arr as u16 => b"Array",
+        // §20.1.3.6 step 5 — an arguments object (an Arr cell in tr,
+        // which IsArray above already answered false for) wears
+        // "Arguments"; any other Arr cell reaching here is an Array.
+        t if t == Tag::Arr as u16 => {
+            let flags = unsafe { (ptr.cast::<u8>().add(6) as *const u16).read() };
+            if torajs_rc::arr_flags_are_arguments(flags) {
+                b"Arguments"
+            } else {
+                b"Array"
+            }
+        }
         // §20.1.3.6 step 6 — the badge IS IsCallable, so it is §7.2.3
         // and nothing else. Spelling the shapes out here named two of
         // the three (a closure cell; a class object, which is a dynobj

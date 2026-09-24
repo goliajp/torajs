@@ -18,7 +18,7 @@
 
 use core::ffi::c_void;
 
-use torajs_rc::FLAG_ARR_ARGUMENTS;
+use torajs_rc::{FLAG_ARR_ARGUMENTS, arr_flags_are_arguments};
 
 use crate::define::{header_flags, props_slot};
 
@@ -65,7 +65,18 @@ pub unsafe extern "C" fn __torajs_arr_mark_arguments(arr: *mut c_void) {
         return;
     }
     let fp = unsafe { (arr as *mut u8).add(6) }.cast::<u16>();
-    unsafe { fp.write(fp.read() | FLAG_ARR_ARGUMENTS) };
+    let flags = unsafe { fp.read() };
+    // The identity is only read together with FLAG_ARR_ANY. Every mint
+    // with elements is an `any[]` literal; a zero-argument call mints
+    // `[]`, which comes out as a slot-less cell with no element kind —
+    // nothing to reinterpret, so it simply becomes an Any cell.
+    let len = unsafe { (arr.cast::<u8>().add(crate::layout::ARR_LEN_OFF) as *const u64).read() };
+    debug_assert!(
+        flags & torajs_rc::FLAG_ARR_ANY != 0 || len == 0,
+        "arguments mint with elements that is not an Any cell"
+    );
+    let any = if len == 0 { torajs_rc::FLAG_ARR_ANY } else { 0 };
+    unsafe { fp.write(flags | any | FLAG_ARR_ARGUMENTS) };
 }
 
 /// Bare FLAG_ARR_ARGUMENTS probe — the `callee` descriptor arm and
@@ -76,7 +87,7 @@ pub unsafe extern "C" fn __torajs_arr_mark_arguments(arr: *mut c_void) {
 /// `arr` is a live `Tag::Arr` heap pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_is_arguments(arr: *const c_void) -> i64 {
-    unsafe { (header_flags(arr) & FLAG_ARR_ARGUMENTS != 0) as i64 }
+    unsafe { arr_flags_are_arguments(header_flags(arr)) as i64 }
 }
 
 /// The `"length"` face state of an Arr cell: 0 = plain array (the
@@ -93,7 +104,7 @@ pub unsafe extern "C" fn __torajs_arr_arguments_length_state(
     key: *const c_void,
 ) -> i64 {
     unsafe {
-        if header_flags(arr) & FLAG_ARR_ARGUMENTS == 0 {
+        if !arr_flags_are_arguments(header_flags(arr)) {
             return 0;
         }
         let props = *props_slot(arr as *mut c_void);
@@ -122,7 +133,7 @@ pub unsafe extern "C" fn __torajs_arr_arguments_callee_state(
     key: *const c_void,
 ) -> i64 {
     unsafe {
-        if header_flags(arr) & FLAG_ARR_ARGUMENTS == 0 {
+        if !arr_flags_are_arguments(header_flags(arr)) {
             return 0;
         }
         let props = *props_slot(arr as *mut c_void);
@@ -179,7 +190,7 @@ pub unsafe extern "C" fn __torajs_arr_arguments_length_delete(
     key: *mut c_void,
 ) -> i64 {
     unsafe {
-        if header_flags(arr as *const c_void) & FLAG_ARR_ARGUMENTS == 0 {
+        if !arr_flags_are_arguments(header_flags(arr as *const c_void)) {
             return 0;
         }
         let slot = props_slot(arr);

@@ -163,8 +163,11 @@ pub unsafe fn any_slot_is_hole(arr: *const u8, idx: u64) -> bool {
 #[inline]
 pub(crate) unsafe fn copy_elem_desc_bits(src: *const u8, dst: *mut u8) {
     unsafe {
-        let bits =
-            *(src.add(6) as *const u16) & (torajs_rc::FLAG_ARR_ANY | torajs_rc::ARR_ELEM_KIND_MASK);
+        // The derive is an Array, never an arguments object: an Any
+        // source's bit 11 is FLAG_ARR_ARGUMENTS, not a kind bit.
+        let bits = *(src.add(6) as *const u16)
+            & (torajs_rc::FLAG_ARR_ANY | torajs_rc::ARR_ELEM_KIND_MASK)
+            & !torajs_rc::FLAG_ARR_ARGUMENTS;
         *(dst.add(6) as *mut u16) |= bits;
     }
 }

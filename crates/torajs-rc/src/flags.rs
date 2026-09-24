@@ -10,7 +10,7 @@
 //! | bits  | user | scope |
 //! |-------|------|-------|
 //! | 0     | [`FLAG_SUBCLASSED`] | universal |
-//! | 1     | [`FLAG_SPLIT_BLOCK`] (Str) / [`FLAG_ARR_ARGUMENTS`] (Arr) / [`FLAG_CLOSURE_NS_STATIC`] (Closure) | disjoint-by-tag |
+//! | 1     | [`FLAG_SPLIT_BLOCK`] (Str, and the Arr cell of a split block) / [`FLAG_CLOSURE_NS_STATIC`] (Closure) | disjoint-by-tag |
 //! | 2     | [`FLAG_STATIC_LITERAL`] | universal |
 //! | 3     | [`FLAG_ARR_ANY`] (Arr) / [`FLAG_FN_GENERATOR`] (Closure) | disjoint-by-tag |
 //! | 4     | [`FLAG_FROZEN`] | universal |
@@ -21,6 +21,7 @@
 //! | 9     | [`FLAG_SEALED`] | universal |
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr, typed cells only |
 //! | 10    | [`FLAG_ARR_ANY_HOLEY`] | Arr with [`FLAG_ARR_ANY`] (the kind field stays UNSET there) |
+//! | 11    | [`FLAG_ARR_ARGUMENTS`] | Arr with [`FLAG_ARR_ANY`] (same arrangement as HOLEY) |
 //! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) | disjoint-by-tag with Arr kind |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
@@ -68,9 +69,26 @@ pub const FLAG_CLOSURE_NS_STATIC: u16 = 1 << 1;
 /// this bit; a delete leaves a hole shadow entry under the `"length"`
 /// key in the expando props dynobj (the element-domain tombstone
 /// mechanism, RFC 20260712 chunk C — every enumerator already skips
-/// holes). Bit 1 is Tag::Arr-private (disjoint-by-tag reuse of the
-/// Str-only [`FLAG_SPLIT_BLOCK`]).
-pub const FLAG_ARR_ARGUMENTS: u16 = 1 << 1;
+/// holes).
+///
+/// Bit 11, meaningful only together with [`FLAG_ARR_ANY`] — the
+/// [`FLAG_ARR_ANY_HOLEY`] arrangement: bit 11 is the element-kind field
+/// on a typed cell, an Any cell keeps that field UNSET, and every
+/// arguments mint is an Any cell. Ask [`arr_flags_are_arguments`], never
+/// the bit alone. It used to be bit 1, which a `str_split` block (an Arr
+/// cell carrying [`FLAG_SPLIT_BLOCK`]) also sets: every identity reader
+/// took a split result for an arguments object (its prototype answered
+/// `Object.prototype`, `delete parts.length` succeeded), and the free
+/// path could file an arguments cell in the split pool.
+pub const FLAG_ARR_ARGUMENTS: u16 = 1 << 11;
+
+/// Is an Arr cell with these header flags a materialized `arguments`
+/// object? The one spelling of the question (see [`FLAG_ARR_ARGUMENTS`]).
+#[inline]
+pub const fn arr_flags_are_arguments(flags: u16) -> bool {
+    const BOTH: u16 = FLAG_ARR_ANY | FLAG_ARR_ARGUMENTS;
+    flags & BOTH == BOTH
+}
 /// rc_inc / rc_dec / str_free no-op when set (immortal literal).
 pub const FLAG_STATIC_LITERAL: u16 = 1 << 2;
 /// Array<Any>: 16-byte slots instead of 8.

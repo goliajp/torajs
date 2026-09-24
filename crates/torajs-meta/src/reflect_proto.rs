@@ -20,8 +20,9 @@ use crate::reflect::{
 /// blade 1) — exotic cell minted as a user-class instance.
 const FLAG_SUBCLASSED: u16 = 1;
 
-/// `torajs_rc::FLAG_ARR_ARGUMENTS` mirror (Tag::Arr-private bit 1).
-const ARR_FLAG_ARGUMENTS: u16 = 1 << 1;
+/// `torajs_rc::arr_flags_are_arguments` mirror: `FLAG_ARR_ANY` (bit 3)
+/// together with `FLAG_ARR_ARGUMENTS` (bit 11).
+const ARR_FLAGS_ARGUMENTS: u16 = (1 << 3) | (1 << 11);
 
 /// `torajs_rc::FLAG_FN_GENERATOR` mirror (Tag::Closure-private
 /// header-flags bit 3, RFC 20260721 刀 2).
@@ -431,11 +432,10 @@ pub unsafe extern "C" fn __torajs_anyv_get_proto_of_any(v: u64) -> u64 {
         }
         // §10.4.4.7 step 2 — an arguments materialization's
         // [[Prototype]] is %Object.prototype%, not Array.prototype
-        // (the 10.6-5-1 assert; FLAG_ARR_ARGUMENTS mirror, Tag::Arr-
-        // private bit 1).
+        // (the 10.6-5-1 assert; FLAG_ARR_ARGUMENTS mirror).
         if tag == TAG_ARR {
             let flags = unsafe { dynobj.cast::<u8>().add(6).cast::<u16>().read() };
-            if flags & ARR_FLAG_ARGUMENTS != 0 {
+            if flags & ARR_FLAGS_ARGUMENTS == ARR_FLAGS_ARGUMENTS {
                 return unsafe { proto_singleton(OBJECT_PROTO_TAG) };
             }
         }

@@ -228,7 +228,7 @@ pub use flags::{
     FLAG_DYNOBJ_RAW_JSON, FLAG_ERROR, FLAG_FN_ASYNC, FLAG_FN_GENERATOR, FLAG_FN_LENGTH_DELETED,
     FLAG_FN_NAME_DELETED, FLAG_FN_PROTO, FLAG_FROZEN, FLAG_NON_EXTENSIBLE, FLAG_OBJ_EXOTIC_FIELD,
     FLAG_OBJ_EXPANDO, FLAG_OBJ_USER_PROTO, FLAG_PROXY_CALLABLE, FLAG_PROXY_CONSTRUCTOR,
-    FLAG_SEALED, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, FLAG_SUBCLASSED,
+    FLAG_SEALED, FLAG_SPLIT_BLOCK, FLAG_STATIC_LITERAL, FLAG_SUBCLASSED, arr_flags_are_arguments,
 };
 pub use ns_static::{
     NS_STATIC_UNKNOWN, NsStaticRow, ns_static_id, ns_static_is_deleted, ns_static_mark_deleted,
@@ -617,8 +617,19 @@ mod tests {
             FLAG_ARR_EXOTIC_INDEX,
             FLAG_ARR_LENGTH_RO,
             FLAG_ARR_SPARSE_TAIL,
-            FLAG_ARR_ARGUMENTS,
         ];
+        // ARGUMENTS shares bit 11 with the kind field by the same design
+        // as HOLEY (Any cells only); it must still miss every other Arr
+        // flag, HOLEY included.
+        for a in arr_flags.iter().filter(|a| **a != ARR_ELEM_KIND_MASK) {
+            assert_eq!(
+                a & FLAG_ARR_ARGUMENTS,
+                0,
+                "Arr flag {a:#06x} overlaps ARGUMENTS"
+            );
+        }
+        assert_eq!(FLAG_ARR_ARGUMENTS & FLAG_ARR_ANY_HOLEY, 0);
+        assert_eq!(FLAG_ARR_ARGUMENTS & FLAG_SPLIT_BLOCK, 0);
         for (i, a) in arr_flags.iter().enumerate() {
             // HOLEY shares bit 10 with the kind field BY DESIGN (a kind is
             // only ever set on a typed cell, HOLEY only on an Any cell),
