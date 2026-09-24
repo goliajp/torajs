@@ -8,7 +8,7 @@
 //! element type the callback's return shape dictates.
 
 use crate::ast::ExprId;
-use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{InstKind, Operand, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, intern_arr_layout};
 
 /// `map`/`filter`: pre-size dst to src.len so per-iter
@@ -98,8 +98,8 @@ pub(crate) fn resolve_acc_ty(
 
 /// `reduce`/`reduceRight`: allocate `__iter_acc`, seed from `init_op`
 /// (2-arg form — lowered by the caller so the acc lane could read its
-/// type) or arr[0] / arr[len-1] (1-arg form, throws on empty arr per
-/// spec §22.1.3.21/22 step 3).
+/// type) or the first present element in visiting order (1-arg form,
+/// TypeError for an array with none — §23.1.3.24/25 step 4 and 8).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_acc_slot(
     ctx: &mut LowerCtx<'_>,
@@ -114,99 +114,15 @@ pub(crate) fn prepare_acc_slot(
     if !matches!(method, "reduce" | "reduceRight") {
         return (None, None);
     }
-    // A boxed-element source can hold holes: the seed is the first
-    // PRESENT element, found by the runtime (see `emit_present_seed`).
-    let present_seed = reduce_no_init && elem_ty == Type::Any;
-    if reduce_no_init && !present_seed {
-        // Empty-arr guard: branch to throw_blk which calls the helper +
-        // emit_throw_check; fall-through Br'd to continue_blk so the IR
-        // validates (helper always sets throw_active → fall unreachable
-        // at runtime).
-        let len_chk = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
-            Type::I64,
-            None,
-        );
-        let is_empty = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::ICmp(IPred::Eq, Operand::Value(len_chk), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let throw_blk = ctx.f.add_block();
-        let continue_blk = ctx.f.add_block();
-        let cb = ctx.cur_block;
-        ctx.f.set_term(
-            cb,
-            Terminator::CondBr {
-                cond: Operand::Value(is_empty),
-                then_blk: throw_blk,
-                else_blk: continue_blk,
-            },
-        );
-        ctx.cur_block = throw_blk;
-        let throw_fid = if method == "reduceRight" {
-            ctx.intrinsics.arr_throw_reduce_right_empty
-        } else {
-            ctx.intrinsics.arr_throw_reduce_empty
-        };
-        ctx.f
-            .append_void(ctx.cur_block, InstKind::Call(throw_fid, vec![]));
-        ctx.emit_throw_check(None);
-        let cb2 = ctx.cur_block;
-        ctx.f.set_term(cb2, Terminator::Br(continue_blk));
-        ctx.cur_block = continue_blk;
-    }
+    // No initial value: the seed is the first PRESENT element — a
+    // typed source can hold holes too — found by the runtime, which
+    // also raises the TypeError for an array with none (see
+    // `emit_present_seed`).
     let mut seed_start = None;
-    let init_v = if present_seed {
-        let (k, v) = emit_present_seed(ctx, method, src_arr);
+    let init_v = if reduce_no_init {
+        let (k, v) = emit_present_seed(ctx, method, src_arr, elem_ty);
         seed_start = Some(k);
         v
-    } else if reduce_no_init {
-        let len_for_seed = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Load(Type::I64, Operand::Value(src_arr), ARR_LEN_OFF),
-            Type::I64,
-            None,
-        );
-        let seed_idx = if method == "reduceRight" {
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(
-                    SsaBinOp::Sub,
-                    Operand::Value(len_for_seed),
-                    Operand::ConstI64(1),
-                ),
-                Type::I64,
-                None,
-            )
-        } else {
-            ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(SsaBinOp::Add, Operand::ConstI64(0), Operand::ConstI64(0)),
-                Type::I64,
-                None,
-            )
-        };
-        let (off_base, off) = ctx.emit_arr_slot_byte_offset(
-            Operand::Value(src_arr),
-            Operand::Value(seed_idx),
-            3,
-            false,
-        );
-        let seed = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, off_base.clone(), off),
-            elem_ty,
-            None,
-        );
-        // Refcounted seed is a borrowed slot read — bump RC so the
-        // post-loop acc drop balances.
-        if elem_ty.is_refcounted() {
-            ctx.emit_rc_inc(Operand::Value(seed));
-        }
-        Operand::Value(seed)
     } else {
         init_op.expect("reduce 2-arg form lowered its init at the call site")
     };
@@ -246,12 +162,19 @@ pub(crate) fn prepare_acc_slot(
     (Some(slot), seed_start)
 }
 
-/// §23.1.3.24 / §23.1.3.25 step 8 over a boxed-element source: the
-/// runtime answers the first present index in visiting order (or
-/// records the TypeError for an array with none), and the seed is that
-/// element's [[Get]] — owned, since a getter may have produced it. The
-/// loop starts one step past it (`begin_loop`'s `seed_start`).
-fn emit_present_seed(ctx: &mut LowerCtx<'_>, method: &str, src_arr: ValueId) -> (ValueId, Operand) {
+/// §23.1.3.24 / §23.1.3.25 step 8: the runtime answers the first
+/// present index in visiting order (or records the TypeError for an
+/// array with none). Over a boxed-element source the seed is that
+/// element's [[Get]] — owned, since a getter may have produced it; over
+/// a typed source it is the slot, and a refcounted one is bumped so the
+/// post-loop accumulator drop balances. The loop starts one step past
+/// it (`begin_loop`'s `seed_start`).
+fn emit_present_seed(
+    ctx: &mut LowerCtx<'_>,
+    method: &str,
+    src_arr: ValueId,
+    elem_ty: Type,
+) -> (ValueId, Operand) {
     let right = (method == "reduceRight") as i64;
     let k = ctx.f.append_inst(
         ctx.cur_block,
@@ -263,6 +186,20 @@ fn emit_present_seed(ctx: &mut LowerCtx<'_>, method: &str, src_arr: ValueId) -> 
         None,
     );
     ctx.emit_throw_check(None);
+    if elem_ty != Type::Any {
+        let (off_base, off) =
+            ctx.emit_arr_slot_byte_offset(Operand::Value(src_arr), Operand::Value(k), 3, false);
+        let seed = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::LoadDyn(elem_ty, off_base, off),
+            elem_ty,
+            None,
+        );
+        if elem_ty.is_refcounted() {
+            ctx.emit_rc_inc(Operand::Value(seed));
+        }
+        return (k, Operand::Value(seed));
+    }
     let v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Call(

@@ -12,8 +12,9 @@
 //! receiver here is a hard type error.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{FuncId, Operand, Type};
+use crate::ssa::{FuncId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_arr_hole_gate::TypedGate;
 use crate::ssa_lower_call_arr_ho_loop::{begin_loop, emit_per_method_body, end_loop_and_produce};
 use crate::ssa_lower_call_arr_ho_slots::{
     dst_array_type, prepare_acc_slot, prepare_dst_slot, resolve_acc_ty,
@@ -164,8 +165,8 @@ fn lower_higher_order(
     // the exit loads it out (seed inc'd / init transferred / each step
     // stores the new value before dropping the old); a callback that
     // throws mid-loop releases it through the slot. Copy-typed
-    // accumulators answer no token. The dst parks after `begin_loop`
-    // below, once its pre-reserve shape is known.
+    // accumulators answer no token. Each loop copy parks the dst itself
+    // (`emit_hof_loop`), once its pre-reserve shape is known.
     let acc_tok = acc_slot.and_then(|s| ctx.push_throw_typed_slot(s, acc_ty));
     // Rotation 363 — an argv-face callback (the inline fn-expr
     // whose body reads `arguments` values; collector doc at
@@ -174,54 +175,34 @@ fn lower_higher_order(
     // synthetic argv pointer. The loop body routes it through the
     // boxed variadic dispatch instead (emit_argv_face_call).
     let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
-    let mut frame = begin_loop(
-        ctx,
-        &method,
-        src_arr,
-        dst_slot,
-        dst_arr_ty,
-        elem_ty,
-        reduce_no_init,
-        seed_start,
-    );
-    frame.len_gate = elem_ty != Type::Any
-        && crate::ast::hof_len_shrink::hof_len_may_shrink(
-            ctx.ast,
-            obj,
-            args[0],
-            if is_reduce { 3 } else { 2 },
-        );
-    // 550-01 — the growing dst (map / filter) is ours until the exit
-    // loads it out; a callback that throws mid-loop releases it
-    // through the slot (push relocates, so the pointer itself cannot
-    // be parked). A deferred-length pre-reserve hands its running
-    // count along so the throw path settles the cell first.
-    let dst_tok = dst_slot.and_then(|s| {
-        let deferred = frame
-            .dst_fast
-            .filter(|st| st.defer_len)
-            .map(|st| st.len_slot);
-        ctx.push_throw_arr_slot(s, dst_arr_ty, deferred)
-    });
-    emit_per_method_body(
-        ctx,
-        frame,
-        &method,
+    let plan = HofLoop {
+        method: &method,
         src_arr,
         dst_slot,
         acc_slot,
         dst_arr_ty,
         acc_ty,
         elem_ty,
+        seed_start,
         known_fid,
-        &fn_val,
+        fn_val: &fn_val,
         fn_ty,
-        this_arg.as_ref(),
+        this_arg: this_arg.as_ref(),
         argv_face,
-    );
-    let out = end_loop_and_produce(ctx, frame, &method, dst_slot, acc_slot, dst_arr_ty, acc_ty);
+        len_gate: elem_ty != Type::Any
+            && crate::ast::hof_len_shrink::hof_len_may_shrink(
+                ctx.ast,
+                obj,
+                args[0],
+                if is_reduce { 3 } else { 2 },
+            ),
+    };
+    let out = if elem_ty == Type::Any {
+        emit_hof_loop(ctx, &plan, false)
+    } else {
+        emit_versioned(ctx, &plan)
+    };
     ctx.unpark_owned_temp(acc_tok);
-    ctx.unpark_owned_temp(dst_tok);
     // RFC 20260705 chunk 550 — release owned-shape temps after the
     // loop consumed them: an inline arrow's minted env in the cb
     // slot and a Call/New-shaped receiver.
@@ -234,6 +215,136 @@ fn lower_higher_order(
         ctx.release_owned_temp(t, &op);
     }
     out
+}
+
+/// Everything one emission of the loop reads — the typed-source path
+/// emits it twice ([`emit_versioned`]).
+struct HofLoop<'o> {
+    method: &'o str,
+    src_arr: ValueId,
+    dst_slot: Option<ValueId>,
+    acc_slot: Option<ValueId>,
+    dst_arr_ty: Type,
+    acc_ty: Type,
+    elem_ty: Type,
+    seed_start: Option<ValueId>,
+    known_fid: Option<FuncId>,
+    fn_val: &'o Operand,
+    fn_ty: Type,
+    this_arg: Option<&'o Operand>,
+    argv_face: bool,
+    /// A typed source the callback may shorten (`hof_len_shrink`).
+    len_gate: bool,
+}
+
+/// One loop over the source: header, visit, step, product. `holes`
+/// picks the copy whose every step asks whether the index is present
+/// (a typed source whose header says it can have holes).
+fn emit_hof_loop(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>, holes: bool) -> Operand {
+    let mut frame = begin_loop(
+        ctx,
+        p.method,
+        p.src_arr,
+        p.dst_slot,
+        p.dst_arr_ty,
+        p.elem_ty,
+        p.seed_start,
+    );
+    frame.gate = if holes {
+        TypedGate::Present
+    } else if p.len_gate {
+        TypedGate::Len
+    } else {
+        TypedGate::None
+    };
+    // 550-01 — the growing dst (map / filter) is ours until the exit
+    // loads it out; a callback that throws mid-loop releases it
+    // through the slot (push relocates, so the pointer itself cannot
+    // be parked). A deferred-length pre-reserve hands its running
+    // count along so the throw path settles the cell first. Each loop
+    // copy has its own count, so each parks its own.
+    let dst_tok = p.dst_slot.and_then(|s| {
+        let deferred = frame
+            .dst_fast
+            .filter(|st| st.defer_len)
+            .map(|st| st.len_slot);
+        ctx.push_throw_arr_slot(s, p.dst_arr_ty, deferred)
+    });
+    emit_per_method_body(
+        ctx,
+        frame,
+        p.method,
+        p.src_arr,
+        p.dst_slot,
+        p.acc_slot,
+        p.dst_arr_ty,
+        p.acc_ty,
+        p.elem_ty,
+        p.known_fid,
+        p.fn_val,
+        p.fn_ty,
+        p.this_arg,
+        p.argv_face,
+    );
+    let out = end_loop_and_produce(
+        ctx,
+        frame,
+        p.method,
+        p.dst_slot,
+        p.acc_slot,
+        p.dst_arr_ty,
+        p.acc_ty,
+    );
+    ctx.unpark_owned_temp(dst_tok);
+    out
+}
+
+/// A typed source: read the header once, before either loop, and run
+/// today's loop over a dense array — the per-step HasProperty test is
+/// what `ssa_lower_arr_hole_gate`'s measurement priced at +34% inside a
+/// dense loop — or the gated copy over one that can have holes. Both
+/// copies write the same dst / acc slots; the product is taken after
+/// they meet.
+fn emit_versioned(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>) -> Operand {
+    let out_ty = match p.method {
+        "map" | "filter" => Some(p.dst_arr_ty),
+        "reduce" | "reduceRight" => Some(p.acc_ty),
+        _ => None,
+    };
+    let out_slot = out_ty.map(|t| ctx.alloca(t, Some("__hof_out")));
+    let holey = ctx.emit_hof_sparse_probe(p.src_arr);
+    let dense_blk = ctx.f.add_block();
+    let holey_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    let cur = ctx.cur_block;
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: Operand::Value(holey),
+            then_blk: holey_blk,
+            else_blk: dense_blk,
+        },
+    );
+    for (blk, holes) in [(dense_blk, false), (holey_blk, true)] {
+        ctx.cur_block = blk;
+        let out = emit_hof_loop(ctx, p, holes);
+        if let Some(slot) = out_slot {
+            ctx.f
+                .append_void(ctx.cur_block, InstKind::Store(out, Operand::Value(slot), 0));
+        }
+        let end = ctx.cur_block;
+        ctx.f.set_term(end, Terminator::Br(join_blk));
+    }
+    ctx.cur_block = join_blk;
+    match (out_slot, out_ty) {
+        (Some(slot), Some(ty)) => Operand::Value(ctx.f.append_inst(
+            join_blk,
+            InstKind::Load(ty, Operand::Value(slot), 0),
+            ty,
+            None,
+        )),
+        _ => Operand::ConstI64(0),
+    }
 }
 
 /// A promoted callback is either the inline Closure itself or a

@@ -33,27 +33,84 @@
 //! costs is that it splits the loop body into blocks, and a
 //! `sum += x` loop that was one block no longer unrolls or vectorizes.
 //!
-//! So the gate is not emitted at all unless the source's ELEMENT TYPE
-//! is `any`. That is not a compromise about which arrays get correct
-//! answers — it is the same fact the delete side is built on: an
-//! unboxed slot has no value that means absent, so `delete a[i]` on a
-//! `number[]` widens the declaration to `any[]` rather than punching a
-//! hole into one ([`crate::ast::delete_arr_widen`]). An interior hole
-//! can only exist behind boxed elements, and there the loop body
-//! already carries a per-element `arr_get_any_boxed` call that a
-//! branch disappears next to.
+//! So the per-step gate is never emitted into a loop a dense TYPED
+//! array runs. A boxed-element source pays it unconditionally: its
+//! loop body already carries a per-element `arr_get_any_boxed` call
+//! that a branch disappears next to. (`delete a[i]` never punches a
+//! hole into a `number[]` — it widens the declaration to `any[]`,
+//! [`crate::ast::delete_arr_widen`].)
 //!
-//! Recorded boundary: `a.length = 5` on a `number[]` leaves a sparse
-//! TAIL — indices past the live extent that are absent without any
-//! boxed slot. Those keep today's answer (the callback runs on them).
-//! It is a suffix, not an interior hole, so the fix is a preheader
-//! clamp of the loop bound rather than a per-element test — no hot-path
-//! cost, and no reason to buy it with one.
+//! A TYPED source can hold holes too — a write past the end or a
+//! longer `length` leaves the gap absent in the cell's hole shadow
+//! (`FLAG_ARR_EXOTIC_INDEX`) or as a sparse tail. Those arrays are rare
+//! and the header says which ones they are, so the typed loop is
+//! emitted twice ([`crate::ssa_lower_call_arr_ho`]): the preheader reads
+//! the header once and a dense array runs today's loop unchanged; only
+//! an array that can have an absent index runs the copy whose every
+//! step asks `arr_has_index` ([`TypedGate::Present`]).
+//!
+//! Recorded boundary: a typed hole that a prototype digit key fills is
+//! present, and the typed copy reads the slot word instead of that key.
 
 use crate::ssa::{BinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
+/// Which test a TYPED source's loop runs before visiting an index.
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub(crate) enum TypedGate {
+    /// Nothing can make an index below the original length absent.
+    None,
+    /// The callback may shorten the array (`hof_len_shrink`).
+    Len,
+    /// The array can have holes: the loop copy the preheader picks for
+    /// it asks `arr_has_index` at every step (which also covers `Len`).
+    Present,
+}
+
 impl LowerCtx<'_> {
+    /// Branch to `skip_blk` unless index `i` of the typed source `arr`
+    /// is present now; `cur_block` is left where the visit is emitted.
+    pub(crate) fn emit_hof_typed_gate(
+        &mut self,
+        gate: TypedGate,
+        arr: ValueId,
+        i: ValueId,
+        skip_blk: BlockId,
+    ) {
+        match gate {
+            TypedGate::None => {}
+            TypedGate::Len => self.emit_hof_len_gate(arr, i, skip_blk),
+            TypedGate::Present => {
+                let visit_blk = self.f.add_block();
+                let present = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::Call(
+                        self.intrinsics.arr_has_index,
+                        vec![Operand::Value(arr), Operand::Value(i)],
+                    ),
+                    Type::I64,
+                    None,
+                );
+                let ok = self.f.append_inst(
+                    self.cur_block,
+                    InstKind::ICmp(IPred::Ne, Operand::Value(present), Operand::ConstI64(0)),
+                    Type::Bool,
+                    None,
+                );
+                let cur = self.cur_block;
+                self.f.set_term(
+                    cur,
+                    Terminator::CondBr {
+                        cond: Operand::Value(ok),
+                        then_blk: visit_blk,
+                        else_blk: skip_blk,
+                    },
+                );
+                self.cur_block = visit_blk;
+            }
+        }
+    }
+
     /// The whole §23.1.3 HasProperty test on a TYPED source whose
     /// callback may shorten it (`hof_len_shrink`): nothing else can
     /// make an index below the original length absent there. Re-read

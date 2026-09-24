@@ -13,6 +13,7 @@ use crate::ssa::{
     BinOp as SsaBinOp, BlockId, FuncId, IPred, InstKind, Operand, Terminator, Type, ValueId,
 };
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx, PreReserveState};
+use crate::ssa_lower_arr_hole_gate::TypedGate;
 
 mod dispatch;
 mod methods;
@@ -45,10 +46,10 @@ pub(crate) struct LoopFrame {
     /// call. `begin_loop` decides, `end_loop_and_produce` settles the
     /// length word it left stale.
     pub(crate) dst_fast: Option<PreReserveState>,
-    /// A typed source the callback may shorten (`hof_len_shrink`):
-    /// each visit first checks the index against the current length.
-    /// The caller sets it; `begin_loop` leaves it off.
-    pub(crate) len_gate: bool,
+    /// What a TYPED source checks before each visit (a boxed source
+    /// runs its own gate). The caller sets it; `begin_loop` leaves it
+    /// off.
+    pub(crate) gate: TypedGate,
 }
 
 /// Set up i_slot + init_i, fast-path `arr_reserve(dst, len)` for
@@ -59,8 +60,8 @@ pub(crate) struct LoopFrame {
 ///
 /// S132 — reduceRight walks last → first (spec §22.1.3.22): init cursor
 /// to `len - 1`, header `i > -1`, body `i = i - 1`. 1-arg
-/// reduce/reduceRight: seed already consumed → cursor starts one step in
-/// (i = 1 / len - 2).
+/// reduce/reduceRight: the seed was the first present element
+/// (`seed_start`) and the cursor starts one step past it.
 pub(crate) fn begin_loop(
     ctx: &mut LowerCtx<'_>,
     method: &str,
@@ -68,7 +69,6 @@ pub(crate) fn begin_loop(
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
     src_elem_ty: Type,
-    reduce_no_init: bool,
     seed_start: Option<ValueId>,
 ) -> LoopFrame {
     let header_blk = ctx.f.add_block();
@@ -112,20 +112,13 @@ pub(crate) fn begin_loop(
         );
         Operand::Value(i_init)
     } else if method == "reduceRight" {
-        let seed_step = if reduce_no_init { 2 } else { 1 };
         let i_init = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::BinOp(
-                SsaBinOp::Sub,
-                Operand::Value(len),
-                Operand::ConstI64(seed_step),
-            ),
+            InstKind::BinOp(SsaBinOp::Sub, Operand::Value(len), Operand::ConstI64(1)),
             Type::I64,
             None,
         );
         Operand::Value(i_init)
-    } else if reduce_no_init {
-        Operand::ConstI64(1)
     } else {
         Operand::ConstI64(0)
     };
@@ -217,7 +210,7 @@ pub(crate) fn begin_loop(
         owned_slot,
         owned_flag,
         dst_fast,
-        len_gate: false,
+        gate: TypedGate::None,
     }
 }
 
@@ -304,11 +297,12 @@ pub(crate) fn emit_per_method_body(
             ctx.cur_block = work_blk;
             Some(es)
         }
-        // A typed source only loses an index to a shorter length.
-        // `map` into a typed product has no way to say hole and keeps
-        // the recorded boundary above.
-        (None, None, None, Some(skip_blk)) if frame.len_gate => {
-            ctx.emit_hof_len_gate(src_arr, i_now2, skip_blk);
+        // A typed source loses an index to a shorter length, or — in
+        // the loop copy a holey array runs — to a hole. `map` into a
+        // typed product has no way to say hole and keeps the recorded
+        // boundary above.
+        (None, None, None, Some(skip_blk)) if frame.gate != TypedGate::None => {
+            ctx.emit_hof_typed_gate(frame.gate, src_arr, i_now2, skip_blk);
             None
         }
         _ => None,
