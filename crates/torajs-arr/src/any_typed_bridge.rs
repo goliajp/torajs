@@ -68,6 +68,7 @@ pub(crate) fn coerce_raw_scalar(kind: u16, tag: u64, value: u64) -> Option<u64> 
         // F64 slot: double bits direct; int widens.
         (ARR_KIND_F64, 3) => Some(value),
         (ARR_KIND_F64, 2) => Some((value as i64 as f64).to_bits()),
+        (ARR_KIND_F64, 5) => Some(torajs_rc::F64_UNDEF_SENTINEL_BITS),
         (ARR_KIND_BOOL, 1) => Some(value),
         _ => None,
     }

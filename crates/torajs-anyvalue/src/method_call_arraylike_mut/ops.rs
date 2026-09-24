@@ -5,24 +5,34 @@
 //! helpers and externs through the parent module.
 
 use super::*;
+use crate::callback_resolve::Callback;
+
+/// §23.1.3.30 step 1 — the comparator is `undefined` or callable
+/// (§7.2.3); `Err` = not callable. `Ok(Some)` keeps a minted thunk
+/// alive for as long as it is held — across the whole sort.
+unsafe fn comparator(cmp: AnyValue) -> Result<Option<Callback>, ()> {
+    if is_undefined(cmp) {
+        return Ok(None);
+    }
+    unsafe { crate::callback_resolve::resolve(cmp, crate::nanbox::VALUE_UNDEFINED) }
+        .map(Some)
+        .ok_or(())
+}
+
+/// The `(env, entry, has_cb)` triple the sort kernels take.
+fn callback_triple(own: &Option<Callback>) -> (*mut c_void, u64, i64) {
+    match own {
+        None => (core::ptr::null_mut(), 0u64, 0i64),
+        Some(c) => (c.env(), c.entry(), 1),
+    }
+}
 
 pub(super) unsafe fn do_sort(obj: &mut *mut c_void, len: i64, cmp: AnyValue) -> AnyValue {
     unsafe {
-        // §23.1.3.30 step 1 IsCallable — §7.2.3; `own` keeps a
-        // minted thunk alive for the whole sort.
-        let own = if is_undefined(cmp) {
-            None
-        } else {
-            let Some(c) = crate::callback_resolve::resolve(cmp, crate::nanbox::VALUE_UNDEFINED)
-            else {
-                return not_callable();
-            };
-            Some(c)
+        let Ok(own) = comparator(cmp) else {
+            return not_callable();
         };
-        let (cb_env, cb_entry, has_cb) = match &own {
-            None => (core::ptr::null_mut(), 0u64, 0i64),
-            Some(c) => (c.env(), c.entry(), 1),
-        };
+        let (cb_env, cb_entry, has_cb) = callback_triple(&own);
         let mut tmp = __torajs_arr_alloc_any(len.clamp(0, 4096) as u64);
         let mut count: i64 = 0;
         // The staging Gets reach user getters — stop on a pending
@@ -192,10 +202,38 @@ pub(crate) unsafe fn arr_needs_index_mop(arr: *const c_void) -> bool {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn __torajs_arr_sort_exotic(arr: *mut c_void, cmp: AnyValue) -> AnyValue {
     unsafe {
+        if (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_ARR_ANY == 0 {
+            return sort_typed_holes(arr, cmp);
+        }
         let len = (arr.cast::<u8>().add(crate::index_any::MIRROR_ARR_LEN_OFF) as *const u64).read();
         let mut obj = arr;
         do_sort(&mut obj, len as i64, cmp)
     }
+}
+
+/// A typed cell carries holes but never an accessor index
+/// (`define_index_accessor` refuses one), and a boxed `Set` cannot
+/// store back into every element kind (a pointer kind does not say
+/// which pointer type it holds) — so torajs-arr permutes its raw
+/// slots instead. Same answer as [`do_sort`].
+unsafe fn sort_typed_holes(arr: *mut c_void, cmp: AnyValue) -> AnyValue {
+    unsafe {
+        let Ok(own) = comparator(cmp) else {
+            return not_callable();
+        };
+        let (cb_env, cb_entry, has_cb) = callback_triple(&own);
+        __torajs_arr_sort_typed_holes(arr, cb_env, cb_entry, has_cb);
+        if __torajs_throw_check() != 0 {
+            return VALUE_UNDEFINED;
+        }
+        __torajs_rc_inc(arr);
+        __torajs_anyv_box_pointer(arr)
+    }
+}
+
+unsafe extern "C" {
+    /// torajs-arr — sort a typed cell whose holes are marked.
+    fn __torajs_arr_sort_typed_holes(arr: *mut c_void, env: *mut c_void, entry: u64, has: i64);
 }
 
 /// `__torajs_arr_mutate_generic(arr, mid)` — `pop` / `shift` over an

@@ -55,6 +55,11 @@ pub(crate) unsafe fn rebox_slot(kind: u16, raw: u64) -> u64 {
     unsafe {
         match kind {
             torajs_rc::ARR_KIND_I64 => __torajs_anyv_box_from_pair(2, raw as i64),
+            // A number[] slot holding the undefined sentinel is
+            // `undefined` (§23.1.3.30.2: it sorts last, uncompared).
+            torajs_rc::ARR_KIND_F64 if raw == torajs_rc::F64_UNDEF_SENTINEL_BITS => {
+                __torajs_anyv_box_from_pair(5, 0)
+            }
             torajs_rc::ARR_KIND_F64 => __torajs_anyv_box_from_pair(3, raw as i64),
             torajs_rc::ARR_KIND_BOOL => __torajs_anyv_box_from_pair(1, raw as i64),
             torajs_rc::ARR_KIND_HEAP if raw == 0 => __torajs_anyv_box_from_pair(5, 0),

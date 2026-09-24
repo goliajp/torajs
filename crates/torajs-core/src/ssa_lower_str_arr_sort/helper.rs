@@ -115,19 +115,19 @@ fn sort_helper_mode(ctx: &LowerCtx<'_>, cmp_ty: Type, elem_ty: Type) -> Option<i
     )
 }
 
-/// §23.1.3.30 SortIndexedProperties for a boxed-element receiver that
-/// carries a hole (shadow or slot) or an accessor index:
+/// §23.1.3.30 SortIndexedProperties for a receiver that carries a
+/// hole (shadow or slot) or an accessor index:
 /// the kernel stages `HasProperty` / `Get` per index (a hole is skipped
 /// and a getter runs), sorts the staged values, then `Set`s them back
 /// and `DeletePropertyOrThrow`s the tail. Both fast paths permute raw
 /// slots, which leaves a hole's shadow where it was and never runs an
-/// accessor — `[3, , 1].sort()` answered `[1, <hole>, undefined]`.
+/// accessor — `[3, , 1].sort()` answered `[1, <hole>, undefined]`, and
+/// a `number[]` with a hole a write past the end left kept its present
+/// last element hidden under that hole.
 ///
-/// Only an `any`-element array can carry the flag (an unboxed slot has
-/// no value meaning absent — see `ssa_lower_arr_hole_gate`), so typed
-/// receivers emit nothing. The header test runs once per call, outside
-/// any loop. Returns the join block and leaves `cur_block` at the fast
-/// path; `None` when nothing was emitted.
+/// The header test runs once per call, outside any loop. Returns the
+/// join block and leaves `cur_block` at the fast path; `None` when
+/// nothing was emitted.
 ///
 /// Recorded gap: a bare `FnSig` comparator has no `any` box spelling
 /// here, so that shape keeps the fast path.
@@ -138,9 +138,7 @@ pub(super) fn emit_exotic_divert(
     cmp_ty: &Option<Type>,
     elem_ty: Type,
 ) -> Option<BlockId> {
-    if elem_ty != Type::Any
-        || matches!(cmp_ty, Some(t) if !matches!(t, Type::Closure(_) | Type::Any))
-    {
+    if matches!(cmp_ty, Some(t) if !matches!(t, Type::Closure(_) | Type::Any)) {
         return None;
     }
     // A hole (shadow or slot) or an accessor index — the one header
@@ -158,6 +156,11 @@ pub(super) fn emit_exotic_divert(
         },
     );
     ctx.cur_block = slow;
+    // A typed cell's kernel (`sort_typed_holes`) compares its raw
+    // slots reboxed per the element kind the cell names.
+    if elem_ty != Type::Any {
+        ctx.emit_arr_mark_kind(&Operand::Value(arr_ptr));
+    }
     let cmp_arg = cmp_val
         .clone()
         .map(|cv| ctx.box_to_any(cv))

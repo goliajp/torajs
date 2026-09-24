@@ -280,14 +280,35 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
         if crate::define_length::__torajs_arr_frozen_guard(arr as *const core::ffi::c_void) != 0 {
             return arr;
         }
+        let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
+        let slots = arr_data(arr).add(head * 8) as *mut u64;
+        any_sort_slots(arr, slots, len, cb_env, cb_entry, has_cb);
+        arr
+    }
+}
+
+/// Sort the `n` slots at `slots` of `arr` through the any-receiver
+/// comparator ([`__torajs_arr_any_sort`]'s body, shared with the typed
+/// hole kernel in `sort_holes`, which sorts only the present prefix).
+///
+/// # Safety
+/// `slots` addresses `n` live slots of `arr`; the callback contract is
+/// [`__torajs_arr_any_sort`]'s.
+pub(crate) unsafe fn any_sort_slots(
+    arr: *const u8,
+    slots: *mut u64,
+    n: usize,
+    cb_env: *mut c_void,
+    cb_entry: u64,
+    has_cb: i64,
+) {
+    unsafe {
         let header = &*(arr as *const torajs_rc::HeapHeader);
         let rebox_kind = if header.flags & torajs_rc::FLAG_ARR_ANY != 0 {
             torajs_rc::ARR_KIND_UNSET
         } else {
             header.arr_elem_kind()
         };
-        let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
-        let slots = arr_data(arr).add(head * 8) as *mut u64;
         let cmp = AnyCmp {
             fn_ptr: cb_entry as usize as *const u8,
             env: cb_env as *mut u8,
@@ -297,14 +318,13 @@ pub unsafe extern "C" fn __torajs_arr_any_sort(
                 && crate::method_any_hof::recv_first_shift(cb_env as *mut c_void) != 0,
             rebox_kind,
         };
-        if len <= INSERTION_RUN {
-            insertion(slots, len, &cmp);
-            return arr;
+        if n <= INSERTION_RUN {
+            insertion(slots, n, &cmp);
+            return;
         }
-        let scratch = malloc(len.div_ceil(2) * 8) as *mut u64;
-        sort_range(slots, scratch, 0, len, &cmp);
+        let scratch = malloc(n.div_ceil(2) * 8) as *mut u64;
+        sort_range(slots, scratch, 0, n, &cmp);
         free(scratch as *mut c_void);
-        arr
     }
 }
 
