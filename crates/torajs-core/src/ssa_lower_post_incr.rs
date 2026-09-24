@@ -395,6 +395,17 @@ fn lower_index(
         }
         other => panic!("ssa-lower: post-incr index on non-array {other:?}"),
     };
+    // An `any[]` element is a NaN-box: the raw add below would add to
+    // its bits, and the unchecked slot store skips everything an
+    // element write can mean (an index past the end, an accessor, an
+    // arguments object's own index in its props bag). The keyed lane
+    // does the §13.4 update through the element kernels.
+    if elem_ty == Type::Any {
+        let boxed = ctx.box_to_any(arr_val);
+        return crate::ssa_lower_post_incr_keyed::lower_index_any_keyed(
+            ctx, eid, index, boxed, step,
+        );
+    }
     let idx_val = ctx.lower_index_operand(index);
     let (offset_base, offset) =
         ctx.emit_arr_slot_byte_offset(arr_val.clone(), idx_val, 3, is_non_deque);
