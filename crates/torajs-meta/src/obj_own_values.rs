@@ -30,10 +30,10 @@
 use core::ffi::c_void;
 
 use crate::obj_own_keys::{
-    ANY_HEAP_TAG, ARR_LEN_OFF, ARR_PROPS_OFF, CLOSURE_PROPS_OFF, FLAG_ENUMERABLE, HDR_TYPE_TAG_OFF,
-    KIND_CHAIN_HEAP, SHORT_STR_TOP16, TAG_ACCESSOR_PAIR, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER,
-    TAG_CLOSURE_CELL, TAG_NUMBER_WRAPPER, TAG_OBJ_CELL, TAG_STR_CELL, TAG_STRING_WRAPPER,
-    TAG_SYMBOL_WRAPPER, WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
+    ANY_HEAP_TAG, CLOSURE_PROPS_OFF, FLAG_ENUMERABLE, HDR_TYPE_TAG_OFF, KIND_CHAIN_HEAP,
+    SHORT_STR_TOP16, TAG_ACCESSOR_PAIR, TAG_ARR_CELL, TAG_BOOLEAN_WRAPPER, TAG_CLOSURE_CELL,
+    TAG_NUMBER_WRAPPER, TAG_OBJ_CELL, TAG_STR_CELL, TAG_STRING_WRAPPER, TAG_SYMBOL_WRAPPER,
+    WRAPPER_INNER_OFF, WRAPPER_PROPS_OFF, heap_type_tag_local, is_dynobj_imm,
 };
 
 unsafe extern "C" {
@@ -202,51 +202,6 @@ unsafe fn str_cell_entries(cell: *const c_void) -> *mut c_void {
     outer as *mut c_void
 }
 
-/// Arr-cell values: kind-aware element walk (borrowed box read →
-/// owned unbox per slot), then the props-dynobj expando tail.
-unsafe fn arr_cell_values(cell: *const c_void) -> *mut c_void {
-    let len = unsafe { (cell.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
-    let mut arr = unsafe { __torajs_arr_alloc_any(len) };
-    for i in 0..len {
-        let b = unsafe { __torajs_arr_get_any_boxed(cell, i) };
-        let t = unsafe { __torajs_anyv_unbox_tag(b) };
-        let val = unsafe { __torajs_anyv_unbox_value_owned(b) };
-        arr = unsafe { __torajs_arr_push_any(arr as *mut c_void, t as u64, val as u64) };
-    }
-    let props =
-        unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;
-    if props.is_null() {
-        return arr as *mut c_void;
-    }
-    unsafe { dynobj_values_append(props, arr) as *mut c_void }
-}
-
-/// Arr-cell entries: `[[idx_str, elem], ...]` pairs plus the expando
-/// tail, elem-kind stamped.
-unsafe fn arr_cell_entries(cell: *const c_void) -> *mut c_void {
-    let len = unsafe { (cell.cast::<u8>().add(ARR_LEN_OFF) as *const u64).read() };
-    let mut outer = unsafe { __torajs_arr_alloc(len) };
-    for i in 0..len {
-        let idx_str = unsafe { __torajs_i64_to_str(i as i64) };
-        let b = unsafe { __torajs_arr_get_any_boxed(cell, i) };
-        let t = unsafe { __torajs_anyv_unbox_tag(b) };
-        let val = unsafe { __torajs_anyv_unbox_value_owned(b) };
-        let inner = unsafe { __torajs_arr_alloc_any(2) };
-        let inner = unsafe {
-            __torajs_arr_push_any(inner as *mut c_void, ANY_HEAP_TAG as u64, idx_str as u64)
-        };
-        let inner = unsafe { __torajs_arr_push_any(inner as *mut c_void, t as u64, val as u64) };
-        outer = unsafe { __torajs_arr_push(outer, inner as i64) };
-    }
-    let props =
-        unsafe { (cell.cast::<u8>().add(ARR_PROPS_OFF) as *const u64).read() } as *const c_void;
-    if !props.is_null() {
-        outer = unsafe { dynobj_entries_append(props, outer) };
-    }
-    unsafe { __torajs_arr_mark_kind(outer as *mut c_void, KIND_CHAIN_HEAP) };
-    outer as *mut c_void
-}
-
 /// The closure env-cell's props dynobj, if any.
 unsafe fn closure_props(cell: *const c_void) -> *const c_void {
     unsafe { (cell.cast::<u8>().add(CLOSURE_PROPS_OFF) as *const u64).read() as *const c_void }
@@ -308,7 +263,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_values(v: u64) -> *mut c_void {
         let htag = unsafe { heap_type_tag_local(cell) };
         return match htag {
             TAG_STR_CELL => unsafe { str_cell_values(cell) },
-            TAG_ARR_CELL => unsafe { arr_cell_values(cell) },
+            TAG_ARR_CELL => unsafe { crate::obj_own_values_arr::arr_cell_values(cell) },
             TAG_CLOSURE_CELL => {
                 let props = unsafe { closure_props(cell) };
                 let arr = unsafe { __torajs_arr_alloc_any(0) };
@@ -423,7 +378,7 @@ pub unsafe extern "C" fn __torajs_anyv_own_entries(v: u64) -> *mut c_void {
         let htag = unsafe { heap_type_tag_local(cell) };
         return match htag {
             TAG_STR_CELL => unsafe { str_cell_entries(cell) },
-            TAG_ARR_CELL => unsafe { arr_cell_entries(cell) },
+            TAG_ARR_CELL => unsafe { crate::obj_own_values_arr::arr_cell_entries(cell) },
             TAG_CLOSURE_CELL => {
                 let props = unsafe { closure_props(cell) };
                 let outer = unsafe { __torajs_arr_alloc(0) };

@@ -52,6 +52,7 @@ mod obj_own_keys_layout;
 pub(crate) mod obj_own_keys_proto_names;
 pub(crate) mod obj_own_keys_struct;
 pub mod obj_own_values;
+pub(crate) mod obj_own_values_arr;
 pub(crate) mod obj_own_values_buffer;
 pub mod object_group_by;
 pub mod object_proto_install;
