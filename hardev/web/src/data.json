@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T04:50:58.623Z",
+  "generatedAt": "2026-09-24T08:40:25.814Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-24T04:39:09Z",
-    "headSha": "416fe72f1",
-    "elapsedSec": 545.96,
+    "ranAt": "2026-09-24T08:28:54Z",
+    "headSha": "3b1c2988b",
+    "elapsedSec": 551.58,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34839,
+    "pass": 34870,
     "passNoOracle": 1750,
     "passNegative": 4568,
-    "passTotal": 41157,
-    "bug": 8153,
-    "incompatible": 3864,
+    "passTotal": 41188,
+    "bug": 8124,
+    "incompatible": 3862,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
-    "trAccepted": 49310,
-    "passRateInScope": 77.4,
-    "passRateTrAccepted": 83.47
+    "trAccepted": 49312,
+    "passRateInScope": 77.46,
+    "passRateTrAccepted": 83.53
   },
   "torajs": {
-    "commit": "395058b36",
-    "commitSubject": "chore(hardev): rotation 700 close stamps",
+    "commit": "8dc914aae",
+    "commitSubject": "chore(hardev): rotation 701 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "395058b36",
-      "subject": "chore(hardev): rotation 700 close stamps"
+      "hash": "8dc914aae",
+      "subject": "chore(hardev): rotation 701 close stamps"
     },
     {
-      "hash": "664ddc664",
-      "subject": "chore(hardev): rotation 700 close stamps"
+      "hash": "3b1c2988b",
+      "subject": "fix(update): ++ / -- on an any[] element goes through the element kernels"
     },
     {
-      "hash": "416fe72f1",
-      "subject": "fix(buffer): DataView.prototype and ArrayBuffer.prototype own their methods"
+      "hash": "a86cb9d9b",
+      "subject": "refactor(update): move the arr.length update lane out of ssa_lower_post_incr"
     },
     {
-      "hash": "51483db5d",
-      "subject": "fix(array): slice keeps the receiver's holes"
+      "hash": "b9be0f99e",
+      "subject": "fix(array): find visits an index its predicate cut off with undefined"
     },
     {
-      "hash": "43f48cf74",
-      "subject": "fix(arr): an arguments object's length is an ordinary data property on write"
+      "hash": "e3b6f96c8",
+      "subject": "fix(any): a string's undefined stays undefined when stored into an any array"
     },
     {
-      "hash": "e82b61a2e",
-      "subject": "fix(rc): the arguments object gets an identity bit a split block does not share"
+      "hash": "42cc2d11e",
+      "subject": "fix(arr): delete on a typed array of pointer elements removes the index"
     },
     {
-      "hash": "da055f021",
-      "subject": "fix(core): a literal member naming a top-level array or object binding promotes"
+      "hash": "af99022ec",
+      "subject": "fix(index): a hole in a typed array of pointers reads undefined"
     },
     {
-      "hash": "e1489dad5",
-      "subject": "refactor(array): literal elisions and map holes are slot-value holes"
+      "hash": "44b3de494",
+      "subject": "refactor(index): move the typed read's out-of-range undefined into its own module"
     },
     {
-      "hash": "7f15ddcb4",
-      "subject": "fix(array): an accessor defined over a slot hole replaces the hole"
+      "hash": "7b4de16b9",
+      "subject": "fix(arguments): a declaration that reads arguments leaves a call site as its relay"
     },
     {
-      "hash": "196d676d9",
-      "subject": "fix(meta): Object.entries / values over an array skip holes and index shadows"
+      "hash": "d37649bde",
+      "subject": "fix(array): a binding the program installs an accessor on widens to any[]"
     },
     {
-      "hash": "8c53291cb",
-      "subject": "refactor(meta): move the Arr-cell values/entries walk to obj_own_values_arr"
+      "hash": "73078203c",
+      "subject": "refactor(arr): move the Any-outer flat() kernel out of any.rs"
     },
     {
-      "hash": "455bba548",
-      "subject": "fix(array): flat takes a share per copied element and skips holes"
+      "hash": "2a5bff52f",
+      "subject": "fix(arguments): an index written past the argument list is an ordinary property"
     }
   ],
-  "headSha": "395058b36",
+  "headSha": "8dc914aae",
   "autorun": {
-    "total": 1002,
+    "total": 1003,
     "baselineTarget": 10,
-    "bySelf": 997,
+    "bySelf": 998,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790212585-6c1e",
-      "at": "2026-09-24T01:16:25Z",
-      "ts": 1790212585,
+      "rotationId": "r-1790225570-4640",
+      "at": "2026-09-24T04:52:50Z",
+      "ts": 1790225570,
       "trigger": "self",
-      "prevHead": "09d1e61f1",
-      "handoffSha": "sha256:2aca1ebeeaa27ec3ce5c024376a7d295513348186f14ca98044f5cacb3132792",
-      "handoffAgeSec": 16,
-      "conformanceBefore": "4589/0/4",
-      "commitsInSession": 14
+      "prevHead": "1e151c335",
+      "handoffSha": "sha256:a92bda1121632630b5cc487923b00b0837987f436902e408fde5c43b49b07ebf",
+      "handoffAgeSec": 6,
+      "conformanceBefore": "4601/0/4",
+      "commitsInSession": 16
     },
     "recent": [
+      {
+        "rotationId": "r-1790225570-4640",
+        "at": "2026-09-24T04:52:50Z",
+        "ts": 1790225570,
+        "trigger": "self",
+        "prevHead": "1e151c335",
+        "handoffSha": "sha256:a92bda1121632630b5cc487923b00b0837987f436902e408fde5c43b49b07ebf",
+        "handoffAgeSec": 6,
+        "conformanceBefore": "4601/0/4",
+        "commitsInSession": 16
+      },
       {
         "rotationId": "r-1790212585-6c1e",
         "at": "2026-09-24T01:16:25Z",
@@ -904,17 +915,6 @@
         "handoffSha": "sha256:fb16c3bb8312f74c77fc0cc38822f502e17e6b600d49f9efd1ba8d87014efc71",
         "handoffAgeSec": 2,
         "conformanceBefore": "4512/0/4",
-        "commitsInSession": 17
-      },
-      {
-        "rotationId": "r-1790067485-587b",
-        "at": "2026-09-22T08:58:05Z",
-        "ts": 1790067485,
-        "trigger": "self",
-        "prevHead": "673efc910",
-        "handoffSha": "sha256:b5c2c9685fc0a71c5d1489d97c1967a99135d4230ac8831e6d4318c9ca1fd155",
-        "handoffAgeSec": 2,
-        "conformanceBefore": "4501/0/4",
         "commitsInSession": 17
       }
     ],
