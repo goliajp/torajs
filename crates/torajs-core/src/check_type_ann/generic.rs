@@ -131,11 +131,19 @@ pub(super) fn resolve_generic(
         // like `Map<string, Array<number>>` (flat `Map<string|Array<number>>`)
         // resolve their args correctly.
         let args = split_top_pipe(inner);
+        let mut resolved = Vec::with_capacity(args.len());
         for arg in &args {
-            resolve_type_ann_inner(arg, aliases, type_params, generic_aliases, in_flight)?;
+            resolved.push(resolve_type_ann_inner(
+                arg,
+                aliases,
+                type_params,
+                generic_aliases,
+                in_flight,
+            )?);
         }
+        let arg = |i: usize| Box::new(resolved.get(i).cloned().unwrap_or(Type::Any));
         return Some(match head {
-            "Map" | "ReadonlyMap" => Type::map_any(),
+            "Map" | "ReadonlyMap" => Type::Map(arg(0), arg(1)),
             "Set" | "ReadonlySet" => Type::Set,
             "WeakMap" => Type::WeakMap,
             "WeakSet" => Type::WeakSet,
@@ -145,7 +153,7 @@ pub(super) fn resolve_generic(
             "WeakRef" => Type::WeakRef,
             // Held-value type validated above; the cell is any-lane.
             "FinalizationRegistry" => Type::Any,
-            "MapIter" | "mapiter" => Type::map_iter_any(),
+            "MapIter" | "mapiter" => Type::MapIter(arg(0)),
             "ArrIter" | "arriter" => Type::ArrIter,
             _ => unreachable!(),
         });

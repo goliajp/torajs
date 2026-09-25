@@ -305,6 +305,14 @@ fn arg_admitted(
     ) {
         return true;
     }
+    // `Map<K, V>` is erased below the checker, so a Map argument fits
+    // a Map param by the payload rule assignment uses (`new Map()` —
+    // `Map<any, any>` — into `m: Map<string, number>`).
+    if matches!((param_ty, arg_ty), (Type::Map(..), Type::Map(..)))
+        && crate::check_assignable::is_assignable_to(param_ty, arg_ty)
+    {
+        return true;
+    }
     // RFC 20260707 chunk 626 — T-11 container widen at the call
     // boundary: an `Array(Any)` param admits any concrete
     // `Array(T)` arg (mirror of check_assignable's T-11 arm).

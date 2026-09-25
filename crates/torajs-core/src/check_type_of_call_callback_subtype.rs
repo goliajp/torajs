@@ -125,7 +125,7 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
                     } else {
                         elem.as_ref()
                     };
-                    a == f || matches!(f, Type::Any) || matches!(a, Type::Any)
+                    slot_agrees(a, f)
                 })
         }
         (Type::Function(formal_ps, formal_ret), Type::Function(actual_ps, actual_ret)) => {
@@ -160,8 +160,22 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
                 && actual_ps
                     .iter()
                     .zip(formal_ps.iter())
-                    .all(|(a, f)| a == f || matches!(f, Type::Any) || matches!(a, Type::Any))
+                    .all(|(a, f)| slot_agrees(a, f))
         }
+        _ => false,
+    }
+}
+
+/// A callback parameter slot matches its formal: equal, or either
+/// side Any — and a `Map` matches component-wise by the same rule, so
+/// `(v, k, m: Map<string, number>) => …` fits a forEach face built
+/// from an unannotated `Map<any, any>` receiver.
+fn slot_agrees(a: &Type, f: &Type) -> bool {
+    match (a, f) {
+        _ if a == f => true,
+        (Type::Any, _) | (_, Type::Any) => true,
+        (Type::Map(ak, av), Type::Map(fk, fv)) => slot_agrees(ak, fk) && slot_agrees(av, fv),
+        (Type::MapIter(ai), Type::MapIter(fi)) => slot_agrees(ai, fi),
         _ => false,
     }
 }

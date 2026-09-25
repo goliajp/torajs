@@ -19,6 +19,11 @@ pub(crate) fn substitute_typevars(ty: &Type, subst: &HashMap<String, Type>) -> T
     match ty {
         Type::TypeVar(name) => subst.get(name).cloned().unwrap_or_else(|| ty.clone()),
         Type::Array(inner) => Type::Array(Box::new(substitute_typevars(inner, subst))),
+        Type::Map(k, v) => Type::Map(
+            Box::new(substitute_typevars(k, subst)),
+            Box::new(substitute_typevars(v, subst)),
+        ),
+        Type::MapIter(inner) => Type::MapIter(Box::new(substitute_typevars(inner, subst))),
         Type::Function(args, ret) => Type::Function(
             args.iter().map(|t| substitute_typevars(t, subst)).collect(),
             Box::new(substitute_typevars(ret, subst)),

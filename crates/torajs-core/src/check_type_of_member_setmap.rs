@@ -40,8 +40,9 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * observing behaviour is unchanged — the value is
          * a tagged Any either way. has / delete return
          * Boolean. clear returns Void. */
+        // `set` answers its receiver (§24.1.3.9 step 6), payload and all
         (Type::Map(..), "set") => {
-            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::map_any()))
+            Type::Function(vec![Type::Any, Type::Any], Box::new(obj_ty.clone()))
         }
         (Type::Map(..), "get") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // Stage-3 upsert (RFC 20260721 刀 6) — answers the present
@@ -67,7 +68,7 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * the (tag, payload) Any-domain. */
         (Type::Map(..), "forEach") => Type::Function(
             vec![Type::Function(
-                vec![Type::Any, Type::Any, Type::map_any()],
+                vec![Type::Any, Type::Any, obj_ty.clone()],
                 Box::new(Type::Void),
             )],
             Box::new(Type::Void),

@@ -80,6 +80,25 @@ pub(crate) fn unify_typevar(
         // "expected Any, got Number".
         (Type::Any, _) => Ok(()),
         (Type::Array(p_elem), Type::Array(a_elem)) => unify_typevar(p_elem, a_elem, subst, parents),
+        // An unannotated `new Map()` is `Map<any, any>`: an Any
+        // component fits a concrete one (the assignability arm's
+        // rule) and still binds a type variable the usual way.
+        (Type::Map(pk, pv), Type::Map(ak, av)) => {
+            for (p, a) in [(pk, ak), (pv, av)] {
+                if !(matches!(**a, Type::Any) && !matches!(**p, Type::TypeVar(_))) {
+                    unify_typevar(p, a, subst, parents)?;
+                }
+            }
+            Ok(())
+        }
+        (Type::MapIter(p), Type::MapIter(a)) if matches!(**a, Type::Any) => {
+            if matches!(**p, Type::TypeVar(_)) {
+                unify_typevar(p, a, subst, parents)
+            } else {
+                Ok(())
+            }
+        }
+        (Type::MapIter(p), Type::MapIter(a)) => unify_typevar(p, a, subst, parents),
         (Type::Function(p_args, p_ret), Type::Function(a_args, a_ret)) => {
             // Rest-tail pattern (`(...args: T[]) => T`, RFC
             // 20260708-variadic-fn-type-ann): the fixed prefix
@@ -173,6 +192,10 @@ fn any_absorbing_join(
         (Type::Array(ae), Type::Array(be)) => {
             Some(Type::Array(Box::new(any_absorbing_join(ae, be, parents)?)))
         }
+        (Type::Map(ak, av), Type::Map(bk, bv)) => Some(Type::Map(
+            Box::new(any_absorbing_join(ak, bk, parents)?),
+            Box::new(any_absorbing_join(av, bv, parents)?),
+        )),
         // Cluster #6 sibling (rotation 442) — Null is a legal
         // inhabitant of every Nullable(T) and of a match result's
         // decayed Array, so those pairs join instead of conflicting
@@ -222,7 +245,8 @@ fn any_absorbing_join(
 pub(crate) fn typevar_appears_in(ty: &Type, name: &str) -> bool {
     match ty {
         Type::TypeVar(n) => n == name,
-        Type::Array(inner) => typevar_appears_in(inner, name),
+        Type::Array(inner) | Type::MapIter(inner) => typevar_appears_in(inner, name),
+        Type::Map(k, v) => typevar_appears_in(k, name) || typevar_appears_in(v, name),
         Type::Function(args, ret) => {
             args.iter().any(|t| typevar_appears_in(t, name)) || typevar_appears_in(ret, name)
         }

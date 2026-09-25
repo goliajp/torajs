@@ -121,6 +121,12 @@ fn is_assignable_to_deep(
             seen,
         );
     }
+    // `Map<K, V>` component-wise, same shape (the shallow layer's arm
+    // says why it is covariant).
+    if let (Type::Map(tk, tv), Type::Map(fk, fv)) = (&to_r, &from_r) {
+        return is_assignable_to_deep(tk, fk, class_structs, aliases, generic_aliases, seen)
+            && is_assignable_to_deep(tv, fv, class_structs, aliases, generic_aliases, seen);
+    }
     if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (&to_r, &from_r)
         && from_fields.len() >= to_fields.len()
     {
@@ -218,6 +224,15 @@ pub(crate) fn is_assignable_to(to: &Type, from: &Type) -> bool {
     // Struct field recursion lands here with already-resolved types).
     if let (Type::Promise(to_inner), Type::Promise(from_inner)) = (to, from) {
         return is_assignable_to(to_inner, from_inner);
+    }
+    // `Map<K, V>` / its iterators, component-wise like the arms above
+    // (TS checks Map's methods bivariantly, so a `Map<string, number>`
+    // slot takes a bare `new Map()` — `Map<any, any>` — and back).
+    if let (Type::Map(tk, tv), Type::Map(fk, fv)) = (to, from) {
+        return is_assignable_to(tk, fk) && is_assignable_to(tv, fv);
+    }
+    if let (Type::MapIter(t), Type::MapIter(f)) = (to, from) {
+        return is_assignable_to(t, f);
     }
     // L3b #4 — fn values ride the callback-subtype lattice at EVERY
     // assignment position, not just call args: TS lets a function
