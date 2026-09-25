@@ -96,6 +96,22 @@ pub unsafe extern "C" fn __torajs_f64_js_digits(d: f64, out: *mut u8) -> i64 {
     if d == f64::NEG_INFINITY {
         return write(b"-Infinity");
     }
+    // An integral value below 2^53 is its own decimal integer
+    // (§6.1.6.1.20 step 6, the k ≤ n ≤ 21 case with no fraction), and
+    // every neighbour at that magnitude is representable, so the
+    // shortest round-trip digits are exactly the integer's. itoa writes
+    // those bytes without ryu's search: `"key" + i % 4096` spent ~27 ns
+    // of map-str-100k's 56 ns iteration here. -0 lands as `0`, the
+    // same answer as the sign strip below.
+    if d.abs() < 9_007_199_254_740_992.0 {
+        let n = d as i64;
+        if n as f64 == d {
+            use torajs_fmt::itoa::{ITOA_BUF_LEN, itoa_into};
+            let mut ib = [0u8; ITOA_BUF_LEN];
+            let start = itoa_into(n, &mut ib);
+            return write(&ib[start..]);
+        }
+    }
     let mut buf = [0u8; 32];
     let written = f64_shortest(d, &mut buf);
     let mut len = if written < 0 { 0 } else { written as usize };
@@ -168,5 +184,49 @@ pub unsafe extern "C" fn __torajs_print_f64_js_inline(d: f64) {
         for &b in bytes {
             unsafe { __torajs_io_putc_out(b as i32) };
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn digits(d: f64) -> String {
+        let mut buf = [0u8; 32];
+        let n = unsafe { __torajs_f64_js_digits(d, buf.as_mut_ptr()) };
+        String::from_utf8(buf[..n as usize].to_vec()).expect("digits are ascii")
+    }
+
+    fn shortest(d: f64) -> String {
+        let mut buf = [0u8; 32];
+        let n = f64_shortest(d, &mut buf);
+        let s = String::from_utf8(buf[..n as usize].to_vec()).expect("digits are ascii");
+        s.strip_prefix('-')
+            .filter(|_| d == 0.0)
+            .map(str::to_string)
+            .unwrap_or(s)
+    }
+
+    #[test]
+    fn integral_fast_path_matches_shortest_digits() {
+        let mut cases: Vec<f64> = vec![0.0, -0.0, 1.0, -1.0, 9.0, 10.0, 99.0, 100.0, 4095.0];
+        let top = 9_007_199_254_740_991.0_f64;
+        cases.extend([top, -top, top - 1.0, 1e15, -1e15, 123_456_789_012.0]);
+        let mut p = 1.0_f64;
+        while p < top {
+            cases.extend([p - 1.0, p, p + 1.0, -p]);
+            p *= 10.0;
+        }
+        for d in cases {
+            assert_eq!(digits(d), shortest(d), "d = {d:e}");
+        }
+    }
+
+    #[test]
+    fn non_integral_and_large_values_keep_ryu() {
+        for d in [0.5, -2.25, 1e21, 9_007_199_254_740_992.0, 1.5e300, 5e-324] {
+            assert_eq!(digits(d), shortest(d), "d = {d:e}");
+        }
+        assert_eq!(digits(-0.0), "0");
     }
 }
