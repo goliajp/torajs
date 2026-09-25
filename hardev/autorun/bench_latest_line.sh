@@ -13,6 +13,8 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 print("bench: head={headSha} median={medianVsBunAot} target={target} "
       "shortfall={shortfallX}x cells={cells} slower={cellsSlowerThanBunAot} "
-      "runs={runs} lowConfidence={lc} bun={bun} ran={benchRanAt}".format(
-          lc=str(d.get("lowConfidence")).lower(), bun=d.get("bunStamped"), **d))
+      "runs={runs} files={files} met={met} lowConfidence={lc} bun={bun} "
+      "ran={benchRanAt}".format(
+          **{**d, "lc": str(d.get("lowConfidence")).lower(), "bun": d.get("bunStamped"),
+             "files": d.get("files", 1), "met": str(d.get("targetMet", False)).lower()}))
 ' "$JSON"

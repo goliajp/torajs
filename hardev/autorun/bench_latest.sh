@@ -22,50 +22,94 @@
 # self-normalising tr/competitor ratio inside one run is the judgement,
 # and raw run_ms is only ever supporting evidence.
 #
-# usage:
-#   bench_latest.sh [results.json]     # default: newest under bench/results/
+# One run is not a verdict. Consecutive full-matrix runs of the same tree
+# on the same machine moved the median by ±0.02 and carried four cells
+# across the 0.33 line (2026-09-23: r2 0.4362 · r3 0.4173 · r4 0.4410),
+# so a single file can stamp a number but never a met target. Given
+# several files, each cell's ratio is the median across them, every
+# derived number reads that pooled table, and `targetMet` needs at least
+# three files whose own medians are all at or under the target.
 #
-# exit: 0 stamp written · 2 no usable results file
+# usage:
+#   bench_latest.sh [results.json ...]   # default: newest under bench/results/
+#
+# exit: 0 stamp written · 2 no usable results file / files that disagree on host or bun
 
 set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_DIR" || exit 2
 
-SRC="${1:-}"
-if [ -z "$SRC" ]; then
-  SRC=$(ls -t bench/results/*.json 2>/dev/null | head -1)
+if [ "$#" -eq 0 ]; then
+  newest=$(ls -t bench/results/*.json 2>/dev/null | head -1)
+  [ -n "$newest" ] || { echo "bench_latest: no results file" >&2; exit 2; }
+  set -- "$newest"
 fi
-[ -n "$SRC" ] && [ -f "$SRC" ] || { echo "bench_latest: no results file" >&2; exit 2; }
+for f in "$@"; do
+  [ -f "$f" ] || { echo "bench_latest: no results file $f" >&2; exit 2; }
+done
 
 OUT="${HARDEV_BENCH_JSON:-$PROJECT_DIR/hardev/bench-latest.json}"
 
-python3 - "$SRC" "$OUT" "${HARDEV_BENCH_TARGET:-0.33}" <<'PY' || exit 2
+python3 - "$OUT" "${HARDEV_BENCH_TARGET:-0.33}" "$@" <<'PY' || exit 2
 import json, statistics, sys, datetime, os
 
-src, out, target = sys.argv[1], sys.argv[2], float(sys.argv[3])
-doc = json.load(open(src))
-by = {}
-for r in doc.get("rows", []):
-    if r.get("status") == "ok":
-        by.setdefault(r["case"], {})[r["runtime"]] = r
+out, target, srcs = sys.argv[1], float(sys.argv[2]), sys.argv[3:]
+docs = [json.load(open(p)) for p in srcs]
+
+
+def cells_of(doc):
+    by = {}
+    for r in doc.get("rows", []):
+        if r.get("status") == "ok":
+            by.setdefault(r["case"], {})[r["runtime"]] = r
+    return by
+
+
+def bun_of(doc):
+    return next((r.get("runtime_version") for r in doc.get("rows", [])
+                 if r.get("runtime") == "bun-aot"), None)
+
+
+tables = [cells_of(d) for d in docs]
+for label, key in (("host", lambda d: d.get("host")), ("bun", bun_of)):
+    seen = {key(d) for d in docs}
+    if len(seen) > 1:
+        print("bench_latest: files disagree on %s: %s" % (label, sorted(map(str, seen))),
+              file=sys.stderr)
+        sys.exit(2)
+
+
+def per_file(by, mine, theirs, field):
+    out = {}
+    for case, cells in by.items():
+        a, b = cells.get(mine), cells.get(theirs)
+        if a and b and a.get(field) and b.get(field):
+            out[case] = a[field] / b[field]
+    return out
 
 
 def ratios(mine, theirs, field="run_ms"):
-    out = []
-    for cells in by.values():
-        a, b = cells.get(mine), cells.get(theirs)
-        if a and b and a.get(field) and b.get(field):
-            out.append(a[field] / b[field])
-    return sorted(out)
+    # Pooled: a cell's ratio is its median across the files that have it.
+    pooled = {}
+    for by in tables:
+        for case, v in per_file(by, mine, theirs, field).items():
+            pooled.setdefault(case, []).append(v)
+    return sorted(statistics.median(vs) for vs in pooled.values())
 
 
 main = ratios("torajs", "bun-aot")
-if not main:
-    print("bench_latest: no torajs/bun-aot pairs in " + src, file=sys.stderr)
-    sys.exit(2)
+file_medians = []
+for p, by in zip(srcs, tables):
+    vals = list(per_file(by, "torajs", "bun-aot", "run_ms").values())
+    if not vals:
+        print("bench_latest: no torajs/bun-aot pairs in " + p, file=sys.stderr)
+        sys.exit(2)
+    file_medians.append(round(statistics.median(vals), 4))
 
-runs = doc.get("runs")
+doc = max(docs, key=lambda d: d.get("started_at") or "")
+src = srcs[docs.index(doc)]
+runs = min((d.get("runs") or 0) for d in docs)
 stamp = {
     "tool": "bench",
     "ranAt": datetime.datetime.now(datetime.timezone.utc)
@@ -83,11 +127,15 @@ stamp = {
     "source": src,
     "benchRanAt": doc.get("started_at"),
     "host": doc.get("host"),
+    "sources": srcs,
     "runs": runs,
-    # A single run cannot separate a change from the machine. Recorded so
-    # a reader never has to ask, and so a 1-run number is never quietly
-    # used as a baseline.
-    "lowConfidence": (runs or 0) < 3,
+    "files": len(srcs),
+    "fileMedians": file_medians,
+    # A single run cannot separate a change from the machine, and neither
+    # can a single file of runs. Recorded so a reader never has to ask,
+    # and so a 1-file number is never quietly used as a baseline.
+    "lowConfidence": (runs or 0) < 3 or len(srcs) < 3,
+    "targetMet": len(srcs) >= 3 and max(file_medians) <= target,
     "cells": len(main),
     "medianVsBunAot": round(statistics.median(main), 4),
     "cellsSlowerThanBunAot": sum(1 for v in main if v >= 1.0),
@@ -98,8 +146,7 @@ stamp = {
     # The competitor's version, verbatim from the rows. bun_latest_check.sh
     # holds it against the upstream tag: a ratio measured against last
     # week's bun is a ratio against a competitor that no longer exists.
-    "bunStamped": next((r.get("runtime_version") for r in doc.get("rows", [])
-                        if r.get("runtime") == "bun-aot"), None),
+    "bunStamped": bun_of(doc),
 }
 for label, other in (("Node", "node-v8"), ("Go", "go"), ("Rust", "rust"),
                      ("BunJsc", "bun-jsc")):
@@ -131,6 +178,8 @@ with open(out, "w") as f:
 
 print("bench: head={headSha} median={medianVsBunAot} target={target} "
       "shortfall={shortfallX}x cells={cells} slower={cellsSlowerThanBunAot} "
-      "runs={runs} lowConfidence={lc} bun={bunStamped} ran={benchRanAt}".format(
-          lc=str(stamp["lowConfidence"]).lower(), **stamp))
+      "runs={runs} files={files} met={met} lowConfidence={lc} bun={bunStamped} "
+      "ran={benchRanAt}".format(
+          lc=str(stamp["lowConfidence"]).lower(),
+          met=str(stamp["targetMet"]).lower(), **stamp))
 PY
