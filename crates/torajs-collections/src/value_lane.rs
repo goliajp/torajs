@@ -16,7 +16,10 @@
 
 use core::ffi::c_void;
 
-use crate::layout::{ANY_F64, ANY_I64, ANY_UNDEF, FLAG_MAP_VALUES_NUMBER, Map};
+use crate::iter::{MAP_ITER_VALUES, MapIter};
+use crate::layout::{
+    ANY_F64, ANY_I64, ANY_UNDEF, ENTRY_HASH_TOMBSTONE, FLAG_MAP_VALUES_NUMBER, Map,
+};
 use crate::probe::map_lookup_slot;
 
 unsafe extern "C" {
@@ -109,4 +112,39 @@ pub unsafe extern "C" fn __torajs_map_get_f64(
         return f64::from_bits(F64_UNDEF_SENTINEL_BITS);
     }
     value_f64(unsafe { (*(*m).entries.add(lr.entry_idx as usize)).value_anyv })
+}
+
+/// One step of `for (const v of m.values())` on the lane: 1 with the
+/// next live value in `*out` (the undefined sentinel for a stored
+/// undefined), 0 when the entries run out. Same cursor and tombstone
+/// walk as `__torajs_map_iter_step`, whose values arm this replaces.
+///
+/// # Safety
+/// `iter_p` is a live `values()` MapIter over a marked Map; `out` is
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_map_iter_step_f64(iter_p: *mut c_void, out: *mut f64) -> i64 {
+    let it = iter_p as *mut MapIter;
+    unsafe {
+        debug_assert_eq!(
+            (*it).kind,
+            MAP_ITER_VALUES,
+            "f64 step on a non-values MapIter"
+        );
+        let m = (*it).map;
+        let n_used = if m.is_null() { 0 } else { (*m).n_used };
+        let mut i = (*it).cursor as u32;
+        while i < n_used {
+            let e = &*(*m).entries.add(i as usize);
+            i += 1;
+            if e.hash == ENTRY_HASH_TOMBSTONE {
+                continue;
+            }
+            *out = value_f64(e.value_anyv);
+            (*it).cursor = i as i64;
+            return 1;
+        }
+        (*it).cursor = n_used as i64;
+    }
+    0
 }

@@ -92,9 +92,12 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * = `{ value: any, done: boolean }`. .entries is
          * deferred to P6.4c (needs Array<Any> alloc per
          * step + boxed (k, v) write). */
-        (Type::Map(..), "keys") | (Type::Map(..), "values") => {
-            Type::Function(Vec::new(), Box::new(Type::map_iter_any()))
-        }
+        (Type::Map(..), "keys") => Type::Function(Vec::new(), Box::new(Type::map_iter_any())),
+        // yields the value face, as `get` answers it
+        (Type::Map(_, v), "values") => Type::Function(
+            Vec::new(),
+            Box::new(Type::MapIter(Box::new(map_value_face(v)))),
+        ),
         /* P6.4c — Map.entries yields `[k, v]` pairs;
          * Set.entries yields `[v, v]` pairs (spec
          * §23.1.3.4 / §24.2.3.6). Both return the same

@@ -71,11 +71,11 @@ pub const MAP_ITER_SET_ENTRIES: u32 = 3;
 
 /// MapIter heap block — 32 bytes, ABI-shared with C `MapIter`.
 #[repr(C)]
-struct MapIter {
+pub(crate) struct MapIter {
     header: HeapHeader,
-    map: *mut Map,
-    cursor: i64,
-    kind: u32,
+    pub(crate) map: *mut Map,
+    pub(crate) cursor: i64,
+    pub(crate) kind: u32,
     _pad: u32,
     /// Lazy own-property bag — §24.1.5.1 / §24.2.5.1 mint an
     /// ORDINARY object, so `it.zz = 1` is an ordinary own property

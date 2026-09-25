@@ -125,6 +125,7 @@ pub(crate) fn check(
     let elem_ty = if src_is_iter_subset {
         match &src_kind {
             Some(Type::Map(..)) => Type::Array(Box::new(Type::Any)),
+            Some(Type::MapIter(t)) => (**t).clone(),
             Some(src_struct @ (Type::Struct(_) | Type::ClassRef(_))) => {
                 class_iter_elem_ty(checker, ast, src_struct).unwrap_or(Type::Any)
             }

@@ -99,6 +99,14 @@ impl<'a> Analysis<'a> {
                 };
                 let w = self.width_of(*elem_expr, scope);
                 self.add_constraint(key.clone(), w);
+                // a `Map<K, number>` values() source steps an f64 on the
+                // typed lane (`ssa_lower_map_num_lane`), sentinel included
+                if let Expr::Index { obj, .. } = self.ast.get_expr(*elem_expr)
+                    && matches!(self.expr_types.get(obj),
+                        Some(crate::check::Type::MapIter(t)) if **t == crate::check::Type::Number)
+                {
+                    self.add_constraint(key.clone(), W::F64);
+                }
                 self.alias_guarded(key, *elem_expr, scope);
                 self.walk_expr(*elem_expr, scope);
                 self.walk_stmt(body, scope);

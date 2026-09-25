@@ -50,6 +50,7 @@ pub(crate) struct MapSetIds {
     pub map_entry_get_f64: FuncId,
     pub map_get_f64: FuncId,
     pub map_mark_num: FuncId,
+    pub map_iter_step_f64: FuncId,
     pub map_set_str: FuncId,
     pub map_delete: FuncId,
     pub map_clear: FuncId,
@@ -210,6 +211,13 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_map_mark_num",
             &[Type::Map],
             Type::Void,
+        ),
+        map_iter_step_f64: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_map_iter_step_f64",
+            &[Type::MapIter, Type::Ptr],
+            Type::I64,
         ),
         map_set_str: declare_intrinsic(
             module,

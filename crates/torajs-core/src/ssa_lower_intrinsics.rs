@@ -975,6 +975,7 @@ pub(crate) struct Intrinsics {
     pub(crate) map_entry_get_f64: FuncId,
     pub(crate) map_get_f64: FuncId,
     pub(crate) map_mark_num: FuncId,
+    pub(crate) map_iter_step_f64: FuncId,
     pub(crate) map_set_str: FuncId,
     pub(crate) map_delete: FuncId,
     pub(crate) map_clear: FuncId,

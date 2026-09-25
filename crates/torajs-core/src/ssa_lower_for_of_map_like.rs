@@ -145,15 +145,27 @@ fn load_loop_value(
     }
 }
 
+/// `f64_values` — the source is a `values()` iterator over a
+/// `Map<K, number>` lane binding (`ssa_lower_map_num_lane`): each step
+/// hands back an f64, the undefined sentinel for a stored undefined.
 pub(crate) fn lower_for_of_map_like(
     ctx: &mut LowerCtx,
     src_op: Operand,
     src_ty: Type,
+    f64_values: bool,
     var_name: &str,
     body: &Stmt,
 ) {
-    let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid) =
-        resolve_map_like_iter(ctx, src_op, src_ty);
+    let (iter_op, should_drop_iter, var_ty, iter_ty, step_fid) = match f64_values {
+        true => (
+            src_op,
+            false,
+            Type::F64,
+            Type::MapIter,
+            ctx.intrinsics.map_iter_step_f64,
+        ),
+        false => resolve_map_like_iter(ctx, src_op, src_ty),
+    };
 
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
@@ -182,7 +194,8 @@ pub(crate) fn lower_for_of_map_like(
     }
 
     let tag_slot = ctx.alloca(Type::I64, Some("__forof_map_tag"));
-    let val_slot = ctx.alloca(Type::I64, Some("__forof_map_val"));
+    let val_ty = if f64_values { Type::F64 } else { Type::I64 };
+    let val_slot = ctx.alloca(val_ty, Some("__forof_map_val"));
 
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
@@ -196,16 +209,18 @@ pub(crate) fn lower_for_of_map_like(
         iter_ty,
         None,
     );
+    // the f64 step writes its one value into the (F64) val slot
+    let step_args = match f64_values {
+        true => vec![Operand::Value(iter_load), Operand::Value(val_slot)],
+        false => vec![
+            Operand::Value(iter_load),
+            Operand::Value(tag_slot),
+            Operand::Value(val_slot),
+        ],
+    };
     let live = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            step_fid,
-            vec![
-                Operand::Value(iter_load),
-                Operand::Value(tag_slot),
-                Operand::Value(val_slot),
-            ],
-        ),
+        InstKind::Call(step_fid, step_args),
         Type::I64,
         None,
     );
@@ -227,7 +242,18 @@ pub(crate) fn lower_for_of_map_like(
     ctx.cur_block = body_blk;
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
-    let v_val = load_loop_value(ctx, src_ty, var_ty, tag_slot, val_slot);
+    let v_val = match f64_values {
+        true => {
+            ctx.undefable_f64_lets.insert(var_name.to_string());
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Load(Type::F64, Operand::Value(val_slot), 0),
+                Type::F64,
+                None,
+            )
+        }
+        false => load_loop_value(ctx, src_ty, var_ty, tag_slot, val_slot),
+    };
     crate::ssa_lower_for_of_written::bind_loop_var(
         ctx,
         var_name,

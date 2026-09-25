@@ -394,8 +394,9 @@ fn lower_non_array_source(
         src_ty,
         Type::Map | Type::Set | Type::MapIter | Type::ArrIter
     ) {
+        let f64_values = crate::ssa_lower_map_num_lane::is_lane_iter(ctx, src_ref_eid);
         crate::ssa_lower_for_of_map_like::lower_for_of_map_like(
-            ctx, src_ptr_op, src_ty, var_name, body,
+            ctx, src_ptr_op, src_ty, f64_values, var_name, body,
         );
         return true;
     }

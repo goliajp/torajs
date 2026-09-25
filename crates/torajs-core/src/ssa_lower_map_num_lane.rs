@@ -22,17 +22,23 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS;
 
-/// Mark `init_val` when this declaration is a lane binding; answers
-/// whether it was, for [`register`] once the binding exists.
-pub(crate) fn mark_fresh(
+/// A lane binding: a fresh Map, marked here, or a `values()` iterator
+/// over a lane receiver. Answers whether it is one, for [`register`]
+/// once the binding exists.
+pub(crate) fn claim_binding(
     ctx: &mut LowerCtx<'_>,
     name: &str,
     init: ExprId,
     mutable: bool,
     init_val: &Operand,
 ) -> bool {
-    let fresh = !mutable
-        && fresh_num_map(ctx, init)
+    if mutable {
+        return false;
+    }
+    if ctx.operand_ty(init_val) == Type::MapIter {
+        return values_of_lane(ctx, init);
+    }
+    let fresh = fresh_num_map(ctx, init)
         && ctx.operand_ty(init_val) == Type::Map
         && !ctx
             .num_f64_slots
@@ -43,7 +49,16 @@ pub(crate) fn mark_fresh(
     fresh
 }
 
-/// The data-global twin of [`mark_fresh`]: the top-level declaration
+/// `m.values()` on a lane receiver: every step is a number or undefined.
+fn values_of_lane(ctx: &LowerCtx<'_>, init: ExprId) -> bool {
+    let Expr::Call { callee, .. } = ctx.ast.get_expr(init) else {
+        return false;
+    };
+    matches!(ctx.ast.get_expr(*callee),
+        Expr::Member { obj, name } if name == "values" && is_lane_receiver(ctx, *obj))
+}
+
+/// The data-global twin of [`claim_binding`]'s Map half: the top-level declaration
 /// of `name` stores `val` into its global slot.
 pub(crate) fn mark_global(ctx: &mut LowerCtx<'_>, name: &str, val: Operand) {
     if ctx.operand_ty(&val) == Type::Map && global_is_lane(ctx, name) {
@@ -78,7 +93,7 @@ fn global_is_lane(ctx: &LowerCtx<'_>, name: &str) -> bool {
         .slot_escapes_any(&SlotKey::Global(name.to_string()))
 }
 
-/// Record the binding [`mark_fresh`] marked. Keyed by its slot, so an
+/// Record the binding [`claim_binding`] claimed. Keyed by its slot, so an
 /// inner binding of the same name is a different receiver.
 pub(crate) fn register(ctx: &mut LowerCtx<'_>, name: &str) {
     if let Some(li) = ctx.locals.get(name) {
@@ -86,11 +101,23 @@ pub(crate) fn register(ctx: &mut LowerCtx<'_>, name: &str) {
     }
 }
 
-/// `obj` names a lane binding in this frame.
+/// `src` names a lane `values()` iterator in this frame: the for-of
+/// over it steps f64s (`__torajs_map_iter_step_f64`).
+pub(crate) fn is_lane_iter(ctx: &LowerCtx<'_>, src: ExprId) -> bool {
+    match ctx.ast.get_expr(src) {
+        Expr::Ident(n) => ctx
+            .locals
+            .get(n)
+            .is_some_and(|li| li.ty == Type::MapIter && ctx.num_map_slots.contains(&li.slot)),
+        _ => false,
+    }
+}
+
+/// `obj` names a lane Map binding in this frame.
 pub(crate) fn is_lane_receiver(ctx: &LowerCtx<'_>, obj: ExprId) -> bool {
     match ctx.ast.get_expr(obj) {
         Expr::Ident(n) => match ctx.locals.get(n) {
-            Some(li) => ctx.num_map_slots.contains(&li.slot),
+            Some(li) => li.ty == Type::Map && ctx.num_map_slots.contains(&li.slot),
             None => ctx.globals.contains_key(n) && global_is_lane(ctx, n),
         },
         _ => false,

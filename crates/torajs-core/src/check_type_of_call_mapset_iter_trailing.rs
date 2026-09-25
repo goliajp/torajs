@@ -48,5 +48,10 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    Some(Ok(Type::map_iter_any()))
+    Some(Ok(match &src_ty {
+        Type::Map(_, v) if m_name == "values" => Type::MapIter(Box::new(
+            crate::check_type_of_member_setmap::map_value_face(v),
+        )),
+        _ => Type::map_iter_any(),
+    }))
 }

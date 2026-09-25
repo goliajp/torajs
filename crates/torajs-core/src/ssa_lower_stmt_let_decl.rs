@@ -217,7 +217,7 @@ pub(crate) fn lower(
             None,
         );
     }
-    let num_map = crate::ssa_lower_map_num_lane::mark_fresh(ctx, name, init, mutable, &init_val);
+    let num_map = crate::ssa_lower_map_num_lane::claim_binding(ctx, name, init, mutable, &init_val);
     finalize_and_bind(
         ctx,
         name,

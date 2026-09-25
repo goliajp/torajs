@@ -797,6 +797,7 @@ pub(crate) fn build(
         map_entry_get_f64: init_c.map_set.map_entry_get_f64,
         map_get_f64: init_c.map_set.map_get_f64,
         map_mark_num: init_c.map_set.map_mark_num,
+        map_iter_step_f64: init_c.map_set.map_iter_step_f64,
         map_set_str: init_c.map_set.map_set_str,
         map_delete: init_c.map_set.map_delete,
         map_clear: init_c.map_set.map_clear,
