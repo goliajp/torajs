@@ -214,6 +214,25 @@ pub(crate) fn try_lower_method_call(
     // `a(i).indexOf(boom())`) is live across every argument's lower
     // and the kernel's own check; park it for their throw paths.
     let recv_tok = ctx.park_owned_temp(obj_eid, &recv_op);
+    // The checker typed the receiver a string but it lowered to an
+    // Any — a field read off an `as`-cast value, `(e as
+    // Error).message.slice(0, 3)` — so no typed lane holds it, and the
+    // any-method lane (first in the cascade) passed on the checker's
+    // String. The runtime dispatcher answers by the value's tag.
+    if recv_ty == Type::Any {
+        let v = crate::ssa_lower_any_method_call::emit_any_method_call(
+            ctx,
+            recv_op,
+            &method,
+            Operand::ConstPtrNull,
+            args,
+        );
+        ctx.unpark_owned_temp(recv_tok);
+        ctx.release_owned_temp(obj_eid, &recv_op);
+        let v = Operand::Value(v);
+        ctx.emit_throw_check_owned(None, v, Type::Any);
+        return Some(v);
+    }
     let Some(result) = dispatch_method(ctx, call_eid, &method, args, recv_op, recv_ty) else {
         ctx.unpark_owned_temp(recv_tok);
         // RFC 20260705 chunk 555 — the receiver is already lowered;
