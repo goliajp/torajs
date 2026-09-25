@@ -64,6 +64,9 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, name: &str
     if let Some(op) = crate::ssa_lower_member_builtin_namespace::try_lower(ctx, eid, obj, name) {
         return op;
     }
+    if let Some(op) = crate::ssa_lower_match_len::first_length(ctx, obj, name) {
+        return op;
+    }
     let obj_val = ctx.lower_expr(obj);
     let obj_ty = ctx.operand_ty(&obj_val);
     if name == "length" && crate::ssa_lower_split_count::operand_is_split_count(ctx, obj, &obj_ty) {

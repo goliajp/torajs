@@ -247,6 +247,7 @@ pub(crate) struct Intrinsics {
     pub(crate) regex_has_flag: FuncId,
     pub(crate) regex_drop: FuncId,
     pub(crate) regex_match: FuncId,
+    pub(crate) str_match_len: FuncId,
     /// §22.1.3.{13,20} step 3 custom-matcher legs (Any-typed
     /// pattern; wk-symbol index operand picks match / search).
     pub(crate) any_str_symbol_try: FuncId,

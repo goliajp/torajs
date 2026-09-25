@@ -25,12 +25,14 @@ pub(crate) fn is_counted_split(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
 /// `obj`, lowered to an operand of type `obj_ty`, is a counted split
 /// product: the call itself, or a binding that holds one.
 ///
-/// A binding is recognised by the pair it alone produces — the checker
-/// types the name an array while its slot holds an `I64` — rather
-/// than by a side set, because only `finalize_and_bind` ever binds an
-/// array-typed name to an integer slot, and only for a counted split.
-/// `ctx.locals` answers the binding currently in scope, so an inner
-/// declaration that shadows the name keeps its own reading.
+/// A binding is recognised by a pair — the checker types the name an
+/// array while its slot holds an `I64` — rather than by a side set:
+/// only `finalize_and_bind` ever binds an array-typed name to an
+/// integer slot, for a counted split or a measured match
+/// (`ssa_lower_match_len`), and a binding takes the slot only when all
+/// its uses are its own lane's, whose use sets do not meet (`x.length`
+/// here). `ctx.locals` answers the binding currently in scope, so an
+/// inner declaration that shadows the name keeps its own reading.
 pub(crate) fn operand_is_split_count(ctx: &LowerCtx<'_>, obj: ExprId, obj_ty: &Type) -> bool {
     if *obj_ty != Type::I64 {
         return false;

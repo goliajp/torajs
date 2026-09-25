@@ -196,8 +196,79 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // Spec §22.2.7.5/.8: no match → null (both global and non-global).
     // The array is allocated lazily on first hit so the null path
     // never owns a stray +1 block.
+    let mut out: *mut c_void = core::ptr::null_mut();
+    unsafe {
+        match_walk(str_ptr, re_ptr, |re, s, haystack_is_ascii, m| {
+            let seg = span_str(str_ptr, s, m.start, m.end, haystack_is_ascii);
+            out = if out.is_null() {
+                // Round 5 attack #6 — pre-size to the exec shape
+                // (m[0] + capture groups) so no push on it takes the
+                // cap0→4 grow; the first hit is born holding m[0]. The
+                // global branch pushes one segment per later hit and
+                // grows normally past the pre-size.
+                let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+                __torajs_arr_alloc_with(1 + n_cap_lim as u64, seg as i64)
+            } else {
+                __torajs_arr_push(out, seg as i64)
+            };
+            if re.flags & RE_FLAG_G != 0 {
+                return true;
+            }
+            // Append captures.
+            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
+            for i in 1..=n_cap_lim {
+                let gs = save_slot(m.saves(), 2 * i);
+                let ge = save_slot(m.saves(), 2 * i + 1);
+                if gs < 0 || ge < 0 {
+                    // Non-participating group = JS undefined (RFC
+                    // 20260707 chunk 2: the sentinel cell, not NULL).
+                    out = __torajs_arr_push(out, __torajs_str_undef() as i64);
+                } else {
+                    let grp = span_str(str_ptr, s, gs, ge, haystack_is_ascii);
+                    out = __torajs_arr_push(out, grp as i64);
+                }
+            }
+            // Non-global match = exec shape (spec §22.2.7.8):
+            // index / input / groups (+ `/d` indices) attach in
+            // print order; byte→UTF-16 mapping happens inside.
+            if want_exec != 0 {
+                attach_exec_all(
+                    out,
+                    re,
+                    s,
+                    str_ptr,
+                    m.start,
+                    m.end,
+                    m.saves(),
+                    haystack_is_ascii,
+                );
+            }
+            false
+        });
+    }
+    out
+}
+
+/// The §22.1.3.13 walk every `str.match(re)` kernel shares: argument
+/// checks, the haystack view, lastIndex normalization, the per-hit
+/// search in its three shapes (sticky, global + sticky, free), the
+/// empty-match bump and the global walk's closing `lastIndex = 0`.
+/// `on_hit(re, haystack, haystack_is_ascii, m)` receives each hit and
+/// answers whether to look for the next one — only a global match
+/// asks. Returns without calling it when the call answers null before
+/// searching.
+///
+/// # Safety
+///
+/// `re_ptr` is null or a live `*RegExp`; `str_ptr` is null or a
+/// live `*Str`.
+pub(crate) unsafe fn match_walk(
+    str_ptr: *const c_void,
+    re_ptr: *const c_void,
+    mut on_hit: impl FnMut(&RegExp, &[u8], bool, &crate::vm::MatchResult) -> bool,
+) {
     if re_ptr.is_null() || str_ptr.is_null() {
-        return core::ptr::null_mut();
+        return;
     }
     let re = unsafe { as_regex_mut(re_ptr as *mut c_void) };
     if re.rejected != 0 {
@@ -227,7 +298,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // The global walk ends on `Set(R, "lastIndex", 0)` (§22.2.6.8 via
     // §22.2.7.2), which a non-writable lastIndex refuses.
     if global && unsafe { super::lifecycle::tracked_store_refuses(re) } {
-        return core::ptr::null_mut();
+        return;
     }
 
     // Lazy-init Workspace — the `!global && sticky` branch below uses
@@ -254,7 +325,6 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
     // Round 3 Phase B sub-batch 7.2 — runtime-baked DFA fallback.
     let dfa_view = re.baked_dfa_view();
     let dfa_ref = dfa_view.as_ref().or(re.dfa_runtime.as_ref());
-    let mut out: *mut c_void = core::ptr::null_mut();
     let mut pos: i64 = 0;
     while pos <= slen {
         let hit = if !global && sticky {
@@ -299,50 +369,7 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
             )
         };
         let Some(m) = hit else { break };
-        let seg = unsafe { span_str(str_ptr, s, m.start, m.end, haystack_is_ascii) };
-        out = if out.is_null() {
-            // Round 5 attack #6 — pre-size to the exec shape
-            // (m[0] + capture groups) so no push on it takes the
-            // cap0→4 grow; the first hit is born holding m[0]. The
-            // global branch pushes one segment per later hit and
-            // grows normally past the pre-size.
-            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-            unsafe { __torajs_arr_alloc_with(1 + n_cap_lim as u64, seg as i64) }
-        } else {
-            unsafe { __torajs_arr_push(out, seg as i64) }
-        };
-        if !global {
-            // Append captures.
-            let n_cap_lim = (re.n_captures as usize).min(REGEX_MAX_CAPTURES - 1);
-            for i in 1..=n_cap_lim {
-                let gs = save_slot(m.saves(), 2 * i);
-                let ge = save_slot(m.saves(), 2 * i + 1);
-                if gs < 0 || ge < 0 {
-                    // Non-participating group = JS undefined (RFC
-                    // 20260707 chunk 2: the sentinel cell, not NULL).
-                    out = unsafe { __torajs_arr_push(out, __torajs_str_undef() as i64) };
-                } else {
-                    let grp = unsafe { span_str(str_ptr, s, gs, ge, haystack_is_ascii) };
-                    out = unsafe { __torajs_arr_push(out, grp as i64) };
-                }
-            }
-            // Non-global match = exec shape (spec §22.2.7.8):
-            // index / input / groups (+ `/d` indices) attach in
-            // print order; byte→UTF-16 mapping happens inside.
-            if want_exec != 0 {
-                unsafe {
-                    attach_exec_all(
-                        out,
-                        re,
-                        &s,
-                        str_ptr,
-                        m.start,
-                        m.end,
-                        m.saves(),
-                        haystack_is_ascii,
-                    );
-                }
-            }
+        if !on_hit(re, &s, haystack_is_ascii, &m) {
             break;
         }
         // Empty match — bump pos by 1.
@@ -355,7 +382,6 @@ pub unsafe extern "C" fn __torajs_str_match_regex(
         // always 0, even when the caller pre-set a nonzero value.
         re.set_last_index_num(0.0);
     }
-    out
 }
 
 /// `re.exec(s)` — Phase 1c.1 spec-shape result `[match, g1, g2,

@@ -32,6 +32,7 @@ pub mod lifecycle;
 pub mod lifecycle_last_index_desc;
 pub mod match_all;
 pub mod match_indices;
+pub mod match_len;
 pub mod match_op;
 pub mod offset_map;
 pub mod print;

@@ -79,6 +79,7 @@ pub(crate) struct RegexIds {
     pub regex_test: FuncId,
     pub regex_drop: FuncId,
     pub regex_match: FuncId,
+    pub str_match_len: FuncId,
     /// §22.1.3.13 / §22.1.3.20 step 3 custom-matcher legs over an
     /// Any-typed pattern (torajs-anyvalue `str_match_custom`): the
     /// probe answers 1 when the pattern carries a non-nullish
@@ -231,6 +232,15 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             // Trailing `want_exec` — see `want_exec_shape`.
             &[Type::Str, Type::RegExp, Type::I64],
             Type::Ptr,
+        ),
+        // The match-length lane (`ast::regex_match_len_only`): the
+        // first match's UTF-16 length, or -1 for null.
+        str_match_len: declare_intrinsic(
+            module,
+            fn_table,
+            "__torajs_str_match_len",
+            &[Type::Str, Type::RegExp],
+            Type::I64,
         ),
         anyv_reject_regexp_needle: declare_intrinsic(
             module,

@@ -567,6 +567,7 @@ pub(crate) mod ssa_lower_lit;
 mod ssa_lower_logical;
 pub(crate) mod ssa_lower_lowering_probes;
 pub mod ssa_lower_main_exit;
+mod ssa_lower_match_len;
 pub(crate) mod ssa_lower_materialize_arr;
 pub(crate) mod ssa_lower_math_recognize;
 pub(crate) mod ssa_lower_member;

@@ -1397,6 +1397,11 @@ pub struct Ast {
     /// Populated by `analyze_split_length_only`; the lowering counts
     /// the tokens instead of building the array.
     pub split_length_only_seps: std::collections::HashSet<ExprId>,
+    /// The `.match` member ExprIds whose `const m = s.match(re)`
+    /// result is only null-tested or asked `m[0].length`. Populated by
+    /// `analyze_regex_match_len_only`; the lowering holds the first
+    /// match's length instead of building the array.
+    pub regex_match_len_callees: std::collections::HashSet<ExprId>,
     /// v0.3 #4 DWARF — per-Expr source byte ranges. Indexed by
     /// ExprId.0; `Span { start: 0, end: 0 }` is the sentinel for
     /// "not set" (parser fills these on key Expr-emit sites; fallback

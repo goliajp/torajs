@@ -259,7 +259,8 @@ fn finalize_and_bind(
     // holds the number and `x.length` reads it back
     // (`ssa_lower_split_count`).
     if ctx.operand_ty(&init_val) == Type::I64
-        && crate::ssa_lower_split_count::is_counted_split(ctx, init)
+        && (crate::ssa_lower_split_count::is_counted_split(ctx, init)
+            || crate::ssa_lower_match_len::is_measured_match(ctx, init))
     {
         crate::ssa_lower_stmt_let_decl_general::bind_let_slot(
             ctx,

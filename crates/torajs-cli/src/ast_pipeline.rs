@@ -474,6 +474,7 @@ pub(crate) fn run_ast_desugar_pipeline(ast: &mut ast::Ast) -> Result<(), ()> {
     ast::analyze_regex_result_props(ast);
     ast::analyze_let_owned_elems(ast);
     ast::analyze_split_length_only(ast);
+    ast::analyze_regex_match_len_only(ast);
     // Truly last: it reads TOP-LEVEL STATEMENT POSITION, so it has to
     // see the order the lowerer will walk. Every pass above may append
     // or lift a declaration, and a mark taken before one of them could

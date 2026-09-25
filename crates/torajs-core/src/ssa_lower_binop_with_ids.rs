@@ -49,6 +49,10 @@ impl<'a> LowerCtx<'a> {
         left_id: Option<ExprId>,
         right_id: Option<ExprId>,
     ) -> Operand {
+        if let Some(r) = crate::ssa_lower_match_len::null_test(self, op, &a, &b, left_id, right_id)
+        {
+            return r;
+        }
         let saved_left_f64u = self.binop.left_f64_undefable;
         let saved_right_f64u = self.binop.right_f64_undefable;
         self.binop.left_f64_undefable = left_id
