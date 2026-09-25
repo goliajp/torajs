@@ -98,16 +98,23 @@ pub(crate) fn bind_loop_var(
 /// name — the same registry a `const x = ys[i]` init fills. Without
 /// this `for (const x of ys) typeof x` answered "number" where the
 /// identical `typeof ys[i]` at the same index answered "undefined".
+/// A `string[]` hole reads as the Str sentinel the same way, and the
+/// Str registry is `nullable_str_lets`.
 pub(crate) fn note_sentinel_loop_var(
     ctx: &mut LowerCtx,
     var_name: &str,
     v_ty: Type,
     src_ref_eid: crate::ast::ExprId,
 ) {
-    if v_ty == Type::F64
-        && let crate::ast::Expr::Ident(src) = ctx.ast.get_expr(src_ref_eid)
-        && ctx.num_f64_slots.container_elem_takes_sentinel(src)
-    {
-        ctx.undefable_f64_lets.insert(var_name.to_string());
+    let crate::ast::Expr::Ident(src) = ctx.ast.get_expr(src_ref_eid) else {
+        return;
+    };
+    if !ctx.num_f64_slots.container_elem_takes_sentinel(src) {
+        return;
     }
+    match v_ty {
+        Type::F64 => ctx.undefable_f64_lets.insert(var_name.to_string()),
+        Type::Str => ctx.nullable_str_lets.insert(var_name.to_string()),
+        _ => false,
+    };
 }

@@ -175,6 +175,16 @@ pub(super) fn collect_sentinel_elems(
                     out.insert(recv.clone());
                 }
             }
+            // An element delete leaves a hole the same way (a typed
+            // cell keeps it in its own slot since 99cef557d): for-of
+            // and the callback kernels read it as the sentinel.
+            Expr::Delete { expr } => {
+                if let Expr::Index { obj, .. } = a.ast.get_expr(*expr)
+                    && let Expr::Ident(recv) = a.ast.get_expr(*obj)
+                {
+                    out.insert(recv.clone());
+                }
+            }
             _ => {}
         }
     }
