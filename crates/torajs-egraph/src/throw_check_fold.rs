@@ -105,8 +105,8 @@ fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
     stats.blocks_removed += sweep_unreachable_blocks(func);
 }
 
-/// Knife 2 — a loop that can neither call nor store leaves the flag
-/// where it found it, yet its first probe reads it every iteration
+/// Knife 2 — a loop that cannot call leaves the flag where it found
+/// it, yet its first probe reads it every iteration
 /// (the entry state is unknown). Give such a loop one probe on the way
 /// in: a fresh block every entry edge now goes through, branching to
 /// the in-loop probe's own propagate path when the flag is set and
@@ -114,9 +114,12 @@ fn fold_known_zero(func: &mut Function, stats: &mut ThrowCheckFoldStats) {
 /// zero on every path and the fold above removes it.
 ///
 /// Taken only when the loop holds exactly one probe, its propagate
-/// path lies wholly outside the loop, and that path reads no value the
-/// loop defines — with no store in the loop it then does, run before
-/// the first iteration, exactly what it did from the first probe. A
+/// path lies wholly outside the loop, that path reads no value the
+/// loop defines, and every store in the loop sits in a block the probe
+/// block strictly dominates — so the first iteration writes nothing
+/// before its probe, and the propagate path run before that iteration
+/// sees exactly the memory it saw from the first probe (the copy loop
+/// `dst.push(src[i])` probes after the read, stores after that). A
 /// loop that runs zero times now probes once; that can differ only if
 /// the flag was already set on entry, which no caller allows.
 fn guard_loop_entries(func: &mut Function) -> u32 {
@@ -128,7 +131,7 @@ fn guard_loop_entries(func: &mut Function) -> u32 {
             if guarded.contains(&lp.header) || lp.header.0 == 0 {
                 return None;
             }
-            guardable_probe(func, lp).map(|then_blk| (lp.clone(), then_blk))
+            guardable_probe(func, lp, &dom).map(|then_blk| (lp.clone(), then_blk))
         });
         let Some((lp, then_blk)) = next else {
             return guarded.len() as u32;
@@ -139,25 +142,32 @@ fn guard_loop_entries(func: &mut Function) -> u32 {
 }
 
 /// The propagate block of `lp`'s only probe, when the loop qualifies.
-fn guardable_probe(func: &Function, lp: &NaturalLoop) -> Option<BlockId> {
+fn guardable_probe(func: &Function, lp: &NaturalLoop, dom: &DominatorTree) -> Option<BlockId> {
     let body: HashSet<usize> = lp.body.iter().map(|b| b.0 as usize).collect();
-    let writes = |k: &InstKind| {
-        is_clobber(k)
-            || matches!(
-                k,
-                InstKind::Store(..) | InstKind::StoreDyn(..) | InstKind::StoreDynScaled8(..)
-            )
-    };
-    if body
+    let mut probes = body
         .iter()
-        .any(|&b| func.blocks[b].insts.iter().any(|i| writes(&i.kind)))
-    {
-        return None;
-    }
-    let mut probes = body.iter().filter_map(|&b| probe_of(func, b));
-    let probe = probes.next()?;
+        .filter_map(|&b| probe_of(func, b).map(|p| (b, p)));
+    let (probe_blk, probe) = probes.next()?;
     if probes.next().is_some() {
         return None;
+    }
+    let probe_id = func.blocks[probe_blk].id;
+    let store = |k: &InstKind| {
+        matches!(
+            k,
+            InstKind::Store(..) | InstKind::StoreDyn(..) | InstKind::StoreDynScaled8(..)
+        )
+    };
+    for &b in &body {
+        let insts = &func.blocks[b].insts;
+        if insts.iter().any(|i| is_clobber(&i.kind)) {
+            return None;
+        }
+        let id = func.blocks[b].id;
+        if insts.iter().any(|i| store(&i.kind)) && (id == probe_id || !dom.dominates(probe_id, id))
+        {
+            return None;
+        }
     }
     let defined: HashSet<ValueId> = body
         .iter()
@@ -515,6 +525,40 @@ mod tests {
         let mut f = read_only_loop(true);
         let stats = run(&mut f);
         assert_eq!((stats.loop_entry_probes, stats.folded), (0, 0));
+    }
+
+    #[test]
+    fn a_loop_that_stores_only_after_its_probe_probes_once_on_the_way_in() {
+        // entry: call → head · head → (body, exit)
+        // body: probe → (throw, tail) · tail: store → head
+        let mut f = Function::new("t", Type::I64);
+        let entry = f.add_block();
+        let head = f.add_block();
+        let body = f.add_block();
+        let throw = f.add_block();
+        let tail = f.add_block();
+        let exit = f.add_block();
+        call(&mut f, entry);
+        let slot = f.append_inst(entry, InstKind::Alloca(Type::I64), Type::Ptr, None);
+        f.set_term(entry, Terminator::Br(head));
+        f.set_term(
+            head,
+            Terminator::CondBr {
+                cond: Operand::ConstBool(true),
+                then_blk: body,
+                else_blk: exit,
+            },
+        );
+        probe(&mut f, body, throw, tail);
+        f.append_void(
+            tail,
+            InstKind::Store(Operand::ConstI64(1), Operand::Value(slot), 0),
+        );
+        f.set_term(tail, Terminator::Br(head));
+        f.set_term(throw, Terminator::Ret(Some(Operand::ConstI64(0))));
+        f.set_term(exit, Terminator::Ret(Some(Operand::ConstI64(1))));
+        let stats = run(&mut f);
+        assert_eq!((stats.loop_entry_probes, stats.folded), (1, 1));
     }
 
     #[test]
