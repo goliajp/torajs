@@ -33,12 +33,11 @@
 //! costs is that it splits the loop body into blocks, and a
 //! `sum += x` loop that was one block no longer unrolls or vectorizes.
 //!
-//! So the per-step gate is never emitted into a loop a dense TYPED
-//! array runs. A boxed-element source pays it unconditionally: its
-//! loop body already carries a per-element `arr_get_any_boxed` call
-//! that a branch disappears next to. (`delete a[i]` never punches a
-//! hole into a `number[]` — it widens the declaration to `any[]`,
-//! [`crate::ast::delete_arr_widen`].)
+//! So the per-step gate is emitted into a loop a dense TYPED array
+//! runs only where the callback may make an index absent mid-walk
+//! (`hof_len_shrink`). A boxed-element source pays it unconditionally:
+//! its loop body already carries a per-element `arr_get_any_boxed` call
+//! that a branch disappears next to.
 //!
 //! A TYPED source can hold holes too — a write past the end or a
 //! longer `length` leaves the gap absent in the cell's hole shadow

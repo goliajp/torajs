@@ -2,11 +2,10 @@
 //!
 //! §23.1.3's callback methods read `length` once and then ask
 //! `HasProperty(O, k)` before every visit. On a typed-element cell
-//! (`number[]`, `string[]`, …) the only way an index below the
-//! original length stops being present is a shorter `length`: the
-//! cell refuses accessors, `delete` widens the binding to `any[]`
-//! (`delete_arr_widen`), and a sparse tail only ever forms on an Any
-//! cell. So on a typed source the whole gate is `k < length now` —
+//! (`number[]`, `string[]`, …) an index below the original length
+//! stops being present two ways: a shorter `length`, or `delete x[k]`
+//! (the cell refuses accessors, and a sparse tail only ever forms on
+//! an Any cell). For a shrink the whole gate is `k < length now` —
 //! but the loop runs without it (a per-step test splits the body and
 //! costs the vectorized loop about 30%; `ssa_lower_arr_hole_gate`'s
 //! module doc has the measurement), and a callback that shortened its
@@ -41,9 +40,17 @@
 //! A shrink whose target has no name (`rows[i].length = 0`,
 //! `get().pop()`) could be any cell and gates every site.
 //!
-//! A program with no shrink at all — nearly all of them, every bench
-//! case included — gates nothing, and its loops lower exactly as
-//! before.
+//! An element delete is the same question with its own names: a
+//! typed delete marks the cell's hole shadow (`FLAG_ARR_EXOTIC_INDEX`),
+//! but the loop reads that header once, before it starts, so a hole
+//! the callback punches mid-walk is visited (test262 map
+//! `15.4.4.19-8-3`, forEach `15.4.4.18-7-2` on an annotated
+//! `number[]`). A site whose source may lose an index that way pays
+//! the per-step `arr_has_index` test instead ([`hof_may_punch_hole`]).
+//!
+//! A program with no shrink and no element delete — nearly all of
+//! them, every bench case included — gates nothing, and its loops
+//! lower exactly as before.
 
 use super::{Ast, Expr, ExprId, Stmt};
 use std::collections::HashSet;
@@ -56,6 +63,10 @@ pub struct HofLenShrinks {
     names: HashSet<String>,
     /// A shortening operation on a target with no name.
     unknown_target: bool,
+    /// Names some `delete x[k]` may punch a hole into.
+    hole_names: HashSet<String>,
+    /// An element delete on a target with no name.
+    unknown_hole_target: bool,
     /// Names that appear somewhere other than as the base of a
     /// member / index access, a call's callee or an assignment
     /// target — i.e. whose value is handed on.
@@ -86,8 +97,20 @@ pub fn collect_hof_len_shrinks(ast: &mut Ast) {
                 None => out.unknown_target = true,
             }
         }
+        if let Some(target) = hole_target(ast, e) {
+            match name_of(ast, target) {
+                Some(n) => {
+                    out.hole_names.insert(n.to_string());
+                }
+                None => out.unknown_hole_target = true,
+            }
+        }
     }
-    if !out.names.is_empty() || out.unknown_target {
+    if !out.names.is_empty()
+        || out.unknown_target
+        || !out.hole_names.is_empty()
+        || out.unknown_hole_target
+    {
         for (i, e) in ast.exprs.iter().enumerate() {
             if let Expr::Ident(n) = e
                 && !based.contains(&(i as u32))
@@ -118,6 +141,19 @@ fn shrink_target(ast: &Ast, e: &Expr) -> Option<ExprId> {
             }
             _ => None,
         },
+        _ => None,
+    }
+}
+
+/// The array an element delete may punch a hole into: `delete x[k]`
+/// for any key (a string key can spell an index). A named-member
+/// delete (`delete x.foo`) is never an index.
+fn hole_target(ast: &Ast, e: &Expr) -> Option<ExprId> {
+    let Expr::Delete { expr } = e else {
+        return None;
+    };
+    match ast.get_expr(*expr) {
+        Expr::Index { obj, .. } => Some(*obj),
         _ => None,
     }
 }
@@ -162,23 +198,49 @@ fn note_non_escaping_children(ast: &Ast, e: &Expr, based: &mut HashSet<u32>) {
 /// (2 for forEach / map / filter / some / every, 3 for reduce).
 pub(crate) fn hof_len_may_shrink(ast: &Ast, recv: ExprId, cb: ExprId, o_param: usize) -> bool {
     let s = &ast.hof_len_shrinks;
-    if s.unknown_target {
+    may_reach(ast, recv, cb, o_param, &s.names, s.unknown_target)
+}
+
+/// Can the callback punch a hole into the source of the loop at this
+/// site while it runs? Same arguments as [`hof_len_may_shrink`].
+pub(crate) fn hof_may_punch_hole(ast: &Ast, recv: ExprId, cb: ExprId, o_param: usize) -> bool {
+    let s = &ast.hof_len_shrinks;
+    may_reach(ast, recv, cb, o_param, &s.hole_names, s.unknown_hole_target)
+}
+
+/// Whether an operation recorded under `names` (or on an unnamed
+/// target, `unknown`) may act on the source of the loop at this site.
+fn may_reach(
+    ast: &Ast,
+    recv: ExprId,
+    cb: ExprId,
+    o_param: usize,
+    names: &HashSet<String>,
+    unknown: bool,
+) -> bool {
+    if unknown {
         return true;
     }
-    if s.names.is_empty() {
+    if names.is_empty() {
         return false;
     }
+    let escaping = &ast.hof_len_shrinks.escaping;
     let src_named = match name_of(ast, recv) {
-        Some(n) => s.names.contains(n) || s.escaping.contains(n),
+        Some(n) => names.contains(n) || escaping.contains(n),
         // A temporary has no name of its own; only the callback's
         // parameter can reach it.
         None => false,
     };
-    src_named || callback_o_param_may_shrink(ast, cb, o_param)
+    src_named || callback_o_param_reached(ast, cb, o_param, names)
 }
 
-fn callback_o_param_may_shrink(ast: &Ast, cb: ExprId, o_param: usize) -> bool {
-    let s = &ast.hof_len_shrinks;
+fn callback_o_param_reached(
+    ast: &Ast,
+    cb: ExprId,
+    o_param: usize,
+    names: &HashSet<String>,
+) -> bool {
+    let escaping = &ast.hof_len_shrinks.escaping;
     let name = match ast.get_expr(cb) {
         Expr::Closure { fn_name, .. } => fn_name.as_str(),
         Expr::Ident(n) => n.as_str(),
@@ -207,7 +269,7 @@ fn callback_o_param_may_shrink(ast: &Ast, cb: ExprId, o_param: usize) -> bool {
     }
     let mut user = params.iter().filter(|p| !p.name.starts_with("__"));
     match user.nth(o_param) {
-        Some(p) => s.names.contains(&p.name) || s.escaping.contains(&p.name),
+        Some(p) => names.contains(&p.name) || escaping.contains(&p.name),
         // The callback never names the source.
         None => false,
     }

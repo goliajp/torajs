@@ -189,13 +189,7 @@ fn lower_higher_order(
         fn_ty,
         this_arg: this_arg.as_ref(),
         argv_face,
-        len_gate: elem_ty != Type::Any
-            && crate::ast::hof_len_shrink::hof_len_may_shrink(
-                ctx.ast,
-                obj,
-                args[0],
-                if is_reduce { 3 } else { 2 },
-            ),
+        dense_gate: typed_dense_gate(ctx, elem_ty, obj, args[0], if is_reduce { 3 } else { 2 }),
     };
     let out = if elem_ty == Type::Any {
         emit_hof_loop(ctx, &plan, false)
@@ -233,8 +227,31 @@ struct HofLoop<'o> {
     fn_ty: Type,
     this_arg: Option<&'o Operand>,
     argv_face: bool,
-    /// A typed source the callback may shorten (`hof_len_shrink`).
-    len_gate: bool,
+    /// The gate the dense copy runs: `Len` for a typed source the
+    /// callback may shorten, `Present` for one it may punch a hole
+    /// into (`hof_len_shrink`).
+    dense_gate: TypedGate,
+}
+
+/// The per-step gate a typed source's dense loop copy needs, from what
+/// the program may do to the source while the callback runs.
+pub(crate) fn typed_dense_gate(
+    ctx: &LowerCtx<'_>,
+    elem_ty: Type,
+    recv: ExprId,
+    cb: ExprId,
+    o_param: usize,
+) -> TypedGate {
+    use crate::ast::hof_len_shrink::{hof_len_may_shrink, hof_may_punch_hole};
+    if elem_ty == Type::Any {
+        TypedGate::None
+    } else if hof_may_punch_hole(ctx.ast, recv, cb, o_param) {
+        TypedGate::Present
+    } else if hof_len_may_shrink(ctx.ast, recv, cb, o_param) {
+        TypedGate::Len
+    } else {
+        TypedGate::None
+    }
 }
 
 /// One loop over the source: header, visit, step, product. `holes`
@@ -252,10 +269,8 @@ fn emit_hof_loop(ctx: &mut LowerCtx<'_>, p: &HofLoop<'_>, holes: bool) -> Operan
     );
     frame.gate = if holes {
         TypedGate::Present
-    } else if p.len_gate {
-        TypedGate::Len
     } else {
-        TypedGate::None
+        p.dense_gate
     };
     // 550-01 — the growing dst (map / filter) is ours until the exit
     // loads it out; a callback that throws mid-loop releases it

@@ -110,13 +110,19 @@ pub(crate) fn try_lower(
     // full §23.1.3.{5-10,30} «kValue, k, O» triple.
     let argv_face = crate::ast::argv_face_callback::lane_takes_argv_face(ctx.ast, args[0]);
     let (result_ty, result_slot) = setup_result_slot(ctx, &name, elem_ty);
-    let len_gate = elem_ty != Type::Any
-        && crate::ast::hof_len_shrink::hof_len_may_shrink(ctx.ast, obj, args[0], 2);
-    let dense_gate = if len_gate {
-        TypedGate::Len
-    } else {
-        TypedGate::None
-    };
+    // The find family has no HasProperty step: a hole the predicate
+    // punches is visited with Get's `undefined`, so only a shrink gates.
+    let dense_gate =
+        match crate::ssa_lower_call_arr_ho::typed_dense_gate(ctx, elem_ty, obj, args[0], 2) {
+            TypedGate::Present if !(name == "some" || name == "every") => {
+                if crate::ast::hof_len_shrink::hof_len_may_shrink(ctx.ast, obj, args[0], 2) {
+                    TypedGate::Len
+                } else {
+                    TypedGate::None
+                }
+            }
+            g => g,
+        };
     let emit = |ctx: &mut LowerCtx<'_>, gate: TypedGate| {
         emit_predicate_iter(
             ctx,
