@@ -181,10 +181,9 @@ pub(crate) fn collect_toplevel_globals(
             // the alloca dissolves into registers like any other
             // local. `named_fn_refs` over-approximates (fn-local
             // shadows count), so a binding only localizes when no
-            // named fn could possibly read it. Refcounted slots
-            // (Str / Arr / Obj) keep the global path: their promotion
-            // is tied to the exit-time drop hook, not to named-fn
-            // visibility alone.
+            // named fn could possibly read it. Refcounted slots take
+            // the gate further down (`mutable_promotes`), where the
+            // main-local home's scope-drop walk owns their cleanup.
             // r290 (closure-capture sweep cluster) — `named_fn_refs`
             // also counts captures of closures minted INSIDE named fn
             // bodies (see `idents_in_expr`'s Closure arm): those
@@ -204,8 +203,8 @@ pub(crate) fn collect_toplevel_globals(
             // onto the global one, whose member-call lane does not
             // carry it — `const m: Map<…> = new Map(); m.set(…)` went
             // from working to "unsupported member call shape". The
-            // historical Str / Arr / Obj / Closure / Symbol keep
-            // promoting unconditionally per the paragraph above.
+            // historical Str / Arr / Obj / Closure / Symbol pass here
+            // and meet the named-fn gate below instead.
             let visibility_only = ty.is_refcounted()
                 && !matches!(
                     ty,
@@ -224,7 +223,16 @@ pub(crate) fn collect_toplevel_globals(
             if !slot_type_supported(&ty, name, &binding_refs, ast) {
                 continue;
             }
-            if *mutable && ty.is_refcounted() && !mutable_promotes(&ty, name, &binding_refs) {
+            // A `const` container localizes on the same terms as a
+            // `let` one: with no named-fn reader the main-local home
+            // already owns its drop, and the global home made every
+            // hot-loop `xs.push` / `xs[i]` a GlobalRef load the push-
+            // loop lane and the element-interval analysis do not see
+            // through (`const xs: number[] = []` ran generic-id-1m at
+            // 3.8x the `let` spelling). Str stays global: a literal
+            // init would fall to the per-read K.1 re-alloc above.
+            let gated = *mutable || !matches!(ty, Type::Str);
+            if gated && ty.is_refcounted() && !mutable_promotes(&ty, name, &binding_refs) {
                 continue;
             }
             globals.insert(name.clone(), ty);
