@@ -253,12 +253,10 @@ pub(crate) fn lower_from_value(
         // An index that is not an integer names a property, not an
         // element — the keyed kernel answers it (an expando, or
         // undefined), the way an `any` receiver already does.
-        if let Some(raw) = nonint.as_ref().map(|(_, raw)| raw.clone()) {
-            let boxed_arr = ctx.box_to_any(arr_val);
-            let boxed_key = ctx.box_to_any(raw);
-            return Operand::Value(
-                crate::ssa_lower_index_any_key::AnyNumericKey::Boxed(boxed_key)
-                    .emit_get(ctx, boxed_arr),
+        if let Some(split) = nonint {
+            ctx.owned_member_reads.insert(eid);
+            return crate::ssa_lower_index_nonintegral::emit_any_elem_read_split(
+                ctx, arr_val, idx_val, split,
             );
         }
         return lower_array_any_index(ctx, arr_val, idx_val);

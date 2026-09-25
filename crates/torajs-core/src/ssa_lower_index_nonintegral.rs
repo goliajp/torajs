@@ -180,3 +180,61 @@ pub(crate) fn emit_nonintegral_typed_read(
     ctx.cur_block = done_blk;
     true
 }
+
+/// `Array<any>` read at an F64 index: an integer reads the element, a
+/// non-integer asks the keyed kernel for the property it names — the
+/// same split the typed lanes take, decided at run time by the flag
+/// [`lower_typed_read_index`] computed. Before this the lane took the
+/// keyed kernel for every F64 index, so `xs[i % 100]` boxed the array
+/// and the key and dispatched generically on each read of a plain
+/// element. Both arms answer an OWNED box (the kernel's answer is +1,
+/// the element read takes its own share), which the caller records.
+pub(crate) fn emit_any_elem_read_split(
+    ctx: &mut LowerCtx<'_>,
+    arr: Operand,
+    idx: Operand,
+    (nonint, raw_key): (Operand, Operand),
+) -> Operand {
+    use crate::ssa::Terminator;
+    let slot = ctx.alloca(Type::Any, None);
+    let elem_blk = ctx.f.add_block();
+    let key_blk = ctx.f.add_block();
+    let done_blk = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: nonint,
+            then_blk: key_blk,
+            else_blk: elem_blk,
+        },
+    );
+    ctx.cur_block = elem_blk;
+    let v = crate::ssa_lower_index_any_key::lower_array_any_index(ctx, arr.clone(), idx);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![v.clone()]),
+    );
+    ctx.f
+        .append_void(ctx.cur_block, InstKind::Store(v, Operand::Value(slot), 0));
+    let eb = ctx.cur_block;
+    ctx.f.set_term(eb, Terminator::Br(done_blk));
+    ctx.cur_block = key_blk;
+    let boxed_arr = ctx.box_to_any(arr);
+    let boxed_key = ctx.box_to_any(raw_key);
+    let k = AnyNumericKey::Boxed(boxed_key).emit_get(ctx, boxed_arr);
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(k), Operand::Value(slot), 0),
+    );
+    let kb = ctx.cur_block;
+    ctx.f.set_term(kb, Terminator::Br(done_blk));
+    ctx.cur_block = done_blk;
+    let out = ctx.f.append_inst(
+        done_blk,
+        InstKind::Load(Type::Any, Operand::Value(slot), 0),
+        Type::Any,
+        None,
+    );
+    Operand::Value(out)
+}
