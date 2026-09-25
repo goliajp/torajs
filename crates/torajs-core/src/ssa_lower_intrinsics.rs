@@ -128,6 +128,8 @@ pub(crate) struct Intrinsics {
     pub(crate) str_from_code_point_f64: FuncId,
     pub(crate) string_raw: FuncId,
     pub(crate) str_normalize: FuncId,
+    pub(crate) str_is_well_formed: FuncId,
+    pub(crate) str_to_well_formed: FuncId,
     pub(crate) str_to_locale_upper: FuncId,
     pub(crate) str_to_locale_lower: FuncId,
     pub(crate) str_locale_case_arr: FuncId,

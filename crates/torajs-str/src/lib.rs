@@ -154,6 +154,7 @@ pub mod to_number;
 pub mod transform;
 pub mod undef_sentinel;
 pub mod uri;
+pub mod well_formed;
 pub mod wtf8_view;
 
 // Re-export the small surface the rest of the workspace (and the

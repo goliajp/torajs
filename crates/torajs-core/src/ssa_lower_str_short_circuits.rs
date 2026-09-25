@@ -13,12 +13,9 @@
 //!   `"NFC"`) — calls `__torajs_str_normalize` with the interned
 //!   default, drops any trailing args, and propagates the runtime
 //!   throw on invalid forms.
-//! - `isWellFormed()` (ES2024 §22.1.3.10) — torajs Str is internally
-//!   UTF-8 + every reachable Str is well-formed by construction, so
-//!   the answer is constant `true` after eval-and-dropping the
-//!   trailing args for spec-compliant side-effect order.
-//! - `toWellFormed()` (ES2024 §22.1.3.30) — identity on torajs Str
-//!   (rc-inc + return self), same trailing-arg discipline.
+//! - `isWellFormed()` / `toWellFormed()` (ES2024 §22.1.3.10 / 30) —
+//!   runtime scans for lone surrogates (a UTF-16 payload can hold
+//!   them), after eval-and-dropping the trailing args.
 //!
 //! Returns `None` for non-Str receivers or unrelated methods so the
 //! caller can keep trying the generic Str-path dispatch.
@@ -172,27 +169,39 @@ pub(crate) fn try_dispatch(
         return None;
     }
     // ES2024 §22.1.3.10 / §22.1.3.30 — `isWellFormed()` / `toWellFormed()`.
-    // torajs strings are internally UTF-8 so lone surrogates can't be
-    // encoded at all: every reachable Str is well-formed by construction.
-    // `isWellFormed` returns true; `toWellFormed` is the identity. Both
-    // arms drop the receiver dependency at the caller per existing
-    // method-call ownership rules.
-    if method == "isWellFormed" {
-        // S281 — lower-and-drop any trailing args for ES eval-then-
-        // discard semantics (the early-return below skips the args
-        // loop further down, so this site is the only opportunity).
+    // A UTF-16 payload can hold lone surrogates (`'a' + '\uD83D'`), so
+    // both are runtime scans (torajs-str `well_formed`); trailing
+    // arguments are evaluated and dropped first (S281).
+    if method == "isWellFormed" || method == "toWellFormed" {
         for &a in args {
             let _ = ctx.lower_expr(a);
         }
-        return Some(Operand::ConstBool(true));
-    }
-    if method == "toWellFormed" {
-        // S281 — same idiom as isWellFormed above.
-        for &a in args {
-            let _ = ctx.lower_expr(a);
+        if method == "toWellFormed" {
+            let v = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(ctx.intrinsics.str_to_well_formed, vec![recv_op]),
+                Type::Str,
+                None,
+            );
+            return Some(Operand::Value(v));
         }
-        ctx.emit_rc_inc(recv_op.clone());
-        return Some(recv_op);
+        let r = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(ctx.intrinsics.str_is_well_formed, vec![recv_op]),
+            Type::I64,
+            None,
+        );
+        let b = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(
+                crate::ssa::IPred::Ne,
+                Operand::Value(r),
+                Operand::ConstI64(0),
+            ),
+            Type::Bool,
+            None,
+        );
+        return Some(Operand::Value(b));
     }
     None
 }

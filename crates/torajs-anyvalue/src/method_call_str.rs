@@ -38,6 +38,10 @@ unsafe extern "C" {
     fn __torajs_str_any_slice(s: *const u8, start: i64, end: i64) -> u64;
     /// torajs-str — substring glue (missing end rides as i64::MAX).
     fn __torajs_str_any_substring(s: *const u8, start: i64, end: i64) -> u64;
+    /// torajs-str — isWellFormed / toWellFormed glue (UTF-16 payloads
+    /// can hold lone surrogates).
+    fn __torajs_str_any_is_well_formed(s: *const u8) -> i64;
+    fn __torajs_str_any_to_well_formed(s: *const u8) -> u64;
     /// torajs-str — annexB substr glue (missing length = i64::MAX).
     fn __torajs_str_any_substr(s: *const u8, start: i64, length: i64) -> u64;
     /// torajs-str — at glue (OOB answers the boxed undefined).

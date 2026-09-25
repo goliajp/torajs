@@ -161,13 +161,13 @@ unsafe fn str_method_ext(s: *mut u8, mid: i64, argv: *const u64, argc: i64) -> A
                     __torajs_str_any_locale_case(s, core::ptr::null(), up)
                 }
             }
-            // ES2024 §22.1.3.10/33 — torajs Str is internally UTF-8
-            // and well-formed by construction (the typed tier's
-            // short-circuit wedge answers the same constants):
-            // isWellFormed is always true, toWellFormed is identity
-            // (a fresh owned full-range copy via the substring glue).
-            m if m == ANY_METHOD_IS_WELL_FORMED => __torajs_anyv_box_from_pair(1, 1),
-            m if m == ANY_METHOD_TO_WELL_FORMED => __torajs_str_any_substring(s, 0, i64::MAX),
+            // ES2024 §22.1.3.10/30 — a UTF-16 payload can hold lone
+            // surrogates, so both are real scans (torajs-str
+            // `well_formed`); the typed tier calls the same kernels.
+            m if m == ANY_METHOD_IS_WELL_FORMED => {
+                __torajs_anyv_box_from_pair(1, __torajs_str_any_is_well_formed(s))
+            }
+            m if m == ANY_METHOD_TO_WELL_FORMED => __torajs_str_any_to_well_formed(s),
             m if m == ANY_METHOD_LAST_INDEX_OF => {
                 // §22.1.3.11 — a NaN fromIndex means +Infinity
                 // (search the whole string), unlike indexOf's 0, so

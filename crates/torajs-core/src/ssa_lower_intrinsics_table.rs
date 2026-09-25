@@ -109,6 +109,8 @@ pub(crate) fn build(
         str_from_code_point_f64: init_a.str_a.str_from_code_point_f64,
         string_raw: init_a.str_a.string_raw,
         str_normalize: init_a.str_a.str_normalize,
+        str_is_well_formed: init_a.str_a.str_is_well_formed,
+        str_to_well_formed: init_a.str_a.str_to_well_formed,
         str_to_locale_upper: init_a.str_a.str_to_locale_upper,
         str_to_locale_lower: init_a.str_a.str_to_locale_lower,
         str_locale_case_arr: init_a.str_a.str_locale_case_arr,
