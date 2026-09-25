@@ -62,12 +62,23 @@ pub fn rotate_module(module: &mut Module) -> LoopRotateStats {
         if func.is_declaration() {
             continue;
         }
-        // one rotation per analysis: each rewrite changes the cfg the
-        // next candidate is judged on. A rotated latch ends in a
-        // cond_br, so the same loop never qualifies twice.
-        while let Some(plan) = find_rotation(func) {
-            apply(func, plan);
-            stats.loops_rotated += 1;
+        // A rewrite changes only its own latch's edges (to B and X
+        // instead of H), so rotations whose loop bodies and exit
+        // blocks are pairwise disjoint cannot change what another is
+        // judged on and share one analysis. Recomputing dominators and
+        // loops once per rotation made this pass cubic in main's block
+        // count — a main of ~3000 blocks with a few hundred drop loops
+        // did not finish compiling. A rotated latch ends in a cond_br,
+        // so the same loop never qualifies twice.
+        loop {
+            let plans = find_rotations(func);
+            if plans.is_empty() {
+                break;
+            }
+            for plan in plans {
+                apply(func, plan);
+                stats.loops_rotated += 1;
+            }
         }
     }
     stats
@@ -78,20 +89,40 @@ struct Rotation {
     latch: BlockId,
 }
 
-fn find_rotation(func: &Function) -> Option<Rotation> {
+/// Every rotatable loop of one analysis whose blocks — body plus the
+/// header's two targets — no earlier pick in this round has claimed,
+/// in analysis order (the order the one-at-a-time loop took them).
+fn find_rotations(func: &Function) -> Vec<Rotation> {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     let preds = predecessors(func);
-    la.loops().iter().find_map(|l| {
+    let mut claimed: HashSet<BlockId> = HashSet::new();
+    let mut plans = Vec::new();
+    for l in la.loops() {
         let [latch] = l.back_edge_sources.as_slice() else {
-            return None;
+            continue;
         };
         let body: HashSet<BlockId> = l.body.iter().copied().collect();
-        rotatable(func, &preds, &body, l.header, *latch).then_some(Rotation {
-            header: l.header,
-            latch: *latch,
-        })
-    })
+        let mut touched = body.clone();
+        if let Terminator::CondBr {
+            then_blk, else_blk, ..
+        } = &func.blocks[l.header.0 as usize].term
+        {
+            touched.insert(*then_blk);
+            touched.insert(*else_blk);
+        }
+        if !touched.is_disjoint(&claimed) {
+            continue;
+        }
+        if rotatable(func, &preds, &body, l.header, *latch) {
+            claimed.extend(touched);
+            plans.push(Rotation {
+                header: l.header,
+                latch: *latch,
+            });
+        }
+    }
+    plans
 }
 
 fn predecessors(func: &Function) -> HashMap<BlockId, Vec<BlockId>> {
