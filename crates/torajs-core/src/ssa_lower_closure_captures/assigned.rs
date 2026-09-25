@@ -10,6 +10,7 @@
 
 use std::collections::HashSet;
 
+use crate::ast::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use crate::ast::{Ast, Expr, ExprId, Stmt};
 
 use super::{ClosureScan, collect_closure_captures_in_stmt};
@@ -171,21 +172,30 @@ fn collect_assigned_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
                 }
             }
         }
-        _ => {}
+        // Any other statement: its expressions and sub-statements
+        // through the shared enumerators, so a statement shape nobody
+        // listed above cannot hide a write either.
+        _ => {
+            for e in stmt_exprs(s) {
+                collect_assigned_in_expr(ast, e, out);
+            }
+            for c in stmt_children_ref(s) {
+                collect_assigned_in_stmt(ast, c, out);
+            }
+        }
     }
 }
 
+/// Every identifier `eid` (or a function expression inside it) assigns.
+/// The walk below the two arms that name something is the shared
+/// child enumerator, so no expression shape can hide an assignment:
+/// the hand-listed walk it replaces skipped `delete` and `new` with a
+/// computed callee, and a closure writing through
+/// `delete super[x = 1]` left `x` looking never-written (snapshotted,
+/// the write lost — staging/sm/class/superPropDelete).
 fn collect_assigned_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
     match ast.get_expr(eid) {
-        Expr::Assign { target, value } => {
-            if let Expr::Ident(n) = ast.get_expr(*target) {
-                out.insert(n.clone());
-            } else {
-                collect_assigned_in_expr(ast, *target, out);
-            }
-            collect_assigned_in_expr(ast, *value, out);
-        }
-        Expr::PostIncr { target, .. } => {
+        Expr::Assign { target, .. } | Expr::PostIncr { target, .. } => {
             if let Expr::Ident(n) = ast.get_expr(*target) {
                 out.insert(n.clone());
             }
@@ -195,63 +205,9 @@ fn collect_assigned_in_expr(ast: &Ast, eid: ExprId, out: &mut HashSet<String>) {
                 collect_assigned_in_stmt(ast, s, out);
             }
         }
-        Expr::BinOp { left, right, .. } => {
-            collect_assigned_in_expr(ast, *left, out);
-            collect_assigned_in_expr(ast, *right, out);
-        }
-        Expr::Unary { expr, .. }
-        | Expr::TypeOf { expr }
-        | Expr::Spread { expr }
-        | Expr::As { expr, .. } => collect_assigned_in_expr(ast, *expr, out),
-        Expr::InstanceOf { expr, rhs } => {
-            collect_assigned_in_expr(ast, *expr, out);
-            collect_assigned_in_expr(ast, *rhs, out);
-        }
-        Expr::Member { obj, .. } | Expr::OptChain { obj, .. } => {
-            collect_assigned_in_expr(ast, *obj, out)
-        }
-        Expr::Index { obj, index } | Expr::OptIndex { obj, index } => {
-            collect_assigned_in_expr(ast, *obj, out);
-            collect_assigned_in_expr(ast, *index, out);
-        }
-        Expr::Call { callee, args } | Expr::OptCall { callee, args } => {
-            collect_assigned_in_expr(ast, *callee, out);
-            for a in args {
-                collect_assigned_in_expr(ast, *a, out);
-            }
-        }
-        Expr::Array(els) => {
-            for e in els {
-                collect_assigned_in_expr(ast, *e, out);
-            }
-        }
-        Expr::ObjectLit { fields } => {
-            for (_, e) in fields {
-                collect_assigned_in_expr(ast, *e, out);
-            }
-        }
-        Expr::Ternary {
-            cond,
-            then_branch,
-            else_branch,
-        } => {
-            collect_assigned_in_expr(ast, *cond, out);
-            collect_assigned_in_expr(ast, *then_branch, out);
-            collect_assigned_in_expr(ast, *else_branch, out);
-        }
-        Expr::Nullish { lhs, rhs }
-        | Expr::Sequence {
-            left: lhs,
-            right: rhs,
-        } => {
-            collect_assigned_in_expr(ast, *lhs, out);
-            collect_assigned_in_expr(ast, *rhs, out);
-        }
-        Expr::New { args, .. } | Expr::Super { args } => {
-            for e in args {
-                collect_assigned_in_expr(ast, *e, out);
-            }
-        }
         _ => {}
+    }
+    for c in expr_children(ast, eid) {
+        collect_assigned_in_expr(ast, c, out);
     }
 }
