@@ -45,6 +45,7 @@
 //! callee cost is depth-weighted (matching the elaborator's existing
 //! LICM weighting in `cost::scale_for_depth`).
 
+mod order;
 mod rewrite;
 mod splice;
 mod splice2;
@@ -318,7 +319,9 @@ pub fn inline_module(module: &mut Module) -> InlinerStats {
 ///
 /// 1. Pre-compute every function's body cost — `callee_body_cost` is
 ///    O(insts) and we'd otherwise re-scan once per caller × call site.
-/// 2. For each caller in source order, classify each call site against
+/// 2. For each caller in bottom-up call-graph order (callees first —
+///    `order.rs`; its cost is re-priced once its own sites are done),
+///    classify each call site against
 ///    the budget. The classifier yields `(blk, site, decision)`
 ///    triples; we tally stats from the decisions (this is the Phase 0
 ///    behaviour, untouched).
@@ -336,10 +339,9 @@ pub fn inline_module(module: &mut Module) -> InlinerStats {
 ///    emit pass.
 pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> InlinerStats {
     let dry_run = std::env::var("TORAJS_INLINER_OFF").as_deref() == Ok("1");
-    let callee_costs: Vec<Cost> = module.funcs.iter().map(callee_body_cost).collect();
+    let mut callee_costs: Vec<Cost> = module.funcs.iter().map(callee_body_cost).collect();
     let mut stats = InlinerStats::default();
-    let n = module.funcs.len();
-    for caller_idx in 0..n {
+    for caller_idx in order::bottom_up(module) {
         let decisions = classify_caller_sites(module, caller_idx, &budget, &callee_costs);
         // Pass A — tally classifier stats. Reads decisions only.
         for (_, _, dec) in &decisions {
@@ -458,6 +460,8 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
                 Err(_) => {}
             }
         }
+        // its callers, visited later, price the body they will clone
+        callee_costs[caller_idx] = callee_body_cost(&module.funcs[caller_idx]);
     }
     stats
 }
@@ -743,12 +747,11 @@ mod tests {
     }
 
     #[test]
-    fn stale_cost_guard_skips_callee_grown_within_pass() {
+    fn callee_grown_within_pass_is_priced_at_its_grown_cost() {
         // funcs[0] = b: 150 ALU + 1 self-call (cost 152 ≤ 225). As a
-        // caller it self-inlines first and roughly doubles. funcs[1] =
-        // a: calls b — the classifier approved the site against b's
-        // precomputed cost, but the emit-side live re-price sees the
-        // grown body and must skip.
+        // caller it self-inlines first (bottom-up: before a) and
+        // roughly doubles; its cost is re-priced then. funcs[1] = a:
+        // calls b — the classifier sees the grown body and skips.
         let mut b = alu_body("b", 150);
         b.blocks[0]
             .insts
@@ -763,8 +766,9 @@ mod tests {
         };
         let stats = inline_module_with_budget(&mut m, budget);
         assert_eq!(
-            stats.skipped_live_cost, 1,
-            "a's site must hit the live-cost guard"
+            (stats.skipped_callee_too_large, stats.skipped_live_cost),
+            (1, 0),
+            "a's site must be refused at b's re-priced cost"
         );
         let b_cost = callee_body_cost(&m.funcs[0]);
         assert!(
