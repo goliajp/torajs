@@ -275,6 +275,15 @@ impl<'a> Analysis<'a> {
                 None => self.container_poison = true,
             },
             Expr::Member { obj, name } => {
+                // Growing `length` leaves holes that an in-bounds read
+                // then lands on, and a number[] hole holds the F64
+                // sentinel — seed like `delete xs[i]`. `length = 0`
+                // only truncates.
+                if name == "length"
+                    && !matches!(self.ast.get_expr(value), Expr::Number(n) if *n == 0.0)
+                {
+                    self.seed_index_read_elem(*obj, scope, false);
+                }
                 if let Some(rk) = self.container_key_of(*obj, scope) {
                     self.mark_containerish(&rk);
                     let fk = SlotKey::Field(Box::new(rk), PropKey::from(name));
