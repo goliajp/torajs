@@ -159,7 +159,12 @@ pub unsafe extern "C" fn __torajs_regex_compile_from_static_dfa(
     // caller passed a null meta (defensive — the AOT emitter never
     // does, but `extern "C"` callers can lie) we degrade gracefully to
     // the runtime DFA build path by leaving `baked_dfa = None`.
-    let baked_dfa = NonNull::new(meta as *mut BakedDfaMeta);
+    // The bind also requires the program this RegExp actually runs to
+    // be DFA-serveable: the bake decided that on its own compile of
+    // the pattern, and the searches trust a bound table without
+    // asking again (`vm::search::resolve_dfa`).
+    let dfa_serveable = rejected == 0 && prog.can_dfa && crate::dfa::prog_ops_dfa_safe(&prog);
+    let baked_dfa = NonNull::new(meta as *mut BakedDfaMeta).filter(|_| dfa_serveable);
 
     let re = Box::new(RegExp {
         header: HeapHeader {

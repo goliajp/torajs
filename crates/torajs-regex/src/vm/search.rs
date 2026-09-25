@@ -91,17 +91,20 @@ fn resolve_dfa<'a>(
     dfa_cached: Option<&'a crate::dfa::DfaProgram>,
     local: &'a mut Option<crate::dfa::DfaProgram>,
 ) -> Option<&'a crate::dfa::DfaProgram> {
-    let dfa_fast_path = prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog);
-    if dfa_fast_path && dfa_cached.is_none() {
-        // RFC 20260711 chunk B — drop poisoned builds (unserveable
-        // K-PROPERTY shape); the caller falls to the Pike VM.
-        *local = Some(crate::dfa::build_dfa(prog, flags)).filter(|d| !d.poisoned);
+    // A cached DFA exists only where its RegExp's constructor already
+    // found the program DFA-serveable (`RegExp::baked_dfa` /
+    // `RegExp::dfa_runtime`), so re-walking the class list per call
+    // would re-answer a settled question.
+    if dfa_cached.is_some() {
+        return dfa_cached;
     }
-    if dfa_fast_path {
-        dfa_cached.or(local.as_ref())
-    } else {
-        None
+    if !(prog.can_dfa && crate::dfa::prog_ops_dfa_safe(prog)) {
+        return None;
     }
+    // RFC 20260711 chunk B — drop poisoned builds (unserveable
+    // K-PROPERTY shape); the caller falls to the Pike VM.
+    *local = Some(crate::dfa::build_dfa(prog, flags)).filter(|d| !d.poisoned);
+    local.as_ref()
 }
 
 /// Run the anchored DFA at byte offset `st`, selecting the entry state
