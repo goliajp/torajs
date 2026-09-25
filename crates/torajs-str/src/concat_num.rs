@@ -30,7 +30,9 @@ use crate::block::StrBlock;
 use crate::concat::{
     __torajs_str_concat, str_is_latin1, str_len, str_payload, widen_latin1_into_utf16,
 };
+use crate::layout::STR_FLAG_IS_ASCII;
 use crate::str_drop::__torajs_str_drop;
+use torajs_rc::HeapHeader;
 
 unsafe extern "C" {
     /// JS-spec f64 → decimal digits (NaN / ±Infinity literals,
@@ -49,7 +51,9 @@ unsafe fn concat_ascii_tail(a: *const u8, digits: &[u8]) -> *mut u8 {
     let a_len = unsafe { str_len(a) };
     let a_is_latin1 = unsafe { str_is_latin1(a) };
     let total_len = a_len + digits.len() as u32;
-    let mut block = StrBlock::alloc_with_encoding(total_len, a_is_latin1);
+    // Digits are ASCII, so the result is exactly as ASCII as `a`.
+    let ascii = unsafe { (*(a as *const HeapHeader)).flags } & STR_FLAG_IS_ASCII;
+    let mut block = StrBlock::alloc_with_flags(total_len, a_is_latin1, ascii);
     let a_byte_cnt = if a_is_latin1 {
         a_len as usize
     } else {

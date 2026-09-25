@@ -36,7 +36,9 @@ use torajs_rc::{FLAG_STATIC_LITERAL, HeapHeader};
 
 use crate::block::StrBlock;
 use crate::concat::__torajs_str_concat;
-use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF, byte_capacity, grow_capacity};
+use crate::layout::{
+    STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF, byte_capacity, grow_capacity,
+};
 use crate::str_drop::__torajs_str_drop;
 use crate::substr::{FLAG_SUBSTR_INLINE, FLAG_SUBSTR_VIEW};
 
@@ -104,7 +106,8 @@ pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u
     if b_len == 0 {
         return a;
     }
-    let a_is_latin1 = header.flags & STR_FLAG_IS_LATIN1 != 0;
+    let a_flags = header.flags;
+    let a_is_latin1 = a_flags & STR_FLAG_IS_LATIN1 != 0;
     // SAFETY: same contract for `b`.
     let b_header = unsafe { &*(b as *const HeapHeader) };
     let b_is_latin1 = b_header.flags & STR_FLAG_IS_LATIN1 != 0;
@@ -132,6 +135,10 @@ pub unsafe extern "C" fn __torajs_str_append(a: *mut u8, b: *const u8) -> *mut u
         // SAFETY: refcount 1, plain Str cell, payload now written
         // through `total_len` code units.
         unsafe { block.set_length(total_len) };
+        // `a` stays known-ASCII only if what landed on it is too.
+        if a_flags & !b_header.flags & STR_FLAG_IS_ASCII != 0 {
+            unsafe { block.header().flags &= !STR_FLAG_IS_ASCII };
+        }
         return a;
     }
 
@@ -310,6 +317,38 @@ mod tests {
         // block tests do, by hand at its alloc-time size.
         unsafe { (&mut *(acc as *mut HeapHeader)).flags &= !FLAG_STATIC_LITERAL };
         unsafe { __torajs_str_free(acc) };
+    }
+
+    fn mark_ascii(p: *mut u8) -> *mut u8 {
+        unsafe { (&mut *(p as *mut HeapHeader)).flags |= STR_FLAG_IS_ASCII };
+        p
+    }
+
+    fn is_marked_ascii(p: *const u8) -> bool {
+        unsafe { &*(p as *const HeapHeader) }.flags & STR_FLAG_IS_ASCII != 0
+    }
+
+    #[test]
+    fn an_in_place_append_of_a_non_ascii_side_clears_the_ascii_mark() {
+        let acc = mark_ascii(latin1(b"ab"));
+        let piece = latin1(&[0xE9]);
+        let out = unsafe { __torajs_str_append(acc, piece) };
+        assert_eq!(out, acc, "the append happened in place");
+        assert!(!is_marked_ascii(out));
+        unsafe { __torajs_str_free(piece) };
+        unsafe { __torajs_str_free(out) };
+    }
+
+    #[test]
+    fn an_in_place_append_of_a_marked_side_keeps_the_ascii_mark() {
+        let acc = mark_ascii(latin1(b"ab"));
+        let piece = mark_ascii(latin1(b"cd"));
+        let out = unsafe { __torajs_str_append(acc, piece) };
+        assert_eq!(out, acc, "the append happened in place");
+        assert!(is_marked_ascii(out));
+        assert_eq!(read(out).0, b"abcd");
+        unsafe { __torajs_str_free(piece) };
+        unsafe { __torajs_str_free(out) };
     }
 
     #[test]

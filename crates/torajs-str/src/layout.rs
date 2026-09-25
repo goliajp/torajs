@@ -134,6 +134,17 @@ pub const STR_FLAG_IS_LATIN1: u16 = 0x0002;
 /// disjoint by tag, per the occupancy map in `torajs_rc::flags`.
 pub const STR_FLAG_HAS_CAPACITY: u16 = 1 << 11;
 
+/// `flags u16 @6` bit 12 — set only on a plain Latin-1 block whose
+/// payload is known to be all ASCII, so a reader that needs "bytes
+/// are UTF-16 units" can skip the scan. A hint, never a verdict:
+/// clear means "not known", and a producer that does not know leaves
+/// it clear. The one in-place writer ([`crate::append`]) keeps it
+/// only when the appended side carries it too.
+///
+/// Bit 12 is Closure / Obj / DynObj / Arr-kind territory on other
+/// tags — disjoint by tag, per the occupancy map in `torajs_rc::flags`.
+pub const STR_FLAG_IS_ASCII: u16 = 1 << 12;
+
 /// Packed `u64` representation of a freshly-allocated Str header.
 ///
 /// Byte layout (little-endian, all fields packed into one word):

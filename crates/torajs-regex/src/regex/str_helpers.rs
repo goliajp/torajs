@@ -18,6 +18,10 @@ use alloc::vec::Vec;
 
 use super::{__torajs_rc_inc, __torajs_str_alloc, __torajs_str_alloc_ascii, STR_HDR_SIZE};
 
+/// `flags u16 @6` bit 12 — torajs-str `STR_FLAG_IS_ASCII`: set only on
+/// a plain Latin-1 block whose payload is known to be all ASCII.
+const STR_FLAG_IS_ASCII: u16 = 1 << 12;
+
 /// View a tora `Str *` as a `&[u8]` of its payload. Safety: `p`
 /// must point at a live Str whose header is well-formed and whose
 /// payload remains valid for the borrow's lifetime.
@@ -46,6 +50,11 @@ use super::{__torajs_rc_inc, __torajs_str_alloc, __torajs_str_alloc_ascii, STR_H
 /// the underlying Str buffer; in practice the slice is bound to the
 /// `__torajs_str_match_regex` / `__torajs_regex_exec` call's stack
 /// frame, which is shorter than any caller-held Str reference.
+///
+/// Inline so a known-ASCII haystack costs its header test and nothing
+/// else; the scan for the rest stays out of line in
+/// [`ascii_or_none`].
+#[inline]
 pub unsafe fn str_slice_ascii_view<'a>(p: *const c_void) -> Option<&'a [u8]> {
     let s = p as *const u8;
     let length = unsafe { *(s.add(8) as *const u32) };
@@ -56,14 +65,23 @@ pub unsafe fn str_slice_ascii_view<'a>(p: *const c_void) -> Option<&'a [u8]> {
     }
     let payload =
         unsafe { core::slice::from_raw_parts::<'a, u8>(s.add(STR_HDR_SIZE), length as usize) };
-    // `<[u8]>::is_ascii` scans a machine word at a time; the byte
-    // loop it replaces was 18% of `/a.+c/s` over a 27-byte haystack
-    // (rotation 667 leaf profile: four instructions per byte, every
-    // call, ahead of the match itself).
-    if !payload.is_ascii() {
-        return None;
+    // A producer that already knew (a literal, a concat of known-ASCII
+    // sides) said so in the header; only the rest pay the scan.
+    if flags & STR_FLAG_IS_ASCII != 0 {
+        return Some(payload);
     }
-    Some(payload)
+    ascii_or_none(payload)
+}
+
+/// `payload` when every byte of it is ASCII.
+///
+/// `<[u8]>::is_ascii` scans a machine word at a time; the byte loop it
+/// replaced was 18% of `/a.+c/s` over a 27-byte haystack (rotation 667
+/// leaf profile: four instructions per byte, every call, ahead of the
+/// match itself).
+#[inline(never)]
+fn ascii_or_none(payload: &[u8]) -> Option<&[u8]> {
+    payload.is_ascii().then_some(payload)
 }
 
 /// The Str transcoded as a sequence of UTF-16 CODE UNITS: every unit

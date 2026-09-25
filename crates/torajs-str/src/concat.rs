@@ -33,7 +33,7 @@
 //! shape as pre-S2; only mixed-encoding concats pay the widen cost.
 
 use crate::block::StrBlock;
-use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
+use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_LEN_OFF};
 use torajs_rc::HeapHeader;
 
 // ============================================================
@@ -109,7 +109,10 @@ pub unsafe extern "C" fn __torajs_str_concat(a: *const u8, b: *const u8) -> *mut
     let a_is_latin1 = unsafe { str_is_latin1(a) };
     let b_is_latin1 = unsafe { str_is_latin1(b) };
     let out_is_latin1 = a_is_latin1 && b_is_latin1;
-    let mut block = StrBlock::alloc_with_encoding(total_len, out_is_latin1);
+    // Known-ASCII on both sides is known-ASCII joined.
+    let ascii = unsafe { (*(a as *const HeapHeader)).flags & (*(b as *const HeapHeader)).flags }
+        & STR_FLAG_IS_ASCII;
+    let mut block = StrBlock::alloc_with_flags(total_len, out_is_latin1, ascii);
     if total_len == 0 {
         return block.into_raw();
     }
@@ -198,6 +201,26 @@ mod tests {
         };
         let payload = unsafe { str_payload(p, byte_cnt) }.to_vec();
         (payload, is_latin1, len)
+    }
+
+    #[test]
+    fn concat_is_known_ascii_only_when_both_sides_are() {
+        let mark = |p: *mut u8| {
+            unsafe { (&mut *(p as *mut HeapHeader)).flags |= STR_FLAG_IS_ASCII };
+            p
+        };
+        let marked =
+            |p: *const u8| unsafe { &*(p as *const HeapHeader) }.flags & STR_FLAG_IS_ASCII != 0;
+        let a = mark(make_latin1(b"ab"));
+        let b = mark(make_latin1(b"cd"));
+        let unknown = make_latin1(b"ef");
+        let both = unsafe { __torajs_str_concat(a, b) };
+        let one = unsafe { __torajs_str_concat(a, unknown) };
+        assert!(marked(both));
+        assert!(!marked(one));
+        for p in [a, b, unknown, both, one] {
+            unsafe { __torajs_str_free(p) };
+        }
     }
 
     #[test]

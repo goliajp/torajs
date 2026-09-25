@@ -33,6 +33,11 @@ pub const STATIC_LITERAL_FLAG: u16 = 4;
 /// UTF-16 = 2 LE bytes / unit).
 pub const STR_FLAG_IS_LATIN1: u16 = 2;
 
+/// Known-ASCII header flag bit (`torajs-str` `STR_FLAG_IS_ASCII`):
+/// lets the runtime take a Latin-1 payload as UTF-16 units without
+/// scanning it. Set on a literal only when every byte is below 0x80.
+pub const STR_FLAG_IS_ASCII: u16 = 1 << 12;
+
 /// Header byte size: `u64 header + u32 length + u32 _pad` = 16.
 /// Payload bytes follow immediately (packed, no further padding).
 pub const STR_HEADER_SIZE: u32 = 16;
@@ -339,6 +344,7 @@ mod tests {
         // runtime Str header → string-deref UB.
         assert_eq!(STATIC_LITERAL_FLAG, 4);
         assert_eq!(STR_FLAG_IS_LATIN1, 2);
+        assert_eq!(STR_FLAG_IS_ASCII, 0x1000);
         assert_eq!(STR_HEADER_SIZE, 16);
     }
 }

@@ -16,7 +16,7 @@
 use crate::exec::{UserStringEntry, UserStringKind};
 use crate::resolve::SymTable;
 use crate::user_strings_layout::{
-    STATIC_LITERAL_FLAG, STR_FLAG_IS_LATIN1, STR_HEADER_SIZE, UserStringsLayout,
+    STATIC_LITERAL_FLAG, STR_FLAG_IS_ASCII, STR_FLAG_IS_LATIN1, STR_HEADER_SIZE, UserStringsLayout,
 };
 
 /// Build the contiguous user-strings byte payload for one
@@ -50,6 +50,9 @@ pub fn build_user_strings_payload(
                 let mut flags: u16 = STATIC_LITERAL_FLAG;
                 if e.is_latin1 {
                     flags |= STR_FLAG_IS_LATIN1;
+                    if e.bytes.is_ascii() {
+                        flags |= STR_FLAG_IS_ASCII;
+                    }
                 }
                 // refcount=1 in low 32 bits; type_tag=TAG_STR=0 in
                 // [32..48]; flags in [48..64]. Mirrors emit_static_str_global
@@ -167,8 +170,9 @@ mod tests {
         assert_eq!(&buf[21..24], &[0u8; 3]);
 
         // Header LE: refcount=1 (low 32) | flags<<48.
-        //   flags = STATIC_LITERAL_FLAG | STR_FLAG_IS_LATIN1 = 4 | 2 = 6.
-        let expected_header: u64 = 1 | (6u64 << 48);
+        //   flags = STATIC_LITERAL_FLAG | STR_FLAG_IS_LATIN1
+        //         | STR_FLAG_IS_ASCII = 4 | 2 | 0x1000.
+        let expected_header: u64 = 1 | (0x1006u64 << 48);
         let header_le = u64::from_le_bytes(buf[0..8].try_into().unwrap());
         assert_eq!(header_le, expected_header);
 
@@ -182,6 +186,23 @@ mod tests {
 
         // Payload @16 = "hello".
         assert_eq!(&buf[16..21], b"hello");
+    }
+
+    #[test]
+    fn non_ascii_latin1_entry_is_not_marked_ascii() {
+        // "caf\u{e9}" stays Latin-1 but its 0xE9 byte is not a UTF-16
+        // unit on its own, so the known-ASCII bit must stay clear.
+        let strings = [make_entry(
+            "__torajs_str_lit_0",
+            &[0x63, 0x61, 0x66, 0xE9],
+            true,
+            4,
+        )];
+        let layout = compute_user_strings_layout(&strings, 0x4000, 0x1_0000_4000);
+        let buf = build_user_strings_payload(&strings, &layout);
+        let expected_header: u64 = 1 | (6u64 << 48);
+        let header_le = u64::from_le_bytes(buf[0..8].try_into().unwrap());
+        assert_eq!(header_le, expected_header);
     }
 
     #[test]

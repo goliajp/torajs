@@ -22,7 +22,7 @@
 //! | 10-12 | element-kind field (`arr_kind.rs`) | Arr, typed cells only |
 //! | 10    | [`FLAG_ARR_ANY_HOLEY`] | Arr with [`FLAG_ARR_ANY`] (the kind field stays UNSET there) |
 //! | 11    | [`FLAG_ARR_ARGUMENTS`] | Arr with [`FLAG_ARR_ANY`] (same arrangement as HOLEY) |
-//! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) | disjoint-by-tag with Arr kind |
+//! | 12    | [`FLAG_CLOSURE_RECV_FIRST`] (Closure) / [`FLAG_OBJ_EXPANDO`] (Obj) / `STR_FLAG_IS_ASCII` (torajs-str private, Str) | disjoint-by-tag with Arr kind |
 //! | 10-11 | [`FLAG_FN_NAME_DELETED`] / [`FLAG_FN_LENGTH_DELETED`] | Closure (disjoint-by-tag with Arr kind) |
 //! | 10    | [`FLAG_DYNOBJ_CLASS_CTOR`] | DynObj (disjoint-by-tag with Closure / Arr) |
 //! | 12    | [`FLAG_DYNOBJ_MODULE_NS`] | DynObj (disjoint-by-tag with Closure / Obj / Arr) |

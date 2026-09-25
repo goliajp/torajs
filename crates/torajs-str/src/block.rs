@@ -129,10 +129,20 @@ impl StrBlock {
     #[inline]
     #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
     pub fn alloc_with_encoding(length: u32, is_latin1: bool) -> Self {
+        Self::alloc_with_flags(length, is_latin1, 0)
+    }
+
+    /// [`Self::alloc_with_encoding`] with `extra` header flag bits
+    /// (a producer that knows its payload is ASCII passes
+    /// [`crate::layout::STR_FLAG_IS_ASCII`]) written in the same
+    /// header store, so knowing costs nothing after the allocation.
+    #[inline]
+    #[must_use = "StrBlock owns a heap allocation; ignore the value and the block leaks"]
+    pub fn alloc_with_flags(length: u32, is_latin1: bool, extra: u16) -> Self {
         let cap = byte_capacity(length, is_latin1);
         if let Some(class) = pool_class_of(cap) {
             if let Some(p) = pool::pop(class) {
-                Self::init_header_and_length(p, length, is_latin1);
+                Self::init_header_and_length(p, length, is_latin1, extra);
                 return Self(p);
             }
         }
@@ -143,7 +153,7 @@ impl StrBlock {
         // matching the C `str_block_size_` exactly.
         let raw = unsafe { malloc(block_size(length, is_latin1)) } as *mut u8;
         let nn = NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"));
-        Self::init_header_and_length(nn, length, is_latin1);
+        Self::init_header_and_length(nn, length, is_latin1, extra);
         Self(nn)
     }
 
@@ -173,7 +183,7 @@ impl StrBlock {
                 let raw = unsafe { malloc(STR_HDR_SIZE + cap as usize) } as *mut u8;
                 NonNull::new(raw).unwrap_or_else(|| torajs_abort::abort_with(b"OOM in Str alloc"))
             });
-        Self::init_header_and_length(p, length, is_latin1);
+        Self::init_header_and_length(p, length, is_latin1, 0);
         // Recorded together with the flag bit that announces it, so
         // "carries a capacity" means exactly "owns more than its
         // length says" — the question `free_pool_aware` has to
@@ -394,12 +404,12 @@ impl StrBlock {
     /// padding at the start of a freshly-allocated (or pool-
     /// popped) block. Internal helper; not exposed.
     #[inline]
-    fn init_header_and_length(p: NonNull<u8>, length: u32, is_latin1: bool) {
+    fn init_header_and_length(p: NonNull<u8>, length: u32, is_latin1: bool, extra: u16) {
         // SAFETY: caller has just produced `p` via `malloc` or
         // `pool::pop`; the first 16 bytes are exclusively owned
         // until we return.
         unsafe {
-            (p.as_ptr() as *mut u64).write(packed_header_init(is_latin1));
+            (p.as_ptr() as *mut u64).write(packed_header_init(is_latin1) | (extra as u64) << 48);
             (p.as_ptr().add(STR_LEN_OFF) as *mut u32).write(length);
             (p.as_ptr().add(STR_PAD_OFF) as *mut u32).write(0);
         }
