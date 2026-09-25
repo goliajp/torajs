@@ -1,0 +1,9 @@
+name = "c"
+# upstream LLVM clang (homebrew `llvm`), the latest stable release; the
+# system clang lags it. -O3 without -march=native, as the rust runner's
+# opt-level=3 without target-cpu. The command is split on whitespace, not
+# run through a shell, so the paths are spelled out.
+detect = "/opt/homebrew/opt/llvm/bin/clang --version"
+src_filename = "main.c"
+compile = "/opt/homebrew/opt/llvm/bin/clang -O3 -std=c17 -isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk {src} -o {out}"
+run = "{out}"

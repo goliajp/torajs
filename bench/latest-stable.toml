@@ -37,6 +37,10 @@ hint  = "brew upgrade go  (or `asdf install golang latest && asdf global golang 
 floor = "1.95.0"
 hint  = "rustup update stable"
 
+[runners.c]
+floor = "23.1.0"
+hint  = "brew upgrade llvm"
+
 [runners.python]
 floor = "3.13.0"
 hint  = "brew upgrade python@3.13  (or pyenv install -s 3.13.0 && pyenv global 3.13.0)"
