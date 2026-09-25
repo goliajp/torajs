@@ -67,26 +67,36 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// elements are all numbers, all strings, or all object / array
 /// literals stays typed. Booleans have no hole word in the integer /
 /// bool lanes yet, and a mixed literal has no one element type, so
-/// those still widen; so does every accessor target below.
+/// those still widen; so does a binding deleted by a named key
+/// (`delete a.length`) and every accessor target below.
 pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     let mut names: HashSet<String> = HashSet::new();
-    let mut accessor_targets: HashSet<String> = HashSet::new();
+    let mut keep_widening: HashSet<String> = HashSet::new();
     for e in &ast.exprs {
         let Expr::Delete { expr } = e else {
             continue;
         };
-        let recv = match &ast.exprs[expr.0 as usize] {
-            Expr::Index { obj, .. } | Expr::Member { obj, .. } => *obj,
+        // a named key (`delete a.length`, `delete a["x"]`) is not an
+        // element: the typed lanes have no hole for it to leave
+        let (recv, element) = match &ast.exprs[expr.0 as usize] {
+            Expr::Index { obj, index } => (
+                *obj,
+                !matches!(peel_as(&ast.exprs, *index), Expr::String(_)),
+            ),
+            Expr::Member { obj, .. } => (*obj, false),
             _ => continue,
         };
         if let Expr::Ident(n) = &ast.exprs[recv.0 as usize] {
             names.insert(n.clone());
+            if !element {
+                keep_widening.insert(n.clone());
+            }
         }
     }
     for e in &ast.exprs {
         if let Some(n) = accessor_define_target(&ast.exprs, e) {
             names.insert(n.to_string());
-            accessor_targets.insert(n.to_string());
+            keep_widening.insert(n.to_string());
         }
     }
     if names.is_empty() {
@@ -99,7 +109,7 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     // recurse itself.
     let marked = Marked {
         names: &names,
-        accessor_targets: &accessor_targets,
+        keep_widening: &keep_widening,
         claimed: &claimed,
     };
     widen_flat(&mut stmts, &ast.exprs, &marked);
@@ -113,7 +123,9 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
 
 struct Marked<'a> {
     names: &'a HashSet<String>,
-    accessor_targets: &'a HashSet<String>,
+    /// Named-key deletes and accessor targets: widen whatever the
+    /// elements are.
+    keep_widening: &'a HashSet<String>,
     claimed: &'a HashSet<ExprId>,
 }
 
@@ -134,7 +146,7 @@ fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], marked: &Marked<'_>) {
         let Expr::Array(els) = peel_as(exprs, *init) else {
             continue;
         };
-        if marked.accessor_targets.contains(name) || !holes_in_own_slots(exprs, els) {
+        if marked.keep_widening.contains(name) || !holes_in_own_slots(exprs, els) {
             *type_ann = Some("any[]".to_string());
         }
     }
