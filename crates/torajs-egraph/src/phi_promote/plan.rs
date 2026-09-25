@@ -17,7 +17,7 @@ use crate::slot_forward::resolve;
 /// join where the cell is dead would demand a reaching def nobody
 /// reads — and abort whole cells on harmless uninitialized paths
 /// (e.g. an outer-loop header above the slot's first store).
-pub(super) fn compute_live_in(
+pub(crate) fn compute_live_in(
     func: &Function,
     preds: &[Vec<BlockId>],
     (slot, off): (ValueId, u64),

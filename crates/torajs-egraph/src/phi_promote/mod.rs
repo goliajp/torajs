@@ -44,6 +44,7 @@ use crate::rc_peephole::collect_unescaped_slots;
 use crate::slot_cells::overlapping_cells;
 
 use destruct::apply_plans;
+pub(crate) use plan::compute_live_in;
 use plan::{mark_live_phis, plan_cell, trivial_phi_elim};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -153,7 +154,7 @@ fn promote_in_function(func: &mut Function, stats: &mut PhiPromoteStats) {
 }
 
 /// CFG predecessor table (terminator successors reversed).
-fn cfg_preds(func: &Function) -> Vec<Vec<BlockId>> {
+pub(crate) fn cfg_preds(func: &Function) -> Vec<Vec<BlockId>> {
     let n = func.blocks.len();
     let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
     for block in &func.blocks {

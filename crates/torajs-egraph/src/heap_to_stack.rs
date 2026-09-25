@@ -25,11 +25,23 @@
 //!   seams release the expando bag at +24 — admitted only when every
 //!   store into that word is a null constant
 //!
+//! * the field-write guard `check_field_writable(%b, name)`: it reads
+//!   FROZEN / EXOTIC_FIELD, whose only writers take the cell as an
+//!   argument (`obj_freeze`, `obj_flag_exotic_field`), which rejects it
+//!
+//! The same allowlist applies to the candidate's aliases through
+//! unescaped stack slots (`owners`): the inliner's return slot and a
+//! `let` slot carry the cell or null across a join, and a load from
+//! them names the cell. Comparisons fold only on the candidate itself
+//! — an alias may be null.
+//!
 //! The refcount header stays in memory: the inlined rc_dec still
 //! counts it down and runs the field drops, only the final free is
 //! gone. Frame slots are per-instruction, so an allocation inside a
-//! loop reuses one slot — sound because `%b` is never copied, so no
-//! previous iteration's cell is reachable.
+//! loop reuses one slot — sound because every copy of `%b` goes
+//! through a slot the stale-alias check proves dead when the
+//! allocation runs again, so no previous iteration's cell is
+//! reachable.
 //!
 //! Runs after inlining + devirt (which expose the single-function
 //! shape) and before `slot_forward`. `TORAJS_HEAP_TO_STACK_OFF=1`
@@ -42,8 +54,11 @@ use torajs_core::ssa::{FuncId, Function, IPred, InstKind, Module, Operand, Termi
 use crate::rc_peephole::visit_value_operands;
 use crate::slot_forward::{resolve, rewrite_operands};
 
+mod owners;
+
 const OBJ_ALLOC: &str = "__torajs_obj_alloc";
 const OBJ_DROP_SIZED: &str = "__torajs_obj_drop_sized";
+const FIELD_GUARD: &str = "__torajs_obj_check_field_writable";
 /// Seams that only touch runtime state `%b` cannot be in.
 const INERT_SEAMS: &[&str] = &[
     "__torajs_closure_unbuffer_slow",
@@ -71,13 +86,16 @@ pub struct HeapToStackStats {
     pub rejected: u32,
     /// Pointer comparisons folded to constants.
     pub cmps_folded: u32,
-    /// `obj_drop_sized` / seam calls deleted.
+    /// `obj_drop_sized` / seam / field-guard calls deleted.
     pub calls_removed: u32,
+    /// Stack slots that carry a promoted cell (or null) across a join.
+    pub slots_followed: u32,
 }
 
 struct Fids {
     alloc: FuncId,
     drop_sized: Option<FuncId>,
+    guard: Option<FuncId>,
     inert: HashSet<FuncId>,
     props: HashSet<FuncId>,
 }
@@ -97,6 +115,7 @@ pub fn promote_module(module: &mut Module) -> HeapToStackStats {
     let fids = Fids {
         alloc,
         drop_sized: fid(OBJ_DROP_SIZED),
+        guard: fid(FIELD_GUARD),
         inert: INERT_SEAMS.iter().filter_map(|n| fid(n)).collect(),
         props: PROPS_SEAMS.iter().filter_map(|n| fid(n)).collect(),
     };
@@ -124,38 +143,45 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
     if cands.is_empty() {
         return;
     }
-    let mut bad: HashSet<ValueId> = HashSet::new();
+    let owners::Owners {
+        owner,
+        slot_owner,
+        mut bad,
+    } = owners::follow(func, &cands);
+    let own = |op: &Operand| match op {
+        Operand::Value(v) => owner.get(v).copied(),
+        _ => None,
+    };
     let mut props_seam_users: HashSet<ValueId> = HashSet::new();
     let mut props_dirty: HashSet<ValueId> = HashSet::new();
-    let mark = |op: &Operand, bad: &mut HashSet<ValueId>| {
-        if let Operand::Value(v) = op
-            && cands.contains_key(v)
-        {
-            bad.insert(*v);
-        }
-    };
+    let mark = |op: &Operand, bad: &mut HashSet<ValueId>| bad.extend(own(op));
     for block in &func.blocks {
         for inst in &block.insts {
             match &inst.kind {
-                InstKind::Load(_, _, _) => {}
+                InstKind::Load(_, _, _) | InstKind::Identity(_) => {}
                 InstKind::Store(val, ptr, off) => {
-                    mark(val, &mut bad);
-                    if let Operand::Value(b) = ptr
-                        && cands.contains_key(b)
+                    // a store of the cell is admitted only into its own slot
+                    if let Some(c) = own(val)
+                        && !(*off == 0
+                            && matches!(ptr, Operand::Value(s) if slot_owner.get(s) == Some(&c)))
+                    {
+                        bad.insert(c);
+                    }
+                    if let Some(c) = own(ptr)
                         && touches_props(*off)
                         && !(*off == PROPS_OFF && is_null(val))
                     {
-                        props_dirty.insert(*b);
+                        props_dirty.insert(c);
                     }
                 }
                 InstKind::ICmp(IPred::Eq | IPred::Ne, a, c) if a != c => {}
                 InstKind::Call(f, args) => match args.as_slice() {
-                    [Operand::Value(b), Operand::ConstI64(n)]
-                        if Some(*f) == fids.drop_sized && cands.get(b) == Some(n) => {}
+                    [b, Operand::ConstI64(n)]
+                        if Some(*f) == fids.drop_sized
+                            && own(b).and_then(|c| cands.get(&c)) == Some(n) => {}
                     [Operand::Value(_)] if fids.inert.contains(f) => {}
-                    [Operand::Value(b)] if fids.props.contains(f) => {
-                        props_seam_users.insert(*b);
-                    }
+                    [b] if fids.props.contains(f) => props_seam_users.extend(own(b)),
+                    [b, name] if Some(*f) == fids.guard && own(b).is_some() => mark(name, &mut bad),
                     _ => args.iter().for_each(|a| mark(a, &mut bad)),
                 },
                 other => visit_value_operands(other, |v| mark(&Operand::Value(v), &mut bad)),
@@ -173,16 +199,32 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
     if cands.is_empty() {
         return;
     }
-    apply(func, &cands, fids, stats);
+    stats.slots_followed += slot_owner
+        .values()
+        .filter(|c| cands.contains_key(c))
+        .count() as u32;
+    let owner: HashMap<ValueId, ValueId> = owner
+        .into_iter()
+        .filter(|(_, c)| cands.contains_key(c))
+        .collect();
+    apply(func, &cands, &owner, fids, stats);
 }
 
 fn apply(
     func: &mut Function,
     cands: &HashMap<ValueId, i64>,
+    owner: &HashMap<ValueId, ValueId>,
     fids: &Fids,
     stats: &mut HeapToStackStats,
 ) {
+    let own = |op: &Operand| match op {
+        Operand::Value(v) => owner.get(v).copied(),
+        _ => None,
+    };
     let is_cand = |op: &Operand| matches!(op, Operand::Value(v) if cands.contains_key(v));
+    // the candidate itself against anything that does not name it: a
+    // fresh frame cell equals no other pointer; an alias may be null
+    let folds = |a: &Operand, b: &Operand| is_cand(a) && own(b) != own(a);
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
     for block in func.blocks.iter_mut() {
         block.insts.retain_mut(|inst| match &inst.kind {
@@ -195,11 +237,11 @@ fn apply(
                 }
                 true
             }
-            InstKind::Call(_, args) if args.first().is_some_and(is_cand) => {
+            InstKind::Call(_, args) if args.first().is_some_and(|a| own(a).is_some()) => {
                 stats.calls_removed += 1;
                 false
             }
-            InstKind::ICmp(pred, a, b) if is_cand(a) || is_cand(b) => {
+            InstKind::ICmp(pred, a, b) if folds(a, b) || folds(b, a) => {
                 if let Some(r) = inst.result {
                     replace.insert(r, Operand::ConstBool(*pred == IPred::Ne));
                 }
@@ -333,6 +375,89 @@ mod tests {
     fn pointer_handed_to_other_call_stays_on_heap() {
         let tail = vec![void(InstKind::Call(FuncId(4), vec![B]))];
         let mut m = module_with(cell(Operand::ConstPtrNull, tail));
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.rejected), (0, 1));
+    }
+
+    fn function_of(blocks: Vec<Block>, n_values: usize) -> Module {
+        let mut m = module_with(vec![]);
+        m.funcs[5].blocks = blocks;
+        m.funcs[5].values = vec![
+            ValueInfo {
+                ty: Type::Ptr,
+                name: None
+            };
+            n_values
+        ];
+        m
+    }
+
+    #[test]
+    fn a_cell_carried_through_a_slot_promotes() {
+        // the inliner's return slot: the cell goes in, an alias comes
+        // out and is dropped, the slot ends null
+        let slot = Operand::Value(ValueId(3));
+        let alias = Operand::Value(ValueId(4));
+        let body = vec![
+            val(0, InstKind::Call(FuncId(0), vec![Operand::ConstI64(56)])),
+            void(InstKind::Store(Operand::ConstI32(1), B, 0)),
+            val(3, InstKind::Alloca(Type::Ptr)),
+            void(InstKind::Store(Operand::ConstPtrNull, slot, 0)),
+            void(InstKind::Store(B, slot, 0)),
+            val(4, InstKind::Load(Type::Ptr, slot, 0)),
+            void(InstKind::Store(Operand::ConstI64(2), alias, 48)),
+            val(1, InstKind::Load(Type::I64, alias, 48)),
+            val(2, InstKind::ICmp(IPred::Eq, alias, Operand::ConstPtrNull)),
+            void(InstKind::Call(
+                FuncId(1),
+                vec![alias, Operand::ConstI64(56)],
+            )),
+            void(InstKind::Store(Operand::ConstPtrNull, slot, 0)),
+        ];
+        let block = Block {
+            id: BlockId(0),
+            insts: body,
+            term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
+        };
+        let mut m = function_of(vec![block], 5);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.slots_followed), (1, 1));
+        assert_eq!((stats.calls_removed, stats.cmps_folded), (1, 0));
+    }
+
+    #[test]
+    fn a_previous_iterations_alias_keeps_the_heap_cell() {
+        // `let last = null; for (…) { use(last); last = new C() }`
+        let slot = Operand::Value(ValueId(3));
+        let blocks = vec![
+            Block {
+                id: BlockId(0),
+                insts: vec![
+                    val(3, InstKind::Alloca(Type::Ptr)),
+                    void(InstKind::Store(Operand::ConstPtrNull, slot, 0)),
+                ],
+                term: Terminator::Br(BlockId(1)),
+            },
+            Block {
+                id: BlockId(1),
+                insts: vec![
+                    val(4, InstKind::Load(Type::Ptr, slot, 0)),
+                    val(0, InstKind::Call(FuncId(0), vec![Operand::ConstI64(56)])),
+                    void(InstKind::Store(B, slot, 0)),
+                ],
+                term: Terminator::CondBr {
+                    cond: Operand::ConstBool(true),
+                    then_blk: BlockId(1),
+                    else_blk: BlockId(2),
+                },
+            },
+            Block {
+                id: BlockId(2),
+                insts: vec![],
+                term: Terminator::Ret(None),
+            },
+        ];
+        let mut m = function_of(blocks, 5);
         let stats = promote_module(&mut m);
         assert_eq!((stats.promoted, stats.rejected), (0, 1));
     }
