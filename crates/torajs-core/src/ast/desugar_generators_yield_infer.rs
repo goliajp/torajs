@@ -25,7 +25,7 @@
 //! `boolean` / `bigint` would read back as `false` / `0n`.
 
 use super::desugar_generators_walkers::LiftCtx;
-use super::desugar_with::walk::stmt_children_ref;
+use super::desugar_with::walk::{expr_children, stmt_children_ref, stmt_exprs};
 use super::{Ast, BinOp, Expr, ExprId, Stmt, UnaryOp};
 
 /// `number` / `string` when every `yield` in `body` provably yields
@@ -48,8 +48,13 @@ pub(super) fn infer_yield_ty(ast: &Ast, body: &[Stmt], ctx: &LiftCtx) -> Option<
 /// `return` member (with an argument, or taken as a value for `.call`
 /// / `.apply` / a computed `["return"]`) keeps generators on the `any`
 /// lane. By name, over the whole program: whose `return` it is cannot
-/// be told this early.
+/// be told this early. The compiler's own iterator-close helpers read
+/// `__it.return` and call it without a value
+/// ([`super::desugar_generators_forof_helpers::VALUELESS_RETURN_HELPERS`]);
+/// their bodies are not scanned, or every program holding a generator
+/// would decline.
 pub(super) fn return_can_take_a_value(ast: &Ast) -> bool {
+    let audited = audited_helper_exprs(ast);
     let bare_callees: std::collections::HashSet<u32> = ast
         .exprs
         .iter()
@@ -68,8 +73,39 @@ pub(super) fn return_can_take_a_value(ast: &Ast) -> bool {
             }
             _ => false,
         };
-        names_return && !bare_callees.contains(&(i as u32))
+        names_return && !bare_callees.contains(&(i as u32)) && !audited.contains(&(i as u32))
     })
+}
+
+/// Every expression inside the bodies of the audited close helpers.
+fn audited_helper_exprs(ast: &Ast) -> std::collections::HashSet<u32> {
+    fn walk_expr(ast: &Ast, e: ExprId, out: &mut std::collections::HashSet<u32>) {
+        if out.insert(e.0) {
+            for c in expr_children(ast, e) {
+                walk_expr(ast, c, out);
+            }
+        }
+    }
+    fn walk_stmt(ast: &Ast, s: &Stmt, out: &mut std::collections::HashSet<u32>) {
+        for e in stmt_exprs(s) {
+            walk_expr(ast, e, out);
+        }
+        for c in stmt_children_ref(s) {
+            walk_stmt(ast, c, out);
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    for s in &ast.stmts {
+        if let Stmt::FnDecl { name, body, .. } = s
+            && super::desugar_generators_forof_helpers::VALUELESS_RETURN_HELPERS
+                .contains(&name.as_str())
+        {
+            for b in body {
+                walk_stmt(ast, b, &mut out);
+            }
+        }
+    }
+    out
 }
 
 /// Whether `s` keeps `answer` consistent; `false` as soon as one
