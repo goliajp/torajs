@@ -89,23 +89,30 @@ pub(crate) fn oob_undef_value(
 /// `["x", "y"]` made `s[3]` print `null` — so here it takes the same
 /// `undefined` the out-of-range exit answers (§10.1.8.1: no own
 /// element, and no prototype key a typed read would consult).
-/// Scalar elements have no such slot value and emit nothing.
+/// A boolean element's slot holds 0 or 1, so a hole is the word 2
+/// ([`typed_hole_raw`]); its read is already promoted to `any`, which
+/// spells undefined. An f64 hole needs nothing here — the sentinel it
+/// holds IS the element's undefined — and an integer slot has no word
+/// for one: both emit nothing.
 ///
-/// `v` is the element just loaded; on return `cur_block` continues
-/// with it, the hole having stored into `slot` and gone to `merge`.
-pub(crate) fn null_slot_is_hole(
+/// `v` is the slot word just loaded (a boolean element loads as its
+/// raw i64 word); on return `cur_block` continues with it, the hole
+/// having stored into `slot` and gone to `merge`.
+pub(crate) fn hole_slot_is_undefined(
     ctx: &mut LowerCtx<'_>,
     v: ValueId,
     elem_ty: Type,
     slot: ValueId,
     merge: BlockId,
 ) {
-    if !(elem_ty == Type::Str || elem_ty.spells_undef_with_generic_cell()) {
-        return;
-    }
+    let hole_word = match elem_ty {
+        Type::Bool => Operand::ConstI64(BOOL_HOLE_WORD),
+        t if t == Type::Str || t.spells_undef_with_generic_cell() => Operand::ConstPtrNull,
+        _ => return,
+    };
     let hole_blk = ctx.f.add_block();
     let elem_blk = ctx.f.add_block();
-    let is_null = ctx.cmp(IPred::Eq, Operand::Value(v), Operand::ConstPtrNull);
+    let is_null = ctx.cmp(IPred::Eq, Operand::Value(v), hole_word);
     let cur = ctx.cur_block;
     ctx.f.set_term(
         cur,
@@ -193,14 +200,18 @@ pub(crate) fn emit_get_past_length(
 /// f64 element spells it with the undefined sentinel, which the typed
 /// read above already answers as `undefined` (an index read of a
 /// `number[]` is an undefined-f64 source) and which arithmetic turns
-/// into the default NaN, ToNumber(undefined). Every other element type
-/// keeps 0: a NULL pointer slot is read as a hole
-/// ([`null_slot_is_hole`]); an integer or boolean slot has no word for
-/// it yet.
+/// into the default NaN, ToNumber(undefined). A boolean takes the word
+/// 2, and every other element type keeps 0: a NULL pointer slot and a
+/// boolean 2 are read as holes ([`hole_slot_is_undefined`]); an
+/// integer slot has no word for one yet.
 pub(crate) fn typed_hole_raw(elem_ty: Type) -> Operand {
-    if elem_ty == Type::F64 {
-        Operand::ConstI64(F64_UNDEF_SENTINEL_BITS as i64)
-    } else {
-        Operand::ConstI64(0)
+    match elem_ty {
+        Type::F64 => Operand::ConstI64(F64_UNDEF_SENTINEL_BITS as i64),
+        Type::Bool => Operand::ConstI64(BOOL_HOLE_WORD),
+        _ => Operand::ConstI64(0),
     }
 }
+
+/// The word a hole of a boolean element holds — neither 0 nor 1.
+/// torajs-arr `grow_store::BOOL_HOLE_WORD` is its runtime twin.
+const BOOL_HOLE_WORD: i64 = 2;

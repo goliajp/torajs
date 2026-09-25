@@ -142,7 +142,9 @@ pub unsafe extern "C" fn __torajs_anyv_svz_imm_pair(l: AnyValue, rt: i64, rv: i6
     // false, both backwards. The strict entry keeps the raw pair:
     // indexOf's typed scan does not skip holes yet, and there
     // `indexOf(undefined)` must not find one.
-    let r = if rt == 3 && rv as u64 == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+    // A boolean[] hole holds the word 2 — undefined the same way.
+    let r = if (rt == 3 && rv as u64 == torajs_rc::F64_UNDEF_SENTINEL_BITS) || (rt == 1 && rv == 2)
+    {
         VALUE_UNDEFINED
     } else {
         rebuild_imm(rt, rv)

@@ -199,7 +199,7 @@ fn read_elem(
     // the predicate gets the type's own undefined, not a NULL.
     let slot = ctx.alloca_in_entry(elem_ty, Some("__pred_elem"));
     let merge = ctx.f.add_block();
-    crate::ssa_lower_index_undef::null_slot_is_hole(ctx, v, elem_ty, slot, merge);
+    crate::ssa_lower_index_undef::hole_slot_is_undefined(ctx, v, elem_ty, slot, merge);
     let cur = ctx.cur_block;
     ctx.f.append_void(
         cur,

@@ -179,6 +179,8 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
             // (`typed_slot_anyvalue_borrowed`'s arm).
             ARR_KIND_F64 if raw == torajs_rc::F64_UNDEF_SENTINEL_BITS => undef(),
             ARR_KIND_F64 => __torajs_anyv_box_from_pair(3, raw as i64),
+            // A boolean hole's word (neither 0 nor 1).
+            ARR_KIND_BOOL if raw == crate::grow_store::BOOL_HOLE_WORD => undef(),
             ARR_KIND_BOOL => __torajs_anyv_box_from_pair(1, raw as i64),
             ARR_KIND_HEAP => {
                 // A null slot is a hole (e.g. a missed optional

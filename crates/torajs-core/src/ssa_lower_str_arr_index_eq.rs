@@ -231,6 +231,7 @@ pub(crate) fn emit_compare(
                 )
             }
         }
+        Type::Bool => bool_word_eq(ctx, elem, needle),
         _ => ctx.f.append_inst(
             ctx.cur_block,
             InstKind::ICmp(IPred::Eq, Operand::Value(elem), needle),
@@ -238,6 +239,23 @@ pub(crate) fn emit_compare(
             None,
         ),
     }
+}
+
+/// A boolean element compared as its raw word (0, 1, or a hole's 2):
+/// the needle widens to a word, so a hole never matches.
+fn bool_word_eq(ctx: &mut LowerCtx<'_>, elem: ValueId, needle: Operand) -> ValueId {
+    let word = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ZExtBoolToI64(needle),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::ICmp(IPred::Eq, Operand::Value(elem), Operand::Value(word)),
+        Type::Bool,
+        None,
+    )
 }
 
 /// Whether `elem` and `needle` are both, or both not, the F64
@@ -303,15 +321,9 @@ fn emit_compare_any_needle(
             );
             (3, Operand::Value(bits))
         }
-        Type::Bool => {
-            let zext = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::ZExtBoolToI64(Operand::Value(elem)),
-                Type::I64,
-                None,
-            );
-            (1, Operand::Value(zext))
-        }
+        // The raw slot word (the scan loads a boolean element as I64):
+        // a hole's 2 reaches the kernel, which reads it as undefined.
+        Type::Bool => (1, Operand::Value(elem)),
         // Str and every other refcounted elem: the kernel's cell row
         // does byte-equality for Str (ShortStr-box × heap-Str
         // crossings included) and identity otherwise.

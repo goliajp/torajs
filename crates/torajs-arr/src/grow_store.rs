@@ -33,18 +33,22 @@ unsafe extern "C" {
 /// The raw slot word a hole of a typed cell of element kind `kind`
 /// holds: an f64 slot takes the undefined sentinel NaN, which every
 /// typed f64 read already answers as `undefined` and which arithmetic
-/// turns into the default NaN — ToNumber(undefined). Every other kind
+/// turns into the default NaN — ToNumber(undefined); a boolean slot
+/// takes [`BOOL_HOLE_WORD`]. Every other kind
 /// has no such word and keeps 0 (the pointer kinds read a NULL slot as
 /// a hole; the integer kinds cannot spell one yet). The compiler
 /// passes the same word from the element's static type
 /// (`ssa_lower_index_undef::typed_hole_raw`).
 pub(crate) fn typed_hole_raw(kind: u16) -> u64 {
-    if kind == torajs_rc::ARR_KIND_F64 {
-        torajs_rc::F64_UNDEF_SENTINEL_BITS
-    } else {
-        0
+    match kind {
+        torajs_rc::ARR_KIND_F64 => torajs_rc::F64_UNDEF_SENTINEL_BITS,
+        torajs_rc::ARR_KIND_BOOL => BOOL_HOLE_WORD,
+        _ => 0,
     }
 }
+
+/// The word a hole of a boolean element holds — neither 0 nor 1.
+pub(crate) const BOOL_HOLE_WORD: u64 = 2;
 
 /// Grow a typed block to hold a store at index `i >= len`: compact
 /// the deque head, grow the data buffer (2× amortized, matching

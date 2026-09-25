@@ -451,10 +451,17 @@ fn emit_elem_load(
     } else {
         let (off_base, off) =
             ctx.emit_arr_slot_byte_offset(recv_op.clone(), Operand::Value(i_cur), 3, false);
+        // A boolean element is compared as its raw word: a hole holds
+        // 2, which a boolean load would read as `false`.
+        let load_ty = if elem_ty == Type::Bool {
+            Type::I64
+        } else {
+            elem_ty
+        };
         ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::LoadDyn(elem_ty, off_base.clone(), off),
-            elem_ty,
+            InstKind::LoadDyn(load_ty, off_base.clone(), off),
+            load_ty,
             None,
         )
     }

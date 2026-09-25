@@ -3,7 +3,7 @@
 //! verbatim from the pre-split match arms; element / field recursion
 //! goes back through `super::lower`.
 
-use crate::ssa::{ArrId, BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{ArrId, BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 
 /// §25.5.2 null gate shared by both composite arms — a NULL slot
@@ -219,6 +219,54 @@ pub(super) fn concat_close_indent(
     Operand::Value(out)
 }
 
+/// A boolean element's JSON from its raw slot word: a hole (the word 2)
+/// reads as undefined, which §25.5.2.4 step 8.a writes as `null` inside
+/// an array; 0 / 1 serialize as the boolean.
+fn bool_word_json(ctx: &mut LowerCtx, word: ValueId, idx_key: ValueId) -> Operand {
+    let slot = ctx.alloca_in_entry(Type::Str, Some("__json_bool_elem"));
+    let hole_blk = ctx.f.add_block();
+    let val_blk = ctx.f.add_block();
+    let join = ctx.f.add_block();
+    let is_hole = ctx.cmp(IPred::Eq, Operand::Value(word), Operand::ConstI64(2));
+    let cur = ctx.cur_block;
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: is_hole,
+            then_blk: hole_blk,
+            else_blk: val_blk,
+        },
+    );
+    let null = ctx.intern_string_literal("null");
+    ctx.f.append_void(
+        hole_blk,
+        InstKind::Store(Operand::Value(null), Operand::Value(slot), 0),
+    );
+    ctx.f.set_term(hole_blk, Terminator::Br(join));
+    ctx.cur_block = val_blk;
+    let b = ctx.cmp(IPred::Ne, Operand::Value(word), Operand::ConstI64(0));
+    let s = super::lower_keyed(
+        ctx,
+        b,
+        Type::Bool,
+        Some(Operand::Value(idx_key)),
+        None,
+        None,
+        0,
+    );
+    let cur = ctx.cur_block;
+    ctx.f
+        .append_void(cur, InstKind::Store(s, Operand::Value(slot), 0));
+    ctx.f.set_term(cur, Terminator::Br(join));
+    ctx.cur_block = join;
+    Operand::Value(ctx.f.append_inst(
+        join,
+        InstKind::Load(Type::Str, Operand::Value(slot), 0),
+        Type::Str,
+        None,
+    ))
+}
+
 /// The non-null walk body of [`lower_arr`] (verbatim pre-655 arm).
 /// Append the element separator before every element but the first,
 /// leaving `ctx.cur_block` on the join where the element itself is
@@ -337,10 +385,16 @@ fn lower_arr_walk(
     emit_elem_separator(ctx, acc, comma, i_now);
     let (off_base, off) =
         ctx.emit_arr_slot_byte_offset(Operand::Value(arr_ptr), Operand::Value(i_now), 3, false);
+    // A boolean element loads as its raw word — a hole holds 2.
+    let load_ty = if elem_ty == Type::Bool {
+        Type::I64
+    } else {
+        elem_ty
+    };
     let elem = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::LoadDyn(elem_ty, off_base.clone(), off),
-        elem_ty,
+        InstKind::LoadDyn(load_ty, off_base.clone(), off),
+        load_ty,
         None,
     );
     // §25.5.2 step 2.b — an element's key is its index, which this
@@ -356,6 +410,8 @@ fn lower_arr_walk(
     // A Symbol always does, and statically so.
     let elem_str = if matches!(elem_ty, Type::Symbol) {
         Operand::Value(ctx.intern_string_literal("null"))
+    } else if elem_ty == Type::Bool {
+        bool_word_json(ctx, elem, idx_key)
     } else {
         let walked = super::lower_keyed(
             ctx,

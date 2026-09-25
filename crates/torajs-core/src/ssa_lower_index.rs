@@ -390,17 +390,20 @@ pub(crate) fn lower_typed_index_checked(
     ctx.f.set_term(oob_blk, Terminator::Br(merge));
     ctx.cur_block = in_blk;
     let (offset_base, offset) = ctx.emit_arr_slot_byte_offset(arr_val, idx_val, 3, is_non_deque);
+    // A boolean element loads as its raw word: a hole is the word 2,
+    // which the check below has to see before it becomes a boolean.
+    let load_ty = if promote_bool { Type::I64 } else { elem_ty };
     let cur = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur,
-        InstKind::LoadDyn(elem_ty, offset_base, offset),
-        elem_ty,
+        InstKind::LoadDyn(load_ty, offset_base, offset),
+        load_ty,
         None,
     );
-    crate::ssa_lower_index_undef::null_slot_is_hole(ctx, v, elem_ty, slot, merge);
+    crate::ssa_lower_index_undef::hole_slot_is_undefined(ctx, v, elem_ty, slot, merge);
     let stored = if promote_bool {
-        ctx.cur_block = cur;
-        ctx.box_to_any(Operand::Value(v))
+        let b = ctx.cmp(IPred::Ne, Operand::Value(v), Operand::ConstI64(0));
+        ctx.box_to_any(b)
     } else {
         Operand::Value(v)
     };

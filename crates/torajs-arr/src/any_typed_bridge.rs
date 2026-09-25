@@ -321,6 +321,9 @@ pub(crate) unsafe fn typed_slot_anyvalue_borrowed(arr: *const u8, i: u64) -> u64
                 __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
             }
             ARR_KIND_F64 => __torajs_anyv_box_from_pair(3, raw as i64),
+            ARR_KIND_BOOL if raw == crate::grow_store::BOOL_HOLE_WORD => {
+                __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
+            }
             ARR_KIND_BOOL => __torajs_anyv_box_from_pair(1, raw as i64),
             // A NULL heap slot is a hole — undefined per spec, never
             // a boxed null pointer.
