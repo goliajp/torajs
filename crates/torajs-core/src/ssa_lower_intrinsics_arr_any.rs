@@ -63,6 +63,8 @@ pub(crate) struct ArrAnyIds {
     /// `flat()` over a typed source of non-array elements: a copy
     /// without its holes (§23.1.3.13.1 step 3.b HasProperty).
     pub arr_flat_present: FuncId,
+    /// `indexOf(undefined)` over a number[] — present sentinel slots.
+    pub arr_f64_index_of_undef: FuncId,
     pub arr_extend_keep_holes: FuncId,
     pub arr_any_to_reversed: FuncId,
     pub arr_has_index: FuncId,
@@ -152,6 +154,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
         arr_any_slice_keep_holes: decl!("__torajs_arr_any_slice_keep_holes", [Ptr, I64, I64], Ptr),
         arr_slice_keep_holes: decl!("__torajs_arr_slice_keep_holes", [Ptr, I64, I64], Ptr),
         arr_flat_present: decl!("__torajs_arr_flat_present", [Ptr], Ptr),
+        arr_f64_index_of_undef: decl!("__torajs_arr_f64_index_of_undef", [Ptr, I64, I64, I64], I64),
         arr_extend_keep_holes: decl!("__torajs_arr_extend_keep_holes", [Ptr, Ptr], Void),
         // 刀 13b — §23.1.3.33 high→low [[Get]]-order reverse copy
         // (getter side effects observed by later lower-index reads).

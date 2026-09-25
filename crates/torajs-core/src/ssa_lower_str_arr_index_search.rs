@@ -69,6 +69,14 @@ pub(crate) fn try_dispatch(
         if elem_ty == Type::Any && !want_bool {
             return Some(lower_any_index_of(ctx, args, recv_op, want_last));
         }
+        // A needle whose type is only known at run time may be
+        // `undefined`, which a stored undefined matches and a hole must
+        // not: the kernel asks HasProperty and compares by tag. It reads
+        // the typed cell through its element kind.
+        if !want_bool && typed_only_at_run_time(ctx, args[0]) {
+            ctx.emit_arr_mark_kind(&recv_op);
+            return Some(lower_any_index_of(ctx, args, recv_op, want_last));
+        }
         let needle_raw = ctx.lower_expr(args[0]);
         let raw_ty = ctx.operand_ty(&needle_raw);
         // A needle from another comparison family comes back boxed,
@@ -128,6 +136,22 @@ pub(crate) fn try_dispatch(
         let header = ctx.f.add_block();
         let body = ctx.f.add_block();
         let after = ctx.f.add_block();
+        if !want_bool
+            && elem_ty == Type::F64
+            && needle_ty == Type::F64
+            && crate::ssa_lower_undef_f64_source::is_undef_f64_source(ctx, args[0])
+        {
+            let (start, end) = (i_slot, end_slot);
+            split_undefined_needle(
+                ctx,
+                &recv_op,
+                &needle,
+                want_last,
+                (start, end),
+                result_slot,
+                after,
+            );
+        }
         let cb = ctx.cur_block;
         ctx.f.set_term(cb, Terminator::Br(header));
         ctx.cur_block = header;
@@ -163,31 +187,7 @@ pub(crate) fn try_dispatch(
         let eq = crate::ssa_lower_str_arr_index_eq::emit_compare(
             ctx, elem, elem_ty, needle, needle_ty, want_bool, args[0],
         );
-        let found = ctx.f.add_block();
-        let next = ctx.f.add_block();
-        let cb = ctx.cur_block;
-        ctx.f.set_term(
-            cb,
-            Terminator::CondBr {
-                cond: Operand::Value(eq),
-                then_blk: found,
-                else_blk: next,
-            },
-        );
-        ctx.cur_block = found;
-        ctx.f.append_void(
-            ctx.cur_block,
-            InstKind::Store(Operand::Value(i_cur), Operand::Value(result_slot), 0),
-        );
-        let cb = ctx.cur_block;
-        // indexOf / includes break on first match;
-        // lastIndexOf keeps going so the result_slot
-        // ends up holding the highest matching index.
-        if want_last {
-            ctx.f.set_term(cb, Terminator::Br(next));
-        } else {
-            ctx.f.set_term(cb, Terminator::Br(after));
-        }
+        let next = emit_match_step(ctx, eq, i_cur, result_slot, want_last, after);
         ctx.cur_block = next;
         let next_i = ctx.f.append_inst(
             ctx.cur_block,
@@ -229,6 +229,104 @@ pub(crate) fn try_dispatch(
     }
     None
 }
+/// Whether the needle's type is only known at run time.
+fn typed_only_at_run_time(ctx: &LowerCtx, needle: ExprId) -> bool {
+    matches!(
+        ctx.expr_types.get(&needle),
+        Some(crate::check::Type::Any | crate::check::Type::Undefined)
+    )
+}
+
+/// On a match record `i`; indexOf / includes then break to `after`,
+/// lastIndexOf keeps going so the slot ends up holding the highest
+/// matching index. Answers the block the step continues in.
+fn emit_match_step(
+    ctx: &mut LowerCtx,
+    eq: ValueId,
+    i_cur: ValueId,
+    result_slot: ValueId,
+    want_last: bool,
+    after: crate::ssa::BlockId,
+) -> crate::ssa::BlockId {
+    let found = ctx.f.add_block();
+    let next = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: Operand::Value(eq),
+            then_blk: found,
+            else_blk: next,
+        },
+    );
+    ctx.f.append_void(
+        found,
+        InstKind::Store(Operand::Value(i_cur), Operand::Value(result_slot), 0),
+    );
+    ctx.f
+        .set_term(found, Terminator::Br(if want_last { next } else { after }));
+    next
+}
+
+/// A number[] needle that may hold the undefined sentinel: when it
+/// does, the answer is the kernel's (a present index holding the
+/// sentinel — the inline scan would match a hole too, and compares the
+/// sentinel as a NaN); otherwise `cur_block` continues into the inline
+/// scan. One test outside the loop.
+fn split_undefined_needle(
+    ctx: &mut LowerCtx,
+    recv_op: &Operand,
+    needle: &Operand,
+    want_last: bool,
+    (start_slot, end_slot): (ValueId, ValueId),
+    result_slot: ValueId,
+    after: crate::ssa::BlockId,
+) {
+    let is_undef = ctx.f64_is_sentinel(needle.clone());
+    let undef_blk = ctx.f.add_block();
+    let scan_blk = ctx.f.add_block();
+    let cb = ctx.cur_block;
+    ctx.f.set_term(
+        cb,
+        Terminator::CondBr {
+            cond: is_undef,
+            then_blk: undef_blk,
+            else_blk: scan_blk,
+        },
+    );
+    ctx.cur_block = undef_blk;
+    let load = |ctx: &mut LowerCtx, slot: ValueId| {
+        Operand::Value(ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Load(Type::I64, Operand::Value(slot), 0),
+            Type::I64,
+            None,
+        ))
+    };
+    let start = load(ctx, start_slot);
+    let end = load(ctx, end_slot);
+    let r = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(
+            ctx.intrinsics.arr_f64_index_of_undef,
+            vec![
+                recv_op.clone(),
+                start,
+                end,
+                Operand::ConstI64(want_last as i64),
+            ],
+        ),
+        Type::I64,
+        None,
+    );
+    ctx.f.append_void(
+        ctx.cur_block,
+        InstKind::Store(Operand::Value(r), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+    ctx.cur_block = scan_blk;
+}
+
 /// §23.1.3.17/.20 on an `Arr<Any>` receiver — the HasProperty gate
 /// means a hole must not answer a match, so the scan runs in the
 /// runtime kernel rather than the inline loop below.

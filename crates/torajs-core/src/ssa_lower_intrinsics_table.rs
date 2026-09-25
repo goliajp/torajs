@@ -311,6 +311,7 @@ pub(crate) fn build(
         arr_any_slice_keep_holes: init_b.arr_any.arr_any_slice_keep_holes,
         arr_slice_keep_holes: init_b.arr_any.arr_slice_keep_holes,
         arr_flat_present: init_b.arr_any.arr_flat_present,
+        arr_f64_index_of_undef: init_b.arr_any.arr_f64_index_of_undef,
         arr_extend_keep_holes: init_b.arr_any.arr_extend_keep_holes,
         arr_any_to_reversed: init_b.arr_any.arr_any_to_reversed,
         arr_has_index: init_b.arr_any.arr_has_index,

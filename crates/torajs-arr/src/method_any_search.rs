@@ -236,3 +236,42 @@ pub unsafe extern "C" fn __torajs_arr_any_join(arr: *const u8, sep: *const u8) -
         out as u64
     }
 }
+
+/// `indexOf(undefined)` / `lastIndexOf(undefined)` over the slice
+/// `[start, end)` of a number[]: the first (or last) PRESENT index whose
+/// slot holds the undefined sentinel, or -1. A hole holds the same word,
+/// and §23.1.3.17 step 9.a / §23.1.3.20 step 8.a skip it (HasProperty);
+/// the inline scan cannot tell the two apart, and compares the sentinel
+/// as a NaN besides. The lowering calls this only when the needle is
+/// the sentinel at run time.
+///
+/// Recorded boundary: a hole a prototype digit key fills reads that
+/// key's value, which is never looked at here.
+///
+/// # Safety
+/// `arr` is a live typed number[] cell; `0 <= start`, `end <= len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_f64_index_of_undef(
+    arr: *const u8,
+    start: i64,
+    end: i64,
+    want_last: i64,
+) -> i64 {
+    unsafe {
+        let head = *(arr.add(crate::layout::ARR_CAP_OFF + 4) as *const u32) as usize;
+        let slots = crate::layout::arr_data(arr).add(head * 8) as *const u64;
+        let mop = crate::layout::needs_index_mop(arr);
+        let hit = |i: i64| {
+            *slots.add(i as usize) == torajs_rc::F64_UNDEF_SENTINEL_BITS
+                && !(mop
+                    && crate::define::__torajs_arr_index_flags(arr.cast(), i as u64)
+                        & crate::define::F_HOLE
+                        != 0)
+        };
+        if want_last != 0 {
+            (start..end).rev().find(|&i| hit(i)).unwrap_or(-1)
+        } else {
+            (start..end).find(|&i| hit(i)).unwrap_or(-1)
+        }
+    }
+}
