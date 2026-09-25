@@ -210,7 +210,14 @@ pub(crate) fn emit_any_elem_read_split(
         },
     );
     ctx.cur_block = elem_blk;
-    let v = crate::ssa_lower_index_any_key::lower_array_any_index(ctx, arr.clone(), idx);
+    // One call answers the whole (borrowed) box; the share this read
+    // owns is the inc after it.
+    let v = Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Call(ctx.intrinsics.arr_get_any_boxed, vec![arr.clone(), idx]),
+        Type::Any,
+        None,
+    ));
     ctx.f.append_void(
         ctx.cur_block,
         InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![v.clone()]),
