@@ -76,7 +76,7 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if !crate::check_assignable::is_assignable_to(&face, &value_ty) {
+        if face != Type::Any && !crate::check_assignable::is_assignable_to(&face, &value_ty) {
             return Some(Err(format!(
                 "argument 1: expected {face:?}, got {value_ty:?}"
             )));

@@ -169,8 +169,8 @@ pub(crate) fn check(
             }
         }
     };
-    let final_ty = type_fresh_map_init(checker, ast, init, final_ty);
     let final_ty = widen_binding_ty(checker, ast, init, type_ann.is_none(), final_ty);
+    record_fresh_map_ty(checker, ast, init, &final_ty);
     if let SelfRef::Skeleton(provisional) = &self_ref_closure
         && *provisional != final_ty
     {
@@ -231,6 +231,11 @@ pub(crate) fn widen_binding_ty(
     unannotated: bool,
     ty: Type,
 ) -> Type {
+    let ty = if unannotated {
+        map_ty_from_type_args(checker, ast, init, ty)
+    } else {
+        ty
+    };
     // RC-4 F1c — a defineProperty receiver's unannotated ObjectLit
     // binding types as `any`: the define lowering converts the cell
     // to a DynObj and the write-back only rebinds Any-typed slots,
@@ -312,36 +317,34 @@ fn struct_has_undef_field(t: &Type) -> bool {
 }
 
 /// A `new Map()` initializer is the Map its binding declares (TS
-/// contextual typing), and an unannotated `new Map<K, V>()` is the Map
-/// its type arguments spell — `check_map` never sees them. The type is
-/// recorded on the `new` too: lowering reads it there to give a fresh
-/// `Map<K, number>` its typed value lane (`ssa_lower_map_num_lane`).
-fn type_fresh_map_init(checker: &mut Checker, ast: &Ast, init: ExprId, ty: Type) -> Type {
-    let Expr::New {
-        class_name,
-        type_args,
-        ..
-    } = ast.get_expr(init)
-    else {
-        return ty;
-    };
-    if class_name != "Map" {
-        return ty;
+/// contextual typing). The type is recorded on the `new`: lowering
+/// reads it there to give a fresh `Map<K, number>` its typed value
+/// lane (`ssa_lower_map_num_lane`).
+fn record_fresh_map_ty(checker: &mut Checker, ast: &Ast, init: ExprId, ty: &Type) {
+    if matches!(ast.get_expr(init), Expr::New { class_name, .. } if class_name == "Map")
+        && matches!(ty, Type::Map(..))
+    {
+        checker.expr_types.insert(init, ty.clone());
     }
-    let ty = match ty {
-        t if t == Type::map_any() && !type_args.is_empty() => {
+}
+
+/// An unannotated `new Map<K, V>()` is the Map its type arguments
+/// spell — `check_map` never sees them and answers `Map<any, any>`.
+fn map_ty_from_type_args(checker: &Checker, ast: &Ast, init: ExprId, ty: Type) -> Type {
+    match ast.get_expr(init) {
+        Expr::New {
+            class_name,
+            type_args,
+            ..
+        } if class_name == "Map" && !type_args.is_empty() && ty == Type::map_any() => {
             crate::ast_refs::collection_new_ann(ast, init)
                 .and_then(|ann| {
                     resolve_type_ann_full(&ann, &checker.aliases, &[], &checker.generic_alias_decls)
                 })
-                .unwrap_or(t)
+                .unwrap_or(ty)
         }
-        t => t,
-    };
-    if matches!(ty, Type::Map(..)) {
-        checker.expr_types.insert(init, ty.clone());
+        _ => ty,
     }
-    ty
 }
 
 /// Chunk 702 — TS contextual typing for array-literal inits: after the
