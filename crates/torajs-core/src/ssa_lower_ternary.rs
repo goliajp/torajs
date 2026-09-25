@@ -191,6 +191,24 @@ fn widen_branches(
         ctx.expr_types.get(&else_branch),
         Some(crate::check::Type::Null)
     );
+    // A class instance against `null`: the checker joins it to
+    // Nullable(ClassRef), not Any (only Number / Boolean / Struct
+    // widen, check_type_compare), and a nullable class slot holds the
+    // null pointer natively, as `let v: C | null = null` does. Boxing
+    // it here handed an Any to the `C | null` binding, which stored
+    // the box bits: `v === null` never held for the null arm and the
+    // next member read dereferenced the box.
+    if then_null != else_null
+        && matches!(
+            ctx.expr_types.get(&eid),
+            Some(crate::check::Type::Nullable(_))
+        )
+    {
+        let res = if then_null { et } else { tt };
+        if matches!(res, Type::Obj(_)) {
+            return (then_val, else_val, res, false, false);
+        }
+    }
     let scalar_or_struct = |t: &Type| {
         matches!(
             t,
