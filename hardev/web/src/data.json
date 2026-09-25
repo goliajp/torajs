@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-24T22:24:18.068Z",
+  "generatedAt": "2026-09-25T01:25:02.210Z",
   "hardevVersion": "0.1.15",
   "conformance": {
     "pass": 660,
@@ -9,29 +9,29 @@
     "source": "hardev/metrics.md"
   },
   "test262": {
-    "ranAt": "2026-09-24T22:12:37Z",
-    "headSha": "d127ff631",
-    "elapsedSec": 567.96,
+    "ranAt": "2026-09-25T01:13:10Z",
+    "headSha": "7cba1c4df",
+    "elapsedSec": 567.07,
     "workers": 10,
     "limit": null,
     "totalCases": 53174,
     "ran": 53174,
-    "pass": 34904,
+    "pass": 34910,
     "passNoOracle": 1755,
     "passNegative": 4568,
-    "passTotal": 41227,
-    "bug": 8085,
+    "passTotal": 41233,
+    "bug": 8079,
     "incompatible": 3862,
     "bunSkip": 2854,
     "harnessError": 0,
     "inScope": 53174,
     "trAccepted": 49312,
-    "passRateInScope": 77.53,
-    "passRateTrAccepted": 83.6
+    "passRateInScope": 77.54,
+    "passRateTrAccepted": 83.62
   },
   "torajs": {
-    "commit": "66076c120",
-    "commitSubject": "chore(hardev): rotation 703 close stamps",
+    "commit": "83d21ad1d",
+    "commitSubject": "chore(hardev): rotation 704 close stamps",
     "phase": null,
     "phaseTitle": null,
     "conformance": {
@@ -740,73 +740,84 @@
   },
   "commits": [
     {
-      "hash": "66076c120",
-      "subject": "chore(hardev): rotation 703 close stamps"
+      "hash": "83d21ad1d",
+      "subject": "chore(hardev): rotation 704 close stamps"
     },
     {
-      "hash": "d127ff631",
-      "subject": "fix(arr): includes over a number[] reads a hole as undefined"
+      "hash": "7cba1c4df",
+      "subject": "fix(arr): map over a typed source keeps its holes in a typed product"
     },
     {
-      "hash": "3669a1f00",
-      "subject": "fix(width): a container with index or length writes may hold the sentinel"
+      "hash": "40d4acec9",
+      "subject": "fix(arr): a boolean[] hole holds the word 2 and reads as undefined"
     },
     {
-      "hash": "4409f43aa",
-      "subject": "fix(arr): concat over typed arrays keeps their holes"
+      "hash": "90ae0e1d4",
+      "subject": "fix(arr): undefined written into a typed element is that type's undefined"
     },
     {
-      "hash": "287d806bf",
-      "subject": "fix(arr): slice over a typed receiver keeps its holes"
+      "hash": "99cef557d",
+      "subject": "feat(check): delete on an element of a number[] / string[] / object[]"
     },
     {
-      "hash": "6714ca735",
-      "subject": "fix(arr): a number[] prints its undefined sentinel as undefined"
+      "hash": "ec5ab71fe",
+      "subject": "fix(arr): unshift over an any[] with holes moves them"
     },
     {
-      "hash": "f6904d3ba",
-      "subject": "fix(width): concat joins its arguments' class at every call site"
+      "hash": "375c39607",
+      "subject": "fix(arr): indexOf of undefined over a number[] finds a stored one, skips holes"
     },
     {
-      "hash": "4a02a7689",
-      "subject": "refactor(width): namespace-receiver calls get their own effects helper"
+      "hash": "daee8934d",
+      "subject": "fix(arr): flat and flatMap skip holes"
     },
     {
-      "hash": "69cff36c7",
-      "subject": "fix(arr): a hole in a typed f64 array holds the undefined sentinel"
+      "hash": "ff3fb9cea",
+      "subject": "fix(arr): the find family hands a hole to its predicate as undefined"
     },
     {
-      "hash": "cafe5a4bc",
-      "subject": "fix(arr): a typed array prints its holes"
+      "hash": "081a0884d",
+      "subject": "fix(arr): sort over a typed array with holes skips them"
     },
     {
-      "hash": "6970a0570",
-      "subject": "fix(arr): typed-source some / every skip holes"
+      "hash": "c643e1314",
+      "subject": "fix(arr): typed in-place mutators move holes with their slots"
     },
     {
-      "hash": "94f566d60",
-      "subject": "fix(arr): typed-source callback methods skip holes"
+      "hash": "0b88ac58c",
+      "subject": "refactor(arr): move the es2023 toReversed / with kernels to their own file"
     }
   ],
-  "headSha": "66076c120",
+  "headSha": "83d21ad1d",
   "autorun": {
-    "total": 1005,
+    "total": 1006,
     "baselineTarget": 10,
-    "bySelf": 1000,
+    "bySelf": 1001,
     "byManual": 5,
     "byOther": 0,
     "last": {
-      "rotationId": "r-1790250214-028e",
-      "at": "2026-09-24T11:43:34Z",
-      "ts": 1790250214,
+      "rotationId": "r-1790288735-0140",
+      "at": "2026-09-24T22:25:35Z",
+      "ts": 1790288735,
       "trigger": "self",
-      "prevHead": "08490e490",
-      "handoffSha": "sha256:0fc21270c0bd7bc299d3fe111bbd5c4beeca60b8479fde9c7414fc46d406d422",
-      "handoffAgeSec": 15,
-      "conformanceBefore": "4616/0/4",
+      "prevHead": "3cd8a870a",
+      "handoffSha": "sha256:e60396b2b032c769301e9cbbbdc420a1c7750f8cd9a8cddf96a5c2ed34f2da2b",
+      "handoffAgeSec": 5,
+      "conformanceBefore": "4627/0/4",
       "commitsInSession": 15
     },
     "recent": [
+      {
+        "rotationId": "r-1790288735-0140",
+        "at": "2026-09-24T22:25:35Z",
+        "ts": 1790288735,
+        "trigger": "self",
+        "prevHead": "3cd8a870a",
+        "handoffSha": "sha256:e60396b2b032c769301e9cbbbdc420a1c7750f8cd9a8cddf96a5c2ed34f2da2b",
+        "handoffAgeSec": 5,
+        "conformanceBefore": "4627/0/4",
+        "commitsInSession": 15
+      },
       {
         "rotationId": "r-1790250214-028e",
         "at": "2026-09-24T11:43:34Z",
@@ -905,17 +916,6 @@
         "handoffAgeSec": 28,
         "conformanceBefore": "4539/0/4",
         "commitsInSession": 15
-      },
-      {
-        "rotationId": "r-1790122678-7099",
-        "at": "2026-09-23T00:17:58Z",
-        "ts": 1790122678,
-        "trigger": "self",
-        "prevHead": "dbab32e63",
-        "handoffSha": "sha256:2295592f2d4dc0ee7155c77c722eec360bc2b8fa5b21ebbb8f4cd3602e0dcf3f",
-        "handoffAgeSec": 10,
-        "conformanceBefore": "4529/0/4",
-        "commitsInSession": 17
       }
     ],
     "rotationsFile": "hardev/autorun/rotations.jsonl"
