@@ -39,6 +39,8 @@ pub struct BlockLayoutStats {
     pub funcs_relaid: u32,
     /// Blocks nothing could reach, dropped before laying the rest out.
     pub blocks_pruned: u32,
+    /// Latches moved to the bottom of their loop's range.
+    pub latches_sunk: u32,
 }
 
 /// Restore loop-body contiguity in every function body.
@@ -59,9 +61,10 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         // touches the cfg — and the sweep that follows then really can
         // drop them.
         stats.blocks_pruned += thread_empty_forwarders(func);
-        let sunk = layout_function(func);
-        if sunk > 0 {
+        let (sunk, latches) = layout_function(func);
+        if sunk + latches > 0 {
             stats.blocks_sunk += sunk;
+            stats.latches_sunk += latches;
             stats.funcs_relaid += 1;
         }
     }
@@ -115,25 +118,33 @@ fn thread_empty_forwarders(func: &mut Function) -> u32 {
     crate::branch_fold::sweep_unreachable_blocks(func)
 }
 
-fn layout_function(func: &mut Function) -> u32 {
+/// Answers (blocks sunk out of loop ranges, latches moved to a loop's
+/// bottom).
+fn layout_function(func: &mut Function) -> (u32, u32) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     if la.loops().is_empty() {
-        return 0;
+        return (0, 0);
     }
-    // Loop body sets, innermost (smallest) first so nested bodies are
-    // already contiguous units when their parent partitions.
-    let mut bodies: Vec<HashSet<u32>> = la
+    // Loop body sets with their header and back-edge sources,
+    // innermost (smallest) first so nested bodies are already
+    // contiguous units when their parent partitions.
+    let mut loops: Vec<(HashSet<u32>, u32, Vec<u32>)> = la
         .loops()
         .iter()
-        .map(|l| l.body.iter().map(|b| b.0).collect())
+        .map(|l| {
+            let body = l.body.iter().map(|b| b.0).collect();
+            let latches = l.back_edge_sources.iter().map(|b| b.0).collect();
+            (body, l.header.0, latches)
+        })
         .collect();
-    bodies.sort_by_key(|b| b.len());
+    loops.sort_by_key(|(b, _, _)| b.len());
 
     // Work over original ids; positions recompute after each rewrite.
     let mut order: Vec<u32> = func.blocks.iter().map(|b| b.id.0).collect();
     let mut sunk = 0u32;
-    for body in &bodies {
+    let mut latches_sunk = 0u32;
+    for (body, header, latches) in &loops {
         let positions: Vec<usize> = order
             .iter()
             .enumerate()
@@ -143,19 +154,21 @@ fn layout_function(func: &mut Function) -> u32 {
         let (Some(&lo), Some(&hi)) = (positions.first(), positions.last()) else {
             continue;
         };
-        if hi - lo + 1 == body.len() {
-            continue; // already contiguous
+        if hi - lo + 1 != body.len() {
+            // Partition [lo..=hi]: body blocks first, interlopers
+            // after, both keeping their relative order.
+            let slice: Vec<u32> = order[lo..=hi].to_vec();
+            let (members, cold): (Vec<u32>, Vec<u32>) =
+                slice.into_iter().partition(|id| body.contains(id));
+            sunk += cold.len() as u32;
+            order.splice(lo..=hi, members.into_iter().chain(cold));
         }
-        // Partition [lo..=hi]: body blocks first, interlopers after,
-        // both keeping their relative order.
-        let slice: Vec<u32> = order[lo..=hi].to_vec();
-        let (members, cold): (Vec<u32>, Vec<u32>) =
-            slice.into_iter().partition(|id| body.contains(id));
-        sunk += cold.len() as u32;
-        order.splice(lo..=hi, members.into_iter().chain(cold));
+        if sink_latch(func, &mut order, lo, lo + body.len() - 1, *header, latches) {
+            latches_sunk += 1;
+        }
     }
-    if sunk == 0 {
-        return 0;
+    if sunk + latches_sunk == 0 {
+        return (0, 0);
     }
 
     // Rebuild func.blocks in the new order, renumbering ids and
@@ -181,7 +194,40 @@ fn layout_function(func: &mut Function) -> u32 {
         }
         func.blocks.push(block);
     }
-    sunk
+    (sunk, latches_sunk)
+}
+
+/// Move a loop's only latch to the bottom of its (now contiguous)
+/// range `[lo..=hi]`. A `for` loop's step block is created right after
+/// its header, so it sat between the header and the body: the header
+/// branched over it into the body, the body branched back to it, and
+/// it branched to the header — three taken branches an iteration where
+/// the bottom-latch order has one (generic-id-1m 14.0 ms against
+/// 12.6 ms for the same loop written as a `while`). Only a latch that
+/// ends in a bare `br header` moves; any other shape is left alone.
+fn sink_latch(
+    func: &Function,
+    order: &mut Vec<u32>,
+    lo: usize,
+    hi: usize,
+    header: u32,
+    latches: &[u32],
+) -> bool {
+    let [latch] = latches else {
+        return false;
+    };
+    if *latch == header || order[hi] == *latch {
+        return false;
+    }
+    if !matches!(func.blocks[*latch as usize].term, Terminator::Br(t) if t.0 == header) {
+        return false;
+    }
+    let Some(pos) = order[lo..=hi].iter().position(|id| id == latch) else {
+        return false;
+    };
+    let id = order.remove(lo + pos);
+    order.insert(hi, id);
+    true
 }
 
 #[cfg(test)]
@@ -247,8 +293,9 @@ mod tests {
             ],
             current_origin: None,
         };
-        let sunk = layout_function(&mut f);
+        let (sunk, latches) = layout_function(&mut f);
         assert_eq!(sunk, 1);
+        assert_eq!(latches, 0, "the latch already sits at the bottom");
         // new order: b0, hdr, body, latch, exit — ids renumbered to
         // positions, header's else edge follows the exit block.
         for (i, b) in f.blocks.iter().enumerate() {
@@ -307,10 +354,84 @@ mod tests {
             ],
             current_origin: None,
         };
-        assert_eq!(layout_function(&mut f), 0);
+        assert_eq!(layout_function(&mut f), (0, 0));
         for (i, b) in f.blocks.iter().enumerate() {
             assert_eq!(b.id.0 as usize, i);
         }
+    }
+
+    /// The `for` shape: the step block (the latch) is created right
+    /// after the header, ahead of the body. It must move to the loop's
+    /// bottom so the header falls into the body.
+    ///
+    ///   b0 → b1(hdr: cond ? b3 : b4) ; b2(step) → b1 ; b3(body) → b2 ; b4: ret
+    #[test]
+    fn for_loop_step_block_sinks_below_body() {
+        let mut f = Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None
+                };
+                2
+            ],
+            blocks: vec![
+                block(0, vec![], Terminator::Br(BlockId(1))),
+                block(
+                    1,
+                    vec![inst(
+                        1,
+                        InstKind::ICmp(
+                            IPred::Slt,
+                            Operand::Value(ValueId(0)),
+                            Operand::ConstI64(9),
+                        ),
+                    )],
+                    Terminator::CondBr {
+                        cond: Operand::Value(ValueId(1)),
+                        then_blk: BlockId(3),
+                        else_blk: BlockId(4),
+                    },
+                ),
+                block(
+                    2,
+                    vec![inst(
+                        0,
+                        InstKind::BinOp(
+                            BinOp::Add,
+                            Operand::Value(ValueId(0)),
+                            Operand::ConstI64(1),
+                        ),
+                    )],
+                    Terminator::Br(BlockId(1)),
+                ),
+                block(3, vec![], Terminator::Br(BlockId(2))),
+                block(4, vec![], Terminator::Ret(None)),
+            ],
+            current_origin: None,
+        };
+        assert_eq!(layout_function(&mut f), (0, 1));
+        // new order: b0, hdr, body, step, exit
+        let Terminator::CondBr {
+            then_blk, else_blk, ..
+        } = f.blocks[1].term
+        else {
+            panic!("header keeps its CondBr");
+        };
+        assert_eq!(then_blk, BlockId(2), "body right after header");
+        assert_eq!(else_blk, BlockId(4));
+        assert!(
+            matches!(f.blocks[2].term, Terminator::Br(BlockId(3))),
+            "body falls into step"
+        );
+        assert!(
+            matches!(f.blocks[3].term, Terminator::Br(BlockId(1))),
+            "step closes the loop"
+        );
+        assert!(matches!(f.blocks[4].term, Terminator::Ret(None)));
     }
 
     fn void_fn(blocks: Vec<Block>) -> Function {
