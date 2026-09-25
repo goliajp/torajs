@@ -81,6 +81,20 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
         }
         return cloned;
     }
+    // A hole is not an own property (§10.4.2), so it has no value to
+    // coerce: it carries over as the target kind's hole word (the F64
+    // sentinel, the boolean 2, a NULL pointer) plus the shadow mark.
+    // The integer kind has no hole word yet and still refuses one.
+    let may_hole = unsafe { crate::layout::needs_index_mop(arr as *const u8) };
+    let is_hole = |k: u64| {
+        may_hole
+            && unsafe {
+                crate::define_index_flags::__torajs_arr_index_flags(arr as *const c_void, k)
+            } & crate::define::F_HOLE
+                != 0
+    };
+    let hole_word =
+        (want != torajs_rc::ARR_KIND_I64).then(|| crate::grow_store::typed_hole_raw(want));
     // Pass 1 — validate every slot coerces BEFORE any allocation,
     // so the throw path leaves nothing half-built. No `unbox_value`
     // here (rotation 546 form): a ShortStr reports tag Heap and
@@ -89,6 +103,9 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
     // is a non-null pointer) or a ShortStr (materializable in pass 2),
     // and `coerce_raw_scalar` answers None for every HEAP tag anyway.
     for k in 0..len {
+        if hole_word.is_some() && is_hole(k) {
+            continue;
+        }
         let av = unsafe { *slot_anyvalue_ptr(arr, k) };
         let tag = unsafe { __torajs_anyv_unbox_tag(av) };
         let ok = if want == ARR_KIND_HEAP {
@@ -113,6 +130,12 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
         (*dh).flags |= want << ARR_ELEM_KIND_SHIFT;
     }
     for k in 0..len {
+        if let Some(word) = hole_word
+            && is_hole(k)
+        {
+            unsafe { *(arr_data(dst).add((k as usize) * 8) as *mut u64) = word };
+            continue;
+        }
         let av = unsafe { *slot_anyvalue_ptr(arr, k) };
         let raw = if want == ARR_KIND_HEAP {
             if torajs_rc::ffi::nan_box_is_cell_like(av as *mut c_void) {
@@ -133,6 +156,9 @@ pub unsafe extern "C" fn __torajs_arr_any_to_typed(arr: *mut u8, kind: i64) -> *
             coerce_raw_scalar(want, tag as u64, val as u64).unwrap()
         };
         unsafe { *(arr_data(dst).add((k as usize) * 8) as *mut u64) = raw };
+    }
+    if may_hole {
+        unsafe { crate::define_hole::copy_hole_marks(arr, 0, dst, 0, len) };
     }
     dst
 }
