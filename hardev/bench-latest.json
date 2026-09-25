@@ -1,23 +1,37 @@
 {
   "tool": "bench",
-  "ranAt": "2026-09-24T08:59:20Z",
-  "headSha": "b99c98bf9",
+  "ranAt": "2026-09-25T04:02:10Z",
+  "headSha": "66a68619b",
   "headShaSource": "env",
   "verdict": "ok",
-  "source": "bench/results/2026-09-24-mini-79d324b-dirty.json",
-  "benchRanAt": "2026-09-24T08:54:37Z",
+  "source": "bench/results/2026-09-25-mini-66a6861-r3.json",
+  "benchRanAt": "2026-09-25T03:57:20Z",
   "host": "mini",
+  "sources": [
+    "bench/results/2026-09-25-mini-66a6861-r1.json",
+    "bench/results/2026-09-25-mini-66a6861-r2.json",
+    "bench/results/2026-09-25-mini-66a6861-r3.json"
+  ],
   "runs": 3,
+  "files": 3,
+  "fileMedians": [
+    0.4726,
+    0.4744,
+    0.4745
+  ],
   "lowConfidence": false,
+  "targetMet": false,
   "cells": 46,
-  "medianVsBunAot": 0.4373,
+  "medianVsBunAot": 0.4726,
   "cellsSlowerThanBunAot": 0,
-  "bestVsBunAot": 0.0467,
-  "worstVsBunAot": 0.9082,
+  "bestVsBunAot": 0.0441,
+  "worstVsBunAot": 0.8899,
   "target": 0.33,
-  "shortfallX": 1.325,
+  "shortfallX": 1.432,
   "bunStamped": "1.4.2",
-  "medianVsRust": 1.0076,
-  "geomeanSpeedupVsBunAot": 2.6096,
-  "artifactRatioVsBunAot": 0.00083
+  "medianVsRustSameProgram": 0.9932,
+  "rustSameProgramCells": 13,
+  "medianVsRust": 1.0113,
+  "geomeanSpeedupVsBunAot": 2.5497,
+  "artifactRatioVsBunAot": 0.001625
 }
