@@ -39,7 +39,14 @@ use core::ffi::c_void;
 /// Returns NULL on OOM. `size == 0` returns a non-null sentinel
 /// (matches glibc behavior; sub-crate code paths rely on never
 /// getting NULL for non-error sizes).
+///
+/// Out of line on purpose. With the slow paths split off, the body is
+/// small enough that fat LTO spread it into every allocating runtime
+/// function; one string-scan routine grew from 110 to 741
+/// instructions and str-replace-100k lost 5%, while one shared copy
+/// keeps the small frame and the class-method gain.
 #[unsafe(no_mangle)]
+#[inline(never)]
 pub unsafe extern "C" fn __torajs_malloc(size: usize) -> *mut c_void {
     crate::core::alloc_sized(size) as *mut c_void
 }
