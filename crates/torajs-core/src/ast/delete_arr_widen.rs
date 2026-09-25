@@ -59,48 +59,86 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// Names standing as the receiver of a `delete <name>[k]` /
 /// `delete <name>.p`, then every unannotated `LetDecl` of such a name
 /// whose init is an array literal rewritten to `: any[]`.
+///
+/// Since the typed delete landed (r704, `99cef557d`) a `number[]` and
+/// a `string[]` keep a hole in their own slots (the F64 sentinel, the
+/// Str sentinel), every reader answers it as undefined — the callback
+/// loops through `hof_len_shrink`'s hole names, for-of through the
+/// sentinel element table — so a delete alone no longer needs the
+/// boxed lane for them: a literal whose elements are all numbers or
+/// all strings stays typed. Still widened: booleans (no hole word in
+/// the integer / bool lanes yet), a mixed literal (no one element
+/// type), object / array cells (a pointer loop variable cannot tell a
+/// hole from null), a binding deleted by a named key (`delete
+/// a.length`), every accessor target below, and every literal of a
+/// program that writes an index onto `Array.prototype` /
+/// `Object.prototype` (a typed hole reads its slot, not the key that
+/// fills it from the prototype).
 pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     let mut names: HashSet<String> = HashSet::new();
+    let mut keep_widening: HashSet<String> = HashSet::new();
     for e in &ast.exprs {
         let Expr::Delete { expr } = e else {
             continue;
         };
-        let recv = match &ast.exprs[expr.0 as usize] {
-            Expr::Index { obj, .. } | Expr::Member { obj, .. } => *obj,
+        // a named key (`delete a.length`, `delete a["x"]`) is not an
+        // element: the typed lanes have no hole for it to leave
+        let (recv, element) = match &ast.exprs[expr.0 as usize] {
+            Expr::Index { obj, index } => (
+                *obj,
+                !matches!(peel_as(&ast.exprs, *index), Expr::String(_)),
+            ),
+            Expr::Member { obj, .. } => (*obj, false),
             _ => continue,
         };
         if let Expr::Ident(n) = &ast.exprs[recv.0 as usize] {
             names.insert(n.clone());
+            if !element {
+                keep_widening.insert(n.clone());
+            }
         }
     }
     for e in &ast.exprs {
         if let Some(n) = accessor_define_target(&ast.exprs, e) {
             names.insert(n.to_string());
+            keep_widening.insert(n.to_string());
         }
     }
     if names.is_empty() {
         return;
     }
+    let widen_all = ast.exprs.iter().any(|e| proto_index_write(&ast.exprs, e));
     let claimed = crate::let_widen::collect_cross_type_widen_inits(ast);
     let mut stmts = std::mem::take(&mut ast.stmts);
     // The mutable spine is FULLY recursive (each nested list handed to
     // the callback exactly once), so the per-list body must not
     // recurse itself.
-    widen_flat(&mut stmts, &ast.exprs, &names, &claimed);
+    let marked = Marked {
+        widen_all,
+        names: &names,
+        keep_widening: &keep_widening,
+        claimed: &claimed,
+    };
+    widen_flat(&mut stmts, &ast.exprs, &marked);
     for s in stmts.iter_mut() {
         super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |inner| {
-            widen_flat(inner, &ast.exprs, &names, &claimed)
+            widen_flat(inner, &ast.exprs, &marked)
         });
     }
     ast.stmts = stmts;
 }
 
-fn widen_flat(
-    stmts: &mut [Stmt],
-    exprs: &[Expr],
-    names: &HashSet<String>,
-    claimed: &HashSet<ExprId>,
-) {
+struct Marked<'a> {
+    /// The program writes an index onto a builtin prototype.
+    widen_all: bool,
+    names: &'a HashSet<String>,
+    /// Named-key deletes and accessor targets: widen whatever the
+    /// elements are.
+    keep_widening: &'a HashSet<String>,
+    claimed: &'a HashSet<ExprId>,
+}
+
+fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], marked: &Marked<'_>) {
     for s in stmts.iter_mut() {
         let Stmt::LetDecl {
             name,
@@ -111,12 +149,63 @@ fn widen_flat(
         else {
             continue;
         };
-        if type_ann.is_some() || !names.contains(name) || claimed.contains(init) {
+        if type_ann.is_some() || !marked.names.contains(name) || marked.claimed.contains(init) {
             continue;
         }
-        if matches!(peel_as(exprs, *init), Expr::Array(_)) {
+        let Expr::Array(els) = peel_as(exprs, *init) else {
+            continue;
+        };
+        if marked.widen_all
+            || marked.keep_widening.contains(name)
+            || !holes_in_own_slots(exprs, els)
+        {
             *type_ann = Some("any[]".to_string());
         }
+    }
+}
+
+/// The literal's elements share one kind whose typed array keeps a
+/// hole in its own slots: all numbers or all strings.
+fn holes_in_own_slots(exprs: &[Expr], els: &[ExprId]) -> bool {
+    #[derive(PartialEq)]
+    enum Kind {
+        Number,
+        Str,
+    }
+    let kind = |e: ExprId| match peel_as(exprs, e) {
+        Expr::Number(_) => Some(Kind::Number),
+        Expr::Unary {
+            op: super::UnaryOp::Neg,
+            expr,
+        } if matches!(exprs[expr.0 as usize], Expr::Number(_)) => Some(Kind::Number),
+        Expr::String(_) => Some(Kind::Str),
+        _ => None,
+    };
+    let Some(first) = els.first().and_then(|e| kind(*e)) else {
+        return false;
+    };
+    els.iter().all(|e| kind(*e).as_ref() == Some(&first))
+}
+
+/// `Array.prototype[k] = v`, or a define on `Array.prototype` /
+/// `Object.prototype`: an own-less index of any array may now read
+/// through to it.
+fn proto_index_write(exprs: &[Expr], e: &Expr) -> bool {
+    let is_proto = |t: ExprId| {
+        matches!(peel_as(exprs, t), Expr::Member { obj, name } if name == "prototype"
+            && matches!(&exprs[obj.0 as usize], Expr::Ident(ns) if ns == "Array" || ns == "Object"))
+    };
+    match e {
+        Expr::Assign { target, .. } => {
+            matches!(&exprs[target.0 as usize], Expr::Index { obj, .. } if is_proto(*obj))
+        }
+        Expr::Call { callee, args } => {
+            matches!(&exprs[callee.0 as usize], Expr::Member { obj, name }
+                if matches!(name.as_str(), "defineProperty" | "defineProperties")
+                    && matches!(&exprs[obj.0 as usize], Expr::Ident(ns) if ns == "Object" || ns == "Reflect"))
+                && args.first().is_some_and(|a| is_proto(*a))
+        }
+        _ => false,
     }
 }
 
