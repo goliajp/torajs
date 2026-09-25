@@ -33,6 +33,7 @@ pub mod fconst_hoist;
 pub mod float_demote;
 pub mod frem_int;
 pub mod frem_narrow;
+pub mod heap_to_stack;
 pub mod iconst_hoist;
 pub mod inliner;
 pub mod interval;
@@ -53,6 +54,7 @@ pub mod scope_map;
 pub mod select_form;
 pub mod self_tail_call;
 pub mod sext_elide;
+pub mod slot_cells;
 pub mod slot_forward;
 pub mod srem_parity;
 pub mod str_append;
@@ -236,6 +238,17 @@ fn inline_and_forward(module: &mut Module) {
     // cleared, slots possibly DSE'd), before the egraph pass.
     // `TORAJS_MEM2REG_OFF=1` skips (bisect gate).
     gated_pass("MEM2REG", module, mem2reg::promote_slots);
+    // Heap-to-stack — a header cell whose every use now sits in this
+    // function becomes an alloca. After the slot passes above (the
+    // cell pointer often reaches its uses through an inlined local's
+    // spill slot), then those passes again to forward its fields.
+    // `TORAJS_HEAP_TO_STACK_OFF=1` skips (bisect gate).
+    if gated_pass("HEAP_TO_STACK", module, heap_to_stack::promote_module)
+        .is_some_and(|s| s.promoted > 0)
+    {
+        gated_pass("SLOTFWD", module, slot_forward::forward_slot_loads);
+        gated_pass("MEM2REG", module, mem2reg::promote_slots);
+    }
 }
 
 pub fn transform_module(mut module: Module) -> Module {

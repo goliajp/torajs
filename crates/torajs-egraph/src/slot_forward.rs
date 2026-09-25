@@ -39,6 +39,7 @@ use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Terminator, ValueId};
 
 use crate::rc_peephole::collect_unescaped_slots;
+use crate::slot_cells::overlapping_cells;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct SlotForwardStats {
@@ -83,6 +84,7 @@ fn forward_in_function(func: &mut Function, stats: &mut SlotForwardStats) {
     if slots.is_empty() {
         return;
     }
+    let shared = overlapping_cells(func, &slots);
     // pass 1 — plan: walk each block tracking the last stored value
     // per (slot, off); a later in-block load of the same key forwards.
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
@@ -93,7 +95,9 @@ fn forward_in_function(func: &mut Function, stats: &mut SlotForwardStats) {
                 InstKind::Store(val, Operand::Value(s), off) if slots.contains(s) => {
                     cur.insert((*s, *off), resolve(val, &replace));
                 }
-                InstKind::Load(_, Operand::Value(s), off) if slots.contains(s) => {
+                InstKind::Load(_, Operand::Value(s), off)
+                    if slots.contains(s) && !shared.contains(&(*s, *off)) =>
+                {
                     if let (Some(v), Some(r)) = (cur.get(&(*s, *off)), inst.result) {
                         replace.insert(r, *v);
                     }

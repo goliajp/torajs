@@ -41,6 +41,7 @@ use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator,
 
 use crate::dominator::DominatorTree;
 use crate::rc_peephole::collect_unescaped_slots;
+use crate::slot_cells::overlapping_cells;
 
 use destruct::apply_plans;
 use plan::{mark_live_phis, plan_cell, trivial_phi_elim};
@@ -121,7 +122,12 @@ fn promote_in_function(func: &mut Function, stats: &mut PhiPromoteStats) {
         }
     }
     // deterministic cell order (HashMap iteration order is not).
-    let mut cell_keys: Vec<(ValueId, u64)> = cells.keys().copied().collect();
+    let shared = overlapping_cells(func, &slots);
+    let mut cell_keys: Vec<(ValueId, u64)> = cells
+        .keys()
+        .copied()
+        .filter(|k| !shared.contains(k))
+        .collect();
     cell_keys.sort_by_key(|(v, o)| (v.0, *o));
 
     let mut plans: Vec<CellPlan> = Vec::new();

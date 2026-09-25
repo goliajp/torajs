@@ -39,6 +39,7 @@ use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator,
 
 use crate::dominator::DominatorTree;
 use crate::rc_peephole::collect_unescaped_slots;
+use crate::slot_cells::overlapping_cells;
 use crate::slot_forward::{resolve, rewrite_operands};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -105,9 +106,10 @@ fn promote_in_function(func: &mut Function, stats: &mut Mem2RegStats) {
     // pass 2 — plan: a cell with all stores in one block B_s forwards
     // every load strictly dominated by B_s to the block's last store.
     let domtree = DominatorTree::compute(func);
+    let shared = overlapping_cells(func, &slots);
     let mut replace: HashMap<ValueId, Operand> = HashMap::new();
-    for facts in cells.values() {
-        if facts.store_blocks.len() != 1 {
+    for (key, facts) in &cells {
+        if facts.store_blocks.len() != 1 || shared.contains(key) {
             continue; // zero stores (undef read) or φ shape — leave alone
         }
         let store_blk = *facts.store_blocks.iter().next().unwrap();
