@@ -40,6 +40,19 @@ impl LowerCtx<'_> {
             self.release_owned_temp(value, &v);
             return (cast, true);
         }
+        // `undefined` stored into a typed element: the element type's
+        // own spelling of it (the F64 sentinel, a pointer type's undefined
+        // cell). The literal lowers to a NULL the F64 lane stored as 0 —
+        // `(xs as any)[1] = undefined` read back `0`.
+        if matches!(
+            self.expr_types.get(&value),
+            Some(crate::check::Type::Undefined)
+        ) && (elem_ty == Type::F64 || crate::ssa_lower_index_undef::has_undef_spelling(elem_ty))
+        {
+            let cur = self.cur_block;
+            let (undef, _) = crate::ssa_lower_index_undef::oob_undef_value(self, cur, elem_ty);
+            return (undef, true);
+        }
         match (elem_ty, self.operand_ty(&v)) {
             (Type::F64, Type::I64) => (self.coerce_to_f64(v), transfers),
             (Type::I64, Type::F64) => panic!(
