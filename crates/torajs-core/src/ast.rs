@@ -132,6 +132,7 @@ mod desugar_generators_sm_try;
 mod desugar_generators_tdz;
 mod desugar_generators_tdz_flag;
 mod desugar_generators_walkers;
+mod desugar_generators_yield_infer;
 mod desugar_generators_yieldstar;
 mod desugar_generators_yieldstar_ast;
 mod desugar_objlit_super;

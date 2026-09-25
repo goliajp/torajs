@@ -28,7 +28,7 @@ pub(super) fn assemble_generator_class_and_factory(
     idx: usize,
     gen_name: String,
     gen_params: Vec<Param>,
-    yield_ty: &str,
+    sent_ty: &str,
     class_name: String,
     lifted_locals: &[(String, String)],
     ctor_body_base: Vec<Stmt>,
@@ -66,7 +66,7 @@ pub(super) fn assemble_generator_class_and_factory(
         (
             "__sent".into(),
             if reads_sent {
-                crate::ast::desugar_generators_methods::sent_slot_ann(yield_ty)
+                crate::ast::desugar_generators_methods::sent_slot_ann(sent_ty)
             } else {
                 "number".into()
             },

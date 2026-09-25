@@ -22,8 +22,10 @@
 //!    generator param or lifted local rewrites to `this.<name>` so
 //!    the iterator class's field path picks it up.
 //!
-//! Returns `(prepared_body, lifted_locals)` so the caller can pass
-//! both into the class-assembly step.
+//! Returns `(prepared_body, lifted_locals, yield_ty)` so the caller
+//! can pass them into the class-assembly step; `yield_ty` is the
+//! declared one, or what the lifted body settles
+//! (`desugar_generators_yield_infer`), or `any`.
 
 use super::desugar_generators_walkers::LiftCtx;
 use super::desugar_generators_walkers::lift_lets_in_list;
@@ -34,9 +36,9 @@ pub(super) fn prep_generator_body(
     mut gen_body: Vec<Stmt>,
     gen_name: &str,
     gen_params: &[Param],
-    yield_ty: &str,
+    gen_ret: Option<&str>,
     fn_sigs: &std::collections::HashMap<String, String>,
-) -> (Vec<Stmt>, Vec<(String, String)>) {
+) -> (Vec<Stmt>, Vec<(String, String)>, String) {
     // F1 (RFC 20260728-gen-forof-yieldstar) — pass 0: rewrite every
     // yield-bearing `for…of` into the manual iterator protocol
     // BEFORE the lift, so the iterator / step bindings it mints
@@ -49,7 +51,7 @@ pub(super) fn prep_generator_body(
     // `this.__sent` reference picks up whatever was passed to
     // `g.next(arg)` on the resume.
     for s in &mut gen_body {
-        expand_yield_into_in_stmt(ast, s, yield_ty);
+        expand_yield_into_in_stmt(ast, s, &sent_ty(gen_ret));
     }
     // RFC 20260915 item 2 — the temporal dead zone of every `let` /
     // `const` this body is about to lift, settled while the statement
@@ -115,6 +117,20 @@ pub(super) fn prep_generator_body(
     // An inline loop variable spelled like a lifted field would read
     // the field after the rewrite below — rename it first.
     super::desugar_generators_alpha::resolve_inline_loop_vars(ast, &mut gen_body, &lifted_locals);
+    // Every name a `yield` can read is a field now, typed in `binds`,
+    // and still spelled bare — the one point the body can say what it
+    // yields (`desugar_generators_yield_infer`).
+    let yield_ty = match gen_ret {
+        Some(t) => t.to_string(),
+        None if is_async_gen
+            || ast.async_sm_fns.contains(gen_name)
+            || super::desugar_generators_yield_infer::return_can_take_a_value(ast) =>
+        {
+            "any".into()
+        }
+        None => super::desugar_generators_yield_infer::infer_yield_ty(ast, &gen_body, &lift_ctx)
+            .unwrap_or_else(|| "any".into()),
+    };
     // Names to rewrite to `this.<name>`: generator params + lifted
     // locals. Both share the same identifier-shadowing semantics
     // for our MVP (no shadowing).
@@ -136,7 +152,15 @@ pub(super) fn prep_generator_body(
     super::desugar_generators_rewrite::rewrite_params_to_this(ast, &gen_body, &all_names);
     insert_class_bridges(ast, &mut gen_body, &lift_ctx.local_classes);
 
-    (gen_body, lifted_locals)
+    (gen_body, lifted_locals, yield_ty)
+}
+
+/// The type `next(x)` hands a `yield` expression back: the declared
+/// yield type (the parser keeps `Generator<T, ..>`'s `T`), or `any`
+/// for an undeclared generator whatever it yields — TypeScript types
+/// that value `unknown`, so any `next` argument is legal.
+pub(super) fn sent_ty(gen_ret: Option<&str>) -> String {
+    gen_ret.unwrap_or("any").to_string()
 }
 
 /// After the rewrite: right after every generator-local ClassDecl,
