@@ -59,44 +59,23 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// Names standing as the receiver of a `delete <name>[k]` /
 /// `delete <name>.p`, then every unannotated `LetDecl` of such a name
 /// whose init is an array literal rewritten to `: any[]`.
-///
-/// Since the typed delete landed (r704, `99cef557d`) a `number[]`, a
-/// `string[]` and an array of object or array cells keep a hole in
-/// their own slots (the F64 sentinel, the null reference), so a delete
-/// alone no longer needs the boxed lane for them: a literal whose
-/// elements are all numbers, all strings, or all object / array
-/// literals stays typed. Booleans have no hole word in the integer /
-/// bool lanes yet, and a mixed literal has no one element type, so
-/// those still widen; so does a binding deleted by a named key
-/// (`delete a.length`) and every accessor target below.
 pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     let mut names: HashSet<String> = HashSet::new();
-    let mut keep_widening: HashSet<String> = HashSet::new();
     for e in &ast.exprs {
         let Expr::Delete { expr } = e else {
             continue;
         };
-        // a named key (`delete a.length`, `delete a["x"]`) is not an
-        // element: the typed lanes have no hole for it to leave
-        let (recv, element) = match &ast.exprs[expr.0 as usize] {
-            Expr::Index { obj, index } => (
-                *obj,
-                !matches!(peel_as(&ast.exprs, *index), Expr::String(_)),
-            ),
-            Expr::Member { obj, .. } => (*obj, false),
+        let recv = match &ast.exprs[expr.0 as usize] {
+            Expr::Index { obj, .. } | Expr::Member { obj, .. } => *obj,
             _ => continue,
         };
         if let Expr::Ident(n) = &ast.exprs[recv.0 as usize] {
             names.insert(n.clone());
-            if !element {
-                keep_widening.insert(n.clone());
-            }
         }
     }
     for e in &ast.exprs {
         if let Some(n) = accessor_define_target(&ast.exprs, e) {
             names.insert(n.to_string());
-            keep_widening.insert(n.to_string());
         }
     }
     if names.is_empty() {
@@ -107,29 +86,21 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     // The mutable spine is FULLY recursive (each nested list handed to
     // the callback exactly once), so the per-list body must not
     // recurse itself.
-    let marked = Marked {
-        names: &names,
-        keep_widening: &keep_widening,
-        claimed: &claimed,
-    };
-    widen_flat(&mut stmts, &ast.exprs, &marked);
+    widen_flat(&mut stmts, &ast.exprs, &names, &claimed);
     for s in stmts.iter_mut() {
         super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |inner| {
-            widen_flat(inner, &ast.exprs, &marked)
+            widen_flat(inner, &ast.exprs, &names, &claimed)
         });
     }
     ast.stmts = stmts;
 }
 
-struct Marked<'a> {
-    names: &'a HashSet<String>,
-    /// Named-key deletes and accessor targets: widen whatever the
-    /// elements are.
-    keep_widening: &'a HashSet<String>,
-    claimed: &'a HashSet<ExprId>,
-}
-
-fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], marked: &Marked<'_>) {
+fn widen_flat(
+    stmts: &mut [Stmt],
+    exprs: &[Expr],
+    names: &HashSet<String>,
+    claimed: &HashSet<ExprId>,
+) {
     for s in stmts.iter_mut() {
         let Stmt::LetDecl {
             name,
@@ -140,42 +111,13 @@ fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], marked: &Marked<'_>) {
         else {
             continue;
         };
-        if type_ann.is_some() || !marked.names.contains(name) || marked.claimed.contains(init) {
+        if type_ann.is_some() || !names.contains(name) || claimed.contains(init) {
             continue;
         }
-        let Expr::Array(els) = peel_as(exprs, *init) else {
-            continue;
-        };
-        if marked.keep_widening.contains(name) || !holes_in_own_slots(exprs, els) {
+        if matches!(peel_as(exprs, *init), Expr::Array(_)) {
             *type_ann = Some("any[]".to_string());
         }
     }
-}
-
-/// The literal's elements share one kind whose typed array keeps a
-/// hole in its own slots: all numbers, all strings, or all object /
-/// array cells.
-fn holes_in_own_slots(exprs: &[Expr], els: &[ExprId]) -> bool {
-    #[derive(PartialEq)]
-    enum Kind {
-        Number,
-        Str,
-        Cell,
-    }
-    let kind = |e: ExprId| match peel_as(exprs, e) {
-        Expr::Number(_) => Some(Kind::Number),
-        Expr::Unary {
-            op: super::UnaryOp::Neg,
-            expr,
-        } if matches!(exprs[expr.0 as usize], Expr::Number(_)) => Some(Kind::Number),
-        Expr::String(_) => Some(Kind::Str),
-        Expr::ObjectLit { .. } | Expr::Array(_) => Some(Kind::Cell),
-        _ => None,
-    };
-    let Some(first) = els.first().and_then(|e| kind(*e)) else {
-        return false;
-    };
-    els.iter().all(|e| kind(*e).as_ref() == Some(&first))
 }
 
 /// TS casts are static assertions — look at the value underneath.
