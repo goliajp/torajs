@@ -38,9 +38,11 @@ const SET: &str = "__torajs_map_set_str";
 
 /// Calls that read Maps or build / take apart value pairs, and never
 /// write a Map or run user code.
-const TRANSPARENT: [&str; 7] = [
+const TRANSPARENT: [&str; 9] = [
     "__torajs_map_find_str",
     "__torajs_map_entry_get",
+    "__torajs_map_entry_get_f64",
+    "__torajs_map_get_f64",
     "__torajs_map_size",
     "__torajs_anyv_box_from_pair",
     "__torajs_anyv_unbox_tag",

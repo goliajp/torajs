@@ -63,19 +63,30 @@ pub(crate) fn try_match(
         }
         return Some(Ok(Type::Set));
     }
-    if matches!(src_ty, Type::Map(..)) && m_name == "set" && args.len() >= 3 {
+    if let Type::Map(_, v) = &src_ty
+        && m_name == "set"
+        && args.len() >= 3
+    {
         if let Err(e) = checker.type_of(ast, args[0]) {
             return Some(Err(e));
         }
-        if let Err(e) = checker.type_of(ast, args[1]) {
-            return Some(Err(e));
+        // the two-argument arm's value face, trailing arguments or not
+        let face = crate::check_type_of_member_setmap::map_value_face(v);
+        let value_ty = match checker.type_of(ast, args[1]) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        };
+        if !crate::check_assignable::is_assignable_to(&face, &value_ty) {
+            return Some(Err(format!(
+                "argument 1: expected {face:?}, got {value_ty:?}"
+            )));
         }
         for &arg in &args[2..] {
             if let Err(e) = checker.type_of(ast, arg) {
                 return Some(Err(e));
             }
         }
-        return Some(Ok(Type::map_any()));
+        return Some(Ok(src_ty.clone()));
     }
     None
 }

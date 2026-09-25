@@ -32,6 +32,10 @@ impl<'a> Analysis<'a> {
     /// `box: any[]` seeds the element point (values stored INTO the
     /// box escape; the box itself is already Arr<Any> by annotation).
     pub(super) fn seed_any_face(&mut self, key: &SlotKey, ann: &str) {
+        if map_value_escapes(ann) {
+            self.any_seeds.push(key.clone());
+            return;
+        }
         let Some((base, depth)) = named_ref(ann) else {
             return;
         };
@@ -43,6 +47,21 @@ impl<'a> Analysis<'a> {
             k = SlotKey::Elem(Box::new(k));
         }
         self.any_seeds.push(k);
+    }
+}
+
+/// A `Map` annotation whose value face is not `number` (`Map<K, any>`,
+/// a union, a type parameter): a `Map<K, number>` handed to it may be
+/// written any value there, so the typed value lane
+/// (`ssa_lower_map_num_lane`) must not claim the Map.
+fn map_value_escapes(ann: &str) -> bool {
+    let t = crate::check_type_ann::strip_nullable(ann.trim());
+    let Some(args) = t.strip_prefix("Map<").and_then(|r| r.strip_suffix('>')) else {
+        return false;
+    };
+    match crate::check_type_ann::split_top_pipe(args).as_slice() {
+        [_, v] => v.trim() != "number",
+        _ => true,
     }
 }
 

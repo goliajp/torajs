@@ -139,6 +139,12 @@ pub unsafe extern "C" fn __torajs_map_set_str(
     }
     if hint >= 0 && unsafe { hint_holds(p as *const Map, hint, s) } {
         let m = p as *mut Map;
+        if !unsafe { crate::value_lane::admits_value(m, value_tag as u8) } {
+            if value_tag as u8 == ANY_HEAP && value_payload != 0 {
+                unsafe { __torajs_value_drop_heap(value_payload as *mut c_void) };
+            }
+            return;
+        }
         unsafe {
             let e = (*m).entries.add(hint as usize);
             let (old_t, old_p) = crate::key_decode::stored_pair((*e).value_anyv);

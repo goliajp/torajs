@@ -124,8 +124,11 @@ fn is_assignable_to_deep(
     // `Map<K, V>` component-wise, same shape (the shallow layer's arm
     // says why it is covariant).
     if let (Type::Map(tk, tv), Type::Map(fk, fv)) = (&to_r, &from_r) {
-        return is_assignable_to_deep(tk, fk, class_structs, aliases, generic_aliases, seen)
-            && is_assignable_to_deep(tv, fv, class_structs, aliases, generic_aliases, seen);
+        let mut fits = |t: &Type, f: &Type| {
+            *t == Type::Any
+                || is_assignable_to_deep(t, f, class_structs, aliases, generic_aliases, seen)
+        };
+        return fits(tk, fk) && fits(tv, fv);
     }
     if let (Type::Struct(to_fields), Type::Struct(from_fields)) = (&to_r, &from_r)
         && from_fields.len() >= to_fields.len()
@@ -227,9 +230,12 @@ pub(crate) fn is_assignable_to(to: &Type, from: &Type) -> bool {
     }
     // `Map<K, V>` / its iterators, component-wise like the arms above
     // (TS checks Map's methods bivariantly, so a `Map<string, number>`
-    // slot takes a bare `new Map()` — `Map<any, any>` — and back).
+    // slot takes a bare `new Map()` — `Map<any, any>` — and back; an
+    // `any` component takes every component, `Map<string, any>` a
+    // `Map<string, number>`).
     if let (Type::Map(tk, tv), Type::Map(fk, fv)) = (to, from) {
-        return is_assignable_to(tk, fk) && is_assignable_to(tv, fv);
+        let fits = |t: &Type, f: &Type| *t == Type::Any || is_assignable_to(t, f);
+        return fits(tk, fk) && fits(tv, fv);
     }
     if let (Type::MapIter(t), Type::MapIter(f)) = (to, from) {
         return is_assignable_to(t, f);

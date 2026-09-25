@@ -80,6 +80,11 @@ pub const BIGINT_LEN_OFF: usize = 12;
 /// (no leading zero limbs; `len == 0` implies `sign == 0`).
 pub const BIGINT_WORDS_OFF: usize = 16;
 
+/// Header flag of a Map created for a `Map<K, number>` binding: its
+/// values stay numbers or undefined (`crate::value_lane`). Mirror of
+/// `torajs_rc::FLAG_MAP_VALUES_NUMBER` (bit 10, Map-private).
+pub const FLAG_MAP_VALUES_NUMBER: u16 = 1 << 10;
+
 /// Initial `entries[]` capacity at create.
 pub const MAP_ENTRIES_INITIAL: u32 = 8;
 

@@ -71,13 +71,16 @@ pub(crate) fn try_match(
         return Some(Ok(Type::Boolean));
     }
     // Map.get accepts >= 2 (key + trail).
-    if matches!(src_ty, Type::Map(..)) && m_name == "get" && args.len() >= 2 {
+    if let Type::Map(_, v) = &src_ty
+        && m_name == "get"
+        && args.len() >= 2
+    {
         for &arg in args.iter() {
             if let Err(e) = checker.type_of(ast, arg) {
                 return Some(Err(e));
             }
         }
-        return Some(Ok(Type::Any));
+        return Some(Ok(crate::check_type_of_member_setmap::map_value_face(v)));
     }
     // (Set|Map).clear accept >= 1 (trail only).
     if matches!(src_ty, Type::Set | Type::Map(..)) && m_name == "clear" && !args.is_empty() {

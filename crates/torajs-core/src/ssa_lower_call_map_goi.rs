@@ -44,6 +44,9 @@ pub(crate) fn emit_map_get_or_insert(
     // the default and releases its own, this is the lower's copy).
     ctx.release_owned_temp(args[0], &k_raw);
     ctx.release_owned_temp(args[1], &d_raw);
+    // a Map<K, number> refuses a default of another kind (collections
+    // `value_lane`); the refusal answers undefined with nothing owned
+    ctx.emit_throw_check(None);
     let tag_v = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I64, Operand::Value(tag_slot), 0),

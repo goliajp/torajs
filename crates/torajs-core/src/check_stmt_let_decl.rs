@@ -169,6 +169,7 @@ pub(crate) fn check(
             }
         }
     };
+    let final_ty = type_fresh_map_init(checker, ast, init, final_ty);
     let final_ty = widen_binding_ty(checker, ast, init, type_ann.is_none(), final_ty);
     if let SelfRef::Skeleton(provisional) = &self_ref_closure
         && *provisional != final_ty
@@ -308,6 +309,39 @@ fn is_builtin_mv_init(checker: &mut Checker, ast: &Ast, init: ExprId) -> bool {
 /// is left untouched until a probe motivates it.
 fn struct_has_undef_field(t: &Type) -> bool {
     matches!(t, Type::Struct(fs) if fs.iter().any(|(_, ft)| matches!(ft, Type::Undefined)))
+}
+
+/// A `new Map()` initializer is the Map its binding declares (TS
+/// contextual typing), and an unannotated `new Map<K, V>()` is the Map
+/// its type arguments spell — `check_map` never sees them. The type is
+/// recorded on the `new` too: lowering reads it there to give a fresh
+/// `Map<K, number>` its typed value lane (`ssa_lower_map_num_lane`).
+fn type_fresh_map_init(checker: &mut Checker, ast: &Ast, init: ExprId, ty: Type) -> Type {
+    let Expr::New {
+        class_name,
+        type_args,
+        ..
+    } = ast.get_expr(init)
+    else {
+        return ty;
+    };
+    if class_name != "Map" {
+        return ty;
+    }
+    let ty = match ty {
+        t if t == Type::map_any() && !type_args.is_empty() => {
+            crate::ast_refs::collection_new_ann(ast, init)
+                .and_then(|ann| {
+                    resolve_type_ann_full(&ann, &checker.aliases, &[], &checker.generic_alias_decls)
+                })
+                .unwrap_or(t)
+        }
+        t => t,
+    };
+    if matches!(ty, Type::Map(..)) {
+        checker.expr_types.insert(init, ty.clone());
+    }
+    ty
 }
 
 /// Chunk 702 — TS contextual typing for array-literal inits: after the

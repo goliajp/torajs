@@ -68,7 +68,11 @@ pub(crate) fn try_lower(
     // before).
     let recv_tok = ctx.park_owned_temp(obj, &recv_op);
     crate::ssa_lower_nullable_guard::emit_undefable_heap_guard(ctx, obj, &recv_op);
-    let out = dispatch_map_method(ctx, m_name.as_str(), recv_op, args);
+    let out = if m_name == "get" && crate::ssa_lower_map_num_lane::is_lane_receiver(ctx, obj) {
+        crate::ssa_lower_map_num_lane::emit_get(ctx, recv_op, args)
+    } else {
+        dispatch_map_method(ctx, m_name.as_str(), recv_op, args)
+    };
     // RFC 20260705 chunk 548 — a Call-shaped receiver (chained
     // `m.set(a).set(b)`) is an owned temp; `set` answers the
     // receiver with its own +1, so the inner ref is released here.
@@ -183,6 +187,11 @@ fn emit_map_set(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     }
     if let (Some(&a), Some(raw)) = (args.get(1), v_raw.as_ref()) {
         ctx.release_owned_temp(a, raw);
+    }
+    // A Map<K, number> refuses a value of another kind with a TypeError
+    // (collections `value_lane`); a number never is one.
+    if v_raw.is_some_and(|raw| !matches!(ctx.operand_ty(&raw), Type::I64 | Type::F64)) {
+        ctx.emit_throw_check(None);
     }
     ctx.emit_rc_inc(recv_op);
     recv_op
@@ -328,7 +337,7 @@ fn lower_map_key(ctx: &mut LowerCtx<'_>, key: ExprId) -> MapKey {
 /// `__torajs_map_find_str` (-1 on a miss) for a string key, else the
 /// lowered pair. Trailing arguments are evaluated and dropped; the
 /// string key's owned temp is settled here.
-fn emit_find_index(
+pub(crate) fn emit_find_index(
     ctx: &mut LowerCtx<'_>,
     recv_op: Operand,
     args: &[ExprId],

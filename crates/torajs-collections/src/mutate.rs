@@ -50,6 +50,15 @@ pub unsafe extern "C" fn __torajs_map_set(
     let vt = value_tag as u8;
     let mut kp = key_payload as u64;
     let vp = value_payload as u64;
+    if !unsafe { crate::value_lane::admits_value(m, vt) } {
+        // both stakes were handed over; the refused write keeps neither
+        for (t, v) in [(kt, kp), (vt, vp)] {
+            if t == ANY_HEAP && v != 0 {
+                unsafe { __torajs_value_drop_heap(v as *mut c_void) };
+            }
+        }
+        return;
+    }
 
     // Spec §24.1.3.9 / §24.2.4.1: if key is -0, set key to +0 before
     // storing (iteration must observe +0, not -0).
@@ -188,6 +197,17 @@ pub unsafe extern "C" fn __torajs_map_get_or_insert(
         }
         release(key_tag, kp as i64);
         release(default_tag, default_payload);
+        return;
+    }
+    // A refused default keeps no stake and answers nothing; the
+    // pending TypeError is what the caller sees.
+    if !unsafe { crate::value_lane::admits_value(m, default_tag as u8) } {
+        release(key_tag, kp as i64);
+        release(default_tag, default_payload);
+        unsafe {
+            *out_tag = 5;
+            *out_payload = 0;
+        }
         return;
     }
     // Miss — insert the default (both stakes transfer), then answer

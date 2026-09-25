@@ -139,8 +139,8 @@ fn collect_sentinel_fields(a: &Analysis<'_>, t: &SentinelTables) -> HashSet<Prop
 
 /// True when this expression is one of the shapes that answers the
 /// `undefined` sentinel rather than an ordinary value: a read past the
-/// end of an array, a `find` / `findLast` / `at` miss, or a `pop` /
-/// `shift` on an empty one.
+/// end of an array, a `find` / `findLast` / `at` miss, a `pop` /
+/// `shift` on an empty one, or a `Map<K, number>` `get` miss.
 ///
 /// Receiver-type-agnostic on purpose — the shape alone is the gate, and
 /// being on a table only costs one predictable compare at the consumer.
@@ -173,7 +173,10 @@ pub(super) fn is_sentinel_source(
         // printed NaN.
         Expr::Call { callee, .. } => match a.ast.get_expr(*callee) {
             Expr::Member { name, .. } => {
-                matches!(name.as_str(), "find" | "findLast" | "at" | "pop" | "shift")
+                matches!(
+                    name.as_str(),
+                    "find" | "findLast" | "at" | "pop" | "shift" | "get"
+                )
             }
             Expr::Ident(f) => t.fns.contains(f),
             _ => false,

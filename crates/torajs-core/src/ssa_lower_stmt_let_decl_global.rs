@@ -166,6 +166,7 @@ pub(crate) fn try_lower_global_let(
     // kind-aware Arr<Any> readers (621 let-decl general-path mirror;
     // self-gating no-op for non-array / Arr<Any> values).
     ctx.emit_arr_mark_kind(&coerced);
+    crate::ssa_lower_map_num_lane::mark_global(ctx, name, coerced);
     let ptr = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::GlobalRef(name.to_string()),

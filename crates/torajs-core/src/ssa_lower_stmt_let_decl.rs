@@ -217,6 +217,7 @@ pub(crate) fn lower(
             None,
         );
     }
+    let num_map = crate::ssa_lower_map_num_lane::mark_fresh(ctx, name, init, mutable, &init_val);
     finalize_and_bind(
         ctx,
         name,
@@ -233,6 +234,9 @@ pub(crate) fn lower(
         boxed_any,
         cur_depth,
     );
+    if num_map {
+        crate::ssa_lower_map_num_lane::register(ctx, name);
+    }
 }
 
 /// Post-init-val finalization + slot bind: F64/I64 coerce → box-to-any

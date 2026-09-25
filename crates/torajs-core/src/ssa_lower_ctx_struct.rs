@@ -430,6 +430,9 @@ pub(crate) struct LowerCtx<'a> {
     /// source. Member reads / typeof / strict-eq / box consumers on
     /// these bindings take the undef-cell-aware lanes.
     pub(crate) undefable_heap_lets: std::collections::HashSet<String>,
+    /// Slots of the `Map<K, number>` bindings that marked a fresh Map
+    /// (`ssa_lower_map_num_lane`); `get` through them reads an f64.
+    pub(crate) num_map_slots: std::collections::HashSet<ValueId>,
     /// 11-A2-a — set of binding names whose backing storage was
     /// allocated on the stack (`AllocaBytes`) instead of the heap.
     /// `emit_drops_for_owned_locals` and sibling drop emitters skip

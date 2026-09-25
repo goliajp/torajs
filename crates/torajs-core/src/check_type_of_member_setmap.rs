@@ -17,6 +17,16 @@
 
 use crate::check::Type;
 
+/// What `get` answers and `set` takes for a `Map<K, V>`: `number` has
+/// a typed lane of its own (torajs-collections `value_lane`); every
+/// other V still reads as the tagged Any it is stored as.
+pub(crate) fn map_value_face(v: &Type) -> Type {
+    match v {
+        Type::Number => Type::Number,
+        _ => Type::Any,
+    }
+}
+
 pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String>> {
     let ty = match (obj_ty, name) {
         /* P6.1 / P6.2 — Map.prototype.size / Set.prototype.size.
@@ -40,11 +50,14 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * observing behaviour is unchanged — the value is
          * a tagged Any either way. has / delete return
          * Boolean. clear returns Void. */
-        // `set` answers its receiver (§24.1.3.9 step 6), payload and all
-        (Type::Map(..), "set") => {
-            Type::Function(vec![Type::Any, Type::Any], Box::new(obj_ty.clone()))
+        // `set` answers its receiver (§24.1.3.9 step 6), payload and all;
+        // its value parameter is the value face (TS lib `set(key: K,
+        // value: V)`), so a `Map<K, number>` refuses a non-number write
+        // the way tsc does
+        (Type::Map(_, v), "set") => {
+            Type::Function(vec![Type::Any, map_value_face(v)], Box::new(obj_ty.clone()))
         }
-        (Type::Map(..), "get") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        (Type::Map(_, v), "get") => Type::Function(vec![Type::Any], Box::new(map_value_face(v))),
         // Stage-3 upsert (RFC 20260721 刀 6) — answers the present
         // value or the freshly inserted default.
         (Type::Map(..), "getOrInsert") => {

@@ -440,8 +440,10 @@ impl<'a> Analysis<'a> {
 ///   one, and the last numeric shape that had nowhere to put the
 ///   answer: the all-integral form answered the slot's zero where the
 ///   same array holding one fraction already answered `undefined`.
+/// - `get` on a `Map<K, number>` miss (§24.1.3.6 step 5) — the typed
+///   value lane (`ssa_lower_map_num_lane`) reads the value as an f64.
 fn answers_undef_sentinel(name: &str) -> bool {
-    matches!(name, "find" | "findLast" | "at" | "pop" | "shift")
+    matches!(name, "find" | "findLast" | "at" | "pop" | "shift" | "get")
 }
 
 /// True when an annotation names a number or a nesting of arrays of

@@ -74,16 +74,21 @@ pub(crate) fn is_undef_f64_source(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
         {
             true
         }
-        Expr::Call { callee, .. } => {
-            matches!(
-                ctx.ast.get_expr(*callee),
-                Expr::Member { obj, name } if matches!(name.as_str(), "at" | "find" | "findLast" | "pop" | "shift")
-                    && matches!(
-                        ctx.expr_types.get(obj),
-                        Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
-                    )
-            )
-        }
+        Expr::Call { callee, .. } => match ctx.ast.get_expr(*callee) {
+            Expr::Member { obj, name }
+                if matches!(name.as_str(), "at" | "find" | "findLast" | "pop" | "shift") =>
+            {
+                matches!(
+                    ctx.expr_types.get(obj),
+                    Some(crate::check::Type::Array(elem)) if **elem == crate::check::Type::Number
+                )
+            }
+            // a `Map<K, number>` miss (`ssa_lower_map_num_lane`)
+            Expr::Member { obj, name } if name == "get" => {
+                crate::ssa_lower_map_num_lane::is_lane_receiver(ctx, *obj)
+            }
+            _ => false,
+        },
         // A field read. Unlike the pointer-shaped families a `number`
         // field has no type-level tell — it is seeded with 0 — so the
         // question is whether some write put a sentinel-shaped value
