@@ -9,7 +9,8 @@
 //! literal that learns it needed the any lane halfway through has
 //! already stored box bits into a typed slot.
 
-use crate::ast::{Expr, ExprId};
+use crate::ast::{BinOp, Expr, ExprId};
+use crate::ssa::Type;
 use crate::ssa_lower::LowerCtx;
 
 /// True when the literal `eid` with `element_ids` needs the any lane.
@@ -168,7 +169,45 @@ fn elems_need_any(ctx: &LowerCtx<'_>, element_ids: &[ExprId]) -> bool {
     {
         return true;
     }
+    // An element the checker types `string` can still lower to Any:
+    // `x + x` over a `string | undefined` the lowering's sentinel
+    // analysis knows about (a callback parameter over a `string[]`
+    // that may hold the undefined sentinel) goes through the any
+    // lane's kernel, because `undefined + undefined` is NaN, and a
+    // binding initialized from it holds the box. The typed lane then
+    // stored the box into a Str slot — a TypeError at the `string[]`
+    // boundary for `[x + x]`, a segfault reading `["s", x + x]`.
+    if element_ids.iter().any(|id| lowers_to_unseen_any(ctx, *id)) {
+        return true;
+    }
     false
+}
+
+/// An element whose checker type is not Any but whose lowered value
+/// is: a binding the lowering holds as Any, or `l + r` that the binop
+/// lowering sends to the any lane for a nullable string side
+/// ([`nullable_str_add_rides_any`]), asked from the operands' checker
+/// types and the same sentinel predicate the lowering reads.
+fn lowers_to_unseen_any(ctx: &LowerCtx<'_>, eid: ExprId) -> bool {
+    let (left, right) = match ctx.ast.get_expr(eid) {
+        Expr::Ident(n) => {
+            return ctx.locals.get(n).is_some_and(|l| l.ty == Type::Any)
+                || ctx.globals.get(n) == Some(&Type::Any);
+        }
+        Expr::BinOp {
+            op: BinOp::Add,
+            left,
+            right,
+        } => (*left, *right),
+        _ => return false,
+    };
+    let side = |id: ExprId| {
+        (
+            crate::ssa_lower_nullable_guard::is_nullable_str_source(ctx, id),
+            matches!(ctx.expr_types.get(&id), Some(crate::check::Type::String)),
+        )
+    };
+    nullable_str_add_rides_any(side(left), side(right))
 }
 
 /// §13.15.3 with a `string | undefined` on one side and anything but
