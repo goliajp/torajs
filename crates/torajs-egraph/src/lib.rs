@@ -56,6 +56,7 @@ pub mod sext_elide;
 pub mod slot_forward;
 pub mod srem_parity;
 pub mod str_append;
+pub mod throw_check_fold;
 
 use std::collections::{HashMap, HashSet};
 
@@ -328,6 +329,16 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
+    // Pending-exception probes already known to read 0 — the flag
+    // only moves inside a call, so a probe after a passed probe with
+    // no call between answers "continue". After branch_fold (it removes
+    // the out-of-range arms whose calls would otherwise sit between).
+    // `TORAJS_THROW_CHECK_FOLD_OFF=1` skips (bisect gate).
+    gated_pass(
+        "THROW_CHECK_FOLD",
+        &mut module,
+        throw_check_fold::fold_throw_checks,
+    );
     // Integral-f64 print narrowing — `print_f64(sitofp w)` with `w`
     // provably inside ±2^53 prints the same digits through
     // `print_i64(w)`; the demoted accumulator's exit bridge is the
