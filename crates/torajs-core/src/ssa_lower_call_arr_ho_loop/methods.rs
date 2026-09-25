@@ -340,19 +340,38 @@ pub(super) fn emit_reduce(
 /// product or a corrupt slot. Recorded boundary; it lifts the day a
 /// typed product can express absence, which is the day the typed
 /// `delete` does.
+/// The element type of a `map` product that can hold a hole: a boxed
+/// one, or a typed one whose slots have a hole word (F64's sentinel, a
+/// boolean 2, a NULL pointer). An integer product cannot say absent.
+pub(super) fn map_product_holes(ctx: &LowerCtx<'_>, dst_arr_ty: Type) -> Option<Type> {
+    let Type::Arr(id) = dst_arr_ty else {
+        return None;
+    };
+    let elem = ctx.arr_layouts[id.0 as usize];
+    (matches!(elem, Type::Any | Type::F64 | Type::Bool)
+        || crate::ssa_lower_index_undef::has_undef_spelling(elem))
+    .then_some(elem)
+}
+
 pub(super) fn emit_map_hole_block(
     ctx: &mut LowerCtx<'_>,
     dst_slot: Option<ValueId>,
     dst_arr_ty: Type,
     step_blk: BlockId,
 ) -> Option<BlockId> {
-    if !matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Any) {
+    let Some(elem_ty) = map_product_holes(ctx, dst_arr_ty) else {
         return None;
-    }
+    };
     let hole_blk = ctx.f.add_block();
     let saved = ctx.cur_block;
     ctx.cur_block = hole_blk;
-    let undef = Operand::Value(emit_undef_any_box(ctx));
+    // A boxed product takes the undefined box; a typed one its element
+    // type's hole word, which `arr_mark_last_hole` leaves in place.
+    let undef = if elem_ty == Type::Any {
+        Operand::Value(emit_undef_any_box(ctx))
+    } else {
+        crate::ssa_lower_index_undef::typed_hole_raw(elem_ty)
+    };
     let cur_dst = ctx.f.append_inst(
         hole_blk,
         InstKind::Load(

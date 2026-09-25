@@ -159,8 +159,7 @@ pub(crate) fn begin_loop(
         // and marking a hole goes through `arr_mark_last_hole`, which
         // reads the cell's length — the very word this shape leaves
         // stale until the exit. Same predicate as that block's own gate.
-        let dst_can_hole = method == "map"
-            && matches!(dst_arr_ty, Type::Arr(id) if ctx.arr_layouts[id.0 as usize] == Type::Any);
+        let dst_can_hole = method == "map" && methods::map_product_holes(ctx, dst_arr_ty).is_some();
         if !dst_can_hole {
             // The destination is a fresh array this lowering owns and
             // no user code can name until `map` / `filter` answers it,

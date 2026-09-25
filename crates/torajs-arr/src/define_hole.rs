@@ -139,12 +139,13 @@ pub(crate) unsafe fn copy_hole_marks(src: *const u8, from: u64, dst: *mut u8, at
 /// length, so a skipped index arrives as a hole instead of shortening
 /// the result).
 ///
-/// Every caller's cell is an Any cell, so the hole is the slot value
-/// `0` under `FLAG_ARR_ANY_HOLEY` — the `new Array(n)` representation
-/// — instead of a shadow entry keyed by a minted index string. The
-/// pushed slot holds the `undefined` immediate, which owns nothing,
-/// so overwriting it releases nothing. A typed cell (none today)
-/// keeps the shadow: its slots have no reserved encoding.
+/// An Any cell's hole is the slot value `0` under `FLAG_ARR_ANY_HOLEY`
+/// — the `new Array(n)` representation — instead of a shadow entry
+/// keyed by a minted index string. The pushed slot holds the
+/// `undefined` immediate, which owns nothing, so overwriting it
+/// releases nothing. A typed cell (`map`'s typed product) keeps the
+/// shadow: its caller pushed the element type's hole word (the F64
+/// sentinel, a boolean 2, a NULL pointer), so only the mark is left.
 ///
 /// # Safety
 /// `arr` is a live `Tag::Arr` heap pointer.
@@ -163,11 +164,7 @@ pub unsafe extern "C" fn __torajs_arr_mark_last_hole(arr: *mut c_void) {
         }
         return;
     }
-    let key = unsafe { crate::define::mint_index_key(idx) };
-    unsafe {
-        __torajs_arr_delete_index(arr, key as *mut c_void, idx);
-        __torajs_str_drop(key as *mut c_void);
-    }
+    unsafe { mark_hole_range(arr, idx, idx + 1) };
 }
 
 /// RFC 20260721 刀 12 G16 — splice moved the tail elements but the
