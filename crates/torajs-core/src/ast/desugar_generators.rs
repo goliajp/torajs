@@ -188,11 +188,14 @@ fn desugar_one_generator(
             p.type_ann = Some("any".into());
         }
     }
-    // `Generator<T>` / `IterableIterator<T>` annotations keep their
-    // explicit T; an unannotated generator yields what its body settles
-    // (`desugar_generators_yield_infer`), else through the Any-tier.
-    // What `next(x)` sends back is the declared T, or `any`.
-    let sent_ty = crate::ast::desugar_generators_prep::sent_ty(gen_ret.as_deref());
+    // P10.7 — Default-Any generator. When the user omits the
+    // return-type annotation (`function* foo() {...}`), infer
+    // `Generator<any>` so the body's `yield` values flow through
+    // the existing Any-tier (NaN-box AnyValue) via the
+    // `Expr::As { …, ty_ann: "any" }` wrap inside
+    // `GenSm::emit_yield_return`. `Generator<T>` /
+    // `IterableIterator<T>` annotations keep their explicit T.
+    let yield_ty = gen_ret.unwrap_or_else(|| "any".into());
 
     // Param-destructuring prefix: parse_fn recorded how many
     // synthesized `let leaf = __param_destr_N.<field>` stmts it
@@ -235,15 +238,14 @@ fn desugar_one_generator(
     }
     let captures_arguments =
         push_arguments_capture(ast, &gen_params, &gen_body, &mut rewrite_params);
-    let (gen_body, mut lifted_locals, yield_ty) =
-        crate::ast::desugar_generators_prep::prep_generator_body(
-            ast,
-            gen_body,
-            &gen_name,
-            &rewrite_params,
-            gen_ret.as_deref(),
-            fn_sigs,
-        );
+    let (gen_body, mut lifted_locals) = crate::ast::desugar_generators_prep::prep_generator_body(
+        ast,
+        gen_body,
+        &gen_name,
+        &rewrite_params,
+        &yield_ty,
+        fn_sigs,
+    );
 
     // Class name + struct return type for next().
     let class_name = format!("__Gen_{gen_name}");
@@ -299,7 +301,7 @@ fn desugar_one_generator(
     };
     let (mut next_method, mut return_method, mut throw_method) = build_iterator_method_trio(
         ast,
-        (&yield_ty, &sent_ty),
+        &yield_ty,
         &step_ann,
         next_body,
         has_try_regions,
@@ -345,7 +347,7 @@ fn desugar_one_generator(
         idx,
         gen_name,
         gen_params,
-        &sent_ty,
+        &yield_ty,
         class_name,
         &lifted_locals,
         ctor.body,
@@ -389,7 +391,7 @@ fn desugar_one_generator(
 #[allow(clippy::too_many_arguments)]
 fn build_iterator_method_trio(
     ast: &mut Ast,
-    (yield_ty, sent_ty): (&str, &str),
+    yield_ty: &str,
     step_ann: &str,
     next_body: Vec<Stmt>,
     has_try_regions: bool,
@@ -402,19 +404,18 @@ fn build_iterator_method_trio(
         "next"
     };
     let yield_arg_default_id = ast.add_expr(
-        crate::ast::desugar_generators_methods::yield_arg_undefined(sent_ty),
+        crate::ast::desugar_generators_methods::yield_arg_undefined(yield_ty),
     );
     let next_method = crate::ast::desugar_generators_methods::build_next_method(
         ast,
         yield_arg_default_id,
-        sent_ty,
+        yield_ty,
         step_ann,
         next_body,
     );
     let return_method = crate::ast::desugar_generators_methods::build_return_method(
         ast,
         yield_ty,
-        sent_ty,
         step_ann,
         has_finally_ret,
         is_async_gen,
@@ -422,7 +423,7 @@ fn build_iterator_method_trio(
     );
     let throw_method = crate::ast::desugar_generators_methods::build_throw_method(
         ast,
-        sent_ty,
+        yield_ty,
         step_ann,
         has_try_regions,
         next_name,

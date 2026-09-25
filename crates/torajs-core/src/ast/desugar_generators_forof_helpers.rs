@@ -37,13 +37,6 @@
 
 use super::{Ast, Stmt};
 
-/// The helpers in [`FOROF_SRC`] that read an iterator's `return`
-/// member: each calls it with the receiver alone (`__ret.call(__it)`),
-/// never handing it a value. The yield-type inference trusts exactly
-/// this (`desugar_generators_yield_infer::return_can_take_a_value`), so
-/// a helper added here must keep that shape.
-pub(super) const VALUELESS_RETURN_HELPERS: &[&str] = &["__gfor_close", "__gfor_close_async"];
-
 const FOROF_SRC: &str = r#"
 function __agen_step_call(__it: any, __am: any): any {
   let __r: any;
