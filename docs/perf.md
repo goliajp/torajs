@@ -7,8 +7,8 @@ that against bun and other runtimes on a fixed set of programs.
 ## Bench scoreboard (current state)
 
 19 committed bench cases under `bench/cases/`. Each case ships in
-multiple languages (TS for bun + node, Rust, Go, Python, plus
-`main.tora.ts` for tr). Numbers are wall-clock measured by
+multiple languages (TS for bun + node + tr — one `main.ts` for every
+TS runtime — plus Rust, Go, Python). Numbers are wall-clock measured by
 `hyperfine` against pre-warmed binaries.
 
 | Metric | What it measures |
@@ -63,8 +63,8 @@ Results are appended to `bench/results/<date>-<host>-<git>.json`.
 
 ## How to add a bench case
 
-1. `bench/cases/<name>/` with a `main.tora.ts` (tr) + `main.ts`
-   (bun/node) + `expected.txt`.
+1. `bench/cases/<name>/` with a `main.ts` (bun / node / tr, the same
+   program) + `expected.txt`.
 2. Run `cargo run -p bench-harness -- run <name>` and verify
    stdout matches `expected.txt` for every runtime.
 3. Open a PR. The bench rule says **every committed case must pass

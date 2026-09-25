@@ -368,7 +368,7 @@ cargo run --release -p bench-harness -- run
 
 ## Bench cases
 
-Each case has a `main.tora.ts` + 5 sibling implementations (`main.ts`, `main.rs`, `main.go`, `main.py`) for cross-language comparison.
+Each case has one `main.ts` that every TS runtime (tr, bun, node) runs, plus `main.rs`, `main.go` and `main.py` for cross-language comparison.
 
 | case             | what it stresses                                                                |
 | ---------------- | ------------------------------------------------------------------------------- |

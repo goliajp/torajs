@@ -8,7 +8,6 @@ Computes `Σ gcd(i, 1234567)` for i ∈ [1, 1000000]. Stresses **integer modulo 
 
 All implementations write a textbook iterative Euclid GCD. Integer types throughout — `i64`/`u64` in compiled languages, `number` (which torajs's AOT narrows to `i64` because there's no `/` and no fractional literal anywhere). f64 representation in tr's interpreter is lossless for these magnitudes.
 
-- `main.tora.ts` — torajs. The `let t` is hoisted to fn-body top (AOT can't yet declare locals inside while bodies; same caveat as mandelbrot).
 - `main.ts` — bun + node, idiomatic `for`-loop.
 - `main.py` — Python 3 idiomatic.
 - `main.rs` — Rust, `u64`.

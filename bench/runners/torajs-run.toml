@@ -14,5 +14,5 @@
 # native execution).
 name = "torajs-run"
 detect = "{workspace}/target/release/tr --version"
-src_filename = "main.tora.ts"
+src_filename = "main.ts"
 run = "{workspace}/target/release/tr run {src}"

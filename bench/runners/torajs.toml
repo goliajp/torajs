@@ -3,6 +3,6 @@
 # gone; this is the canonical `torajs` identity on the bench scoreboard.
 name = "torajs"
 detect = "{workspace}/target/release/tr --version"
-src_filename = "main.tora.ts"
+src_filename = "main.ts"
 compile = "{workspace}/target/release/tr build {src} -o {out}"
 run = "{out}"

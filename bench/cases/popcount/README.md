@@ -23,7 +23,6 @@ This case stresses the **integer ALU + branch prediction** path. Each call itera
 
 All implementations use the same Kernighan trick. `u64` / `uint64` everywhere; torajs's AOT auto-narrows `number` to `i64` because the program is integer-pure.
 
-- `main.tora.ts` — torajs. `let n` and `let count` hoisted to fn-body top per AOT P3.x's nested-let restriction.
 - `main.ts` — bun + node, idiomatic `for` + `++`.
 - `main.py` — Python 3.
 - `main.rs` — Rust, `u64`.

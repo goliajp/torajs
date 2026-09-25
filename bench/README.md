@@ -21,11 +21,10 @@ bench/
 ├── cases/<case>/
 │   ├── README.md           ← what the case stresses; per-language notes
 │   ├── expected.txt        ← canonical stdout; mismatch fails the run
-│   ├── main.ts             ← bun + node
+│   ├── main.ts             ← bun + node + torajs (one program for every TS runtime)
 │   ├── main.py
 │   ├── main.rs
 │   ├── main.go
-│   ├── main.tora.ts        ← used by both torajs-interp and torajs (AOT)
 │   └── bench.toml          ← optional per-case hyperfine overrides
 ├── runners/<runtime>.toml  ← declarative: how to detect / compile / run
 ├── harness/                ← Rust binary that orchestrates everything
@@ -66,8 +65,8 @@ Templates `{src}`, `{out}`, `{case}` are substituted before each invocation.
 
 There are two permanent torajs runner descriptors. Both are present in every benchmark run; their cells will or won't have numbers depending on what `tr` can currently do.
 
-- **`torajs-interp`** — `tr run main.tora.ts`. Lex/parse/check/lower/interp through the dev-only tree-walker. `compile_ms` is always blank (the front-end work is bundled into `run_ms`). Will be replaced by Cranelift JIT in P3.6.
-- **`torajs`** — `tr build main.tora.ts -o out` + run the produced native binary. Pipeline: lex → parse → check → SSA IR → Inkwell → LLVM 22 → object → cc. This row is the canonical apples-to-apples comparison against rust / go / bun / node — it's the perf claim the project is built on. (Replaced the previous wasm-via-C `torajs-aot` row in P3.7.)
+- **`torajs-interp`** — `tr run main.ts`. Lex/parse/check/lower/interp through the dev-only tree-walker. `compile_ms` is always blank (the front-end work is bundled into `run_ms`). Will be replaced by Cranelift JIT in P3.6.
+- **`torajs`** — `tr build main.ts -o out` + run the produced native binary. Pipeline: lex → parse → check → SSA IR → Inkwell → LLVM 22 → object → cc. This row is the canonical apples-to-apples comparison against rust / go / bun / node — it's the perf claim the project is built on. (Replaced the previous wasm-via-C `torajs-aot` row in P3.7.)
 
 The interp row stays even after AOT lands; it's the dev cycle's measurement and a useful baseline for "how much did AOT save".
 

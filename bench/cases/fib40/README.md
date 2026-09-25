@@ -9,7 +9,6 @@ Expected stdout: `102334155\n`.
 All five non-torajs implementations are intentionally **textbook recursive**, no tail-call tricks, no memoization, no iterative rewrite. The point is to compare the runtime's machinery, not who can recognize fibonacci.
 
 - `main.ts` — `function fib(n: number): number` recursion (bun, node)
-- `main.tora.ts` — same shape on torajs (currently the tree-walk interpreter; AOT comes in P3)
 - `main.py` — `def fib(n)` with the same recursive body
 - `main.rs` — `fn fib(n: u64) -> u64`
 - `main.go` — `func fib(n int) int`

@@ -41,7 +41,7 @@ All five — torajs / rust / go / bun / node / python. Rust uses `black_box` on 
 ## The two phases are not the same program in every language
 
 `main.rs` uses `Vec<i64>` and an `i64` accumulator; `main.go` uses
-`[]int64`. `main.ts` / `main.tora.ts` use `number`, which is f64 — the
+`[]int64`. `main.ts` uses `number`, which is f64 — the
 only numeric type TS has. The sum here is 4.9999995e13, below 2^53, so
 every language prints the same digits; but the **work** differs, and a
 cross-language row on this case therefore carries a semantics column.

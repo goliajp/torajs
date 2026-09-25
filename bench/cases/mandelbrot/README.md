@@ -13,7 +13,6 @@ Stresses **tight floating-point loops + function-call overhead**: each inner cel
 
 All implementations write the textbook escape-time algorithm directly. f64 throughout (representation matches torajs's `number`).
 
-- `main.tora.ts` — torajs. Uses our dialect's `let`/`while`; lets are hoisted to fn-body top because AOT P3.x doesn't support nested-block lets yet.
 - `main.ts` — bun + node, idiomatic `for`-loops + JS expressions.
 - `main.py` — Python 3 idiomatic.
 - `main.rs` — Rust idiomatic, `f64`/`u32` types.
