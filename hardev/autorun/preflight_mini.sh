@@ -4,8 +4,10 @@
 # in one command, with the verdict decided by the script instead of
 # by eye.
 #
-# What it does, in the order the pipeline rule fixes
-# (`rules/torajs-autorun-pipeline.md`, "A 轨 pre-flight checklist"):
+# What it does, in the order the pre-flight checklist fixes (the
+# checklist itself: `.claude/runbooks/autorun-edge-cases.md`, "A 轨
+# pre-flight checklist"; the rule that points here:
+# `rules/torajs-autorun-pipeline.md`, "A 轨 pre-flight"):
 #   1. rsync every modified / added / untracked file under crates/ and
 #      conformance/cases/ to mini, each at its own full path (never
 #      `--relative`: rotation 426).
