@@ -38,6 +38,7 @@ pub mod iconst_hoist;
 pub mod inliner;
 pub mod interval;
 pub mod late_gvn;
+pub mod load_licm;
 pub mod loop_analysis;
 pub mod loop_rotate;
 pub mod map_find_cse;
@@ -342,6 +343,13 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
+    // Array header-field loads out of loops that never write that
+    // array's header (allocation-site alias slices, `load_licm`).
+    // After branch_fold (a folded-away out-of-range arm is no longer
+    // loop body), before throw_check_fold (its loop-entry probe would
+    // otherwise sit between the preheader and the header).
+    // `TORAJS_LOAD_LICM_OFF=1` skips (bisect gate).
+    gated_pass("LOAD_LICM", &mut module, load_licm::hoist_header_loads);
     // Pending-exception probes already known to read 0 — the flag
     // only moves inside a call, so a probe after a passed probe with
     // no call between answers "continue". After branch_fold (it removes

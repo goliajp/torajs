@@ -118,12 +118,52 @@ fn val(op: &Operand) -> Option<ValueId> {
 /// `callee_names` is index-aligned with `Module::funcs`; an empty
 /// slice means no call can be recognized, so nothing is tracked.
 pub(super) fn collect(func: &Function, callee_names: &[String]) -> ElemPoints {
-    let empty = ElemPoints {
-        writes: Vec::new(),
-        reads: HashMap::new(),
+    let Some(mut a) = analyze(func, callee_names) else {
+        return ElemPoints {
+            writes: Vec::new(),
+            reads: HashMap::new(),
+        };
     };
+    let live = &a.classes.live;
+    let ordered: Vec<(ValueId, Vec<Operand>)> = a
+        .roots
+        .iter()
+        .filter(|r| live.contains(r))
+        .filter_map(|r| a.writes.remove(r).map(|w| (*r, w)))
+        .collect();
+    a.reads.retain(|_, r| live.contains(r));
+    ElemPoints {
+        writes: ordered,
+        reads: a.reads,
+    }
+}
+
+/// Which values name each tracked array (`class`: the array itself,
+/// `base`: its data pointer, both keyed to the allocation root) and
+/// which roots stay fully tracked once every use has been admitted
+/// (`live`). A live root's address never leaves the function's SSA:
+/// nothing but the admitted instructions can read or write it.
+pub(crate) struct ArrayClasses {
+    pub(crate) class: HashMap<ValueId, ValueId>,
+    pub(crate) base: HashMap<ValueId, ValueId>,
+    pub(crate) live: HashSet<ValueId>,
+}
+
+/// The escape discipline of [`collect`] on its own, for `load_licm`.
+pub(crate) fn array_classes(func: &Function, callee_names: &[String]) -> Option<ArrayClasses> {
+    analyze(func, callee_names).map(|a| a.classes)
+}
+
+struct Analysis {
+    roots: Vec<ValueId>,
+    classes: ArrayClasses,
+    writes: HashMap<ValueId, Vec<Operand>>,
+    reads: HashMap<ValueId, ValueId>,
+}
+
+fn analyze(func: &Function, callee_names: &[String]) -> Option<Analysis> {
     if callee_names.is_empty() {
-        return empty;
+        return None;
     }
 
     let mut defs: HashMap<ValueId, Vec<InstKind>> = HashMap::new();
@@ -146,7 +186,7 @@ pub(super) fn collect(func: &Function, callee_names: &[String]) -> ElemPoints {
         .map(|(v, _)| *v)
         .collect();
     if roots.is_empty() {
-        return empty;
+        return None;
     }
     roots.sort_by_key(|v| v.0);
 
@@ -180,17 +220,12 @@ pub(super) fn collect(func: &Function, callee_names: &[String]) -> ElemPoints {
             }
         }
     }
-
-    let ordered: Vec<(ValueId, Vec<Operand>)> = roots
-        .iter()
-        .filter(|r| live.contains(r))
-        .filter_map(|r| writes.remove(r).map(|w| (*r, w)))
-        .collect();
-    reads.retain(|_, r| live.contains(r));
-    ElemPoints {
-        writes: ordered,
+    Some(Analysis {
+        roots,
+        classes: ArrayClasses { class, base, live },
+        writes,
         reads,
-    }
+    })
 }
 
 /// Optimistic membership: which values are aliases of a root, and
