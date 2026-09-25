@@ -200,11 +200,11 @@ fn hoist_loop_consts(module: &mut Module) {
     gated_pass("ICONST_HOIST", module, iconst_hoist::hoist_int_consts);
 }
 
-pub fn transform_module(mut module: Module) -> Module {
-    if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
-        return module;
-    }
-    let inliner_stats = inliner::inline_module(&mut module);
+/// What the egraph pass eats: callees inlined (a second round after
+/// devirt turns fn-pointer calls direct), then the param round-trips
+/// that splices leave forwarded and promoted.
+fn inline_and_forward(module: &mut Module) {
+    let inliner_stats = inliner::inline_module(module);
     // TORAJS_INLINER_STATS=1 — dump per-compile inliner decision
     // counters to stderr for fire-rate attribution (which SkipReason
     // bucket holds the production call sites a given corpus exposes).
@@ -215,10 +215,10 @@ pub fn transform_module(mut module: Module) -> Module {
     // exposes fn-pointer slots by splicing fn-typed params into
     // callers), before a second round that inlines the promoted
     // direct calls. `TORAJS_DEVIRT_OFF=1` skips (bisect gate).
-    if let Some(devirt_stats) = gated_pass("DEVIRT", &mut module, devirt::devirtualize_module)
+    if let Some(devirt_stats) = gated_pass("DEVIRT", module, devirt::devirtualize_module)
         && devirt_stats.rewritten > 0
     {
-        let round2 = inliner::inline_module(&mut module);
+        let round2 = inliner::inline_module(module);
         if std::env::var("TORAJS_INLINER_STATS").as_deref() == Ok("1") {
             eprintln!("torajs-inliner-stats-round2: {round2:?}");
         }
@@ -228,13 +228,20 @@ pub fn transform_module(mut module: Module) -> Module {
     // degenerate in-block case). After inlining/devirt (the food),
     // before the egraph pass (forwarded constants feed const-fold /
     // GVN). `TORAJS_SLOTFWD_OFF=1` skips (bisect gate).
-    gated_pass("SLOTFWD", &mut module, slot_forward::forward_slot_loads);
+    gated_pass("SLOTFWD", module, slot_forward::forward_slot_loads);
     // Cross-block single-def-block slot promotion — the dominance
     // fast path of LLVM mem2reg (param spills whose loads live in
     // branch arms). After slot_forward (in-block round-trips already
     // cleared, slots possibly DSE'd), before the egraph pass.
     // `TORAJS_MEM2REG_OFF=1` skips (bisect gate).
-    gated_pass("MEM2REG", &mut module, mem2reg::promote_slots);
+    gated_pass("MEM2REG", module, mem2reg::promote_slots);
+}
+
+pub fn transform_module(mut module: Module) -> Module {
+    if std::env::var("TORAJS_EGRAPH_OFF").as_deref() == Ok("1") {
+        return module;
+    }
+    inline_and_forward(&mut module);
     for func in module.funcs.iter_mut() {
         let new_func = EgraphPass::new(func).run();
         *func = new_func;
