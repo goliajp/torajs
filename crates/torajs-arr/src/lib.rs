@@ -176,6 +176,8 @@ pub unsafe extern "C" fn __torajs_throw_range_error(_msg: *const u8) {
 pub unsafe extern "C" fn __torajs_arr_mutate_generic(
     _arr: *mut core::ffi::c_void,
     _mid: i64,
+    _argv: *const u64,
+    _argc: i64,
 ) -> u64 {
     0x0A
 }

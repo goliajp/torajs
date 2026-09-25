@@ -41,9 +41,11 @@ const ARR_HEAD_OFF: usize = 20;
 pub const ANY_METHOD_THREW: u64 = u64::MAX;
 
 unsafe extern "C" {
-    /// Cross-tier — torajs-anyvalue. `pop` / `shift` through the
-    /// array-like arm's per-index [[Get]] / Delete / Set sequence.
-    fn __torajs_arr_mutate_generic(arr: *mut c_void, mid: i64) -> u64;
+    /// Cross-tier — torajs-anyvalue. `pop` / `shift` / `unshift`
+    /// through the array-like arm's per-index [[Get]] / Delete / Set
+    /// sequence (`argv` borrowed; NULL / 0 without arguments).
+    fn __torajs_arr_mutate_generic(arr: *mut c_void, mid: i64, argv: *const u64, argc: i64) -> u64;
+    fn __torajs_throw_check() -> i64;
     fn __torajs_anyv_box_from_pair(tag: i64, value: i64) -> u64;
     fn __torajs_anyv_unbox_tag(v: u64) -> i64;
     fn __torajs_anyv_unbox_value(v: u64) -> i64;
@@ -196,7 +198,12 @@ pub unsafe extern "C" fn __torajs_arr_any_pop(arr: *mut c_void) -> u64 {
         // A hole or an accessor index: the element's [[Get]] runs before
         // the length Set, and may be what makes the Set throw.
         if crate::layout::needs_index_mop(arr as *const u8) {
-            return __torajs_arr_mutate_generic(arr, torajs_rc::ANY_METHOD_POP);
+            return __torajs_arr_mutate_generic(
+                arr,
+                torajs_rc::ANY_METHOD_POP,
+                core::ptr::null(),
+                0,
+            );
         }
         // RFC 20260713 blade 4 — frozen / RO-length receivers throw
         // before the empty short-circuit (§23.1.3.20 step 3.b); a
@@ -253,7 +260,12 @@ pub unsafe extern "C" fn __torajs_arr_any_shift(arr: *mut c_void) -> u64 {
         }
         // pop's twin: the per-index walk for a hole / accessor index.
         if crate::layout::needs_index_mop(arr as *const u8) {
-            return __torajs_arr_mutate_generic(arr, torajs_rc::ANY_METHOD_SHIFT);
+            return __torajs_arr_mutate_generic(
+                arr,
+                torajs_rc::ANY_METHOD_SHIFT,
+                core::ptr::null(),
+                0,
+            );
         }
         // RFC 20260713 blade 4 — pop's twin; the lock raiser the typed
         // lane uses (a sealed receiver's partial move included, see
@@ -321,6 +333,17 @@ pub unsafe extern "C" fn __torajs_arr_any_unshift(
         // releases nothing — same shape as the sparse reject above.
         if crate::define_length::__torajs_arr_extend_guard(arr) != 0 {
             return __torajs_anyv_box_from_pair(5, 0);
+        }
+        // A hole or an accessor index: the per-index walk (see
+        // `__torajs_arr_unshift_any`). The cell does not move.
+        let flags = (*(arr as *const HeapHeader)).flags;
+        if flags & FLAG_ARR_ANY != 0 && crate::layout::needs_index_mop(arr as *const u8) {
+            let len = __torajs_arr_mutate_generic(arr, torajs_rc::ANY_METHOD_UNSHIFT, argv, argc);
+            __torajs_value_drop_heap(len as *mut c_void);
+            if __torajs_throw_check() != 0 {
+                return ANY_METHOD_THREW;
+            }
+            return *((arr as *const u8).add(ARR_LEN_OFF) as *const u64);
         }
         let mut cur = arr as *mut u8;
         for i in (0..argc).rev() {
@@ -413,6 +436,16 @@ pub unsafe extern "C" fn __torajs_arr_unshift_any(arr: *mut u8, tag: i64, value:
             return crate::any_typed_bridge::typed_unshift_pair(arr, tag as u64, value as u64);
         }
         let av = __torajs_anyv_box_from_pair(tag, value);
+        // A hole or an accessor index moves through the per-index walk
+        // (§23.1.3.36 — the raw memmove left a shadow hole where it was).
+        // The walk stores its own share; this entry owns the pair's.
+        if crate::layout::needs_index_mop(arr) {
+            let len =
+                __torajs_arr_mutate_generic(arr.cast(), torajs_rc::ANY_METHOD_UNSHIFT, &av, 1);
+            __torajs_value_drop_heap(len as *mut c_void);
+            __torajs_value_drop_heap(av as *mut c_void);
+            return arr;
+        }
         any_unshift_adopt(arr, av)
     }
 }
