@@ -187,7 +187,14 @@ pub(crate) fn compute_reachability<'a>(
             // a hard root kept every unwind-covered fn (whole
             // members: date, arr, str…) alive with no consumer.
             // Equivalent to ld64's `-no_compact_unwind`.
-            if trim16(&sa.sectname) == b"__compact_unwind" {
+            // `__TEXT,__eh_frame` is the same kind of input: its FDEs
+            // describe functions and are LIVE_SUPPORT (live only if
+            // what they describe is), and this pipeline registers no
+            // unwind tables either. As a root, the iter archives' std
+            // FDEs kept almost all of std — sockets, process spawn,
+            // threads — and 179 libSystem imports that dyld binds on
+            // every launch of an iter-built program.
+            if matches!(trim16(&sa.sectname), b"__compact_unwind" | b"__eh_frame") {
                 continue;
             }
             if sa.flags & (S_ATTR_NO_DEAD_STRIP | S_ATTR_LIVE_SUPPORT) != 0
