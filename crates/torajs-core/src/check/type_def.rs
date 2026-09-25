@@ -36,18 +36,21 @@ pub enum Type {
     WeakSet,
     /// P6.1 — `Map<K,V>`. Strong-ref hash map with SameValueZero
     /// key equality (string byte-equal / IEEE-754 number with NaN ==
-    /// NaN / pointer identity for objects). `m.get(k)` returns
-    /// `Nullable<V>`; `m.set/has/delete/clear` return Boolean / map /
-    /// Number per spec.
-    Map,
+    /// NaN / pointer identity for objects); the payload is `(K, V)`.
+    /// `m.set/has/delete/clear` return Boolean / map / Number per
+    /// spec. Every site still fills `(Any, Any)` — the payload is the
+    /// first step of the typed value lane (tasks/2026-09-25
+    /// map-typed-lane-C-layers.md §D); `m.get(k)` answers Any.
+    Map(Box<Type>, Box<Type>),
     /// P6.1 — `Set<T>`. Strong-ref hash set backed by `Map<T, undef>`.
     /// `s.add(v)` / `s.has(v)` / `s.delete(v)` / `s.size` per spec.
     Set,
     /// P6.4b — `MapIter`. Stateful iterator returned by
     /// `m.keys() / .values() / .entries()`. `iter.next()` returns
     /// `IteratorResult<any>` = `{ value: any, done: boolean }`.
-    /// Holds a strong ref to the source Map.
-    MapIter,
+    /// Holds a strong ref to the source Map. The payload is the
+    /// yielded type (Any at every site today, as for `Map`).
+    MapIter(Box<Type>),
     /// P6.4c-C3 — `ArrIter`. Parallel to MapIter but scanning
     /// `Array<Any>` source. Returned by `arr.keys() / .values() /
     /// .entries()`. `iter.next()` returns the same
@@ -154,6 +157,17 @@ pub enum Type {
 }
 
 impl Type {
+    /// `Map<any, any>` — what every site builds until the payload is
+    /// filled from annotations.
+    pub fn map_any() -> Type {
+        Type::Map(Box::new(Type::Any), Box::new(Type::Any))
+    }
+
+    /// `MapIter` yielding Any.
+    pub fn map_iter_any() -> Type {
+        Type::MapIter(Box::new(Type::Any))
+    }
+
     /// Cheap-to-duplicate types live entirely in registers / stack — using
     /// the binding twice just produces two independent copies with no
     /// runtime cost. Affine types own heap storage and follow Rust-shaped

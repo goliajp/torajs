@@ -394,12 +394,12 @@ pub(crate) fn own_property_types(fields: &[(PropKey, Type)]) -> Vec<(PropKey, Ty
 fn checker_shape_has_expando_bag(ty: &Type) -> bool {
     matches!(
         ty,
-        Type::Map
+        Type::Map(..)
             | Type::Set
             | Type::RegExp
             | Type::Date
             | Type::Promise(..)
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
             | Type::WeakMap
             | Type::WeakSet

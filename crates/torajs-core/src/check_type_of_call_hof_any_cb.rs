@@ -82,7 +82,7 @@ pub(crate) fn try_match(
     // three route to the same any-lane resolver.
     let recv_ok = match obj_ty {
         Type::Array(_) => true,
-        Type::Map | Type::Set => name == "forEach",
+        Type::Map(..) | Type::Set => name == "forEach",
         _ => false,
     };
     if !recv_ok {

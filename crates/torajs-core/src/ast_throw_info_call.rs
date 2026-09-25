@@ -238,7 +238,14 @@ pub(crate) fn scan_spread(
     use crate::check::Type;
     if !matches!(
         expr_types.get(&expr),
-        Some(Type::Array(_) | Type::String | Type::Map | Type::Set | Type::MapIter | Type::ArrIter)
+        Some(
+            Type::Array(_)
+                | Type::String
+                | Type::Map(..)
+                | Type::Set
+                | Type::MapIter(..)
+                | Type::ArrIter
+        )
     ) {
         *direct = true;
     }

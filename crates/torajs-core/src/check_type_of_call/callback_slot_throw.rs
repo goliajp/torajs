@@ -79,7 +79,7 @@ pub(super) fn message_for(
     // to be written rather than inherited.
     let recv_ok = match checker.type_of(ast, *obj) {
         Ok(Type::Array(_)) => true,
-        Ok(Type::Map) | Ok(Type::Set) => name == "forEach",
+        Ok(Type::Map(..)) | Ok(Type::Set) => name == "forEach",
         _ => false,
     };
     if !recv_ok {

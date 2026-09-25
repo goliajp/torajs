@@ -82,7 +82,7 @@ pub(crate) fn try_match(
             // set.values())` — the collection and its iterator cells
             // drive the same unified runtime iteration protocol as
             // `[...x]` spread; the materialized product is `Array<Any>`.
-            if matches!(arg_ty, Type::Map | Type::MapIter | Type::ArrIter) {
+            if matches!(arg_ty, Type::Map(..) | Type::MapIter(..) | Type::ArrIter) {
                 return Some(Ok(Type::Array(Box::new(Type::Any))));
             }
             // RFC 20260725-getiterator-getmethod knife 5 — an `any`

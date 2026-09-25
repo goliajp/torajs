@@ -39,7 +39,7 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str, ast: &Ast) -> Option<Result<T
         return None;
     }
     let iter_shaped = match obj_ty {
-        Type::MapIter | Type::ArrIter => true,
+        Type::MapIter(..) | Type::ArrIter => true,
         Type::ClassRef(n) => is_iterator_class(n, ast),
         _ => false,
     };

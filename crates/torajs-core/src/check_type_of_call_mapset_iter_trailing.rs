@@ -40,7 +40,7 @@ pub(crate) fn try_match(
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
-    if !matches!(src_ty, Type::Map | Type::Set) {
+    if !matches!(src_ty, Type::Map(..) | Type::Set) {
         return None;
     }
     for &a in args.iter() {
@@ -48,5 +48,5 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    Some(Ok(Type::MapIter))
+    Some(Ok(Type::map_iter_any()))
 }

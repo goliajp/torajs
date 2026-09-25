@@ -63,7 +63,7 @@ pub(crate) fn try_match(
         }
         return Some(Ok(Type::Set));
     }
-    if matches!(src_ty, Type::Map) && m_name == "set" && args.len() >= 3 {
+    if matches!(src_ty, Type::Map(..)) && m_name == "set" && args.len() >= 3 {
         if let Err(e) = checker.type_of(ast, args[0]) {
             return Some(Err(e));
         }
@@ -75,7 +75,7 @@ pub(crate) fn try_match(
                 return Some(Err(e));
             }
         }
-        return Some(Ok(Type::Map));
+        return Some(Ok(Type::map_any()));
     }
     None
 }

@@ -105,7 +105,7 @@ pub(crate) fn check_index(
         // the static answer is Any, the read side's mirror.
         if matches!(
             obj_ty,
-            Type::Object(_) | Type::Map | Type::Set | Type::RegExp
+            Type::Object(_) | Type::Map(..) | Type::Set | Type::RegExp
         ) {
             let _ = checker.type_of(ast, value)?;
             return Ok(Type::Any);
@@ -190,7 +190,7 @@ fn reject_bad_key(obj_ty: &Type, idx_ty: &Type) -> Result<(), String> {
         // The write side simply never had these arms, so a receiver
         // whose READ answers a property could not STORE one, and the
         // two halves disagreed about what a property is.
-        Type::Map | Type::Set | Type::RegExp | Type::Object(_) => {
+        Type::Map(..) | Type::Set | Type::RegExp | Type::Object(_) => {
             crate::check_type_of_index::coerced_key_domain(idx_ty)
         }
         _ => false,

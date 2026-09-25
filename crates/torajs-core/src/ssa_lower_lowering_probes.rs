@@ -178,7 +178,7 @@ impl<'a> LowerCtx<'a> {
                 C::Boolean => Some(4),
                 C::Null => Some(5),
                 C::Struct(_) | C::ClassRef(_) | C::Object(_) => Some(10),
-                C::Map => Some(11),
+                C::Map(..) => Some(11),
                 C::Set => Some(12),
                 C::Function(..) => Some(13),
                 C::BigInt => Some(14),
@@ -189,7 +189,7 @@ impl<'a> LowerCtx<'a> {
                 C::Date => Some(19),
                 C::Symbol => Some(20),
                 C::Promise(_) => Some(21),
-                C::MapIter => Some(22),
+                C::MapIter(..) => Some(22),
                 C::ArrIter => Some(23),
                 // Any / unions / Nullable / TypeVar / Undefined /
                 // missing — unknown, keep the homogeneous fallback.

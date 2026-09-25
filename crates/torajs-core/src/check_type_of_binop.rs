@@ -101,12 +101,12 @@ fn heap_cell_tostring(t: &Type) -> bool {
     matches!(
         t,
         Type::RegExp
-            | Type::Map
+            | Type::Map(..)
             | Type::Set
             | Type::WeakMap
             | Type::WeakSet
             | Type::WeakRef
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
             | Type::Date
             | Type::Promise(_)

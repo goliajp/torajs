@@ -110,7 +110,7 @@ pub(crate) fn check(
         Type::Struct(_) => Ok(Type::Any),
         // See the Map/Set/RegExp/namespace notes in `reject_bad_key` —
         // property reads over the prototype surface answer Any.
-        Type::Map | Type::Set | Type::RegExp | Type::Object(_) => Ok(Type::Any),
+        Type::Map(..) | Type::Set | Type::RegExp | Type::Object(_) => Ok(Type::Any),
         // A FUNCTION receiver's numeric read is the §7.1.19
         // stringified expando probe on the closure cell (the write
         // half's admit in `check_assign_target`) — heterogeneous, so
@@ -186,7 +186,7 @@ fn reject_bad_key(obj_ty: Type, idx_ty: Type) -> Result<(), String> {
         // symbol protocol probes are all of it). Since none of them
         // carries indexed elements, a number key is just another
         // spelling and `m[0]` answers undefined like any other miss.
-        Type::Map | Type::Set | Type::RegExp => coerced_key_domain(&idx_ty),
+        Type::Map(..) | Type::Set | Type::RegExp => coerced_key_domain(&idx_ty),
         // A NAMESPACE receiver (the hardcoded global stand-ins: Math
         // / JSON / Reflect / console …) joins for the same §7.1.19
         // reason, and load-bearingly since rotation 382 gave those
@@ -240,7 +240,7 @@ pub(crate) fn coerced_key_domain(idx_ty: &Type) -> bool {
                 | Type::RegExp
                 | Type::BigInt
                 | Type::Array(_)
-                | Type::Map
+                | Type::Map(..)
                 | Type::Set
         )
 }

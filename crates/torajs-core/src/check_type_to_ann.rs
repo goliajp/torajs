@@ -32,9 +32,9 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::WeakRef => "weakref".into(),
         Type::WeakMap => "weakmap".into(),
         Type::WeakSet => "weakset".into(),
-        Type::Map => "Map".into(),
+        Type::Map(..) => "Map".into(),
         Type::Set => "Set".into(),
-        Type::MapIter => "mapiter".into(),
+        Type::MapIter(..) => "mapiter".into(),
         Type::ArrIter => "arriter".into(),
         // T-28-substrate — SSA Type::Any is its own slot type at the
         // SSA layer (parse_type's "any" round-trips to Type::Any).

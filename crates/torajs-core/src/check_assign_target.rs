@@ -159,7 +159,12 @@ pub(crate) fn check_member(
     if bracket_spelled
         && matches!(
             &*obj_ty,
-            Type::Map | Type::Set | Type::MapIter | Type::ArrIter | Type::RegExp | Type::Date
+            Type::Map(..)
+                | Type::Set
+                | Type::MapIter(..)
+                | Type::ArrIter
+                | Type::RegExp
+                | Type::Date
         )
     {
         let _ = checker.type_of(ast, value)?;

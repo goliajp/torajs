@@ -37,5 +37,5 @@ pub(crate) fn try_match(
             return Some(Err(e));
         }
     }
-    Some(Ok(Type::Map))
+    Some(Ok(Type::map_any()))
 }

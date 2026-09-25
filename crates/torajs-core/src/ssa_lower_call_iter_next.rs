@@ -60,7 +60,7 @@ pub(crate) fn try_lower(
     // Ident) resolve — the Ident-only fallback still covers via-var
     // usage and pre-checker code paths.
     let step_fid = match ctx.expr_types.get(obj) {
-        Some(crate::check::Type::MapIter) => Some(ctx.intrinsics.map_iter_step),
+        Some(crate::check::Type::MapIter(..)) => Some(ctx.intrinsics.map_iter_step),
         Some(crate::check::Type::ArrIter) => Some(ctx.intrinsics.arr_iter_step),
         _ => {
             let recv_ty_hint = match ctx.ast.get_expr(*obj) {

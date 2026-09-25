@@ -85,14 +85,14 @@ pub(crate) fn record_speculative_rewrite(
 fn is_builtin_container_ty(t: &Type) -> bool {
     matches!(
         t,
-        Type::Map
+        Type::Map(..)
             | Type::Set
             | Type::WeakMap
             | Type::WeakSet
             | Type::Array(_)
             | Type::String
             | Type::Promise(_)
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
             | Type::RegExp
             | Type::Date

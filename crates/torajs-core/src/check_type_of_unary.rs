@@ -130,9 +130,9 @@ pub(crate) fn is_object_shaped(t: &Type) -> bool {
             | Type::Array(_)
             | Type::Function(_, _)
             | Type::Object(_)
-            | Type::Map
+            | Type::Map(..)
             | Type::Set
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
             | Type::WeakMap
             | Type::WeakSet

@@ -211,9 +211,9 @@ fn resolve_type_ann_inner(
         "weakref" | "WeakRef" => Some(Type::WeakRef),
         "weakmap" | "WeakMap" => Some(Type::WeakMap),
         "weakset" | "WeakSet" => Some(Type::WeakSet),
-        "Map" => Some(Type::Map),
+        "Map" => Some(Type::map_any()),
         "Set" => Some(Type::Set),
-        "mapiter" | "MapIter" => Some(Type::MapIter),
+        "mapiter" | "MapIter" => Some(Type::map_iter_any()),
         "arriter" | "ArrIter" => Some(Type::ArrIter),
         // `any` is recognized as a real type in the resolver only as a
         // late-stage fallback — `desugar_implicit_generics` rewrites

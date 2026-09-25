@@ -52,13 +52,13 @@ fn nullish_clause_is_reachable(scrut_ty: &Type, clause_ty: &Type) -> bool {
             | Type::Nullable(_)
             | Type::Date
             | Type::RegExp
-            | Type::Map
+            | Type::Map(..)
             | Type::Set
             | Type::Promise(_)
             | Type::WeakMap
             | Type::WeakSet
             | Type::WeakRef
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
     )
 }

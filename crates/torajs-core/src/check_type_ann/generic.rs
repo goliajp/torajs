@@ -135,7 +135,7 @@ pub(super) fn resolve_generic(
             resolve_type_ann_inner(arg, aliases, type_params, generic_aliases, in_flight)?;
         }
         return Some(match head {
-            "Map" | "ReadonlyMap" => Type::Map,
+            "Map" | "ReadonlyMap" => Type::map_any(),
             "Set" | "ReadonlySet" => Type::Set,
             "WeakMap" => Type::WeakMap,
             "WeakSet" => Type::WeakSet,
@@ -145,7 +145,7 @@ pub(super) fn resolve_generic(
             "WeakRef" => Type::WeakRef,
             // Held-value type validated above; the cell is any-lane.
             "FinalizationRegistry" => Type::Any,
-            "MapIter" | "mapiter" => Type::MapIter,
+            "MapIter" | "mapiter" => Type::map_iter_any(),
             "ArrIter" | "arriter" => Type::ArrIter,
             _ => unreachable!(),
         });

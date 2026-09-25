@@ -247,12 +247,12 @@ pub(crate) fn coercion_ctor_admits(n: &str, arg_ty: &Type) -> bool {
             // `toString` and NaN. Same ten as the `String`
             // arm below, minus nothing.
             | Type::RegExp
-            | Type::Map
+            | Type::Map(..)
             | Type::Set
             | Type::WeakMap
             | Type::WeakSet
             | Type::WeakRef
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
             | Type::Date
             | Type::Promise(_)
@@ -302,7 +302,7 @@ pub(crate) fn coercion_ctor_admits(n: &str, arg_ty: &Type) -> bool {
             // `String(10n)` was a compile error while
             // `String(10n as any)` was not.
             | Type::BigInt
-            | Type::Map
+            | Type::Map(..)
             | Type::Set
             | Type::RegExp
             // Same sentence, the rest of the heap cells: the
@@ -315,7 +315,7 @@ pub(crate) fn coercion_ctor_admits(n: &str, arg_ty: &Type) -> bool {
             | Type::WeakMap
             | Type::WeakSet
             | Type::WeakRef
-            | Type::MapIter
+            | Type::MapIter(..)
             | Type::ArrIter
             | Type::Promise(_)
         ),

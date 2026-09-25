@@ -349,9 +349,9 @@ pub(crate) fn js_loose_eq_supported(l: &Type, r: &Type) -> bool {
                 | Type::Struct(_)
                 | Type::Object(_)
                 | Type::ClassRef(_)
-                | Type::Map
+                | Type::Map(..)
                 | Type::Set
-                | Type::MapIter
+                | Type::MapIter(..)
                 | Type::ArrIter
                 | Type::Date
                 | Type::RegExp

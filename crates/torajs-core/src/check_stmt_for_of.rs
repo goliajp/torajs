@@ -117,14 +117,14 @@ pub(crate) fn check(
         src_kind,
         Some(Type::Struct(_))
             | Some(Type::ClassRef(_))
-            | Some(Type::Map)
+            | Some(Type::Map(..))
             | Some(Type::Set)
-            | Some(Type::MapIter)
+            | Some(Type::MapIter(..))
             | Some(Type::ArrIter)
     );
     let elem_ty = if src_is_iter_subset {
         match &src_kind {
-            Some(Type::Map) => Type::Array(Box::new(Type::Any)),
+            Some(Type::Map(..)) => Type::Array(Box::new(Type::Any)),
             Some(src_struct @ (Type::Struct(_) | Type::ClassRef(_))) => {
                 class_iter_elem_ty(checker, ast, src_struct).unwrap_or(Type::Any)
             }

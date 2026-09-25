@@ -397,9 +397,9 @@ pub(crate) fn spells_undef_with_generic_cell(t: &crate::check::Type) -> bool {
         | T::RegExp
         | T::Symbol
         | T::Promise(_)
-        | T::Map
+        | T::Map(..)
         | T::Set
-        | T::MapIter
+        | T::MapIter(..)
         | T::ArrIter
         | T::WeakRef
         | T::WeakMap

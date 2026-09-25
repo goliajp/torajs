@@ -59,7 +59,7 @@ pub(crate) fn try_match(
         Err(e) => return Some(Err(e)),
     };
     // (Set|Map).{has,delete} accept >= 2 (key + trail).
-    if matches!(src_ty, Type::Set | Type::Map)
+    if matches!(src_ty, Type::Set | Type::Map(..))
         && matches!(m_name.as_str(), "has" | "delete")
         && args.len() >= 2
     {
@@ -71,7 +71,7 @@ pub(crate) fn try_match(
         return Some(Ok(Type::Boolean));
     }
     // Map.get accepts >= 2 (key + trail).
-    if matches!(src_ty, Type::Map) && m_name == "get" && args.len() >= 2 {
+    if matches!(src_ty, Type::Map(..)) && m_name == "get" && args.len() >= 2 {
         for &arg in args.iter() {
             if let Err(e) = checker.type_of(ast, arg) {
                 return Some(Err(e));
@@ -80,7 +80,7 @@ pub(crate) fn try_match(
         return Some(Ok(Type::Any));
     }
     // (Set|Map).clear accept >= 1 (trail only).
-    if matches!(src_ty, Type::Set | Type::Map) && m_name == "clear" && !args.is_empty() {
+    if matches!(src_ty, Type::Set | Type::Map(..)) && m_name == "clear" && !args.is_empty() {
         for &arg in args.iter() {
             if let Err(e) = checker.type_of(ast, arg) {
                 return Some(Err(e));

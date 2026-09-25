@@ -23,7 +23,7 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * Both expose a non-method `size` (Number) read via the
          * member arm; ssa_lower calls `__torajs_map_size`
          * (Set storage is the same Map runtime). */
-        (Type::Map, "size") | (Type::Set, "size") => Type::Number,
+        (Type::Map(..), "size") | (Type::Set, "size") => Type::Number,
         /* P6.1 — Map<K,V> methods. set takes (key, value)
          * both type-erased to Any (the runtime stores
          * tagged-Any slots regardless); set returns the
@@ -40,32 +40,34 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * observing behaviour is unchanged — the value is
          * a tagged Any either way. has / delete return
          * Boolean. clear returns Void. */
-        (Type::Map, "set") => Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Map)),
-        (Type::Map, "get") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
+        (Type::Map(..), "set") => {
+            Type::Function(vec![Type::Any, Type::Any], Box::new(Type::map_any()))
+        }
+        (Type::Map(..), "get") => Type::Function(vec![Type::Any], Box::new(Type::Any)),
         // Stage-3 upsert (RFC 20260721 刀 6) — answers the present
         // value or the freshly inserted default.
-        (Type::Map, "getOrInsert") => {
+        (Type::Map(..), "getOrInsert") => {
             Type::Function(vec![Type::Any, Type::Any], Box::new(Type::Any))
         }
         // 383-04 — the callback-carrying upsert half; the callback
         // sees the key and its return is inserted and answered.
-        (Type::Map, "getOrInsertComputed") => Type::Function(
+        (Type::Map(..), "getOrInsertComputed") => Type::Function(
             vec![
                 Type::Any,
                 Type::Function(vec![Type::Any], Box::new(Type::Any)),
             ],
             Box::new(Type::Any),
         ),
-        (Type::Map, "has") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
-        (Type::Map, "delete") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
-        (Type::Map, "clear") => Type::Function(Vec::new(), Box::new(Type::Void)),
+        (Type::Map(..), "has") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
+        (Type::Map(..), "delete") => Type::Function(vec![Type::Any], Box::new(Type::Boolean)),
+        (Type::Map(..), "clear") => Type::Function(Vec::new(), Box::new(Type::Void)),
         /* P6.4a — Map.forEach. Spec callback shape is
          * `(value, key, map) => void`. Both `value` and
          * `key` are type-erased to Any since storage is
          * the (tag, payload) Any-domain. */
-        (Type::Map, "forEach") => Type::Function(
+        (Type::Map(..), "forEach") => Type::Function(
             vec![Type::Function(
-                vec![Type::Any, Type::Any, Type::Map],
+                vec![Type::Any, Type::Any, Type::map_any()],
                 Box::new(Type::Void),
             )],
             Box::new(Type::Void),
@@ -76,24 +78,24 @@ pub(crate) fn try_match(obj_ty: &Type, name: &str) -> Option<Result<Type, String
          * = `{ value: any, done: boolean }`. .entries is
          * deferred to P6.4c (needs Array<Any> alloc per
          * step + boxed (k, v) write). */
-        (Type::Map, "keys") | (Type::Map, "values") => {
-            Type::Function(Vec::new(), Box::new(Type::MapIter))
+        (Type::Map(..), "keys") | (Type::Map(..), "values") => {
+            Type::Function(Vec::new(), Box::new(Type::map_iter_any()))
         }
         /* P6.4c — Map.entries yields `[k, v]` pairs;
          * Set.entries yields `[v, v]` pairs (spec
          * §23.1.3.4 / §24.2.3.6). Both return the same
          * MapIter handle (the runtime kind decides the
          * yield shape). */
-        (Type::Map, "entries") => Type::Function(Vec::new(), Box::new(Type::MapIter)),
+        (Type::Map(..), "entries") => Type::Function(Vec::new(), Box::new(Type::map_iter_any())),
         /* P6.4b — Set.keys = .values per spec §24.2.3.5
          * (returns iterator over the elements). */
         (Type::Set, "keys") | (Type::Set, "values") => {
-            Type::Function(Vec::new(), Box::new(Type::MapIter))
+            Type::Function(Vec::new(), Box::new(Type::map_iter_any()))
         }
-        (Type::Set, "entries") => Type::Function(Vec::new(), Box::new(Type::MapIter)),
+        (Type::Set, "entries") => Type::Function(Vec::new(), Box::new(Type::map_iter_any())),
         /* P6.4b — MapIter.next() returns the spec-
          * shaped IteratorResult struct. */
-        (Type::MapIter, "next") => Type::Function(
+        (Type::MapIter(..), "next") => Type::Function(
             Vec::new(),
             Box::new(Type::Struct(vec![
                 ("value".into(), Type::Any),

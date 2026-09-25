@@ -348,7 +348,7 @@ pub(crate) fn family_of(ty: &crate::check::Type) -> Option<Family> {
         Type::Boolean => "Boolean",
         Type::Date => "Date",
         Type::RegExp => "RegExp",
-        Type::Map => "Map",
+        Type::Map(..) => "Map",
         Type::Set => "Set",
         Type::WeakMap => "WeakMap",
         Type::WeakSet => "WeakSet",

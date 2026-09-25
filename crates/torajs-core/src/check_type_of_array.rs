@@ -193,7 +193,7 @@ fn elem_value_ty(checker: &mut Checker, ast: &Ast, eid: ExprId) -> Result<Option
             // materialized product is `Array<Any>` (type-erased,
             // mirroring the Set arm). Lowering boxes the source and
             // routes it through `ssa_lower_arr_from_any::emit`.
-            Type::Map | Type::MapIter | Type::ArrIter => Ok(Some(Type::Any)),
+            Type::Map(..) | Type::MapIter(..) | Type::ArrIter => Ok(Some(Type::Any)),
             // RFC 20260704 S5+ — `[...anyval]` iterates at runtime
             // through the unified protocol; elements are type-erased.
             Type::Any => Ok(Some(Type::Any)),

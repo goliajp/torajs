@@ -244,18 +244,18 @@ fn check_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
                 let _ = checker.type_of(ast, pair[1])?;
             }
         }
-        return Ok(Type::Map);
+        return Ok(Type::map_any());
     }
     // S156 / S166 — runtime-shaped Array<Array<T>> or Map copy-ctor.
     if args.len() == 1 {
         let arg_ty = checker.type_of(ast, args[0])?;
-        if matches!(arg_ty, Type::Map) {
-            return Ok(Type::Map);
+        if matches!(arg_ty, Type::Map(..)) {
+            return Ok(Type::map_any());
         }
         if let Type::Array(inner) = &arg_ty
             && matches!(**inner, Type::Array(_))
         {
-            return Ok(Type::Map);
+            return Ok(Type::map_any());
         }
     }
     // §24.1.1.1 step 7 — anything else is a general iterable (or a
@@ -264,7 +264,7 @@ fn check_map(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, 
     for &arg in args {
         let _ = checker.type_of(ast, arg)?;
     }
-    Ok(Type::Map)
+    Ok(Type::map_any())
 }
 
 fn check_set(checker: &mut Checker, ast: &Ast, args: &[ExprId]) -> Result<Type, String> {

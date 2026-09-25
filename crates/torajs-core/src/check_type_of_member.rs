@@ -259,7 +259,7 @@ fn try_family_dispatch(obj_ty: &Type, name: &str) -> Option<Result<Type, String>
     // third sub-batch).
     if matches!(
         &obj_ty,
-        Type::Map | Type::Set | Type::MapIter | Type::ArrIter
+        Type::Map(..) | Type::Set | Type::MapIter(..) | Type::ArrIter
     ) && let Some(r) = crate::check_type_of_member_setmap::try_match(obj_ty, name)
     {
         return Some(r);

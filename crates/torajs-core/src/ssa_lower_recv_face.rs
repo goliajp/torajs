@@ -59,7 +59,7 @@ pub(crate) fn static_ty(ctx: &LowerCtx<'_>, obj: ExprId) -> Option<Type> {
 /// The `check::Type`s that name one heap layout outright.
 pub(crate) fn monomorphic_face(t: &check_mod::Type) -> Option<Type> {
     Some(match t {
-        check_mod::Type::Map => Type::Map,
+        check_mod::Type::Map(..) => Type::Map,
         check_mod::Type::Set => Type::Set,
         check_mod::Type::WeakMap => Type::WeakMap,
         check_mod::Type::WeakSet => Type::WeakSet,
@@ -67,7 +67,7 @@ pub(crate) fn monomorphic_face(t: &check_mod::Type) -> Option<Type> {
         check_mod::Type::Date => Type::Date,
         check_mod::Type::RegExp => Type::RegExp,
         check_mod::Type::Symbol => Type::Symbol,
-        check_mod::Type::MapIter => Type::MapIter,
+        check_mod::Type::MapIter(..) => Type::MapIter,
         check_mod::Type::ArrIter => Type::ArrIter,
         check_mod::Type::Promise(_) => Type::Promise,
         _ => return None,
