@@ -204,7 +204,7 @@ pub(crate) fn try_dispatch(
             Operand::Value(writes),
         );
         let divert_join = helper::emit_exotic_divert(ctx, arr_ptr, &cmp_val, &cmp_ty, elem_ty);
-        if !helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, elem_ty, arr_ptr) {
+        if !helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, args, elem_ty, arr_ptr) {
             emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, &route);
         }
         if let Some(join) = divert_join {

@@ -44,6 +44,12 @@ pub(crate) const MODE_ELEM_STR: i64 = 8;
 /// entry off the cell header (once per sort), never read per compare
 /// — the lowerer's `mode` never carries it.
 pub(crate) const MODE_RECV_FIRST: i64 = 16;
+/// `mode` bit 5 — the comparator is `(a, b) => a - b` over number
+/// elements, so the sort compares the slots natively ([`NumCmp`]);
+/// bit 6 says the body was `b - a`. Set by the lowerer only after it
+/// read the comparator's body.
+pub(crate) const MODE_NUM_NATIVE: i64 = 32;
+pub(crate) const MODE_NUM_DESC: i64 = 64;
 
 /// `Cmp.rebox_kind` = ARR_KIND_UNSET means the slots already ARE
 /// AnyValues (FLAG_ARR_ANY receiver); any other kind reboxes the
@@ -76,8 +82,34 @@ pub(crate) unsafe fn rebox_slot(kind: u16, raw: u64) -> u64 {
 /// arms into one `is_gt` grew the fn past the inline threshold and
 /// taxed every typed compare).
 pub(crate) trait SortCmp {
+    /// Whether a compare can leave a pending throw. The sort polls
+    /// the throw flag after every compare only when it can.
+    const CAN_THROW: bool = true;
     /// Compare raw slot bits `a`, `b` — `true` iff a sorts after b.
     unsafe fn is_gt(&self, a: u64, b: u64) -> bool;
+}
+
+/// `(a, b) => a - b` (or `b - a` when `DESC`) answered without the
+/// call: §23.1.3.30.2 reads the comparator's sign, and `a - b > 0` is
+/// `a > b` for every pair of numbers — a NaN side (the difference is
+/// NaN, SortCompare's +0) and `Infinity - Infinity` (NaN again) both
+/// compare false either way round, and `-0 - 0` is 0 exactly as
+/// `-0 > 0` is false. Integer slots hold values below 2^53, whose
+/// difference has an exact sign. Nothing here can throw, so the
+/// per-compare throw poll goes too.
+pub(crate) struct NumCmp<const F64: bool, const DESC: bool>;
+
+impl<const F64: bool, const DESC: bool> SortCmp for NumCmp<F64, DESC> {
+    const CAN_THROW: bool = false;
+    #[inline]
+    unsafe fn is_gt(&self, a: u64, b: u64) -> bool {
+        let (x, y) = if DESC { (b, a) } else { (a, b) };
+        if F64 {
+            f64::from_bits(x) > f64::from_bits(y)
+        } else {
+            (x as i64) > (y as i64)
+        }
+    }
 }
 
 /// RFC 20260905 residue 1 — the receiver-first comparator (§23.1.3.30

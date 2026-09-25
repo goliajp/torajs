@@ -44,7 +44,10 @@ const ARR_HDR_LEN_OFF: usize = 8;
 const ARR_HDR_HEAD_OFF: usize = 20;
 
 use crate::layout::arr_data;
-use crate::sort_cmp::{AnyCmp, Cmp, MODE_HAS_ENV, MODE_RECV_FIRST, SortCmp};
+use crate::sort_cmp::{
+    AnyCmp, Cmp, MODE_ELEM_F64, MODE_HAS_ENV, MODE_NUM_DESC, MODE_NUM_NATIVE, MODE_RECV_FIRST,
+    NumCmp, SortCmp,
+};
 
 unsafe extern "C" {
     /// Cross-tier — provided by torajs-throw at `tr build` link time.
@@ -99,7 +102,7 @@ unsafe fn insertion<C: SortCmp>(s: *mut u64, n: usize, cmp: &C) -> bool {
             while j > 0 {
                 let prev = *s.add(j - 1);
                 let gt = cmp.is_gt(prev, cur);
-                if aborted() {
+                if C::CAN_THROW && aborted() {
                     // slots[j] is the hole (its value already shifted
                     // right or copied out as `cur`) — plug it.
                     *s.add(j) = cur;
@@ -139,7 +142,7 @@ unsafe fn merge<C: SortCmp>(
             let l = *scratch.add(i);
             let r = *s.add(j);
             let gt = cmp.is_gt(l, r);
-            if aborted() {
+            if C::CAN_THROW && aborted() {
                 // invariant: j - k == ln - i, so the unconsumed left
                 // run exactly fills the gap before the right run.
                 core::ptr::copy_nonoverlapping(scratch.add(i), s.add(k), ln - i);
@@ -218,6 +221,15 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         }
         let head = *(arr.add(ARR_HDR_HEAD_OFF) as *const u32) as usize;
         let slots = arr_data(arr).add(head * 8) as *mut u64;
+        if mode & MODE_NUM_NATIVE != 0 {
+            match (mode & MODE_ELEM_F64 != 0, mode & MODE_NUM_DESC != 0) {
+                (true, false) => sort_slots(slots, len, &NumCmp::<true, false>),
+                (true, true) => sort_slots(slots, len, &NumCmp::<true, true>),
+                (false, false) => sort_slots(slots, len, &NumCmp::<false, false>),
+                (false, true) => sort_slots(slots, len, &NumCmp::<false, true>),
+            }
+            return;
+        }
         // RFC 20260905 residue 1 — a receiver-first comparator cell
         // (header flag) takes the undefined box ahead of the pair;
         // read once here, the compare loop only tests `mode`.
@@ -228,15 +240,22 @@ pub unsafe extern "C" fn __torajs_arr_sort_cb(
         } else {
             mode
         };
-        let cmp = Cmp { fn_ptr, env, mode };
+        sort_slots(slots, len, &Cmp { fn_ptr, env, mode });
+    }
+}
+
+/// Insertion sort for a short run, merge sort over a scratch buffer
+/// otherwise. `len >= 2`.
+unsafe fn sort_slots<C: SortCmp>(slots: *mut u64, len: usize, cmp: &C) {
+    unsafe {
         if len <= INSERTION_RUN {
-            insertion(slots, len, &cmp);
+            insertion(slots, len, cmp);
             return;
         }
         // scratch holds the larger left run of the top split:
         // ceil(len / 2) slots covers every recursive merge.
         let scratch = malloc(len.div_ceil(2) * 8) as *mut u64;
-        sort_range(slots, scratch, 0, len, &cmp);
+        sort_range(slots, scratch, 0, len, cmp);
         free(scratch as *mut c_void);
     }
 }
@@ -331,7 +350,7 @@ pub(crate) unsafe fn any_sort_slots(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sort_cmp::{MODE_ELEM_F64, MODE_HAS_ENV, MODE_RET_F64};
+    use crate::sort_cmp::{MODE_HAS_ENV, MODE_RET_F64};
     use core::sync::atomic::{AtomicI64, Ordering};
 
     /// Test-controlled stand-in for the torajs-throw TLS flag —
@@ -386,6 +405,68 @@ mod tests {
 
     unsafe extern "C" fn cmp_f64_asc(a: f64, b: f64) -> f64 {
         a - b
+    }
+
+    unsafe extern "C" fn cmp_f64_desc(a: f64, b: f64) -> f64 {
+        b - a
+    }
+
+    unsafe extern "C" fn cmp_i64_desc(a: i64, b: i64) -> i64 {
+        b - a
+    }
+
+    /// The native `(a, b) => a - b` modes permute bit-for-bit like the
+    /// comparator they replace — NaN, -0 and infinities included, and
+    /// stable on ties — for both the insertion and the merge lengths.
+    #[test]
+    fn native_number_modes_match_the_comparator() {
+        let mut seed: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed
+        };
+        let specials = [f64::NAN, -0.0, 0.0, f64::INFINITY, f64::NEG_INFINITY, 1.5];
+        for &n in &[7usize, 40, 300] {
+            let f: Vec<u64> = (0..n)
+                .map(|i| match next() % 9 {
+                    0 => specials[i % specials.len()].to_bits(),
+                    _ => ((next() % 2001) as f64 - 1000.0).to_bits(),
+                })
+                .collect();
+            let g: Vec<u64> = (0..n)
+                .map(|_| (next() % 2001) as i64 as u64 - 1000)
+                .collect();
+            for (slots, native, cb, cmp) in [
+                (
+                    &f,
+                    MODE_ELEM_F64,
+                    MODE_ELEM_F64 | MODE_RET_F64,
+                    cmp_f64_asc as *const u8,
+                ),
+                (
+                    &f,
+                    MODE_ELEM_F64 | MODE_NUM_DESC,
+                    MODE_ELEM_F64 | MODE_RET_F64,
+                    cmp_f64_desc as *const u8,
+                ),
+                (&g, 0, 0, cmp_i64_asc as *const u8),
+                (&g, MODE_NUM_DESC, 0, cmp_i64_desc as *const u8),
+            ] {
+                let (_a, pa) = make_arr(slots, 0);
+                let (_b, pb) = make_arr(slots, 0);
+                unsafe {
+                    __torajs_arr_sort_cb(pa, cmp, core::ptr::null_mut(), native | MODE_NUM_NATIVE);
+                    __torajs_arr_sort_cb(pb, cmp, core::ptr::null_mut(), cb);
+                }
+                assert_eq!(
+                    read_slots(pa, n, 0),
+                    read_slots(pb, n, 0),
+                    "n = {n}, mode = {native}"
+                );
+            }
+        }
     }
 
     // S1 (RFC 20260810-indirect-argc-abi) — env-first shape carries

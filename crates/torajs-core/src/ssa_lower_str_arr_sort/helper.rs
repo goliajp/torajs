@@ -5,6 +5,7 @@
 //! O(n log n) merge sort in torajs-arr that calls the comparator
 //! back through the closure ABI.
 
+use crate::ast::{BinOp, Expr, ExprId, Stmt};
 use crate::ssa::{BlockId, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
@@ -22,6 +23,7 @@ pub(super) fn try_emit_sort_helper(
     ctx: &mut LowerCtx<'_>,
     cmp_val: &Option<Operand>,
     cmp_ty: &Option<Type>,
+    args: &[ExprId],
     elem_ty: Type,
     arr_ptr: ValueId,
 ) -> bool {
@@ -31,6 +33,7 @@ pub(super) fn try_emit_sort_helper(
     let Some(mode) = sort_helper_mode(ctx, *ct, elem_ty) else {
         return false;
     };
+    let mode = mode | native_num_bits(ctx, args.first().copied(), elem_ty);
     let (fn_ptr_op, env_op) = match ct {
         Type::Closure(_) => {
             let env = match cv {
@@ -66,6 +69,69 @@ pub(super) fn try_emit_sort_helper(
     );
     ctx.emit_throw_check(None);
     true
+}
+
+/// `mode` bits 5 / 6 of torajs-arr's `sort_cmp` — compare the slots
+/// natively, in the `b - a` direction when bit 6 is set.
+const MODE_NUM_NATIVE: i64 = 32;
+const MODE_NUM_DESC: i64 = 64;
+
+/// The native-compare bits when the comparator is a capture-free
+/// arrow whose whole body is `a - b` (or `b - a`) over its two plain
+/// parameters and the elements are numbers: its sign is exactly the
+/// order `a > b` gives (`NumCmp` in torajs-arr has the case analysis),
+/// so the runtime sorts without calling it or polling for a throw it
+/// cannot raise. Every other shape answers 0 and keeps the call.
+fn native_num_bits(ctx: &LowerCtx<'_>, cmp_expr: Option<ExprId>, elem_ty: Type) -> i64 {
+    if !matches!(elem_ty, Type::I64 | Type::F64) {
+        return 0;
+    }
+    let Some(Expr::Closure { fn_name, captures }) = cmp_expr.map(|e| ctx.ast.get_expr(e)) else {
+        return 0;
+    };
+    if !captures.is_empty() {
+        return 0;
+    }
+    let Some((params, body)) = crate::ast::toplevel_stmts_flat(ctx.ast)
+        .into_iter()
+        .find_map(|s| match s {
+            Stmt::FnDecl {
+                name, params, body, ..
+            } if name == fn_name => Some((params, body)),
+            _ => None,
+        })
+    else {
+        return 0;
+    };
+    // A lifted arrow carries its env as a leading `__env` parameter.
+    let user = match params.split_first() {
+        Some((env, rest)) if env.name == "__env" => rest,
+        _ => params.as_slice(),
+    };
+    let [p, q] = user else {
+        return 0;
+    };
+    if p.default.is_some() || q.default.is_some() || p.is_rest || q.is_rest {
+        return 0;
+    }
+    let [Stmt::Return(Some(ret))] = body.as_slice() else {
+        return 0;
+    };
+    let Expr::BinOp {
+        op: BinOp::Sub,
+        left,
+        right,
+    } = ctx.ast.get_expr(*ret)
+    else {
+        return 0;
+    };
+    match (ctx.ast.get_expr(*left), ctx.ast.get_expr(*right)) {
+        (Expr::Ident(l), Expr::Ident(r)) if *l == p.name && *r == q.name => MODE_NUM_NATIVE,
+        (Expr::Ident(l), Expr::Ident(r)) if *l == q.name && *r == p.name => {
+            MODE_NUM_NATIVE | MODE_NUM_DESC
+        }
+        _ => 0,
+    }
 }
 
 /// Gate + `mode` computation for the `__torajs_arr_sort_cb` helper
