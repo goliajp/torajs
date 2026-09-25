@@ -27,7 +27,7 @@
 //! - Drop init-scope locals + restore shadowed bindings.
 
 use crate::ast::{ExprId, Stmt};
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Terminator, Type, ValueId};
+use crate::ssa::{InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::{ARR_LEN_OFF, LocalInfo, LowerCtx};
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays;
 
@@ -403,8 +403,8 @@ fn emit_push_loop_reserve(
         else {
             return reserve_emitted;
         };
-        for name in names {
-            let Some(info) = ctx.locals.get(name).copied() else {
+        for (name, per_trip) in crate::ssa_lower_arr_prereserve::push_counts(names) {
+            let Some(info) = ctx.locals.get(&name).copied() else {
                 continue;
             };
             if !matches!(info.ty, Type::Arr(_)) {
@@ -436,16 +436,7 @@ fn emit_push_loop_reserve(
                 Type::I64,
                 None,
             );
-            let target_cap = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(
-                    SsaBinOp::Add,
-                    Operand::Value(initial_len_v),
-                    bound_op.clone(),
-                ),
-                Type::I64,
-                None,
-            );
+            let target_cap = ctx.emit_reserve_target(initial_len_v, bound_op.clone(), per_trip);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(

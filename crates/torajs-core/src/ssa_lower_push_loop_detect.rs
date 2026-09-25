@@ -222,7 +222,8 @@ pub(crate) fn lower_reserve_bound(
     let all_owned = names
         .iter()
         .all(|n| ctx.prereserve.owns_alone(&ctx.deque_arrs, n.as_str()));
-    if names.len() > 1 && !all_owned {
+    let distinct = crate::ssa_lower_arr_prereserve::push_counts(names).len();
+    if distinct > 1 && !all_owned {
         return None;
     }
     if !bound_is_invariant(ctx, bound, names, all_owned) {
@@ -306,9 +307,10 @@ fn collect_push_targets_only(ast: &Ast, s: &Stmt, out: &mut Vec<String>) -> bool
                 let Expr::Ident(xs_name) = ast.get_expr(*obj) else {
                     return false;
                 };
-                if !out.iter().any(|n| n == xs_name) {
-                    out.push(xs_name.clone());
-                }
+                // One entry per push SITE, not per array: the reserve
+                // is sized by how many appends a trip makes
+                // (`ssa_lower_arr_prereserve::push_counts`).
+                out.push(xs_name.clone());
                 true
             }
             _ => false,
@@ -585,6 +587,27 @@ mod tests {
         let result = detect_push_loop_arrays_while(&ast, "i", cond, &body);
         let (_, names) = result.expect("multi-array shape must match");
         assert_eq!(names, vec!["xs".to_string(), "ys".to_string()]);
+    }
+
+    #[test]
+    fn detect_while_counts_every_push_site() {
+        /* while (i < N) { xs.push(i); ys.push(i); xs.push(i); i = i + 1; } */
+        let mut ast = Ast::default();
+        let i_ref = mk_ident(&mut ast, "i");
+        let bound = mk_number(&mut ast, 100.0);
+        let cond = mk_lt(&mut ast, i_ref, bound);
+        let push_xs = mk_push_stmt(&mut ast, "xs", "i");
+        let push_ys = mk_push_stmt(&mut ast, "ys", "i");
+        let push_xs2 = mk_push_stmt(&mut ast, "xs", "i");
+        let step = mk_step(&mut ast, "i");
+        let body = Stmt::Block(vec![push_xs, push_ys, push_xs2, step]);
+
+        let (_, names) = detect_push_loop_arrays_while(&ast, "i", cond, &body)
+            .expect("repeated-push shape must match");
+        assert_eq!(
+            crate::ssa_lower_arr_prereserve::push_counts(&names),
+            vec![("xs".to_string(), 2), ("ys".to_string(), 1)]
+        );
     }
 
     #[test]

@@ -175,6 +175,29 @@ use crate::ssa_lower_str_arr_inplace::emit_arr_lock_bits_guard;
 const EXTEND_LOCK_BITS: u16 =
     torajs_rc::FLAG_FROZEN | torajs_rc::FLAG_SEALED | torajs_rc::FLAG_NON_EXTENSIBLE;
 
+/// Appends per trip for each distinct array a fill loop fills, in
+/// first-push order. The detector lists every push site, so a body
+/// that pushes one array three times names it three times — and the
+/// reserve used to run once per site on the same pre-loop length,
+/// leaving room for one append a trip while the unchecked stores made
+/// three: `for (…) { xs.push(a); xs.push(b) }` wrote a second bound's
+/// worth of slots into whatever cells sat past the buffer.
+pub(crate) fn push_counts(names: &[String]) -> Vec<(String, i64)> {
+    let mut out: Vec<(String, i64)> = Vec::new();
+    for n in names {
+        match out.iter_mut().find(|(m, _)| m == n) {
+            Some((_, k)) => *k += 1,
+            None => out.push((n.clone(), 1)),
+        }
+    }
+    out
+}
+
+/// Largest bound worth scaling: the capacity field is a u32, so a
+/// bound past it already fails the reserve unscaled, and scaling it
+/// could wrap to a small capacity instead.
+const RESERVE_SCALE_MAX_BOUND: i64 = u32::MAX as i64;
+
 impl LowerCtx<'_> {
     /// The fill loop stores slots inline, so the refusal of a
     /// non-extensible receiver (§10.1.8.1 through Set's TypeError) has
@@ -198,6 +221,55 @@ impl LowerCtx<'_> {
     /// interval analysis's element points, and the SUM loop after the
     /// fill lost float demotion (`interval/elem.rs` admits the read
     /// since). Measure the second loop, not only the one touched.
+    /// `len + per_trip * bound` — the capacity `bound` trips of
+    /// `per_trip` appends each need. One append a trip is the plain
+    /// sum, the shape nearly every fill loop has.
+    pub(crate) fn emit_reserve_target(
+        &mut self,
+        len: ValueId,
+        bound: Operand,
+        per_trip: i64,
+    ) -> ValueId {
+        let room = if per_trip == 1 {
+            bound
+        } else {
+            // Branch- and select-free (Select only exists after the
+            // egraph pass): `huge` is 0 or 1, so a wrapped product is
+            // multiplied by zero exactly when the bound was too big to
+            // scale, and the unscaled bound stands in for it.
+            let huge = self.f.append_inst(
+                self.cur_block,
+                InstKind::ICmp(
+                    IPred::Sgt,
+                    bound.clone(),
+                    Operand::ConstI64(RESERVE_SCALE_MAX_BOUND),
+                ),
+                Type::Bool,
+                None,
+            );
+            let huge = self.emit_i64(InstKind::ZExtBoolToI64(Operand::Value(huge)));
+            let keep = self.emit_i64(InstKind::BinOp(SsaBinOp::Sub, Operand::ConstI64(1), huge));
+            let scaled = self.emit_i64(InstKind::BinOp(
+                SsaBinOp::Mul,
+                bound.clone(),
+                Operand::ConstI64(per_trip),
+            ));
+            let scaled = self.emit_i64(InstKind::BinOp(SsaBinOp::Mul, scaled, keep));
+            let unscaled = self.emit_i64(InstKind::BinOp(SsaBinOp::Mul, bound, huge));
+            self.emit_i64(InstKind::BinOp(SsaBinOp::Add, scaled, unscaled))
+        };
+        self.f.append_inst(
+            self.cur_block,
+            InstKind::BinOp(SsaBinOp::Add, Operand::Value(len), room),
+            Type::I64,
+            None,
+        )
+    }
+
+    fn emit_i64(&mut self, kind: InstKind) -> Operand {
+        Operand::Value(self.f.append_inst(self.cur_block, kind, Type::I64, None))
+    }
+
     pub(crate) fn emit_prereserve_entry_gate(&mut self, reserved: ValueId, bound: Operand) {
         let trips = self.f.append_inst(
             self.cur_block,

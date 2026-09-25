@@ -30,7 +30,7 @@
 //! deque_escape`, `ssa_lower_obj_escape`, `ssa_lower_closure_captures`.
 
 use crate::ast::{ExprId, Stmt};
-use crate::ssa::{BinOp as SsaBinOp, InstKind, Operand, Terminator, Type};
+use crate::ssa::{InstKind, Operand, Terminator, Type};
 use crate::ssa_lower::{ARR_LEN_OFF, LowerCtx};
 use crate::ssa_lower_push_loop_detect::detect_push_loop_arrays_while;
 
@@ -78,8 +78,8 @@ pub(crate) fn lower_while_inner(
         // inert by the same reading.
         let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
         let gate_per_append = !crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body);
-        for name in &names {
-            let Some(info) = ctx.locals.get(name).copied() else {
+        for (name, per_trip) in crate::ssa_lower_arr_prereserve::push_counts(&names) {
+            let Some(info) = ctx.locals.get(&name).copied() else {
                 continue;
             };
             if !matches!(info.ty, Type::Arr(_)) {
@@ -113,16 +113,7 @@ pub(crate) fn lower_while_inner(
                 Type::I64,
                 None,
             );
-            let target_cap = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::BinOp(
-                    SsaBinOp::Add,
-                    Operand::Value(initial_len_v),
-                    bound_op.clone(),
-                ),
-                Type::I64,
-                None,
-            );
+            let target_cap = ctx.emit_reserve_target(initial_len_v, bound_op.clone(), per_trip);
             let reserved = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(
