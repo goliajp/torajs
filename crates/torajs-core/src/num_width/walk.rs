@@ -304,7 +304,19 @@ impl<'a> Analysis<'a> {
                 self.walk_expr(*left, scope);
                 self.walk_expr(*right, scope);
             }
+            // `delete xs[i]` leaves a hole, and a number[] hole holds the
+            // F64 sentinel: seed the element slot like an unproven read
+            // (an I64 slot has no word for it; the kernel refuses).
+            Expr::Delete { expr } if matches!(self.ast.get_expr(*expr), Expr::Index { .. }) => {
+                if let Expr::Index { obj, index } = self.ast.get_expr(*expr) {
+                    let (obj, index) = (*obj, *index);
+                    self.seed_index_read_elem(obj, scope, false);
+                    self.walk_expr(obj, scope);
+                    self.walk_expr(index, scope);
+                }
+            }
             Expr::Unary { expr, .. }
+            | Expr::Delete { expr }
             | Expr::TypeOf { expr }
             | Expr::Spread { expr }
             | Expr::As { expr, .. } => self.walk_expr(*expr, scope),

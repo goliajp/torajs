@@ -33,14 +33,18 @@ use crate::check::{Checker, Type};
 ///   (length untouched, the index no longer own, the read answering
 ///   undefined, JSON and Object.keys agreeing with bun), and refcounted
 ///   elements release correctly.
+/// - A `number[]` — its F64 lane spells a hole with the undefined
+///   sentinel under a shadow mark (the width analysis seeds a delete
+///   target's element slot F64, as it does an unproven read); a
+///   `string[]` or an array of objects / arrays / functions — a NULL
+///   slot under the same mark.
 ///
 /// Out, and not for want of a lowering:
 ///
-/// - An array of UNBOXED elements (`number[]`, `string[]`). The kernel
-///   is reached but the hole write is refused at run time as an
-///   element-kind change, which is exactly right: those slots have no
-///   spare value. Admitting it would trade a compile-time refusal for a
-///   run-time throw.
+/// - A `boolean[]`: its slots have no spare value. Admitting it would
+///   trade a compile-time refusal for a run-time throw. (A `number[]`
+///   the width analysis could not move off an integer lane is refused
+///   by the lowering for the same reason.)
 /// - A Struct. Its declared members are fixed layout slots with nowhere
 ///   to go, so the kernel answers false and removes nothing (bun
 ///   deletes and answers true — the divergence recorded in r312).
@@ -52,7 +56,10 @@ use crate::check::{Checker, Type};
 fn receiver_admits_delete(obj_ty: &Type) -> bool {
     match obj_ty {
         Type::Any => true,
-        Type::Array(elem) => **elem == Type::Any,
+        Type::Array(elem) => {
+            matches!(**elem, Type::Any | Type::Number | Type::String)
+                || crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell(elem)
+        }
         // §13.5.1.2 ToObject over a string primitive — the "can the
         // storage say no-longer-here" question never arises: §10.4.3
         // makes the wrapper's own face (in-range indices, `length`)

@@ -32,8 +32,23 @@ use crate::ssa_lower::LowerCtx;
 /// is nothing to release afterwards.
 fn lower_receiver(ctx: &mut LowerCtx<'_>, obj: ExprId) -> Operand {
     let recv = ctx.lower_expr(obj);
-    if ctx.operand_ty(&recv) == Type::Any {
+    let ty = ctx.operand_ty(&recv);
+    if ty == Type::Any {
         return recv;
+    }
+    // A number[] can hold a hole only in its F64 lane (the sentinel);
+    // one the width analysis kept integer or boolean has no word for
+    // it, and the kernel would refuse the write at run time.
+    if let Type::Arr(id) = ty
+        && matches!(
+            ctx.arr_layouts[id.0 as usize],
+            Type::I64 | Type::I32 | Type::Bool
+        )
+    {
+        panic!(
+            "ssa-lower: `delete` on an element of an array held in an integer or \
+             boolean lane is not yet supported (the lane has no word for a hole)"
+        );
     }
     ctx.box_to_any_from_expr(obj, recv)
 }
