@@ -188,17 +188,7 @@ pub(crate) fn lower(
     if let Some(obj_eid) = forin_obj {
         emit_forin_guard(ctx, obj_eid, &v_val, step_blk);
     }
-    // A loop variable off a container some write filled with the
-    // out-of-range sentinel can hold one, and the body reads it by
-    // name — the same registry a `const x = ys[i]` init fills. Without
-    // this `for (const x of ys) typeof x` answered "number" where the
-    // identical `typeof ys[i]` at the same index answered "undefined".
-    if v_ty == Type::F64
-        && let Expr::Ident(src) = ctx.ast.get_expr(src_ref_eid)
-        && ctx.num_f64_slots.container_elem_takes_sentinel(src)
-    {
-        ctx.undefable_f64_lets.insert(var_name.to_string());
-    }
+    crate::ssa_lower_for_of_written::note_sentinel_loop_var(ctx, var_name, v_ty, src_ref_eid);
     crate::ssa_lower_for_of_written::bind_loop_var(
         ctx,
         var_name,

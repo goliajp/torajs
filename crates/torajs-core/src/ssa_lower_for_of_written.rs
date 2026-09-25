@@ -92,3 +92,22 @@ pub(crate) fn bind_loop_var(
         .append_void(cur_block, InstKind::Store(v_val, Operand::Value(slot), 0));
     bind_scoped_local(ctx, var_name, slot, v_ty, borrowed, borrowed, false);
 }
+
+/// A loop variable off a container some write filled with the
+/// out-of-range sentinel can hold one, and the body reads it by
+/// name — the same registry a `const x = ys[i]` init fills. Without
+/// this `for (const x of ys) typeof x` answered "number" where the
+/// identical `typeof ys[i]` at the same index answered "undefined".
+pub(crate) fn note_sentinel_loop_var(
+    ctx: &mut LowerCtx,
+    var_name: &str,
+    v_ty: Type,
+    src_ref_eid: crate::ast::ExprId,
+) {
+    if v_ty == Type::F64
+        && let crate::ast::Expr::Ident(src) = ctx.ast.get_expr(src_ref_eid)
+        && ctx.num_f64_slots.container_elem_takes_sentinel(src)
+    {
+        ctx.undefable_f64_lets.insert(var_name.to_string());
+    }
+}
