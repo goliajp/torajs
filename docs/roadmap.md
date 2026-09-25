@@ -9469,9 +9469,23 @@ target *and* 轴 E through E4**. The axes, with what each still owes —
   chasing 0.25 (4×)**. Measured @ `572877dac` (2026-09-19, runs=3):
   median **0.4334** across 46 cells, **0 cells slower than bun**, best
   `popcount` 0.042×, worst `prime_count` 0.949×. **Open by 1.313×.**
-  P-PERF's own projection for S1-A2 + S2 + S6 + S7 all landing is
-  **0.442 — still short**, which is why decomposition (not polish) is
-  the standing mode on this axis.
+  Latest @ `b99c98bf9` (2026-09-24, runs=3): median **0.4373**, 0
+  cells slower, open by 1.325×.
+  **Re-planned 2026-09-25 (takagi: perf and its foundations go first).**
+  The old "S1-A2 + S2 + S6 + S7 → 0.442, still short" projection is
+  superseded: it was built on the 08-24 baseline of 0.618 and aimed at
+  the worst cells. The gate is a *median* — the mean of cells 23 and 24
+  of 46 — so it closes when **≥ 24 cells are ≤ 0.33** (17 today). None
+  of the native-floor cells (gcd1m / prime_count / mandelbrot / fib40 /
+  collatz) is needed. Six mechanisms over ~14 cells project to **≈ 0.30**
+  with 5–6 cells of margin: R1 regex result scalarization (9 cells),
+  K1 read-only captures by value + heap-cell scalar replacement, K2 the
+  unlocated generic-id / closure-pipeline residue, M map-str int→string
+  and `%`, S sort comparator specialization, K3 array-copy. See P-PERF
+  "路线 @ 2026-09-25". The gate verdict is read off the median of ≥ 3
+  independent full-matrix runs (single-run median swings ±0.02).
+  0.25 is a different job, not the continuation: i64-domain NEON
+  reductions past rustc -O's scalar floor + zero-heap string results.
   **Scale note (2026-09-20, positioning).** The target number stands
   as takagi set it on 2026-08-24 and is not restated here. What the
   new positioning adds is how to *read* it: `tr/bun` is one projection
@@ -9734,6 +9748,60 @@ tr 2.09 / bun-aot 3.97 / rust 1.12 ms）：
 4. **3-4× 是 S1-A2 + S2 + S6 + S7 的合取，无单点银弹。** 各族分头
    走两步舞（Phase A decomposition → Phase B attack），禁 polish。
 
+> **（2026-09-25 更正）上面第 3、4 条已被取代**,见下一节「路线 @ 2026-09-25」。
+> 0.442 的投影建在 08-24 的 0.618 基线上、攻的是最差格;今天实测 0.4373
+> 已低于它,而 S1-A2 / S6 一个都没落。「S6 SIMD 是 v1 达标必需」与
+> 「纯数值三格要超越 -O native」两句随之作废 —— median 用不到那三格。
+
+### 路线 @ 2026-09-25 — 按 median 的结构攻,不按最差格攻
+
+三路 Fable 研究 + 主轨 mini 实测,合成全文
+`.claude/tasks/2026-09-25/perf-target-0.33-analysis.md`。
+
+**gate 的结构**:`median` = 46 格排序后第 23/24 格的均值（今天
+`closure-pipeline-1m` 0.415 / `collatz` 0.460）。≤ 0.33 等价于**至少
+24 格 ≤ 0.33**;今天 17 格在线。`gcd1m` / `prime_count` / `mandelbrot` /
+`fib40` / `collatz` **一格都不用救** —— 前四格 rust 是同形程序且 tr 已
+贴平,collatz 的 rust 是 u64 位运算（`.ts` 是 f64 `% 2` / `/ 2`,注释写明
+int32 会溢出）,要快过它才能进线。
+
+**0.33 可达,推荐集合 6 个机制动约 14 格,投影 median ≈ 0.30**（两路独立
+估算 0.30 与 0.30–0.32）,余量 5–6 格:
+
+| # | 机制 | 格 | 投影 | 置信 / 证据 |
+|---|---|---|---|---|
+| R1 | **regex 结果标量化**:结果只被 null 测 / `m[k≤n_captures]` / `.length` 读、re 字面量非 g/d → kernel 只回 `(start,len)`,不建数组不建 Str(+R2 直连入口、R3 Str 头 IS_ASCII 位) | regex-dfa ×8 + wireback | dfa 0.29–0.32(uflag 0.35)· wireback 0.26 | 中高:物化+释放 ≈ 15 ns 有两个独立锚(09-18 dotall 分账 S4+S5+S7;09-19 wireback 稳态) |
+| K1 | **只读捕获按值 + 堆单元标量替换**(新 pass,inline₂ 之后) | closure-counter · class-method · array-map | 0.30 · 0.17 · 0.32–0.35 | 中高:STATS 实测 closure-counter 去虚化 8 / 二轮内联 8 但 `values_demoted: 0` —— capture box 两条依赖 load 无 interval 事实,累加器留在 f64 |
+| K2 | generic-id / closure-pipeline 残余(**未定位**) | 2 格 | 各 ≈ 0.30 | 实测排除了 inline 与 demote(两格读数与 `array-sum-1m` 相同),差 2.3 / 4.7 ms,需反汇编 |
+| M | f64 整数 → 串走 itoa(`to_str.rs:84`)+ `%` 被除数非负范围事实走 srem(`ssa_lower_binop_inner.rs:145` 今天只认常量被除数) | map-str | 0.30 | 中 |
+| S | `a-b` / `b-a` 比较器单态化成原生比较(去间接调用 + 每次比较的 throw 轮询,`sort.rs:96-101`) | array-sort | 0.27 | 中 |
+| K3 | copy 环的索引读入 inert + `Elem(dst)` 越界 seed 消除(STATS 实测 dst 元素判 F64) | array-copy | 0.31–0.33 | 低:80 MB 页错误地板未量 |
+
+**压不到 0.33、也不在 median 必经路径上**:json 0.50(单态化写出器可到
+0.36–0.39)· csv-rebuild 0.44(需 concat 视图,Str 表示层架构件)·
+str-replace 0.42 · csv-trim 0.37(SWAR)· promise-then 0.35 · rpn-eval
+0.36–0.40 · collatz 0.34–0.37。
+
+**固定成本层已见底**:tr 启动 0.92 ms 与 C-hello 同量级;启动归零也只让
+regex 格 0.49 → 0.40。**median 问题不在启动。**
+
+**判定纪律**:`str-concat-ascii` 0.329(余量 0.3%)必掉、`multibyte-concat`
+0.306 在带边;单轮 median 抖 ±0.02(09-23 r3 整轮异常,13 格在线)。
+**目标格打到 0.30;达标判定取 ≥ 3 份独立全矩阵结果的 median。**
+
+**0.25 不是 0.33 的延长线**:需要 ① `number[]` 家族在 demote 后的 i64 域做
+NEON 归约,越过 rustc -O 的非向量化地板(JS f64 顺序求和不可重结合,只有
+i64 域合法)② 字符串结果零堆分配;promise-chain / promise-all 在 0.25 口径下
+work 只有 0.1–0.2 ms,量具先不够。
+
+**本节推翻的前提**:`generic-id-1m` 的差距「是 rust 在自动向量化」只对一半
+(tr 自己比同工作量的 `array-sum-1m` 多 2.3 ms);closure-counter /
+closure-pipeline / array-map / array-copy 的 `main.rs` 用 `black_box` /
+`&dyn Fn` 故意压制去虚化,rust 行不是硬件地板;S1-B(match 属性惰性化)
+早已落地 `fc8c3f7c`;「json/csv 靠 S1-A2 逃逸栈分配」在 r486 decomposition
+已被推翻(`.claude/rfcs/20260824-s1a2-alloc-decomp/decomposition.md`);
+S2 启动 ≤ 1.0 ms 已达成。
+
 ### Phase A @ 2026-08-30 — 判据从「指令条数」改成「依赖链」
 
 rotation 533 对 `number[]` 热路径跑了完整两步舞的 Phase A(实测半 =
@@ -9870,6 +9938,8 @@ ceiling",指的就是它:不是"我们输给 rust 了",而是"离物理上限还
 `xs[j]` 的元素访问(已是一条 AGU-scaled `ldr`,与 rust 同形)/
 边界检查(guard-dominated elision 已消除)/ push 的 RC(`I64`/`F64`
 不 `is_refcounted()`,静态为零)/ `generic-id-1m` 的 2.15×
+**(2026-09-25 更正:只对一半 —— tr 自己比同工作量的 `array-sum-1m`
+多 2.3 ms,inline 与 demote 读数相同,残余是 tr 的,见 K2)**
 (**是 rust 在自动向量化,不是 tr 退步**)/ 整数常量提升与 move
 coalescing(链外,估中性)。
 
@@ -9966,7 +10036,12 @@ coalescing(链外,估中性)。
   **1.271**。**S1 剩余**：A1 WeakRef 观察位（split/match 各 ~4%）、
   B match 结果 exec-shape 属性惰性化（match 17%）、A2 逃逸分析后
   栈分配整块结果数组（split 46%，架构件）。
-- **S2 — 启动降到 native 地板。** 把 2.589 → 1.351 的 1.2 ms 差拆开。
+  **（2026-09-25 状态）** B 已落地 `fc8c3f7c`（`ast/regex_result_props.rs`,
+  bench 形状 want_exec=0）;A2 对 json/csv/str 三族的前提已被 r486
+  decomposition 推翻。S1 的后继是「路线 @ 2026-09-25」的 **R1**（结果数组
+  本身不物化）。
+- **S2 — 启动降到 native 地板。** **（2026-09-25:已达成,tr 0.92 ms,与
+  C-hello 同量级;本项关闭,残余只有 no-PIE 一条路,属 takagi 决策项。）** 把 2.589 → 1.351 的 1.2 ms 差拆开。
   **必须用消融法（删掉某一步量整体差值），禁止用计时器夹小步**
   （`perf-decomposition` §1：优化构建里时钟读取不是屏障）。嫌疑面：
   内建原型 / class metadata 注册在启动期跑、池预热、TLV 初始化。
@@ -10000,6 +10075,8 @@ coalescing(链外,估中性)。
   ——stdout 相同不能证明在做同样的工作，这正是 perf 方法论
   「计时前断言各实现输出一致…否则比较的是不同的工作」的另一面）。
 - **S6 — SIMD 字节扫描 substrate（独立轴，大载荷才兑现）。**
+  **（2026-09-25）不是 0.33 的必经项**;它在 0.25 路线上以另一形态回来 ——
+  demote 后 i64 域的 NEON 归约(见「路线 @ 2026-09-25」末段)。
   事实为真（全仓 SIMD=0），但**不是当前 bench losses 的根因**，
   所以排在 S1–S5 之后，并且立项前要先有一条**载荷够大**的 case 证明
   它值钱（现有 regex case 的干草堆只有 20–26 字节）。届时产物是
