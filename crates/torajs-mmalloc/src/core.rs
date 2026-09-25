@@ -120,20 +120,7 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         return zero_sentinel();
     }
     if size > SIZE_CLASSES[SIZE_CLASSES.len() - 1] {
-        // Large path — direct mmap + registry insert so Layer 0
-        // free(ptr) can recover size for `large_free` dispatch.
-        let p = match large_alloc(size) {
-            Ok(p) => p,
-            Err(_) => return core::ptr::null_mut(),
-        };
-        // large_alloc rounds size up to PAGE_4K internally; mirror
-        // here so the registered size matches the mmap'd region's
-        // actual length (needed for ptr-containment lookup).
-        let rounded = (size.max(1) + 4095) & !4095;
-        lock();
-        unsafe { (*&raw mut CORE_REGISTRY).insert(p as usize, LARGE_CLASS_IDX, rounded) };
-        unlock();
-        return p;
+        return alloc_large(size);
     }
     let class_idx = match Allocator::bucket_for(size) {
         Some(i) => i,
@@ -145,8 +132,42 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
     if let Some(p) = unsafe { (*tlab).pop(class_idx) } {
         return p;
     }
-    // TLAB miss — drain up to TLAB_CACHE_DEPTH slots from Central
-    // back into per-thread TLAB. Central is lock-free MPMC.
+    alloc_refill(size, class_idx)
+}
+
+/// Large path — direct mmap + registry insert so Layer 0 `free(ptr)`
+/// can recover size for `large_free` dispatch.
+///
+/// Out of line and cold, like every path below the TLAB pop: inlined
+/// into `alloc_sized`, the syscall and lock sequences made the fast
+/// path's own frame save every callee-saved register (d8-d15 among
+/// them) on each call, TLAB hit or not — the release runtime paid it
+/// per object allocation.
+#[cold]
+#[inline(never)]
+fn alloc_large(size: usize) -> *mut u8 {
+    let p = match large_alloc(size) {
+        Ok(p) => p,
+        Err(_) => return core::ptr::null_mut(),
+    };
+    // large_alloc rounds size up to PAGE_4K internally; mirror
+    // here so the registered size matches the mmap'd region's
+    // actual length (needed for ptr-containment lookup).
+    let rounded = (size.max(1) + 4095) & !4095;
+    lock();
+    unsafe { (*&raw mut CORE_REGISTRY).insert(p as usize, LARGE_CLASS_IDX, rounded) };
+    unlock();
+    p
+}
+
+/// TLAB miss — drain up to TLAB_CACHE_DEPTH slots from Central back
+/// into the per-thread TLAB (Central is lock-free MPMC); both empty,
+/// the central Allocator under lock (its per-class span lists need
+/// sync). Only entered on first allocs and refills.
+#[cold]
+#[inline(never)]
+fn alloc_refill(size: usize, class_idx: usize) -> *mut u8 {
+    let tlab = &raw mut __torajs_core_tlab;
     let first_central = CORE_CENTRAL.pop(class_idx);
     if let Some(p) = first_central {
         for _ in 1..TLAB_CACHE_DEPTH {
@@ -164,9 +185,6 @@ pub fn alloc_sized(size: usize) -> *mut u8 {
         }
         return p;
     }
-    // TLAB + Central both empty — central Allocator (under lock,
-    // since Allocator's per-class span lists need sync). Only
-    // entered on first allocs / cold paths.
     lock();
     let before_mapped = unsafe { (*&raw const CORE_ALLOC).mapped_bytes() };
     let p = unsafe { (*&raw mut CORE_ALLOC).alloc(size) }.unwrap_or(core::ptr::null_mut());
@@ -201,11 +219,7 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
         return;
     }
     if size > SIZE_CLASSES[SIZE_CLASSES.len() - 1] {
-        // Large path — deregister from registry then munmap.
-        lock();
-        unsafe { (*&raw mut CORE_REGISTRY).remove(ptr as usize) };
-        unlock();
-        let _ = unsafe { large_free(ptr, size) };
+        unsafe { free_large(ptr, size) };
         return;
     }
     let class_idx = match Allocator::bucket_for(size) {
@@ -217,8 +231,31 @@ pub unsafe fn free_sized(ptr: *mut u8, size: usize) {
     if unsafe { (*tlab).push(class_idx, ptr) } {
         return;
     }
-    // TLAB full — push to Central (lock-free MPMC). Next alloc-
-    // miss on this class drains Central back to TLAB amortized.
+    unsafe { free_spill(ptr, class_idx) };
+}
+
+/// Large path — deregister from registry then munmap. Cold and out of
+/// line for the reason [`alloc_large`] gives.
+///
+/// # Safety
+/// As [`free_sized`], for a large allocation.
+#[cold]
+#[inline(never)]
+unsafe fn free_large(ptr: *mut u8, size: usize) {
+    lock();
+    unsafe { (*&raw mut CORE_REGISTRY).remove(ptr as usize) };
+    unlock();
+    let _ = unsafe { large_free(ptr, size) };
+}
+
+/// TLAB full — push to Central (lock-free MPMC). The next alloc miss
+/// on this class drains Central back to the TLAB, amortized.
+///
+/// # Safety
+/// As [`free_sized`].
+#[cold]
+#[inline(never)]
+unsafe fn free_spill(ptr: *mut u8, class_idx: usize) {
     unsafe { CORE_CENTRAL.push(class_idx, ptr) };
 }
 
