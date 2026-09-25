@@ -59,8 +59,18 @@ use super::{Ast, Expr, ExprId, Stmt};
 /// Names standing as the receiver of a `delete <name>[k]` /
 /// `delete <name>.p`, then every unannotated `LetDecl` of such a name
 /// whose init is an array literal rewritten to `: any[]`.
+///
+/// Since the typed delete landed (r704, `99cef557d`) a `number[]`, a
+/// `string[]` and an array of object or array cells keep a hole in
+/// their own slots (the F64 sentinel, the null reference), so a delete
+/// alone no longer needs the boxed lane for them: a literal whose
+/// elements are all numbers, all strings, or all object / array
+/// literals stays typed. Booleans have no hole word in the integer /
+/// bool lanes yet, and a mixed literal has no one element type, so
+/// those still widen; so does every accessor target below.
 pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     let mut names: HashSet<String> = HashSet::new();
+    let mut accessor_targets: HashSet<String> = HashSet::new();
     for e in &ast.exprs {
         let Expr::Delete { expr } = e else {
             continue;
@@ -76,6 +86,7 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     for e in &ast.exprs {
         if let Some(n) = accessor_define_target(&ast.exprs, e) {
             names.insert(n.to_string());
+            accessor_targets.insert(n.to_string());
         }
     }
     if names.is_empty() {
@@ -86,21 +97,27 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
     // The mutable spine is FULLY recursive (each nested list handed to
     // the callback exactly once), so the per-list body must not
     // recurse itself.
-    widen_flat(&mut stmts, &ast.exprs, &names, &claimed);
+    let marked = Marked {
+        names: &names,
+        accessor_targets: &accessor_targets,
+        claimed: &claimed,
+    };
+    widen_flat(&mut stmts, &ast.exprs, &marked);
     for s in stmts.iter_mut() {
         super::stmt_nested_lists::for_each_nested_vec_mut(s, &mut |inner| {
-            widen_flat(inner, &ast.exprs, &names, &claimed)
+            widen_flat(inner, &ast.exprs, &marked)
         });
     }
     ast.stmts = stmts;
 }
 
-fn widen_flat(
-    stmts: &mut [Stmt],
-    exprs: &[Expr],
-    names: &HashSet<String>,
-    claimed: &HashSet<ExprId>,
-) {
+struct Marked<'a> {
+    names: &'a HashSet<String>,
+    accessor_targets: &'a HashSet<String>,
+    claimed: &'a HashSet<ExprId>,
+}
+
+fn widen_flat(stmts: &mut [Stmt], exprs: &[Expr], marked: &Marked<'_>) {
     for s in stmts.iter_mut() {
         let Stmt::LetDecl {
             name,
@@ -111,13 +128,42 @@ fn widen_flat(
         else {
             continue;
         };
-        if type_ann.is_some() || !names.contains(name) || claimed.contains(init) {
+        if type_ann.is_some() || !marked.names.contains(name) || marked.claimed.contains(init) {
             continue;
         }
-        if matches!(peel_as(exprs, *init), Expr::Array(_)) {
+        let Expr::Array(els) = peel_as(exprs, *init) else {
+            continue;
+        };
+        if marked.accessor_targets.contains(name) || !holes_in_own_slots(exprs, els) {
             *type_ann = Some("any[]".to_string());
         }
     }
+}
+
+/// The literal's elements share one kind whose typed array keeps a
+/// hole in its own slots: all numbers, all strings, or all object /
+/// array cells.
+fn holes_in_own_slots(exprs: &[Expr], els: &[ExprId]) -> bool {
+    #[derive(PartialEq)]
+    enum Kind {
+        Number,
+        Str,
+        Cell,
+    }
+    let kind = |e: ExprId| match peel_as(exprs, e) {
+        Expr::Number(_) => Some(Kind::Number),
+        Expr::Unary {
+            op: super::UnaryOp::Neg,
+            expr,
+        } if matches!(exprs[expr.0 as usize], Expr::Number(_)) => Some(Kind::Number),
+        Expr::String(_) => Some(Kind::Str),
+        Expr::ObjectLit { .. } | Expr::Array(_) => Some(Kind::Cell),
+        _ => None,
+    };
+    let Some(first) = els.first().and_then(|e| kind(*e)) else {
+        return false;
+    };
+    els.iter().all(|e| kind(*e).as_ref() == Some(&first))
 }
 
 /// TS casts are static assertions — look at the value underneath.
