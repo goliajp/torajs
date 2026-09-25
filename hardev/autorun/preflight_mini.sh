@@ -100,7 +100,13 @@ local_script="$(mktemp -t preflight)"
   for fx in ${fixtures[@]+"${fixtures[@]}"}; do
     case "$fx" in
       *.cts) echo "diff <(./target/iter/tr run '$fx' 2>/dev/null) '${fx%.cts}.expected' > /dev/null && echo 'FIXTURE EQ $fx' || echo 'FIXTURE DIFF $fx'" ;;
-      *.ts)  echo "diff <(./target/iter/tr run '$fx' 2>/dev/null) <(bun '$fx' 2>/dev/null) > /dev/null && echo 'FIXTURE EQ $fx' || echo 'FIXTURE DIFF $fx'" ;;
+      # a hand-written .expected is the fixture's oracle (the gate reads
+      # it the same way); only a fixture without one runs against bun
+      *.ts)  if [ -f "${fx%.ts}.expected" ]; then
+               echo "diff <(./target/iter/tr run '$fx' 2>/dev/null) '${fx%.ts}.expected' > /dev/null && echo 'FIXTURE EQ $fx' || echo 'FIXTURE DIFF $fx'"
+             else
+               echo "diff <(./target/iter/tr run '$fx' 2>/dev/null) <(bun '$fx' 2>/dev/null) > /dev/null && echo 'FIXTURE EQ $fx' || echo 'FIXTURE DIFF $fx'"
+             fi ;;
     esac
   done
 } > "$local_script"
