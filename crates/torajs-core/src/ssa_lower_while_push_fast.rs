@@ -76,7 +76,7 @@ pub(crate) fn lower_while_inner(
         // length word in a register until the loop ends — see
         // `PreReserveState::defer_len`. The trailing counter step is
         // inert by the same reading.
-        let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
+        let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body, &names);
         let gate_per_append = !crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body);
         for (name, per_trip) in crate::ssa_lower_arr_prereserve::push_counts(&names) {
             let Some(info) = ctx.locals.get(&name).copied() else {

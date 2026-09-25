@@ -95,16 +95,20 @@ pub(crate) fn detect_push_loop_arrays(
 /// this does not recognise gets the length word written on every
 /// append instead, which costs a store rather than an answer.
 /// Literals, numeric locals, and arithmetic over them are the whole
-/// list — none of those can call, read a heap cell, or throw. Two
-/// absences are deliberate. A member or index read is out: `xs.length`
-/// is the case that started this, and an out-of-range index read on a
-/// non-`number[]` throws. And the operand types are checked, not just
-/// the operator: `a + b` over `any` runs `valueOf`, which is user code
-/// with the array in scope.
-pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
+/// list — none of those can call, read a heap cell, or throw. A
+/// member read is out: `xs.length` is the case that started this. An
+/// element read `a[k]` answering `number` / `boolean` is in when `a`
+/// cannot be one of `names` (the arrays being filled) under the same
+/// test the bound's `a.length` passes ([`array_is_unfilled`]): it
+/// reads a cell whose length word is live, a typed element read
+/// cannot call, and its out-of-range answer is `undefined`, not a
+/// throw. That is the copy loop `dst.push(src[i])`. The operand types
+/// are checked, not just the operator: `a + b` over `any` runs
+/// `valueOf`, which is user code with the array in scope.
+pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt, names: &[String]) -> bool {
     match s {
         Stmt::Expr(eid) => match ctx.ast.get_expr(*eid) {
-            Expr::Call { args, .. } => args.iter().all(|a| expr_is_inert(ctx, *a)),
+            Expr::Call { args, .. } => args.iter().all(|a| push_arg_is_inert(ctx, *a, names)),
             // The `while` lane's body carries its counter step as the
             // last statement. Bumping a local cannot look at the array
             // either, in either spelling.
@@ -117,9 +121,28 @@ pub(crate) fn push_args_all_inert(ctx: &LowerCtx<'_>, s: &Stmt) -> bool {
             _ => false,
         },
         Stmt::Block(stmts) | Stmt::Multi(stmts) => {
-            stmts.iter().all(|s| push_args_all_inert(ctx, s))
+            stmts.iter().all(|s| push_args_all_inert(ctx, s, names))
         }
         _ => false,
+    }
+}
+
+/// One push argument. See [`push_args_all_inert`].
+fn push_arg_is_inert(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String]) -> bool {
+    let typed = matches!(
+        ctx.expr_types.get(&eid),
+        Some(crate::check::Type::Number) | Some(crate::check::Type::Boolean)
+    );
+    match ctx.ast.get_expr(eid) {
+        Expr::Index { obj, index } if typed => {
+            matches!(ctx.ast.get_expr(*obj), Expr::Ident(a)
+                if array_is_unfilled(ctx, *obj, a, names, names_all_owned(ctx, names)))
+                && expr_is_inert(ctx, *index)
+        }
+        Expr::BinOp { op, left, right } if typed && is_inert_binop(*op) => {
+            push_arg_is_inert(ctx, *left, names) && push_arg_is_inert(ctx, *right, names)
+        }
+        _ => expr_is_inert(ctx, eid),
     }
 }
 
@@ -219,9 +242,7 @@ pub(crate) fn lower_reserve_bound(
     // `xs.length` may be read as a bound only when nothing the body
     // does can move it, which needs each filled array proved to be
     // this body's alone.
-    let all_owned = names
-        .iter()
-        .all(|n| ctx.prereserve.owns_alone(&ctx.deque_arrs, n.as_str()));
+    let all_owned = names_all_owned(ctx, names);
     let distinct = crate::ssa_lower_arr_prereserve::push_counts(names).len();
     if distinct > 1 && !all_owned {
         return None;
@@ -270,16 +291,7 @@ fn bound_is_invariant(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String], all_own
         && name == "length"
         && let Expr::Ident(a) = ctx.ast.get_expr(*obj)
     {
-        if names.iter().any(|n| n == a) {
-            return false;
-        }
-        if matches!(ctx.expr_types.get(obj), Some(crate::check::Type::String)) {
-            return true;
-        }
-        if !matches!(ctx.expr_types.get(obj), Some(crate::check::Type::Array(_))) {
-            return false;
-        }
-        return all_owned || ctx.prereserve.owns_alone(&ctx.deque_arrs, a);
+        return array_is_unfilled(ctx, *obj, a, names, all_owned);
     }
     if let Expr::BinOp { op, left, right } = ctx.ast.get_expr(eid)
         && is_inert_binop(*op)
@@ -288,6 +300,35 @@ fn bound_is_invariant(ctx: &LowerCtx<'_>, eid: ExprId, names: &[String], all_own
             && bound_is_invariant(ctx, *right, names, all_owned);
     }
     expr_is_inert(ctx, eid)
+}
+
+/// Every filled array is this body's alone (see [`lower_reserve_bound`]).
+fn names_all_owned(ctx: &LowerCtx<'_>, names: &[String]) -> bool {
+    names
+        .iter()
+        .all(|n| ctx.prereserve.owns_alone(&ctx.deque_arrs, n.as_str()))
+}
+
+/// `a` (the ident at `obj`) is a string, or an array that is not one
+/// of `names` and cannot be a second name for one — the two-sided
+/// question [`bound_is_invariant`] documents.
+fn array_is_unfilled(
+    ctx: &LowerCtx<'_>,
+    obj: ExprId,
+    a: &str,
+    names: &[String],
+    all_owned: bool,
+) -> bool {
+    if names.iter().any(|n| n == a) {
+        return false;
+    }
+    if matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::String)) {
+        return true;
+    }
+    if !matches!(ctx.expr_types.get(&obj), Some(crate::check::Type::Array(_))) {
+        return false;
+    }
+    all_owned || ctx.prereserve.owns_alone(&ctx.deque_arrs, a)
 }
 
 /// Walk `s` and collect ident names of arrays that are the receiver

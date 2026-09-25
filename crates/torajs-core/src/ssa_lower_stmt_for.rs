@@ -389,7 +389,8 @@ fn emit_push_loop_reserve(
     // Only a body whose every push argument is inert may keep the
     // length word in a register until the loop ends — see
     // `PreReserveState::defer_len`.
-    let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body);
+    let filled: &[String] = pushed_arrays.as_ref().map_or(&[], |(_, n)| n);
+    let defer_len = crate::ssa_lower_push_loop_detect::push_args_all_inert(ctx, body, filled);
     let gate_per_append = !crate::ssa_lower_push_loop_gate::push_args_cannot_call(ctx, body);
     let mut reserve_emitted: Vec<String> = Vec::new();
     if let Some((bound_eid, names)) = &pushed_arrays {
