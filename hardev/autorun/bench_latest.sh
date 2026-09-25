@@ -148,6 +148,28 @@ stamp = {
     # week's bun is a ratio against a competitor that no longer exists.
     "bunStamped": bun_of(doc),
 }
+# The rust row is only a native-ceiling reading where main.rs does the
+# same work (bench/rust-semantics.json). Carried as a second median next
+# to the all-cells one, never instead of it.
+sem = json.load(open("bench/rust-semantics.json"))
+rust_cases = set()
+for by in tables:
+    rust_cases |= set(per_file(by, "torajs", "rust", "run_ms"))
+unlisted = sorted(c for c in rust_cases if c not in sem)
+if unlisted:
+    print("bench_latest: rust rows with no entry in bench/rust-semantics.json: "
+          + ", ".join(unlisted), file=sys.stderr)
+    sys.exit(2)
+same = {c for c, v in sem.items() if isinstance(v, dict) and v.get("kind") == "same"}
+pooled_same = {}
+for by in tables:
+    for case, v in per_file(by, "torajs", "rust", "run_ms").items():
+        if case in same:
+            pooled_same.setdefault(case, []).append(v)
+if pooled_same:
+    stamp["medianVsRustSameProgram"] = round(statistics.median(
+        statistics.median(vs) for vs in pooled_same.values()), 4)
+    stamp["rustSameProgramCells"] = len(pooled_same)
 for label, other in (("Node", "node-v8"), ("Go", "go"), ("Rust", "rust"),
                      ("BunJsc", "bun-jsc")):
     mine = "torajs-run" if other == "bun-jsc" else "torajs"
