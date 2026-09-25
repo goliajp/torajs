@@ -291,6 +291,7 @@ pub(crate) mod ssa_lower_arr_prereserve;
 pub(crate) mod ssa_lower_arr_variadic;
 pub(crate) mod ssa_lower_array;
 pub(crate) mod ssa_lower_array_alloc;
+pub(crate) mod ssa_lower_array_any_gate;
 pub(crate) mod ssa_lower_array_any_literal;
 pub(crate) mod ssa_lower_array_spread;
 pub(crate) mod ssa_lower_assign;
