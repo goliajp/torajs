@@ -232,7 +232,12 @@ impl<'a> Parser<'a> {
             // goes to the runtime-construct path.
             Token::LParen => {
                 self.pos += 1;
-                let inner = self.parse_expr()?;
+                // the parenthesized callee is a full §13.16 Expression
+                // (`new ((y = 3), A)()`), and parentheses reset [In]
+                // the same as `parse_primary_paren`
+                let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
+                let inner = self.parse_expr_list()?;
+                self.in_for_init = saved_in_for_init;
                 match self.peek() {
                     Token::RParen => self.pos += 1,
                     t => {
