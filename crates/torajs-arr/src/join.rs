@@ -302,11 +302,15 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
         let out_latin1 = sep_latin1_folded(sep, sep_units, len);
         let sep_latin1 = str_is_latin1(sep);
         let mut buf = [0u8; 32];
-        // pass 1: total (decimal / NaN / Infinity are ASCII pieces)
+        // pass 1: total (decimal / NaN / Infinity are ASCII pieces;
+        // an undefined element or a hole — the sentinel bits — joins
+        // as the empty string, §23.1.3.18 step 7.b)
         let mut total: u64 = 0;
         for i in 0..len {
             let e = *(slot_addr(arr, i) as *const f64);
-            total += if e.is_nan() {
+            total += if e.to_bits() == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+                0
+            } else if e.is_nan() {
                 3 // "NaN"
             } else if e == f64::INFINITY {
                 8 // "Infinity"
@@ -326,7 +330,9 @@ pub unsafe extern "C" fn __torajs_arr_join_f64(arr: *const u8, sep: *const u8) -
                 cursor += sep_units;
             }
             let e = *(slot_addr(arr, i) as *const f64);
-            let piece: (*const u8, u64) = if e.is_nan() {
+            let piece: (*const u8, u64) = if e.to_bits() == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+                (b"".as_ptr(), 0)
+            } else if e.is_nan() {
                 (b"NaN".as_ptr(), 3)
             } else if e == f64::INFINITY {
                 (b"Infinity".as_ptr(), 8)

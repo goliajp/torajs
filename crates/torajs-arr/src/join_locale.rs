@@ -136,6 +136,11 @@ pub unsafe extern "C" fn __torajs_arr_join_f64_locale(arr: *const u8, sep: *cons
         };
         for i in 0..len {
             let e = *(slot_addr(arr, i) as *const f64);
+            // an undefined element joins as "" (§23.1.3.32 step 6.b)
+            if e.to_bits() == torajs_rc::F64_UNDEF_SENTINEL_BITS {
+                elem_strs.push(core::ptr::null_mut());
+                continue;
+            }
             let s = __torajs_num_to_locale_f(e);
             let units = str_units(s);
             total += units;
@@ -155,6 +160,9 @@ pub unsafe extern "C" fn __torajs_arr_join_f64_locale(arr: *const u8, sep: *cons
                 cursor += sep_units;
             }
             let s = elem_strs[i as usize];
+            if s.is_null() {
+                continue;
+            }
             let units = str_units(s);
             if units > 0 {
                 emit_units(
