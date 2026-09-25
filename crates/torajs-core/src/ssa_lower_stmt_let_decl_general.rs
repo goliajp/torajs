@@ -346,9 +346,9 @@ pub(crate) fn bind_let_slot(
         fill_forward_box(ctx, name, ty, init_val, is_alias_init, boxed_any, sites);
         return;
     }
-    // RFC 20260710 — a MUTATED non-Copy captured binding promotes to
-    // a capture box so every closure shares the live binding (ES
-    // §9.1) instead of an env-owns snapshot. Never-written captures
+    // RFC 20260710 — a MUTATED captured binding, Copy or not, promotes
+    // to a capture box so every closure shares the live binding (ES
+    // §9.1) instead of an env snapshot. Never-written captures
     // keep the snapshot (indistinguishable from sharing, zero
     // indirection); Any / Substr slots are recorded C4 boundaries
     // (NaN-box / view-cell release paths differ from the universal
@@ -357,8 +357,10 @@ pub(crate) fn bind_let_slot(
         && ty != Type::Substr
         && ctx.escape_captured_lets.contains(name)
         && ctx.mutated_captured_lets.contains(name);
-    let escape_captured =
-        (ty.is_copy() && ctx.escape_captured_lets.contains(name)) || boxed_noncopy;
+    let escape_captured = (ty.is_copy()
+        && ctx.escape_captured_lets.contains(name)
+        && ctx.mutated_captured_lets.contains(name))
+        || boxed_noncopy;
     let slot = if escape_captured {
         if boxed_noncopy && is_alias_init && !boxed_any {
             // An alias-shape init carries no stake of its own — the

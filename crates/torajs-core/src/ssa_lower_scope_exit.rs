@@ -79,7 +79,7 @@ impl LowerCtx<'_> {
                 continue;
             };
             if info.ty.is_copy() {
-                if self.escape_captured_lets.contains(name) {
+                if info.boxed && self.escape_captured_lets.contains(name) {
                     self.f.append_void(
                         self.cur_block,
                         InstKind::Call(
@@ -143,7 +143,7 @@ impl LowerCtx<'_> {
                 return false;
             };
             if info.ty.is_copy() {
-                return self.escape_captured_lets.contains(name);
+                return info.boxed && self.escape_captured_lets.contains(name);
             }
             if !info.borrowed && self.boxed_noncopy_lets.contains(name) {
                 return true;

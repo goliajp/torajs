@@ -81,6 +81,9 @@ pub(crate) fn synthesize_env_drop(
                 entry,
                 InstKind::Call(drop_fid, vec![Operand::Value(slot_ptr)]),
             );
+        } else if cap_ty.is_copy() {
+            // A never-written Copy capture is held by value: the slot
+            // owns nothing to release.
         } else {
             // RFC 20260705 Phase 1 — the env owns its non-Copy
             // captures (construction moved them in; sibling captures

@@ -94,19 +94,14 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, fn_name: String, captures: Vec<Strin
         })
         .collect();
     // The bool is the BYREF flag: the env slot holds a capture-box
-    // pointer (shared live binding) instead of a value snapshot.
-    // Copy escape-captures always box (T-15.g.5); a mutated non-Copy
-    // binding promotes too (RFC 20260710 — the let-decl site boxed
-    // it and recorded the name in `boxed_noncopy_lets`).
+    // pointer (shared live binding) instead of a value snapshot. It is
+    // whatever the binding's own slot is: a captured binding that is
+    // written somewhere (Copy or not, RFC 20260710) was declared as a
+    // box; a never-written one was not, and a snapshot of it is
+    // indistinguishable from sharing it.
     let cap_meta: Vec<(String, Type, bool)> = eff_captures
         .iter()
-        .map(|(n, t)| {
-            (
-                n.clone(),
-                *t,
-                t.is_copy() || ctx.boxed_noncopy_lets.contains(n),
-            )
-        })
+        .map(|(n, t)| (n.clone(), *t, ctx.locals[n].boxed))
         .collect();
     // A capture declared LATER in this list holds a provisional type
     // right now; note where it landed so the declaration can correct it.
@@ -384,7 +379,7 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
     for (i, (cap_name, cap_ty)) in captures.iter().enumerate() {
         let info = *ctx.locals.get(cap_name).expect("capture in scope");
         let offset = CLOSURE_CAP_BASE_OFF + (i as u64) * 8;
-        if cap_ty.is_copy() || ctx.boxed_noncopy_lets.contains(cap_name) {
+        if info.boxed {
             let cur_block = ctx.cur_block;
             ctx.f.append_void(
                 cur_block,
@@ -420,7 +415,7 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
                     cur_block,
                     InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![Operand::Value(v)]),
                 );
-            } else {
+            } else if !cap_ty.is_copy() {
                 ctx.emit_rc_inc(Operand::Value(v));
             }
             ctx.f.append_void(

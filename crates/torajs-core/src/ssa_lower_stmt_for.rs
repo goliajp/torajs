@@ -220,8 +220,8 @@ pub(crate) fn lower(
 ///
 /// RFC 20260710 C3 (chunk 749) — MUTATED non-Copy bindings ride the
 /// same rewrite (the closure-shared box makes same-iteration writes
-/// visible per ES §14.7.4.9); never-written non-Copy captures keep
-/// the env-owns snapshot (indistinguishable from sharing). Any /
+/// visible per ES §14.7.4.9); never-written captures, Copy or not,
+/// keep the env snapshot (indistinguishable from sharing). Any /
 /// Substr stay recorded C4 boundaries.
 fn setup_per_iter_vars(ctx: &mut LowerCtx, candidates: Vec<String>) -> Vec<PerIterVar> {
     let mut per_iter = Vec::new();
@@ -229,9 +229,7 @@ fn setup_per_iter_vars(ctx: &mut LowerCtx, candidates: Vec<String>) -> Vec<PerIt
         let Some(outer) = ctx.locals.get(&name).copied() else {
             continue;
         };
-        if !outer.ty.is_copy()
-            && !(ctx.mutated_captured_lets.contains(&name) && outer.ty != Type::Substr)
-        {
+        if !(ctx.mutated_captured_lets.contains(&name) && outer.ty != Type::Substr) {
             continue;
         }
         let track = ctx.alloca(Type::Ptr, Some("__periter_box"));

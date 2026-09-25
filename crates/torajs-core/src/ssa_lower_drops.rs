@@ -106,7 +106,10 @@ impl LowerCtx<'_> {
             .locals
             .iter()
             .filter(|(name, info)| {
-                info.ty.is_copy() && !info.borrowed && self.escape_captured_lets.contains(*name)
+                info.ty.is_copy()
+                    && info.boxed
+                    && !info.borrowed
+                    && self.escape_captured_lets.contains(*name)
             })
             .map(|(_, info)| info.slot)
             .collect();

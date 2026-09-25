@@ -69,7 +69,8 @@ pub(crate) fn bind_loop_var(
         && v_ty != Type::Substr
         && escape
         && ctx.mutated_captured_lets.contains(var_name);
-    let escape_captured = (v_ty.is_copy() && escape) || boxed_noncopy;
+    let escape_captured =
+        (v_ty.is_copy() && escape && ctx.mutated_captured_lets.contains(var_name)) || boxed_noncopy;
     if escape_captured {
         if boxed_noncopy && alias {
             ctx.emit_owned_result_inc(v_val.clone(), v_ty);

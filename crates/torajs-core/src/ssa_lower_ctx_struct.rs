@@ -269,21 +269,19 @@ pub(crate) struct LowerCtx<'a> {
     /// `Expr::Call` arm rewrites the callee Ident to the mono name from
     /// this map before falling through to the regular call lowering.
     pub(crate) call_retargets: &'a CallRetargets,
-    /// Names of `let` bindings in the current fn body that are
-    /// captured by an escape closure (one whose env outlives the
-    /// construction frame — detected via the enclosing fn's return
-    /// type being a Closure type). These lets get heap-allocated
-    /// slots at let-decl so the env can hold a stable pointer to
-    /// them. The env-drop fn frees the slot (along with the env)
-    /// when the closure value is dropped.
-    /// Empty for non-escape-context fns; populated at fn-entry by
-    /// scanning `body` for `Expr::Closure` captures.
+    /// Names of bindings in the current fn body that a closure
+    /// constructed in it captures, populated at fn entry by scanning
+    /// `body` for `Expr::Closure` captures. A captured name that is
+    /// also in [`Self::mutated_captured_lets`] gets a capture box at
+    /// its declaration; the rest are snapshotted into the env.
     pub(crate) escape_captured_lets: std::collections::HashSet<String>,
-    /// RFC 20260710 — names assigned anywhere in the program
-    /// (Assign-Ident / PostIncr targets, lifted closure bodies
-    /// included). A captured non-Copy binding that appears here is
-    /// MUTATED and promotes to a capture box so every closure shares
-    /// the live binding (ES §9.1) instead of an env-owns snapshot.
+    /// RFC 20260710 — names assigned (Assign-Ident / PostIncr targets)
+    /// in this body and in every lifted closure it transitively
+    /// constructs (`collect_assigned_names_scoped`). A captured binding
+    /// that appears here, Copy or not, is MUTATED and promotes to a
+    /// capture box so every closure shares the live binding (ES §9.1);
+    /// one that does not is snapshotted, which no program can tell
+    /// from sharing.
     pub(crate) mutated_captured_lets: std::collections::HashSet<String>,
     /// RFC 20260710 — non-Copy bindings in the current fn that were
     /// promoted to a capture box (`LocalInfo.slot` is the box value

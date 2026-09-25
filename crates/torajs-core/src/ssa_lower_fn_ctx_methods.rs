@@ -194,8 +194,10 @@ impl<'a> LowerCtx<'a> {
                 && !(fn_name.starts_with("__cm_") && pname == "__this")
                 && self.escape_captured_lets.contains(&pname)
                 && self.mutated_captured_lets.contains(&pname);
-            let escape_captured =
-                (ty.is_copy() && self.escape_captured_lets.contains(&pname)) || boxed_noncopy;
+            let escape_captured = (ty.is_copy()
+                && self.escape_captured_lets.contains(&pname)
+                && self.mutated_captured_lets.contains(&pname))
+                || boxed_noncopy;
             let slot = if escape_captured {
                 if boxed_noncopy {
                     self.emit_owned_result_inc(Operand::Value(pid), ty);
