@@ -19,3 +19,13 @@ try {
   console.log("caught", (e as Error).message, n)
 }
 console.log(words.slice().sort().join(","), words.length)
+// toSorted's copy dies with the throw; the source stays as it was
+const base: number[] = [4, 2, 3, 1]
+const names: string[] = ["b", "a", "c"]
+let t = 0
+for (let r = 0; r < 3; r = r + 1) {
+  try { base.toSorted((a: number, b: number): number => { throw new Error("k" + r) }) } catch (e) { t = t + 1 }
+  try { base.toSorted((): number => { throw new Error("i" + r) }) } catch (e) { t = t + 1 }
+  try { names.toSorted((a: string, b: string): number => { throw new Error("s" + r) }) } catch (e) { t = t + 1 }
+}
+console.log(t, base.join(","), names.join(","))

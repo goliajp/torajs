@@ -64,6 +64,12 @@ pub(crate) fn try_dispatch(
             Operand::Value(v) => v,
             _ => unreachable!(),
         };
+        // toSorted owns its clone until it answers it: a comparator
+        // that throws leaves through every check below
+        let clone_tok = (method == "toSorted").then(|| {
+            let ty = ctx.f.value_type(arr_ptr);
+            ctx.push_throw_temp(Operand::Value(arr_ptr), ty)
+        });
         // V3-18 wedge — sort/toSorted with no comparator
         // emits inline element-type-aware `prev > cur`
         // instead of calling a user fn. cmp_val + cmp_ty
@@ -151,6 +157,10 @@ pub(crate) fn try_dispatch(
             Operand::Value(arr_ptr),
             Operand::Value(writes),
         );
+        let cmp_tok = match (&cmp_val, args.first()) {
+            (Some(cv), Some(a0)) => ctx.park_owned_temp(*a0, cv),
+            _ => None,
+        };
         let divert_join = helper::emit_exotic_divert(ctx, arr_ptr, &cmp_val, &cmp_ty, elem_ty);
         if !helper::try_emit_sort_helper(ctx, &cmp_val, &cmp_ty, args, elem_ty, arr_ptr) {
             emit_insertion_sort(ctx, arr_ptr, elem_ty, &cmp_val, &cmp_ty, &route);
@@ -165,6 +175,8 @@ pub(crate) fn try_dispatch(
         if method == "sort" {
             ctx.emit_rc_inc(Operand::Value(arr_ptr));
         }
+        ctx.unpark_owned_temp(cmp_tok);
+        ctx.unpark_owned_temp(clone_tok);
         release_cmp_temp(ctx, args, &cmp_val);
         return Some(Operand::Value(arr_ptr));
     }
