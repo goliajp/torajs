@@ -37,8 +37,7 @@ use torajs_core::ssa::{Function, Type};
 
 use crate::coalesce::build_copy_classes;
 use crate::linear_scan_calls::{
-    CallCosts, FrameScan, collect_call_saves, collect_unbounded_values, crosses_call,
-    crosses_call_from_entry, scan_frame,
+    CallCosts, FrameScan, collect_call_saves, crosses_call, crosses_call_from_entry, scan_frame,
 };
 use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
@@ -52,7 +51,6 @@ use crate::spill_weight::compute_spill_weights;
 pub fn allocate_linear_scan(func: &Function) -> Assignment {
     let (mut intervals, blocks) = compute_liveness(func);
     let ret_vids = collect_ret_value_ids(func);
-    let mut unbounded = collect_unbounded_values(func);
 
     let FrameScan {
         alloca_offsets,
@@ -63,16 +61,9 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
 
     let (param_arg_reg, stack_params) = param_lanes(func);
 
-    let classes = build_copy_classes(
-        func,
-        &intervals,
-        &blocks,
-        &ret_vids,
-        &unbounded,
-        &call_sites,
-    );
+    let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites);
     let (mut weights, units) = compute_spill_weights(func);
-    classes.fold_into(&mut intervals, &mut unbounded, &mut weights);
+    classes.fold_into(&mut intervals, &mut weights);
     let call_costs = CallCosts::new(&call_sites, &units);
     let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
     // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
@@ -103,11 +94,6 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // after a leading call read garbage from x1).
         let crossing = if param_arg_reg.contains_key(&vid) || stack_params.contains_key(&vid) {
             crosses_call_from_entry(interval, &call_sites)
-        } else if unbounded.contains(&vid) {
-            // See `collect_unbounded_values`: the interval does not
-            // bound this value's life, so treat it as crossing
-            // whenever the function calls anything at all.
-            has_calls
         } else {
             crosses_call(interval, &call_sites)
         };
@@ -162,10 +148,9 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // callee-saved instead; `emit_terminator::Ret` materializes
         // the value into X0/V0 at the actual ret point (its
         // idempotent `if src != X0/V0 { mov }` covers this).
-        let may_save = save_calls && !unbounded.contains(&vid);
         if ret_vids.contains(&vid) {
             if crossing {
-                let dst = if may_save {
+                let dst = if save_calls {
                     sweep.alloc_crossing_saved(vid, interval, is_fp)
                 } else {
                     sweep.alloc_crossing(vid, interval, is_fp)
@@ -187,7 +172,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             }
         }
 
-        let reg = if crossing && may_save {
+        let reg = if crossing && save_calls {
             sweep.alloc_crossing_saved(vid, interval, is_fp)
         } else if crossing {
             sweep.alloc_crossing(vid, interval, is_fp)

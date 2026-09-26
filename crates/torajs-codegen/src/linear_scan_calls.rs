@@ -1,60 +1,14 @@
 //! Call-site facts the Linear-Scan sweep consults: which intervals
-//! cross a `BL`, which values' intervals do not bound their life, and
-//! how much outgoing stack-arg area the frame needs.
+//! cross a `BL` and how much outgoing stack-arg area the frame needs.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind};
 
 use crate::linear_scan_sweep::Sweep;
-use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
+use crate::liveness::Interval;
 use crate::reg::Reg;
 use crate::regalloc::{alloca_slot_size, inst_emits_bl};
-
-/// ValueIds whose linear interval does not bound their life: a value
-/// read at some slot and written at a LATER one.
-///
-/// The SSA the lowerer produces is single-assignment and never does
-/// this, but φ destruction (`phi_promote::destruct`) is not: it gives
-/// one ValueId a `copy` in every predecessor of a join, and a join can
-/// be numbered before its predecessors. The interval then runs from
-/// the use to the last def, so a call sitting in the join AHEAD of the
-/// use falls outside `start < p < end` by construction — no linear
-/// range describes a life that runs backwards through block order.
-///
-/// Only that shape qualifies. A value written more than once with
-/// every write ahead of every read still has a sound interval and is
-/// left alone — asking for callee-saved there costs registers and buys
-/// nothing (measured: a 5% loss on one bench case when this set was
-/// merely "multi-def").
-///
-/// The slot numbering must match [`compute_intervals`]: one index per
-/// inst, then one for the terminator.
-pub(crate) fn collect_unbounded_values(func: &Function) -> HashSet<u32> {
-    let mut first_use: HashMap<u32, u32> = HashMap::new();
-    let mut last_def: HashMap<u32, u32> = HashMap::new();
-    let mut idx: u32 = 0;
-    for block in &func.blocks {
-        for inst in &block.insts {
-            visit_inst_operands(&inst.kind, |v| {
-                first_use.entry(v.0).or_insert(idx);
-            });
-            if let Some(r) = inst.result {
-                last_def.insert(r.0, idx);
-            }
-            idx += 1;
-        }
-        visit_terminator_operands(&block.term, |v| {
-            first_use.entry(v.0).or_insert(idx);
-        });
-        idx += 1;
-    }
-    last_def
-        .iter()
-        .filter(|(v, d)| first_use.get(*v).is_some_and(|u| u < *d))
-        .map(|(v, _)| *v)
-        .collect()
-}
 
 /// `true` iff some call site falls strictly inside `[start, end]` —
 /// the value is defined before a `BL` and still used after it, so a

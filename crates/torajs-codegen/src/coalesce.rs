@@ -42,7 +42,6 @@ struct Class {
     members: Vec<u32>,
     segs: Segments,
     hull: Interval,
-    unbounded: bool,
 }
 
 /// Copy classes of two or more values, keyed by leader.
@@ -54,12 +53,10 @@ pub(crate) struct Classes {
 
 impl Classes {
     /// Replace every member by its class leader: the leader's interval
-    /// becomes the class hull, its weight the members' sum, and the
-    /// class is unbounded if any member is.
+    /// becomes the class hull and its weight the members' sum.
     pub(crate) fn fold_into(
         &self,
         intervals: &mut HashMap<u32, Interval>,
-        unbounded: &mut HashSet<u32>,
         weights: &mut HashMap<u32, u64>,
     ) {
         for (&leader, class) in &self.classes {
@@ -67,13 +64,9 @@ impl Classes {
             for &m in &class.members {
                 weight = weight.saturating_add(weights.remove(&m).unwrap_or(0));
                 intervals.remove(&m);
-                unbounded.remove(&m);
             }
             weights.insert(leader, weight);
             intervals.insert(leader, class.hull);
-            if class.unbounded {
-                unbounded.insert(leader);
-            }
         }
     }
 
@@ -95,7 +88,6 @@ pub(crate) fn build_copy_classes(
     intervals: &HashMap<u32, Interval>,
     blocks: &BlockLiveness,
     excluded: &HashSet<u32>,
-    unbounded: &HashSet<u32>,
     call_sites: &[u32],
 ) -> Classes {
     if std::env::var_os("TORAJS_COALESCE_OFF").is_some_and(|v| v == "1") {
@@ -118,10 +110,10 @@ pub(crate) fn build_copy_classes(
         }
         let a = classes
             .remove(&rw)
-            .unwrap_or_else(|| singleton(rw, &mut segs, intervals, unbounded));
+            .unwrap_or_else(|| singleton(rw, &mut segs, intervals));
         let b = classes
             .remove(&rv)
-            .unwrap_or_else(|| singleton(rv, &mut segs, intervals, unbounded));
+            .unwrap_or_else(|| singleton(rv, &mut segs, intervals));
         match try_merge(a, b, call_sites) {
             Ok(merged) => {
                 for &m in &merged.members {
@@ -177,7 +169,6 @@ fn singleton(
     v: u32,
     segs: &mut HashMap<u32, Segments>,
     intervals: &HashMap<u32, Interval>,
-    unbounded: &HashSet<u32>,
 ) -> Class {
     let mut s = segs.remove(&v).unwrap_or_default();
     s.sort_unstable();
@@ -185,7 +176,6 @@ fn singleton(
         members: vec![v],
         segs: s,
         hull: intervals[&v],
-        unbounded: unbounded.contains(&v),
     }
 }
 
@@ -217,7 +207,6 @@ fn try_merge(a: Class, b: Class, call_sites: &[u32]) -> Result<Class, (Class, Cl
         members,
         segs,
         hull,
-        unbounded: a.unbounded || b.unbounded,
     })
 }
 
