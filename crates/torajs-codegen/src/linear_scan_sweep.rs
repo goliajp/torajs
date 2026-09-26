@@ -38,12 +38,12 @@ pub(crate) struct Sweep {
     /// actually handed out — the frame saves/restores exactly these.
     pub(crate) used_callee_gpr_mask: u32,
     pub(crate) used_callee_fpr_mask: u32,
-    /// Round 5 popcount attack #1 — loop-aware spill weights
+    /// Frequency-aware spill weights
     /// (`spill_weight::compute_spill_weights`). The victim scan
     /// prefers the LOWEST weight so a loop-carried hot value never
     /// loses its register to a cold prelude ref with a merely-longer
     /// interval.
-    pub(crate) weights: HashMap<u32, u32>,
+    pub(crate) weights: HashMap<u32, u64>,
     /// Call-crossing values handed a caller-saved register because the
     /// callee-saved pool was full; each is saved around the calls it
     /// crosses (`linear_scan_calls::collect_call_saves`).
@@ -52,7 +52,7 @@ pub(crate) struct Sweep {
 }
 
 impl Sweep {
-    pub(crate) fn new(spill_base: u32, weights: HashMap<u32, u32>, call_costs: CallCosts) -> Self {
+    pub(crate) fn new(spill_base: u32, weights: HashMap<u32, u64>, call_costs: CallCosts) -> Self {
         Sweep {
             by_value: HashMap::new(),
             active: Vec::new(),
@@ -178,7 +178,7 @@ impl Sweep {
         if let Some(r) = callee {
             return r;
         }
-        let weight = |v: u32| u64::from(self.weights.get(&v).copied().unwrap_or(0));
+        let weight = |v: u32| self.weights.get(&v).copied().unwrap_or(0);
         let lightest_victim = self
             .active
             .iter()
@@ -250,9 +250,9 @@ impl Sweep {
         // choice; a loop-carried accumulator (weight ≫ cold refs)
         // keeps its register even when its interval end reaches
         // function exit.
-        let weight_of = |w: &HashMap<u32, u32>, v: u32| w.get(&v).copied().unwrap_or(0);
+        let weight_of = |w: &HashMap<u32, u64>, v: u32| w.get(&v).copied().unwrap_or(0);
         let mut victim_idx: Option<usize> = None;
-        let mut victim_key: (u32, i64) = (u32::MAX, -1); // (weight asc, end desc)
+        let mut victim_key: (u64, i64) = (u64::MAX, -1); // (weight asc, end desc)
         for (i, e) in self.active.iter().enumerate() {
             let (is_callee_reg, class_ok) = match e.2 {
                 Reg::Gpr(g) => (aapcs64::CALLEE_SAVED_SCRATCH.contains(&g), !is_fp),

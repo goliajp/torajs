@@ -23,6 +23,8 @@
 // - **No phi nodes yet** — fib40 only needs branching, not loop carry. Phis
 //   will land in step 2 when we lower `while`.
 
+pub mod block_freq;
+pub mod branch_prob;
 pub mod dominator;
 mod function_methods;
 pub mod loop_analysis;

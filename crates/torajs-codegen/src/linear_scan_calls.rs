@@ -178,11 +178,11 @@ pub(crate) struct CallCosts {
 }
 
 impl CallCosts {
-    pub(crate) fn new(call_sites: &[u32], slot_units: &[u32]) -> Self {
+    pub(crate) fn new(call_sites: &[u32], slot_units: &[u64]) -> Self {
         let mut prefix = Vec::with_capacity(call_sites.len() + 1);
         prefix.push(0u64);
         for &p in call_sites {
-            prefix.push(prefix.last().unwrap() + u64::from(slot_units[p as usize]));
+            prefix.push(prefix.last().unwrap() + slot_units[p as usize]);
         }
         CallCosts {
             sites: call_sites.to_vec(),

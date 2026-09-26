@@ -45,7 +45,7 @@ use crate::linear_scan_sweep::Sweep;
 use crate::liveness::compute_liveness;
 use crate::reg::{Reg, aapcs64};
 use crate::regalloc::{Assignment, collect_ret_value_ids};
-use crate::spill_weight::{compute_spill_weights, slot_units};
+use crate::spill_weight::compute_spill_weights;
 
 /// Linear-Scan register allocator with call-crossing awareness and
 /// stack spill (see module docs).
@@ -71,9 +71,9 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         &unbounded,
         &call_sites,
     );
-    let mut weights = compute_spill_weights(func);
+    let (mut weights, units) = compute_spill_weights(func);
     classes.fold_into(&mut intervals, &mut unbounded, &mut weights);
-    let call_costs = CallCosts::new(&call_sites, &slot_units(func));
+    let call_costs = CallCosts::new(&call_sites, &units);
     let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
     // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
     // caller-saved register (bisect gate).

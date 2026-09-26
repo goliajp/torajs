@@ -1,5 +1,4 @@
-//! Loop-aware spill weights for the Linear Scan allocator — Round 5
-//! popcount attack #1 (RFC 20260703-perf-popcount-regalloc).
+//! Frequency-aware spill weights for the Linear Scan allocator.
 //!
 //! The Poletto & Sarkar "spill at active" heuristic picks the
 //! furthest-*end* interval as the spill victim. That maximises the
@@ -8,56 +7,44 @@
 //! loop) and a cold prelude value that is merely rc_dec'd at
 //! function exit can have near-identical `end`s, and the accumulator
 //! loses the coin toss — its spill slot then costs a store→load
-//! forward round-trip on every loop step (popcount fixture disasm
-//! evidence in the RFC; keeping the accumulator in a register
-//! measured -6% wall on popcount and -2.9% on collatz vs the
-//! same-HEAD baseline).
+//! forward round-trip on every loop step (keeping popcount's
+//! accumulator in a register measured -6% wall, collatz -2.9%).
 //!
-//! This module computes the textbook antidote: per-value **spill
-//! weight** = Σ over each static use `16^min(loop_depth, 4)`. The
-//! allocator's victim scan then prefers the *lowest* weight (fewest
-//! dynamic uses lost to memory), tie-breaking on the original
-//! furthest-end rule so weight-flat functions keep the exact
-//! Poletto & Sarkar behaviour.
+//! The textbook antidote: per-value **spill weight** = Σ over each
+//! static use (and the def) of the estimated execution frequency of
+//! its block, from `torajs_core::ssa::block_freq` (loop depth, with
+//! recognized cold arms such as throw paths and grow calls scaled
+//! down). The allocator's
+//! victim scan prefers the *lowest* weight (fewest dynamic uses lost
+//! to memory), tie-breaking on the furthest-end rule so weight-flat
+//! functions keep the exact Poletto & Sarkar behaviour. The same
+//! per-slot frequencies price the save / reload around a call.
 //!
-//! The per-level factor is 16, not 4: a loop level stands for ≥10×
-//! dynamic frequency (the classic block-frequency assumption), and a
-//! flat factor-4 let a chatty depth-0 prelude value (one static use
-//! per Error-class registration call, ~10+ mentions) outweigh a
-//! depth-1 loop accumulator with two mentions (2×4=8 < 10) — the
-//! popcount `total` spill, collatz decomposition A4: the accumulator
-//! lost the victim scan to values that run once per process.
-//!
-//! Loop detection is the standard reducible-CFG backedge scan over
-//! the lowered block order: a terminator edge from block `i` to a
-//! block `j` at an earlier (or equal — self-loop) position marks the
-//! index range `[start(j), end(i)]` as one loop nest level. The
-//! lowerer emits natural `header → body → back-to-header` shapes, so
-//! positional containment is exact for everything it produces; an
-//! irreducible shape would merely misweight (never miscompile —
-//! weights only steer victim choice).
+//! A loop level stands for 16 iterations: a per-level factor of 4 let
+//! a chatty prelude value (one use per Error-class registration call,
+//! ten or more mentions) outweigh a loop accumulator with two
+//! mentions — popcount's `total` lost the victim scan to values that
+//! run once per process. Frequencies come from the dominator tree's
+//! natural loops, so a cold arm that layout sank past its loop's
+//! latch is not mistaken for another loop level.
 
 use std::collections::HashMap;
 
-use torajs_core::ssa::{Function, Terminator};
+use torajs_core::ssa::Function;
+use torajs_core::ssa::block_freq::block_freqs;
 
 use crate::liveness::{visit_inst_operands, visit_terminator_operands};
 
-/// Depth cap — 16^4 = 65536 per use stays far from u32 saturation
-/// for realistic use counts (saturating_add bounds the pathological
-/// rest), while separating quadruply-nested hot code from anything
-/// colder.
-const DEPTH_CAP: u32 = 4;
-
-/// Compute `ValueId.0 → spill weight` for `func` over the same
-/// global inst-slot numbering as `liveness::compute_intervals`
-/// (insts then one terminator slot per block).
-pub fn compute_spill_weights(func: &Function) -> HashMap<u32, u32> {
+/// `ValueId.0 → spill weight` for `func`, and the per-slot frequencies
+/// it was built from, over the global inst-slot numbering of
+/// `liveness::compute_intervals` (insts then one terminator slot per
+/// block).
+pub fn compute_spill_weights(func: &Function) -> (HashMap<u32, u64>, Vec<u64>) {
     let units = slot_units(func);
     // accumulate the slot's unit per static use (operand reads AND the
     // defining slot itself, so a value defined in a loop counts its
     // def-site store too)
-    let mut weights: HashMap<u32, u32> = HashMap::new();
+    let mut weights: HashMap<u32, u64> = HashMap::new();
     let mut idx: usize = 0;
     for b in &func.blocks {
         for inst in &b.insts {
@@ -79,68 +66,25 @@ pub fn compute_spill_weights(func: &Function) -> HashMap<u32, u32> {
         });
         idx += 1;
     }
-    weights
+    (weights, units)
 }
 
-/// Per global slot, the estimated execution frequency
-/// `16^min(loop_depth, 4)` the spill weights are built from.
-pub fn slot_units(func: &Function) -> Vec<u32> {
-    // Pass 1 — block index ranges + backedge-derived loop depth per
-    // global slot index.
-    let n = func.blocks.len();
-    let mut block_pos: HashMap<u32, usize> = HashMap::with_capacity(n);
-    for (i, b) in func.blocks.iter().enumerate() {
-        block_pos.insert(b.id.0, i);
-    }
-    let mut block_start: Vec<u32> = vec![0; n];
-    let mut block_end: Vec<u32> = vec![0; n]; // inclusive of the terminator slot
-    let mut cursor: u32 = 0;
-    for (i, b) in func.blocks.iter().enumerate() {
-        block_start[i] = cursor;
-        cursor += b.insts.len() as u32 + 1;
-        block_end[i] = cursor - 1;
-    }
-    let total_slots = cursor as usize;
-    let mut depth: Vec<u32> = vec![0; total_slots.max(1)];
-    for (i, b) in func.blocks.iter().enumerate() {
-        let mark = |target: u32, depth: &mut Vec<u32>| {
-            if let Some(&j) = block_pos.get(&target)
-                && j <= i
-            {
-                // Backedge i → j: everything in [start(j), end(i)]
-                // sits one loop level deeper.
-                for d in depth
-                    .iter_mut()
-                    .take(block_end[i] as usize + 1)
-                    .skip(block_start[j] as usize)
-                {
-                    *d += 1;
-                }
-            }
-        };
-        match &b.term {
-            Terminator::Br(t) => mark(t.0, &mut depth),
-            Terminator::CondBr {
-                then_blk, else_blk, ..
-            } => {
-                mark(then_blk.0, &mut depth);
-                mark(else_blk.0, &mut depth);
-            }
-            Terminator::Ret(_) | Terminator::Unreachable => {}
-        }
-    }
-
-    depth
+/// Per global slot, the estimated execution frequency of its block.
+fn slot_units(func: &Function) -> Vec<u64> {
+    let freqs = block_freqs(func);
+    func.blocks
         .iter()
-        .map(|&d| 1u32 << (4 * d.min(DEPTH_CAP)))
+        .flat_map(|b| std::iter::repeat_n(freqs[b.id.0 as usize], b.insts.len() + 1))
         .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use torajs_core::ssa::block_freq::ENTRY_FREQ as E;
     use torajs_core::ssa::{
-        BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Type, ValueId, ValueInfo,
+        BinOp, Block, BlockId, Function, Inst, InstKind, Operand, Terminator, Type, ValueId,
+        ValueInfo,
     };
 
     fn add_inst(result: u32, a: Operand, b: Operand) -> Inst {
@@ -167,7 +111,7 @@ mod tests {
         }
     }
 
-    /// Straight-line function: every use weighs 1.
+    /// Straight-line function: every use weighs one entry.
     #[test]
     fn flat_function_counts_uses() {
         let f = mk_func(
@@ -181,14 +125,14 @@ mod tests {
             }],
             2,
         );
-        let w = compute_spill_weights(&f);
+        let (w, _) = compute_spill_weights(&f);
         // v0: def + 2 operand uses = 3; v1: def + ret use = 2.
-        assert_eq!(w[&0], 3);
-        assert_eq!(w[&1], 2);
+        assert_eq!(w[&0], 3 * E);
+        assert_eq!(w[&1], 2 * E);
     }
 
-    /// Loop-body uses weigh 16^1; a value only touched outside stays
-    /// at 1/use — the loop-carried value outweighs the cold one even
+    /// Loop-body uses weigh 16 entries; a value only touched outside
+    /// stays at one entry per use — the loop-carried value outweighs the cold one even
     /// with fewer static mentions.
     #[test]
     fn loop_uses_outweigh_cold_uses() {
@@ -223,11 +167,11 @@ mod tests {
             ],
             2,
         );
-        let w = compute_spill_weights(&f);
+        let (w, _) = compute_spill_weights(&f);
         // v0: cold def (1) + 2 loop uses (16+16) + cold ret use (1) = 34.
-        assert_eq!(w[&0], 34);
+        assert_eq!(w[&0], 34 * E);
         // v1: loop def (16) + loop condbr use (16) = 32.
-        assert_eq!(w[&1], 32);
+        assert_eq!(w[&1], 32 * E);
     }
 
     /// Nested loops multiply: depth-2 uses weigh 256.
@@ -280,12 +224,53 @@ mod tests {
             ],
             2,
         );
-        let w = compute_spill_weights(&f);
+        let (w, _) = compute_spill_weights(&f);
         // v1 def + condbr use both at depth 2 (inner self-loop inside
         // outer bb1..bb3 loop): 256 + 256 = 512.
-        assert_eq!(w[&1], 512);
+        assert_eq!(w[&1], 512 * E);
         // v0: def at depth 1 (16) + 2 uses at depth 2 (256+256) +
         // condbr use at depth 1 (16) = 544.
-        assert_eq!(w[&0], 544);
+        assert_eq!(w[&0], 544 * E);
+    }
+
+    /// An arm placed after its loop's latch branches backwards in
+    /// block order without being a loop; it sits one loop level deep,
+    /// not two.
+    #[test]
+    fn a_sunk_arm_is_not_another_loop_level() {
+        // bb0: br bb1
+        // bb1 (hdr): condbr v9 ? bb2 : bb5
+        // bb2: condbr v9 ? bb4 : bb3
+        // bb3 (latch): br bb1
+        // bb4 (sunk arm): v0 = 1+2 ; br bb3
+        // bb5: ret
+        let cond = |t: u32, e: u32| Terminator::CondBr {
+            cond: Operand::Value(ValueId(9)),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let blk = |id: u32, insts: Vec<Inst>, term: Terminator| Block {
+            id: BlockId(id),
+            insts,
+            term,
+        };
+        let f = mk_func(
+            vec![
+                blk(0, vec![], Terminator::Br(BlockId(1))),
+                blk(1, vec![], cond(2, 5)),
+                blk(2, vec![], cond(4, 3)),
+                blk(3, vec![], Terminator::Br(BlockId(1))),
+                blk(
+                    4,
+                    vec![add_inst(0, Operand::ConstI64(1), Operand::ConstI64(2))],
+                    Terminator::Br(BlockId(3)),
+                ),
+                blk(5, vec![], Terminator::Ret(None)),
+            ],
+            10,
+        );
+        let (w, _) = compute_spill_weights(&f);
+        // one loop level, not two
+        assert_eq!(w[&0], 16 * E);
     }
 }

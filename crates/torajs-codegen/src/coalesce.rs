@@ -60,10 +60,10 @@ impl Classes {
         &self,
         intervals: &mut HashMap<u32, Interval>,
         unbounded: &mut HashSet<u32>,
-        weights: &mut HashMap<u32, u32>,
+        weights: &mut HashMap<u32, u64>,
     ) {
         for (&leader, class) in &self.classes {
-            let mut weight: u32 = 0;
+            let mut weight: u64 = 0;
             for &m in &class.members {
                 weight = weight.saturating_add(weights.remove(&m).unwrap_or(0));
                 intervals.remove(&m);
