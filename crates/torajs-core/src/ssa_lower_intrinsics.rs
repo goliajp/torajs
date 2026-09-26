@@ -1018,7 +1018,6 @@ pub(crate) struct Intrinsics {
     pub(crate) object_is_any: FuncId,
     pub(crate) split_iter_init: FuncId,
     pub(crate) split_iter_next: FuncId,
-    pub(crate) split_iter_drop: FuncId,
     pub(crate) arr_from_string: FuncId,
     pub(crate) str_substring: FuncId,
     pub(crate) str_substr: FuncId,

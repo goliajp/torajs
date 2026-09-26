@@ -1,5 +1,5 @@
 //! `SplitIter` zero-alloc iterator + `__torajs_split_iter_init` /
-//! `_next` / `_drop` FFI shims. The 48-byte struct is laid out to
+//! `_next` FFI shims. The 48-byte struct is laid out to
 //! match the C `__torajs_split_iter_t` bit-for-bit so the IR-side
 //! consumer (or any future external consumer) can read its fields by
 //! hardcoded offset. Port of `ssa_inkwell::define_split_iter_next` —
@@ -10,10 +10,6 @@
 //! LOC file-size hard limit (`rules/common/file-size.md`). Pure
 //! mechanical pull, no semantic change.
 
-use core::ffi::c_void;
-
-use torajs_rc::__torajs_rc_inc;
-
 use crate::layout::{STR_DATA_OFF, STR_FLAG_IS_LATIN1};
 use crate::split::ops::str_len;
 use torajs_rc::HeapHeader;
@@ -23,7 +19,7 @@ use torajs_rc::HeapHeader;
 /// port) reads these fields by hardcoded offset.
 #[repr(C)]
 pub struct SplitIter {
-    pub parent: *const u8,   // +0  (8B) — owned ref
+    pub parent: *const u8,   // +0  (8B) — borrowed
     pub parent_len: u64,     // +8  (8B) — cached STR_LEN(parent), code units
     pub sep_data: *const u8, // +16 (8B) — STR_CDATA(sep), borrowed
     pub sep_len: u64,        // +24 (8B) — code units
@@ -38,13 +34,15 @@ pub struct SplitIter {
 }
 
 /// Initialize a caller-allocated `SplitIter` over `(parent, sep)`.
-/// Bumps `parent`'s refcount (the iter holds one ref); `sep` is
-/// borrowed without rc.
+/// Both are borrowed without rc: the lowering keeps `parent` alive
+/// for the whole loop (it holds its own stake, or the source binding
+/// provably outlives the loop), so the iter needs no teardown.
 ///
 /// # Safety
 ///
 /// `iter` must point at a writable 48-byte aligned region.
-/// `parent` must be a valid Str heap pointer. `sep` must be a
+/// `parent` must be a valid Str heap pointer that outlives the
+/// iter. `sep` must be a
 /// valid Str heap pointer that outlives the iter — typically a
 /// `FLAG_STATIC_LITERAL` Str (the IR lowering only emits the iter
 /// form when sep is a `.rodata` global, so this is naturally
@@ -70,7 +68,6 @@ pub unsafe extern "C" fn __torajs_split_iter_init(
             sep_latin1,
             _pad: [0; 6],
         });
-        __torajs_rc_inc(parent as *mut c_void);
     }
 }
 
@@ -205,24 +202,4 @@ pub unsafe extern "C" fn __torajs_split_iter_next(iter: *mut SplitIter, out: *mu
         it.pos = k_final + adv;
     }
     true
-}
-
-/// Drop a `SplitIter` — decrements parent's refcount and frees
-/// the parent Str block if the iter held the last reference.
-///
-/// # Safety
-///
-/// `iter` must point at a previously [`__torajs_split_iter_init`]
-/// -ed `SplitIter`. After this call the iter slot must not be
-/// re-used without another init.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_split_iter_drop(iter: *mut SplitIter) {
-    unsafe {
-        let parent = (*iter).parent;
-        // The drop is symmetric with init's rc_inc. The rc_dec
-        // returns true when refcount hit zero; the actual free path
-        // (`__torajs_str_free`) is dispatched by the global rc layer
-        // when the rc_dec is performed via the public symbol.
-        torajs_rc::__torajs_rc_dec(parent as *mut c_void);
-    }
 }

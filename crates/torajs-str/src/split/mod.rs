@@ -37,9 +37,9 @@
 //!
 //! ## Iter
 //!
-//! [`ops::__torajs_split_iter_init`] / `_drop` initialize a
-//! caller-provided 48-byte stack struct holding `(parent, sep,
-//! pos, exhausted)`. `__torajs_split_iter_next` was LLVM-IR
+//! [`iter::__torajs_split_iter_init`] initializes a caller-provided
+//! 48-byte stack struct holding `(parent, sep, pos, exhausted)`; it
+//! borrows both strings, so there is no teardown call. `__torajs_split_iter_next` was LLVM-IR
 //! emitted (`define_split_iter_next`) until the P3.1-g
 //! consolidation into Rust ([`ops`]).
 

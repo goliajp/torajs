@@ -51,7 +51,6 @@ pub(crate) struct SubstrIds {
     pub object_is_any: FuncId,
     pub split_iter_init: FuncId,
     pub split_iter_next: FuncId,
-    pub split_iter_drop: FuncId,
     pub substr_create: FuncId,
     pub substr_drop: FuncId,
     /// RFC 20260821 A2 — whole-array release for Str/Substr elements.
@@ -108,13 +107,6 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             "__torajs_split_iter_next",
             &[Type::Ptr, Type::Ptr],
             Type::Bool,
-        ),
-        split_iter_drop: declare_intrinsic(
-            module,
-            fn_table,
-            "__torajs_split_iter_drop",
-            &[Type::Ptr],
-            Type::Void,
         ),
         substr_create: declare_intrinsic(
             module,

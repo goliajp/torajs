@@ -1,4 +1,4 @@
-//! `__torajs_str_split` + `__torajs_split_iter_init` / `_drop`.
+//! `__torajs_str_split` and its tests (the iter lives in `split::iter`).
 //!
 //! `__torajs_str_split` builds the single-block Arr-with-inline-
 //! substrs layout described in [`crate::split`]'s module docs.
@@ -459,9 +459,7 @@ pub unsafe extern "C" fn __torajs_str_split_no_sep(s: *const u8) -> *mut u8 {
 mod tests {
     use super::*;
     use crate::block::{__torajs_str_free, StrBlock};
-    use crate::split::iter::{
-        __torajs_split_iter_drop, __torajs_split_iter_init, __torajs_split_iter_next, SplitIter,
-    };
+    use crate::split::iter::{__torajs_split_iter_init, __torajs_split_iter_next, SplitIter};
     use alloc::{vec, vec::Vec};
 
     // ARR layout consts (mirror C runtime_str.c — cross-layer until
@@ -660,16 +658,15 @@ mod tests {
         assert_eq!(unsafe { (out.as_ptr().add(8) as *const u64).read() }, 1);
         assert_eq!(unsafe { (out.as_ptr().add(24) as *const u64).read() }, 2);
         assert!(!unsafe { __torajs_split_iter_next(&mut iter, out.as_mut_ptr()) });
-        unsafe { __torajs_split_iter_drop(&mut iter) };
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(sep) };
     }
 
     #[test]
-    fn split_iter_init_and_drop() {
+    fn split_iter_init_borrows_parent() {
         let s = make_str(b"a,b,c");
         let sep = make_str(b",");
-        // Just verify init writes the struct fields + drop decs rc.
+        // init writes the struct fields and takes no stake in parent.
         let mut iter: SplitIter = unsafe { core::mem::zeroed() };
         unsafe { __torajs_split_iter_init(&mut iter, s, sep) };
         assert_eq!(iter.parent, s as *const u8);
@@ -681,9 +678,7 @@ mod tests {
         assert_eq!(iter.sep_data, unsafe {
             (sep as *const u8).add(STR_DATA_OFF)
         });
-        unsafe { __torajs_split_iter_drop(&mut iter) };
-        // Now parent's refcount should be 1 again (the init bump
-        // was matched). Free.
+        assert_eq!(unsafe { (*(s as *const HeapHeader)).refcount }, 1);
         unsafe { __torajs_str_free(s) };
         unsafe { __torajs_str_free(sep) };
     }

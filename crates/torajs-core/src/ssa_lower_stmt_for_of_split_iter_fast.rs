@@ -19,23 +19,39 @@ const HDR_STATIC_LITERAL: i64 = 0x0004i64 << 48;
 /// Str payload starts at byte 16 (`STR_DATA_OFF`).
 const STR_DATA_OFF: i64 = 16;
 
-/// Emit the S7-r2 versioned loop machinery: hoisted encoding test +
-/// per-iteration dispatch in `header`, the inline byte-scan `next`
-/// on the fast arm, the `split_iter_next` call on the slow arm.
-/// Both arms yield into `sub_slot` and converge on `body_blk` /
-/// `after`. On return `ctx.cur_block` is unspecified — the caller
-/// repositions to `body_blk`.
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn emit_versioned_header(
-    ctx: &mut LowerCtx,
-    parent_op: &Operand,
-    iter_slot: ValueId,
-    sub_slot: ValueId,
-    target: u8,
-    header: BlockId,
-    body_blk: BlockId,
-    after: BlockId,
-) {
+/// The loop shape [`emit_versioned_header`] wires into: the lowered
+/// operands, the iter / Substr slots, and the pre-created blocks.
+pub(crate) struct SplitLoop {
+    pub(crate) parent_op: Operand,
+    pub(crate) sep_op: Operand,
+    pub(crate) iter_slot: ValueId,
+    pub(crate) sub_slot: ValueId,
+    pub(crate) target: u8,
+    pub(crate) header: BlockId,
+    pub(crate) body_blk: BlockId,
+    pub(crate) after: BlockId,
+}
+
+/// Emit the S7-r2 versioned loop machinery: hoisted encoding test,
+/// the iter init on the slow side only, per-iteration dispatch in
+/// `header`, the inline byte-scan `next` on the fast arm, the
+/// `split_iter_next` call on the slow arm. Both arms yield into
+/// `sub_slot` and converge on `body_blk` / `after`. On return
+/// `ctx.cur_block` is unspecified — the caller repositions to
+/// `body_blk`.
+pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) {
+    let SplitLoop {
+        parent_op,
+        sep_op,
+        iter_slot,
+        sub_slot,
+        target,
+        header,
+        body_blk,
+        after,
+    } = sl;
+    let (iter_slot, sub_slot, target) = (*iter_slot, *sub_slot, *target);
+    let (header, body_blk, after) = (*header, *body_blk, *after);
     let cur = ctx.cur_block;
     // Hoisted per-loop invariants (entry side, before the header).
     let hdr = ctx.f.append_inst(
@@ -60,10 +76,16 @@ pub(crate) fn emit_versioned_header(
         Type::Bool,
         None,
     );
-    // parent_len: split_iter_init cached str_len(parent) at iter+8.
+    // `length u32 @8` of the Str header, the code-unit count.
+    let plen32 = ctx.f.append_inst(
+        cur,
+        InstKind::Load(Type::I32, parent_op.clone(), 8),
+        Type::I32,
+        None,
+    );
     let plen = ctx.f.append_inst(
         cur,
-        InstKind::Load(Type::I64, Operand::Value(iter_slot), 8),
+        InstKind::ZExtI32ToI64(Operand::Value(plen32)),
         Type::I64,
         None,
     );
@@ -104,7 +126,24 @@ pub(crate) fn emit_versioned_header(
         cur,
         InstKind::Store(Operand::ConstBool(false), Operand::Value(done_slot), 0),
     );
-    ctx.f.set_term(cur, Terminator::Br(header));
+    // Only the slow arm reads the iter struct.
+    let slow_init = ctx.f.add_block();
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: Operand::Value(is_lat),
+            then_blk: header,
+            else_blk: slow_init,
+        },
+    );
+    ctx.f.append_void(
+        slow_init,
+        InstKind::Call(
+            ctx.intrinsics.split_iter_init,
+            vec![Operand::Value(iter_slot), parent_op.clone(), sep_op.clone()],
+        ),
+    );
+    ctx.f.set_term(slow_init, Terminator::Br(header));
 
     let fast_head = ctx.f.add_block();
     let slow_head = ctx.f.add_block();

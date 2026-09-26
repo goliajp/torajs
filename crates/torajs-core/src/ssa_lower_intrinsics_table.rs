@@ -840,7 +840,6 @@ pub(crate) fn build(
         object_is_any: init_d.substr.object_is_any,
         split_iter_init: init_d.substr.split_iter_init,
         split_iter_next: init_d.substr.split_iter_next,
-        split_iter_drop: init_d.substr.split_iter_drop,
         arr_from_string: init_d.arr_str_etc.arr_from_string,
         str_substring: init_d.arr_str_etc.str_substring,
         str_substr: init_d.arr_str_etc.str_substr,

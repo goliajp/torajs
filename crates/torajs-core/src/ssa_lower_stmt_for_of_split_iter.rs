@@ -11,7 +11,7 @@
 //! borrows. Baseline layout:
 //!
 //! ```text
-//! parent_op = lower parent           (Type::Str, ARC-managed)
+//! parent_op = lower parent           (Type::Str)
 //! sep_op    = lower sep              (Type::Str, STATIC literal)
 //! iter_slot = alloca_bytes 48        (SplitIter struct)
 //! sub_slot  = alloca_bytes 32        (Substr borrow)
@@ -27,14 +27,21 @@
 //!     ptr; sub_slot's contents refilled by next() each iter>
 //!   br header
 //! after:
-//!   call __torajs_split_iter_drop(iter_slot)
 //! ```
 //!
-//! `split_iter_init` bumps parent's rc once; `split_iter_drop` dec's
-//! it once. Each yielded substr carries the STATIC_LITERAL flag (set
-//! by the helper / the inline scan below) so rc_inc / rc_dec /
-//! substr_drop on `v` no-op — exactly matching the borrow semantics,
-//! no per-iter teardown IR.
+//! The iter borrows `parent`; keeping it alive is the loop's job, not
+//! the kernel's. A source binding that provably outlives the loop (an
+//! owned local or a param the body never writes, not captured by
+//! reference) is borrowed with no rc traffic at all. Anything else —
+//! a temporary, a binding the body may overwrite — is held by a
+//! hidden owned local of an outer frame: a temporary hands its +1
+//! over, a borrow is retained first. Being a frame local, it is
+//! released on every way out (the exit block, `return`, a throw into
+//! an enclosing catch, a labeled jump), which a teardown call at
+//! `after:` alone cannot reach. Each yielded substr carries the
+//! STATIC_LITERAL flag (set by the helper / the inline scan below) so
+//! rc_inc / rc_dec / substr_drop on `v` no-op — exactly matching the
+//! borrow semantics, no per-iter teardown IR.
 //!
 //! ## S7-r2 — inline Latin-1 fast path (loop versioning)
 //!
@@ -49,8 +56,8 @@
 //! - fast arm: inline byte scan (`LDRB` probe per byte via
 //!   [`InstKind::LoadU8Dyn`]) + direct Substr write into `sub_slot`,
 //!   loop state (`pos` / `done`) in mem2reg-liftable scalar slots.
-//!   The iter struct is initialized but its `pos`/`exhausted`
-//!   fields are never read on this arm.
+//!   The iter struct is never initialized on this arm: the parent
+//!   length comes straight from the Str header.
 //! - slow arm: the pre-existing `split_iter_next` call (UTF-16 /
 //!   mixed-encoding parents).
 //!
@@ -58,28 +65,38 @@
 //! iteration; the two arms converge on the SHARED `body_blk` so the
 //! body lowers once and `break`/`continue` semantics are unchanged
 //! (`continue` → header re-dispatches on the same hoisted bool).
-//! Both arms exit to the same `after:` drop — `split_iter_drop` only
-//! reads `parent` + rc_dec's, so fast-arm staleness of the struct's
-//! scan fields is unobservable.
 //!
 //! Fast-arm semantics mirror the kernel's `sep_len == 1` Latin-1
 //! branch exactly, including the empty-parent case (one empty chunk
 //! is yielded, then exhausted) and the trailing-separator case (an
 //! empty tail chunk is yielded when the last byte is the separator).
 
-use crate::ast::{Expr, Stmt};
+use crate::ast::{Expr, ExprId, Stmt};
 use crate::ssa::{InstKind, Operand, Terminator, Type};
-use crate::ssa_lower::{LocalInfo, LowerCtx};
+use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_stmt_for_of::bind_scoped_local;
 
-pub(crate) fn lower(
-    ctx: &mut LowerCtx,
-    var_name: &str,
-    parent: crate::ast::ExprId,
-    sep: crate::ast::ExprId,
-    body: &Stmt,
-) {
+const PARENT_HOLD: &str = "__split_parent";
+
+pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: ExprId, body: &Stmt) {
     let parent_op = ctx.lower_expr(parent);
     let sep_op = ctx.lower_expr(sep);
+    let parent_ty = ctx.operand_ty(&parent_op);
+
+    // Outer frame: owns the parent stake, when the loop needs one.
+    ctx.scope_stack.push(Vec::new());
+    ctx.shadow_stack.push(Vec::new());
+    if parent_ty.is_refcounted() && !source_outlives_loop(ctx, parent, body) {
+        if !ctx.expr_transfers_ownership(parent) {
+            ctx.emit_owned_result_inc(parent_op.clone(), parent_ty);
+        }
+        let hold = ctx.alloca(parent_ty, Some(PARENT_HOLD));
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Store(parent_op.clone(), Operand::Value(hold), 0),
+        );
+        bind_scoped_local(ctx, PARENT_HOLD, hold, parent_ty, false, false, false);
+    }
 
     let iter_slot = ctx
         .f
@@ -88,6 +105,8 @@ pub(crate) fn lower(
         .f
         .append_inst(ctx.cur_block, InstKind::AllocaBytes(32), Type::Ptr, None);
 
+    // Inner frame: the loop variable, a borrow of `sub_slot` whose
+    // STATIC header makes its drop a no-op.
     ctx.scope_stack.push(Vec::new());
     ctx.shadow_stack.push(Vec::new());
     let v_slot = ctx.alloca(Type::Substr, Some(var_name));
@@ -95,32 +114,7 @@ pub(crate) fn lower(
         ctx.cur_block,
         InstKind::Store(Operand::Value(sub_slot), Operand::Value(v_slot), 0),
     );
-    {
-        let cur_depth = ctx.scope_stack.len() - 1;
-        ctx.locals.insert(
-            var_name.to_string(),
-            LocalInfo {
-                slot: v_slot,
-                ty: Type::Substr,
-                moved: false,
-                borrowed: false,
-                boxed: false,
-                scope_depth: cur_depth,
-            },
-        );
-        ctx.scope_stack
-            .last_mut()
-            .expect("scope frame")
-            .push(var_name.to_string());
-    }
-
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.split_iter_init,
-            vec![Operand::Value(iter_slot), parent_op.clone(), sep_op],
-        ),
-    );
+    bind_scoped_local(ctx, var_name, v_slot, Type::Substr, false, false, false);
 
     // Compile-time gate for the inline fast arm: 1-char Latin-1
     // literal separator AND a plain Str parent (a Substr parent's
@@ -133,7 +127,7 @@ pub(crate) fn lower(
         }
         _ => None,
     };
-    let fast_sep_byte = fast_sep_byte.filter(|_| ctx.operand_ty(&parent_op) == Type::Str);
+    let fast_sep_byte = fast_sep_byte.filter(|_| parent_ty == Type::Str);
 
     let header = ctx.f.add_block();
     let body_blk = ctx.f.add_block();
@@ -141,9 +135,26 @@ pub(crate) fn lower(
 
     if let Some(target) = fast_sep_byte {
         crate::ssa_lower_stmt_for_of_split_iter_fast::emit_versioned_header(
-            ctx, &parent_op, iter_slot, sub_slot, target, header, body_blk, after,
+            ctx,
+            &crate::ssa_lower_stmt_for_of_split_iter_fast::SplitLoop {
+                parent_op: parent_op.clone(),
+                sep_op,
+                iter_slot,
+                sub_slot,
+                target,
+                header,
+                body_blk,
+                after,
+            },
         );
     } else {
+        ctx.f.append_void(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.split_iter_init,
+                vec![Operand::Value(iter_slot), parent_op.clone(), sep_op],
+            ),
+        );
         ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
         ctx.cur_block = header;
         let ok = ctx.f.append_inst(
@@ -165,9 +176,9 @@ pub(crate) fn lower(
         );
     }
 
-    // RFC 20260901-scope-exit-drops — the split-iter frame above is
-    // popped without a drop walk (its binding borrows), so a jump
-    // owes only the body's own frames: depth = `len()`.
+    // RFC 20260901-scope-exit-drops — `break` lands in `after`, which
+    // closes both loop frames itself, so a jump owes only the body's
+    // own frames: depth = `len()`.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
             cont: header,
@@ -183,15 +194,31 @@ pub(crate) fn lower(
     ctx.loop_stack.pop();
 
     ctx.cur_block = after;
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.split_iter_drop,
-            vec![Operand::Value(iter_slot)],
-        ),
-    );
+    // `v` borrows the STATIC `sub_slot`; its drop would be a no-op call.
+    if let Some(info) = ctx.locals.get_mut(var_name) {
+        info.moved = true;
+    }
+    ctx.close_scope_frame();
+    ctx.close_scope_frame();
+}
 
-    let _ = ctx.scope_stack.pop().expect("for-of-split scope");
-    let _ = ctx.shadow_stack.pop().expect("shadow frame");
-    ctx.locals.remove(var_name);
+/// True when the parent is a binding whose own stake provably spans
+/// the loop, so the iter can borrow it with no rc traffic: a local of
+/// this fn that the body never writes and no closure holds by
+/// reference, owning its value (`let` / `const`) or borrowing the
+/// caller's for the whole call (a param). Borrowed aliases below the
+/// fn's top frame (a for-of element) are excluded — their owner can
+/// drop the value mid-loop.
+fn source_outlives_loop(ctx: &LowerCtx, parent: ExprId, body: &Stmt) -> bool {
+    let Expr::Ident(name) = ctx.ast.get_expr(parent) else {
+        return false;
+    };
+    let Some(info) = ctx.locals.get(name) else {
+        return false;
+    };
+    let stake = (!info.moved && !info.borrowed) || (info.borrowed && info.scope_depth == 0);
+    stake
+        && !info.boxed
+        && !ctx.boxed_noncopy_lets.contains(name)
+        && !crate::ssa_lower_for_of_written::body_writes_var(ctx, body, name)
 }
