@@ -135,6 +135,9 @@ pub enum IPred {
     Sgt,
     Sle,
     Sge,
+    /// unsigned: one compare answers `0 <= x < n` for an `n >= 0`
+    Ult,
+    Uge,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

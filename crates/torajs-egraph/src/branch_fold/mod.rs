@@ -159,6 +159,11 @@ fn decide(pred: IPred, a: NumFact, b: NumFact) -> Option<bool> {
         IPred::Sle => decide_ordered(a.hi <= b.lo, a.lo > b.hi),
         IPred::Eq => decide_ordered(a.lo == a.hi && b.lo == b.hi && a.lo == b.lo, disjoint(a, b)),
         IPred::Ne => decide_ordered(disjoint(a, b), a.lo == a.hi && b.lo == b.hi && a.lo == b.lo),
+        // unsigned order agrees with signed only when both sides are
+        // known non-negative
+        IPred::Ult if a.lo >= 0 && b.lo >= 0 => decide(IPred::Slt, a, b),
+        IPred::Uge if a.lo >= 0 && b.lo >= 0 => decide(IPred::Sge, a, b),
+        IPred::Ult | IPred::Uge => None,
     }
 }
 

@@ -325,7 +325,6 @@ pub(crate) fn lower_typed_index_checked(
     let promote_bool = slot_ty != elem_ty;
     let slot = ctx.alloca_in_entry(slot_ty, Some("__oob_elem"));
     let oob_blk = ctx.f.add_block();
-    let chk2_blk = len.map(|_| ctx.f.add_block());
     let in_blk = ctx.f.add_block();
     let merge = ctx.f.add_block();
     // A non-integral index names a property, not an element
@@ -359,28 +358,21 @@ pub(crate) fn lower_typed_index_checked(
         }
         ctx.cur_block = int_blk;
     }
-    let neg = ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0));
+    // one unsigned compare covers both ends (len never exceeds
+    // i64::MAX); a proven upper bound leaves only the sign test
+    let out = match len {
+        Some(len) => ctx.cmp(IPred::Uge, idx_val.clone(), Operand::Value(len)),
+        None => ctx.cmp(IPred::Slt, idx_val.clone(), Operand::ConstI64(0)),
+    };
     let cb = ctx.cur_block;
     ctx.f.set_term(
         cb,
         Terminator::CondBr {
-            cond: neg,
+            cond: out,
             then_blk: oob_blk,
-            else_blk: chk2_blk.unwrap_or(in_blk),
+            else_blk: in_blk,
         },
     );
-    if let (Some(chk2_blk), Some(len)) = (chk2_blk, len) {
-        ctx.cur_block = chk2_blk;
-        let over = ctx.cmp(IPred::Sge, idx_val.clone(), Operand::Value(len));
-        ctx.f.set_term(
-            chk2_blk,
-            Terminator::CondBr {
-                cond: over,
-                then_blk: oob_blk,
-                else_blk: in_blk,
-            },
-        );
-    }
     let (oob_val, oob_throws) =
         crate::ssa_lower_index_undef::oob_undef_value(ctx, oob_blk, elem_ty);
     ctx.f

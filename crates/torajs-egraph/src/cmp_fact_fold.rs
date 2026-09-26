@@ -86,6 +86,11 @@ fn decide(pred: IPred, a: NumFact, b: NumFact) -> Option<bool> {
         IPred::Sle => le(a, b),
         IPred::Sgt => lt(b, a),
         IPred::Sge => le(b, a),
+        // unsigned order agrees with signed only when both sides are
+        // known non-negative
+        IPred::Ult if a.lo >= 0 && b.lo >= 0 => lt(a, b),
+        IPred::Uge if a.lo >= 0 && b.lo >= 0 => le(b, a),
+        IPred::Ult | IPred::Uge => None,
     }
 }
 

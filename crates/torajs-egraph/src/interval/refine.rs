@@ -208,6 +208,16 @@ fn fcmp_nonzero_edge(pred: FPred, taken: bool) -> bool {
 /// Interval implied for the value side of `value <pred> k` (or
 /// `k <pred> value` when `flipped`) on the `taken`/not-taken edge.
 fn icmp_range(pred: IPred, taken: bool, k: i128, flipped: bool) -> Option<NumFact> {
+    // `x ult k` bounds x only on its taken edge, and only for k >= 1;
+    // the other edge (x >= k or x < 0) and the mirrored form say nothing
+    // an interval can hold
+    match (pred, flipped, taken) {
+        (IPred::Ult, false, true) | (IPred::Uge, false, false) if k >= 1 => {
+            return Some(NumFact::new(0, k - 1));
+        }
+        (IPred::Ult | IPred::Uge, ..) => return None,
+        _ => {}
+    }
     // normalize to value-on-the-left by mirroring the predicate
     let pred = if flipped {
         match pred {
@@ -231,6 +241,7 @@ fn icmp_range(pred: IPred, taken: bool, k: i128, flipped: bool) -> Option<NumFac
             IPred::Sge => IPred::Slt,
             IPred::Sgt => IPred::Sle,
             IPred::Sle => IPred::Sgt,
+            IPred::Ult | IPred::Uge => unreachable!("returned above"),
         }
     };
     match pred {
@@ -240,12 +251,29 @@ fn icmp_range(pred: IPred, taken: bool, k: i128, flipped: bool) -> Option<NumFac
         IPred::Sle => Some(NumFact::new(NEG_INF, k)),
         IPred::Sgt => Some(NumFact::new(k + 1, POS_INF)),
         IPred::Sge => Some(NumFact::new(k, POS_INF)),
+        IPred::Ult | IPred::Uge => unreachable!("returned above"),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn icmp_range_unsigned_bounds_only_the_in_range_edge() {
+        assert_eq!(
+            icmp_range(IPred::Ult, true, 16, false),
+            Some(NumFact::new(0, 15))
+        );
+        assert_eq!(
+            icmp_range(IPred::Uge, false, 16, false),
+            Some(NumFact::new(0, 15))
+        );
+        assert_eq!(icmp_range(IPred::Ult, false, 16, false), None);
+        assert_eq!(icmp_range(IPred::Uge, true, 16, false), None);
+        assert_eq!(icmp_range(IPred::Ult, true, 16, true), None);
+        assert_eq!(icmp_range(IPred::Ult, true, 0, false), None);
+    }
 
     #[test]
     fn icmp_range_directions() {

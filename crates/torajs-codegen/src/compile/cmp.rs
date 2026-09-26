@@ -241,6 +241,8 @@ pub fn ipred_to_cond(p: IPred) -> u8 {
         IPred::Sgt => cond::GT,
         IPred::Sle => cond::LE,
         IPred::Sge => cond::GE,
+        IPred::Ult => cond::LO,
+        IPred::Uge => cond::HS,
     }
 }
 

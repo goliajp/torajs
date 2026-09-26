@@ -311,8 +311,7 @@ impl<'a> LowerCtx<'a> {
     }
 
     /// bug-327 C3: guard the inline slot store with
-    /// `0 <= idx && idx < len` (IPred has no unsigned compare, so
-    /// the negative-index shape gets its own arm). The OOB block
+    /// `0 <= idx && idx < len`, as one unsigned compare. The OOB block
     /// grows-as-holes through `__torajs_arr_typed_set_grow` (RFC
     /// 20260721-typed-grow-on-write — the kernel owns the negative /
     /// dense-limit RangeErrors and stores `v` at `idx` otherwise);
@@ -334,25 +333,11 @@ impl<'a> LowerCtx<'a> {
             Type::I64,
             None,
         );
-        let ge_zero = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(IPred::Sge, idx_val.clone(), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        );
-        let lt_len = self.f.append_inst(
-            self.cur_block,
-            InstKind::ICmp(IPred::Slt, idx_val.clone(), Operand::Value(len)),
-            Type::Bool,
-            None,
-        );
+        // len never exceeds i64::MAX, so one unsigned compare also
+        // sends a negative index to the out-of-range arm
         let in_bounds = self.f.append_inst(
             self.cur_block,
-            InstKind::BinOp(
-                crate::ssa::BinOp::And,
-                Operand::Value(ge_zero),
-                Operand::Value(lt_len),
-            ),
+            InstKind::ICmp(IPred::Ult, idx_val.clone(), Operand::Value(len)),
             Type::Bool,
             None,
         );

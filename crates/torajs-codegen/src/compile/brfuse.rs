@@ -199,6 +199,8 @@ pub(crate) fn invert_ipred(pred: IPred) -> IPred {
         IPred::Sge => IPred::Slt,
         IPred::Sgt => IPred::Sle,
         IPred::Sle => IPred::Sgt,
+        IPred::Ult => IPred::Uge,
+        IPred::Uge => IPred::Ult,
     }
 }
 

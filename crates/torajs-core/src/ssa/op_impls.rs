@@ -195,6 +195,8 @@ impl IPred {
             IPred::Sgt => "sgt",
             IPred::Sle => "sle",
             IPred::Sge => "sge",
+            IPred::Ult => "ult",
+            IPred::Uge => "uge",
         }
     }
 }
