@@ -108,7 +108,7 @@ pub fn widen_deleted_array_bindings(ast: &mut Ast) {
         return;
     }
     let widen_all = ast.exprs.iter().any(|e| proto_index_write(&ast.exprs, e));
-    let claimed = crate::let_widen::collect_cross_type_widen_inits(ast);
+    let claimed = crate::let_widen::collect_cross_type_widen_inits(ast, None);
     let mut stmts = std::mem::take(&mut ast.stmts);
     // The mutable spine is FULLY recursive (each nested list handed to
     // the callback exactly once), so the per-list body must not

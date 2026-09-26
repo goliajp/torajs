@@ -79,7 +79,10 @@ impl Checker {
         // RFC 20260804-mutable-let-widen — cross-family reassigned
         // mutable lets type `any` from declaration (same shared-set
         // architecture; the lowerer recomputes from its own snapshot).
-        self.cross_type_widened = crate::let_widen::collect_cross_type_widen_inits(ast);
+        // Joined onto what the caller seeded: the type half a previous
+        // run found (`check_entry::check_to_fixpoint`).
+        let syntactic = crate::let_widen::collect_cross_type_widen_inits(ast, None);
+        self.cross_type_widened.extend(syntactic);
         // Three native passes split out into `check_pipeline` sibling
         // (chunk 136). Order matters: Pass 1 reads aliases populated
         // by Pass 0; Pass 2 reads globals populated by Pass 1 and

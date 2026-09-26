@@ -22,6 +22,29 @@ use crate::ast::{Ast, ExprId};
 use crate::check::{Checker, Diagnostic, GenericCallSites, Severity, Type};
 use std::collections::HashMap;
 
+/// The full pipeline, re-run until the cross-type widen set stops
+/// growing (RFC 20260927-inferred-slot-any-widen). A binding assigned
+/// an `any` value types `any` from its declaration, which changes the
+/// types of every read of it — the whole table has to be recomputed
+/// with the binding widened, and that can widen the next one
+/// (`u = total`). The set only grows and is bounded by the program's
+/// mutable `let`s.
+fn check_to_fixpoint(ast: &Ast) -> Checker {
+    let mut c = Checker::new();
+    c.run_full_pipeline(ast);
+    loop {
+        let found = crate::let_widen::collect_cross_type_widen_inits(ast, Some(&c.expr_types));
+        if found.is_subset(&c.cross_type_widened) {
+            return c;
+        }
+        let mut seed = std::mem::take(&mut c.cross_type_widened);
+        seed.extend(found);
+        c = Checker::new();
+        c.cross_type_widened = seed;
+        c.run_full_pipeline(ast);
+    }
+}
+
 pub fn check(ast: &Ast) -> Result<GenericCallSites, String> {
     check_with_types(ast).map(|(g, _)| g)
 }
@@ -76,8 +99,7 @@ pub fn check_with_arity(ast: &Ast) -> Result<CheckArtifacts, String> {
 /// along. Collected before the mono pass, which discards its own
 /// diagnostics except where a specialization body left a hole.
 pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>), String> {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
+    let mut c = check_to_fixpoint(ast);
     // typed 覆盖率读数(`TORAJS_TYPED_CENSUS=1` 下才打)。放在错误分支
     // 提前返回**之前** —— 一次被拒的编译同样要有读数,否则 `refused`
     // 永远是 0。见 `crate::typed_census`。
@@ -158,8 +180,7 @@ pub fn check_with_arity_warn(ast: &Ast) -> Result<(CheckArtifacts, Vec<String>),
 /// surfaced errors keep the same shape. New callers should prefer
 /// `collect_diagnostics` (T-04).
 pub fn collect_errors(ast: &Ast) -> Vec<String> {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
+    let c = check_to_fixpoint(ast);
     c.errors
         .into_iter()
         .filter(|d| d.severity == Severity::Error)
@@ -171,8 +192,7 @@ pub fn collect_errors(ast: &Ast) -> Vec<String> {
 /// LSP consumes this to publish per-site squiggles + warning bucket
 /// (lint also reads this same stream once it lands in T-06).
 pub fn collect_diagnostics(ast: &Ast) -> Vec<Diagnostic> {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
+    let c = check_to_fixpoint(ast);
     c.errors
 }
 
@@ -184,8 +204,7 @@ pub fn collect_diagnostics(ast: &Ast) -> Vec<Diagnostic> {
 /// (errors-only, no warnings) for back-compat with existing LSP
 /// hover code; full diagnostics flow through `collect_diagnostics`.
 pub fn collect_types_and_errors(ast: &Ast) -> (HashMap<ExprId, Type>, Vec<String>) {
-    let mut c = Checker::new();
-    c.run_full_pipeline(ast);
+    let c = check_to_fixpoint(ast);
     let errs: Vec<String> = c
         .errors
         .into_iter()

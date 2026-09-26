@@ -148,11 +148,12 @@ pub(super) fn inferred_slot_ty(
     if dynobj_degraded.contains(&init) {
         return Some(Type::Any);
     }
-    // Rotation 652 — a nullish-literal init the cross-type widen made
-    // `any` (`let args = null; … args = arguments`) promotes as the
-    // same Any slot the checker's pass_2 registered from the shared
-    // verdict; the main binding is already `any` off the same set.
-    if crate::let_widen::nullish_widened_init(ast, cross_type_widened, init) {
+    // Rotation 652 — an init the cross-type widen made `any` (`let
+    // args = null; … args = arguments`, `let t = 0; … t = t + anyv`)
+    // promotes as the same Any slot the checker's pass_2 registered
+    // from the shared verdict; the main binding is already `any` off
+    // the same set.
+    if cross_type_widened.contains(&init) {
         return Some(Type::Any);
     }
     // Rotation 592 — an ALIAS of a lifted-arrow binding

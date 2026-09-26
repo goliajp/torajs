@@ -131,7 +131,10 @@ pub(crate) fn synthesize_main(
             deque_arrs: std::collections::HashSet::new(),
             escape_obj_lets: std::collections::HashSet::new(),
             dynobj_degraded: crate::dynobj_degrade::collect_dynobj_degraded_inits(ast),
-            cross_type_widened: crate::let_widen::collect_cross_type_widen_inits(ast),
+            cross_type_widened: crate::let_widen::collect_cross_type_widen_inits(
+                ast,
+                Some(expr_types),
+            ),
             nullable_arr_lets: std::collections::HashSet::new(),
             nullable_str_lets: std::collections::HashSet::new(),
             // Main has no return annotation.

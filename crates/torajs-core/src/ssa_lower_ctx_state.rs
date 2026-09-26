@@ -26,6 +26,16 @@ use crate::ssa_lower_push_loop_detect::let_counter_zero_name;
 use crate::ssa_lower_while_push_fast::lower_while_inner;
 
 impl<'a> LowerCtx<'a> {
+    /// The init sets the checker keeps, recomputed from this fn's AST
+    /// snapshot so the two homes agree: dynobj-degraded object inits
+    /// (RC-4 F1c, `crate::dynobj_degrade`) and cross-type widened lets
+    /// (`crate::let_widen`, with the checker's final types).
+    pub(crate) fn prime_checker_mirror_sets(&mut self) {
+        self.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(self.ast);
+        self.cross_type_widened =
+            crate::let_widen::collect_cross_type_widen_inits(self.ast, Some(self.expr_types));
+    }
+
     /// Prime the per-body binding sets shared by `lower_fn` and
     /// `synthesize_main` before any statement lowers:
     /// escape-captured lets (T-15.g.5 — a top-level `let` captured by

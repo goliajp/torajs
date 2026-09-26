@@ -199,11 +199,7 @@ pub(crate) fn lower_fn(
     };
 
     let assigned_in_body = ctx.prime_body_binding_sets(body.iter());
-    // RC-4 F1c — mirror of the checker's dynobj_degraded set
-    // (scope-correct walk; see `crate::dynobj_degrade`).
-    ctx.dynobj_degraded = crate::dynobj_degrade::collect_dynobj_degraded_inits(ctx.ast);
-    // RFC 20260804-mutable-let-widen — same shared-set contract.
-    ctx.cross_type_widened = crate::let_widen::collect_cross_type_widen_inits(ctx.ast);
+    ctx.prime_checker_mirror_sets();
     crate::undef_f64_fields::prime(&mut ctx);
     ctx.proto_shadow = crate::builtin_proto_shadow::collect_shadowed_builtin_methods(ctx.ast);
 

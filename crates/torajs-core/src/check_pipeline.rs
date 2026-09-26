@@ -321,6 +321,14 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                         if !*is_var && c.dynobj_degraded.contains(init) {
                             Some(Type::Any)
                         }
+                        // A cross-type-widened init: its main binding
+                        // is `any` (`let_widen`); the global slot the
+                        // lowerer's inferred_slot_ty asks the same set
+                        // for is the boxed one.
+                        else if !*is_var && c.cross_type_widened.contains(init) {
+                            c.any_promoted_inits.insert(*init);
+                            Some(Type::Any)
+                        }
                         // RFC 20260709-closure-global chunk 2 — an
                         // un-annotated lifted-arrow init registers
                         // under the sig synthesized from the lifted
@@ -424,18 +432,9 @@ pub(crate) fn pass_2_register_globals_and_check_stmts(c: &mut Checker, ast: &Ast
                             // slot. Shape-typed calls (simple ret
                             // ann / `Symbol()`) keep their exact
                             // slot — the fallback never demotes.
-                            // Rotation 652 — a nullish-literal init
-                            // the cross-type widen made `any` takes
-                            // the same boxed slot (`let_widen`'s
-                            // verdict; the lowerer asks it too).
                             if shaped.is_none()
                                 && !*is_var
-                                && (crate::ast_refs_any_promote::any_promote_init(ast, *init)
-                                    || crate::let_widen::nullish_widened_init(
-                                        ast,
-                                        &c.cross_type_widened,
-                                        *init,
-                                    ))
+                                && crate::ast_refs_any_promote::any_promote_init(ast, *init)
                             {
                                 c.any_promoted_inits.insert(*init);
                                 Some(Type::Any)

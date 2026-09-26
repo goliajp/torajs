@@ -39,12 +39,22 @@
 //! body from a fresh stack. A same-named binding elsewhere can
 //! over-widen this one; that costs typed-lane precision on a
 //! binding whose init was `null`, never a wrong answer.
+//!
+//! RFC 20260927-inferred-slot-any-widen — the TYPE half. An assign
+//! whose rhs the checker typed `Any` stores a value of unknown type
+//! into the binding, and §13.15.2 stores it as is: `let total = 0;
+//! total = total + anyv` holds `"0x"` for a string `anyv`. A typed
+//! slot would have to convert it, so such a binding is `any` from
+//! declaration too. The checker supplies its `expr_types` and re-runs
+//! until this set stops growing (`check_entry::check_to_fixpoint`);
+//! the lowerer asks with the checker's final table.
 
 mod walk;
 
 use std::collections::{HashMap, HashSet};
 
 use crate::ast::{Ast, Expr, ExprId};
+use crate::check::Type;
 
 /// Syntactic family of an init / assign-rhs expression. `None` =
 /// unclassifiable (never participates in widening).
@@ -103,11 +113,15 @@ fn strip_as(ast: &Ast, mut e: ExprId) -> ExprId {
 }
 
 enum Binding {
-    /// A widen candidate: unannotated mutable `let` with a
-    /// classifiable init.
-    Tracked { init: ExprId, family: Family },
-    /// Shadows without tracking (const, annotated, unclassifiable
-    /// init, params, catch params, imports).
+    /// A widen candidate: unannotated mutable `let`. `family` is the
+    /// init's syntactic family, `None` when it does not classify (the
+    /// syntactic judgment then never widens it; the type half may).
+    Tracked {
+        init: ExprId,
+        family: Option<Family>,
+    },
+    /// Shadows without tracking (const, annotated, params, catch
+    /// params, imports).
     Opaque,
 }
 
@@ -130,22 +144,15 @@ fn collect_non_nullish_rebinds(ast: &Ast) -> HashSet<String> {
     out
 }
 
-/// Rotation 652 — the nullish half of the verdict, asked by both
-/// top-level global registrations (`check_pipeline::pass_2` and
-/// `ssa_lower_toplevel_globals::inferred_slot_ty`). A `let x = null`
-/// that widened here types `any` on its MAIN binding, but the global
-/// slot a named-fn body reads it through is registered from the init
-/// SHAPE, and neither the shape inference nor `any_promote_init`
-/// knows a nullish literal — so `function rd() { x.length }` answered
-/// "unknown identifier" while `let x: any = null` worked. The slot is
-/// the boxed `any` home the annotated spelling already gets.
-pub(crate) fn nullish_widened_init(ast: &Ast, widened: &HashSet<ExprId>, init: ExprId) -> bool {
-    matches!(classify(ast, init), Some(Family::Null | Family::Undef)) && widened.contains(&init)
-}
-
-pub(crate) fn collect_cross_type_widen_inits(ast: &Ast) -> HashSet<ExprId> {
+/// `types`: the checker's expression types, which add the type half
+/// (module doc); `None` is the syntactic judgment alone.
+pub(crate) fn collect_cross_type_widen_inits(
+    ast: &Ast,
+    types: Option<&HashMap<ExprId, Type>>,
+) -> HashSet<ExprId> {
     let mut w = Walker {
         ast,
+        types,
         gen_factories: collect_gen_factories(ast),
         non_nullish_rebinds: collect_non_nullish_rebinds(ast),
         scopes: vec![HashMap::new()],
@@ -159,6 +166,7 @@ pub(crate) fn collect_cross_type_widen_inits(ast: &Ast) -> HashSet<ExprId> {
 
 struct Walker<'a> {
     ast: &'a Ast,
+    types: Option<&'a HashMap<ExprId, Type>>,
     /// FnDecl names whose declared return type is a synthesized
     /// `__Gen_*` class — the post-desugar spelling of `function*`.
     /// `let it = g()` initializes a generator OBJECT, and the
@@ -208,9 +216,8 @@ fn collect_gen_factories(ast: &Ast) -> HashSet<String> {
 
 impl Walker<'_> {
     fn register_let(&mut self, name: &str, mutable: bool, unannotated: bool, init: ExprId) {
-        let binding = if mutable
-            && unannotated
-            && let Some(family) = classify(self.ast, init).or_else(|| {
+        let binding = if mutable && unannotated {
+            let family = classify(self.ast, init).or_else(|| {
                 // A generator-factory call initializes a `__Gen_*`
                 // object — classifiable through the factory table.
                 match self.ast.get_expr(strip_as(self.ast, init)) {
@@ -222,11 +229,11 @@ impl Walker<'_> {
                     },
                     _ => None,
                 }
-            }) {
+            });
             // A nullish init widens on the name-keyed evidence alone
             // (module doc): the scope walk below still sees the
             // classifiable in-scope rebinds, this catches the rest.
-            if matches!(family, Family::Null | Family::Undef)
+            if matches!(family, Some(Family::Null | Family::Undef))
                 && self.non_nullish_rebinds.contains(name)
             {
                 self.out.insert(init);
@@ -248,10 +255,31 @@ impl Walker<'_> {
             .insert(name.to_string(), Binding::Opaque);
     }
 
-    /// `name = value` — widen the tracked declaration when the rhs
-    /// classifies into a different family.
+    /// `name = value` — widen the tracked declaration when the rhs is
+    /// typed `Any` or classifies into a different family.
     fn scan_assign(&mut self, target: ExprId, value: ExprId) {
         let Expr::Ident(name) = self.ast.get_expr(target) else {
+            return;
+        };
+        // the innermost binding of the name decides; an opaque one
+        // (const, annotated, param) is never widened
+        let found = self.scopes.iter().rev().find_map(|s| {
+            s.get(name).map(|b| match b {
+                Binding::Tracked { init, family } => Some((*init, family.clone())),
+                Binding::Opaque => None,
+            })
+        });
+        let Some(Some((init, family))) = found else {
+            return;
+        };
+        if let Some(types) = self.types
+            && types.get(&value) == Some(&Type::Any)
+            && types.get(&init) != Some(&Type::Any)
+        {
+            self.out.insert(init);
+            return;
+        }
+        let Some(family) = family else {
             return;
         };
         let Some(rhs) = classify(self.ast, value).or_else(|| {
@@ -275,17 +303,8 @@ impl Walker<'_> {
         }) else {
             return;
         };
-        for scope in self.scopes.iter().rev() {
-            match scope.get(name) {
-                Some(Binding::Tracked { init, family }) => {
-                    if *family != rhs || self.object_shapes_disagree(*init, value) {
-                        self.out.insert(*init);
-                    }
-                    return;
-                }
-                Some(Binding::Opaque) => return,
-                None => {}
-            }
+        if family != rhs || self.object_shapes_disagree(init, value) {
+            self.out.insert(init);
         }
     }
 
