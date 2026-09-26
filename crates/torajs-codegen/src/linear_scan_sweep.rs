@@ -107,6 +107,16 @@ impl Sweep {
         }
     }
 
+    /// Take `reg` out of the free pool for a value that must sit in
+    /// that exact register (a parameter kept in its argument lane).
+    /// `false` when `reg` is not a pool register.
+    pub(crate) fn claim(&mut self, reg: Reg) -> bool {
+        let Reg::Gpr(g) = reg else { return false };
+        let before = self.free_caller_gpr.len();
+        self.free_caller_gpr.retain(|&f| f != g);
+        self.free_caller_gpr.len() < before
+    }
+
     /// Pop a callee-saved GPR and record it in the used-mask.
     pub(crate) fn take_callee_gpr(&mut self) -> Option<Gpr> {
         let g = self.free_callee_gpr.pop_front()?;

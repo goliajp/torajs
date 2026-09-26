@@ -149,9 +149,12 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // Pass-B-then-Pass-C ordering).
         if let Some(&arg_reg) = param_arg_reg.get(&vid) {
             if !crossing {
-                // Stays in its arg register; arg regs aren't in any
-                // scratch pool, so no active-set entry.
+                // Stays in its arg register; a pool register must not
+                // be handed out while the param is live.
                 sweep.by_value.insert(vid, arg_reg);
+                if sweep.claim(arg_reg) {
+                    sweep.activate(vid, interval, arg_reg);
+                }
                 continue;
             }
             // Crosses a call — the caller-saved arg register would be
@@ -976,5 +979,57 @@ mod tests {
             (spill_offsets.len() as u32) * 8,
             "spill_bytes accounts for every distinct SpillFpr slot"
         );
+    }
+
+    /// A parameter kept in its argument register holds it: with the
+    /// pool spilling into X1..X8, no value live alongside the param may
+    /// be handed its register.
+    #[test]
+    fn param_kept_in_arg_register_is_not_shared() {
+        let n: u32 = 12;
+        let (p0, p1) = (ValueId(0), ValueId(1));
+        let mut insts: Vec<Inst> = (0..n)
+            .map(|i| Inst {
+                result: Some(ValueId(2 + i)),
+                kind: InstKind::BinOp(BinOp::Add, Operand::Value(p0), Operand::ConstI64(i as i64)),
+                origin: None,
+            })
+            .collect();
+        let mut acc = ValueId(1);
+        for i in 0..n {
+            let next = ValueId(2 + n + i);
+            insts.push(Inst {
+                result: Some(next),
+                kind: InstKind::BinOp(
+                    BinOp::Add,
+                    Operand::Value(acc),
+                    Operand::Value(ValueId(2 + i)),
+                ),
+                origin: None,
+            });
+            acc = next;
+        }
+        let func = Function {
+            name: "f".into(),
+            params: vec![p0, p1],
+            ret: Type::I64,
+            values: (0..2 + 2 * n)
+                .map(|_| ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                })
+                .collect(),
+            blocks: vec![Block {
+                id: BlockId(0),
+                insts,
+                term: Terminator::Ret(Some(Operand::Value(acc))),
+            }],
+            current_origin: None,
+        };
+        let a = allocate_linear_scan(&func);
+        assert_eq!(a.of(p1), Reg::Gpr(Gpr::X1));
+        for v in 2..2 + n {
+            assert_ne!(a.of(ValueId(v)), Reg::Gpr(Gpr::X1), "v{v}");
+        }
     }
 }

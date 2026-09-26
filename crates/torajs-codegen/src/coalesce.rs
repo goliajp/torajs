@@ -469,7 +469,7 @@ mod tests {
     /// home — a spilled class shares one slot.
     #[test]
     fn class_members_share_home_under_pressure() {
-        let n = 16;
+        let n = 24;
         let mut insts: Vec<Inst> = (1..=n)
             .map(|i| add(i, v(0), Operand::ConstI64(i as i64)))
             .collect();

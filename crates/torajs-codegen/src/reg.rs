@@ -223,12 +223,29 @@ pub mod aapcs64 {
     /// outlives a `BL` must live in `CALLEE_SAVED_SCRATCH` instead;
     /// see `linear_scan::allocate_linear_scan`'s call-crossing test).
     ///
-    /// Only X13/X14/X15 qualify: X9-X12 are `RESERVED_OP_SCRATCH`, and
-    /// X16/X17 (IP0/IP1) are conservatively excluded because the
-    /// static linker may clobber them in a branch-island veneer
-    /// (Apple ARM64 ABI §3.2.4) — a value parked there could be
-    /// silently corrupted by a long-range BL the linker rewrites.
-    pub const CALLER_SAVED_SCRATCH: [Gpr; 3] = [Gpr::X13, Gpr::X14, Gpr::X15];
+    /// X13-X15, then X8 and the argument registers X7..X1: X9-X12 are
+    /// `RESERVED_OP_SCRATCH`, X0 is the return lane, and X16/X17
+    /// (IP0/IP1) are conservatively excluded because the static linker
+    /// may clobber them in a branch-island veneer (Apple ARM64 ABI
+    /// §3.2.4). An argument register is only ever written by a call's
+    /// argument setup, which places every lane as one parallel copy
+    /// (`compile::call_args`), so a value there that dies at the call
+    /// is read before it is overwritten. A parameter that stays in its
+    /// argument register holds it for its whole interval
+    /// (`Sweep::claim`).
+    pub const CALLER_SAVED_SCRATCH: [Gpr; 11] = [
+        Gpr::X13,
+        Gpr::X14,
+        Gpr::X15,
+        Gpr::X8,
+        Gpr::X7,
+        Gpr::X6,
+        Gpr::X5,
+        Gpr::X4,
+        Gpr::X3,
+        Gpr::X2,
+        Gpr::X1,
+    ];
 
     /// Callee-saved scratch — AAPCS64 §6.1.1 guarantees these survive
     /// a call, so the allocator parks call-crossing SSA values here.
@@ -361,14 +378,20 @@ mod tests {
     }
 
     #[test]
-    fn aapcs64_caller_saved_pool_is_x13_x14_x15() {
-        // Real caller-saved temporaries only: X9-X12 are op scratch,
-        // X16/X17 excluded (linker-veneer risk). A value crossing a
-        // call must NOT land here — it goes to CALLEE_SAVED_SCRATCH.
+    fn aapcs64_caller_saved_pool_excludes_x0_scratch_and_ip() {
+        // X0 is the return lane, X9-X12 op scratch, X16/X17 excluded
+        // (linker-veneer risk). A value crossing a call must NOT land
+        // here — it goes to CALLEE_SAVED_SCRATCH.
+        for r in [Gpr::X0, Gpr::X16, Gpr::X17] {
+            assert!(!aapcs64::CALLER_SAVED_SCRATCH.contains(&r), "{r:?}");
+        }
         assert_eq!(
-            aapcs64::CALLER_SAVED_SCRATCH,
-            [Gpr::X13, Gpr::X14, Gpr::X15]
+            &aapcs64::CALLER_SAVED_SCRATCH[..3],
+            &[Gpr::X13, Gpr::X14, Gpr::X15]
         );
+        for r in &aapcs64::ARG_RET[1..] {
+            assert!(aapcs64::CALLER_SAVED_SCRATCH.contains(r), "{r:?}");
+        }
     }
 
     #[test]
