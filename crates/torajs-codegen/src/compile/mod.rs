@@ -78,6 +78,10 @@ pub use refs::{
     emit_boxed_entry_addr, emit_fn_addr, emit_global_ref, emit_static_str_ref, emit_string_ref,
 };
 
+/// Code offset a non-fall-through block is padded to. Function
+/// starts are 64-aligned by the linker, so this is absolute.
+const BRANCH_TARGET_ALIGN: usize = 16;
+
 /// Operand scratch GPRs — sub-modules use these to materialize int
 /// constants (`materialize_const_i64`) and arrange operands.
 pub(crate) const OP_SCRATCH_LHS: Gpr = Gpr::X9;
@@ -188,7 +192,16 @@ pub fn compile_function_with(
     let blocks_by_id: HashMap<u32, &torajs_core::ssa::Block> =
         func.blocks.iter().map(|b| (b.id.0, b)).collect();
 
+    // A block no predecessor falls into starts on a 16-byte fetch
+    // boundary. The pad sits after an unconditional branch or a
+    // return, so it never runs.
+    let mut falls_in = true;
     for (bi, block) in func.blocks.iter().enumerate() {
+        if !falls_in {
+            while bytes.len() % BRANCH_TARGET_ALIGN != 0 {
+                write_u32(&mut bytes, crate::enc::nop());
+            }
+        }
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
         let fused = fused_cmps.get(&block.id.0);
         for (ii, inst) in block.insts.iter().enumerate() {
@@ -231,6 +244,7 @@ pub fn compile_function_with(
             &blocks_by_id,
             next_resolved,
         );
+        falls_in = terminator::falls_through(&block.term, &blocks_by_id, next_resolved);
     }
 
     // Patch every branch fixup with its real displacement. Empty
@@ -520,22 +534,27 @@ mod tests {
         let compiled = compile_function(&func);
 
         // block 0 @ 0:  MOVZ x9, #1            (materialize cond=true)
-        //               CBZ  x9, +16           (layout flip: then is
+        //               CBZ  x9, +28           (layout flip: then is
         //                                       the fall-through, so
         //                                       branch the inverse to
-        //                                       else=block2 @ 20)
+        //                                       else=block2 @ 32)
         // block 1 @ 8:  MOVZ x9, #1
         //               AND  x0, x9, #1
         //               RET
-        // block 2 @ 20: MOVZ x9, #0
+        //         @ 20: NOP ×3                 (block 2 follows a RET:
+        //                                       pad to a 16-byte boundary)
+        // block 2 @ 32: MOVZ x9, #0
         //               AND  x0, x9, #1
         //               RET
         let expected = words_to_le_bytes(&[
             crate::enc::movz_imm(Gpr::X9, 1, 0),
-            crate::enc::cbz_x(Gpr::X9, 16),
+            crate::enc::cbz_x(Gpr::X9, 28),
             crate::enc::movz_imm(Gpr::X9, 1, 0),
             crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
             crate::enc::ret(Gpr::X30),
+            crate::enc::nop(),
+            crate::enc::nop(),
+            crate::enc::nop(),
             crate::enc::movz_imm(Gpr::X9, 0, 0),
             crate::enc::and_imm_one(Gpr::X0, Gpr::X9),
             crate::enc::ret(Gpr::X30),

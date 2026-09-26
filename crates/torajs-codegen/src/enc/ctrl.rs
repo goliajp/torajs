@@ -79,6 +79,12 @@ pub fn cbnz_x(rt: Gpr, byte_offset: i32) -> u32 {
     0xB500_0000 | (imm19 << 5) | rt.idx()
 }
 
+/// NOP — alignment padding in front of a branch target. ARM ARM
+/// C6.2.238.
+pub fn nop() -> u32 {
+    0xD503_201F
+}
+
 /// BRK #imm16 — breakpoint. Used for `Terminator::Unreachable` —
 /// clang/LLVM convention is `brk #0xfd`. ARM ARM C6.2.42.
 pub fn brk_imm16(imm: u16) -> u32 {

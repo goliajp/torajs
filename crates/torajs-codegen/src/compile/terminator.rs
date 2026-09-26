@@ -183,3 +183,104 @@ pub(super) fn emit_terminator(
         }
     }
 }
+
+/// `true` iff `term` can hand control to the next block in layout
+/// without a branch — the same fall-through tests `emit_terminator`
+/// uses to elide or flip its branches.
+pub(super) fn falls_through(
+    term: &Terminator,
+    blocks_by_id: &HashMap<u32, &torajs_core::ssa::Block>,
+    next_resolved: Option<BlockId>,
+) -> bool {
+    let lands_next =
+        |t: &BlockId| Some(brfuse::resolve_forwarded_target(blocks_by_id, *t)) == next_resolved;
+    match term {
+        Terminator::Ret(_) | Terminator::Unreachable => false,
+        Terminator::Br(t) => lands_next(t),
+        Terminator::CondBr {
+            then_blk, else_blk, ..
+        } => lands_next(then_blk) || lands_next(else_blk),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::compile_function;
+    use crate::enc::{nop, ret};
+    use crate::reg::Gpr;
+    use torajs_core::ssa::{
+        Block, BlockId, Function, IPred, Inst, InstKind, Operand, Terminator, Type, ValueId,
+        ValueInfo,
+    };
+
+    /// `if (n < 0) return 1; return 2;` — the second return's block
+    /// follows a `ret`, so it starts on a 16-byte boundary and the pad
+    /// in front of it is NOPs behind that `ret`.
+    #[test]
+    fn block_after_ret_starts_on_a_fetch_boundary() {
+        let func = Function {
+            name: "f".into(),
+            params: vec![ValueId(0)],
+            ret: Type::I64,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                },
+                ValueInfo {
+                    ty: Type::Bool,
+                    name: None,
+                },
+            ],
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![Inst {
+                        result: Some(ValueId(1)),
+                        kind: InstKind::ICmp(
+                            IPred::Slt,
+                            Operand::Value(ValueId(0)),
+                            Operand::ConstI64(0),
+                        ),
+                        origin: None,
+                    }],
+                    term: Terminator::CondBr {
+                        cond: Operand::Value(ValueId(1)),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![],
+                    term: Terminator::Ret(Some(Operand::ConstI64(1))),
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: vec![],
+                    term: Terminator::Ret(Some(Operand::ConstI64(2))),
+                },
+            ],
+            current_origin: None,
+        };
+        let bytes = compile_function(&func).bytes;
+        let words: Vec<u32> = bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        let first_ret = words.iter().position(|&w| w == ret(Gpr::X30)).unwrap();
+        let second_block = words[first_ret + 1..]
+            .iter()
+            .position(|&w| w != nop())
+            .unwrap()
+            + first_ret
+            + 1;
+        assert_eq!((second_block * 4) % 16, 0, "{words:08x?}");
+        assert!(
+            words[first_ret + 1..second_block]
+                .iter()
+                .all(|&w| w == nop())
+        );
+        assert!(words[..first_ret].iter().all(|&w| w != nop()));
+    }
+}
