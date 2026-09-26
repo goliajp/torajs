@@ -32,9 +32,7 @@
 
 use core::ffi::c_void;
 
-use crate::iter_any_get_method::{
-    GetIterator, generic_iter_close, generic_iter_step, get_iterator,
-};
+use crate::iter_any_get_method::{GetIterator, generic_iter_step, get_iterator};
 use crate::method_call_arr_species::{store_elem, write_product_length};
 use crate::nanbox::{AnyValue, VALUE_UNDEFINED, box_int32, box_void_ptr, is_undefined};
 
@@ -217,6 +215,9 @@ unsafe fn from_plain(items: AnyValue, map_pair: MapPair, this_arg: AnyValue) -> 
                 break;
             }
             let Ok(v) = map_elem(map_pair, this_arg, out, k) else {
+                // the mapfn threw: close the iterator with that throw
+                // set aside (§7.4.11), then release it
+                crate::iter_any_close::any_iter_close_under_pending_throw(items, &mut iter_slot);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(box_void_ptr(arr as *mut c_void));
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(iter_slot);
                 return VALUE_UNDEFINED;
@@ -263,7 +264,9 @@ unsafe fn from_user_iterator(
                 Err(()) => false,
             };
             if !stored {
-                generic_iter_close(it);
+                // the map or store threw: close with that throw set
+                // aside, so `return()` runs, and keep it (§7.4.11)
+                crate::iter_any_close::iter_close_under_pending_throw(it);
                 crate::nanbox_ffi::__torajs_anyv_rc_dec(product);
                 return VALUE_UNDEFINED;
             }
