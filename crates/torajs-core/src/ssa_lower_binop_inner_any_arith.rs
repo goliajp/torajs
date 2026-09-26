@@ -101,25 +101,18 @@ pub(crate) fn try_lower(
     {
         return None;
     }
-    // F64 beside an any: a number encoding adds inline
-    let f64_side = match (&a_ty, &b_ty) {
-        (Type::F64, Type::Any) => Some(true),
-        (Type::Any, Type::F64) => Some(false),
-        _ => None,
-    };
+    // any beside any / F64 / I64: number encodings add inline
+    let numeric = |t: &Type| matches!(t, Type::Any | Type::F64 | Type::I64);
     if op == AstBinOp::Add
-        && let Some(f_on_left) = f64_side
+        && (a_ty == Type::Any || b_ty == Type::Any)
+        && numeric(&a_ty)
+        && numeric(&b_ty)
     {
-        let (f, v) = if f_on_left {
-            (a.clone(), b.clone())
-        } else {
-            (b.clone(), a.clone())
-        };
-        return Some(crate::ssa_lower_anyv_number::f64_add_any(
+        let sides = ((a.clone(), a_ty), (b.clone(), b_ty));
+        return Some(crate::ssa_lower_anyv_number::number_add(
             ctx,
-            f,
-            &v,
-            f_on_left,
+            sides.0,
+            sides.1,
             |ctx| lower_via_kernel(ctx, op, a, b, a_ty, b_ty),
         ));
     }

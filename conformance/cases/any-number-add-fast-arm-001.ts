@@ -48,3 +48,29 @@ for (const v of vals) {
   nums.push(num(v), n)
 }
 console.log(nums.map((n) => (Object.is(n, -0) ? '-0' : String(n))).join(','))
+
+// any + any and an I64 beside an any: int32 sums stay int32, sums past
+// int32, non-integers and -0 go through the double encoding
+const pairs: any[] = [
+  [1, 2], [2147483647, 1], [-2147483648, -1], [1, 0.5], [-0, -0], [0, -0],
+  [3, 'x'], [null, 4], [1e308, 1e308], [NaN, 1], [5, undefined],
+]
+const sums: string[] = []
+for (const p of pairs) {
+  const a: any = p[0]
+  const b: any = p[1]
+  const s = a + b
+  sums.push(String(s) + (Object.is(s, -0) ? '(-0)' : ''))
+}
+console.log(sums.join(','))
+let ci = 0
+for (let k = 0; k < 5; k = k + 1) {
+  const v: any = pairs[k][0]
+  const w = ci + v
+  sums.push(String(w))
+  ci = ci + 1
+}
+console.log(sums.slice(11).join(','))
+const big = 9007199254740993
+const one: any = 1
+console.log(String(big + one), String(one + big))
