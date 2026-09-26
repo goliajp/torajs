@@ -144,6 +144,14 @@ pub(super) fn collect_sentinel_elems(
                 let Expr::Ident(recv) = a.ast.get_expr(*obj) else {
                     continue;
                 };
+                // `Reflect.deleteProperty(xs, k)` leaves the same hole
+                // `delete xs[k]` does (the Delete arm below)
+                if recv == "Reflect"
+                    && name == "deleteProperty"
+                    && let Some(Expr::Ident(target)) = args.first().map(|t| a.ast.get_expr(*t))
+                {
+                    out.insert(target.clone());
+                }
                 if elem_writing_args(name.as_str(), args)
                     .iter()
                     .filter_map(|i| args.get(*i))

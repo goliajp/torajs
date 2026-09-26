@@ -146,14 +146,24 @@ fn shrink_target(ast: &Ast, e: &Expr) -> Option<ExprId> {
 }
 
 /// The array an element delete may punch a hole into: `delete x[k]`
-/// for any key (a string key can spell an index). A named-member
-/// delete (`delete x.foo`) is never an index.
+/// for any key (a string key can spell an index), and
+/// `Reflect.deleteProperty(x, k)`. A named-member delete
+/// (`delete x.foo`) is never an index.
 fn hole_target(ast: &Ast, e: &Expr) -> Option<ExprId> {
-    let Expr::Delete { expr } = e else {
-        return None;
-    };
-    match ast.get_expr(*expr) {
-        Expr::Index { obj, .. } => Some(*obj),
+    match e {
+        Expr::Delete { expr } => match ast.get_expr(*expr) {
+            Expr::Index { obj, .. } => Some(*obj),
+            _ => None,
+        },
+        Expr::Call { callee, args } => match ast.get_expr(*callee) {
+            Expr::Member { obj, name }
+                if name == "deleteProperty"
+                    && matches!(ast.get_expr(*obj), Expr::Ident(ns) if ns == "Reflect") =>
+            {
+                args.first().copied()
+            }
+            _ => None,
+        },
         _ => None,
     }
 }

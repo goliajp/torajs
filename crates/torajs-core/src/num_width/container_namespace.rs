@@ -1,9 +1,10 @@
 //! Member calls on a builtin namespace receiver (`Promise.*`,
-//! `Array.from`, `Object.defineProperty`): the receiver is no
+//! `Array.from`, `Object.defineProperty`, `Reflect.set` /
+//! `Reflect.deleteProperty`): the receiver is no
 //! container, so each wires its own edges. Split from
 //! `container_methods.rs` (file-size limit).
 
-use super::{Analysis, Scope};
+use super::{Analysis, Scope, SlotKey, W};
 use crate::ast::{Expr, ExprId};
 
 impl<'a> Analysis<'a> {
@@ -57,6 +58,34 @@ impl<'a> Analysis<'a> {
                 && let Some(rk) = self.container_key_of(*a0, scope)
             {
                 self.any_seeds.push(rk);
+            }
+            return true;
+        }
+        // §28.1.12 Reflect.set is the target's [[Set]] and §28.1.4
+        // Reflect.deleteProperty its [[Delete]]: on an array they write
+        // an element and leave a hole, so they seed the target's
+        // element class as `t[k] = v` and `delete t[k]` do. Unseeded,
+        // an integer-lane target refused the fraction or the hole with
+        // a kind TypeError.
+        if let Expr::Ident(ns) = self.ast.get_expr(obj)
+            && ns == "Reflect"
+            && self.resolve(ns, scope).is_none()
+            && matches!(name, "set" | "deleteProperty")
+        {
+            if let Some(a0) = args.first()
+                && let Some(rk) = self.container_key_of(*a0, scope)
+            {
+                self.mark_containerish(&rk);
+                let ek = SlotKey::Elem(Box::new(rk));
+                if name == "deleteProperty" {
+                    self.add_container_constraint(ek, W::F64);
+                } else if let Some(v) = args.get(2).copied() {
+                    let w = self.width_of(v, scope);
+                    self.add_container_constraint(ek.clone(), w);
+                    if let Some(vk) = self.container_key_of(v, scope) {
+                        self.nested_unions.push((ek, vk));
+                    }
+                }
             }
             return true;
         }
