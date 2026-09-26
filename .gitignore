@@ -30,3 +30,6 @@ __pycache__/
 # local record of a rotation's probes; the files themselves are throwaway
 # and their presence would mark every stamp `-dirty`)
 scratchpad/
+
+# bench run results — written by the bench harness, local data
+bench/results/
