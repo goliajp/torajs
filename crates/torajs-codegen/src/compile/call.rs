@@ -22,7 +22,7 @@ use super::call_args::pass_args;
 use super::operand::materialize_operand_gpr;
 use super::{OP_SCRATCH_LHS, write_u32};
 use crate::enc::{bl_imm26, blr_reg, mov_d_reg, mov_x_reg};
-use crate::reg::{Fpr, Gpr, Reg};
+use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
 
@@ -85,9 +85,22 @@ pub fn emit_call_indirect(
     // f64-into-i64 mismatch yet. When it does, plumb `module.sigs[
     // sig_id.0]` here the same way `compile_function_with_sigs`
     // plumbs fn_sigs for direct Calls.
+    // A fn pointer living in an argument register would be overwritten
+    // by the argument setup: park it first.
+    let parked = match fn_ptr {
+        Operand::Value(v) if alloc.contains(*v) => match alloc.of(*v) {
+            Reg::Gpr(g) if aapcs64::ARG_RET.contains(&g) => {
+                write_u32(bytes, mov_x_reg(Gpr::X12, g));
+                Some(Gpr::X12)
+            }
+            _ => None,
+        },
+        _ => None,
+    };
     pass_args(bytes, args, alloc, None);
 
-    let fn_ptr_reg = materialize_operand_gpr(bytes, fn_ptr, OP_SCRATCH_LHS, alloc);
+    let fn_ptr_reg =
+        parked.unwrap_or_else(|| materialize_operand_gpr(bytes, fn_ptr, OP_SCRATCH_LHS, alloc));
     write_u32(bytes, blr_reg(fn_ptr_reg));
 
     if let Some(result_vid) = inst.result {

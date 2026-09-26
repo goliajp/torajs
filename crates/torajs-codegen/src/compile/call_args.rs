@@ -1,10 +1,10 @@
 //! AAPCS64 argument setup for a call site: stack lanes, then the
-//! X0..X7 / V0..V7 register lanes.
+//! X0..X7 / V0..V7 register lanes as one parallel copy.
 
 use torajs_core::ssa::{Operand, Type};
 
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr, operand_is_f64};
-use super::{FP_SCRATCH_LHS, OP_SCRATCH_LHS, write_u32};
+use super::{FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_TMP, write_u32};
 use crate::enc::{fcvtzs_x_d, mov_d_reg, mov_x_reg, scvtf_d_x, str_d_imm12, str_x_imm12};
 use crate::linear_scan_lanes::{ArgLane, classify_lanes};
 use crate::reg::{Gpr, Reg};
@@ -80,41 +80,212 @@ pub(super) fn pass_args(
             write_u32(bytes, str_x_imm12(src, Gpr::SP, j * 8));
         }
     }
-    for (arg, lane) in args.iter().zip(&lanes) {
-        let ArgLane::Reg(reg) = lane else { continue };
-        let actual_is_f64 = operand_is_f64(arg, alloc);
-        match reg {
-            Reg::Fpr(arg_reg) => {
-                if actual_is_f64 {
-                    let src =
-                        materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-                    if src != *arg_reg {
-                        write_u32(bytes, mov_d_reg(*arg_reg, src));
-                    }
-                } else {
-                    // i64-shaped operand into an f64 param: SCVTF the int
-                    // value into the FP arg lane.
-                    let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-                    write_u32(bytes, scvtf_d_x(*arg_reg, src));
+    // Register lanes are one parallel copy: an argument may still sit
+    // in another argument's destination register.
+    let mut moves: Vec<LaneMove> = args
+        .iter()
+        .zip(&lanes)
+        .filter_map(|(arg, lane)| match lane {
+            ArgLane::Reg(dst) => Some(LaneMove {
+                dst: *dst,
+                src: register_home(arg, alloc),
+                arg,
+            }),
+            ArgLane::Stack(_) => None,
+        })
+        .collect();
+    while !moves.is_empty() {
+        let ready = (0..moves.len()).find(|&i| {
+            let dst = Some(moves[i].dst);
+            !moves
+                .iter()
+                .enumerate()
+                .any(|(j, m)| j != i && m.src == dst)
+        });
+        match ready {
+            Some(i) => {
+                let m = moves.remove(i);
+                emit_lane_move(bytes, &m, alloc);
+            }
+            None => {
+                // every destination is still read: a cycle. Park one
+                // destination's current value and redirect its readers
+                let parked = moves[0].dst;
+                let scratch = match parked {
+                    Reg::Gpr(_) => Reg::Gpr(OP_SCRATCH_TMP),
+                    _ => Reg::Fpr(FP_SCRATCH_RHS),
+                };
+                debug_assert!(moves.iter().all(|m| m.src != Some(scratch)));
+                emit_reg_copy(bytes, scratch, parked);
+                for m in moves.iter_mut().filter(|m| m.src == Some(parked)) {
+                    m.src = Some(scratch);
                 }
             }
-            Reg::Gpr(arg_reg) => {
-                if actual_is_f64 {
-                    // f64 operand into an i64-shaped param: FCVTZS
-                    // (truncate toward zero) from the FP src register
-                    // straight into the int arg lane. Mirrors JS
-                    // ToInteger semantics on call boundaries.
-                    let src =
-                        materialize_operand_fpr(bytes, arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
-                    write_u32(bytes, fcvtzs_x_d(*arg_reg, src));
-                } else {
-                    let src = materialize_operand_gpr(bytes, arg, OP_SCRATCH_LHS, alloc);
-                    if src != *arg_reg {
-                        write_u32(bytes, mov_x_reg(*arg_reg, src));
-                    }
-                }
-            }
-            other => unreachable!("classify_lanes returned a non-arg register: {other:?}"),
         }
+    }
+}
+
+/// One register-lane argument: `arg` goes to `dst`, read from `src`
+/// when it lives in a register.
+struct LaneMove<'a> {
+    dst: Reg,
+    src: Option<Reg>,
+    arg: &'a Operand,
+}
+
+fn register_home(arg: &Operand, alloc: &Assignment) -> Option<Reg> {
+    match arg {
+        Operand::Value(v) if alloc.contains(*v) => match alloc.of(*v) {
+            r @ (Reg::Gpr(_) | Reg::Fpr(_)) => Some(r),
+            Reg::SpillGpr(_) | Reg::SpillFpr(_) => None,
+        },
+        _ => None,
+    }
+}
+
+fn emit_reg_copy(bytes: &mut Vec<u8>, dst: Reg, src: Reg) {
+    match (dst, src) {
+        (Reg::Gpr(d), Reg::Gpr(s)) => write_u32(bytes, mov_x_reg(d, s)),
+        (Reg::Fpr(d), Reg::Fpr(s)) => write_u32(bytes, mov_d_reg(d, s)),
+        other => unreachable!("register copy across classes: {other:?}"),
+    }
+}
+
+/// Place one argument. A class mismatch between the value and its
+/// lane converts: FCVTZS (f64 into an i64-shaped param, JS ToInteger
+/// truncation) or SCVTF (i64 into an f64 param).
+fn emit_lane_move(bytes: &mut Vec<u8>, m: &LaneMove, alloc: &Assignment) {
+    match (m.dst, m.src) {
+        (Reg::Gpr(d), Some(Reg::Gpr(s))) if d != s => write_u32(bytes, mov_x_reg(d, s)),
+        (Reg::Fpr(d), Some(Reg::Fpr(s))) if d != s => write_u32(bytes, mov_d_reg(d, s)),
+        (Reg::Gpr(_), Some(Reg::Gpr(_))) | (Reg::Fpr(_), Some(Reg::Fpr(_))) => {}
+        (Reg::Gpr(d), Some(Reg::Fpr(s))) => write_u32(bytes, fcvtzs_x_d(d, s)),
+        (Reg::Fpr(d), Some(Reg::Gpr(s))) => write_u32(bytes, scvtf_d_x(d, s)),
+        (Reg::Gpr(d), None) => {
+            if operand_is_f64(m.arg, alloc) {
+                let f =
+                    materialize_operand_fpr(bytes, m.arg, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, fcvtzs_x_d(d, f));
+            } else {
+                let g = materialize_operand_gpr(bytes, m.arg, d, alloc);
+                if g != d {
+                    write_u32(bytes, mov_x_reg(d, g));
+                }
+            }
+        }
+        (Reg::Fpr(d), None) => {
+            if operand_is_f64(m.arg, alloc) {
+                let f = materialize_operand_fpr(bytes, m.arg, d, OP_SCRATCH_LHS, alloc);
+                if f != d {
+                    write_u32(bytes, mov_d_reg(d, f));
+                }
+            } else {
+                let g = materialize_operand_gpr(bytes, m.arg, OP_SCRATCH_LHS, alloc);
+                write_u32(bytes, scvtf_d_x(d, g));
+            }
+        }
+        other => unreachable!("classify_lanes returned a non-arg register: {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::pass_args;
+    use crate::enc::mov_x_reg;
+    use crate::reg::{Gpr, Reg};
+    use crate::regalloc::Assignment;
+    use torajs_core::ssa::{Operand, ValueId};
+
+    const GPRS: [Gpr; 16] = [
+        Gpr::X0,
+        Gpr::X1,
+        Gpr::X2,
+        Gpr::X3,
+        Gpr::X4,
+        Gpr::X5,
+        Gpr::X6,
+        Gpr::X7,
+        Gpr::X8,
+        Gpr::X9,
+        Gpr::X10,
+        Gpr::X11,
+        Gpr::X12,
+        Gpr::X13,
+        Gpr::X14,
+        Gpr::X15,
+    ];
+
+    /// Run `pass_args` for GPR values homed at `homes[i]`, passed in
+    /// that order, then execute the emitted MOVs on a register file
+    /// where each home initially holds its value's id. Returns the
+    /// value found in X0..X(n-1).
+    fn run(homes: &[Gpr]) -> Vec<u64> {
+        let by_value: HashMap<u32, Reg> = homes
+            .iter()
+            .enumerate()
+            .map(|(i, &g)| (i as u32, Reg::Gpr(g)))
+            .collect();
+        let alloc = Assignment::from_parts(by_value, HashMap::new(), 0, 0, true);
+        let args: Vec<Operand> = (0..homes.len())
+            .map(|i| Operand::Value(ValueId(i as u32)))
+            .collect();
+        let mut bytes = Vec::new();
+        pass_args(&mut bytes, &args, &alloc, None);
+        let mut regs = [u64::MAX; 16];
+        for (i, &g) in homes.iter().enumerate() {
+            regs[g.idx() as usize] = i as u64;
+        }
+        for w in bytes.chunks(4) {
+            let w = u32::from_le_bytes(w.try_into().unwrap());
+            let (d, s) = GPRS
+                .iter()
+                .flat_map(|&d| GPRS.iter().map(move |&s| (d, s)))
+                .find(|&(d, s)| mov_x_reg(d, s) == w)
+                .unwrap_or_else(|| panic!("not a register move: {w:08x}"));
+            regs[d.idx() as usize] = regs[s.idx() as usize];
+        }
+        regs[..homes.len()].to_vec()
+    }
+
+    #[test]
+    fn swapped_arguments_are_exchanged_through_a_scratch() {
+        assert_eq!(run(&[Gpr::X1, Gpr::X0]), vec![0, 1]);
+    }
+
+    #[test]
+    fn three_cycle_rotates() {
+        assert_eq!(run(&[Gpr::X1, Gpr::X2, Gpr::X0]), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn chain_is_written_back_to_front() {
+        // x0 <- x1 <- x2 <- x13: overwriting x0 first would lose nothing,
+        // overwriting x1 first would lose the value x0 wants
+        assert_eq!(run(&[Gpr::X1, Gpr::X2, Gpr::X13]), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn one_value_feeds_two_lanes_it_also_occupies() {
+        let by_value: HashMap<u32, Reg> = [(0, Reg::Gpr(Gpr::X1)), (1, Reg::Gpr(Gpr::X0))].into();
+        let alloc = Assignment::from_parts(by_value, HashMap::new(), 0, 0, true);
+        let v = |i| Operand::Value(ValueId(i));
+        let mut bytes = Vec::new();
+        // f(v0, v0, v1): x0 <- x1, x1 <- x1, x2 <- x0
+        pass_args(&mut bytes, &[v(0), v(0), v(1)], &alloc, None);
+        let mut regs = [u64::MAX; 16];
+        regs[1] = 0;
+        regs[0] = 1;
+        for w in bytes.chunks(4) {
+            let w = u32::from_le_bytes(w.try_into().unwrap());
+            let (d, s) = GPRS
+                .iter()
+                .flat_map(|&d| GPRS.iter().map(move |&s| (d, s)))
+                .find(|&(d, s)| mov_x_reg(d, s) == w)
+                .unwrap();
+            regs[d.idx() as usize] = regs[s.idx() as usize];
+        }
+        assert_eq!(&regs[..3], &[0, 0, 1]);
     }
 }
