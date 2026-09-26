@@ -32,6 +32,7 @@ mod bounds_walk;
 mod container;
 mod container_lookup;
 mod container_methods;
+mod container_namespace;
 mod container_promise;
 mod container_result_key;
 mod container_walk;
