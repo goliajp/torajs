@@ -111,6 +111,7 @@ pub unsafe extern "C" fn __torajs_arr_drop(p: *mut c_void) {
     // header, and the drop never changes them.
     let flags = unsafe { (*(p as *const HeapHeader)).flags };
     if flags & FLAG_STATIC_LITERAL != 0 {
+        unsafe { release_stack_cell_legs(p) };
         return;
     }
     if unsafe { release_share(p) } {
@@ -130,6 +131,31 @@ pub unsafe extern "C" fn __torajs_arr_drop(p: *mut c_void) {
         // Still referenced — a pointer-carrying array is a potential
         // cycle root, exactly like the obj drop's T-26.C hook.
         unsafe { __torajs_cycle_buffer(p) };
+    }
+}
+
+/// A `FLAG_STATIC_LITERAL` array is a frame alloca (the escape-checked
+/// literal lane in the compiler): the cell belongs to the frame, but a
+/// grow spills its slots to a malloc'd buffer and a hole or expando
+/// attaches a props bag, and both are the cell's own heap legs. They
+/// are released at the cell's scope exit; the cell goes back to its
+/// born shape (no bag, inline data) so a second drop of the same frame
+/// slot finds nothing left to release.
+///
+/// # Safety
+/// `p` is a live `FLAG_STATIC_LITERAL` array cell.
+unsafe fn release_stack_cell_legs(p: *mut c_void) {
+    unsafe {
+        let bag = p.cast::<u8>().add(crate::layout::ARR_PROPS_OFF) as *mut *mut c_void;
+        if !(*bag).is_null() {
+            crate::exotic_seam::__torajs_arr_drop_props_slow(p);
+            *bag = core::ptr::null_mut();
+        }
+        if !arr_data_is_inline(p as *const u8) {
+            free(arr_data(p as *const u8) as *mut c_void);
+            *(p.cast::<u8>().add(crate::layout::ARR_DATA_PTR_OFF) as *mut *mut u8) =
+                p.cast::<u8>().add(crate::layout::ARR_CELL_SIZE);
+        }
     }
 }
 
@@ -153,6 +179,7 @@ pub unsafe extern "C" fn __torajs_arr_drop_scalar(p: *mut c_void) {
     // header, and the drop never changes them.
     let flags = unsafe { (*(p as *const HeapHeader)).flags };
     if flags & FLAG_STATIC_LITERAL != 0 {
+        unsafe { release_stack_cell_legs(p) };
         return;
     }
     if unsafe { release_share(p) } {
