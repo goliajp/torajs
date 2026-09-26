@@ -101,6 +101,41 @@ pub(crate) fn try_lower(
     {
         return None;
     }
+    // F64 beside an any: a number encoding adds inline
+    let f64_side = match (&a_ty, &b_ty) {
+        (Type::F64, Type::Any) => Some(true),
+        (Type::Any, Type::F64) => Some(false),
+        _ => None,
+    };
+    if op == AstBinOp::Add
+        && let Some(f_on_left) = f64_side
+    {
+        let (f, v) = if f_on_left {
+            (a.clone(), b.clone())
+        } else {
+            (b.clone(), a.clone())
+        };
+        return Some(crate::ssa_lower_anyv_inline::f64_add_any(
+            ctx,
+            f,
+            &v,
+            f_on_left,
+            |ctx| lower_via_kernel(ctx, op, a, b, a_ty, b_ty),
+        ));
+    }
+    Some(lower_via_kernel(ctx, op, a, b, a_ty, b_ty))
+}
+
+/// The pair-ABI runtime kernels (`any_add` / `any_arith` /
+/// `any_bitwise` / `any_compare`), for operands `try_lower` accepted.
+fn lower_via_kernel(
+    ctx: &mut LowerCtx,
+    op: AstBinOp,
+    a: Operand,
+    b: Operand,
+    a_ty: Type,
+    b_ty: Type,
+) -> Operand {
     // Third slot carries the original Any operand when the pair
     // came from an unbox — the consuming helper only borrows the
     // pair, so a ShortStr-materialized temp needs an
@@ -261,5 +296,5 @@ pub(crate) fn try_lower(
     // (`"" + objWithShadowedToString` printed the placeholder and
     // the throw surfaced uncaught statements later).
     ctx.emit_throw_check(None);
-    Some(Operand::Value(r))
+    Operand::Value(r)
 }
