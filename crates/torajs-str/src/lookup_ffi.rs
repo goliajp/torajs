@@ -37,13 +37,18 @@ pub unsafe extern "C" fn __torajs_str_locale_compare(a: *const u8, b: *const u8)
 /// ES §23.1.3.30.2 SortCompare steps 5-8 pre-probe for the USER-
 /// comparator lane: undefined elements never reach the comparator —
 /// they sort last unconditionally. Returns the SortCompare result
-/// (`1` / `-1` / `0`) when either side is undefined (either sentinel
-/// repr), or `2` (no undefined — proceed to the comparator call).
-/// NULL is JS `null`, an ordinary comparator argument.
+/// (`1` / `-1` / `0`) when either side is undefined (a string slot's
+/// sentinels, or the generic cell a pointer slot holds), or `2` (no
+/// undefined — proceed to the comparator call). NULL is JS `null`, an
+/// ordinary comparator argument.
 #[unsafe(no_mangle)]
 pub extern "C" fn __torajs_str_sort_undef_pre(a: *const u8, b: *const u8) -> i64 {
-    let a_undef = crate::undef_sentinel::is_undef(a) || crate::undef_sentinel::is_substr_undef(a);
-    let b_undef = crate::undef_sentinel::is_undef(b) || crate::undef_sentinel::is_substr_undef(b);
+    let undef = |p: *const u8| {
+        crate::undef_sentinel::is_undef(p)
+            || crate::undef_sentinel::is_substr_undef(p)
+            || torajs_rc::undef_cell::is_undef_cell(p)
+    };
+    let (a_undef, b_undef) = (undef(a), undef(b));
     if a_undef || b_undef {
         (a_undef as i64) - (b_undef as i64)
     } else {

@@ -149,15 +149,38 @@ impl<'a> LowerCtx<'a> {
     ) -> Operand {
         let (result_slot, join_blk) = guard;
         let slot_ty = crate::ssa_lower_nullable_guard::undefable_read_ty(elem_ty);
-        let stored = if slot_ty == elem_ty {
-            elem
-        } else {
-            self.box_to_any(elem)
-        };
-        self.f.append_void(
-            self.cur_block,
-            InstKind::Store(stored, Operand::Value(result_slot), 0),
-        );
+        // A popped / shifted hole is `undefined`, but its slot word is 0
+        // (`null`); pointer-shaped elements answer their undefined cell.
+        if let Some(cell) = self.str_undef_sentinel_for(elem_ty) {
+            let bits = self.f.append_inst(
+                self.cur_block,
+                InstKind::PtrToInt(elem.clone()),
+                Type::I64,
+                None,
+            );
+            let hole = self.f.append_inst(
+                self.cur_block,
+                InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            let hole_blk = self.f.add_block();
+            let live_blk = self.f.add_block();
+            let cb = self.cur_block;
+            self.f.set_term(
+                cb,
+                Terminator::CondBr {
+                    cond: Operand::Value(hole),
+                    then_blk: hole_blk,
+                    else_blk: live_blk,
+                },
+            );
+            self.cur_block = hole_blk;
+            self.store_popped(cell, elem_ty, slot_ty, result_slot);
+            self.f.set_term(hole_blk, Terminator::Br(join_blk));
+            self.cur_block = live_blk;
+        }
+        self.store_popped(elem, elem_ty, slot_ty, result_slot);
         let cb = self.cur_block;
         self.f.set_term(cb, Terminator::Br(join_blk));
         self.cur_block = join_blk;
@@ -168,6 +191,20 @@ impl<'a> LowerCtx<'a> {
             None,
         );
         Operand::Value(result)
+    }
+
+    /// Store one exit of a pop / shift into the join's result slot,
+    /// boxed when the slot widened to carry `undefined`.
+    fn store_popped(&mut self, v: Operand, elem_ty: Type, slot_ty: Type, result_slot: ValueId) {
+        let stored = if slot_ty == elem_ty {
+            v
+        } else {
+            self.box_to_any(v)
+        };
+        self.f.append_void(
+            self.cur_block,
+            InstKind::Store(stored, Operand::Value(result_slot), 0),
+        );
     }
 
     /// `xs.pop()` — in-place len decrement + tail-slot load.

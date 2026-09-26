@@ -36,9 +36,12 @@ pub(super) fn emit_sort_pred(
         (Some(cv), Some(ct)) => {
             // §23.1.3.30.2 steps 5-8 fire BEFORE the comparator — an
             // undefined element sorts last without ever reaching the
-            // callback. The Str slot shapes carry the sentinel repr;
-            // an Any slot carries the tag-5 immediate (刀 7 G8a).
-            if matches!(elem_ty, Type::Str | Type::Substr) {
+            // callback. The Str slot shapes carry the sentinel repr,
+            // pointer slots the generic cell (a hole a copy read as
+            // undefined); an Any slot carries the tag-5 immediate (刀 7
+            // G8a).
+            if elem_ty == Type::Substr || crate::ssa_lower_index_undef::has_undef_spelling(elem_ty)
+            {
                 let pre_fid = ctx.intrinsics.str_sort_undef_pre;
                 return emit_user_cmp_undef_pre(ctx, cv, ct, prev, cur, pre_fid, route);
             }

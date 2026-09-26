@@ -115,6 +115,9 @@ pub(crate) fn note_sentinel_loop_var(
     match v_ty {
         Type::F64 => ctx.undefable_f64_lets.insert(var_name.to_string()),
         Type::Str => ctx.nullable_str_lets.insert(var_name.to_string()),
+        t if t.spells_undef_with_generic_cell() => {
+            ctx.undefable_heap_lets.insert(var_name.to_string())
+        }
         _ => false,
     };
 }

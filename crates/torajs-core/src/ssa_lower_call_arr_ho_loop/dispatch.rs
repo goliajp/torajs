@@ -147,8 +147,9 @@ pub(super) fn emit_do_call(
     // below reaches) did not carry the number lanes. It does now, so
     // converting here would only do the same work twice.
     // an element handed to an `any` parameter crosses into the boxed
-    // world here; a number slot that holds the undefined sentinel (a
-    // copied hole, an out-of-range fill) has to arrive as undefined
+    // world here; a number slot holding the undefined sentinel, or a
+    // pointer slot holding its undefined cell (a copied hole, an
+    // out-of-range fill), has to arrive as undefined
     let params = match fn_ty {
         Type::Closure(s) | Type::FnSig(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
         _ => Vec::new(),
@@ -158,8 +159,11 @@ pub(super) fn emit_do_call(
         .enumerate()
         .map(|(i, a)| {
             let to_any = i >= sig_skip && params.get(i - sig_skip) == Some(&Type::Any);
-            if to_any && ctx.operand_ty(&a) == Type::F64 {
+            let ty = ctx.operand_ty(&a);
+            if to_any && ty == Type::F64 {
                 ctx.box_f64_or_undef(a)
+            } else if to_any && crate::ssa_lower_index_undef::has_undef_spelling(ty) {
+                ctx.box_heap_slot_or_undef(a)
             } else {
                 a
             }

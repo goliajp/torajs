@@ -319,25 +319,25 @@ pub(crate) fn emit_arr_lock_bits_guard(
 }
 
 /// The `undefined` a [[Get]] copy writes where its source has a hole:
-/// the Str sentinel cell for a string array, whose hole word `0`
-/// otherwise reads as `null`. Other kinds pass `0` (keep the copied
-/// word): a number slot's hole already holds its undefined sentinel.
+/// the element type's own undefined cell (the Str-shaped one for
+/// strings and function values, the generic one for other pointers) —
+/// a hole word `0` reads as `null`, and the copy carries no hole mark
+/// to say otherwise. Other kinds pass `0` (keep the copied word): a
+/// number slot's hole already holds its undefined sentinel.
 pub(crate) fn hole_fill_for(ctx: &mut LowerCtx, elem_ty: Type) -> Operand {
-    if !matches!(elem_ty, Type::Str | Type::Substr) {
+    // A copy out of an `Arr<Substr>` lands as `Arr<Str>`.
+    let slot_ty = if elem_ty == Type::Substr {
+        Type::Str
+    } else {
+        elem_ty
+    };
+    let Some(cell) = ctx.str_undef_sentinel_for(slot_ty) else {
         return Operand::ConstI64(0);
-    }
-    let cell = ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::GlobalRef(crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM.to_string()),
-        Type::Str,
-        None,
-    );
-    Operand::Value(ctx.f.append_inst(
-        ctx.cur_block,
-        InstKind::PtrToInt(Operand::Value(cell)),
-        Type::I64,
-        None,
-    ))
+    };
+    Operand::Value(
+        ctx.f
+            .append_inst(ctx.cur_block, InstKind::PtrToInt(cell), Type::I64, None),
+    )
 }
 
 /// Evaluate arguments the method ignores, for their side effects.
