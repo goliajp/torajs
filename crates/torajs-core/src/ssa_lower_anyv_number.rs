@@ -47,8 +47,9 @@ pub(crate) fn to_number(ctx: &mut LowerCtx<'_>, v: Operand) -> Operand {
 /// the sum is boxed as `__torajs_anyv_add_pair` boxes it — an int32
 /// when both operands are integer-shaped (an int32 encoding or an I64)
 /// and the sum is an integer in int32 range, `box_double` otherwise
-/// (NaN collisions canonicalized). Any other value takes `slow`,
-/// which must answer an owned `any`.
+/// (NaN collisions canonicalized). Two int32 encodings add as
+/// integers, which gives the same box without a float round trip.
+/// Any other value takes `slow`, which must answer an owned `any`.
 pub(crate) fn number_add(
     ctx: &mut LowerCtx<'_>,
     (a, a_ty): (Operand, Type),
@@ -58,6 +59,11 @@ pub(crate) fn number_add(
     let res = ctx.alloca(Type::Any, None);
     let slow_blk = ctx.f.add_block();
     let done_blk = ctx.f.add_block();
+    if a_ty == Type::Any && b_ty == Type::Any {
+        let general = ctx.f.add_block();
+        emit_int32_pair_add(ctx, (&a, &b), res, general, done_blk);
+        ctx.cur_block = general;
+    }
     let (l, l_int) = emit_number_side(ctx, &a, a_ty, slow_blk);
     let (r, r_int) = emit_number_side(ctx, &b, b_ty, slow_blk);
     let sum = inst(ctx, InstKind::BinOp(BinOp::FAdd, l, r), Type::F64);
@@ -82,6 +88,83 @@ pub(crate) fn number_add(
         InstKind::Load(Type::Any, Operand::Value(res), 0),
         Type::Any,
     ))
+}
+
+/// Both `any` addends int32 encodings: add them as i64 (no overflow
+/// there), box an int32 when the sum fits, else the double of it, and
+/// branch to `done`; anything else branches to `general`.
+fn emit_int32_pair_add(
+    ctx: &mut LowerCtx<'_>,
+    (a, b): (&Operand, &Operand),
+    slot: ValueId,
+    general: BlockId,
+    done: BlockId,
+) {
+    let int_tag = Operand::ConstI64((TAG_TYPE_NUMBER >> 48) as i64);
+    let int_of = |ctx: &mut LowerCtx<'_>, v: &Operand| {
+        let bits = emit_bits(ctx, v);
+        let top = inst(
+            ctx,
+            bin(BinOp::LShr, bits, Operand::ConstI64(48)),
+            Type::I64,
+        );
+        let is_int = inst(
+            ctx,
+            InstKind::ICmp(IPred::Eq, Operand::Value(top), int_tag.clone()),
+            Type::Bool,
+        );
+        (bits, is_int)
+    };
+    let (a_bits, a_int) = int_of(ctx, a);
+    let (b_bits, b_int) = int_of(ctx, b);
+    let both = inst(
+        ctx,
+        InstKind::BinOp(BinOp::And, Operand::Value(a_int), Operand::Value(b_int)),
+        Type::Bool,
+    );
+    let add_blk = ctx.f.add_block();
+    branch(ctx, both, add_blk, general);
+
+    ctx.cur_block = add_blk;
+    let fits_blk = ctx.f.add_block();
+    let wide_blk = ctx.f.add_block();
+    let (x, y) = (sext32(ctx, a_bits), sext32(ctx, b_bits));
+    let sum = inst(
+        ctx,
+        InstKind::BinOp(BinOp::Add, Operand::Value(x), Operand::Value(y)),
+        Type::I64,
+    );
+    let narrow = sext32(ctx, sum);
+    let fits = inst(
+        ctx,
+        InstKind::ICmp(IPred::Eq, Operand::Value(narrow), Operand::Value(sum)),
+        Type::Bool,
+    );
+    branch(ctx, fits, fits_blk, wide_blk);
+
+    ctx.cur_block = fits_blk;
+    let low = inst(
+        ctx,
+        bin(BinOp::And, sum, Operand::ConstI64(0xFFFF_FFFF)),
+        Type::I64,
+    );
+    let boxed = inst(
+        ctx,
+        bin(BinOp::Or, low, Operand::ConstI64(TAG_TYPE_NUMBER as i64)),
+        Type::I64,
+    );
+    let v = inst(ctx, InstKind::IntToPtr(Operand::Value(boxed)), Type::Any);
+    store_and_join(ctx, Operand::Value(v), slot, done);
+
+    ctx.cur_block = wide_blk;
+    let f = inst(ctx, InstKind::SiToFp(Operand::Value(sum)), Type::F64);
+    emit_box_double(ctx, f, slot, done);
+}
+
+/// The low 32 bits of `v`, sign-extended.
+fn sext32(ctx: &mut LowerCtx<'_>, v: ValueId) -> ValueId {
+    let hi = inst(ctx, bin(BinOp::Shl, v, Operand::ConstI64(32)), Type::I64);
+    inst(ctx, bin(BinOp::AShr, hi, Operand::ConstI64(32)), Type::I64)
 }
 
 /// Whether an addend is integer-shaped (`tag_is_i64_shaped` in the
