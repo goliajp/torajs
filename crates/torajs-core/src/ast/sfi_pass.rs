@@ -160,8 +160,9 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
             init: zero_eid,
             is_var: false,
         };
+        let (var_name, body_with_inc) = adopt_leading_const_alias(ast, body_with_inc, v_name);
         let forof = Stmt::ForOfSplitIter {
-            var_name: v_name,
+            var_name,
             parent: parent_eid,
             sep: sep_eid,
             body: Box::new(body_with_inc),
@@ -189,6 +190,38 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
     // Recurse into each child stmt's nested lists.
     for s in stmts.iter_mut() {
         rewrite_sfi_walk_stmt(ast, s, ctx);
+    }
+}
+
+/// `const T = X[I]` as the body's first statement is the idiomatic
+/// spelling of the part; after the rewrite it reads `const T = v`.
+/// When `v` has no other use, T itself becomes the loop variable, so
+/// the lowering sees the part's reads on the binding it yields into
+/// rather than on a copy.
+fn adopt_leading_const_alias(ast: &Ast, body: Stmt, v_name: String) -> (String, Stmt) {
+    let Stmt::Block(mut stmts) = body else {
+        return (v_name, body);
+    };
+    let alias = match stmts.first() {
+        Some(Stmt::LetDecl {
+            mutable: false,
+            name,
+            type_ann: None,
+            init,
+            is_var: false,
+        }) if matches!(ast.get_expr(*init), Expr::Ident(n) if *n == v_name) => Some(name.clone()),
+        _ => None,
+    };
+    match alias {
+        Some(name)
+            if !stmts[1..]
+                .iter()
+                .any(|s| crate::ast::sfi_safe::sfi_stmt_uses_ident(ast, s, &v_name)) =>
+        {
+            stmts.remove(0);
+            (name, Stmt::Block(stmts))
+        }
+        _ => (v_name, Stmt::Block(stmts)),
     }
 }
 

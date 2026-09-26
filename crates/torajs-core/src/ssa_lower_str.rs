@@ -206,6 +206,12 @@ pub(crate) fn try_lower_method_call(
     // matching __torajs_str_* runtime intrinsic. Args are
     // borrow-shaped (no consume — see the Call arm in
     // check.rs).
+    if name == "charCodeAt"
+        && let Some(v) =
+            crate::ssa_lower_stmt_for_of_split_iter::try_view_char_code_at(ctx, obj_eid, args)
+    {
+        return Some(v);
+    }
     let recv_op = ctx.lower_expr(obj_eid);
     let recv_ty = ctx.operand_ty(&recv_op);
     let method = name.clone();

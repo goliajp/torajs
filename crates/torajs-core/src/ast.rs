@@ -271,7 +271,7 @@ mod scalar_census;
 pub(crate) mod script_global_fns;
 mod sfi_pass;
 mod sfi_rewrite;
-mod sfi_safe;
+pub(crate) mod sfi_safe;
 mod shadowed_globals;
 mod sig_thunk;
 mod sloppy_implicit_globals;

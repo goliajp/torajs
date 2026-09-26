@@ -9,6 +9,7 @@
 
 use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
+use crate::ssa_lower_stmt_for_of_split_iter::SplitView;
 
 /// `flags u16 @6` of the packed Str header u64 — mirrored here as
 /// header-word masks (`flag << 48`). Values are wire-format
@@ -26,6 +27,10 @@ pub(crate) struct SplitLoop {
     pub(crate) sep_op: Operand,
     pub(crate) iter_slot: ValueId,
     pub(crate) sub_slot: ValueId,
+    pub(crate) v_slot: ValueId,
+    /// Whether the fast arm must write each part into `sub_slot`;
+    /// false when the body only reads it through the view.
+    pub(crate) fill_sub: bool,
     pub(crate) target: u8,
     pub(crate) header: BlockId,
     pub(crate) body_blk: BlockId,
@@ -36,21 +41,25 @@ pub(crate) struct SplitLoop {
 /// the iter init on the slow side only, per-iteration dispatch in
 /// `header`, the inline byte-scan `next` on the fast arm, the
 /// `split_iter_next` call on the slow arm. Both arms yield into
-/// `sub_slot` and converge on `body_blk` / `after`. On return
-/// `ctx.cur_block` is unspecified — the caller repositions to
-/// `body_blk`.
-pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) {
+/// `sub_slot` (the fast arm only when `fill_sub`) and both record the
+/// part's length and offset in the view slots, then converge on
+/// `body_blk` / `after`. On return `ctx.cur_block` is unspecified —
+/// the caller repositions to `body_blk`.
+pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) -> SplitView {
     let SplitLoop {
         parent_op,
         sep_op,
         iter_slot,
         sub_slot,
+        v_slot,
+        fill_sub,
         target,
         header,
         body_blk,
         after,
     } = sl;
-    let (iter_slot, sub_slot, target) = (*iter_slot, *sub_slot, *target);
+    let (iter_slot, sub_slot, v_slot, fill_sub, target) =
+        (*iter_slot, *sub_slot, *v_slot, *fill_sub, *target);
     let (header, body_blk, after) = (*header, *body_blk, *after);
     let cur = ctx.cur_block;
     // Hoisted per-loop invariants (entry side, before the header).
@@ -118,6 +127,12 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) {
     let k_slot = ctx
         .f
         .append_inst(cur, InstKind::Alloca(Type::I64), Type::Ptr, None);
+    let len_slot = ctx
+        .f
+        .append_inst(cur, InstKind::Alloca(Type::I64), Type::Ptr, None);
+    let off_slot = ctx
+        .f
+        .append_inst(cur, InstKind::Alloca(Type::I64), Type::Ptr, None);
     ctx.f.append_void(
         cur,
         InstKind::Store(Operand::ConstI64(0), Operand::Value(pos_slot), 0),
@@ -166,14 +181,28 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) {
         Type::Bool,
         None,
     );
+    let slow_yield = ctx.f.add_block();
     ctx.f.set_term(
         slow_head,
         Terminator::CondBr {
             cond: Operand::Value(ok),
-            then_blk: body_blk,
+            then_blk: slow_yield,
             else_blk: after,
         },
     );
+    for (off, slot) in [(8, len_slot), (24, off_slot)] {
+        let v = ctx.f.append_inst(
+            slow_yield,
+            InstKind::Load(Type::I64, Operand::Value(sub_slot), off),
+            Type::I64,
+            None,
+        );
+        ctx.f.append_void(
+            slow_yield,
+            InstKind::Store(Operand::Value(v), Operand::Value(slot), 0),
+        );
+    }
+    ctx.f.set_term(slow_yield, Terminator::Br(body_blk));
     emit_fast_next(
         ctx,
         &FastScan {
@@ -185,11 +214,21 @@ pub(crate) fn emit_versioned_header(ctx: &mut LowerCtx, sl: &SplitLoop) {
             pos_slot,
             done_slot,
             k_slot,
+            len_slot,
+            off_slot,
+            fill_sub,
             fast_head,
             body_blk,
             after,
         },
     );
+    SplitView {
+        v_slot,
+        len_slot,
+        off_slot,
+        pbase,
+        is_lat,
+    }
 }
 
 /// Everything the fast-arm inline `next` needs — the hoisted loop
@@ -205,6 +244,9 @@ struct FastScan {
     pos_slot: ValueId,
     done_slot: ValueId,
     k_slot: ValueId,
+    len_slot: ValueId,
+    off_slot: ValueId,
+    fill_sub: bool,
     fast_head: BlockId,
     body_blk: BlockId,
     after: BlockId,
@@ -224,6 +266,9 @@ fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
         pos_slot,
         done_slot,
         k_slot,
+        len_slot,
+        off_slot,
+        fill_sub,
         fast_head,
         body_blk,
         after,
@@ -231,6 +276,7 @@ fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
     let (sub_slot, target, plen, pbase, pos_slot, done_slot, k_slot) = (
         *sub_slot, *target, *plen, *pbase, *pos_slot, *done_slot, *k_slot,
     );
+    let (len_slot, off_slot, fill_sub) = (*len_slot, *off_slot, *fill_sub);
     let (fast_head, body_blk, after) = (*fast_head, *body_blk, *after);
     // Fast arm — inline `next`.
     let scan_init = ctx.f.add_block();
@@ -326,20 +372,14 @@ fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
     );
     ctx.f.set_term(scan_next, Terminator::Br(scan_head));
 
-    // Yield: write the 32-byte Substr borrow into sub_slot.
+    // Yield: record the part in the view slots and, unless the body
+    // reads it only through the view, write the 32-byte Substr borrow
+    // into sub_slot.
     let k2 = ctx.f.append_inst(
         scan_emit,
         InstKind::Load(Type::I64, Operand::Value(k_slot), 0),
         Type::I64,
         None,
-    );
-    ctx.f.append_void(
-        scan_emit,
-        InstKind::Store(
-            Operand::ConstI64(HDR_STATIC_LITERAL),
-            Operand::Value(sub_slot),
-            0,
-        ),
     );
     let len = ctx.f.append_inst(
         scan_emit,
@@ -349,16 +389,24 @@ fn emit_fast_next(ctx: &mut LowerCtx, fs: &FastScan) {
     );
     ctx.f.append_void(
         scan_emit,
-        InstKind::Store(Operand::Value(len), Operand::Value(sub_slot), 8),
+        InstKind::Store(Operand::Value(len), Operand::Value(len_slot), 0),
     );
     ctx.f.append_void(
         scan_emit,
-        InstKind::Store(parent_op.clone(), Operand::Value(sub_slot), 16),
+        InstKind::Store(Operand::Value(pos), Operand::Value(off_slot), 0),
     );
-    ctx.f.append_void(
-        scan_emit,
-        InstKind::Store(Operand::Value(pos), Operand::Value(sub_slot), 24),
-    );
+    if fill_sub {
+        let fields = [
+            (Operand::ConstI64(HDR_STATIC_LITERAL), 0),
+            (Operand::Value(len), 8),
+            (parent_op.clone(), 16),
+            (Operand::Value(pos), 24),
+        ];
+        for (v, off) in fields {
+            ctx.f
+                .append_void(scan_emit, InstKind::Store(v, Operand::Value(sub_slot), off));
+        }
+    }
     let at_end = ctx.f.append_inst(
         scan_emit,
         InstKind::ICmp(IPred::Eq, Operand::Value(k2), Operand::Value(plen)),

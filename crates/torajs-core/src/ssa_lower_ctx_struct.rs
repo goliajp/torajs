@@ -151,6 +151,8 @@ pub(crate) struct LowerCtx<'a> {
     /// iterator there; `return` leaves for the epilogue instead, so it
     /// emits the same §7.4.9 close + slot release for each frame here.
     pub(crate) for_of_teardown_stack: Vec<crate::ssa_lower_for_of_teardown::ForOfTeardown>,
+    /// Split for-of loops being lowered whose part reads come from registers.
+    pub(crate) split_views: Vec<crate::ssa_lower_stmt_for_of_split_iter::SplitView>,
     /// The non-local exits a `finally` tail has to resume — one
     /// family, documented on [`crate::ssa_lower_scope_exit::PendingExits`].
     pub(crate) pending: crate::ssa_lower_scope_exit::PendingExits,

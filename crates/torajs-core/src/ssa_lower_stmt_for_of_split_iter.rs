@@ -72,7 +72,7 @@
 //! empty tail chunk is yielded when the last byte is the separator).
 
 use crate::ast::{Expr, ExprId, Stmt};
-use crate::ssa::{InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 use crate::ssa_lower_stmt_for_of::bind_scoped_local;
 
@@ -133,19 +133,25 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
     let body_blk = ctx.f.add_block();
     let after = ctx.f.add_block();
 
+    let mut view = None;
     if let Some(target) = fast_sep_byte {
-        crate::ssa_lower_stmt_for_of_split_iter_fast::emit_versioned_header(
-            ctx,
-            &crate::ssa_lower_stmt_for_of_split_iter_fast::SplitLoop {
-                parent_op: parent_op.clone(),
-                sep_op,
-                iter_slot,
-                sub_slot,
-                target,
-                header,
-                body_blk,
-                after,
-            },
+        let fill_sub = !crate::ast::sfi_safe::split_var_view_reads_only(ctx.ast, body, var_name);
+        view = Some(
+            crate::ssa_lower_stmt_for_of_split_iter_fast::emit_versioned_header(
+                ctx,
+                &crate::ssa_lower_stmt_for_of_split_iter_fast::SplitLoop {
+                    parent_op: parent_op.clone(),
+                    sep_op,
+                    iter_slot,
+                    sub_slot,
+                    v_slot,
+                    fill_sub,
+                    target,
+                    header,
+                    body_blk,
+                    after,
+                },
+            ),
         );
     } else {
         ctx.f.append_void(
@@ -187,7 +193,12 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
             teardown_depth: ctx.for_of_teardown_stack.len(),
         });
     ctx.cur_block = body_blk;
+    let has_view = view.is_some();
+    ctx.split_views.extend(view);
     ctx.lower_stmt(body);
+    if has_view {
+        ctx.split_views.pop();
+    }
     if ctx.cur_open() {
         ctx.f.set_term(ctx.cur_block, Terminator::Br(header));
     }
@@ -221,4 +232,166 @@ fn source_outlives_loop(ctx: &LowerCtx, parent: ExprId, body: &Stmt) -> bool {
         && !info.boxed
         && !ctx.boxed_noncopy_lets.contains(name)
         && !crate::ssa_lower_for_of_written::body_writes_var(ctx, body, name)
+}
+
+/// A versioned split loop's part as registers: the per-part length and
+/// offset slots both arms fill, and the loop-invariant payload base and
+/// encoding test. Reads of the loop variable that only need these
+/// (`charCodeAt`, `length`) skip the Substr in `sub_slot`, which the
+/// fast arm leaves unwritten when those are the body's only reads.
+#[derive(Clone, Copy)]
+pub(crate) struct SplitView {
+    pub(crate) v_slot: ValueId,
+    pub(crate) len_slot: ValueId,
+    pub(crate) off_slot: ValueId,
+    pub(crate) pbase: ValueId,
+    pub(crate) is_lat: ValueId,
+}
+
+/// The view whose loop variable `recv` names, if any: an identifier
+/// bound to that loop's own slot (not a shadowing inner binding).
+fn view_of(ctx: &LowerCtx, recv: ExprId) -> Option<SplitView> {
+    let Expr::Ident(name) = ctx.ast.get_expr(recv) else {
+        return None;
+    };
+    let slot = ctx.locals.get(name)?.slot;
+    ctx.split_views
+        .iter()
+        .rev()
+        .find(|v| v.v_slot == slot)
+        .copied()
+}
+
+fn load_slot(ctx: &mut LowerCtx, slot: ValueId) -> ValueId {
+    ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, Operand::Value(slot), 0),
+        Type::I64,
+        None,
+    )
+}
+
+/// `part.length` on a split loop's variable.
+pub(crate) fn try_view_length(ctx: &mut LowerCtx, recv: ExprId) -> Option<Operand> {
+    let view = view_of(ctx, recv)?;
+    Some(Operand::Value(load_slot(ctx, view.len_slot)))
+}
+
+/// `part.charCodeAt(pos?)` on a split loop's variable (ES §22.1.3.2):
+/// one unsigned bound test against the part length, then a byte read
+/// straight from the parent payload when it is Latin-1, else the
+/// Substr kernel on the loop variable — only the slow arm reaches
+/// that, and it always fills `sub_slot`.
+pub(crate) fn try_view_char_code_at(
+    ctx: &mut LowerCtx,
+    recv: ExprId,
+    args: &[ExprId],
+) -> Option<Operand> {
+    let view = view_of(ctx, recv)?;
+    if args.len() > 1 {
+        return None;
+    }
+    let idx = if args.is_empty()
+        || matches!(
+            ctx.expr_types.get(&args[0]),
+            Some(crate::check::Type::Undefined)
+        ) {
+        Operand::ConstI64(0)
+    } else {
+        let n = ctx.lower_to_number_operand(args[0]);
+        ctx.coerce_to_i64(n)
+    };
+    let len = load_slot(ctx, view.len_slot);
+    let cur = ctx.cur_block;
+    let result_slot = ctx
+        .f
+        .append_inst(cur, InstKind::Alloca(Type::F64), Type::Ptr, None);
+    let in_bounds = ctx.f.append_inst(
+        cur,
+        InstKind::ICmp(IPred::Ult, idx.clone(), Operand::Value(len)),
+        Type::Bool,
+        None,
+    );
+    let inb_blk = ctx.f.add_block();
+    let oob_blk = ctx.f.add_block();
+    let lat_blk = ctx.f.add_block();
+    let wide_blk = ctx.f.add_block();
+    let join_blk = ctx.f.add_block();
+    ctx.f.set_term(
+        cur,
+        Terminator::CondBr {
+            cond: Operand::Value(in_bounds),
+            then_blk: inb_blk,
+            else_blk: oob_blk,
+        },
+    );
+    ctx.f.append_void(
+        oob_blk,
+        InstKind::Store(Operand::ConstF64(f64::NAN), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(oob_blk, Terminator::Br(join_blk));
+    ctx.f.set_term(
+        inb_blk,
+        Terminator::CondBr {
+            cond: Operand::Value(view.is_lat),
+            then_blk: lat_blk,
+            else_blk: wide_blk,
+        },
+    );
+
+    ctx.cur_block = lat_blk;
+    let off = load_slot(ctx, view.off_slot);
+    let j = ctx.f.append_inst(
+        lat_blk,
+        InstKind::BinOp(SsaBinOp::Add, Operand::Value(off), idx.clone()),
+        Type::I64,
+        None,
+    );
+    let b = ctx.f.append_inst(
+        lat_blk,
+        InstKind::LoadU8Dyn(Operand::Value(view.pbase), Operand::Value(j)),
+        Type::I64,
+        None,
+    );
+    let f = ctx.f.append_inst(
+        lat_blk,
+        InstKind::SiToFp(Operand::Value(b)),
+        Type::F64,
+        None,
+    );
+    ctx.f.append_void(
+        lat_blk,
+        InstKind::Store(Operand::Value(f), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(lat_blk, Terminator::Br(join_blk));
+
+    let part = ctx.f.append_inst(
+        wide_blk,
+        InstKind::Load(Type::Substr, Operand::Value(view.v_slot), 0),
+        Type::Substr,
+        None,
+    );
+    let v = ctx.f.append_inst(
+        wide_blk,
+        InstKind::Call(
+            ctx.intrinsics.substr_char_code_at,
+            vec![Operand::Value(part), idx],
+        ),
+        Type::F64,
+        None,
+    );
+    ctx.f.append_void(
+        wide_blk,
+        InstKind::Store(Operand::Value(v), Operand::Value(result_slot), 0),
+    );
+    ctx.f.set_term(wide_blk, Terminator::Br(join_blk));
+
+    ctx.cur_block = join_blk;
+    let out = ctx.f.append_inst(
+        join_blk,
+        InstKind::Load(Type::F64, Operand::Value(result_slot), 0),
+        Type::F64,
+        None,
+    );
+    Some(Operand::Value(out))
 }

@@ -142,6 +142,7 @@ pub(crate) fn lower_fn(
         try_stack: Vec::new(),
         try_finally_stack: Vec::new(),
         for_of_teardown_stack: Vec::new(),
+        split_views: Vec::new(),
         try_finally_loop_depth: Vec::new(),
         pending: Default::default(),
         discarded_stmt_call: None,

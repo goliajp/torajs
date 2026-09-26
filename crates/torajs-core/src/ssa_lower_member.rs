@@ -185,6 +185,11 @@ pub(crate) fn lower_with_val(
     {
         return op;
     }
+    if name == "length"
+        && let Some(v) = crate::ssa_lower_stmt_for_of_split_iter::try_view_length(ctx, obj)
+    {
+        return v;
+    }
     if (obj_ty == Type::Str || obj_ty == Type::Substr) && name == "length" {
         // RFC 20260707-undefined-sentinel-repr chunk 1 — a missed
         // exec/match capture slot is NULL; the inline length load
