@@ -47,8 +47,8 @@ use torajs_core::ssa::{
 };
 use torajs_core::ssa_lower::{CLOSURE_DROP_FN_OFF, CLOSURE_FN_ADDR_OFF};
 
-use crate::dominator::DominatorTree;
 use crate::rc_peephole::{collect_unescaped_slots, visit_value_operands};
+use torajs_core::ssa::dominator::DominatorTree;
 
 /// Allocator intrinsic backing closure env blocks. A slot value whose
 /// def is a call to this (reached through a closure-typed slot) is a

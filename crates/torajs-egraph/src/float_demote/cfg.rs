@@ -6,8 +6,8 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, Operand, Terminator, ValueId};
 
-use crate::loop_analysis::LoopAnalysis;
 use crate::rc_peephole::visit_value_operands;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 pub(super) fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
     let mut out: [Option<BlockId>; 2] = [None, None];

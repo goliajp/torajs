@@ -21,8 +21,8 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Operand, Terminator, ValueId};
 
-use crate::dominator::DominatorTree;
 use crate::interval::transfer::{self, AbsVal, NumFact};
+use torajs_core::ssa::dominator::DominatorTree;
 
 /// A program point: `(block index, inst index)`. Operand reads of the
 /// instruction at `inst_idx` see defs strictly before it; a block's

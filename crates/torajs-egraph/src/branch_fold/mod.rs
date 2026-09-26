@@ -42,10 +42,10 @@ use torajs_core::ssa::{
     BlockId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
 };
 
-use crate::dominator::DominatorTree;
 use crate::interval::transfer::NumFact;
-use crate::loop_analysis::LoopAnalysis;
 use point_eval::{PointEval, successors};
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BranchFoldStats {

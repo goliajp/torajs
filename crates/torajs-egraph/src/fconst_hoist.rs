@@ -28,8 +28,8 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, Inst, InstKind, Module, Operand, Type, ValueId, ValueInfo};
 
-use crate::dominator::DominatorTree;
-use crate::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 #[derive(Debug, Default)]
 pub struct FconstHoistStats {

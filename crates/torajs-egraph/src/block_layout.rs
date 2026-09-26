@@ -28,8 +28,8 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Block, BlockId, Function, Module, Terminator};
 
-use crate::dominator::DominatorTree;
-use crate::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct BlockLayoutStats {

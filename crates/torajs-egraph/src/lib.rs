@@ -27,7 +27,6 @@ pub mod cost;
 pub mod ctpop_idiom;
 pub mod ctpop_range_sum;
 pub mod devirt;
-pub mod dominator;
 pub mod egraph;
 pub mod elaborate;
 pub mod fconst_hoist;
@@ -40,7 +39,6 @@ pub mod inliner;
 pub mod interval;
 pub mod late_gvn;
 pub mod load_licm;
-pub mod loop_analysis;
 pub mod loop_rotate;
 pub mod map_find_cse;
 pub mod mem2reg;
@@ -66,11 +64,11 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, Module, ValueId};
 
-use crate::dominator::DominatorTree;
 use crate::egraph::Egraph;
 use crate::elaborate::elaborate;
-use crate::loop_analysis::LoopAnalysis;
 use crate::optimize::remove_pure_and_optimize;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 /// End-to-end egraph pass over one SSA `Function`. Stitches together
 /// `optimize::remove_pure_and_optimize` (Phase 1 of the algorithm —

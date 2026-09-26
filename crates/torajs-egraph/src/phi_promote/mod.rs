@@ -39,9 +39,9 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, Type, ValueId};
 
-use crate::dominator::DominatorTree;
 use crate::rc_peephole::collect_unescaped_slots;
 use crate::slot_cells::overlapping_cells;
+use torajs_core::ssa::dominator::DominatorTree;
 
 use destruct::apply_plans;
 pub(crate) use plan::compute_live_in;

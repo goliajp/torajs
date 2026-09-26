@@ -44,10 +44,10 @@
 //! data plumbing for it is here (`LoopAnalysis` + `Cost::scale_for_depth`)
 //! but the placement decision lands in Phase 1.
 
-use crate::dominator::DominatorTree;
 use crate::egraph::Egraph;
-use crate::loop_analysis::LoopAnalysis;
 use crate::scope_map::ScopedHashMap;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{Block, BlockId, Function, Inst, InstKind, Operand, Terminator, ValueId};
 
 /// Per-pass diagnostic counters. Reported to the integration layer for

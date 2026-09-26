@@ -23,9 +23,9 @@ use torajs_core::ssa::{FuncId, Function, InstKind, Module, Operand, Type, ValueI
 use crate::branch_fold::accum::cell_bound_after_loop;
 use crate::branch_fold::point_eval::PointEval;
 use crate::branch_fold::single_def;
-use crate::dominator::DominatorTree;
 use crate::interval::transfer::NumFact;
-use crate::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 /// The f64 printers and their i64 twins, by intrinsic name.
 const PAIRS: [(&str, &str); 2] = [

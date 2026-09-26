@@ -23,7 +23,9 @@
 // - **No phi nodes yet** — fib40 only needs branching, not loop carry. Phis
 //   will land in step 2 when we lower `while`.
 
+pub mod dominator;
 mod function_methods;
+pub mod loop_analysis;
 mod module_class_layouts;
 mod module_extras;
 mod module_methods;

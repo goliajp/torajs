@@ -35,9 +35,9 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
 
-use crate::dominator::DominatorTree;
 use crate::interval::elem::{ArrayClasses, array_classes};
-use crate::loop_analysis::LoopAnalysis;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 #[derive(Debug, Default)]
 pub struct LoadLicmStats {

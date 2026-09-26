@@ -22,8 +22,8 @@
 //!   what we do here — single-pass back-edge collection + body
 //!   discovery + nest-depth assignment)
 
-use crate::dominator::DominatorTree;
-use torajs_core::ssa::{BlockId, Function, Terminator};
+use crate::ssa::dominator::DominatorTree;
+use crate::ssa::{BlockId, Function, Terminator};
 
 /// One natural loop, identified by its header block. A header may
 /// have multiple back-edges into it (irreducible-CFG-adjacent
@@ -204,8 +204,8 @@ fn collect_loop_body(func: &Function, header: BlockId, sources: &[BlockId]) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dominator::DominatorTree;
-    use torajs_core::ssa::{Block, Function, Operand, Terminator, Type};
+    use crate::ssa::dominator::DominatorTree;
+    use crate::ssa::{Block, Function, Operand, Terminator, Type};
 
     fn fixture(blocks: Vec<Block>) -> Function {
         Function {

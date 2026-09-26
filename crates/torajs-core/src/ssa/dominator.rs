@@ -15,7 +15,7 @@
 //! optimization; significantly faster than Lengauer-Tarjan for the
 //! function sizes torajs sees in practice (≤ a few thousand blocks).
 
-use torajs_core::ssa::{BlockId, Function, Terminator};
+use crate::ssa::{BlockId, Function, Terminator};
 
 /// Immediate-dominator table + reverse-postorder traversal of the CFG.
 ///
@@ -304,7 +304,7 @@ fn intersect(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{Block, Function, Operand, Terminator, Type};
+    use crate::ssa::{Block, Function, Operand, Terminator, Type};
 
     /// Build a Function with the given blocks (skipping all instruction
     /// details — domtree only inspects `Block.id` and `Block.term`).

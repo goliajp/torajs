@@ -67,9 +67,9 @@ use torajs_core::ssa::{
     ValueInfo,
 };
 
-use crate::dominator::DominatorTree;
-use crate::loop_analysis::{LoopAnalysis, NaturalLoop};
 use crate::rc_peephole::visit_value_operands;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CtpopRangeSumStats {

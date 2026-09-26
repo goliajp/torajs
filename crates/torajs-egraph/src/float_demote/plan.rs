@@ -14,9 +14,9 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, Operand, ValueId};
 
-use crate::dominator::DominatorTree;
-use crate::loop_analysis::LoopAnalysis;
 use crate::rc_peephole::visit_value_operands;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 use super::cfg::{
     collect_value_blocks, innermost_loop, multi_def_values, pred_map, successors, touched_values,

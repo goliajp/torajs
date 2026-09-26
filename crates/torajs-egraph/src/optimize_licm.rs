@@ -9,10 +9,10 @@
 //! share only `OptimizeStats` and the egraph they both write
 //! `set_available_block` into.
 
-use crate::dominator::DominatorTree;
 use crate::egraph::Egraph;
-use crate::loop_analysis::{LoopAnalysis, NaturalLoop};
 use crate::optimize::{OptimizeStats, is_pure};
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
 use torajs_core::ssa::{Function, InstKind, Operand};
 
 /// LICM (loop-invariant code motion) second pass — walk each natural

@@ -43,9 +43,9 @@ use torajs_core::ssa::{
     BinOp, BlockId, Function, Inst, InstKind, Module, Operand, Terminator, ValueId,
 };
 
-use crate::dominator::DominatorTree;
-use crate::loop_analysis::LoopAnalysis;
 use crate::rc_peephole::visit_value_operands;
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 
 /// Header instructions copied per rotation, at most.
 const MAX_HEADER_INSTS: usize = 4;

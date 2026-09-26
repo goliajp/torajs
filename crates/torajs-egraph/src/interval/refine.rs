@@ -18,7 +18,7 @@ use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{BlockId, FPred, Function, IPred, InstKind, Operand, Terminator, ValueId};
 
 use super::transfer::{NEG_INF, NumFact, POS_INF, op_const_int};
-use crate::dominator::DominatorTree;
+use torajs_core::ssa::dominator::DominatorTree;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Constraint {

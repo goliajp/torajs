@@ -32,8 +32,8 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind, Module, Operand, Type, ValueId};
 
-use crate::dominator::DominatorTree;
 use refine::{Constraint, Constraints};
+use torajs_core::ssa::dominator::DominatorTree;
 use transfer::eval_inst;
 
 /// Kleene rounds before unstable cells widen to sentinel bounds.

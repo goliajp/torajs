@@ -7,8 +7,8 @@ use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand, Type, ValueId, ValueInfo};
 
 use super::{CellPlan, PhiNode, term_succs};
-use crate::dominator::DominatorTree;
 use crate::slot_forward::resolve;
+use torajs_core::ssa::dominator::DominatorTree;
 
 /// Pruned-SSA liveness — LLVM `ComputeLiveInBlocks`: blocks where the
 /// cell's value is live at entry (an upward-exposed load reaches

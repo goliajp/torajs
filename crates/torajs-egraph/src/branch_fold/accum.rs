@@ -37,7 +37,7 @@ use torajs_core::ssa::{BlockId, Function, IPred, InstKind, Operand, Terminator, 
 
 use super::point_eval::PointEval;
 use crate::interval::transfer::{NumFact, op_const_int};
-use crate::loop_analysis::{LoopAnalysis, NaturalLoop};
+use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
 
 /// Bound `x` (a single-def `add cell, inc` result) via the
 /// add-recurrence argument. Returns a fact valid at every execution
@@ -116,7 +116,7 @@ pub(crate) fn cell_bound_after_loop(
     func: &Function,
     la: &LoopAnalysis,
     pe: &PointEval,
-    dom: &crate::dominator::DominatorTree,
+    dom: &torajs_core::ssa::dominator::DominatorTree,
     cell: ValueId,
     point: (usize, usize),
 ) -> Option<NumFact> {

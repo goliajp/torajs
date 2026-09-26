@@ -42,8 +42,8 @@ use torajs_core::ssa::{
 };
 
 use crate::branch_fold::sweep_unreachable_blocks;
-use crate::dominator::DominatorTree;
-use crate::loop_analysis::{LoopAnalysis, NaturalLoop};
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::{LoopAnalysis, NaturalLoop};
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct ThrowCheckFoldStats {

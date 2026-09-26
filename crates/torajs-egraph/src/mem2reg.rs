@@ -37,10 +37,10 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
 
-use crate::dominator::DominatorTree;
 use crate::rc_peephole::collect_unescaped_slots;
 use crate::slot_cells::overlapping_cells;
 use crate::slot_forward::{resolve, rewrite_operands};
+use torajs_core::ssa::dominator::DominatorTree;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Mem2RegStats {

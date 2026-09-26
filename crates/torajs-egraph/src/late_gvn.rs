@@ -35,8 +35,8 @@ use torajs_core::ssa::{
     rewrite_value_operands, visit_value_operands,
 };
 
-use crate::dominator::DominatorTree;
 use crate::optimize::classify_pure;
+use torajs_core::ssa::dominator::DominatorTree;
 
 #[derive(Debug, Default)]
 pub struct LateGvnStats {

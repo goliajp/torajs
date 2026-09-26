@@ -36,10 +36,10 @@
 //! ships; e-class growth happens only via the GVN-redundancy `union`
 //! call.
 
-use crate::dominator::DominatorTree;
 use crate::egraph::{Egraph, GvnKey};
-use crate::loop_analysis::LoopAnalysis;
 use crate::rewrite::{RewriteRegistry, apply_rewrites_recursive};
+use torajs_core::ssa::dominator::DominatorTree;
+use torajs_core::ssa::loop_analysis::LoopAnalysis;
 use torajs_core::ssa::{BlockId, Function, InstKind, Operand};
 
 /// Outcome of running Phase 1 over one function. Mostly diagnostic;
@@ -371,7 +371,7 @@ const _PHASE1_REWRITE_HOOK: () = ();
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dominator::DominatorTree;
+    use torajs_core::ssa::dominator::DominatorTree;
     use torajs_core::ssa::{
         BinOp, Block, BlockId, Function, IPred, Inst, Operand, Terminator, Type, ValueId, ValueInfo,
     };

@@ -25,7 +25,7 @@ use std::collections::HashSet;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 
-use crate::dominator::DominatorTree;
+use torajs_core::ssa::dominator::DominatorTree;
 
 /// Reorder `order[span]` (the loop's contiguous range) into
 /// hot-successor chains starting at `header`. `children` are the bodies of the
