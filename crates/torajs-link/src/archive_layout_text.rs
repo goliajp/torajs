@@ -167,7 +167,8 @@ pub(crate) fn compute_text_region_plan(
     // 16 KB page per artifact (r498). An LC-sizing undercount now
     // shifts `__text` immediately instead of hiding until the region
     // outgrows its page; `emit_binary`'s overrun gate catches it.
-    let text_file_offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32;
+    let text_file_offset =
+        round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32 + text_shift();
     let text_placement = place_text(
         cfg.funcs.iter().map(|f| f.bytes.len() as u32),
         member_text_sizes,
@@ -240,4 +241,24 @@ pub(crate) fn compute_text_region_plan(
         stubs_file_offset,
         text_vmsize,
     })
+}
+
+/// `TORAJS_LINK_TEXT_SHIFT=<bytes>` (diagnostic, a multiple of 4 below
+/// 64): start `__text` that many bytes past its aligned slot. Every
+/// function moves together, so each lands on a different fetch-line
+/// phase; timing a change across all sixteen shifts separates what the
+/// code does from where it happens to fall.
+fn text_shift() -> u32 {
+    let Some(v) = std::env::var_os("TORAJS_LINK_TEXT_SHIFT") else {
+        return 0;
+    };
+    let shift: u32 = v
+        .to_str()
+        .and_then(|s| s.parse().ok())
+        .expect("TORAJS_LINK_TEXT_SHIFT is a byte count");
+    assert!(
+        shift % 4 == 0 && shift < TEXT_FN_ALIGN,
+        "TORAJS_LINK_TEXT_SHIFT must be a multiple of 4 below {TEXT_FN_ALIGN}"
+    );
+    shift
 }
