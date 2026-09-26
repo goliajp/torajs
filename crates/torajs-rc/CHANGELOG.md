@@ -11,8 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Initial crate, Layer 1 of the torajs architecture rewrite (see
-  `docs/architecture-rewrite.md`). Replaces the C-side
+- Initial crate, Layer 1 of the torajs architecture rewrite.
+  Replaces the C-side
   `__torajs_rc_inc` / `__torajs_rc_dec` / `__torajs_heap_header_t`
   definitions in `crates/torajs-runtime/src/runtime_str.c:138-272`
   byte-for-byte; same symbol names, same ABI, same calling
@@ -51,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the C glue (`runtime_str.c:1371-1444`) for this first sub-step —
   it currently `switch`es to 18 per-type drop fns each provided by
   a different runtime file, and porting all of those is the work of
-  P3..P6 (per `docs/architecture-rewrite.md` rollout). Once those
+  P3..P6 (per the architecture rewrite rollout). Once those
   Rust crates land, the dispatch will become a registry indexed by
   `type_tag` and migrate to `torajs-rc` (or its own glue crate),
   per the Layer-1 design intent.

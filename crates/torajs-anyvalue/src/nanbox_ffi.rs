@@ -1,6 +1,5 @@
 //! NaN-box FFI shims — `__torajs_anyv_*` ABI for the immediate
-//! `AnyValue` type (Step 7 cutover, see
-//! [`docs/v0.7-Phase3-nanbox.md`](../../docs/v0.7-Phase3-nanbox.md)).
+//! `AnyValue` type (Step 7 cutover).
 //!
 //! The canonical FFI surface ssa_lower binds against. Pre-Step-7
 //! `__torajs_any_*` boxed shims were deleted in 7f-D-1; the inner

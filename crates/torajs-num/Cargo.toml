@@ -1,6 +1,6 @@
 [package]
 name = "torajs-num"
-description = "Number primitives + Math namespace intrinsics for the torajs AOT TypeScript runtime. Layer-2 substrate of the architecture rewrite (`docs/architecture-rewrite.md` P3.2). Wraps libm via Rust f64 methods (sqrt / abs / floor / sin / log / pow / ...) and provides ToNumber per ES §7.1.4. no_std-friendly, 0 runtime deps."
+description = "Number primitives + Math namespace intrinsics for the torajs AOT TypeScript runtime. Layer-2 substrate of the architecture rewrite (P3.2). Wraps libm via Rust f64 methods (sqrt / abs / floor / sin / log / pow / ...) and provides ToNumber per ES §7.1.4. no_std-friendly, 0 runtime deps."
 keywords = ["torajs", "number", "math", "f64", "ecmascript"]
 categories = ["mathematics", "no-std"]
 readme = "README.md"

@@ -22,7 +22,7 @@ claim or this file in the same merge.
 | **geomean speedup vs node-v8** | **21.07×** at same HEAD | same |
 | **per-case wins** | **26 / 26** vs bun-best (held across every shipped P-PERF commit). | bench result file `bench/results/2026-05-22-mini-d7bab5b.json` |
 | **Conformance subset** | **666 / 0 / 1** (pass / fail / skip) at HEAD `8f754ca`. Held throughout every P-PERF ship; 0 regression at any commit. | `cargo run --release --bin torajs-conformance` |
-| **test262 in-scope pass rate** | **12.20%** (3455 / 28314) at HEAD `081b25f`, ranAt 2026-05-22. Up from 11.81% (3344) at 2026-05-19. | `cargo run --release -p torajs-test262 -- --json hardev/test262-latest.json` |
+| **test262 in-scope pass rate** | **12.20%** (3455 / 28314) at HEAD `081b25f`, ranAt 2026-05-22. Up from 11.81% (3344) at 2026-05-19. | |
 | **AOT binary size (popcount case)** | ~36 KB stripped | `du -h target/release/<case>-aot` after `tr build` |
 
 ### v0.7 Phase 3 — NaN-box AnyValue cutover (Step 7, closed 2026-05-27 at `e741596`)
@@ -32,7 +32,7 @@ claim or this file in the same merge.
 are different scale from the P-PERF round above because both runs
 share contended-machine state, not the P-PERF quiet-machine 5-pass
 protocol — the **Δ within the same machine state** is the honest
-signal. See `docs/v0.7-Phase3-nanbox.md` for the 16-commit ledger.
+signal.
 
 | Reference | cd7c05e (pre-Step-7) | e741596 (post Step 7) | Δ |
 |---|---:|---:|---:|
@@ -61,7 +61,6 @@ compile-time producer fast path in
 `ssa_lower::box_to_any_from_expr` —
 `IntToPtr(ConstI64(short_u64))` typed Any direct, skipping the
 runtime `__torajs_anyv_box_from_pair(4, str_ptr)` call (`89ed977`).
-See `docs/v0.7-Phase3-Step8-sso.md` for the full ledger.
 
 Two 3-pass medians at HEAD `89ed977`, same-day same-machine. The
 existing bench-tr case set is closure / promise / iteration-bound;
@@ -89,8 +88,7 @@ between baseline and run-2 (same 12-case subset) is the honest
 
 Why bench-tr can't confirm the SSO win: the 8d design doc filed
 this explicitly — "concat-heavy / short-literal-heavy fixtures
-expected to win more" (`docs/v0.7-Phase3-Step8-sso.md` §
-Implementation plan, 8d row). bench-tr's hot paths use typed Str
+expected to win more". bench-tr's hot paths use typed Str
 operations (no Any boxing for short literals), so 8d's removal of
 the per-literal `any_box(4, str_ptr)` call is unreachable from
 these cases. SSO validation awaits string-heavy micro-bench fixtures
@@ -188,8 +186,8 @@ misattribution. Self-correcting honesty is the rule.
 
 ## Sub-crate budgets
 
-Per the layered-crate rewrite (see `docs/architecture-rewrite.md`),
-each sub-crate ships with its own `BUDGETS.md` documenting per-bench
+Per the layered-crate rewrite, each sub-crate ships with its own
+`BUDGETS.md` documenting per-bench
 budgets + observed P95 + headroom factor. Those are regression-catch
 gates (15–30× headroom over P95), NOT publishable numbers. Don't
 quote a budget value as a perf claim; quote the criterion bench

@@ -1,7 +1,7 @@
 //! TLAB — Thread-Local Allocation Buffer.
 //!
-//! Phase 2b item 6 of the metal-tier allocator redesign per
-//! `docs/v0.7-A2-finding.md`. Provides a per-thread (currently
+//! Phase 2b item 6 of the metal-tier allocator redesign. Provides
+//! a per-thread (currently
 //! single-global, multi-thread upgrade in Phase 2c) cache of
 //! recently-freed slots, indexed by size class, accessed via
 //! cycle-cheap non-atomic push/pop. Hot path becomes:

@@ -3,10 +3,9 @@
 //! On AArch64 the LLVM backend lowers a zero-fill
 //! `@llvm.memset.p0.i64(ptr, i8 0, i64 n)` to a `bzero` call (the
 //! non-zero fills stay `memset`). So even with an in-house `memset`,
-//! a residual `_bzero` import survives — confirmed in
-//! `docs/v0.7-A5-finding.md` § "Step 16-a-3 audit": the memset shim
-//! dropped `_memset` but left `_bzero`, proving the two come from
-//! distinct lowered symbols.
+//! a residual `_bzero` import survives — confirmed by the Step
+//! 16-a-3 audit: the memset shim dropped `_memset` but left
+//! `_bzero`, proving the two come from distinct lowered symbols.
 //!
 //! ## The self-recursion trap (why a naive byte loop is wrong)
 //!

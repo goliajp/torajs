@@ -1,9 +1,8 @@
 //! BigInt primitives for the torajs AOT TypeScript runtime.
 //!
-//! Layer-2 substrate of the architecture rewrite
-//! (`docs/architecture-rewrite.md` P3.3). Self-hosted arbitrary-
-//! precision integer — sign-and-magnitude with u64-limb little-
-//! endian magnitude:
+//! Layer-2 substrate of the architecture rewrite (P3.3).
+//! Self-hosted arbitrary-precision integer — sign-and-magnitude
+//! with u64-limb little-endian magnitude:
 //!
 //! ```text
 //! [universal header (8B)] [sign u32] [len u32] [words u64[len]]

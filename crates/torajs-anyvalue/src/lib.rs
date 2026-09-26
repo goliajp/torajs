@@ -4,8 +4,8 @@
 //! Layer-1 substrate built on [`torajs-rc`]. Originally replaced the
 //! C-side `Any` ABI defined in the pre-rewrite `runtime_str.c`
 //! (`P2.3-a` of the architecture rewrite). Step 7 NaN-box AnyValue
-//! cutover (see `docs/v0.7-Phase3-nanbox.md`) replaced the heap
-//! `AnyBox` ABI with a u64 immediate carrying a NaN-box payload —
+//! cutover replaced the heap `AnyBox` ABI with a u64 immediate
+//! carrying a NaN-box payload —
 //! the FFI surface ssa_lower binds against is now the
 //! `__torajs_anyv_*` family in [`nanbox_ffi`] / [`nanbox_encode`].
 //!

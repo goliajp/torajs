@@ -56,8 +56,7 @@ members = [
 ]
 
 # Centralized metadata for sub-crates that opt-in via `<key>.workspace =
-# true` in their own `[package]`. See docs/architecture-rewrite.md for
-# the full layered-crate plan + per-crate Cargo.toml template.
+# true` in their own `[package]`.
 [workspace.package]
 version = "0.1.0"
 edition = "2024"

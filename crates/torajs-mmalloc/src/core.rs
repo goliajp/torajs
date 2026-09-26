@@ -1,7 +1,6 @@
 //! Core API — Layer 0 / Layer 1 metal-tier allocator surface.
 //!
-//! Phase 2a items 3+4 of the metal-tier redesign per
-//! `docs/v0.7-A2-finding.md`. Provides:
+//! Phase 2a items 3+4 of the metal-tier redesign. Provides:
 //!
 //! - **Layer 0** — `alloc(size)` / `free(ptr)`. `free(ptr)`
 //!   consults `SpanRegistry` for ptr→class lookup; matches libc-
@@ -47,8 +46,8 @@ static mut CORE_REGISTRY: SpanRegistry = SpanRegistry::new();
 // plain `static mut` to drop the last `__tlv_bootstrap` undefined
 // symbol from user binaries (A5 zero-libc-undef goal). On macOS
 // aarch64 `#[thread_local]` forces a `$tlv$init` / `__tlv_bootstrap`
-// dyld dependency — see docs/v0.7-A5-finding.md. The single-threaded
-// runtime has no concurrent observer, so a process-wide TLAB is sound.
+// dyld dependency. The single-threaded runtime has no concurrent
+// observer, so a process-wide TLAB is sound.
 //
 // Access via `&raw mut` like CORE_ALLOC / CORE_REGISTRY above (clears
 // the edition-2024 `static_mut_refs` lint). `TlabCache::new()` is

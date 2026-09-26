@@ -1,6 +1,6 @@
 [package]
 name = "torajs-bigint"
-description = "Self-hosted arbitrary-precision integer (BigInt) substrate for the torajs AOT TypeScript runtime. Sign-and-magnitude representation with u64-limb little-endian magnitude; schoolbook + Karatsuba mul, bitwise + shift ops, decimal/hex/i64 parse. Layer-2 substrate (`docs/architecture-rewrite.md` P3.3). no_std-friendly, 0 runtime deps."
+description = "Self-hosted arbitrary-precision integer (BigInt) substrate for the torajs AOT TypeScript runtime. Sign-and-magnitude representation with u64-limb little-endian magnitude; schoolbook + Karatsuba mul, bitwise + shift ops, decimal/hex/i64 parse. Layer-2 substrate (P3.3). no_std-friendly, 0 runtime deps."
 keywords = ["torajs", "bigint", "arbitrary-precision", "integer", "no-std"]
 categories = ["mathematics", "no-std"]
 readme = "README.md"

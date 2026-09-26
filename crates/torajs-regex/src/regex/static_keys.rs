@@ -32,7 +32,7 @@ pub(crate) const FLAG_STATIC_LITERAL: u16 = 1 << 2;
 ///
 /// **Race semantics**: under v0.2 single-mutator the CAS always
 /// succeeds first time; once the multi-threaded substrate lands
-/// (v1.0 biased-ARC, design-principles.md §6.2), a losing-CAS
+/// (v1.0 biased-ARC, design principles §6.2), a losing-CAS
 /// thread cleans up its fresh alloc and adopts the winner. The
 /// only observable cost of a race loss is the cleanup `str_drop`
 /// path (~30 ns); bounded by thread count, occurs once per slot.

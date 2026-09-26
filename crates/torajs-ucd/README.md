@@ -93,7 +93,7 @@ Performance regression gate at `tests/perf_gate.rs`; see
 - [torajs] runtime, `runtime_regex.c::cc_test_cp` calls equivalent
   C-side tables to back `\p{L}` / `\p{N}` regex matching. The C side
   will be rewritten to Rust + linked against this crate as the
-  runtime rewrite progresses (per `docs/architecture-rewrite.md`).
+  runtime rewrite progresses.
 
 ## License
 

@@ -117,7 +117,7 @@ pub(super) fn collect_headless_argv(
         // degrades to an empty argv. `function* g(){ return
         // arguments.length }` called as `g(42, ...[1], ...arr)` then
         // answered 0 where bun answers 4: not a refusal, a wrong
-        // answer, which design-principles §4 refuses outright.
+        // answer, which the design principles §4 refuses outright.
         //
         // Admitted, the same program reaches the loud
         // `box_to_any(FnSig)` refusal its function-EXPRESSION twin

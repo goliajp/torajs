@@ -33,7 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Initial crate, Layer-1 substrate of the torajs architecture
-  rewrite (see `docs/architecture-rewrite.md`). Replaces the
+  rewrite. Replaces the
   C-side `__torajs_any_box` / `__torajs_any_unbox_tag` /
   `__torajs_any_unbox_value` / `__torajs_any_payload_rc_inc` /
   `__torajs_any_box_drop` in

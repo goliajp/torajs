@@ -1,7 +1,7 @@
 //! Span — a contiguous mmap'd region serving one size class.
 //!
-//! Phase 2a substep 1 of the metal-tier allocator redesign (see
-//! `docs/v0.7-A2-finding.md`). Spans are the unit of allocation
+//! Phase 2a substep 1 of the metal-tier allocator redesign.
+//! Spans are the unit of allocation
 //! ownership in the redesigned allocator: each span belongs to a
 //! single size class, has N fixed-size slots, and tracks its own
 //! free list inline (LIFO via 8-byte next pointers in unused slots).
@@ -12,7 +12,7 @@
 //! Layer 0/1 `core` API that does ptr→span lookup via a registry
 //! built on this type.
 //!
-//! Design references (per design-principles.md 正统 pillar):
+//! Design references (per the 正统 design pillar):
 //! - Go runtime `src/runtime/mheap.go::mspan` — span-per-size-class
 //! - mimalloc `src/page.c` — page-as-span concept
 //! - snmalloc slab.h — fixed-size slot iteration

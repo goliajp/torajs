@@ -1,5 +1,5 @@
 {
-  "kind": "chunk-7.7-v2-step-2-sigbus-ablation",
+  "kind": "step-2-sigbus-ablation",
   "started_at": "2026-06-24T0",
   "host": "mini",
   "git_sha_baseline": "751602ad",

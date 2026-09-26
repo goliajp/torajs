@@ -23,7 +23,7 @@
 //!
 //! ## Why
 //!
-//! v0.7-A3 phase per `docs/v0.7-A3-finding.md`. After 14-c ship,
+//! v0.7-A3 phase. After 14-c ship,
 //! `otool -L /tmp/<bench-bin> | grep -c putchar` == 0 for every
 //! print-emitting fixture. The remaining libc surface in user
 //! binaries reduces to the alloc family (handled by A5).

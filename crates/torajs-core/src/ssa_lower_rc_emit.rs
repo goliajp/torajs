@@ -3,8 +3,8 @@
 //!
 //! Four ARC-emit helpers that are the single retrofit surface for the
 //! future biased ARC (owner-thread fast path + share transition +
-//! atomic slow path,see `.claude/vision.md` 三-1 节 +
-//! `rules/torajs-design-principles.md` §6.2):
+//! atomic slow path, see `.claude/vision.md` 三-1 节, design
+//! principles §6.2):
 //!
 //! - `emit_rc_inc(op)`         — inc in current block
 //! - `emit_rc_inc_in(blk, op)` — inc in an explicit block (branch tails)
@@ -28,8 +28,8 @@ impl<'a> LowerCtx<'a> {
     /// instruction-wise equivalent to a direct emit. This helper
     /// is the single retrofit point for the future biased ARC
     /// (owner-thread fast path 0 atomic 增量 + share transition +
-    /// atomic 慢路径,详见 `.claude/vision.md` 三-1 节 +
-    /// `rules/torajs-design-principles.md` §6.2)。
+    /// atomic 慢路径,详见 `.claude/vision.md` 三-1 节,design
+    /// principles §6.2)。
     ///
     /// **HARD RULE (§6.2):** all refcount inc emit goes through
     /// this helper. Direct `InstKind::Call(intrinsics.rc_inc, ...)`

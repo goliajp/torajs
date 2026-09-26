@@ -12,8 +12,8 @@
 //! Algorithms are textbook IEEE-754: same lineage as musl libm /
 //! FreeBSD's libm / Sun's 1993 `fdlibm` reference (public-domain or
 //! MIT-licensed historically; algorithm itself is public PL+textbook
-//! material). **Code is hand-typed here** — per `.claude/rules/torajs-
-//! design-principles.md` pillar #2, "algorithms may be learned from
+//! material). **Code is hand-typed here** — per torajs design
+//! principle #2 (self-hosted): "algorithms may be learned from
 //! others; code must be our own". Each fn module documents the exact
 //! formula / coefficients with a one-line reference to the canonical
 //! source.

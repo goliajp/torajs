@@ -2,8 +2,8 @@
 
 **0-dep raw syscall stubs for torajs user binary.**
 
-Layer-0 substrate of the [v0.7 Metal](../../docs/roadmap.md) version
-— direct OS syscalls so the AOT-emitted user binary can avoid
+Layer-0 substrate of the v0.7 Metal version — direct OS syscalls
+so the AOT-emitted user binary can avoid
 linking `libSystem.dylib` / `libc.so` entirely.
 
 ## Status (v0.7-A1)

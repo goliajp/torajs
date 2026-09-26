@@ -57,16 +57,6 @@ of `torajs-core` via `build.rs` — see `TORAJS_STATICLIBS` in
 `lib.rs`) to per-build tempfiles and passes the paths to cc /
 wasm-ld alongside the per-build runtime_libc_bridge.c .o file.
 
-## Known god-files (refactor follow-ups)
-
-`ssa_lower.rs` 28k LOC + `ast.rs` 11.5k LOC + `check.rs` 7.6k LOC +
-`parser.rs` 7.1k LOC are documented in
-`.claude/rules/common/file-size.md` Known Debt table. They're
-single concerns conceptually (the type system lives in `check.rs`;
-the SSA lowering visitor lives in `ssa_lower.rs`) — splitting
-them is a substantial refactor follow-up that's queued post-
-publish-polish.
-
 ## License
 
 Workspace-internal. License headers per `Apache-2.0 OR MIT`

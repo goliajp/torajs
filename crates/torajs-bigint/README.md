@@ -13,9 +13,8 @@ in 2.2 KLOC of pure Rust.
 
 Replaces ~1.3 KLOC of `runtime_bigint.c` (closed P3.3, commit
 `0ba388a`, 2026-05-23) — the FIRST major C substrate to go fully
-to pure Rust, validating the architecture-rewrite pattern that
-later expanded to `runtime_promise.c` / `runtime_regex.c` /
-`runtime_*.c`.
+to pure Rust, validating the pattern that later expanded to
+`runtime_promise.c` / `runtime_regex.c` / `runtime_*.c`.
 
 ## Algorithm choices
 

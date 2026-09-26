@@ -2,10 +2,10 @@
 //! runtime — slot machinery + native-error factory registry.
 //!
 //! Layer-1 substrate (no upstream deps). Companion to `torajs-rc`
-//! + `torajs-anyvalue` in P2 of the architecture rewrite (see
-//! `docs/architecture-rewrite.md`). Replaces the C-side native-
-//! error registry + `__torajs_throw_range_error` / `__torajs_throw
-//! _type_error` wrappers in the pre-rewrite `runtime_str.c`.
+//! + `torajs-anyvalue` in P2 of the architecture rewrite. Replaces
+//! the C-side native-error registry + `__torajs_throw_range_error`
+//! / `__torajs_throw_type_error` wrappers in the pre-rewrite
+//! `runtime_str.c`.
 //!
 //! ## What this crate provides
 //!

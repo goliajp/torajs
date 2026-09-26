@@ -6,7 +6,7 @@
 //! check and the three lowering lanes compare layouts field by field,
 //! so every such declaration was refused — eleven of thirteen probe
 //! shapes, against a `tsc --strict` that accepts all of them. That is
-//! the "refuse a legal program" direction of design-principles §7.1,
+//! the "refuse a legal program" direction of design principles §7.1,
 //! not a missing feature.
 //!
 //! **The rule, from tsc**: an accessor slot projects onto the property

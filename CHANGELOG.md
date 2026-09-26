@@ -2,7 +2,7 @@
 
 ## Unreleased — develop trunk pivot to test262 100 % (2026-05-14)
 
-The v3 wedge cycle (V3-XX, see `docs/roadmap-historical.md`) closed at
+The v3 wedge cycle (V3-XX) closed at
 HEAD `52ba8ea` with curated `conformance/cases/` at **522 pass / 0 fail
 / 1 skip** (effectively saturated). Test262 200-sample at the same HEAD
 shows in-scope pass rate at **3.96 %** (4/101) — single-method wedges
@@ -10,10 +10,9 @@ have hit the marginal-return wall: the curated suite is hand-typed, but
 test262 is bare JS, and tora's strict typecheck rejects most cases at
 the first `var x = "anything"`.
 
-`develop` now pivots to a **single linear v4 trunk** in
-`docs/roadmap.md` — 14 phases, each with a measurable test262 in-scope
-pass-rate gate, total target ≥ 90 % at v1.0. The v1 / v2 / v3 plans
-are preserved verbatim in `docs/roadmap-historical.md` as the audit
+`develop` now pivots to a **single linear v4 trunk** — 14 phases, each
+with a measurable test262 in-scope pass-rate gate, total target ≥ 90 %
+at v1.0. The v1 / v2 / v3 plans are preserved verbatim as the audit
 trail for tora's foundation.
 
 The trunk introduces a **two-tier execution model**: typed-tier
@@ -30,7 +29,7 @@ strict phase-then-item order per the trunk's execution rules.
 
 Fifth release after `v0.5.0` (same day). Closes the **v0.6.0 sequence**
 (T-20 / T-21 / T-22 / T-23) of the perf-gated 33-item plan from
-`v0.3.0` (see [`docs/roadmap.md`](docs/roadmap.md) → "Roadmap v2").
+`v0.3.0` ("Roadmap v2").
 
 Theme: **wasm target + HTTP fetch + sandboxed playground at
 torajs.com**. tr now builds three flavors of artifact (native AOT,
@@ -125,8 +124,7 @@ collector, Function ctor + eval, multi-platform release expansion,
 
 Fourth release after `v0.4.0`. Closes the **v0.5.0 sequence**
 (T-14 / T-15 / T-17 / T-18 / T-19; T-16 deferred — see "Scope notes"
-below) of the perf-gated 33-item plan from `v0.3.0` (see
-[`docs/roadmap.md`](docs/roadmap.md) → "Roadmap v2").
+below) of the perf-gated 33-item plan from `v0.3.0` ("Roadmap v2").
 
 Theme: **async/await + Promise substrate**. tr ships its own Promise
 implementation (32-byte heap layout + microtask queue + drain-on-await
@@ -238,8 +236,7 @@ scoreboard from `bench/results/*.json`).
 
 Third release after `v0.3.0` (same day). Closes the **v0.4.0 sequence**
 (T-09 / T-10 / T-11 / T-12-deferred / T-13 / T-13.5) of the perf-gated
-33-item plan introduced at v0.3.0 (see [`docs/roadmap.md`](docs/roadmap.md)
-→ "Roadmap v2").
+33-item plan introduced at v0.3.0 ("Roadmap v2").
 
 Theme: **Type::Any boxing substrate + heterogeneous collections**, so the
 spec-faithful versions of `arguments`, `Object.entries / fromEntries`,
@@ -381,8 +378,7 @@ Empty diff means tr's output matches bun byte-for-byte.
 
 Second release after the v0.1.0-beta tag. Closes the **v0.3.0
 sequence** (T-01..T-08) of the perf-gated 33-item linear plan
-introduced this milestone (see [`docs/roadmap.md`](docs/roadmap.md)
-→ "Roadmap v2").
+introduced this milestone ("Roadmap v2").
 
 Theme: **dev tooling base** (`tr lsp` / `tr fmt` / `tr lint` /
 DWARF source maps), **engine graduation** out of `labs/0001-walking-
@@ -472,8 +468,7 @@ v0.3 stdlib partials that had accumulated on `develop` since beta.
 
 ### Known not-yet-supported (now scheduled into v0.4 / v0.5 / v1.0)
 
-Each item lives in the v2 plan's 33-item table (`docs/roadmap.md` →
-"Roadmap v2"):
+Each item lives in the v2 plan's 33-item table ("Roadmap v2"):
 
 - **v0.4**: complete Object stdlib (entries / freeze / fromEntries /
   defineProperty / ...), Type::Any boxing, `arguments` full

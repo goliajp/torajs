@@ -6,9 +6,8 @@
 ## 0. 这一章回答什么
 
 torajs 是 ts 语法体系下的一门语言,占的位置是
-**完整 JS/TS 语义 + 类型参与代码生成到原生机器码**(定位见
-`docs/roadmap.md` 的 Positioning 段)。这一格空着不是因为没人想到,是因为
-它要求同时回答两个别人都绕开的问题,而**第一个就是本章**:
+**完整 JS/TS 语义 + 类型参与代码生成到原生机器码**。这一格空着不是因为
+没人想到,是因为它要求同时回答两个别人都绕开的问题,而**第一个就是本章**:
 
 > TypeScript 的类型注解是 unsound 的,而 TypeScript 官方明确拒绝让类型
 > 参与代码生成(Design Goals Non-goal #5:*"emit different code based on
@@ -48,7 +47,7 @@ Node / Perry / Porffor)把类型丢掉。**torajs 两样都不放弃**,所以必
 - **把 B 当成 C**(降级到 any 了事)→ 往类型擦除那一格滑。
 
 第二种尤其要警惕,因为它是**最省事的修法**:遇到 checker 拦不住的形状,
-放宽成 any 就过了。design-principles §7 把这条写成 HARD RULE,而
+放宽成 any 就过了。design principles §7 把这条写成 HARD RULE,而
 typed 覆盖率量具(`hardev/autorun/typed_census.sh`)是它唯一的机械证据。
 
 ## 2. 判据(机械)

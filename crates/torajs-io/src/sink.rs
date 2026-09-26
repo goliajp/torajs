@@ -22,7 +22,7 @@
 //!
 //! The switch is an `AtomicBool` (Relaxed — no cross-thread
 //! ordering to protect in the v0.7 single-threaded covenant, and
-//! the multi-thread-ready shape per design-principles §6.2). When
+//! the multi-thread-ready shape per design principles §6.2). When
 //! v0.8 threads land, the LineBufs and this flag move to
 //! `#[thread_local]` together — a per-thread current sink is the
 //! natural semantics (each thread's console redirection is its

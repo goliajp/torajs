@@ -7,8 +7,8 @@
 //! ephemeral `SubstrBlock` allocation (live for 4 IR insts: create
 //! → load .len → drop) as ~38% of csv-trim-100k's runtime.
 //!
-//! Fix-design Option A (docs/v0.7-A2-finding.md § "Step 13"):
-//! introduce `__torajs_substr_trim_into(v, out_buf)` (Rust impl in
+//! Fix-design Option A: introduce `__torajs_substr_trim_into(v,
+//! out_buf)` (Rust impl in
 //! `torajs-str/src/substr_methods.rs`) that writes the trimmed view
 //! into a caller-provided 32-byte stack buffer, skipping the
 //! pool_pop / pool_push roundtrip in

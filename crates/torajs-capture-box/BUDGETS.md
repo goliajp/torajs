@@ -11,7 +11,7 @@ reports the actual numbers via criterion.
 
 ## Path taxonomy
 
-`torajs-capture-box` is **Layer-1** in the architecture-rewrite stack —
+`torajs-capture-box` is **Layer-1** in the runtime crate stack —
 sits below `torajs-promise` / `torajs-arr` / Layer-2+ and only above
 Rust's `std::alloc`. The 3-fn extern surface (`alloc` / `inc` /
 `drop`) is the minimum to support closure-captured `Copy`-typed

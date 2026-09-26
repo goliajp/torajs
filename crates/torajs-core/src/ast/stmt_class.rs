@@ -82,7 +82,7 @@ pub enum AccessorKind {
 /// `Public` is the parse-time default and never appears explicitly in
 /// the source; `Private` corresponds to `private`; `Protected` to
 /// `protected`. The spec-defined hard-private `#name` form ships in
-/// P8.1 (see [[P8.1]] in roadmap.md) via parse-time mangling to
+/// P8.1 via parse-time mangling to
 /// `__priv_<Class>__<name>` and Visibility::Private with exact-class
 /// enforcement; this enum carries both — the mangling prefix marks
 /// `#`-style.

@@ -4,8 +4,8 @@
 
 /// Per-heap-object type tag stored in [`HeapHeader::type_tag`].
 /// Drives drop dispatch in `__torajs_value_drop_heap` (still in
-/// the glue C for now; rewrite of dispatch is queued for the
-/// later phase — see `docs/architecture-rewrite.md`).
+/// the glue C for now; rewrite of dispatch is queued for a later
+/// phase of the architecture rewrite).
 ///
 /// Values are stable wire-format; do not renumber. Adding a new
 /// type takes the next free integer + a new variant here + a

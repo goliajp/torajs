@@ -245,7 +245,7 @@ pub enum InstKind {
     /// downstream Member-access / Index instructions dispatch
     /// correctly. LLVM lowers to `inttoptr i64 %x to ptr`.
     IntToPtr(Operand),
-    /// Step 7d (v0.7-Phase3-nanbox) — `%v = ptr → i64`. Inverse of
+    /// Step 7d (v0.7 Phase 3 NaN-box) — `%v = ptr → i64`. Inverse of
     /// `IntToPtr`. Used by the NaN-box AnyValue bridge: ssa_lower's
     /// Type::Any operand is ptr-shaped at the LLVM level, but its
     /// bit pattern is an immediate AnyValue (u64). To pass it to

@@ -5,7 +5,7 @@
 //! spaces / digits / literal keyword widths ARE. Wrap decisions
 //! compare `estimate > 80` (strictly greater) after each comma.
 //!
-//! Multi-thread-ready shape (design-principles §6.2): a process-wide
+//! Multi-thread-ready shape (design principles §6.2): a process-wide
 //! atomic, not `static mut` / lock. Concurrent console.log already
 //! interleaves at the byte level; when stdout gains its per-thread
 //! serialization this estimate joins that same lock domain.

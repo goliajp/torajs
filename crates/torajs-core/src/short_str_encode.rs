@@ -10,8 +10,7 @@
 //! shims, etc.) — symbols only the AOT'd user binary needs, not the
 //! compile pipeline.
 //!
-//! Encoding is part of the NaN-box ABI spec (see
-//! `docs/v0.7-Phase3-Step8-sso.md` "Layout — ShortStr encoding"):
+//! Encoding is part of the NaN-box ABI spec:
 //! top16 = `0x0001` + 8-bit len + 5 × 8-bit little-endian payload.
 //! Must stay byte-equal with the canonical encoder in
 //! `torajs_anyvalue::nanbox`.

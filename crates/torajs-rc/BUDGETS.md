@@ -8,8 +8,8 @@ Run `cargo test -p torajs-rc --test perf_gate` to check.
 
 ## Path taxonomy
 
-`torajs-rc` sits at **Layer 1** in the torajs runtime crate stack
-(see `docs/architecture-rewrite.md`). It is the universal heap-
+`torajs-rc` sits at **Layer 1** in the torajs runtime crate stack.
+It is the universal heap-
 header + refcount primitive — every refcounted heap value in the
 torajs runtime (every Str / Obj / Arr / Closure / RegExp / Date /
 Promise / Map / Set / BigInt / DynObj / …) flows through these

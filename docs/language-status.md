@@ -121,8 +121,8 @@ this is an implementation detail invisible to the user.
 ## Roadmap items (not yet implemented)
 
 Each unimplemented TS feature lives in a roadmap phase. The T-IDs
-below correspond to the 33-item linear plan in `docs/roadmap.md` →
-"Roadmap v2: 33-item linear plan".
+below correspond to the 33-item linear plan ("Roadmap v2: 33-item
+linear plan").
 
 | Feature | Phase | Status |
 |---|---|---|
@@ -157,7 +157,7 @@ below correspond to the 33-item linear plan in `docs/roadmap.md` →
 | `JSON.stringify(value, replacer, indent)` indent-aware emission | post-v1.0 polish | parsed but not pretty — emits compact form |
 | Array of fully-mixed types (tuple) | (not in v1.0 path) | needs T-10 Type::Any; revisit post-v1.0 |
 | Function statement hoisting (nested `function` inside blocks) | post-v1.0 polish | not started |
-| Decorators / Mapped & conditional types / `Proxy` / JSX | out of scope | see `docs/roadmap.md` Out-of-scope features |
+| Decorators / Mapped & conditional types / `Proxy` / JSX | out of scope | out-of-scope features |
 
 ## Differences from bun (intentional)
 

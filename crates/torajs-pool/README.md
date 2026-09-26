@@ -111,8 +111,8 @@ Performance regression gate at `tests/perf_gate.rs`; see
 - [torajs] runtime, `runtime_promise.c` (current C-implementation
   ship line, see `git log -- crates/torajs-runtime/src/runtime_promise.c
   | grep 8f754ca` for the bench-anchor commit). The C side will be
-  rewritten to Rust + linked against this crate as the rewrite
-  progresses (per `docs/architecture-rewrite.md`).
+  rewritten to Rust + linked against this crate as the architecture
+  rewrite progresses.
 
 ## License
 

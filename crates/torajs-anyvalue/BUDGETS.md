@@ -9,7 +9,7 @@ Run `cargo test -p torajs-anyvalue --test perf_gate` to check.
 ## Path taxonomy
 
 `torajs-anyvalue` sits at Layer 1 of the torajs runtime crate
-stack (see `docs/architecture-rewrite.md`). Every `Type::Any`-
+stack. Every `Type::Any`-
 typed slot in user code flows through an `AnyBox`: every
 `Array<Any>` element, every dynamic-property bag value, every
 function `: any` parameter / return value boxes on the way in or

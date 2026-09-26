@@ -15,7 +15,7 @@
 //!
 //! `extern "C" { fn malloc / free }` is a system primitive
 //! declaration — not a crates.io dep — so it does not violate the
-//! 0-deps pillar (`docs/design-principles.md`).
+//! 0-deps pillar.
 //!
 //! ## Ownership model
 //!

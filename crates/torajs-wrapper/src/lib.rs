@@ -34,8 +34,8 @@
 //!
 //! Wrappers alloc via mmalloc's libc-compat shim (same channel as
 //! BigInt / Str / DynObj) — no libc / no crates.io dep, per the
-//! `docs/design-principles.md` self-hosted pillar. The `rc_inc` /
-//! `rc_dec` calls resolve at link time against `libtorajs_rc.a`.
+//! self-hosted design pillar. The `rc_inc` / `rc_dec` calls resolve
+//! at link time against `libtorajs_rc.a`.
 
 #![no_std]
 

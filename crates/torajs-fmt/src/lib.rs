@@ -22,8 +22,8 @@
 //!
 //! ## Why
 //!
-//! v0.7-A4 phase per `docs/v0.7-A4-finding.md`. After 15-d/e
-//! ship, `nm /tmp/<bench-bin> | grep -cE "(snprintf|strtod)"`
+//! v0.7-A4 phase. After 15-d/e ship,
+//! `nm /tmp/<bench-bin> | grep -cE "(snprintf|strtod)"`
 //! == 0 for every bench fixture. Combined with A3 (io cutover)
 //! and pending A5 (libc-shim audit), user binaries lose their
 //! libc dependency entirely (otool -L: 0 libSystem entries).

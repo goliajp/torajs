@@ -1,7 +1,6 @@
 //! NaN-box tagged immediate `AnyValue` — JSC-style 64-bit encoding.
 //!
-//! Step 7b of the v0.7 Phase-3 plan (see
-//! [`docs/v0.7-Phase3-nanbox.md`](../../docs/v0.7-Phase3-nanbox.md)).
+//! Step 7b of the v0.7 Phase-3 plan.
 //! Introduces a `u64` immediate value type that encodes every JS
 //! value without per-primitive allocation. The heap-allocated
 //! `AnyBox` struct stays in place during 7b — ssa_lower callsites
@@ -88,12 +87,11 @@ pub const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 // ============================================================
 // ShortStr (Step 8 — Small-String Optimization)
 //
-// Layout (Step 8a design doc, `docs/v0.7-Phase3-Step8-sso.md`):
+// Layout (Step 8a design doc):
 //
 //   bits 63..48: top16 = 0x0001       (marker, claims unused
 //                                      top16 = 0x0001 region —
-//                                      single safe marker; see
-//                                      doc "Bit-space audit")
+//                                      single safe marker)
 //   bits 47..40: len   = 0..5         (8-bit len, future-proof)
 //   bits 39..0 : bytes = 5 × 8 bit    (little-endian payload)
 //
@@ -104,8 +102,7 @@ pub const TOP_16_MASK: u64 = 0xFFFF_0000_0000_0000;
 // ============================================================
 
 /// Marker for ShortStr-encoded `AnyValue`: `top16 == 0x0001`.
-/// Forced single-marker by NaN-box bit budget — see
-/// `docs/v0.7-Phase3-Step8-sso.md` "Bit-space audit".
+/// Forced single-marker by NaN-box bit budget.
 pub const SHORT_STR_TAG: u64 = 0x0001_0000_0000_0000;
 
 /// Maximum inline byte payload for ShortStr. Driven by the 48-bit

@@ -1,4 +1,4 @@
-//! typed 覆盖率量具 —— design-principles §7「类型参与 codegen 不可
+//! typed 覆盖率量具 —— design principles §7「类型参与 codegen 不可
 //! 交易」的唯一机械证据,roadmap P-SURF 的 S0.2。
 //!
 //! 量的是:一次编译里,每个被 checker 定过型的表达式落进哪一类 ——
@@ -16,7 +16,7 @@
 //! [`crate::check::Checker::expr_types`] 已经记着每次成功 `type_of`
 //! 的结果(`check/type_of.rs:21` 为 LSP hover 而建),每个 `ExprId` 一个
 //! 答案。数它即可 —— **不需要新的计数字段**,也因此不触发
-//! design-principles §6.2 的 global-state 条款:这里根本没有新状态。
+//! design principles §6.2 的 global-state 条款:这里根本没有新状态。
 //! 形态上仍与 `torajs-egraph` 的 `*Stats`(`sext_elide.rs:45`)同族:
 //! 普通 owned struct,返回值带出,不引 global。
 //!

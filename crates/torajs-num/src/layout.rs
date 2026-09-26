@@ -1,6 +1,6 @@
 //! Layout constants for Str heap blocks — duplicated from
 //! [`torajs-str::layout`] because torajs-num is a Layer-2 sibling
-//! of torajs-str and architecture-rewrite.md forbids same-layer
+//! of torajs-str and the architecture rewrite forbids same-layer
 //! dependencies (Layer-N → Layer-(N-1) only).
 //!
 //! The duplication cost is two `pub const` lines. These offsets

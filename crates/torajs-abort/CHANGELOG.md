@@ -23,8 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   symbol for C / cross-staticlib link-time resolution.
 - `#![no_std]` — 0 Cargo deps; `unsafe extern "C"` declares
   `write(2)` + `abort()` directly.
-- Layer-0 substrate per `torajs/docs/architecture-rewrite.md` —
-  no inter-crate dep; all Layer-1+ staticlibs may use it.
+- Layer-0 substrate — no inter-crate dep; all Layer-1+ staticlibs
+  may use it.
 
 ### Measured
 

@@ -69,14 +69,6 @@ enum Stage {
 | `lsp_bench.rs` | LSP request benchmarking harness |
 | `repl.rs` | REPL state machine |
 
-## Known god-file follow-up
-
-`main.rs` is 1228 LOC (+257 vs the 971-line baseline in
-`.claude/rules/common/file-size.md` Known Debt). Phase 1 / P7 ship
-sequence accreted subcommands. A follow-up split into per-subcommand
-modules (`cmd_build.rs` / `cmd_run.rs` / `cmd_cache.rs` / ...) is
-queued post-publish-polish.
-
 ## License
 
 Workspace-internal. Depends on `torajs-core` (which depends on

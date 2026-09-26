@@ -1,8 +1,7 @@
 //! Number primitives + Math namespace for the torajs AOT TypeScript
 //! runtime.
 //!
-//! Layer-2 substrate of the architecture rewrite
-//! (`docs/architecture-rewrite.md` P3.2). Provides:
+//! Layer-2 substrate of the architecture rewrite (P3.2). Provides:
 //!
 //! - [`math`] — Math intrinsics (`__torajs_math_sqrt` /
 //!   `__torajs_math_abs` / ...). Each is a thin `extern "C"`

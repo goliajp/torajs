@@ -9,10 +9,9 @@
 //! Same leaf-shim pattern as [`memcpy`](super::memcpy::memcpy):
 //! pure byte-level, no syscall / signal / control-flow effect, so
 //! it is safe under the force_load 0-libc link (the memory-effect
-//! shape matches what LLVM expects for the intrinsic target). See
-//! `docs/v0.7-A5-finding.md` § "Step 16-a-3 audit" for why memset
-//! is the low-risk half of the pair (memset was never part of the
-//! reverted 16-a-2 bzero+abort batch).
+//! shape matches what LLVM expects for the intrinsic target). The
+//! Step 16-a-3 audit found memset is the low-risk half of the pair
+//! (memset was never part of the reverted 16-a-2 bzero+abort batch).
 
 use core::ffi::c_void;
 

@@ -10,8 +10,7 @@ Universal heap-object header + non-atomic refcount primitives for the
 
 Layer 1 of the torajs runtime crate stack (sits above [`torajs-pool`]
 allocator; below the per-type containers `torajs-str` / `torajs-arr` /
-… that the rewrite lands later). See [`docs/architecture-rewrite.md`]
-for the full layered plan.
+… that the rewrite lands later).
 
 ## What this provides
 
@@ -118,4 +117,3 @@ at your option.
 
 [torajs]: https://github.com/goliajp/torajs
 [`torajs-pool`]: https://crates.io/crates/torajs-pool
-[`docs/architecture-rewrite.md`]: https://github.com/goliajp/torajs/blob/develop/docs/architecture-rewrite.md

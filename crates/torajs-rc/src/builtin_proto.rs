@@ -19,7 +19,7 @@
 //!
 //! ## Multi-thread-ready
 //!
-//! Per `torajs-design-principles.md` §6.2 (no-GC + multi-thread-ready
+//! Per the torajs design principles §6.2 (no-GC + multi-thread-ready
 //! substrate), each slot is an `AtomicUsize` (internal atomic) rather
 //! than a `lazy_static<Mutex<_>>`. A benign double-init race (CAS
 //! loser leaks one fresh dynobj) is acceptable here — this fn fires

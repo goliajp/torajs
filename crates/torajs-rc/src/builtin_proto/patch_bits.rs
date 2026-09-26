@@ -29,7 +29,7 @@ const DELETED_MASK_WORDS: usize = 4; // 256 mids / 64 bits
 // dynobj own entry (monkey-patch / defineProperty restore) always
 // wins before any intern fallthrough consults this mask, so a re-set
 // revives without a clear call. AtomicU64 fetch_or / load per
-// design-principles §6.2 (multi-thread-ready shape).
+// design principles §6.2 (multi-thread-ready shape).
 #[allow(clippy::declare_interior_mutable_const)]
 const MASK_INIT: [AtomicU64; DELETED_MASK_WORDS] =
     [const { AtomicU64::new(0) }; DELETED_MASK_WORDS];

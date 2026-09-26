@@ -80,7 +80,7 @@ torajs (AOT) **vs bun-jsc / bun-aot / node-v8**: **15 / 15 / 15** clean sweeps p
 
 `throw-catch-100k` stays the category-killer: 100k handled exceptions takes 1.29 ms in torajs vs 426 ms in rust — **330× faster than rust's panic path**. tr's M4 design (module-level throw_active flag + cond_br on every may_throw call) lets throw be ~zero-cost when it doesn't fire.
 
-65+ commits since `7c7844e` added zero perf regression on the scoreboard's stable cases — long cases (fib40, mandelbrot, gcd1m, collatz, prime_count, closure-counter) all sit within ±2% of their `7c7844e`-era values across every bench since. Conformance grew from 197 → **301 ports** + test262 baseline at 606 / 23941 in-scope cases (2.53 %, 99.67 % of tr-accepted cases match bun byte-identical). See [`docs/language-status.md`](docs/language-status.md) for the language coverage roadmap and [`docs/100-percent-plan.md`](docs/100-percent-plan.md) for the path toward 100 % test262.
+65+ commits since `7c7844e` added zero perf regression on the scoreboard's stable cases — long cases (fib40, mandelbrot, gcd1m, collatz, prime_count, closure-counter) all sit within ±2% of their `7c7844e`-era values across every bench since. Conformance grew from 197 → **301 ports** + test262 baseline at 606 / 23941 in-scope cases (2.53 %, 99.67 % of tr-accepted cases match bun byte-identical). See [`docs/language-status.md`](docs/language-status.md) for the language coverage roadmap.
 
 ### Per-case detail — compile / run / binary
 
@@ -342,30 +342,6 @@ echo 'console.log("hello");' > hi.tora.ts
 cargo run --release -p bench-harness -- run
 ```
 
-## Status — through M-OO.2 (single-class + inheritance + super)
-
-| milestone          | what                                                                                                | status |
-| ------------------ | --------------------------------------------------------------------------------------------------- | :----: |
-| P0 / P1            | walking skeleton + core language (arithmetic, control flow, fns, strings, arrays)                   |   ✓    |
-| P2.1+              | alias-aware ownership inference (no GC, TS-shape shared reads)                                      |   ✓    |
-| P2.2               | string runtime + drop emission (concat doesn't consume)                                             |   ✓    |
-| P2.4               | object literals + structural types                                                                  |   ✓    |
-| P3                 | LLVM AOT codegen + `tr run` cache layer (Cranelift JIT retired)                                     |   ✓    |
-| **M1**             | core surface (comments, Array runtime, block-scope drops, mutable field/index write, bool ops, for, break/continue) | ✓ |
-| **M2**             | closures with implicit captures (single + multi + nested + escaping returns)                        |   ✓    |
-| **M3**             | generics in user code (type params, monomorphization, generic structs)                              |   ✓    |
-| **M4**             | error model: try / catch / throw / finally — number / string / struct throw values                  |   ✓    |
-| **M6.1 / M6.2**    | String + Array stdlib slice (slice, charCodeAt, startsWith, endsWith, includes, indexOf, split, join, map, filter, reduce, forEach) | ✓ |
-| **M-OO.1 / .2**    | `class` — single class + single inheritance + `super(args)`                                         |   ✓    |
-| M-OO.3             | virtual dispatch (vtable per class)                                                                 |  next  |
-| M5                 | module system + graduation to `crates/` (v0.1)                                                      |   —    |
-| M6.3+              | rest of stdlib (Date, JSON, fs, Bun.*)                                                              |   —    |
-| M7                 | async / await + single-threaded executor                                                            |   —    |
-| M8                 | playground (wasm) + LSP + tooling                                                                   |   —    |
-| M9                 | source maps + debugger + embedding API + multi-thread → v1.0                                        |   —    |
-
-[Full roadmap](docs/roadmap.md). Phase P3 went through a mid-project pivot from wasm-via-C → LLVM-direct + Cranelift. The P2 ownership story was framing-corrected on 2026-04-30 (TS semantics, not Rust idioms; see [`docs/language-status.md`](docs/language-status.md)).
-
 ## Bench cases
 
 Each case has one `main.ts` that every TS runtime (tr, bun, node) runs, plus `main.rs`, `main.go` and `main.py` for cross-language comparison.
@@ -402,20 +378,13 @@ torajs/
 ├── crates/torajs-{str,arr,rc,…}/ ← Rust runtime crates (refcount, str/arr/json, regex, Date, …)
 ├── crates/torajs-cli/            ← `tr` binary (build / run / lsp / lsp-bench)
 ├── bench/                        ← cross-runtime perf harness
-├── docs/roadmap.md               ← canonical implementation plan
 ├── docs/language-status.md       ← what works today + per-feature roadmap-phase mapping
 ├── docs/getting-started.md       ← install + hello world
 ├── docs/perf.md                  ← bench scoreboard + reproduction
 └── web/                          ← torajs.com website (Vite + React)
 ```
 
-Engine graduated from `labs/0001-walking-skeleton/` to `crates/torajs-{runtime,core,cli}/` in v0.3 #6 — see `docs/roadmap.md`. `labs/` remains throwaway-friendly for new experiments.
-
-## Conventions
-
-- **Branches**: `develop` is the active branch (no `main` until first release)
-- **Commits**: lowercase types (`feat: ...`, `fix: ...`), no AI co-author tags
-- **Languages**: Chinese for design discussion; English for code, comments, commits, docs
+Engine graduated from `labs/0001-walking-skeleton/` to `crates/torajs-{runtime,core,cli}/` in v0.3 #6. `labs/` remains throwaway-friendly for new experiments.
 
 ## License
 

@@ -8,8 +8,7 @@ compiles via `tr build`, runs the resulting wasm under wasmtime
 sandboxing, and returns captured stdout / stderr + compile + run
 timing. Powers the playground page at https://torajs.com/playground.
 
-This is **non-metal-tier** per the torajs design rules (see
-`docs/deps-tree-v0.1.md` Glossary):
+This is **non-metal-tier** per the torajs design rules:
 
 - Allowed Cargo deps from the application-tier ecosystem (axum,
   tokio, serde, sha2, tracing — see `Cargo.toml`).

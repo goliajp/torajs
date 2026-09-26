@@ -2,7 +2,7 @@
 //!
 //! Metal-level minimal hex encode/decode. Replaces the `hex 0.4`
 //! community dep per torajs vision priority #4 (0 deps). Aligned
-//! with deps-tree v0.1 F.1 spec: "trigger 10 (F 族启动)".
+//! with the F.1 dependency-tree spec: "trigger 10 (F 族启动)".
 //!
 //! Lean surface: only the encode/decode lower-case variants the
 //! workspace uses (`hex::encode(bytes) -> String`,

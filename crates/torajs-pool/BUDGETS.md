@@ -8,8 +8,8 @@ Run `cargo test -p torajs-pool --test perf_gate` to check.
 
 ## Path taxonomy
 
-`FixedPool` sits at **Layer 0** in the torajs runtime crate stack
-(see `docs/architecture-rewrite.md`). It serves the hot alloc path
+`FixedPool` sits at **Layer 0** in the torajs runtime crate stack.
+It serves the hot alloc path
 for fixed-size heap structs — `Promise`, `Closure env`, `capture
 box`, etc. Per `rules/rust/patterns.md`: hot paths sit at µs / ns
 budget. Both gated paths below run once per allocation; for

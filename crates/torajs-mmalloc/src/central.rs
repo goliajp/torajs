@@ -1,7 +1,7 @@
 //! Central queue — lock-free MPMC remote-free dispatch.
 //!
-//! Phase 2c item 9 of the metal-tier allocator redesign per
-//! `docs/v0.7-A2-finding.md`. Per-class lock-free MPMC stack
+//! Phase 2c item 9 of the metal-tier allocator redesign.
+//! Per-class lock-free MPMC stack
 //! (Treiber-style) that holds slots freed by a non-owning thread,
 //! to be drained back into the owning TLAB on next alloc-on-miss.
 //!
