@@ -31,6 +31,16 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     let Some(Type::Function(param_tys, ret_ty)) = checker.globals.get(name).cloned() else {
         return;
     };
+    // TS2534: a `: never` function whose end point is reachable.
+    // A tsc type error with no runtime semantics (§7.2 first tier);
+    // only a provably reachable end rejects, so a body ending in a
+    // loop tsc can see never exits stays accepted.
+    if *ret_ty == Type::Never && crate::ast::list_completion(body) == crate::ast::Completion::Falls
+    {
+        checker.errors.push_err(format!(
+            "function `{name}` returns `never` but its end point is reachable"
+        ));
+    }
     let saved_scopes = std::mem::replace(&mut checker.scopes, vec![HashMap::new()]);
     let saved_return = checker.expected_return.replace(*ret_ty);
     checker.toplevel_captures.push(Default::default());
@@ -153,4 +163,27 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, name: &str, params: &[Para
     checker.scopes = saved_scopes;
     checker.toplevel_captures.pop();
     checker.current_class = saved_class;
+}
+
+#[cfg(test)]
+mod tests {
+    fn check_src(src: &str) -> Result<(), String> {
+        let tokens = crate::lexer::tokenize(src).map_err(|e| format!("lex: {e}"))?;
+        let mut ast = crate::parser::parse(src, &tokens).map_err(|e| format!("parse: {e}"))?;
+        crate::ast::lift_arrow_fns(&mut ast);
+        crate::check::check(&ast).map(|_| ())
+    }
+
+    #[test]
+    fn never_with_reachable_end_is_rejected() {
+        let err = check_src("function f(): never { console.log(1); }\n").unwrap_err();
+        assert!(err.contains("end point is reachable"), "{err}");
+    }
+
+    #[test]
+    fn never_that_throws_or_spins_is_accepted() {
+        let src = "function f(): never { throw 1; }\n\
+                   function g(): never { while (true) {} }\n";
+        assert!(check_src(src).is_ok(), "{:?}", check_src(src));
+    }
 }

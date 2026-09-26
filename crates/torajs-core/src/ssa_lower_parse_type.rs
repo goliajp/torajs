@@ -348,6 +348,11 @@ fn parse_keyword(s: &str, aliases: &HashMap<String, Type>) -> Type {
         "boolean" => Type::Bool,
         "string" => Type::Str,
         "void" => Type::Void,
+        // a never fn returns only on its throw path, where the
+        // pending-throw epilogue writes a 0 sentinel into an I64
+        // slot; a Void slot would leave x0 undefined for callers
+        // reading a pointer-shaped result through a wider face
+        "never" => Type::I64,
         "regex" | "RegExp" => Type::RegExp,
         // `Date` is the TS-spelled annotation; `date` is the internal
         // spelling type_to_ann emits. Mirrors the check_type_ann arm.

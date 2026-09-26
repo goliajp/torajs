@@ -14,8 +14,8 @@
 //! FnDecl loop and `preinfer_closure_sigs`.
 
 use crate::ast::{
-    AstExprsView, Param, PropKey, Stmt, body_has_value_return, infer_return_ann,
-    infer_return_ann_seeded,
+    AstExprsView, Param, PropKey, Stmt, body_has_value_return, body_never_completes,
+    infer_return_ann, infer_return_ann_seeded,
 };
 use crate::ast_desugar_implicit_generics::is_synth_closure_name;
 
@@ -72,6 +72,17 @@ pub(crate) fn desugar_closure_shape_fn(
             // Fall back to `any`, mirroring the param default.
             *return_type = Some("any".to_string());
         }
+    }
+    // tsc types a lifted arrow / fn expression whose every path
+    // throws as `() => never`; declarations never reach this arm and
+    // keep `void`. Async forms already carry `Promise<…>` here, and a
+    // generator body is a returning factory by now.
+    if first_kind == Some("__env")
+        && name.starts_with("__closure_")
+        && return_type.is_none()
+        && body_never_completes(body)
+    {
+        *return_type = Some("never".to_string());
     }
     if first_kind == Some("__this") && return_type.is_none() && body_has_value_return(body) {
         let mut seeded = seeded_binds_for(name, outer_binds, cap_anns);

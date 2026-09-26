@@ -118,7 +118,7 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
             let fixed = &formal_ps[..formal_ps.len() - 1];
             (formal_ret.as_ref() == actual_ret.as_ref()
                 || matches!(formal_ret.as_ref(), Type::Any)
-                || matches!(actual_ret.as_ref(), Type::Any))
+                || matches!(actual_ret.as_ref(), Type::Any | Type::Never))
                 && actual_ps.iter().enumerate().all(|(i, a)| {
                     let f = if i < fixed.len() {
                         &fixed[i]
@@ -156,7 +156,7 @@ fn matches_face(param_ty: &Type, arg_ty: &Type, call_face: bool) -> bool {
                 && (formal_ret.as_ref() == actual_ret.as_ref()
                     || matches!(formal_ret.as_ref(), Type::Any)
                     || (call_face && matches!(formal_ret.as_ref(), Type::Void | Type::Undefined))
-                    || matches!(actual_ret.as_ref(), Type::Any))
+                    || matches!(actual_ret.as_ref(), Type::Any | Type::Never))
                 && actual_ps
                     .iter()
                     .zip(formal_ps.iter())

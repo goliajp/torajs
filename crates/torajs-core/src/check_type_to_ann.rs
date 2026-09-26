@@ -28,6 +28,7 @@ pub fn type_to_ann(ty: &Type) -> String {
         Type::Boolean => "boolean".into(),
         Type::String => "string".into(),
         Type::Void => "void".into(),
+        Type::Never => "never".into(),
         Type::BigInt => "bigint".into(),
         Type::WeakRef => "weakref".into(),
         Type::WeakMap => "weakmap".into(),

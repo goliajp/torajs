@@ -195,6 +195,7 @@ fn resolve_type_ann_inner(
         "string" => Some(Type::String),
         "boolean" => Some(Type::Boolean),
         "void" => Some(Type::Void),
+        "never" => Some(Type::Never),
         "bigint" => Some(Type::BigInt),
         // `RegExp` is the TS-spelled annotation for the regex value
         // type (`const re: RegExp = /a/`); `regex` is the internal

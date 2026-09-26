@@ -54,7 +54,9 @@ fn is_assignable_to_deep(
     if to_r == from_r {
         return true;
     }
-    if matches!(from_r, Type::Any) {
+    // bottom: a never-typed value is never produced, so it fits
+    // every slot (a throw-only callback in a `=> number` position)
+    if matches!(from_r, Type::Any | Type::Never) {
         return true;
     }
     // P0 — anything is assignable to Any (per TS spec). The init's

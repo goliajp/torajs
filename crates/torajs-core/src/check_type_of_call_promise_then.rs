@@ -192,7 +192,7 @@ fn try_then_two_arg(
                 {
                     if i == 0 {
                         result_inner = match &**ret {
-                            Type::Void => Type::Undefined,
+                            Type::Void | Type::Never => Type::Undefined,
                             other => other.clone(),
                         };
                     }
@@ -339,7 +339,7 @@ fn try_then_heterogeneous(
                 && params.is_empty()
             {
                 let result_inner = match &**ret {
-                    Type::Void => Type::Undefined,
+                    Type::Void | Type::Never => Type::Undefined,
                     other => other.clone(),
                 };
                 return Some(Ok(promise_of(&result_inner)));
@@ -422,7 +422,7 @@ fn try_then_array(
                 && params.is_empty()
             {
                 let result_inner = match &**ret {
-                    Type::Void => Type::Undefined,
+                    Type::Void | Type::Never => Type::Undefined,
                     other => other.clone(),
                 };
                 return Some(Ok(promise_of(&result_inner)));

@@ -71,7 +71,7 @@ pub(crate) fn check(
             ast.index_spelled_props.contains(&eid),
         );
     }
-    let idx_ty = checker.type_of(ast, index)?;
+    let idx_ty = checker.type_of(ast, index)?.operand_view();
     reject_bad_key(obj_ty.clone(), idx_ty.clone())?;
     match obj_ty {
         // See the note in `reject_bad_key` — the three outcomes have

@@ -416,6 +416,7 @@ pub(crate) fn spells_undef_with_generic_cell(t: &crate::check::Type) -> bool {
         | T::Number
         | T::Boolean
         | T::Void
+        | T::Never
         | T::Any
         | T::Null
         | T::Undefined

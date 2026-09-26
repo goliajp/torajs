@@ -64,7 +64,7 @@ pub(crate) fn check(
     // `!== undefined` always true.
     let l = checker.type_of(ast, left);
     let r = checker.type_of(ast, right);
-    let (l, r) = (l?, r?);
+    let (l, r) = (l?.operand_view(), r?.operand_view());
     // Band B before the per-op lanes: when the spec answers this pair
     // with a throw and both types are known, the answer is decided
     // HERE. The program still compiles and still throws — see

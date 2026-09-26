@@ -159,6 +159,7 @@ pub(crate) fn check_ty_to_ssa(t: &crate::check::Type) -> Type {
         crate::check::Type::String => Type::Str,
         crate::check::Type::Boolean => Type::Bool,
         crate::check::Type::Void => Type::Void,
+        crate::check::Type::Never => Type::I64,
         _ => Type::Any,
     }
 }

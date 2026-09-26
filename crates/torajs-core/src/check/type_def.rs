@@ -14,6 +14,11 @@ pub enum Type {
     String,
     Boolean,
     Void,
+    /// The bottom type: a function whose every path throws. Only
+    /// inferred for arrow / function expressions whose body cannot
+    /// complete (tsc's rule; declarations stay `Void`), or written
+    /// as `: never`. Assignable to every type — no value ever flows.
+    Never,
     /// T-25 — arbitrary-precision integer (`123n` literal). Only
     /// equal to other BigInts. Cross-type ops with Number are a
     /// TypeError per spec; same-type ops produce BigInt.
@@ -175,7 +180,10 @@ impl Type {
     /// binding (let-rhs / assign-rhs / call-arg / return) transfers
     /// ownership and the source name is marked moved.
     pub fn is_copy(&self) -> bool {
-        matches!(self, Type::Number | Type::Boolean | Type::Void | Type::Any)
+        matches!(
+            self,
+            Type::Number | Type::Boolean | Type::Void | Type::Never | Type::Any
+        )
         // Struct, String, Function, Array — all heap-owned, all affine.
         // TypeVar — conservatively NOT Copy (instantiation may produce a
         // heap-owned type); irrelevant in practice since generic bodies
@@ -199,6 +207,18 @@ impl Type {
     /// boxes the receiver into the any lane, whose runtime kernels
     /// raise the catchable TypeError. `Void` rides along: a void
     /// call's value IS undefined at runtime (§14.10.1).
+    /// An operand's type as a value consumer reads it: a `never`
+    /// call produces no value, and the consumers were written against
+    /// the `undefined` a void call used to answer, so bottom folds
+    /// there. Assignment keeps `Never` (it fits every slot).
+    pub(crate) fn operand_view(self) -> Type {
+        if self == Type::Never {
+            Type::Undefined
+        } else {
+            self
+        }
+    }
+
     pub(crate) fn is_nullish_value(&self) -> bool {
         matches!(self, Type::Null | Type::Undefined | Type::Void)
     }
