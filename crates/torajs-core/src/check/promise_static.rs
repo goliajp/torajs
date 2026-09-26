@@ -157,7 +157,7 @@ impl Checker {
             // primitive 0 while `.value` decoded an Any pointer, so
             // `await Promise.resolve(undefined)` read a tag that does
             // not exist (`[unknown-any-tag]`, `typeof` → "object").
-            Type::Undefined | Type::Void | Type::Never if m_name == "resolve" => Type::Undefined,
+            Type::Undefined | Type::Void if m_name == "resolve" => Type::Undefined,
             other => {
                 return Some(Err(format!(
                     "Promise.{m_name}: T must be number / string / boolean / array / struct / Date / RegExp / nullable / Promise<T> in v0.5 MVP (got {other:?})"

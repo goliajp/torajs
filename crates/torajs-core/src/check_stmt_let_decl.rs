@@ -51,7 +51,12 @@ pub(crate) fn check(
             None => return,
         }
     } else {
-        match checker.type_of(ast, init) {
+        let typed = if type_ann.is_some() {
+            checker.type_of_raw(ast, init)
+        } else {
+            checker.type_of(ast, init)
+        };
+        match typed {
             Ok(t) => t,
             Err(e) => {
                 checker.errors.push_err(e);

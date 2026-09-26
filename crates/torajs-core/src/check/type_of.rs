@@ -18,10 +18,24 @@ impl Checker {
     /// can answer position queries without re-running the typecheck
     /// pipeline. Recursive calls hit this same wrapper, so deeply
     /// nested Exprs all get their inferred type cached.
+    ///
+    /// Answers the operand view ([`Type::operand_view`]): a `never`
+    /// call reads as the `undefined` every consumer already handles.
     pub(crate) fn type_of(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
-        let result = self.type_of_inner(ast, eid);
+        let result = self.type_of_inner(ast, eid).map(Type::operand_view);
         if let Ok(t) = &result {
             self.expr_types.insert(eid, t.clone());
+        }
+        result
+    }
+
+    /// [`Self::type_of`] keeping `Never`, for the sites that only ask
+    /// whether a value fits a declared slot (an annotated binding's
+    /// initializer, a `return`): bottom fits every slot.
+    pub(crate) fn type_of_raw(&mut self, ast: &Ast, eid: ExprId) -> Result<Type, String> {
+        let result = self.type_of_inner(ast, eid);
+        if let Ok(t) = &result {
+            self.expr_types.insert(eid, t.clone().operand_view());
         }
         result
     }

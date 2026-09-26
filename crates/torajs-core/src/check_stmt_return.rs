@@ -33,7 +33,7 @@ pub(crate) fn check(checker: &mut Checker, ast: &Ast, maybe_expr: Option<ExprId>
     };
     let actual = match maybe_expr {
         None => Type::Void,
-        Some(eid) => match checker.type_of(ast, eid) {
+        Some(eid) => match checker.type_of_raw(ast, eid) {
             Ok(t) => t,
             Err(e) => {
                 checker.errors.push_err(e);

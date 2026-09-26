@@ -70,7 +70,7 @@ pub(crate) fn try_then_undefined(
             {
                 let result_inner = match &**ret {
                     Type::Number | Type::String | Type::Boolean => (**ret).clone(),
-                    Type::Void | Type::Undefined => Type::Undefined,
+                    Type::Void | Type::Never | Type::Undefined => Type::Undefined,
                     // Chunk 607's ret fallback types un-sniffable cbs
                     // as `() => Any` — the then-result is Promise<Any>
                     // (the existing P10.7 Any lane).

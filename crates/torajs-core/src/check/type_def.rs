@@ -207,10 +207,10 @@ impl Type {
     /// boxes the receiver into the any lane, whose runtime kernels
     /// raise the catchable TypeError. `Void` rides along: a void
     /// call's value IS undefined at runtime (§14.10.1).
-    /// An operand's type as a value consumer reads it: a `never`
+    /// An expression's type as a value consumer reads it: a `never`
     /// call produces no value, and the consumers were written against
-    /// the `undefined` a void call used to answer, so bottom folds
-    /// there. Assignment keeps `Never` (it fits every slot).
+    /// the `undefined` a void call answers, so bottom folds there.
+    /// Slot checks read the unfolded type (`Checker::type_of_raw`).
     pub(crate) fn operand_view(self) -> Type {
         if self == Type::Never {
             Type::Undefined

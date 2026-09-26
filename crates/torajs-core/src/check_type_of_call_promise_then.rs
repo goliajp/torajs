@@ -165,7 +165,12 @@ fn try_then_two_arg(
                     && matches!(params[0], Type::Any)
                 {
                     if i == 0 {
-                        result_inner = (**ret).clone();
+                        // a throw-only leg settles nothing; keep the
+                        // void answer it had before never existed
+                        result_inner = match &**ret {
+                            Type::Never => Type::Void,
+                            other => other.clone(),
+                        };
                     }
                     continue;
                 }
@@ -433,7 +438,7 @@ fn try_then_array(
             {
                 let result_inner = match &**ret {
                     Type::Number | Type::String | Type::Boolean => (**ret).clone(),
-                    Type::Void | Type::Undefined => Type::Undefined,
+                    Type::Void | Type::Never | Type::Undefined => Type::Undefined,
                     other => {
                         return Some(Err(format!(
                             "Promise.{m_name} on Promise<{inner_arr_ty:?}>: cb return must be Number / String / Boolean / Void / Undefined (got {other:?}); Array<W> return deferred to a later sub-A"

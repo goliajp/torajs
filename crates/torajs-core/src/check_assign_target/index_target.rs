@@ -48,7 +48,7 @@ pub(crate) fn check_index(
         // module came from an `Expr::Index` target.
         return check_member(checker, ast, eid, obj, name.to_string(), value, true);
     }
-    let idx_ty = checker.type_of(ast, index)?.operand_view();
+    let idx_ty = checker.type_of(ast, index)?;
     reject_bad_key(&obj_ty, &idx_ty)?;
     if matches!(obj_ty, Type::Array(_)) && crate::check_type_of_index::array_key_domain(&idx_ty) {
         let _ = checker.type_of(ast, value)?;
