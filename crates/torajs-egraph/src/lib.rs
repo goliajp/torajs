@@ -18,6 +18,7 @@
 //! is identity (round-trip-equivalent) until Phase 1 lands the first
 //! rule cluster.
 
+pub mod block_chain;
 pub mod block_layout;
 pub mod branch_fold;
 pub mod cmp_fact_fold;

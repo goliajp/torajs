@@ -41,6 +41,8 @@ pub struct BlockLayoutStats {
     pub blocks_pruned: u32,
     /// Latches moved to the bottom of their loop's range.
     pub latches_sunk: u32,
+    /// Loops whose body was reordered into hot-successor chains.
+    pub loops_chained: u32,
 }
 
 /// Restore loop-body contiguity in every function body.
@@ -61,10 +63,11 @@ pub fn layout_module(module: &mut Module) -> BlockLayoutStats {
         // touches the cfg — and the sweep that follows then really can
         // drop them.
         stats.blocks_pruned += thread_empty_forwarders(func);
-        let (sunk, latches) = layout_function(func);
-        if sunk + latches > 0 {
+        let (sunk, latches, chained) = layout_function(func);
+        if sunk + latches + chained > 0 {
             stats.blocks_sunk += sunk;
             stats.latches_sunk += latches;
+            stats.loops_chained += chained;
             stats.funcs_relaid += 1;
         }
     }
@@ -119,12 +122,12 @@ fn thread_empty_forwarders(func: &mut Function) -> u32 {
 }
 
 /// Answers (blocks sunk out of loop ranges, latches moved to a loop's
-/// bottom).
-fn layout_function(func: &mut Function) -> (u32, u32) {
+/// bottom, loops chained).
+fn layout_function(func: &mut Function) -> (u32, u32, u32) {
     let dom = DominatorTree::compute(func);
     let la = LoopAnalysis::compute(func, &dom);
     if la.loops().is_empty() {
-        return (0, 0);
+        return (0, 0, 0);
     }
     // Loop body sets with their header and back-edge sources,
     // innermost (smallest) first so nested bodies are already
@@ -144,7 +147,8 @@ fn layout_function(func: &mut Function) -> (u32, u32) {
     let mut order: Vec<u32> = func.blocks.iter().map(|b| b.id.0).collect();
     let mut sunk = 0u32;
     let mut latches_sunk = 0u32;
-    for (body, header, latches) in &loops {
+    let mut chained = 0u32;
+    for (k, (body, header, latches)) in loops.iter().enumerate() {
         let positions: Vec<usize> = order
             .iter()
             .enumerate()
@@ -163,12 +167,39 @@ fn layout_function(func: &mut Function) -> (u32, u32) {
             sunk += cold.len() as u32;
             order.splice(lo..=hi, members.into_iter().chain(cold));
         }
-        if sink_latch(func, &mut order, lo, lo + body.len() - 1, *header, latches) {
+        // The loops directly inside this one (not their own nests).
+        let inner: Vec<(&HashSet<u32>, u32)> = loops[..k]
+            .iter()
+            .map(|(b, h, _)| (b, *h))
+            .filter(|(b, _)| b.len() < body.len() && b.is_subset(body))
+            .collect();
+        let children: Vec<(&HashSet<u32>, u32)> = inner
+            .iter()
+            .filter(|(b, _)| {
+                !inner
+                    .iter()
+                    .any(|(o, _)| o.len() > b.len() && b.is_subset(o))
+            })
+            .copied()
+            .collect();
+        // A chain already places the latch where the hot path reaches
+        // it, with cold arms after; sinking it would undo that.
+        if crate::block_chain::chain_loop_range(
+            func,
+            &mut order,
+            lo..lo + body.len(),
+            *header,
+            body,
+            &children,
+            &dom,
+        ) {
+            chained += 1;
+        } else if sink_latch(func, &mut order, lo, lo + body.len() - 1, *header, latches) {
             latches_sunk += 1;
         }
     }
-    if sunk + latches_sunk == 0 {
-        return (0, 0);
+    if sunk + latches_sunk + chained == 0 {
+        return (0, 0, 0);
     }
 
     // Rebuild func.blocks in the new order, renumbering ids and
@@ -194,7 +225,7 @@ fn layout_function(func: &mut Function) -> (u32, u32) {
         }
         func.blocks.push(block);
     }
-    (sunk, latches_sunk)
+    (sunk, latches_sunk, chained)
 }
 
 /// Move a loop's only latch to the bottom of its (now contiguous)
@@ -293,7 +324,7 @@ mod tests {
             ],
             current_origin: None,
         };
-        let (sunk, latches) = layout_function(&mut f);
+        let (sunk, latches, _) = layout_function(&mut f);
         assert_eq!(sunk, 1);
         assert_eq!(latches, 0, "the latch already sits at the bottom");
         // new order: b0, hdr, body, latch, exit — ids renumbered to
@@ -354,7 +385,7 @@ mod tests {
             ],
             current_origin: None,
         };
-        assert_eq!(layout_function(&mut f), (0, 0));
+        assert_eq!(layout_function(&mut f), (0, 0, 0));
         for (i, b) in f.blocks.iter().enumerate() {
             assert_eq!(b.id.0 as usize, i);
         }
@@ -413,7 +444,11 @@ mod tests {
             ],
             current_origin: None,
         };
-        assert_eq!(layout_function(&mut f), (0, 1));
+        assert_eq!(
+            layout_function(&mut f),
+            (0, 0, 1),
+            "the chain already ends at the step"
+        );
         // new order: b0, hdr, body, step, exit
         let Terminator::CondBr {
             then_blk, else_blk, ..
@@ -507,5 +542,65 @@ mod tests {
         ]);
         assert_eq!(thread_empty_forwarders(&mut f), 0);
         assert_eq!(f.blocks.len(), 2);
+    }
+
+    /// A guard whose fallback arm calls a kernel: the arm the lowering
+    /// placed first (the call) must move out of the hot path so the
+    /// continuation falls through.
+    ///
+    ///   b0 → b1(hdr: c ? b2 : b5) ; b2: c ? b3(call) : b4 ;
+    ///   b3 → b4 ; b4 → b1 ; b5: ret
+    #[test]
+    fn cold_call_arm_leaves_the_hot_path() {
+        let cond = Operand::Value(ValueId(0));
+        let cbr = |t: u32, e: u32| Terminator::CondBr {
+            cond: cond.clone(),
+            then_blk: BlockId(t),
+            else_blk: BlockId(e),
+        };
+        let call = Inst {
+            result: None,
+            kind: InstKind::Call(torajs_core::ssa::FuncId(0), vec![]),
+            origin: None,
+        };
+        let mut f = Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            values: vec![
+                ValueInfo {
+                    ty: Type::Bool,
+                    name: None
+                };
+                1
+            ],
+            blocks: vec![
+                block(0, vec![], Terminator::Br(BlockId(1))),
+                block(1, vec![], cbr(2, 5)),
+                block(2, vec![], cbr(3, 4)),
+                block(3, vec![call], Terminator::Br(BlockId(4))),
+                block(4, vec![], Terminator::Br(BlockId(1))),
+                block(5, vec![], Terminator::Ret(None)),
+            ],
+            current_origin: None,
+        };
+        assert_eq!(layout_function(&mut f), (0, 0, 1));
+        // new order: b0, hdr, guard, continuation (latch), call arm, exit
+        assert!(matches!(
+            f.blocks[2].term,
+            Terminator::CondBr {
+                then_blk: BlockId(4),
+                else_blk: BlockId(3),
+                ..
+            }
+        ));
+        assert!(
+            matches!(f.blocks[3].term, Terminator::Br(BlockId(1))),
+            "guard falls into the latch"
+        );
+        assert!(
+            matches!(f.blocks[4].term, Terminator::Br(BlockId(3))),
+            "call arm rejoins"
+        );
     }
 }
