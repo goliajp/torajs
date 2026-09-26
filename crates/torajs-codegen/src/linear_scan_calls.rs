@@ -6,7 +6,9 @@ use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{Function, InstKind};
 
+use crate::linear_scan_sweep::Sweep;
 use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
+use crate::reg::Reg;
 use crate::regalloc::{alloca_slot_size, inst_emits_bl};
 
 /// ValueIds whose linear interval does not bound their life: a value
@@ -140,4 +142,57 @@ pub(crate) fn scan_frame(func: &Function) -> FrameScan {
         idx += 1; // terminator slot
     }
     scan
+}
+
+/// For every call-crossing value that ended in a caller-saved register,
+/// one stack slot and the call sites strictly inside its interval: the
+/// value is stored before each such call and reloaded after it. Keyed
+/// by call-site slot index.
+pub(crate) fn collect_call_saves(
+    sweep: &mut Sweep,
+    intervals: &HashMap<u32, Interval>,
+    call_sites: &[u32],
+) -> HashMap<u32, Vec<(Reg, u32)>> {
+    let mut out: HashMap<u32, Vec<(Reg, u32)>> = HashMap::new();
+    for vid in std::mem::take(&mut sweep.caller_crossing) {
+        let reg = sweep.by_value[&vid];
+        if matches!(reg, Reg::SpillGpr(_) | Reg::SpillFpr(_)) {
+            continue; // evicted after the sweep handed it the register
+        }
+        let it = intervals[&vid];
+        let slot = sweep.alloc_spill_slot();
+        let first = call_sites.partition_point(|&p| p <= it.start);
+        for &p in call_sites[first..].iter().take_while(|&&p| p < it.end) {
+            out.entry(p).or_default().push((reg, slot));
+        }
+    }
+    out
+}
+
+/// Estimated frequency of the call sites, as prefix sums: the cost of
+/// keeping a value in a caller-saved register is a store and a reload
+/// around every call strictly inside its interval.
+pub(crate) struct CallCosts {
+    sites: Vec<u32>,
+    prefix: Vec<u64>,
+}
+
+impl CallCosts {
+    pub(crate) fn new(call_sites: &[u32], slot_units: &[u32]) -> Self {
+        let mut prefix = Vec::with_capacity(call_sites.len() + 1);
+        prefix.push(0u64);
+        for &p in call_sites {
+            prefix.push(prefix.last().unwrap() + u64::from(slot_units[p as usize]));
+        }
+        CallCosts {
+            sites: call_sites.to_vec(),
+            prefix,
+        }
+    }
+
+    pub(crate) fn save_cost(&self, it: Interval) -> u64 {
+        let lo = self.sites.partition_point(|&p| p <= it.start);
+        let hi = self.sites.partition_point(|&p| p < it.end).max(lo);
+        2 * (self.prefix[hi] - self.prefix[lo])
+    }
 }

@@ -2,6 +2,7 @@
 
 use torajs_core::ssa::{InstKind, Type};
 
+use super::slot;
 use super::{
     emit_alloca, emit_binop, emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64,
     emit_boxed_entry_addr, emit_call, emit_call_indirect, emit_copy, emit_ctpop,
@@ -11,10 +12,11 @@ use super::{
     emit_store_dyn_scaled8, emit_string_ref, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
     emit_zext_i32_to_i64,
 };
+use crate::reg::Reg;
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 
-pub(super) fn emit_inst(
+fn emit_inst(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
     inst: &torajs_core::ssa::Inst,
@@ -79,5 +81,94 @@ pub(super) fn emit_inst(
         InstKind::CtpopRangeSum(start, bound, acc_init) => {
             emit_ctpop_range_sum(bytes, inst, start, bound, acc_init, alloc)
         }
+    }
+}
+
+/// `emit_inst` for the instruction at slot index `site`, with every
+/// caller-saved register the allocator keeps live across this call
+/// site stored before it and reloaded after. The store precedes the
+/// argument setup, which may overwrite an argument register; the
+/// reload follows the result move.
+pub(super) fn emit_inst_at(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    inst: &torajs_core::ssa::Inst,
+    alloc: &Assignment,
+    fn_sigs: &[Vec<Type>],
+    site: u32,
+) {
+    // a call-defined member of a coalesced class sits inside the class
+    // hull: its result lands in the saved register, which must not be
+    // reloaded over it
+    let result_home = inst
+        .result
+        .filter(|&r| alloc.contains(r))
+        .map(|r| alloc.of(r));
+    let saves: Vec<(Reg, u32)> = alloc
+        .call_saves
+        .get(&site)
+        .into_iter()
+        .flatten()
+        .copied()
+        .filter(|&(reg, _)| Some(reg) != result_home)
+        .collect();
+    for &(reg, off) in &saves {
+        match reg {
+            Reg::Gpr(g) => slot::sp_str_x(bytes, g, off),
+            Reg::Fpr(f) => slot::sp_str_d(bytes, f, off),
+            other => unreachable!("saved value not in a register: {other:?}"),
+        }
+    }
+    emit_inst(bytes, relocs, inst, alloc, fn_sigs);
+    for &(reg, off) in &saves {
+        match reg {
+            Reg::Gpr(g) => slot::sp_ldr_x(bytes, g, off),
+            Reg::Fpr(f) => slot::sp_ldr_d(bytes, f, off),
+            other => unreachable!("saved value not in a register: {other:?}"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::emit_inst_at;
+    use crate::compile::slot;
+    use crate::enc::bl_imm26;
+    use crate::reg::{Gpr, Reg};
+    use crate::regalloc::Assignment;
+    use torajs_core::ssa::{FuncId, Inst, InstKind, ValueId};
+
+    fn words(bytes: &[u8]) -> Vec<u32> {
+        bytes
+            .chunks(4)
+            .map(|c| u32::from_le_bytes(c.try_into().unwrap()))
+            .collect()
+    }
+
+    /// A call whose result lands in a saved register (a call-defined
+    /// member of a coalesced class) keeps its result: that register
+    /// is neither stored nor reloaded around the call; another saved
+    /// register still is.
+    #[test]
+    fn call_result_register_is_not_reloaded_over_the_result() {
+        let mut alloc =
+            Assignment::from_parts([(0, Reg::Gpr(Gpr::X5))].into(), HashMap::new(), 0, 32, true);
+        alloc.call_saves = [(7, vec![(Reg::Gpr(Gpr::X5), 16), (Reg::Gpr(Gpr::X6), 24)])].into();
+        let inst = Inst {
+            result: Some(ValueId(0)),
+            kind: InstKind::Call(FuncId(0), Vec::new()),
+            origin: None,
+        };
+        let mut bytes = Vec::new();
+        emit_inst_at(&mut bytes, &mut Vec::new(), &inst, &alloc, &[], 7);
+
+        let mut expect = Vec::new();
+        slot::sp_str_x(&mut expect, Gpr::X6, 24);
+        expect.extend_from_slice(&bl_imm26(0).to_le_bytes());
+        expect.extend_from_slice(&crate::enc::mov_x_reg(Gpr::X5, Gpr::X0).to_le_bytes());
+        slot::sp_ldr_x(&mut expect, Gpr::X6, 24);
+        assert_eq!(words(&bytes), words(&expect));
     }
 }

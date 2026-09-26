@@ -58,7 +58,7 @@ use crate::reg::{Fpr, Gpr};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
 use entry::{emit_param_entry_moves, emit_stack_param_loads};
-use inst::emit_inst;
+use inst::emit_inst_at;
 use terminator::{BranchFixup, BranchKind, emit_terminator, patch_branch};
 
 pub use binop::{emit_binop, emit_ctpop, emit_neg};
@@ -196,6 +196,8 @@ pub fn compile_function_with(
     // boundary. The pad sits after an unconditional branch or a
     // return, so it never runs.
     let mut falls_in = true;
+    // slot index of the block's first inst, numbered as in liveness
+    let mut block_slot: u32 = 0;
     for (bi, block) in func.blocks.iter().enumerate() {
         if !falls_in {
             while bytes.len() % BRANCH_TARGET_ALIGN != 0 {
@@ -225,8 +227,10 @@ pub fn compile_function_with(
                 cmp::emit_select_fused(&mut bytes, inst, ty, fc, then_op, else_op, &alloc);
                 continue;
             }
-            emit_inst(&mut bytes, &mut relocs, inst, &alloc, fn_sigs);
+            let site = block_slot + ii as u32;
+            emit_inst_at(&mut bytes, &mut relocs, inst, &alloc, fn_sigs, site);
         }
+        block_slot += block.insts.len() as u32 + 1;
         // The layout successor's final identity — a branch resolving
         // there is a fall-through and needs no B (the next block, or
         // the empty-forwarder chain it heads, is about to emit).

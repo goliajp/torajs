@@ -55,6 +55,10 @@ pub struct Assignment {
     /// after `param_entry_moves`, so the body never touches the
     /// caller's frame again.
     pub stack_param_entry_loads: Vec<(u32, Reg)>,
+    /// Call-site slot index → `(reg, sp offset)` for each call-crossing
+    /// value held in a caller-saved register: the compiler stores `reg`
+    /// before that instruction and reloads it after.
+    pub call_saves: HashMap<u32, Vec<(Reg, u32)>>,
 }
 
 impl Assignment {
@@ -81,6 +85,7 @@ impl Assignment {
             used_callee_fpr_mask: 0,
             param_entry_moves: Vec::new(),
             stack_param_entry_loads: Vec::new(),
+            call_saves: HashMap::new(),
         }
     }
 

@@ -53,6 +53,38 @@ const DEPTH_CAP: u32 = 4;
 /// global inst-slot numbering as `liveness::compute_intervals`
 /// (insts then one terminator slot per block).
 pub fn compute_spill_weights(func: &Function) -> HashMap<u32, u32> {
+    let units = slot_units(func);
+    // accumulate the slot's unit per static use (operand reads AND the
+    // defining slot itself, so a value defined in a loop counts its
+    // def-site store too)
+    let mut weights: HashMap<u32, u32> = HashMap::new();
+    let mut idx: usize = 0;
+    for b in &func.blocks {
+        for inst in &b.insts {
+            let unit = units[idx];
+            visit_inst_operands(&inst.kind, |v| {
+                let w = weights.entry(v.0).or_insert(0);
+                *w = w.saturating_add(unit);
+            });
+            if let Some(r) = inst.result {
+                let w = weights.entry(r.0).or_insert(0);
+                *w = w.saturating_add(unit);
+            }
+            idx += 1;
+        }
+        let unit = units[idx];
+        visit_terminator_operands(&b.term, |v| {
+            let w = weights.entry(v.0).or_insert(0);
+            *w = w.saturating_add(unit);
+        });
+        idx += 1;
+    }
+    weights
+}
+
+/// Per global slot, the estimated execution frequency
+/// `16^min(loop_depth, 4)` the spill weights are built from.
+pub fn slot_units(func: &Function) -> Vec<u32> {
     // Pass 1 — block index ranges + backedge-derived loop depth per
     // global slot index.
     let n = func.blocks.len();
@@ -98,34 +130,10 @@ pub fn compute_spill_weights(func: &Function) -> HashMap<u32, u32> {
         }
     }
 
-    // Pass 2 — accumulate 4^min(depth,cap) per static use (operand
-    // reads AND the defining slot itself, so a value defined in a
-    // loop counts its def-site store too).
-    let mut weights: HashMap<u32, u32> = HashMap::new();
-    let mut idx: u32 = 0;
-    for b in &func.blocks {
-        for inst in &b.insts {
-            let d = depth[idx as usize].min(DEPTH_CAP);
-            let unit = 1u32 << (4 * d);
-            visit_inst_operands(&inst.kind, |v| {
-                let w = weights.entry(v.0).or_insert(0);
-                *w = w.saturating_add(unit);
-            });
-            if let Some(r) = inst.result {
-                let w = weights.entry(r.0).or_insert(0);
-                *w = w.saturating_add(unit);
-            }
-            idx += 1;
-        }
-        let d = depth[idx as usize].min(DEPTH_CAP);
-        let unit = 1u32 << (4 * d);
-        visit_terminator_operands(&b.term, |v| {
-            let w = weights.entry(v.0).or_insert(0);
-            *w = w.saturating_add(unit);
-        });
-        idx += 1;
-    }
-    weights
+    depth
+        .iter()
+        .map(|&d| 1u32 << (4 * d.min(DEPTH_CAP)))
+        .collect()
 }
 
 #[cfg(test)]

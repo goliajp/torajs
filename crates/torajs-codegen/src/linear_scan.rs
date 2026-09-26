@@ -37,14 +37,15 @@ use torajs_core::ssa::{Function, Type};
 
 use crate::coalesce::build_copy_classes;
 use crate::linear_scan_calls::{
-    FrameScan, collect_unbounded_values, crosses_call, crosses_call_from_entry, scan_frame,
+    CallCosts, FrameScan, collect_call_saves, collect_unbounded_values, crosses_call,
+    crosses_call_from_entry, scan_frame,
 };
 use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::compute_liveness;
 use crate::reg::{Reg, aapcs64};
 use crate::regalloc::{Assignment, collect_ret_value_ids};
-use crate::spill_weight::compute_spill_weights;
+use crate::spill_weight::{compute_spill_weights, slot_units};
 
 /// Linear-Scan register allocator with call-crossing awareness and
 /// stack spill (see module docs).
@@ -72,7 +73,11 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     );
     let mut weights = compute_spill_weights(func);
     classes.fold_into(&mut intervals, &mut unbounded, &mut weights);
-    let mut sweep = Sweep::new(next_alloca_offset, weights);
+    let call_costs = CallCosts::new(&call_sites, &slot_units(func));
+    let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
+    // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
+    // caller-saved register (bisect gate).
+    let save_calls = std::env::var_os("TORAJS_CALL_SAVE_OFF").is_none_or(|v| v != "1");
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.
@@ -157,9 +162,14 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         // callee-saved instead; `emit_terminator::Ret` materializes
         // the value into X0/V0 at the actual ret point (its
         // idempotent `if src != X0/V0 { mov }` covers this).
+        let may_save = save_calls && !unbounded.contains(&vid);
         if ret_vids.contains(&vid) {
             if crossing {
-                let dst = sweep.alloc_crossing(vid, interval, is_fp);
+                let dst = if may_save {
+                    sweep.alloc_crossing_saved(vid, interval, is_fp)
+                } else {
+                    sweep.alloc_crossing(vid, interval, is_fp)
+                };
                 sweep.by_value.insert(vid, dst);
                 sweep.activate(vid, interval, dst);
                 continue;
@@ -177,7 +187,9 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
             }
         }
 
-        let reg = if crossing {
+        let reg = if crossing && may_save {
+            sweep.alloc_crossing_saved(vid, interval, is_fp)
+        } else if crossing {
             sweep.alloc_crossing(vid, interval, is_fp)
         } else {
             sweep.alloc_noncrossing(vid, interval, is_fp)
@@ -187,6 +199,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     }
 
     classes.fan_out(&mut sweep.by_value);
+    let call_saves = collect_call_saves(&mut sweep, &intervals, &call_sites);
 
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;
@@ -232,6 +245,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     assignment.used_callee_fpr_mask = used_callee_fpr_mask;
     assignment.param_entry_moves = param_entry_moves;
     assignment.stack_param_entry_loads = stack_param_entry_loads;
+    assignment.call_saves = call_saves;
     assignment
 }
 
@@ -240,7 +254,7 @@ mod tests {
     use super::*;
     use crate::reg::{Fpr, Gpr};
     use torajs_core::ssa::{
-        BinOp, Block, BlockId, FuncId, Function, Inst, InstKind, Operand, Terminator, Type,
+        BinOp, Block, BlockId, FuncId, Function, IPred, Inst, InstKind, Operand, Terminator, Type,
         ValueId, ValueInfo,
     };
 
@@ -723,7 +737,7 @@ mod tests {
         let f0 = FuncId(0);
         let mut values = Vec::new();
         let mut insts = Vec::new();
-        for i in 0..12 {
+        for i in 0..26 {
             values.push(ValueInfo {
                 ty: Type::I64,
                 name: Some(format!("v{i}")),
@@ -735,8 +749,8 @@ mod tests {
             });
         }
         let mut acc = Operand::Value(ValueId(0));
-        for i in 1..12 {
-            let new_vid = ValueId(12 + i as u32 - 1);
+        for i in 1..26 {
+            let new_vid = ValueId(26 + i as u32 - 1);
             values.push(ValueInfo {
                 ty: Type::I64,
                 name: Some(format!("acc{i}")),
@@ -765,11 +779,12 @@ mod tests {
         // The substantive invariants under spill:
         //   1. No panic.
         //   2. Every non-ret value gets some assignment (Gpr|Spill).
-        //   3. SpillGpr offsets form a contiguous 8-aligned cursor
-        //      (no gaps, no overlap) starting at raw_alloca_bytes.
-        //   4. total_spill_bytes == 8 × distinct spill slot count.
+        //   3. Spill and call-save slots together form a contiguous
+        //      8-aligned cursor (no gaps, no overlap) starting at
+        //      raw_alloca_bytes.
+        //   4. total_spill_bytes == 8 × distinct slot count.
         let mut spill_offsets: Vec<u32> = Vec::new();
-        for i in 0..23 {
+        for i in 0..51 {
             match alloc.of(ValueId(i)) {
                 Reg::Gpr(g) => assert!(
                     g == Gpr::X0
@@ -787,6 +802,8 @@ mod tests {
         );
         spill_offsets.sort();
         spill_offsets.dedup();
+        spill_offsets.extend(save_slots(&alloc));
+        spill_offsets.sort();
         for (n, off) in spill_offsets.iter().enumerate() {
             assert_eq!(
                 *off,
@@ -797,22 +814,21 @@ mod tests {
         assert_eq!(
             alloc.total_spill_bytes,
             (spill_offsets.len() as u32) * 8,
-            "spill_bytes accounts for every distinct SpillGpr slot"
+            "spill_bytes accounts for every distinct slot"
         );
         assert_eq!(alloc.raw_alloca_bytes, 0);
     }
 
     /// Call-crossing values that overflow the 10-slot callee-saved
-    /// pool spill to the stack via the "spill at active" path. We
-    /// build 14 call results all kept live by a final reduce chain —
-    /// every result crosses the later calls, so all of v0..v12 are
-    /// call-crossing and only 10 fit in the callee-saved pool; the
-    /// rest spill. Asserts the spill cursor is contiguous + accounted
-    /// and that the callee-saved pool was actually exercised.
+    /// pool take the 11 caller-saved registers (saved around calls),
+    /// then spill via the "spill at active" path. We build 26 call
+    /// results all kept live by a final reduce chain — every result
+    /// crosses the later calls. Asserts the slot cursor is contiguous
+    /// + accounted and that the callee-saved pool was exercised.
     #[test]
     fn ls_spills_self_when_new_arrival_has_furthest_end() {
         let f0 = FuncId(0);
-        let n: u32 = 14;
+        let n: u32 = 26;
         let mut values = Vec::new();
         let mut insts = Vec::new();
         for i in 0..n {
@@ -872,7 +888,8 @@ mod tests {
             !spill_offsets.is_empty(),
             "callee-saved pool overflow must produce >=1 spill"
         );
-        assert_eq!(alloc.total_spill_bytes, spill_offsets.len() as u32 * 8);
+        let slots = spill_offsets.len() + save_slots(&alloc).len();
+        assert_eq!(alloc.total_spill_bytes, slots as u32 * 8);
         assert!(
             alloc.used_callee_gpr_mask != 0,
             "call-crossing values must occupy callee-saved registers"
@@ -1009,5 +1026,115 @@ mod tests {
         for v in 2..2 + n {
             assert_ne!(a.of(ValueId(v)), Reg::Gpr(Gpr::X1), "v{v}");
         }
+    }
+
+    /// Distinct stack slots the call-site saves use.
+    fn save_slots(alloc: &Assignment) -> Vec<u32> {
+        let mut v: Vec<u32> = alloc
+            .call_saves
+            .values()
+            .flatten()
+            .map(|&(_, off)| off)
+            .collect();
+        v.sort();
+        v.dedup();
+        v
+    }
+
+    /// Past the callee-saved pool, a call-crossing value whose calls
+    /// are colder than its uses takes a caller-saved register and is
+    /// saved around every later call it crosses — and only those.
+    /// Thirteen call results at depth 0, each read in a loop body.
+    #[test]
+    fn crossing_values_past_the_callee_pool_are_saved_around_calls() {
+        let f0 = FuncId(0);
+        let n: u32 = 13;
+        let mut values: Vec<ValueInfo> = Vec::new();
+        let mut entry = Vec::new();
+        for i in 0..n {
+            values.push(ValueInfo {
+                ty: Type::I64,
+                name: None,
+            });
+            entry.push(Inst {
+                result: Some(ValueId(i)),
+                kind: InstKind::Call(f0, Vec::new()),
+                origin: None,
+            });
+        }
+        let mut body = Vec::new();
+        let mut acc = Operand::Value(ValueId(0));
+        for i in 1..n {
+            let nv = ValueId(n + i - 1);
+            values.push(ValueInfo {
+                ty: Type::I64,
+                name: None,
+            });
+            body.push(Inst {
+                result: Some(nv),
+                kind: InstKind::BinOp(BinOp::Add, acc, Operand::Value(ValueId(i))),
+                origin: None,
+            });
+            acc = Operand::Value(nv);
+        }
+        let cond = ValueId(2 * n - 1);
+        values.push(ValueInfo {
+            ty: Type::Bool,
+            name: None,
+        });
+        body.push(Inst {
+            result: Some(cond),
+            kind: InstKind::ICmp(IPred::Slt, acc, Operand::ConstI64(0)),
+            origin: None,
+        });
+        let func = Function {
+            name: "saved".into(),
+            params: Vec::new(),
+            ret: Type::I64,
+            values,
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: entry,
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: body,
+                    term: Terminator::CondBr {
+                        cond: Operand::Value(cond),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                },
+                Block {
+                    id: BlockId(2),
+                    insts: Vec::new(),
+                    term: Terminator::Ret(Some(Operand::Value(ValueId(0)))),
+                },
+            ],
+            current_origin: None,
+        };
+        let alloc = allocate_linear_scan(&func);
+        let mut saved_regs = 0;
+        for i in 0..n {
+            let reg = alloc.of(ValueId(i));
+            let Reg::Gpr(g) = reg else { continue };
+            if !aapcs64::CALLER_SAVED_SCRATCH.contains(&g) {
+                continue;
+            }
+            saved_regs += 1;
+            // v_i is defined by the call at slot i and crosses the calls
+            // at slots i+1 .. n-1
+            for p in 0..n {
+                let saved = alloc
+                    .call_saves
+                    .get(&p)
+                    .is_some_and(|v| v.iter().any(|&(r, _)| r == reg));
+                assert_eq!(saved, p > i, "v{i} in {g:?} at call {p}");
+            }
+        }
+        assert!(saved_regs > 0, "some value must overflow the callee pool");
+        assert_eq!(alloc.used_callee_gpr_mask.count_ones(), 10);
     }
 }

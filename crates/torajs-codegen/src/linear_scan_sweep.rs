@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
+use crate::linear_scan_calls::CallCosts;
 use crate::liveness::Interval;
 use crate::reg::{Fpr, Gpr, Reg, aapcs64};
 
@@ -43,10 +44,15 @@ pub(crate) struct Sweep {
     /// loses its register to a cold prelude ref with a merely-longer
     /// interval.
     pub(crate) weights: HashMap<u32, u32>,
+    /// Call-crossing values handed a caller-saved register because the
+    /// callee-saved pool was full; each is saved around the calls it
+    /// crosses (`linear_scan_calls::collect_call_saves`).
+    pub(crate) caller_crossing: Vec<u32>,
+    pub(crate) call_costs: CallCosts,
 }
 
 impl Sweep {
-    pub(crate) fn new(spill_base: u32, weights: HashMap<u32, u32>) -> Self {
+    pub(crate) fn new(spill_base: u32, weights: HashMap<u32, u32>, call_costs: CallCosts) -> Self {
         Sweep {
             by_value: HashMap::new(),
             active: Vec::new(),
@@ -58,6 +64,8 @@ impl Sweep {
             used_callee_gpr_mask: 0,
             used_callee_fpr_mask: 0,
             weights,
+            caller_crossing: Vec::new(),
+            call_costs,
         }
     }
 
@@ -149,6 +157,51 @@ impl Sweep {
         reg.unwrap_or_else(|| {
             self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
         })
+    }
+
+    /// Allocate for a value that crosses a call and may be saved around
+    /// it: callee-saved first. With that pool full, take a caller-saved
+    /// register and save it around each crossed call when that is
+    /// cheaper than spilling this value or the lightest callee-saved
+    /// holder; otherwise spill as `alloc_crossing` does.
+    pub(crate) fn alloc_crossing_saved(
+        &mut self,
+        vid: u32,
+        interval: Interval,
+        is_fp: bool,
+    ) -> Reg {
+        let callee = if is_fp {
+            self.take_callee_fpr().map(Reg::Fpr)
+        } else {
+            self.take_callee_gpr().map(Reg::Gpr)
+        };
+        if let Some(r) = callee {
+            return r;
+        }
+        let weight = |v: u32| u64::from(self.weights.get(&v).copied().unwrap_or(0));
+        let lightest_victim = self
+            .active
+            .iter()
+            .filter(|e| match e.2 {
+                Reg::Gpr(g) => !is_fp && aapcs64::CALLEE_SAVED_SCRATCH.contains(&g),
+                Reg::Fpr(f) => is_fp && aapcs64::FP_CALLEE_SAVED_SCRATCH.contains(&f),
+                _ => false,
+            })
+            .map(|e| weight(e.0))
+            .min()
+            .unwrap_or(u64::MAX);
+        if self.call_costs.save_cost(interval) < weight(vid).min(lightest_victim) {
+            let caller = if is_fp {
+                self.free_caller_fpr.pop_front().map(Reg::Fpr)
+            } else {
+                self.free_caller_gpr.pop_front().map(Reg::Gpr)
+            };
+            if let Some(r) = caller {
+                self.caller_crossing.push(vid);
+                return r;
+            }
+        }
+        self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
     }
 
     /// Allocate for a value that never crosses a call: prefer caller-
