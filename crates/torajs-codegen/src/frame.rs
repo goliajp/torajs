@@ -38,8 +38,14 @@
 //! Alloca-region carve-out.
 
 use crate::compile::slot;
-use crate::enc::{add_imm, add_imm_lsl12, ldp_post_index, stp_pre_index, sub_imm, sub_imm_lsl12};
-use crate::reg::{Gpr, aapcs64};
+use crate::enc::{
+    add_imm, add_imm_lsl12, ldp_post_index, ldp_x_off, stp_pre_index, stp_x_off, sub_imm,
+    sub_imm_lsl12,
+};
+use crate::reg::{Fpr, Gpr, aapcs64};
+
+/// Largest byte offset a signed-offset STP / LDP pair encodes (imm7 × 8).
+const PAIR_OFF_MAX: u32 = 504;
 
 /// Layout descriptor for a function's stack frame.
 ///
@@ -138,33 +144,54 @@ impl FrameLayout {
             && self.callee_saved_fpr_mask == 0
     }
 
-    /// Emit the callee-save area STR/LDR pair stream. Each used
-    /// register gets an 8-byte slot stacked above the alloca/spill
-    /// region (base = `alloca_bytes`), in `CALLEE_SAVED_SCRATCH` /
-    /// `FP_CALLEE_SAVED_SCRATCH` order. `restore=false` emits stores
-    /// (prologue), `restore=true` loads (epilogue) at the same
-    /// offsets — order is irrelevant since every slot is independent.
+    /// Emit the callee-save area stores (prologue) or loads
+    /// (epilogue). Each used register gets an 8-byte slot stacked above
+    /// the alloca/spill region (base = `alloca_bytes`), in
+    /// `CALLEE_SAVED_SCRATCH` / `FP_CALLEE_SAVED_SCRATCH` order; two
+    /// neighbouring GPRs share an STP / LDP while the pair's offset
+    /// fits the instruction, everything else takes single STR / LDR.
     fn emit_callee_saves(&self, bytes: &mut Vec<u8>, restore: bool) {
+        let gprs: Vec<Gpr> = aapcs64::CALLEE_SAVED_SCRATCH
+            .iter()
+            .copied()
+            .filter(|g| self.callee_saved_gpr_mask & (1 << g.idx()) != 0)
+            .collect();
+        let fprs: Vec<Fpr> = aapcs64::FP_CALLEE_SAVED_SCRATCH
+            .iter()
+            .copied()
+            .filter(|v| self.callee_saved_fpr_mask & (1 << v.idx()) != 0)
+            .collect();
         let mut off = self.alloca_bytes;
-        for &g in aapcs64::CALLEE_SAVED_SCRATCH.iter() {
-            if self.callee_saved_gpr_mask & (1 << g.idx()) != 0 {
-                if restore {
-                    slot::sp_ldr_x(bytes, g, off);
-                } else {
-                    slot::sp_str_x(bytes, g, off);
+        for pair in gprs.chunks(2) {
+            match pair {
+                [a, b] if off <= PAIR_OFF_MAX => {
+                    let word = if restore { ldp_x_off } else { stp_x_off };
+                    write_word(bytes, word(*a, *b, Gpr::SP, off as i32));
                 }
-                off += 8;
+                _ => {
+                    for (k, g) in pair.iter().enumerate() {
+                        let at = off + 8 * k as u32;
+                        if restore {
+                            slot::sp_ldr_x(bytes, *g, at);
+                        } else {
+                            slot::sp_str_x(bytes, *g, at);
+                        }
+                    }
+                }
             }
+            off += 8 * pair.len() as u32;
         }
-        for &v in aapcs64::FP_CALLEE_SAVED_SCRATCH.iter() {
-            if self.callee_saved_fpr_mask & (1 << v.idx()) != 0 {
-                if restore {
-                    slot::sp_ldr_d(bytes, v, off);
-                } else {
-                    slot::sp_str_d(bytes, v, off);
-                }
-                off += 8;
+        // FP registers stay single: on Apple cores an 8-byte FP reload
+        // of half an `stp d, d` pair misses store-to-load forwarding,
+        // and the early-return path of a small recursive function hits
+        // it on every call (fib40 +37% measured).
+        for v in fprs {
+            if restore {
+                slot::sp_ldr_d(bytes, v, off);
+            } else {
+                slot::sp_str_d(bytes, v, off);
             }
+            off += 8;
         }
     }
 
@@ -238,7 +265,7 @@ fn write_word(bytes: &mut Vec<u8>, word: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::enc::{ldr_x_imm12, str_d_imm12, str_x_imm12};
+    use crate::enc::{ldp_x_off, stp_x_off, str_d_imm12, str_x_imm12};
     use crate::reg::Fpr;
 
     #[test]
@@ -404,8 +431,7 @@ mod tests {
             stp_pre_index(Gpr::X29, Gpr::X30, Gpr::SP, -16),
             add_imm(Gpr::X29, Gpr::SP, 0),
             sub_imm(Gpr::SP, Gpr::SP, 16),
-            str_x_imm12(Gpr::X19, Gpr::SP, 0),
-            str_x_imm12(Gpr::X20, Gpr::SP, 8),
+            stp_x_off(Gpr::X19, Gpr::X20, Gpr::SP, 0),
         ];
         let mut want = Vec::new();
         for w in expected_pro {
@@ -416,8 +442,7 @@ mod tests {
         let mut epilogue = Vec::new();
         frame.emit_epilogue(&mut epilogue);
         let expected_epi = [
-            ldr_x_imm12(Gpr::X19, Gpr::SP, 0),
-            ldr_x_imm12(Gpr::X20, Gpr::SP, 8),
+            ldp_x_off(Gpr::X19, Gpr::X20, Gpr::SP, 0),
             add_imm(Gpr::SP, Gpr::SP, 16),
             ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16),
         ];

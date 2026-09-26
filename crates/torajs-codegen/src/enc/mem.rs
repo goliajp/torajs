@@ -95,6 +95,27 @@ pub fn ldp_post_index(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
     0xA8C0_0000 | (imm7 << 15) | (rt2.idx() << 10) | (rn.idx() << 5) | rt.idx()
 }
 
+/// Signed-offset load / store pair, base form: `imm7` is the byte
+/// offset scaled by 8, so the offset must be 8-aligned in -512..=504.
+fn pair_off(base: u32, rt: u32, rt2: u32, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        byte_offset % 8 == 0 && (-512..=504).contains(&byte_offset),
+        "pair offset must be 8-aligned in -512..=504 (got {byte_offset})"
+    );
+    let imm7 = ((byte_offset / 8) as u32) & 0x7F;
+    base | (imm7 << 15) | (rt2 << 10) | (rn.idx() << 5) | rt
+}
+
+/// STP Xt, Xt2, [Xn, #byte_offset] — ARM ARM C6.2.385 (signed offset).
+pub fn stp_x_off(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    pair_off(0xA900_0000, rt.idx(), rt2.idx(), rn, byte_offset)
+}
+
+/// LDP Xt, Xt2, [Xn, #byte_offset] — ARM ARM C6.2.151 (signed offset).
+pub fn ldp_x_off(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    pair_off(0xA940_0000, rt.idx(), rt2.idx(), rn, byte_offset)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,5 +184,13 @@ mod tests {
     fn ldp_x29_x30_post_index_16_matches_clang() {
         // Canonical leaf-fn epilogue `LDP x29, x30, [SP], #16`
         assert_eq!(ldp_post_index(Gpr::X29, Gpr::X30, Gpr::SP, 16), 0xA8C1_7BFD);
+    }
+
+    #[test]
+    fn signed_offset_pairs_match_clang() {
+        // clang -c: stp x19, x20, [sp, #16] / ldp … / stp x27, x28, [sp, #-512]
+        assert_eq!(stp_x_off(Gpr::X19, Gpr::X20, Gpr::SP, 16), 0xA901_53F3);
+        assert_eq!(ldp_x_off(Gpr::X19, Gpr::X20, Gpr::SP, 16), 0xA941_53F3);
+        assert_eq!(stp_x_off(Gpr::X27, Gpr::X28, Gpr::SP, -512), 0xA920_73FB);
     }
 }
