@@ -2,6 +2,8 @@
 //! callee-saved register (or a caller-saved one saved around its
 //! calls), anything else in a caller-saved register first.
 
+use torajs_core::ssa::block_freq::ENTRY_FREQ;
+
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::Interval;
 use crate::reg::{Reg, aapcs64};
@@ -22,16 +24,29 @@ impl Sweep {
     }
 
     /// Allocate for a value that crosses a call and may be saved around
-    /// it: callee-saved first. With that pool full, take a caller-saved
-    /// register and save it around each crossed call when that is
-    /// cheaper than spilling this value or the lightest callee-saved
-    /// holder; otherwise spill as `alloc_crossing` does.
+    /// it: callee-saved first, unless that means saving one more
+    /// register on entry for calls that rarely run. With that pool
+    /// full, take a caller-saved register and save it around each
+    /// crossed call when that is cheaper than spilling this value or the
+    /// lightest callee-saved holder; otherwise spill as `alloc_crossing`
+    /// does.
     pub(crate) fn alloc_crossing_saved(
         &mut self,
         vid: u32,
         interval: Interval,
         is_fp: bool,
     ) -> Reg {
+        // A callee-saved register no value has used yet costs a save and
+        // a restore on every entry; when this value's calls run less
+        // often than that, save it around them instead (RegAllocGreedy's
+        // CSRFirstTimeCost)
+        if self.next_callee_is_fresh(is_fp)
+            && self.call_costs.save_cost(interval) < ENTRY_FREQ
+            && let Some(r) = self.take_caller(is_fp)
+        {
+            self.caller_crossing.push(vid);
+            return r;
+        }
         let callee = if is_fp {
             self.take_callee_fpr().map(Reg::Fpr)
         } else {
@@ -52,18 +67,35 @@ impl Sweep {
             .map(|e| weight(e.0))
             .min()
             .unwrap_or(u64::MAX);
-        if self.call_costs.save_cost(interval) < weight(vid).min(lightest_victim) {
-            let caller = if is_fp {
-                self.free_caller_fpr.pop_front().map(Reg::Fpr)
-            } else {
-                self.free_caller_gpr.pop_front().map(Reg::Gpr)
-            };
-            if let Some(r) = caller {
-                self.caller_crossing.push(vid);
-                return r;
-            }
+        if self.call_costs.save_cost(interval) < weight(vid).min(lightest_victim)
+            && let Some(r) = self.take_caller(is_fp)
+        {
+            self.caller_crossing.push(vid);
+            return r;
         }
         self.spill_at_active(vid, interval, is_fp, /*callee_only=*/ true)
+    }
+
+    fn take_caller(&mut self, is_fp: bool) -> Option<Reg> {
+        if is_fp {
+            self.free_caller_fpr.pop_front().map(Reg::Fpr)
+        } else {
+            self.free_caller_gpr.pop_front().map(Reg::Gpr)
+        }
+    }
+
+    /// Whether the callee-saved register handed out next is one the
+    /// frame does not save yet.
+    fn next_callee_is_fresh(&self, is_fp: bool) -> bool {
+        if is_fp {
+            self.free_callee_fpr
+                .front()
+                .is_some_and(|f| self.used_callee_fpr_mask & (1 << f.idx()) == 0)
+        } else {
+            self.free_callee_gpr
+                .front()
+                .is_some_and(|g| self.used_callee_gpr_mask & (1 << g.idx()) == 0)
+        }
     }
 
     /// Allocate for a value that never crosses a call: prefer caller-
