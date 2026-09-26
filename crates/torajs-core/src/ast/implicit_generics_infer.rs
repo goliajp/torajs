@@ -84,6 +84,7 @@ pub(crate) fn infer_return_ann_seeded(
         }
     }
     collect_let_binding_anns(exprs, body, &mut binds, fn_sigs);
+    super::implicit_generics_infer_rebind::drop_rebound(exprs, body, &mut binds, fn_sigs);
     let mut acc: Option<String> = None;
     if !collect_return_anns(exprs, body, &binds, fn_sigs, &mut acc) {
         return None;

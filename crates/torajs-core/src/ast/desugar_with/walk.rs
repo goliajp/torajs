@@ -183,7 +183,13 @@ pub(crate) fn stmt_exprs(s: &Stmt) -> Vec<ExprId> {
 /// Every child ExprId of one node. An `ArrowFn`'s body is NOT a child
 /// here — it is a statement list, reached through [`arrow_nodes`].
 pub(crate) fn expr_children(ast: &Ast, eid: ExprId) -> Vec<ExprId> {
-    match ast.get_expr(eid) {
+    expr_node_children(ast.get_expr(eid))
+}
+
+/// [`expr_children`] of a node already in hand (for walks over a bare
+/// `exprs` slice).
+pub(crate) fn expr_node_children(e: &Expr) -> Vec<ExprId> {
+    match e {
         Expr::BinOp { left, right, .. }
         | Expr::Sequence { left, right }
         | Expr::Index {

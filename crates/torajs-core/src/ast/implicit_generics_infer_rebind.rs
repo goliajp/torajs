@@ -1,0 +1,70 @@
+//! Return-type sniff vs. reassigned bindings.
+//!
+//! The sniff types a `let` from its initializer, but a later
+//! `name = value` may store a value of another type: `let t = 0;
+//! t = t + a` (`a: any`) holds `"0x"` for a string `a`, so `return t`
+//! is not a number. A binding keeps its sniffed type only when every
+//! assign in the body sniffs to that same type (read with the binding
+//! itself at that type, so `i = i + 1` keeps `number`); otherwise the
+//! sniff forgets it and a return of it falls to `any`.
+
+use std::collections::HashMap;
+
+use super::desugar_with::walk::{expr_node_children, stmt_children_ref, stmt_exprs};
+use super::implicit_generics_infer::{AstExprsView, binds_to_params, infer_expr_ann_with};
+use super::{Expr, ExprId, Stmt};
+
+/// Drop from `binds` every name some assign in `body` gives a value
+/// that does not sniff to its registered type, until none is left
+/// (dropping `t` can unsettle `u = t`).
+pub(super) fn drop_rebound(
+    exprs: AstExprsView,
+    body: &[Stmt],
+    binds: &mut HashMap<String, String>,
+    fn_sigs: &HashMap<String, String>,
+) {
+    let assigned = assigned_values(exprs, body);
+    loop {
+        let params = binds_to_params(binds);
+        let unsettled: Vec<String> = assigned
+            .iter()
+            .filter(|(name, values)| {
+                binds.get(*name).is_some_and(|ann| {
+                    values.iter().any(|v| {
+                        infer_expr_ann_with(exprs, *v, &params, binds, fn_sigs).as_ref()
+                            != Some(ann)
+                    })
+                })
+            })
+            .map(|(name, _)| name.clone())
+            .collect();
+        if unsettled.is_empty() {
+            return;
+        }
+        for name in unsettled {
+            binds.remove(&name);
+        }
+    }
+}
+
+/// Every `name = value` rhs in `body`, by name. A nested function is
+/// its own scope and is not entered.
+fn assigned_values(exprs: AstExprsView, body: &[Stmt]) -> HashMap<String, Vec<ExprId>> {
+    let mut out: HashMap<String, Vec<ExprId>> = HashMap::new();
+    let mut stmts: Vec<&Stmt> = body.iter().collect();
+    let mut roots: Vec<ExprId> = Vec::new();
+    while let Some(s) = stmts.pop() {
+        roots.extend(stmt_exprs(s));
+        stmts.extend(stmt_children_ref(s));
+    }
+    while let Some(e) = roots.pop() {
+        let node = &exprs[e.0 as usize];
+        if let Expr::Assign { target, value } = node
+            && let Expr::Ident(name) = &exprs[target.0 as usize]
+        {
+            out.entry(name.clone()).or_default().push(*value);
+        }
+        roots.extend(expr_node_children(node));
+    }
+    out
+}
