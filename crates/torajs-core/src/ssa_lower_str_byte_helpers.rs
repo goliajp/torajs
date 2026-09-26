@@ -27,7 +27,7 @@
 //! `ctx.emit_inline_str_eq_bytes(...)` / `self.emit_str_data_base(...)`
 //! which resolve to this impl automatically).
 
-use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type};
+use crate::ssa::{BinOp as SsaBinOp, BlockId, IPred, InstKind, Operand, Terminator, Type, ValueId};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
@@ -39,6 +39,8 @@ impl<'a> LowerCtx<'a> {
     /// For OWNED Str: `(self, 16)` — bytes inline at self+16.
     /// For Substr: `(parent_ptr, STR_HDR(16) + offset)` — the parent's
     ///   bytes start at parent+16, view starts at parent+16+offset.
+    ///   The view offset counts code units, so this is the byte offset
+    ///   only into a Latin-1 parent.
     /// Returns `(base_ptr, base_offset_value_or_const)`.
     pub(crate) fn emit_str_data_base(&mut self, op: Operand, ty: Type) -> (Operand, Operand) {
         match ty {
@@ -129,63 +131,74 @@ impl<'a> LowerCtx<'a> {
             // const-folded immediate. For Substr: 2 loads + 1 add to
             // resolve parent + 16 + view_offset, amortized over chain.
             let (base, base_off) = self.emit_str_data_base(other, other_ty);
-            let mut chain: Vec<BlockId> = Vec::with_capacity(bytes.len() + 1);
-            chain.push(self.cur_block);
-            for _ in 0..bytes.len() {
-                chain.push(self.f.add_block());
-            }
-            for (i, &want_byte) in bytes.iter().enumerate() {
-                self.cur_block = chain[i];
-                // total_off = base_off + i, then LoadDyn 4 bytes.
-                // For Str (base_off = const 16) the add folds; for
-                // Substr the add stays but i is small const.
-                let off_i = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(SsaBinOp::Add, base_off, Operand::ConstI64(i as i64)),
-                    Type::I64,
-                    None,
-                );
-                let byte_v = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::LoadDyn(Type::I32, base, Operand::Value(off_i)),
-                    Type::I32,
-                    None,
-                );
-                let byte_lo = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::BinOp(
-                        SsaBinOp::And,
-                        Operand::Value(byte_v),
-                        Operand::ConstI32(0xff),
-                    ),
-                    Type::I32,
-                    None,
-                );
-                let eq = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::ICmp(
-                        IPred::Eq,
-                        Operand::Value(byte_lo),
-                        Operand::ConstI32(want_byte as i32),
-                    ),
-                    Type::Bool,
-                    None,
-                );
-                self.f.set_term(
-                    self.cur_block,
-                    Terminator::CondBr {
-                        cond: Operand::Value(eq),
-                        then_blk: chain[i + 1],
-                        else_blk: done_blk,
-                    },
-                );
-            }
-            self.cur_block = chain[bytes.len()];
-            self.f.append_void(
+            // `base` is the Str that holds the payload (the operand
+            // itself, or a view's parent), so its header carries the
+            // encoding. A UTF-16 payload of the same length compares
+            // unit by unit at stride 2.
+            let hdr = self.f.append_inst(
                 self.cur_block,
-                InstKind::Store(Operand::ConstBool(true), Operand::Value(result_slot), 0),
+                InstKind::Load(Type::I64, base.clone(), 0),
+                Type::I64,
+                None,
             );
-            self.f.set_term(self.cur_block, Terminator::Br(done_blk));
+            let lat_bit = self.f.append_inst(
+                self.cur_block,
+                InstKind::BinOp(
+                    SsaBinOp::And,
+                    Operand::Value(hdr),
+                    Operand::ConstI64(HDR_MASK_IS_LATIN1),
+                ),
+                Type::I64,
+                None,
+            );
+            let is_lat = self.f.append_inst(
+                self.cur_block,
+                InstKind::ICmp(IPred::Ne, Operand::Value(lat_bit), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            let narrow = self.f.add_block();
+            let wide = self.f.add_block();
+            self.f.set_term(
+                self.cur_block,
+                Terminator::CondBr {
+                    cond: Operand::Value(is_lat),
+                    then_blk: narrow,
+                    else_blk: wide,
+                },
+            );
+            // A view's offset counts code units: `16 + off` bytes into
+            // a Latin-1 parent, `16 + 2 * off` into a UTF-16 one.
+            let wide_off = match &base_off {
+                Operand::ConstI64(k) => Operand::ConstI64(*k),
+                narrow_off => {
+                    let twice = self.f.append_inst(
+                        wide,
+                        InstKind::BinOp(SsaBinOp::Add, narrow_off.clone(), narrow_off.clone()),
+                        Type::I64,
+                        None,
+                    );
+                    let off = self.f.append_inst(
+                        wide,
+                        InstKind::BinOp(
+                            SsaBinOp::Sub,
+                            Operand::Value(twice),
+                            Operand::ConstI64(16),
+                        ),
+                        Type::I64,
+                        None,
+                    );
+                    Operand::Value(off)
+                }
+            };
+            let chain = UnitChain {
+                base,
+                bytes,
+                result_slot,
+                done_blk,
+            };
+            self.emit_unit_chain(&chain, narrow, base_off, 1, 0xff);
+            self.emit_unit_chain(&chain, wide, wide_off, 2, 0xffff);
         }
         self.cur_block = done_blk;
         let r = self.f.append_inst(
@@ -196,4 +209,78 @@ impl<'a> LowerCtx<'a> {
         );
         Operand::Value(r)
     }
+
+    /// One unit-by-unit compare chain of [`Self::emit_inline_str_eq_bytes`]
+    /// starting at `entry`: unit `i` is read at `base_off + i * stride`
+    /// and masked to the unit width; the first mismatch exits false.
+    fn emit_unit_chain(
+        &mut self,
+        c: &UnitChain<'_>,
+        entry: BlockId,
+        base_off: Operand,
+        stride: i64,
+        mask: i32,
+    ) {
+        let mut cur = entry;
+        for (i, &want) in c.bytes.iter().enumerate() {
+            let off_i = self.f.append_inst(
+                cur,
+                InstKind::BinOp(
+                    SsaBinOp::Add,
+                    base_off.clone(),
+                    Operand::ConstI64(i as i64 * stride),
+                ),
+                Type::I64,
+                None,
+            );
+            let raw = self.f.append_inst(
+                cur,
+                InstKind::LoadDyn(Type::I32, c.base.clone(), Operand::Value(off_i)),
+                Type::I32,
+                None,
+            );
+            let unit = self.f.append_inst(
+                cur,
+                InstKind::BinOp(SsaBinOp::And, Operand::Value(raw), Operand::ConstI32(mask)),
+                Type::I32,
+                None,
+            );
+            let eq = self.f.append_inst(
+                cur,
+                InstKind::ICmp(
+                    IPred::Eq,
+                    Operand::Value(unit),
+                    Operand::ConstI32(want as i32),
+                ),
+                Type::Bool,
+                None,
+            );
+            let next = self.f.add_block();
+            self.f.set_term(
+                cur,
+                Terminator::CondBr {
+                    cond: Operand::Value(eq),
+                    then_blk: next,
+                    else_blk: c.done_blk,
+                },
+            );
+            cur = next;
+        }
+        self.f.append_void(
+            cur,
+            InstKind::Store(Operand::ConstBool(true), Operand::Value(c.result_slot), 0),
+        );
+        self.f.set_term(cur, Terminator::Br(c.done_blk));
+    }
 }
+
+/// What both encoding arms of an inline literal compare share.
+struct UnitChain<'b> {
+    base: Operand,
+    bytes: &'b [u8],
+    result_slot: ValueId,
+    done_blk: BlockId,
+}
+
+/// `IS_LATIN1` in the packed Str header word (`flags u16 @6`, bit 1).
+const HDR_MASK_IS_LATIN1: i64 = 0x0002i64 << 48;
