@@ -15,6 +15,9 @@ pub struct RunOutcome {
     pub compile_ms: Option<f64>,
     pub run_ms: Option<f64>,
     pub run_stddev_ms: Option<f64>,
+    /// Peak resident set size of the run step, in KiB: the largest over
+    /// every measured run. `None` when not measured.
+    pub max_rss_kb: Option<u64>,
     /// Size in bytes of the compiled artifact, for runners that produce one.
     /// `None` for interpreted runners (bun/node/python; tr-interp).
     pub artifact_bytes: Option<u64>,
@@ -62,6 +65,7 @@ impl RunOutcome {
             compile_ms: None,
             run_ms: None,
             run_stddev_ms: None,
+            max_rss_kb: None,
             artifact_bytes: None,
             artifact_sha256: None,
             stdout_match: None,
@@ -117,6 +121,7 @@ pub fn run_one(
         compile_ms: None,
         run_ms: None,
         run_stddev_ms: None,
+        max_rss_kb: None,
         artifact_bytes: None,
         artifact_sha256: None,
         stdout_match: None,
@@ -226,6 +231,7 @@ pub fn run_one(
         Ok(stats) => {
             outcome.run_ms = Some(stats.median_ms);
             outcome.run_stddev_ms = Some(stats.stddev_ms);
+            outcome.max_rss_kb = stats.max_rss_kb;
         }
         Err(e) => {
             outcome.status = Status::Failed;
@@ -261,6 +267,7 @@ pub fn artifact_only(
         compile_ms: None,
         run_ms: None,
         run_stddev_ms: None,
+        max_rss_kb: None,
         artifact_bytes: None,
         artifact_sha256: None,
         stdout_match: None,

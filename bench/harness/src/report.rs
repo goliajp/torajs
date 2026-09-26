@@ -157,7 +157,7 @@ fn mad(xs: &[f64], med: f64) -> Option<f64> {
 
 /// hardev bench B1b — fold N passes of the SAME (case, runtime) into
 /// one row: `run_ms` = median across passes, `run_stddev_ms` = MAD
-/// (robust spread), `compile_ms` = median, `artifact_bytes` = the
+/// (robust spread), `compile_ms` = median, `max_rss_kb` = the largest, `artifact_bytes` = the
 /// shared value if all identical else the median (the small ±N-byte
 /// drift seen run-to-run is benign linker nondeterminism, already
 /// handled conservatively by `bench compare`). `status` is the worst
@@ -178,6 +178,7 @@ pub fn aggregate(outcomes: Vec<RunOutcome>) -> RunOutcome {
     let run: Vec<f64> = outcomes.iter().filter_map(|o| o.run_ms).collect();
     base.run_ms = median(&run);
     base.run_stddev_ms = base.run_ms.and_then(|m| mad(&run, m));
+    base.max_rss_kb = outcomes.iter().filter_map(|o| o.max_rss_kb).max();
 
     let comp: Vec<f64> = outcomes.iter().filter_map(|o| o.compile_ms).collect();
     base.compile_ms = median(&comp);

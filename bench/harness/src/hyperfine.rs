@@ -11,6 +11,9 @@ use crate::exec::{PER_EXEC_TIMEOUT, spawn_output_bounded};
 pub(crate) struct Stats {
     pub(crate) median_ms: f64,
     pub(crate) stddev_ms: f64,
+    /// Largest peak RSS any measured run reached; `None` when hyperfine
+    /// did not report memory.
+    pub(crate) max_rss_kb: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -22,6 +25,10 @@ struct HyperfineExport {
 struct HyperfineRun {
     median: f64, // seconds
     stddev: f64, // seconds
+    /// Peak RSS per measured run, from the child's rusage (hyperfine
+    /// 1.17+; absent in older exports).
+    #[serde(default)]
+    memory_usage_byte: Vec<u64>,
 }
 
 pub(crate) fn hyperfine_one(
@@ -75,6 +82,7 @@ pub(crate) fn hyperfine_one(
     Ok(Stats {
         median_ms: r.median * 1000.0,
         stddev_ms: r.stddev * 1000.0,
+        max_rss_kb: r.memory_usage_byte.iter().max().map(|b| b / 1024),
     })
 }
 
