@@ -1,6 +1,6 @@
 // throw a string param, store the catch binding (typed Any) into a
-// Str-slotted top-level let — the assign site must unbox the Any
-// rather than panic with a slot/value mismatch.
+// top-level let initialized with a string: the binding takes the
+// thrown value as is (it widens to any), and reads of it see a string.
 
 function risky(msg: string): number {
   if (msg.length > 3) {
