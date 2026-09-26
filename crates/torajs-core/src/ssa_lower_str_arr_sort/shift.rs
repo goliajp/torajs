@@ -89,14 +89,40 @@ pub(super) fn emit_inner_shift_loop(
     // element-type-aware predicate (Sgt for I64,
     // Ogt for F64, str_locale_compare for Str).
     let pred_v = pred::emit_sort_pred(ctx, cmp_val, cmp_ty, prev, cur_cmp, elem_ty, route);
+    // A comparator that threw ends the shift here: `cur` still has
+    // to go back into the hole before the caller propagates, or the
+    // slot it left keeps a duplicate of its neighbour.
+    let shift_blk = if cmp_val.is_some() {
+        ctx.f.add_block()
+    } else {
+        inner_body
+    };
     ctx.f.set_term(
         ctx.cur_block,
         Terminator::CondBr {
             cond: Operand::Value(pred_v),
-            then_blk: inner_body,
+            then_blk: shift_blk,
             else_blk: inner_after,
         },
     );
+    if shift_blk != inner_body {
+        ctx.cur_block = shift_blk;
+        let active = ctx.emit_throw_active_load();
+        let threw = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+        ctx.f.set_term(
+            ctx.cur_block,
+            Terminator::CondBr {
+                cond: Operand::Value(threw),
+                then_blk: inner_after,
+                else_blk: inner_body,
+            },
+        );
+    }
     // inner body: xs[j] = xs[j-1]; j--
     ctx.cur_block = inner_body;
     let (off_j_base, off_j) =

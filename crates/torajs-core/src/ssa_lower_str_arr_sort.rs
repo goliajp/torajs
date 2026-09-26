@@ -341,6 +341,11 @@ fn emit_insertion_sort(
         ctx.cur_block,
         InstKind::StoreDyn(Operand::Value(cur), off_jf_base.clone(), off_jf),
     );
+    // §23.1.3.30.2 step 3 — the comparator's abrupt completion ends
+    // the sort; the array is whole again at this point
+    if cmp_val.is_some() {
+        ctx.emit_throw_check(None);
+    }
     // i++
     let i_next = ctx.f.append_inst(
         ctx.cur_block,
