@@ -128,11 +128,17 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
     } else {
         alloc_heap_arr(ctx, arr_id, n)
     };
-    let cur_block = ctx.cur_block;
-    ctx.f.append_void(
-        cur_block,
-        InstKind::Store(Operand::ConstI64(0), Operand::Value(arr_ptr), ARR_LEN_OFF),
-    );
+    // A heap cell's length tracks the filled prefix, so a throw from a
+    // later element releases exactly what was stored. A stack block is
+    // never released on a throw and holds no counted elements: it
+    // takes its length once, after the last element.
+    if !on_stack {
+        let cur_block = ctx.cur_block;
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Store(Operand::ConstI64(0), Operand::Value(arr_ptr), ARR_LEN_OFF),
+        );
+    }
     let data = ctx.emit_arr_data_ptr(Operand::Value(arr_ptr));
     // A stack block is not a heap cell — nothing to drop on a throw.
     let arr_tok =
@@ -178,20 +184,29 @@ fn lower_no_spread(ctx: &mut LowerCtx<'_>, element_ids: &[ExprId], eid: ExprId) 
             cur_block,
             InstKind::Store(val, data.clone(), (i as u64) * 8),
         );
-        ctx.f.append_void(
-            cur_block,
-            InstKind::Store(
-                Operand::ConstI64(i as i64 + 1),
-                Operand::Value(arr_ptr),
-                ARR_LEN_OFF,
-            ),
-        );
+        if !on_stack {
+            ctx.f.append_void(
+                cur_block,
+                InstKind::Store(
+                    Operand::ConstI64(i as i64 + 1),
+                    Operand::Value(arr_ptr),
+                    ARR_LEN_OFF,
+                ),
+            );
+        }
         if inc_after {
             ctx.emit_rc_inc(val);
         }
     }
     if let Some(t) = arr_tok {
         ctx.pop_throw_temp(t);
+    }
+    if on_stack {
+        let cur_block = ctx.cur_block;
+        ctx.f.append_void(
+            cur_block,
+            InstKind::Store(Operand::ConstI64(n), Operand::Value(arr_ptr), ARR_LEN_OFF),
+        );
     }
     Operand::Value(arr_ptr)
 }
