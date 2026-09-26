@@ -36,6 +36,7 @@ mod call;
 mod cast;
 mod cmp;
 mod ctpop_range_sum;
+mod entry;
 mod mem;
 mod operand;
 mod refs;
@@ -50,11 +51,11 @@ use std::collections::HashMap;
 
 use torajs_core::ssa::{Function, InstKind, Type};
 
-use crate::enc::{mov_d_reg, mov_x_reg};
 use crate::frame::FrameLayout;
-use crate::reg::{Fpr, Gpr, Reg};
+use crate::reg::{Fpr, Gpr};
 use crate::regalloc::Assignment;
 use crate::reloc::Reloc;
+use entry::{emit_param_entry_moves, emit_stack_param_loads};
 use terminator::{BranchFixup, BranchKind, emit_terminator, patch_branch};
 
 pub use binop::{emit_binop, emit_ctpop, emit_neg};
@@ -339,55 +340,6 @@ pub(crate) fn write_def_spill_gpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, s
 pub(crate) fn write_def_spill_fpr(bytes: &mut Vec<u8>, spill_off: Option<u32>, scratch: Fpr) {
     if let Some(off) = spill_off {
         slot::sp_str_d(bytes, scratch, off);
-    }
-}
-
-/// Copy each stack param (9th+ argument of a register class) from the
-/// caller's outgoing area into the home the allocator picked. The
-/// incoming slots sit just above this frame: past the SP carve
-/// (`frame_size`) and the FP/LR pair the prologue pushed — or at
-/// `sp + j*8` directly when the frame is trivial (no prologue at
-/// all). This is the only place the body ever touches the caller's
-/// frame; everything downstream reads the copied home.
-fn emit_stack_param_loads(bytes: &mut Vec<u8>, alloc: &Assignment, frame: &FrameLayout) {
-    if alloc.stack_param_entry_loads.is_empty() {
-        return;
-    }
-    let base = if frame.is_trivial() {
-        0
-    } else {
-        frame.frame_size() + 16
-    };
-    for &(slot, dst) in &alloc.stack_param_entry_loads {
-        let off = base + slot * 8;
-        match dst {
-            Reg::Gpr(d) => slot::sp_ldr_x(bytes, d, off),
-            Reg::Fpr(d) => slot::sp_ldr_d(bytes, d, off),
-            Reg::SpillGpr(soff) => {
-                slot::sp_ldr_x(bytes, OP_SCRATCH_LHS, off);
-                slot::sp_str_x(bytes, OP_SCRATCH_LHS, soff);
-            }
-            Reg::SpillFpr(soff) => {
-                slot::sp_ldr_d(bytes, FP_SCRATCH_LHS, off);
-                slot::sp_str_d(bytes, FP_SCRATCH_LHS, soff);
-            }
-        }
-    }
-}
-
-/// Emit the param entry-moves the allocator recorded: each call-
-/// crossing param is relocated from its caller-saved AAPCS64 arg
-/// register into the callee-saved register (or spill slot) it was
-/// assigned, immediately after the prologue saved those registers.
-fn emit_param_entry_moves(bytes: &mut Vec<u8>, alloc: &Assignment) {
-    for &(src, dst) in &alloc.param_entry_moves {
-        match (src, dst) {
-            (Reg::Gpr(s), Reg::Gpr(d)) => write_u32(bytes, mov_x_reg(d, s)),
-            (Reg::Fpr(s), Reg::Fpr(d)) => write_u32(bytes, mov_d_reg(d, s)),
-            (Reg::Gpr(s), Reg::SpillGpr(off)) => slot::sp_str_x(bytes, s, off),
-            (Reg::Fpr(s), Reg::SpillFpr(off)) => slot::sp_str_d(bytes, s, off),
-            other => unreachable!("param entry move with mismatched reg classes: {other:?}"),
-        }
     }
 }
 
