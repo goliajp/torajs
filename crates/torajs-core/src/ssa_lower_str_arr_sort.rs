@@ -56,60 +56,7 @@ pub(crate) fn try_dispatch(
         // runtime call; the rest of the body operates on
         // the clone.
         let recv_op = if method == "toSorted" {
-            let len = ctx.f.append_inst(
-                ctx.cur_block,
-                InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
-                Type::I64,
-                None,
-            );
-            // An Any-elem receiver clones through the exotic-aware
-            // `arr_any_slice` (RFC 20260721 刀 5 follow-up): an
-            // accessor index reads through its getter per §23.1.3.34
-            // [[Get]], and the kernel incs each slot itself. Typed
-            // receivers keep the raw `arr_slice` memcpy + inc range.
-            if elem_ty == Type::Any {
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_any_slice,
-                        vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                    ),
-                    Type::Arr(arr_id),
-                    None,
-                );
-                ctx.emit_throw_check(None);
-                Operand::Value(v)
-            } else {
-                let out_id = ctx.copied_arr_layout(arr_id);
-                let v = ctx.f.append_inst(
-                    ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.arr_slice,
-                        vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-                    ),
-                    // The clone of an `Arr<Substr>` is `Arr<Str>` (views
-                    // do not leave their split block — rotation 468);
-                    // the sort below then runs on owned strings.
-                    Type::Arr(out_id),
-                    None,
-                );
-                // Phase B refcount: arr_slice memcpys the slots without
-                // touching element refcounts — inc each shared slot so the
-                // clone owns its refs (mirrors arr.slice; without this the
-                // clone's drop per-elem dec is unmatched = over-release).
-                if elem_ty.is_refcounted() {
-                    ctx.emit_adopt_copied_range(
-                        Operand::Value(v),
-                        elem_ty,
-                        Operand::ConstI64(0),
-                        Operand::Value(len),
-                    );
-                    if elem_ty == Type::Substr {
-                        elem_ty = Type::Str;
-                    }
-                }
-                Operand::Value(v)
-            }
+            clone_for_to_sorted(ctx, recv_op, arr_id, &mut elem_ty)
         } else {
             recv_op
         };
@@ -222,6 +169,72 @@ pub(crate) fn try_dispatch(
         return Some(Operand::Value(arr_ptr));
     }
     None
+}
+
+/// toSorted clones the receiver via arr_slice before sorting so the
+/// source stays intact; arr_slice does the alloc + memcpy in one
+/// runtime call and the rest of the body operates on the clone.
+/// A Substr element layout comes back as Str in `elem_ty`.
+fn clone_for_to_sorted(
+    ctx: &mut LowerCtx<'_>,
+    recv_op: Operand,
+    arr_id: crate::ssa::ArrId,
+    elem_ty: &mut Type,
+) -> Operand {
+    let len = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::Load(Type::I64, recv_op, ARR_LEN_OFF),
+        Type::I64,
+        None,
+    );
+    // An Any-elem receiver clones through the exotic-aware
+    // `arr_any_slice` (RFC 20260721 刀 5 follow-up): an
+    // accessor index reads through its getter per §23.1.3.34
+    // [[Get]], and the kernel incs each slot itself. Typed
+    // receivers keep the raw `arr_slice` memcpy + inc range.
+    if *elem_ty == Type::Any {
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_any_slice,
+                vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+            ),
+            Type::Arr(arr_id),
+            None,
+        );
+        ctx.emit_throw_check(None);
+        Operand::Value(v)
+    } else {
+        let out_id = ctx.copied_arr_layout(arr_id);
+        let v = ctx.f.append_inst(
+            ctx.cur_block,
+            InstKind::Call(
+                ctx.intrinsics.arr_slice,
+                vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
+            ),
+            // The clone of an `Arr<Substr>` is `Arr<Str>` (views
+            // do not leave their split block — rotation 468);
+            // the sort below then runs on owned strings.
+            Type::Arr(out_id),
+            None,
+        );
+        // Phase B refcount: arr_slice memcpys the slots without
+        // touching element refcounts — inc each shared slot so the
+        // clone owns its refs (mirrors arr.slice; without this the
+        // clone's drop per-elem dec is unmatched = over-release).
+        if elem_ty.is_refcounted() {
+            ctx.emit_adopt_copied_range(
+                Operand::Value(v),
+                *elem_ty,
+                Operand::ConstI64(0),
+                Operand::Value(len),
+            );
+            if *elem_ty == Type::Substr {
+                *elem_ty = Type::Str;
+            }
+        }
+        Operand::Value(v)
+    }
 }
 
 /// RFC 20260705 chunk 550 — a comparator that lowered to an
