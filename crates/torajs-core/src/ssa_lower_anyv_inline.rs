@@ -279,6 +279,99 @@ fn emit_box_double(ctx: &mut LowerCtx<'_>, f: ValueId, slot: ValueId, done: Bloc
     store_and_join(ctx, Operand::Value(v), slot, done);
 }
 
+/// `arr[idx]` of an `Array<Any>` as a BORROWED any value, answering
+/// what `__torajs_arr_get_any_boxed` answers. A non-null array with
+/// FLAG_ARR_ANY and no sparse tail, an index below its length and a
+/// non-hole slot hand back the slot inline; null, out of range (the
+/// arguments bag lives there), a typed block behind the view, a
+/// sparse tail and a hole take the call.
+pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Operand) -> Operand {
+    use crate::ssa_lower::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
+    use torajs_rc::{FLAG_ARR_ANY, FLAG_ARR_SPARSE_TAIL};
+    let slot = ctx.alloca(Type::Any, None);
+    let len_blk = ctx.f.add_block();
+    let hdr_blk = ctx.f.add_block();
+    let elem_blk = ctx.f.add_block();
+    let hit_blk = ctx.f.add_block();
+    let slow_blk = ctx.f.add_block();
+    let done_blk = ctx.f.add_block();
+
+    let bits = emit_bits(ctx, &arr);
+    let non_null = inst(ctx, cmp_zero(IPred::Ne, bits), Type::Bool);
+    branch(ctx, non_null, len_blk, slow_blk);
+
+    ctx.cur_block = len_blk;
+    let len = inst(
+        ctx,
+        InstKind::Load(Type::I64, arr.clone(), ARR_LEN_OFF),
+        Type::I64,
+    );
+    let in_range = inst(
+        ctx,
+        InstKind::ICmp(IPred::Ult, idx.clone(), Operand::Value(len)),
+        Type::Bool,
+    );
+    branch(ctx, in_range, hdr_blk, slow_blk);
+
+    // flags are the header word's top 16 bits
+    ctx.cur_block = hdr_blk;
+    let word = inst(ctx, InstKind::Load(Type::I64, arr.clone(), 0), Type::I64);
+    let mask = ((FLAG_ARR_ANY | FLAG_ARR_SPARSE_TAIL) as i64) << 48;
+    let flags = inst(
+        ctx,
+        bin(BinOp::And, word, Operand::ConstI64(mask)),
+        Type::I64,
+    );
+    let dense_any = inst(
+        ctx,
+        InstKind::ICmp(
+            IPred::Eq,
+            Operand::Value(flags),
+            Operand::ConstI64((FLAG_ARR_ANY as i64) << 48),
+        ),
+        Type::Bool,
+    );
+    branch(ctx, dense_any, elem_blk, slow_blk);
+
+    ctx.cur_block = elem_blk;
+    let data = inst(
+        ctx,
+        InstKind::Load(Type::Ptr, arr.clone(), ARR_DATA_PTR_OFF),
+        Type::Ptr,
+    );
+    let off = inst(
+        ctx,
+        InstKind::BinOp(BinOp::Shl, idx.clone(), Operand::ConstI64(3)),
+        Type::I64,
+    );
+    let v = inst(
+        ctx,
+        InstKind::LoadDyn(Type::Any, Operand::Value(data), Operand::Value(off)),
+        Type::Any,
+    );
+    let v_bits = emit_bits(ctx, &Operand::Value(v));
+    let present = inst(ctx, cmp_zero(IPred::Ne, v_bits), Type::Bool);
+    branch(ctx, present, hit_blk, slow_blk);
+
+    ctx.cur_block = hit_blk;
+    store_and_join(ctx, Operand::Value(v), slot, done_blk);
+
+    ctx.cur_block = slow_blk;
+    let v = inst(
+        ctx,
+        InstKind::Call(ctx.intrinsics.arr_get_any_boxed, vec![arr, idx]),
+        Type::Any,
+    );
+    store_and_join(ctx, Operand::Value(v), slot, done_blk);
+
+    ctx.cur_block = done_blk;
+    Operand::Value(inst(
+        ctx,
+        InstKind::Load(Type::Any, Operand::Value(slot), 0),
+        Type::Any,
+    ))
+}
+
 fn emit_bits(ctx: &mut LowerCtx<'_>, v: &Operand) -> ValueId {
     inst(ctx, InstKind::PtrToInt(v.clone()), Type::I64)
 }
