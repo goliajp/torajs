@@ -380,6 +380,19 @@ impl<'a> Analysis<'a> {
             }
             _ => {}
         }
+        // §23.1.3's callback methods hand the receiver itself to the
+        // callback as O (forEach: `Call(callbackfn, T, « kValue, k, O »)`),
+        // so that parameter is the receiver's class: a width change
+        // through it (`o[1] = 0.5`, `delete o[2]`) is a change to the
+        // receiver. Unjoined, the receiver kept its I64 lane and the
+        // write through O threw a kind TypeError.
+        if let Some(o_idx) = callback_o_param_index(&name)
+            && let Some(cb) = args.first().and_then(|a| self.callee_fn_name(*a))
+            && let Some(p) = self.callback_params(&cb).get(o_idx).cloned()
+        {
+            self.guarded_unions
+                .push((SlotKey::Param(cb, p), recv.clone()));
+        }
         // User class method broadcast: receiver joins every owner
         // class; args flow into every owner's params (conservative —
         // static dispatch needs types the analysis doesn't have).
@@ -455,5 +468,16 @@ pub(super) fn in_number_domain(ann: &Option<String>) -> bool {
     match ann.as_deref() {
         None => true,
         Some(t) => t.trim_end_matches("[]") == "number",
+    }
+}
+
+/// The index of O among the user parameters of a callback method's
+/// callback, for the methods that pass the receiver.
+fn callback_o_param_index(method: &str) -> Option<usize> {
+    match method {
+        "map" | "forEach" | "filter" | "find" | "findLast" | "findIndex" | "findLastIndex"
+        | "some" | "every" | "flatMap" => Some(2),
+        "reduce" | "reduceRight" => Some(3),
+        _ => None,
     }
 }
