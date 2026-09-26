@@ -117,9 +117,51 @@ pub fn collect_hof_len_shrinks(ast: &mut Ast) {
             {
                 out.escaping.insert(n.clone());
             }
+            // the receiving side of a handed-on value is the same cell
+            // under another name: `const d = c; d.forEach(cb)` with cb
+            // shortening `c`
+            if let Expr::Assign { target, value } = e
+                && let Expr::Ident(n) = ast.get_expr(*target)
+                && may_be_existing_cell(ast, *value)
+            {
+                out.escaping.insert(n.clone());
+            }
         }
+        note_alias_bindings(
+            ast,
+            &ast.stmts.iter().collect::<Vec<_>>(),
+            &mut out.escaping,
+        );
     }
     ast.hof_len_shrinks = out;
+}
+
+/// False only for an initializer that builds a new value, which no
+/// other name can reach yet.
+fn may_be_existing_cell(ast: &Ast, e: ExprId) -> bool {
+    !matches!(
+        ast.get_expr(e),
+        Expr::Array(_)
+            | Expr::ObjectLit { .. }
+            | Expr::Number(_)
+            | Expr::String(_)
+            | Expr::Bool(_)
+            | Expr::Null
+    )
+}
+
+fn note_alias_bindings(ast: &Ast, stmts: &[&Stmt], out: &mut HashSet<String>) {
+    for s in stmts {
+        if let Stmt::LetDecl { name, init, .. } = s
+            && may_be_existing_cell(ast, *init)
+        {
+            out.insert(name.clone());
+        }
+        if let Stmt::FnDecl { body, .. } = s {
+            note_alias_bindings(ast, &body.iter().collect::<Vec<_>>(), out);
+        }
+        note_alias_bindings(ast, &super::desugar_with::walk::stmt_children_ref(s), out);
+    }
 }
 
 /// The array expression an operation shortens, if it is one.
