@@ -52,11 +52,11 @@ pub struct DominatorTree {
 }
 
 impl DominatorTree {
-    /// Compute the domtree for `func`. Entry is assumed to be
-    /// `BlockId(0)`; if the function has no blocks this returns an
-    /// empty tree (every query returns `None`).
+    /// Compute the domtree for `func`. The entry is the first block in
+    /// layout order, whatever its id; if the function has no blocks
+    /// this returns an empty tree (every query returns `None`).
     pub fn compute(func: &Function) -> Self {
-        let n = func.blocks.len();
+        let n = id_span(func);
         if n == 0 {
             return Self {
                 idom: Vec::new(),
@@ -65,8 +65,8 @@ impl DominatorTree {
                 children: Vec::new(),
             };
         }
-        let entry = BlockId(0);
-        let rpo = reverse_postorder(func, entry);
+        let entry = func.blocks[0].id;
+        let rpo = reverse_postorder(func, entry, n);
         let mut rpo_index = vec![usize::MAX; n];
         for (pos, blk) in rpo.iter().enumerate() {
             rpo_index[blk.0 as usize] = pos;
@@ -171,8 +171,11 @@ fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
 /// Reverse postorder = postorder, then reverse. Standard iterative DFS
 /// with a "first visit / finalise" two-state marker on each block so
 /// we don't recurse into already-being-explored cycles.
-fn reverse_postorder(func: &Function, entry: BlockId) -> Vec<BlockId> {
-    let n = func.blocks.len();
+fn reverse_postorder(func: &Function, entry: BlockId, n: usize) -> Vec<BlockId> {
+    let mut term_of: Vec<Option<&Terminator>> = vec![None; n];
+    for b in &func.blocks {
+        term_of[b.id.0 as usize] = Some(&b.term);
+    }
     let mut postorder = Vec::with_capacity(n);
     let mut visited = vec![false; n];
     let mut stack: Vec<(BlockId, bool)> = Vec::with_capacity(n);
@@ -189,7 +192,7 @@ fn reverse_postorder(func: &Function, entry: BlockId) -> Vec<BlockId> {
         visited[i] = true;
         // Schedule finalisation after children.
         stack.push((blk, true));
-        let term = &func.blocks[i].term;
+        let term = term_of[i].expect("branch target is a block of this function");
         for succ in successors(term) {
             let si = succ.0 as usize;
             if si < n && !visited[si] {
@@ -199,6 +202,17 @@ fn reverse_postorder(func: &Function, entry: BlockId) -> Vec<BlockId> {
     }
     postorder.reverse();
     postorder
+}
+
+/// One past the largest block id: the length of every per-block
+/// table. Passes may leave ids out of layout order or with gaps, so
+/// blocks are looked up by id, never by position.
+pub(crate) fn id_span(func: &Function) -> usize {
+    func.blocks
+        .iter()
+        .map(|b| b.id.0 as usize + 1)
+        .max()
+        .unwrap_or(0)
 }
 
 /// `preds[i]` = predecessor blocks of block `i`. Computed by walking
@@ -550,5 +564,23 @@ mod tests {
                 "block {b} children must not list unreachable block 2"
             );
         }
+    }
+
+    #[test]
+    fn blocks_are_found_by_id_not_by_position() {
+        // laid out 0, 1, 3, 4 with 0 -> 3 -> 1 -> 4
+        let func = fixture(vec![
+            block(0, Terminator::Br(BlockId(3))),
+            block(1, Terminator::Br(BlockId(4))),
+            block(3, Terminator::Br(BlockId(1))),
+            block(4, Terminator::Ret(None)),
+        ]);
+        let dt = DominatorTree::compute(&func);
+        assert_eq!(
+            dt.reverse_postorder(),
+            &[BlockId(0), BlockId(3), BlockId(1), BlockId(4)]
+        );
+        assert_eq!(dt.immediate_dominator(BlockId(1)), Some(BlockId(3)));
+        assert_eq!(dt.immediate_dominator(BlockId(4)), Some(BlockId(1)));
     }
 }

@@ -22,7 +22,7 @@
 //!   what we do here — single-pass back-edge collection + body
 //!   discovery + nest-depth assignment)
 
-use crate::ssa::dominator::DominatorTree;
+use crate::ssa::dominator::{DominatorTree, id_span};
 use crate::ssa::{BlockId, Function, Terminator};
 
 /// One natural loop, identified by its header block. A header may
@@ -56,7 +56,7 @@ impl LoopAnalysis {
     /// Run natural-loop detection. Requires a precomputed dominator
     /// tree (the same one the optimize / elaborate phases use).
     pub fn compute(func: &Function, dom: &DominatorTree) -> Self {
-        let n = func.blocks.len();
+        let n = id_span(func);
         let mut loops: Vec<NaturalLoop> = Vec::new();
         let mut nest_depth = vec![0u32; n];
 
@@ -159,7 +159,7 @@ fn successors(term: &Terminator) -> impl Iterator<Item = BlockId> + '_ {
 /// Result includes the header itself plus every block on some path
 /// from a source up to (but not crossing) the header.
 fn collect_loop_body(func: &Function, header: BlockId, sources: &[BlockId]) -> Vec<BlockId> {
-    let n = func.blocks.len();
+    let n = id_span(func);
     // Pred map limited to blocks that can reach back into the loop.
     let mut preds: Vec<Vec<BlockId>> = vec![Vec::new(); n];
     for blk in &func.blocks {
