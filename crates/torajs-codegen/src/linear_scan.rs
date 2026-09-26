@@ -26,34 +26,12 @@
 //! allocator pass dead simple and matching the SSA "every value is
 //! a single address" mental model.
 //!
-//! ## Mirrors `allocate_trivial` where the policy doesn't change
+//! ## Frame facts
 //!
-//! Three pieces are independent of LS and are computed exactly the
-//! same way as `regalloc::allocate_trivial`:
-//!
-//!   - Alloca slot offsets (one byte cursor per Alloca-shaped
-//!     instruction's result `ValueId`).
-//!   - `has_calls` flag (any inst that lowers to a BL site).
-//!   - Param register assignment (AAPCS64 §5.4.2 int / fp lanes —
-//!     `X0..X7` and `V0..V7` count independently).
-//!
-//! Sharing these with trivial keeps the prologue / epilogue shape
-//! and the AAPCS64 caller-side surface byte-identical when the
-//! function fits in either allocator's reg budget. The only
-//! observable difference for those functions is the order in which
-//! the caller-saved scratch pool is consumed — and even that
-//! collapses when the trivial walk and the LS scan happen to give
-//! the same answer (both consume from `X13, X14, ...` in inst-def
-//! order).
-//!
-//! ## Caller — none yet
-//!
-//! This sub-step ships the function side-by-side with
-//! `allocate_trivial`. `compile_function` still calls the trivial
-//! allocator; the cut-over to LS happens in S5 LS sub-step 4 once
-//! spill (sub-step 3) lands and the corpus runner confirms LS
-//! covers every fixture the trivial allocator does plus the 245
-//! that currently hit `index out of bounds: len 11`.
+//! Alloca slot offsets, the `has_calls` flag and every call site's
+//! slot index come from one walk (`linear_scan_calls::scan_frame`);
+//! params take their AAPCS64 lanes (`X0..X7` and `V0..V7` counted
+//! independently) from `linear_scan_lanes::param_lanes`.
 
 use torajs_core::ssa::{Function, Type};
 

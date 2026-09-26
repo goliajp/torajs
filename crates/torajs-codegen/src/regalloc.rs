@@ -1,25 +1,11 @@
-//! Register allocation.
-//!
-//! Per RFC D2 the target algorithm is Linear Scan (Poletto & Sarkar
-//! 1999). Full LS lands in S2/S3 once arithmetic / mem / cast surface
-//! broadens; S1 uses a trivial allocator that's just enough for the
-//! `1 + 2` end-to-end fixture:
-//!
-//!   - Result ValueId of the *last* defining instruction with a
-//!     ret-shaped Terminator goes to x0 (AAPCS64 ret register).
-//!   - All other ValueIds get a scratch from the AAPCS64 caller-saved
-//!     pool (x9, x10, ...), assigned in definition order.
-//!
-//! Trivial alloc is correct (every SSA value still lives in a distinct
-//! register, no false aliasing) but not space-efficient — there's no
-//! interval reuse, so we'd run out of regs around ~14 SSA values.
-//! That's plenty for S1, fine for the S2 arithmetic surface, and gets
-//! replaced by real LS in S3 once Load/Store/Alloca need spill support.
+//! Register assignment shared by the Linear Scan allocator
+//! (`linear_scan`) and the emitters: the `Assignment` map, alloca slot
+//! sizing, and the per-instruction facts the allocator reads.
 
 use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{BinOp, Function, InstKind, Terminator, Type, ValueId};
 
-use crate::reg::{Fpr, Gpr, Reg, aapcs64};
+use crate::reg::{Fpr, Gpr, Reg};
 
 /// Per-function register assignment.
 #[derive(Debug, Clone)]
@@ -51,7 +37,7 @@ pub struct Assignment {
     pub has_calls: bool,
     /// Bitmask (`Gpr::idx`) of callee-saved GPRs the allocator handed
     /// to call-crossing values — the frame must save/restore each.
-    /// 0 for the trivial allocator and leaf / non-crossing functions.
+    /// 0 for leaf / non-crossing functions.
     pub used_callee_gpr_mask: u32,
     /// Bitmask (`Fpr::idx`) of callee-saved FPRs used for call-crossing
     /// f64 values (mirrors `used_callee_gpr_mask`).
@@ -90,8 +76,7 @@ impl Assignment {
             total_spill_bytes,
             has_calls,
             // Callee-saved tracking is filled in by the caller
-            // (`linear_scan`) via the pub fields after construction;
-            // the trivial allocator leaves them empty.
+            // (`linear_scan`) via the pub fields after construction.
             used_callee_gpr_mask: 0,
             used_callee_fpr_mask: 0,
             param_entry_moves: Vec::new(),
@@ -168,22 +153,6 @@ impl Assignment {
     }
 }
 
-/// Trivial allocator: F64 values go to FPR slots, everything else to
-/// GPR slots. The function's return value (if any) is placed in the
-/// AAPCS64 return slot (x0 for int/ptr, v0/d0 for f64); the rest get
-/// caller-saved scratch in definition order.
-///
-/// Single pass:
-///   - Detect Alloca-shaped insts, assign each its byte offset within
-///     the alloca region (slot 0 at offset 0, slot 1 at offset of
-///     slot 0's rounded-to-8 size, etc).
-///   - Assign every result `ValueId` a register from the appropriate
-///     class pool.
-///
-/// Will panic if more than `CALLER_SAVED_SCRATCH.len()` GPR ValueIds
-/// or `FP_CALLER_SAVED_SCRATCH.len()` FPR ValueIds need scratch — S3
-/// lands Linear Scan with spill support before that limit becomes
-/// load-bearing.
 /// `true` iff the instruction lowers to a `BL` site at codegen time.
 /// This is what determines whether the prologue must save FP/LR
 /// (the AAPCS64 link register) — every BL clobbers x30.
@@ -205,104 +174,6 @@ pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
             | InstKind::BinOp(BinOp::FRem, _, _)
             | InstKind::CtpopRangeSum(_, _, _)
     )
-}
-
-pub fn allocate_trivial(func: &Function) -> Assignment {
-    let ret_vids = collect_ret_value_ids(func);
-    let mut by_value: HashMap<u32, Reg> = HashMap::new();
-    let mut alloca_offsets: HashMap<u32, u32> = HashMap::new();
-    let mut gpr_idx = 0usize;
-    let mut fpr_idx = 0usize;
-    let mut next_alloca_offset: u32 = 0;
-    let mut has_calls = false;
-
-    // AAPCS64 §5.4.2 — int and fp params travel in *separate* lanes:
-    // first 8 int/ptr params land in X0..X7, first 8 fp params land
-    // in V0..V7. The two indices count independently.
-    let mut gpr_arg_idx = 0usize;
-    let mut fpr_arg_idx = 0usize;
-    for &param in &func.params {
-        let ty = func
-            .values
-            .get(param.0 as usize)
-            .map(|vi| &vi.ty)
-            .expect("ValueId(param) out of bounds");
-        let is_fp = matches!(ty, Type::F64);
-        let reg = if is_fp {
-            let v = aapcs64::FP_ARG_RET[fpr_arg_idx];
-            fpr_arg_idx += 1;
-            Reg::Fpr(v)
-        } else {
-            let x = aapcs64::ARG_RET[gpr_arg_idx];
-            gpr_arg_idx += 1;
-            Reg::Gpr(x)
-        };
-        by_value.insert(param.0, reg);
-    }
-
-    for block in &func.blocks {
-        for inst in &block.insts {
-            // Record alloca slot offset before register assignment
-            // (the alloca's *result* register holds the slot address,
-            // computed by `compile::mem::emit_alloca` as ADD reg,
-            // sp, #slot_offset).
-            if let Some(slot_size) = alloca_slot_size(&inst.kind) {
-                let result = inst.result.expect("Alloca must have result");
-                alloca_offsets.insert(result.0, next_alloca_offset);
-                next_alloca_offset += slot_size;
-            }
-
-            if inst_emits_bl(&inst.kind) {
-                has_calls = true;
-            }
-
-            let Some(result) = inst.result else {
-                continue; // void inst (e.g. Store)
-            };
-
-            let ty = func
-                .values
-                .get(result.0 as usize)
-                .map(|vi| &vi.ty)
-                .expect("ValueId out of bounds");
-            let is_fp = matches!(ty, Type::F64);
-            let is_ret = ret_vids.contains(&result.0);
-
-            let reg = if is_ret {
-                if is_fp {
-                    Reg::Fpr(aapcs64::FP_ARG_RET[0])
-                } else {
-                    Reg::Gpr(aapcs64::ARG_RET[0])
-                }
-            } else if is_fp {
-                let f = aapcs64::FP_CALLER_SAVED_SCRATCH[fpr_idx];
-                fpr_idx += 1;
-                Reg::Fpr(f)
-            } else {
-                let g = aapcs64::CALLER_SAVED_SCRATCH[gpr_idx];
-                gpr_idx += 1;
-                Reg::Gpr(g)
-            };
-            by_value.insert(result.0, reg);
-        }
-    }
-
-    Assignment {
-        by_value,
-        alloca_offsets,
-        raw_alloca_bytes: next_alloca_offset,
-        // Trivial allocator never spills — it panics on pool
-        // exhaustion. LS-2/LS-3 produce real spill_bytes.
-        total_spill_bytes: 0,
-        has_calls,
-        // Trivial allocator predates call-crossing analysis; it never
-        // parks values in callee-saved registers (it panics on pool
-        // overflow before that becomes relevant).
-        used_callee_gpr_mask: 0,
-        used_callee_fpr_mask: 0,
-        param_entry_moves: Vec::new(),
-        stack_param_entry_loads: Vec::new(),
-    }
 }
 
 /// Slot byte size for an Alloca-shaped inst. Returns `None` for any
@@ -338,9 +209,8 @@ fn type_size_bytes(ty: &Type) -> u32 {
 ///
 /// All such values share the AAPCS64 ret register slot because they
 /// are mutually exclusive at runtime: only one Ret fires per
-/// function invocation. The trivial allocator places every one of
-/// them into the same physical register (x0 for int/ptr, v0 for
-/// F64). Within-block aliasing is not a concern under SSA
+/// function invocation, so they can share one physical register
+/// (x0 for int/ptr, v0 for F64). Within-block aliasing is not a concern under SSA
 /// single-assignment semantics + per-block control-flow boundary.
 pub(crate) fn collect_ret_value_ids(func: &Function) -> HashSet<u32> {
     let mut out = HashSet::new();
@@ -399,7 +269,7 @@ mod tests {
     #[test]
     fn one_plus_two_allocates_v0_to_x0() {
         let func = build_one_plus_two();
-        let alloc = allocate_trivial(&func);
+        let alloc = crate::linear_scan::allocate_linear_scan(&func);
         let v0 = ValueId(0);
         assert_eq!(alloc.of(v0), Reg::Gpr(Gpr::X0));
         assert!(alloc.contains(v0));
@@ -408,7 +278,7 @@ mod tests {
     /// `fn identity(x: i64) -> i64 { x }` — param ValueId must land
     /// in X0 (AAPCS64 int arg lane 0). Prior to this fix the trivial
     /// allocator only walked inst.result so the param's ValueId was
-    /// unmapped → `allocate_trivial -> Assignment.of()` panicked.
+    /// unmapped → `Assignment.of()` panicked.
     #[test]
     fn single_i64_param_lands_in_x0() {
         let x = ValueId(0);
@@ -427,7 +297,7 @@ mod tests {
             }],
             current_origin: None,
         };
-        let alloc = allocate_trivial(&func);
+        let alloc = crate::linear_scan::allocate_linear_scan(&func);
         assert_eq!(alloc.of(x), Reg::Gpr(Gpr::X0));
     }
 
@@ -469,7 +339,7 @@ mod tests {
             }],
             current_origin: None,
         };
-        let alloc = allocate_trivial(&func);
+        let alloc = crate::linear_scan::allocate_linear_scan(&func);
         assert_eq!(alloc.of(a), Reg::Gpr(Gpr::X0));
         assert_eq!(alloc.of(b), Reg::Fpr(Fpr::V0));
         assert_eq!(alloc.of(c), Reg::Gpr(Gpr::X1));
@@ -502,7 +372,7 @@ mod tests {
             }],
             current_origin: None,
         };
-        let alloc = allocate_trivial(&func);
+        let alloc = crate::linear_scan::allocate_linear_scan(&func);
         assert_eq!(alloc.of(v0), Reg::Fpr(Fpr::V0));
     }
 }

@@ -142,10 +142,7 @@ pub fn compile_function_with_sigs(func: &Function, fn_sigs: &[Vec<Type>]) -> Com
 }
 
 /// Compile one SSA Function to aarch64 bytes using a pre-computed
-/// register assignment. Lets callers swap allocators without going
-/// through the default `allocate_trivial` path; LS-4 will route
-/// `compile_function` through `allocate_linear_scan` here once the
-/// spill-aware emitters land in S5-gap-2-3 (this commit).
+/// register assignment.
 pub fn compile_function_with(
     func: &Function,
     alloc: Assignment,
@@ -703,23 +700,5 @@ mod tests {
                 .unwrap(),
         );
         assert_eq!(last_word, enc::ret(Gpr::X30), "function must end with RET");
-    }
-
-    /// Pre-cut-over invariant: while `compile_function` still uses
-    /// `allocate_trivial` (LS-4 will swap), the byte stream for
-    /// existing fixtures must be byte-identical to pre-LS-3 (the
-    /// scratch-pool shift X12→X13 / V16→V19 was the only LS-3
-    /// behavior-visible change; spill paths are dormant under
-    /// trivial). The 147 prior unit tests covering binop / cmp /
-    /// cast / mem / call / refs all pass without modification.
-    /// This test asserts the simplest of those (one_plus_two) one
-    /// more time to make the no-regression invariant explicit.
-    #[test]
-    fn ls3_does_not_regress_trivial_byte_stream() {
-        let func = build_one_plus_two();
-        let compiled = compile_function(&func);
-        // Round 5 imm12 form — see one_plus_two_byte_equal_reference.
-        let expected = words_to_le_bytes(&[0xD280_0029, 0x9100_0920, 0xD65F_03C0]);
-        assert_eq!(compiled.bytes, expected);
     }
 }

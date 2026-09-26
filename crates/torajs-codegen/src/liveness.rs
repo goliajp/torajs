@@ -126,8 +126,7 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
     // index 0. Any subsequent use will extend `end` past 0; a param
     // that's never used keeps `end == 0` (immediately dead, but the
     // allocator still needs an AAPCS64 arg-lane register for the
-    // call-frame entry, which `regalloc::allocate_trivial` already
-    // handles via the param pre-walk in S5-gap-1).
+    // call-frame entry).
     for &p in &func.params {
         out.insert(p.0, Interval { start: 0, end: 0 });
     }
