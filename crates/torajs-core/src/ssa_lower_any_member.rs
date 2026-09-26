@@ -381,14 +381,7 @@ fn emit_member_fallback(
         return crate::ssa_lower_accessor::emit_any_get_result(ctx, obj_val, key_str, tag, value);
     }
     if name == "length" {
-        let v = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.any_length_get, vec![obj_val.clone()]),
-            Type::Any,
-            None,
-        );
-        ctx.emit_throw_check(None);
-        return Operand::Value(v);
+        return crate::ssa_lower_anyv_inline::lower_any_length(ctx, obj_val.clone());
     }
     if name == "__proto__" {
         // Annex B §B.2.2.1 — `o.__proto__` IS the [[Prototype]]
