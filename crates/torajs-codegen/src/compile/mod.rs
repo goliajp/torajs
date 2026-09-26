@@ -33,6 +33,7 @@
 mod binop;
 mod brfuse;
 mod call;
+mod call_args;
 mod cast;
 mod cmp;
 mod ctpop_range_sum;
