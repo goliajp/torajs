@@ -6,9 +6,12 @@
 //! is not a number. A binding keeps its sniffed type only when every
 //! assign in the body sniffs to that same type (read with the binding
 //! itself at that type, so `i = i + 1` keeps `number`); otherwise the
-//! sniff forgets it and a return of it falls to `any`.
+//! sniff forgets it and a return of it falls to `any`. A mutable
+//! binding a closure in the body captures may be reassigned in the
+//! closure's lifted body, which this walk cannot see, so the sniff
+//! forgets it too.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use super::desugar_with::walk::{expr_node_children, stmt_children_ref, stmt_exprs};
 use super::implicit_generics_infer::{AstExprsView, binds_to_params, infer_expr_ann_with};
@@ -23,7 +26,10 @@ pub(super) fn drop_rebound(
     binds: &mut HashMap<String, String>,
     fn_sigs: &HashMap<String, String>,
 ) {
-    let assigned = assigned_values(exprs, body);
+    let (assigned, captured_mutable) = assigned_values(exprs, body);
+    for name in captured_mutable {
+        binds.remove(&name);
+    }
     loop {
         let params = binds_to_params(binds);
         let unsettled: Vec<String> = assigned
@@ -47,13 +53,27 @@ pub(super) fn drop_rebound(
     }
 }
 
-/// Every `name = value` rhs in `body`, by name. A nested function is
-/// its own scope and is not entered.
-fn assigned_values(exprs: AstExprsView, body: &[Stmt]) -> HashMap<String, Vec<ExprId>> {
+/// Every `name = value` rhs in `body`, by name, and the mutable
+/// `let`s of `body` some closure made in it captures. A nested
+/// function is its own scope and is not entered.
+fn assigned_values(
+    exprs: AstExprsView,
+    body: &[Stmt],
+) -> (HashMap<String, Vec<ExprId>>, HashSet<String>) {
     let mut out: HashMap<String, Vec<ExprId>> = HashMap::new();
+    let mut mutable: HashSet<&str> = HashSet::new();
+    let mut captured: HashSet<&str> = HashSet::new();
     let mut stmts: Vec<&Stmt> = body.iter().collect();
     let mut roots: Vec<ExprId> = Vec::new();
     while let Some(s) = stmts.pop() {
+        if let Stmt::LetDecl {
+            name,
+            mutable: true,
+            ..
+        } = s
+        {
+            mutable.insert(name);
+        }
         roots.extend(stmt_exprs(s));
         stmts.extend(stmt_children_ref(s));
     }
@@ -64,7 +84,14 @@ fn assigned_values(exprs: AstExprsView, body: &[Stmt]) -> HashMap<String, Vec<Ex
         {
             out.entry(name.clone()).or_default().push(*value);
         }
+        if let Expr::Closure { captures, .. } = node {
+            captured.extend(captures.iter().map(String::as_str));
+        }
         roots.extend(expr_node_children(node));
     }
-    out
+    let captured_mutable = mutable
+        .intersection(&captured)
+        .map(|s| s.to_string())
+        .collect();
+    (out, captured_mutable)
 }

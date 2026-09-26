@@ -35,8 +35,10 @@
 //! to keep, so the question is not "which family is the rhs" but
 //! "is the name ever rebound to something other than null /
 //! undefined" — asked NAME-KEYED over the whole program, nested fn
-//! bodies included, because the scope-correct walk starts every fn
-//! body from a fresh stack. A same-named binding elsewhere can
+//! bodies included, because a named fn body starts from a fresh stack.
+//! A lifted closure body is also walked where the closure is made, with
+//! its captured names bound as they are there, so `total = total + v`
+//! inside a callback widens the outer `let total`. A same-named binding elsewhere can
 //! over-widen this one; that costs typed-lane precision on a
 //! binding whose init was `null`, never a wrong answer.
 //!
@@ -112,6 +114,7 @@ fn strip_as(ast: &Ast, mut e: ExprId) -> ExprId {
     e
 }
 
+#[derive(Clone)]
 enum Binding {
     /// A widen candidate: unannotated mutable `let`. `family` is the
     /// init's syntactic family, `None` when it does not classify (the
@@ -155,6 +158,17 @@ pub(crate) fn collect_cross_type_widen_inits(
         types,
         gen_factories: collect_gen_factories(ast),
         non_nullish_rebinds: collect_non_nullish_rebinds(ast),
+        lifted: ast
+            .stmts
+            .iter()
+            .filter_map(|s| match s {
+                crate::ast::Stmt::FnDecl {
+                    name, params, body, ..
+                } => Some((name.as_str(), (params.as_slice(), body.as_slice()))),
+                _ => None,
+            })
+            .collect(),
+        entered: HashSet::new(),
         scopes: vec![HashMap::new()],
         out: HashSet::new(),
     };
@@ -177,6 +191,11 @@ struct Walker<'a> {
     /// Names rebound somewhere to a non-nullish rhs — the nullish
     /// rule's name-keyed evidence (module doc).
     non_nullish_rebinds: HashSet<String>,
+    /// Top-level FnDecls by name — where a closure's lifted body lives.
+    lifted: HashMap<&'a str, (&'a [crate::ast::Param], &'a [crate::ast::Stmt])>,
+    /// Lifted bodies being walked from their closure site (a closure
+    /// made inside its own body is not re-entered).
+    entered: HashSet<&'a str>,
     scopes: Vec<HashMap<String, Binding>>,
     out: HashSet<ExprId>,
 }

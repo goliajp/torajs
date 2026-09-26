@@ -218,8 +218,8 @@ impl Walker<'_> {
             | Expr::Null
             | Expr::Elision
             | Expr::This
-            | Expr::NewTarget
-            | Expr::Closure { .. } => {}
+            | Expr::NewTarget => {}
+            Expr::Closure { fn_name, captures } => self.walk_closure_body(fn_name, captures),
             Expr::BinOp { left, right, .. }
             | Expr::Sequence { left, right }
             | Expr::Nullish {
@@ -359,7 +359,36 @@ impl Walker<'_> {
     /// scans against nothing and keeps the loud reject — the
     /// module-doc boundary.
     pub(super) fn walk_fn_body(&mut self, params: &[Param], body: &[Stmt]) {
-        let saved = std::mem::replace(&mut self.scopes, vec![HashMap::new()]);
+        self.walk_body_in(HashMap::new(), params, body);
+    }
+
+    /// A lifted closure body walked from the site that makes it: each
+    /// captured name resolves to the binding it has here, so an
+    /// assign to it inside the body reaches the outer declaration.
+    fn walk_closure_body(&mut self, fn_name: &str, captures: &[String]) {
+        let Some((&name, &(params, body))) = self.lifted.get_key_value(fn_name) else {
+            return;
+        };
+        if !self.entered.insert(name) {
+            return;
+        }
+        let mut outer = HashMap::new();
+        for c in captures {
+            if let Some(b) = self.scopes.iter().rev().find_map(|s| s.get(c)) {
+                outer.insert(c.clone(), b.clone());
+            }
+        }
+        self.walk_body_in(outer, params, body);
+        self.entered.remove(name);
+    }
+
+    fn walk_body_in(
+        &mut self,
+        base: HashMap<String, super::Binding>,
+        params: &[Param],
+        body: &[Stmt],
+    ) {
+        let saved = std::mem::replace(&mut self.scopes, vec![base]);
         for p in params {
             if let Some(d) = p.default {
                 self.walk_expr(d);
