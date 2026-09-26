@@ -128,6 +128,39 @@ pub(crate) unsafe fn copy_hole_marks(src: *const u8, from: u64, dst: *mut u8, at
     }
 }
 
+/// Overwrite with `fill` each slot of `dst[at .. at + n]` whose source
+/// index is a hole — `src[from + k]`, or `src[from + n - 1 - k]` when
+/// `reverse`. The copy kernels that read through [[Get]] (Array.from,
+/// spread, toReversed, with, toSpliced, toSorted's clone) answer
+/// `undefined` for a hole, but a heap slot's hole word is `0`, which
+/// reads as `null`. `fill` is the target kind's `undefined` (the Str
+/// sentinel cell); `0` keeps the copied word. Callers screen on
+/// `needs_index_mop(src)`.
+pub(crate) unsafe fn fill_hole_slots(
+    src: *const u8,
+    from: u64,
+    dst: *mut u8,
+    at: u64,
+    n: u64,
+    reverse: bool,
+    fill: u64,
+) {
+    if fill == 0 {
+        return;
+    }
+    let base = unsafe { crate::ops::data_ptr(dst) };
+    for k in 0..n {
+        let i = if reverse { from + n - 1 - k } else { from + k };
+        let hole =
+            unsafe { crate::define_index_flags::__torajs_arr_index_flags(src as *const c_void, i) }
+                & F_HOLE
+                != 0;
+        if hole {
+            unsafe { *(base.add(((at + k) as usize) * 8) as *mut u64) = fill };
+        }
+    }
+}
+
 /// Mark the LAST pushed slot a HOLE (§13.2.4 elision — the slot
 /// reads undefined but is not an own property: `1 in [0,,2]` is
 /// false, indexOf skips it). Every caller pushes a slot and marks it

@@ -218,12 +218,10 @@ fn materialize_src(
             ctx.emit_throw_check_owned(None, Operand::Value(cloned), Type::Arr(out_id));
             return Operand::Value(cloned);
         }
+        let fill = crate::ssa_lower_str_arr_inplace::hole_fill_for(ctx, elem_ty);
         let cloned = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_slice,
-                vec![arg_op, Operand::ConstI64(0), Operand::Value(len)],
-            ),
+            InstKind::Call(ctx.intrinsics.arr_copy_get, vec![arg_op, fill]),
             // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do
             // not leave their split block — rotation 468).
             Type::Arr(out_id),

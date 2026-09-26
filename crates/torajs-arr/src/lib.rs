@@ -128,7 +128,7 @@ pub use print::{
 };
 pub use sealed_refuse::__torajs_arr_shift_guard;
 pub use set_length::__torajs_arr_set_length_truncate_scalar;
-pub use slice::__torajs_arr_slice;
+pub use slice::{__torajs_arr_copy_get, __torajs_arr_slice};
 pub use sort::__torajs_arr_sort_cb;
 pub use throw_empty::{__torajs_arr_throw_reduce_empty, __torajs_arr_throw_reduce_right_empty};
 pub use transform::{

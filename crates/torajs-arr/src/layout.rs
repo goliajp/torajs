@@ -171,3 +171,12 @@ pub(crate) unsafe fn copy_elem_desc_bits(src: *const u8, dst: *mut u8) {
         *(dst.add(6) as *mut u16) |= bits;
     }
 }
+
+/// Is `p` an in-band `undefined` of a heap slot — the generic cell a
+/// pointer slot holds, or the Str-shaped one a string slot holds (a
+/// copied hole, a miss)? Both answer `undefined` when the slot is read
+/// into the any world; as live cells they read as an object / a string.
+#[inline]
+pub(crate) fn heap_slot_is_undef(p: *const u8) -> bool {
+    torajs_rc::undef_cell::is_undef_cell(p) || torajs_str::undef_sentinel::is_undef(p)
+}

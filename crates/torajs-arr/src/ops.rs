@@ -53,18 +53,33 @@ pub unsafe extern "C" fn __torajs_arr_push_unchecked(arr: *mut c_void, val: i64)
     }
 }
 
-/// `__torajs_arr_extend_unchecked(dst, src)` — append every element of
+/// `__torajs_arr_extend_unchecked(dst, src, hole_fill)` — append every element of
 /// `src` to `dst` via a single memcpy. Caller asserts `dst.cap >=
 /// dst.len + src.len`; UB if violated. Typical caller is a literal-
 /// with-spreads materializer that pre-computes total length and allocs
 /// once.
 ///
+/// The spread lane reads each source index through the iterator, so a
+/// hole arrives as `undefined`: `hole_fill` is that value for the
+/// element kind (see [`crate::define_hole::fill_hole_slots`]).
+///
 /// # Safety
 /// Both `dst` and `src` must be valid 8-byte-slot Array heap blocks;
 /// `dst` must have capacity for the extra `src.len` elements.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_extend_unchecked(dst: *mut u8, src: *const u8) {
-    unsafe { extend_slots(dst, src) }
+pub unsafe extern "C" fn __torajs_arr_extend_unchecked(
+    dst: *mut u8,
+    src: *const u8,
+    hole_fill: u64,
+) {
+    unsafe {
+        let at = *(dst.add(ARR_LEN_OFF) as *const u64);
+        extend_slots(dst, src);
+        if crate::layout::needs_index_mop(src) {
+            let n = *(src.add(ARR_LEN_OFF) as *const u64);
+            crate::define_hole::fill_hole_slots(src, 0, dst, at, n, false, hole_fill);
+        }
+    }
 }
 
 /// `concat`'s append of an array argument (and of the receiver itself):

@@ -447,12 +447,13 @@ fn fill_arr_from_items(
                 } else {
                     None
                 };
+                let fill = crate::ssa_lower_str_arr_inplace::hole_fill_for(ctx, elem_ty);
                 let cur_block = ctx.cur_block;
                 ctx.f.append_void(
                     cur_block,
                     InstKind::Call(
                         ctx.intrinsics.arr_extend_unchecked,
-                        vec![Operand::Value(arr_ptr), src],
+                        vec![Operand::Value(arr_ptr), src, fill],
                     ),
                 );
                 if let Some(old) = old_len {

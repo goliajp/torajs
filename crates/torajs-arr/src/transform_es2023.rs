@@ -53,8 +53,11 @@ unsafe fn arr_alloc_fresh(len: u64, cap: u64) -> *mut u8 {
 // arr_to_reversed — ES2023 non-mutating reverse
 // ============================================================
 
+/// `hole_fill` is the element kind's `undefined`, written where the
+/// receiver has a hole (§23.1.3.33 reads each index with [[Get]]); see
+/// [`crate::define_hole::fill_hole_slots`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
+pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8, hole_fill: u64) -> *mut u8 {
     unsafe {
         let len = arr_len(arr);
         let p = arr_alloc_fresh(len, len);
@@ -64,6 +67,9 @@ pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
             let src = slot_addr(arr, len - 1 - i);
             *(dst.add(i as usize * 8) as *mut u64) = *(src as *const u64);
         }
+        if crate::layout::needs_index_mop(arr) {
+            crate::define_hole::fill_hole_slots(arr, 0, p, 0, len, true, hole_fill);
+        }
         p
     }
 }
@@ -72,8 +78,15 @@ pub unsafe extern "C" fn __torajs_arr_to_reversed(arr: *const u8) -> *mut u8 {
 // arr_with — ES2023 non-mutating index update
 // ============================================================
 
+/// `hole_fill` as for [`__torajs_arr_to_reversed`] (§23.1.3.39 step 10
+/// reads every other index with [[Get]]).
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_arr_with(arr: *const u8, i: i64, v: i64) -> *mut u8 {
+pub unsafe extern "C" fn __torajs_arr_with(
+    arr: *const u8,
+    i: i64,
+    v: i64,
+    hole_fill: u64,
+) -> *mut u8 {
     unsafe {
         let len = arr_len(arr);
         // ES §23.1.3.39 step 7 — `actualIndex = i < 0 ? len + i : i`,
@@ -91,6 +104,9 @@ pub unsafe extern "C" fn __torajs_arr_with(arr: *const u8, i: i64, v: i64) -> *m
         if len > 0 {
             let src = slot_addr(arr, 0);
             core::ptr::copy_nonoverlapping(src, dst, (len as usize) * 8);
+        }
+        if crate::layout::needs_index_mop(arr) {
+            crate::define_hole::fill_hole_slots(arr, 0, p, 0, len, false, hole_fill);
         }
         *(dst.add(adj as usize * 8) as *mut u64) = v as u64;
         p

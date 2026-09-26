@@ -93,6 +93,26 @@ pub unsafe extern "C" fn __torajs_arr_slice(arr: *const u8, start: i64, end: i64
     }
 }
 
+/// A whole-array copy that reads every index with [[Get]] —
+/// `Array.from(a)`, and the clones `toSorted` / `toSpliced` work on —
+/// where [`__torajs_arr_slice`] keeps holes as holes. A hole becomes
+/// `hole_fill`, the element kind's `undefined` (see
+/// [`crate::define_hole::fill_hole_slots`]).
+///
+/// # Safety
+/// Same contract as [`__torajs_arr_slice`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn __torajs_arr_copy_get(arr: *const u8, hole_fill: u64) -> *mut u8 {
+    unsafe {
+        let len = *(arr.add(ARR_LEN_OFF) as *const u64);
+        let p = __torajs_arr_slice(arr, 0, len as i64);
+        if crate::layout::needs_index_mop(arr) {
+            crate::define_hole::fill_hole_slots(arr, 0, p, 0, len, false, hole_fill);
+        }
+        p
+    }
+}
+
 /// ES spec §22.1.3.25 negative-index clamp shared by both slice
 /// kernels: `start < 0 → max(len + start, 0)`, same for end; empty
 /// range (`hi = lo`) when they cross.

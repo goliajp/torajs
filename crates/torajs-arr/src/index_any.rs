@@ -186,7 +186,7 @@ pub unsafe extern "C" fn __torajs_arr_index_get(arr: *const c_void, idx: i64) ->
                 // A null slot is a hole (e.g. a missed optional
                 // capture in a match array) — `undefined` per spec,
                 // never a boxed null pointer.
-                if raw == 0 {
+                if raw == 0 || crate::layout::heap_slot_is_undef(raw as *const u8) {
                     return undef();
                 }
                 __torajs_rc_inc(raw as *mut c_void);

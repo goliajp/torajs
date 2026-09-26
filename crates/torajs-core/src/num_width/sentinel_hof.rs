@@ -196,8 +196,79 @@ pub(super) fn collect_sentinel_elems(
             _ => {}
         }
     }
-    collect_literal_decls(a, t, &stmts.iter().collect::<Vec<_>>(), &mut out);
-    out
+    let stmts: Vec<&Stmt> = stmts.iter().collect();
+    loop {
+        let before = out.len();
+        collect_literal_decls(a, t, &stmts, &mut out);
+        collect_elem_args(a, &mut out);
+        if out.len() == before {
+            return out;
+        }
+    }
+}
+
+/// A container whose elements can hold a sentinel, handed to a user
+/// function, makes that parameter such a container too — the callee's
+/// `xs.forEach(cb)` loads the same slots. Registered by parameter
+/// name like everything else here; the caller loops to a fixed point
+/// so a chain of calls and copies registers.
+fn collect_elem_args(a: &Analysis<'_>, out: &mut HashSet<String>) {
+    for eid in 0..a.ast.exprs.len() {
+        let Expr::Call { callee, args } = a.ast.get_expr(crate::ast::ExprId(eid as u32)) else {
+            continue;
+        };
+        let Expr::Ident(f) = a.ast.get_expr(*callee) else {
+            continue;
+        };
+        let Some(params) = a.fn_params.get(f) else {
+            continue;
+        };
+        for (arg, param) in args.iter().zip(params) {
+            let holds = match a.ast.get_expr(*arg) {
+                Expr::Ident(n) => out.contains(n),
+                _ => copies_sentinel_elems(a, *arg, out),
+            };
+            if holds && !out.contains(param) {
+                out.insert(param.clone());
+            }
+        }
+    }
+}
+
+/// A copy of a container whose elements can hold a sentinel, read
+/// through [[Get]] so a hole arrives as the sentinel (`toReversed`,
+/// `toSorted`, `toSpliced`, `with`, `Array.from(xs)`, `[...xs]`), or
+/// kept as a hole (`slice`, `concat`) that the find family then reads
+/// the same way. Programs declare the copy after the source, and
+/// statements are walked in order, so a chain of copies registers.
+fn copies_sentinel_elems(
+    a: &Analysis<'_>,
+    eid: crate::ast::ExprId,
+    elems: &HashSet<String>,
+) -> bool {
+    let named =
+        |e: crate::ast::ExprId| matches!(a.ast.get_expr(e), Expr::Ident(n) if elems.contains(n));
+    match a.ast.get_expr(eid) {
+        Expr::Call { callee, args } => match a.ast.get_expr(*callee) {
+            Expr::Member { obj, name }
+                if matches!(
+                    name.as_str(),
+                    "toReversed" | "toSorted" | "toSpliced" | "with" | "slice" | "concat"
+                ) =>
+            {
+                named(*obj)
+            }
+            Expr::Member { obj, name } if name == "from" => {
+                matches!(a.ast.get_expr(*obj), Expr::Ident(n) if n == "Array")
+                    && args.first().is_some_and(|x| named(*x))
+            }
+            _ => false,
+        },
+        Expr::Array(els) => els
+            .iter()
+            .any(|e| matches!(a.ast.get_expr(*e), Expr::Spread { expr } if named(*expr))),
+        _ => false,
+    }
 }
 
 /// An array literal with a sentinel-bearing element. A declaration is
@@ -218,7 +289,7 @@ fn collect_literal_decls(
 ) {
     for s in stmts {
         if let Stmt::LetDecl { name, init, .. } = s
-            && literal_holds_sentinel(a, t, *init)
+            && (literal_holds_sentinel(a, t, *init) || copies_sentinel_elems(a, *init, out))
         {
             out.insert(name.clone());
         }
@@ -271,10 +342,11 @@ pub(super) fn collect_hof_elem_params(
         taint_param(a, &fn_name, 0, out);
         return;
     }
-    let Expr::Ident(recv) = a.ast.get_expr(*obj) else {
-        return;
+    let holds = match a.ast.get_expr(*obj) {
+        Expr::Ident(recv) => t.elems.contains(recv),
+        _ => copies_sentinel_elems(a, *obj, &t.elems),
     };
-    if !t.elems.contains(recv) {
+    if !holds {
         return;
     }
     match name.as_str() {

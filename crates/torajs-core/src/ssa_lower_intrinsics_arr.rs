@@ -176,7 +176,7 @@ pub(crate) fn declare(module: &mut Module, fn_table: &mut HashMap<String, FuncId
             module,
             fn_table,
             "__torajs_arr_extend_unchecked",
-            &[Type::Ptr, Type::Ptr],
+            &[Type::Ptr, Type::Ptr, Type::I64],
             Type::Void,
         ),
         arr_slice: declare_intrinsic(

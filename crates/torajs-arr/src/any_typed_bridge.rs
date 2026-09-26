@@ -337,7 +337,7 @@ pub(crate) unsafe fn typed_slot_anyvalue_borrowed(arr: *const u8, i: u64) -> u64
             // the cell, and `JSON.stringify` of the same array walked
             // it as an array. This is the one place a typed slot
             // becomes an AnyValue, so both are the same answer here.
-            ARR_KIND_HEAP if torajs_rc::undef_cell::is_undef_cell(raw as *const u8) => {
+            ARR_KIND_HEAP if crate::layout::heap_slot_is_undef(raw as *const u8) => {
                 __torajs_anyv_box_from_pair(ANY_UNDEF as i64, 0)
             }
             ARR_KIND_HEAP => __torajs_anyv_box_from_pair(ANY_HEAP as i64, raw as i64),

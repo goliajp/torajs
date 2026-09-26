@@ -183,9 +183,10 @@ pub(crate) fn try_dispatch(
     None
 }
 
-/// toSorted clones the receiver via arr_slice before sorting so the
-/// source stays intact; arr_slice does the alloc + memcpy in one
-/// runtime call and the rest of the body operates on the clone.
+/// toSorted clones the receiver via arr_copy_get before sorting so the
+/// source stays intact; the copy reads holes as undefined (§23.1.3.34
+/// step 5 sorts `undefined`, not holes) and the rest of the body
+/// operates on the clone.
 /// A Substr element layout comes back as Str in `elem_ty`.
 fn clone_for_to_sorted(
     ctx: &mut LowerCtx<'_>,
@@ -218,12 +219,10 @@ fn clone_for_to_sorted(
         Operand::Value(v)
     } else {
         let out_id = ctx.copied_arr_layout(arr_id);
+        let fill = crate::ssa_lower_str_arr_inplace::hole_fill_for(ctx, *elem_ty);
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_slice,
-                vec![recv_op, Operand::ConstI64(0), Operand::Value(len)],
-            ),
+            InstKind::Call(ctx.intrinsics.arr_copy_get, vec![recv_op, fill]),
             // The clone of an `Arr<Substr>` is `Arr<Str>` (views
             // do not leave their split block — rotation 468);
             // the sort below then runs on owned strings.

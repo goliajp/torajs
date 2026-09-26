@@ -324,6 +324,48 @@ fn emit_compare_any_needle(
         // The raw slot word (the scan loads a boolean element as I64):
         // a hole's 2 reaches the kernel, which reads it as undefined.
         Type::Bool => (1, Operand::Value(elem)),
+        // A string slot holds three shapes — null (0), the undefined
+        // sentinel cell (a copied hole), a heap Str — so it decodes to
+        // its own pair; as a bare cell the sentinel compared as text.
+        Type::Str | Type::Substr => {
+            let (tag_fid, value_fid) = if elem_ty == Type::Str {
+                (
+                    ctx.intrinsics.anyv_str_slot_tag,
+                    ctx.intrinsics.anyv_str_slot_value,
+                )
+            } else {
+                (
+                    ctx.intrinsics.anyv_substr_slot_tag,
+                    ctx.intrinsics.anyv_substr_slot_value,
+                )
+            };
+            let tag = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(tag_fid, vec![Operand::Value(elem)]),
+                Type::I64,
+                None,
+            );
+            let value = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(value_fid, vec![Operand::Value(elem)]),
+                Type::I64,
+                None,
+            );
+            let fid = if want_bool {
+                ctx.intrinsics.any_svz
+            } else {
+                ctx.intrinsics.any_strict_eq
+            };
+            return ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(
+                    fid,
+                    vec![needle, Operand::Value(tag), Operand::Value(value)],
+                ),
+                Type::Bool,
+                None,
+            );
+        }
         // Str and every other refcounted elem: the kernel's cell row
         // does byte-equality for Str (ShortStr-box × heap-Str
         // crossings included) and identity otherwise.

@@ -36,9 +36,7 @@ pub(crate) fn try_dispatch(
     if let Type::Arr(arr_id) = recv_ty
         && method == "reverse"
     {
-        for &a in args.iter() {
-            let _ = ctx.lower_expr(a);
-        }
+        eval_discard(ctx, args);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(ctx.intrinsics.arr_reverse, vec![recv_op]),
@@ -64,9 +62,7 @@ pub(crate) fn try_dispatch(
     {
         // S287 — accept trailing args per ES §23.1.3.33; lower-
         // and-drop before the call to fire side-effect exprs.
-        for &a in args.iter() {
-            let _ = ctx.lower_expr(a);
-        }
+        eval_discard(ctx, args);
         // 刀 13b (RFC 20260721-array-proto-cluster) — an Any-elem
         // receiver rides the §23.1.3.33 step 5 [[Get]] order through
         // `arr_any_to_reversed`: the SOURCE reads high→low
@@ -92,9 +88,10 @@ pub(crate) fn try_dispatch(
         // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do not
         // leave their split block — rotation 468).
         let out_id = ctx.copied_arr_layout(arr_id);
+        let fill = hole_fill_for(ctx, elem_ty);
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_to_reversed, vec![recv_op]),
+            InstKind::Call(ctx.intrinsics.arr_to_reversed, vec![recv_op, fill]),
             Type::Arr(out_id),
             None,
         );
@@ -184,15 +181,14 @@ pub(crate) fn try_dispatch(
         // step()-style side-effect exprs fire per ES eval-then-discard
         // semantics. The arr_with helper is 2-arg only; trailing slots
         // never reach it.
-        for &a in args.iter().skip(2) {
-            let _ = ctx.lower_expr(a);
-        }
+        eval_discard(ctx, args.get(2..).unwrap_or(&[]));
         // A copy out of an `Arr<Substr>` is `Arr<Str>` (views do not
         // leave their split block — rotation 468).
         let out_id = ctx.copied_arr_layout(arr_id);
+        let fill = hole_fill_for(ctx, elem_layout);
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(ctx.intrinsics.arr_with, vec![recv_op, i_val, v_val]),
+            InstKind::Call(ctx.intrinsics.arr_with, vec![recv_op, i_val, v_val, fill]),
             Type::Arr(out_id),
             None,
         );
@@ -320,4 +316,33 @@ pub(crate) fn emit_arr_lock_bits_guard(
     let cb = ctx.cur_block;
     ctx.f.set_term(cb, crate::ssa::Terminator::Unreachable);
     ctx.cur_block = cont_blk;
+}
+
+/// The `undefined` a [[Get]] copy writes where its source has a hole:
+/// the Str sentinel cell for a string array, whose hole word `0`
+/// otherwise reads as `null`. Other kinds pass `0` (keep the copied
+/// word): a number slot's hole already holds its undefined sentinel.
+pub(crate) fn hole_fill_for(ctx: &mut LowerCtx, elem_ty: Type) -> Operand {
+    if !matches!(elem_ty, Type::Str | Type::Substr) {
+        return Operand::ConstI64(0);
+    }
+    let cell = ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::GlobalRef(crate::ssa_lower_intrinsics_str_b::STR_UNDEF_CELL_SYM.to_string()),
+        Type::Str,
+        None,
+    );
+    Operand::Value(ctx.f.append_inst(
+        ctx.cur_block,
+        InstKind::PtrToInt(Operand::Value(cell)),
+        Type::I64,
+        None,
+    ))
+}
+
+/// Evaluate arguments the method ignores, for their side effects.
+fn eval_discard(ctx: &mut LowerCtx, args: &[ExprId]) {
+    for &a in args {
+        let _ = ctx.lower_expr(a);
+    }
 }

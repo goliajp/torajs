@@ -1025,6 +1025,7 @@ pub(crate) struct Intrinsics {
     pub(crate) arr_set_length_truncate_scalar: FuncId,
     pub(crate) arr_set_length_any: FuncId,
     pub(crate) arr_to_reversed: FuncId,
+    pub(crate) arr_copy_get: FuncId,
     pub(crate) arr_with: FuncId,
     pub(crate) arr_flat_runtime_depth: FuncId,
     pub(crate) arr_oob_throw: FuncId,

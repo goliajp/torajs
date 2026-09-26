@@ -183,15 +183,12 @@ fn emit_clone_splice_return(
         ctx.emit_throw_check(None);
         v
     } else {
+        let fill = crate::ssa_lower_str_arr_inplace::hole_fill_for(ctx, elem_ty);
         let v = ctx.f.append_inst(
             ctx.cur_block,
             InstKind::Call(
-                ctx.intrinsics.arr_slice,
-                vec![
-                    Operand::Value(cur_arr),
-                    Operand::ConstI64(0),
-                    Operand::Value(len),
-                ],
+                ctx.intrinsics.arr_copy_get,
+                vec![Operand::Value(cur_arr), fill],
             ),
             arr_ty,
             None,
