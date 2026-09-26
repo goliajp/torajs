@@ -132,6 +132,10 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
         let v_name = format!("__sfi_v_{id}");
         let new_body =
             crate::ast::sfi_rewrite::sfi_rewrite_body(ast, &body_box, &x_name, &i_name, &v_name);
+        // The counter is the original loop's own binding, scoped to the
+        // loop: once `X[I]` is gone, a body that never reads `I` needs
+        // no counter at all (it cost a loop-carried slot per part).
+        let counts = crate::ast::sfi_safe::sfi_stmt_uses_ident(ast, &new_body, &i_name);
         // Append `I = I + 1` step so the body's manual counter ticks.
         let i_ref_step_l = ast.add_expr(Expr::Ident(i_name.clone()));
         let i_ref_step_r = ast.add_expr(Expr::Ident(i_name.clone()));
@@ -147,10 +151,13 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
         });
         let body_with_inc = match new_body {
             Stmt::Block(mut inner) => {
-                inner.push(Stmt::Expr(assign_eid));
+                if counts {
+                    inner.push(Stmt::Expr(assign_eid));
+                }
                 Stmt::Block(inner)
             }
-            other => Stmt::Block(vec![other, Stmt::Expr(assign_eid)]),
+            other if counts => Stmt::Block(vec![other, Stmt::Expr(assign_eid)]),
+            other => Stmt::Block(vec![other]),
         };
         let zero_eid = ast.add_expr(Expr::Number(0.0));
         let counter_decl = Stmt::LetDecl {
@@ -167,7 +174,11 @@ fn rewrite_sfi_walk_list(ast: &mut Ast, stmts: &mut Vec<Stmt>, ctx: &mut SplitFo
             sep: sep_eid,
             body: Box::new(body_with_inc),
         };
-        let new_block = Stmt::Block(vec![counter_decl, forof]);
+        let new_block = if counts {
+            Stmt::Block(vec![counter_decl, forof])
+        } else {
+            Stmt::Block(vec![forof])
+        };
         to_remove.insert(j);
         replacements.insert(i, new_block);
     }
