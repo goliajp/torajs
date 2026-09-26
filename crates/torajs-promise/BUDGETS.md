@@ -1,8 +1,7 @@
 # torajs-promise performance budgets
 
 Per-op latency in 10-100 ns range. Pool hit/miss is the biggest
-variable. Refer to bench corpus baseline numbers in
-`bench/results/2026-05-24-mini-9b7740c.json` for end-to-end timing.
+variable. See the bench corpus for end-to-end timing.
 
 | Path | Hot/Cold |
 | --- | --- |

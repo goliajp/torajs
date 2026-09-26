@@ -13,8 +13,7 @@ stack. Every `Type::Any`-
 typed slot in user code flows through an `AnyBox`: every
 `Array<Any>` element, every dynamic-property bag value, every
 function `: any` parameter / return value boxes on the way in or
-out. Per `rules/rust/patterns.md`: hot paths sit at µs / ns
-budget.
+out. Hot paths sit at µs / ns budget.
 
 ## Budgets
 
@@ -33,22 +32,14 @@ budget.
 
 ## When to re-measure
 
-- Algorithm change (e.g. AnyBox pooled to LIFO free-list, P-PERF
-  follow-up)
+- Algorithm change (e.g. AnyBox pooled to a LIFO free-list)
 - Layout change (struct grew / fields reordered)
 - Code-gen change (rustc / LLVM upgrade)
 - Criterion bench median in `benches/anyvalue.rs` moves > 30% in
   either direction — chase it as a real signal.
 
-## Vision alignment
+## Dependencies
 
-`box_unbox_i64` regressions feed directly into the workspace-
-level `bench-harness` geomean: every Promise / Closure / generic
-case that touches an Any-typed value materializes one or more
-`AnyBox` allocations. Holding the budget here is necessary (but
-not sufficient) for the workspace geomean ≥ 4.41× vs bun-aot
-invariant.
-
-Vision item #4 (0 deps): `cargo tree -p torajs-anyvalue` shows
-only the in-workspace `torajs-rc` dependency. `criterion` is
-workspace-dev-shared and not present in produced binaries.
+`cargo tree -p torajs-anyvalue` shows only the in-workspace
+`torajs-rc` dependency. `criterion` is workspace-dev-shared and
+not present in produced binaries.

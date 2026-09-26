@@ -9,13 +9,12 @@ Panic-free abort helper for staticlib-shipped Rust crates. `no_std`. 0
 Cargo deps — libc `write(2)` + `abort()` declared inline via
 `unsafe extern "C"`.
 
-Extracted from the [torajs] AOT TypeScript runtime where it shipped as
-polish A3 (commit `ab7a286`, 2026-05-24) to strip the Rust `std::panic`
-infrastructure (`std::backtrace` / `gimli` / `addr2line` /
-`rustc_demangle` / `std::io::Error` / `std::thread::Thread`) from
-every user binary. Combined with build-std + panic=abort, the
-measured user-binary delta on the torajs bench corpus is **~150 KB
-per binary**.
+Built for the [torajs] AOT TypeScript runtime, where Rust's default
+panic infrastructure (`std::backtrace` / `gimli` / `addr2line` /
+`rustc_demangle` / `std::io::Error` / `std::thread::Thread`) is dead
+weight in a staticlib linked into a final user binary. Combined
+with build-std and `panic = "abort"`, this keeps that machinery out
+of the final binary.
 
 ## When to use
 

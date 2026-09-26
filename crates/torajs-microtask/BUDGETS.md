@@ -29,7 +29,7 @@ bench numbers. Latency budget per op is in low-ns territory.
 
 ## Integrated bench corpus impact
 
-Per `bench/results/2026-05-24-mini-9b7740c.json` (Phase 1 closed):
+Measured on the bench corpus:
 
 - `promise-await-100k` torajs: 1.94 ms (~5k microtasks/sec measured)
 - `promise-chain-1k` torajs: 1.39 ms (~1k microtask chain depth)

@@ -11,14 +11,10 @@ local that gets captured by a closure needs to be promoted to the
 heap with shared ownership semantics. 0 Cargo deps. 3 `extern "C"`
 ABI fns: `alloc` / `inc` / `drop`.
 
-Extracted from the [torajs] AOT TypeScript runtime as **P6.5**
-(commit `c1b9e48`, 2026-05-24) — when `runtime_promise.c` was ported
-to `torajs-promise`, the orthogonal 3-fn capture-box helper carved
-out into its own standalone Rust crate (distinct layout from
-`torajs-rc`'s universal heap header, which is `refcount u32 +
-type_tag u16 + flags u16 = 8 B`; capture-box uses `refcount u64 +
-i64 value = 16 B` because the box is value-typed and doesn't need
-tag dispatch).
+Distinct layout from `torajs-rc`'s universal heap header (`refcount
+u32 + type_tag u16 + flags u16 = 8 B`): capture-box uses `refcount
+u64 + i64 value = 16 B` because the box is value-typed and doesn't
+need tag dispatch.
 
 ## Layout (16 bytes total)
 

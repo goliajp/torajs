@@ -8,12 +8,10 @@
 Synchronous HTTP fetch for the [torajs] AOT TypeScript runtime: minimal
 libcurl-easy wrapper exposing `__torajs_fetch_sync(url) -> Response`
 and `__torajs_response_drop`. Native target only; `wasm32-wasi`
-target gets an empty-body Response shape (browser-fetch routing
-will live in a sibling crate post-v0.6).
+target gets an empty-body Response shape.
 
-Extracted from `runtime_fetch.c` (~340 LOC) as **P6.3** (commit
-`f04a2dc`, 2026-05-24). Paired with `torajs-promise` at codegen —
-the TS `fetch(url)` lowers to:
+Paired with `torajs-promise` at codegen — the TS `fetch(url)` lowers
+to:
 
 ```
 promise_alloc_fulfilled_heap(
@@ -50,7 +48,7 @@ frees the Response block.
 ```rust
 // On native, performs the GET via libcurl-easy and returns the
 // Response. On wasm32-wasi, returns an empty-body Response with
-// status 0 (T-21.b will route through the browser fetch API).
+// status 0.
 pub unsafe extern "C" fn __torajs_fetch_sync(url: *const u8) -> *mut c_void;
 
 pub unsafe extern "C" fn __torajs_response_drop(p: *mut c_void);

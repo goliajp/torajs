@@ -43,7 +43,7 @@ exercises this crate in the realistic combinations:
 - `csv-trim-100k`: 7 × split + 7 × trim per iteration → 700k slice/run; targets 7-8 ms total.
 - `split-only-100k`: 1 × split per iteration → 100k split/run; targets 5 ms total.
 
-Per `bench/results/2026-05-24-mini-9b7740c.json` (Phase 1 closed baseline):
+Measured on the bench corpus:
 
 - csv-rebuild-100k torajs: 7.40 ms (rust: 18.96 ms; bun-aot: 21.89 ms — torajs **2.56× rust / 2.96× bun**)
 - csv-trim-100k    torajs: 7.44 ms (rust: 7.10 ms; bun-aot: 21.95 ms — torajs neck-and-neck with rust, **2.95× bun**)

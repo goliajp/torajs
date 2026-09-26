@@ -7,15 +7,12 @@
 
 Fatal-error helper for AOT-compiled user binaries: `__torajs_panic(msg)`
 writes the message to stderr, prints a symbolicated backtrace (macOS
-`atos` / Linux raw PC chain), then `exit(1)`. Layer-1 substrate; 0
-Cargo deps.
+`atos` / Linux raw PC chain), then `exit(1)`. 0 Cargo deps.
 
-Extracted from the [torajs] AOT TypeScript runtime as **P7.i-panic**
-(commit `7af88d6`, 2026-05-24) — the central fatal-error path used
-by runtime helpers when an unrecoverable invariant violation occurs
-(e.g. type_tag dispatch sees an impossible discriminant, refcount
-goes negative on a non-static heap object). Replaces the C `__torajs_panic`
-that previously lived in `runtime_str.c`.
+Used as the central fatal-error path for runtime helpers when an
+unrecoverable invariant violation occurs (e.g. type_tag dispatch sees
+an impossible discriminant, refcount goes negative on a non-static
+heap object).
 
 ## Difference from `torajs-abort`
 

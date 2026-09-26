@@ -7,8 +7,8 @@
 Boxed `Type::Any` value primitives for the [torajs] AOT TypeScript
 runtime. Single in-workspace dependency: [`torajs-rc`].
 
-Layer-1 substrate built atop the universal heap-header crate. Used
-by every Any-typed slot, Array<Any> element, dynobj bucket value.
+Built atop the universal heap-header crate ([`torajs-rc`]). Used by
+every Any-typed slot, Array<Any> element, and dynobj bucket value.
 
 ## API surface
 

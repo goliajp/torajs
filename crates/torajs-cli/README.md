@@ -36,7 +36,7 @@ tr lsp
 
 Run `tr --help` for the full list at the version you have.
 
-## Pipeline stages (per `Stage` enum in `main.rs`)
+## Pipeline stages
 
 ```rust
 enum Stage {

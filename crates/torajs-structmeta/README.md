@@ -7,17 +7,17 @@
 
 Struct-layout reflection substrate for the [torajs] AOT TypeScript
 runtime. Read-side helpers over the toolchain-emitted
-`__torajs_class_layouts` table (W-J Phase A3b wrote the on-disk per-class
-field metadata; this crate, **Phase A4**, reads it back at runtime).
+`__torajs_class_layouts` table (the on-disk per-class field metadata
+is written elsewhere in the toolchain; this crate reads it back at
+runtime).
 
 The cycle collector (`torajs-cycle`) already consumes the same table for
 its child-pointer offsets. This crate adds the **field-name + byte-offset
-+ type-tag** read path the reflection ops need:
++ type-tag** read path used by reflection operations such as:
 
-- `Object.getOwnPropertyDescriptor(o, k)` (Phase B — first user-visible
-  unlock)
-- `Object.keys` / `values` / `entries` (Phase C)
-- `inspect.rs` `Tag::Obj` pretty-printer (Phase D)
+- `Object.getOwnPropertyDescriptor(o, k)`
+- `Object.keys` / `values` / `entries`
+- the `Tag::Obj` pretty-printer in `inspect.rs`
 
 ## ABI
 
@@ -44,9 +44,8 @@ FieldInfo __torajs_struct_field_info(const StructLayoutEntry *layout, uint32_t i
 uint32_t  __torajs_struct_field_find(const StructLayoutEntry *layout, const uint8_t *name, uint32_t name_len);
 ```
 
-`field_find` is a linear scan (struct field counts are small — the perfect
-hash is a deferred follow-up if a workload ever pushes counts high enough
-to matter; reflection is not a hot path).
+`field_find` is a linear scan (struct field counts are small; reflection
+is not a hot path).
 
 ## License
 

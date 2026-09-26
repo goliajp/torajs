@@ -8,11 +8,10 @@
 Dynamic-property-bag substrate for the [torajs] AOT TypeScript runtime
 — the open-addressing hashmap behind `obj.x = v`, `arr.x = v`,
 `fn.x = v` patterns. 0 Cargo deps; Swift-`Dictionary`-/ CPython-`dict`-shape
-algorithm, fully self-implemented per the torajs 自研 pillar.
+algorithm, fully self-implemented.
 
-Extracted from `runtime_str.c` as P4.2 (closed `17397a5`, 2026-05-23).
 11 source modules covering insertion / lookup / removal / iteration /
-property-descriptor attributes + drop integration.
+property-descriptor attributes and drop integration.
 
 ## Algorithm choices
 

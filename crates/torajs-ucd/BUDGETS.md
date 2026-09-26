@@ -14,8 +14,8 @@ Run `cargo test -p torajs-ucd --test perf_gate` to check.
 class matching when the pattern has the `u` flag. Each cp ≥ 128 read
 from the input string runs one of these on the regex VM's bytecode
 dispatch loop. For a million-codepoint input on a `\p{L}+` pattern
-that's one million `is_letter_cp` calls — per `rules/rust/patterns.md`
-hot path budget sits at ns / op.
+that's one million `is_letter_cp` calls — hot path budget sits at
+ns / op.
 
 ## Budgets
 

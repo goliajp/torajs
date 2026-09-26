@@ -13,8 +13,8 @@ It is the universal heap-
 header + refcount primitive — every refcounted heap value in the
 torajs runtime (every Str / Obj / Arr / Closure / RegExp / Date /
 Promise / Map / Set / BigInt / DynObj / …) flows through these
-functions. Per `rules/rust/patterns.md`: hot paths sit at µs / ns
-budget; `__torajs_rc_inc` / `__torajs_rc_dec` are emitted by
+functions. Hot paths sit at µs / ns budget; `__torajs_rc_inc` /
+`__torajs_rc_dec` are emitted by
 `ssa_lower` at every refcounted slot assignment and slot drop, so
 they are among the single hottest lines in the runtime.
 
@@ -54,13 +54,8 @@ these fire:
 - A criterion bench median in `benches/rc.rs` moves by > 30% in
   either direction — that's a real signal worth chasing, not noise.
 
-## Vision alignment
+## Dependencies
 
-- `inc_dec_pair` regressions feed directly into the workspace-level
-  `bench-harness` geomean — every refcounted bench case (Promise /
-  Closure / Array / String) exercises this path. Holding the budget
-  here is necessary (but not sufficient) for holding the workspace
-  geomean ≥ 4.41× vs bun-aot.
-- The crate is `no_std` + zero runtime deps; only `criterion` (dev-
-  shared workspace dep, approved 2026-05-22) ships in CI binaries.
-  Matches vision item #4 (0 deps).
+The crate is `no_std` + zero runtime deps; only `criterion` (a
+dev-only workspace dependency) is used for benching and does not
+ship in produced binaries.

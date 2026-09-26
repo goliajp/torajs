@@ -10,11 +10,6 @@ Curated Unicode Character Database subset — Letter (`L`) and Number
 regex `\p{L}` / `\p{N}` property classes; covers the dominant test262
 usage subset. **Zero allocation, `no_std`, zero dependencies.**
 
-Extracted from the [torajs] AOT TypeScript runtime
-(`runtime_regex.c::UCD_LETTER` / `UCD_NUMBER`, shipped 2026-05-19 in
-P9.3-A2). Provides the same range tables + binary-search lookup as a
-standalone Rust crate.
-
 ## Quick start
 
 ```rust
@@ -69,7 +64,7 @@ alphanumeric symbols, Hebrew/Arabic presentation forms, surrogate
 codepoints.
 
 Picked to lift dominant test262 cases at minimum code-size cost.
-A v1.0 follow-up will auto-import full UCD from `UnicodeData.txt`.
+Full UCD coverage would require auto-importing from `UnicodeData.txt`.
 
 ## Performance
 
@@ -85,15 +80,9 @@ range count (~50 for L, ~25 for N as of v0.1.0). On aarch64 M-series:
 (Run `cargo bench -p torajs-ucd` to reproduce; numbers above are
 M-series Mac, release profile, criterion 100-sample analysis.)
 
-Performance regression gate at `tests/perf_gate.rs`; see
-[BUDGETS.md](BUDGETS.md) for the per-path budget table.
-
 ## Where this is used
 
-- [torajs] runtime, `runtime_regex.c::cc_test_cp` calls equivalent
-  C-side tables to back `\p{L}` / `\p{N}` regex matching. The C side
-  will be rewritten to Rust + linked against this crate as the
-  runtime rewrite progresses.
+- [torajs] runtime, backing `\p{L}` / `\p{N}` regex matching.
 
 ## License
 

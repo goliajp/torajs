@@ -9,11 +9,6 @@ Weak-reference family (`WeakRef` + `WeakMap` + `WeakSet`) for the
 [torajs] AOT TypeScript runtime. Shared process-global target →
 observer registry. 0 Cargo deps.
 
-Extracted from `runtime_weakref.c` / `runtime_weakmap.c` /
-`runtime_weakset.c` (~620 LOC of C combined) as **P4.3'** sub-step
-sequence (commits `c2a456e` / `5be15e9` / `555962d` / `56ac46d`,
-2026-05-24).
-
 ## Design
 
 Single global registry maps each weakly-observed target object to
@@ -25,7 +20,7 @@ which walks the registry entry for `p` and clears each observer.
 WeakRef clears its target slot to NULL; WeakMap evicts the entry
 keyed by `p`; WeakSet evicts the membership entry.
 
-## Modules (8 files, ~1.3 KLOC)
+## Modules
 
 | Module | Purpose |
 | --- | --- |

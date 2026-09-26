@@ -8,14 +8,12 @@ compiles via `tr build`, runs the resulting wasm under wasmtime
 sandboxing, and returns captured stdout / stderr + compile + run
 timing. Powers the playground page at https://torajs.com/playground.
 
-This is **non-metal-tier** per the torajs design rules:
+This is **non-metal-tier**:
 
 - Allowed Cargo deps from the application-tier ecosystem (axum,
   tokio, serde, sha2, tracing — see `Cargo.toml`).
-- Vision rules (0 deps, 4.41× perf) explicitly relaxed.
-- Long-term audit: may be moved out of this repo into a separate
-  product repo if the workspace gets too heavy with non-metal
-  concerns.
+- Most crates in this workspace target 0 Cargo dependencies; this
+  one is a deliberate exception.
 
 ## Endpoints
 
@@ -43,9 +41,8 @@ User-source → wasm cache keyed by SHA-256(source); wasm artifacts
 stored under a configurable cache dir. Subsequent identical sources
 skip recompile.
 
-The SHA-256 → hex digest conversion uses **`torajs-codec-hex`** (F.1
-ship, 2026-05-25) — replacing the `hex 0.4` community crate per
-torajs vision priority #4 (0 deps).
+The SHA-256 → hex digest conversion uses **`torajs-codec-hex`**
+instead of the `hex` community crate.
 
 ## License
 

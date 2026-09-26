@@ -7,7 +7,7 @@
 
 Catchable-throw infrastructure for the [torajs] AOT TypeScript runtime:
 TLS-shaped throw slot + 3-slot native-error factory registry (Error /
-TypeError / RangeError). Layer-1 substrate; 0 Cargo deps.
+TypeError / RangeError). 0 Cargo deps.
 
 Powers JS-style `try / catch` propagation through `extern "C"` runtime
 helpers: a Rust-side helper that wants to raise (e.g. `bigint /

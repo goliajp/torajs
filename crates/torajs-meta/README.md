@@ -15,16 +15,13 @@ runtime. Three concerns rolled together:
 3. **`reflect`** — `Object.getOwnPropertyDescriptor` / `getPrototypeOf` /
    `setPrototypeOf` reflection ops.
 
-Extracted from `runtime_str.c`'s fnprops + class/proto + reflect
-families (~510 LOC) as **P7.g** (commit `a4093e8`, 2026-05-24).
-
 ## Module layout
 
-| Module | LOC | Purpose |
-| --- | ---: | --- |
-| `fnprops.rs` | ~150 | Side-table mapping (fn_ptr → property bag); used because closures don't have their own heap layout for arbitrary props |
-| `classmeta.rs` | ~250 | class-tag → class-name lookup; class-tag → prototype object lookup; instanceof check via the prototype chain |
-| `reflect.rs` | ~100 | Object.* reflection ops + small adapter glue |
+| Module | Purpose |
+| --- | --- |
+| `fnprops.rs` | Side-table mapping (fn_ptr → property bag); used because closures don't have their own heap layout for arbitrary props |
+| `classmeta.rs` | class-tag → class-name lookup; class-tag → prototype object lookup; instanceof check via the prototype chain |
+| `reflect.rs` | Object.* reflection ops + small adapter glue |
 
 ## Cross-tier deps
 

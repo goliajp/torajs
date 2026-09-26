@@ -8,9 +8,8 @@
 Synchronous filesystem operations for the [torajs] AOT TypeScript
 runtime — the `fs.*Sync` family. 0 Cargo deps (uses libc directly).
 
-Extracted from `runtime_str.c`'s `fs_*` family (~340 LOC) as **P7.d**
-(commit `88c21c4`, 2026-05-24). Path bytes flow through tora `Str`;
-bodies returned as fresh `Str` heap blocks.
+Path bytes flow through tora `Str`; bodies returned as fresh `Str`
+heap blocks.
 
 ## Surface (Node.js-compatible subset)
 

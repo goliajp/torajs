@@ -9,12 +9,7 @@ Self-hosted arbitrary-precision integer (`BigInt`) substrate for the
 [torajs] AOT TypeScript runtime. 0 Cargo deps. Implements the full
 ECMAScript `BigInt` spec surface — arithmetic, bitwise, shift,
 comparison, decimal / hex / i64 parsing, and `.toString(radix)` —
-in 2.2 KLOC of pure Rust.
-
-Replaces ~1.3 KLOC of `runtime_bigint.c` (closed P3.3, commit
-`0ba388a`, 2026-05-23) — the FIRST major C substrate to go fully
-to pure Rust, validating the pattern that later expanded to
-`runtime_promise.c` / `runtime_regex.c` / `runtime_*.c`.
+in pure Rust, replacing a previous C implementation.
 
 ## Algorithm choices
 

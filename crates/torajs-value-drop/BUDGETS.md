@@ -22,7 +22,7 @@ hot path but still per-op micro-budget.
 | Path | Budget | Observed (dev) | Headroom | Notes |
 | --- | ---: | ---: | ---: | --- |
 | `value_drop_heap-null-100k` | ≤ 200 µs (~2 ns/iter) | ~80 µs (~0.8 ns/iter) | 2.5× | 100k NULL-input fast-path calls; one cbz + ret. |
-| Dispatch overhead (non-null, in-table tag) | ≤ 10 ns | ~3 ns | 3× | u16 load + match + bl. Measured via end-to-end conformance gate timing diff vs the C version pre-port. |
+| Dispatch overhead (non-null, in-table tag) | ≤ 10 ns | ~3 ns | 3× | u16 load + match + bl. |
 | Fallback arm (rc-dec + free) | ≤ 50 ns | ~25 ns | 2× | One refcount decrement + atomic compare-zero + maybe free. |
 
 ## Binary-size budget

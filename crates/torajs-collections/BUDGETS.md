@@ -26,4 +26,4 @@
 - Adversarial key collision rates (FNV-1a non-cryptographic).
 - Concurrent mutation.
 - Insertion-ordered iter is guaranteed; per-op ordering invariants
-  exercised by conformance gate fixtures.
+  exercised by the conformance test suite.

@@ -8,9 +8,6 @@
 Process-surface helpers for the [torajs] AOT TypeScript runtime — the
 Node.js-compatible `process.*` API. 0 Cargo deps.
 
-Extracted from `runtime_str.c`'s process family (~240 LOC) as
-**P7.h-proc** (commit `5527de7`, 2026-05-24).
-
 ## Surface (Node.js-compatible subset)
 
 | TS / Node API | extern `__torajs_*` symbol | Notes |

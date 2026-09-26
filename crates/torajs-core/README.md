@@ -3,8 +3,7 @@
 **Workspace-internal** — the torajs compiler. Not a publishable crate.
 
 `torajs-core` owns the **entire compilation pipeline** that the `tr`
-CLI invokes. Largest crate in the workspace (~63 KLOC) — it's the
-project's heart.
+CLI invokes.
 
 ## Pipeline
 
@@ -30,20 +29,20 @@ project's heart.
  ssa_inkwell.rs  →  LLVM IR via inkwell  →  cc / wasm-ld  →  native or wasm binary
 ```
 
-## Module table (the largest source files)
+## Module table
 
-| Module | LOC (prod) | Role |
-| --- | ---: | --- |
-| `ssa_lower.rs` | 28790 | AST → SSA lowering. Visits each AST node, emits SSA instructions, handles closure capture, async/await, exception throw-check insertion, type-narrowing, monomorphization, native error throws, intrinsic dispatch. |
-| `ast.rs` | 11546 | AST node types + visitor + debug printing + transforms (desugar_classes / desugar_for_of / etc.). |
-| `check.rs` | 7600 | Type checker. Bidirectional with full ES type-system semantics. |
-| `parser.rs` | 7134 | Recursive-descent TS parser. |
-| `ssa_inkwell.rs` | 4047 | SSA → LLVM IR via inkwell. Owns the libtorajs_*.a staticlib link list, emits `define_*` IR builders for hot-path runtime helpers (Internal linkage + alwaysinline), drives `tr build` cc/wasm-ld invocations. |
-| `lexer.rs` | 1198 | Tokenizer (UTF-8 + ES identifier rules). |
-| `formatter.rs` | 1136 | `tr fmt` source formatter. |
-| `ssa.rs` | 1118 | SSA IR types + builder helpers. |
-| `linter.rs` | 684 | `tr lint` linter. |
-| `modules.rs` | ~700 | Module resolution + import graph. |
+| Module | Role |
+| --- | --- |
+| `ssa_lower.rs` | AST → SSA lowering. Visits each AST node, emits SSA instructions, handles closure capture, async/await, exception throw-check insertion, type-narrowing, monomorphization, native error throws, intrinsic dispatch. |
+| `ast.rs` | AST node types + visitor + debug printing + transforms (desugar_classes / desugar_for_of / etc.). |
+| `check.rs` | Type checker. Bidirectional with full ES type-system semantics. |
+| `parser.rs` | Recursive-descent TS parser. |
+| `ssa_inkwell.rs` | SSA → LLVM IR via inkwell. Owns the staticlib link list, emits IR builders for hot-path runtime helpers, drives `tr build` cc/wasm-ld invocations. |
+| `lexer.rs` | Tokenizer (UTF-8 + ES identifier rules). |
+| `formatter.rs` | `tr fmt` source formatter. |
+| `ssa.rs` | SSA IR types + builder helpers. |
+| `linter.rs` | `tr lint` linter. |
+| `modules.rs` | Module resolution + import graph. |
 
 ## Other (smaller) modules
 

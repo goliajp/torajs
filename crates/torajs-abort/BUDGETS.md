@@ -22,7 +22,7 @@ replacing `expect()` / `panic!()` / `assert!()` call sites with
 | --- | ---: | ---: | --- |
 | `libtorajs_abort.a` artifact size | ≤ 8 KB | ~2 KB | The whole staticlib body is the 2-fn extern wrapper + 1 inline path; release-mode build is mostly relocation metadata. |
 | Per-call-site code at the AOT site | ≤ 16 bytes | ~12 bytes | `adr x0, .Lmsg + mov x1, #len + bl __torajs_abort_with` — three aarch64 instructions, exactly the same shape as a plain `bl panic!` minus the per-site format string materialization that `panic!` requires. |
-| Cumulative user-binary delta vs `expect()`-everywhere build | ≥ -100 KB | ~-150 KB | Across the torajs bench corpus, post-A3 ship was -35 KB on `fib40` user binary alone; combined with A4.1 (build-std + panic=abort) the cumulative win on a 26-case median is ~-150 KB per binary. See `bench/results/2026-05-24-mini-d62b4c1.json`. |
+| Cumulative user-binary delta vs `expect()`-everywhere build | ≥ -100 KB | ~-150 KB | Across the torajs bench corpus (build-std + panic=abort), the cumulative win on a 26-case median is ~-150 KB per binary. |
 
 ## Latency budget (informational only)
 

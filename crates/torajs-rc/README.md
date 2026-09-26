@@ -8,9 +8,8 @@
 Universal heap-object header + non-atomic refcount primitives for the
 [torajs] AOT TypeScript runtime. `no_std`. Zero runtime dependencies.
 
-Layer 1 of the torajs runtime crate stack (sits above [`torajs-pool`]
-allocator; below the per-type containers `torajs-str` / `torajs-arr` /
-… that the rewrite lands later).
+Sits above the [`torajs-pool`] allocator and below the per-type
+containers (`torajs-str` / `torajs-arr` / ...).
 
 ## What this provides
 
@@ -20,9 +19,7 @@ allocator; below the per-type containers `torajs-str` / `torajs-arr` /
 - **`__torajs_rc_inc` / `__torajs_rc_dec`** — `#[no_mangle] #[inline]
   pub unsafe extern "C" fn`. Non-atomic single-threaded refcount;
   NULL pass-through, `FLAG_STATIC_LITERAL` bypass, WeakRef-on-zero
-  hook to `runtime_weakref.c`. Mirrors `runtime_str.c:244-272`
-  byte-for-byte so the `ssa_lower` IR-side `call __torajs_rc_*` is
-  unchanged.
+  hook to `runtime_weakref.c`.
 - **Tag constants** (`TAG_STR=0` through `TAG_ARR_ITER=17`) and
   **flag constants** (`FLAG_STATIC_LITERAL=4`, `FLAG_FROZEN=16`,
   cycle-collector `COLOR_*`, …) — single source of truth shared
@@ -91,16 +88,10 @@ All public functions are `unsafe`. Caller guarantees:
 
 Run with `cargo bench -p torajs-rc`.
 
-Performance regression gate at `tests/perf_gate.rs`; see
-[BUDGETS.md](BUDGETS.md).
-
 ## Where this is used
 
-- [torajs] runtime — replaces the inline C `__torajs_rc_inc` /
-  `__torajs_rc_dec` in `crates/torajs-runtime/src/runtime_str.c`.
-  Linked into the final `tr` AOT binary; resolves the same
-  `__torajs_rc_*` symbols `ssa_lower` emits IR-level extern calls
-  to.
+- [torajs] runtime — linked into the final `tr` AOT binary and
+  provides the `__torajs_rc_*` symbols the compiler emits calls to.
 
 ## License
 

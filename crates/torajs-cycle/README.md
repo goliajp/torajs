@@ -9,10 +9,6 @@ Bacon & Rajan trial-deletion cycle collector for the [torajs] AOT
 TypeScript runtime. Detects + reclaims reference cycles that pure
 refcounting (`torajs-rc`) can't free. 0 Cargo deps.
 
-Extracted from `runtime_cycle.c` (510 LOC of C) as **P4.4** (commit
-`eab2435`, 2026-05-24) — closed Phase 1's P4 (Array / Object / Map /
-Set / Weak / Cycle substrate).
-
 ## Algorithm
 
 [Bacon & Rajan 2001 "Concurrent Cycle Collection in Reference Counted
@@ -32,13 +28,13 @@ Systems"](https://citeseerx.ist.psu.edu/document?repid=rep1&type=pdf&doi=ee1cb38
 
 ## Module layout
 
-| Module | LOC | Purpose |
-| --- | ---: | --- |
-| `lib.rs` | ~200 | Top-level API + colors + buffer push/unpush hooks |
-| `layout.rs` | ~80 | Header layout (cycle color bits in flags) + child-walk dispatch |
-| `buffer.rs` | ~200 | Global trial-root buffer with thresholded auto-collect |
-| `collect.rs` | ~260 | Mark / scan / collect trial-deletion loop |
-| `arr.rs` | ~110 | Array<*>'s child-walk impl |
+| Module | Purpose |
+| --- | --- |
+| `lib.rs` | Top-level API + colors + buffer push/unpush hooks |
+| `layout.rs` | Header layout (cycle color bits in flags) + child-walk dispatch |
+| `buffer.rs` | Global trial-root buffer with thresholded auto-collect |
+| `collect.rs` | Mark / scan / collect trial-deletion loop |
+| `arr.rs` | Array<*>'s child-walk impl |
 
 ## Cross-tier deps
 

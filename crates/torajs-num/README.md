@@ -11,22 +11,20 @@ for an AOT-compiled TypeScript runtime. 0 Cargo deps. Wraps Rust
 semantics that don't match libm directly (e.g. `Math.round` uses
 ES §20.2.2.28 "floor(x + 0.5)" rather than libc `round`'s tie-to-even).
 
-Extracted from the [torajs] AOT TypeScript runtime as **P3.2** (closed
-2026-05-23). Replaces ~1.4 KLOC of Number / Math intrinsics in the
-former `runtime_str.c` with a structured Rust port covering:
+Covers:
 
-- **Math namespace** (`math.rs`, ~400 LOC): all 27 functions —
+- **Math namespace** (`math.rs`): all 27 functions —
   `sqrt`, `abs`, `floor`, `ceil`, `round`, `trunc`, `cbrt`, `exp`,
   `expm1`, `log`, `log1p`, `log2`, `log10`, `sin`/`cos`/`tan`/...,
   `pow`, `min`/`max`, `random`/`imul`/`clz32`/`fround`, `sign`,
   `hypot`, `atan2`.
-- **Predicates** (`predicates.rs`, ~170 LOC): `isNaN`, `isFinite`,
+- **Predicates** (`predicates.rs`): `isNaN`, `isFinite`,
   `Number.isInteger`, `Number.isSafeInteger` (both f64 + i64 variants).
-- **Parse** (`parse.rs`, ~290 LOC): `parseInt(s, radix)` +
+- **Parse** (`parse.rs`): `parseInt(s, radix)` +
   `parseFloat(s)` per ES §19.2.5 / §19.2.4 (the actual byte-level
   scan + non-letter / signed-leading / NaN-on-empty edge cases).
-- **toString / format** (`tostring.rs` + `format.rs` + `to_str.rs`,
-  ~525 LOC): `Number.prototype.toString(radix)` + `toFixed` +
+- **toString / format** (`tostring.rs` + `format.rs` + `to_str.rs`):
+  `Number.prototype.toString(radix)` + `toFixed` +
   `toExponential` + `toPrecision` with spec-correct rounding modes.
 - **Object.is** + heap-Number predicates (`object_is.rs` +
   `print_err.rs` + `str_bridge.rs`).

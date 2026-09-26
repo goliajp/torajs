@@ -10,9 +10,7 @@ runtime — strong-ref collections. Robin-hood hash table with separate
 `slots[]` + `entries[]` arrays per the ECMAScript spec's
 insertion-ordered iteration contract. 0 Cargo deps.
 
-Extracted from `runtime_map.c` (~970 LOC of C) as **P4.3** sub-step
-sequence (commits `fbb052b` through `ab95e60`, 2026-05-24). Weak
-family (WeakMap / WeakSet / WeakRef) lives in `torajs-weak` —
+Weak family (WeakMap / WeakSet / WeakRef) lives in `torajs-weak` —
 strong vs weak ref semantics warrant a clean crate split.
 
 ## Why two arrays

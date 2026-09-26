@@ -8,17 +8,9 @@
 Bounded fixed-size memory pool — thread-local LIFO free-list for
 fixed-size struct types. `no_std + alloc`. Single dependency: `alloc`.
 
-Extracted from the [torajs] AOT TypeScript runtime where it shipped
-as P-PERF.A6 (commit `8f754ca`, 2026-05-22) with measured wins:
-
-- **promise-await-100k: −41 %** wall-clock (2.99 → 1.75 ms)
-- **async-fn-call-100k: −36 %** (2.96 → 1.90 ms)
-- **promise-then-100k: −32 %** (5.75 → 3.88 ms)
-- **integrated geomean vs bun-aot: 4.16× → 4.41×** (+6.1 %)
-
-…on the same 5-pass-median bench protocol versus the previous
-straight-`malloc` / `free` path. See the [torajs] PERFORMANCE.md
-for the full bench table + reproduction protocol.
+Used by the [torajs] AOT TypeScript runtime to recycle fixed-size
+heap blocks (e.g. `Promise`) instead of calling `malloc` / `free` on
+every allocation.
 
 ## Quick start
 
@@ -103,16 +95,9 @@ Three criterion bench groups under `benches/pool.rs`:
 
 Run with `cargo bench -p torajs-pool`.
 
-Performance regression gate at `tests/perf_gate.rs`; see
-[BUDGETS.md](BUDGETS.md) for the per-path budget table.
-
 ## Where this is used
 
-- [torajs] runtime, `runtime_promise.c` (current C-implementation
-  ship line, see `git log -- crates/torajs-runtime/src/runtime_promise.c
-  | grep 8f754ca` for the bench-anchor commit). The C side will be
-  rewritten to Rust + linked against this crate as the architecture
-  rewrite progresses.
+- [torajs] runtime, for recycling `Promise` heap blocks.
 
 ## License
 

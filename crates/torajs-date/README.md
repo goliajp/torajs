@@ -10,9 +10,6 @@ runtime. 0 Cargo deps (uses libc `localtime_r` / `mktime` for
 timezone-aware accessors; Howard Hinnant `civil_from_days` /
 `days_from_civil` for proleptic Gregorian conversions).
 
-Extracted from `runtime_date.c` (~590 LOC of C) as **P6.4**
-(commit `243e665`, 2026-05-24).
-
 ## Surface
 
 Implements the full ECMAScript `Date` surface that maps to a 16-byte
@@ -32,14 +29,14 @@ heap object (header + i64 ms-since-epoch):
 
 ## Module layout
 
-| Module | LOC | Purpose |
-| --- | ---: | --- |
-| `layout.rs` | ~80 | Heap layout (header + ms slot) + alloc |
-| `tm.rs` | ~120 | Decomposed time-struct (year/mo/day/...) |
-| `civil.rs` | ~250 | Howard Hinnant civil_from_days + days_from_civil + leap-year arithmetic |
-| `getters.rs` | ~250 | All getX / getUTCX accessors |
-| `parse.rs` | ~150 | ISO 8601 string parser (RFC 3339 subset) |
-| `api.rs` | ~140 | Constructor + setter + toString externs |
+| Module | Purpose |
+| --- | --- |
+| `layout.rs` | Heap layout (header + ms slot) + alloc |
+| `tm.rs` | Decomposed time-struct (year/mo/day/...) |
+| `civil.rs` | Howard Hinnant civil_from_days + days_from_civil + leap-year arithmetic |
+| `getters.rs` | All getX / getUTCX accessors |
+| `parse.rs` | ISO 8601 string parser (RFC 3339 subset) |
+| `api.rs` | Constructor + setter + toString externs |
 
 ## ABI invariants
 

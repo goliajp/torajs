@@ -1,7 +1,6 @@
 # torajs-arr performance budgets
 
-Hot path. Per-op budgets per the bench corpus + B-series IR-restore
-recovery work (commits 8f3f39f / 838cc5b / fede277).
+Hot path. Per-op budgets per the bench corpus.
 
 | Path | Hot | Per-op (observed) |
 | --- | --- | ---: |
@@ -20,9 +19,9 @@ Three fns must remain in **inkwell-emitted alwaysinline IR** to avoid
 the `bl + ret` cross-TU overhead that dominates hot push/pop/shift
 loops:
 
-- `__torajs_arr_push` (187 LOC IR — B1b 2026-05-24)
-- `__torajs_arr_shift` (4-memory-op — B4-shift 2026-05-24)
-- `__torajs_arr_push_unchecked` (5-instr — B4-push-unchecked 2026-05-24)
+- `__torajs_arr_push` (187 LOC IR)
+- `__torajs_arr_shift` (4-memory-op)
+- `__torajs_arr_push_unchecked` (5-instr)
 
 These ALSO exist as `extern "C"` in this crate's staticlib for cross-
 sub-crate Rust callers (fs / process / promise / regex). The

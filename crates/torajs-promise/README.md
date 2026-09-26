@@ -10,9 +10,6 @@ spec surface (state machine + `.then` / `.catch` / `.finally` + 4 sync
 combinators + thenable absorption + microtask integration). 0 Cargo
 deps; paired with [`torajs-microtask`] for queue dispatch.
 
-Extracted from `runtime_promise.c` (~1071 LOC of C) as **P6.1**
-(commit `b6f2a71`, 2026-05-24). 7 modules, ~1.3 KLOC.
-
 ## State machine
 
 ```text
@@ -38,19 +35,11 @@ Heap layout: 32 B (universal header + state byte + ... + callback head).
 
 ## Performance
 
-The crate ships with a bounded free-list **pool** (32 slots, P-PERF.A6
-ship commit `8f754ca` baseline) that recycles Promise heap blocks.
-Measured win on the workspace's promise-heavy bench corpus:
+The crate ships with a bounded free-list **pool** (32 slots) that
+recycles Promise heap blocks instead of calling `malloc` / `free` on
+every allocation.
 
-| Case | Before pool | After pool | Delta |
-| --- | ---: | ---: | ---: |
-| promise-await-100k | ~3.0 ms | 1.94 ms | **-35%** |
-| promise-then-100k | ~5.8 ms | 4.38 ms | **-25%** |
-| async-fn-call-100k | ~3.0 ms | 1.92 ms | **-36%** |
-
-(Per Phase 1 closed baseline at `bench/results/2026-05-24-mini-9b7740c.json`.)
-
-## Modules (7 files, ~1.3 KLOC)
+## Modules
 
 | Module | Purpose |
 | --- | --- |

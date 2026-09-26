@@ -46,5 +46,5 @@ irrelevant next to even the fastest network roundtrip (~1 ms locally,
 - **Connection reuse across calls**: each `fetch_sync` is a fresh
   `curl_easy_init`. A future polish step could share a `curl_easy*`
   handle pool for sequential same-host calls.
-- **WASI fetch routing**: T-21.b will route through the browser
-  fetch API; not in this crate's scope.
+- **WASI fetch routing**: a future target will route through the
+  browser fetch API; not in this crate's scope.

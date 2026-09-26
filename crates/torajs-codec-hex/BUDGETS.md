@@ -12,9 +12,9 @@ Run `cargo bench -p torajs-codec-hex` to verify.
 
 `torajs-codec-hex` is a workspace-wide utility used by `torajs-
 playground-api` for SHA-256 digest formatting (cache key derivation).
-Future F-series crates (F.2 `torajs-hash` etc.) may use it for
-identical digest formatting. Single hot shape: 32-byte input →
-64-char output (SHA-256 digest hex).
+Future crates (e.g. `torajs-hash`) may use it for identical digest
+formatting. Single hot shape: 32-byte input → 64-char output
+(SHA-256 digest hex).
 
 ## Budgets
 

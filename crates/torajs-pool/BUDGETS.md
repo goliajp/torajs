@@ -11,8 +11,8 @@ Run `cargo test -p torajs-pool --test perf_gate` to check.
 `FixedPool` sits at **Layer 0** in the torajs runtime crate stack.
 It serves the hot alloc path
 for fixed-size heap structs — `Promise`, `Closure env`, `capture
-box`, etc. Per `rules/rust/patterns.md`: hot paths sit at µs / ns
-budget. Both gated paths below run once per allocation; for
+box`, etc. Hot paths sit at µs / ns budget. Both gated paths below
+run once per allocation; for
 torajs's Promise-heavy benchmarks (promise-chain-1k allocates
 ~3000 Promises, promise-await-100k allocates ~100k) this is the
 single hottest line of code in the runtime.
@@ -21,7 +21,7 @@ single hottest line of code in the runtime.
 
 | Path | Budget | Observed P95 (dev) | Headroom | Notes |
 | --- | ---: | ---: | ---: | --- |
-| `acquire_release_hot` (100k iter pairs, warm pool) | 5 ms | ~0.4 ms | ~12× | Pool warmed to CAP; each iter pops + pushes a slot via const-offset pointer arithmetic. Real torajs bench equivalent: promise-await-100k case at ~3 ms (post P-PERF.A6 ship). |
+| `acquire_release_hot` (100k iter pairs, warm pool) | 5 ms | ~0.4 ms | ~12× | Pool warmed to CAP; each iter pops + pushes a slot via const-offset pointer arithmetic. Real torajs bench equivalent: promise-await-100k case at ~3 ms. |
 | `pooled_count_invariant` | functional | — | — | Verifies `pooled() ≤ capacity()` after any acquire / release sequence. Not a perf gate; presence is to catch invariant breaks if a future refactor mismanages the count. |
 
 Real-world `acquire_release_hot` cost is dominated by the

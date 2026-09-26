@@ -11,11 +11,6 @@ matcher. 0 Cargo deps. Full surface: lookahead / lookbehind / backrefs
 / named captures / `u`-flag (UTF-8 + curated UCD Letter / Number
 tables).
 
-Extracted from `runtime_regex.c` (3059 LOC of C) — the **largest
-single C runtime file** that Phase 1 nuked — as **P6.2** sub-step
-sequence (commits `2aced81` through `e481e99`, 2026-05-24). 12
-source modules, ~4.4 KLOC pure Rust.
-
 ## Implementation choices
 
 | Aspect | Choice | Source |
@@ -40,7 +35,7 @@ source modules, ~4.4 KLOC pure Rust.
 - `u`-flag: UTF-8 char-level matching + Unicode property escapes
 - Flags: `g` / `i` / `m` / `s` / `u` / `y` (sticky)
 
-## Modules (12 files, ~4.4 KLOC)
+## Modules
 
 | Module | Purpose |
 | --- | --- |

@@ -11,10 +11,9 @@ array, and compaction. Drains to empty (including tasks enqueued during
 the drain itself) — matches JS spec's microtask semantics. 0 Cargo
 deps. Auto-called from `main()` exit hook.
 
-Extracted from `runtime_promise.c`'s microtask section as **P5**
-(commit `011936e`, 2026-05-24). Powers `queueMicrotask` + Promise
-callback dispatch (`.then` / `.catch` / `.finally` continuations) for
-the rest of the torajs runtime.
+Powers `queueMicrotask` and Promise callback dispatch (`.then` /
+`.catch` / `.finally` continuations) for the rest of the torajs
+runtime.
 
 ## Why microtasks
 
@@ -34,8 +33,6 @@ torajs is single-threaded today; one global queue suffices. The queue
 backing is a `Vec<{fn: fn_ptr, arg: i64}>` with head cursor + tail
 push. Pop advances head; compaction kicks in when head/cap > 0.5 so
 the queue doesn't grow unbounded for long-lived programs.
-
-When threading lands post-v1.0, the queue becomes per-worker.
 
 ## ABI
 

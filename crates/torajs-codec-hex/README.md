@@ -9,15 +9,6 @@ Tiny lower-case hex encode / decode codec — drop-in replacement for the
 `hex 0.4` community crate. 0 Cargo deps. Byte-identical output to
 `hex::encode` / `hex::decode` for the surface we expose.
 
-Extracted from the [torajs] AOT TypeScript runtime as **F.1** (the
-first sub-step of Phase 2's "0 deps" effort, commit `9b7740c`,
-2026-05-25). The torajs vision priority #4 is "0 Cargo deps from the
-metal-level core"; `hex 0.4` was the easiest dep to displace — pure
-algorithm, no async surface, no Cargo-features matrix, no platform
-gates. F.1 ships the pattern (per-crate, zero-dep, byte-identical,
-lean public API) that the rest of the F-series (`torajs-hash`,
-`torajs-error`, `torajs-codec-toml`, ...) will follow.
-
 ## Quick start
 
 ```rust

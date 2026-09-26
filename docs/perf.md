@@ -60,13 +60,3 @@ Results are appended to `bench/results/<date>-<host>-<git>.json`.
   inner dev loop.
 - Cases that depend on heavy stdlib surface tr doesn't yet implement
   (regex, Symbol, Date, Promise) aren't in the scoreboard.
-
-## How to add a bench case
-
-1. `bench/cases/<name>/` with a `main.ts` (bun / node / tr, the same
-   program) + `expected.txt`.
-2. Run `cargo run -p bench-harness -- run <name>` and verify
-   stdout matches `expected.txt` for every runtime.
-3. Open a PR. The bench rule says **every committed case must pass
-   on tr** — if tr can't run the case yet, file a roadmap-gap issue
-   first and land the case once the gap closes.
