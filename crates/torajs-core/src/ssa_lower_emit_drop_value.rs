@@ -95,7 +95,7 @@ pub(crate) fn emit(ctx: &mut LowerCtx, val: Operand, ty: Type) {
         Type::Substr => ctx.intrinsics.substr_drop,
         Type::RegExp => ctx.intrinsics.regex_drop,
         Type::Date => ctx.intrinsics.date_drop,
-        Type::Any => ctx.intrinsics.any_box_drop,
+        Type::Any => return ctx.emit_any_rc_dec(val),
         Type::Symbol => ctx.intrinsics.symbol_drop,
         Type::Promise => ctx.intrinsics.promise_drop,
         Type::BigInt => ctx.intrinsics.bigint_drop_rc,

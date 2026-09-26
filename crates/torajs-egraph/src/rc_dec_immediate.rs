@@ -1,6 +1,6 @@
 //! Immediate-box release elision (r503).
 //!
-//! `__torajs_anyv_rc_dec(v)` where `v = __torajs_anyv_box_from_pair
+//! `__torajs_anyv_rc_dec(v)` / `rc_dec_any v` where `v = __torajs_anyv_box_from_pair
 //! (<const tag>, _)` and the tag is not the heap tag is a no-op by the
 //! kernel's own definition (`nanbox_ffi::__torajs_anyv_rc_dec` only
 //! ever reaches `value_drop_heap` through `is_cell`), and once its
@@ -46,7 +46,8 @@ pub fn elide_immediate_rc_decs(module: &mut Module) -> RcDecImmediateStats {
             .position(|f| f.name == name)
             .map(|i| i as u32)
     };
-    let (Some(dec), Some(bx)) = (fid(RC_DEC), fid(BOX_FROM_PAIR)) else {
+    let dec = fid(RC_DEC);
+    let Some(bx) = fid(BOX_FROM_PAIR) else {
         return stats;
     };
     for func in module.funcs.iter_mut() {
@@ -74,9 +75,13 @@ pub fn elide_immediate_rc_decs(module: &mut Module) -> RcDecImmediateStats {
         for block in func.blocks.iter_mut() {
             block.insts.retain(|i| {
                 let hit = i.result.is_none()
-                    && matches!(&i.kind, InstKind::Call(f, args)
-                        if f.0 == dec
-                            && matches!(args.as_slice(), [Operand::Value(v)] if immediates.contains(v)));
+                    && match &i.kind {
+                        InstKind::Call(f, args) if Some(f.0) == dec => {
+                            matches!(args.as_slice(), [Operand::Value(v)] if immediates.contains(v))
+                        }
+                        InstKind::RcDecAny(Operand::Value(v)) => immediates.contains(v),
+                        _ => false,
+                    };
                 removed += u32::from(hit);
                 !hit
             });

@@ -213,7 +213,12 @@ fn earlier_find(
                 if stop_at_calls && !fids.transparent.contains(fid) {
                     return None;
                 }
-            } else if stop_at_calls && matches!(inst.kind, InstKind::CallIndirect(..)) {
+            } else if stop_at_calls
+                && matches!(
+                    inst.kind,
+                    InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
+                )
+            {
                 return None;
             }
             if redefines(inst.result) {

@@ -342,6 +342,7 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         | InstKind::StoreDynScaled8(_, _, _)
         | InstKind::RcInc(_)
         | InstKind::RcIncAny(_)
+        | InstKind::RcDecAny(_)
         | InstKind::Call(_, _) => false,
         // Alloca returns a unique pointer per invocation — two
         // syntactically identical Alloca ops produce DIFFERENT

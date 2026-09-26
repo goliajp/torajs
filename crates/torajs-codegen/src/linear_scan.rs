@@ -57,6 +57,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         next_alloca_offset,
         has_calls,
         call_sites,
+        call_rarity,
     } = scan_frame(func);
 
     let (param_arg_reg, stack_params) = param_lanes(func);
@@ -64,7 +65,7 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     let classes = build_copy_classes(func, &intervals, &blocks, &ret_vids, &call_sites);
     let (mut weights, units) = compute_spill_weights(func);
     classes.fold_into(&mut intervals, &mut weights);
-    let call_costs = CallCosts::new(&call_sites, &units);
+    let call_costs = CallCosts::new(&call_sites, &call_rarity, &units);
     let mut sweep = Sweep::new(next_alloca_offset, weights, call_costs);
     // `TORAJS_CALL_SAVE_OFF=1`: call-crossing values never take a
     // caller-saved register (bisect gate).

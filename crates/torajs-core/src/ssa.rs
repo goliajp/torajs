@@ -377,6 +377,14 @@ pub enum InstKind {
     /// every number / sentinel encoding fail it) is retained. Same
     /// effect as `__torajs_rc_inc` / `__torajs_anyv_rc_inc`.
     RcIncAny(Operand),
+    /// `rc_dec_any <v>` — void. Release one reference held by a value
+    /// that may be a NaN-box immediate: `__torajs_value_drop_heap` on a
+    /// cell, nothing otherwise. Codegen decrements in place only where
+    /// the runtime would do nothing else (a count above one on a Str
+    /// cell, or on a cell already in the cycle collector's root buffer)
+    /// and calls the runtime for the rest, so it is a call site for
+    /// register allocation, weighted as a slow path.
+    RcDecAny(Operand),
 }
 
 #[derive(Debug, Clone)]

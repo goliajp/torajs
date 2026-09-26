@@ -368,6 +368,10 @@ impl Function {
                 write!(w, "rc_inc_any ")?;
                 self.write_operand(w, v)?;
             }
+            InstKind::RcDecAny(v) => {
+                write!(w, "rc_dec_any ")?;
+                self.write_operand(w, v)?;
+            }
         }
         writeln!(w)
     }

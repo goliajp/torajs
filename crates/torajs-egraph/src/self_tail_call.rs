@@ -298,6 +298,7 @@ fn rewrite_site(
             .iter()
             .filter_map(|i| match &i.kind {
                 InstKind::Call(f, a) if Some(*f) == dec_fid => Some(a[0]),
+                InstKind::RcDecAny(v) => Some(*v),
                 _ => None,
             })
             .collect(),

@@ -83,6 +83,7 @@ fn emit_inst(
         }
         InstKind::RcInc(ptr) => super::rc::emit_rc_inc(bytes, ptr, alloc),
         InstKind::RcIncAny(v) => super::rc::emit_rc_inc_any(bytes, v, alloc),
+        InstKind::RcDecAny(v) => super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &[]),
     }
 }
 
@@ -114,6 +115,12 @@ pub(super) fn emit_inst_at(
         .copied()
         .filter(|&(reg, _)| Some(reg) != result_home)
         .collect();
+    // the release calls only on its slow arm, which stores and reloads
+    // these itself
+    if let InstKind::RcDecAny(v) = &inst.kind {
+        super::rc_dec::emit_rc_dec_any(bytes, relocs, v, alloc, &saves);
+        return;
+    }
     for &(reg, off) in &saves {
         match reg {
             Reg::Gpr(g) => slot::sp_str_x(bytes, g, off),

@@ -8,6 +8,7 @@
 //! - `emit_rc_inc(op)`         — inc in current block (`RcInc` for
 //!   typed heap values, the cell-gated `RcIncAny` otherwise)
 //! - `emit_any_rc_inc_in(blk, op)` — `RcIncAny` for NaN-box values
+//! - `emit_any_rc_dec(op)`     — `RcDecAny` for NaN-box values
 //! - `emit_rc_inc_in(blk, op)` — inc in an explicit block (branch tails)
 //! - `emit_rc_dec_inline(hdr)` — inline Load-Sub-Store dec, returns new rc
 //! - `emit_drop_value(v, ty)`  — thin proxy into `ssa_lower_emit_drop_value`
@@ -59,6 +60,13 @@ impl<'a> LowerCtx<'a> {
     /// touched). Every `Any` retain goes through here.
     pub(crate) fn emit_any_rc_inc_in(&mut self, block: BlockId, op: Operand) {
         self.f.append_void(block, InstKind::RcIncAny(op));
+    }
+
+    /// Release a value that may be a NaN-box immediate (only a cell is
+    /// touched). Every `Any` release through `emit_drop_value` goes
+    /// through here.
+    pub(crate) fn emit_any_rc_dec(&mut self, op: Operand) {
+        self.f.append_void(self.cur_block, InstKind::RcDecAny(op));
     }
 
     /// Type-aware owned-result inc (RFC 20260705 owned-result

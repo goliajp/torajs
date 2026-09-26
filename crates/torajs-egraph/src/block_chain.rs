@@ -161,8 +161,10 @@ fn hot_successor(
 fn is_cold(func: &Function, id: u32) -> bool {
     let block = &func.blocks[id as usize];
     matches!(block.term, Terminator::Ret(_) | Terminator::Unreachable)
-        || block
-            .insts
-            .iter()
-            .any(|i| matches!(i.kind, InstKind::Call(..) | InstKind::CallIndirect(..)))
+        || block.insts.iter().any(|i| {
+            matches!(
+                i.kind,
+                InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
+            )
+        })
 }

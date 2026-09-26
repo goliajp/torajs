@@ -130,12 +130,13 @@ pub(super) fn match_sites(
             // call args is also the no-pending-scope-drops proof.
             let ok_block = &func.blocks[ok.0 as usize];
             for inst in &ok_block.insts {
-                match &inst.kind {
-                    InstKind::Call(f, a)
-                        if Some(*f) == dec_fid
-                            && a.len() == 1
-                            && args[2..].iter().any(|x| operand_eq(x, &a[0])) => {}
+                let released = match &inst.kind {
+                    InstKind::Call(f, a) if Some(*f) == dec_fid && a.len() == 1 => &a[0],
+                    InstKind::RcDecAny(v) => v,
                     _ => return None,
+                };
+                if !args[2..].iter().any(|x| operand_eq(x, released)) {
+                    return None;
                 }
             }
             match &ok_block.term {

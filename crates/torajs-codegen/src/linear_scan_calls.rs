@@ -8,7 +8,7 @@ use torajs_core::ssa::{Function, InstKind};
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::Interval;
 use crate::reg::Reg;
-use crate::regalloc::{alloca_slot_size, inst_emits_bl};
+use crate::regalloc::{alloca_slot_size, call_site_rarity, inst_emits_bl};
 
 /// `true` iff some call site falls strictly inside `[start, end]` —
 /// the value is defined before a `BL` and still used after it, so a
@@ -64,6 +64,8 @@ pub(crate) struct FrameScan {
     pub(crate) has_calls: bool,
     /// Global inst-slot index of every call site, ascending.
     pub(crate) call_sites: Vec<u32>,
+    /// Per call site, how rarely its `bl` runs ([`call_site_rarity`]).
+    pub(crate) call_rarity: Vec<u64>,
 }
 
 /// Alloca offsets (biased past the outgoing-arg area), `has_calls`, and
@@ -77,6 +79,7 @@ pub(crate) fn scan_frame(func: &Function) -> FrameScan {
         next_alloca_offset: outgoing_arg_bytes(func),
         has_calls: false,
         call_sites: Vec::new(),
+        call_rarity: Vec::new(),
     };
     let mut idx: u32 = 0;
     for block in &func.blocks {
@@ -90,6 +93,7 @@ pub(crate) fn scan_frame(func: &Function) -> FrameScan {
             if inst_emits_bl(&inst.kind) {
                 scan.has_calls = true;
                 scan.call_sites.push(idx);
+                scan.call_rarity.push(call_site_rarity(&inst.kind));
             }
             idx += 1;
         }
@@ -132,11 +136,11 @@ pub(crate) struct CallCosts {
 }
 
 impl CallCosts {
-    pub(crate) fn new(call_sites: &[u32], slot_units: &[u64]) -> Self {
+    pub(crate) fn new(call_sites: &[u32], rarity: &[u64], slot_units: &[u64]) -> Self {
         let mut prefix = Vec::with_capacity(call_sites.len() + 1);
         prefix.push(0u64);
-        for &p in call_sites {
-            prefix.push(prefix.last().unwrap() + slot_units[p as usize]);
+        for (&p, &r) in call_sites.iter().zip(rarity) {
+            prefix.push(prefix.last().unwrap() + slot_units[p as usize] / r);
         }
         CallCosts {
             sites: call_sites.to_vec(),

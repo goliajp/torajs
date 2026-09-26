@@ -58,10 +58,12 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
         .map(|(i, b)| (b.id, i))
         .collect();
     let calls = |b: BlockId| {
-        func.blocks[blocks[&b]]
-            .insts
-            .iter()
-            .any(|i| matches!(i.kind, InstKind::Call(..) | InstKind::CallIndirect(..)))
+        func.blocks[blocks[&b]].insts.iter().any(|i| {
+            matches!(
+                i.kind,
+                InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
+            )
+        })
     };
     let ends_unreachable =
         |b: BlockId| matches!(func.blocks[blocks[&b]].term, Terminator::Unreachable);

@@ -319,6 +319,7 @@ fn canonicalize_operands(kind: &InstKind, egraph: &mut Egraph) -> InstKind {
         InstKind::Load(ty, addr, off) => InstKind::Load(*ty, map_operand(addr, egraph), *off),
         InstKind::RcInc(p) => InstKind::RcInc(map_operand(p, egraph)),
         InstKind::RcIncAny(v) => InstKind::RcIncAny(map_operand(v, egraph)),
+        InstKind::RcDecAny(v) => InstKind::RcDecAny(map_operand(v, egraph)),
         InstKind::Store(val, addr, off) => {
             InstKind::Store(map_operand(val, egraph), map_operand(addr, egraph), *off)
         }

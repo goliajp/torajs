@@ -304,9 +304,13 @@ fn probe_of(func: &Function, b: usize) -> Option<Probe> {
     })
 }
 
-/// The only instructions that can change the flag.
+/// The only instructions that can change the flag (a release may
+/// call into the runtime's drop walk).
 fn is_clobber(kind: &InstKind) -> bool {
-    matches!(kind, InstKind::Call(..) | InstKind::CallIndirect(..))
+    matches!(
+        kind,
+        InstKind::Call(..) | InstKind::CallIndirect(..) | InstKind::RcDecAny(_)
+    )
 }
 
 /// Per block: is the flag known to be zero when control enters it?

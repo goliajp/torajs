@@ -164,6 +164,8 @@ fn written_headers(
                 | InstKind::StoreDyn(_, p, _)
                 | InstKind::StoreDynScaled8(_, p, _) => named(p, false),
                 InstKind::Call(_, args) => args.iter().for_each(|a| named(a, true)),
+                // a release may free the cell
+                InstKind::RcDecAny(v) => named(v, true),
                 InstKind::CallIndirect(_, callee, args) => {
                     named(callee, true);
                     args.iter().for_each(|a| named(a, true));

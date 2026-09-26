@@ -166,7 +166,9 @@ impl Assignment {
 ///   - `Call(FuncId, _)` / `CallIndirect(_, _, _)` (direct and
 ///     indirect SSA call surface, S4-A/C),
 ///   - `BinOp(FRem, _, _)` — lowered to a libm `_fmod` BL by
-///     `compile::binop` (S2-D).
+///     `compile::binop` (S2-D),
+///   - `RcDecAny(_)` — `compile::rc_dec`'s slow arm calls
+///     `__torajs_value_drop_heap`.
 pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
     // CtpopRangeSum emits no BL, but its canned SIMD loop clobbers
     // V0-V7 + V16-V18 and X9-X12 — a subset of a call's caller-saved
@@ -178,7 +180,18 @@ pub(crate) fn inst_emits_bl(kind: &InstKind) -> bool {
             | InstKind::CallIndirect(_, _, _)
             | InstKind::BinOp(BinOp::FRem, _, _)
             | InstKind::CtpopRangeSum(_, _, _)
+            | InstKind::RcDecAny(_)
     )
+}
+
+/// How often a call site's `bl` actually runs, as a divisor of its
+/// slot frequency: a release calls only on its slow arm (the last
+/// reference, or a cell that may need buffering as a cycle root).
+pub(crate) fn call_site_rarity(kind: &InstKind) -> u64 {
+    match kind {
+        InstKind::RcDecAny(_) => (1.0 / torajs_core::ssa::branch_prob::P_SLOW_PATH) as u64,
+        _ => 1,
+    }
 }
 
 /// Slot byte size for an Alloca-shaped inst. Returns `None` for any

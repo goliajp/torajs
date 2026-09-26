@@ -12,13 +12,13 @@ use crate::regalloc::Assignment;
 // the header is read as one little-endian u64 so a single load yields
 // both the flags and the count
 const _: () = assert!(offset_of!(HeapHeader, refcount) == 0);
-const STATIC_BIT: u32 =
+pub(super) const STATIC_BIT: u32 =
     offset_of!(HeapHeader, flags) as u32 * 8 + FLAG_STATIC_LITERAL.trailing_zeros();
 
 // NaN-box cell test (`torajs_rc::ffi::nan_box_is_cell_like`): every
 // non-cell encoding sets a bit in the top 16 or TAG_BIT_TYPE_OTHER
-const NON_CELL_TOP_SHIFT: u32 = 48;
-const TAG_BIT_TYPE_OTHER: u32 = 1;
+pub(super) const NON_CELL_TOP_SHIFT: u32 = 48;
+pub(super) const TAG_BIT_TYPE_OTHER: u32 = 1;
 
 /// `HeapHeader::inc_ref` with the null check the runtime helper does:
 ///

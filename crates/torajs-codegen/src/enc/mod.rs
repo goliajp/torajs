@@ -45,9 +45,9 @@ pub use fp::{
 };
 pub use int::{
     add_imm, add_imm_lsl12, add_reg, add_reg_lsl, add_w_imm, and_imm_one, and_reg, asr_imm,
-    asrv_reg, cmp_imm, cmp_reg, cmp_w_reg, eor_reg, lsl_imm, lslv_reg, lsr_imm, lsrv_reg,
-    mov_w_reg, mov_x_reg, movk_imm, movz_imm, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm,
-    sub_imm_lsl12, sub_reg, subs_imm, udiv_reg,
+    asrv_reg, cmp_imm, cmp_reg, cmp_w_imm, cmp_w_reg, eor_reg, lsl_imm, lslv_reg, lsr_imm,
+    lsrv_reg, mov_w_reg, mov_x_reg, movk_imm, movz_imm, msub_reg, mul_reg, orr_reg, sdiv_reg,
+    sub_imm, sub_imm_lsl12, sub_reg, sub_w_imm, subs_imm, tst_imm, udiv_reg,
 };
 pub use mem::{
     ldp_post_index, ldp_x_off, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3, ldrb_w_reg, ldur_x_imm9,

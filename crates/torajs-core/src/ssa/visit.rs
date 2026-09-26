@@ -22,7 +22,10 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             v(ptr);
             args.iter().for_each(v);
         }
-        InstKind::Load(_, ptr, _) | InstKind::RcInc(ptr) | InstKind::RcIncAny(ptr) => v(ptr),
+        InstKind::Load(_, ptr, _)
+        | InstKind::RcInc(ptr)
+        | InstKind::RcIncAny(ptr)
+        | InstKind::RcDecAny(ptr) => v(ptr),
         InstKind::Store(val, ptr, _) => {
             v(val);
             v(ptr);
@@ -102,7 +105,10 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
             v(ptr);
             args.iter_mut().for_each(v);
         }
-        InstKind::Load(_, ptr, _) | InstKind::RcInc(ptr) | InstKind::RcIncAny(ptr) => v(ptr),
+        InstKind::Load(_, ptr, _)
+        | InstKind::RcInc(ptr)
+        | InstKind::RcIncAny(ptr)
+        | InstKind::RcDecAny(ptr) => v(ptr),
         InstKind::Store(val, ptr, _) => {
             v(val);
             v(ptr);
