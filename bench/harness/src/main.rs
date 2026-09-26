@@ -85,8 +85,9 @@ fn print_usage() {
 /// Default `bench-harness run` runtime set — the **AOT-mode-only**
 /// comparison that directly informs L1 vision #1 ("perf 远超 bun"):
 /// torajs (real-native AOT) vs bun-aot (bundle-with-JSC "AOT") vs
-/// rust (native ceiling). `torajs-run` rides along as the dev-loop
-/// view (steady-state cache-hit; matches `tr run` ergonomics).
+/// rust and c (native ceiling; every case has both). `torajs-run`
+/// rides along as the dev-loop view (steady-state cache-hit; matches
+/// `tr run` ergonomics).
 ///
 /// The historical 4 (go · node-v8 · python · bun-jsc) are dropped
 /// from default because:
@@ -96,7 +97,7 @@ fn print_usage() {
 ///
 /// `--all` opts back into the historical full 8-runner matrix for
 /// phase-close / public-comparison reporting.
-const DEFAULT_RUNTIMES: &[&str] = &["torajs", "torajs-run", "rust", "bun-aot"];
+const DEFAULT_RUNTIMES: &[&str] = &["torajs", "torajs-run", "rust", "c", "bun-aot"];
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().skip(1).collect();
