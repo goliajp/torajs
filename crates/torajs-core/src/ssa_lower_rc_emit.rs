@@ -5,7 +5,8 @@
 //! future biased ARC (owner-thread fast path + share transition +
 //! atomic slow path, design principles §6.2):
 //!
-//! - `emit_rc_inc(op)`         — inc in current block
+//! - `emit_rc_inc(op)`         — inc in current block (inline `RcInc`
+//!   for typed heap values, runtime call for `Any`)
 //! - `emit_rc_inc_in(blk, op)` — inc in an explicit block (branch tails)
 //! - `emit_rc_dec_inline(hdr)` — inline Load-Sub-Store dec, returns new rc
 //! - `emit_drop_value(v, ty)`  — thin proxy into `ssa_lower_emit_drop_value`
@@ -22,12 +23,12 @@ use crate::ssa::{BinOp as SsaBinOp, BlockId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
-    /// Emit a refcount inc on `op`. Today expands to a single
-    /// `Call(intrinsics.rc_inc, vec![op])` — semantically and
-    /// instruction-wise equivalent to a direct emit. This helper
-    /// is the single retrofit point for the future biased ARC
-    /// (owner-thread fast path 0 atomic 增量 + share transition +
-    /// atomic 慢路径,design principles §6.2)。
+    /// Emit a refcount inc on `op`: an inline `InstKind::RcInc` for
+    /// statically typed heap values, the `__torajs_rc_inc` call
+    /// otherwise (see [`Self::emit_rc_inc_in`]). This helper and the
+    /// codegen expansion of `RcInc` are the retrofit points for the
+    /// future biased ARC (owner-thread fast path without atomics +
+    /// share transition + atomic slow path).
     ///
     /// **HARD RULE (§6.2):** all refcount inc emit goes through
     /// this helper. Direct `InstKind::Call(intrinsics.rc_inc, ...)`
@@ -42,8 +43,17 @@ impl<'a> LowerCtx<'a> {
     /// build a fresh `then_end` / `else_blk` and need to inc in a
     /// branch tail (e.g. Nullish-coalescing `??`).
     pub(crate) fn emit_rc_inc_in(&mut self, block: BlockId, op: Operand) {
-        self.f
-            .append_void(block, InstKind::Call(self.intrinsics.rc_inc, vec![op]));
+        // a statically typed heap value is a real pointer or null, so
+        // the inline `RcInc` needs no cell test; `Any` and untyped
+        // pointers may hold NaN-box immediates and keep the runtime
+        // helper, which tells the two apart
+        let ty = self.operand_ty(&op);
+        let kind = if ty.is_refcounted() && ty != Type::Any {
+            InstKind::RcInc(op)
+        } else {
+            InstKind::Call(self.intrinsics.rc_inc, vec![op])
+        };
+        self.f.append_void(block, kind);
     }
 
     /// Type-aware owned-result inc (RFC 20260705 owned-result

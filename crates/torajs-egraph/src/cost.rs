@@ -137,7 +137,8 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         | InstKind::LoadU8Dyn(_, _) => LOAD_COST,
         InstKind::Store(_, _, _)
         | InstKind::StoreDyn(_, _, _)
-        | InstKind::StoreDynScaled8(_, _, _) => STORE_COST,
+        | InstKind::StoreDynScaled8(_, _, _)
+        | InstKind::RcInc(_) => STORE_COST,
 
         // Cross-pipeline numeric casts.
         InstKind::SiToFp(_) | InstKind::FpToSi(_) => CAST_COST,

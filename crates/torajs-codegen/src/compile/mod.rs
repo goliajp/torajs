@@ -41,6 +41,7 @@ mod entry;
 mod inst;
 mod mem;
 mod operand;
+mod rc;
 mod refs;
 mod selinc;
 pub(crate) mod slot;

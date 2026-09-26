@@ -360,6 +360,10 @@ impl Function {
                 write!(w, ", ")?;
                 self.write_operand(w, acc)?;
             }
+            InstKind::RcInc(ptr) => {
+                write!(w, "rc_inc ")?;
+                self.write_operand(w, ptr)?;
+            }
         }
         writeln!(w)
     }

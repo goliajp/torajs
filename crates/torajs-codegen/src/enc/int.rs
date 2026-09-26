@@ -40,6 +40,13 @@ pub fn add_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
     0x9100_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
 }
 
+/// ADD Wd, Wn, #imm12 — 32-bit add; the result wraps at 2^32 and
+/// zeroes the upper half of Xd. ARM ARM C6.2.4.
+pub fn add_w_imm(rd: Gpr, rn: Gpr, imm12: u16) -> u32 {
+    debug_assert!(imm12 < 4096, "imm12 must fit in 12 bits");
+    0x1100_0000 | ((imm12 as u32) << 10) | (rn.idx() << 5) | rd.idx()
+}
+
 /// ADD Xd, Xn, #imm12, LSL #12 — shifted-immediate form (sh=1),
 /// adds `imm12 * 4096`. Pairs with the plain form for frame sizes
 /// past imm12. ARM ARM C6.2.4.
@@ -239,6 +246,13 @@ mod tests {
     #[test]
     fn add_reg_x0_x9_x10_matches_arm_arm() {
         assert_eq!(add_reg(Gpr::X0, Gpr::X9, Gpr::X10), 0x8B0A_0120);
+    }
+
+    #[test]
+    fn add_w_imm_matches_assembler() {
+        // `as -arch arm64`: add w10, w9, #1 / add w0, w0, #4095
+        assert_eq!(add_w_imm(Gpr::X10, Gpr::X9, 1), 0x1100_052A);
+        assert_eq!(add_w_imm(Gpr::X0, Gpr::X0, 4095), 0x113F_FC00);
     }
 
     #[test]

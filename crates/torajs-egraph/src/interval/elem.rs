@@ -461,7 +461,7 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
             v.extend(args.iter().cloned());
             v
         }
-        InstKind::Load(_, a, _) => vec![a.clone()],
+        InstKind::Load(_, a, _) | InstKind::RcInc(a) => vec![a.clone()],
         InstKind::Store(a, b, _) => vec![a.clone(), b.clone()],
         InstKind::StoreDyn(a, b, c)
         | InstKind::StoreDynScaled8(a, b, c)

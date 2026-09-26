@@ -81,6 +81,7 @@ fn emit_inst(
         InstKind::CtpopRangeSum(start, bound, acc_init) => {
             emit_ctpop_range_sum(bytes, inst, start, bound, acc_init, alloc)
         }
+        InstKind::RcInc(ptr) => super::rc::emit_rc_inc(bytes, ptr, alloc),
     }
 }
 

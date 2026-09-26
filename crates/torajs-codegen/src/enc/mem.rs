@@ -20,6 +20,15 @@ pub fn str_x_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
     0xF900_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
 }
 
+/// STR Wt, [Xn, #imm12] — store 32-bit, unsigned offset, scaled by 4.
+/// ARM ARM C6.2.395.
+pub fn str_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(byte_offset % 4 == 0, "byte offset must be 4-byte aligned");
+    let imm12 = byte_offset / 4;
+    debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
+    0xB900_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDR Xt, [Xn, Xm, LSL #0] — load 64-bit, register-indexed, no
 /// scale (Xm is a raw byte index). ARM ARM C6.2.137.
 pub fn ldr_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
@@ -119,6 +128,13 @@ pub fn ldp_x_off(rt: Gpr, rt2: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn str_w_matches_assembler() {
+        // `as -arch arm64`: str w10, [x0] / str w10, [x3, #8]
+        assert_eq!(str_w_imm12(Gpr::X10, Gpr::X0, 0), 0xB900_000A);
+        assert_eq!(str_w_imm12(Gpr::X10, Gpr::X3, 8), 0xB900_086A);
+    }
 
     #[test]
     fn ldr_x0_x9_offset_zero_matches_arm_arm() {

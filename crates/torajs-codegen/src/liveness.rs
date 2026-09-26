@@ -277,7 +277,7 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
             visit(a);
         }
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => {}
-        InstKind::Load(_, ptr, _) => visit(ptr),
+        InstKind::Load(_, ptr, _) | InstKind::RcInc(ptr) => visit(ptr),
         InstKind::Store(val, ptr, _) => {
             visit(val);
             visit(ptr);

@@ -362,6 +362,15 @@ pub enum InstKind {
     /// live-across values to callee-saved homes exactly as for a
     /// Call (the clobber set is a subset of a call's).
     CtpopRangeSum(Operand, Operand, Operand),
+    /// `rc_inc <ptr>` — void. Retain a heap cell whose operand is a
+    /// real pointer or null (never a NaN-box immediate: `Any` values
+    /// keep the `__torajs_rc_inc` call, which tells cells from
+    /// immediates). Same effect as `HeapHeader::inc_ref`: null and
+    /// FLAG_STATIC_LITERAL cells are left alone, otherwise the u32
+    /// refcount at +0 goes up by one, wrapping like the runtime's.
+    /// Codegen expands it in place with no call, so values live
+    /// across it keep caller-saved homes.
+    RcInc(Operand),
 }
 
 #[derive(Debug, Clone)]

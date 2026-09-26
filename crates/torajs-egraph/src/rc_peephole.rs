@@ -7,7 +7,7 @@
 //!
 //! ```text
 //! %2 = load str, %s               ; %s = alloca stack slot
-//! call __torajs_rc_inc(%2)
+//! rc_inc %2                      ; or call __torajs_rc_inc(%2) for Any
 //! ...stack traffic only...
 //! %5 = load str, %s
 //! call __torajs_str_drop(%5)      ; or substr/arr drop
@@ -58,7 +58,8 @@ use torajs_core::ssa::{Function, Inst, InstKind, Module, Operand, Terminator, Va
 
 use crate::optimize::classify_pure;
 
-/// Name of the retain intrinsic emitted by `ssa_lower::emit_rc_inc`.
+/// Name of the retain helper `ssa_lower::emit_rc_inc` calls for `Any`
+/// values (typed values retain through the inline `InstKind::RcInc`).
 const RC_INC: &str = "__torajs_rc_inc";
 
 /// Single-inst void drop helpers whose semantics are exactly
@@ -118,9 +119,9 @@ enum PtrKey {
 /// `module`. Returns the number of pairs removed.
 pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
     let mut stats = RcPeepholeStats::default();
-    let Some(inc_fid) = find_func(module, RC_INC) else {
-        return stats; // program uses no refcounted values at all
-    };
+    // typed values retain through the inline `RcInc`; `Any` values
+    // still call the helper, which may then be the only retain form
+    let inc_fid = find_func(module, RC_INC);
     let drop_fids: HashSet<u32> = DROP_INTRINSICS
         .iter()
         .filter_map(|name| find_func(module, name))
@@ -233,7 +234,7 @@ pub(crate) use torajs_core::ssa::visit_value_operands;
 /// `inc inc drop drop`) collapse on the next pass.
 fn elide_in_insts(
     insts: &mut Vec<Inst>,
-    inc_fid: u32,
+    inc_fid: Option<u32>,
     drop_fids: &HashSet<u32>,
     readonly_fids: &HashSet<u32>,
     slots: &HashSet<ValueId>,
@@ -264,7 +265,7 @@ fn elide_in_insts(
         if to_remove.contains(&i) {
             continue;
         }
-        let Some(a) = match_void_call_on_value(&insts[i], |fid| fid == inc_fid) else {
+        let Some(a) = match_inc(&insts[i], inc_fid) else {
             continue;
         };
         let a_key = key_of(a);
@@ -325,6 +326,15 @@ fn rc_transparent(kind: &InstKind, readonly_fids: &HashSet<u32>, slots: &HashSet
         // rc-neutral readonly runtime call (READONLY_INTRINSICS)
         InstKind::Call(fid, _) => readonly_fids.contains(&fid.0),
         _ => false,
+    }
+}
+
+/// Match a retain of `%v`: the inline `rc_inc %v` or a call to the
+/// `__torajs_rc_inc` helper.
+fn match_inc(inst: &Inst, inc_fid: Option<u32>) -> Option<ValueId> {
+    match &inst.kind {
+        InstKind::RcInc(Operand::Value(v)) => Some(*v),
+        _ => match_void_call_on_value(inst, |fid| Some(fid) == inc_fid),
     }
 }
 

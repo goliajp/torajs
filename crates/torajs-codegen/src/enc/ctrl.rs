@@ -79,6 +79,15 @@ pub fn cbnz_x(rt: Gpr, byte_offset: i32) -> u32 {
     0xB500_0000 | (imm19 << 5) | rt.idx()
 }
 
+/// TBNZ Rt, #bit, label — Test bit and Branch if Nonzero. Bits 32-63
+/// test the X register (b5 = 1). ARM ARM C6.2.371.
+pub fn tbnz(rt: Gpr, bit: u32, byte_offset: i32) -> u32 {
+    debug_assert!(bit < 64, "bit number must fit in 6 bits");
+    debug_assert!(byte_offset % 4 == 0, "branch offset must be 4-byte aligned");
+    let imm14 = ((byte_offset / 4) as u32) & 0x3FFF;
+    0x3700_0000 | ((bit >> 5) << 31) | ((bit & 0x1F) << 19) | (imm14 << 5) | rt.idx()
+}
+
 /// NOP — alignment padding in front of a branch target. ARM ARM
 /// C6.2.238.
 pub fn nop() -> u32 {
@@ -171,6 +180,13 @@ mod tests {
     #[test]
     fn b_cond_ne_plus_8() {
         assert_eq!(b_cond_imm19(cond::NE, 8), 0x5400_0041);
+    }
+
+    #[test]
+    fn tbnz_matches_assembler() {
+        // `as -arch arm64`: tbnz x9, #50, +12 / tbnz w1, #2, +4
+        assert_eq!(tbnz(Gpr::X9, 50, 12), 0xB790_0069);
+        assert_eq!(tbnz(Gpr::X1, 2, 4), 0x3710_0021);
     }
 
     #[test]
