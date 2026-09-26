@@ -401,7 +401,7 @@ pub(crate) fn member_data_layouts(layout: &ArchiveLayout, m_idx: usize) -> &[Dat
         .unwrap_or(&[])
 }
 
-fn pad_to(buf: &mut Vec<u8>, target_len: usize) {
+pub(crate) fn pad_to(buf: &mut Vec<u8>, target_len: usize) {
     if buf.len() < target_len {
         buf.resize(target_len, 0);
     }

@@ -76,7 +76,7 @@ pub(crate) fn write_header_and_load_commands(buf: &mut Vec<u8>, layout: &Archive
         addr: layout.text_vmaddr + u64::from(layout.text_file_offset),
         size: u64::from(layout.text_size),
         offset: layout.text_file_offset,
-        align_log2: 2,
+        align_log2: crate::text_payload::TEXT_FN_ALIGN.trailing_zeros(),
         reloff: 0,
         nreloc: 0,
         flags: S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,

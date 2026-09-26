@@ -23,6 +23,7 @@ use crate::lc::{
 };
 use crate::resolve::{SymTable, apply_relocs};
 use crate::sign::{adhoc_codesign_blob_size, build_adhoc_codesign_blob};
+use crate::text_payload::{TEXT_FN_ALIGN, place_text};
 
 // ---- Public API ----
 
@@ -218,25 +219,15 @@ pub fn compute_layout(cfg: &LinkConfig) -> ExecLayout {
         + LINKEDIT_DATA_CMDSIZE; // LC_CODE_SIGNATURE
     let header_plus_lc = (MachHeader64::SIZE as u32) + sizeofcmds;
 
-    // `__text` packs right after the load commands, 16-aligned —
+    // `__text` packs right after the load commands, fetch-line aligned —
     // the whole `__TEXT` segment maps r-x, header included, so a
     // page boundary here only wasted file bytes (r498; mirrors the
     // archive path in `archive_layout_text.rs`).
-    let text_file_offset = round_up_to(u64::from(header_plus_lc), 16) as u32;
+    let text_file_offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32;
 
-    // Concatenate function bytes; remember each fn's section-
-    // relative offset for the vaddr table.
-    let mut text_size: u32 = 0;
-    let mut fn_offsets_in_text: Vec<u32> = Vec::with_capacity(cfg.funcs.len());
-    for f in &cfg.funcs {
-        debug_assert_eq!(
-            f.bytes.len() % 4,
-            0,
-            "CompiledFunction bytes must be 4-aligned (aarch64 instruction width)"
-        );
-        fn_offsets_in_text.push(text_size);
-        text_size += f.bytes.len() as u32;
-    }
+    // Each fn's section-relative offset for the vaddr table.
+    let placement = place_text(cfg.funcs.iter().map(|f| f.bytes.len() as u32), &[]);
+    let (fn_offsets_in_text, text_size) = (placement.user, placement.size);
 
     // `__TEXT` segment vmsize is page-aligned and covers
     // mach_header + load commands + __text payload + slack to
@@ -367,7 +358,7 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
         addr: layout.text_vmaddr + u64::from(layout.text_file_offset),
         size: u64::from(layout.text_size),
         offset: layout.text_file_offset,
-        align_log2: 2,
+        align_log2: TEXT_FN_ALIGN.trailing_zeros(),
         reloff: 0,
         nreloc: 0,
         flags: S_ATTR_PURE_INSTRUCTIONS | S_ATTR_SOME_INSTRUCTIONS,
@@ -434,7 +425,8 @@ pub fn link_to_exec(cfg: &LinkConfig) -> Vec<u8> {
     pad_to(&mut buf, layout.text_file_offset as usize);
 
     // `__text` payload — concat the resolved (patched) bytes.
-    for r in &resolved {
+    for (r, &vaddr) in resolved.iter().zip(&layout.fn_vaddrs) {
+        pad_to(&mut buf, (vaddr - layout.text_vmaddr) as usize);
         buf.extend_from_slice(&r.bytes);
     }
 
@@ -544,8 +536,8 @@ mod tests {
         // header (32) + 3 LC_SEGMENT_64 (72*3 = 216) + 1 section (80) +
         // LC_LOAD_DYLINKER (32) + LC_BUILD_VERSION (24) + LC_MAIN (24) +
         // LC_SYMTAB (24) + LC_DYSYMTAB (80) + LC_CODE_SIGNATURE (16) = 528.
-        // `__text` packs right after (16-aligned; 528 already is).
-        assert_eq!(layout.text_file_offset, 528);
+        // `__text` packs right after, on the next 64-byte boundary.
+        assert_eq!(layout.text_file_offset, 576);
 
         // __text payload = the compiled `_main` body. Pinning a byte
         // count here couples this layout test to codegen instruction
@@ -553,7 +545,7 @@ mod tests {
         // from 16 to 12 bytes) — pin the layout invariant instead.
         assert_eq!(layout.text_size, cfg.funcs[0].bytes.len() as u32);
 
-        // __TEXT vmsize = round_up(528 + text_size, 0x4000) = 0x4000
+        // __TEXT vmsize = round_up(576 + text_size, 0x4000) = 0x4000
         // (payload is a handful of instructions, far below one page).
         assert_eq!(layout.text_vmsize, 0x4000);
 
@@ -567,11 +559,11 @@ mod tests {
         assert_eq!(layout.strsize, 7);
         assert_eq!(layout.linkedit_vmsize, 0x4000);
 
-        // _main vaddr = TEXT_VMADDR_BASE + 528 (text packs right
-        // after the load commands).
+        // _main vaddr = TEXT_VMADDR_BASE + 576 (text starts on the
+        // first 64-byte boundary past the load commands).
         assert_eq!(layout.fn_vaddrs.len(), 1);
-        assert_eq!(layout.fn_vaddrs[0], TEXT_VMADDR_BASE + 528);
-        assert_eq!(layout.entry_file_offset, 528);
+        assert_eq!(layout.fn_vaddrs[0], TEXT_VMADDR_BASE + 576);
+        assert_eq!(layout.entry_file_offset, 576);
 
         // Total file size = linkedit_file_offset + nlist + strtab +
         // codesign blob. Codesign blob = SB(12) + index(8) + CD

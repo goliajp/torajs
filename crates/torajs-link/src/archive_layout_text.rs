@@ -17,6 +17,7 @@ use crate::lc::{
 };
 use crate::non_text_layout::{NonTextLayoutError, NonTextSectionLayout, compute_non_text_layouts};
 use crate::stubs::{LA_PTR_SLOT_SIZE, STUB_SIZE};
+use crate::text_payload::{TEXT_FN_ALIGN, TextPlacement, place_text};
 use crate::user_strings_layout::{UserStringsLayout, build_user_strings_region};
 use crate::user_vtables_layout::{UserVtablesLayout, build_user_vtables_region};
 
@@ -27,6 +28,8 @@ pub(crate) struct TextRegionPlan {
     pub(crate) has_chained_fixups: bool,
     pub(crate) segment_count: u32,
     pub(crate) text_file_offset: u32,
+    /// Where each user function and member `__text` starts.
+    pub(crate) text_placement: TextPlacement,
     pub(crate) non_text_region_file_offset: u32,
     pub(crate) non_text_per_member: Vec<Vec<NonTextSectionLayout>>,
     pub(crate) non_text_region_size: u32,
@@ -164,14 +167,15 @@ pub(crate) fn compute_text_region_plan(
     // 16 KB page per artifact (r498). An LC-sizing undercount now
     // shifts `__text` immediately instead of hiding until the region
     // outgrows its page; `emit_binary`'s overrun gate catches it.
-    let text_file_offset = round_up_to(u64::from(header_plus_lc), 16) as u32;
-
-    let user_text_size: u32 = cfg.funcs.iter().map(|f| f.bytes.len() as u32).sum();
-    let members_text_total: u32 = member_text_sizes.iter().copied().sum();
+    let text_file_offset = round_up_to(u64::from(header_plus_lc), u64::from(TEXT_FN_ALIGN)) as u32;
+    let text_placement = place_text(
+        cfg.funcs.iter().map(|f| f.bytes.len() as u32),
+        member_text_sizes,
+    );
 
     // Non-text region (member __cstring/__const) lands between member
     // __texts and `__TEXT,__stubs`; folds into text_size auto-shift.
-    let non_text_region_file_offset = text_file_offset + user_text_size + members_text_total;
+    let non_text_region_file_offset = text_file_offset + text_placement.size;
     let non_text_result =
         compute_non_text_layouts(&merged, &member_keys, non_text_region_file_offset).map_err(
             |NonTextLayoutError {
@@ -201,8 +205,7 @@ pub(crate) fn compute_text_region_plan(
         TEXT_VMADDR_BASE,
         non_text_region_file_offset + non_text_region_size + user_strings_layout.total_size,
     );
-    let text_size = user_text_size
-        + members_text_total
+    let text_size = text_placement.size
         + non_text_region_size
         + user_strings_layout.total_size
         + user_vtables_layout.total_size;
@@ -224,6 +227,7 @@ pub(crate) fn compute_text_region_plan(
         has_chained_fixups,
         segment_count,
         text_file_offset,
+        text_placement,
         non_text_region_file_offset,
         non_text_per_member: non_text_result.per_member,
         non_text_region_size,
