@@ -8,12 +8,28 @@ use core::ffi::c_void;
 use crate::nanbox::AnyValue;
 use torajs_rc::AnySlotTag;
 
+unsafe extern "C" {
+    fn __torajs_throw_check() -> i64;
+}
+
+/// A user `@@toPrimitive` getter / hook, `valueOf` or `toString` that
+/// threw answers a placeholder with the throw pending; the operand
+/// then fails like a refusal, so the operator stops before the other
+/// operand's hooks run (§13.15.3 step 2 after step 1 threw).
+fn prim_or_failure(prim: AnyValue) -> Option<AnyValue> {
+    if unsafe { __torajs_throw_check() } != 0 {
+        unsafe { crate::nanbox_ffi::__torajs_anyv_rc_dec(prim) };
+        return None;
+    }
+    Some(prim)
+}
+
 /// §13.15.3 step 1/2 for one `any_add` operand — a Heap non-Str
 /// cell replaces itself with its ToPrimitive(default) `(tag,
 /// value)`; the owned prim box rides back so the caller releases
 /// it after use (`None` = the operand was already primitive /
-/// Str). A ToPrimitive failure (both hooks object) answers
-/// `(i64::MIN, 0, None)` with the TypeError pending.
+/// Str). A ToPrimitive failure (both hooks object, or a hook that
+/// threw) answers `(i64::MIN, 0, None)` with the throw pending.
 pub(crate) unsafe fn add_operand_to_primitive(
     tag: i64,
     value: i64,
@@ -38,7 +54,9 @@ pub(crate) unsafe fn add_operand_to_primitive(
         // object-method machinery over a non-object layout (UB).
         return (tag, value, None);
     }
-    match unsafe { crate::to_primitive::heap_to_primitive_default(value as *mut c_void) } {
+    match unsafe { crate::to_primitive::heap_to_primitive_default(value as *mut c_void) }
+        .and_then(prim_or_failure)
+    {
         Some(prim) => {
             let pt = crate::nanbox_encode::__torajs_anyv_unbox_tag(prim);
             let pv = crate::nanbox_encode::__torajs_anyv_unbox_value(prim);
@@ -62,8 +80,9 @@ pub(crate) unsafe fn add_operand_to_primitive(
 /// operand replaces itself with its ToPrimitive(number) pair
 /// (`[Symbol.toPrimitive]` → valueOf → toString), the owned prim box
 /// rides back for the caller to release; primitives and Str / Symbol
-/// / BigInt cells pass untouched (`None`). A failure answers
-/// `(i64::MIN, 0, None)` with the TypeError pending.
+/// / BigInt cells pass untouched (`None`). A failure (including a
+/// hook that threw) answers `(i64::MIN, 0, None)` with the throw
+/// pending.
 pub(crate) unsafe fn numeric_operand_to_primitive(
     tag: i64,
     value: i64,
@@ -78,7 +97,9 @@ pub(crate) unsafe fn numeric_operand_to_primitive(
     ) {
         return (tag, value, None);
     }
-    match unsafe { crate::to_primitive::heap_to_primitive(value as *mut c_void, false) } {
+    match unsafe { crate::to_primitive::heap_to_primitive(value as *mut c_void, false) }
+        .and_then(prim_or_failure)
+    {
         Some(prim) => {
             let pt = crate::nanbox_encode::__torajs_anyv_unbox_tag(prim);
             let pv = crate::nanbox_encode::__torajs_anyv_unbox_value(prim);

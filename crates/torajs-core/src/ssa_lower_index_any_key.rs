@@ -255,6 +255,8 @@ pub(crate) fn lower_array_any_index(
         Type::I64,
         None,
     );
+    // the tag read runs an accessor element's getter, which may throw
+    ctx.emit_throw_check(None);
     let cur_block = ctx.cur_block;
     let box_v = ctx.f.append_inst(
         cur_block,
