@@ -20,8 +20,8 @@ CARGO_BUILD_RUSTC_WRAPPER = { value = "", force = true }
 # nightly's rustc surfaces ld's "building for macOS-11.0 but linking
 # with libLLVM.dylib built for newer 26.0" as a `#[warn(linker_messages)]`
 # diagnostic; the actual ABI is compatible (LLVM has a stable C ABI
-# across these versions), so it's noise that defeats the CLAUDE.md
-# "0 warning" pre-flight gate. The real fix is to bump the macOS
+# across these versions), so it's noise that defeats the project's
+# zero-warning build requirement. The real fix is to bump the macOS
 # deployment target to match Homebrew LLVM's, but doing that needs
 # a target/cleanup audit — tracked as L3b follow-up.
 [target.'cfg(target_os = "macos")']

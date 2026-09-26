@@ -186,9 +186,8 @@ pub fn run_one(
         // of --outfile, no env var redirects them. Across a full
         // `bench-harness run` they pile up by the thousand (one
         // saturated test session left 11,724 files / 688 GB on disk).
-        // Per CLAUDE.md '规范' pillar: any temp artifact a tool
-        // produces must be cleaned up at the same boundary that
-        // generated it. Best-effort glob — failures don't fail the
+        // Any temp artifact a tool produces is cleaned up at the
+        // same boundary that generated it. Best-effort glob — failures don't fail the
         // bench step.
         let _ = std::fs::read_dir(".").map(|entries| {
             for entry in entries.flatten() {

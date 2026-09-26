@@ -10,7 +10,7 @@
 //! bare linear-probe table cannot give — see [`layout`] for the block
 //! shape and hole/tombstone rules, [`iter`] for the ordered walk.
 //!
-//! Self-implemented per CLAUDE.md "自研" pillar (no external hash lib).
+//! Implemented in-house: the runtime takes no external hash library.
 //!
 //! ## Why `std`, not `no_std`
 //!

@@ -22,10 +22,9 @@
 # Trade we drop:
 #   immediate-abort → fib40 38 KB (-91% size, but +19% perf cost)
 #
-# Per CLAUDE.md design pillar #1 (performance-first; run_ms is the
-# primary metric) and takagi's 2026-05-24 explicit instruction
-# ("我们完全不担心 ROI，只要性能和质量"), perf > size when
-# they conflict. Restoring immediate-abort requires a follow-up
+# Performance comes first (run_ms is the primary metric), per
+# takagi's 2026-05-24 explicit instruction ("我们完全不担心 ROI，
+# 只要性能和质量"): perf > size when they conflict. Restoring immediate-abort requires a follow-up
 # that decouples size win from hot-path layout (e.g. custom panic
 # handler without backtrace, opt-level = "z" on cold modules, PGO).
 #
