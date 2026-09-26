@@ -146,6 +146,25 @@ pub(super) fn emit_do_call(
     // on this side because `materialize_call_args` (which every lane
     // below reaches) did not carry the number lanes. It does now, so
     // converting here would only do the same work twice.
+    // an element handed to an `any` parameter crosses into the boxed
+    // world here; a number slot that holds the undefined sentinel (a
+    // copied hole, an out-of-range fill) has to arrive as undefined
+    let params = match fn_ty {
+        Type::Closure(s) | Type::FnSig(s) => ctx.fn_sigs[s.0 as usize].0.clone(),
+        _ => Vec::new(),
+    };
+    let args = args
+        .into_iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let to_any = i >= sig_skip && params.get(i - sig_skip) == Some(&Type::Any);
+            if to_any && ctx.operand_ty(&a) == Type::F64 {
+                ctx.box_f64_or_undef(a)
+            } else {
+                a
+            }
+        })
+        .collect::<Vec<_>>();
     let r = match known_fid {
         Some(fid) => {
             ctx.call_fn_value_devirt(fid, fn_val.clone(), fn_ty, args, sig_skip, spec_argc)
