@@ -46,8 +46,9 @@
 //! * both insts must be result-less (`append_void` shape) so removal
 //!   can never orphan a `ValueId` use.
 //! * the drop must be one of the single-inst NULL-safe runtime drop
-//!   helpers (`DROP_INTRINSICS`). Obj drops are inline CFG expansions
-//!   and Closure drops are `CallIndirect` — both out of scope.
+//!   helpers (`DROP_INTRINSICS`) or the inline `rc_dec_any`. Obj
+//!   drops are inline CFG expansions and Closure drops are
+//!   `CallIndirect` — both out of scope.
 //!
 //! The scan runs to a fixpoint so nested pairs
 //! (`inc inc drop drop`) collapse fully.
@@ -126,9 +127,6 @@ pub fn elide_rc_pairs(module: &mut Module) -> RcPeepholeStats {
         .iter()
         .filter_map(|name| find_func(module, name))
         .collect();
-    if drop_fids.is_empty() {
-        return stats;
-    }
     let readonly_fids: HashSet<u32> = READONLY_INTRINSICS
         .iter()
         .filter_map(|name| find_func(module, name))
@@ -275,7 +273,7 @@ fn elide_in_insts(
                 // gone, treat as transparent
                 continue;
             }
-            if let Some(b) = match_void_call_on_value(inst, |fid| drop_fids.contains(&fid)) {
+            if let Some(b) = match_drop(inst, drop_fids) {
                 if key_of(b) == a_key {
                     to_remove.insert(i);
                     to_remove.insert(j);
@@ -326,6 +324,15 @@ fn rc_transparent(kind: &InstKind, readonly_fids: &HashSet<u32>, slots: &HashSet
         // rc-neutral readonly runtime call (READONLY_INTRINSICS)
         InstKind::Call(fid, _) => readonly_fids.contains(&fid.0),
         _ => false,
+    }
+}
+
+/// Match a release of `%v`: the inline `rc_dec_any %v` or a call to
+/// one of the NULL-safe drop helpers.
+fn match_drop(inst: &Inst, drop_fids: &HashSet<u32>) -> Option<ValueId> {
+    match &inst.kind {
+        InstKind::RcDecAny(Operand::Value(v)) => Some(*v),
+        _ => match_void_call_on_value(inst, |fid| drop_fids.contains(&fid)),
     }
 }
 
