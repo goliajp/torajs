@@ -115,7 +115,7 @@ pub(crate) fn try_lower(
         } else {
             (b.clone(), a.clone())
         };
-        return Some(crate::ssa_lower_anyv_inline::f64_add_any(
+        return Some(crate::ssa_lower_anyv_number::f64_add_any(
             ctx,
             f,
             &v,

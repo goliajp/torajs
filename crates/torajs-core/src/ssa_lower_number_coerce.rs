@@ -167,7 +167,7 @@ impl<'a> LowerCtx<'a> {
         // throw poisons the next runtime entry (the second `Number(x)`
         // over a both-object receiver SIGSEGVed on a placeholder
         // rc_dec). Twin of `coerce_any_to_bigint` below.
-        let num = crate::ssa_lower_anyv_inline::to_number(self, op);
+        let num = crate::ssa_lower_anyv_number::to_number(self, op);
         if target == Type::F64 {
             num
         } else {

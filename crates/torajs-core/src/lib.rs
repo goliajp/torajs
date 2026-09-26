@@ -277,6 +277,7 @@ pub(crate) mod ssa_lower_any_cast;
 pub(crate) mod ssa_lower_any_member;
 pub(crate) mod ssa_lower_any_method_call;
 pub(crate) mod ssa_lower_anyv_inline;
+pub(crate) mod ssa_lower_anyv_number;
 pub(crate) mod ssa_lower_arr_any_fill;
 pub(crate) mod ssa_lower_arr_any_push;
 pub(crate) mod ssa_lower_arr_concat;
