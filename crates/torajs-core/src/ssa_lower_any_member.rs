@@ -1,7 +1,6 @@
 //! `Type::Any` member-read inline class-tag dispatch — carved out
 //! of `ssa_lower.rs::lower_expr_inner` to keep that god-file from
-//! growing further (file-size HARD RULE per
-//! `.claude/rules/torajs-file-size-debt.md`).
+//! growing further (file-size HARD RULE).
 //!
 //! Pre-fix the Any-member read site decoded the Any-box's value
 //! field as a ptr and unconditionally dispatched through

@@ -12,7 +12,6 @@
 //! merely happens to be written between quotes. For those, parsing the
 //! text at compile time and lowering it at the call site is not a trick;
 //! it is the same path every other statement in the file takes.
-//! (Decomposition: `.claude/rfcs/20260807-eval/decomposition.md`.)
 //!
 //! ## The environment split, and why tr sits on the strict side of it
 //!

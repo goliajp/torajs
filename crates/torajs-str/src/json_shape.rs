@@ -5,8 +5,7 @@
 //! composite_obj_jsb.rs`) spells a 4-field record as 11 cross-
 //! archive calls per stringify — `jsb_new`, a `begin_field` +
 //! `push_str_raw`(key) + `push_<ty>` triple per field, the brace
-//! bytes, `finalize`. The S1-A2 decomposition
-//! (`.claude/rfcs/20260824-s1a2-alloc-decomp`, stage S04-S07) put
+//! bytes, `finalize`. The S1-A2 decomposition put
 //! that call fabric at ~40% of json-stringify self-time. The layout
 //! is compile-time static, so the SSA emitter can hand the whole
 //! plan over at once: this kernel walks a descriptor blob and runs

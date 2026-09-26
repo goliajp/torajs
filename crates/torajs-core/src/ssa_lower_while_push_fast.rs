@@ -25,8 +25,8 @@
 //! plain while-lower.
 //!
 //! Lives in its own file to keep `ssa_lower.rs` on its known-debt
-//! shrink-only trajectory (`.claude/rules/common/file-size.md`). Same
-//! placement rationale as `ssa_lower_push_loop_detect`, `ssa_lower_
+//! shrink-only trajectory. Same placement rationale as
+//! `ssa_lower_push_loop_detect`, `ssa_lower_
 //! deque_escape`, `ssa_lower_obj_escape`, `ssa_lower_closure_captures`.
 
 use crate::ast::{ExprId, Stmt};

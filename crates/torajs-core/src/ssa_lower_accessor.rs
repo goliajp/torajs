@@ -1,5 +1,4 @@
-//! Accessor (get/set) property dispatch — RFC C3
-//! (`.claude/rfcs/20260613-object-property-descriptors/`).
+//! Accessor (get/set) property dispatch — RFC C3.
 //!
 //! A property defined via `Object.defineProperty(o, k, { get, set })`
 //! stores an `AccessorPair` cell (torajs-dynobj `accessor.rs`) as its

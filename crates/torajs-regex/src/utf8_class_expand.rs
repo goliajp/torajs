@@ -23,8 +23,7 @@
 //! leaves with shape-equal sub-AST via `canonical_form`
 //! byte-serialisation. That was O(N²) over the cp count — `[^a]u`
 //! (~1.1 M cp) and `\p{L}u` (~50 K cp via curated UCD) SIGABRT'd the
-//! cargo test binary. See `.claude/rfcs/20260623-pike-vm-dfa-chunk10d`
-//! for the full v1 post-mortem.
+//! cargo test binary.
 //!
 //! v2 input is a **cp range list**, not individual cp. The expansion
 //! visits at most O(R · L) recursion frames where R is the post-split

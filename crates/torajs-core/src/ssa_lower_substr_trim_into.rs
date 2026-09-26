@@ -18,7 +18,7 @@
 //! branch (dec parent rc, return — no pool/free).
 //!
 //! Lives in its own file to keep `ssa_lower.rs` on its known-debt
-//! shrink-only trajectory (`.claude/rules/common/file-size.md`).
+//! shrink-only trajectory.
 //! Net ssa_lower.rs delta is offset by folding the existing
 //! `__torajs_substr_trim` / `_trim_start` / `_trim_end`
 //! declare_intrinsic 7-line blocks into [`declare_all`] so the

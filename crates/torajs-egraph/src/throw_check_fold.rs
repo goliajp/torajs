@@ -28,8 +28,7 @@
 //! loses that predecessor and the unreachable-block sweep takes it.
 //! Nothing here assumes that every throwing call is followed by a
 //! probe: a call the lowering left unprobed is still a call, and
-//! still makes the flag unknown (the P1b design report,
-//! `.claude/tasks/2026-09-25/p1b-throw-check-fable.md`, route A).
+//! still makes the flag unknown (the P1b design report, route A).
 //!
 //! Runs after `branch_fold`: an array element read's out-of-range arm
 //! holds the call that raises the RangeError, and the probe after the

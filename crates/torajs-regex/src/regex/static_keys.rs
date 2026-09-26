@@ -27,7 +27,6 @@ pub(crate) const FLAG_STATIC_LITERAL: u16 = 1 << 2;
 /// also no-ops on the flag, saving an additional ~3 ns per key.
 /// Per-call gain: ~35 ns/key × 3 keys = ~105 ns/iter on the
 /// `regex-wireback-minlit-100k` fixture; aligns the decomp
-/// (`.claude/rfcs/20260625-perf-wire-back-decomp/decomposition.md`)
 /// Top-N estimate.
 ///
 /// **Race semantics**: under v0.2 single-mutator the CAS always

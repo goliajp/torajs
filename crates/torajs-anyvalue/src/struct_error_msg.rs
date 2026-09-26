@@ -23,7 +23,7 @@
 //! DATA field, gated on slot-type compatibility (Any / Str / I64 /
 //! F64 / Bool). A mismatched payload falls back to the caller's loud
 //! reject — a typed slot never silently coerces (shape transition is
-//! a recorded follow-up, `.claude/rfcs/20260718-error-message-own-prop`).
+//! a recorded follow-up).
 
 use core::ffi::c_void;
 

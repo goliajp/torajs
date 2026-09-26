@@ -25,10 +25,6 @@
 # rolling `nightly` channel — the deeply-unstable features above drift
 # between nightlies and would turn `rustup update` into a random build
 # break (and pollute the autorun conformance signal).
-#
-# To check whether the latest stable can finally drop nightly, run the
-# local skill `.claude/skills/check-rust-version/check.sh` (ground-truth
-# probes; not committed).
 
 [toolchain]
 channel = "nightly-2026-07-10"

@@ -3,8 +3,7 @@
 //! 19968-22146 = 2179 LOC, pre-extract).
 //!
 //! The dispatch lives here because P11.1 (Str byte → Hybrid Latin-1 /
-//! UTF-16 internal representation, per RFC
-//! `.claude/rfcs/20260603-p11-1-str-unicode-internal/`) will mutate
+//! UTF-16 internal representation) will mutate
 //! every method-lowering arm — pulling them out of the 28k-line
 //! `lower_expr_inner` god-fn first lets each P11.1 sub-step (S1
 //! layout, S3 runtime path, S4 charCodeAt/codePointAt split, S5

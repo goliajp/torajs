@@ -14,8 +14,7 @@
 //! invisible to SSA-level GVN — a parity test in a division loop pays
 //! a full divider trip (~8 cyc + divider occupancy) for one AND worth
 //! of information. float_demote's FRem→SRem output is the main feeder
-//! (collatz decomposition A1b,
-//! .claude/tasks/2026-07-18/perf-collatz-decomposition.md).
+//! (collatz decomposition A1b).
 //!
 //! Runs after float_demote (its SRem output is the target shape),
 //! before sext_elide / ctpop_idiom. `TORAJS_SREM_PARITY_OFF=1` skips,

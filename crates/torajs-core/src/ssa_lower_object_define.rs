@@ -1,8 +1,7 @@
 //! `Object.defineProperty` / `Object.defineProperties` lowering —
 //! carved out of `ssa_lower.rs::lower_expr_inner` so the Object
-//! property-descriptor trunk (RFC
-//! `.claude/rfcs/20260613-object-property-descriptors/`) grows here
-//! instead of the 27k-line god-file.
+//! property-descriptor trunk (RFC C3) grows here instead of the
+//! 27k-line god-file.
 //!
 //! [`emit_define_one`] is the shared single-property core: a literal
 //! `ObjectLit` descriptor is extracted at compile time and routed to

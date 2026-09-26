@@ -901,8 +901,7 @@ mod tests {
         //
         // SAFETY: env mutation is process-global; we set+remove in a
         // controlled scope and rely on cargo nextest's per-test
-        // process isolation (.claude/rules/torajs-autorun-pipeline.md
-        // "test 判定" section).
+        // process isolation.
         unsafe {
             std::env::set_var("TORAJS_INLINER_OFF", "1");
         }

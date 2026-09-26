@@ -99,7 +99,7 @@ pub fn synthesize_class_globals(ast: &mut Ast) {
     // body reads through the registry, and it must keep answering the
     // class after `C = 1` outside. So the outer one gets a slot of
     // its own, and the rewrite below stops claiming `C` outside the
-    // class's own bodies. See `.claude/rfcs/20260905-class-decl-outer-binding`.
+    // class's own bodies.
     let outer_bound = outer_bound_classes(ast, &meta);
     super::class_globals_shadow::rewrite_class_value_refs(ast, &meta.class_set, &outer_bound);
 

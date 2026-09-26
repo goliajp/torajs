@@ -72,9 +72,7 @@ torajs (i64)    11.3 ms   ← faster than rust's 12.1
 is a 3-cycle `FADD` on the loop-carried chain plus an `SCVTF`, where the
 i64 form is a 1-cycle `add`.
 
-Why the accumulator is f64 is written up in
-`.claude/tasks/2026-08-30/perf-w5-accumulator-decomposition.md`. Short
-version: `number` is f64 unless every value reaching the slot is provably
+Why the accumulator is f64: `number` is f64 unless every value reaching the slot is provably
 integral AND provably below 2^53, and nothing in the pipeline currently
 knows what an array holds — a value loaded from `xs` has no interval
 fact, so the accumulator that consumes it has none either.

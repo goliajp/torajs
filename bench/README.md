@@ -2,8 +2,6 @@
 
 Cross-runtime perf benchmark module for torajs. Compares idiomatic, equivalent programs across **Bun, Node.js, Rust, Go, Python**, and torajs (one production AOT row + one dev-loop interpreter row).
 
-> See `.claude/rfcs/20260426-bench-harness.md` for the design rationale.
-
 ## Quick start
 
 ```bash

@@ -1,8 +1,5 @@
 //! torajs-codegen — in-house aarch64 backend.
 //!
-//! See `.claude/rfcs/20260604-p6-torajs-codegen/design.md` for the
-//! design decisions, sub-step plan (S1..S6), and cut-over protocol.
-//!
 //! S1 surface (this commit): scaffold + `fn one_plus_two() -> i64 {1+2}`
 //! shape compiles end-to-end through `compile_function`, emitted byte
 //! stream matches hand-encoded reference (see `compile::tests`).

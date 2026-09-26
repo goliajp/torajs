@@ -187,9 +187,7 @@ fn intern_state(
     // The mid-match non-ASCII letter regression v2 §3.4.E surfaced
     // was caused by v2 declining to emit pending_class for these
     // multi-PC sets and falling back to byte_step_full's
-    // `class.test(byte)` ASCII-only path. v3 closes that gap. See
-    // `.claude/rfcs/20260624-uflag-100k-round3-path-a/spec-v2-25E-
-    // checkpoint-fail.md` for the full root cause.
+    // `class.test(byte)` ASCII-only path. v3 closes that gap.
     let pending_class = compute_pending_class_for(
         prog,
         &ready,

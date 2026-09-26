@@ -33,7 +33,7 @@ use crate::ast::PropKey;
 /// so the body's own read of `k` was an unadmitted use, so knife 2
 /// declined and the program died on `fnexpr this in unclaimed
 /// receiver position` — while the same program without the self-read
-/// compiled. See `.claude/rfcs/20260905-fnexpr-self-read-receiver/`.
+/// compiled.
 ///
 /// **Nominal field names come from two places and both are consulted.**
 /// `TypeDecl` is the obvious one (`desugar_classes` flattens each

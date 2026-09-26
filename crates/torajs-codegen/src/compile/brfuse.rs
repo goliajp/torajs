@@ -12,8 +12,7 @@
 //! single-use restriction keeps the (skipped) CSET's 0/1 result
 //! unobservable.
 //!
-//! Collatz decomposition A3
-//! (.claude/tasks/2026-07-18/perf-collatz-decomposition.md) — every
+//! Collatz decomposition A3 — every
 //! loop header / parity test in a division loop carries this shape.
 
 use std::collections::HashMap;

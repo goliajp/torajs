@@ -44,11 +44,9 @@
 //! `__torajs_argv` peel, the rest spread, the gen-argv tail, the
 //! static twin — is shared. Which SITES get that face is still
 //! decided per route: giving every value use the receiver-first face
-//! was tried twice (rotations 366 and 595) and reverted both times,
-//! and the audit at
-//! `.claude/rfcs/20260905-named-fn-value-identity/boxed-entry-caller-audit.md`
-//! says why it can only move per route. This file is that audit's §5.4
-//! precondition — one place to apply a per-route conclusion.
+//! was tried twice (rotations 366 and 595) and reverted both times —
+//! it can only move per route. This file applies that per-route
+//! conclusion.
 
 use super::{push_gen_argv_spread, split_gen_argv_tail};
 use crate::ast::{Ast, Expr, ExprId, Param, Stmt};

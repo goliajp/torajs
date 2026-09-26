@@ -12,8 +12,7 @@
 //! its own end-to-end byte-equal tests.
 //!
 //! Split into sub-modules by ISA section to keep each prod file
-//! under the 500-LOC hard limit (see `.claude/rules/common/file-
-//! size.md`):
+//! under the 500-LOC hard limit:
 //!
 //!   - [`int`]: data-processing — MOVZ/MOVK, ADD/SUB (imm + reg),
 //!     MUL/SDIV/UDIV/MSUB, AND/ORR/EOR (logical reg), LSLV/ASRV/

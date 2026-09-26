@@ -10,5 +10,4 @@ advertise an older commit's numbers.
 Read them against the HEAD run of the same day, and read both against
 an untouched control runtime: machine state drifts by several percent
 within minutes, so two runs' `run_ms` are not directly comparable. The
-comparable quantity is the tr/competitor ratio *within* one run. See
-`.claude/rules/torajs-perf-decomposition.md`.
+comparable quantity is the tr/competitor ratio *within* one run.

@@ -22,8 +22,7 @@
 //! the shift's own operand is recomputed downstream and stays exact —
 //! the codegen-level peephole alternative was rejected precisely
 //! because the operand's live range ends at the shift under the
-//! already-fixed assignment (decomposition note
-//! `.claude/tasks/2026-08-24/perf-s7-abstraction-gap-decomposition.md`).
+//! already-fixed assignment.
 
 use std::collections::HashMap;
 

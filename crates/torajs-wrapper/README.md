@@ -8,6 +8,4 @@ Number/String/Boolean(x)` heap substrate. Three fixed-size 16-byte
 blocks share the universal [`torajs_rc::HeapHeader`] layout and
 plug into `__torajs_value_drop_heap`'s tag-dispatch table.
 
-Part of RFC 20260716-primitive-wrapper-substrate 刀 1. See
-`.claude/rfcs/20260716-primitive-wrapper-substrate/README.md` for
-the full four-blade plan.
+Part of RFC 20260716-primitive-wrapper-substrate 刀 1.

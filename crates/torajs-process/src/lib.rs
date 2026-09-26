@@ -17,9 +17,9 @@
 //! - `process.stderr.write(str)` — libc `write(2)` direct to fd 2
 //!
 //! All 8 fns are thin libc wrappers (per-fn body ≤ 20 LOC) — kept
-//! in one file under the "thin-interface fn group" exception in
-//! `.claude/rules/common/file-size.md` (otherwise the "one file =
-//! one fn doing one thing" polish rule would force a per-fn split).
+//! in one file under the "thin-interface fn group" exception
+//! (otherwise the "one file = one fn doing one thing" polish rule
+//! would force a per-fn split).
 //!
 //! ## Buffering
 //!

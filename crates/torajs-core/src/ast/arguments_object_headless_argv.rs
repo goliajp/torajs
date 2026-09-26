@@ -125,10 +125,8 @@ pub(super) fn collect_headless_argv(
         // way instead of one of them lying. Closing the seam for real
         // needs the `__forward_` relay to carry argv, not just the
         // argc it has carried since RFC 20260815 blade 5; that is an
-        // ABI change and has its own RFC. See
-        // `.claude/tasks/2026-09-07/generator-arguments-spread.md`
-        // for the eleven probes that pin the trigger to
-        // generator × reads-arguments × spread-call.
+        // ABI change and has its own RFC. Eleven probes pin the
+        // trigger to generator × reads-arguments × spread-call.
         // A `__forward_` relay for this name (a value escape the
         // forwarder passes rerouted) is no bar: the relay's boxed
         // adapter enters the target DIRECTLY with its own argc and

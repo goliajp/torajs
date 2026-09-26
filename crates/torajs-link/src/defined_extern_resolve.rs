@@ -1,7 +1,7 @@
 //! SD-4c swap-2e — `MemberLayout.defined_syms` final-vaddr dispatch.
 //!
 //! Extracted from `archive_emit.rs` to keep that file ≤ 500 prod
-//! LOC (HARD per `.claude/rules/common/file-size.md`). Pure helper:
+//! LOC (hard limit). Pure helper:
 //! takes one `(n_sect, n_value)` slot from a member's nlist plus the
 //! pre-computed section placements and returns the symbol's final
 //! virtual address.

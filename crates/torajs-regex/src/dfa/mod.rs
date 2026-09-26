@@ -59,7 +59,6 @@
 //!   no-op ε in the closure) and `vm::search_from_with_ws` runs a
 //!   second-pass Pike VM on the DFA-found `[start..end]` window with
 //!   `end_target = end` to extract captures.
-//! Tracking RFC: `.claude/rfcs/20260622-pike-vm-dfa/design.md`.
 
 pub mod ctx;
 pub use ctx::{PositionCtx, epsilon_closure_full, epsilon_closure_with_ctx};

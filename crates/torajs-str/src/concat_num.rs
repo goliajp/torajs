@@ -16,8 +16,7 @@
 //! rewrites the triple onto these kernels, which format the digits
 //! into a stack buffer and write them straight after `a`'s payload
 //! in the single result allocation — the intermediate cell never
-//! exists. S1-A2 decomposition attack B1
-//! (`.claude/rfcs/20260824-s1a2-alloc-decomp`).
+//! exists. S1-A2 decomposition attack B1.
 //!
 //! Digits are always ASCII, so the result encoding is simply `a`'s
 //! encoding: Latin-1 keeps a byte-wise tail write, UTF-16 widens
