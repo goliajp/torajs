@@ -53,6 +53,12 @@ pub(crate) unsafe fn grow_data_buffer(arr: *mut u8, new_cap: u64) {
             let buf = malloc(new_bytes) as *mut u8;
             let old_cap = *(arr.add(ARR_HDR_CAP_OFF) as *const u32) as usize;
             core::ptr::copy_nonoverlapping(old_data, buf, old_cap * 8);
+            // a split block's size follows from its own cap, which the
+            // header stops describing now; the slot table just copied
+            // out is dead, so its first word keeps it for the release
+            if (*(arr as *const torajs_rc::HeapHeader)).flags & torajs_rc::FLAG_SPLIT_BLOCK != 0 {
+                *(old_data as *mut u64) = old_cap as u64;
+            }
             buf
         } else {
             realloc(old_data as *mut c_void, new_bytes) as *mut u8

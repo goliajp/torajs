@@ -275,7 +275,7 @@ pub unsafe extern "C" fn __torajs_str_drop(_s: *mut core::ffi::c_void) {
 // no rlib provider, so a stub is required for cargo test linking.
 #[cfg(test)]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_split_block_free_push(_p: *mut u8) -> i32 {
+pub unsafe extern "C" fn __torajs_split_block_free_push(_p: *mut u8) {
     panic!(
         "torajs-arr unit-test stub: __torajs_split_block_free_push should not be called from cargo test paths"
     );

@@ -46,7 +46,7 @@ unsafe extern "C" {
     /// 0 if the pool was full (caller falls through to libc free).
     /// SPLIT_BLOCK flag marks arrays produced by `String.split` —
     /// their inline Substr layout differs from a regular Array<T>.
-    fn __torajs_split_block_free_push(p: *mut u8) -> i32;
+    fn __torajs_split_block_free_push(p: *mut u8);
 }
 
 /// Array cap slot offset (mirrors C macro `__TORAJS_ARR_HDR_CAP_OFF`).
@@ -150,34 +150,32 @@ pub unsafe extern "C" fn __torajs_arr_free(p: *mut c_void) {
     if header.flags & FLAG_STATIC_LITERAL != 0 {
         return;
     }
-    // SPLIT_BLOCK takes priority — cross-tier to torajs-str's split pool.
+    // SPLIT_BLOCK takes priority — cross-tier to torajs-str's split
+    // pool, which also owns the block's release
     if header.flags & FLAG_SPLIT_BLOCK != 0 {
-        if unsafe { __torajs_split_block_free_push(p as *mut u8) } != 0 {
-            return;
-        }
-        // Pool full → fall through to libc free.
-    } else {
-        // Grown arrays spilled slots to an external buffer — release
-        // it first (B1). The cell itself must NOT enter the pool: its
-        // cap field describes the buffer, not the cell's inline
-        // region, so a cap-keyed pool reuse would under-allocate.
-        if !unsafe { arr_data_is_inline(p as *const u8) } {
-            unsafe { free(crate::layout::arr_data(p as *const u8) as *mut c_void) };
-            unsafe { free(p) };
-            return;
-        }
-        // Read cap (low 32 bits at offset 16). Pool only accepts
-        // regular Array<T> — Array<Any> blocks bypass it (historic
-        // stride-mismatch rule, kept as-is).
-        let cap = unsafe { *((p as *const u8).add(ARR_CAP_LOW32_OFF) as *const u32) } as u64;
-        let count = crate::pool::current_count();
-        if cap <= POOL_CAP_MAX
-            && count < POOL_SLOTS
-            && (header.flags & FLAG_ARR_ANY) == 0
-            && push(p as *mut u8, cap)
-        {
-            return;
-        }
+        unsafe { __torajs_split_block_free_push(p as *mut u8) };
+        return;
+    }
+    // Grown arrays spilled slots to an external buffer — release
+    // it first (B1). The cell itself must NOT enter the pool: its
+    // cap field describes the buffer, not the cell's inline
+    // region, so a cap-keyed pool reuse would under-allocate.
+    if !unsafe { arr_data_is_inline(p as *const u8) } {
+        unsafe { free(crate::layout::arr_data(p as *const u8) as *mut c_void) };
+        unsafe { free(p) };
+        return;
+    }
+    // Read cap (low 32 bits at offset 16). Pool only accepts
+    // regular Array<T> — Array<Any> blocks bypass it (historic
+    // stride-mismatch rule, kept as-is).
+    let cap = unsafe { *((p as *const u8).add(ARR_CAP_LOW32_OFF) as *const u32) } as u64;
+    let count = crate::pool::current_count();
+    if cap <= POOL_CAP_MAX
+        && count < POOL_SLOTS
+        && (header.flags & FLAG_ARR_ANY) == 0
+        && push(p as *mut u8, cap)
+    {
+        return;
     }
     unsafe { free(p) };
 }

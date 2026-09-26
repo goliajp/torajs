@@ -29,8 +29,9 @@ use crate::substr::SUBSTR_SIZE;
 //   offset 24 — props_dynobj u64 (NULL for split blocks; chunk 5b+
 //                 enables inline arr-props via this slot)
 //   offset 32 — data pointer (RFC 20260706-arr-grow-alias-stability
-//                 B1; split blocks never grow, so it is permanently
-//                 self-referential → block+40)
+//                 B1; self-referential → block+40 until the block
+//                 grows, when the slots move to a malloc'd buffer and
+//                 block+40 keeps the block's own cap)
 //   offset 40 — slots[cap] (each 8B substr_ptr for split blocks)
 //
 // Split blocks additionally carry `cap × SUBSTR_SIZE` inline substrs
@@ -42,6 +43,7 @@ use crate::substr::SUBSTR_SIZE;
 
 pub(crate) const ARR_HDR_SIZE: usize = 40;
 pub(crate) const ARR_CAP_OFF: usize = 16;
+const ARR_DATA_PTR_OFF: usize = 32;
 /// Inline `props_dynobj` slot (Round 4 chunk 5a). Split blocks
 /// initialize this to NULL in [`crate::split::ops::write_arr_header`]
 /// so `__torajs_arr_drop`'s eventual inline-props dispatch (chunk 5b+)
@@ -82,6 +84,10 @@ pub fn block_size(cap: u64) -> usize {
 unsafe extern "C" {
     #[link_name = "__torajs_malloc"]
     fn malloc(size: usize) -> *mut c_void;
+    #[link_name = "__torajs_free"]
+    fn sized_free(ptr: *mut c_void, size: usize);
+    #[link_name = "__torajs_libc_free"]
+    fn libc_free(ptr: *mut c_void);
 }
 
 /// Pop the most-recently-pushed block whose cap matches
@@ -132,8 +138,8 @@ pub fn alloc(out_count: u64) -> NonNull<u8> {
 }
 
 /// Push a freed split block onto the LIFO. Returns `true` if
-/// accepted, `false` if the pool was full (caller should
-/// `libc::free` the block instead).
+/// accepted, `false` if the pool was full (the caller frees the
+/// block through the sized layer).
 ///
 /// `cap` is read from the Arr header by the dispatching
 /// `__torajs_arr_free`; we trust it as opaque scalar (no header
@@ -155,26 +161,33 @@ pub fn push(p: NonNull<u8>, cap: u64) -> bool {
 // the SPLIT_BLOCK dispatch path.
 // ============================================================
 
-/// `__torajs_arr_free` SPLIT_BLOCK dispatch — reads cap (u32 at
-/// `ARR_CAP_OFF`) from the block header and pushes onto the
-/// split pool. Returns `1` if accepted, `0` if pool full (caller
-/// falls through to `libc::free`).
+/// `__torajs_arr_free` SPLIT_BLOCK dispatch: parks the block on the
+/// split pool, or frees it when the pool is full. The block came from
+/// the sized layer (`__torajs_malloc(block_size(cap))`), so it goes
+/// back through the sized free; the libc-compat free would read a
+/// size header this block does not have.
 ///
 /// # Safety
 ///
-/// `p` must point at a valid SPLIT_BLOCK-flagged Arr block.
+/// `p` is null or a valid SPLIT_BLOCK-flagged Arr block.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn __torajs_split_block_free_push(p: *mut u8) -> i32 {
-    if p.is_null() {
-        return 1; // null is a no-op success — match C `if (p == NULL) return;`
+pub unsafe extern "C" fn __torajs_split_block_free_push(p: *mut u8) {
+    let Some(nn) = NonNull::new(p) else {
+        return;
+    };
+    let inline = unsafe { p.add(ARR_HDR_SIZE) };
+    let data = unsafe { (p.add(ARR_DATA_PTR_OFF) as *const *mut u8).read() };
+    let cap = if data == inline {
+        unsafe { (p.add(ARR_CAP_OFF) as *const u32).read() as u64 }
+    } else {
+        // grown: the slots live in a libc-layer buffer, and the header
+        // cap describes that buffer, not this block
+        unsafe { libc_free(data as *mut c_void) };
+        unsafe { (inline as *const u64).read() }
+    };
+    if !push(nn, cap) {
+        unsafe { sized_free(p as *mut c_void, block_size(cap)) };
     }
-    // SAFETY: caller's contract: p is a SPLIT_BLOCK Arr; cap u32
-    // lives at ARR_CAP_OFF (= +16). We read as u32 to mirror C
-    // `*(uint32_t *)((uint8_t *)p + 16)`.
-    let cap = unsafe { (p.add(ARR_CAP_OFF) as *const u32).read() } as u64;
-    // SAFETY: just null-checked.
-    let nn = unsafe { NonNull::new_unchecked(p) };
-    if push(nn, cap) { 1 } else { 0 }
 }
 
 #[cfg(test)]
@@ -250,16 +263,14 @@ mod tests {
         // 4. FFI free_push reads cap from ARR_CAP_OFF.
         let raw3 = unsafe { malloc(block_size(3)) } as *mut u8;
         unsafe { (raw3.add(ARR_CAP_OFF) as *mut u32).write(3) };
-        assert_eq!(unsafe { __torajs_split_block_free_push(raw3) }, 1);
+        unsafe { (raw3.add(ARR_DATA_PTR_OFF) as *mut *mut u8).write(raw3.add(ARR_HDR_SIZE)) };
+        unsafe { __torajs_split_block_free_push(raw3) };
         assert_eq!(alloc(3).as_ptr(), raw3);
         unsafe { free(raw3 as *mut c_void, block_size(3)) };
 
         // 5. FFI free_push null is no-op success.
         let count_before = COUNT.load(Ordering::Relaxed);
-        assert_eq!(
-            unsafe { __torajs_split_block_free_push(ptr::null_mut()) },
-            1
-        );
+        unsafe { __torajs_split_block_free_push(ptr::null_mut()) };
         assert_eq!(COUNT.load(Ordering::Relaxed), count_before);
 
         // 6. Clean original cap-4 block (still owned by the test).
