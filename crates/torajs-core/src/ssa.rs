@@ -371,6 +371,12 @@ pub enum InstKind {
     /// Codegen expands it in place with no call, so values live
     /// across it keep caller-saved homes.
     RcInc(Operand),
+    /// `rc_inc_any <v>` — void. `RcInc` for a value that may be a
+    /// NaN-box immediate (`Any`, untyped pointers): only a cell (non-
+    /// zero, top 16 bits clear, TAG_BIT_TYPE_OTHER clear — ShortStr and
+    /// every number / sentinel encoding fail it) is retained. Same
+    /// effect as `__torajs_rc_inc` / `__torajs_anyv_rc_inc`.
+    RcIncAny(Operand),
 }
 
 #[derive(Debug, Clone)]

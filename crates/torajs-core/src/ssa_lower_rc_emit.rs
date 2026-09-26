@@ -1,12 +1,13 @@
 //! Refcount inc / dec / drop emit helpers for `LowerCtx<'a>` extracted
 //! from `ssa_lower.rs` chunk 378.
 //!
-//! Four ARC-emit helpers that are the single retrofit surface for the
+//! The ARC-emit helpers that are the single retrofit surface for the
 //! future biased ARC (owner-thread fast path + share transition +
 //! atomic slow path, design principles §6.2):
 //!
-//! - `emit_rc_inc(op)`         — inc in current block (inline `RcInc`
-//!   for typed heap values, runtime call for `Any`)
+//! - `emit_rc_inc(op)`         — inc in current block (`RcInc` for
+//!   typed heap values, the cell-gated `RcIncAny` otherwise)
+//! - `emit_any_rc_inc_in(blk, op)` — `RcIncAny` for NaN-box values
 //! - `emit_rc_inc_in(blk, op)` — inc in an explicit block (branch tails)
 //! - `emit_rc_dec_inline(hdr)` — inline Load-Sub-Store dec, returns new rc
 //! - `emit_drop_value(v, ty)`  — thin proxy into `ssa_lower_emit_drop_value`
@@ -23,9 +24,9 @@ use crate::ssa::{BinOp as SsaBinOp, BlockId, InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 impl<'a> LowerCtx<'a> {
-    /// Emit a refcount inc on `op`: an inline `InstKind::RcInc` for
-    /// statically typed heap values, the `__torajs_rc_inc` call
-    /// otherwise (see [`Self::emit_rc_inc_in`]). This helper and the
+    /// Emit a refcount inc on `op`: `InstKind::RcInc` for statically
+    /// typed heap values, the cell-gated `InstKind::RcIncAny`
+    /// otherwise; codegen expands both inline. This helper and the
     /// codegen expansion of `RcInc` are the retrofit points for the
     /// future biased ARC (owner-thread fast path without atomics +
     /// share transition + atomic slow path).
@@ -44,25 +45,28 @@ impl<'a> LowerCtx<'a> {
     /// branch tail (e.g. Nullish-coalescing `??`).
     pub(crate) fn emit_rc_inc_in(&mut self, block: BlockId, op: Operand) {
         // a statically typed heap value is a real pointer or null, so
-        // the inline `RcInc` needs no cell test; `Any` and untyped
-        // pointers may hold NaN-box immediates and keep the runtime
-        // helper, which tells the two apart
+        // `RcInc` needs no cell test; `Any` and untyped pointers may
+        // hold NaN-box immediates
         let ty = self.operand_ty(&op);
-        let kind = if ty.is_refcounted() && ty != Type::Any {
-            InstKind::RcInc(op)
+        if ty.is_refcounted() && ty != Type::Any {
+            self.f.append_void(block, InstKind::RcInc(op));
         } else {
-            InstKind::Call(self.intrinsics.rc_inc, vec![op])
-        };
-        self.f.append_void(block, kind);
+            self.emit_any_rc_inc_in(block, op);
+        }
+    }
+
+    /// Retain a value that may be a NaN-box immediate (only a cell is
+    /// touched). Every `Any` retain goes through here.
+    pub(crate) fn emit_any_rc_inc_in(&mut self, block: BlockId, op: Operand) {
+        self.f.append_void(block, InstKind::RcIncAny(op));
     }
 
     /// Type-aware owned-result inc (RFC 20260705 owned-result
     /// invariant): builtin lowerings that answer a borrowed value
     /// (receiver identity / pass-through arg) call this so the
-    /// result carries its own ref. `Type::Any` routes through the
-    /// NaN-box-gated `any_box_rc_inc` runtime helper (immediates
-    /// are no-ops); other refcounted types take the plain header
-    /// inc; Copy types need none.
+    /// result carries its own ref. `Type::Any` takes the NaN-box-gated
+    /// retain (immediates are no-ops); other refcounted types take the
+    /// plain header inc; Copy types need none.
     pub(crate) fn emit_owned_result_inc(&mut self, op: Operand, ty: Type) {
         let block = self.cur_block;
         self.emit_owned_result_inc_in(block, op, ty);
@@ -73,10 +77,7 @@ impl<'a> LowerCtx<'a> {
     /// unify a borrow branch to owned in that branch's tail block.
     pub(crate) fn emit_owned_result_inc_in(&mut self, block: BlockId, op: Operand, ty: Type) {
         if ty == Type::Any {
-            self.f.append_void(
-                block,
-                InstKind::Call(self.intrinsics.any_box_rc_inc, vec![op]),
-            );
+            self.emit_any_rc_inc_in(block, op);
         } else if ty.is_refcounted() {
             self.emit_rc_inc_in(block, op);
         }

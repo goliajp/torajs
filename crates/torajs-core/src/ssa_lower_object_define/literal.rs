@@ -303,10 +303,7 @@ fn pack_tagged_value(
         // `anyv_unbox_tag` answers in this very table, and the
         // any-aware retain is a no-op on an immediate.
         Type::Any => {
-            ctx.f.append_void(
-                ctx.cur_block,
-                InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![v_raw.clone()]),
-            );
+            ctx.emit_any_rc_inc_in(ctx.cur_block, v_raw.clone());
             let tag = ctx.f.append_inst(
                 ctx.cur_block,
                 InstKind::Call(ctx.intrinsics.any_unbox_tag, vec![v_raw.clone()]),

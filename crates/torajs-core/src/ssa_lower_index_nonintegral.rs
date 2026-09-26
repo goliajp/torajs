@@ -218,10 +218,7 @@ pub(crate) fn emit_any_elem_read_split(
         Type::Any,
         None,
     ));
-    ctx.f.append_void(
-        ctx.cur_block,
-        InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![v.clone()]),
-    );
+    ctx.emit_any_rc_inc_in(ctx.cur_block, v.clone());
     ctx.f
         .append_void(ctx.cur_block, InstKind::Store(v, Operand::Value(slot), 0));
     let eb = ctx.cur_block;

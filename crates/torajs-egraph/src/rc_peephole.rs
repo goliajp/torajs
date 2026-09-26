@@ -333,7 +333,7 @@ fn rc_transparent(kind: &InstKind, readonly_fids: &HashSet<u32>, slots: &HashSet
 /// `__torajs_rc_inc` helper.
 fn match_inc(inst: &Inst, inc_fid: Option<u32>) -> Option<ValueId> {
     match &inst.kind {
-        InstKind::RcInc(Operand::Value(v)) => Some(*v),
+        InstKind::RcInc(Operand::Value(v)) | InstKind::RcIncAny(Operand::Value(v)) => Some(*v),
         _ => match_void_call_on_value(inst, |fid| Some(fid) == inc_fid),
     }
 }

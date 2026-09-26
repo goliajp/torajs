@@ -364,6 +364,10 @@ impl Function {
                 write!(w, "rc_inc ")?;
                 self.write_operand(w, ptr)?;
             }
+            InstKind::RcIncAny(v) => {
+                write!(w, "rc_inc_any ")?;
+                self.write_operand(w, v)?;
+            }
         }
         writeln!(w)
     }

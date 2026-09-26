@@ -411,10 +411,7 @@ fn write_captures(ctx: &mut LowerCtx<'_>, env_v: crate::ssa::ValueId, captures: 
             // after the call, so every later use of the captured
             // binding was a UAF (test262-bug-corpus RC-4 F6).
             if *cap_ty == Type::Any {
-                ctx.f.append_void(
-                    cur_block,
-                    InstKind::Call(ctx.intrinsics.any_box_rc_inc, vec![Operand::Value(v)]),
-                );
+                ctx.emit_any_rc_inc_in(cur_block, Operand::Value(v));
             } else if !cap_ty.is_copy() {
                 ctx.emit_rc_inc(Operand::Value(v));
             }
