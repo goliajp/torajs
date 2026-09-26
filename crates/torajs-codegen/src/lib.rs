@@ -26,6 +26,7 @@ pub mod compile;
 pub mod enc;
 pub mod frame;
 pub mod linear_scan;
+mod linear_scan_alloc;
 mod linear_scan_calls;
 mod linear_scan_lanes;
 pub(crate) mod linear_scan_sweep;
