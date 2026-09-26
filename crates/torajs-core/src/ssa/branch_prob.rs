@@ -10,9 +10,10 @@
 //! 3. **Header flag guard** — `icmp ne (and (load p), MASK), 0` where
 //!    exactly one arm calls something: the latin1 / frozen / COW bit
 //!    tests guarding a runtime slow path.
-//! 4. **Length guard** — an unsigned compare against `load i64 p +8`
-//!    (the array length word) where exactly one arm calls something:
-//!    the grow / out-of-bounds arm.
+//! 4. **Length guard** — `icmp ult i, len` / `icmp uge i, len` with
+//!    `len` the array length word (`load p +8`): the out-of-bounds arm
+//!    (a grow on a store, `undefined` on a read). Only bounds checks
+//!    compare unsigned; loop conditions use `slt`.
 //!
 //! Every other branch predicts nothing, and nothing splits on it: the
 //! lowerer emits many conditionals no rule reads (loop versioning on a
@@ -91,8 +92,8 @@ pub fn cold_arms(func: &Function) -> Vec<(BlockId, BlockId, f64)> {
             Some((if ends_unreachable(t) { t } else { e }, P_NEVER))
         } else if one_calls && cond.is_some_and(|c| is_flag_guard(c, &defs)) {
             Some((calling_arm(), P_SLOW_PATH))
-        } else if one_calls && cond.is_some_and(|c| is_length_guard(c, &defs)) {
-            Some((calling_arm(), P_SLOW_PATH))
+        } else if let Some(oob) = cond.and_then(|c| out_of_bounds_arm(c, &defs, t, e)) {
+            Some((oob, P_SLOW_PATH))
         } else {
             None
         };
@@ -162,11 +163,22 @@ fn is_flag_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
     matches!(value_def(word, defs), Some(InstKind::Load(_, _, 0)))
 }
 
-/// An unsigned compare with the array length word on either side.
-fn is_length_guard(cond: &InstKind, defs: &HashMap<ValueId, &InstKind>) -> bool {
-    let InstKind::ICmp(IPred::Ult | IPred::Uge, a, b) = cond else {
-        return false;
+/// The arm an unsigned compare against the array length word takes
+/// when the index is out of bounds.
+fn out_of_bounds_arm(
+    cond: &InstKind,
+    defs: &HashMap<ValueId, &InstKind>,
+    then_blk: BlockId,
+    else_blk: BlockId,
+) -> Option<BlockId> {
+    let InstKind::ICmp(pred @ (IPred::Ult | IPred::Uge), _, len) = cond else {
+        return None;
     };
-    let is_len = |op: &Operand| matches!(value_def(op, defs), Some(InstKind::Load(_, _, off)) if *off == ARR_LEN_OFFSET);
-    is_len(a) || is_len(b)
+    let is_len =
+        matches!(value_def(len, defs), Some(InstKind::Load(_, _, off)) if *off == ARR_LEN_OFFSET);
+    is_len.then_some(if *pred == IPred::Ult {
+        else_blk
+    } else {
+        then_blk
+    })
 }

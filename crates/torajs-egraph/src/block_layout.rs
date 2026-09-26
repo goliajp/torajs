@@ -129,6 +129,7 @@ fn layout_function(func: &mut Function) -> (u32, u32, u32) {
     if la.loops().is_empty() {
         return (0, 0, 0);
     }
+    let facts = crate::block_chain::ChainFacts::new(func, &dom);
     // Loop body sets with their header and back-edge sources,
     // innermost (smallest) first so nested bodies are already
     // contiguous units when their parent partitions.
@@ -191,7 +192,7 @@ fn layout_function(func: &mut Function) -> (u32, u32, u32) {
             *header,
             body,
             &children,
-            &dom,
+            &facts,
         ) {
             chained += 1;
         } else if sink_latch(func, &mut order, lo, lo + body.len() - 1, *header, latches) {
@@ -602,5 +603,66 @@ mod tests {
             matches!(f.blocks[4].term, Terminator::Br(BlockId(3))),
             "call arm rejoins"
         );
+    }
+
+    /// A bounds check's out-of-bounds read has no call and no exit, so
+    /// only the compare says it is rare; the in-bounds read must be
+    /// the guard's fall-through.
+    #[test]
+    fn out_of_bounds_arm_leaves_the_hot_path() {
+        let inst = |r: u32, kind: InstKind| Inst {
+            result: Some(ValueId(r)),
+            kind,
+            origin: None,
+        };
+        let guard = vec![
+            inst(1, InstKind::Load(Type::I64, Operand::Value(ValueId(0)), 8)),
+            inst(
+                2,
+                InstKind::ICmp(IPred::Uge, Operand::ConstI64(3), Operand::Value(ValueId(1))),
+            ),
+        ];
+        let undef = vec![inst(3, InstKind::Copy(Type::I64, Operand::ConstI64(0)))];
+        let mut f = Function {
+            name: "f".into(),
+            params: vec![],
+            ret: Type::Void,
+            values: vec![
+                ValueInfo {
+                    ty: Type::I64,
+                    name: None
+                };
+                4
+            ],
+            blocks: vec![
+                block(0, vec![], Terminator::Br(BlockId(1))),
+                block(
+                    1,
+                    vec![],
+                    Terminator::CondBr {
+                        cond: Operand::Value(ValueId(3)),
+                        then_blk: BlockId(2),
+                        else_blk: BlockId(6),
+                    },
+                ),
+                block(
+                    2,
+                    guard,
+                    Terminator::CondBr {
+                        cond: Operand::Value(ValueId(2)),
+                        then_blk: BlockId(3),
+                        else_blk: BlockId(4),
+                    },
+                ),
+                block(3, undef, Terminator::Br(BlockId(5))),
+                block(4, vec![], Terminator::Br(BlockId(5))),
+                block(5, vec![], Terminator::Br(BlockId(1))),
+                block(6, vec![], Terminator::Ret(None)),
+            ],
+            current_origin: None,
+        };
+        layout_function(&mut f);
+        // b0, hdr, guard, then the in-bounds arm (no insts)
+        assert!(f.blocks[3].insts.is_empty(), "{:?}", f.blocks[3]);
     }
 }

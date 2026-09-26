@@ -215,6 +215,22 @@ mod tests {
     }
 
     #[test]
+    fn an_out_of_bounds_read_is_cold() {
+        // `xs[i]` reads `undefined` past the end; no call on either arm
+        let guard = vec![
+            inst(1, InstKind::Load(Type::I64, v(0), 8)),
+            inst(2, InstKind::ICmp(IPred::Uge, v(9), v(1))),
+        ];
+        let f = func(vec![
+            block(0, guard, cond_br(2, 1, 2)),
+            block(1, vec![], br(3)),
+            block(2, vec![], br(3)),
+            block(3, vec![], RET),
+        ]);
+        assert_eq!(block_freqs(&f), vec![1024, 16, 1024, 1024]);
+    }
+
+    #[test]
     fn a_user_branch_with_a_call_is_not_cold() {
         // `if (q.length > 16) q.shift()` is taken on almost every
         // iteration; a call alone says nothing

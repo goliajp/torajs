@@ -12,7 +12,10 @@
 //!
 //! "Cold" is decided statically and conservatively: an edge that
 //! leaves the loop, a block that ends the function (`ret` /
-//! `unreachable`), or a block that makes a call. Of two warm arms, the
+//! `unreachable`), a block that makes a call, or an arm the lowerer's
+//! own guard marks rare (`torajs_core::ssa::branch_prob::cold_arms`:
+//! the out-of-bounds side of a bounds check, a header-flag slow path,
+//! a throw probe). Of two warm arms, the
 //! one leading into a nested loop goes first; where nothing ranks the
 //! arms, the one already placed first keeps its place, so such shapes
 //! lay out exactly as before. (The opcode heuristic — equality is
@@ -25,7 +28,25 @@ use std::collections::HashSet;
 
 use torajs_core::ssa::{BlockId, Function, InstKind, Terminator};
 
+use torajs_core::ssa::branch_prob::cold_arms;
 use torajs_core::ssa::dominator::DominatorTree;
+
+/// What the chainer knows about the whole function.
+pub(crate) struct ChainFacts<'a> {
+    pub(crate) dom: &'a DominatorTree,
+    /// Edges `(from, to)` into an arm the lowerer's guards mark cold.
+    cold_edges: HashSet<(u32, u32)>,
+}
+
+impl<'a> ChainFacts<'a> {
+    pub(crate) fn new(func: &Function, dom: &'a DominatorTree) -> Self {
+        let cold_edges = cold_arms(func)
+            .into_iter()
+            .map(|(from, to, _)| (from.0, to.0))
+            .collect();
+        ChainFacts { dom, cold_edges }
+    }
+}
 
 /// Reorder `order[span]` (the loop's contiguous range) into
 /// hot-successor chains starting at `header`. `children` are the bodies of the
@@ -38,7 +59,7 @@ pub(crate) fn chain_loop_range(
     header: u32,
     body: &HashSet<u32>,
     children: &[(&HashSet<u32>, u32)],
-    dom: &DominatorTree,
+    facts: &ChainFacts,
 ) -> bool {
     let range = &order[span.clone()];
     // Units in current order: a child loop's run of blocks, or one block.
@@ -59,7 +80,7 @@ pub(crate) fn chain_loop_range(
     let leads_to_loop = |b: u32| {
         children
             .iter()
-            .any(|(_, h)| dom.dominates(BlockId(b), BlockId(*h)))
+            .any(|(_, h)| facts.dom.dominates(BlockId(b), BlockId(*h)))
     };
     let unit_of = |id: u32| units.iter().position(|u| u.contains(&id));
     let mut placed = vec![false; units.len()];
@@ -68,8 +89,16 @@ pub(crate) fn chain_loop_range(
     loop {
         placed[cur] = true;
         chain.push(cur);
-        let next = hot_successor(func, &units[cur], body, &unit_of, &leads_to_loop, &placed)
-            .or_else(|| placed.iter().position(|p| !p));
+        let next = hot_successor(
+            func,
+            facts,
+            &units[cur],
+            body,
+            &unit_of,
+            &leads_to_loop,
+            &placed,
+        )
+        .or_else(|| placed.iter().position(|p| !p));
         match next {
             Some(n) => cur = n,
             None => break,
@@ -91,6 +120,7 @@ pub(crate) fn chain_loop_range(
 /// fall-through can save), then those of its other blocks.
 fn hot_successor(
     func: &Function,
+    facts: &ChainFacts,
     unit: &[u32],
     body: &HashSet<u32>,
     unit_of: &dyn Fn(u32) -> Option<usize>,
@@ -118,7 +148,7 @@ fn hot_successor(
         let pick = open
             .iter()
             .copied()
-            .filter(|t| !is_cold(func, *t))
+            .filter(|t| !is_cold(func, *t) && !facts.cold_edges.contains(&(b, *t)))
             .min_by_key(|t| (!leads_to_loop(*t), unit_of(*t)))
             .or_else(|| open.iter().copied().min_by_key(|t| unit_of(*t)));
         if let Some(t) = pick {
