@@ -214,14 +214,17 @@ pub fn compute_liveness(func: &Function) -> (HashMap<u32, Interval>, BlockLivene
 }
 
 /// Phase 2 — extend every value's interval to cover every block where
-/// it stays live (see module docs). `live_in` pulls `start` back to the
-/// block head: when block layout runs against the CFG (a
-/// `continue`-arm block laid out AFTER the loop latch that reads its
-/// def) the use's linear index is SMALLER than the def's, and an
+/// it stays live (see module docs). `live_in` pulls `start` back to
+/// just before the block head: when block layout runs against the CFG
+/// (a `continue`-arm block laid out AFTER the loop latch that reads
+/// its def) the use's linear index is SMALLER than the def's, and an
 /// interval keyed on the def alone would leave the use uncovered.
+/// Before, not at: an interval starting at a call's slot means "this
+/// is the call's result", so a value live into a block that opens with
+/// a call would not count as crossing it.
 fn extend_intervals_loop_aware(blocks: &BlockLiveness, out: &mut HashMap<u32, Interval>) {
     for b in 0..blocks.start.len() {
-        let start = blocks.start[b];
+        let start = blocks.start[b].saturating_sub(1);
         let end = blocks.end[b];
         for v in blocks.live_in[b].iter().chain(blocks.live_out[b].iter()) {
             if let Some(it) = out.get_mut(v) {

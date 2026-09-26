@@ -1137,4 +1137,65 @@ mod tests {
         assert!(saved_regs > 0, "some value must overflow the callee pool");
         assert_eq!(alloc.used_callee_gpr_mask.count_ones(), 10);
     }
+
+    /// A value live into a block whose first instruction is a call is
+    /// live across that call even though its interval starts there:
+    /// layout bb0 → bb1 (call; → bb4) → bb3 (def v1; → bb1) → bb4
+    /// (use v1). v1's uses all follow its def, so only the live-in
+    /// start says it is live at bb1's call.
+    #[test]
+    fn value_live_into_a_block_that_opens_with_a_call_crosses_it() {
+        let (p0, v1, v2) = (ValueId(0), ValueId(1), ValueId(2));
+        let func = Function {
+            name: "f".into(),
+            params: vec![p0],
+            ret: Type::I64,
+            values: (0..3)
+                .map(|_| ValueInfo {
+                    ty: Type::I64,
+                    name: None,
+                })
+                .collect(),
+            blocks: vec![
+                Block {
+                    id: BlockId(0),
+                    insts: vec![],
+                    term: Terminator::Br(BlockId(3)),
+                },
+                Block {
+                    id: BlockId(1),
+                    insts: vec![Inst {
+                        result: None,
+                        kind: InstKind::Call(FuncId(0), Vec::new()),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(4)),
+                },
+                Block {
+                    id: BlockId(3),
+                    insts: vec![Inst {
+                        result: Some(v1),
+                        kind: InstKind::BinOp(BinOp::Add, Operand::Value(p0), Operand::ConstI64(1)),
+                        origin: None,
+                    }],
+                    term: Terminator::Br(BlockId(1)),
+                },
+                Block {
+                    id: BlockId(4),
+                    insts: vec![Inst {
+                        result: Some(v2),
+                        kind: InstKind::BinOp(BinOp::Add, Operand::Value(v1), Operand::ConstI64(1)),
+                        origin: None,
+                    }],
+                    term: Terminator::Ret(Some(Operand::Value(v2))),
+                },
+            ],
+            current_origin: None,
+        };
+        let a = allocate_linear_scan(&func);
+        match a.of(v1) {
+            Reg::Gpr(g) => assert!(aapcs64::CALLEE_SAVED_SCRATCH.contains(&g), "{g:?}"),
+            other => panic!("{other:?}"),
+        }
+    }
 }
