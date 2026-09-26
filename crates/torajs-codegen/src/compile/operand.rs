@@ -163,17 +163,25 @@ pub fn emit_copy(
     if matches!(ty, torajs_core::ssa::Type::F64) {
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
         let src = materialize_operand_fpr(bytes, op, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);
+        // A spilled result's home is its slot: store the source there
+        // rather than moving it through the scratch register first.
+        if spill_off.is_some() {
+            write_def_spill_fpr(bytes, spill_off, src);
+            return;
+        }
         if src != dst {
             write_u32(bytes, mov_d_reg(dst, src));
         }
-        write_def_spill_fpr(bytes, spill_off, dst);
     } else {
         let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
         let src = materialize_operand_gpr(bytes, op, OP_SCRATCH_LHS, alloc);
+        if spill_off.is_some() {
+            write_def_spill_gpr(bytes, spill_off, src);
+            return;
+        }
         if src != dst {
             write_u32(bytes, mov_x_reg(dst, src));
         }
-        write_def_spill_gpr(bytes, spill_off, dst);
     }
 }
 
