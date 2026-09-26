@@ -57,12 +57,13 @@
 
 use torajs_core::ssa::{Function, Type};
 
+use crate::coalesce::build_copy_classes;
 use crate::linear_scan_calls::{
     FrameScan, collect_unbounded_values, crosses_call, crosses_call_from_entry, scan_frame,
 };
 use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
-use crate::liveness::compute_intervals;
+use crate::liveness::compute_liveness;
 use crate::reg::{Reg, aapcs64};
 use crate::regalloc::{Assignment, collect_ret_value_ids};
 use crate::spill_weight::compute_spill_weights;
@@ -70,9 +71,9 @@ use crate::spill_weight::compute_spill_weights;
 /// Linear-Scan register allocator with call-crossing awareness and
 /// stack spill (see module docs).
 pub fn allocate_linear_scan(func: &Function) -> Assignment {
-    let intervals = compute_intervals(func);
+    let (mut intervals, blocks) = compute_liveness(func);
     let ret_vids = collect_ret_value_ids(func);
-    let unbounded = collect_unbounded_values(func);
+    let mut unbounded = collect_unbounded_values(func);
 
     let FrameScan {
         alloca_offsets,
@@ -83,7 +84,17 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
 
     let (param_arg_reg, stack_params) = param_lanes(func);
 
-    let mut sweep = Sweep::new(next_alloca_offset, compute_spill_weights(func));
+    let classes = build_copy_classes(
+        func,
+        &intervals,
+        &blocks,
+        &ret_vids,
+        &unbounded,
+        &call_sites,
+    );
+    let mut weights = compute_spill_weights(func);
+    classes.fold_into(&mut intervals, &mut unbounded, &mut weights);
+    let mut sweep = Sweep::new(next_alloca_offset, weights);
 
     // Sweep every interval (params + inst/alloca results) by start;
     // ties broken by ValueId to keep the sweep deterministic.
@@ -193,6 +204,8 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
         sweep.by_value.insert(vid, reg);
         sweep.activate(vid, interval, reg);
     }
+
+    classes.fan_out(&mut sweep.by_value);
 
     let total_spill_bytes = sweep.next_spill_offset - next_alloca_offset;
     let used_callee_gpr_mask = sweep.used_callee_gpr_mask;

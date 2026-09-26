@@ -138,6 +138,10 @@ impl Assignment {
     ///
     /// Panics if `vid` is not allocated, holds an FPR / FPR spill, or
     /// is otherwise inapplicable to a GPR-class def.
+    ///
+    /// Copy coalescing may give `vid` the register of one of the
+    /// inst's own operands: an emitter must read every operand before
+    /// its first write to the returned register.
     pub fn def_gpr(&self, vid: ValueId, scratch: Gpr) -> (Gpr, Option<u32>) {
         match self.of(vid) {
             Reg::Gpr(g) => (g, None),

@@ -160,6 +160,13 @@ pub fn emit_copy(
     use crate::enc::mov_d_reg;
     use crate::enc::mov_x_reg;
     let result_vid = inst.result.expect("Copy must have a result ValueId");
+    // a coalesced copy: both sides share one home, spill slot included
+    if let Operand::Value(v) = op
+        && alloc.contains(*v)
+        && alloc.of(*v) == alloc.of(result_vid)
+    {
+        return;
+    }
     if matches!(ty, torajs_core::ssa::Type::F64) {
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
         let src = materialize_operand_fpr(bytes, op, FP_SCRATCH_LHS, OP_SCRATCH_LHS, alloc);

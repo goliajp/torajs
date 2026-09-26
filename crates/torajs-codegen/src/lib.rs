@@ -21,6 +21,7 @@
 
 #![forbid(unsafe_code)]
 
+mod coalesce;
 pub mod compile;
 pub mod enc;
 pub mod frame;
