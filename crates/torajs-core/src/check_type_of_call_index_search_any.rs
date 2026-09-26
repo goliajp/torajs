@@ -20,7 +20,8 @@
 //! element's own is admitted now; `coerce_needle` boxes a
 //! cross-family one so the same needle-Any arm answers it by tag.
 //!
-//! Gated to Number / String elements (the push/fill lane bar).
+//! Gated to immediate elements, and to pointer elements for a needle
+//! typed `any` / `undefined` / `null`.
 //! Returns `Some(Ok(Number))` for indexOf / lastIndexOf,
 //! `Some(Ok(Boolean))` for includes; `Some(Err(_))` on a bad
 //! fromIndex type; `None` otherwise (falls to the member-table
@@ -62,16 +63,25 @@ pub(crate) fn try_match(
     // not a type error, and nine test262 cases stop on exactly this
     // bar with `[undefined, undefined]` or `[true, false]`
     // receivers.
-    if !matches!(
+    let immediate = matches!(
         *elem,
         Type::Number | Type::String | Type::Boolean | Type::Undefined | Type::Null
-    ) {
+    );
+    let pointer = crate::ssa_lower_nullable_guard::spells_undef_with_generic_cell(&elem);
+    if !immediate && !pointer {
         return None;
     }
     let needle_ty = match checker.type_of(ast, args[0]) {
         Ok(t) => t,
         Err(e) => return Some(Err(e)),
     };
+    // A pointer element packs as a cell (its undefined cell decoding to
+    // undefined), which answers a needle known only at run time, or an
+    // `undefined` / `null` one, by the same by-tag compare. A needle
+    // of some other static object type stays with the typed table.
+    if pointer && !matches!(needle_ty, Type::Any | Type::Undefined | Type::Null) {
+        return None;
+    }
     // §7.2.15 / §7.2.10 compare by type first, so a needle of any
     // shape is a legitimate question with a legitimate answer —
     // `[1, 2, 3].includes("42")` is false, not a type error. The

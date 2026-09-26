@@ -366,9 +366,74 @@ fn emit_compare_any_needle(
                 None,
             );
         }
-        // Str and every other refcounted elem: the kernel's cell row
-        // does byte-equality for Str (ShortStr-box × heap-Str
-        // crossings included) and identity otherwise.
+        // A pointer slot answers undefined for its hole word (0) and for
+        // its undefined cell (a copied hole): tag 5 then, a cell (4)
+        // otherwise, compared by identity in the kernel's cell row.
+        t if t.spells_undef_with_generic_cell() => {
+            let cell = ctx
+                .str_undef_sentinel_for(t)
+                .expect("a pointer slot type has an undefined cell");
+            let bits = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::PtrToInt(Operand::Value(elem)),
+                Type::I64,
+                None,
+            );
+            let cell_bits =
+                ctx.f
+                    .append_inst(ctx.cur_block, InstKind::PtrToInt(cell), Type::I64, None);
+            let is_hole = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            );
+            let is_cell = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::Value(cell_bits)),
+                Type::Bool,
+                None,
+            );
+            let undef = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(
+                    SsaBinOp::Or,
+                    Operand::Value(is_hole),
+                    Operand::Value(is_cell),
+                ),
+                Type::Bool,
+                None,
+            );
+            let undef_ext = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ZExtBoolToI64(Operand::Value(undef)),
+                Type::I64,
+                None,
+            );
+            let tag = ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::BinOp(
+                    SsaBinOp::Add,
+                    Operand::ConstI64(4),
+                    Operand::Value(undef_ext),
+                ),
+                Type::I64,
+                None,
+            );
+            let fid = if want_bool {
+                ctx.intrinsics.any_svz
+            } else {
+                ctx.intrinsics.any_strict_eq
+            };
+            return ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::Call(fid, vec![needle, Operand::Value(tag), Operand::Value(bits)]),
+                Type::Bool,
+                None,
+            );
+        }
+        // Every other refcounted elem: the kernel's cell row compares
+        // by identity.
         _ => (4, Operand::Value(elem)),
     };
     let fid = if want_bool {
