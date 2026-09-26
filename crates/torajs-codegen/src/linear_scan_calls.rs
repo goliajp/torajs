@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 use torajs_core::ssa::{Function, InstKind};
 
 use crate::liveness::{Interval, visit_inst_operands, visit_terminator_operands};
+use crate::regalloc::{alloca_slot_size, inst_emits_bl};
 
 /// ValueIds whose linear interval does not bound their life: a value
 /// read at some slot and written at a LATER one.
@@ -88,7 +89,7 @@ pub(crate) fn crosses_call_from_entry(interval: Interval, call_sites: &[u32]) ->
 /// `args.len() - 8` upper-bounds the per-class overflow count (int +
 /// fp lanes together absorb at least 8 args), trading at most a few
 /// slack slots for not needing callee sigs here.
-pub(crate) fn outgoing_arg_bytes(func: &Function) -> u32 {
+fn outgoing_arg_bytes(func: &Function) -> u32 {
     let mut outgoing_slots: u32 = 0;
     for block in &func.blocks {
         for inst in &block.insts {
@@ -98,4 +99,45 @@ pub(crate) fn outgoing_arg_bytes(func: &Function) -> u32 {
         }
     }
     (outgoing_slots * 8 + 15) & !15
+}
+
+pub(crate) struct FrameScan {
+    pub(crate) alloca_offsets: HashMap<u32, u32>,
+    /// First byte past the alloca region (spill slots start here).
+    pub(crate) next_alloca_offset: u32,
+    pub(crate) has_calls: bool,
+    /// Global inst-slot index of every call site, ascending.
+    pub(crate) call_sites: Vec<u32>,
+}
+
+/// Alloca offsets (biased past the outgoing-arg area), `has_calls`, and
+/// the slot index of every call site. The numbering MUST match
+/// `compute_intervals` (one index per inst plus one for the
+/// terminator) so a call site `p` compares directly against interval
+/// bounds.
+pub(crate) fn scan_frame(func: &Function) -> FrameScan {
+    let mut scan = FrameScan {
+        alloca_offsets: HashMap::new(),
+        next_alloca_offset: outgoing_arg_bytes(func),
+        has_calls: false,
+        call_sites: Vec::new(),
+    };
+    let mut idx: u32 = 0;
+    for block in &func.blocks {
+        for inst in &block.insts {
+            if let Some(slot_size) = alloca_slot_size(&inst.kind) {
+                let result = inst.result.expect("Alloca must have result");
+                scan.alloca_offsets
+                    .insert(result.0, scan.next_alloca_offset);
+                scan.next_alloca_offset += slot_size;
+            }
+            if inst_emits_bl(&inst.kind) {
+                scan.has_calls = true;
+                scan.call_sites.push(idx);
+            }
+            idx += 1;
+        }
+        idx += 1; // terminator slot
+    }
+    scan
 }

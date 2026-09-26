@@ -55,18 +55,16 @@
 //! covers every fixture the trivial allocator does plus the 245
 //! that currently hit `index out of bounds: len 11`.
 
-use std::collections::HashMap;
-
 use torajs_core::ssa::{Function, Type};
 
 use crate::linear_scan_calls::{
-    collect_unbounded_values, crosses_call, crosses_call_from_entry, outgoing_arg_bytes,
+    FrameScan, collect_unbounded_values, crosses_call, crosses_call_from_entry, scan_frame,
 };
 use crate::linear_scan_lanes::{param_lanes, ret_lane_free};
 use crate::linear_scan_sweep::Sweep;
 use crate::liveness::compute_intervals;
 use crate::reg::{Reg, aapcs64};
-use crate::regalloc::{Assignment, alloca_slot_size, collect_ret_value_ids, inst_emits_bl};
+use crate::regalloc::{Assignment, collect_ret_value_ids};
 use crate::spill_weight::compute_spill_weights;
 
 /// Linear-Scan register allocator with call-crossing awareness and
@@ -76,33 +74,12 @@ pub fn allocate_linear_scan(func: &Function) -> Assignment {
     let ret_vids = collect_ret_value_ids(func);
     let unbounded = collect_unbounded_values(func);
 
-    // Pass A — alloca offsets, has_calls, and the global inst-slot
-    // index of every call site. The numbering MUST match
-    // `compute_intervals` (each block contributes one index per inst
-    // plus one for its terminator) so a call site `p` compares
-    // directly against interval `[start, end]` bounds.
-    let outgoing_bytes = outgoing_arg_bytes(func);
-
-    let mut alloca_offsets: HashMap<u32, u32> = HashMap::new();
-    let mut next_alloca_offset: u32 = outgoing_bytes;
-    let mut has_calls = false;
-    let mut call_sites: Vec<u32> = Vec::new();
-    let mut idx: u32 = 0;
-    for block in &func.blocks {
-        for inst in &block.insts {
-            if let Some(slot_size) = alloca_slot_size(&inst.kind) {
-                let result = inst.result.expect("Alloca must have result");
-                alloca_offsets.insert(result.0, next_alloca_offset);
-                next_alloca_offset += slot_size;
-            }
-            if inst_emits_bl(&inst.kind) {
-                has_calls = true;
-                call_sites.push(idx);
-            }
-            idx += 1;
-        }
-        idx += 1; // terminator slot
-    }
+    let FrameScan {
+        alloca_offsets,
+        next_alloca_offset,
+        has_calls,
+        call_sites,
+    } = scan_frame(func);
 
     let (param_arg_reg, stack_params) = param_lanes(func);
 
