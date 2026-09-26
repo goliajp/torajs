@@ -1,0 +1,83 @@
+//! Per-instruction dispatch: one `InstKind` to its emitter.
+
+use torajs_core::ssa::{InstKind, Type};
+
+use super::{
+    emit_alloca, emit_binop, emit_bitcast_f64_to_i64, emit_bitcast_i64_to_f64,
+    emit_boxed_entry_addr, emit_call, emit_call_indirect, emit_copy, emit_ctpop,
+    emit_ctpop_range_sum, emit_fcmp, emit_fn_addr, emit_fp_to_si, emit_global_ref, emit_icmp,
+    emit_int_to_ptr, emit_load, emit_load_dyn, emit_load_dyn_scaled8, emit_load_u8_dyn, emit_neg,
+    emit_ptr_to_int, emit_select, emit_si_to_fp, emit_static_str_ref, emit_store, emit_store_dyn,
+    emit_store_dyn_scaled8, emit_string_ref, emit_trunc_i64_to_bool, emit_zext_bool_to_i64,
+    emit_zext_i32_to_i64,
+};
+use crate::regalloc::Assignment;
+use crate::reloc::Reloc;
+
+pub(super) fn emit_inst(
+    bytes: &mut Vec<u8>,
+    relocs: &mut Vec<Reloc>,
+    inst: &torajs_core::ssa::Inst,
+    alloc: &Assignment,
+    fn_sigs: &[Vec<Type>],
+) {
+    match &inst.kind {
+        InstKind::BinOp(op, lhs, rhs) => emit_binop(bytes, relocs, inst, op, lhs, rhs, alloc),
+        InstKind::ICmp(pred, lhs, rhs) => emit_icmp(bytes, inst, *pred, lhs, rhs, alloc),
+        InstKind::FCmp(pred, lhs, rhs) => emit_fcmp(bytes, inst, *pred, lhs, rhs, alloc),
+        InstKind::BitCastF64ToI64(src) => emit_bitcast_f64_to_i64(bytes, inst, src, alloc),
+        InstKind::BitCastI64ToF64(src) => emit_bitcast_i64_to_f64(bytes, inst, src, alloc),
+        InstKind::SiToFp(src) => emit_si_to_fp(bytes, inst, src, alloc),
+        InstKind::FpToSi(src) => emit_fp_to_si(bytes, inst, src, alloc),
+        InstKind::ZExtBoolToI64(src) => emit_zext_bool_to_i64(bytes, inst, src, alloc),
+        InstKind::ZExtI32ToI64(src) => emit_zext_i32_to_i64(bytes, inst, src, alloc),
+        InstKind::TruncI64ToBool(src) => emit_trunc_i64_to_bool(bytes, inst, src, alloc),
+        InstKind::PtrToInt(src) => emit_ptr_to_int(bytes, inst, src, alloc),
+        InstKind::IntToPtr(src) => emit_int_to_ptr(bytes, inst, src, alloc),
+        InstKind::Alloca(_) | InstKind::AllocaBytes(_) => emit_alloca(bytes, inst, alloc),
+        InstKind::Load(ty, ptr, offset) => emit_load(bytes, inst, ty, ptr, *offset, alloc),
+        InstKind::Store(val, ptr, offset) => emit_store(bytes, val, ptr, *offset, alloc),
+        InstKind::LoadDyn(ty, base, dyn_offset) => {
+            emit_load_dyn(bytes, inst, ty, base, dyn_offset, alloc)
+        }
+        InstKind::StoreDyn(val, base, dyn_offset) => {
+            emit_store_dyn(bytes, val, base, dyn_offset, alloc)
+        }
+        InstKind::LoadDynScaled8(ty, base, idx) => {
+            emit_load_dyn_scaled8(bytes, inst, ty, base, idx, alloc)
+        }
+        InstKind::LoadU8Dyn(base, idx) => emit_load_u8_dyn(bytes, inst, base, idx, alloc),
+        InstKind::StoreDynScaled8(val, base, idx) => {
+            emit_store_dyn_scaled8(bytes, val, base, idx, alloc)
+        }
+        InstKind::Call(func_id, args) => {
+            let param_types = fn_sigs.get(func_id.0 as usize).map(|v| v.as_slice());
+            emit_call(bytes, relocs, inst, *func_id, args, alloc, param_types)
+        }
+        InstKind::CallIndirect(sig_id, fn_ptr, args) => {
+            emit_call_indirect(bytes, inst, *sig_id, fn_ptr, args, alloc)
+        }
+        InstKind::GlobalRef(name) => emit_global_ref(bytes, relocs, inst, name, alloc),
+        InstKind::StringRef(string_id) => emit_string_ref(bytes, relocs, inst, *string_id, alloc),
+        InstKind::StaticStrRef(string_id) => {
+            emit_static_str_ref(bytes, relocs, inst, *string_id, alloc)
+        }
+        InstKind::FnAddr(func_id) => emit_fn_addr(bytes, relocs, inst, *func_id, alloc),
+        InstKind::BoxedEntryAddr(func_id) => {
+            emit_boxed_entry_addr(bytes, relocs, inst, *func_id, alloc)
+        }
+        InstKind::Identity(_) => unreachable!(
+            "InstKind::Identity reached aarch64 emit — egraph elaborate must \
+             drop it via set_opt_value before this point"
+        ),
+        InstKind::Neg(op) => emit_neg(bytes, inst, op, alloc),
+        InstKind::Ctpop(op) => emit_ctpop(bytes, inst, op, alloc),
+        InstKind::Copy(ty, op) => emit_copy(bytes, inst, *ty, op, alloc),
+        InstKind::Select(ty, cond, then_op, else_op) => {
+            emit_select(bytes, inst, ty, cond, then_op, else_op, alloc)
+        }
+        InstKind::CtpopRangeSum(start, bound, acc_init) => {
+            emit_ctpop_range_sum(bytes, inst, start, bound, acc_init, alloc)
+        }
+    }
+}
