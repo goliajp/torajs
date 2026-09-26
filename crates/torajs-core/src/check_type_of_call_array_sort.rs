@@ -30,7 +30,7 @@
 //! or 1-arg non-Undefined which falls to the regular path).
 
 use crate::ast::{Ast, Expr, ExprId};
-use crate::check::{Checker, Type};
+use crate::check::{Checker, DiagPush, Type};
 
 pub(crate) fn try_match(
     checker: &mut Checker,
@@ -63,7 +63,9 @@ pub(crate) fn try_match(
             Ok(t) => t,
             Err(e) => return Some(Err(e)),
         };
-        if arg_ty != Type::Undefined {
+        let void_cmp =
+            matches!(&arg_ty, Type::Function(ps, ret) if **ret == Type::Void && ps.len() <= 2);
+        if arg_ty != Type::Undefined && !void_cmp {
             return None;
         }
         let src_ty = match crate::check::receiver_type(checker, ast, *src_id) {
@@ -71,6 +73,14 @@ pub(crate) fn try_match(
             Err(e) => return Some(Err(e)),
         };
         if let Type::Array(elem) = src_ty {
+            // §23.1.3.30.2 reads a comparator's undefined as ToNumber →
+            // NaN → +0: tsc refuses the spelling, the spec runs it.
+            // Diagnose like tsc and compile what the spec says.
+            if void_cmp {
+                checker.errors.push_warn(format!(
+                    "argument 0: a comparator returning nothing compares every pair equal (expected Function returning number, got {arg_ty:?})"
+                ));
+            }
             return Some(Ok(Type::Array(elem)));
         }
         return None;

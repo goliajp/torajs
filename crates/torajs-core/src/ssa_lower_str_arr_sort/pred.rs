@@ -238,6 +238,20 @@ fn emit_user_cmp_pred(
     };
     let cmp_ret_ty = ctx.f.value_type(cmp_ret);
     match cmp_ret_ty {
+        // A comparator that returns nothing answers undefined, and
+        // §23.1.3.30.2 reads ToNumber(undefined) = NaN as +0: never
+        // "greater", so no shift. The predicate is still true when the
+        // call threw, which routes into the shift block's pending-throw
+        // exit exactly as a typed comparator's throw does.
+        Type::Void => {
+            let active = ctx.emit_throw_active_load();
+            ctx.f.append_inst(
+                ctx.cur_block,
+                InstKind::ICmp(IPred::Ne, Operand::Value(active), Operand::ConstI64(0)),
+                Type::Bool,
+                None,
+            )
+        }
         Type::F64 => ctx.f.append_inst(
             ctx.cur_block,
             InstKind::FCmp(FPred::Ogt, Operand::Value(cmp_ret), Operand::ConstF64(0.0)),
