@@ -22,6 +22,7 @@ use crate::member_data_apply::collect_member_data_payloads;
 use crate::member_data_rebase_layout::compute_member_data_rebase_targets;
 use crate::resolve::apply_relocs;
 use crate::sign::build_adhoc_codesign_blob;
+use crate::text_payload::write_text_payload;
 use crate::tlv_descriptor_layout::apply_tlv_overrides;
 use crate::user_class_layouts_layout::{
     apply_user_class_layouts_overrides, build_user_class_layouts_payload,
@@ -319,24 +320,7 @@ fn emit_binary(
 
     pad_to(&mut buf, layout.text_file_offset as usize);
 
-    // __text payload: user funcs (resolved) followed by each
-    // integrated member's patched __text slice (S7-C5).
-    for r in resolved {
-        buf.extend_from_slice(&r.bytes);
-    }
-    debug_assert_eq!(
-        member_text_payloads.len(),
-        layout.member_layouts.len(),
-        "patched payload count must match member_layouts",
-    );
-    for (i, m) in layout.member_layouts.iter().enumerate() {
-        debug_assert_eq!(
-            member_text_payloads[i].len() as u32,
-            m.text_size,
-            "patched member __text size must match layout",
-        );
-        buf.extend_from_slice(&member_text_payloads[i]);
-    }
+    write_text_payload(&mut buf, layout, resolved, member_text_payloads);
 
     // Non-text section payloads + user-strings region + relative
     // vtables splice between member __texts and `__TEXT,__stubs`

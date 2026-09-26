@@ -99,6 +99,7 @@ pub mod resolve;
 pub mod sha256;
 pub mod sign;
 pub mod stubs;
+pub mod text_payload;
 pub mod tlv_descriptor_layout;
 pub mod tlv_sym_overrides;
 pub mod tlv_thunk_emit;
