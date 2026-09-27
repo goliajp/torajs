@@ -9,7 +9,7 @@
 //! the wrapper's env are declared here from that record, mutable — a
 //! write in the body is a write to the live binding.
 
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, Expr, ExprId, Stmt};
 use crate::check::{Checker, DiagPush, LocalInfo, Type};
 
 /// Declare the by-reference captures of `fn_name` (a method in
@@ -74,7 +74,7 @@ pub(crate) fn check_stmts(c: &mut Checker, ast: &Ast) {
 /// program body. The pre-pass (`check_pipeline::pass_2`) gives one to
 /// the init shapes it can type without checking them; an init it could
 /// not (`const n = xs.length`, `const s = o.a`) is typed by now, and
-/// registers here under that type. The lowerer asks [`late_home_ty`] in the same
+/// registers here under that type. The lowerer asks [`late_home`] in the same
 /// fallback position.
 fn register_late_homes(c: &mut Checker, ast: &Ast) {
     let refs = crate::ast_refs::toplevel_binding_refs(ast);
@@ -88,18 +88,28 @@ fn register_late_homes(c: &mut Checker, ast: &Ast) {
         } = stmt
             && refs.named_fn_refs.contains(name)
             && !c.globals.contains_key(name)
-            && let Some(ty) = c.expr_types.get(init).filter(|t| late_home_ty(t))
+            && let Some(ty) = c.expr_types.get(init).filter(|t| late_home(ast, *init, t))
         {
             c.globals.insert(name.clone(), ty.clone());
         }
     }
 }
 
-/// The init types a late home takes: the scalars, and the two
-/// refcounted types whose slot representation needs no layout — the
-/// init store takes the slot's own stake in a borrowed read.
-pub(crate) fn late_home_ty(ty: &Type) -> bool {
-    matches!(
+/// Whether an init of type `ty` takes a late home of that type: the
+/// scalars, and the two refcounted types whose slot representation
+/// needs no layout — the init store takes the slot's own stake in a
+/// borrowed read. An optional chain is left out whatever its type: it
+/// lowers to a box on both arms, and a typed slot would store the box
+/// bits as the value.
+pub(crate) fn late_home(ast: &Ast, init: ExprId, ty: &Type) -> bool {
+    let mut e = init;
+    while let Expr::As { expr, .. } = ast.get_expr(e) {
+        e = *expr;
+    }
+    !matches!(
+        ast.get_expr(e),
+        Expr::OptChain { .. } | Expr::OptIndex { .. } | Expr::OptCall { .. }
+    ) && matches!(
         ty,
         Type::Number | Type::Boolean | Type::String | Type::Symbol
     )

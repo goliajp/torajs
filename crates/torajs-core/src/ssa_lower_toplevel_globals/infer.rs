@@ -293,6 +293,7 @@ pub(super) fn inferred_slot_ty(
 /// init no pre-pass arm types takes the slot of the type the checker
 /// gave it, same gate, same fallback position.
 pub(super) fn late_home_slot(
+    ast: &Ast,
     name: &str,
     init: ExprId,
     binding_refs: &crate::ast_refs::ToplevelBindingRefs,
@@ -304,7 +305,7 @@ pub(super) fn late_home_slot(
     }
     let ty = expr_types
         .get(&init)
-        .filter(|t| crate::check_gen_env::late_home_ty(t))?;
+        .filter(|t| crate::check_gen_env::late_home(ast, init, t))?;
     Some(match ty {
         crate::check::Type::Boolean => Type::Bool,
         crate::check::Type::String => Type::Str,
