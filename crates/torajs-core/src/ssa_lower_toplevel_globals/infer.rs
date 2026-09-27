@@ -305,8 +305,9 @@ pub(super) fn late_home_slot(
     }
     let ty = expr_types
         .get(&init)
-        .filter(|t| crate::check_gen_env::late_home(ast, init, t))?;
+        .and_then(|t| crate::check_gen_env::late_home(ast, init, t))?;
     Some(match ty {
+        crate::check::Type::Any => Type::Any,
         crate::check::Type::Boolean => Type::Bool,
         crate::check::Type::String => Type::Str,
         crate::check::Type::Symbol => Type::Symbol,

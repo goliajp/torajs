@@ -88,31 +88,39 @@ fn register_late_homes(c: &mut Checker, ast: &Ast) {
         } = stmt
             && refs.named_fn_refs.contains(name)
             && !c.globals.contains_key(name)
-            && let Some(ty) = c.expr_types.get(init).filter(|t| late_home(ast, *init, t))
+            && let Some(ty) = c
+                .expr_types
+                .get(init)
+                .and_then(|t| late_home(ast, *init, t))
         {
-            c.globals.insert(name.clone(), ty.clone());
+            c.globals.insert(name.clone(), ty);
         }
     }
 }
 
-/// Whether an init of type `ty` takes a late home of that type: the
+/// The type of the late home an init of type `ty` takes, if any: the
 /// scalars, and the two refcounted types whose slot representation
-/// needs no layout — the init store takes the slot's own stake in a
-/// borrowed read. An optional chain is left out whatever its type: it
-/// lowers to a box on both arms, and a typed slot would store the box
-/// bits as the value.
-pub(crate) fn late_home(ast: &Ast, init: ExprId, ty: &Type) -> bool {
+/// needs no layout, under their own type — the init store takes the
+/// slot's own stake in a borrowed read; a value of no fixed type
+/// (`any`, `null`, `undefined`) in an `any` slot. An optional chain
+/// takes the `any` slot whatever its type: it lowers to a box on both
+/// arms, and a typed slot would store the box bits as the value.
+pub(crate) fn late_home(ast: &Ast, init: ExprId, ty: &Type) -> Option<Type> {
     let mut e = init;
     while let Expr::As { expr, .. } = ast.get_expr(e) {
         e = *expr;
     }
-    !matches!(
+    if matches!(
         ast.get_expr(e),
         Expr::OptChain { .. } | Expr::OptIndex { .. } | Expr::OptCall { .. }
-    ) && matches!(
-        ty,
-        Type::Number | Type::Boolean | Type::String | Type::Symbol
-    )
+    ) {
+        return Some(Type::Any);
+    }
+    match ty {
+        Type::Number | Type::Boolean | Type::String | Type::Symbol => Some(ty.clone()),
+        Type::Any | Type::Null | Type::Undefined => Some(Type::Any),
+        _ => None,
+    }
 }
 
 /// Check the deferred gen-env methods once their wrappers' construction

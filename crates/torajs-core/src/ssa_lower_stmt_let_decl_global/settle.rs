@@ -10,13 +10,16 @@ use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// An `any` slot whose init is already an `any` READ — a member /
-/// index load, or the default join over one (`let a = __ary_src_0[0]`,
+/// index load or an optional chain over one, or the default join over
+/// one (`let a = __ary_src_0[0]`,
 /// the destructuring bind `ast_refs_any_promote` admits). The fn-scope
 /// lane binds such a read as a borrow (`init_is_alias`) or takes a share
 /// of a join (`init_shares_source_stake`); a global has no borrowed
 /// mode, it outlives every source, so it takes its own stake in both
 /// cases. A read the lowering detached (`owned_member_reads`) arrives
-/// owned and transfers. `true` = ownership is settled here, which also
+/// owned and transfers, as does a call's result. An optional chain's
+/// hit arm may box a borrowed element (the typed-array arm stays off
+/// the owned track), so it settles like any other read. `true` = ownership is settled here, which also
 /// keeps these shapes off [`settle_typed_init`].
 pub(super) fn settle_any_read_init(
     ctx: &mut LowerCtx,
@@ -29,7 +32,7 @@ pub(super) fn settle_any_read_init(
     }
     let read = matches!(
         ctx.ast.get_expr(init),
-        Expr::Member { .. } | Expr::Index { .. }
+        Expr::Member { .. } | Expr::Index { .. } | Expr::OptIndex { .. } | Expr::OptChain { .. }
     );
     let join = matches!(
         ctx.ast.get_expr(init),
@@ -38,7 +41,7 @@ pub(super) fn settle_any_read_init(
     if !(read || join) {
         return false;
     }
-    if !ctx.owned_member_reads.contains(&init) {
+    if !ctx.owned_member_reads.contains(&init) && !ctx.expr_transfers_ownership(init) {
         ctx.emit_owned_result_inc(init_val.clone(), Type::Any);
     }
     read
