@@ -147,6 +147,7 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
         owner,
         slot_owner,
         mut bad,
+        members,
     } = owners::follow(func, &cands);
     let own = |op: &Operand| match op {
         Operand::Value(v) => owner.get(v).copied(),
@@ -176,9 +177,13 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
                 }
                 InstKind::ICmp(IPred::Eq | IPred::Ne, a, c) if a != c => {}
                 InstKind::Call(f, args) => match args.as_slice() {
+                    // every member of the group the release names has
+                    // the size it frees
                     [b, Operand::ConstI64(n)]
                         if Some(*f) == fids.drop_sized
-                            && own(b).and_then(|c| cands.get(&c)) == Some(n) => {}
+                            && own(b).is_some_and(|c| {
+                                members[&c].iter().all(|m| cands.get(m) == Some(n))
+                            }) => {}
                     [Operand::Value(_)] if fids.inert.contains(f) => {}
                     [b] if fids.props.contains(f) => props_seam_users.extend(own(b)),
                     [b, name] if Some(*f) == fids.guard && own(b).is_some() => mark(name, &mut bad),
@@ -195,7 +200,7 @@ fn promote_in_function(func: &mut Function, fids: &Fids, stats: &mut HeapToStack
     }
     bad.extend(props_seam_users.intersection(&props_dirty));
     stats.rejected += bad.len() as u32;
-    cands.retain(|v, _| !bad.contains(v));
+    cands.retain(|v, _| !bad.contains(&owner[v]));
     if cands.is_empty() {
         return;
     }
@@ -423,6 +428,52 @@ mod tests {
         let stats = promote_module(&mut m);
         assert_eq!((stats.promoted, stats.slots_followed), (1, 1));
         assert_eq!((stats.calls_removed, stats.cmps_folded), (1, 0));
+    }
+
+    /// Two cells through one return slot (a callee with two `return`
+    /// sites): `size_b` is the second cell's size, the release frees 56.
+    fn two_cells_one_slot(size_b: i64) -> Module {
+        let slot = Operand::Value(ValueId(3));
+        let alias = Operand::Value(ValueId(4));
+        let body = vec![
+            val(0, InstKind::Call(FuncId(0), vec![Operand::ConstI64(56)])),
+            val(
+                5,
+                InstKind::Call(FuncId(0), vec![Operand::ConstI64(size_b)]),
+            ),
+            val(3, InstKind::Alloca(Type::Ptr)),
+            void(InstKind::Store(Operand::ConstPtrNull, slot, 0)),
+            void(InstKind::Store(B, slot, 0)),
+            void(InstKind::Store(Operand::Value(ValueId(5)), slot, 0)),
+            val(4, InstKind::Load(Type::Ptr, slot, 0)),
+            val(1, InstKind::Load(Type::I64, alias, 48)),
+            void(InstKind::Call(
+                FuncId(1),
+                vec![alias, Operand::ConstI64(56)],
+            )),
+            void(InstKind::Store(Operand::ConstPtrNull, slot, 0)),
+        ];
+        let block = Block {
+            id: BlockId(0),
+            insts: body,
+            term: Terminator::Ret(Some(Operand::Value(ValueId(1)))),
+        };
+        function_of(vec![block], 6)
+    }
+
+    #[test]
+    fn cells_sharing_a_slot_promote_together() {
+        let mut m = two_cells_one_slot(56);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.rejected), (2, 0));
+        assert_eq!(stats.calls_removed, 1);
+    }
+
+    #[test]
+    fn a_group_with_a_mismatched_size_stays_on_the_heap() {
+        let mut m = two_cells_one_slot(64);
+        let stats = promote_module(&mut m);
+        assert_eq!((stats.promoted, stats.rejected), (0, 1));
     }
 
     #[test]

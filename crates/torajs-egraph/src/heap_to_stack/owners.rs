@@ -10,9 +10,15 @@
 //! store is the candidate, an alias of it, or null carries the
 //! candidate, and every load from it is an alias (possibly null).
 //!
-//! Two things break the equivalence and reject the candidate: a slot
-//! holding two candidates (or anything else non-null), and a stale
-//! alias — a slot still holding the previous iteration's cell when the
+//! A slot holding several candidates — the inliner's return slot when
+//! the callee returns a fresh cell from more than one `return` (a
+//! generator's step object) — carries them as one group, the merge
+//! C2's `ReduceAllocationMerges` takes for a φ of N allocations: the
+//! group is promoted or kept whole, so the release through the slot
+//! stays paired with whichever member reached it.
+//!
+//! Two things break the equivalence and reject the group: a slot
+//! holding anything else non-null, and a stale alias — a slot still holding the previous iteration's cell when the
 //! allocation runs again and read before being overwritten. The heap
 //! version reads the old cell there; the frame version would read the
 //! new one, since the frame slot is reused. SSA values cannot carry an
@@ -28,13 +34,37 @@ use crate::rc_peephole::collect_unescaped_slots;
 
 use super::is_null;
 
+/// Everything is keyed by a group's representative candidate.
 pub(super) struct Owners {
-    /// Value → the candidate it names (a candidate names itself).
+    /// Value → the group it names (a candidate names its own group).
     pub(super) owner: HashMap<ValueId, ValueId>,
-    /// Slot → the candidate it carries.
+    /// Slot → the group it carries.
     pub(super) slot_owner: HashMap<ValueId, ValueId>,
-    /// Candidates a slot rule rejected.
+    /// Groups a slot rule rejected.
     pub(super) bad: HashSet<ValueId>,
+    /// Group → its candidates.
+    pub(super) members: HashMap<ValueId, Vec<ValueId>>,
+}
+
+/// Union-find over candidates.
+struct Groups(HashMap<ValueId, ValueId>);
+
+impl Groups {
+    fn find(&self, mut c: ValueId) -> ValueId {
+        while let Some(&p) = self.0.get(&c)
+            && p != c
+        {
+            c = p;
+        }
+        c
+    }
+
+    fn union(&mut self, a: ValueId, b: ValueId) {
+        let (ra, rb) = (self.find(a), self.find(b));
+        // the smaller id leads, so the representative is deterministic
+        let (lo, hi) = if ra.0 <= rb.0 { (ra, rb) } else { (rb, ra) };
+        self.0.insert(hi, lo);
+    }
 }
 
 pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
@@ -53,7 +83,9 @@ pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
         owner: cands.keys().map(|c| (*c, *c)).collect(),
         slot_owner: HashMap::new(),
         bad: HashSet::new(),
+        members: HashMap::new(),
     };
+    let mut groups = Groups(cands.keys().map(|c| (*c, *c)).collect());
     let mut changed = true;
     while changed {
         changed = false;
@@ -68,8 +100,9 @@ pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
                             o.slot_owner.insert(*s, c);
                             changed = true;
                         }
-                        Some(&d) if d != c => {
-                            o.bad.extend([c, d]);
+                        Some(&d) if groups.find(d) != groups.find(c) => {
+                            groups.union(c, d);
+                            changed = true;
                         }
                         Some(_) => {}
                     }
@@ -92,8 +125,15 @@ pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
             }
         }
     }
-    // a carrying slot holds only its candidate, its aliases or null,
-    // and is only ever accessed as a whole
+    // from here on every key is a group
+    for c in o.owner.values_mut().chain(o.slot_owner.values_mut()) {
+        *c = groups.find(*c);
+    }
+    for c in cands.keys() {
+        o.members.entry(groups.find(*c)).or_default().push(*c);
+    }
+    // a carrying slot holds only its group, its aliases or null, and
+    // is only ever accessed as a whole
     for inst in func.blocks.iter().flat_map(|b| &b.insts) {
         match &inst.kind {
             InstKind::Store(val, Operand::Value(s), off) => {
@@ -118,13 +158,14 @@ pub(super) fn follow(func: &Function, cands: &HashMap<ValueId, i64>) -> Owners {
 /// them: the previous iteration's alias is read after the frame slot
 /// has been handed out again (`let last = null; for (…) last = new C()`).
 fn stale_aliases(func: &Function, o: &Owners) -> HashSet<ValueId> {
-    let mut alloc_block: HashMap<ValueId, BlockId> = HashMap::new();
+    let cands: HashSet<ValueId> = o.members.values().flatten().copied().collect();
+    let mut alloc_blocks: HashMap<ValueId, Vec<BlockId>> = HashMap::new();
     for block in &func.blocks {
         for inst in &block.insts {
             if let Some(r) = inst.result
-                && o.owner.get(&r) == Some(&r)
+                && cands.contains(&r)
             {
-                alloc_block.insert(r, block.id);
+                alloc_blocks.entry(o.owner[&r]).or_default().push(block.id);
             }
         }
     }
@@ -142,7 +183,10 @@ fn stale_aliases(func: &Function, o: &Owners) -> HashSet<ValueId> {
             .map(|b| b.id)
             .collect();
         let live = compute_live_in(func, &preds, (s, 0), &store_blocks);
-        if alloc_block.get(&c).is_some_and(|a| live.contains(a)) {
+        if alloc_blocks
+            .get(&c)
+            .is_some_and(|bs| bs.iter().any(|a| live.contains(a)))
+        {
             bad.insert(c);
         }
     }
