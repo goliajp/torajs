@@ -67,8 +67,8 @@
 //!     original decl, fn aliases deep-cloning, const aliases binding
 //!     by reference.
 
-use crate::ast::{Ast, Stmt};
-use std::collections::{HashMap, HashSet, VecDeque};
+use crate::ast::Ast;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 /// One named entry in an `import` clause: `(orig_name, alias)`. `alias`
@@ -147,61 +147,8 @@ pub fn resolve_imports(
     base_dir: &Path,
     entry: Option<&Path>,
 ) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
-    let mut closure_files: Vec<(PathBuf, Vec<u8>)> = Vec::new();
-    // Per-path "already injected" tracking. The set holds importer-
-    // visible names (= alias if Some, else orig) plus the sentinels
-    // `__default` / `__namespace` / `__se` for the non-named import
-    // forms. A path may be re-visited via a different request shape
-    // (e.g., a transitive re-export's nested load asking for a name
-    // not in the first visit's named list); the per-name filter
-    // de-duplicates injections without forcing first-encounter wins.
-    let mut injected_names: HashMap<PathBuf, HashSet<String>> = HashMap::new();
-    let mut closure_paths: HashSet<PathBuf> = HashSet::new();
-    let mut work: VecDeque<WorkItem> = VecDeque::new();
-    // §16.2.1.5 — a module body runs AFTER every module it requests.
-    // The worklist is breadth-first, so pop order is the opposite; the
-    // graph is recorded here instead and the injected statements are
-    // spliced back in dependency post-order once the queue drains. An
-    // edge is whatever a walk pushed onto the worklist, so it needs no
-    // threading: [`ModuleGraph::edges_since`] reads the tail.
-    let mut graph = ModuleGraph::default();
-
-    // 423-01 deconflict state — the committed-name set (entry decls +
-    // entry import bindings, see `deconflict::seed_seen_names`) plus
-    // each path's mangle memory (the same file re-parses per request,
-    // and the same decl must keep the same mangle).
-    let mut seen_names = deconflict::seed_seen_names(ast, base_dir);
-    let mut mangled_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
-    // Knife C hidden-dep mangles keep their own per-path memory —
-    // NOT `mangled_by_path`: a later plain named request for a
-    // hidden-mangled export must re-inject bare, not trip the
-    // requested-collision reject (see `deconflict_lib_section`).
-    let mut hidden_by_path: HashMap<PathBuf, HashMap<String, String>> = HashMap::new();
-    let mut mangle_seq: usize = 0;
-
-    let (entry_seed, dyn_table) = seed_requests(ast, base_dir, entry, &mut work, &mut graph)?;
-
-    // Statements injected on behalf of one module, keyed by its path
-    // so the dependency-order splice below can reassemble them. A path
-    // may be walked more than once (a later request asking for a name
-    // the first visit did not want); the later visit appends.
-    let mut injections_by_path: HashMap<PathBuf, Vec<Stmt>> = HashMap::new();
-    // The namespace tables — see `ns_tables::NsTables`.
-    let mut ns = ns_tables::NsTables::default();
-    // §16.2.1.6.3 ambiguity ledger — see `inject_export::Landings`.
-    let mut landing_first: HashMap<String, PathBuf> = HashMap::new();
-    let mut ambiguous_locals: HashSet<String> = HashSet::new();
-    // The alias a path's default export materialized under. A module's
-    // default is ONE export but nothing stops several requests wanting
-    // it under different names (`export { default as X } from "m"`
-    // beside `export { default } from "m"`); the first request wins
-    // the `let <alias> = <expr>` and every later alias binds to the
-    // first — re-walking would re-lower the same ExprId.
-    let mut default_bound_as: HashMap<PathBuf, String> = HashMap::new();
-    let mut ledger = static_resolution::LedgerState::default();
-    // Module-evaluation statements per dynamic-import candidate, keyed
-    // by its `__dyn_ns_c<k>` alias — see `LibRequest::deferred`.
-    let mut dyn_eval_bodies: HashMap<String, Vec<Stmt>> = HashMap::new();
+    let mut st = resolve_state::ResolveState::new(ast, base_dir);
+    let (entry_seed, dyn_table) = seed_requests(ast, base_dir, entry, &mut st.work, &mut st.graph)?;
 
     while let Some((
         target_path,
@@ -210,7 +157,7 @@ pub fn resolve_imports(
         side_effect_only,
         namespace_alias,
         ns_star_feed,
-    )) = pop_next(&mut work)
+    )) = pop_next(&mut st.work)
     {
         // Repeat-visit alignment + per-path filter + mangle-memory
         // realignment — see [`repeat_request::align_and_filter`].
@@ -223,12 +170,12 @@ pub fn resolve_imports(
                 default_alias,
                 namespace_alias,
                 side_effect_only,
-                &ns.fields_by_path,
-                &mut ns.dyn_ns_repeat,
-                &default_bound_as,
-                &mut injections_by_path,
-                &mut injected_names,
-                &mangled_by_path,
+                &st.ns.fields_by_path,
+                &mut st.ns.dyn_ns_repeat,
+                &st.default_bound_as,
+                &mut st.injections_by_path,
+                &mut st.injected_names,
+                &st.mangled_by_path,
             )
         else {
             continue;
@@ -238,8 +185,8 @@ pub fn resolve_imports(
             ast,
             &target_path,
             base_dir,
-            &mut closure_paths,
-            &mut closure_files,
+            &mut st.closure_paths,
+            &mut st.closure_files,
         )?;
 
         // §16.2.1.10 ns `default` field — see `default_binding.rs`.
@@ -247,7 +194,7 @@ pub fn resolve_imports(
             &lib_section,
             &namespace_alias,
             &mut default_alias,
-            &mut default_bound_as,
+            &mut st.default_bound_as,
             &target_path,
             ns_star_feed,
         );
@@ -258,10 +205,10 @@ pub fn resolve_imports(
                 lib_expr_offset,
                 &target_path,
                 &named,
-                &mut seen_names,
-                mangled_by_path.entry(target_path.clone()).or_default(),
-                hidden_by_path.entry(target_path.clone()).or_default(),
-                &mut mangle_seq,
+                &mut st.seen_names,
+                st.mangled_by_path.entry(target_path.clone()).or_default(),
+                st.hidden_by_path.entry(target_path.clone()).or_default(),
+                &mut st.mangle_seq,
                 deconflict::LaneShape {
                     has_default_alias: default_alias.is_some(),
                     is_ns: namespace_alias.is_some(),
@@ -271,7 +218,7 @@ pub fn resolve_imports(
             )?;
 
         let first_field =
-            repeat_request::open_ns_walk(&namespace_alias, &mut ns.accums, &mut ns.order);
+            repeat_request::open_ns_walk(&namespace_alias, &mut st.ns.accums, &mut st.ns.order);
         let mut req = LibRequest {
             side_effect_only,
             default_alias: &default_alias,
@@ -279,22 +226,22 @@ pub fn resolve_imports(
             rename: &rename,
             ns: namespace_alias
                 .as_ref()
-                .and_then(|a| ns.accums.get_mut(a.as_str())),
+                .and_then(|a| st.ns.accums.get_mut(a.as_str())),
             bare_exports: &bare_exports,
             own_exports: &own_exports,
             // Re-borrowed rather than kept from the filter above —
             // the parse in between needed `ast`, and the walk is the
             // ledger's writer: every decl it injects records here so
             // a later request (any lane) skips it.
-            injected: injected_names.entry(target_path.clone()).or_default(),
+            injected: st.injected_names.entry(target_path.clone()).or_default(),
             demangle: &demangle,
             hidden: &hidden,
             landings: inject_export::Landings {
                 path: &target_path,
-                first: &mut landing_first,
-                ambiguous: &mut ambiguous_locals,
+                first: &mut st.landing_first,
+                ambiguous: &mut st.ambiguous_locals,
             },
-            ledger: ledger.ledger(&target_path),
+            ledger: st.ledger.ledger(&target_path),
             // A candidate that is the entry itself has no body to run at
             // its import: the entry IS the program, already evaluating
             // (§16.2.1.5.3 — an `import()` of a module in that status
@@ -303,24 +250,31 @@ pub fn resolve_imports(
                 .as_ref()
                 .filter(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == *a))
                 .filter(|_| target_path.canonicalize().ok() != entry_seed.entry_path)
-                .map(|a| dyn_eval_bodies.entry(a.clone()).or_default()),
+                .map(|a| st.dyn_eval_bodies.entry(a.clone()).or_default()),
         };
 
-        let mut injections = injections_by_path.remove(&target_path).unwrap_or_default();
-        let work_mark = work.len();
+        let mut injections = st
+            .injections_by_path
+            .remove(&target_path)
+            .unwrap_or_default();
+        let work_mark = st.work.len();
         for s in lib_section {
-            walk_lib_stmt(ast, &mut work, &target_dir, &mut injections, s, &mut req)?;
+            walk_lib_stmt(ast, &mut st.work, &target_dir, &mut injections, s, &mut req)?;
         }
 
-        graph.record(target_path.clone(), graph.edges_since(&work, work_mark));
-        injections_by_path.insert(target_path.clone(), injections);
+        st.graph.record(
+            target_path.clone(),
+            st.graph.edges_since(&st.work, work_mark),
+        );
+        st.injections_by_path
+            .insert(target_path.clone(), injections);
         repeat_request::record_ns_walk(
             &namespace_alias,
             repeat_default_field,
-            &mut ns.accums,
+            &mut st.ns.accums,
             first_field,
             &target_path,
-            &mut ns.fields_by_path,
+            &mut st.ns.fields_by_path,
         );
     }
 
@@ -328,18 +282,18 @@ pub fn resolve_imports(
     // sweep — see `splice::settle_and_splice`.
     splice::settle_and_splice(
         ast,
-        &graph,
-        injections_by_path,
+        &st.graph,
+        st.injections_by_path,
         &dyn_table,
-        &ns.order,
-        &ns.accums,
-        &mut ns.dyn_ns_repeat,
-        &ambiguous_locals,
+        &st.ns.order,
+        &st.ns.accums,
+        &mut st.ns.dyn_ns_repeat,
+        &st.ambiguous_locals,
         &entry_seed,
-        &ledger.nested,
-        &dyn_eval_bodies,
+        &st.ledger.nested,
+        &st.dyn_eval_bodies,
     )?;
-    Ok(closure_files)
+    Ok(st.closure_files)
 }
 
 mod dead_lib_exprs;
@@ -355,6 +309,7 @@ mod namespace_objlit;
 mod ns_tables;
 mod repeat_request;
 mod resolve_helpers;
+mod resolve_state;
 pub(crate) mod splice;
 mod static_resolution;
 use graph::ModuleGraph;
