@@ -88,6 +88,38 @@ pub(crate) fn lower_any_length(ctx: &mut LowerCtx<'_>, recv: Operand) -> Operand
 /// arguments bag lives there), a typed block behind the view, a
 /// sparse tail and a hole take the call.
 pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Operand) -> ValueId {
+    arr_get_any_inline(ctx, arr, idx, 0, |ctx, arr, idx| {
+        inst(
+            ctx,
+            InstKind::Call(ctx.intrinsics.arr_get_any_boxed, vec![arr, idx]),
+            Type::Any,
+        )
+    })
+}
+
+/// `arr[idx]` of an `Array<Any>` under [[Get]] (ES §10.1.8.1), as a
+/// borrowed any value: the fast arm of [`arr_get_any_borrowed`] also
+/// requires no exotic index, and the slow arm is the tag / value pair,
+/// which runs an accessor element's getter (and its throw check) and
+/// continues a hole to the prototype — neither of which the borrowed
+/// read does.
+pub(crate) fn arr_get_any_elem(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Operand) -> ValueId {
+    arr_get_any_inline(
+        ctx,
+        arr,
+        idx,
+        torajs_rc::FLAG_ARR_EXOTIC_INDEX,
+        crate::ssa_lower_index_any_key::emit_any_elem_pair,
+    )
+}
+
+fn arr_get_any_inline(
+    ctx: &mut LowerCtx<'_>,
+    arr: Operand,
+    idx: Operand,
+    slow_flags: u16,
+    slow: impl FnOnce(&mut LowerCtx<'_>, Operand, Operand) -> ValueId,
+) -> ValueId {
     use crate::ssa_lower::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
     use torajs_rc::{FLAG_ARR_ANY, FLAG_ARR_SPARSE_TAIL};
     let slot = ctx.alloca(Type::Any, None);
@@ -118,7 +150,7 @@ pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Op
     // flags are the header word's top 16 bits
     ctx.cur_block = hdr_blk;
     let word = inst(ctx, InstKind::Load(Type::I64, arr.clone(), 0), Type::I64);
-    let mask = ((FLAG_ARR_ANY | FLAG_ARR_SPARSE_TAIL) as i64) << 48;
+    let mask = ((FLAG_ARR_ANY | FLAG_ARR_SPARSE_TAIL | slow_flags) as i64) << 48;
     let flags = inst(
         ctx,
         bin(BinOp::And, word, Operand::ConstI64(mask)),
@@ -159,11 +191,7 @@ pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Op
     store_and_join(ctx, Operand::Value(v), slot, done_blk);
 
     ctx.cur_block = slow_blk;
-    let v = inst(
-        ctx,
-        InstKind::Call(ctx.intrinsics.arr_get_any_boxed, vec![arr, idx]),
-        Type::Any,
-    );
+    let v = slow(ctx, arr, idx);
     store_and_join(ctx, Operand::Value(v), slot, done_blk);
 
     ctx.cur_block = done_blk;

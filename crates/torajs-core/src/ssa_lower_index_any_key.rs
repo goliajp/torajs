@@ -238,6 +238,19 @@ pub(crate) fn lower_array_any_index(
     arr_val: Operand,
     idx_val: Operand,
 ) -> Operand {
+    Operand::Value(crate::ssa_lower_anyv_inline::arr_get_any_elem(
+        ctx, arr_val, idx_val,
+    ))
+}
+
+/// The tag / value pair read of `arr[idx]` on an `Array<Any>`, boxed
+/// (borrowed): the slow arm of
+/// [`crate::ssa_lower_anyv_inline::arr_get_any_elem`].
+pub(crate) fn emit_any_elem_pair(
+    ctx: &mut LowerCtx<'_>,
+    arr_val: Operand,
+    idx_val: Operand,
+) -> ValueId {
     let cur_block = ctx.cur_block;
     let tag = ctx.f.append_inst(
         cur_block,
@@ -267,7 +280,7 @@ pub(crate) fn lower_array_any_index(
         Type::Any,
         None,
     );
-    Operand::Value(box_v)
+    box_v
 }
 
 /// Dynamic string key on an `any` receiver — probe by the runtime

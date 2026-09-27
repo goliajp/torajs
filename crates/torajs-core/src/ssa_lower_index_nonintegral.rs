@@ -212,7 +212,7 @@ pub(crate) fn emit_any_elem_read_split(
     ctx.cur_block = elem_blk;
     // The read answers the whole (borrowed) box; the share this read
     // owns is the inc after it.
-    let v = Operand::Value(crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+    let v = Operand::Value(crate::ssa_lower_anyv_inline::arr_get_any_elem(
         ctx,
         arr.clone(),
         idx,
