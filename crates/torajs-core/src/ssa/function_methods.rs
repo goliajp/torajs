@@ -360,16 +360,11 @@ impl Function {
                 write!(w, ", ")?;
                 self.write_operand(w, acc)?;
             }
-            InstKind::RcInc(ptr) => {
-                write!(w, "rc_inc ")?;
-                self.write_operand(w, ptr)?;
-            }
-            InstKind::RcIncAny(v) => {
-                write!(w, "rc_inc_any ")?;
-                self.write_operand(w, v)?;
-            }
-            InstKind::RcDecAny(v) => {
-                write!(w, "rc_dec_any ")?;
+            InstKind::RcInc(v)
+            | InstKind::RcIncAny(v)
+            | InstKind::RcDecAny(v)
+            | InstKind::BoxAny(_, v) => {
+                write!(w, "{} ", one_operand_mnemonic(&inst.kind))?;
                 self.write_operand(w, v)?;
             }
         }
@@ -397,5 +392,16 @@ impl Function {
             Terminator::Ret(None) => writeln!(w, "ret"),
             Terminator::Unreachable => writeln!(w, "unreachable"),
         }
+    }
+}
+
+/// The printed opcode of the one-operand refcount / box instructions.
+fn one_operand_mnemonic(kind: &InstKind) -> String {
+    match kind {
+        InstKind::RcInc(_) => "rc_inc".into(),
+        InstKind::RcIncAny(_) => "rc_inc_any".into(),
+        InstKind::RcDecAny(_) => "rc_dec_any".into(),
+        InstKind::BoxAny(tag, _) => format!("box_any {tag}"),
+        other => unreachable!("not a one-operand refcount / box instruction: {other:?}"),
     }
 }

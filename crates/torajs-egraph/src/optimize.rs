@@ -344,6 +344,10 @@ pub(crate) fn is_pure(kind: &InstKind) -> bool {
         | InstKind::RcIncAny(_)
         | InstKind::RcDecAny(_)
         | InstKind::Call(_, _) => false,
+        // a pure encode, but kept in place like the call it replaced
+        // until moving it across blocks has been checked against the
+        // owner tracking of heap_to_stack and interval
+        InstKind::BoxAny(_, _) => false,
         // Alloca returns a unique pointer per invocation — two
         // syntactically identical Alloca ops produce DIFFERENT
         // pointers, so they must NOT be GVN-deduplicated. Treated as

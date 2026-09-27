@@ -140,6 +140,12 @@ pub fn cost_of_kind(kind: &InstKind) -> Cost {
         | InstKind::StoreDynScaled8(_, _, _)
         | InstKind::RcInc(_)
         | InstKind::RcIncAny(_) => STORE_COST,
+        // the in-place encode: one to five ALU ops on the hot arm
+        InstKind::BoxAny(tag, _) => match tag {
+            2 | 3 => Cost::new(5),
+            4 => Cost::new(3),
+            _ => ALU_COST,
+        },
 
         // Cross-pipeline numeric casts.
         InstKind::SiToFp(_) | InstKind::FpToSi(_) => CAST_COST,

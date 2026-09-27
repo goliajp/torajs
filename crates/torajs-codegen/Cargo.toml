@@ -14,5 +14,6 @@ authors.workspace = true
 workspace = true
 
 [dependencies]
+torajs-anyvalue = { path = "../torajs-anyvalue" }
 torajs-core = { path = "../torajs-core" }
 torajs-rc = { path = "../torajs-rc" }

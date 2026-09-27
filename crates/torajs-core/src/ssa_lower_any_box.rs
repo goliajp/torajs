@@ -54,10 +54,7 @@ impl<'a> LowerCtx<'a> {
             // ANY_UNDEF=5, payload 0.
             let v = self.f.append_inst(
                 self.cur_block,
-                InstKind::Call(
-                    self.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );
@@ -413,10 +410,7 @@ impl<'a> LowerCtx<'a> {
         };
         let v = self.f.append_inst(
             self.cur_block,
-            InstKind::Call(
-                self.intrinsics.any_box,
-                vec![Operand::ConstI64(tag), value_op],
-            ),
+            InstKind::BoxAny(tag, value_op),
             Type::Any,
             None,
         );

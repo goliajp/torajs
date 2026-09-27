@@ -25,7 +25,8 @@ pub fn visit_value_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         InstKind::Load(_, ptr, _)
         | InstKind::RcInc(ptr)
         | InstKind::RcIncAny(ptr)
-        | InstKind::RcDecAny(ptr) => v(ptr),
+        | InstKind::RcDecAny(ptr)
+        | InstKind::BoxAny(_, ptr) => v(ptr),
         InstKind::Store(val, ptr, _) => {
             v(val);
             v(ptr);
@@ -108,7 +109,8 @@ pub fn rewrite_value_operands(kind: &mut InstKind, mut f: impl FnMut(ValueId) ->
         InstKind::Load(_, ptr, _)
         | InstKind::RcInc(ptr)
         | InstKind::RcIncAny(ptr)
-        | InstKind::RcDecAny(ptr) => v(ptr),
+        | InstKind::RcDecAny(ptr)
+        | InstKind::BoxAny(_, ptr) => v(ptr),
         InstKind::Store(val, ptr, _) => {
             v(val);
             v(ptr);

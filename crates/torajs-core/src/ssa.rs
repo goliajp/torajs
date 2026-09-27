@@ -385,6 +385,12 @@ pub enum InstKind {
     /// and calls the runtime for the rest, so it is a call site for
     /// register allocation, weighted as a slow path.
     RcDecAny(Operand),
+    /// `box_any <tag> <v>` — the NaN-box encoding of `v` under an
+    /// `AnySlotTag` known at compile time (0 null · 1 bool · 2 int ·
+    /// 3 double bits · 4 heap pointer · 5 undefined), the answer of
+    /// `__torajs_anyv_box_from_pair(tag, v)`. A pure encode: no
+    /// refcount traffic, no call — codegen expands it in place.
+    BoxAny(i64, Operand),
 }
 
 #[derive(Debug, Clone)]

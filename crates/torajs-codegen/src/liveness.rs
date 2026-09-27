@@ -280,7 +280,8 @@ pub(crate) fn visit_inst_operands(kind: &InstKind, mut f: impl FnMut(ValueId)) {
         InstKind::Load(_, ptr, _)
         | InstKind::RcInc(ptr)
         | InstKind::RcIncAny(ptr)
-        | InstKind::RcDecAny(ptr) => visit(ptr),
+        | InstKind::RcDecAny(ptr)
+        | InstKind::BoxAny(_, ptr) => visit(ptr),
         InstKind::Store(val, ptr, _) => {
             visit(val);
             visit(ptr);

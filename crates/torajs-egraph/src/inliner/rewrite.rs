@@ -44,6 +44,7 @@ pub(super) fn rewrite_inst_kind(kind: &InstKind, map: &HashMap<ValueId, Operand>
         InstKind::Load(ty, ptr, off) => InstKind::Load(ty.clone(), r(ptr), *off),
         InstKind::RcInc(ptr) => InstKind::RcInc(r(ptr)),
         InstKind::RcIncAny(v) => InstKind::RcIncAny(r(v)),
+        InstKind::BoxAny(t, v) => InstKind::BoxAny(*t, r(v)),
         InstKind::RcDecAny(v) => InstKind::RcDecAny(r(v)),
         InstKind::Store(val, ptr, off) => InstKind::Store(r(val), r(ptr), *off),
         InstKind::LoadDyn(ty, ptr, off) => InstKind::LoadDyn(ty.clone(), r(ptr), r(off)),

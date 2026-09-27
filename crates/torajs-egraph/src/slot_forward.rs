@@ -177,7 +177,8 @@ pub(crate) fn rewrite_operands(kind: &mut InstKind, replace: &HashMap<ValueId, O
         InstKind::Load(_, p, _)
         | InstKind::RcInc(p)
         | InstKind::RcIncAny(p)
-        | InstKind::RcDecAny(p) => r(p),
+        | InstKind::RcDecAny(p)
+        | InstKind::BoxAny(_, p) => r(p),
         InstKind::Store(v, p, _) => {
             r(v);
             r(p);

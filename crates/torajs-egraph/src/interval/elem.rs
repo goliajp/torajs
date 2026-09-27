@@ -464,7 +464,8 @@ fn operands(kind: &InstKind) -> Vec<Operand> {
         InstKind::Load(_, a, _)
         | InstKind::RcInc(a)
         | InstKind::RcIncAny(a)
-        | InstKind::RcDecAny(a) => vec![a.clone()],
+        | InstKind::RcDecAny(a)
+        | InstKind::BoxAny(_, a) => vec![a.clone()],
         InstKind::Store(a, b, _) => vec![a.clone(), b.clone()],
         InstKind::StoreDyn(a, b, c)
         | InstKind::StoreDynScaled8(a, b, c)

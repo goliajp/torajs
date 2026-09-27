@@ -211,6 +211,13 @@ pub fn and_imm_one(rd: Gpr, rn: Gpr) -> u32 {
     0x9240_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// CMP Xn, Wm, SXTW — SUBS XZR, Xn, Wm, SXTW (extended register):
+/// equal exactly when `Xn` is the sign extension of its low 32 bits,
+/// i.e. fits in an i32. ARM ARM C6.2.61.
+pub fn cmp_x_w_sxtw(rn: Gpr, rm: Gpr) -> u32 {
+    0xEB20_0000 | (rm.idx() << 16) | (0b110 << 13) | (rn.idx() << 5) | 31
+}
+
 /// The (N, immr, imms) fields of `v` as an AArch64 logical immediate:
 /// a 2/4/8/16/32/64-bit element, repeated to fill 64 bits, whose
 /// bits are one contiguous run of ones rotated right by `immr`.
@@ -442,6 +449,12 @@ mod tests {
         // CMP Wn, Wm = SUBS WZR, Wn, Wm. sf=0 form differs only in the
         // top sf bit cleared (0x6B vs 0xEB). Same Rn/Rm bit layout.
         assert_eq!(cmp_w_reg(Gpr::X9, Gpr::X10), 0x6B0A_013F);
+    }
+
+    #[test]
+    fn cmp_x_w_sxtw_matches_the_runtime() {
+        // otool of ___torajs_anyv_box_i64: cmp x1, w1, sxtw
+        assert_eq!(cmp_x_w_sxtw(Gpr::X1, Gpr::X1), 0xEB21_C03F);
     }
 
     #[test]

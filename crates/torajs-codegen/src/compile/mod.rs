@@ -31,6 +31,7 @@
 //! and FPred::One (CCMP fold or NE+VC+AND).
 
 mod binop;
+mod box_any;
 mod brfuse;
 mod call;
 mod call_args;

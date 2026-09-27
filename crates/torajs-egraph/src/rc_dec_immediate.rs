@@ -1,7 +1,8 @@
 //! Immediate-box release elision (r503).
 //!
 //! `__torajs_anyv_rc_dec(v)` / `rc_dec_any v` where `v = __torajs_anyv_box_from_pair
-//! (<const tag>, _)` and the tag is not the heap tag is a no-op by the
+//! (<const tag>, _)` or `v = box_any <tag> _`, and the tag is not the
+//! heap tag, is a no-op by the
 //! kernel's own definition (`nanbox_ffi::__torajs_anyv_rc_dec` only
 //! ever reaches `value_drop_heap` through `is_cell`), and once its
 //! last use is that release, the box itself packs bits nobody reads.
@@ -47,9 +48,7 @@ pub fn elide_immediate_rc_decs(module: &mut Module) -> RcDecImmediateStats {
             .map(|i| i as u32)
     };
     let dec = fid(RC_DEC);
-    let Some(bx) = fid(BOX_FROM_PAIR) else {
-        return stats;
-    };
+    let bx = fid(BOX_FROM_PAIR);
     for func in module.funcs.iter_mut() {
         if func.is_declaration() {
             continue;
@@ -60,11 +59,12 @@ pub fn elide_immediate_rc_decs(module: &mut Module) -> RcDecImmediateStats {
             .flat_map(|b| b.insts.iter())
             .filter_map(|i| match (&i.kind, i.result) {
                 (InstKind::Call(f, args), Some(r))
-                    if f.0 == bx
+                    if Some(f.0) == bx
                         && matches!(args.first(), Some(Operand::ConstI64(t)) if *t != ANY_SLOT_TAG_HEAP) =>
                 {
                     Some(r)
                 }
+                (InstKind::BoxAny(t, _), Some(r)) if *t != ANY_SLOT_TAG_HEAP => Some(r),
                 _ => None,
             })
             .collect();
