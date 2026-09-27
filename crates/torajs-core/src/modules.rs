@@ -68,7 +68,6 @@
 //!     by reference.
 
 use crate::ast::Ast;
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 
 /// One named entry in an `import` clause: `(orig_name, alias)`. `alias`
@@ -76,35 +75,6 @@ use std::path::{Path, PathBuf};
 pub(super) type NamedImport = (String, Option<String>);
 
 use work_item::WorkItem;
-
-/// Seed every root request onto the worklist: the entry's static
-/// clauses (`static_resolution.rs`), then §13.3.10 dynamic-import
-/// candidates — queued before `graph.roots` records so their
-/// injections ride the dependency-order splice.
-fn seed_requests(
-    ast: &mut Ast,
-    base_dir: &Path,
-    entry: Option<&Path>,
-    work: &mut VecDeque<WorkItem>,
-    graph: &mut ModuleGraph,
-) -> Result<(static_resolution::EntrySeed, dyn_import::DynTable), String> {
-    let mut entry_seed = static_resolution::seed_entry_requests(ast, base_dir, work)?;
-    entry_seed.entry_path = entry.and_then(|p| p.canonicalize().ok());
-    entry_seed.static_roots = graph.edges_since(work, 0);
-    let static_len = work.len();
-    let dyn_table = dyn_import::seed_candidates(ast, base_dir, work);
-    entry_seed.dyn_roots = work
-        .iter()
-        .skip(static_len)
-        .filter_map(|w| {
-            w.namespace_alias
-                .as_ref()
-                .map(|n| (w.path.clone(), n.clone()))
-        })
-        .collect();
-    graph.roots = graph.edges_since(work, 0);
-    Ok((entry_seed, dyn_table))
-}
 
 /// Resolve every `import` in `ast` by reading + parsing the target file
 /// and injecting its requested named exports as top-level declarations
@@ -318,10 +288,9 @@ pub(crate) mod splice;
 mod static_resolution;
 mod types_lane;
 mod work_item;
-use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
-use load_lib::{load_lib_section, pop_phased};
+use load_lib::{load_lib_section, pop_phased, seed_requests};
 use resolve_helpers::{NsAccum, queue_reexport, queue_star_reexport};
 
 fn check_k2_form(

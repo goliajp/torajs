@@ -1,5 +1,5 @@
-//! Two steps of the BFS loop that answer "what next" and "what is in
-//! it": [`pop_next`] picks the request to walk, [`load_lib_section`]
+//! The BFS loop's worklist steps: [`seed_requests`] fills it with the
+//! roots, [`pop_next`] picks the request to walk, [`load_lib_section`]
 //! reads and parses the module it names into the shared arena. Split
 //! from `modules.rs` (file budget) when the walk-order rule and the
 //! per-module early-error check landed (rotation 630).
@@ -10,7 +10,43 @@ use crate::parser;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 
+use super::graph::ModuleGraph;
 use super::{WorkItem, deconflict};
+
+/// Seed every root request onto the worklist: the entry's static
+/// clauses (`static_resolution.rs`), then §13.3.10 dynamic-import
+/// candidates — queued before `graph.roots` records so their
+/// injections ride the dependency-order splice.
+pub(super) fn seed_requests(
+    ast: &mut Ast,
+    base_dir: &Path,
+    entry: Option<&Path>,
+    work: &mut VecDeque<WorkItem>,
+    graph: &mut ModuleGraph,
+) -> Result<
+    (
+        super::static_resolution::EntrySeed,
+        super::dyn_import::DynTable,
+    ),
+    String,
+> {
+    let mut entry_seed = super::static_resolution::seed_entry_requests(ast, base_dir, work)?;
+    entry_seed.entry_path = entry.and_then(|p| p.canonicalize().ok());
+    entry_seed.static_roots = graph.edges_since(work, 0);
+    let static_len = work.len();
+    let dyn_table = super::dyn_import::seed_candidates(ast, base_dir, work);
+    entry_seed.dyn_roots = work
+        .iter()
+        .skip(static_len)
+        .filter_map(|w| {
+            w.namespace_alias
+                .as_ref()
+                .map(|n| (w.path.clone(), n.clone()))
+        })
+        .collect();
+    graph.roots = graph.edges_since(work, 0);
+    Ok((entry_seed, dyn_table))
+}
 
 /// The next request to walk: any named / default / namespace request
 /// before any side-effect-only load, FIFO within each. A side-effect
