@@ -47,6 +47,7 @@ pub mod mem2reg;
 pub mod optimize;
 pub mod optimize_licm;
 pub mod phi_promote;
+pub mod phi_thread;
 pub mod print_narrow;
 pub mod rc_dec_immediate;
 pub mod rc_peephole;
@@ -150,6 +151,13 @@ fn analyze_intervals(module: &Module) -> Option<Vec<HashMap<ValueId, interval::N
     })
 }
 
+/// The per-function egraph pass over every function.
+fn egraph_functions(module: &mut Module) {
+    for func in module.funcs.iter_mut() {
+        *func = EgraphPass::new(func).run();
+    }
+}
+
 /// The two passes that take array header words out of loops: the
 /// length of a loop that stores it into a register, then header-field
 /// loads of arrays the loop never writes. Before throw_check_fold (its
@@ -238,10 +246,7 @@ pub fn transform_module(mut module: Module) -> Module {
         return module;
     }
     inline_and_forward(&mut module);
-    for func in module.funcs.iter_mut() {
-        let new_func = EgraphPass::new(func).run();
-        *func = new_func;
-    }
+    egraph_functions(&mut module);
     dump_after("EGRAPH", &module);
     // Full mem2reg φ promotion — loop-carried / join-slot cells the
     // earlier passes left behind. AFTER the egraph pass (GVN /
@@ -257,6 +262,10 @@ pub fn transform_module(mut module: Module) -> Module {
     // φ-web multi-def values ride a restricted EBB-chain scope (see
     // late_gvn.rs module doc). `TORAJS_LATE_GVN_OFF=1` skips.
     gated_pass("LATE_GVN", &mut module, late_gvn::dedup_pure_ops);
+    // A goto's `state = copy K; br head` jumps past the compare chain
+    // its constant decides (`phi_thread`); needs the φ-destructed
+    // copies, so after MEM2REG_PHI. `TORAJS_PHI_THREAD_OFF=1` skips.
+    gated_pass("PHI_THREAD", &mut module, phi_thread::thread_phi_constants);
     // frem truncation recovery (W3 C2, ann-width RFC §5.3) — narrows
     // the -0-insensitive float `%` shapes C1 minted (single-use frem
     // into an integral fcmp or an fptosi sink) back to srem, so the
