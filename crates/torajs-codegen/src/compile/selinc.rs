@@ -1,6 +1,7 @@
-//! Conditional-increment fuse — `select c, (x+1), x` collapses into a
+//! Conditional-increment fuse — `select c, (x+1), y` collapses into a
 //! single CSINC, and the compare feeding `c` rides NZCV straight into
-//! it.
+//! it. `y` is usually `x` (a counter bumped under a predicate) but any
+//! value works: the collatz step `select odd, 3n+1, n>>1` is one too.
 //!
 //! Counting loops (`if (pred) { n = n + 1 }`) reach the backend as the
 //! three-instruction tail the select-formation pass leaves behind:
@@ -25,16 +26,18 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{BinOp, Function, InstKind, Operand, Type, ValueId};
+use torajs_core::ssa::{BinOp, Function, IPred, InstKind, Operand, Type, ValueId};
 
 use super::brfuse::{FusedCmp, count_uses};
 use super::cmp::ipred_to_cond;
-use crate::enc::cond;
+use crate::enc::{cond, logical_imm};
 
-/// One recognized `select c, (x+1), x`.
+/// One recognized `select c, (x+1), y`.
 pub(crate) struct SelectIncPlan {
-    /// The value feeding both CSINC sources (`Xn` and `Xm`).
-    pub base: Operand,
+    /// The value taken when `cc` holds (CSINC's `Xn`, the `y` arm).
+    pub hold: Operand,
+    /// The value incremented otherwise (CSINC's `Xm`, the ADD's `x`).
+    pub inc: Operand,
     /// The select's condition — read only when `cmp` is `None`, where
     /// the emitter falls back to `cmp cond, #0`.
     pub cond: Operand,
@@ -106,11 +109,12 @@ pub(crate) fn fusible_select_incs(func: &Function) -> SelectIncs {
             }
             // Which arm is the increment decides the polarity: CSINC
             // increments on the *false* side.
-            let inc_on_then = *then_op == Operand::Value(add_result) && else_op == base;
-            let inc_on_else = *else_op == Operand::Value(add_result) && then_op == base;
-            if !inc_on_then && !inc_on_else {
+            let inc_on_then = *then_op == Operand::Value(add_result);
+            let inc_on_else = *else_op == Operand::Value(add_result);
+            if inc_on_then == inc_on_else {
                 continue;
             }
+            let hold = if inc_on_then { else_op } else { then_op };
 
             // Second absorption: an adjacent single-use ICmp defining
             // the condition folds its NZCV straight into the CSINC.
@@ -126,13 +130,17 @@ pub(crate) fn fusible_select_incs(func: &Function) -> SelectIncs {
             };
 
             absorbed.insert((block.id.0, ii as u32 - 1));
-            if cmp.is_some() {
+            if let Some(fc) = &cmp {
                 absorbed.insert((block.id.0, ii as u32 - 2));
+                if fc.test {
+                    absorbed.insert((block.id.0, ii as u32 - 3));
+                }
             }
             plans.insert(
                 (block.id.0, ii as u32),
                 SelectIncPlan {
-                    base: *base,
+                    hold: *hold,
+                    inc: *base,
                     cond: Operand::Value(*c),
                     cmp,
                     cc,
@@ -164,14 +172,45 @@ fn fused_predicate(
     if candidate.result != Some(*cond_vid) || uses.get(cond_vid) != Some(&1) {
         return None;
     }
+    let (lhs, rhs, test) = match mask_test(block, select_idx - 2, *pred, lhs, rhs, uses) {
+        Some((x, mask)) => (x, mask, true),
+        None => (*lhs, *rhs, false),
+    };
     Some((
         FusedCmp {
             pred: super::brfuse::FusedSelPred::Int(*pred),
-            lhs: *lhs,
-            rhs: *rhs,
+            lhs,
+            rhs,
+            test,
         },
         ipred_to_cond(*pred),
     ))
+}
+
+/// `a = and x, K` right before `icmp eq|ne a, 0`, with `a` read only
+/// there and `K` a logical immediate: the pair is one `tst x, #K`.
+/// Nothing emits between the AND and the fused CSINC (the compare
+/// and the ADD are absorbed too), so `x` is still in its register.
+fn mask_test(
+    block: &torajs_core::ssa::Block,
+    cmp_idx: usize,
+    pred: IPred,
+    lhs: &Operand,
+    rhs: &Operand,
+    uses: &HashMap<ValueId, u32>,
+) -> Option<(Operand, Operand)> {
+    let (IPred::Eq | IPred::Ne, Operand::Value(a), Operand::ConstI64(0)) = (pred, lhs, rhs) else {
+        return None;
+    };
+    let and = block.insts.get(cmp_idx.checked_sub(1)?)?;
+    let InstKind::BinOp(BinOp::And, x @ Operand::Value(_), Operand::ConstI64(k)) = &and.kind else {
+        return None;
+    };
+    if and.result != Some(*a) || uses.get(a) != Some(&1) {
+        return None;
+    }
+    logical_imm(*k as u64)?;
+    Some((*x, Operand::ConstI64(*k)))
 }
 
 /// AArch64 condition codes pair as `cc ^ 1` (EQ/NE, GE/LT, GT/LE, ...).
@@ -244,7 +283,8 @@ mod tests {
         let f = count_func(false, false);
         let incs = fusible_select_incs(&f);
         let plan = incs.plan(0, 2).expect("select plan recognized");
-        assert_eq!(plan.base, Operand::ConstI64(5));
+        assert_eq!(plan.hold, Operand::ConstI64(5));
+        assert_eq!(plan.inc, Operand::ConstI64(5));
         assert!(plan.cmp.is_some(), "adjacent single-use icmp must fuse");
         // increment sits on the then arm, so the CSINC carries the
         // inverted predicate: eq -> ne.
@@ -290,6 +330,56 @@ mod tests {
         let incs = fusible_select_incs(&f);
         let plan = incs.plan(0, 2).expect("mirrored arms still recognized");
         assert_eq!(plan.cc, cond::EQ, "eq predicate passes through");
+    }
+
+    #[test]
+    fn distinct_arms_fuse_with_the_other_arm_held() {
+        let mut f = count_func(false, false);
+        // select %0, %1, 9 — the increment of 5 against an unrelated 9
+        f.blocks[0].insts[2] = mk(
+            2,
+            InstKind::Select(
+                Type::I64,
+                Operand::Value(ValueId(0)),
+                Operand::Value(ValueId(1)),
+                Operand::ConstI64(9),
+            ),
+        );
+        let incs = fusible_select_incs(&f);
+        let plan = incs.plan(0, 2).expect("distinct arms recognized");
+        assert_eq!(plan.hold, Operand::ConstI64(9));
+        assert_eq!(plan.inc, Operand::ConstI64(5));
+        assert_eq!(plan.cc, cond::NE);
+    }
+
+    #[test]
+    fn mask_and_ahead_of_the_compare_fuses_into_tst() {
+        // %5 = and %9, 1 ; %0 = icmp eq %5, 0 ; %1 = add 5, 1 ;
+        // %2 = select %0, %1, 5
+        let mut f = count_func(false, false);
+        f.values.push(ValueInfo {
+            ty: Type::I64,
+            name: None,
+        });
+        let and = mk(
+            5,
+            InstKind::BinOp(BinOp::And, Operand::Value(ValueId(9)), Operand::ConstI64(1)),
+        );
+        f.blocks[0].insts[0] = mk(
+            0,
+            InstKind::ICmp(IPred::Eq, Operand::Value(ValueId(5)), Operand::ConstI64(0)),
+        );
+        f.blocks[0].insts.insert(0, and);
+        let incs = fusible_select_incs(&f);
+        let plan = incs.plan(0, 3).expect("select plan recognized");
+        let fc = plan.cmp.as_ref().expect("compare fuses");
+        assert!(fc.test);
+        assert_eq!(fc.lhs, Operand::Value(ValueId(9)));
+        assert_eq!(fc.rhs, Operand::ConstI64(1));
+        assert!(
+            (0..3).all(|i| incs.absorbed(0, i)),
+            "and, icmp, add absorbed"
+        );
     }
 
     #[test]

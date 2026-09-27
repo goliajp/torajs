@@ -8,7 +8,8 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcmp_d, fcsel_d, orr_reg,
+    cmp_imm, cmp_reg, cmp_w_reg, cond, csel_cond, cset_cond, csinc_cond, fcmp_d, fcsel_d,
+    logical_imm, orr_reg, tst_imm,
 };
 use crate::regalloc::Assignment;
 
@@ -25,6 +26,21 @@ pub fn emit_icmp(
     emit_compare_nzcv(bytes, lhs, rhs, alloc);
     write_u32(bytes, cset_cond(dst, ipred_to_cond(pred)));
     write_def_spill_gpr(bytes, spill_off, dst);
+}
+
+/// Set NZCV for a fused integer compare: `tst x, #mask` when it
+/// absorbed a mask AND, the plain compare otherwise.
+pub(crate) fn emit_int_nzcv(bytes: &mut Vec<u8>, fc: &super::brfuse::FusedCmp, alloc: &Assignment) {
+    if fc.test {
+        let rn = materialize_operand_gpr(bytes, &fc.lhs, OP_SCRATCH_LHS, alloc);
+        let Operand::ConstI64(mask) = fc.rhs else {
+            unreachable!("a test fuse carries its mask as a constant");
+        };
+        let (n, immr, imms) = logical_imm(mask as u64).expect("test fuse admits encodable masks");
+        write_u32(bytes, tst_imm(rn, n, immr, imms));
+    } else {
+        emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+    }
 }
 
 /// The CMP half of an integer compare — set NZCV, no CSET. Shared by
@@ -167,10 +183,11 @@ pub(crate) fn emit_select_fused(
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 
-/// `select c, (x+1), x` fused into one CSINC (see compile/selinc.rs).
-/// CSINC increments its *false* arm, so both sources are `x` and the
-/// plan's cond code already carries the right polarity. The base
-/// materializes before the compare — reloads never touch NZCV.
+/// `select c, (x+1), y` fused into one CSINC (see compile/selinc.rs).
+/// CSINC increments its *false* arm, so `Xn` is `y`, `Xm` is `x`, and
+/// the plan's cond code already carries the right polarity. Both
+/// sources materialize before the compare — reloads never touch NZCV
+/// — into the scratches the compare re-emit leaves alone.
 pub(crate) fn emit_select_inc(
     bytes: &mut Vec<u8>,
     inst: &Inst,
@@ -179,15 +196,16 @@ pub(crate) fn emit_select_inc(
 ) {
     let result_vid = inst.result.expect("Select must have a result");
     let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-    let base = materialize_operand_gpr(bytes, &plan.base, OP_SCRATCH_TMP, alloc);
+    let hold = materialize_operand_gpr(bytes, &plan.hold, OP_SCRATCH_TMP, alloc);
+    let inc = materialize_operand_gpr(bytes, &plan.inc, OP_SCRATCH_RESULT_GPR, alloc);
     match &plan.cmp {
-        Some(fc) => emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc),
+        Some(fc) => emit_int_nzcv(bytes, fc, alloc),
         None => {
             let rc = materialize_operand_gpr(bytes, &plan.cond, OP_SCRATCH_LHS, alloc);
             write_u32(bytes, cmp_imm(rc, 0));
         }
     }
-    write_u32(bytes, csinc_cond(dst, base, base, plan.cc));
+    write_u32(bytes, csinc_cond(dst, hold, inc, plan.cc));
     write_def_spill_gpr(bytes, spill_off, dst);
 }
 

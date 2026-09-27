@@ -24,7 +24,7 @@ use torajs_core::ssa::{
 
 use crate::reg::Reg;
 
-use super::cmp::{emit_compare_nzcv, fpred_to_cond, ipred_to_cond};
+use super::cmp::{emit_int_nzcv, fpred_to_cond, ipred_to_cond};
 use super::operand::{materialize_operand_fpr, materialize_operand_gpr};
 use super::{
     BranchFixup, BranchKind, FP_SCRATCH_LHS, FP_SCRATCH_RHS, OP_SCRATCH_LHS, OP_SCRATCH_RHS,
@@ -41,6 +41,9 @@ pub(crate) struct FusedCmp {
     pub pred: FusedSelPred,
     pub lhs: Operand,
     pub rhs: Operand,
+    /// `tst lhs, #rhs` stands in for `cmp (lhs & rhs), 0` — a mask
+    /// AND absorbed along with the compare. Integer eq / ne only.
+    pub test: bool,
 }
 
 /// Use counts over every inst operand + terminator operand — shared by
@@ -100,6 +103,7 @@ pub(crate) fn fusible_cmps(func: &Function) -> HashMap<u32, FusedCmp> {
                 pred,
                 lhs: *lhs,
                 rhs: *rhs,
+                test: false,
             },
         );
     }
@@ -238,6 +242,7 @@ pub(crate) fn emit_fused_condbr(
         FusedSelPred::Float(_) => None,
     };
     let zero_test = match (int_pred, &fc.lhs, &fc.rhs) {
+        _ if fc.test => None,
         (Some(IPred::Eq | IPred::Ne), Operand::Value(_), Operand::ConstI64(0)) => Some(fc.lhs),
         (Some(IPred::Eq | IPred::Ne), Operand::ConstI64(0), Operand::Value(_)) => Some(fc.rhs),
         _ => None,
@@ -262,7 +267,7 @@ pub(crate) fn emit_fused_condbr(
     } else {
         let cond = match (int_pred, fc.pred) {
             (Some(p), _) => {
-                emit_compare_nzcv(bytes, &fc.lhs, &fc.rhs, alloc);
+                emit_int_nzcv(bytes, fc, alloc);
                 ipred_to_cond(p)
             }
             (None, FusedSelPred::Float(p)) => {
