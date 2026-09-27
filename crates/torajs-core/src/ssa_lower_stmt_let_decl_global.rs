@@ -17,6 +17,8 @@ use crate::ssa_lower::{LocalInfo, LowerCtx};
 
 use crate::ssa_lower_stmt_let_decl::{maybe_any_to_typed_scalar, maybe_arr_any_to_typed};
 
+mod settle;
+
 /// K.3 / K.4 — top-level data global: main fn + name in `globals` emits
 /// GlobalRef + Store (K.6 empty-array fast path; refcount slots require
 /// fresh-heap init). Returns false when `name` is not a module global.
@@ -109,53 +111,12 @@ pub(crate) fn try_lower_global_let(
         } else {
             (init_val, converted)
         };
-    let converted = converted || settle_any_read_init(ctx, init, slot_ty, &init_val);
-    if slot_ty.is_refcounted() && !converted {
-        let init_is_borrow = matches!(
-            ctx.ast.get_expr(init),
-            Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. }
-        );
-        if init_is_borrow {
-            // RFC 20260707 chunk 627 — Ident-shaped init (alias of
-            // another binding, a guaranteed +0 borrow): the global
-            // slot takes its own stake; the source binding keeps its
-            // own. Only same-type, Arr↔Arr (T-11 container widen)
-            // and Any→Arr (chunk 708 — the JS reference-alias shape
-            // `const t: number[] = src` with `src: any`; a heap box
-            // is the raw cell ptr bits, elem reads are kind-aware,
-            // same lane the fn-scope path rides) aliases are
-            // admitted — other Any↔concrete mismatches need a
-            // box/unbox station and stay loud rather than storing
-            // wrong-repr bits. Member/Index inits stay loud too:
-            // their ownership shape is lane-dependent (arr_index_get
-            // answers +1), so a blanket inc would double-count.
-            let got = ctx.operand_ty(&init_val);
-            let ident_alias = matches!(ctx.ast.get_expr(init), Expr::Ident(_));
-            // A VARIADIC binding's two Closure spellings are the
-            // same env cell: the slot carries only the fixed prefix
-            // (a rest gets no static param slot — `parse_cls` drops
-            // the `__rest(` segment), while the source binding holds
-            // the lifted fn's own sig, which spells that rest tail as
-            // its one array parameter. Neither is read by a call
-            // through this binding — the route is the boxed dual
-            // entry, which is exactly what `variadic_value_bindings`
-            // names — so the sig ids are free to differ and the bits
-            // stored are identical either way.
-            let compatible = got == slot_ty
-                || matches!(
-                    (&slot_ty, &got),
-                    (Type::Arr(_), Type::Arr(_)) | (Type::Arr(_), Type::Any)
-                )
-                || (matches!((&slot_ty, &got), (Type::Closure(_), Type::Closure(_)))
-                    && ctx.ast.variadic_value_bindings.contains(name));
-            if !ident_alias || !compatible {
-                panic!(
-                    "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
-                );
-            }
-            ctx.emit_owned_result_inc(init_val, got);
-        }
-    }
+    let converted = converted || settle::settle_any_read_init(ctx, init, slot_ty, &init_val);
+    let init_val = if converted {
+        init_val
+    } else {
+        settle::settle_typed_init(ctx, name, init, slot_ty, init_val)
+    };
     let coerced = if slot_ty == Type::F64 && ctx.operand_ty(&init_val) == Type::I64 {
         ctx.coerce_to_f64(init_val)
     } else {
@@ -202,43 +163,6 @@ pub(crate) enum BindSite {
     /// store, so `defineProperty(this, "q", {value: 0, writable:
     /// true, …}); q = 3` read back 0 (rotation 639).
     WriteAssigned,
-}
-
-/// An `any` slot whose init is already an `any` READ — a member /
-/// index load, or the default join over one (`let a = __ary_src_0[0]`,
-/// the destructuring bind `ast_refs_any_promote` admits). The fn-scope
-/// lane binds such a read as a borrow (`init_is_alias`) or takes a share
-/// of a join (`init_shares_source_stake`); a global has no borrowed
-/// mode, it outlives every source, so it takes its own stake in both
-/// cases. A read the lowering detached (`owned_member_reads`) arrives
-/// owned and transfers. `true` = ownership is settled here, which also
-/// keeps these shapes off the typed-slot gate below: that one stays
-/// loud for a TYPED refcounted slot, whose read lanes disagree about
-/// who owns the result.
-fn settle_any_read_init(
-    ctx: &mut LowerCtx,
-    init: ExprId,
-    slot_ty: Type,
-    init_val: &Operand,
-) -> bool {
-    if slot_ty != Type::Any || ctx.operand_ty(init_val) != Type::Any {
-        return false;
-    }
-    let read = matches!(
-        ctx.ast.get_expr(init),
-        Expr::Member { .. } | Expr::Index { .. }
-    );
-    let join = matches!(
-        ctx.ast.get_expr(init),
-        Expr::Ternary { .. } | Expr::Nullish { .. }
-    );
-    if !(read || join) {
-        return false;
-    }
-    if !ctx.owned_member_reads.contains(&init) {
-        ctx.emit_owned_result_inc(init_val.clone(), Type::Any);
-    }
-    read
 }
 
 /// The init value of a top-level data global, by shape: the K.6

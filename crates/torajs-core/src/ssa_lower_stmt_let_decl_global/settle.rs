@@ -1,0 +1,101 @@
+//! Ownership at a top-level global's init store. A global outlives
+//! every binding it could borrow from, so it never borrows: whatever
+//! the init's shape, the slot leaves the store holding one stake of
+//! its own, which the exit drop releases. [`settle_any_read_init`]
+//! answers an `any` slot fed an `any` read, [`settle_typed_init`] a
+//! typed refcounted slot.
+
+use crate::ast::{Expr, ExprId};
+use crate::ssa::{Operand, Type};
+use crate::ssa_lower::LowerCtx;
+
+/// An `any` slot whose init is already an `any` READ — a member /
+/// index load, or the default join over one (`let a = __ary_src_0[0]`,
+/// the destructuring bind `ast_refs_any_promote` admits). The fn-scope
+/// lane binds such a read as a borrow (`init_is_alias`) or takes a share
+/// of a join (`init_shares_source_stake`); a global has no borrowed
+/// mode, it outlives every source, so it takes its own stake in both
+/// cases. A read the lowering detached (`owned_member_reads`) arrives
+/// owned and transfers. `true` = ownership is settled here, which also
+/// keeps these shapes off [`settle_typed_init`].
+pub(super) fn settle_any_read_init(
+    ctx: &mut LowerCtx,
+    init: ExprId,
+    slot_ty: Type,
+    init_val: &Operand,
+) -> bool {
+    if slot_ty != Type::Any || ctx.operand_ty(init_val) != Type::Any {
+        return false;
+    }
+    let read = matches!(
+        ctx.ast.get_expr(init),
+        Expr::Member { .. } | Expr::Index { .. }
+    );
+    let join = matches!(
+        ctx.ast.get_expr(init),
+        Expr::Ternary { .. } | Expr::Nullish { .. }
+    );
+    if !(read || join) {
+        return false;
+    }
+    if !ctx.owned_member_reads.contains(&init) {
+        ctx.emit_owned_result_inc(init_val.clone(), Type::Any);
+    }
+    read
+}
+
+/// A typed refcounted slot fed a borrow shape. An alias of another
+/// binding takes the slot's own stake; member / element inits stay
+/// loud: their ownership shape is lane-dependent (`arr_index_get`
+/// answers +1), so a blanket inc would double-count.
+pub(super) fn settle_typed_init(
+    ctx: &mut LowerCtx,
+    name: &str,
+    init: ExprId,
+    slot_ty: Type,
+    init_val: Operand,
+) -> Operand {
+    if !slot_ty.is_refcounted() {
+        return init_val;
+    }
+    let got = ctx.operand_ty(&init_val);
+    match ctx.ast.get_expr(init) {
+        Expr::Ident(_) if ident_alias_fits(ctx, name, slot_ty, got) => {
+            ctx.emit_owned_result_inc(init_val.clone(), got);
+        }
+        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. } => {
+            panic!(
+                "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
+            );
+        }
+        _ => {}
+    }
+    init_val
+}
+
+/// RFC 20260707 chunk 627 — an Ident-shaped init (alias of another
+/// binding, a guaranteed +0 borrow). Only same-type, Arr↔Arr (T-11
+/// container widen) and Any→Arr (chunk 708 — the JS reference-alias
+/// shape `const t: number[] = src` with `src: any`; a heap box is the
+/// raw cell ptr bits, elem reads are kind-aware, same lane the fn-scope
+/// path rides) aliases are admitted — other Any↔concrete mismatches
+/// need a box/unbox station and stay loud rather than storing
+/// wrong-repr bits.
+///
+/// A VARIADIC binding's two Closure spellings are the same env cell:
+/// the slot carries only the fixed prefix (a rest gets no static param
+/// slot — `parse_cls` drops the `__rest(` segment), while the source
+/// binding holds the lifted fn's own sig, which spells that rest tail
+/// as its one array parameter. Neither is read by a call through this
+/// binding — the route is the boxed dual entry, which is exactly what
+/// `variadic_value_bindings` names — so the sig ids are free to differ
+/// and the bits stored are identical either way.
+fn ident_alias_fits(ctx: &LowerCtx, name: &str, slot_ty: Type, got: Type) -> bool {
+    got == slot_ty
+        || matches!(
+            (&slot_ty, &got),
+            (Type::Arr(_), Type::Arr(_)) | (Type::Arr(_), Type::Any)
+        )
+        || (matches!((&slot_ty, &got), (Type::Closure(_), Type::Closure(_)))
+            && ctx.ast.variadic_value_bindings.contains(name))
+}
