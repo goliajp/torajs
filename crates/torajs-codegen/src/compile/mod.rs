@@ -171,12 +171,22 @@ pub fn compile_function_with(
     // can compute PC-relative displacements after all blocks emit.
     let mut block_byte_starts: HashMap<u32, u32> = HashMap::with_capacity(func.blocks.len());
 
-    frame.emit_prologue(&mut bytes);
-    // Relocate call-crossing params out of their (caller-saved) arg
-    // registers into the callee-saved registers the allocator picked,
-    // now that the prologue has saved those registers' prior contents.
-    emit_param_entry_moves(&mut bytes, &alloc);
-    emit_stack_param_loads(&mut bytes, &alloc, &frame);
+    // With a save point the prologue opens that block instead, and the
+    // blocks ahead of it run frameless (see shrink_wrap.rs).
+    let shrink = if frame.is_trivial() {
+        None
+    } else {
+        crate::shrink_wrap::plan(func, &alloc)
+    };
+    let frameless = FrameLayout::leaf_no_spill();
+    if shrink.is_none() {
+        frame.emit_prologue(&mut bytes);
+        // Relocate call-crossing params out of their (caller-saved) arg
+        // registers into the callee-saved registers the allocator picked,
+        // now that the prologue has saved those registers' prior contents.
+        emit_param_entry_moves(&mut bytes, &alloc);
+        emit_stack_param_loads(&mut bytes, &alloc, &frame);
+    }
 
     // Block-tail single-use ICmp + CondBr pairs fuse into cmp+b.cond
     // (or cbz/cbnz) — the inst loop skips the compare, the terminator
@@ -207,6 +217,15 @@ pub fn compile_function_with(
             }
         }
         block_byte_starts.insert(block.id.0, bytes.len() as u32);
+        let (alloc, frame) = match &shrink {
+            Some(sw) if sw.save == block.id => {
+                frame.emit_prologue(&mut bytes);
+                emit_param_entry_moves(&mut bytes, &alloc);
+                (&alloc, &frame)
+            }
+            Some(sw) if sw.pre.contains(&block.id.0) => (&sw.pre_alloc, &frameless),
+            _ => (&alloc, &frame),
+        };
         let fused = fused_cmps.get(&block.id.0);
         for (ii, inst) in block.insts.iter().enumerate() {
             if fused.is_some() && ii == block.insts.len() - 1 {

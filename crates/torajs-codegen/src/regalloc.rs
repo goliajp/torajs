@@ -104,6 +104,17 @@ impl Assignment {
             .unwrap_or_else(|| panic!("ValueId({}) not allocated", vid.0))
     }
 
+    /// A copy with the given values (by id) re-homed — shrink-wrapping
+    /// reads a relocated param from its argument register before the
+    /// prologue has run the move.
+    pub(crate) fn with_homes(&self, homes: &[(u32, Reg)]) -> Assignment {
+        let mut out = self.clone();
+        for &(v, r) in homes {
+            out.by_value.insert(v, r);
+        }
+        out
+    }
+
     /// `true` if `vid` has a register assigned.
     pub fn contains(&self, vid: ValueId) -> bool {
         self.by_value.contains_key(&vid.0)

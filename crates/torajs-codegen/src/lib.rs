@@ -35,6 +35,7 @@ pub mod liveness_blocks;
 pub mod reg;
 pub mod regalloc;
 pub mod reloc;
+mod shrink_wrap;
 pub mod spill_weight;
 
 pub use compile::{
