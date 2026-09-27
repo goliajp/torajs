@@ -277,11 +277,7 @@ fn desugar_one_generator(
         crate::ast::sloppy_this_prologue::has_use_strict_directive(&gen_body, &ast.exprs);
     let (next_body, gen_hoisted, has_try_regions, has_finally_ret) =
         crate::ast::desugar_generators_assemble::build_state_machine_next_body(
-            ast,
-            gen_body,
-            &yield_ty,
-            false,
-            &class_name,
+            ast, gen_body, &yield_ty, false,
         );
     // RFC 20260802 — the SM's hoisted catch-param slots become class
     // fields alongside the lifted locals.

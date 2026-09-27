@@ -29,7 +29,6 @@ pub(super) fn build_state_machine_next_body(
     gen_body: Vec<Stmt>,
     yield_ty: &str,
     is_async_gen: bool,
-    machine_class: &str,
 ) -> (Vec<Stmt>, Vec<(String, String)>, bool, bool) {
     // Build the state machine. Each arm is the body of one state in
     // an if-chain wrapped by `while (true) { ... }`. Yields close an
@@ -164,14 +163,13 @@ pub(super) fn build_state_machine_next_body(
     // `desugar_generators_rewrite::GEN_SELF_ALIAS`). A local, not a
     // field: the closure lift captures it at the mint site like any
     // enclosing binding, which `this.<field>` cannot be from there.
-    // Only when the body spells it (rotation 653, see above). Typed as
-    // the machine, so its field writes are the machine's own slots.
+    // Only when the body spells it (rotation 653, see above).
     if needs_self_alias {
         let self_read = ast.add_expr(Expr::This);
         body.push(Stmt::LetDecl {
             mutable: false,
             name: super::desugar_generators_rewrite::GEN_SELF_ALIAS.into(),
-            type_ann: Some(machine_class.into()),
+            type_ann: Some("any".into()),
             init: self_read,
             is_var: false,
         });
