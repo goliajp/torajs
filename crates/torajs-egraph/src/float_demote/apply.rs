@@ -139,8 +139,13 @@ pub(crate) fn install_guards(
     // site through `slow_target` — so first-appearance keeps the ids
     // reading in source order. `plan.growth` is itself deterministic:
     // `collect_guard_sites` walks `func.blocks` in position order.
+    let cells = multi_def_values(func);
+    let widen = super::hoist::widen_targets(func, plan, fast_pos, &cells);
     let mut by_block: Vec<(BlockId, Vec<&GuardSite>)> = Vec::new();
     for s in &plan.growth {
+        if widen.contains_key(&(s.block, s.inst_idx)) {
+            continue;
+        }
         match by_block.iter_mut().find(|(b, _)| *b == s.block) {
             Some((_, sites)) => sites.push(s),
             None => by_block.push((s.block, vec![s])),
@@ -156,6 +161,10 @@ pub(crate) fn install_guards(
         }
     }
 
+    for (&key, p) in &widen {
+        slow_target.insert(key, clone.block_map[p]);
+    }
+
     let live_in = slow_liveness(func, clone);
     let inverse: HashMap<ValueId, ValueId> =
         clone.value_map.iter().map(|(k, v)| (*v, *k)).collect();
@@ -167,13 +176,23 @@ pub(crate) fn install_guards(
     // first check of every site inlines into the preceding segment
     // (cmp appended, terminator becomes the branch) — the common
     // single-check site then adds no extra hot-path jump.
+    // a widened site's checks open its branching block instead
+    let mut fast_groups: Vec<(BlockId, Vec<(usize, &GuardSite)>)> = Vec::new();
+    for s in &plan.growth {
+        let (b, at) = match widen.get(&(s.block, s.inst_idx)) {
+            Some(p) => (*p, 0),
+            None => (s.block, fast_pos[&(s.block, s.inst_idx)] + s.post as usize),
+        };
+        match fast_groups.iter_mut().find(|(g, _)| *g == b) {
+            Some((_, sites)) => sites.push((at, s)),
+            None => fast_groups.push((b, vec![(at, s)])),
+        }
+    }
     let mut guards = 0u32;
-    for (b, sites) in by_block {
-        let idxs: Vec<usize> = sites
-            .iter()
-            .map(|s| fast_pos[&(s.block, s.inst_idx)] + s.post as usize)
-            .collect();
+    for (b, placed) in fast_groups {
+        let idxs: Vec<usize> = placed.iter().map(|(at, _)| *at).collect();
         debug_assert!(idxs.is_sorted(), "mutation preserves inst order");
+        let sites: Vec<&GuardSite> = placed.iter().map(|(_, s)| *s).collect();
         let conts = split_block_at(func, b, &idxs);
         let mut prev = b;
         for (s, cont) in sites.iter().zip(conts) {

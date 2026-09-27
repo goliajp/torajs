@@ -52,6 +52,7 @@ mod cfg;
 // truth for the integral fcmp→icmp predicate mapping).
 pub(crate) mod fit;
 mod guard;
+mod hoist;
 mod merge;
 mod plan;
 
@@ -832,11 +833,45 @@ mod tests {
         assert_eq!(stats.entry_guards, 0);
 
         let f = &m.funcs[0];
-        // fast path rewrote the loop ops to integer forms
+        // the 3n window check widens from the odd arm (block 6) to the
+        // parity block ahead of it: block 4 now holds just the check,
+        // the parity test moves to its continuation, and the side exit
+        // re-enters the f64 clone at the parity test (its frem)
+        let [check] = &f.blocks[4].insts[..] else {
+            panic!("parity block should hold only the widened check");
+        };
         assert!(matches!(
-            f.blocks[4].insts[0].kind,
+            check.kind,
+            InstKind::ICmp(
+                IPred::Sgt,
+                Operand::Value(ValueId(2)),
+                Operand::ConstI64(3_002_399_751_580_330)
+            )
+        ));
+        let Terminator::CondBr {
+            then_blk: exit,
+            else_blk: cont,
+            ..
+        } = f.blocks[4].term
+        else {
+            panic!("widened check branches");
+        };
+        assert!(matches!(
+            f.blocks[cont.0 as usize].insts[0].kind,
             InstKind::BinOp(BinOp::SRem, _, Operand::ConstI64(2))
         ));
+        let Terminator::Br(slow_parity) = f.blocks[exit.0 as usize].term else {
+            panic!("side exit jumps into the slow clone");
+        };
+        assert!(matches!(
+            f.blocks[slow_parity.0 as usize].insts[0].kind,
+            InstKind::BinOp(BinOp::FRem, _, _)
+        ));
+        assert!(matches!(
+            f.blocks[6].insts[0].kind,
+            InstKind::BinOp(BinOp::Mul, _, _)
+        ));
+        // fast path rewrote the loop ops to integer forms
         assert!(matches!(
             f.blocks[5].insts[0].kind,
             InstKind::BinOp(BinOp::AShr, _, Operand::ConstI64(1))
