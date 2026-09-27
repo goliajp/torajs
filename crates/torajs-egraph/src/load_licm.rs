@@ -19,7 +19,9 @@
 //! `CallIndirect` taking a name of A or of its data pointer (push,
 //! reserve, shift, splice, a `length` write, a user function — all of
 //! them call with A). The refcount / flags word (+0 / +4) is out of
-//! scope: rc helpers and the cycle collector write it.
+//! scope as a word — rc helpers and the cycle collector write it — but
+//! a length-lock test that reads only flags the collector never flips
+//! (`lshr 48` then a mask) moves out whole.
 //!
 //! The moved load runs on paths that never enter the loop too. That
 //! is safe: A comes from `__torajs_arr_alloc*`, which never answers
@@ -33,7 +35,10 @@
 
 use std::collections::{HashMap, HashSet};
 
-use torajs_core::ssa::{BlockId, Function, InstKind, Module, Operand, Terminator, ValueId};
+use torajs_core::ssa::{
+    BinOp, BlockId, Function, HEADER_FLAGS_COLLECTOR, Inst, InstKind, Module, Operand, Terminator,
+    Type, ValueId, visit_value_operands,
+};
 
 use crate::interval::elem::{ArrayClasses, array_classes};
 use torajs_core::ssa::dominator::DominatorTree;
@@ -91,6 +96,7 @@ fn hoist_fn(
             }
         }
     }
+    let uses = use_counts(func);
     let n = func.blocks.len();
     for lp in &loops {
         let Some(pre) = dom.immediate_dominator(lp.header) else {
@@ -104,19 +110,27 @@ fn hoist_fn(
             continue;
         }
         let dirty = written_headers(func, &body, classes, names);
+        let clean = |def_block: &HashMap<ValueId, BlockId>, p: &ValueId, offs: &[u64]| {
+            classes.class.get(p).is_some_and(|a| {
+                classes.live.contains(a)
+                    && !dirty.contains(&(*a, None))
+                    && offs.iter().all(|o| !dirty.contains(&(*a, Some(*o))))
+            }) && def_block.get(p).is_some_and(|d| !body.contains(d))
+        };
         for &b in &lp.body {
+            let chains = flag_test_chains(&func.blocks[b.0 as usize].insts, &uses, |p| {
+                clean(&def_block, p, &[0, 4])
+            });
             let insts = std::mem::take(&mut func.blocks[b.0 as usize].insts);
             let (moved, kept): (Vec<_>, Vec<_>) = insts.into_iter().partition(|inst| {
+                if inst.result.is_some_and(|r| chains.contains(&r)) {
+                    return true;
+                }
                 let InstKind::Load(_, Operand::Value(p), off) = &inst.kind else {
                     return false;
                 };
                 matches!(*off, ARR_LEN_OFF | ARR_CAP_HEAD_OFF | ARR_DATA_PTR_OFF)
-                    && classes.class.get(p).is_some_and(|a| {
-                        classes.live.contains(a)
-                            && !dirty.contains(&(*a, None))
-                            && !dirty.contains(&(*a, Some(*off)))
-                    })
-                    && def_block.get(p).is_some_and(|d| !body.contains(d))
+                    && clean(&def_block, p, &[*off])
             });
             func.blocks[b.0 as usize].insts = kept;
             for inst in moved {
@@ -128,6 +142,78 @@ fn hoist_fn(
             }
         }
     }
+}
+
+/// The header-word flag tests in `insts` that may leave the loop:
+/// `t = load i64 A+0; s = lshr t, 48; k = and s, K`, each the only use
+/// of the one before, in one block, where A's header is written by
+/// nothing in the loop and K selects no bit the cycle collector flips
+/// (`HEADER_FLAGS_COLLECTOR`) — every other flag moves only inside a
+/// runtime call handed the array, and the refcount sits below bit 32.
+fn flag_test_chains(
+    insts: &[Inst],
+    uses: &HashMap<ValueId, u32>,
+    clean: impl Fn(&ValueId) -> bool,
+) -> HashSet<ValueId> {
+    let mut chains = HashSet::new();
+    let single = |v: ValueId| uses.get(&v) == Some(&1);
+    for (i, load) in insts.iter().enumerate() {
+        let (InstKind::Load(Type::I64, Operand::Value(p), 0), Some(t)) = (&load.kind, load.result)
+        else {
+            continue;
+        };
+        if !clean(p) || !single(t) {
+            continue;
+        }
+        let Some((s, j)) = insts[i + 1..]
+            .iter()
+            .enumerate()
+            .find_map(|(d, x)| match &x.kind {
+                InstKind::BinOp(BinOp::LShr, Operand::Value(a), Operand::ConstI64(48))
+                    if *a == t =>
+                {
+                    x.result.map(|r| (r, i + 1 + d))
+                }
+                _ => None,
+            })
+        else {
+            continue;
+        };
+        if !single(s) {
+            continue;
+        }
+        let k = insts[j + 1..].iter().find_map(|x| match &x.kind {
+            InstKind::BinOp(BinOp::And, Operand::Value(a), Operand::ConstI64(mask))
+                if *a == s && mask & i64::from(HEADER_FLAGS_COLLECTOR) == 0 =>
+            {
+                x.result
+            }
+            _ => None,
+        });
+        if let Some(k) = k {
+            chains.extend([t, s, k]);
+        }
+    }
+    chains
+}
+
+/// Operand occurrences per value, terminators included.
+fn use_counts(func: &Function) -> HashMap<ValueId, u32> {
+    let mut uses: HashMap<ValueId, u32> = HashMap::new();
+    for block in &func.blocks {
+        for inst in &block.insts {
+            visit_value_operands(&inst.kind, |v| *uses.entry(v).or_insert(0) += 1);
+        }
+        match &block.term {
+            Terminator::CondBr {
+                cond: Operand::Value(v),
+                ..
+            }
+            | Terminator::Ret(Some(Operand::Value(v))) => *uses.entry(*v).or_insert(0) += 1,
+            _ => {}
+        }
+    }
+    uses
 }
 
 /// `pre` jumps straight to `header` and is its only way in from
@@ -197,7 +283,7 @@ fn written_headers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use torajs_core::ssa::{Block, FuncId, IPred, Inst, Type, ValueInfo};
+    use torajs_core::ssa::{Block, FuncId, IPred, ValueInfo};
 
     fn decl(name: &str) -> Function {
         Function {
@@ -325,6 +411,39 @@ mod tests {
             f.blocks[0].insts[1].kind,
             InstKind::Load(_, _, 32)
         ));
+    }
+
+    #[test]
+    fn a_length_lock_test_leaves_the_loop_whole() {
+        let lock = vec![
+            mk(Some(5), InstKind::Load(Type::I64, v(0), 0)),
+            mk(
+                Some(6),
+                InstKind::BinOp(BinOp::LShr, v(5), Operand::ConstI64(48)),
+            ),
+            mk(
+                Some(7),
+                InstKind::BinOp(BinOp::And, v(6), Operand::ConstI64(0x8290)),
+            ),
+            mk(
+                Some(8),
+                InstKind::ICmp(IPred::Ne, v(7), Operand::ConstI64(0)),
+            ),
+        ];
+        let mut m = walk(Terminator::Br(BlockId(1)), lock.clone());
+        for _ in 0..4 {
+            m.funcs[3].values.push(ValueInfo {
+                ty: Type::I64,
+                name: None,
+            });
+        }
+        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 5);
+        assert_eq!(m.funcs[3].blocks[2].insts.len(), 1);
+        // a mask that reads the collector's buffered bit stays
+        let mut buffered = lock;
+        buffered[2].kind = InstKind::BinOp(BinOp::And, v(6), Operand::ConstI64(1 << 5));
+        let mut m = walk(Terminator::Br(BlockId(1)), buffered);
+        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
     }
 
     #[test]

@@ -49,6 +49,10 @@ pub const WEAKREF_ACTIVE_SYM: &str = "___torajs_weakref_active";
 /// reads it (torajs-rc `AnySlotTag::Heap`); every other tag boxes an
 /// immediate, which no rc kernel touches.
 pub const ANY_SLOT_TAG_HEAP: i64 = torajs_rc::AnySlotTag::Heap as i64;
+/// Heap-header flag bits (the u16 at +6) that change without a call
+/// naming the object: the cycle collector's buffered and color bits.
+/// Every other flag moves only inside a runtime call handed the object.
+pub const HEADER_FLAGS_COLLECTOR: u16 = torajs_rc::FLAG_BUFFERED | torajs_rc::COLOR_MASK;
 
 pub use module_class_layouts::{ClassLayoutMeta, FieldMetaSpec, MethodMetaSpec, field_type_tag_of};
 pub use module_extras::demo_fib40;
