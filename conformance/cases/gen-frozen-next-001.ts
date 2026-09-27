@@ -51,3 +51,18 @@ try {
   console.log("incr threw", e instanceof TypeError, k.n)
 }
 
+
+// a function expression inside the body writes a lifted local
+function* h() {
+  let k = 0
+  const inc = function () {
+    k = k + 1
+  }
+  inc()
+  yield k
+  inc()
+  yield k
+}
+const hi = h()
+Object.freeze(hi)
+console.log(hi.next().value, hi.next().value)
