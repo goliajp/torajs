@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 use super::deconflict::{
     is_class_decl, rebinds_elsewhere, top_value_decl_name, type_param_shadows,
 };
-use super::resolve_helpers::{collect_bare_exports, collect_own_export_names};
+use super::export_faces::{collect_bare_exports, collect_own_export_names};
 use super::{WorkItem, decl_name, resolve_path};
 
 /// The dispatcher FnDecl's name. Parser-minted at every `import()`

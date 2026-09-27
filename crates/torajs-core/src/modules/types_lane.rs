@@ -12,9 +12,9 @@ use std::path::Path;
 
 use crate::ast::{Ast, PropKey, Stmt};
 
+use super::export_faces::collect_bare_exports;
 use super::inject_export::rename_decl;
 use super::load_lib::load_lib_section;
-use super::resolve_helpers::collect_bare_exports;
 use super::resolve_state::ResolveState;
 use super::work_item::WorkItem;
 use super::{is_builtin_module_source, resolve_path};

@@ -4,14 +4,12 @@
 //! and the §16.2.3 star re-export translation. What a namespace alias
 //! BECOMES lives in the `namespace_objlit` sibling.
 
-use crate::ast::{ExportStar, Stmt};
+use crate::ast::ExportStar;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::Path;
 
 use super::static_resolution::RequestLedger;
-use super::{
-    NamedImport, WorkItem, check_k2_form, decl_name, is_builtin_module_source, resolve_path,
-};
+use super::{NamedImport, WorkItem, check_k2_form, is_builtin_module_source, resolve_path};
 
 /// Field accumulator for one namespace alias (`import * as ns from …`).
 ///
@@ -416,58 +414,4 @@ fn star_ns_locals(
         .get(exported)
         .map(|vs| vs.iter().map(|a| (*a).to_string()).collect())
         .unwrap_or_else(|| vec![exported.to_string()])
-}
-
-/// The names a lib hands on under its own roof — `export <decl>`,
-/// `export { a as b }` with or without a `from`, and the single name
-/// an `export * as ns from` clause exposes. A `export * from "m"`
-/// must not forward any of these: §16.2.3 resolves a name against the
-/// module's own export entries before it looks through a star.
-pub(super) fn collect_own_export_names(lib_section: &[Stmt]) -> HashSet<String> {
-    let mut names: HashSet<String> = HashSet::new();
-    for s in lib_section {
-        let Stmt::ExportDecl {
-            inner, named, star, ..
-        } = s
-        else {
-            continue;
-        };
-        if let Some(d) = inner
-            && let Some(n) = decl_name(d)
-        {
-            names.insert(n);
-        }
-        for (orig, alias) in named {
-            names.insert(alias.clone().unwrap_or_else(|| orig.clone()));
-        }
-        if let Some(ExportStar::AsNamespace(n)) = star {
-            names.insert(n.clone());
-        }
-    }
-    names
-}
-
-/// P13-S4b — bare named exports (`export { a, b as c }`, no `from`)
-/// alias top-level decls declared elsewhere in the lib. Collected
-/// orig → exported up front so the decl statements (previously
-/// dropped as non-exports) inject when the importer wants them.
-pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, String> {
-    let mut bare_exports: HashMap<String, String> = HashMap::new();
-    for s in lib_section {
-        if let Stmt::ExportDecl {
-            inner: None,
-            named,
-            default_expr: None,
-            source: None,
-            star: None,
-            type_named,
-            ..
-        } = s
-        {
-            for (orig, alias) in named.iter().chain(type_named) {
-                bare_exports.insert(orig.clone(), alias.clone().unwrap_or_else(|| orig.clone()));
-            }
-        }
-    }
-    bare_exports
 }
