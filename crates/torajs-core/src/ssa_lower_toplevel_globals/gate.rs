@@ -173,3 +173,54 @@ pub(super) fn mutable_promotes(
         && (binding_refs.named_fn_refs.contains(name)
             || (*ty == Type::Any && binding_refs.closure_captured.contains(name)))
 }
+
+/// Localize — the data-global slot exists solely so
+/// capture-less named-fn bodies can see a top-level binding
+/// (the `ast_refs` contract). An annotated primitive-
+/// Copy slot that NO named-fn body references has no reader
+/// outside the implicit main, so the global home only pins
+/// every hot-loop access to a GlobalRef + Load/Store that
+/// the slot-promotion family (slot_forward / mem2reg /
+/// phi_promote) cannot touch. Keep it a main-fn local
+/// instead — same semantics (top-level script order), and
+/// the alloca dissolves into registers like any other
+/// local. `named_fn_refs` over-approximates (fn-local
+/// shadows count), so a binding only localizes when no
+/// named fn could possibly read it. Refcounted slots also
+/// meet [`mutable_promotes`], where the
+/// main-local home's scope-drop walk owns their cleanup.
+/// r290 (closure-capture sweep cluster) — `named_fn_refs`
+/// also counts captures of closures minted INSIDE named fn
+/// bodies (see `idents_in_expr`'s Closure arm): those
+/// resolve through the globals table (a named fn has no
+/// env machinery), so localizing the binding would leave
+/// the lifted body's name with no home ("closure capture
+/// not in scope"). Top-level-positioned closures keep the
+/// main-local capture-box machinery and do NOT widen this
+/// gate.
+///
+/// Rotation 514 — the family the refcounted gate admitted
+/// localizes on those same terms, and for a sharper reason
+/// than the primitives': it was admitted to give a named-fn
+/// body something to read, while on the MAIN path such a
+/// binding already works, method calls included. Promoting
+/// one with no named-fn reader only moves it off that path
+/// onto the global one, whose member-call lane does not
+/// carry it — `const m: Map<…> = new Map(); m.set(…)` went
+/// from working to "unsupported member call shape". The
+/// historical Str / Arr / Obj / Closure / Symbol pass here
+/// and meet the named-fn gates of [`slot_type_supported`] /
+/// [`mutable_promotes`] instead.
+pub(super) fn stays_main_local(
+    ty: &Type,
+    name: &str,
+    binding_refs: &crate::ast_refs::ToplevelBindingRefs,
+) -> bool {
+    let visibility_only = ty.is_refcounted()
+        && !matches!(
+            ty,
+            Type::Str | Type::Arr(_) | Type::Obj(_) | Type::Closure(_) | Type::Symbol | Type::Any
+        );
+    (matches!(ty, Type::I64 | Type::F64 | Type::Bool | Type::I32) || visibility_only)
+        && !binding_refs.named_fn_refs.contains(name)
+}
