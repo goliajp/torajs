@@ -47,6 +47,7 @@
 
 mod order;
 mod rewrite;
+mod sole_site;
 mod splice;
 mod splice2;
 mod splice2_emit;
@@ -89,6 +90,10 @@ pub struct InlineBudget {
     /// unlocking depth 1 as the default. Values > 1 are reserved
     /// (an iterative emit pass would be needed to honor them).
     pub max_recursion_depth: u32,
+    /// Ceiling for a callee with one direct call site and no address
+    /// taken (`sole_site.rs`), which is also not charged to the
+    /// caller's budget.
+    pub sole_site_ceiling: Cost,
 }
 
 impl Default for InlineBudget {
@@ -97,6 +102,7 @@ impl Default for InlineBudget {
             callee_cost_ceiling: Cost::new(225),
             caller_total_budget: Cost::new(675),
             max_recursion_depth: 1,
+            sole_site_ceiling: Cost::new(2000),
         }
     }
 }
@@ -232,6 +238,7 @@ fn classify_caller_sites(
     caller_idx: usize,
     budget: &InlineBudget,
     callee_costs: &[Cost],
+    sole: &[bool],
 ) -> Vec<(usize, usize, InlineDecision)> {
     let caller = &module.funcs[caller_idx];
     let mut decisions = Vec::new();
@@ -267,6 +274,10 @@ fn classify_caller_sites(
                         continue;
                     }
                     let callee_cost = callee_costs[callee_ix];
+                    if sole[callee_ix] && callee_cost <= budget.sole_site_ceiling {
+                        decisions.push((blk_idx, site_idx, InlineDecision::Inline { callee_cost }));
+                        continue;
+                    }
                     if callee_cost > budget.callee_cost_ceiling {
                         decisions.push((
                             blk_idx,
@@ -341,8 +352,9 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
     let dry_run = std::env::var("TORAJS_INLINER_OFF").as_deref() == Ok("1");
     let mut callee_costs: Vec<Cost> = module.funcs.iter().map(callee_body_cost).collect();
     let mut stats = InlinerStats::default();
+    let sole = sole_site::sole_site_callees(module);
     for caller_idx in order::bottom_up(module) {
-        let decisions = classify_caller_sites(module, caller_idx, &budget, &callee_costs);
+        let decisions = classify_caller_sites(module, caller_idx, &budget, &callee_costs, &sole);
         // Pass A — tally classifier stats. Reads decisions only.
         for (_, _, dec) in &decisions {
             match dec {
@@ -422,7 +434,12 @@ pub fn inline_module_with_budget(module: &mut Module, budget: InlineBudget) -> I
             // earlier as a caller) may have grown the body since.
             // Re-price the live clone and skip rather than splice an
             // oversized body.
-            if callee_body_cost(callee_ref) > budget.callee_cost_ceiling {
+            let ceiling = if sole[callee_id.0 as usize] {
+                budget.sole_site_ceiling
+            } else {
+                budget.callee_cost_ceiling
+            };
+            if callee_body_cost(callee_ref) > ceiling {
                 stats.skipped_live_cost += 1;
                 continue;
             }
@@ -607,11 +624,37 @@ mod tests {
     #[test]
     fn oversized_leaf_is_rejected_with_callee_too_large() {
         let leaf = alu_body("fat", 300);
+        let call = || void_inst(InstKind::Call(FuncId(1), vec![]));
+        let main = caller("main", vec![call(), call()]);
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
+        assert_eq!(stats.candidates, 2);
+        assert_eq!(stats.would_inline, 0);
+        assert_eq!(stats.skipped_callee_too_large, 2);
+    }
+
+    #[test]
+    fn oversized_leaf_with_one_call_site_inlines() {
+        let leaf = alu_body("fat", 300);
         let main = caller("main", vec![void_inst(InstKind::Call(FuncId(1), vec![]))]);
         let mut m = module_of(vec![main, leaf]);
         let stats = inline_module(&mut m);
-        assert_eq!(stats.candidates, 1);
-        assert_eq!(stats.would_inline, 0);
+        assert_eq!(stats.would_inline, 1);
+        assert_eq!(stats.inlined, 1);
+    }
+
+    #[test]
+    fn address_taken_leaf_keeps_the_ceiling() {
+        let leaf = alu_body("fat", 300);
+        let main = caller(
+            "main",
+            vec![
+                void_inst(InstKind::Call(FuncId(1), vec![])),
+                val_inst(ValueId(90), InstKind::FnAddr(FuncId(1))),
+            ],
+        );
+        let mut m = module_of(vec![main, leaf]);
+        let stats = inline_module(&mut m);
         assert_eq!(stats.skipped_callee_too_large, 1);
     }
 
@@ -814,6 +857,7 @@ mod tests {
             callee_cost_ceiling: Cost::new(200),
             caller_total_budget: Cost::new(250),
             max_recursion_depth: 0,
+            ..InlineBudget::default()
         };
         let mut m = module_of(vec![main, leaf]);
         let stats = inline_module_with_budget(&mut m, budget);
