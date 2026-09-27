@@ -96,7 +96,15 @@ pub(crate) fn expand_yield_into_in_stmt(ast: &mut Ast, s: &mut Stmt, yield_ty: &
                 }
             }
         }
-        // Switch cases not yet in yield scope (J.2.b).
+        Stmt::Switch { cases, default, .. } => {
+            for s in cases
+                .iter_mut()
+                .flat_map(|c| c.body.iter_mut())
+                .chain(default.iter_mut().flatten())
+            {
+                expand_yield_into_in_stmt(ast, s, yield_ty);
+            }
+        }
         _ => {}
     }
 }

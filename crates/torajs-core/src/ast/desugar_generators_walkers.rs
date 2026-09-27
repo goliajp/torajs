@@ -251,9 +251,47 @@ pub(crate) fn lift_lets_in_stmt(
                 }
             }
         }
-        // Switch cases don't yet support yields (J.2.b scope)
-        // so their inner lets stay as plain locals — no lift needed.
+        Stmt::Switch {
+            cases,
+            default,
+            default_at,
+            ..
+        } => lift_lets_in_switch(ast, cases, default, *default_at, lifted, ctx),
         _ => {}
+    }
+}
+
+/// A switch's case block is ONE scope (§14.12.2 — a `let` in one
+/// clause is visible, in its TDZ, from the clauses after it), so a
+/// yield-bearing switch lifts its clauses as one list in source order,
+/// then splits them back. A yield-free switch keeps its lets as plain
+/// locals, as a yield-free try does.
+fn lift_lets_in_switch(
+    ast: &mut Ast,
+    cases: &mut [super::SwitchCase],
+    default: &mut Option<Vec<Stmt>>,
+    default_at: usize,
+    lifted: &mut Vec<(String, String)>,
+    ctx: &mut LiftCtx,
+) {
+    let has_yield = cases
+        .iter()
+        .flat_map(|c| c.body.iter())
+        .chain(default.iter().flatten())
+        .any(super::desugar_generators_sm_rewrite::stmt_contains_yield);
+    if !has_yield {
+        return;
+    }
+    let (before, after) = cases.split_at_mut(default_at);
+    let mut clauses: Vec<&mut Vec<Stmt>> = before.iter_mut().map(|c| &mut c.body).collect();
+    clauses.extend(default.as_mut());
+    clauses.extend(after.iter_mut().map(|c| &mut c.body));
+    let lens: Vec<usize> = clauses.iter().map(|b| b.len()).collect();
+    let mut list: Vec<Stmt> = clauses.iter_mut().flat_map(|b| b.drain(..)).collect();
+    lift_lets_in_list(ast, &mut list, lifted, ctx);
+    let mut rest = list.into_iter();
+    for (body, n) in clauses.into_iter().zip(lens) {
+        body.extend(rest.by_ref().take(n));
     }
 }
 

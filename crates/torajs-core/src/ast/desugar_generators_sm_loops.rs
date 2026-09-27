@@ -45,6 +45,7 @@ impl GenSm<'_> {
             cont: Some(head),
             brk: post,
             label,
+            bare_break: true,
         });
         self.lower(*body);
         self.loop_stack.pop();
@@ -81,6 +82,7 @@ impl GenSm<'_> {
             cont: Some(test),
             brk: post,
             label,
+            bare_break: true,
         });
         self.lower(*body);
         self.loop_stack.pop();
@@ -156,6 +158,7 @@ impl GenSm<'_> {
             cont: Some(step_state),
             brk: post,
             label,
+            bare_break: true,
         });
         self.lower(*body);
         self.loop_stack.pop();
@@ -212,6 +215,7 @@ impl GenSm<'_> {
             cont: None,
             brk: exit,
             label: Some(label),
+            bare_break: false,
         });
         self.lower(*body);
         self.loop_stack.pop();

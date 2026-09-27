@@ -337,6 +337,12 @@ impl<'a> GenSm<'a> {
                 then_branch,
                 else_branch,
             } => self.lower_if(cond, then_branch, else_branch),
+            Stmt::Switch {
+                scrutinee,
+                cases,
+                default,
+                default_at,
+            } => self.lower_switch(scrutinee, cases, default, default_at),
             Stmt::While { cond, body } => self.lower_while(cond, body),
             Stmt::DoWhile { body, cond } => self.lower_do_while(body, cond),
             Stmt::For {

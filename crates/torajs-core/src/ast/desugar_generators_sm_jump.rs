@@ -4,20 +4,24 @@
 //! `desugar_generators_sm` for file size.
 
 /// One entry of [`GenSm::loop_stack`]: where a `continue` / `break`
-/// aimed at this construct gotos. A yield-loop has both; a labeled
-/// block holding a yield (ES §13.13 — `lbl: { …; break lbl; … }`,
-/// which the states erase) has only its exit, and a BARE jump never
-/// targets it (`cont: None` also marks it for the bare-jump skip).
-/// `label` is `Some` when the construct sat under a `Stmt::Labeled`.
+/// aimed at this construct gotos. A yield-loop has both; a yield-
+/// bearing switch has only its exit, which a bare `break` targets and
+/// a bare `continue` passes by (§14.12.4 — the switch consumes an
+/// empty break, not a continue); a labeled block holding a yield (ES
+/// §13.13 — `lbl: { …; break lbl; … }`, which the states erase) has
+/// only its exit too, and no BARE jump targets it. `label` is `Some`
+/// when the construct sat under a `Stmt::Labeled`.
 #[derive(Clone)]
 pub(super) struct SmJump {
     pub(super) cont: Option<usize>,
     pub(super) brk: usize,
     pub(super) label: Option<String>,
+    pub(super) bare_break: bool,
 }
 
 /// The resolution behind [`GenSm::sm_loop_target`] and the inline
-/// jump rewriter: bare → innermost yield-LOOP (blocks skipped);
+/// jump rewriter: bare break → innermost yield-loop or switch, bare
+/// continue → innermost yield-LOOP (blocks skipped either way);
 /// labeled → the entry carrying that label, whose continue target a
 /// block does not have (`continue` naming a block is an early error,
 /// so that read never happens).
@@ -28,6 +32,7 @@ pub(super) fn sm_jump_target(
 ) -> Option<usize> {
     let pick = |j: &SmJump| if want_break { Some(j.brk) } else { j.cont };
     match label {
+        None if want_break => stack.iter().rev().find(|j| j.bare_break).and_then(pick),
         None => stack.iter().rev().find(|j| j.cont.is_some()).and_then(pick),
         Some(l) => stack
             .iter()
