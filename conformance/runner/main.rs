@@ -22,7 +22,7 @@
 //! Per-case temp paths are made worker/pid-unique to stay collision-safe
 //! under concurrency. Results are replayed in original case order so the
 //! output is byte-stable across runs (and across the sequential→parallel
-//! switch). Default 8 workers; override with `--workers N`.
+//! switch). Default one worker per core; override with `--workers N`.
 //!
 //! Exit code: 0 if all pass, 1 if any fail.
 
@@ -37,12 +37,17 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-/// Default worker count. 8 measured as the sweet spot on 10-perf-core
-/// + 4-efficiency-core M-series — going wider (e.g. 14) reproducibly
-/// SLOWS the gate because concurrent LLVM compile + cc link processes
-/// contend on the limited high-perf cores. Override with `--workers N`
-/// when running on a chip with different core layout.
-const DEFAULT_WORKERS: usize = 8;
+/// Default worker count: one per core. Measured on the 14-core runner
+/// (rotation 719, 4726 cases, same tree): 8 workers 269 s · 10 229 s ·
+/// 12 206 s · 14 193 s · 16 194 s. The old default of 8 dated from the
+/// LLVM backend, whose concurrent compile + link processes contended
+/// on the performance cores; a case now spends its time waiting on its
+/// own child processes. Override with `--workers N`.
+fn default_workers() -> usize {
+    std::thread::available_parallelism()
+        .unwrap_or_else(|e| die(&format!("available_parallelism: {e}")))
+        .get()
+}
 
 #[derive(Debug, Clone)]
 struct Case {
@@ -200,7 +205,7 @@ fn parse_workers() -> usize {
             die("--workers expects a positive integer");
         }
     }
-    DEFAULT_WORKERS
+    default_workers()
 }
 
 /// `--no-aot` flag — skip Step 3 (`tr build` + AOT binary execution).
