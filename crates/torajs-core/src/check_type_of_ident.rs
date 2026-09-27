@@ -198,6 +198,17 @@ pub(crate) fn check(
             // undeclared here would add a second raise plus the
             // end-of-pipeline `unknown identifier` warning for a name
             // the program does declare.
+            // TS2693 / TS1361 — a name that declares only a type (an
+            // alias, an interface, or one a type-only import brought
+            // in) has no value to read; TypeScript rejects the program.
+            if (checker.aliases.contains_key(other)
+                || checker.generic_alias_decls.contains_key(other))
+                && !checker.class_names.contains(other)
+            {
+                return Err(format!(
+                    "`{other}` only refers to a type, but is being used as a value here"
+                ));
+            }
             if !checker.tdz_reads.contains(&eid) {
                 checker.undeclared_reads.insert(eid, other.to_string());
             }

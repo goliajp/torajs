@@ -667,6 +667,25 @@ mod tests {
     }
 
     #[test]
+    fn type_name_read_as_a_value_is_rejected() {
+        for src in [
+            "type T = { x: number }; console.log(T);",
+            "interface I { x: number } let v = I;",
+            "type G<U> = { u: U }; let w = G;",
+        ] {
+            let r = check_src(src);
+            assert!(
+                r.as_ref()
+                    .err()
+                    .is_some_and(|s| s.contains("only refers to a type")),
+                "{src}: {r:?}"
+            );
+        }
+        let shadowed = "type T = number; function f(T: number): number { return T; }";
+        assert!(check_src(shadowed).is_ok(), "{:?}", check_src(shadowed));
+    }
+
+    #[test]
     fn struct_field_type_must_resolve() {
         // Unknown type in field position errors at type-decl time.
         let src = "type Bad = { x: nope };";
