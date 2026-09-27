@@ -12,8 +12,9 @@
 //!    boxing when target param is Type::Any (closure-lift desugar
 //!    defaults unannotated closure params to Type::Any).
 //! 2. **Generalized indirect** — callee is itself a `Call` expr
-//!    (`f(0)(5)` chained call) or an immediately-invoked closure
-//!    literal (`(() => v)()` — S158 IIFE). Lower callee, dispatch by
+//!    (`f(0)(5)` chained call), an immediately-invoked closure
+//!    literal (`(() => v)()` — S158 IIFE), or a comma expression
+//!    (`(0, f)()`). Lower callee, dispatch by
 //!    SSA type:
 //!    - `Type::Closure(sig)` — env-first ABI: load fn_ptr from
 //!      `CLOSURE_FN_ADDR_OFF`, prepend env_ptr to argv, intern
@@ -149,9 +150,11 @@ fn try_lower_call_or_closure_callee(
     callee: ExprId,
     args: &[ExprId],
 ) -> Option<Operand> {
+    // A comma expression is no Reference (§13.3.6.1): its value is the
+    // last operand's, called with an undefined `this`.
     if !matches!(
         ctx.ast.get_expr(callee),
-        Expr::Call { .. } | Expr::Closure { .. } | Expr::Index { .. }
+        Expr::Call { .. } | Expr::Closure { .. } | Expr::Index { .. } | Expr::Sequence { .. }
     ) {
         return None;
     }
