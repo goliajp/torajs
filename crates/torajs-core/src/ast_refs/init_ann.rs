@@ -365,8 +365,9 @@ pub fn new_class_ann(ast: &Ast, init: ExprId) -> Option<String> {
 }
 
 /// The collection spelling of an un-annotated `new Map()` /
-/// `new Set()` / `new WeakMap()` / `new WeakSet()` init — the
-/// sibling of [`new_class_ann`] for the builtins no factory claims.
+/// `new Set()` / `new WeakMap()` / `new WeakSet()` init (and of the
+/// other builtins below) — the sibling of [`new_class_ann`] for the
+/// builtins no factory claims.
 ///
 /// `desugar_builtin_new` rewrites `new Date` / `new Array` /
 /// `new RegExp` and friends into shapes the promote arms already
@@ -402,34 +403,27 @@ pub fn collection_new_ann(ast: &Ast, init: ExprId) -> Option<String> {
     else {
         return None;
     };
-    if !matches!(
+    // A proxy impersonates its target, so the checker types `new
+    // Proxy(…)` `any` and there is no `Proxy` instance type to spell.
+    if class_name == "Proxy" {
+        return Some("any".to_string());
+    }
+    // Each typed array (the §23.2 constructors plus Float16Array)
+    // spells its own type, like the collections and buffers do: the
+    // exact string `const a: Float64Array = …` writes, which is the
+    // lane this function feeds.
+    let spells_own_type = matches!(
         class_name.as_str(),
         "Map"
             | "Set"
             | "WeakMap"
             | "WeakSet"
-            // RFC 20260823-typedarray-substrate's eleven §23.2
-            // constructors plus Float16Array. Each spells its own
-            // type, so the annotation is the constructor name — the
-            // exact string `const a: Float64Array = …` writes, which
-            // is the lane this function feeds. Without them a
-            // `const a = new Float64Array([…])` read from a named fn
-            // body answered `ReferenceError: a is not defined`,
-            // while the same program with `var`, with an explicit
-            // annotation, or with a plain array literal all worked.
-            | "Int8Array"
-            | "Uint8Array"
-            | "Uint8ClampedArray"
-            | "Int16Array"
-            | "Uint16Array"
-            | "Int32Array"
-            | "Uint32Array"
-            | "Float32Array"
-            | "Float64Array"
-            | "BigInt64Array"
-            | "BigUint64Array"
-            | "Float16Array"
-    ) {
+            | "WeakRef"
+            | "ArrayBuffer"
+            | "DataView"
+            | "FinalizationRegistry"
+    ) || crate::ssa_lower_call_typedarray::kind_of_name(class_name).is_some();
+    if !spells_own_type {
         return None;
     }
     Some(if type_args.is_empty() {
