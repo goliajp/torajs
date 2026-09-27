@@ -8,13 +8,25 @@ use super::{
     OP_SCRATCH_RHS, OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_reg, asr_imm, asrv_reg, bl_imm26, cnt_v8b,
-    eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d, lsl_imm, lslv_reg,
-    lsr_imm, lsrv_reg, mov_d_reg, msub_reg, mul_reg, orr_reg, sdiv_reg, sub_imm, sub_reg,
+    add_imm, add_reg, add_reg_lsl, addv_b_v8b, and_imm, and_reg, asr_imm, asrv_reg, bl_imm26,
+    cnt_v8b, eor_imm, eor_reg, fadd_d, fdiv_d, fmov_d_from_x, fmov_x_from_d, fmul_d, fsub_d,
+    logical_imm, lsl_imm, lslv_reg, lsr_imm, lsrv_reg, mov_d_reg, msub_reg, mul_reg, orr_imm,
+    orr_reg, sdiv_reg, sub_imm, sub_reg,
 };
 use crate::reg::aapcs64;
 use crate::regalloc::Assignment;
 use crate::reloc::{CallTarget, Reloc, RelocKind};
+
+/// The logical-immediate fields of a constant operand, taken at the
+/// width `materialize_operand_gpr` would load it (a ConstI32 sign-
+/// extends).
+fn const_logical_imm(op: &Operand) -> Option<(u32, u32, u32)> {
+    match op {
+        Operand::ConstI64(c) => logical_imm(*c as u64),
+        Operand::ConstI32(c) => logical_imm(*c as i64 as u64),
+        _ => None,
+    }
+}
 
 /// P-OPT Phase 2 chunk 11b — emit `%v = neg %op` as the aarch64
 /// `NEG Xd, Xn` alias of `SUB Xd, XZR, Xn` (ARM ARM C7.2.273).
@@ -126,6 +138,18 @@ pub fn emit_binop(
                     BinOp::Shl => write_u32(bytes, lsl_imm(dst, rn, sh)),
                     BinOp::LShr => write_u32(bytes, lsr_imm(dst, rn, sh)),
                     BinOp::AShr => write_u32(bytes, asr_imm(dst, rn, sh)),
+                    _ => unreachable!(),
+                }
+                write_def_spill_gpr(bytes, spill_off, dst);
+                return;
+            }
+            // a bitwise op whose constant is a logical immediate never
+            // materializes it (`n & 1` in a loop paid a MOVZ per trip)
+            if let (BinOp::And | BinOp::Or | BinOp::Xor, Some(f)) = (op, const_logical_imm(rhs)) {
+                match op {
+                    BinOp::And => write_u32(bytes, and_imm(dst, rn, f)),
+                    BinOp::Or => write_u32(bytes, orr_imm(dst, rn, f)),
+                    BinOp::Xor => write_u32(bytes, eor_imm(dst, rn, f)),
                     _ => unreachable!(),
                 }
                 write_def_spill_gpr(bytes, spill_off, dst);
@@ -342,24 +366,31 @@ mod tests {
 
     #[test]
     fn ff_and_f0() {
-        assert_binop_4word(
-            "and",
-            BinOp::And,
-            0xFF,
-            0xF0,
-            enc::and_reg(Gpr::X0, Gpr::X9, Gpr::X10),
-        );
+        assert_binop_logical_imm("and", BinOp::And, 0xFF, 0xF0, enc::and_imm);
     }
 
     #[test]
     fn zero_f_or_f0() {
-        assert_binop_4word(
-            "or",
-            BinOp::Or,
-            0x0F,
-            0xF0,
-            enc::orr_reg(Gpr::X0, Gpr::X9, Gpr::X10),
-        );
+        assert_binop_logical_imm("or", BinOp::Or, 0x0F, 0xF0, enc::orr_imm);
+    }
+
+    /// A bitwise op whose constant is a logical immediate takes the
+    /// immediate form; the constant is never materialized.
+    fn assert_binop_logical_imm(
+        name: &str,
+        op: BinOp,
+        a: i64,
+        b: i64,
+        form: fn(Gpr, Gpr, (u32, u32, u32)) -> u32,
+    ) {
+        let func = build_binop_const(name, op, a, b);
+        let compiled = compile_function(&func);
+        let expected = words_to_le_bytes(&[
+            enc::movz_imm(Gpr::X9, a as u16, 0),
+            form(Gpr::X0, Gpr::X9, enc::logical_imm(b as u64).unwrap()),
+            enc::ret(Gpr::X30),
+        ]);
+        assert_eq!(compiled.bytes, expected);
     }
 
     #[test]

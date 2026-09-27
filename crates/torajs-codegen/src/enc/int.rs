@@ -211,6 +211,60 @@ pub fn and_imm_one(rd: Gpr, rn: Gpr) -> u32 {
     0x9240_0000 | (rn.idx() << 5) | rd.idx()
 }
 
+/// The (N, immr, imms) fields of `v` as an AArch64 logical immediate:
+/// a 2/4/8/16/32/64-bit element, repeated to fill 64 bits, whose
+/// bits are one contiguous run of ones rotated right by `immr`.
+/// All-zero and all-one have no encoding. ARM ARM C6.2.12
+/// (DecodeBitMasks, run backwards).
+pub fn logical_imm(v: u64) -> Option<(u32, u32, u32)> {
+    if v == 0 || v == !0 {
+        return None;
+    }
+    let mut size = 64u32;
+    while size > 2 {
+        let half = size / 2;
+        let mask = (1u64 << half) - 1;
+        if v & mask != (v >> half) & mask {
+            break;
+        }
+        size = half;
+    }
+    let mask = if size == 64 { !0 } else { (1u64 << size) - 1 };
+    let elem = v & mask;
+    let ones = elem.count_ones();
+    let run = (1u64 << ones) - 1;
+    let ror = |x: u64, r: u32| {
+        if r == 0 {
+            x
+        } else {
+            ((x >> r) | (x << (size - r))) & mask
+        }
+    };
+    let r = (0..size).find(|&r| ror(elem, r) == run)?;
+    let immr = (size - r) % size;
+    let imms = (!(size * 2 - 1) & 0x3F) | (ones - 1);
+    Some(((size == 64) as u32, immr, imms))
+}
+
+fn logical_imm_op(base: u32, rd: Gpr, rn: Gpr, (n, immr, imms): (u32, u32, u32)) -> u32 {
+    base | (n << 22) | (immr << 16) | (imms << 10) | (rn.idx() << 5) | rd.idx()
+}
+
+/// AND Xd, Xn, #bitmask — fields from [`logical_imm`]. ARM ARM C6.2.12.
+pub fn and_imm(rd: Gpr, rn: Gpr, f: (u32, u32, u32)) -> u32 {
+    logical_imm_op(0x9200_0000, rd, rn, f)
+}
+
+/// ORR Xd, Xn, #bitmask — fields from [`logical_imm`]. ARM ARM C6.2.240.
+pub fn orr_imm(rd: Gpr, rn: Gpr, f: (u32, u32, u32)) -> u32 {
+    logical_imm_op(0xB200_0000, rd, rn, f)
+}
+
+/// EOR Xd, Xn, #bitmask — fields from [`logical_imm`]. ARM ARM C6.2.97.
+pub fn eor_imm(rd: Gpr, rn: Gpr, f: (u32, u32, u32)) -> u32 {
+    logical_imm_op(0xD200_0000, rd, rn, f)
+}
+
 /// MOV Wd, Wn — 32-bit move via `ORR Wd, WZR, Wn`. The W-form write
 /// auto-clears the top 32 bits of Xd → textbook ZExtI32ToI64.
 /// ARM ARM C6.2.231 (alias) / C6.2.232 (sf=0 ORR).
@@ -388,6 +442,36 @@ mod tests {
         // CMP Wn, Wm = SUBS WZR, Wn, Wm. sf=0 form differs only in the
         // top sf bit cleared (0x6B vs 0xEB). Same Rn/Rm bit layout.
         assert_eq!(cmp_w_reg(Gpr::X9, Gpr::X10), 0x6B0A_013F);
+    }
+
+    #[test]
+    fn logical_immediates_match_clang() {
+        // clang -c: and x0, x1, #1 / #0xff / #0xffff000000000000 /
+        // orr x0, x1, #0x5555555555555555 / eor x0, x1, #0x8000000000000000 /
+        // and x0, x1, #0xfffffffffffffffe / and x0, x1, #0x0f0f0f0f0f0f0f0f
+        let f = |v| logical_imm(v).unwrap();
+        assert_eq!(and_imm(Gpr::X0, Gpr::X1, f(1)), 0x9240_0020);
+        assert_eq!(and_imm(Gpr::X0, Gpr::X1, f(0xff)), 0x9240_1C20);
+        assert_eq!(
+            and_imm(Gpr::X0, Gpr::X1, f(0xffff_0000_0000_0000)),
+            0x9250_3C20
+        );
+        assert_eq!(
+            orr_imm(Gpr::X0, Gpr::X1, f(0x5555_5555_5555_5555)),
+            0xB200_F020
+        );
+        assert_eq!(
+            eor_imm(Gpr::X0, Gpr::X1, f(0x8000_0000_0000_0000)),
+            0xD241_0020
+        );
+        assert_eq!(and_imm(Gpr::X0, Gpr::X1, f(!1)), 0x927F_F820);
+        assert_eq!(
+            and_imm(Gpr::X0, Gpr::X1, f(0x0f0f_0f0f_0f0f_0f0f)),
+            0x9200_CC20
+        );
+        assert_eq!(logical_imm(0), None);
+        assert_eq!(logical_imm(!0), None);
+        assert_eq!(logical_imm(0b101), None);
     }
 
     #[test]
