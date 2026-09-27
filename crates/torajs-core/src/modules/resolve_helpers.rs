@@ -88,7 +88,8 @@ pub(super) fn filter_request(
     }
     let want_default = default_alias.is_some() && !entry.contains("__default");
     let want_namespace = namespace_alias.is_some() && !entry.contains("__namespace");
-    let want_se = side_effect_only && !entry.contains("__se");
+    // `__eval`: an earlier static request's walk already ran the body.
+    let want_se = side_effect_only && !entry.contains("__se") && !entry.contains("__eval");
     if effective_named.is_empty() && !want_default && !want_namespace && !want_se {
         return None;
     }

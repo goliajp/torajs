@@ -56,10 +56,13 @@ pub(super) struct LibRequest<'a> {
     /// top-level statements here instead of dropping them: the
     /// dispatcher runs them — once, in a job, an abrupt completion
     /// rejecting the promise — when the `import()` is evaluated
-    /// (§16.2.1.5.3; `dyn_import_dispatcher::synth_eval_fn`). Every
-    /// other lane keeps the documented drop (`modules.rs` behaviour
-    /// notes).
+    /// (§16.2.1.5.3; `dyn_import_dispatcher::synth_eval_fn`). A
+    /// static request's walk injects them in place instead (see
+    /// `evaluate`).
     pub(super) deferred: Option<&'a mut Vec<Stmt>>,
+    /// This walk runs the module body (see `LaneShape::evaluate`):
+    /// its non-declaration statements inject in source order.
+    pub(super) evaluate: bool,
 }
 
 /// One statement of a side-effect-only (`import "./x"`) lib walk —
@@ -257,6 +260,10 @@ pub(super) fn walk_lib_stmt(
                 && let Some(deferred) = req.deferred.as_deref_mut()
             {
                 deferred.push(other);
+                return Ok(());
+            }
+            if req.evaluate && decl_name(&other).is_none() {
+                injections.push(other);
                 return Ok(());
             }
             inject_bare_exported_decl(

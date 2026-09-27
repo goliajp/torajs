@@ -29,6 +29,24 @@ pub(super) fn pop_next(work: &mut VecDeque<WorkItem>) -> Option<WorkItem> {
     work.remove(i)
 }
 
+/// [`pop_next`] over the entry's static closure first; the dynamic-
+/// import candidates join the worklist only once it drains. Every
+/// module walked while `*static_phase` holds is statically reachable
+/// from the entry, so its body runs at program start
+/// (`repeat_request::evaluation_role`); one first met after that
+/// belongs to an `import()` alone.
+pub(super) fn pop_phased(
+    work: &mut VecDeque<WorkItem>,
+    dyn_work: &mut VecDeque<WorkItem>,
+    static_phase: &mut bool,
+) -> Option<WorkItem> {
+    if work.is_empty() && *static_phase {
+        *static_phase = false;
+        work.append(dyn_work);
+    }
+    pop_next(work)
+}
+
 /// Read, tokenize, and parse one module file into the shared arena,
 /// recording it for the compile-closure cache key; answers the
 /// drained lib section, the arena offset its expressions start at,

@@ -43,16 +43,16 @@
 //!                                              scope)
 //!
 //! Behaviour notes:
-//!   - For named-import / default-import forms, lib-level non-`export`
-//!     top-level statements are silently dropped — a lib is treated as
-//!     a pure declaration source. This is a documented subset deviation
-//!     from bun's runtime-evaluation semantics; bench and conformance
-//!     avoid relying on it.
+//!   - A module body runs once (§16.2.1.5). The first named / default /
+//!     namespace request to walk a lib injects its non-`export`
+//!     statements in source order beside the requested exports, the
+//!     declarations they reach riding the hidden-dependency lane (see
+//!     `repeat_request::evaluation_role`). Exports nobody requested
+//!     still inject only when something injected reads them.
 //!   - For side-effect imports (`import "./y"`), the lib's full top-
-//!     level statement list IS injected in source order (P13-S3). This
-//!     matches bun's "module body executes once" semantics for the
-//!     side-effect-only invocation. When the same lib is visited via
-//!     both forms, the first BFS encounter wins.
+//!     level statement list IS injected in source order (P13-S3). When
+//!     the same lib is visited via both forms, whichever walk comes
+//!     first runs the body and the other injects bindings only.
 //!   - Lib's `export type T = ...` declarations are always injected,
 //!     irrespective of whether the importer listed `T` in its named
 //!     list — TS itself doesn't require type names to appear in the
@@ -149,6 +149,12 @@ pub fn resolve_imports(
 ) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
     let mut st = resolve_state::ResolveState::new(ast, base_dir);
     let (entry_seed, dyn_table) = seed_requests(ast, base_dir, entry, &mut st.work, &mut st.graph)?;
+    // The dynamic-import candidates are the worklist's tail (one per
+    // `dyn_roots` entry) — held back until the static closure drains.
+    let mut dyn_work = st
+        .work
+        .split_off(st.work.len() - entry_seed.dyn_roots.len());
+    let mut static_phase = true;
 
     while let Some((
         target_path,
@@ -157,7 +163,7 @@ pub fn resolve_imports(
         side_effect_only,
         namespace_alias,
         ns_star_feed,
-    )) = pop_next(&mut st.work)
+    )) = pop_phased(&mut st.work, &mut dyn_work, &mut static_phase)
     {
         // Repeat-visit alignment + per-path filter + mangle-memory
         // realignment — see [`repeat_request::align_and_filter`].
@@ -198,6 +204,16 @@ pub fn resolve_imports(
             &target_path,
             ns_star_feed,
         );
+        let (evaluate, defer_body) = repeat_request::evaluation_role(
+            &mut st.injected_names,
+            &target_path,
+            entry_seed.entry_path.as_deref(),
+            side_effect_only,
+            static_phase,
+            namespace_alias
+                .as_ref()
+                .is_some_and(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == a)),
+        );
         let (want, rename, bare_exports, own_exports, demangle, hidden) =
             deconflict::prep_lib_request(
                 ast,
@@ -213,6 +229,7 @@ pub fn resolve_imports(
                     has_default_alias: default_alias.is_some(),
                     is_ns: namespace_alias.is_some(),
                     side_effect_only,
+                    evaluate,
                 },
                 &table_delta,
             )?;
@@ -248,9 +265,10 @@ pub fn resolve_imports(
             // hands back its namespace without a second evaluation).
             deferred: namespace_alias
                 .as_ref()
-                .filter(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == *a))
+                .filter(|_| defer_body)
                 .filter(|_| target_path.canonicalize().ok() != entry_seed.entry_path)
                 .map(|a| st.dyn_eval_bodies.entry(a.clone()).or_default()),
+            evaluate,
         };
 
         let mut injections = st
@@ -315,7 +333,7 @@ mod static_resolution;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};
-use load_lib::{load_lib_section, pop_next};
+use load_lib::{load_lib_section, pop_phased};
 use resolve_helpers::{NsAccum, queue_reexport, queue_star_reexport};
 
 fn check_k2_form(

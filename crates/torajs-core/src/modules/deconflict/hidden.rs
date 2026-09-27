@@ -9,10 +9,14 @@ use std::collections::{HashMap, HashSet};
 /// Which non-named lanes the request carries — drives the hidden-
 /// dependency census's seed set. A side-effect walk injects every
 /// statement in source order, so it has no hidden deps at all.
+/// `evaluate` marks the walk that runs the module body (§16.2.1.5):
+/// its non-exported statements join the seeds, so every declaration
+/// they read or are lands with the same mangles the exports see.
 pub(in crate::modules) struct LaneShape {
     pub(in crate::modules) has_default_alias: bool,
     pub(in crate::modules) is_ns: bool,
     pub(in crate::modules) side_effect_only: bool,
+    pub(in crate::modules) evaluate: bool,
 }
 
 /// Which UN-injected lib decls must still land because an injected
@@ -59,15 +63,23 @@ pub(super) fn hidden_injection_closure(
             } if lane.has_default_alias => {
                 work.extend(crate::ast::free_idents_of_stmt(ast, &Stmt::Expr(*eid)));
             }
+            Stmt::ExportDecl { .. } | Stmt::ImportDecl { .. } => {}
             other => {
-                if let Some(n) = super::super::decl_name(other)
-                    && let Some(face) = bare_exports.get(&n)
+                let name = super::super::decl_name(other);
+                if let Some(n) = &name
+                    && let Some(face) = bare_exports.get(n)
                     && (lane.is_ns || want.contains(face.as_str()))
                 {
-                    push_class_synths(lib_section, &n, &mut work);
-                    push_computed_key_frees(ast, &n, &mut work);
-                    will_inject.insert(n);
+                    push_class_synths(lib_section, n, &mut work);
+                    push_computed_key_frees(ast, n, &mut work);
+                    will_inject.insert(n.clone());
                     work.extend(crate::ast::free_idents_of_stmt(ast, &lib_section[i]));
+                } else if lane.evaluate {
+                    match name {
+                        Some(n) if !bare_exports.contains_key(&n) => work.push(n),
+                        Some(_) => {}
+                        None => work.extend(crate::ast::free_idents_of_stmt(ast, other)),
+                    }
                 }
             }
         }

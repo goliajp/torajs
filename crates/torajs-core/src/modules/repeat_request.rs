@@ -154,3 +154,31 @@ pub(super) fn record_ns_walk(
     let fields = ns_accums[alias].fields()[first_field..].to_vec();
     ns_fields_by_path.insert(target_path.to_path_buf(), fields);
 }
+
+/// §16.2.1.5 — which walk runs a module's body. The first request of
+/// the entry's static closure to reach it does (`__eval` joins the
+/// path's ledger, and a later side-effect request filters to
+/// nothing); a side-effect walk already ran it (`__se`); the entry is
+/// the program itself. A dynamic-import candidate defers its body to
+/// the `import()` — unless a static walk already ran it, when the
+/// second answer is `false` and the candidate collects nothing
+/// (§16.2.1.5.3: an evaluated module is not evaluated again).
+pub(super) fn evaluation_role(
+    injected_names: &mut HashMap<PathBuf, HashSet<String>>,
+    target_path: &Path,
+    entry_path: Option<&Path>,
+    side_effect_only: bool,
+    static_phase: bool,
+    dyn_candidate: bool,
+) -> (bool, bool) {
+    let ledger = injected_names.entry(target_path.to_path_buf()).or_default();
+    if dyn_candidate {
+        return (false, !ledger.contains("__eval"));
+    }
+    let evaluate = static_phase
+        && !side_effect_only
+        && entry_path != Some(target_path)
+        && !ledger.contains("__se")
+        && ledger.insert("__eval".into());
+    (evaluate, false)
+}
