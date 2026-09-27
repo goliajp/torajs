@@ -446,7 +446,7 @@ fn lower_set_prototype_of(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
                 ctx.cur_block,
                 InstKind::Call(
                     ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(1 /* ANY_UNDEF */), Operand::ConstI64(0)],
+                    vec![Operand::ConstI64(5 /* undefined */), Operand::ConstI64(0)],
                 ),
                 Type::Any,
                 None,
