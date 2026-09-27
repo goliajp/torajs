@@ -26,14 +26,16 @@
 //! counters (gated_pass convention).
 
 use torajs_core::ssa::{
-    BinOp, Function, InstKind, Module, Operand, Terminator, Type, ValueId, visit_value_operands,
+    BinOp, Function, IPred, InstKind, Module, Operand, Terminator, Type, ValueId,
+    visit_value_operands,
 };
 
 use std::collections::HashMap;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct CmpSinkStats {
-    /// ICmps moved to sit immediately before their Select.
+    /// Compares moved to sit immediately before their Select (or the
+    /// ADD of a csinc candidate), plus mask ANDs moved next to them.
     pub sunk: u32,
 }
 
@@ -100,11 +102,22 @@ fn sink_one(func: &mut Function, b: usize, uses: &HashMap<ValueId, u32>) -> bool
         }) else {
             continue;
         };
-        if ci + 1 == si {
-            continue; // already adjacent — the fuse fires as-is
-        }
-        if is_csinc_shape(insts, si, uses) {
-            continue;
+        // the compare goes right before the Select, or right before
+        // the ADD of a csinc candidate (selinc absorbs `icmp; add;
+        // select`, so sinking between them would displace the ADD)
+        let dest = if is_csinc_shape(insts, si, uses) {
+            si - 1
+        } else {
+            si
+        };
+        if ci + 1 >= dest {
+            // in place — pull its mask AND next to it
+            let Some(ai) = mask_to_sink(insts, ci, uses) else {
+                continue;
+            };
+            let and = func.blocks[b].insts.remove(ai);
+            func.blocks[b].insts.insert(ci - 1, and);
+            return true;
         }
         // Redefinition hazard: φ-destructed multi-def Copys may
         // redefine a compare operand (or the cond itself) inside the
@@ -118,20 +131,47 @@ fn sink_one(func: &mut Function, b: usize, uses: &HashMap<ValueId, u32>) -> bool
                 pinned.push(*v);
             }
         }
-        if insts[ci + 1..si]
-            .iter()
-            .any(|i| i.result.is_some_and(|r| pinned.contains(&r)))
-        {
+        if redefines(&insts[ci + 1..dest], &pinned) {
             continue;
         }
         let cmp = func.blocks[b].insts.remove(ci);
-        func.blocks[b].insts.insert(si - 1, cmp);
+        func.blocks[b].insts.insert(dest - 1, cmp);
         return true;
     }
     false
 }
 
-/// True when the Select is a csinc candidate — `select c, (x+1), x`
+fn redefines(gap: &[torajs_core::ssa::Inst], pinned: &[ValueId]) -> bool {
+    gap.iter()
+        .any(|i| i.result.is_some_and(|r| pinned.contains(&r)))
+}
+
+/// `a = and x, K; …; icmp eq|ne a, 0` with a single-use `a`: the
+/// index of the AND to move right before the compare, where codegen
+/// folds the pair into one `tst x, #K` (`selinc`). Same redefinition
+/// hazard as the compare sink, on `x` and `a`.
+fn mask_to_sink(
+    insts: &[torajs_core::ssa::Inst],
+    ci: usize,
+    uses: &HashMap<ValueId, u32>,
+) -> Option<usize> {
+    let InstKind::ICmp(IPred::Eq | IPred::Ne, Operand::Value(a), Operand::ConstI64(0)) =
+        insts[ci].kind
+    else {
+        return None;
+    };
+    if uses.get(&a) != Some(&1) {
+        return None;
+    }
+    let ai = insts[..ci].iter().position(|i| i.result == Some(a))?;
+    let InstKind::BinOp(BinOp::And, Operand::Value(x), Operand::ConstI64(_)) = insts[ai].kind
+    else {
+        return None;
+    };
+    (ai + 1 != ci && !redefines(&insts[ai + 1..ci], &[a, x])).then_some(ai)
+}
+
+/// True when the Select is a csinc candidate — `select c, (x+1), y`
 /// over I64 with a single-use adjacent ADD (codegen's
 /// `selinc::fusible_select_incs`, which absorbs the ADD *and* the
 /// compare into one CSINC). Sinking the ICmp between them would
@@ -154,15 +194,16 @@ fn is_csinc_shape(
     let InstKind::BinOp(BinOp::Add, a_lhs, a_rhs) = &add.kind else {
         return false;
     };
-    let base = match (a_lhs, a_rhs) {
-        (base, Operand::ConstI64(1)) | (Operand::ConstI64(1), base) => base,
-        _ => return false,
-    };
+    if !matches!(
+        (a_lhs, a_rhs),
+        (_, Operand::ConstI64(1)) | (Operand::ConstI64(1), _)
+    ) {
+        return false;
+    }
     if uses.get(&add_result) != Some(&1) {
         return false;
     }
-    (*then_op == Operand::Value(add_result) && else_op == base)
-        || (*else_op == Operand::Value(add_result) && then_op == base)
+    (*then_op == Operand::Value(add_result)) != (*else_op == Operand::Value(add_result))
 }
 
 #[cfg(test)]
@@ -304,6 +345,29 @@ mod tests {
         );
         let mut m = module_of(f);
         assert_eq!(sink_cmps(&mut m).sunk, 0);
+    }
+
+    #[test]
+    fn csinc_compare_sinks_to_the_add_and_pulls_its_mask() {
+        // collatz after select formation: and; icmp; arms; add; select
+        let f = func_with(
+            vec![
+                inst(9, InstKind::BinOp(BinOp::And, v(1), Operand::ConstI64(1))),
+                inst(10, InstKind::ICmp(IPred::Eq, v(9), Operand::ConstI64(0))),
+                inst(12, InstKind::BinOp(BinOp::AShr, v(1), Operand::ConstI64(1))),
+                inst(14, InstKind::BinOp(BinOp::Mul, Operand::ConstI64(3), v(1))),
+                add(11, v(14), Operand::ConstI64(1)),
+                select(13, 10, v(12), v(11)),
+            ],
+            Terminator::Ret(Some(v(13))),
+        );
+        let mut m = module_of(f);
+        assert_eq!(sink_cmps(&mut m).sunk, 2);
+        let insts = &m.funcs[0].blocks[0].insts;
+        assert!(matches!(insts[2].kind, InstKind::BinOp(BinOp::And, ..)));
+        assert!(matches!(insts[3].kind, InstKind::ICmp(..)));
+        assert!(matches!(insts[4].kind, InstKind::BinOp(BinOp::Add, ..)));
+        assert!(matches!(insts[5].kind, InstKind::Select(..)));
     }
 
     #[test]

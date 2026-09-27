@@ -110,11 +110,12 @@ pub(super) struct ArmPlan {
     pub(super) copies: Vec<(ValueId, Type, Operand)>,
 }
 
-/// Dissect one arm block. `None` = arm not convertible.
-pub(super) fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
-    let mut hoisted = Vec::new();
+/// Dissect one arm (its blocks in execution order). `None` = arm not
+/// convertible.
+pub(super) fn plan_arm(func: &Function, blks: &[usize]) -> Option<ArmPlan> {
+    let mut hoisted: Vec<Inst> = Vec::new();
     let mut copies: Vec<(ValueId, Type, Operand)> = Vec::new();
-    for inst in &func.blocks[blk].insts {
+    for inst in blks.iter().flat_map(|&b| &func.blocks[b].insts) {
         match &inst.kind {
             InstKind::Copy(ty, src) => {
                 let vid = inst.result.expect("Copy always defines a value");
@@ -124,6 +125,15 @@ pub(super) fn plan_arm(func: &Function, blk: usize) -> Option<ArmPlan> {
                 copies.push((vid, *ty, src.clone()));
             }
             kind if can_speculate(kind) && inst.result.is_some() => {
+                // hoisted ahead of the selects, it would read the value
+                // from before the diamond instead of this arm's copy
+                let mut reads_copy = false;
+                torajs_core::ssa::visit_value_operands(kind, |v| {
+                    reads_copy |= copies.iter().any(|(c, _, _)| *c == v);
+                });
+                if reads_copy {
+                    return None;
+                }
                 hoisted.push(inst.clone());
             }
             _ => return None,
@@ -181,7 +191,37 @@ fn form_once(func: &mut Function, stats: &mut SelectFormStats) -> bool {
     false
 }
 
-/// Blade-2 pure diamond: both arms single-pred, all-pure, same join.
+/// Longest straight-line chains an arm may span. A growth guard that
+/// a later pass folded away leaves its split behind as a block that
+/// only branches on (float_demote's post-op check on collatz's `3n+1`).
+const MAX_ARM_BLOCKS: usize = 4;
+
+/// The blocks of the arm entered at `first` (BlockId.0 == position,
+/// which phi_promote destruct upholds): `first`, then each `br`
+/// target with a single predecessor. The first target with more than
+/// one is the join. `None` = the arm does not end in a plain `br`.
+fn arm_chain(
+    func: &Function,
+    first: BlockId,
+    pred_count: impl Fn(BlockId) -> u32,
+) -> Option<(Vec<usize>, BlockId)> {
+    let mut blks = vec![first.0 as usize];
+    loop {
+        let Terminator::Br(next) = func.blocks[*blks.last()?].term else {
+            return None;
+        };
+        if pred_count(next) != 1 {
+            return Some((blks, next));
+        }
+        if blks.len() == MAX_ARM_BLOCKS || blks.contains(&(next.0 as usize)) {
+            return None;
+        }
+        blks.push(next.0 as usize);
+    }
+}
+
+/// Blade-2 pure diamond: both arms single-pred straight-line chains,
+/// all-pure, same join.
 #[allow(clippy::too_many_arguments)]
 fn try_form_pure(
     func: &mut Function,
@@ -193,21 +233,20 @@ fn try_form_pure(
     def_count: impl Fn(ValueId) -> u32,
     stats: &mut SelectFormStats,
 ) -> bool {
-    // BlockId.0 == position invariant (phi_promote destruct upholds)
-    let (t, e) = (t_id.0 as usize, e_id.0 as usize);
     if pred_count(t_id) != 1 || pred_count(e_id) != 1 {
         return false;
     }
-    let (Terminator::Br(t_join), Terminator::Br(e_join)) =
-        (&func.blocks[t].term, &func.blocks[e].term)
-    else {
+    let (Some((t_blks, t_join)), Some((e_blks, e_join))) = (
+        arm_chain(func, t_id, &pred_count),
+        arm_chain(func, e_id, &pred_count),
+    ) else {
         return false;
     };
-    if t_join != e_join || *t_join == t_id || *t_join == e_id {
+    if t_join != e_join || t_join == func.blocks[h].id {
         return false;
     }
-    let join = *t_join;
-    let (Some(tp), Some(ep)) = (plan_arm(func, t), plan_arm(func, e)) else {
+    let join = t_join;
+    let (Some(tp), Some(ep)) = (plan_arm(func, &t_blks), plan_arm(func, &e_blks)) else {
         return false;
     };
     // join values must pair up exactly: same vid set, two defs
@@ -248,8 +287,9 @@ fn try_form_pure(
     }
     func.blocks[h].insts.extend(appended);
     func.blocks[h].term = Terminator::Br(join);
-    func.blocks[t].insts.clear();
-    func.blocks[e].insts.clear();
+    for b in t_blks.into_iter().chain(e_blks) {
+        func.blocks[b].insts.clear();
+    }
     stats.diamonds_converted += 1;
     true
 }
@@ -345,6 +385,75 @@ mod tests {
             InstKind::Select(Type::I64, v(0), c(7), c(5))
         );
         assert!(f.blocks[1].insts.is_empty() && f.blocks[2].insts.is_empty());
+    }
+
+    /// collatz after float_demote: the odd arm computes in one block
+    /// and copies in the next (the split a folded guard left behind).
+    fn chained_arm_diamond() -> Function {
+        func(
+            6,
+            vec![
+                blk(
+                    0,
+                    vec![inst(1, InstKind::ICmp(IPred::Eq, v(0), c(0)))],
+                    Terminator::CondBr {
+                        cond: v(1),
+                        then_blk: BlockId(1),
+                        else_blk: BlockId(2),
+                    },
+                ),
+                blk(
+                    1,
+                    vec![
+                        inst(3, InstKind::BinOp(BinOp::AShr, v(0), c(1))),
+                        inst(2, InstKind::Copy(Type::I64, v(3))),
+                    ],
+                    Terminator::Br(BlockId(4)),
+                ),
+                blk(
+                    2,
+                    vec![inst(4, InstKind::BinOp(BinOp::Mul, c(3), v(0)))],
+                    Terminator::Br(BlockId(3)),
+                ),
+                blk(
+                    3,
+                    vec![
+                        inst(5, InstKind::BinOp(BinOp::Add, v(4), c(1))),
+                        inst(2, InstKind::Copy(Type::I64, v(5))),
+                    ],
+                    Terminator::Br(BlockId(4)),
+                ),
+                blk(4, vec![], Terminator::Ret(Some(v(2)))),
+            ],
+        )
+    }
+
+    #[test]
+    fn chained_arm_forms_select() {
+        let mut f = chained_arm_diamond();
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!(stats.diamonds_converted, 1);
+        assert_eq!(stats.insts_hoisted, 3);
+        assert!(matches!(f.blocks[0].term, Terminator::Br(BlockId(4))));
+        assert_eq!(
+            f.blocks[0].insts.last().unwrap().kind,
+            InstKind::Select(Type::I64, v(1), v(3), v(5))
+        );
+        assert!((1..4).all(|b| f.blocks[b].insts.is_empty()));
+    }
+
+    #[test]
+    fn arm_reading_its_own_copy_keeps_the_branch() {
+        // a single-block arm: `%2 = copy …` then an op reading %2
+        let mut f = chained_arm_diamond();
+        f.blocks[1].insts = vec![
+            inst(2, InstKind::Copy(Type::I64, c(9))),
+            inst(3, InstKind::BinOp(BinOp::AShr, v(2), c(1))),
+        ];
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!(stats.diamonds_converted, 0);
     }
 
     #[test]
