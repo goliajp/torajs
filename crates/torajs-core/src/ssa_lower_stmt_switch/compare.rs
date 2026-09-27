@@ -148,11 +148,32 @@ pub(super) fn emit_case_compare(
             ctx.f
                 .append_inst(cmp_blk, InstKind::FCmp(FPred::Oeq, l, v), Type::Bool, None)
         }
+        // Two different representations are two different ES types —
+        // a Number or Boolean against a pointer-shaped value, as in
+        // `switch (null) { case 0: }` — and IsStrictlyEqual answers
+        // false. The raw ICmp compared bits, and NULL equals 0. The
+        // clause value above was still evaluated.
+        _ if value_kind(scrut_ty) != value_kind(ctx.operand_ty(&v)) => ctx.f.append_inst(
+            cmp_blk,
+            InstKind::ICmp(IPred::Ne, Operand::ConstI64(0), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        ),
         _ => ctx.f.append_inst(
             cmp_blk,
             InstKind::ICmp(IPred::Eq, scrut_val, v),
             Type::Bool,
             None,
         ),
+    }
+}
+
+/// Which ES type family a raw compare operand belongs to: Number,
+/// Boolean, or anything pointer-shaped.
+fn value_kind(ty: Type) -> u8 {
+    match ty {
+        Type::I64 | Type::I32 | Type::F64 => 1,
+        Type::Bool => 2,
+        _ => 0,
     }
 }
