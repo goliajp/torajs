@@ -134,8 +134,7 @@ pub(super) fn queue_nested_import(
     }
     check_k2_form(source, &default, &namespace, &named)?;
     let path = resolve_path(dir, source)?;
-    let side_effect_only = named.is_empty() && default.is_none() && namespace.is_none();
-    work.push_back((path, named, default, side_effect_only, namespace, false));
+    work.push_back(WorkItem::clause(path, named, default, namespace));
     Ok(())
 }
 
@@ -178,7 +177,7 @@ pub(super) fn queue_reexport(
     if lib_named.is_empty() {
         // `export {} from "m"` — nothing to forward, but m is still a
         // requested module (§16.2.2.5): it loads and evaluates.
-        work.push_back((path, Vec::new(), None, true, None, false));
+        work.push_back(WorkItem::side_effect(path));
         return Ok(());
     }
     // The faces this lane forwarded; the rest go through the
@@ -203,15 +202,11 @@ pub(super) fn queue_reexport(
                 // The source's default export only answers on the
                 // default lane — a named request for a binding
                 // literally called `default` would miss it.
-                work.push_back((path.clone(), Vec::new(), Some(binding), false, None, false));
+                work.push_back(WorkItem::default(path.clone(), binding));
             } else {
-                work.push_back((
+                work.push_back(WorkItem::named(
                     path.clone(),
                     vec![(orig.clone(), Some(binding))],
-                    None,
-                    false,
-                    None,
-                    false,
                 ));
             }
         }
@@ -244,14 +239,7 @@ pub(super) fn queue_reexport(
         for final_name in final_names {
             ledger.record(orig, &final_name);
             if orig == "default" {
-                work.push_back((
-                    path.clone(),
-                    Vec::new(),
-                    Some(final_name),
-                    false,
-                    None,
-                    false,
-                ));
+                work.push_back(WorkItem::default(path.clone(), final_name));
                 continue;
             }
             // Re-export's nested load fetches `orig` from
@@ -268,7 +256,7 @@ pub(super) fn queue_reexport(
         }
     }
     if !nested_named.is_empty() {
-        work.push_back((path.clone(), nested_named, None, false, None, false));
+        work.push_back(WorkItem::named(path.clone(), nested_named));
     }
     queue_indirect_export_checks(work, &path, lib_named, &forwarded, ledger);
     Ok(())
@@ -296,22 +284,11 @@ fn queue_indirect_export_checks(
         };
         ledger.record(orig, &binding);
         if orig == "default" {
-            work.push_back((
-                path.to_path_buf(),
-                Vec::new(),
-                Some(binding),
-                false,
-                None,
-                false,
-            ));
+            work.push_back(WorkItem::default(path.to_path_buf(), binding));
         } else {
-            work.push_back((
+            work.push_back(WorkItem::named(
                 path.to_path_buf(),
                 vec![(orig.clone(), Some(binding))],
-                None,
-                false,
-                None,
-                false,
             ));
         }
     }
@@ -331,7 +308,7 @@ pub(super) fn queue_side_effect_reexport(
         return Ok(());
     }
     let path = resolve_path(target_dir, lib_source)?;
-    work.push_back((path.clone(), Vec::new(), None, true, None, false));
+    work.push_back(WorkItem::side_effect(path.clone()));
     queue_indirect_export_checks(work, &path, lib_named, &HashSet::new(), ledger);
     Ok(())
 }
@@ -373,21 +350,17 @@ pub(super) fn queue_star_reexport(
             // One namespace load per importer-visible spelling
             // (421-04) — each alias gets its own accumulator.
             for local in star_ns_locals(exported, want, rename, default_alias, ns) {
-                work.push_back((path.clone(), Vec::new(), None, false, Some(local), false));
+                work.push_back(WorkItem::namespace(path.clone(), local));
             }
         }
         ExportStar::All => match ns {
             Some(ns) => {
                 // `export * from` pour — §16.2.3 excludes `default`; the
                 // flag keeps the ns default-field synthesis off this walk.
-                work.push_back((
-                    path,
-                    Vec::new(),
-                    None,
-                    false,
-                    Some(ns.alias().to_string()),
-                    true,
-                ))
+                work.push_back(WorkItem {
+                    ns_star_feed: true,
+                    ..WorkItem::namespace(path, ns.alias().to_string())
+                })
             }
             None => {
                 let forwarded: Vec<NamedImport> = want
@@ -402,7 +375,7 @@ pub(super) fn queue_star_reexport(
                     })
                     .collect();
                 if !forwarded.is_empty() {
-                    work.push_back((path, forwarded, None, false, None, false));
+                    work.push_back(WorkItem::named(path, forwarded));
                 }
             }
         },

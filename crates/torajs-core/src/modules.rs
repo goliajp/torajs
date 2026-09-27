@@ -75,32 +75,7 @@ use std::path::{Path, PathBuf};
 /// is `Some` for `import { foo as bar }`, `None` otherwise.
 pub(super) type NamedImport = (String, Option<String>);
 
-/// Worklist entry for the BFS resolver — the canonicalized absolute
-/// path of a module to load, plus the named-imports list that drove
-/// the request, plus the default-binding alias (`Some(x)` when the
-/// importer wrote `import x from "./y"`; the lib's
-/// `export default <expr>` resolves to a synthetic `let x = <expr>`),
-/// plus a `side_effect_only` flag (`true` when the importer wrote
-/// bare `import "./y"`; the lib's full top-level statement list is
-/// injected in source order regardless of `export` wrapping), plus
-/// the namespace alias (`Some(M)` when the importer wrote
-/// `import * as M from "./y"`; the lib's full export list materializes
-/// as a synthetic `let M = { name1: name1, name2: name2, ... }`
-/// after the named decls inject).
-/// (path, named, default_alias, side_effect_only, namespace_alias,
-/// ns_star_feed). The last flag marks a `export * from "m"` pour into
-/// an existing namespace accumulator: §16.2.3 star forwarding
-/// excludes `default`, so the ns `default`-field synthesis must skip
-/// these walks (a DIRECT namespace request and `export * as ns` both
-/// carry the module's own default and stay false).
-type WorkItem = (
-    PathBuf,
-    Vec<NamedImport>,
-    Option<String>,
-    bool,
-    Option<String>,
-    bool,
-);
+use work_item::WorkItem;
 
 /// Seed every root request onto the worklist: the entry's static
 /// clauses (`static_resolution.rs`), then §13.3.10 dynamic-import
@@ -121,7 +96,11 @@ fn seed_requests(
     entry_seed.dyn_roots = work
         .iter()
         .skip(static_len)
-        .filter_map(|(path, _, _, _, ns, _)| ns.as_ref().map(|n| (path.clone(), n.clone())))
+        .filter_map(|w| {
+            w.namespace_alias
+                .as_ref()
+                .map(|n| (w.path.clone(), n.clone()))
+        })
         .collect();
     graph.roots = graph.edges_since(work, 0);
     Ok((entry_seed, dyn_table))
@@ -156,14 +135,14 @@ pub fn resolve_imports(
         .split_off(st.work.len() - entry_seed.dyn_roots.len());
     let mut static_phase = true;
 
-    while let Some((
-        target_path,
+    while let Some(WorkItem {
+        path: target_path,
         named,
         default_alias,
         side_effect_only,
         namespace_alias,
         ns_star_feed,
-    )) = pop_phased(&mut st.work, &mut dyn_work, &mut static_phase)
+    }) = pop_phased(&mut st.work, &mut dyn_work, &mut static_phase)
     {
         // Repeat-visit alignment + per-path filter + mangle-memory
         // realignment — see [`repeat_request::align_and_filter`].
@@ -330,6 +309,7 @@ mod resolve_helpers;
 mod resolve_state;
 pub(crate) mod splice;
 mod static_resolution;
+mod work_item;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
 use lib_walk::{LibRequest, walk_lib_stmt};

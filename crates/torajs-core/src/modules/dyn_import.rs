@@ -89,7 +89,7 @@ pub(super) fn seed_candidates(
             let target = match probe {
                 Ok(path) => {
                     let ns_name = format!("__dyn_ns_c{k}");
-                    work.push_back((path, Vec::new(), None, false, Some(ns_name.clone()), false));
+                    work.push_back(WorkItem::namespace(path, ns_name.clone()));
                     DynTarget::Namespace(ns_name)
                 }
                 Err(msg) => {

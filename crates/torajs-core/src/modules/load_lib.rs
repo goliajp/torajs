@@ -22,10 +22,7 @@ use super::{WorkItem, deconflict};
 /// the walk's, so the reordering changes what gets a name, never
 /// when a module runs.
 pub(super) fn pop_next(work: &mut VecDeque<WorkItem>) -> Option<WorkItem> {
-    let i = work
-        .iter()
-        .position(|(_, _, _, side_effect_only, _, _)| !*side_effect_only)
-        .unwrap_or(0);
+    let i = work.iter().position(|w| !w.side_effect_only).unwrap_or(0);
     work.remove(i)
 }
 
