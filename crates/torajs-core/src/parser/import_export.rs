@@ -418,6 +418,57 @@ impl<'a> Parser<'a> {
             ));
         }
         self.pos += 1;
+        // AllImportAttributesSupported: a key the host does not support
+        // is a SyntaxError of the importing module, and tr supports
+        // none — ignoring the clause would read the module under
+        // semantics its author did not ask for.
+        if let Some(key) = keys.first() {
+            return Err(format!(
+                "import attribute `{key}` is not supported (SyntaxError) at {}",
+                self.at()
+            ));
+        }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer::tokenize;
+    use crate::parser::parse;
+
+    fn parse_err(src: &str) -> String {
+        let tokens = tokenize(src).expect("tokenize");
+        parse(src, &tokens).err().expect("a parse error")
+    }
+
+    #[test]
+    fn unsupported_attribute_key_is_a_syntax_error() {
+        let e = parse_err("import { a } from \"./m\" with { test262: \"\" };");
+        assert!(
+            e.contains("import attribute `test262` is not supported"),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn reserved_word_and_string_keys_name_the_attribute() {
+        let e = parse_err("import \"./m\" with { if: \"a\", for: \"b\" };");
+        assert!(e.contains("import attribute `if`"), "{e}");
+        let e = parse_err("export * from \"./m\" with { \"k-1\": \"a\" };");
+        assert!(e.contains("import attribute `k-1`"), "{e}");
+    }
+
+    #[test]
+    fn duplicate_key_is_reported_before_support() {
+        let e = parse_err("import \"./m\" with { a: \"x\", a: \"y\" };");
+        assert!(e.contains("duplicate import attribute `a`"), "{e}");
+    }
+
+    #[test]
+    fn empty_clause_parses() {
+        let src = "import \"./m\" with {};";
+        let tokens = tokenize(src).expect("tokenize");
+        assert!(parse(src, &tokens).is_ok());
     }
 }
