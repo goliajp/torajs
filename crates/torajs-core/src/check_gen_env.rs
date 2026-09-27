@@ -72,9 +72,9 @@ pub(crate) fn check_stmts(c: &mut Checker, ast: &Ast) {
 
 /// A top-level binding a function body reads needs a home outside the
 /// program body. The pre-pass (`check_pipeline::pass_2`) gives one to
-/// the init shapes it can type without checking them; a scalar init it
-/// could not (`const n = xs.length`) is typed by now, and registers
-/// here under that type. The lowerer asks [`late_home_ty`] in the same
+/// the init shapes it can type without checking them; an init it could
+/// not (`const n = xs.length`, `const s = o.a`) is typed by now, and
+/// registers here under that type. The lowerer asks [`late_home_ty`] in the same
 /// fallback position.
 fn register_late_homes(c: &mut Checker, ast: &Ast) {
     let refs = crate::ast_refs::toplevel_binding_refs(ast);
@@ -95,10 +95,14 @@ fn register_late_homes(c: &mut Checker, ast: &Ast) {
     }
 }
 
-/// The init types a late home takes: the scalars, whose global slot
-/// needs no ownership story at the init store.
+/// The init types a late home takes: the scalars, and the two
+/// refcounted types whose slot representation needs no layout — the
+/// init store takes the slot's own stake in a borrowed read.
 pub(crate) fn late_home_ty(ty: &Type) -> bool {
-    matches!(ty, Type::Number | Type::Boolean)
+    matches!(
+        ty,
+        Type::Number | Type::Boolean | Type::String | Type::Symbol
+    )
 }
 
 /// Check the deferred gen-env methods once their wrappers' construction

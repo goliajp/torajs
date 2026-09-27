@@ -289,9 +289,9 @@ pub(super) fn inferred_slot_ty(
     )
 }
 
-/// The checker's late home (`check_gen_env::register_late_homes`): a
-/// scalar init no pre-pass arm types takes the slot of the type the
-/// checker gave it, same gate, same fallback position.
+/// The checker's late home (`check_gen_env::register_late_homes`): an
+/// init no pre-pass arm types takes the slot of the type the checker
+/// gave it, same gate, same fallback position.
 pub(super) fn late_home_slot(
     name: &str,
     init: ExprId,
@@ -307,6 +307,8 @@ pub(super) fn late_home_slot(
         .filter(|t| crate::check_gen_env::late_home_ty(t))?;
     Some(match ty {
         crate::check::Type::Boolean => Type::Bool,
+        crate::check::Type::String => Type::Str,
+        crate::check::Type::Symbol => Type::Symbol,
         _ if num_f64_slots.slot_is_f64(&SlotKey::Global(name.to_string())) => Type::F64,
         _ => Type::I64,
     })

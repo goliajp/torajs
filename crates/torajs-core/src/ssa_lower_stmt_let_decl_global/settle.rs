@@ -6,7 +6,7 @@
 //! typed refcounted slot.
 
 use crate::ast::{Expr, ExprId};
-use crate::ssa::{Operand, Type};
+use crate::ssa::{InstKind, Operand, Type};
 use crate::ssa_lower::LowerCtx;
 
 /// An `any` slot whose init is already an `any` READ — a member /
@@ -44,10 +44,13 @@ pub(super) fn settle_any_read_init(
     read
 }
 
-/// A typed refcounted slot fed a borrow shape. An alias of another
-/// binding takes the slot's own stake; member / element inits stay
-/// loud: their ownership shape is lane-dependent (`arr_index_get`
-/// answers +1), so a blanket inc would double-count.
+/// A typed refcounted slot. A string view (`s[0]`, a sliced string)
+/// cannot live in a `string` slot, whose readers decode owned cells,
+/// so it is copied out first. Past that, the ledger's two borrow
+/// shapes take the slot's own stake: an alias of another binding, and
+/// a member or element read the lowering did not detach (the rows the
+/// fn-scope lane binds as a borrow, `init_is_alias`). Every other
+/// shape hands over a fresh value.
 pub(super) fn settle_typed_init(
     ctx: &mut LowerCtx,
     name: &str,
@@ -59,14 +62,27 @@ pub(super) fn settle_typed_init(
         return init_val;
     }
     let got = ctx.operand_ty(&init_val);
+    if slot_ty == Type::Str && got == Type::Substr {
+        return substr_into_str(ctx, init, init_val);
+    }
     match ctx.ast.get_expr(init) {
-        Expr::Ident(_) if ident_alias_fits(ctx, name, slot_ty, got) => {
+        Expr::Ident(_) => {
+            if !ident_alias_fits(ctx, name, slot_ty, got) {
+                panic!(
+                    "ssa-lower: K.4 refcount global `{name}` requires a same-type alias init; `{got:?}` into `{slot_ty:?}` is not yet supported"
+                );
+            }
             ctx.emit_owned_result_inc(init_val.clone(), got);
         }
-        Expr::Ident(_) | Expr::Member { .. } | Expr::Index { .. } => {
-            panic!(
-                "ssa-lower: K.4 refcount global `{name}` requires fresh-heap or same-type ident-alias init; this init shape is not yet supported"
-            );
+        Expr::Member { .. } | Expr::Index { .. } => {
+            if got != slot_ty {
+                panic!(
+                    "ssa-lower: K.4 refcount global `{name}` reads a `{got:?}` into a `{slot_ty:?}` slot; this init shape is not yet supported"
+                );
+            }
+            if !ctx.owned_member_reads.contains(&init) && !ctx.expr_transfers_ownership(init) {
+                ctx.emit_owned_result_inc(init_val.clone(), got);
+            }
         }
         _ => {}
     }
@@ -98,4 +114,22 @@ fn ident_alias_fits(ctx: &LowerCtx, name: &str, slot_ty: Type, got: Type) -> boo
         )
         || (matches!((&slot_ty, &got), (Type::Closure(_), Type::Closure(_)))
             && ctx.ast.variadic_value_bindings.contains(name))
+}
+
+/// Copy a string view out into an owned string for a `string` slot;
+/// a view the init owned (string indexing, a call's result) is
+/// released, one it borrows (an alias of a view binding) is left to
+/// its owner.
+fn substr_into_str(ctx: &mut LowerCtx, init: ExprId, view: Operand) -> Operand {
+    let cur_block = ctx.cur_block;
+    let owned = ctx.f.append_inst(
+        cur_block,
+        InstKind::Call(ctx.intrinsics.substr_to_owned, vec![view.clone()]),
+        Type::Str,
+        None,
+    );
+    if ctx.owned_member_reads.contains(&init) || ctx.expr_transfers_ownership(init) {
+        ctx.emit_drop_value(view, Type::Substr);
+    }
+    Operand::Value(owned)
 }
