@@ -70,35 +70,35 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
     } else {
         let v =
             crate::ssa_lower_index::lower_from_value(ctx, eid, obj, index, obj_op, is_non_deque);
-        match ctx.operand_ty(&v) {
-            Type::Any => v,
-            vt => {
-                // The eid-aware encoder, not the plain one: the
-                // element may be an OOB read's `undefined` sentinel
-                // (F64 bits, or the generic cell for the heap
-                // shapes), and only this entry asks. `zs?.[9]`
-                // printed NaN while `zs[9]` one line above printed
-                // `undefined` — the box was where the answer was
-                // lost, not the predicate, which names OptIndex.
-                let boxed = ctx.box_to_any_from_expr(eid, v.clone());
-                // Chunk 726 — a Str/Substr receiver's index read is
-                // a FRESH view (owned, rc=1): record the eid owned so
-                // the consumer's release balances (probe q726b:
-                // discarded `s?.[i]` churn 15.2MB vs 6.2MB flat).
-                // Rotation 184 — box_to_any is a pure encode for
-                // every heap shape (anyv_box_str_slot included:
-                // box_void_ptr never incs), so the fresh view's only
-                // stake transfers INTO the box. The old drop here
-                // freed the view under the live box (use-after-free
-                // + a second consumer release). The typed-array
-                // element arm measures flat as a borrow (q726e) and
-                // stays off the owned track.
-                if matches!(obj_ty, Type::Str | Type::Substr) && vt.is_refcounted() {
-                    ctx.owned_member_reads.insert(eid);
-                }
-                boxed
+        let vt = ctx.operand_ty(&v);
+        // The eid-aware encoder, not the plain one: the element may be
+        // an OOB read's `undefined` sentinel (F64 bits, or the generic
+        // cell for the heap shapes), and only this entry asks. `zs?.[9]`
+        // printed NaN while `zs[9]` one line above printed `undefined`
+        // — the box was where the answer was lost, not the predicate,
+        // which names OptIndex.
+        let boxed = if vt == Type::Any {
+            v.clone()
+        } else {
+            ctx.box_to_any_from_expr(eid, v.clone())
+        };
+        // The result is consumed as an owned Any. Chunk 726 — a
+        // Str/Substr receiver's index read is a FRESH view (owned,
+        // rc=1) whose only stake transfers into the box (rotation 184:
+        // box_to_any is a pure encode for every heap shape). Any other
+        // receiver's element the lane did not detach is a BORROW off
+        // its container slot, so it takes its own stake first, like
+        // the OptChain typed arm's field load — or `const a = xs?.[0]`
+        // in a loop freed the array's element once per iteration. Inc
+        // no-ops on the undefined sentinels.
+        let fresh_view = matches!(obj_ty, Type::Str | Type::Substr) && vt != Type::Any;
+        if vt.is_refcounted() && !ctx.owned_member_reads.contains(&eid) {
+            if !fresh_view {
+                ctx.emit_owned_result_inc(v, vt);
             }
+            ctx.owned_member_reads.insert(eid);
         }
+        boxed
     };
     ctx.f.append_void(
         ctx.cur_block,
