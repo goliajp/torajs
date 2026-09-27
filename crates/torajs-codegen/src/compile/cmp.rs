@@ -49,9 +49,9 @@ pub(crate) fn emit_compare_nzcv(
     let rm = materialize_operand_gpr(bytes, rhs, OP_SCRATCH_RHS, alloc);
     // I32-typed ICmp (e.g. refcount equality in emit_rc_dec_inline's
     // `ICmp(Eq, rc_new: I32, ConstI32(0))`) must compare only the
-    // low 32 bits — the 64-bit X-reg slot's high half holds the
-    // adjacent heap header u32 (type_tag/flags), which a 64-bit
-    // cmp would conflate into NZCV and misroute the
+    // low 32 bits: an I32 value lives in an X register whose high
+    // half is not kept canonical (a negative ConstI32 materializes
+    // sign-extended), so a 64-bit cmp could misroute the
     // walk-vs-cycle-buffer branch. Detect via a ConstI32 operand on
     // either side; pure I64 ICmp stays on the X-form.
     let is_i32 = matches!(lhs, Operand::ConstI32(_)) || matches!(rhs, Operand::ConstI32(_));

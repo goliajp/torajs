@@ -29,6 +29,49 @@ pub fn str_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
     0xB900_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
 }
 
+/// LDR Wt, [Xn, #imm12] — load 32-bit zero-extended, unsigned
+/// offset, scaled by 4. ARM ARM C6.2.131.
+pub fn ldr_w_imm12(rt: Gpr, rn: Gpr, byte_offset: u32) -> u32 {
+    debug_assert!(byte_offset % 4 == 0, "byte offset must be 4-byte aligned");
+    let imm12 = byte_offset / 4;
+    debug_assert!(imm12 < 4096, "scaled offset must fit in 12 bits");
+    0xB940_0000 | (imm12 << 10) | (rn.idx() << 5) | rt.idx()
+}
+
+/// LDUR Wt, [Xn, #imm9] — load 32-bit zero-extended, unscaled
+/// signed offset. ARM ARM C6.2.139.
+pub fn ldur_w_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        (-256..=255).contains(&byte_offset),
+        "LDUR imm9 must be in -256..=255 (got {byte_offset})"
+    );
+    let imm9 = (byte_offset as u32) & 0x1FF;
+    0xB840_0000 | (imm9 << 12) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STUR Wt, [Xn, #imm9] — store 32-bit, unscaled signed offset.
+/// ARM ARM C6.2.399.
+pub fn stur_w_imm9(rt: Gpr, rn: Gpr, byte_offset: i32) -> u32 {
+    assert!(
+        (-256..=255).contains(&byte_offset),
+        "STUR imm9 must be in -256..=255 (got {byte_offset})"
+    );
+    let imm9 = (byte_offset as u32) & 0x1FF;
+    0xB800_0000 | (imm9 << 12) | (rn.idx() << 5) | rt.idx()
+}
+
+/// LDR Wt, [Xn, Xm, LSL #0] — load 32-bit zero-extended,
+/// register-indexed. ARM ARM C6.2.137.
+pub fn ldr_w_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xB860_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
+/// STR Wt, [Xn, Xm, LSL #0] — store 32-bit, register-indexed.
+/// ARM ARM C6.2.397.
+pub fn str_w_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
+    0xB820_6800 | (rm.idx() << 16) | (rn.idx() << 5) | rt.idx()
+}
+
 /// LDR Xt, [Xn, Xm, LSL #0] — load 64-bit, register-indexed, no
 /// scale (Xm is a raw byte index). ARM ARM C6.2.137.
 pub fn ldr_x_reg(rt: Gpr, rn: Gpr, rm: Gpr) -> u32 {
@@ -134,6 +177,19 @@ mod tests {
         // `as -arch arm64`: str w10, [x0] / str w10, [x3, #8]
         assert_eq!(str_w_imm12(Gpr::X10, Gpr::X0, 0), 0xB900_000A);
         assert_eq!(str_w_imm12(Gpr::X10, Gpr::X3, 8), 0xB900_086A);
+    }
+
+    #[test]
+    fn w_forms_match_clang() {
+        // clang -c: ldr w0, [x1, #4] / ldr w9, [x13, #8] / ldur w0, [x1, #6]
+        // stur w0, [x1, #-2] / ldr w0, [x1, x2] / str w0, [x1, x2]
+        assert_eq!(ldr_w_imm12(Gpr::X0, Gpr::X1, 4), 0xB940_0420);
+        assert_eq!(ldr_w_imm12(Gpr::X9, Gpr::X13, 8), 0xB940_09A9);
+        assert_eq!(ldur_w_imm9(Gpr::X0, Gpr::X1, 6), 0xB840_6020);
+        assert_eq!(stur_w_imm9(Gpr::X0, Gpr::X1, -2), 0xB81F_E020);
+        assert_eq!(ldr_w_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xB862_6820);
+        assert_eq!(str_w_reg(Gpr::X0, Gpr::X1, Gpr::X2), 0xB822_6820);
+        assert_eq!(str_w_imm12(Gpr::X0, Gpr::X1, 4), 0xB900_0420);
     }
 
     #[test]

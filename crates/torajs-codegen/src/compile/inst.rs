@@ -1,6 +1,6 @@
 //! Per-instruction dispatch: one `InstKind` to its emitter.
 
-use torajs_core::ssa::{InstKind, Type};
+use torajs_core::ssa::{Function, InstKind, Operand, Type};
 
 use super::slot;
 use super::{
@@ -19,6 +19,7 @@ use crate::reloc::Reloc;
 fn emit_inst(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
+    func: &Function,
     inst: &torajs_core::ssa::Inst,
     alloc: &Assignment,
     fn_sigs: &[Vec<Type>],
@@ -38,7 +39,14 @@ fn emit_inst(
         InstKind::IntToPtr(src) => emit_int_to_ptr(bytes, inst, src, alloc),
         InstKind::Alloca(_) | InstKind::AllocaBytes(_) => emit_alloca(bytes, inst, alloc),
         InstKind::Load(ty, ptr, offset) => emit_load(bytes, inst, ty, ptr, *offset, alloc),
-        InstKind::Store(val, ptr, offset) => emit_store(bytes, val, ptr, *offset, alloc),
+        InstKind::Store(val, ptr, offset) => {
+            let w32 = match val {
+                Operand::ConstI32(_) => true,
+                Operand::Value(v) => func.value_type(*v) == Type::I32,
+                _ => false,
+            };
+            emit_store(bytes, val, ptr, *offset, w32, alloc)
+        }
         InstKind::LoadDyn(ty, base, dyn_offset) => {
             emit_load_dyn(bytes, inst, ty, base, dyn_offset, alloc)
         }
@@ -95,6 +103,7 @@ fn emit_inst(
 pub(super) fn emit_inst_at(
     bytes: &mut Vec<u8>,
     relocs: &mut Vec<Reloc>,
+    func: &Function,
     inst: &torajs_core::ssa::Inst,
     alloc: &Assignment,
     fn_sigs: &[Vec<Type>],
@@ -128,7 +137,7 @@ pub(super) fn emit_inst_at(
             other => unreachable!("saved value not in a register: {other:?}"),
         }
     }
-    emit_inst(bytes, relocs, inst, alloc, fn_sigs);
+    emit_inst(bytes, relocs, func, inst, alloc, fn_sigs);
     for &(reg, off) in &saves {
         match reg {
             Reg::Gpr(g) => slot::sp_ldr_x(bytes, g, off),
@@ -147,7 +156,7 @@ mod tests {
     use crate::enc::bl_imm26;
     use crate::reg::{Gpr, Reg};
     use crate::regalloc::Assignment;
-    use torajs_core::ssa::{FuncId, Inst, InstKind, ValueId};
+    use torajs_core::ssa::{FuncId, Function, Inst, InstKind, Type, ValueId};
 
     fn words(bytes: &[u8]) -> Vec<u32> {
         bytes
@@ -171,7 +180,8 @@ mod tests {
             origin: None,
         };
         let mut bytes = Vec::new();
-        emit_inst_at(&mut bytes, &mut Vec::new(), &inst, &alloc, &[], 7);
+        let func = Function::new("f", Type::I64);
+        emit_inst_at(&mut bytes, &mut Vec::new(), &func, &inst, &alloc, &[], 7);
 
         let mut expect = Vec::new();
         slot::sp_str_x(&mut expect, Gpr::X6, 24);

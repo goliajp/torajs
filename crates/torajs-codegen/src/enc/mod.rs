@@ -50,7 +50,8 @@ pub use int::{
     sub_imm, sub_imm_lsl12, sub_reg, sub_w_imm, subs_imm, tst_imm, udiv_reg,
 };
 pub use mem::{
-    ldp_post_index, ldp_x_off, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3, ldrb_w_reg, ldur_x_imm9,
-    stp_pre_index, stp_x_off, str_w_imm12, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_x_imm9,
+    ldp_post_index, ldp_x_off, ldr_w_imm12, ldr_w_reg, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3,
+    ldrb_w_reg, ldur_w_imm9, ldur_x_imm9, stp_pre_index, stp_x_off, str_w_imm12, str_w_reg,
+    str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9, stur_x_imm9,
 };
 pub use sys::{mrs_fpcr, msr_fpcr, orr_imm_bit};

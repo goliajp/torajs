@@ -1478,6 +1478,7 @@ name = "torajs-codegen"
 version = "0.1.0"
 dependencies = [
  "torajs-core",
+ "torajs-rc",
 ]
 
 [[package]]

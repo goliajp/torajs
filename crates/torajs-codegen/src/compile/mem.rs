@@ -17,9 +17,9 @@ use super::{
     OP_SCRATCH_TMP, write_def_spill_fpr, write_def_spill_gpr, write_u32,
 };
 use crate::enc::{
-    ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_x_imm12, ldr_x_reg, ldr_x_reg_lsl3, ldrb_w_reg,
-    ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3, str_x_imm12, str_x_reg, str_x_reg_lsl3,
-    stur_x_imm9,
+    ldr_d_imm12, ldr_d_reg, ldr_d_reg_lsl3, ldr_w_imm12, ldr_w_reg, ldr_x_imm12, ldr_x_reg,
+    ldr_x_reg_lsl3, ldrb_w_reg, ldur_w_imm9, ldur_x_imm9, str_d_imm12, str_d_reg, str_d_reg_lsl3,
+    str_w_imm12, str_w_reg, str_x_imm12, str_x_reg, str_x_reg_lsl3, stur_w_imm9, stur_x_imm9,
 };
 use crate::reg::Gpr;
 use crate::regalloc::Assignment;
@@ -43,9 +43,9 @@ pub fn emit_alloca(bytes: &mut Vec<u8>, inst: &Inst, alloc: &Assignment) {
 /// `[Xn, Xm]`. 555-01: a 65k-element array literal stores its slots
 /// at offsets up to 524 KiB. Answers the index register, or `None`
 /// when an immediate form fits.
-fn wide_offset(bytes: &mut Vec<u8>, offset: u64) -> Option<Gpr> {
-    let fits = if offset % 8 == 0 {
-        offset < 32760
+fn wide_offset(bytes: &mut Vec<u8>, offset: u64, scale: u64) -> Option<Gpr> {
+    let fits = if offset % scale == 0 {
+        offset < 4095 * scale
     } else {
         offset < 256
     };
@@ -56,13 +56,62 @@ fn wide_offset(bytes: &mut Vec<u8>, offset: u64) -> Option<Gpr> {
     Some(OP_SCRATCH_TMP)
 }
 
-/// Emit `LDR Xd/Dd, [Xn, #offset]` — load a 64-bit value from the
-/// pointer operand at the given byte offset.
+/// The encoders of one GPR access (width and direction): register-
+/// indexed, scaled imm12 when the offset is a multiple of `scale`,
+/// unscaled imm9 otherwise.
+struct GprForms {
+    reg: fn(Gpr, Gpr, Gpr) -> u32,
+    imm12: fn(Gpr, Gpr, u32) -> u32,
+    imm9: fn(Gpr, Gpr, i32) -> u32,
+    scale: u64,
+}
+
+const X_LOAD: GprForms = GprForms {
+    reg: ldr_x_reg,
+    imm12: ldr_x_imm12,
+    imm9: ldur_x_imm9,
+    scale: 8,
+};
+const X_STORE: GprForms = GprForms {
+    reg: str_x_reg,
+    imm12: str_x_imm12,
+    imm9: stur_x_imm9,
+    scale: 8,
+};
+const W_LOAD: GprForms = GprForms {
+    reg: ldr_w_reg,
+    imm12: ldr_w_imm12,
+    imm9: ldur_w_imm9,
+    scale: 4,
+};
+const W_STORE: GprForms = GprForms {
+    reg: str_w_reg,
+    imm12: str_w_imm12,
+    imm9: stur_w_imm9,
+    scale: 4,
+};
+
+// ssa_lower reads and writes heap-header fields at offsets like +4;
+// the scaled imm12 form needs a multiple of the access size, so the
+// rest take the unscaled imm9 form and out-of-range offsets the
+// register-indexed form (`wide_offset`)
+fn emit_gpr_access(bytes: &mut Vec<u8>, f: &GprForms, rt: Gpr, rn: Gpr, offset: u64) {
+    let word = match wide_offset(bytes, offset, f.scale) {
+        Some(rm) => (f.reg)(rt, rn, rm),
+        None if offset % f.scale == 0 => (f.imm12)(rt, rn, offset as u32),
+        None => (f.imm9)(rt, rn, offset as i32),
+    };
+    write_u32(bytes, word);
+}
+
+/// Emit `LDR Xd/Wd/Dd, [Xn, #offset]` — load the value at the given
+/// byte offset from the pointer operand.
 ///
-/// `ty == Type::F64` dispatches to the FP D-form (LDR Dd, …); all
-/// other 64-bit-shaped types use the GPR X-form. The pointer operand
-/// (`ptr`) is always materialized into a GPR — there's no FP base-
-/// addressing form on aarch64.
+/// `ty == Type::F64` dispatches to the FP D-form (LDR Dd, …), `I32`
+/// to the W-form, which reads exactly its four bytes zero-extended;
+/// every other type is 64-bit shaped and takes the X-form. The
+/// pointer operand (`ptr`) is always materialized into a GPR —
+/// there's no FP base-addressing form on aarch64.
 pub fn emit_load(
     bytes: &mut Vec<u8>,
     inst: &Inst,
@@ -73,8 +122,8 @@ pub fn emit_load(
 ) {
     let result_vid = inst.result.expect("Load must have result");
     let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_LHS, alloc);
-    let wide = wide_offset(bytes, offset);
     if *ty == Type::F64 {
+        let wide = wide_offset(bytes, offset, 8);
         let (dst, spill_off) = alloc.def_fpr(result_vid, FP_SCRATCH_RESULT);
         match wide {
             Some(rm) => write_u32(bytes, ldr_d_reg(dst, rn, rm)),
@@ -83,25 +132,8 @@ pub fn emit_load(
         write_def_spill_fpr(bytes, spill_off, dst);
     } else {
         let (dst, spill_off) = alloc.def_gpr(result_vid, OP_SCRATCH_RESULT_GPR);
-        // ssa_lower emits `Load _, ptr +4` and similar non-8-aligned
-        // offsets when accessing struct/heap-header fields packed
-        // at byte granularity (refcount/type_tag/flags). The scaled
-        // LDR imm12 form requires the offset be a multiple of 8 —
-        // pre-fix the encoder silently floor-divided unaligned
-        // offsets by 8, redirecting the load to the wrong address
-        // (root cause of fn-return dynobj typeof returning "string"
-        // because the type_tag read at +4 collided with offset 0's
-        // refcount slot). Use unscaled LDUR (signed imm9, ±256) for
-        // unaligned offsets and the canonical LDR scaled imm12 form
-        // for aligned ones; offsets outside both ranges take the
-        // register-indexed form (`wide_offset`).
-        if let Some(rm) = wide {
-            write_u32(bytes, ldr_x_reg(dst, rn, rm));
-        } else if offset % 8 == 0 {
-            write_u32(bytes, ldr_x_imm12(dst, rn, offset as u32));
-        } else {
-            write_u32(bytes, ldur_x_imm9(dst, rn, offset as i32));
-        }
+        let forms = if *ty == Type::I32 { &W_LOAD } else { &X_LOAD };
+        emit_gpr_access(bytes, forms, dst, rn, offset);
         write_def_spill_gpr(bytes, spill_off, dst);
     }
 }
@@ -113,31 +145,29 @@ pub fn emit_load(
 /// and keeps the FPR path.
 fn store_val_is_zero(val: &Operand) -> bool {
     match val {
-        Operand::ConstI64(0) => true,
+        Operand::ConstI64(0) | Operand::ConstI32(0) => true,
         Operand::ConstF64(c) => c.to_bits() == 0,
         _ => false,
     }
 }
 
-/// Emit `STR Xs/Ds, [Xn, #offset]` — store a 64-bit value to the
-/// pointer operand at the given byte offset. The value operand
-/// (`val`) decides FP vs GPR via `operand_is_f64`.
+/// Emit `STR Xs/Ws/Ds, [Xn, #offset]` — store the value operand to
+/// the pointer operand at the given byte offset. The value operand
+/// (`val`) decides FP vs GPR via `operand_is_f64`; `w32` (an I32
+/// value) stores only its four bytes, leaving the neighbouring
+/// header field untouched.
 pub fn emit_store(
     bytes: &mut Vec<u8>,
     val: &Operand,
     ptr: &Operand,
     offset: u64,
+    w32: bool,
     alloc: &Assignment,
 ) {
+    let forms = if w32 { &W_STORE } else { &X_STORE };
     if store_val_is_zero(val) {
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        if let Some(rm) = wide_offset(bytes, offset) {
-            write_u32(bytes, str_x_reg(Gpr::XZR, rn, rm));
-        } else if offset % 8 == 0 {
-            write_u32(bytes, str_x_imm12(Gpr::XZR, rn, offset as u32));
-        } else {
-            write_u32(bytes, stur_x_imm9(Gpr::XZR, rn, offset as i32));
-        }
+        emit_gpr_access(bytes, forms, Gpr::XZR, rn, offset);
         return;
     }
     if operand_is_f64(val, alloc) {
@@ -146,24 +176,14 @@ pub fn emit_store(
         // D-form scaled store: not yet ssa_lower-emitted at non-
         // aligned offsets; keep the aligned-only form until a real
         // need surfaces (mirror the LDR path's safety strategy).
-        match wide_offset(bytes, offset) {
+        match wide_offset(bytes, offset, 8) {
             Some(rm) => write_u32(bytes, str_d_reg(rs, rn, rm)),
             None => write_u32(bytes, str_d_imm12(rs, rn, offset as u32)),
         }
     } else {
         let rs = materialize_operand_gpr(bytes, val, OP_SCRATCH_LHS, alloc);
         let rn = materialize_operand_gpr(bytes, ptr, OP_SCRATCH_RHS, alloc);
-        // See `emit_load`'s comment for why non-8-aligned offsets
-        // route through STUR — pre-fix this branch went through
-        // STR-scaled and silently floor-divided to the wrong slot,
-        // breaking every heap-header field write (type_tag@+4 etc.).
-        if let Some(rm) = wide_offset(bytes, offset) {
-            write_u32(bytes, str_x_reg(rs, rn, rm));
-        } else if offset % 8 == 0 {
-            write_u32(bytes, str_x_imm12(rs, rn, offset as u32));
-        } else {
-            write_u32(bytes, stur_x_imm9(rs, rn, offset as i32));
-        }
+        emit_gpr_access(bytes, forms, rs, rn, offset);
     }
 }
 

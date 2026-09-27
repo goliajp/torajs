@@ -230,7 +230,7 @@ pub fn compile_function_with(
                 continue;
             }
             let site = block_slot + ii as u32;
-            emit_inst_at(&mut bytes, &mut relocs, inst, &alloc, fn_sigs, site);
+            emit_inst_at(&mut bytes, &mut relocs, func, inst, &alloc, fn_sigs, site);
         }
         block_slot += block.insts.len() as u32 + 1;
         // The layout successor's final identity — a branch resolving
