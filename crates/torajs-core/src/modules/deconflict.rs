@@ -354,6 +354,7 @@ mod decl_shape;
 pub(super) use decl_shape::{is_class_decl, rename_top_decl, top_value_decl_name};
 mod seed;
 pub(super) use seed::{SeedNames, extend_seen_with_lib, seed_seen_names};
+mod alias_rename;
 mod class_rename;
 pub(super) use class_rename::{
     LibTableDelta, diff_class_tables, snapshot_class_tables, type_param_shadows,
@@ -416,7 +417,7 @@ pub(super) fn prep_lib_request<'a>(
     // importer-requested spelling lands importer-visible on purpose.
     let requested: HashSet<&str> = want.iter().copied().collect();
     let mut hidden_inject: HashSet<String> = HashSet::new();
-    let (demangle, requested_renames) = deconflict_lib_section(
+    let (demangle, mut requested_renames) = deconflict_lib_section(
         ast,
         lib_section,
         lib_expr_offset,
@@ -432,6 +433,16 @@ pub(super) fn prep_lib_request<'a>(
         delta,
         &rename,
     )?;
+    requested_renames.extend(alias_rename::rename_single_aliases(
+        ast,
+        lib_section,
+        lib_expr_offset,
+        &rename,
+        &mut bare_exports,
+        delta,
+        &hidden,
+        &mut hidden_inject,
+    ));
     // 427-02 — a single-aliased class was renamed IN the census, so
     // the walk must recognize the decl under its alias: re-point the
     // want / visibles faces at the alias spelling (borrowed from the
