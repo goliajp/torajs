@@ -1,103 +1,15 @@
 //! Dynamic-import (§13.3.10) dispatcher synthesis — the runtime half
-//! of [`super::dyn_import`]: the link's poison verdict per candidate
-//! ([`poisoned_candidates`]) and the `__torajs_dyn_import` FnDecl that
+//! of [`super::dyn_import`]: the `__torajs_dyn_import` FnDecl that
 //! matches a specifier against the candidate table
-//! ([`synth_dispatcher`]). Split from `dyn_import.rs` when it crossed
+//! ([`synth_dispatcher`]); the poison verdict it consults lives in
+//! [`super::dyn_import_poison`]. Split from `dyn_import.rs` when it crossed
 //! the file-size line (rotation 645); candidate collection stays
 //! there.
 
 use crate::ast::{Ast, BinOp, Expr, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
-use super::decl_name;
 use super::dyn_import::{DISPATCHER_NAME, DynTarget};
-use super::resolve_helpers::NsAccum;
-
-/// Synthesize the dispatcher FnDecl:
-///
-/// ```ts
-/// function __torajs_dyn_import(__spec: any): any {
-///   try {
-///     const __s: any = String(__spec);
-///     if (__s === "<lit_0>") return Promise.resolve(__dyn_ns_c0);
-///     ...
-///     throw new TypeError("Failed to resolve module specifier '" + __s + "'");
-///   } catch (__e) {
-///     return Promise.reject(__e);
-///   }
-/// }
-/// ```
-///
-/// The whole §13.3.10 abrupt surface funnels through ONE catch: a
-/// throwing `toString` (step 7) and the miss TypeError both land in
-/// `Promise.reject`, which is exactly IfAbruptRejectPromise. The
-/// namespace each eval fn answers is bound inside it, after the module
-/// body has run (`synth_eval_fn`).
-/// 426-01 — candidates whose namespace depends on a re-export binding
-/// that never materialized. A circular indirect-export chain
-/// (`export { x } from` A→B→A) deduplicates to nothing in the BFS:
-/// the synthetic `__reex_<ns>_<face>` binding is requested but no
-/// declaration ever injects. Per §16.2.1.5 the module fails to
-/// instantiate with a SyntaxError — and a dyn-import candidate must
-/// reject its promise, never fail the build. A missing (non-circular)
-/// indirect export takes the same verdict: same ResolveExport step,
-/// same SyntaxError. The dispatcher emits a SyntaxError throw for
-/// these entries (riding its own reject-on-abrupt catch) and never
-/// references the namespace, so the dangling binding keeps no use
-/// site and the checker stays quiet.
-/// A candidate is also poisoned when any of its namespace bindings is
-/// AMBIGUOUS — two `export * from` clauses landed the same requested
-/// spelling from different modules (§16.2.1.6.3 "ambiguous", the
-/// t262 instn-iee-err-ambiguous-import family): same ResolveExport
-/// verdict, same SyntaxError reject.
-pub(super) fn poisoned_candidates(
-    table: &[(String, DynTarget)],
-    ns_accums: &HashMap<String, NsAccum>,
-    injections: &[Stmt],
-    ambiguous_locals: &HashSet<String>,
-) -> HashSet<String> {
-    let namespaces = table.iter().filter_map(|(_, t)| match t {
-        DynTarget::Namespace(ns) => Some(ns),
-        DynTarget::SyntaxError(_) => None,
-    });
-    let needs_scan = namespaces
-        .clone()
-        .any(|ns| ns_accums.get(ns).is_some_and(reex_backed));
-    let mut declared: HashSet<String> = HashSet::new();
-    if needs_scan {
-        collect_decl_names(injections, &mut declared);
-    }
-    namespaces
-        .filter(|ns| {
-            ns_accums.get(ns.as_str()).is_some_and(|acc| {
-                acc.fields().iter().any(|(_, local)| {
-                    ambiguous_locals.contains(local)
-                        || (local.starts_with("__reex_") && !declared.contains(local))
-                })
-            })
-        })
-        .cloned()
-        .collect()
-}
-
-fn reex_backed(acc: &NsAccum) -> bool {
-    acc.fields()
-        .iter()
-        .any(|(_, local)| local.starts_with("__reex_"))
-}
-
-pub(super) fn collect_decl_names(stmts: &[Stmt], out: &mut HashSet<String>) {
-    for s in stmts {
-        match s {
-            Stmt::Multi(inner) => collect_decl_names(inner, out),
-            _ => {
-                if let Some(n) = decl_name(s) {
-                    out.insert(n);
-                }
-            }
-        }
-    }
-}
 
 /// `if (<cond>) throw new SyntaxError(<reason>)` — the dispatcher's
 /// catch turns it into the §16.2.1.5 promise reject.
@@ -120,6 +32,27 @@ fn push_syntax_error_arm(
     });
 }
 
+/// Synthesize the dispatcher FnDecl:
+///
+/// ```ts
+/// function __torajs_dyn_import(__spec: any): any {
+///   try {
+///     const __s: any = String(__spec);
+///     if (__s === "<lit_0>") return Promise.resolve(__dyn_ns_c0);
+///     ...
+///     throw new TypeError("Failed to resolve module specifier '" + __s + "'");
+///   } catch (__e) {
+///     return Promise.reject(__e);
+///   }
+/// }
+/// ```
+///
+/// The whole §13.3.10 abrupt surface funnels through ONE catch: a
+/// throwing `toString` (step 7) and the miss TypeError both land in
+/// `Promise.reject`, which is exactly IfAbruptRejectPromise. The
+/// namespace each eval fn answers is bound inside it, after the module
+/// body has run (`synth_eval_fn`).
+///
 /// The dispatcher plus, per loadable candidate, its evaluation
 /// function and the two state bindings that memoize it
 /// ([`synth_eval_fn`]); the caller splices all of them.

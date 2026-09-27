@@ -8,6 +8,7 @@ use std::path::PathBuf;
 
 use super::dyn_import;
 use super::dyn_import_dispatcher;
+use super::dyn_import_poison;
 use super::graph::ModuleGraph;
 use super::namespace_objlit::{materialize_pending_namespaces, sorted_exports};
 use super::resolve_helpers::NsAccum;
@@ -87,7 +88,7 @@ pub(super) fn assemble_and_splice(
         }
     }
     if ast.dyn_import_present {
-        let mut poisoned = dyn_import_dispatcher::poisoned_candidates(
+        let mut poisoned = dyn_import_poison::poisoned_candidates(
             dyn_table,
             ns_accums,
             &injections,
