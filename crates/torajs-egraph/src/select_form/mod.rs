@@ -278,12 +278,18 @@ fn try_form_pure(
             .iter()
             .find(|(w, _, _)| w == vid)
             .expect("pairing verified above");
+        // both arms merge the same value: no choice left to make
+        let kind = if t_src == e_src {
+            InstKind::Copy(*ty, t_src.clone())
+        } else {
+            stats.selects_formed += 1;
+            InstKind::Select(*ty, cond.clone(), t_src.clone(), e_src.clone())
+        };
         appended.push(Inst {
             result: Some(*vid),
-            kind: InstKind::Select(*ty, cond.clone(), t_src.clone(), e_src.clone()),
+            kind,
             origin: None,
         });
-        stats.selects_formed += 1;
     }
     func.blocks[h].insts.extend(appended);
     func.blocks[h].term = Terminator::Br(join);
@@ -385,6 +391,19 @@ mod tests {
             InstKind::Select(Type::I64, v(0), c(7), c(5))
         );
         assert!(f.blocks[1].insts.is_empty() && f.blocks[2].insts.is_empty());
+    }
+
+    #[test]
+    fn arms_merging_one_value_form_a_copy() {
+        let mut f = max_diamond();
+        f.blocks[2].insts[0].kind = InstKind::Copy(Type::I64, c(7));
+        let mut stats = SelectFormStats::default();
+        while form_once(&mut f, &mut stats) {}
+        assert_eq!((stats.diamonds_converted, stats.selects_formed), (1, 0));
+        assert_eq!(
+            f.blocks[0].insts.last().unwrap().kind,
+            InstKind::Copy(Type::I64, c(7))
+        );
     }
 
     /// collatz after float_demote: the odd arm computes in one block
