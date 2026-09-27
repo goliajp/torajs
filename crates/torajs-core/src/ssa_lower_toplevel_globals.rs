@@ -36,7 +36,7 @@ mod gate;
 mod infer;
 mod write_through;
 use gate::{mutable_promotes, slot_type_supported, stays_main_local};
-use infer::inferred_slot_ty;
+use infer::{inferred_slot_ty, late_home_slot};
 use write_through::{binding_written_through, init_is_static_string_split};
 
 #[allow(clippy::too_many_arguments)]
@@ -150,7 +150,8 @@ pub(crate) fn collect_toplevel_globals(
                     struct_layouts,
                     inst_memo,
                     num_f64_slots,
-                ),
+                )
+                .or_else(|| late_home_slot(name, *init, &binding_refs, expr_types, num_f64_slots)),
             };
             let Some(ty) = slot_ty else {
                 continue;
