@@ -168,7 +168,7 @@ pub fn resolve_imports(
                 .as_ref()
                 .is_some_and(|a| entry_seed.dyn_roots.iter().any(|(_, n)| n == a)),
         );
-        let (want, rename, bare_exports, own_exports, demangle, hidden) =
+        let (want, rename, bare_exports, own_exports, demangle, hidden, other_faces) =
             deconflict::prep_lib_request(
                 ast,
                 &mut lib_section,
@@ -199,6 +199,7 @@ pub fn resolve_imports(
                 .as_ref()
                 .and_then(|a| st.ns.accums.get_mut(a.as_str())),
             bare_exports: &bare_exports,
+            other_faces: &other_faces,
             own_exports: &own_exports,
             // Re-borrowed rather than kept from the filter above —
             // the parse in between needed `ast`, and the walk is the

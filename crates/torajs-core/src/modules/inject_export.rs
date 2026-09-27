@@ -230,6 +230,7 @@ pub(super) fn inject_bare_exported_decl(
     injections: &mut Vec<Stmt>,
     other: Stmt,
     bare_exports: &HashMap<String, String>,
+    other_faces: &HashMap<String, Vec<String>>,
     want: &HashSet<&str>,
     rename: &HashMap<&str, Vec<&str>>,
     default_alias: &Option<String>,
@@ -252,6 +253,7 @@ pub(super) fn inject_bare_exported_decl(
             rename_decl(&mut inner, alias.clone());
             if let Some(ns) = ns {
                 ns.claim("default", alias);
+                claim_other_faces(ns, other_faces, "default", alias);
             }
             injections.push(inner);
             return;
@@ -263,6 +265,13 @@ pub(super) fn inject_bare_exported_decl(
             copy_fn_name_tables(ast, &dname, exported);
             rename_decl(&mut inner, exported.clone());
         }
+        let ns = ns.map(|ns| {
+            if let Some(local) = decl_name(&inner) {
+                let face = demangle.get(&local).unwrap_or(&local);
+                claim_other_faces(ns, other_faces, face, &local);
+            }
+            ns
+        });
         inject_export_inner(
             ast, injections, inner, want, rename, ns, injected, demangle, hidden, landings,
         );
@@ -273,6 +282,20 @@ pub(super) fn inject_bare_exported_decl(
         && injected.insert(dname)
     {
         injections.push(other);
+    }
+}
+
+/// The namespace fields a bare export's other faces add: each is the
+/// same binding as the primary face, so it references the one local
+/// the decl lands as (§16.2.1.6.3 — no second copy of the decl).
+fn claim_other_faces(
+    ns: &mut NsAccum,
+    other_faces: &HashMap<String, Vec<String>>,
+    face: &str,
+    local: &str,
+) {
+    for other in other_faces.get(face).into_iter().flatten() {
+        ns.claim(other, local);
     }
 }
 

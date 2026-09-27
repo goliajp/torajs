@@ -40,8 +40,21 @@ pub(super) fn collect_own_export_names(lib_section: &[Stmt]) -> HashSet<String> 
 /// alias top-level decls declared elsewhere in the lib. Collected
 /// orig → exported up front so the decl statements (previously
 /// dropped as non-exports) inject when the importer wants them.
-pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, String> {
-    let mut bare_exports: HashMap<String, String> = HashMap::new();
+///
+/// One local may be exported under several names (`export { M, M as
+/// N }`): each is the same binding (§16.2.1.6.3 ResolveExport). The
+/// decl lands once, under its PRIMARY face (the first map); the
+/// second map holds the other faces keyed by that primary, for the
+/// namespace object's fields and the importer's other spellings.
+/// Which face is primary depends on the request: `default` for a
+/// default import, else the first face the importer names, else the
+/// local's own name (no rename), else the first face written.
+pub(super) fn collect_bare_exports(
+    lib_section: &[Stmt],
+    want: &HashSet<&str>,
+    default_first: bool,
+) -> (HashMap<String, String>, HashMap<String, Vec<String>>) {
+    let mut faces: Vec<(String, Vec<String>)> = Vec::new();
     for s in lib_section {
         if let Stmt::ExportDecl {
             inner: None,
@@ -54,9 +67,34 @@ pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, Stri
         } = s
         {
             for (orig, alias) in named.iter().chain(type_named) {
-                bare_exports.insert(orig.clone(), alias.clone().unwrap_or_else(|| orig.clone()));
+                let face = alias.clone().unwrap_or_else(|| orig.clone());
+                let at = match faces.iter().position(|(o, _)| o == orig) {
+                    Some(at) => at,
+                    None => {
+                        faces.push((orig.clone(), Vec::new()));
+                        faces.len() - 1
+                    }
+                };
+                if !faces[at].1.contains(&face) {
+                    faces[at].1.push(face);
+                }
             }
         }
     }
-    bare_exports
+    let mut primary: HashMap<String, String> = HashMap::new();
+    let mut others: HashMap<String, Vec<String>> = HashMap::new();
+    for (orig, mut fs) in faces {
+        let at = fs
+            .iter()
+            .position(|f| default_first && f == "default")
+            .or_else(|| fs.iter().position(|f| want.contains(f.as_str())))
+            .or_else(|| fs.iter().position(|f| *f == orig))
+            .unwrap_or(0);
+        let face = fs.remove(at);
+        if !fs.is_empty() {
+            others.insert(face.clone(), fs);
+        }
+        primary.insert(orig, face);
+    }
+    (primary, others)
 }

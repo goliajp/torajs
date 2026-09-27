@@ -61,7 +61,7 @@ pub(super) fn walk_types(
         &mut st.closure_paths,
         &mut st.closure_files,
     )?;
-    let bare = collect_bare_exports(&lib_section);
+    let (bare, other_faces) = collect_bare_exports(&lib_section, &HashSet::new(), false);
     let mut out = st.injections_by_path.remove(path).unwrap_or_default();
     let ledger = st.injected_names.entry(path.to_path_buf()).or_default();
     for s in lib_section {
@@ -91,10 +91,15 @@ pub(super) fn walk_types(
             None if exported => name.clone(),
             None => continue,
         };
-        if ledger.insert(type_key(&face)) {
-            let mut decl = decl;
-            rename_decl(&mut decl, face);
-            out.push(decl);
+        // every face of the one declaration: a type carries no
+        // identity, so each lands as its own copy
+        let others = other_faces.get(&face).cloned().unwrap_or_default();
+        for face in std::iter::once(face).chain(others) {
+            if ledger.insert(type_key(&face)) {
+                let mut decl = decl.clone();
+                rename_decl(&mut decl, face);
+                out.push(decl);
+            }
         }
     }
     st.graph.record(path.to_path_buf(), Vec::new());

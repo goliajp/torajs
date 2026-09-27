@@ -14,8 +14,9 @@ use std::collections::{HashMap, HashSet};
 /// spellings — collected before any rename), then the 423-01
 /// deconflict census over the colliding unrequested decl names. The
 /// demangle map lets the namespace accumulator claim fields by the
-/// export spelling while referencing the mangled binding. The last
-/// tuple slot is the hidden-dependency injection set (knife C).
+/// export spelling while referencing the mangled binding. The last two
+/// tuple slots are the hidden-dependency injection set (knife C) and
+/// the other faces of each bare export, keyed by its primary face.
 #[allow(clippy::type_complexity, clippy::too_many_arguments)]
 pub(in crate::modules) fn prep_lib_request<'a>(
     ast: &mut Ast,
@@ -37,6 +38,7 @@ pub(in crate::modules) fn prep_lib_request<'a>(
         HashSet<String>,
         HashMap<String, String>,
         HashSet<String>,
+        HashMap<String, Vec<String>>,
     ),
     String,
 > {
@@ -52,7 +54,32 @@ pub(in crate::modules) fn prep_lib_request<'a>(
             entry.push(visible);
         }
     }
-    let mut bare_exports = super::super::export_faces::collect_bare_exports(lib_section);
+    let (mut bare_exports, other_faces) = super::super::export_faces::collect_bare_exports(
+        lib_section,
+        &want,
+        lane.has_default_alias,
+    );
+    // Every face of one bare-exported decl names the same binding: the
+    // decl lands once under its primary face, which is the first one
+    // the importer names, so the spellings asked for through the
+    // others join that face's.
+    for (primary, others) in &other_faces {
+        let Some(&face) = want.get(primary.as_str()) else {
+            continue;
+        };
+        for other in others {
+            if want.remove(other.as_str())
+                && let Some(visibles) = rename.remove(other.as_str())
+            {
+                let entry = rename.entry(face).or_default();
+                for v in visibles {
+                    if !entry.contains(&v) {
+                        entry.push(v);
+                    }
+                }
+            }
+        }
+    }
     let own_exports = super::super::export_faces::collect_own_export_names(lib_section);
     let hidden = if lane.side_effect_only {
         HashSet::new()
@@ -113,5 +140,6 @@ pub(in crate::modules) fn prep_lib_request<'a>(
         own_exports,
         demangle,
         hidden_inject,
+        other_faces,
     ))
 }

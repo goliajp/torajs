@@ -28,6 +28,8 @@ pub(super) struct LibRequest<'a> {
     pub(super) rename: &'a HashMap<&'a str, Vec<&'a str>>,
     pub(super) ns: Option<&'a mut NsAccum>,
     pub(super) bare_exports: &'a HashMap<String, String>,
+    /// The other faces of each bare export, keyed by its primary face.
+    pub(super) other_faces: &'a HashMap<String, Vec<String>>,
     pub(super) own_exports: &'a HashSet<String>,
     /// The path's injected-name ledger (importer-visible names plus
     /// the request sentinels — see `resolve_imports`). The walk both
@@ -290,6 +292,7 @@ pub(super) fn walk_lib_stmt(
                 injections,
                 other,
                 req.bare_exports,
+                req.other_faces,
                 req.want,
                 req.rename,
                 req.default_alias,

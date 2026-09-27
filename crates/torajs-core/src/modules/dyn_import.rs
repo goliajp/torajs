@@ -196,7 +196,7 @@ fn collect_candidates(ast: &Ast, base_dir: &Path) -> Vec<(String, Result<PathBuf
 /// only the same two categories stay un-renamable. A collision on
 /// any of these redeclares at walk time, so the caller must DROP.
 fn unmanglable_names(probe: &Ast) -> HashSet<String> {
-    let bare = collect_bare_exports(&probe.stmts);
+    let (bare, _) = collect_bare_exports(&probe.stmts, &HashSet::new(), false);
     let mut out: HashSet<String> = HashSet::new();
     for (i, s) in probe.stmts.iter().enumerate() {
         let inner = match s {
