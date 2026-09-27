@@ -44,6 +44,7 @@ pub mod load_licm;
 pub mod loop_rotate;
 pub mod map_find_cse;
 pub mod mem2reg;
+pub mod merge_sroa;
 pub mod optimize;
 pub mod optimize_licm;
 pub mod phi_promote;
@@ -254,6 +255,9 @@ pub fn transform_module(mut module: Module) -> Module {
     // rc_peephole (which treats Copy as rc-transparent).
     // `TORAJS_MEM2REG_PHI_OFF=1` skips (bisect gate).
     gated_pass("MEM2REG_PHI", &mut module, phi_promote::promote_phi_slots);
+    // Stack cells merged through one Copy (the inlined generator step
+    // object) read field by field (`merge_sroa`): needs that Copy.
+    gated_pass("MERGE_SROA", &mut module, merge_sroa::replace_merged_cells);
     // Post-φ dominator GVN — the main egraph GVN ran before φ
     // promotion (it must not see multi-def Copies), so loop-carried
     // reads were opaque Loads to it and cross-block CSE of shapes
