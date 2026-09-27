@@ -4,7 +4,8 @@
 //! that file past the 500-line HARD limit. Consumed only by
 //! [`GenSm::lower`].
 
-use super::desugar_generators_sm::{GenSm, SmJump};
+use super::desugar_generators_sm::GenSm;
+use super::desugar_generators_sm_jump::SmJump;
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
 use super::{ExprId, Stmt};
 

@@ -127,6 +127,7 @@ mod desugar_generators_rewrite;
 mod desugar_generators_sm;
 mod desugar_generators_sm_branch;
 mod desugar_generators_sm_finally;
+mod desugar_generators_sm_jump;
 mod desugar_generators_sm_loops;
 mod desugar_generators_sm_return;
 mod desugar_generators_sm_rewrite;

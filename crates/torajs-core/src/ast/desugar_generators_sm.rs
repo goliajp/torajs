@@ -17,6 +17,7 @@
 //! - All other items (alloc_state, emit_*, lower, the two helpers)
 //!   stay file-private to this sibling.
 
+use super::desugar_generators_sm_jump::{SmJump, sm_jump_target};
 use super::desugar_generators_sm_rewrite::rewrite_break_continue_for_outer;
 use super::{Ast, Expr, ExprId, Stmt};
 
@@ -103,19 +104,6 @@ pub(super) struct GenSm<'a> {
     /// awaits the value before it yields it. Set for the async
     /// generators only; a sync one yields verbatim (§27.5.3.7).
     pub(super) is_async_gen: bool,
-}
-
-/// One entry of [`GenSm::loop_stack`]: where a `continue` / `break`
-/// aimed at this construct gotos. A yield-loop has both; a labeled
-/// block holding a yield (ES §13.13 — `lbl: { …; break lbl; … }`,
-/// which the states erase) has only its exit, and a BARE jump never
-/// targets it (`cont: None` also marks it for the bare-jump skip).
-/// `label` is `Some` when the construct sat under a `Stmt::Labeled`.
-#[derive(Clone)]
-pub(super) struct SmJump {
-    pub(super) cont: Option<usize>,
-    pub(super) brk: usize,
-    pub(super) label: Option<String>,
 }
 
 impl<'a> GenSm<'a> {
@@ -409,26 +397,5 @@ impl<'a> GenSm<'a> {
             let stack = self.loop_stack.clone();
             rewrite_break_continue_for_outer(self.ast, s, &stack, &mut self.finally_ret);
         }
-    }
-}
-
-/// The resolution behind [`GenSm::sm_loop_target`] and the inline
-/// jump rewriter: bare → innermost yield-LOOP (blocks skipped);
-/// labeled → the entry carrying that label, whose continue target a
-/// block does not have (`continue` naming a block is an early error,
-/// so that read never happens).
-pub(super) fn sm_jump_target(
-    stack: &[SmJump],
-    label: &Option<String>,
-    want_break: bool,
-) -> Option<usize> {
-    let pick = |j: &SmJump| if want_break { Some(j.brk) } else { j.cont };
-    match label {
-        None => stack.iter().rev().find(|j| j.cont.is_some()).and_then(pick),
-        Some(l) => stack
-            .iter()
-            .rev()
-            .find(|j| j.label.as_deref() == Some(l.as_str()))
-            .and_then(pick),
     }
 }

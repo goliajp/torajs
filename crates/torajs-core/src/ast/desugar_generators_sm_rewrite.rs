@@ -3,7 +3,8 @@
 //! break/continue work) to keep that file under the size limit. Both
 //! functions are `pub(super)` and consumed only by [`super::GenSm`].
 
-use super::desugar_generators_sm::{DISPATCH_LABEL, RESUME_LOCAL, SmJump, sm_jump_target};
+use super::desugar_generators_sm::{DISPATCH_LABEL, RESUME_LOCAL};
+use super::desugar_generators_sm_jump::{SmJump, sm_jump_target};
 use super::{Ast, Expr, Stmt};
 
 /// Returns true if `s` (or any nested stmt) contains a `yield`. Used
