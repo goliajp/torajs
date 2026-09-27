@@ -5,8 +5,8 @@
 //! doc lists every axis). The `Expr::Call` arm lives in
 //! `ast_collect_fn_closure_call.rs` since rotation 291.
 
-use crate::ast::{Ast, BinOp, Expr, ExprId, PropKey};
-use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann};
+use crate::ast::{Ast, BinOp, Expr, ExprId};
+use crate::ast_collect_fn_closure::FnToClosureCollector;
 
 impl<'a> FnToClosureCollector<'a> {
     /// Generator / async-generator factory fns carry their own
@@ -85,46 +85,17 @@ impl<'a> FnToClosureCollector<'a> {
         if let Expr::Index { .. } = self.ast.get_expr(*target) {
             self.try_mark(*value);
         }
-        // Chunk 783 — `o.cb = top_fn` where `o` was declared
-        // with a struct type whose field `cb` is fn-typed
-        // (Closure-repr slot after the retag pass): the bare
-        // named-fn RHS wraps, same as the objlit-field
-        // store-site above. Without it the assign lane stores
-        // a raw FnSig and the narrowed call CallIndirects
-        // into the fn body as if it were an env block
-        // (SIGBUS). Chunk 789 — the receiver resolves through
-        // Member chains too (`h.o.cb = top_fn`).
-        if let Expr::Member { obj, name: fname } = self.ast.get_expr(*target)
-            && let Some(field_anns) = self.resolve_receiver_fields(*obj)
-            && field_anns
-                .get(&PropKey::from(fname))
-                .is_some_and(|a| is_fn_like_field_ann(a))
-        {
+        // Every member store's slot holds a function OBJECT, never a
+        // bare code address: a fn-typed struct field is Closure-repr
+        // after the retag pass (chunk 783 — a raw FnSig there was
+        // CallIndirected as an env block, SIGBUS), and every other
+        // slot boxes into the any world, which a raw FnSig can't
+        // (r293: `box.prop = fn` on an any binding; the same store
+        // through `globalThis.X`, `(m as any).f` or `mk().f` was a
+        // loud lowering reject). The index-assign twin above has
+        // marked unconditionally since r295.
+        if let Expr::Member { .. } = self.ast.get_expr(*target) {
             self.try_mark(*value);
-        }
-        // r293 — `box.prop = top_fn` where `box` is an any/var
-        // binding (`var __music_box = {}` — S13_A10): the store
-        // rides the dynobj assign lane, whose value slot boxes into
-        // the any world, which a raw FnSig can't. The wrapped cell
-        // keeps `typeof` = "function" and the call face. `as` layers
-        // on the receiver peel — `(box as any).prop = fn` writes the
-        // same binding. r295 — a top-FnDecl RECEIVER rides the same
-        // lane (`__FACTORY.prototype = __PROTO`, S13.2.2_A1): the
-        // expando store boxes its value the same way, so a bare
-        // fn-Ident RHS wraps there too.
-        if let Expr::Member { obj, .. } = self.ast.get_expr(*target) {
-            let base = {
-                let mut e = *obj;
-                while let Expr::As { expr, .. } = self.ast.get_expr(e) {
-                    e = *expr;
-                }
-                e
-            };
-            if let Expr::Ident(oname) = self.ast.get_expr(base)
-                && (self.any_bindings.contains(oname) || self.fn_sigs.contains_key(oname))
-            {
-                self.try_mark(*value);
-            }
         }
         self.walk_expr(*target);
         self.walk_expr(*value);

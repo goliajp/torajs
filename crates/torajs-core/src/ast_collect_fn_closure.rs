@@ -95,18 +95,6 @@ pub(crate) struct FnToClosureCollector<'a> {
     /// so `fns.push(top_fn)` / `fns[i] = top_fn` wrap. Scope-
     /// approximate like the other two sets.
     pub(crate) fn_arr_bindings: &'a HashSet<String>,
-    /// Binding name → declared struct-type name for bindings whose
-    /// annotation resolves to a known TypeDecl (chunk 783): the
-    /// member-assign axis matches `o.cb = top_fn` receivers against
-    /// this map to reach the field's declared annotation. Scope-
-    /// approximate like the sets.
-    pub(crate) struct_bindings: &'a HashMap<String, String>,
-    /// Binding name → declared struct-ARRAY annotation (`O[]` /
-    /// `Array<O>` whose element resolves to a known TypeDecl) —
-    /// chunk 790: the member-assign wrap axis reaches through
-    /// element receivers (`arr[0].cb = top_fn`). Scope-approximate
-    /// like the sets.
-    pub(crate) struct_arr_bindings: &'a HashMap<String, String>,
     /// What this module might monkey-patch onto a builtin prototype
     /// (RFC 20260806) — the member-call axis reads it: a patched
     /// builtin stands down to the any-lane, whose argv packs
@@ -457,29 +445,6 @@ impl<'a> FnToClosureCollector<'a> {
             _ => {}
         }
     }
-}
-
-/// Answers whether a declared struct-field annotation marks a
-/// Closure-repr slot: a fn-like ann, or an OPTIONAL fn field
-/// (`__nullable(__cls(...))` after the retag pass — RFC 20260710 C5,
-/// same mutable Closure-repr slot). Shared by the objlit-field and
-/// member-assign (chunk 783) wrap axes.
-/// Chunk 790 — element type of an array annotation (`O[]` /
-/// `Array<O>` / `ReadonlyArray<O>` spellings); `None` for anything
-/// else.
-pub(crate) fn strip_arr_ann(ann: &str) -> Option<&str> {
-    let t = ann.trim();
-    if let Some(rest) = t.strip_suffix("[]") {
-        return Some(rest.trim());
-    }
-    for head in ["Array<", "ReadonlyArray<"] {
-        if let Some(rest) = t.strip_prefix(head)
-            && t.ends_with('>')
-        {
-            return Some(rest[..rest.len() - 1].trim());
-        }
-    }
-    None
 }
 
 pub(crate) fn is_fn_like_field_ann(fann: &str) -> bool {

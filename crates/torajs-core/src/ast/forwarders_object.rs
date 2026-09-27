@@ -163,7 +163,7 @@ fn snapshot_type_field_anns(
 }
 
 pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashSet;
 
     let (mut fn_sigs, existing_forwarders, fn_type_params) = snapshot_fn_sigs(ast);
     let block_scoped = super::namedfn_rebound_scope::refuse_rebound_names(ast, &mut fn_sigs);
@@ -233,41 +233,6 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
     // mutable-init axis moved such slots to Closure repr).
     crate::ast_collect_fn_closure::collect_fn_ann_bindings(&ast.stmts, &mut closure_bindings);
 
-    // Chunk 783 — binding name → declared struct annotation, for
-    // the member-assign axis (`o.cb = top_fn` where the receiver's
-    // field is fn-typed). Chunk 793 — inline object types
-    // (`__inlobj(...)`) join named TypeDecl names; the collector's
-    // `resolve_field_anns` decodes both.
-    let mut struct_bindings: HashMap<String, String> = HashMap::new();
-    let is_generic_inst = |a: &str| {
-        let t = a.trim();
-        t.find('<')
-            .is_some_and(|i| t.ends_with('>') && generic_field_anns.contains_key(&t[..i]))
-    };
-    crate::ast_collect_bindings::collect_bindings_ann_matching(
-        &ast.stmts,
-        &|a| {
-            struct_field_anns.contains_key(a.trim())
-                || crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(a).is_some()
-                || is_generic_inst(a)
-        },
-        &mut struct_bindings,
-    );
-    // Chunk 790 — binding name → struct-ARRAY annotation, for the
-    // element-receiver face of the same axis (`arr[0].cb = top_fn`).
-    let mut struct_arr_bindings: HashMap<String, String> = HashMap::new();
-    crate::ast_collect_bindings::collect_bindings_ann_matching(
-        &ast.stmts,
-        &|a| {
-            crate::ast_collect_fn_closure::strip_arr_ann(a).is_some_and(|e| {
-                struct_field_anns.contains_key(e)
-                    || crate::ast_collect_fn_closure_init::parse_inlobj_field_anns(e).is_some()
-                    || is_generic_inst(e)
-            })
-        },
-        &mut struct_arr_bindings,
-    );
-
     // Walk all top-level stmts (including FnDecl bodies recursively)
     // collecting the store-sites where a bare top-FnDecl Ident needs
     // the forwarder wrap (see ast_collect_fn_closure module doc for
@@ -291,8 +256,6 @@ pub fn synthesize_fn_to_closure_forwarders(ast: &mut Ast) {
         new_init_bindings: &new_init_bindings,
         closure_bindings: &closure_bindings,
         fn_arr_bindings: &fn_arr_bindings,
-        struct_bindings: &struct_bindings,
-        struct_arr_bindings: &struct_arr_bindings,
         proto_shadow: &proto_shadow,
         ident_census: &ident_census,
         targets: HashSet::new(),

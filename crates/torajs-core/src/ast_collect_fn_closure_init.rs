@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 use crate::ast::{Ast, BinOp, Expr, ExprId};
 
-use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann, strip_arr_ann};
+use crate::ast_collect_fn_closure::{FnToClosureCollector, is_fn_like_field_ann};
 
 /// Chunk 793 — decode an inline object-type annotation
 /// (`__inlobj(f:ann|...)`, optionally `__nullable(...)`-wrapped)
@@ -70,46 +70,6 @@ fn split_generic_args(inner: &str) -> Vec<&str> {
 }
 
 impl<'a> FnToClosureCollector<'a> {
-    /// Chunk 789 — resolve the declared struct field→ann map of a
-    /// member-assign receiver chain (chunk 793: named TypeDecl and
-    /// inline object annotations both resolve, via
-    /// `resolve_field_anns`): an Ident hits the binding map; a
-    /// Member link resolves the outer struct's field annotation
-    /// (stripping an optional `__nullable(...)` wrapper); an Index
-    /// (chunk 790) resolves the container's declared array
-    /// annotation and answers its element shape.
-    pub(crate) fn resolve_receiver_fields(&self, eid: ExprId) -> Option<HashMap<PropKey, String>> {
-        match self.ast.get_expr(eid) {
-            Expr::Ident(n) => {
-                let ann = self.struct_bindings.get(n)?;
-                self.resolve_field_anns(ann)
-            }
-            Expr::Member { obj, name } => {
-                let outer = self.resolve_receiver_fields(*obj)?;
-                let fann = outer.get(&PropKey::from(name))?;
-                let inner = fann
-                    .strip_prefix("__nullable(")
-                    .and_then(|r| r.strip_suffix(')'))
-                    .unwrap_or(fann)
-                    .trim();
-                self.resolve_field_anns(inner)
-            }
-            Expr::Index { obj, .. } => {
-                let container_ann: String = match self.ast.get_expr(*obj) {
-                    Expr::Ident(n) => self.struct_arr_bindings.get(n)?.clone(),
-                    Expr::Member { obj: mobj, name } => {
-                        let outer = self.resolve_receiver_fields(*mobj)?;
-                        outer.get(&PropKey::from(name))?.clone()
-                    }
-                    _ => return None,
-                };
-                let elem = strip_arr_ann(&container_ann)?;
-                self.resolve_field_anns(elem)
-            }
-            _ => None,
-        }
-    }
-
     /// Chunk 793 — resolve a declared annotation to its struct
     /// field→ann map: a known TypeDecl name answers its snapshot,
     /// an inline object type decodes in place, and a generic

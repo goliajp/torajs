@@ -15,7 +15,7 @@
 //!   scope depth (chunk 736; variadic anns keep their boxed-dual
 //!   route).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::ast::{Stmt, is_fn_like_ann};
 
@@ -117,27 +117,6 @@ pub(crate) fn collect_untyped_new_init_bindings(
     });
 }
 
-/// Chunk 783 — binding name → declared type-ann (trimmed) for every
-/// binding whose annotation satisfies `pred`. The member-assign wrap
-/// axis (`o.cb = top_fn`) resolves the receiver binding to its
-/// declared struct shape through this map. Scope-approximate like
-/// the sets above: a shadowing binding of another matching type
-/// overwrites (last one wins), which at worst costs an unnecessary
-/// wrap.
-pub(crate) fn collect_bindings_ann_matching(
-    stmts: &[Stmt],
-    pred: &dyn Fn(&str) -> bool,
-    out: &mut HashMap<String, String>,
-) {
-    walk_bindings(stmts, &mut |name, ann, _, _| {
-        if let Some(ann) = ann
-            && pred(ann)
-        {
-            out.insert(name.to_string(), ann.trim().to_string());
-        }
-    });
-}
-
 /// Shared annotation-predicate binding walk (chunk 733 — the any
 /// and fn-arr collections differ only in the ann test).
 fn collect_bindings_matching(
@@ -156,7 +135,7 @@ fn collect_bindings_matching(
 
 /// Visit every annotated `let`/`const`/`var` binding (name, ann)
 /// recursing through fn bodies and statement containers — the shared
-/// walker behind the set and map collections (chunk 783 rework).
+/// walker behind the set collections (chunk 783 rework).
 fn walk_bindings(stmts: &[Stmt], f: &mut dyn FnMut(&str, Option<&str>, crate::ast::ExprId, bool)) {
     for s in stmts {
         walk_bindings_stmt(s, f);
