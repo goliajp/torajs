@@ -331,7 +331,12 @@ fn lower_member(
     // it wrote through the freeze and answered "after", while the
     // plain-assign spelling of the same field threw. Same guard, one
     // definition — the `Store` below rides the block it leaves us on.
-    crate::ssa_lower_assign_member_field::emit_field_writable_guard(ctx, obj_val.clone(), &field);
+    crate::ssa_lower_assign_member_field::emit_field_writable_guard(
+        ctx,
+        obj,
+        obj_val.clone(),
+        &field,
+    );
     let store_block = ctx.cur_block;
     ctx.f.append_void(
         store_block,

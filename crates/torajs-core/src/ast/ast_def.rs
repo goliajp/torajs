@@ -1355,6 +1355,9 @@ pub struct Ast {
     /// name-keyed method table. Field names are counter-minted and
     /// therefore unique program-wide.
     pub generator_local_classes: std::collections::HashMap<String, String>,
+    /// The `__Gen_<name>` machine classes the generator desugar minted
+    /// (a user class may carry the same spelling; this set may not).
+    pub generator_machine_classes: std::collections::HashSet<String>,
     /// Generator decls whose parameter list contained binding
     /// patterns: fn name → count of parser-synthesized destructuring
     /// `let` stmts prefixed to the body (parse_fn's param_destr_lets).

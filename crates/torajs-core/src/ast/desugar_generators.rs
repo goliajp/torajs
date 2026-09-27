@@ -249,6 +249,7 @@ fn desugar_one_generator(
 
     // Class name + struct return type for next().
     let class_name = format!("__Gen_{gen_name}");
+    ast.generator_machine_classes.insert(class_name.clone());
     // D4 — an async generator's machine is a SYNC one under `__step*`
     // names (`desugar_generators_async`): the driver does every await,
     // the factory stays un-wrapped (`ag()` answers the generator object

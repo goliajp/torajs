@@ -265,7 +265,7 @@ pub(crate) fn lower_struct_field_store(
     let v_ty = ctx.operand_ty(&v);
     let parked = (!v_ty.is_copy()).then(|| ctx.push_throw_temp(v.clone(), v_ty));
     crate::ssa_lower_nullable_guard_emit::emit_undefable_heap_guard(ctx, obj, &obj_val);
-    emit_field_writable_guard(ctx, obj_val.clone(), field);
+    emit_field_writable_guard(ctx, obj, obj_val.clone(), field);
     if let Some(token) = parked {
         ctx.pop_throw_temp(token);
     }
@@ -303,7 +303,28 @@ pub(crate) fn lower_struct_field_store(
 /// every instance in a hot ctor loop — pays one load, one and, one
 /// not-taken branch instead of two cross-archive calls (~6% + ~3% of
 /// `class-method`). Leaves `cur_block` on the store block.
-pub(crate) fn emit_field_writable_guard(ctx: &mut LowerCtx, obj_val: Operand, field: &str) {
+pub(crate) fn emit_field_writable_guard(
+    ctx: &mut LowerCtx,
+    obj: ExprId,
+    obj_val: Operand,
+    field: &str,
+) {
+    // A generator machine writing its own state: those fields are the
+    // generator's internal slots (§27.5.2), which no integrity level
+    // reaches (§7.3.16 walks own property keys), so
+    // `Object.freeze(it); it.next()` still advances. The machine
+    // reaches them only through the bases the desugar mints — its
+    // `this`, the `__gself` alias, a nested machine's frame handle.
+    let minted_base = matches!(ctx.ast.get_expr(obj), Expr::Ident(n)
+        if n == "__this"
+            || n == crate::ast::GEN_SELF_ALIAS
+            || n.starts_with("__genouter_"));
+    if minted_base
+        && matches!(ctx.expr_types.get(&obj),
+            Some(crate::check::Type::ClassRef(c)) if ctx.ast.generator_machine_classes.contains(c))
+    {
+        return;
+    }
     let hdr_word = ctx.f.append_inst(
         ctx.cur_block,
         InstKind::Load(Type::I32, obj_val.clone(), 4),
