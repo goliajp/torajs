@@ -95,7 +95,7 @@ pub(crate) fn run(
         objlit_computed_accessors,
     );
     // (k) leg — literals the any-promote verdict will box into an Any
-    // slot (`ast_refs_any_promote::promoted_method_objlits`, computed
+    // slot (`ast_refs_any_promote::objlit::promoted_method_objlits`, computed
     // pre-split by the caller): their runtime receiver is the
     // promoted dynobj, so this-using methods need the anylane stamp.
     anylane.extend(promoted_objlits.iter().copied());

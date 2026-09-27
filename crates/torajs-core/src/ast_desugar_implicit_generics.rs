@@ -71,7 +71,7 @@ pub(crate) fn run(ast: &mut Ast) {
     };
     // (k) leg — needs the whole `&Ast` (named-fn refs + the shared
     // promote verdict), so it runs before the borrow split below.
-    let promoted_objlits = crate::ast_refs_any_promote::promoted_method_objlits(ast);
+    let promoted_objlits = crate::ast_refs_any_promote::objlit::promoted_method_objlits(ast);
     // Read before the borrow split: it is two fields, and the split
     // hands out only one of them.
     let sloppy = ast.program_is_sloppy();

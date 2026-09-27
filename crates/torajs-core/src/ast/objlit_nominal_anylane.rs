@@ -79,7 +79,7 @@ pub(super) use super::objlit_nominal_widen::{
 ///
 /// - (k) a method-bearing top-level literal the any-promote verdict
 ///   will box into an Any slot — computed by
-///   [`crate::ast_refs_any_promote::promoted_method_objlits`] against
+///   [`crate::ast_refs_any_promote::objlit::promoted_method_objlits`] against
 ///   the pre-`objlit_nominal` snapshot and merged in by `run` (it
 ///   needs the whole `&Ast`, which this collector's split-borrow
 ///   signature cannot take).
