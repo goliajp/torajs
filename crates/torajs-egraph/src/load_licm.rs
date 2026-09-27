@@ -50,6 +50,11 @@ const ARR_LEN_OFF: u64 = 8;
 const ARR_CAP_HEAD_OFF: u64 = 16;
 const ARR_DATA_PTR_OFF: u64 = 32;
 
+/// The pop's length-lock raiser reads the flags and length, and at
+/// most deletes shadow entries inside the props dynobj; it writes no
+/// header word.
+const HEADER_READ_ONLY_CALLS: &[&str] = &["__torajs_arr_delete_tail_guard"];
+
 pub fn hoist_header_loads(module: &mut Module) -> LoadLicmStats {
     let names: Vec<String> = module.funcs.iter().map(|f| f.name.clone()).collect();
     let mut stats = LoadLicmStats::default();
@@ -58,13 +63,18 @@ pub fn hoist_header_loads(module: &mut Module) -> LoadLicmStats {
             continue;
         }
         if let Some(classes) = array_classes(func, &names) {
-            hoist_fn(func, &classes, &mut stats);
+            hoist_fn(func, &classes, &names, &mut stats);
         }
     }
     stats
 }
 
-fn hoist_fn(func: &mut Function, classes: &ArrayClasses, stats: &mut LoadLicmStats) {
+fn hoist_fn(
+    func: &mut Function,
+    classes: &ArrayClasses,
+    names: &[String],
+    stats: &mut LoadLicmStats,
+) {
     if classes.live.is_empty() {
         return;
     }
@@ -93,7 +103,7 @@ fn hoist_fn(func: &mut Function, classes: &ArrayClasses, stats: &mut LoadLicmSta
         if !sole_entry(func, pre, lp.header, &body) {
             continue;
         }
-        let dirty = written_headers(func, &body, classes);
+        let dirty = written_headers(func, &body, classes, names);
         for &b in &lp.body {
             let insts = std::mem::take(&mut func.blocks[b.0 as usize].insts);
             let (moved, kept): (Vec<_>, Vec<_>) = insts.into_iter().partition(|inst| {
@@ -101,10 +111,11 @@ fn hoist_fn(func: &mut Function, classes: &ArrayClasses, stats: &mut LoadLicmSta
                     return false;
                 };
                 matches!(*off, ARR_LEN_OFF | ARR_CAP_HEAD_OFF | ARR_DATA_PTR_OFF)
-                    && classes
-                        .class
-                        .get(p)
-                        .is_some_and(|a| classes.live.contains(a) && !dirty.contains(a))
+                    && classes.class.get(p).is_some_and(|a| {
+                        classes.live.contains(a)
+                            && !dirty.contains(&(*a, None))
+                            && !dirty.contains(&(*a, Some(*off)))
+                    })
                     && def_block.get(p).is_some_and(|d| !body.contains(d))
             });
             func.blocks[b.0 as usize].insts = kept;
@@ -139,20 +150,22 @@ fn sole_entry(func: &Function, pre: BlockId, header: BlockId, body: &HashSet<Blo
         })
 }
 
-/// The tracked arrays whose header some instruction in `body` may
-/// write: a store through a name of the array, or a call handed a
-/// name of the array or of its data pointer.
+/// The header words some instruction in `body` may write, as
+/// (array, offset), `None` standing for every word: a store through a
+/// name of the array writes its own offset, a call handed a name of
+/// the array or of its data pointer may write any.
 fn written_headers(
     func: &Function,
     body: &HashSet<BlockId>,
     classes: &ArrayClasses,
-) -> HashSet<ValueId> {
+    names: &[String],
+) -> HashSet<(ValueId, Option<u64>)> {
     let mut dirty = HashSet::new();
-    let mut named = |op: &Operand, with_base: bool| {
+    let mut named = |op: &Operand, with_base: bool, off: Option<u64>| {
         if let Operand::Value(v) = op {
-            dirty.extend(classes.class.get(v).copied());
+            dirty.extend(classes.class.get(v).map(|a| (*a, off)));
             if with_base {
-                dirty.extend(classes.base.get(v).copied());
+                dirty.extend(classes.base.get(v).map(|a| (*a, off)));
             }
         }
     };
@@ -160,15 +173,19 @@ fn written_headers(
         for inst in &func.blocks[b.0 as usize].insts {
             match &inst.kind {
                 // a slot write through the data pointer stays past +40
-                InstKind::Store(_, p, _)
-                | InstKind::StoreDyn(_, p, _)
-                | InstKind::StoreDynScaled8(_, p, _) => named(p, false),
-                InstKind::Call(_, args) => args.iter().for_each(|a| named(a, true)),
+                InstKind::Store(_, p, off) => named(p, false, Some(*off)),
+                InstKind::StoreDyn(_, p, _) | InstKind::StoreDynScaled8(_, p, _) => {
+                    named(p, false, None)
+                }
+                InstKind::Call(f, _)
+                    if HEADER_READ_ONLY_CALLS
+                        .contains(&names.get(f.0 as usize).map(String::as_str).unwrap_or("")) => {}
+                InstKind::Call(_, args) => args.iter().for_each(|a| named(a, true, None)),
                 // a release may free the cell
-                InstKind::RcDecAny(v) => named(v, true),
+                InstKind::RcDecAny(v) => named(v, true, None),
                 InstKind::CallIndirect(_, callee, args) => {
-                    named(callee, true);
-                    args.iter().for_each(|a| named(a, true));
+                    named(callee, true, None);
+                    args.iter().for_each(|a| named(a, true, None));
                 }
                 _ => {}
             }
@@ -257,6 +274,7 @@ mod tests {
             funcs: vec![
                 decl("__torajs_arr_alloc"),
                 decl("__torajs_arr_push"),
+                decl("__torajs_arr_delete_tail_guard"),
                 Function {
                     name: "main".into(),
                     params: vec![],
@@ -280,7 +298,7 @@ mod tests {
     fn a_read_only_walk_reads_the_header_once() {
         let mut m = walk(Terminator::Br(BlockId(1)), vec![]);
         assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
-        let f = &m.funcs[2];
+        let f = &m.funcs[3];
         assert_eq!(f.blocks[0].insts.len(), 3);
         assert_eq!(f.blocks[1].insts.len(), 1);
         assert!(f.blocks[2].insts.is_empty());
@@ -297,10 +315,23 @@ mod tests {
     }
 
     #[test]
-    fn a_length_store_in_the_loop_keeps_both_loads() {
+    fn a_length_store_in_the_loop_keeps_only_the_length_load() {
         let store = mk(None, InstKind::Store(Operand::ConstI64(1), v(0), 8));
         let mut m = walk(Terminator::Br(BlockId(1)), vec![store]);
-        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 0);
+        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 1);
+        let f = &m.funcs[3];
+        assert!(matches!(f.blocks[1].insts[0].kind, InstKind::Load(_, _, 8)));
+        assert!(matches!(
+            f.blocks[0].insts[1].kind,
+            InstKind::Load(_, _, 32)
+        ));
+    }
+
+    #[test]
+    fn the_pop_guard_does_not_write_the_header() {
+        let guard = mk(None, InstKind::Call(FuncId(2), vec![v(0)]));
+        let mut m = walk(Terminator::Br(BlockId(1)), vec![guard]);
+        assert_eq!(hoist_header_loads(&mut m).loads_hoisted, 2);
     }
 
     #[test]
