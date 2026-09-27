@@ -1,18 +1,18 @@
 # torajs — language status
 
-torajs implements TypeScript with TS semantics, targeting the same
-observable behavior as `bun` runs the same source. The reference
-baseline is bun: anything bun runs, tr eventually runs. Anything
+torajs implements TypeScript with full JS/TS semantics, and its types
+take part in code generation down to native machine code. Anything
 not yet supported is a roadmap phase, not a design boundary.
 
 This doc describes **what works today** and **what's planned** with
 links to the relevant roadmap phases.
 
-## Contract: `bun` is the oracle
+## Contract: the specification defines behavior, bun is the floor
 
-When behavior is unclear, write the equivalent in TS, run it in
-`bun`, and match. If torajs differs from bun's output (excluding
-documented perf differentiators below), that's a bug — file an issue.
+Correct behavior is what ECMA-262 (measured with test262) and the
+TypeScript language define. Anything `bun` runs, tr must eventually
+run; where bun and the specification disagree, tr follows the
+specification. A TypeScript type error is a compile-time rejection.
 
 ## Currently working
 
@@ -152,12 +152,11 @@ linear plan").
 | `tr debug` step debugger (DWARF + DAP) | T-29 (v1.0.0) | not started — DWARF substrate shipped v0.3 #4 |
 | `tr repl` interactive loop | T-30 (v1.0.0) | not started |
 | `libtora.a` + `tora_eval()` embedding API | T-31 (v1.0.0) | not started |
-| ESM `import x from "./y"` (default), `import * as ns`, side-effect imports | post-v1.0 polish | not started — only named imports today |
 | Mutable refcount globals (`let xs: T[] = []; xs.push(...)` at top level) | post-v1.0 polish | not started — workaround: wrap top-level driver in a `main()` |
 | `JSON.stringify(value, replacer, indent)` indent-aware emission | post-v1.0 polish | parsed but not pretty — emits compact form |
 | Array of fully-mixed types (tuple) | (not in v1.0 path) | needs T-10 Type::Any; revisit post-v1.0 |
 | Function statement hoisting (nested `function` inside blocks) | post-v1.0 polish | not started |
-| Decorators / Mapped & conditional types / `Proxy` / JSX | out of scope | out-of-scope features |
+| Decorators / JSX | roadmap | not started |
 
 ## Differences from bun (intentional)
 

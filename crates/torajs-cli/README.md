@@ -9,11 +9,14 @@ subcommands.
 ## Subcommands
 
 ```
-tr build <file.ts> [-o <out>] [--target wasm32-wasi]
-        Compile + link to a native or wasm executable.
+tr build <file.ts> -o <out> [--no-strip]
+        Compile + link to a native executable.
 
 tr run   <file.ts>
-        JIT compile + run inline.
+        Compile and run.
+
+tr tokenize | parse | check | ssa <file.ts>
+        Dump one compiler stage.
 
 tr fmt   <file.ts>
         Format source (rustfmt-style, default rules).
@@ -24,8 +27,8 @@ tr lint  <file.ts>
 tr cache [size | clean [--max-mb N]]
         Inspect / prune ~/.torajs/cache.
 
-tr debug ast | tokens | ssa | check | ir <file.ts>
-        Dump compiler intermediate representations.
+tr debug <file.ts> [-- <lldb-args>]
+        Compile with debug info and launch lldb.
 
 tr repl
         Interactive REPL via the embed JIT.
@@ -35,22 +38,6 @@ tr lsp
 ```
 
 Run `tr --help` for the full list at the version you have.
-
-## Pipeline stages
-
-```rust
-enum Stage {
-    Tokens,     // lexer output
-    Ast,        // parser output
-    Ssa,        // ssa_lower output
-    Check,      // typechecker output
-    Ir,         // ssa_inkwell LLVM IR
-    Build,      // cc / wasm-ld → executable
-    Run,        // execute the JIT'd output
-    Fmt,        // tr fmt
-    Lint,       // tr lint
-}
-```
 
 ## Caches under `~/.torajs/cache`
 
