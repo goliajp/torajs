@@ -159,6 +159,7 @@ pub(crate) fn collect_deque_arr_names_in_stmt(ast: &Ast, s: &Stmt, out: &mut Has
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_deque_arr_names_in_expr(ast, *scrutinee, out);
             for c in cases {

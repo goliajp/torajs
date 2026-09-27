@@ -163,6 +163,7 @@ impl<'a> Parser<'a> {
         }
         let mut cases: Vec<ast::SwitchCase> = Vec::new();
         let mut default: Option<Vec<Stmt>> = None;
+        let mut default_at: Option<usize> = None;
         while !matches!(self.peek(), Token::RBrace | Token::Eof) {
             match self.peek() {
                 Token::Case => {
@@ -236,6 +237,7 @@ impl<'a> Parser<'a> {
                         body.push(self.parse_stmt()?);
                     }
                     default = Some(body);
+                    default_at = Some(cases.len());
                 }
                 t => {
                     return Err(format!(
@@ -256,6 +258,7 @@ impl<'a> Parser<'a> {
         }
         Ok(Stmt::Switch {
             scrutinee,
+            default_at: default_at.unwrap_or(cases.len()),
             cases,
             default,
         })

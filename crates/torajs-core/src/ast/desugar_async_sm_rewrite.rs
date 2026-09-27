@@ -271,6 +271,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &mut Stmt, cx: &Cx, log: &mut LiftLog) -> bool
             scrutinee,
             cases,
             default,
+            ..
         } => {
             if cases.iter().any(|c| expr_has_await(ast, c.value)) {
                 return false;

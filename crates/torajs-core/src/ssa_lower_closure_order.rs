@@ -185,6 +185,7 @@ fn closures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<String>) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             closures_in_expr(ast, *scrutinee, out);
             for c in cases {

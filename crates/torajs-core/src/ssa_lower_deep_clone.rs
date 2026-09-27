@@ -84,7 +84,9 @@ pub(crate) fn deep_clone_stmt(ast: &mut Ast, map: &mut Vec<(ExprId, ExprId)>, s:
             scrutinee,
             cases,
             default,
+            default_at,
         } => Stmt::Switch {
+            default_at: *default_at,
             scrutinee: deep_clone_expr(ast, map, *scrutinee),
             cases: cases
                 .iter()

@@ -208,6 +208,7 @@ pub(super) fn walk_stmt(ast: &Ast, s: &Stmt, bound: &mut Bound<'_>, out: &mut Ve
             scrutinee,
             cases,
             default,
+            ..
         } => {
             walk_expr(ast, *scrutinee, bound, out);
             // §14.12.4 — the CaseBlock is ONE declarative environment

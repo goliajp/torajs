@@ -265,7 +265,9 @@ fn xform_switch(s: Stmt, ast: &mut Ast, ctx: &mut Ctx, domains: &mut Vec<Domain>
             scrutinee,
             cases,
             default,
+            default_at,
         } => Stmt::Switch {
+            default_at,
             scrutinee,
             cases: cases
                 .into_iter()

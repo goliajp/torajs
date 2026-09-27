@@ -180,6 +180,7 @@ impl Pairing<'_> {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 self.walk_expr(*scrutinee, cur);
                 for c in cases {

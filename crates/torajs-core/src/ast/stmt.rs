@@ -62,6 +62,12 @@ pub enum Stmt {
         scrutinee: ExprId,
         cases: Vec<SwitchCase>,
         default: Option<Vec<Stmt>>,
+        /// How many `case` clauses precede the `default` one —
+        /// `cases.len()` when it is last or absent. §14.12.4 tests
+        /// the clauses in source order either way, but a body falls
+        /// through into the clause written after it, so a `default`
+        /// written between cases falls into the next case.
+        default_at: usize,
     },
     /// `for (init; cond; step) body` — C-style for-loop. M1.6.
     /// `init` is typically a LetDecl but can also be an Expr stmt or

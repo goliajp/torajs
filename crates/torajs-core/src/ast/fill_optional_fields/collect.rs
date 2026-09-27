@@ -135,6 +135,7 @@ pub(super) fn collect_jobs(
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 collect_expr_jobs(ast, *scrutinee, env, fn_params, jobs);
                 for c in cases {

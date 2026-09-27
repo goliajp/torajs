@@ -254,7 +254,9 @@ impl<'a> BodyCloner<'a> {
                 scrutinee,
                 cases,
                 default,
+                default_at,
             } => Stmt::Switch {
+                default_at: *default_at,
                 scrutinee: self.clone_expr(*scrutinee),
                 cases: cases
                     .iter()

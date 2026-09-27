@@ -51,6 +51,7 @@ impl Walker<'_> {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => self.walk_switch(*scrutinee, cases, default),
             Stmt::For {
                 init,

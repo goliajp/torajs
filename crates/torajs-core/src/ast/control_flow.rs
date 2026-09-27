@@ -136,17 +136,20 @@ mod tests {
             scrutinee: eid(),
             cases: vec![case(vec![ret()])],
             default: None,
+            default_at: 1,
         }]));
         assert!(body_always_terminates(&[Stmt::Switch {
             scrutinee: eid(),
             cases: vec![case(vec![ret()])],
             default: Some(vec![ret()]),
+            default_at: 1,
         }]));
         // an empty clause falls through to the next one
         assert!(!body_always_terminates(&[Stmt::Switch {
             scrutinee: eid(),
             cases: vec![case(vec![])],
             default: Some(vec![ret()]),
+            default_at: 1,
         }]));
     }
 

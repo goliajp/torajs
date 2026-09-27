@@ -350,6 +350,7 @@ fn rewrite_stmt(ast: &mut Ast, s: &Stmt, sh: &Shadow) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rewrite_expr(ast, *scrutinee, sh);
             // §14.12.2 — the whole CaseBlock is ONE scope, so a `let`

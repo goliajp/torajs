@@ -144,6 +144,7 @@ fn collect_assigned_in_stmt(ast: &Ast, s: &Stmt, out: &mut HashSet<String>) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_assigned_in_expr(ast, *scrutinee, out);
             for c in cases {

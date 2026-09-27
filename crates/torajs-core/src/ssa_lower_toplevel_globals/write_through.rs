@@ -202,6 +202,7 @@ pub(super) fn binding_written_through(ast: &Ast, name: &str) -> bool {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 expr_writes(ast, *scrutinee, x)
                     || cases.iter().any(|c| {

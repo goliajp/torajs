@@ -185,6 +185,7 @@ fn rewrite_params_in_stmt(
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rewrite_params_in_expr(ast, *scrutinee, pset, visited);
             for c in cases {

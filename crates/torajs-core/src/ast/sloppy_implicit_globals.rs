@@ -292,6 +292,7 @@ impl Walk<'_> {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 self.walk_expr(ast, *scrutinee);
                 for c in cases {

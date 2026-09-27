@@ -188,6 +188,7 @@ fn rename_in_stmt(ast: &mut Ast, s: &mut Stmt, old: &str, new: &str) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rename_in_expr(ast, *scrutinee, old, new);
             for c in cases {

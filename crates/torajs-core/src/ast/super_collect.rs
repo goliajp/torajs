@@ -66,6 +66,7 @@ pub(super) fn collect_supercall_in_stmt(
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_supercall_in_expr(ast, *scrutinee, out);
             for c in cases {
@@ -287,6 +288,7 @@ pub(super) fn collect_super_in_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<(ExprId, 
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_super_in_expr(ast, *scrutinee, out);
             for c in cases {

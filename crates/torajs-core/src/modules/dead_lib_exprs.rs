@@ -125,6 +125,7 @@ fn mark_stmt(ast: &Ast, s: &Stmt, live: &mut [bool]) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             mark_expr(ast, *scrutinee, live);
             for c in cases {

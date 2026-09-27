@@ -102,6 +102,7 @@ pub(crate) fn collect_closure_captures_in_stmt(ast: &Ast, s: &Stmt, out: &mut Cl
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_closure_captures_in_expr(ast, *scrutinee, out);
             for c in cases {

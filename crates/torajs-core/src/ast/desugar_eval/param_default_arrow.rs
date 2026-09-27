@@ -330,6 +330,7 @@ fn rename_arguments_in_stmt(ast: &mut Ast, s: &mut Stmt, fresh: &str) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rename_arguments_in_expr(ast, *scrutinee, fresh);
             for c in cases.iter_mut() {

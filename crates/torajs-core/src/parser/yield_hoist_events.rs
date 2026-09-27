@@ -187,6 +187,7 @@ fn stmt_events(ast: &Ast, s: &Stmt, evs: &mut Vec<Ev>) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             expr_events(ast, *scrutinee, evs);
             for c in cases {

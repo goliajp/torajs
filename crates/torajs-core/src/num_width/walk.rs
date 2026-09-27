@@ -122,6 +122,7 @@ impl<'a> Analysis<'a> {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 self.walk_expr(*scrutinee, scope);
                 for c in cases {

@@ -80,6 +80,7 @@ pub(super) fn completes_empty_effect_free(s: &Stmt, ast: &Ast) -> bool {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             // Only the trivially-empty switch: any case body might be
             // the one dispatched to, and a value-producing body would

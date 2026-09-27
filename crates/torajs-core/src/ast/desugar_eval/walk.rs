@@ -259,6 +259,7 @@ fn mark_stmt(ast: &Ast, s: &Stmt, in_fn: bool, mode: Mode, owned: &mut [bool]) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             mark_expr(ast, *scrutinee, in_fn, mode, owned);
             for c in cases {

@@ -232,6 +232,7 @@ fn rrp_stmt_safe(ast: &Ast, s: &Stmt, x_name: &str) -> bool {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rrp_expr_safe(ast, *scrutinee, x_name)
                 && cases.iter().all(|c| {

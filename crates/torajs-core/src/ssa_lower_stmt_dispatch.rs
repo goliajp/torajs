@@ -105,8 +105,9 @@ impl<'a> LowerCtx<'a> {
                 scrutinee,
                 cases,
                 default,
+                default_at,
             } => {
-                crate::ssa_lower_stmt_switch::lower(self, *scrutinee, cases, default);
+                crate::ssa_lower_stmt_switch::lower(self, *scrutinee, cases, default, *default_at);
             }
             Stmt::For {
                 init,

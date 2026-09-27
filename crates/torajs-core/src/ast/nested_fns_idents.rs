@@ -88,6 +88,7 @@ pub(super) fn rewrite_idents_in_stmt(
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rewrite_idents_in_expr(ast, *scrutinee, renames, arrows);
             for case in cases.iter_mut() {

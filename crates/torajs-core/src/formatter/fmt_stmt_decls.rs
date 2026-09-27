@@ -333,6 +333,7 @@ impl<'a> Formatter<'a> {
         scrutinee: ExprId,
         cases: &[SwitchCase],
         default: Option<&[Stmt]>,
+        default_at: usize,
     ) {
         self.write_indent();
         self.write("switch (");
@@ -340,32 +341,35 @@ impl<'a> Formatter<'a> {
         self.write(") {");
         self.newline();
         self.indent += 1;
-        for case in cases {
-            self.write_indent();
-            self.write("case ");
-            self.fmt_expr(case.value);
-            self.write(":");
-            self.newline();
-            self.indent += 1;
-            for s in &case.body {
-                self.fmt_stmt(s);
+        for i in 0..=cases.len() {
+            if i == default_at
+                && let Some(d) = default
+            {
+                self.write_indent();
+                self.write("default:");
                 self.newline();
+                self.fmt_clause_body(d);
             }
-            self.indent -= 1;
-        }
-        if let Some(d) = default {
-            self.write_indent();
-            self.write("default:");
-            self.newline();
-            self.indent += 1;
-            for s in d {
-                self.fmt_stmt(s);
+            if let Some(case) = cases.get(i) {
+                self.write_indent();
+                self.write("case ");
+                self.fmt_expr(case.value);
+                self.write(":");
                 self.newline();
+                self.fmt_clause_body(&case.body);
             }
-            self.indent -= 1;
         }
         self.indent -= 1;
         self.write_indent();
         self.write("}");
+    }
+
+    fn fmt_clause_body(&mut self, body: &[Stmt]) {
+        self.indent += 1;
+        for s in body {
+            self.fmt_stmt(s);
+            self.newline();
+        }
+        self.indent -= 1;
     }
 }

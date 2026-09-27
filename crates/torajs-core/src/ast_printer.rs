@@ -140,7 +140,14 @@ pub(crate) fn print_stmt(ast: &Ast, s: &Stmt, indent: usize) {
             scrutinee,
             cases,
             default,
-        } => print_switch(ast, &pad, *scrutinee, cases, default.as_deref(), indent),
+            default_at,
+        } => print_switch(
+            ast,
+            &pad,
+            *scrutinee,
+            (cases, default.as_deref(), *default_at),
+            indent,
+        ),
         Stmt::For {
             init,
             cond,
@@ -366,24 +373,27 @@ fn print_switch(
     ast: &Ast,
     pad: &str,
     scrutinee: ExprId,
-    cases: &[crate::ast::SwitchCase],
-    default: Option<&[Stmt]>,
+    (cases, default, default_at): (&[crate::ast::SwitchCase], Option<&[Stmt]>, usize),
     indent: usize,
 ) {
     println!("{pad}Switch");
     println!("{pad}  on:");
     print_expr(ast, scrutinee, indent + 2);
-    for c in cases {
-        println!("{pad}  case:");
-        print_expr(ast, c.value, indent + 2);
-        for s in &c.body {
-            print_stmt(ast, s, indent + 2);
+    for i in 0..=cases.len() {
+        if i == default_at
+            && let Some(db) = default
+        {
+            println!("{pad}  default:");
+            for s in db {
+                print_stmt(ast, s, indent + 2);
+            }
         }
-    }
-    if let Some(db) = default {
-        println!("{pad}  default:");
-        for s in db {
-            print_stmt(ast, s, indent + 2);
+        if let Some(c) = cases.get(i) {
+            println!("{pad}  case:");
+            print_expr(ast, c.value, indent + 2);
+            for s in &c.body {
+                print_stmt(ast, s, indent + 2);
+            }
         }
     }
 }

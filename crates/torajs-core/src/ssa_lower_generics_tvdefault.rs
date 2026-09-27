@@ -64,6 +64,7 @@ pub(crate) fn rewrite_tvdefault_in_stmt(ast: &mut Ast, s: &Stmt, subst: &[(Strin
             scrutinee,
             cases,
             default,
+            ..
         } => {
             rewrite_tvdefault_in_expr(ast, *scrutinee, subst);
             for c in cases {

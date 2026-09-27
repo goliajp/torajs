@@ -122,6 +122,7 @@ fn scan_stmt(
             scrutinee,
             cases,
             default,
+            ..
         } => {
             scan_expr(ast, *scrutinee, called, direct, fn_values, expr_types);
             for c in cases {

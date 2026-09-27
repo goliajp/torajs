@@ -233,6 +233,7 @@ fn walk_stmt(ast: &Ast, stmt: &Stmt, scopes: &mut Vec<HashSet<String>>, out: &mu
             scrutinee,
             cases,
             default,
+            ..
         } => {
             walk_expr(ast, *scrutinee, scopes, out);
             for c in cases {

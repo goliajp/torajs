@@ -82,6 +82,7 @@ pub(crate) fn collect_stmt<'a>(ast: &'a Ast, s: &'a Stmt, out: &mut Vec<&'a str>
             scrutinee,
             cases,
             default,
+            ..
         } => {
             nested_closure_captures::collect(ast, *scrutinee, out);
             case_block(ast, cases, default.as_deref(), out);

@@ -236,6 +236,7 @@ mod tests {
             scrutinee: ExprId(0),
             cases: vec![],
             default: Some(vec![throw()]),
+            default_at: 0,
         };
         assert!(!body_never_completes(&[sw]));
     }

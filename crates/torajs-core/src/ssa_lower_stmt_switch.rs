@@ -15,7 +15,8 @@
 //!   (body_1 | … | default | after) → after
 //! ```
 //!
-//! Each body falls through to the next body's entry unless
+//! Each body falls through to the entry of the body written after it
+//! (a `default` between cases falls into the next case) unless
 //! interrupted by `break` (loop_stack supplies the break target =
 //! `after`). Per-arm compare specializes on scrutinee type:
 //!
@@ -40,6 +41,7 @@ pub(crate) fn lower(
     scrutinee: crate::ast::ExprId,
     cases: &[SwitchCase],
     default: &Option<Vec<Stmt>>,
+    default_at: usize,
 ) {
     let scrut_val = ctx.lower_expr(scrutinee);
     let scrut_ty = ctx.operand_ty(&scrut_val);
@@ -146,10 +148,12 @@ pub(crate) fn lower(
                 else_blk: next_cmp_or_default,
             },
         );
-        let fall_through = if i + 1 < body_blks.len() {
-            body_blks[i + 1]
-        } else {
-            default_blk.unwrap_or(after)
+        // Bodies fall through in source order, where the default
+        // sits `default_at` clauses in.
+        let fall_through = match default_blk {
+            Some(db) if i + 1 == default_at => db,
+            _ if i + 1 < body_blks.len() => body_blks[i + 1],
+            _ => after,
         };
         ctx.cur_block = body_blks[i];
         for s in &c.body {
@@ -175,7 +179,8 @@ pub(crate) fn lower(
             }
         }
         if ctx.cur_open() {
-            ctx.f.set_term(ctx.cur_block, Terminator::Br(after));
+            let next = body_blks.get(default_at).copied().unwrap_or(after);
+            ctx.f.set_term(ctx.cur_block, Terminator::Br(next));
         }
     }
     if cases.is_empty() {

@@ -89,7 +89,9 @@ fn sfi_rewrite_stmt(ast: &mut Ast, s: &Stmt, x_name: &str, i_name: &str, v_name:
             scrutinee,
             cases,
             default,
+            default_at,
         } => Stmt::Switch {
+            default_at: *default_at,
             scrutinee: sfi_rewrite_expr(ast, *scrutinee, x_name, i_name, v_name),
             cases: cases
                 .iter()

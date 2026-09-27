@@ -166,6 +166,7 @@ pub(super) fn collect_superprop_in_stmt(ast: &Ast, s: &Stmt, out: &mut SuperProp
             scrutinee,
             cases,
             default,
+            ..
         } => {
             walk_expr(ast, *scrutinee, out, false);
             for c in cases {

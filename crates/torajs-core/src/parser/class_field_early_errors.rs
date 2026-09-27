@@ -236,6 +236,7 @@ fn stmt_contains_inner(
             scrutinee,
             cases,
             default,
+            ..
         } => {
             expr_contains_inner(ast, *scrutinee, sym, hit)
                 || cases.iter().any(|c| {

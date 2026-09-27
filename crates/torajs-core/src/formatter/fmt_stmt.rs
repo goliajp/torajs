@@ -155,7 +155,8 @@ impl<'a> Formatter<'a> {
                 scrutinee,
                 cases,
                 default,
-            } => self.fmt_switch(*scrutinee, cases, default.as_deref()),
+                default_at,
+            } => self.fmt_switch(*scrutinee, cases, default.as_deref(), *default_at),
             Stmt::FnDecl {
                 name,
                 type_params,

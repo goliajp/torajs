@@ -190,6 +190,7 @@ fn scan_stmt(ast: &mut Ast, s: &mut Stmt, mode: Mode, hits: &mut Hits) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             scan_expr(ast, *scrutinee, mode, hits);
             for c in cases.iter_mut() {

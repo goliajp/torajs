@@ -73,6 +73,7 @@ pub(crate) fn count_refs_stmt(ast: &Ast, s: &Stmt, refs: &mut HashMap<String, us
             scrutinee,
             cases,
             default,
+            ..
         } => {
             count_refs_expr(ast, *scrutinee, refs);
             for c in cases {

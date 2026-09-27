@@ -109,6 +109,7 @@ fn stmt_assigns_matching(ast: &Ast, s: &Stmt, hit: HitFn) -> bool {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             if expr_assigns_matching(ast, *scrutinee, hit) {
                 return true;

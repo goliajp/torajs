@@ -88,6 +88,7 @@ pub(super) fn stmt_can_throw(ast: &Ast, s: &Stmt) -> bool {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             if expr_can_throw(ast, *scrutinee) {
                 return true;

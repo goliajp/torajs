@@ -114,6 +114,7 @@ pub(super) fn visit_stmt_exprs(s: &Stmt, f: &mut impl FnMut(ExprId)) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             f(*scrutinee);
             for c in cases {

@@ -390,6 +390,7 @@ impl<'a> FnToClosureCollector<'a> {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 self.walk_expr(*scrutinee);
                 for c in cases {

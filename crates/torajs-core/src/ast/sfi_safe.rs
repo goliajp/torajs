@@ -89,6 +89,7 @@ fn sfi_stmt_x_safe(ast: &Ast, s: &Stmt, x_name: &str, shape: XShape<'_>) -> bool
             scrutinee,
             cases,
             default,
+            ..
         } => {
             sfi_expr_x_safe(ast, *scrutinee, x_name, shape)
                 && cases.iter().all(|c| {

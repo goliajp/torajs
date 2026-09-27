@@ -56,10 +56,9 @@ impl Checker {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
-                // Scrutinee type vs case value type; nested scope per
-                // case body + default. See
-                // [`crate::check_stmt_misc::check_switch`].
+                // scrutinee vs case value types; a scope per clause body
                 crate::check_stmt_misc::check_switch(self, ast, *scrutinee, cases, default);
                 self.flush_assign_narrows();
             }

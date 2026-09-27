@@ -139,6 +139,7 @@ pub(crate) fn collect_escape_obj_let_names_in_stmt(ast: &Ast, s: &Stmt, out: &mu
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_escape_obj_let_names_in_expr(ast, *scrutinee, out);
             for c in cases {

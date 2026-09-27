@@ -245,6 +245,7 @@ impl<'a> Ctx<'a> {
                 scrutinee,
                 cases,
                 default,
+                ..
             } => {
                 self.walk_expr(*scrutinee, binds);
                 for c in cases {

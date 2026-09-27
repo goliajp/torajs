@@ -313,6 +313,7 @@ fn stmt_writes(ast: &Ast, s: &Stmt, x: &str) -> bool {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             expr_writes(ast, *scrutinee, x)
                 || cases.iter().any(|c| {

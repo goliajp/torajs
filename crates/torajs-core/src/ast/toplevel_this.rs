@@ -110,6 +110,7 @@ fn collect_stmt(ast: &Ast, s: &Stmt, out: &mut Vec<ExprId>) {
             scrutinee,
             cases,
             default,
+            ..
         } => {
             collect_expr(ast, *scrutinee, out);
             for c in cases {

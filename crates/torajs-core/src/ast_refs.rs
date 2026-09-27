@@ -101,6 +101,7 @@ fn idents_in_stmt(ast: &Ast, s: &Stmt, shadow: &HashSet<String>, out: &mut HashS
             scrutinee,
             cases,
             default,
+            ..
         } => {
             idents_in_expr(ast, *scrutinee, shadow, out);
             for c in cases {
