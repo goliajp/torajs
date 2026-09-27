@@ -235,6 +235,21 @@ impl<'a> LowerCtx<'a> {
                 } else {
                     ArrLenLock::DeleteTailTyped
                 };
+                // The typed pop's length is read ahead of the guard:
+                // the guard's raiser either throws or returns with the
+                // length untouched, and a read in the guard's entry
+                // block shares an extended block with the caller's own
+                // `xs.length` test, where late GVN folds the two.
+                let early_len = match (elem_ty, &arr_op) {
+                    (Type::Any, _) => None,
+                    (_, Operand::Value(v)) => Some(self.f.append_inst(
+                        self.cur_block,
+                        InstKind::Load(Type::I64, Operand::Value(*v), ARR_LEN_OFF),
+                        Type::I64,
+                        None,
+                    )),
+                    _ => unreachable!(),
+                };
                 self.emit_arr_len_lock_guard(arr_op.clone(), lock);
                 // Chunk 628 — static Arr<Any> receivers go through the
                 // kind-aware runtime pop (typed-behind-any blocks rebox
@@ -254,12 +269,7 @@ impl<'a> LowerCtx<'a> {
                     Operand::Value(v) => v,
                     _ => unreachable!(),
                 };
-                let len = self.f.append_inst(
-                    self.cur_block,
-                    InstKind::Load(Type::I64, Operand::Value(cur_arr), ARR_LEN_OFF),
-                    Type::I64,
-                    None,
-                );
+                let len = early_len.expect("typed pop read its length ahead of the guard");
                 // bug-327 C1 — empty-array guard. ES spec: `[].pop()`
                 // yields undefined and leaves length untouched. The
                 // pre-guard emit decremented len to -1 and loaded

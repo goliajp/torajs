@@ -39,6 +39,7 @@ pub mod iconst_hoist;
 pub mod inliner;
 pub mod interval;
 pub mod late_gvn;
+pub mod len_promote;
 pub mod load_licm;
 pub mod loop_rotate;
 pub mod map_find_cse;
@@ -302,6 +303,12 @@ pub fn transform_module(mut module: Module) -> Module {
     // (folded diamonds must not be select-formed).
     // `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate).
     gated_pass("BRANCH_FOLD", &mut module, branch_fold::fold_branches);
+    // Array length word into a register across a loop that stores it
+    // (`len_promote`): the pop loop's `str len` → next `ldr len` chain.
+    // After branch_fold (its folded arms are no longer loop body),
+    // before load_licm, which then sees the loop without the stores.
+    // `TORAJS_LEN_PROMOTE_OFF=1` skips (bisect gate).
+    gated_pass("LEN_PROMOTE", &mut module, len_promote::promote_lengths);
     // Array header-field loads out of loops that never write that
     // array's header (allocation-site alias slices, `load_licm`).
     // After branch_fold (a folded-away out-of-range arm is no longer

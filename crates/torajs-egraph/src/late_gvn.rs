@@ -21,12 +21,18 @@
 //!   redefinitions bump a per-value generation stamped into the key,
 //!   so later lookups in the same chain miss after a redef.
 //!
+//! A `Load` joins in on the risky table only, keyed by a memory epoch
+//! as well: every instruction that is neither pure nor a load takes a
+//! fresh epoch (it may write memory), and a block continues its
+//! chain's epoch, so two loads of one address fold only when nothing
+//! between them along the chain can have stored.
+//!
 //! Misses are always safe (a missed dedup costs a recomputation,
 //! never correctness). Hits replace the second instruction's result
 //! with the first everywhere (def dominates both, so every rewritten
 //! use stays dominated) and delete the redundant instruction — the
-//! deleted kinds are `classify_pure`, so no memory or refcount effect
-//! disappears with them.
+//! deleted kinds are `classify_pure` or a load, so no memory or
+//! refcount effect disappears with them.
 
 use std::collections::{HashMap, HashSet};
 
@@ -95,6 +101,11 @@ struct Walk {
     vgen: HashMap<ValueId, u32>,
     replace: HashMap<ValueId, ValueId>,
     multi: HashSet<ValueId>,
+    /// The memory epoch at the current point, the epoch each block
+    /// ended with (by id), and the next fresh one.
+    epoch: u32,
+    end_epoch: HashMap<u32, u32>,
+    next_epoch: u32,
 }
 
 impl Walk {
@@ -145,6 +156,11 @@ impl Walk {
         }
     }
 
+    fn fresh_epoch(&mut self) -> u32 {
+        self.next_epoch += 1;
+        self.next_epoch
+    }
+
     /// A risky entry is visible only when it was inserted at or below
     /// the innermost barrier (i.e. along the unique-pred chain).
     fn risky_visible(&self, depth: usize) -> bool {
@@ -178,6 +194,9 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
         vgen: HashMap::new(),
         replace: HashMap::new(),
         multi: multi_def_values(func),
+        epoch: 0,
+        end_epoch: HashMap::new(),
+        next_epoch: 1,
     };
 
     enum Visit {
@@ -196,11 +215,18 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
                 let barrier =
                     preds[bi].len() != 1 || dom.immediate_dominator(bid) != Some(preds[bi][0]);
                 w.enter(barrier && bid.0 != 0);
+                // along the chain, memory is as the dominator left it;
+                // past a join no load entry is visible anyway
+                w.epoch = match dom.immediate_dominator(bid) {
+                    Some(d) if !barrier => w.end_epoch[&d.0],
+                    _ => w.fresh_epoch(),
+                };
                 stack.push(Visit::Exit);
                 for &child in dom.children(bid) {
                     stack.push(Visit::Enter(child));
                 }
                 process_block(func, bi, &mut w, stats);
+                w.end_epoch.insert(bid.0, w.epoch);
             }
         }
     }
@@ -233,6 +259,11 @@ fn gvn_fn(func: &mut Function, stats: &mut LateGvnStats) {
 
 fn process_block(func: &Function, bi: usize, w: &mut Walk, stats: &mut LateGvnStats) {
     for inst in &func.blocks[bi].insts {
+        let load = matches!(inst.kind, InstKind::Load(..));
+        let pure = classify_pure(&inst.kind);
+        if !pure && !load {
+            w.epoch = w.fresh_epoch();
+        }
         let Some(result) = inst.result else { continue };
         if w.multi.contains(&result) {
             // A φ-web redefinition — later lookups keyed on this
@@ -240,11 +271,14 @@ fn process_block(func: &Function, bi: usize, w: &mut Walk, stats: &mut LateGvnSt
             *w.vgen.entry(result).or_insert(0) += 1;
             continue;
         }
-        if !classify_pure(&inst.kind) {
+        if !pure && !load {
             continue;
         }
-        let (key, risky) = w.key_for(func.values[result.0 as usize].ty, &inst.kind);
-        if risky {
+        let (mut key, risky) = w.key_for(func.values[result.0 as usize].ty, &inst.kind);
+        if load {
+            key.2.push(w.epoch);
+        }
+        if risky || load {
             match w.risky.get(&key) {
                 Some(&(existing, depth)) if w.risky_visible(depth) => {
                     w.replace.insert(result, existing);

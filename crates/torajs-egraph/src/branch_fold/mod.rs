@@ -28,6 +28,12 @@
 //! instructions, and a fact keyed by a ValueId that has since been
 //! reused is evidence for the wrong value.
 //!
+//! The fourth is the branch-edge constraints the lattice itself uses
+//! for instruction results but never applies to a value's own fact: a
+//! single-def value's range on every path into the compare's block
+//! (`while (xs.length > 0)` settles the pop's `len != 0` once late GVN
+//! has made the two length loads one value).
+//!
 //! Folding is generic: any always-true/false ICmp-fed CondBr folds,
 //! guard or not. `TORAJS_BRANCH_FOLD_OFF=1` skips (bisect gate),
 //! `TORAJS_BRANCH_FOLD_STATS=1` dumps counters.
@@ -36,12 +42,13 @@ pub(crate) mod accum;
 pub(crate) mod point_eval;
 
 use std::cell::OnceCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use torajs_core::ssa::{
     BlockId, Function, IPred, InstKind, Module, Operand, Terminator, ValueId, visit_value_operands,
 };
 
+use crate::interval::refine::{Constraint, Constraints};
 use crate::interval::transfer::NumFact;
 use point_eval::{PointEval, successors};
 use torajs_core::ssa::dominator::DominatorTree;
@@ -76,6 +83,15 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
     // Lazily: most functions carry no ICmp-fed CondBr at all, and the
     // lattice is a fixpoint per function.
     let flow: OnceCell<HashMap<ValueId, NumFact>> = OnceCell::new();
+    let edges: OnceCell<Constraints> = OnceCell::new();
+    let src = Sources {
+        func,
+        la: &la,
+        pe: &pe,
+        flow: &flow,
+        edges: &edges,
+        dom: &dom,
+    };
 
     // Decide every foldable CondBr against the unmutated CFG (edge
     // removal only shrinks the path set, so the evidence stays valid
@@ -96,8 +112,8 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
         let InstKind::ICmp(pred, a, b) = &func.blocks[cd.0].insts[cd.1].kind else {
             continue;
         };
-        let fa = eval_side(func, &la, &pe, &flow, a, cd);
-        let fb = eval_side(func, &la, &pe, &flow, b, cd);
+        let fa = eval_side(&src, a, cd);
+        let fb = eval_side(&src, b, cd);
         if let (Some(fa), Some(fb)) = (fa, fb)
             && let Some(taken) = decide(*pred, fa, fb)
         {
@@ -115,18 +131,26 @@ fn fold_in_function(func: &mut Function, stats: &mut BranchFoldStats) {
     stats.blocks_removed += sweep_unreachable_blocks(func);
 }
 
-/// Evaluate one compare side against all three sources: point
+/// What [`eval_side`] consults, the lattice and the edge constraints
+/// built on first use.
+struct Sources<'a> {
+    func: &'a Function,
+    la: &'a LoopAnalysis,
+    pe: &'a PointEval<'a>,
+    flow: &'a OnceCell<HashMap<ValueId, NumFact>>,
+    edges: &'a OnceCell<Constraints>,
+    dom: &'a DominatorTree,
+}
+
+/// Evaluate one compare side against all four sources: point
 /// evaluation, the add-recurrence bound for a single-def `add` over
-/// an accumulator cell, and the flow-insensitive lattice. Each is
-/// sound on its own, so the answer is their meet.
-fn eval_side(
-    func: &Function,
-    la: &LoopAnalysis,
-    pe: &PointEval,
-    flow: &OnceCell<HashMap<ValueId, NumFact>>,
-    op: &Operand,
-    at: (usize, usize),
-) -> Option<NumFact> {
+/// an accumulator cell, the flow-insensitive lattice, and the ranges
+/// the branch edges into the compare's block put on a single-def
+/// value. Each is sound on its own, so the answer is their meet.
+fn eval_side(src: &Sources<'_>, op: &Operand, at: (usize, usize)) -> Option<NumFact> {
+    let Sources {
+        func, la, pe, flow, ..
+    } = *src;
     // Point evaluation resolves opaque i64 defs to the vacuous
     // full-i64 fact, so the other two must always get their shot;
     // all are sound → meet (disjoint cannot arise among sound facts,
@@ -145,9 +169,44 @@ fn eval_side(
             .copied(),
         _ => None,
     };
-    [pf, af, ff]
+    let ef = match op {
+        Operand::Value(v) => edge_range(src, *v, at.0),
+        _ => None,
+    };
+    [pf, af, ff, ef]
         .into_iter()
         .flatten()
+        .reduce(|a, b| a.meet(b).unwrap_or(b))
+}
+
+/// The range the branch edges dominating block `bi` put on `v`, when
+/// `v` has a single def (a multi-def cell may be redefined between the
+/// edge and the compare).
+fn edge_range(src: &Sources<'_>, v: ValueId, bi: usize) -> Option<NumFact> {
+    let func = src.func;
+    single_def(func, v)?;
+    let edges = src.edges.get_or_init(|| {
+        let mut defs: HashMap<ValueId, InstKind> = HashMap::new();
+        let mut multi: HashSet<ValueId> = HashSet::new();
+        for inst in func.blocks.iter().flat_map(|b| &b.insts) {
+            if let Some(r) = inst.result
+                && defs.insert(r, inst.kind.clone()).is_some()
+            {
+                multi.insert(r);
+            }
+        }
+        defs.retain(|r, _| !multi.contains(r));
+        Constraints::compute(func, &defs)
+    });
+    // single-def values need no kill set
+    let no_kills = vec![HashSet::new(); func.blocks.len()];
+    edges
+        .inherited(func.blocks[bi].id, src.dom, &no_kills)
+        .into_iter()
+        .filter_map(|c| match c {
+            Constraint::Range(w, f) if w == v => Some(f),
+            _ => None,
+        })
         .reduce(|a, b| a.meet(b).unwrap_or(b))
 }
 
