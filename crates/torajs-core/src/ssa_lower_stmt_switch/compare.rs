@@ -26,12 +26,42 @@ pub(super) fn emit_case_compare(
     cmp_blk: BlockId,
 ) -> crate::ssa::ValueId {
     let v = ctx.lower_expr(value);
+    let is_null = matches!(ctx.ast.get_expr(value), Expr::Null);
+    let is_undef = is_undefined_literal(ctx, value);
+    let v_ty = ctx.operand_ty(&v);
+    if let Some(hit) = settled_compare(ctx, scrutinee, scrut_ty, v_ty, is_null, is_undef) {
+        let pred = if hit { IPred::Eq } else { IPred::Ne };
+        return ctx.f.append_inst(
+            cmp_blk,
+            InstKind::ICmp(pred, Operand::ConstI64(0), Operand::ConstI64(0)),
+            Type::Bool,
+            None,
+        );
+    }
     match scrut_ty {
         // The clause value takes the scrutinee's width: a widened
         // scrutinee (`i % 2` under the f64 class) against a literal
         // `0` handed `FCmp` a `ConstI64` operand, which the FPR
         // materializer cannot hold ("FPR materialization can't
         // hold ConstI64(0)" at build).
+        // An f64 slot spells `undefined` with its NaN sentinel, so
+        // `case undefined` compares that bit pattern; converted to a
+        // number it would be compared as a value.
+        Type::F64 if is_undef => {
+            let bits = ctx.f.append_inst(
+                cmp_blk,
+                InstKind::BitCastF64ToI64(scrut_val),
+                Type::I64,
+                None,
+            );
+            let sentinel = crate::ssa_lower_undef_f64_source::F64_UNDEF_SENTINEL_BITS as i64;
+            ctx.f.append_inst(
+                cmp_blk,
+                InstKind::ICmp(IPred::Eq, Operand::Value(bits), Operand::ConstI64(sentinel)),
+                Type::Bool,
+                None,
+            )
+        }
         Type::F64 => {
             let v = ctx.coerce_to_f64(v);
             ctx.f.append_inst(
@@ -92,6 +122,15 @@ pub(super) fn emit_case_compare(
         // every case fell through to `default`: a wrong answer
         // where the checker used to raise a loud one.
         _ if scrut_ty == Type::Any || ctx.operand_ty(&v) == Type::Any => {
+            // The helper tells a concrete `undefined` from `null` by the
+            // per-binop state the `===` arm records, which no clause
+            // passes through; boxing the clause value by its expression
+            // carries that in the tag instead.
+            let v = if is_null || is_undef {
+                ctx.box_to_any_from_expr(value, v)
+            } else {
+                v
+            };
             match crate::ssa_lower_binop_inner_strict_eq::try_lower(
                 ctx,
                 crate::ast::BinOp::Eq,
@@ -148,17 +187,6 @@ pub(super) fn emit_case_compare(
             ctx.f
                 .append_inst(cmp_blk, InstKind::FCmp(FPred::Oeq, l, v), Type::Bool, None)
         }
-        // Two different representations are two different ES types —
-        // a Number or Boolean against a pointer-shaped value, as in
-        // `switch (null) { case 0: }` — and IsStrictlyEqual answers
-        // false. The raw ICmp compared bits, and NULL equals 0. The
-        // clause value above was still evaluated.
-        _ if value_kind(scrut_ty) != value_kind(ctx.operand_ty(&v)) => ctx.f.append_inst(
-            cmp_blk,
-            InstKind::ICmp(IPred::Ne, Operand::ConstI64(0), Operand::ConstI64(0)),
-            Type::Bool,
-            None,
-        ),
         _ => ctx.f.append_inst(
             cmp_blk,
             InstKind::ICmp(IPred::Eq, scrut_val, v),
@@ -168,12 +196,57 @@ pub(super) fn emit_case_compare(
     }
 }
 
-/// Which ES type family a raw compare operand belongs to: Number,
-/// Boolean, or anything pointer-shaped.
+/// The clause compare's answer when it is known without comparing: a
+/// scrutinee the checker typed as exactly `undefined` or `null` equals
+/// only that clause, whatever its slot spells it with; and two
+/// different representations are two different ES types — a number,
+/// boolean or string against a value of another family, as in
+/// `switch (null) { case 0: }` or `switch ("0") { case 0: }` — for
+/// which IsStrictlyEqual answers false. The raw arms would compare
+/// bits (NULL equals 0) or call a string kernel on a non-string. An
+/// `any` side, and a `null` / `undefined` clause against a slot that
+/// can hold it, are the pairs whose answer depends on the value. The
+/// clause value has been evaluated either way.
+fn settled_compare(
+    ctx: &LowerCtx,
+    scrutinee: crate::ast::ExprId,
+    scrut_ty: Type,
+    v_ty: Type,
+    is_null: bool,
+    is_undef: bool,
+) -> Option<bool> {
+    let nullish = is_null || is_undef;
+    match ctx.expr_types.get(&scrutinee) {
+        Some(crate::check::Type::Undefined) if nullish => return Some(is_undef),
+        Some(crate::check::Type::Null) if nullish => return Some(is_null),
+        _ => {}
+    }
+    if scrut_ty == Type::Any || v_ty == Type::Any {
+        return None;
+    }
+    // pointer-shaped slots hold both nullish values, an f64 slot
+    // spells `undefined` with its sentinel, integer and boolean
+    // slots hold neither
+    let fits = match scrut_ty {
+        Type::I64 | Type::I32 | Type::Bool => false,
+        Type::F64 => is_undef,
+        _ => true,
+    };
+    let differ = if nullish {
+        !fits
+    } else {
+        value_kind(scrut_ty) != value_kind(v_ty)
+    };
+    differ.then_some(false)
+}
+
+/// Which ES type family a compare operand belongs to: Number,
+/// Boolean, String, or anything else pointer-shaped.
 fn value_kind(ty: Type) -> u8 {
     match ty {
         Type::I64 | Type::I32 | Type::F64 => 1,
         Type::Bool => 2,
+        Type::Str | Type::Substr => 3,
         _ => 0,
     }
 }
