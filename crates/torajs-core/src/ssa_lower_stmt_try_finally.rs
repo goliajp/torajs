@@ -331,11 +331,7 @@ fn emit_pending_label_flags(ctx: &mut LowerCtx) {
                 let (target, depth, td) = match frame.target {
                     LabelTarget::Loop(idx) => {
                         let lt = ctx.loop_stack[idx];
-                        (
-                            if take_break { lt.brk } else { lt.cont },
-                            lt.scope_depth,
-                            lt.teardown_depth,
-                        )
+                        (lt.target(take_break), lt.scope_depth, lt.teardown_depth)
                     }
                     LabelTarget::Block(blk) => (blk, frame.scope_depth, frame.teardown_depth),
                 };
@@ -376,15 +372,15 @@ fn emit_pending_loop_flag(ctx: &mut LowerCtx, flag: ValueId, take_break: bool, a
         },
     );
     ctx.cur_block = hit_blk;
-    let cur_loop_len = ctx.loop_stack.len();
-    let outer_in_same_loop = ctx.try_finally_loop_depth.last().copied() == Some(cur_loop_len);
+    let target_idx = ctx.jump_loop(take_break);
+    let outer_in_same_loop = target_idx.is_some_and(|i| ctx.finally_inside_loop(i));
     if outer_in_same_loop && let Some(outer_fb) = ctx.try_finally_stack.last().copied() {
         crate::ssa_lower_for_of_teardown::emit_closes_from(ctx, outer_fb.teardown_depth, false);
         ctx.emit_drops_for_scopes_from(outer_fb.scope_depth);
         let cb4 = ctx.cur_block;
         ctx.f.set_term(cb4, Terminator::Br(outer_fb.blk));
-    } else if let Some(lt) = ctx.loop_stack.last().copied() {
-        let target = if take_break { lt.brk } else { lt.cont };
+    } else if let Some(lt) = target_idx.map(|i| ctx.loop_stack[i]) {
+        let target = lt.target(take_break);
         ctx.f.append_void(
             ctx.cur_block,
             InstKind::Store(Operand::ConstBool(false), Operand::Value(flag), 0),

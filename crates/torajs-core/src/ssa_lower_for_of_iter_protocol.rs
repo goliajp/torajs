@@ -308,7 +308,7 @@ pub(crate) fn lower_for_of_iter_protocol(
     // only closed on fall-through: a jump out owes it (depth = index).
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: header,
+            cont: Some(header),
             brk: after,
             scope_depth: ctx.scope_stack.len() - 1,
             teardown_depth: ctx.for_of_teardown_stack.len(),

@@ -115,7 +115,7 @@ pub(crate) fn lower(
     // push, so every edge into `after` drops that frame exactly once.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: after,
+            cont: None,
             brk: after,
             scope_depth: ctx.scope_stack.len(),
             teardown_depth: ctx.for_of_teardown_stack.len(),

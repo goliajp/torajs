@@ -38,7 +38,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, body: &Stmt, cond: crate::ast::ExprId) {
     // owes the body's frames pushed by `lower_stmt(body)`.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: cond_blk,
+            cont: Some(cond_blk),
             brk: after,
             scope_depth: ctx.scope_stack.len(),
             teardown_depth: ctx.for_of_teardown_stack.len(),

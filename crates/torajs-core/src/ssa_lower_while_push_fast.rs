@@ -161,7 +161,7 @@ pub(crate) fn lower_while_inner(
     // owes the body's frames pushed by `lower_stmt(body)`.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: header,
+            cont: Some(header),
             brk: after,
             scope_depth: ctx.scope_stack.len(),
             teardown_depth: ctx.for_of_teardown_stack.len(),

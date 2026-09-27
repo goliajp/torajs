@@ -9,13 +9,14 @@
 //!
 //! - **`break`** branches to the enclosing loop's break target
 //!   (`loop_stack.last().1`). Errors if outside any loop.
-//! - **`continue`** branches to the enclosing loop's continue
-//!   target (`loop_stack.last().0`).
+//! - **`continue`** branches to the continue target of the nearest
+//!   enclosing iteration statement, past any `switch` in between
+//!   (`LowerCtx::continue_loop`).
 //!
 //! Finally-routing: when a `try-with-finally` sits between the
 //! `break` / `continue` and the loop (detected via
-//! `try_finally_loop_depth.last() == loop_stack.len()` — i.e. the
-//! finally was registered at the same loop depth we'd be exiting),
+//! `LowerCtx::finally_inside_loop` — the finally was registered
+//! inside the loop-stack entry we'd be exiting),
 //! we don't branch directly to the loop target — we route through
 //! the finally with a `__pending_break` / `__pending_continue`
 //! flag set first. The finally tail dispatches back to the
@@ -194,11 +195,7 @@ fn labeled_target(ctx: &LowerCtx, idx: usize, want_break: bool) -> (BlockId, usi
     match ctx.label_stack[idx].1.target {
         LabelTarget::Loop(li) => {
             let lt = ctx.loop_stack[li];
-            (
-                if want_break { lt.brk } else { lt.cont },
-                lt.scope_depth,
-                lt.teardown_depth,
-            )
+            (lt.target(want_break), lt.scope_depth, lt.teardown_depth)
         }
         LabelTarget::Block(blk) => {
             let f = ctx.label_stack[idx].1;
@@ -274,12 +271,12 @@ pub(crate) fn lower_continue(ctx: &mut LowerCtx, label: Option<&str>) {
         emit_jump_exit(ctx, cont, depth, td);
         return;
     }
-    let lt = *ctx
-        .loop_stack
-        .last()
+    let idx = ctx
+        .continue_loop()
         .expect("ssa-lower: `continue` outside of any loop");
+    let lt = ctx.loop_stack[idx];
     if let Some(&fb) = ctx.try_finally_stack.last()
-        && ctx.try_finally_loop_depth.last().copied() == Some(ctx.loop_stack.len())
+        && ctx.finally_inside_loop(idx)
     {
         let flag = match ctx.pending.continue_flag {
             Some(f) => f,
@@ -296,5 +293,5 @@ pub(crate) fn lower_continue(ctx: &mut LowerCtx, label: Option<&str>) {
         emit_jump_exit(ctx, fb.blk, fb.scope_depth, fb.teardown_depth);
         return;
     }
-    emit_jump_exit(ctx, lt.cont, lt.scope_depth, lt.teardown_depth);
+    emit_jump_exit(ctx, lt.target(false), lt.scope_depth, lt.teardown_depth);
 }

@@ -141,7 +141,7 @@ pub(crate) fn lower(
     // frames (pushed by `lower_stmt(body)` below): depth = `len()`.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: step_blk,
+            cont: Some(step_blk),
             brk: after,
             scope_depth: ctx.scope_stack.len(),
             teardown_depth: ctx.for_of_teardown_stack.len(),

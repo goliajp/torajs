@@ -54,7 +54,9 @@ pub(crate) struct ExitTarget {
 /// `break` / `continue` releases what the fall-through would have.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct LoopTargets {
-    pub(crate) cont: BlockId,
+    /// `None` for a `switch`: a `break` exits it, a `continue` goes
+    /// to the loop around it.
+    pub(crate) cont: Option<BlockId>,
     pub(crate) brk: BlockId,
     pub(crate) scope_depth: usize,
     /// `for_of_teardown_stack.len()` at the loop's entry — a for-of
@@ -65,7 +67,44 @@ pub(crate) struct LoopTargets {
     pub(crate) teardown_depth: usize,
 }
 
+impl LoopTargets {
+    /// The block a `break` (`want_break`) or `continue` of this entry
+    /// lands on. A `continue` never names a `switch` entry — an early
+    /// error for a label, [`LowerCtx::continue_loop`] for a bare one.
+    pub(crate) fn target(&self, want_break: bool) -> BlockId {
+        if want_break {
+            self.brk
+        } else {
+            self.cont
+                .expect("a `continue` targets an iteration statement")
+        }
+    }
+}
+
 impl LowerCtx<'_> {
+    /// The `loop_stack` entry a plain `continue` targets: the nearest
+    /// iteration statement, past any `switch` in between.
+    pub(crate) fn continue_loop(&self) -> Option<usize> {
+        self.loop_stack.iter().rposition(|lt| lt.cont.is_some())
+    }
+
+    /// The `loop_stack` entry a plain `break` (`want_break`: the
+    /// innermost one) or `continue` ([`Self::continue_loop`]) exits.
+    pub(crate) fn jump_loop(&self, want_break: bool) -> Option<usize> {
+        if want_break {
+            self.loop_stack.len().checked_sub(1)
+        } else {
+            self.continue_loop()
+        }
+    }
+
+    /// Whether the innermost `try … finally` was opened inside
+    /// `loop_stack[idx]`, so a jump to that entry's target must run
+    /// the finally first.
+    pub(crate) fn finally_inside_loop(&self, idx: usize) -> bool {
+        self.try_finally_loop_depth.last().is_some_and(|&d| d > idx)
+    }
+
     /// Release the owned bindings of one scope frame, in declaration
     /// order — the block-close protocol: an escape-promoted Copy
     /// local releases its capture-box stake, a promoted mutable

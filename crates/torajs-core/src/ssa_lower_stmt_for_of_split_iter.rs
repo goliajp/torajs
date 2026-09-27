@@ -187,7 +187,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx, var_name: &str, parent: ExprId, sep: Exp
     // own frames: depth = `len()`.
     ctx.loop_stack
         .push(crate::ssa_lower_scope_exit::LoopTargets {
-            cont: header,
+            cont: Some(header),
             brk: after,
             scope_depth: ctx.scope_stack.len(),
             teardown_depth: ctx.for_of_teardown_stack.len(),

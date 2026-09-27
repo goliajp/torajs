@@ -52,8 +52,9 @@ pub(super) fn stmt_contains_yield(s: &Stmt) -> bool {
 /// Rewrite `continue;` / `break;` inside `s` into `state = <target>;
 /// continue __sm;` gotos that re-enter the enclosing `while (true)`
 /// state machine at the loop's continue / break target. A bare jump
-/// inside a nested yield-free `while` / `for` / `switch` belongs to
-/// that construct and stays literal (`bare_owned`), but a LABELED
+/// inside a nested yield-free `while` / `for` belongs to that
+/// construct and stays literal (`bare_owned`, per kind: a `switch`
+/// owns only `break`), but a LABELED
 /// jump resolves through any depth — the goto is a labeled continue,
 /// so binding is depth-independent, and ES §13.13 forbids duplicate
 /// labels in a nesting chain, so a label resolving to a yield-loop
@@ -72,7 +73,7 @@ pub(super) fn rewrite_break_continue_for_outer(
     loop_stack: &[SmJump],
     frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
 ) {
-    rewrite_jumps(ast, s, loop_stack, frames, false)
+    rewrite_jumps(ast, s, loop_stack, frames, (false, false))
 }
 
 fn rewrite_jumps(
@@ -80,7 +81,7 @@ fn rewrite_jumps(
     s: &mut Stmt,
     loop_stack: &[SmJump],
     frames: &mut Vec<super::desugar_generators_sm_finally::FinallyRetFrame>,
-    bare_owned: bool,
+    bare_owned: (bool, bool),
 ) {
     /// A rewritten `break` / `continue` is a goto, so it moves the local
     /// resume cursor — same as [`super::GenSm::emit_goto`], and for the
@@ -137,7 +138,7 @@ fn rewrite_jumps(
         };
     match s {
         Stmt::Continue(l) => {
-            if l.is_none() && bare_owned {
+            if l.is_none() && bare_owned.1 {
                 return;
             }
             if let Some(cont) = resolve(l, false) {
@@ -149,7 +150,7 @@ fn rewrite_jumps(
             }
         }
         Stmt::Break(l) => {
-            if l.is_none() && bare_owned {
+            if l.is_none() && bare_owned.0 {
                 return;
             }
             if let Some(brk) = resolve(l, true) {
@@ -163,21 +164,22 @@ fn rewrite_jumps(
         // Inner loops own their bare break/continue; labeled jumps
         // still resolve through them (the goto is depth-independent).
         Stmt::While { body, .. } | Stmt::DoWhile { body, .. } | Stmt::For { body, .. } => {
-            rewrite_jumps(ast, body, loop_stack, frames, true);
+            rewrite_jumps(ast, body, loop_stack, frames, (true, true));
         }
         // Switch swallows a bare `break` (it targets the switch); a
-        // bare `continue` inside it targets the enclosing loop, but
-        // that pre-existing face stays untouched (bare_owned covers
-        // both). Labeled jumps resolve through.
+        // bare `continue` inside it targets the loop around it, so it
+        // stays owned only when that loop is a yield-free one inside
+        // this statement. Labeled jumps resolve through.
         Stmt::Switch { cases, default, .. } => {
+            let owned = (true, bare_owned.1);
             for c in cases {
                 for x in &mut c.body {
-                    rewrite_jumps(ast, x, loop_stack, frames, true);
+                    rewrite_jumps(ast, x, loop_stack, frames, owned);
                 }
             }
             if let Some(ds) = default {
                 for x in ds {
-                    rewrite_jumps(ast, x, loop_stack, frames, true);
+                    rewrite_jumps(ast, x, loop_stack, frames, owned);
                 }
             }
         }
