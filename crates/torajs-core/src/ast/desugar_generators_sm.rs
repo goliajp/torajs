@@ -350,6 +350,7 @@ impl<'a> GenSm<'a> {
                 else_branch,
             } => self.lower_if(cond, then_branch, else_branch),
             Stmt::While { cond, body } => self.lower_while(cond, body),
+            Stmt::DoWhile { body, cond } => self.lower_do_while(body, cond),
             Stmt::For {
                 init,
                 cond,

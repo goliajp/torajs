@@ -1,8 +1,8 @@
-//! Yield-bearing `while` / `for` arms of the generator state-machine
-//! emitter — verbatim move out of `desugar_generators_sm` when the
-//! RFC 20260802 upgrade blade (labeled dispatch loop + outer-jump
-//! rewrite hooks) pushed that file past the 500-line HARD limit.
-//! Both methods are consumed only by [`GenSm::lower`].
+//! Yield-bearing loop arms of the generator state-machine emitter —
+//! moved out of `desugar_generators_sm` when the RFC 20260802 upgrade
+//! blade (labeled dispatch loop + outer-jump rewrite hooks) pushed
+//! that file past the 500-line HARD limit. Consumed only by
+//! [`GenSm::lower`].
 
 use super::desugar_generators_sm::{GenSm, SmJump};
 use super::desugar_generators_sm_rewrite::stmt_contains_yield;
@@ -49,6 +49,52 @@ impl GenSm<'_> {
         self.loop_stack.pop();
         let mut back = self.emit_goto(head);
         self.cur_buf.append(&mut back);
+        self.flush_cur();
+
+        self.cur_state = post;
+    }
+
+    /// Yield-bearing `do { body } while (cond)`: the body runs first,
+    /// then the test state decides whether to go round again; continue
+    /// targets the test (§14.7.2.2 — a `continue` completion still
+    /// evaluates the condition).
+    pub(super) fn lower_do_while(&mut self, body: Box<Stmt>, cond: ExprId) {
+        if !stmt_contains_yield(&body) {
+            let mut s = Stmt::DoWhile { body, cond };
+            self.rewrite_outer_jumps(&mut s);
+            self.rewrite_nested_returns(&mut s);
+            self.cur_buf.push(s);
+            return;
+        }
+        let body_entry = self.alloc_state();
+        let test = self.alloc_state();
+        let post = self.alloc_state();
+
+        let mut to_body = self.emit_goto(body_entry);
+        self.cur_buf.append(&mut to_body);
+        self.flush_cur();
+
+        self.cur_state = body_entry;
+        let label = self.pending_label.take();
+        self.loop_stack.push(SmJump {
+            cont: Some(test),
+            brk: post,
+            label,
+        });
+        self.lower(*body);
+        self.loop_stack.pop();
+        let mut to_test = self.emit_goto(test);
+        self.cur_buf.append(&mut to_test);
+        self.flush_cur();
+
+        self.cur_state = test;
+        let again = self.emit_goto(body_entry);
+        let done = self.emit_goto(post);
+        self.cur_buf.push(Stmt::If {
+            cond,
+            then_branch: Box::new(Stmt::Block(again)),
+            else_branch: Some(Box::new(Stmt::Block(done))),
+        });
         self.flush_cur();
 
         self.cur_state = post;
@@ -148,7 +194,10 @@ impl GenSm<'_> {
             self.cur_buf.push(s);
             return;
         }
-        if matches!(*body, Stmt::While { .. } | Stmt::For { .. }) {
+        if matches!(
+            *body,
+            Stmt::While { .. } | Stmt::DoWhile { .. } | Stmt::For { .. }
+        ) {
             self.pending_label = Some(label);
             self.lower(*body);
             self.pending_label = None;
