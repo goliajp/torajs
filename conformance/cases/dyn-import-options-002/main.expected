@@ -1,0 +1,17 @@
+none ok 262
+undef ok 262
+trailing ok 262
+prim reject TypeError
+null reject TypeError
+nowith ok 262
+withundef ok 262
+withprim reject TypeError
+empty ok 262
+key reject TypeError
+nonstr reject TypeError
+proxy ok 262
+ownKeys,gopd:hidden,gopd:absent
+a,b
+seq ok 262
+forin ok 262
+getthrow reject RangeError

@@ -68,22 +68,26 @@ impl<'a> Parser<'a> {
                 self.at()
             ));
         }
+        // ImportCall's arguments are AssignmentExpression[+In]: a
+        // for-init `in` restriction does not reach inside the parens.
+        let saved_in_for_init = std::mem::replace(&mut self.in_for_init, false);
         let spec = self.parse_expr()?;
         // §13.3.10 ImportCall's optional second argument (import
-        // options). Parsed and DISCARDED — the eager AOT subset
-        // resolves the module at compile time, so options cannot
-        // change linking (their evaluation side effects are a
-        // recorded subset boundary). Trailing commas are grammar-
-        // legal in both the 1-arg and 2-arg forms.
+        // options), evaluated after the specifier and handed to the
+        // dispatcher, which validates it after ToString(specifier).
+        // Trailing commas are grammar-legal in both the 1-arg and
+        // 2-arg forms.
+        let mut options = None;
         if matches!(self.peek(), Token::Comma) {
             self.pos += 1;
             if !matches!(self.peek(), Token::RParen) {
-                let _ = self.parse_expr()?;
+                options = Some(self.parse_expr()?);
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                 }
             }
         }
+        self.in_for_init = saved_in_for_init;
         if !matches!(self.peek(), Token::RParen) {
             return Err(format!(
                 "expected `)` to close dynamic `import(...)`, got {:?} at {}",
@@ -96,9 +100,11 @@ impl<'a> Parser<'a> {
         let callee = self
             .ast
             .add_expr(Expr::Ident("__torajs_dyn_import".to_string()));
+        let options =
+            options.unwrap_or_else(|| self.ast.add_expr(Expr::Ident("undefined".to_string())));
         return Ok(self.ast.add_expr(Expr::Call {
             callee,
-            args: vec![spec],
+            args: vec![spec, options],
         }));
     }
 

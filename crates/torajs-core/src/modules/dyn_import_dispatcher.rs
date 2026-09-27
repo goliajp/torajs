@@ -10,6 +10,7 @@ use crate::ast::{Ast, BinOp, Expr, Param, Stmt};
 use std::collections::{HashMap, HashSet};
 
 use super::dyn_import::{DISPATCHER_NAME, DynTarget};
+use super::dyn_import_options::{OPTIONS_HELPER, synth_options_helper};
 
 /// `if (<cond>) throw new SyntaxError(<reason>)` — the dispatcher's
 /// catch turns it into the §16.2.1.5 promise reject.
@@ -35,9 +36,10 @@ fn push_syntax_error_arm(
 /// Synthesize the dispatcher FnDecl:
 ///
 /// ```ts
-/// function __torajs_dyn_import(__spec: any): any {
+/// function __torajs_dyn_import(__spec: any, __opts: any): any {
 ///   try {
 ///     const __s: any = String(__spec);
+///     __torajs_dyn_import_options(__opts);
 ///     if (__s === "<lit_0>") return Promise.resolve(__dyn_ns_c0);
 ///     ...
 ///     throw new TypeError("Failed to resolve module specifier '" + __s + "'");
@@ -82,6 +84,14 @@ pub(super) fn synth_dispatcher(
         init: s_init,
         is_var: false,
     });
+    out.extend(synth_options_helper(ast));
+    let helper = ast.add_expr(Expr::Ident(OPTIONS_HELPER.to_string()));
+    let opts_ident = ast.add_expr(Expr::Ident("__opts".to_string()));
+    let check = ast.add_expr(Expr::Call {
+        callee: helper,
+        args: vec![opts_ident],
+    });
+    body.push(Stmt::Expr(check));
     // Per candidate: if (__s === "<lit>") return Promise.resolve(<ns>);
     for (lit, target) in table {
         let s_ref = ast.add_expr(Expr::Ident("__s".to_string()));
@@ -193,12 +203,20 @@ pub(super) fn synth_dispatcher(
     out.push(Stmt::FnDecl {
         name: DISPATCHER_NAME.to_string(),
         type_params: Vec::new(),
-        params: vec![Param {
-            name: "__spec".to_string(),
-            type_ann: Some("any".to_string()),
-            default: None,
-            is_rest: false,
-        }],
+        params: vec![
+            Param {
+                name: "__spec".to_string(),
+                type_ann: Some("any".to_string()),
+                default: None,
+                is_rest: false,
+            },
+            Param {
+                name: "__opts".to_string(),
+                type_ann: Some("any".to_string()),
+                default: None,
+                is_rest: false,
+            },
+        ],
         return_type: Some("any".to_string()),
         body: vec![Stmt::Try {
             body,

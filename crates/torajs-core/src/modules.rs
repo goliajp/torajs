@@ -303,6 +303,7 @@ mod deconflict;
 mod default_binding;
 mod dyn_import;
 mod dyn_import_dispatcher;
+mod dyn_import_options;
 mod dyn_import_poison;
 mod graph;
 mod inject_export;
