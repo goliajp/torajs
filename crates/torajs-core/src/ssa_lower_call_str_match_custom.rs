@@ -32,10 +32,7 @@ use crate::ssa_lower::LowerCtx;
 fn undef_any(ctx: &mut LowerCtx<'_>) -> Operand {
     let u = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-        ),
+        InstKind::BoxAny(5, Operand::ConstI64(0)),
         Type::Any,
         None,
     );
@@ -332,10 +329,7 @@ pub(crate) fn lower_split_any_pattern(ctx: &mut LowerCtx<'_>, argv: Vec<Operand>
         None => {
             let u = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );

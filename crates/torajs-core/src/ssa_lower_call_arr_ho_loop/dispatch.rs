@@ -18,10 +18,7 @@ use crate::ssa_lower::LowerCtx;
 pub(crate) fn emit_undef_any_box(ctx: &mut LowerCtx<'_>) -> ValueId {
     ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-        ),
+        InstKind::BoxAny(5, Operand::ConstI64(0)),
         Type::Any,
         None,
     )

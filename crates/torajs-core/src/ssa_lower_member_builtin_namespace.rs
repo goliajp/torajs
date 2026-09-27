@@ -315,10 +315,7 @@ fn any_boxed_builtin_proto(ctx: &mut LowerCtx<'_>, tag: i64) -> Operand {
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(4), Operand::Value(proto)],
-        ),
+        InstKind::BoxAny(4, Operand::Value(proto)),
         Type::Any,
         None,
     );

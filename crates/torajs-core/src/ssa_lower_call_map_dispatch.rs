@@ -259,10 +259,7 @@ fn emit_map_get(ctx: &mut LowerCtx<'_>, recv_op: Operand, args: &[ExprId]) -> Op
     if args.is_empty() {
         let box_v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

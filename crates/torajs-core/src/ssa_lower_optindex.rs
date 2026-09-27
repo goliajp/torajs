@@ -53,10 +53,7 @@ pub(crate) fn lower(ctx: &mut LowerCtx<'_>, eid: ExprId, obj: ExprId, index: Exp
     ctx.cur_block = null_blk;
     let undef_box = ctx.f.append_inst(
         null_blk,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-        ),
+        InstKind::BoxAny(5, Operand::ConstI64(0)),
         Type::Any,
         None,
     );

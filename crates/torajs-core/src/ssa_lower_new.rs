@@ -160,10 +160,7 @@ pub(crate) fn lower_borrowed_any_pair(
         let Some(&eid) = args.get(slot) else {
             let undef = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );
@@ -475,10 +472,7 @@ fn lower_regexp(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Operand {
             None => {
                 let u = ctx.f.append_inst(
                     ctx.cur_block,
-                    InstKind::Call(
-                        ctx.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
+                    InstKind::BoxAny(5, Operand::ConstI64(0)),
                     Type::Any,
                     None,
                 );

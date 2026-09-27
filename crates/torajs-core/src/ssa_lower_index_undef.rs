@@ -57,10 +57,7 @@ pub(crate) fn oob_undef_value(
         Type::Bool => {
             let undef = ctx.f.append_inst(
                 oob_blk,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );

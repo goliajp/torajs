@@ -98,10 +98,7 @@ impl<'a> LowerCtx<'a> {
                 let cur_block = self.cur_block;
                 let boxed = self.f.append_inst(
                     cur_block,
-                    crate::ssa::InstKind::Call(
-                        self.intrinsics.any_box,
-                        vec![Operand::ConstI64(4), Operand::Value(p)],
-                    ),
+                    crate::ssa::InstKind::BoxAny(4, Operand::Value(p)),
                     Type::Any,
                     None,
                 );
@@ -291,10 +288,7 @@ impl<'a> LowerCtx<'a> {
             // kernels' cell arm takes it uncoerced.
             let boxed = self.f.append_inst(
                 cur_block,
-                crate::ssa::InstKind::Call(
-                    self.intrinsics.any_box,
-                    vec![Operand::ConstI64(4), Operand::Value(p)],
-                ),
+                crate::ssa::InstKind::BoxAny(4, Operand::Value(p)),
                 Type::Any,
                 None,
             );

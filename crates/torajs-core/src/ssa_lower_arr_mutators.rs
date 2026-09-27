@@ -89,10 +89,7 @@ impl<'a> LowerCtx<'a> {
                 // VALUE_UNDEFINED NaN-box immediate.
                 let undef = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
+                    InstKind::BoxAny(5, Operand::ConstI64(0)),
                     Type::Any,
                     None,
                 );
@@ -113,10 +110,7 @@ impl<'a> LowerCtx<'a> {
             Type::Bool => {
                 let undef = self.f.append_inst(
                     self.cur_block,
-                    InstKind::Call(
-                        self.intrinsics.any_box,
-                        vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                    ),
+                    InstKind::BoxAny(5, Operand::ConstI64(0)),
                     Type::Any,
                     None,
                 );

@@ -169,10 +169,7 @@ pub(super) fn try_lower_class_computed_key(
         .append_inst(cur_block, InstKind::PtrToInt(key_op), Type::I64, None);
     let boxed = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(4), Operand::Value(raw)],
-        ),
+        InstKind::BoxAny(4, Operand::Value(raw)),
         Type::Any,
         None,
     );

@@ -318,10 +318,7 @@ pub(crate) fn pack_any_argv_padded(
     for i in argc..min_slots {
         let undef_box = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

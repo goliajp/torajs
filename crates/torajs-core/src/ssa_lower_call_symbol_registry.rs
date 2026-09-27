@@ -52,10 +52,7 @@ pub(crate) fn try_lower(
         let cur_block = ctx.cur_block;
         let undef = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

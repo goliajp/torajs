@@ -103,10 +103,7 @@ pub(crate) fn lower_new_target(ctx: &mut LowerCtx<'_>) -> Operand {
     let cur_block = ctx.cur_block;
     let v = ctx.f.append_inst(
         cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-        ),
+        InstKind::BoxAny(5, Operand::ConstI64(0)),
         Type::Any,
         None,
     );

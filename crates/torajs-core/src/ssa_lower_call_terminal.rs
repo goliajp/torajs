@@ -276,10 +276,7 @@ pub(crate) fn pad_undef_n(ctx: &mut LowerCtx<'_>, n: usize, argv: &mut Vec<Opera
         let cur_block = ctx.cur_block;
         let undef_box = ctx.f.append_inst(
             cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

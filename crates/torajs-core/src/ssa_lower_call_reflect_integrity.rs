@@ -189,10 +189,7 @@ pub(crate) fn lower_reflect_apply(ctx: &mut LowerCtx<'_>, args: &[ExprId]) -> Op
         let cb = ctx.cur_block;
         let undef = ctx.f.append_inst(
             cb,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

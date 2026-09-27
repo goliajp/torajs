@@ -40,10 +40,7 @@ pub(crate) fn emit_iter_slot(ctx: &mut LowerCtx, name: &str) -> ValueId {
     let slot = ctx.alloca(Type::Any, Some(name));
     let undef = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-        ),
+        InstKind::BoxAny(5, Operand::ConstI64(0)),
         Type::Any,
         None,
     );

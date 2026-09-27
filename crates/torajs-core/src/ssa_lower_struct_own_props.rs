@@ -235,10 +235,7 @@ pub(crate) fn emit_prop_value(
             let cur = ctx.cur_block;
             let v = ctx.f.append_inst(
                 cur,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );

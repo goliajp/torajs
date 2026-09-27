@@ -368,10 +368,7 @@ fn close_fallthrough_path(ctx: &mut LowerCtx<'_>, cb: ssa::BlockId) {
         Type::Any => {
             let b = ctx.f.append_inst(
                 cb,
-                ssa::InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                ssa::InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );

@@ -233,10 +233,7 @@ pub(super) fn emit_exotic_divert(
         .unwrap_or_else(|| {
             let v = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );

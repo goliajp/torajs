@@ -120,10 +120,7 @@ impl<'a> LowerCtx<'a> {
         );
         let undef = self.f.append_inst(
             fill_blk,
-            InstKind::Call(
-                self.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

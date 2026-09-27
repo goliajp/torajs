@@ -40,10 +40,7 @@ pub(crate) fn try_lower(
         // a boxed ANY_UNDEF so the null/undef arm mints the object.
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(5, Operand::ConstI64(0)),
             Type::Any,
             None,
         );

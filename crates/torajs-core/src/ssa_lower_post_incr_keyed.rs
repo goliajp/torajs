@@ -52,10 +52,7 @@ pub(crate) fn lower_index_any_keyed(
         let cur_block = ctx.cur_block;
         ctx.f.append_inst(
             cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(4), Operand::Value(kp)],
-            ),
+            InstKind::BoxAny(4, Operand::Value(kp)),
             Type::Any,
             None,
         )

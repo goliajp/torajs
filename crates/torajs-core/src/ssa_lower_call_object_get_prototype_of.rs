@@ -123,10 +123,7 @@ pub(crate) fn try_lower(
         ctx.emit_rc_inc(Operand::Value(proto));
         let v = ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(4), Operand::Value(proto)],
-            ),
+            InstKind::BoxAny(4, Operand::Value(proto)),
             Type::Any,
             None,
         );
@@ -255,10 +252,7 @@ fn lower_nullish_or_any_gate(
         let _ = ctx.lower_expr(arg0_eid);
         ctx.f.append_inst(
             ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.any_box,
-                vec![Operand::ConstI64(0), Operand::ConstI64(0)],
-            ),
+            InstKind::BoxAny(0, Operand::ConstI64(0)),
             Type::Any,
             None,
         )
@@ -315,10 +309,7 @@ fn lower_nullish_or_any_gate(
     // catch or the propagation ret.
     let v = ctx.f.append_inst(
         ctx.cur_block,
-        InstKind::Call(
-            ctx.intrinsics.any_box,
-            vec![Operand::ConstI64(0), Operand::ConstI64(0)],
-        ),
+        InstKind::BoxAny(0, Operand::ConstI64(0)),
         Type::Any,
         None,
     );

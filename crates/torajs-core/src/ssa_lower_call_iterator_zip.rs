@@ -41,10 +41,7 @@ pub(crate) fn try_lower(
             // treats it per GetOptionsObject / the step-1 gate).
             let undef = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );

@@ -156,10 +156,7 @@ pub(crate) fn try_lower_with_this(
         let boxed = this_box.unwrap_or_else(|| {
             let undef_box = ctx.f.append_inst(
                 ctx.cur_block,
-                InstKind::Call(
-                    ctx.intrinsics.any_box,
-                    vec![Operand::ConstI64(5), Operand::ConstI64(0)],
-                ),
+                InstKind::BoxAny(5, Operand::ConstI64(0)),
                 Type::Any,
                 None,
             );
