@@ -173,14 +173,10 @@ fn read_elem(
         );
     }
     if elem_ty == Type::Any {
-        return ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(src_arr), Operand::Value(i_now)],
-            ),
-            Type::Any,
-            None,
+        return crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+            ctx,
+            Operand::Value(src_arr),
+            Operand::Value(i_now),
         );
     }
     let (off_base, off) =

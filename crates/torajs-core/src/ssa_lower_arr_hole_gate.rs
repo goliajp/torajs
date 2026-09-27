@@ -340,24 +340,21 @@ impl LowerCtx<'_> {
             },
         );
         self.cur_block = dense_read_blk;
-        let borrowed = self.f.append_inst(
-            dense_read_blk,
-            InstKind::Call(
-                self.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(arr), Operand::Value(i)],
-            ),
-            Type::Any,
-            None,
+        let borrowed = crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+            self,
+            Operand::Value(arr),
+            Operand::Value(i),
         );
+        let read_end = self.cur_block;
         self.f.append_void(
-            dense_read_blk,
+            read_end,
             InstKind::Store(Operand::Value(borrowed), Operand::Value(elem_slot), 0),
         );
         self.f.append_void(
-            dense_read_blk,
+            read_end,
             InstKind::Store(Operand::ConstBool(false), Operand::Value(owned_flag), 0),
         );
-        self.f.set_term(dense_read_blk, Terminator::Br(work_blk));
+        self.f.set_term(read_end, Terminator::Br(work_blk));
         // Exotic: the kernel `in` uses, so the two operators cannot
         // disagree about what is present; then the read that runs a
         // getter.

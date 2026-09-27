@@ -60,14 +60,10 @@ pub(super) fn emit_inner_shift_loop(
     // boxed read for Any elems (see cur_cmp in the caller); the raw
     // LoadDyn stays for the shift copy in inner_body.
     let prev = if elem_ty == Type::Any {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(arr_ptr), Operand::Value(j_minus_1)],
-            ),
-            Type::Any,
-            None,
+        crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+            ctx,
+            Operand::Value(arr_ptr),
+            Operand::Value(j_minus_1),
         )
     } else {
         let (off_jm1_base, off_jm1) = ctx.emit_arr_slot_byte_offset(

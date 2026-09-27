@@ -237,14 +237,10 @@ fn lower_this_first_argv_spread(
         .expect("this-first argv spread lane entered without a spread argument");
     let mut owned: Vec<(Operand, Type)> = Vec::new();
     for (i, pty) in declared.into_iter().enumerate() {
-        let slot = ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![args_arr.clone(), Operand::ConstI64(i as i64)],
-            ),
-            Type::Any,
-            None,
+        let slot = crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+            ctx,
+            args_arr.clone(),
+            Operand::ConstI64(i as i64),
         );
         let v = crate::ssa_lower_call_arg_conv::emit_arg_conv(
             ctx,

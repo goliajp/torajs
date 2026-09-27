@@ -87,7 +87,7 @@ pub(crate) fn lower_any_length(ctx: &mut LowerCtx<'_>, recv: Operand) -> Operand
 /// non-hole slot hand back the slot inline; null, out of range (the
 /// arguments bag lives there), a typed block behind the view, a
 /// sparse tail and a hole take the call.
-pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Operand) -> Operand {
+pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Operand) -> ValueId {
     use crate::ssa_lower::{ARR_DATA_PTR_OFF, ARR_LEN_OFF};
     use torajs_rc::{FLAG_ARR_ANY, FLAG_ARR_SPARSE_TAIL};
     let slot = ctx.alloca(Type::Any, None);
@@ -167,11 +167,11 @@ pub(crate) fn arr_get_any_borrowed(ctx: &mut LowerCtx<'_>, arr: Operand, idx: Op
     store_and_join(ctx, Operand::Value(v), slot, done_blk);
 
     ctx.cur_block = done_blk;
-    Operand::Value(inst(
+    inst(
         ctx,
         InstKind::Load(Type::Any, Operand::Value(slot), 0),
         Type::Any,
-    ))
+    )
 }
 
 pub(crate) fn emit_bits(ctx: &mut LowerCtx<'_>, v: &Operand) -> ValueId {

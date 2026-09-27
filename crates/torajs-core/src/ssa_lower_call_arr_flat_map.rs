@@ -416,14 +416,10 @@ fn emit_src_elem_load(
     i_now: crate::ssa::ValueId,
 ) -> crate::ssa::ValueId {
     if src_elem_ty == Type::Any {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(src_arr), Operand::Value(i_now)],
-            ),
-            Type::Any,
-            None,
+        crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+            ctx,
+            Operand::Value(src_arr),
+            Operand::Value(i_now),
         )
     } else {
         let (off_base, off) =

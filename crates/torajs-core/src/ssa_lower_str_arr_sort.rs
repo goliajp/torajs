@@ -332,14 +332,10 @@ fn emit_insertion_sort(
     // SHIFT/write-back value (slot moves are layout-blind 8-byte
     // copies); only the predicate sees the boxed view.
     let cur_cmp = if elem_ty == Type::Any {
-        ctx.f.append_inst(
-            ctx.cur_block,
-            InstKind::Call(
-                ctx.intrinsics.arr_get_any_boxed,
-                vec![Operand::Value(arr_ptr), Operand::Value(i_now2)],
-            ),
-            Type::Any,
-            None,
+        crate::ssa_lower_anyv_inline::arr_get_any_borrowed(
+            ctx,
+            Operand::Value(arr_ptr),
+            Operand::Value(i_now2),
         )
     } else {
         cur
