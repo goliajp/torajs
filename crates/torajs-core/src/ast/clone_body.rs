@@ -366,12 +366,16 @@ impl<'a> BodyCloner<'a> {
                 default_expr,
                 source,
                 star,
+                type_only,
+                type_named,
             } => Stmt::ExportDecl {
                 inner: inner.as_ref().map(|i| Box::new(self.clone_stmt(i))),
                 named: named.clone(),
                 default_expr: default_expr.map(|d| self.clone_expr(d)),
                 source: source.clone(),
                 star: star.clone(),
+                type_only: *type_only,
+                type_named: type_named.clone(),
             },
         }
     }

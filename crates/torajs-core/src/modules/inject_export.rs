@@ -94,8 +94,10 @@ pub(super) fn inject_export_inner(
     // names in the value-import list, and downstream
     // check.rs needs them to resolve fn return-type
     // annotations on imported value decls.
-    if matches!(inner, Stmt::TypeDecl { .. }) {
-        injections.push(inner);
+    if let Stmt::TypeDecl { name, .. } = &inner {
+        if injected.insert(super::types_lane::type_key(name)) {
+            injections.push(inner);
+        }
         return;
     }
     // P13-S2 namespace import path: inject every value

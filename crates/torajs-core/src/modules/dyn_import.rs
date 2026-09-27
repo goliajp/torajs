@@ -279,6 +279,7 @@ fn entry_reserved_names(ast: &Ast, base_dir: &Path) -> ReservedNames {
             named,
             default,
             namespace,
+            ..
         } = s
         {
             let path = resolve_path(base_dir, source).ok();

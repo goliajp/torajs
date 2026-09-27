@@ -29,6 +29,10 @@ pub(super) struct WorkItem {
     /// namespace request and `export * as ns` both carry the module's
     /// own default and stay false).
     pub(super) ns_star_feed: bool,
+    /// Reached only through `import type` / `export type … from`: the
+    /// module is not requested for evaluation, but its exported type
+    /// declarations must reach the checker (see `types_lane`).
+    pub(super) types_only: bool,
 }
 
 impl WorkItem {
@@ -49,6 +53,7 @@ impl WorkItem {
             side_effect_only,
             namespace_alias,
             ns_star_feed: false,
+            types_only: false,
         }
     }
 
@@ -66,5 +71,13 @@ impl WorkItem {
 
     pub(super) fn side_effect(path: PathBuf) -> Self {
         Self::clause(path, Vec::new(), None, None)
+    }
+
+    pub(super) fn types(path: PathBuf) -> Self {
+        WorkItem {
+            side_effect_only: false,
+            types_only: true,
+            ..Self::side_effect(path)
+        }
     }
 }

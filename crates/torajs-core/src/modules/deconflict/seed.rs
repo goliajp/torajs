@@ -61,6 +61,7 @@ pub(in crate::modules) fn seed_seen_names(
                 named,
                 default,
                 namespace,
+                ..
             } => {
                 let path = crate::modules::resolve_path(base_dir, source).ok();
                 for (orig, alias) in named {

@@ -37,7 +37,8 @@ impl ModuleGraph {
     /// caller has to thread its own identity down into the helpers.
     pub(super) fn edges_since(&self, work: &VecDeque<WorkItem>, mark: usize) -> Vec<PathBuf> {
         let mut out: Vec<PathBuf> = Vec::new();
-        for WorkItem { path, .. } in work.iter().skip(mark) {
+        // a type-only request is erased source, not a module request
+        for WorkItem { path, .. } in work.iter().skip(mark).filter(|w| !w.types_only) {
             if !out.contains(path) {
                 out.push(path.clone());
             }

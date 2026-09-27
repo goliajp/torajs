@@ -190,9 +190,19 @@ pub(super) fn seed_entry_requests(
         match s {
             Stmt::ImportDecl {
                 source,
+                type_only: true,
+                ..
+            } => super::types_lane::queue_types(work, base_dir, source)?,
+            // erased whole: `export type { … } from` requests nothing
+            Stmt::ExportDecl {
+                type_only: true, ..
+            } => {}
+            Stmt::ImportDecl {
+                source,
                 named,
                 default,
                 namespace,
+                ..
             } => {
                 // Every declared import binding is immutable in the
                 // importer (§16.2.1.5 CreateImportBinding) — builtin

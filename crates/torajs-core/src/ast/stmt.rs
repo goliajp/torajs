@@ -328,6 +328,13 @@ pub enum Stmt {
         #[allow(dead_code)]
         named: Vec<(String, Option<String>)>,
         source: String,
+        /// `import type …`: every binding the clause names is a type,
+        /// and under `verbatimModuleSyntax` the whole declaration is
+        /// erased — the module is not requested, let alone evaluated.
+        type_only: bool,
+        /// `import { type A, B }` — the specifiers carrying their own
+        /// `type` modifier (erased); `named` holds the rest.
+        type_named: Vec<(String, Option<String>)>,
     },
     /// Phase K.1 — `export` declaration. Single-file mode strips the
     /// modifier from a wrapped declaration; K.2 will record the export
@@ -361,6 +368,11 @@ pub enum Stmt {
         /// nothing locally.
         #[allow(dead_code)]
         star: Option<ExportStar>,
+        /// `export type { … }` / `export type * from …`: erased whole.
+        type_only: bool,
+        /// `export { type A, B }` — the specifiers carrying their own
+        /// `type` modifier (erased); `named` holds the rest.
+        type_named: Vec<(String, Option<String>)>,
     },
 }
 

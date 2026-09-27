@@ -128,6 +128,8 @@ pub fn desugar_builtin_imports(ast: &mut Ast) {
             named,
             default: _,
             namespace,
+            type_only: false,
+            ..
         } = s
             && crate::modules::is_builtin_module_source(source)
         {

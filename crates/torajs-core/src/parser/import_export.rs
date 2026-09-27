@@ -47,6 +47,8 @@ impl<'a> Parser<'a> {
                 namespace,
                 named,
                 source,
+                type_only: false,
+                type_named: Vec::new(),
             });
         }
         // import-defer proposal — `import defer * as ns from "..."`.
@@ -63,6 +65,8 @@ impl<'a> Parser<'a> {
         {
             self.pos += 1; // consume `defer`
         }
+        let type_only = self.import_type_head();
+        let mut type_named: Vec<(String, Option<String>)> = Vec::new();
         // Default import: `import x ...` (next token is Ident).
         let mut default_comma = false;
         // §16.2.2 ImportedBinding is a BindingIdentifier, so a
@@ -84,6 +88,12 @@ impl<'a> Parser<'a> {
         // `import defer { x } from` (test262 invalid-defer-named)
         // and `import x { y } from` parsed as if the comma were
         // there.
+        if type_only && default_comma {
+            return Err(format!(
+                "a type-only import can name a default or named bindings, not both, at {}",
+                self.at()
+            ));
+        }
         if default.is_some() && !default_comma && matches!(self.peek(), Token::Star | Token::LBrace)
         {
             return Err(format!(
@@ -113,6 +123,13 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             while !matches!(self.peek(), Token::RBrace) {
+                let typed = self.specifier_type_modifier();
+                if typed && type_only {
+                    return Err(format!(
+                        "a `type` modifier inside a type-only import at {}",
+                        self.at()
+                    ));
+                }
                 // §16.2.2 ImportSpecifier — ModuleExportName is an
                 // IdentifierName, so every keyword names one
                 // (`default as x` re-binds the default export).
@@ -146,7 +163,7 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                named.push((orig, alias));
+                if typed { &mut type_named } else { &mut named }.push((orig, alias));
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                 }
@@ -193,6 +210,8 @@ impl<'a> Parser<'a> {
             namespace,
             named,
             source,
+            type_only,
+            type_named,
         })
     }
 
@@ -222,14 +241,17 @@ impl<'a> Parser<'a> {
                 default_expr: Some(e),
                 source: None,
                 star: None,
+                type_only: false,
+                type_named: Vec::new(),
             });
         }
+        let type_only = self.export_type_head();
         // §16.2.3 ExportFromClause — `export * from "m"` and
         // `export * as ns from "m"`. Both bind nothing locally, so
         // `inner` / `named` stay empty and the star head carries the
         // shape; the `from` clause is mandatory for either form.
         if matches!(self.peek(), Token::Star) {
-            return self.parse_export_star();
+            return self.parse_export_star(type_only);
         }
         // `export { a, b as c };` — both halves of a specifier are
         // §16.2.3 ModuleExportName, which covers reserved words
@@ -237,12 +259,20 @@ impl<'a> Parser<'a> {
         if matches!(self.peek(), Token::LBrace) {
             self.pos += 1;
             let mut named: Vec<(String, Option<String>)> = Vec::new();
+            let mut type_named: Vec<(String, Option<String>)> = Vec::new();
             // The first orig spelled by something that cannot be an
             // IdentifierReference — legal only under a `from` clause,
             // where the name looks up in the other module instead of
             // the local scope (§16.2.3.1 early error otherwise).
             let mut non_ident_ref: Option<String> = None;
             while !matches!(self.peek(), Token::RBrace) {
+                let typed = self.specifier_type_modifier();
+                if typed && type_only {
+                    return Err(format!(
+                        "a `type` modifier inside a type-only export at {}",
+                        self.at()
+                    ));
+                }
                 let (orig, orig_is_ident) =
                     self.expect_module_export_name("export named clause")?;
                 if !orig_is_ident && non_ident_ref.is_none() {
@@ -254,7 +284,7 @@ impl<'a> Parser<'a> {
                 } else {
                     None
                 };
-                named.push((orig, alias));
+                if typed { &mut type_named } else { &mut named }.push((orig, alias));
                 if matches!(self.peek(), Token::Comma) {
                     self.pos += 1;
                 }
@@ -283,6 +313,8 @@ impl<'a> Parser<'a> {
                 default_expr: None,
                 source,
                 star: None,
+                type_only,
+                type_named,
             });
         }
         // `export <decl>` — modifier on a function / class / type / let
@@ -295,6 +327,8 @@ impl<'a> Parser<'a> {
             default_expr: None,
             source: None,
             star: None,
+            type_only: false,
+            type_named: Vec::new(),
         })
     }
 
@@ -303,7 +337,7 @@ impl<'a> Parser<'a> {
     /// ModuleExportName, so a string literal (`export * as "a-b" from`)
     /// and the reserved word `default` (`export * as default from`) are
     /// both legal spellings alongside a plain identifier.
-    fn parse_export_star(&mut self) -> Result<Stmt, String> {
+    fn parse_export_star(&mut self, type_only: bool) -> Result<Stmt, String> {
         self.pos += 1; // consume `*`
         let star = if matches!(self.peek(), Token::Ident(n) if n == "as") {
             self.pos += 1;
@@ -320,6 +354,8 @@ impl<'a> Parser<'a> {
             default_expr: None,
             source: Some(source),
             star: Some(star),
+            type_only,
+            type_named: Vec::new(),
         })
     }
 

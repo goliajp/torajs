@@ -460,9 +460,11 @@ pub(super) fn collect_bare_exports(lib_section: &[Stmt]) -> HashMap<String, Stri
             default_expr: None,
             source: None,
             star: None,
+            type_named,
+            ..
         } = s
         {
-            for (orig, alias) in named {
+            for (orig, alias) in named.iter().chain(type_named) {
                 bare_exports.insert(orig.clone(), alias.clone().unwrap_or_else(|| orig.clone()));
             }
         }

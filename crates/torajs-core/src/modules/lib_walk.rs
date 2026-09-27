@@ -84,6 +84,7 @@ fn inject_side_effect_stmt(
         named,
         default,
         namespace,
+        ..
     } = s
     {
         req.ledger.import_clause(&source, &named, &default);
@@ -134,7 +135,10 @@ fn inject_side_effect_stmt(
     // request already materialized (or that a later one will ask for
     // by name) goes through the ledger like every other lane's.
     if let Some(n) = decl_name(&stmt)
-        && !req.injected.insert(n)
+        && !req.injected.insert(match stmt {
+            Stmt::TypeDecl { .. } => super::types_lane::type_key(&n),
+            _ => n,
+        })
     {
         return Ok(());
     }
@@ -152,6 +156,20 @@ pub(super) fn walk_lib_stmt(
     s: Stmt,
     req: &mut LibRequest<'_>,
 ) -> Result<(), String> {
+    // An erased type-only clause reaches its module on the type lane.
+    if let Stmt::ImportDecl {
+        source,
+        type_only: true,
+        ..
+    }
+    | Stmt::ExportDecl {
+        source: Some(source),
+        type_only: true,
+        ..
+    } = &s
+    {
+        return super::types_lane::queue_types(work, target_dir, source);
+    }
     // Side-effect-only import — see [`inject_side_effect_stmt`].
     if req.side_effect_only {
         return inject_side_effect_stmt(work, target_dir, injections, s, req);
@@ -162,6 +180,7 @@ pub(super) fn walk_lib_stmt(
             named,
             default,
             namespace,
+            ..
         } => {
             req.ledger.import_clause(&source, &named, &default);
             queue_nested_import(work, target_dir, &source, named, default, namespace)?;

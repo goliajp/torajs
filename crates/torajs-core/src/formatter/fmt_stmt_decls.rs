@@ -170,15 +170,43 @@ impl<'a> Formatter<'a> {
         self.write("}");
     }
 
+    /// `{ type A, b as c }` — the `type`-modified specifiers first;
+    /// the source order between the two kinds is not kept.
+    fn fmt_specifiers(
+        &mut self,
+        named: &[(String, Option<String>)],
+        type_named: &[(String, Option<String>)],
+    ) {
+        self.write("{ ");
+        let typed = type_named.iter().map(|s| (true, s));
+        for (i, (typed, (n, alias))) in typed.chain(named.iter().map(|s| (false, s))).enumerate() {
+            if i > 0 {
+                self.write(", ");
+            }
+            if typed {
+                self.write("type ");
+            }
+            self.write(n);
+            if let Some(a) = alias {
+                self.write(" as ");
+                self.write(a);
+            }
+        }
+        self.write(" }");
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn fmt_import_decl(
         &mut self,
         default: Option<&str>,
         namespace: Option<&str>,
         named: &[(String, Option<String>)],
         source: &str,
+        type_only: bool,
+        type_named: &[(String, Option<String>)],
     ) {
         self.write_indent();
-        self.write("import ");
+        self.write(if type_only { "import type " } else { "import " });
         let mut wrote_clause = false;
         if let Some(d) = default {
             self.write(d);
@@ -192,22 +220,11 @@ impl<'a> Formatter<'a> {
             self.write(ns);
             wrote_clause = true;
         }
-        if !named.is_empty() {
+        if !named.is_empty() || !type_named.is_empty() {
             if wrote_clause {
                 self.write(", ");
             }
-            self.write("{ ");
-            for (i, (n, alias)) in named.iter().enumerate() {
-                if i > 0 {
-                    self.write(", ");
-                }
-                self.write(n);
-                if let Some(a) = alias {
-                    self.write(" as ");
-                    self.write(a);
-                }
-            }
-            self.write(" }");
+            self.fmt_specifiers(named, type_named);
             wrote_clause = true;
         }
         if wrote_clause {
@@ -230,24 +247,38 @@ impl<'a> Formatter<'a> {
                 namespace,
                 named,
                 source,
-            } => self.fmt_import_decl(default.as_deref(), namespace.as_deref(), named, source),
+                type_only,
+                type_named,
+            } => self.fmt_import_decl(
+                default.as_deref(),
+                namespace.as_deref(),
+                named,
+                source,
+                *type_only,
+                type_named,
+            ),
             Stmt::ExportDecl {
                 inner,
                 named,
                 default_expr,
                 source,
                 star,
+                type_only,
+                type_named,
             } => self.fmt_export_decl(
                 inner.as_deref(),
                 named,
                 *default_expr,
                 source.as_deref(),
                 star.as_ref(),
+                *type_only,
+                type_named,
             ),
             _ => {}
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn fmt_export_decl(
         &mut self,
         inner: Option<&Stmt>,
@@ -255,9 +286,11 @@ impl<'a> Formatter<'a> {
         default_expr: Option<ExprId>,
         source: Option<&str>,
         star: Option<&ExportStar>,
+        type_only: bool,
+        type_named: &[(String, Option<String>)],
     ) {
         self.write_indent();
-        self.write("export ");
+        self.write(if type_only { "export type " } else { "export " });
         if let Some(eid) = default_expr {
             self.write("default ");
             self.fmt_expr(eid);
@@ -276,19 +309,8 @@ impl<'a> Formatter<'a> {
             }
             return;
         }
-        if !named.is_empty() {
-            self.write("{ ");
-            for (i, (n, alias)) in named.iter().enumerate() {
-                if i > 0 {
-                    self.write(", ");
-                }
-                self.write(n);
-                if let Some(a) = alias {
-                    self.write(" as ");
-                    self.write(a);
-                }
-            }
-            self.write(" }");
+        if !named.is_empty() || !type_named.is_empty() {
+            self.fmt_specifiers(named, type_named);
             if let Some(src) = source {
                 self.write(" from \"");
                 self.write(src);

@@ -142,8 +142,13 @@ pub fn resolve_imports(
         side_effect_only,
         namespace_alias,
         ns_star_feed,
+        types_only,
     }) = pop_phased(&mut st.work, &mut dyn_work, &mut static_phase)
     {
+        if types_only {
+            types_lane::walk_types(ast, &mut st, &target_path, base_dir)?;
+            continue;
+        }
         // Repeat-visit alignment + per-path filter + mangle-memory
         // realignment — see [`repeat_request::align_and_filter`].
         let Some((named, mut default_alias, namespace_alias, side_effect_only)) =
@@ -309,6 +314,7 @@ mod resolve_helpers;
 mod resolve_state;
 pub(crate) mod splice;
 mod static_resolution;
+mod types_lane;
 mod work_item;
 use graph::ModuleGraph;
 use inject_export::{decl_name, inject_bare_exported_decl, inject_export_inner};
