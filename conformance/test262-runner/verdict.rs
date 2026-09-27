@@ -228,6 +228,12 @@ pub fn judge_negative(phase: &str, expected_type: &str, out: &std::process::Outp
             Some("import error") if first_line.contains("module resolution failure") => {
                 Outcome::PassNegative
             }
+            // InnerModuleLoading — a requested module whose
+            // attributes the host does not support is a resolution-phase
+            // SyntaxError; tr raises it while parsing the importer.
+            Some("parse error") if first_line.contains("AllImportAttributesSupported fails") => {
+                Outcome::PassNegative
+            }
             Some(_) | None => Outcome::Incompatible {
                 kind: "negative-unsupported".to_string(),
                 msg: format!("phase {phase}: {first_line}"),
@@ -457,6 +463,23 @@ mod tests {
         assert!(matches!(
             judge_negative("parse", "SyntaxError", &o),
             Outcome::Incompatible { kind, .. } if kind == "negative-unsupported"
+        ));
+    }
+
+    #[test]
+    fn negative_resolution_unsupported_attribute_passes() {
+        let o = out(
+            1,
+            "parse error: SyntaxError: AllImportAttributesSupported fails on import attribute `k` at 3",
+        );
+        assert!(matches!(
+            judge_negative("resolution", "SyntaxError", &o),
+            Outcome::PassNegative
+        ));
+        let other = out(1, "parse error: unexpected token");
+        assert!(matches!(
+            judge_negative("resolution", "SyntaxError", &other),
+            Outcome::Incompatible { .. }
         ));
     }
 

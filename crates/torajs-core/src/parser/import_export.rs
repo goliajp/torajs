@@ -460,7 +460,7 @@ impl<'a> Parser<'a> {
         // semantics its author did not ask for.
         if let Some(key) = keys.first() {
             return Err(format!(
-                "import attribute `{key}` is not supported (SyntaxError) at {}",
+                "SyntaxError: AllImportAttributesSupported fails on import attribute `{key}` at {}",
                 self.at()
             ));
         }
@@ -482,7 +482,7 @@ mod tests {
     fn unsupported_attribute_key_is_a_syntax_error() {
         let e = parse_err("import { a } from \"./m\" with { test262: \"\" };");
         assert!(
-            e.contains("import attribute `test262` is not supported"),
+            e.contains("AllImportAttributesSupported fails on import attribute `test262`"),
             "{e}"
         );
     }
