@@ -7,9 +7,10 @@
 //! in the path's ledger under [`type_key`] and whichever comes first
 //! lands it.
 
+use std::collections::HashSet;
 use std::path::Path;
 
-use crate::ast::{Ast, Stmt};
+use crate::ast::{Ast, PropKey, Stmt};
 
 use super::inject_export::rename_decl;
 use super::load_lib::load_lib_section;
@@ -65,8 +66,12 @@ pub(super) fn walk_types(
     let ledger = st.injected_names.entry(path.to_path_buf()).or_default();
     for s in lib_section {
         let (decl, exported) = match s {
-            Stmt::ImportDecl { source, .. }
-            | Stmt::ExportDecl {
+            Stmt::ImportDecl { ref source, .. } => {
+                note_type_aliases(&mut st.type_aliases, &s);
+                queue_types(&mut st.work, &target_dir, source)?;
+                continue;
+            }
+            Stmt::ExportDecl {
                 source: Some(source),
                 ..
             } => {
@@ -95,4 +100,62 @@ pub(super) fn walk_types(
     st.graph.record(path.to_path_buf(), Vec::new());
     st.injections_by_path.insert(path.to_path_buf(), out);
     Ok(())
+}
+
+/// Record the `(exported name, local alias)` pairs an import clause
+/// names as types under another spelling: `import type { A as B }`
+/// and `import { type A as B }`. Both lanes inject a module's type
+/// declarations under their exported names, so the alias needs its
+/// own declaration ([`inject_type_aliases`]).
+pub(super) fn note_type_aliases(out: &mut Vec<(String, String)>, s: &Stmt) {
+    let Stmt::ImportDecl {
+        named,
+        type_only,
+        type_named,
+        ..
+    } = s
+    else {
+        return;
+    };
+    let types = type_named.iter().chain(named.iter().filter(|_| *type_only));
+    for (orig, alias) in types {
+        if let Some(alias) = alias.as_ref().filter(|a| *a != orig) {
+            out.push((orig.clone(), alias.clone()));
+        }
+    }
+}
+
+/// `type B<Ps> = A<Ps>` for each recorded alias, once every module's
+/// declarations have landed — appended last, so the checker resolves
+/// the alias after its target. A target that never landed stays an
+/// unknown type.
+pub(super) fn inject_type_aliases(ast: &mut Ast, aliases: &[(String, String)]) {
+    let mut seen: HashSet<&str> = HashSet::new();
+    for (orig, alias) in aliases {
+        if !seen.insert(alias) {
+            continue;
+        }
+        let Some(params) = ast.stmts.iter().find_map(|s| match s {
+            Stmt::TypeDecl {
+                name, type_params, ..
+            }
+            | Stmt::ClassDecl {
+                name, type_params, ..
+            } if name == orig => Some(type_params.clone()),
+            _ => None,
+        }) else {
+            continue;
+        };
+        // the parser joins generic arguments with `|`
+        let target = if params.is_empty() {
+            orig.clone()
+        } else {
+            format!("{orig}<{}>", params.join("|"))
+        };
+        ast.stmts.push(Stmt::TypeDecl {
+            name: alias.clone(),
+            type_params: params,
+            fields: vec![(PropKey::from("__alias__"), target)],
+        });
+    }
 }

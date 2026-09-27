@@ -231,6 +231,7 @@ pub fn resolve_imports(
             .unwrap_or_default();
         let work_mark = st.work.len();
         for s in lib_section {
+            types_lane::note_type_aliases(&mut st.type_aliases, &s);
             walk_lib_stmt(ast, &mut st.work, &target_dir, &mut injections, s, &mut req)?;
         }
 
@@ -265,6 +266,7 @@ pub fn resolve_imports(
         &st.ledger.nested,
         &st.dyn_eval_bodies,
     )?;
+    types_lane::inject_type_aliases(ast, &st.type_aliases);
     Ok(st.closure_files)
 }
 

@@ -64,6 +64,9 @@ pub(super) struct ResolveState {
     /// Module-evaluation statements per dynamic-import candidate,
     /// keyed by its `__dyn_ns_c<k>` alias — see `LibRequest::deferred`.
     pub(super) dyn_eval_bodies: HashMap<String, Vec<Stmt>>,
+    /// Aliased type imports seen in any walked module — see
+    /// `types_lane::note_type_aliases`.
+    pub(super) type_aliases: Vec<(String, String)>,
 }
 
 impl ResolveState {
@@ -85,6 +88,15 @@ impl ResolveState {
             default_bound_as: HashMap::new(),
             ledger: static_resolution::LedgerState::default(),
             dyn_eval_bodies: HashMap::new(),
+            type_aliases: entry_type_aliases(ast),
         }
     }
+}
+
+fn entry_type_aliases(ast: &Ast) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    for s in &ast.stmts {
+        super::types_lane::note_type_aliases(&mut out, s);
+    }
+    out
 }
